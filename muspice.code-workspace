@@ -1,0 +1,16 @@
+{
+  "folders": [
+    {
+      "name": "app",
+      "path": "."
+    },
+    {
+      "name": "tauri",
+      "path": "src-tauri"
+    }
+  ],
+  "settings": {
+    "svelte.enable-ts-plugin": true,
+    "kiroAgent.configureMCP": "Disabled"
+  }
+}
