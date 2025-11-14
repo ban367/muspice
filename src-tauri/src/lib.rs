@@ -1,7 +1,11 @@
+mod commands;
 mod db;
+mod library;
+mod metadata;
 mod models;
 mod state;
 
+use commands::{get_all_tracks, import_folder, search_tracks};
 use state::AppState;
 use std::path::PathBuf;
 use tauri::Manager;
@@ -10,6 +14,11 @@ use tauri::Manager;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .invoke_handler(tauri::generate_handler![
+            import_folder,
+            get_all_tracks,
+            search_tracks
+        ])
         .setup(|app| {
             // アプリケーションデータディレクトリを取得
             let app_data_dir = app

@@ -53,3 +53,21 @@ export interface Metadata {
   albumArtist?: string;
   composer?: string;
 }
+
+/**
+ * インポート結果
+ */
+export interface ImportResult {
+  importedCount: number;
+  skippedCount: number;
+  errorCount: number;
+  errors: string[];
+}
+
+/**
+ * 重複ファイルの処理方法
+ */
+export enum DuplicateAction {
+  Skip = 'Skip',
+  Replace = 'Replace'
+}
