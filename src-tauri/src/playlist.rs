@@ -173,6 +173,34 @@ fn reorder_positions_after_deletion(conn: &Connection, playlist_id: &str) -> Res
     Ok(())
 }
 
+/// プレイリストを削除
+pub fn delete_playlist(conn: &Connection, playlist_id: &str) -> Result<()> {
+    // プレイリストの存在確認
+    let playlist_exists: bool = conn
+        .prepare("SELECT 1 FROM playlists WHERE id = ?1")?
+        .exists([playlist_id])?;
+
+    if !playlist_exists {
+        return Err(rusqlite::Error::QueryReturnedNoRows);
+    }
+
+    // トランザクションを開始
+    let tx = conn.unchecked_transaction()?;
+
+    // まずプレイリスト内のトラックを削除
+    tx.execute(
+        "DELETE FROM playlist_tracks WHERE playlist_id = ?1",
+        [playlist_id],
+    )?;
+
+    // プレイリスト自体を削除
+    tx.execute("DELETE FROM playlists WHERE id = ?1", [playlist_id])?;
+
+    tx.commit()?;
+
+    Ok(())
+}
+
 /// プレイリスト内のトラックを並び替え
 pub fn reorder_playlist_tracks(
     conn: &Connection,

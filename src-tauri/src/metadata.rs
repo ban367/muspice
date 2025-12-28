@@ -1,9 +1,21 @@
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use crate::models::Metadata;
 use lofty::config::WriteOptions;
 use lofty::file::{AudioFile, TaggedFileExt};
+use lofty::picture::PictureType;
 use lofty::probe::Probe;
 use lofty::tag::{Accessor, ItemKey, Tag};
+use serde::Serialize;
 use std::path::Path;
+
+/// アルバムアート情報
+#[derive(Debug, Serialize)]
+pub struct AlbumArt {
+    /// Base64エンコードされた画像データ
+    pub data: String,
+    /// MIMEタイプ (image/jpeg, image/png など)
+    pub mime_type: String,
+}
 
 /// 音楽ファイルからメタデータを抽出
 pub fn extract_metadata(file_path: &Path) -> Result<Metadata, String> {
@@ -82,6 +94,40 @@ pub fn extract_sample_rate(file_path: &Path) -> Result<Option<i32>, String> {
     let sample_rate = tagged_file.properties().sample_rate().map(|s| s as i32);
 
     Ok(sample_rate)
+}
+
+/// 音楽ファイルからアルバムアートを抽出
+pub fn extract_album_art(file_path: &Path) -> Result<Option<AlbumArt>, String> {
+    let tagged_file = Probe::open(file_path)
+        .map_err(|e| format!("ファイルのオープンに失敗しました: {}", e))?
+        .read()
+        .map_err(|e| format!("ファイルの読み取りに失敗しました: {}", e))?;
+
+    let tag = tagged_file
+        .primary_tag()
+        .or_else(|| tagged_file.first_tag());
+
+    if let Some(tag) = tag {
+        // フロントカバーを優先的に探す
+        let pictures = tag.pictures();
+
+        // フロントカバーを探す
+        let front_cover = pictures
+            .iter()
+            .find(|p| p.pic_type() == PictureType::CoverFront);
+
+        // フロントカバーがなければ最初の画像を使用
+        let picture = front_cover.or_else(|| pictures.first());
+
+        if let Some(pic) = picture {
+            let data = STANDARD.encode(pic.data());
+            let mime_type = pic.mime_type().map(|m| m.to_string()).unwrap_or_else(|| "image/jpeg".to_string());
+
+            return Ok(Some(AlbumArt { data, mime_type }));
+        }
+    }
+
+    Ok(None)
 }
 
 /// メタデータをバリデーション

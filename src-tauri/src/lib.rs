@@ -10,11 +10,11 @@ mod state;
 mod validation;
 
 use commands::{
-    add_track_to_playlist, create_playlist, filter_tracks, get_all_tracks, get_current_track,
-    get_playlists, get_track_file_path, get_unique_albums, get_unique_artists, get_unique_genres,
-    import_folder, remove_track_from_playlist, reorder_playlist_tracks, search_tracks,
-    set_current_track, update_multiple_tracks_metadata, update_track_metadata,
-    update_track_metadata_with_file, validate_metadata_command,
+    add_track_to_playlist, create_playlist, delete_playlist, filter_tracks, get_album_art,
+    get_all_tracks, get_current_track, get_playlists, get_track_file_path, get_unique_albums,
+    get_unique_artists, get_unique_genres, import_folder, remove_track_from_playlist,
+    reorder_playlist_tracks, search_tracks, set_current_track, update_multiple_tracks_metadata,
+    update_track_metadata, update_track_metadata_with_file, validate_metadata_command,
 };
 use state::AppState;
 use std::path::PathBuf;
@@ -39,9 +39,11 @@ pub fn run() {
             validate_metadata_command,
             create_playlist,
             get_playlists,
+            delete_playlist,
             add_track_to_playlist,
             remove_track_from_playlist,
             reorder_playlist_tracks,
+            get_album_art,
             get_track_file_path,
             set_current_track,
             get_current_track

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
+  import { invoke } from '@tauri-apps/api/core';
   import {
     useTracksQuery,
     useSearchQuery,
@@ -11,7 +13,7 @@
   import MetadataEditor from './MetadataEditor.svelte';
   import { sanitizeSearchQuery } from '$lib/utils/validation';
   import { playTrackFromQueue } from '$lib/stores/player';
-  import type { Track } from '$lib/types/models';
+  import type { Track, AlbumArt } from '$lib/types/models';
 
   type ViewMode = 'grid' | 'list';
 
@@ -19,6 +21,14 @@
   let searchTerm = $state('');
   let debouncedSearchTerm = $state('');
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // アルバムアートサイズ設定 (50 - 200px)
+  let artSize = $state(120);
+  const MIN_ART_SIZE = 50;
+  const MAX_ART_SIZE = 200;
+
+  // アルバムアートキャッシュ
+  let albumArtCache = $state<Map<string, string | null>>(new Map());
 
   // フィルター状態
   let selectedArtist = $state<string>('');
@@ -255,6 +265,56 @@
       playTrackFromQueue(tracks, trackIndex);
     }
   }
+
+  /**
+   * アルバムアートを取得
+   */
+  async function loadAlbumArt(trackId: string): Promise<void> {
+    // 既にキャッシュにある場合はスキップ
+    if (albumArtCache.has(trackId)) {
+      return;
+    }
+
+    // ローディング中のプレースホルダーを設定
+    albumArtCache.set(trackId, null);
+
+    try {
+      const art = await invoke<AlbumArt | null>('get_album_art', { trackId });
+      if (art) {
+        const dataUrl = `data:${art.mimeType};base64,${art.data}`;
+        albumArtCache = new Map(albumArtCache.set(trackId, dataUrl));
+      } else {
+        albumArtCache = new Map(albumArtCache.set(trackId, null));
+      }
+    } catch {
+      albumArtCache = new Map(albumArtCache.set(trackId, null));
+    }
+  }
+
+  /**
+   * アルバムアートのData URLを取得
+   */
+  function getAlbumArtUrl(trackId: string): string | null {
+    return albumArtCache.get(trackId) ?? null;
+  }
+
+  /**
+   * グリッドカードサイズを計算（アートサイズ + パディング）
+   */
+  const cardWidth = $derived(artSize + 24); // 12px padding on each side
+
+  // トラックが変更されたときにアルバムアートを読み込む
+  $effect(() => {
+    if (tracks && viewMode === 'grid') {
+      // 表示されているトラックのアルバムアートを順次読み込む
+      for (const track of tracks.slice(0, 50)) {
+        // 最初の50件のみ
+        if (!albumArtCache.has(track.id)) {
+          loadAlbumArt(track.id);
+        }
+      }
+    }
+  });
 </script>
 
 <div class="library-container">
@@ -292,6 +352,20 @@
       <button onclick={toggleViewMode} class="view-toggle">
         {viewMode === 'grid' ? 'リスト表示' : 'グリッド表示'}
       </button>
+      {#if viewMode === 'grid'}
+        <div class="size-slider">
+          <span class="size-label">サイズ:</span>
+          <input
+            type="range"
+            min={MIN_ART_SIZE}
+            max={MAX_ART_SIZE}
+            bind:value={artSize}
+            class="slider"
+            aria-label="カードサイズ"
+          />
+          <span class="size-value">{artSize}px</span>
+        </div>
+      {/if}
     </div>
   </div>
 
@@ -350,7 +424,10 @@
       </div>
     {:else if tracks && tracks.length > 0}
       <!-- トラック表示 -->
-      <div class="tracks-{viewMode}">
+      <div
+        class="tracks-{viewMode}"
+        style={viewMode === 'grid' ? `--card-width: ${cardWidth}px; --art-size: ${artSize}px;` : ''}
+      >
         {#each tracks as track (track.id)}
           <div class="track-item">
             {#if viewMode === 'grid'}
@@ -371,17 +448,34 @@
                 role="button"
                 tabindex="0"
               >
-                <div class="track-icon">🎵</div>
+                <div class="album-art" style="width: {artSize}px; height: {artSize}px;">
+                  {#if getAlbumArtUrl(track.id)}
+                    <img
+                      src={getAlbumArtUrl(track.id)}
+                      alt="アルバムアート"
+                      class="album-art-image"
+                      loading="lazy"
+                    />
+                  {:else}
+                    <div class="album-art-placeholder">
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="music-icon">
+                        <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
+                      </svg>
+                    </div>
+                  {/if}
+                </div>
                 <div class="track-info">
-                  <div class="track-title">
+                  <div class="track-title" title={track.title || track.fileName}>
                     {@html highlightText(track.title || track.fileName, debouncedSearchTerm)}
                   </div>
-                  <div class="track-artist">
+                  <div class="track-artist" title={track.artist || '不明なアーティスト'}>
                     {@html highlightText(track.artist || '不明なアーティスト', debouncedSearchTerm)}
                   </div>
-                  <div class="track-album">
-                    {@html highlightText(track.album || '不明なアルバム', debouncedSearchTerm)}
-                  </div>
+                  {#if artSize >= 100}
+                    <div class="track-album" title={track.album || '不明なアルバム'}>
+                      {@html highlightText(track.album || '不明なアルバム', debouncedSearchTerm)}
+                    </div>
+                  {/if}
                 </div>
               </div>
             {:else}
@@ -594,6 +688,62 @@
     background-color: #0056b3;
   }
 
+  .size-slider {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .size-label {
+    font-size: 0.85rem;
+    color: #666;
+  }
+
+  .slider {
+    width: 100px;
+    height: 4px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: #ddd;
+    border-radius: 2px;
+    outline: none;
+  }
+
+  .slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    background: #007bff;
+    border-radius: 50%;
+    cursor: pointer;
+    transition: background-color 0.2s;
+  }
+
+  .slider::-webkit-slider-thumb:hover {
+    background: #0056b3;
+  }
+
+  .slider::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    background: #007bff;
+    border-radius: 50%;
+    cursor: pointer;
+    border: none;
+    transition: background-color 0.2s;
+  }
+
+  .slider::-moz-range-thumb:hover {
+    background: #0056b3;
+  }
+
+  .size-value {
+    font-size: 0.85rem;
+    color: #666;
+    min-width: 45px;
+  }
+
   .filter-panel {
     display: flex;
     gap: 1rem;
@@ -680,12 +830,14 @@
   /* グリッド表示 */
   .tracks-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(var(--card-width, 200px), 1fr));
     gap: 1rem;
+    justify-items: center;
   }
 
   .track-card {
-    padding: 1rem;
+    width: var(--card-width, 200px);
+    padding: 0.75rem;
     background-color: #f8f9fa;
     border-radius: 8px;
     cursor: pointer;
@@ -694,6 +846,9 @@
       box-shadow 0.2s,
       background-color 0.2s;
     border: 2px solid transparent;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
   }
 
   .track-card:hover {
@@ -706,14 +861,39 @@
     border-color: #1976d2;
   }
 
-  .track-icon {
-    font-size: 3rem;
-    text-align: center;
+  .album-art {
+    flex-shrink: 0;
+    border-radius: 4px;
+    overflow: hidden;
+    background-color: #e9ecef;
     margin-bottom: 0.5rem;
   }
 
+  .album-art-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .album-art-placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: rgba(255, 255, 255, 0.8);
+  }
+
+  .music-icon {
+    width: 40%;
+    height: 40%;
+  }
+
   .track-info {
+    width: 100%;
     text-align: center;
+    min-width: 0;
   }
 
   .track-title {
@@ -722,11 +902,12 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    font-size: 0.9rem;
   }
 
   .track-artist,
   .track-album {
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     color: #666;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -870,6 +1051,23 @@
     .track-col-album,
     .track-col-duration {
       color: #aaa;
+    }
+
+    .size-label,
+    .size-value {
+      color: #aaa;
+    }
+
+    .slider {
+      background: #444;
+    }
+
+    .album-art {
+      background-color: #333;
+    }
+
+    .album-art-placeholder {
+      background: linear-gradient(135deg, #4a5568 0%, #2d3748 100%);
     }
 
     :global(mark) {

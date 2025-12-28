@@ -2,6 +2,7 @@
   import {
     usePlaylistsQuery,
     useCreatePlaylistMutation,
+    useDeletePlaylistMutation,
     useAddTrackToPlaylistMutation,
     useRemoveTrackFromPlaylistMutation,
     useReorderPlaylistTracksMutation
@@ -15,6 +16,7 @@
   let playlistsQuery = $derived(usePlaylistsQuery());
   let tracksQuery = $derived(useTracksQuery());
   let createPlaylistMutation = $derived(useCreatePlaylistMutation());
+  let deletePlaylistMutation = $derived(useDeletePlaylistMutation());
   let addTrackMutation = $derived(useAddTrackToPlaylistMutation());
   let removeTrackMutation = $derived(useRemoveTrackFromPlaylistMutation());
   let reorderTracksMutation = $derived(useReorderPlaylistTracksMutation());
@@ -67,6 +69,24 @@
     } catch (error) {
       console.error('プレイリストの作成に失敗しました:', error);
       alert('プレイリストの作成に失敗しました');
+    }
+  }
+
+  // プレイリストを削除
+  async function deletePlaylist(playlist: Playlist) {
+    if (!confirm(`プレイリスト「${playlist.name}」を削除しますか？\nこの操作は取り消せません。`)) {
+      return;
+    }
+
+    try {
+      await deletePlaylistMutation.mutateAsync(playlist.id);
+      // 削除したプレイリストが選択されていた場合は選択解除
+      if (selectedPlaylist?.id === playlist.id) {
+        selectedPlaylist = null;
+      }
+    } catch (error) {
+      console.error('プレイリストの削除に失敗しました:', error);
+      alert('プレイリストの削除に失敗しました');
     }
   }
 
@@ -203,8 +223,22 @@
             role="button"
             tabindex="0"
           >
-            <div class="playlist-name">{playlist.name}</div>
-            <div class="playlist-count">{playlist.tracks.length} 曲</div>
+            <div class="playlist-info">
+              <div class="playlist-name">{playlist.name}</div>
+              <div class="playlist-count">{playlist.tracks.length} 曲</div>
+            </div>
+            <button
+              class="btn-delete-playlist"
+              onclick={(e) => {
+                e.stopPropagation();
+                deletePlaylist(playlist);
+              }}
+              title="プレイリストを削除"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </button>
           </div>
         {/each}
       {/if}
@@ -360,6 +394,9 @@
   }
 
   .playlist-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     padding: 0.75rem 1rem;
     cursor: pointer;
     border-bottom: 1px solid #f3f4f6;
@@ -375,14 +412,53 @@
     border-left: 3px solid #3b82f6;
   }
 
+  .playlist-info {
+    flex: 1;
+    min-width: 0;
+  }
+
   .playlist-name {
     font-weight: 500;
     margin-bottom: 0.25rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .playlist-count {
     font-size: 0.75rem;
     color: #6b7280;
+  }
+
+  .btn-delete-playlist {
+    flex-shrink: 0;
+    width: 1.75rem;
+    height: 1.75rem;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: #9ca3af;
+    cursor: pointer;
+    border-radius: 0.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: all 0.2s;
+  }
+
+  .playlist-item:hover .btn-delete-playlist {
+    opacity: 1;
+  }
+
+  .btn-delete-playlist:hover {
+    background: #fee2e2;
+    color: #dc2626;
+  }
+
+  .btn-delete-playlist svg {
+    width: 1rem;
+    height: 1rem;
   }
 
   .playlist-detail {

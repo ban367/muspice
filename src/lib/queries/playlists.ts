@@ -111,3 +111,26 @@ export function useReorderPlaylistTracksMutation() {
 		}
 	}));
 }
+
+/**
+ * プレイリストを削除するミューテーション
+ */
+export function useDeletePlaylistMutation() {
+	const queryClient = useQueryClient();
+
+	return createMutation(() => ({
+		mutationFn: async (playlistId: string) => {
+			try {
+				await invoke('delete_playlist', { playlistId });
+			} catch (error) {
+				handleError(error, 'プレイリストの削除');
+				throw error;
+			}
+		},
+		onSuccess: () => {
+			// プレイリスト一覧を再取得
+			queryClient.invalidateQueries({ queryKey: ['playlists'] });
+			showSuccess('プレイリストを削除しました');
+		}
+	}));
+}

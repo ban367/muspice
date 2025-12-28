@@ -214,12 +214,82 @@
     isPlaying.set(false);
   }
 
+  /**
+   * グローバルキーボードショートカットを処理
+   */
+  function handleGlobalKeydown(event: KeyboardEvent) {
+    // 入力フィールドにフォーカスがある場合は無視
+    const target = event.target as HTMLElement;
+    if (
+      target.tagName === 'INPUT' ||
+      target.tagName === 'TEXTAREA' ||
+      target.isContentEditable
+    ) {
+      return;
+    }
+
+    switch (event.code) {
+      case 'Space':
+        // スペースキー: 再生/一時停止
+        event.preventDefault();
+        togglePlayPause();
+        break;
+      case 'ArrowLeft':
+        // Ctrl + 左矢印: 前のトラック
+        if (event.ctrlKey || event.metaKey) {
+          event.preventDefault();
+          playPreviousTrack();
+        }
+        break;
+      case 'ArrowRight':
+        // Ctrl + 右矢印: 次のトラック
+        if (event.ctrlKey || event.metaKey) {
+          event.preventDefault();
+          playNextTrack();
+        }
+        break;
+      case 'ArrowUp':
+        // Ctrl + 上矢印: 音量アップ
+        if (event.ctrlKey || event.metaKey) {
+          event.preventDefault();
+          volume.set(Math.min(1, $volume + 0.1));
+        }
+        break;
+      case 'ArrowDown':
+        // Ctrl + 下矢印: 音量ダウン
+        if (event.ctrlKey || event.metaKey) {
+          event.preventDefault();
+          volume.set(Math.max(0, $volume - 0.1));
+        }
+        break;
+      case 'KeyM':
+        // M キー: ミュート切り替え
+        if (!event.ctrlKey && !event.metaKey && !event.altKey) {
+          event.preventDefault();
+          if ($volume > 0) {
+            // 現在の音量を保存してミュート
+            previousVolume = $volume;
+            volume.set(0);
+          } else {
+            // 前の音量に戻す
+            volume.set(previousVolume || 1);
+          }
+        }
+        break;
+    }
+  }
+
+  // ミュート切り替え用の前の音量を保持
+  let previousVolume = 1;
+
   onMount(() => {
     // グローバルなマウスイベントリスナーを追加
     window.addEventListener('mousemove', onDragProgress);
     window.addEventListener('mouseup', stopDraggingProgress);
     window.addEventListener('mousemove', onDragVolume);
     window.addEventListener('mouseup', stopDraggingVolume);
+    // グローバルキーボードショートカット
+    window.addEventListener('keydown', handleGlobalKeydown);
   });
 
   onDestroy(() => {
@@ -228,6 +298,7 @@
     window.removeEventListener('mouseup', stopDraggingProgress);
     window.removeEventListener('mousemove', onDragVolume);
     window.removeEventListener('mouseup', stopDraggingVolume);
+    window.removeEventListener('keydown', handleGlobalKeydown);
 
     // プレイヤーをリセット
     resetPlayer();

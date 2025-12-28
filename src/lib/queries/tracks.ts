@@ -1,6 +1,6 @@
 import { createQuery } from '@tanstack/svelte-query';
 import { invoke } from '@tauri-apps/api/core';
-import type { Track } from '$lib/types/models';
+import type { Track, AlbumArt } from '$lib/types/models';
 import { handleError } from '$lib/stores/error';
 
 export interface FilterOptions {
@@ -109,4 +109,37 @@ export function useUniqueGenresQuery() {
     },
     staleTime: 10 * 60 * 1000 // 10分間キャッシュ
   }));
+}
+
+/**
+ * アルバムアートを取得するクエリ
+ */
+export function useAlbumArtQuery(trackId: string | null) {
+  return createQuery(() => ({
+    queryKey: ['albumArt', trackId],
+    queryFn: async () => {
+      if (!trackId) return null;
+      try {
+        return await invoke<AlbumArt | null>('get_album_art', { trackId });
+      } catch (error) {
+        // アルバムアートがない場合はエラーを無視
+        console.debug('アルバムアート取得エラー:', error);
+        return null;
+      }
+    },
+    enabled: !!trackId,
+    staleTime: 30 * 60 * 1000, // 30分間キャッシュ
+    gcTime: 60 * 60 * 1000 // 1時間メモリに保持
+  }));
+}
+
+/**
+ * アルバムアートを直接取得する関数（キャッシュなし）
+ */
+export async function getAlbumArt(trackId: string): Promise<AlbumArt | null> {
+  try {
+    return await invoke<AlbumArt | null>('get_album_art', { trackId });
+  } catch {
+    return null;
+  }
 }

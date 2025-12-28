@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - すべての応答は日本語で行うこと
 - コードコメントは日本語で記述すること
 - エラーメッセージは日本語で記述すること
-- コミットメッセージも日本語で記述すること
+- **コミットメッセージは英語で記述すること**
 - ユーザーとのやり取りは常に日本語で行うこと
 
 ## プロジェクト概要

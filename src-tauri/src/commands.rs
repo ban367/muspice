@@ -3,8 +3,8 @@ use crate::library::{
     DuplicateAction, ImportResult,
 };
 use crate::metadata::{
-    extract_bitrate, extract_duration, extract_metadata, extract_sample_rate, update_file_metadata,
-    validate_metadata,
+    extract_album_art, extract_bitrate, extract_duration, extract_metadata, extract_sample_rate,
+    update_file_metadata, validate_metadata, AlbumArt,
 };
 use crate::models::{Metadata, Track};
 use crate::state::AppState;
@@ -859,6 +859,26 @@ pub async fn remove_track_from_playlist(
     })
 }
 
+/// プレイリストを削除
+#[tauri::command]
+pub async fn delete_playlist(
+    playlist_id: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    // プレイリストIDをバリデーション
+    validate_playlist_id(&playlist_id)?;
+
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
+
+    crate::playlist::delete_playlist(&db, &playlist_id).map_err(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => "プレイリストが見つかりません".to_string(),
+        _ => format!("プレイリストの削除に失敗しました: {}", e),
+    })
+}
+
 /// プレイリスト内のトラックを並び替え
 #[tauri::command]
 pub async fn reorder_playlist_tracks(
@@ -883,6 +903,41 @@ pub async fn reorder_playlist_tracks(
         rusqlite::Error::QueryReturnedNoRows => "プレイリストが見つかりません".to_string(),
         _ => format!("トラックの並び替えに失敗しました: {}", e),
     })
+}
+
+// ========== アルバムアートコマンド ==========
+
+/// トラックのアルバムアートを取得
+#[tauri::command]
+pub async fn get_album_art(
+    track_id: String,
+    state: State<'_, AppState>,
+) -> Result<Option<AlbumArt>, String> {
+    // トラックIDをバリデーション
+    validate_track_id(&track_id)?;
+
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
+
+    // トラックのファイルパスを取得
+    let mut stmt = db
+        .prepare("SELECT file_path FROM tracks WHERE id = ?1")
+        .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
+
+    let file_path: String = stmt
+        .query_row([&track_id], |row| row.get(0))
+        .map_err(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => {
+                "指定されたトラックが見つかりません".to_string()
+            }
+            _ => format!("トラックの取得に失敗しました: {}", e),
+        })?;
+
+    // アルバムアートを抽出
+    let path = Path::new(&file_path);
+    extract_album_art(path)
 }
 
 // ========== 音楽再生コマンド ==========

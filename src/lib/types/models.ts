@@ -71,3 +71,11 @@ export enum DuplicateAction {
   Skip = 'Skip',
   Replace = 'Replace'
 }
+
+/**
+ * アルバムアート情報
+ */
+export interface AlbumArt {
+  data: string;
+  mimeType: string;
+}
