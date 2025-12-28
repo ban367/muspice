@@ -15,8 +15,21 @@ export interface Track {
   format: string;
   bitrate: number | null;
   sampleRate: number | null;
+  isFavorite: boolean;
+  rating: number;
+  playCount: number;
+  lastPlayedAt: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * 再生履歴のデータモデル
+ */
+export interface PlayHistory {
+  id: number;
+  trackId: string;
+  playedAt: string;
 }
 
 /**

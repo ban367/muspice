@@ -8,6 +8,29 @@ pub fn init_db(db_path: PathBuf) -> Result<Connection> {
     Ok(conn)
 }
 
+/// カラムが存在しない場合のみ追加するヘルパー関数
+fn add_column_if_not_exists(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    column_def: &str,
+) -> Result<()> {
+    // PRAGMA table_infoでカラムの存在をチェック
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({})", table))?;
+    let column_exists = stmt
+        .query_map([], |row| row.get::<_, String>(1))?
+        .any(|name| name.map(|n| n == column).unwrap_or(false));
+
+    if !column_exists {
+        conn.execute(
+            &format!("ALTER TABLE {} ADD COLUMN {} {}", table, column, column_def),
+            [],
+        )?;
+    }
+
+    Ok(())
+}
+
 /// データベースマイグレーションを実行
 fn run_migrations(conn: &Connection) -> Result<()> {
     // tracksテーブルの作成
@@ -29,6 +52,34 @@ fn run_migrations(conn: &Connection) -> Result<()> {
             created_at TEXT DEFAULT (datetime('now')),
             updated_at TEXT DEFAULT (datetime('now'))
         )",
+        [],
+    )?;
+
+    // お気に入り/レーティング/再生統計のカラムを追加（既存テーブルへのマイグレーション）
+    // カラムが存在しない場合のみ追加
+    add_column_if_not_exists(conn, "tracks", "is_favorite", "INTEGER DEFAULT 0")?;
+    add_column_if_not_exists(conn, "tracks", "rating", "INTEGER DEFAULT 0")?;
+    add_column_if_not_exists(conn, "tracks", "play_count", "INTEGER DEFAULT 0")?;
+    add_column_if_not_exists(conn, "tracks", "last_played_at", "TEXT")?;
+
+    // 再生履歴テーブルの作成
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS play_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            track_id TEXT NOT NULL,
+            played_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_play_history_track_id ON play_history(track_id)",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_play_history_played_at ON play_history(played_at)",
         [],
     )?;
 

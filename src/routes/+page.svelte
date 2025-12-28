@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { page } from '$app/stores';
   import Library from '$lib/components/Library.svelte';
   import ImportDialog from '$lib/components/ImportDialog.svelte';
   import type { ImportResult } from '$lib/types/models';
@@ -6,6 +7,29 @@
 
   let isImportDialogOpen = $state(false);
   const queryClient = useQueryClient();
+
+  // ビューモード（全曲/お気に入り/最近再生/よく再生）
+  type ViewModeType = 'all' | 'favorites' | 'recent' | 'mostplayed';
+  const viewMode = $derived.by((): ViewModeType => {
+    const view = $page.url.searchParams.get('view');
+    if (view === 'favorites' || view === 'recent' || view === 'mostplayed') {
+      return view;
+    }
+    return 'all';
+  });
+  
+  const pageTitle = $derived.by(() => {
+    switch (viewMode) {
+      case 'favorites':
+        return 'お気に入り';
+      case 'recent':
+        return '最近再生した曲';
+      case 'mostplayed':
+        return 'よく再生する曲';
+      default:
+        return '音楽ライブラリ';
+    }
+  });
 
   function openImportDialog() {
     isImportDialogOpen = true;
@@ -20,12 +44,14 @@
 
 <div class="page-container">
   <header class="page-header">
-    <h1>音楽ライブラリ</h1>
-    <button onclick={openImportDialog} class="import-button"> フォルダをインポート </button>
+    <h1>{pageTitle}</h1>
+    {#if viewMode === 'all'}
+      <button onclick={openImportDialog} class="import-button"> フォルダをインポート </button>
+    {/if}
   </header>
 
   <div class="page-content">
-    <Library />
+    <Library {viewMode} />
   </div>
 
   <ImportDialog bind:isOpen={isImportDialogOpen} onImportComplete={handleImportComplete} />

@@ -16,8 +16,22 @@ pub struct Track {
     pub format: String,
     pub bitrate: Option<i32>,
     pub sample_rate: Option<i32>,
+    pub is_favorite: bool,
+    pub rating: i32,
+    pub play_count: i32,
+    pub last_played_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+}
+
+/// 再生履歴のデータモデル
+/// 将来の詳細な再生履歴機能で使用予定
+#[allow(dead_code)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PlayHistory {
+    pub id: i64,
+    pub track_id: String,
+    pub played_at: String,
 }
 
 /// プレイリストのデータモデル

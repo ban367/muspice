@@ -2,6 +2,7 @@
   import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
   import { Toast } from '$lib/components/ui';
   import Player from '$lib/components/Player.svelte';
+  import Sidebar from '$lib/components/Sidebar.svelte';
   import '../app.css';
 
   // パフォーマンス最適化されたQueryClient設定
@@ -28,86 +29,118 @@
 
 <QueryClientProvider client={queryClient}>
   <Toast />
-  <div class="drawer lg:drawer-open">
-    <input id="sidebar-drawer" type="checkbox" class="drawer-toggle" />
-    <div class="drawer-content flex flex-col">
+  <div class="app-container">
+    <!-- サイドバー -->
+    <div class="sidebar-container">
+      <Sidebar />
+    </div>
+    
+    <!-- メインコンテンツ -->
+    <div class="main-container">
+      <!-- モバイル用ヘッダー -->
+      <header class="mobile-header">
+        <button class="menu-button" aria-label="メニューを開く">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="icon">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" stroke="currentColor"></path>
+          </svg>
+        </button>
+        <span class="mobile-title">Muspice</span>
+      </header>
+      
       <!-- ページコンテンツ -->
-      <div class="navbar bg-base-200 lg:hidden">
-        <div class="flex-none">
-          <label for="sidebar-drawer" class="btn btn-square btn-ghost">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              class="inline-block h-5 w-5 stroke-current"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M4 6h16M4 12h16M4 18h16"
-              ></path>
-            </svg>
-          </label>
-        </div>
-        <div class="flex-1">
-          <span class="text-xl font-bold">Muspice</span>
-        </div>
-      </div>
-      <main class="flex-1 p-4 pb-32">
+      <main class="main-content">
         {@render children()}
       </main>
-      <!-- プレイヤーコンポーネント -->
+      
+      <!-- プレイヤー -->
       <Player />
-    </div>
-    <div class="drawer-side">
-      <label for="sidebar-drawer" aria-label="close sidebar" class="drawer-overlay"></label>
-      <aside class="bg-base-200 min-h-full w-64 p-4">
-        <!-- サイドバーコンテンツ -->
-        <div class="mb-8">
-          <h1 class="text-2xl font-bold">Muspice</h1>
-        </div>
-        <ul class="menu gap-2">
-          <li>
-            <a href="/" class="flex items-center gap-3">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                class="h-5 w-5"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"
-                />
-              </svg>
-              <span>ライブラリ</span>
-            </a>
-          </li>
-          <li>
-            <a href="/playlists" class="flex items-center gap-3">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                class="h-5 w-5"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M4 6h16M4 10h16M4 14h16M4 18h16"
-                />
-              </svg>
-              <span>プレイリスト</span>
-            </a>
-          </li>
-        </ul>
-      </aside>
     </div>
   </div>
 </QueryClientProvider>
+
+<style>
+  .app-container {
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  .sidebar-container {
+    width: 256px;
+    flex-shrink: 0;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .main-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .mobile-header {
+    display: none;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    background-color: #1e1e2e;
+    border-bottom: 1px solid #333;
+  }
+
+  .menu-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: #fff;
+    cursor: pointer;
+    border-radius: 0.375rem;
+  }
+
+  .menu-button:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .menu-button .icon {
+    width: 1.5rem;
+    height: 1.5rem;
+  }
+
+  .mobile-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #fff;
+  }
+
+  .main-content {
+    flex: 1;
+    overflow: auto;
+    padding: 1rem;
+    padding-bottom: 8rem; /* プレイヤーの高さ分のパディング */
+  }
+
+  /* レスポンシブ対応 */
+  @media (max-width: 1024px) {
+    .sidebar-container {
+      display: none;
+    }
+
+    .mobile-header {
+      display: flex;
+    }
+  }
+
+  /* ダークモード */
+  @media (prefers-color-scheme: dark) {
+    .main-content {
+      background-color: #0f0f1a;
+    }
+  }
+</style>

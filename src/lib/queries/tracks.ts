@@ -143,3 +143,96 @@ export async function getAlbumArt(trackId: string): Promise<AlbumArt | null> {
     return null;
   }
 }
+
+/**
+ * お気に入りトラック一覧を取得するクエリ
+ */
+export function useFavoriteTracksQuery() {
+  return createQuery(() => ({
+    queryKey: ['tracks', 'favorites'],
+    queryFn: async () => {
+      try {
+        return await invoke<Track[]>('get_favorite_tracks');
+      } catch (error) {
+        handleError(error, 'お気に入り一覧の取得');
+        throw error;
+      }
+    },
+    staleTime: 5 * 60 * 1000,
+    gcTime: 15 * 60 * 1000
+  }));
+}
+
+/**
+ * よく再生するトラック一覧を取得するクエリ
+ */
+export function useMostPlayedTracksQuery(limit: number = 50) {
+  return createQuery(() => ({
+    queryKey: ['tracks', 'mostPlayed', limit],
+    queryFn: async () => {
+      try {
+        return await invoke<Track[]>('get_most_played_tracks', { limit });
+      } catch (error) {
+        handleError(error, 'よく再生するトラック一覧の取得');
+        throw error;
+      }
+    },
+    staleTime: 5 * 60 * 1000,
+    gcTime: 15 * 60 * 1000
+  }));
+}
+
+/**
+ * 最近再生したトラック一覧を取得するクエリ
+ */
+export function useRecentlyPlayedTracksQuery(limit: number = 50) {
+  return createQuery(() => ({
+    queryKey: ['tracks', 'recentlyPlayed', limit],
+    queryFn: async () => {
+      try {
+        return await invoke<Track[]>('get_recently_played_tracks', { limit });
+      } catch (error) {
+        handleError(error, '最近再生したトラック一覧の取得');
+        throw error;
+      }
+    },
+    staleTime: 1 * 60 * 1000, // 1分間キャッシュ（頻繁に更新される）
+    gcTime: 5 * 60 * 1000
+  }));
+}
+
+/**
+ * お気に入りをトグルする関数
+ */
+export async function toggleFavorite(trackId: string): Promise<boolean> {
+  try {
+    return await invoke<boolean>('toggle_favorite', { trackId });
+  } catch (error) {
+    handleError(error, 'お気に入りの切り替え');
+    throw error;
+  }
+}
+
+/**
+ * レーティングを設定する関数
+ */
+export async function setRating(trackId: string, rating: number): Promise<void> {
+  try {
+    await invoke('set_rating', { trackId, rating });
+  } catch (error) {
+    handleError(error, 'レーティングの設定');
+    throw error;
+  }
+}
+
+/**
+ * 再生回数をインクリメントする関数
+ */
+export async function incrementPlayCount(trackId: string): Promise<void> {
+  try {
+    await invoke('increment_play_count', { trackId });
+  } catch (error) {
+    // 再生回数の更新エラーは静かに処理
+    console.debug('再生回数更新エラー:', error);
+  }
+}

@@ -11,9 +11,11 @@ mod validation;
 
 use commands::{
     add_track_to_playlist, create_playlist, delete_playlist, filter_tracks, get_album_art,
-    get_all_tracks, get_current_track, get_playlists, get_track_file_path, get_unique_albums,
-    get_unique_artists, get_unique_genres, import_folder, remove_track_from_playlist,
-    reorder_playlist_tracks, search_tracks, set_current_track, update_multiple_tracks_metadata,
+    get_all_tracks, get_current_track, get_favorite_tracks, get_most_played_tracks,
+    get_playlists, get_recently_played_tracks, get_track_file_path, get_unique_albums,
+    get_unique_artists, get_unique_genres, import_folder, increment_play_count,
+    remove_track_from_playlist, reorder_playlist_tracks, search_tracks, set_current_track,
+    set_rating, show_in_folder, toggle_favorite, update_multiple_tracks_metadata,
     update_track_metadata, update_track_metadata_with_file, validate_metadata_command,
 };
 use state::AppState;
@@ -47,7 +49,14 @@ pub fn run() {
             get_album_art,
             get_track_file_path,
             set_current_track,
-            get_current_track
+            get_current_track,
+            show_in_folder,
+            toggle_favorite,
+            set_rating,
+            increment_play_count,
+            get_favorite_tracks,
+            get_most_played_tracks,
+            get_recently_played_tracks
         ])
         .setup(|app| {
             // アプリケーションデータディレクトリを取得

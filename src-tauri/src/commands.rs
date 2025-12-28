@@ -228,6 +228,10 @@ fn create_track_from_file(file_path: &Path) -> Result<Track, String> {
         format,
         bitrate,
         sample_rate,
+        is_favorite: false,
+        rating: 0,
+        play_count: 0,
+        last_played_at: None,
         created_at: now.clone(),
         updated_at: now,
     })
@@ -244,7 +248,9 @@ pub async fn get_all_tracks(state: State<'_, AppState>) -> Result<Vec<Track>, St
     let mut stmt = db
         .prepare(
             "SELECT id, file_path, file_name, title, artist, album, genre, year,
-                    duration, file_size, format, bitrate, sample_rate, created_at, updated_at
+                    duration, file_size, format, bitrate, sample_rate,
+                    COALESCE(is_favorite, 0), COALESCE(rating, 0), COALESCE(play_count, 0), last_played_at,
+                    created_at, updated_at
              FROM tracks
              ORDER BY created_at DESC",
         )
@@ -266,8 +272,12 @@ pub async fn get_all_tracks(state: State<'_, AppState>) -> Result<Vec<Track>, St
                 format: row.get(10)?,
                 bitrate: row.get(11)?,
                 sample_rate: row.get(12)?,
-                created_at: row.get(13)?,
-                updated_at: row.get(14)?,
+                is_favorite: row.get::<_, i32>(13)? != 0,
+                rating: row.get(14)?,
+                play_count: row.get(15)?,
+                last_played_at: row.get(16)?,
+                created_at: row.get(17)?,
+                updated_at: row.get(18)?,
             })
         })
         .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
@@ -309,7 +319,9 @@ pub async fn search_tracks(
         let mut stmt = db
             .prepare(
                 "SELECT t.id, t.file_path, t.file_name, t.title, t.artist, t.album, t.genre, t.year,
-                        t.duration, t.file_size, t.format, t.bitrate, t.sample_rate, t.created_at, t.updated_at
+                        t.duration, t.file_size, t.format, t.bitrate, t.sample_rate,
+                        COALESCE(t.is_favorite, 0), COALESCE(t.rating, 0), COALESCE(t.play_count, 0), t.last_played_at,
+                        t.created_at, t.updated_at
                  FROM tracks t
                  INNER JOIN tracks_fts fts ON t.rowid = fts.rowid
                  WHERE tracks_fts MATCH ?1
@@ -334,8 +346,12 @@ pub async fn search_tracks(
                     format: row.get(10)?,
                     bitrate: row.get(11)?,
                     sample_rate: row.get(12)?,
-                    created_at: row.get(13)?,
-                    updated_at: row.get(14)?,
+                    is_favorite: row.get(13)?,
+                    rating: row.get(14)?,
+                    play_count: row.get(15)?,
+                    last_played_at: row.get(16)?,
+                    created_at: row.get(17)?,
+                    updated_at: row.get(18)?,
                 })
             })
             .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
@@ -350,7 +366,9 @@ pub async fn search_tracks(
         let mut stmt = db
             .prepare(
                 "SELECT id, file_path, file_name, title, artist, album, genre, year,
-                        duration, file_size, format, bitrate, sample_rate, created_at, updated_at
+                        duration, file_size, format, bitrate, sample_rate,
+                        COALESCE(is_favorite, 0), COALESCE(rating, 0), COALESCE(play_count, 0), last_played_at,
+                        created_at, updated_at
                  FROM tracks
                  WHERE title LIKE ?1 OR artist LIKE ?1 OR album LIKE ?1 OR genre LIKE ?1
                  ORDER BY 
@@ -381,8 +399,12 @@ pub async fn search_tracks(
                     format: row.get(10)?,
                     bitrate: row.get(11)?,
                     sample_rate: row.get(12)?,
-                    created_at: row.get(13)?,
-                    updated_at: row.get(14)?,
+                    is_favorite: row.get(13)?,
+                    rating: row.get(14)?,
+                    play_count: row.get(15)?,
+                    last_played_at: row.get(16)?,
+                    created_at: row.get(17)?,
+                    updated_at: row.get(18)?,
                 })
             })
             .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
@@ -414,7 +436,9 @@ pub async fn filter_tracks(
 
     let mut query = String::from(
         "SELECT id, file_path, file_name, title, artist, album, genre, year,
-                duration, file_size, format, bitrate, sample_rate, created_at, updated_at
+                duration, file_size, format, bitrate, sample_rate,
+                COALESCE(is_favorite, 0), COALESCE(rating, 0), COALESCE(play_count, 0), last_played_at,
+                created_at, updated_at
          FROM tracks WHERE 1=1",
     );
 
@@ -460,8 +484,12 @@ pub async fn filter_tracks(
                 format: row.get(10)?,
                 bitrate: row.get(11)?,
                 sample_rate: row.get(12)?,
-                created_at: row.get(13)?,
-                updated_at: row.get(14)?,
+                is_favorite: row.get(13)?,
+                rating: row.get(14)?,
+                play_count: row.get(15)?,
+                last_played_at: row.get(16)?,
+                created_at: row.get(17)?,
+                updated_at: row.get(18)?,
             })
         })
         .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
@@ -1005,7 +1033,9 @@ pub async fn get_current_track(state: State<'_, AppState>) -> Result<Option<Trac
         let mut stmt = db
             .prepare(
                 "SELECT id, file_path, file_name, title, artist, album, genre, year,
-                        duration, file_size, format, bitrate, sample_rate, created_at, updated_at
+                        duration, file_size, format, bitrate, sample_rate,
+                        COALESCE(is_favorite, 0), COALESCE(rating, 0), COALESCE(play_count, 0), last_played_at,
+                        created_at, updated_at
                  FROM tracks WHERE id = ?1",
             )
             .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
@@ -1026,8 +1056,12 @@ pub async fn get_current_track(state: State<'_, AppState>) -> Result<Option<Trac
                     format: row.get(10)?,
                     bitrate: row.get(11)?,
                     sample_rate: row.get(12)?,
-                    created_at: row.get(13)?,
-                    updated_at: row.get(14)?,
+                    is_favorite: row.get(13)?,
+                    rating: row.get(14)?,
+                    play_count: row.get(15)?,
+                    last_played_at: row.get(16)?,
+                    created_at: row.get(17)?,
+                    updated_at: row.get(18)?,
                 })
             })
             .map_err(|e| match e {
@@ -1041,4 +1075,318 @@ pub async fn get_current_track(state: State<'_, AppState>) -> Result<Option<Trac
     } else {
         Ok(None)
     }
+}
+
+// ========== お気に入り/レーティング/再生統計コマンド ==========
+
+/// お気に入りを切り替え
+#[tauri::command]
+pub async fn toggle_favorite(
+    track_id: String,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    validate_track_id(&track_id)?;
+
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
+
+    // 現在のお気に入り状態を取得
+    let current: i32 = db
+        .query_row(
+            "SELECT COALESCE(is_favorite, 0) FROM tracks WHERE id = ?1",
+            [&track_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => "トラックが見つかりません".to_string(),
+            _ => format!("お気に入り状態の取得に失敗しました: {}", e),
+        })?;
+
+    let new_value = if current == 0 { 1 } else { 0 };
+
+    db.execute(
+        "UPDATE tracks SET is_favorite = ?1, updated_at = datetime('now') WHERE id = ?2",
+        rusqlite::params![new_value, track_id],
+    )
+    .map_err(|e| format!("お気に入りの更新に失敗しました: {}", e))?;
+
+    Ok(new_value == 1)
+}
+
+/// レーティングを設定
+#[tauri::command]
+pub async fn set_rating(
+    track_id: String,
+    rating: i32,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    validate_track_id(&track_id)?;
+
+    if rating < 0 || rating > 5 {
+        return Err("レーティングは0から5の間で指定してください".to_string());
+    }
+
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
+
+    db.execute(
+        "UPDATE tracks SET rating = ?1, updated_at = datetime('now') WHERE id = ?2",
+        rusqlite::params![rating, track_id],
+    )
+    .map_err(|e| format!("レーティングの更新に失敗しました: {}", e))?;
+
+    Ok(())
+}
+
+/// 再生回数をインクリメント
+#[tauri::command]
+pub async fn increment_play_count(
+    track_id: String,
+    state: State<'_, AppState>,
+) -> Result<i32, String> {
+    validate_track_id(&track_id)?;
+
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
+
+    // 再生回数をインクリメントし、最終再生日時を更新
+    db.execute(
+        "UPDATE tracks SET 
+            play_count = COALESCE(play_count, 0) + 1, 
+            last_played_at = datetime('now'),
+            updated_at = datetime('now')
+         WHERE id = ?1",
+        [&track_id],
+    )
+    .map_err(|e| format!("再生回数の更新に失敗しました: {}", e))?;
+
+    // 再生履歴に追加
+    db.execute(
+        "INSERT INTO play_history (track_id, played_at) VALUES (?1, datetime('now'))",
+        [&track_id],
+    )
+    .map_err(|e| format!("再生履歴の追加に失敗しました: {}", e))?;
+
+    // 新しい再生回数を取得
+    let new_count: i32 = db
+        .query_row(
+            "SELECT play_count FROM tracks WHERE id = ?1",
+            [&track_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("再生回数の取得に失敗しました: {}", e))?;
+
+    Ok(new_count)
+}
+
+/// お気に入りトラックを取得
+#[tauri::command]
+pub async fn get_favorite_tracks(state: State<'_, AppState>) -> Result<Vec<Track>, String> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
+
+    let mut stmt = db
+        .prepare(
+            "SELECT id, file_path, file_name, title, artist, album, genre, year,
+                    duration, file_size, format, bitrate, sample_rate,
+                    COALESCE(is_favorite, 0), COALESCE(rating, 0), COALESCE(play_count, 0), last_played_at,
+                    created_at, updated_at
+             FROM tracks
+             WHERE is_favorite = 1
+             ORDER BY updated_at DESC",
+        )
+        .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
+
+    let tracks = stmt
+        .query_map([], |row| {
+            Ok(Track {
+                id: row.get(0)?,
+                file_path: row.get(1)?,
+                file_name: row.get(2)?,
+                title: row.get(3)?,
+                artist: row.get(4)?,
+                album: row.get(5)?,
+                genre: row.get(6)?,
+                year: row.get(7)?,
+                duration: row.get(8)?,
+                file_size: row.get(9)?,
+                format: row.get(10)?,
+                bitrate: row.get(11)?,
+                sample_rate: row.get(12)?,
+                is_favorite: row.get::<_, i32>(13)? != 0,
+                rating: row.get(14)?,
+                play_count: row.get(15)?,
+                last_played_at: row.get(16)?,
+                created_at: row.get(17)?,
+                updated_at: row.get(18)?,
+            })
+        })
+        .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("結果の取得に失敗しました: {}", e))?;
+
+    Ok(tracks)
+}
+
+/// よく聴くトラック（再生回数順）を取得
+#[tauri::command]
+pub async fn get_most_played_tracks(
+    limit: Option<i32>,
+    state: State<'_, AppState>,
+) -> Result<Vec<Track>, String> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
+
+    let limit = limit.unwrap_or(50);
+
+    let mut stmt = db
+        .prepare(
+            "SELECT id, file_path, file_name, title, artist, album, genre, year,
+                    duration, file_size, format, bitrate, sample_rate,
+                    COALESCE(is_favorite, 0), COALESCE(rating, 0), COALESCE(play_count, 0), last_played_at,
+                    created_at, updated_at
+             FROM tracks
+             WHERE play_count > 0
+             ORDER BY play_count DESC, last_played_at DESC
+             LIMIT ?1",
+        )
+        .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
+
+    let tracks = stmt
+        .query_map([limit], |row| {
+            Ok(Track {
+                id: row.get(0)?,
+                file_path: row.get(1)?,
+                file_name: row.get(2)?,
+                title: row.get(3)?,
+                artist: row.get(4)?,
+                album: row.get(5)?,
+                genre: row.get(6)?,
+                year: row.get(7)?,
+                duration: row.get(8)?,
+                file_size: row.get(9)?,
+                format: row.get(10)?,
+                bitrate: row.get(11)?,
+                sample_rate: row.get(12)?,
+                is_favorite: row.get::<_, i32>(13)? != 0,
+                rating: row.get(14)?,
+                play_count: row.get(15)?,
+                last_played_at: row.get(16)?,
+                created_at: row.get(17)?,
+                updated_at: row.get(18)?,
+            })
+        })
+        .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("結果の取得に失敗しました: {}", e))?;
+
+    Ok(tracks)
+}
+
+/// 最近再生したトラックを取得
+#[tauri::command]
+pub async fn get_recently_played_tracks(
+    limit: Option<i32>,
+    state: State<'_, AppState>,
+) -> Result<Vec<Track>, String> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
+
+    let limit = limit.unwrap_or(50);
+
+    let mut stmt = db
+        .prepare(
+            "SELECT id, file_path, file_name, title, artist, album, genre, year,
+                    duration, file_size, format, bitrate, sample_rate,
+                    COALESCE(is_favorite, 0), COALESCE(rating, 0), COALESCE(play_count, 0), last_played_at,
+                    created_at, updated_at
+             FROM tracks
+             WHERE last_played_at IS NOT NULL
+             ORDER BY last_played_at DESC
+             LIMIT ?1",
+        )
+        .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
+
+    let tracks = stmt
+        .query_map([limit], |row| {
+            Ok(Track {
+                id: row.get(0)?,
+                file_path: row.get(1)?,
+                file_name: row.get(2)?,
+                title: row.get(3)?,
+                artist: row.get(4)?,
+                album: row.get(5)?,
+                genre: row.get(6)?,
+                year: row.get(7)?,
+                duration: row.get(8)?,
+                file_size: row.get(9)?,
+                format: row.get(10)?,
+                bitrate: row.get(11)?,
+                sample_rate: row.get(12)?,
+                is_favorite: row.get::<_, i32>(13)? != 0,
+                rating: row.get(14)?,
+                play_count: row.get(15)?,
+                last_played_at: row.get(16)?,
+                created_at: row.get(17)?,
+                updated_at: row.get(18)?,
+            })
+        })
+        .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("結果の取得に失敗しました: {}", e))?;
+
+    Ok(tracks)
+}
+
+/// ファイルの場所をシステムのファイルマネージャーで開く
+#[tauri::command]
+pub async fn show_in_folder(path: String) -> Result<(), String> {
+    use std::process::Command;
+
+    let file_path = Path::new(&path);
+    
+    if !file_path.exists() {
+        return Err("ファイルが見つかりません".to_string());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .args(["-R", file_path.to_str().unwrap()])
+            .spawn()
+            .map_err(|e| format!("ファイルマネージャーを開けませんでした: {}", e))?;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("explorer")
+            .args(["/select,", file_path.to_str().unwrap()])
+            .spawn()
+            .map_err(|e| format!("ファイルマネージャーを開けませんでした: {}", e))?;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // 親ディレクトリを開く
+        if let Some(parent) = file_path.parent() {
+            Command::new("xdg-open")
+                .arg(parent)
+                .spawn()
+                .map_err(|e| format!("ファイルマネージャーを開けませんでした: {}", e))?;
+        }
+    }
+
+    Ok(())
 }
