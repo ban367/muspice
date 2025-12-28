@@ -2,6 +2,8 @@
   import { invoke } from '@tauri-apps/api/core';
   import { open } from '@tauri-apps/plugin-dialog';
   import type { ImportResult } from '$lib/types/models';
+  import { DuplicateAction } from '$lib/types/models';
+  import { validateFilePath } from '$lib/utils/validation';
 
   interface Props {
     isOpen?: boolean;
@@ -12,6 +14,7 @@
   let { isOpen = $bindable(false), onClose, onImportComplete }: Props = $props();
 
   let selectedFolder = $state<string>('');
+  let duplicateAction = $state<DuplicateAction>(DuplicateAction.Skip);
   let isImporting = $state(false);
   let progress = $state(0);
   let importResult = $state<ImportResult | null>(null);
@@ -47,6 +50,12 @@
       return;
     }
 
+    // ファイルパスをバリデーション
+    if (!validateFilePath(selectedFolder)) {
+      errorMessage = '不正なファイルパスです';
+      return;
+    }
+
     isImporting = true;
     progress = 0;
     errorMessage = '';
@@ -61,7 +70,8 @@
       }, 200);
 
       const result = await invoke<ImportResult>('import_folder', {
-        folderPath: selectedFolder
+        folderPath: selectedFolder,
+        duplicateAction: duplicateAction
       });
 
       clearInterval(progressInterval);
@@ -91,6 +101,7 @@
   function closeDialog() {
     isOpen = false;
     selectedFolder = '';
+    duplicateAction = DuplicateAction.Skip;
     progress = 0;
     importResult = null;
     errorMessage = '';
@@ -128,6 +139,31 @@
               <button onclick={selectFolder} disabled={isImporting} class="select-button">
                 フォルダを選択
               </button>
+            </div>
+          </div>
+
+          <!-- 重複ファイル処理の選択 -->
+          <div class="duplicate-action-selection">
+            <label>重複ファイルの処理:</label>
+            <div class="radio-group">
+              <label class="radio-option">
+                <input
+                  type="radio"
+                  bind:group={duplicateAction}
+                  value={DuplicateAction.Skip}
+                  disabled={isImporting}
+                />
+                スキップ（既存ファイルを保持）
+              </label>
+              <label class="radio-option">
+                <input
+                  type="radio"
+                  bind:group={duplicateAction}
+                  value={DuplicateAction.Replace}
+                  disabled={isImporting}
+                />
+                置き換え（新しいファイルで上書き）
+              </label>
             </div>
           </div>
 
@@ -270,6 +306,34 @@
 
   .folder-selection {
     margin-bottom: 1.5rem;
+  }
+
+  .duplicate-action-selection {
+    margin-bottom: 1.5rem;
+  }
+
+  .duplicate-action-selection label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+  }
+
+  .radio-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .radio-option {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: normal;
+    margin-bottom: 0;
+  }
+
+  .radio-option input[type='radio'] {
+    margin: 0;
   }
 
   .folder-selection label {

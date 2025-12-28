@@ -71,7 +71,8 @@ pub fn is_duplicate_file(conn: &Connection, file_path: &str) -> Result<bool, rus
     Ok(count > 0)
 }
 
-/// トラックをデータベースに保存
+/// トラックをデータベースに保存（将来の使用のため）
+#[allow(dead_code)]
 pub fn save_track(conn: &Connection, track: &Track) -> Result<(), rusqlite::Error> {
     conn.execute(
         "INSERT INTO tracks (
@@ -99,7 +100,8 @@ pub fn save_track(conn: &Connection, track: &Track) -> Result<(), rusqlite::Erro
     Ok(())
 }
 
-/// 既存のトラックを更新（重複時の置き換え用）
+/// 既存のトラックを更新（重複時の置き換え用、将来の使用のため）
+#[allow(dead_code)]
 pub fn update_track(conn: &Connection, track: &Track) -> Result<(), rusqlite::Error> {
     conn.execute(
         "UPDATE tracks SET

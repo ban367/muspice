@@ -18,46 +18,37 @@
   }
 </script>
 
-<main class="app-container">
-  <header class="app-header">
-    <h1>Muspice</h1>
+<div class="page-container">
+  <header class="page-header">
+    <h1>音楽ライブラリ</h1>
     <button onclick={openImportDialog} class="import-button"> フォルダをインポート </button>
   </header>
 
-  <div class="app-content">
+  <div class="page-content">
     <Library />
   </div>
 
   <ImportDialog bind:isOpen={isImportDialogOpen} onImportComplete={handleImportComplete} />
-</main>
+</div>
 
 <style>
-  :global(body) {
-    margin: 0;
-    padding: 0;
-    font-family:
-      -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans',
-      'Helvetica Neue', sans-serif;
-  }
-
-  .app-container {
+  .page-container {
     display: flex;
     flex-direction: column;
-    height: 100vh;
+    height: 100%;
     overflow: hidden;
   }
 
-  .app-header {
+  .page-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 1rem 2rem;
-    background-color: #007bff;
-    color: white;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    padding: 1rem 0;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid #e5e7eb;
   }
 
-  .app-header h1 {
+  .page-header h1 {
     margin: 0;
     font-size: 1.75rem;
     font-weight: 600;
@@ -65,10 +56,10 @@
 
   .import-button {
     padding: 0.5rem 1.5rem;
-    background-color: white;
-    color: #007bff;
+    background-color: #3b82f6;
+    color: white;
     border: none;
-    border-radius: 4px;
+    border-radius: 0.375rem;
     cursor: pointer;
     font-size: 1rem;
     font-weight: 500;
@@ -76,26 +67,25 @@
   }
 
   .import-button:hover {
-    background-color: #f0f0f0;
+    background-color: #2563eb;
   }
 
-  .app-content {
+  .page-content {
     flex: 1;
     overflow: hidden;
   }
 
   @media (prefers-color-scheme: dark) {
-    .app-header {
-      background-color: #0056b3;
+    .page-header {
+      border-bottom-color: #374151;
     }
 
     .import-button {
-      background-color: #1a1a1a;
-      color: #007bff;
+      background-color: #2563eb;
     }
 
     .import-button:hover {
-      background-color: #2a2a2a;
+      background-color: #1d4ed8;
     }
   }
 </style>

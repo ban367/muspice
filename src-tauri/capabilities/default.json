@@ -1,10 +1,13 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window",
+  "description": "Capability for the main window with secure file system access",
   "windows": ["main"],
   "permissions": [
     "core:default",
+    "core:path:default",
+    "core:path:allow-resolve",
+    "core:path:allow-normalize",
     "opener:default",
     "dialog:default",
     "dialog:allow-open"

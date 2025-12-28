@@ -1,7 +1,8 @@
 use crate::models::Metadata;
+use lofty::config::WriteOptions;
 use lofty::file::{AudioFile, TaggedFileExt};
 use lofty::probe::Probe;
-use lofty::tag::Accessor;
+use lofty::tag::{Accessor, ItemKey, Tag};
 use std::path::Path;
 
 /// 音楽ファイルからメタデータを抽出
@@ -83,6 +84,90 @@ pub fn extract_sample_rate(file_path: &Path) -> Result<Option<i32>, String> {
     Ok(sample_rate)
 }
 
+/// メタデータをバリデーション
+pub fn validate_metadata(metadata: &Metadata) -> Result<(), String> {
+    // 年のバリデーション
+    if let Some(year) = metadata.year {
+        if year < 1000 || year > 9999 {
+            return Err("年は1000から9999の範囲で指定してください".to_string());
+        }
+    }
+
+    // トラック番号のバリデーション
+    if let Some(track_number) = metadata.track_number {
+        if track_number < 1 || track_number > 999 {
+            return Err("トラック番号は1から999の範囲で指定してください".to_string());
+        }
+    }
+
+    Ok(())
+}
+
+/// 音楽ファイルのメタデータを更新
+pub fn update_file_metadata(file_path: &Path, metadata: &Metadata) -> Result<(), String> {
+    // メタデータをバリデーション
+    validate_metadata(metadata)?;
+
+    // ファイルを読み込み
+    let mut tagged_file = Probe::open(file_path)
+        .map_err(|e| format!("ファイルのオープンに失敗しました: {}", e))?
+        .read()
+        .map_err(|e| format!("ファイルの読み取りに失敗しました: {}", e))?;
+
+    // プライマリタグを取得または作成
+    let tag = match tagged_file.primary_tag_mut() {
+        Some(tag) => tag,
+        None => {
+            // タグが存在しない場合は新規作成
+            let tag_type = tagged_file.primary_tag_type();
+            tagged_file.insert_tag(Tag::new(tag_type));
+            tagged_file
+                .primary_tag_mut()
+                .ok_or_else(|| "タグの作成に失敗しました".to_string())?
+        }
+    };
+
+    // メタデータを更新
+    if let Some(title) = &metadata.title {
+        tag.set_title(title.clone());
+    }
+
+    if let Some(artist) = &metadata.artist {
+        tag.set_artist(artist.clone());
+    }
+
+    if let Some(album) = &metadata.album {
+        tag.set_album(album.clone());
+    }
+
+    if let Some(genre) = &metadata.genre {
+        tag.set_genre(genre.clone());
+    }
+
+    if let Some(year) = metadata.year {
+        tag.set_year(year as u32);
+    }
+
+    if let Some(track_number) = metadata.track_number {
+        tag.set_track(track_number as u32);
+    }
+
+    if let Some(album_artist) = &metadata.album_artist {
+        tag.insert_text(ItemKey::AlbumArtist, album_artist.clone());
+    }
+
+    if let Some(composer) = &metadata.composer {
+        tag.insert_text(ItemKey::Composer, composer.clone());
+    }
+
+    // ファイルに保存
+    tagged_file
+        .save_to_path(file_path, WriteOptions::default())
+        .map_err(|e| format!("メタデータの保存に失敗しました: {}", e))?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -91,5 +176,53 @@ mod tests {
     fn test_extract_metadata_nonexistent_file() {
         let result = extract_metadata(Path::new("nonexistent.mp3"));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_metadata_valid() {
+        let metadata = Metadata {
+            title: Some("Test Title".to_string()),
+            artist: Some("Test Artist".to_string()),
+            album: Some("Test Album".to_string()),
+            genre: Some("Rock".to_string()),
+            year: Some(2023),
+            track_number: Some(1),
+            album_artist: None,
+            composer: None,
+        };
+
+        assert!(validate_metadata(&metadata).is_ok());
+    }
+
+    #[test]
+    fn test_validate_metadata_invalid_year() {
+        let metadata = Metadata {
+            title: None,
+            artist: None,
+            album: None,
+            genre: None,
+            year: Some(999),
+            track_number: None,
+            album_artist: None,
+            composer: None,
+        };
+
+        assert!(validate_metadata(&metadata).is_err());
+    }
+
+    #[test]
+    fn test_validate_metadata_invalid_track_number() {
+        let metadata = Metadata {
+            title: None,
+            artist: None,
+            album: None,
+            genre: None,
+            year: None,
+            track_number: Some(1000),
+            album_artist: None,
+            composer: None,
+        };
+
+        assert!(validate_metadata(&metadata).is_err());
     }
 }

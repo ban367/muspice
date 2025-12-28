@@ -84,6 +84,66 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         [],
     )?;
 
+    // 全文検索用の仮想テーブルを作成（FTS5）
+    // 既存のテーブルがある場合はスキップ
+    let fts_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='tracks_fts'",
+            [],
+            |row| row.get::<_, i64>(0).map(|count| count > 0),
+        )
+        .unwrap_or(false);
+
+    if !fts_exists {
+        conn.execute(
+            "CREATE VIRTUAL TABLE tracks_fts USING fts5(
+                id UNINDEXED,
+                title,
+                artist,
+                album,
+                genre,
+                content=tracks,
+                content_rowid=rowid
+            )",
+            [],
+        )?;
+
+        // 既存データをFTSテーブルに同期
+        conn.execute(
+            "INSERT INTO tracks_fts(rowid, id, title, artist, album, genre)
+             SELECT rowid, id, title, artist, album, genre FROM tracks",
+            [],
+        )?;
+
+        // トリガーを作成してデータの同期を自動化
+        conn.execute(
+            "CREATE TRIGGER IF NOT EXISTS tracks_ai AFTER INSERT ON tracks BEGIN
+                INSERT INTO tracks_fts(rowid, id, title, artist, album, genre)
+                VALUES (new.rowid, new.id, new.title, new.artist, new.album, new.genre);
+             END",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE TRIGGER IF NOT EXISTS tracks_ad AFTER DELETE ON tracks BEGIN
+                DELETE FROM tracks_fts WHERE rowid = old.rowid;
+             END",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE TRIGGER IF NOT EXISTS tracks_au AFTER UPDATE ON tracks BEGIN
+                UPDATE tracks_fts SET 
+                    title = new.title,
+                    artist = new.artist,
+                    album = new.album,
+                    genre = new.genre
+                WHERE rowid = old.rowid;
+             END",
+            [],
+        )?;
+    }
+
     Ok(())
 }
 
