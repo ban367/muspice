@@ -17,14 +17,21 @@
     hasPreviousTrack
   } from '$lib/stores/player';
   import type { Track } from '$lib/types/models';
+  import { handleError as reportError } from '$lib/stores/error';
 
   let audioElement: HTMLAudioElement;
   let isDraggingProgress = false;
   let isDraggingVolume = false;
+  let lastPlayedTrackId: string | null = null;
 
   // 現在のトラックが変更されたときに再生を開始
   $: if ($currentTrack && audioElement) {
-    loadAndPlayTrack($currentTrack);
+    if ($currentTrack.id !== lastPlayedTrackId) {
+      lastPlayedTrackId = $currentTrack.id;
+      loadAndPlayTrack($currentTrack);
+    }
+  } else if (!$currentTrack) {
+    lastPlayedTrackId = null;
   }
 
   // 音量が変更されたときにオーディオ要素に反映
@@ -44,19 +51,40 @@
 
       // Tauriのファイルパスを変換
       const assetUrl = convertFileSrc(filePath);
+      console.log('再生試行:', { trackId: track.id, filePath, assetUrl });
+
+      // トラックが変更されている可能性があるため確認
+      if ($currentTrack?.id !== track.id) {
+        console.log('トラックが変更されたため処理を中断');
+        return;
+      }
 
       // オーディオソースを設定
+      // srcを設定するだけで読み込みが開始されるため、明示的なload()は削除
       audioElement.src = assetUrl;
-      audioElement.load();
 
       // 再生を開始
-      await audioElement.play();
-      isPlaying.set(true);
+      try {
+        await audioElement.play();
+        isPlaying.set(true);
+      } catch (playError) {
+        // AbortErrorは無視（新しい再生要求が来た場合に発生するため）
+        if (playError instanceof DOMException && playError.name === 'AbortError') {
+          console.warn('再生が中断されました (AbortError). 新しいトラックが選択された可能性があります。');
+          return;
+        }
+        throw playError;
+      }
 
       // 現在再生中のトラックをバックエンドに通知
       await invoke('set_current_track', { trackId: track.id });
     } catch (error) {
       console.error('トラックの再生に失敗しました:', error);
+      console.error('詳細:', { track, error });
+      
+      // ユーザーにエラーを通知
+      reportError(error, 'トラックの再生に失敗しました');
+      
       isPlaying.set(false);
     }
   }
@@ -209,8 +237,36 @@
     }
   }
 
-  function handleError() {
-    console.error('オーディオの再生エラーが発生しました');
+  function handleError(e: Event) {
+    const target = e.target as HTMLAudioElement;
+    console.error('オーディオの再生エラーが発生しました', {
+      error: target.error,
+      src: target.src,
+      networkState: target.networkState,
+      readyState: target.readyState
+    });
+    
+    let errorMessage = '再生エラーが発生しました';
+    if (target.error) {
+      switch (target.error.code) {
+        case target.error.MEDIA_ERR_ABORTED:
+          // 中断はユーザー操作によるものが多いのでエラー通知しない、またはログのみ
+          console.warn('再生が中断されました');
+          return;
+        case target.error.MEDIA_ERR_NETWORK:
+          errorMessage = 'ネットワークエラーが発生しました';
+          break;
+        case target.error.MEDIA_ERR_DECODE:
+          errorMessage = 'デコードエラー: ファイルが破損しているか未対応の形式です';
+          break;
+        case target.error.MEDIA_ERR_SRC_NOT_SUPPORTED:
+          errorMessage = '未対応のフォーマットか、ファイルが見つかりません';
+          break;
+      }
+    }
+
+    reportError(errorMessage);
+
     isPlaying.set(false);
   }
 

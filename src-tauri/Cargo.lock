@@ -2125,6 +2125,7 @@ dependencies = [
 name = "muspice"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "chrono",
  "lofty",
  "log",
@@ -2134,6 +2135,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
+ "tauri-plugin-fs",
  "tauri-plugin-opener",
  "uuid",
 ]
