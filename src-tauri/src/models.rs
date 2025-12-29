@@ -65,3 +65,35 @@ pub struct Metadata {
     pub album_artist: Option<String>,
     pub composer: Option<String>,
 }
+
+/// アルバムグループ（アルバム表示用）
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AlbumGroup {
+    pub name: String,
+    pub artist: Option<String>,
+    pub track_count: i32,
+    pub total_duration: i32,
+    pub representative_track_id: String,
+    pub tracks: Vec<Track>,
+}
+
+/// アーティストグループ（アーティスト表示用）
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ArtistGroup {
+    pub name: String,
+    pub album_count: i32,
+    pub track_count: i32,
+    pub total_duration: i32,
+    pub representative_track_id: String,
+    pub albums: Vec<AlbumGroup>,
+}
+
+/// ジャンルグループ（ジャンル表示用）
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct GenreGroup {
+    pub name: String,
+    pub track_count: i32,
+    pub total_duration: i32,
+    pub representative_track_id: String,
+    pub tracks: Vec<Track>,
+}

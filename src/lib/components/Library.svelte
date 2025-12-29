@@ -19,8 +19,13 @@
   import ContextMenu from './ContextMenu.svelte';
   import { sanitizeSearchQuery } from '$lib/utils/validation';
   import { playTrackFromQueue, currentTrack, playQueue, currentTrackIndex } from '$lib/stores/player';
+  import { browseMode } from '$lib/stores/ui';
   import { get } from 'svelte/store';
   import type { Track, AlbumArt } from '$lib/types/models';
+  import BrowseModeSelector from './library/BrowseModeSelector.svelte';
+  import AlbumGrid from './library/AlbumGrid.svelte';
+  import ArtistGrid from './library/ArtistGrid.svelte';
+  import GenreGrid from './library/GenreGrid.svelte';
 
   // Props
   interface Props {
@@ -570,7 +575,10 @@
   <!-- ヘッダー -->
   <div class="library-header">
     <div class="header-left">
-      {#if tracks}
+      {#if viewModeParam === 'all'}
+        <BrowseModeSelector />
+      {/if}
+      {#if $browseMode === 'songs' && tracks}
         <span class="track-count">{tracks.length}曲</span>
       {/if}
     </div>
@@ -584,59 +592,61 @@
           </button>
         </div>
       {/if}
-      {#if viewModeParam === 'all'}
-        <div class="search-box">
-          <svg xmlns="http://www.w3.org/2000/svg" class="search-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
-          <input
-            type="text"
-            placeholder="検索..."
-            value={searchTerm}
-            oninput={handleSearchInput}
-            class="search-input"
-          />
-          {#if searchTerm}
-            <button onclick={clearSearch} class="clear-button" aria-label="検索をクリア">✕</button>
-          {/if}
-        </div>
-        <button onclick={toggleFilters} class="btn-icon" class:active={showFilters} title="フィルター">
-          <svg xmlns="http://www.w3.org/2000/svg" class="icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-          </svg>
-          {#if hasActiveFilters}
-            <span class="badge">{[selectedArtist, selectedAlbum, selectedGenre].filter(Boolean).length}</span>
+      {#if (viewModeParam === 'all' && $browseMode === 'songs') || viewModeParam !== 'all'}
+        {#if viewModeParam === 'all'}
+          <div class="search-box">
+            <svg xmlns="http://www.w3.org/2000/svg" class="search-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <input
+              type="text"
+              placeholder="検索..."
+              value={searchTerm}
+              oninput={handleSearchInput}
+              class="search-input"
+            />
+            {#if searchTerm}
+              <button onclick={clearSearch} class="clear-button" aria-label="検索をクリア">✕</button>
+            {/if}
+          </div>
+          <button onclick={toggleFilters} class="btn-icon" class:active={showFilters} title="フィルター">
+            <svg xmlns="http://www.w3.org/2000/svg" class="icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+            </svg>
+            {#if hasActiveFilters}
+              <span class="badge">{[selectedArtist, selectedAlbum, selectedGenre].filter(Boolean).length}</span>
+            {/if}
+          </button>
+        {/if}
+        <button onclick={toggleDisplayMode} class="btn-icon" title={displayMode === 'grid' ? 'リスト表示' : 'グリッド表示'}>
+          {#if displayMode === 'grid'}
+            <svg xmlns="http://www.w3.org/2000/svg" class="icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+            </svg>
+          {:else}
+            <svg xmlns="http://www.w3.org/2000/svg" class="icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+            </svg>
           {/if}
         </button>
-      {/if}
-      <button onclick={toggleDisplayMode} class="btn-icon" title={displayMode === 'grid' ? 'リスト表示' : 'グリッド表示'}>
         {#if displayMode === 'grid'}
-          <svg xmlns="http://www.w3.org/2000/svg" class="icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16" />
-          </svg>
-        {:else}
-          <svg xmlns="http://www.w3.org/2000/svg" class="icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-          </svg>
+          <div class="size-slider">
+            <input
+              type="range"
+              min={MIN_ART_SIZE}
+              max={MAX_ART_SIZE}
+              bind:value={artSize}
+              class="slider"
+              aria-label="カードサイズ"
+            />
+          </div>
         {/if}
-      </button>
-      {#if displayMode === 'grid'}
-        <div class="size-slider">
-          <input
-            type="range"
-            min={MIN_ART_SIZE}
-            max={MAX_ART_SIZE}
-            bind:value={artSize}
-            class="slider"
-            aria-label="カードサイズ"
-          />
-        </div>
       {/if}
     </div>
   </div>
 
   <!-- フィルターパネル -->
-  {#if showFilters && viewModeParam === 'all'}
+  {#if showFilters && viewModeParam === 'all' && $browseMode === 'songs'}
     <div class="filter-panel">
       <div class="filter-group">
         <label for="artist-filter">アーティスト</label>
@@ -682,7 +692,13 @@
 
   <!-- コンテンツ -->
   <div class="library-content">
-    {#if isLoading}
+    {#if viewModeParam === 'all' && $browseMode === 'albums'}
+      <AlbumGrid />
+    {:else if viewModeParam === 'all' && $browseMode === 'artists'}
+      <ArtistGrid />
+    {:else if viewModeParam === 'all' && $browseMode === 'genres'}
+      <GenreGrid />
+    {:else if isLoading}
       <div class="loading">
         <div class="loading-spinner"></div>
         <p>読み込み中...</p>

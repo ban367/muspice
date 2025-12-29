@@ -8,6 +8,10 @@ import { writable, type Writable } from 'svelte/store';
 export type ViewMode = 'grid' | 'list';
 export const viewMode: Writable<ViewMode> = writable('grid');
 
+// ブラウズモード（データのグループ化方法）
+export type BrowseMode = 'songs' | 'albums' | 'artists' | 'genres';
+export const browseMode: Writable<BrowseMode> = writable('songs');
+
 // 選択中のトラックID
 export const selectedTracks: Writable<string[]> = writable([]);
 

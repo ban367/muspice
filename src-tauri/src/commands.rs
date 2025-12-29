@@ -6,7 +6,7 @@ use crate::metadata::{
     extract_album_art, extract_bitrate, extract_duration, extract_metadata, extract_sample_rate,
     update_file_metadata, validate_metadata, AlbumArt,
 };
-use crate::models::{Metadata, Track};
+use crate::models::{AlbumGroup, ArtistGroup, GenreGroup, Metadata, Track};
 use crate::state::AppState;
 use crate::validation::{
     sanitize_search_query, validate_file_path, validate_playlist_id, validate_playlist_name,
@@ -1389,4 +1389,292 @@ pub async fn show_in_folder(path: String) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+// ========== グループ化データ取得コマンド ==========
+
+/// アルバムごとにグループ化されたトラックを取得
+#[tauri::command]
+pub async fn get_albums_grouped(state: State<'_, AppState>) -> Result<Vec<AlbumGroup>, String> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
+
+    // アルバムごとにトラックを取得
+    let mut stmt = db
+        .prepare(
+            "SELECT id, file_path, file_name, title, artist, album, genre, year,
+                    duration, file_size, format, bitrate, sample_rate,
+                    COALESCE(is_favorite, 0), COALESCE(rating, 0), COALESCE(play_count, 0), last_played_at,
+                    created_at, updated_at
+             FROM tracks
+             WHERE album IS NOT NULL AND album != ''
+             ORDER BY album, COALESCE(title, file_name)",
+        )
+        .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
+
+    let tracks = stmt
+        .query_map([], |row| {
+            Ok(Track {
+                id: row.get(0)?,
+                file_path: row.get(1)?,
+                file_name: row.get(2)?,
+                title: row.get(3)?,
+                artist: row.get(4)?,
+                album: row.get(5)?,
+                genre: row.get(6)?,
+                year: row.get(7)?,
+                duration: row.get(8)?,
+                file_size: row.get(9)?,
+                format: row.get(10)?,
+                bitrate: row.get(11)?,
+                sample_rate: row.get(12)?,
+                is_favorite: row.get::<_, i32>(13)? != 0,
+                rating: row.get(14)?,
+                play_count: row.get(15)?,
+                last_played_at: row.get(16)?,
+                created_at: row.get(17)?,
+                updated_at: row.get(18)?,
+            })
+        })
+        .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("結果の取得に失敗しました: {}", e))?;
+
+    // アルバムごとにグループ化
+    use std::collections::HashMap;
+    let mut album_map: HashMap<String, Vec<Track>> = HashMap::new();
+
+    for track in tracks {
+        if let Some(album) = &track.album {
+            album_map
+                .entry(album.clone())
+                .or_insert_with(Vec::new)
+                .push(track);
+        }
+    }
+
+    // AlbumGroupに変換
+    let mut album_groups: Vec<AlbumGroup> = album_map
+        .into_iter()
+        .map(|(name, tracks)| {
+            let track_count = tracks.len() as i32;
+            let total_duration = tracks.iter().filter_map(|t| t.duration).sum();
+            let artist = tracks.first().and_then(|t| t.artist.clone());
+            let representative_track_id = tracks.first().map(|t| t.id.clone()).unwrap_or_default();
+
+            AlbumGroup {
+                name,
+                artist,
+                track_count,
+                total_duration,
+                representative_track_id,
+                tracks,
+            }
+        })
+        .collect();
+
+    // アルバム名でソート
+    album_groups.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+
+    Ok(album_groups)
+}
+
+/// アーティストごとにグループ化されたトラックを取得
+#[tauri::command]
+pub async fn get_artists_grouped(state: State<'_, AppState>) -> Result<Vec<ArtistGroup>, String> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
+
+    // アーティストごとにトラックを取得
+    let mut stmt = db
+        .prepare(
+            "SELECT id, file_path, file_name, title, artist, album, genre, year,
+                    duration, file_size, format, bitrate, sample_rate,
+                    COALESCE(is_favorite, 0), COALESCE(rating, 0), COALESCE(play_count, 0), last_played_at,
+                    created_at, updated_at
+             FROM tracks
+             WHERE artist IS NOT NULL AND artist != ''
+             ORDER BY artist, album, COALESCE(title, file_name)",
+        )
+        .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
+
+    let tracks = stmt
+        .query_map([], |row| {
+            Ok(Track {
+                id: row.get(0)?,
+                file_path: row.get(1)?,
+                file_name: row.get(2)?,
+                title: row.get(3)?,
+                artist: row.get(4)?,
+                album: row.get(5)?,
+                genre: row.get(6)?,
+                year: row.get(7)?,
+                duration: row.get(8)?,
+                file_size: row.get(9)?,
+                format: row.get(10)?,
+                bitrate: row.get(11)?,
+                sample_rate: row.get(12)?,
+                is_favorite: row.get::<_, i32>(13)? != 0,
+                rating: row.get(14)?,
+                play_count: row.get(15)?,
+                last_played_at: row.get(16)?,
+                created_at: row.get(17)?,
+                updated_at: row.get(18)?,
+            })
+        })
+        .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("結果の取得に失敗しました: {}", e))?;
+
+    // アーティスト -> アルバム -> トラックの階層構造を構築
+    use std::collections::HashMap;
+    let mut artist_map: HashMap<String, HashMap<String, Vec<Track>>> = HashMap::new();
+
+    for track in tracks {
+        if let Some(artist) = &track.artist {
+            let album_name = track.album.clone().unwrap_or_else(|| "不明なアルバム".to_string());
+            artist_map
+                .entry(artist.clone())
+                .or_insert_with(HashMap::new)
+                .entry(album_name)
+                .or_insert_with(Vec::new)
+                .push(track);
+        }
+    }
+
+    // ArtistGroupに変換
+    let mut artist_groups: Vec<ArtistGroup> = artist_map
+        .into_iter()
+        .map(|(name, album_map)| {
+            let albums: Vec<AlbumGroup> = album_map
+                .into_iter()
+                .map(|(album_name, tracks)| {
+                    let track_count = tracks.len() as i32;
+                    let total_duration = tracks.iter().filter_map(|t| t.duration).sum();
+                    let representative_track_id = tracks.first().map(|t| t.id.clone()).unwrap_or_default();
+
+                    AlbumGroup {
+                        name: album_name,
+                        artist: Some(name.clone()),
+                        track_count,
+                        total_duration,
+                        representative_track_id,
+                        tracks,
+                    }
+                })
+                .collect();
+
+            let album_count = albums.len() as i32;
+            let track_count: i32 = albums.iter().map(|a| a.track_count).sum();
+            let total_duration: i32 = albums.iter().map(|a| a.total_duration).sum();
+            let representative_track_id = albums
+                .first()
+                .map(|a| a.representative_track_id.clone())
+                .unwrap_or_default();
+
+            ArtistGroup {
+                name,
+                album_count,
+                track_count,
+                total_duration,
+                representative_track_id,
+                albums,
+            }
+        })
+        .collect();
+
+    // アーティスト名でソート
+    artist_groups.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+
+    Ok(artist_groups)
+}
+
+/// ジャンルごとにグループ化されたトラックを取得
+#[tauri::command]
+pub async fn get_genres_grouped(state: State<'_, AppState>) -> Result<Vec<GenreGroup>, String> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
+
+    // ジャンルごとにトラックを取得
+    let mut stmt = db
+        .prepare(
+            "SELECT id, file_path, file_name, title, artist, album, genre, year,
+                    duration, file_size, format, bitrate, sample_rate,
+                    COALESCE(is_favorite, 0), COALESCE(rating, 0), COALESCE(play_count, 0), last_played_at,
+                    created_at, updated_at
+             FROM tracks
+             WHERE genre IS NOT NULL AND genre != ''
+             ORDER BY genre, artist, COALESCE(title, file_name)",
+        )
+        .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
+
+    let tracks = stmt
+        .query_map([], |row| {
+            Ok(Track {
+                id: row.get(0)?,
+                file_path: row.get(1)?,
+                file_name: row.get(2)?,
+                title: row.get(3)?,
+                artist: row.get(4)?,
+                album: row.get(5)?,
+                genre: row.get(6)?,
+                year: row.get(7)?,
+                duration: row.get(8)?,
+                file_size: row.get(9)?,
+                format: row.get(10)?,
+                bitrate: row.get(11)?,
+                sample_rate: row.get(12)?,
+                is_favorite: row.get::<_, i32>(13)? != 0,
+                rating: row.get(14)?,
+                play_count: row.get(15)?,
+                last_played_at: row.get(16)?,
+                created_at: row.get(17)?,
+                updated_at: row.get(18)?,
+            })
+        })
+        .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("結果の取得に失敗しました: {}", e))?;
+
+    // ジャンルごとにグループ化
+    use std::collections::HashMap;
+    let mut genre_map: HashMap<String, Vec<Track>> = HashMap::new();
+
+    for track in tracks {
+        if let Some(genre) = &track.genre {
+            genre_map
+                .entry(genre.clone())
+                .or_insert_with(Vec::new)
+                .push(track);
+        }
+    }
+
+    // GenreGroupに変換
+    let mut genre_groups: Vec<GenreGroup> = genre_map
+        .into_iter()
+        .map(|(name, tracks)| {
+            let track_count = tracks.len() as i32;
+            let total_duration = tracks.iter().filter_map(|t| t.duration).sum();
+            let representative_track_id = tracks.first().map(|t| t.id.clone()).unwrap_or_default();
+
+            GenreGroup {
+                name,
+                track_count,
+                total_duration,
+                representative_track_id,
+                tracks,
+            }
+        })
+        .collect();
+
+    // ジャンル名でソート
+    genre_groups.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+
+    Ok(genre_groups)
 }

@@ -92,3 +92,38 @@ export interface AlbumArt {
   data: string;
   mimeType: string;
 }
+
+/**
+ * アルバムグループ（アルバム表示用）
+ */
+export interface AlbumGroup {
+  name: string;
+  artist: string | null;
+  trackCount: number;
+  totalDuration: number;
+  representativeTrackId: string;
+  tracks: Track[];
+}
+
+/**
+ * アーティストグループ（アーティスト表示用）
+ */
+export interface ArtistGroup {
+  name: string;
+  albumCount: number;
+  trackCount: number;
+  totalDuration: number;
+  representativeTrackId: string;
+  albums: AlbumGroup[];
+}
+
+/**
+ * ジャンルグループ（ジャンル表示用）
+ */
+export interface GenreGroup {
+  name: string;
+  trackCount: number;
+  totalDuration: number;
+  representativeTrackId: string;
+  tracks: Track[];
+}

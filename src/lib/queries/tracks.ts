@@ -1,6 +1,6 @@
 import { createQuery } from '@tanstack/svelte-query';
 import { invoke } from '@tauri-apps/api/core';
-import type { Track, AlbumArt } from '$lib/types/models';
+import type { Track, AlbumArt, AlbumGroup, ArtistGroup, GenreGroup } from '$lib/types/models';
 import { handleError } from '$lib/stores/error';
 
 export interface FilterOptions {
@@ -235,4 +235,63 @@ export async function incrementPlayCount(trackId: string): Promise<void> {
     // 再生回数の更新エラーは静かに処理
     console.debug('再生回数更新エラー:', error);
   }
+}
+
+// ========== グループ化データ取得クエリ ==========
+
+/**
+ * アルバムごとにグループ化されたトラックを取得
+ */
+export function useAlbumsGroupedQuery() {
+  return createQuery(() => ({
+    queryKey: ['albums', 'grouped'],
+    queryFn: async () => {
+      try {
+        return await invoke<AlbumGroup[]>('get_albums_grouped');
+      } catch (error) {
+        handleError(error, 'アルバム一覧の取得');
+        throw error;
+      }
+    },
+    staleTime: 10 * 60 * 1000, // 10分間キャッシュ
+    gcTime: 30 * 60 * 1000
+  }));
+}
+
+/**
+ * アーティストごとにグループ化されたトラックを取得
+ */
+export function useArtistsGroupedQuery() {
+  return createQuery(() => ({
+    queryKey: ['artists', 'grouped'],
+    queryFn: async () => {
+      try {
+        return await invoke<ArtistGroup[]>('get_artists_grouped');
+      } catch (error) {
+        handleError(error, 'アーティスト一覧の取得');
+        throw error;
+      }
+    },
+    staleTime: 10 * 60 * 1000, // 10分間キャッシュ
+    gcTime: 30 * 60 * 1000
+  }));
+}
+
+/**
+ * ジャンルごとにグループ化されたトラックを取得
+ */
+export function useGenresGroupedQuery() {
+  return createQuery(() => ({
+    queryKey: ['genres', 'grouped'],
+    queryFn: async () => {
+      try {
+        return await invoke<GenreGroup[]>('get_genres_grouped');
+      } catch (error) {
+        handleError(error, 'ジャンル一覧の取得');
+        throw error;
+      }
+    },
+    staleTime: 10 * 60 * 1000, // 10分間キャッシュ
+    gcTime: 30 * 60 * 1000
+  }));
 }
