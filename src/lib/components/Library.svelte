@@ -18,14 +18,16 @@
   import MetadataEditor from './MetadataEditor.svelte';
   import ContextMenu from './ContextMenu.svelte';
   import { sanitizeSearchQuery } from '$lib/utils/validation';
-  import { playTrackFromQueue, currentTrack, playQueue, currentTrackIndex } from '$lib/stores/player';
-  import { browseMode } from '$lib/stores/ui';
+  import { playTrackFromQueue, currentTrack, playQueue, currentTrackIndex, isPlaying } from '$lib/stores/player';
+  import { browseMode, gridCardSize, MIN_CARD_SIZE, MAX_CARD_SIZE } from '$lib/stores/ui';
   import { get } from 'svelte/store';
   import type { Track, AlbumArt } from '$lib/types/models';
   import BrowseModeSelector from './library/BrowseModeSelector.svelte';
   import AlbumGrid from './library/AlbumGrid.svelte';
   import ArtistGrid from './library/ArtistGrid.svelte';
   import GenreGrid from './library/GenreGrid.svelte';
+  import PlayingIndicator from './library/PlayingIndicator.svelte';
+  import CardSizeSlider from './library/CardSizeSlider.svelte';
 
   // Props
   interface Props {
@@ -47,10 +49,8 @@
   let sortField = $state<SortField>('createdAt');
   let sortDirection = $state<SortDirection>('desc');
 
-  // アルバムアートサイズ設定 (50 - 200px)
-  let artSize = $state(120);
-  const MIN_ART_SIZE = 50;
-  const MAX_ART_SIZE = 200;
+  // アルバムアートサイズは共通ストアから取得
+  const artSize = $derived($gridCardSize);
 
   // アルバムアートキャッシュ
   let albumArtCache = $state<Map<string, string | null>>(new Map());
@@ -592,7 +592,8 @@
           </button>
         </div>
       {/if}
-      {#if (viewModeParam === 'all' && $browseMode === 'songs') || viewModeParam !== 'all'}
+      {#if $browseMode === 'songs' || viewModeParam !== 'all'}
+        <!-- 曲表示モードのコントロール -->
         {#if viewModeParam === 'all'}
           <div class="search-box">
             <svg xmlns="http://www.w3.org/2000/svg" class="search-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -630,17 +631,11 @@
           {/if}
         </button>
         {#if displayMode === 'grid'}
-          <div class="size-slider">
-            <input
-              type="range"
-              min={MIN_ART_SIZE}
-              max={MAX_ART_SIZE}
-              bind:value={artSize}
-              class="slider"
-              aria-label="カードサイズ"
-            />
-          </div>
+          <CardSizeSlider />
         {/if}
+      {:else if $browseMode === 'albums' || $browseMode === 'artists'}
+        <!-- アルバム/アーティスト表示のサイズコントロール -->
+        <CardSizeSlider />
       {/if}
     </div>
   </div>
@@ -749,11 +744,7 @@
               >
                 <div class="col-checkbox">
                   {#if currentPlayingTrackId === track.id}
-                    <div class="playing-indicator">
-                      <span class="bar"></span>
-                      <span class="bar"></span>
-                      <span class="bar"></span>
-                    </div>
+                    <PlayingIndicator size="small" />
                   {/if}
                 </div>
                 <div class="col-favorite">
@@ -835,11 +826,7 @@
                 {/if}
                 {#if currentPlayingTrackId === track.id}
                   <div class="playing-overlay">
-                    <div class="playing-indicator large">
-                      <span class="bar"></span>
-                      <span class="bar"></span>
-                      <span class="bar"></span>
-                    </div>
+                    <PlayingIndicator size="large" />
                   </div>
                 {/if}
               </div>
@@ -1075,31 +1062,6 @@
     justify-content: center;
   }
 
-  .size-slider {
-    display: flex;
-    align-items: center;
-  }
-
-  .slider {
-    width: 80px;
-    height: 4px;
-    -webkit-appearance: none;
-    appearance: none;
-    background: #444;
-    border-radius: 2px;
-    outline: none;
-  }
-
-  .slider::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 12px;
-    height: 12px;
-    background: #3b82f6;
-    border-radius: 50%;
-    cursor: pointer;
-  }
-
   .filter-panel {
     display: flex;
     gap: 1rem;
@@ -1314,49 +1276,6 @@
     text-align: right;
     color: #888;
     font-size: 0.875rem;
-  }
-
-  /* 再生中インジケーター */
-  .playing-indicator {
-    display: flex;
-    align-items: flex-end;
-    gap: 2px;
-    height: 1rem;
-  }
-
-  .playing-indicator .bar {
-    width: 3px;
-    background-color: #1db954;
-    border-radius: 1px;
-    animation: equalizer 0.5s ease-in-out infinite alternate;
-  }
-
-  .playing-indicator .bar:nth-child(1) {
-    height: 40%;
-    animation-delay: 0s;
-  }
-
-  .playing-indicator .bar:nth-child(2) {
-    height: 80%;
-    animation-delay: 0.2s;
-  }
-
-  .playing-indicator .bar:nth-child(3) {
-    height: 60%;
-    animation-delay: 0.4s;
-  }
-
-  .playing-indicator.large {
-    height: 2rem;
-  }
-
-  .playing-indicator.large .bar {
-    width: 4px;
-  }
-
-  @keyframes equalizer {
-    0% { height: 20%; }
-    100% { height: 100%; }
   }
 
   /* グリッド表示 */

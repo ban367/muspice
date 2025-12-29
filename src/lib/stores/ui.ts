@@ -28,6 +28,11 @@ export const selectedPlaylistId: Writable<string | null> = writable(null);
 // 検索クエリ
 export const searchQuery: Writable<string> = writable('');
 
+// グリッドカードサイズ (50 - 200px)
+export const gridCardSize: Writable<number> = writable(120);
+export const MIN_CARD_SIZE = 50;
+export const MAX_CARD_SIZE = 200;
+
 // インポートダイアログの開閉状態
 export const isImportDialogOpen: Writable<boolean> = writable(false);
 

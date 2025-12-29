@@ -80,7 +80,7 @@
             <p class="genre-meta">{genre.trackCount}曲</p>
           </div>
           <div class="play-overlay">
-            <button class="play-button" onclick={(e) => handlePlayClick(e, genre)}>
+            <button class="play-button" onclick={(e) => handlePlayClick(e, genre)} title="ジャンルを再生">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M8 5v14l11-7z" />
               </svg>

@@ -2,6 +2,7 @@
   import type { ArtistGroup } from '$lib/types/models';
   import { useArtistsGroupedQuery, getAlbumArt } from '$lib/queries/tracks';
   import { playTrackFromQueue } from '$lib/stores/player';
+  import { gridCardSize } from '$lib/stores/ui';
   import GroupDetail from './GroupDetail.svelte';
 
   // クエリ
@@ -16,6 +17,9 @@
   // アルバムアートのキャッシュ
   let albumArtCache = $state<Map<string, string>>(new Map());
   let loadingArts = $state<Set<string>>(new Set());
+
+  // カードサイズの計算
+  const cardWidth = $derived($gridCardSize + 24); // padding分を追加
 
   // アルバムアートを読み込み
   async function loadAlbumArt(trackId: string) {
@@ -99,16 +103,17 @@
       <p>アーティストの読み込みに失敗しました</p>
     </div>
   {:else if artists.length > 0}
-    <div class="artist-grid">
+    <div class="artist-grid" style="--card-width: {cardWidth}px; --art-size: {$gridCardSize}px;">
       {#each artists as artist (artist.name)}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
         <div
           class="artist-card"
           onclick={() => handleArtistClick(artist)}
           ondblclick={() => handleArtistDoubleClick(artist)}
           use:intersectionObserver={{ callback: () => handleArtistVisible(artist) }}
         >
-          <div class="artist-art">
+          <div class="artist-art" style="width: {$gridCardSize}px; height: {$gridCardSize}px;">
             {#if albumArtCache.has(artist.representativeTrackId)}
               <img src={albumArtCache.get(artist.representativeTrackId)} alt={artist.name} loading="lazy" />
             {:else}
@@ -120,7 +125,7 @@
               </div>
             {/if}
             <div class="play-overlay">
-              <button class="play-button" onclick={(e) => handlePlayClick(e, artist)}>
+              <button class="play-button" onclick={(e) => handlePlayClick(e, artist)} title="アーティストを再生">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M8 5v14l11-7z" />
                 </svg>
@@ -161,7 +166,7 @@
 
   .artist-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(var(--card-width), 1fr));
     gap: 1.25rem;
   }
 

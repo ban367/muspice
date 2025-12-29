@@ -1,7 +1,8 @@
 <script lang="ts">
   import type { Track, AlbumGroup, ArtistGroup, GenreGroup } from '$lib/types/models';
-  import { playTrackFromQueue, currentTrack, isPlaying } from '$lib/stores/player';
+  import { playTrackFromQueue, currentTrack } from '$lib/stores/player';
   import { getAlbumArt } from '$lib/queries/tracks';
+  import PlayingIndicator from './PlayingIndicator.svelte';
 
   // Props
   interface Props {
@@ -184,11 +185,7 @@
           >
             <span class="track-number">
               {#if $currentTrack?.id === track.id}
-                <span class="playing-indicator" class:animating={$isPlaying}>
-                  <span class="bar"></span>
-                  <span class="bar"></span>
-                  <span class="bar"></span>
-                </span>
+                <PlayingIndicator size="small" />
               {:else}
                 {index + 1}
               {/if}
@@ -402,38 +399,6 @@
 
   .track-row.playing .track-number {
     color: #1db954;
-  }
-
-  .playing-indicator {
-    display: flex;
-    gap: 2px;
-    justify-content: center;
-    align-items: flex-end;
-    height: 1rem;
-  }
-
-  .playing-indicator .bar {
-    width: 3px;
-    background: #1db954;
-    border-radius: 1px;
-  }
-
-  .playing-indicator .bar:nth-child(1) { height: 60%; }
-  .playing-indicator .bar:nth-child(2) { height: 100%; }
-  .playing-indicator .bar:nth-child(3) { height: 40%; }
-
-  /* アニメーションは再生中のみ */
-  .playing-indicator.animating .bar {
-    animation: equalize 0.8s ease infinite;
-  }
-
-  .playing-indicator.animating .bar:nth-child(1) { animation-delay: 0s; }
-  .playing-indicator.animating .bar:nth-child(2) { animation-delay: 0.2s; }
-  .playing-indicator.animating .bar:nth-child(3) { animation-delay: 0.4s; }
-
-  @keyframes equalize {
-    0%, 100% { transform: scaleY(0.3); }
-    50% { transform: scaleY(1); }
   }
 
   .track-info {
