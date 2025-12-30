@@ -20,7 +20,6 @@
   import { browseMode, gridCardSize, MIN_CARD_SIZE, MAX_CARD_SIZE } from '$lib/stores/ui';
   import { get } from 'svelte/store';
   import type { Track, AlbumArt } from '$lib/types/models';
-  import BrowseModeSelector from './library/BrowseModeSelector.svelte';
   import AlbumGrid from './library/AlbumGrid.svelte';
   import ArtistGrid from './library/ArtistGrid.svelte';
   import GenreGrid from './library/GenreGrid.svelte';
@@ -458,9 +457,6 @@
   <!-- ヘッダー -->
   <div class="flex justify-between items-center py-3 mb-3 border-b border-border">
     <div class="flex items-center gap-3">
-      {#if viewModeParam === 'all'}
-        <BrowseModeSelector />
-      {/if}
       {#if $browseMode === 'songs' && tracks}
         <span class="text-sm text-text-muted">{tracks.length}曲</span>
       {/if}

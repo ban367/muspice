@@ -2,6 +2,12 @@
   import { page } from '$app/stores';
   import { usePlaylistsQuery, useAddTrackToPlaylistMutation, useCreatePlaylistMutation } from '$lib/queries/playlists';
   import { validatePlaylistName, toSafeString } from '$lib/utils/validation';
+  import { browseMode, type BrowseMode } from '$lib/stores/ui';
+
+  // ブラウズモードを変更
+  function handleBrowseModeChange(mode: BrowseMode) {
+    browseMode.set(mode);
+  }
 
   // クエリとミューテーション
   const playlistsQuery = usePlaylistsQuery();
@@ -79,34 +85,70 @@
     <h1 class="text-2xl font-bold text-text-primary m-0">Muspice</h1>
   </div>
 
+  <!-- ブラウズセクション -->
+  <div class="mb-6">
+    <h2 class="section-title">ブラウズ</h2>
+    <ul class="list-none m-0 p-0">
+      <li>
+        <button
+          class="nav-item-base w-full"
+          class:active={$browseMode === 'songs'}
+          onclick={() => handleBrowseModeChange('songs')}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path d="M9 18V5l12-2v13" />
+            <circle cx="6" cy="18" r="3" />
+            <circle cx="18" cy="16" r="3" />
+          </svg>
+          <span>曲</span>
+        </button>
+      </li>
+      <li>
+        <button
+          class="nav-item-base w-full"
+          class:active={$browseMode === 'albums'}
+          onclick={() => handleBrowseModeChange('albums')}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10" />
+            <circle cx="12" cy="12" r="3" />
+          </svg>
+          <span>アルバム</span>
+        </button>
+      </li>
+      <li>
+        <button
+          class="nav-item-base w-full"
+          class:active={$browseMode === 'artists'}
+          onclick={() => handleBrowseModeChange('artists')}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+            <circle cx="12" cy="7" r="4" />
+          </svg>
+          <span>アーティスト</span>
+        </button>
+      </li>
+      <li>
+        <button
+          class="nav-item-base w-full"
+          class:active={$browseMode === 'genres'}
+          onclick={() => handleBrowseModeChange('genres')}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+          </svg>
+          <span>ジャンル</span>
+        </button>
+      </li>
+    </ul>
+  </div>
+
   <!-- ライブラリセクション -->
   <div class="mb-6">
     <h2 class="section-title">ライブラリ</h2>
     <ul class="list-none m-0 p-0">
-      <li>
-        <a
-          href="/"
-          class="nav-item-base"
-          class:active={$page.url.pathname === '/' && !$page.url.searchParams.get('view')}
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
-          </svg>
-          <span>すべての曲</span>
-        </a>
-      </li>
-      <li>
-        <a
-          href="/?view=favorites"
-          class="nav-item-base"
-          class:active={$page.url.searchParams.get('view') === 'favorites'}
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
-          </svg>
-          <span>お気に入り</span>
-        </a>
-      </li>
       <li>
         <a
           href="/?view=recent"
