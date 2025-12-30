@@ -2,15 +2,51 @@
   import type { ArtistGroup } from '$lib/types/models';
   import { useArtistsGroupedQuery, getAlbumArt } from '$lib/queries/tracks';
   import { playTrackFromQueue } from '$lib/stores/player';
-  import { gridCardSize } from '$lib/stores/ui';
+  import { gridCardSize, browseSearchQuery } from '$lib/stores/ui';
   import GroupDetail from './GroupDetail.svelte';
   import GroupContextMenu from '../GroupContextMenu.svelte';
+
+  // 検索状態
+  let searchInput = $state('');
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // 検索入力のデバウンス処理
+  function handleSearchInput(event: Event) {
+    const target = event.target as HTMLInputElement;
+    searchInput = target.value;
+
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
+    }
+
+    debounceTimer = setTimeout(() => {
+      browseSearchQuery.set(searchInput);
+    }, 300);
+  }
+
+  // 検索クリア
+  function clearSearch() {
+    searchInput = '';
+    browseSearchQuery.set('');
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
+    }
+  }
 
   // クエリ
   const artistsQuery = useArtistsGroupedQuery();
   const isLoading = $derived(artistsQuery.isLoading);
   const isError = $derived(artistsQuery.isError);
-  const artists = $derived(artistsQuery.data ?? []);
+  const allArtists = $derived(artistsQuery.data ?? []);
+
+  // 検索でフィルタリングされたアーティスト
+  const artists = $derived.by(() => {
+    const query = $browseSearchQuery.toLowerCase().trim();
+    if (!query) return allArtists;
+    return allArtists.filter(artist =>
+      artist.name.toLowerCase().includes(query)
+    );
+  });
 
   // 選択中のアーティスト（モーダル表示用）
   let selectedArtist = $state<ArtistGroup | null>(null);
@@ -112,6 +148,23 @@
 </script>
 
 <div class="p-4 min-h-[200px]">
+  <!-- 検索バー -->
+  <div class="browse-search-bar">
+    <svg xmlns="http://www.w3.org/2000/svg" class="search-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+    </svg>
+    <input
+      type="text"
+      placeholder="アーティストを検索..."
+      value={searchInput}
+      oninput={handleSearchInput}
+      class="browse-search-input"
+    />
+    {#if searchInput}
+      <button onclick={clearSearch} class="search-clear-btn" aria-label="検索をクリア">✕</button>
+    {/if}
+  </div>
+
   {#if isLoading}
     <div class="state-container">
       <div class="spinner"></div>
@@ -120,6 +173,13 @@
   {:else if isError}
     <div class="state-container">
       <p class="text-error-light">アーティストの読み込みに失敗しました</p>
+    </div>
+  {:else if allArtists.length > 0 && artists.length === 0}
+    <div class="state-container">
+      <svg xmlns="http://www.w3.org/2000/svg" class="w-12 h-12 text-text-dimmed/50 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+      </svg>
+      <p>「{$browseSearchQuery}」に一致するアーティストが見つかりません</p>
     </div>
   {:else if artists.length > 0}
     <div class="artist-grid" style="--card-width: {cardWidth}px; --art-size: {$gridCardSize}px;">
@@ -191,6 +251,30 @@
 
 <style>
 @reference "../../../app.css";
+  .browse-search-bar {
+    @apply relative flex items-center mb-4 max-w-md;
+  }
+
+  .search-icon {
+    @apply absolute left-3 w-4 h-4 text-text-dimmed;
+  }
+
+  .browse-search-input {
+    @apply w-full py-2 pl-9 pr-8 bg-base-400 border border-border rounded-md text-sm text-text-primary transition-all duration-200;
+  }
+
+  .browse-search-input:focus {
+    @apply outline-none border-primary;
+  }
+
+  .browse-search-input::placeholder {
+    @apply text-text-dimmed;
+  }
+
+  .search-clear-btn {
+    @apply absolute right-2 p-1 text-text-dimmed hover:text-text-primary bg-transparent border-none cursor-pointer;
+  }
+
   .artist-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(var(--card-width), 1fr));
@@ -207,6 +291,7 @@
   }
 
   .artist-placeholder {
+    @apply flex items-center justify-center;
     background: linear-gradient(135deg, #3a3a4a, #2a2a3a);
   }
 

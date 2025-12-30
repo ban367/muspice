@@ -1,8 +1,10 @@
 <script lang="ts">
   import { page } from '$app/stores';
+  import { goto } from '$app/navigation';
   import { usePlaylistsQuery, useAddTrackToPlaylistMutation, useCreatePlaylistMutation } from '$lib/queries/playlists';
   import { validatePlaylistName, toSafeString } from '$lib/utils/validation';
-  import { browseMode, type BrowseMode, isImportDialogOpen } from '$lib/stores/ui';
+  import { browseMode, type BrowseMode, isImportDialogOpen, browseSearchQuery, selectedGenreName, expandedGenres } from '$lib/stores/ui';
+  import { useGenresGroupedQuery } from '$lib/queries/tracks';
   import type { Playlist } from '$lib/types/models';
   import PlaylistContextMenu from './PlaylistContextMenu.svelte';
 
@@ -11,10 +13,55 @@
     isImportDialogOpen.set(true);
   }
 
-  // ブラウズモードを変更
+  // ブラウズモードを変更（URLパラメータもクリア）
   function handleBrowseModeChange(mode: BrowseMode) {
     browseMode.set(mode);
+    // 検索クエリをクリア
+    browseSearchQuery.set('');
+    // viewパラメータをクリアしてブラウズモードを有効に
+    goto('/');
   }
+
+  // ライブラリ項目をクリック（browseModeをsongsにリセット）
+  function handleLibraryItemClick() {
+    browseMode.set('songs');
+  }
+
+  // ジャンル展開をトグル
+  function toggleGenreExpand() {
+    expandedGenres.update(set => {
+      const newSet = new Set(set);
+      if (newSet.size > 0) {
+        newSet.clear();
+      } else {
+        // ジャンルビューに切り替え
+        handleBrowseModeChange('genres');
+      }
+      return newSet;
+    });
+  }
+
+  // ジャンルを選択（詳細表示）
+  function handleGenreSelect(genreName: string) {
+    selectedGenreName.set(genreName);
+    browseMode.set('genre-detail');
+    browseSearchQuery.set('');
+    goto('/');
+  }
+
+  // ジャンルビューに戻る
+  function handleBackToGenres() {
+    selectedGenreName.set(null);
+    browseMode.set('genres');
+    goto('/');
+  }
+
+  // ジャンルクエリ
+  const genresQuery = useGenresGroupedQuery();
+  const genres = $derived(genresQuery.data ?? []);
+
+  // ジャンルが展開されているか
+  const isGenreExpanded = $derived($browseMode === 'genres' || $browseMode === 'genre-detail');
 
   // クエリとミューテーション
   const playlistsQuery = usePlaylistsQuery();
@@ -170,15 +217,43 @@
       <li>
         <button
           class="nav-item-base w-full"
-          class:active={$browseMode === 'genres'}
+          class:active={$browseMode === 'genres' || $browseMode === 'genre-detail'}
           onclick={() => handleBrowseModeChange('genres')}
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
             <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
           </svg>
-          <span>ジャンル</span>
+          <span class="flex-1 text-left">ジャンル</span>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="w-4 h-4 shrink-0 transition-transform duration-200"
+            class:rotate-90={isGenreExpanded}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
         </button>
+        <!-- ジャンルサブリスト -->
+        {#if isGenreExpanded && genres.length > 0}
+          <ul class="genre-sublist">
+            {#each genres as genre (genre.name)}
+              <li>
+                <button
+                  class="genre-item"
+                  class:active={$browseMode === 'genre-detail' && $selectedGenreName === genre.name}
+                  onclick={() => handleGenreSelect(genre.name)}
+                >
+                  <span class="genre-name">{genre.name}</span>
+                  <span class="genre-count">{genre.trackCount}</span>
+                </button>
+              </li>
+            {/each}
+          </ul>
+        {/if}
       </li>
     </ul>
   </div>
@@ -192,6 +267,7 @@
           href="/?view=recent"
           class="nav-item-base"
           class:active={$page.url.searchParams.get('view') === 'recent'}
+          onclick={handleLibraryItemClick}
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -204,6 +280,7 @@
           href="/?view=mostplayed"
           class="nav-item-base"
           class:active={$page.url.searchParams.get('view') === 'mostplayed'}
+          onclick={handleLibraryItemClick}
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
@@ -271,3 +348,30 @@
     onClose={closeContextMenu}
   />
 {/if}
+
+<style>
+@reference "../../app.css";
+  .genre-sublist {
+    @apply list-none m-0 p-0 ml-4 mt-1 border-l border-border;
+  }
+
+  .genre-item {
+    @apply flex items-center w-full px-3 py-1.5 text-sm text-text-secondary bg-transparent border-none cursor-pointer transition-colors duration-150 text-left;
+  }
+
+  .genre-item:hover {
+    @apply bg-surface-hover text-text-primary;
+  }
+
+  .genre-item.active {
+    @apply bg-primary/20 text-primary;
+  }
+
+  .genre-name {
+    @apply flex-1 truncate;
+  }
+
+  .genre-count {
+    @apply text-xs text-text-dimmed shrink-0 ml-2;
+  }
+</style>

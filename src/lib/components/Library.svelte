@@ -17,7 +17,7 @@
   import ContextMenu from './ContextMenu.svelte';
   import { sanitizeSearchQuery } from '$lib/utils/validation';
   import { playTrackFromQueue, currentTrack, playQueue, currentTrackIndex, isPlaying } from '$lib/stores/player';
-  import { browseMode, gridCardSize, MIN_CARD_SIZE, MAX_CARD_SIZE } from '$lib/stores/ui';
+  import { browseMode, gridCardSize, MIN_CARD_SIZE, MAX_CARD_SIZE, selectedGenreName, columnWidths, type ColumnWidths } from '$lib/stores/ui';
   import { get } from 'svelte/store';
   import type { Track, AlbumArt } from '$lib/types/models';
   import AlbumGrid from './library/AlbumGrid.svelte';
@@ -68,6 +68,17 @@
   // ドラッグ状態
   let isDragging = $state(false);
   let draggedTrackIds = $state<string[]>([]);
+
+  // 列リサイズ状態
+  let isResizing = $state(false);
+  let resizingColumn = $state<keyof ColumnWidths | null>(null);
+  let resizeStartX = $state(0);
+  let resizeStartWidth = $state(0);
+
+  // グリッドテンプレート列を計算
+  const gridTemplateColumns = $derived(
+    `${$columnWidths.checkbox}px ${$columnWidths.title}px ${$columnWidths.artist}px ${$columnWidths.rating}px ${$columnWidths.duration}px`
+  );
 
   const queryClient = useQueryClient();
   const tracksQuery = useTracksQuery();
@@ -131,10 +142,22 @@
     return null;
   });
 
+  // ジャンル詳細クエリを動的に作成
+  const genreDetailQuery = $derived.by(() => {
+    if ($browseMode === 'genre-detail' && $selectedGenreName) {
+      return useFilterQuery({ genre: $selectedGenreName });
+    }
+    return null;
+  });
+
   // 表示するクエリを選択
   const activeQuery = $derived.by(() => {
     if (viewModeParam !== 'all') {
       return baseQuery;
+    }
+    // ジャンル詳細モードの場合
+    if ($browseMode === 'genre-detail' && genreDetailQuery) {
+      return genreDetailQuery;
     }
     return searchQuery || filterQuery || baseQuery;
   });
@@ -442,6 +465,40 @@
     draggedTrackIds = [];
   }
 
+  // 列リサイズ開始
+  function handleResizeStart(event: MouseEvent, column: keyof ColumnWidths) {
+    event.preventDefault();
+    isResizing = true;
+    resizingColumn = column;
+    resizeStartX = event.clientX;
+    resizeStartWidth = $columnWidths[column];
+
+    // グローバルイベントリスナーを追加
+    document.addEventListener('mousemove', handleResizeMove);
+    document.addEventListener('mouseup', handleResizeEnd);
+  }
+
+  // 列リサイズ中
+  function handleResizeMove(event: MouseEvent) {
+    if (!isResizing || !resizingColumn) return;
+
+    const delta = event.clientX - resizeStartX;
+    const newWidth = Math.max(50, resizeStartWidth + delta); // 最小幅50px
+
+    columnWidths.update(widths => ({
+      ...widths,
+      [resizingColumn!]: newWidth
+    }));
+  }
+
+  // 列リサイズ終了
+  function handleResizeEnd() {
+    isResizing = false;
+    resizingColumn = null;
+    document.removeEventListener('mousemove', handleResizeMove);
+    document.removeEventListener('mouseup', handleResizeEnd);
+  }
+
   $effect(() => {
     if (tracks && displayMode === 'grid') {
       for (const track of tracks.slice(0, 50)) {
@@ -462,8 +519,8 @@
       {/if}
     </div>
     <div class="flex gap-3 items-center">
-      {#if $browseMode === 'songs' || viewModeParam !== 'all'}
-        {#if viewModeParam === 'all'}
+      {#if $browseMode === 'songs' || $browseMode === 'genre-detail' || viewModeParam !== 'all'}
+        {#if viewModeParam === 'all' && $browseMode !== 'genre-detail'}
           <div class="search-box">
             <svg xmlns="http://www.w3.org/2000/svg" class="absolute left-3 w-4 h-4 text-text-dimmed" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -561,6 +618,169 @@
       <ArtistGrid />
     {:else if viewModeParam === 'all' && $browseMode === 'genres'}
       <GenreGrid />
+    {:else if viewModeParam === 'all' && $browseMode === 'genre-detail' && $selectedGenreName}
+      <!-- ジャンル詳細ヘッダー -->
+      <div class="genre-detail-header">
+        <h2 class="text-xl font-bold text-text-primary">{$selectedGenreName}</h2>
+        {#if tracks}
+          <span class="text-sm text-text-muted ml-2">{tracks.length}曲</span>
+        {/if}
+      </div>
+      {#if isLoading}
+        <div class="empty-state">
+          <div class="spinner"></div>
+          <p>読み込み中...</p>
+        </div>
+      {:else if tracks && tracks.length > 0}
+        {#if displayMode === 'list'}
+          <!-- リスト表示 -->
+          <div class="track-table">
+            <div class="table-header" style="grid-template-columns: {gridTemplateColumns};">
+              <div class="col-checkbox"></div>
+              <div class="resizable-header">
+                <button class="sortable" onclick={() => toggleSort('title')}>
+                  タイトル {getSortIcon('title')}
+                </button>
+                <div
+                  class="resize-handle"
+                  onmousedown={(e) => handleResizeStart(e, 'title')}
+                  role="separator"
+                  aria-orientation="vertical"
+                ></div>
+              </div>
+              <div class="resizable-header">
+                <button class="sortable" onclick={() => toggleSort('artist')}>
+                  アーティスト {getSortIcon('artist')}
+                </button>
+                <div
+                  class="resize-handle"
+                  onmousedown={(e) => handleResizeStart(e, 'artist')}
+                  role="separator"
+                  aria-orientation="vertical"
+                ></div>
+              </div>
+              <div class="resizable-header">
+                <div class="col-rating">評価</div>
+                <div
+                  class="resize-handle"
+                  onmousedown={(e) => handleResizeStart(e, 'rating')}
+                  role="separator"
+                  aria-orientation="vertical"
+                ></div>
+              </div>
+              <button class="sortable text-right" onclick={() => toggleSort('duration')}>
+                時間 {getSortIcon('duration')}
+              </button>
+            </div>
+            <div class="flex flex-col">
+              {#each tracks as track (track.id)}
+                <div
+                  class="track-row"
+                  class:selected={selectedTrackIds.has(track.id)}
+                  class:playing={currentPlayingTrackId === track.id}
+                  class:dragging={isDragging && draggedTrackIds.includes(track.id)}
+                  style="grid-template-columns: {gridTemplateColumns};"
+                  draggable="true"
+                  ondragstart={(e) => handleDragStart(e, track)}
+                  ondragend={handleDragEnd}
+                  onclick={(e) => toggleTrackSelection(track.id, e)}
+                  ondblclick={() => handleTrackDoubleClick(track)}
+                  oncontextmenu={(e) => handleContextMenu(e, track)}
+                  onkeydown={(e) => e.key === 'Enter' && handleTrackDoubleClick(track)}
+                  role="button"
+                  tabindex="0"
+                >
+                  <div class="col-checkbox flex items-center justify-center">
+                    {#if currentPlayingTrackId === track.id}
+                      <PlayingIndicator size="small" />
+                    {/if}
+                  </div>
+                  <div class="text-truncate text-text-primary">
+                    {track.title || track.fileName}
+                  </div>
+                  <div class="text-truncate text-text-secondary text-sm">
+                    {track.artist || '不明なアーティスト'}
+                  </div>
+                  <div class="col-rating flex items-center justify-center">
+                    <div class="rating-stars">
+                      {#each [1, 2, 3, 4, 5] as star}
+                        <button
+                          class="star-btn"
+                          class:active={track.rating >= star}
+                          onclick={(e) => handleSetRating(track.id, track.rating === star ? 0 : star, e)}
+                          title={`${star}つ星`}
+                        >
+                          ★
+                        </button>
+                      {/each}
+                    </div>
+                  </div>
+                  <div class="text-right text-text-muted text-sm">
+                    {formatDuration(track.duration)}
+                  </div>
+                </div>
+              {/each}
+            </div>
+          </div>
+        {:else}
+          <!-- グリッド表示 -->
+          <div
+            class="grid gap-4 justify-items-center"
+            style="grid-template-columns: repeat(auto-fill, minmax({cardWidth}px, 1fr));"
+          >
+            {#each tracks as track (track.id)}
+              <div
+                class="track-card"
+                class:selected={selectedTrackIds.has(track.id)}
+                class:playing={currentPlayingTrackId === track.id}
+                style="width: {cardWidth}px;"
+                draggable="true"
+                ondragstart={(e) => handleDragStart(e, track)}
+                onclick={(e) => toggleTrackSelection(track.id, e)}
+                ondblclick={() => handleTrackDoubleClick(track)}
+                oncontextmenu={(e) => handleContextMenu(e, track)}
+                onkeydown={(e) => e.key === 'Enter' && handleTrackDoubleClick(track)}
+                role="button"
+                tabindex="0"
+              >
+                <div class="relative shrink-0 rounded-md overflow-hidden bg-base-400 mb-2" style="width: {artSize}px; height: {artSize}px;">
+                  {#if getAlbumArtUrl(track.id)}
+                    <img
+                      src={getAlbumArtUrl(track.id)}
+                      alt="アルバムアート"
+                      class="w-full h-full object-cover"
+                      loading="lazy"
+                    />
+                  {:else}
+                    <div class="w-full h-full flex items-center justify-center text-white/80 bg-gradient-to-br from-accent to-accent-focus">
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-2/5 h-2/5">
+                        <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
+                      </svg>
+                    </div>
+                  {/if}
+                  {#if currentPlayingTrackId === track.id}
+                    <div class="absolute inset-0 bg-black/50 flex items-center justify-center">
+                      <PlayingIndicator size="large" />
+                    </div>
+                  {/if}
+                </div>
+                <div class="w-full text-center min-w-0">
+                  <div class="font-semibold mb-1 text-truncate text-sm text-text-primary" title={track.title || track.fileName}>
+                    {track.title || track.fileName}
+                  </div>
+                  <div class="text-xs text-text-muted text-truncate" title={track.artist || '不明なアーティスト'}>
+                    {track.artist || '不明なアーティスト'}
+                  </div>
+                </div>
+              </div>
+            {/each}
+          </div>
+        {/if}
+      {:else}
+        <div class="empty-state">
+          <p>このジャンルに曲がありません</p>
+        </div>
+      {/if}
     {:else if isLoading}
       <div class="empty-state">
         <div class="spinner"></div>
@@ -575,18 +795,39 @@
       {#if displayMode === 'list'}
         <!-- リスト表示 -->
         <div class="track-table">
-          <div class="table-header">
+          <div class="table-header" style="grid-template-columns: {gridTemplateColumns};">
             <div class="col-checkbox"></div>
-            <button class="sortable" onclick={() => toggleSort('title')}>
-              タイトル {getSortIcon('title')}
-            </button>
-            <button class="sortable" onclick={() => toggleSort('artist')}>
-              アーティスト {getSortIcon('artist')}
-            </button>
-            <button class="sortable" onclick={() => toggleSort('album')}>
-              アルバム {getSortIcon('album')}
-            </button>
-            <div class="col-rating">評価</div>
+            <div class="resizable-header">
+              <button class="sortable" onclick={() => toggleSort('title')}>
+                タイトル {getSortIcon('title')}
+              </button>
+              <div
+                class="resize-handle"
+                onmousedown={(e) => handleResizeStart(e, 'title')}
+                role="separator"
+                aria-orientation="vertical"
+              ></div>
+            </div>
+            <div class="resizable-header">
+              <button class="sortable" onclick={() => toggleSort('artist')}>
+                アーティスト {getSortIcon('artist')}
+              </button>
+              <div
+                class="resize-handle"
+                onmousedown={(e) => handleResizeStart(e, 'artist')}
+                role="separator"
+                aria-orientation="vertical"
+              ></div>
+            </div>
+            <div class="resizable-header">
+              <div class="col-rating">評価</div>
+              <div
+                class="resize-handle"
+                onmousedown={(e) => handleResizeStart(e, 'rating')}
+                role="separator"
+                aria-orientation="vertical"
+              ></div>
+            </div>
             <button class="sortable text-right" onclick={() => toggleSort('duration')}>
               時間 {getSortIcon('duration')}
             </button>
@@ -598,6 +839,7 @@
                 class:selected={selectedTrackIds.has(track.id)}
                 class:playing={currentPlayingTrackId === track.id}
                 class:dragging={isDragging && draggedTrackIds.includes(track.id)}
+                style="grid-template-columns: {gridTemplateColumns};"
                 draggable="true"
                 ondragstart={(e) => handleDragStart(e, track)}
                 ondragend={handleDragEnd}
@@ -618,9 +860,6 @@
                 </div>
                 <div class="text-truncate text-text-secondary text-sm">
                   {@html highlightText(track.artist || '不明なアーティスト', debouncedSearchTerm)}
-                </div>
-                <div class="text-truncate text-text-secondary text-sm">
-                  {@html highlightText(track.album || '不明なアルバム', debouncedSearchTerm)}
                 </div>
                 <div class="col-rating flex items-center justify-center">
                   <div class="rating-stars">
@@ -805,7 +1044,19 @@
 
   .table-header {
     @apply grid gap-3 px-4 py-2 text-xs font-semibold uppercase text-text-muted border-b border-border sticky top-0 bg-base-100 z-10;
-    grid-template-columns: 2.5rem 2rem 2fr 1.5fr 1.5fr 5rem 4rem;
+  }
+
+  .resizable-header {
+    @apply relative flex items-center;
+  }
+
+  .resize-handle {
+    @apply absolute right-0 top-0 bottom-0 w-1 cursor-col-resize bg-transparent transition-colors;
+    transform: translateX(50%);
+  }
+
+  .resize-handle:hover {
+    @apply bg-primary;
   }
 
   .sortable {
@@ -814,7 +1065,6 @@
 
   .track-row {
     @apply grid gap-3 px-4 py-2 items-center cursor-pointer rounded transition-colors;
-    grid-template-columns: 2.5rem 2rem 2fr 1.5fr 1.5fr 5rem 4rem;
   }
 
   .track-row:hover {
@@ -873,6 +1123,11 @@
 
   .track-card.playing {
     @apply border-secondary;
+  }
+
+  /* ジャンル詳細ヘッダー */
+  .genre-detail-header {
+    @apply flex items-center mb-4 px-4 pt-4;
   }
 
   /* ドラッグプレビュー */
