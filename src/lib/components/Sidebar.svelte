@@ -2,10 +2,23 @@
   import { page } from '$app/stores';
   import { usePlaylistsQuery, useAddTrackToPlaylistMutation, useCreatePlaylistMutation } from '$lib/queries/playlists';
   import { validatePlaylistName, toSafeString } from '$lib/utils/validation';
-  import { isImportDialogOpen } from '$lib/stores/ui';
+  import { isImportDialogOpen, isSidebarOpen } from '$lib/stores/ui';
   import { useGenresGroupedQuery } from '$lib/queries/tracks';
   import type { Playlist } from '$lib/types/models';
   import PlaylistContextMenu from './PlaylistContextMenu.svelte';
+
+  // パス変更時にサイドバーを閉じる（モバイル用）
+  let previousPath = $state('');
+  $effect(() => {
+    const path = $page.url.pathname;
+    if (previousPath && path !== previousPath) {
+      // パスが変更されたらサイドバーを閉じる（モバイル幅の場合のみ）
+      if (typeof window !== 'undefined' && window.innerWidth <= 1024) {
+        isSidebarOpen.set(false);
+      }
+    }
+    previousPath = path;
+  });
 
   // インポートダイアログを開く
   function handleOpenImportDialog() {
