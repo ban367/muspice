@@ -887,6 +887,36 @@ pub async fn remove_track_from_playlist(
     })
 }
 
+/// プレイリストの名前を変更
+#[tauri::command]
+pub async fn rename_playlist(
+    playlist_id: String,
+    name: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    // プレイリストIDをバリデーション
+    validate_playlist_id(&playlist_id)?;
+
+    // 名前をバリデーション
+    let name = crate::validation::sanitize_string(&name);
+    if name.is_empty() {
+        return Err("プレイリスト名を入力してください".to_string());
+    }
+    if name.len() > 100 {
+        return Err("プレイリスト名は100文字以内で入力してください".to_string());
+    }
+
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
+
+    crate::playlist::rename_playlist(&db, &playlist_id, &name).map_err(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => "プレイリストが見つかりません".to_string(),
+        _ => format!("プレイリスト名の変更に失敗しました: {}", e),
+    })
+}
+
 /// プレイリストを削除
 #[tauri::command]
 pub async fn delete_playlist(

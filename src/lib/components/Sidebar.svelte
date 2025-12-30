@@ -3,6 +3,8 @@
   import { usePlaylistsQuery, useAddTrackToPlaylistMutation, useCreatePlaylistMutation } from '$lib/queries/playlists';
   import { validatePlaylistName, toSafeString } from '$lib/utils/validation';
   import { browseMode, type BrowseMode, isImportDialogOpen } from '$lib/stores/ui';
+  import type { Playlist } from '$lib/types/models';
+  import PlaylistContextMenu from './PlaylistContextMenu.svelte';
 
   // インポートダイアログを開く
   function handleOpenImportDialog() {
@@ -18,6 +20,28 @@
   const playlistsQuery = usePlaylistsQuery();
   const addTrackMutation = useAddTrackToPlaylistMutation();
   const createPlaylistMutation = useCreatePlaylistMutation();
+
+  // コンテキストメニュー
+  let contextMenu = $state<{ x: number; y: number; playlist: Playlist } | null>(null);
+
+  /**
+   * 右クリックメニューを表示
+   */
+  function handleContextMenu(event: MouseEvent, playlist: Playlist) {
+    event.preventDefault();
+    contextMenu = {
+      x: event.clientX,
+      y: event.clientY,
+      playlist
+    };
+  }
+
+  /**
+   * 右クリックメニューを閉じる
+   */
+  function closeContextMenu() {
+    contextMenu = null;
+  }
 
   /**
    * 新規プレイリストを作成
@@ -220,6 +244,7 @@
               ondragover={handleDragOver}
               ondragleave={handleDragLeave}
               ondrop={(e) => handleDrop(e, playlist.id)}
+              oncontextmenu={(e) => handleContextMenu(e, playlist)}
             >
               <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16" />
@@ -236,3 +261,13 @@
     </ul>
   </div>
 </aside>
+
+<!-- コンテキストメニュー -->
+{#if contextMenu}
+  <PlaylistContextMenu
+    x={contextMenu.x}
+    y={contextMenu.y}
+    playlist={contextMenu.playlist}
+    onClose={closeContextMenu}
+  />
+{/if}

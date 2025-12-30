@@ -4,6 +4,7 @@
   import { playTrackFromQueue } from '$lib/stores/player';
   import { gridCardSize } from '$lib/stores/ui';
   import GroupDetail from './GroupDetail.svelte';
+  import GroupContextMenu from '../GroupContextMenu.svelte';
 
   // クエリ
   const albumsQuery = useAlbumsGroupedQuery();
@@ -13,6 +14,9 @@
 
   // 選択中のアルバム（モーダル表示用）
   let selectedAlbum = $state<AlbumGroup | null>(null);
+
+  // コンテキストメニュー
+  let contextMenu = $state<{ x: number; y: number; album: AlbumGroup } | null>(null);
 
   // アルバムアートのキャッシュ
   let albumArtCache = $state<Map<string, string>>(new Map());
@@ -78,6 +82,21 @@
     selectedAlbum = null;
   }
 
+  // 右クリックメニューを表示
+  function handleContextMenu(event: MouseEvent, album: AlbumGroup) {
+    event.preventDefault();
+    contextMenu = {
+      x: event.clientX,
+      y: event.clientY,
+      album
+    };
+  }
+
+  // 右クリックメニューを閉じる
+  function closeContextMenu() {
+    contextMenu = null;
+  }
+
   // Intersection Observer アクション
   function intersectionObserver(node: HTMLElement, options: { callback: () => void }) {
     const observer = new IntersectionObserver((entries) => {
@@ -118,6 +137,7 @@
           class="grid-card"
           onclick={() => handleAlbumClick(album)}
           ondblclick={() => handleAlbumDoubleClick(album)}
+          oncontextmenu={(e) => handleContextMenu(e, album)}
           use:intersectionObserver={{ callback: () => handleAlbumVisible(album) }}
         >
           <div class="grid-card-art" style="width: {$gridCardSize}px; height: {$gridCardSize}px;">
@@ -165,6 +185,17 @@
   type="album"
   onClose={handleCloseDetail}
 />
+
+<!-- コンテキストメニュー -->
+{#if contextMenu}
+  <GroupContextMenu
+    x={contextMenu.x}
+    y={contextMenu.y}
+    group={contextMenu.album}
+    type="album"
+    onClose={closeContextMenu}
+  />
+{/if}
 
 <style>
   .album-grid {

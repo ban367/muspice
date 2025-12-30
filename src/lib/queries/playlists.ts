@@ -113,6 +113,29 @@ export function useReorderPlaylistTracksMutation() {
 }
 
 /**
+ * プレイリストの名前を変更するミューテーション
+ */
+export function useRenamePlaylistMutation() {
+	const queryClient = useQueryClient();
+
+	return createMutation(() => ({
+		mutationFn: async ({ playlistId, name }: { playlistId: string; name: string }) => {
+			try {
+				await invoke('rename_playlist', { playlistId, name });
+			} catch (error) {
+				handleError(error, 'プレイリスト名の変更');
+				throw error;
+			}
+		},
+		onSuccess: () => {
+			// プレイリスト一覧を再取得
+			queryClient.invalidateQueries({ queryKey: ['playlists'] });
+			showSuccess('プレイリスト名を変更しました');
+		}
+	}));
+}
+
+/**
  * プレイリストを削除するミューテーション
  */
 export function useDeletePlaylistMutation() {

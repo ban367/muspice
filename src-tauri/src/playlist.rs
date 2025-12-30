@@ -173,6 +173,27 @@ fn reorder_positions_after_deletion(conn: &Connection, playlist_id: &str) -> Res
     Ok(())
 }
 
+/// プレイリストの名前を変更
+pub fn rename_playlist(conn: &Connection, playlist_id: &str, name: &str) -> Result<()> {
+    // プレイリストの存在確認
+    let playlist_exists: bool = conn
+        .prepare("SELECT 1 FROM playlists WHERE id = ?1")?
+        .exists([playlist_id])?;
+
+    if !playlist_exists {
+        return Err(rusqlite::Error::QueryReturnedNoRows);
+    }
+
+    let now = Utc::now().to_rfc3339();
+
+    conn.execute(
+        "UPDATE playlists SET name = ?1, updated_at = ?2 WHERE id = ?3",
+        rusqlite::params![name, now, playlist_id],
+    )?;
+
+    Ok(())
+}
+
 /// プレイリストを削除
 pub fn delete_playlist(conn: &Connection, playlist_id: &str) -> Result<()> {
     // プレイリストの存在確認

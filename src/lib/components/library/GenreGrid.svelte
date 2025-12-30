@@ -3,6 +3,7 @@
   import { useGenresGroupedQuery } from '$lib/queries/tracks';
   import { playTrackFromQueue } from '$lib/stores/player';
   import GroupDetail from './GroupDetail.svelte';
+  import GroupContextMenu from '../GroupContextMenu.svelte';
 
   // クエリ
   const genresQuery = useGenresGroupedQuery();
@@ -12,6 +13,9 @@
 
   // 選択中のジャンル（モーダル表示用）
   let selectedGenre = $state<GenreGroup | null>(null);
+
+  // コンテキストメニュー
+  let contextMenu = $state<{ x: number; y: number; genre: GenreGroup } | null>(null);
 
   // ジャンルごとの色を生成
   const genreColors = [
@@ -53,6 +57,21 @@
   function handleCloseDetail() {
     selectedGenre = null;
   }
+
+  // 右クリックメニューを表示
+  function handleContextMenu(event: MouseEvent, genre: GenreGroup) {
+    event.preventDefault();
+    contextMenu = {
+      x: event.clientX,
+      y: event.clientY,
+      genre
+    };
+  }
+
+  // 右クリックメニューを閉じる
+  function closeContextMenu() {
+    contextMenu = null;
+  }
 </script>
 
 <div class="p-4 min-h-[200px]">
@@ -69,11 +88,13 @@
     <div class="genre-grid">
       {#each genres as genre, index (genre.name)}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
         <div
           class="genre-card"
           style="background: {getGenreColor(index).bg}"
           onclick={() => handleGenreClick(genre)}
           ondblclick={() => handleGenreDoubleClick(genre)}
+          oncontextmenu={(e) => handleContextMenu(e, genre)}
         >
           <div class="genre-content">
             <h3 class="genre-name">{genre.name}</h3>
@@ -107,6 +128,17 @@
   type="genre"
   onClose={handleCloseDetail}
 />
+
+<!-- コンテキストメニュー -->
+{#if contextMenu}
+  <GroupContextMenu
+    x={contextMenu.x}
+    y={contextMenu.y}
+    group={contextMenu.genre}
+    type="genre"
+    onClose={closeContextMenu}
+  />
+{/if}
 
 <style>
 @reference "../../../app.css";
