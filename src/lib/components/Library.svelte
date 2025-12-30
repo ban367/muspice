@@ -4,20 +4,16 @@
     useTracksQuery,
     useSearchQuery,
     useFilterQuery,
-    useUniqueArtistsQuery,
-    useUniqueAlbumsQuery,
-    useUniqueGenresQuery,
     useMostPlayedTracksQuery,
     useRecentlyPlayedTracksQuery,
-    setRating,
-    type FilterOptions
+    setRating
   } from '$lib/queries/tracks';
   import { useQueryClient } from '@tanstack/svelte-query';
   import MetadataEditor from './MetadataEditor.svelte';
   import ContextMenu from './ContextMenu.svelte';
   import { sanitizeSearchQuery } from '$lib/utils/validation';
   import { playTrackFromQueue, currentTrack, playQueue, currentTrackIndex, isPlaying } from '$lib/stores/player';
-  import { browseMode, gridCardSize, MIN_CARD_SIZE, MAX_CARD_SIZE, selectedGenreName, columnWidths, type ColumnWidths } from '$lib/stores/ui';
+  import { browseMode, gridCardSize, MIN_CARD_SIZE, MAX_CARD_SIZE, selectedGenreName, columnWidths, browseSearchQuery, type ColumnWidths } from '$lib/stores/ui';
   import { get } from 'svelte/store';
   import type { Track, AlbumArt } from '$lib/types/models';
   import AlbumGrid from './library/AlbumGrid.svelte';
@@ -42,6 +38,10 @@
   let debouncedSearchTerm = $state('');
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // ブラウズ検索用
+  let browseSearchTerm = $state('');
+  let browseDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
   // ソート状態
   let sortField = $state<SortField>('createdAt');
   let sortDirection = $state<SortDirection>('desc');
@@ -52,11 +52,6 @@
   // アルバムアートキャッシュ
   let albumArtCache = $state<Map<string, string | null>>(new Map());
 
-  // フィルター状態
-  let selectedArtist = $state<string>('');
-  let selectedAlbum = $state<string>('');
-  let selectedGenre = $state<string>('');
-  let showFilters = $state(false);
 
   // トラック選択状態
   let selectedTrackIds = $state<Set<string>>(new Set());
@@ -84,9 +79,6 @@
   const tracksQuery = useTracksQuery();
   const recentQuery = useRecentlyPlayedTracksQuery(50);
   const mostPlayedQuery = useMostPlayedTracksQuery(50);
-  const artistsQuery = useUniqueArtistsQuery();
-  const albumsQuery = useUniqueAlbumsQuery();
-  const genresQuery = useUniqueGenresQuery();
 
   // ビューモードに応じたベースクエリを選択
   const baseQuery = $derived.by(() => {
@@ -116,28 +108,10 @@
   // 検索中かどうかを判定
   const isSearching = $derived(debouncedSearchTerm.length > 0);
 
-  // フィルタリング中かどうかを判定
-  const isFiltering = $derived(!!(selectedArtist || selectedAlbum || selectedGenre));
-
-  // フィルターオプション
-  const filterOptions = $derived<FilterOptions>({
-    artist: selectedArtist || undefined,
-    album: selectedAlbum || undefined,
-    genre: selectedGenre || undefined
-  });
-
   // 検索クエリを動的に作成
   const searchQuery = $derived.by(() => {
     if (isSearching) {
       return useSearchQuery(debouncedSearchTerm);
-    }
-    return null;
-  });
-
-  // フィルタークエリを動的に作成
-  const filterQuery = $derived.by(() => {
-    if (isFiltering && !isSearching) {
-      return useFilterQuery(filterOptions);
     }
     return null;
   });
@@ -159,7 +133,7 @@
     if ($browseMode === 'genre-detail' && genreDetailQuery) {
       return genreDetailQuery;
     }
-    return searchQuery || filterQuery || baseQuery;
+    return searchQuery || baseQuery;
   });
 
   // クエリ結果を取得
@@ -253,6 +227,51 @@
     }
   }
 
+  // ブラウズ検索入力のデバウンス処理
+  function handleBrowseSearchInput(event: Event) {
+    const target = event.target as HTMLInputElement;
+    browseSearchTerm = target.value;
+
+    if (browseDebounceTimer) {
+      clearTimeout(browseDebounceTimer);
+    }
+
+    browseDebounceTimer = setTimeout(() => {
+      browseSearchQuery.set(browseSearchTerm);
+    }, 300);
+  }
+
+  function clearBrowseSearch() {
+    browseSearchTerm = '';
+    browseSearchQuery.set('');
+    if (browseDebounceTimer) {
+      clearTimeout(browseDebounceTimer);
+    }
+  }
+
+  // ブラウズモード変更時に検索をクリア
+  $effect(() => {
+    // ブラウズモードの監視
+    const mode = $browseMode;
+    // 検索状態をリセット
+    browseSearchTerm = '';
+    browseSearchQuery.set('');
+  });
+
+  // プレースホルダーテキストを取得
+  const browseSearchPlaceholder = $derived.by(() => {
+    switch ($browseMode) {
+      case 'albums':
+        return 'アルバムを検索...';
+      case 'artists':
+        return 'アーティストを検索...';
+      case 'genres':
+        return 'ジャンルを検索...';
+      default:
+        return '検索...';
+    }
+  });
+
   function highlightText(text: string, search: string): string {
     if (!search || !text) return text;
     const regex = new RegExp(`(${search})`, 'gi');
@@ -269,18 +288,6 @@
   function toggleDisplayMode() {
     displayMode = displayMode === 'grid' ? 'list' : 'grid';
   }
-
-  function toggleFilters() {
-    showFilters = !showFilters;
-  }
-
-  function clearFilters() {
-    selectedArtist = '';
-    selectedAlbum = '';
-    selectedGenre = '';
-  }
-
-  const hasActiveFilters = $derived(!!(selectedArtist || selectedAlbum || selectedGenre));
 
   const selectedTracks = $derived.by(() => {
     if (!tracks) return [];
@@ -536,14 +543,6 @@
               <button onclick={clearSearch} class="absolute right-2 p-1 text-text-dimmed hover:text-text-primary" aria-label="検索をクリア">✕</button>
             {/if}
           </div>
-          <button onclick={toggleFilters} class="header-btn" class:active={showFilters} title="フィルター">
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-            </svg>
-            {#if hasActiveFilters}
-              <span class="filter-badge">{[selectedArtist, selectedAlbum, selectedGenre].filter(Boolean).length}</span>
-            {/if}
-          </button>
         {/if}
         <button onclick={toggleDisplayMode} class="header-btn" title={displayMode === 'grid' ? 'リスト表示' : 'グリッド表示'}>
           {#if displayMode === 'grid'}
@@ -559,56 +558,29 @@
         {#if displayMode === 'grid'}
           <CardSizeSlider />
         {/if}
-      {:else if $browseMode === 'albums' || $browseMode === 'artists'}
-        <CardSizeSlider />
+      {:else if $browseMode === 'albums' || $browseMode === 'artists' || $browseMode === 'genres'}
+        <!-- ブラウズ検索バー -->
+        <div class="search-box">
+          <svg xmlns="http://www.w3.org/2000/svg" class="absolute left-3 w-4 h-4 text-text-dimmed" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <input
+            type="text"
+            placeholder={browseSearchPlaceholder}
+            value={browseSearchTerm}
+            oninput={handleBrowseSearchInput}
+            class="search-input"
+          />
+          {#if browseSearchTerm}
+            <button onclick={clearBrowseSearch} class="absolute right-2 p-1 text-text-dimmed hover:text-text-primary" aria-label="検索をクリア">✕</button>
+          {/if}
+        </div>
+        {#if $browseMode !== 'genres'}
+          <CardSizeSlider />
+        {/if}
       {/if}
     </div>
   </div>
-
-  <!-- フィルターパネル -->
-  {#if showFilters && viewModeParam === 'all' && $browseMode === 'songs'}
-    <div class="filter-panel">
-      <div class="filter-group">
-        <label for="artist-filter">アーティスト</label>
-        <select id="artist-filter" bind:value={selectedArtist} class="filter-select">
-          <option value="">すべて</option>
-          {#if artistsQuery.data}
-            {#each artistsQuery.data as artist}
-              <option value={artist}>{artist}</option>
-            {/each}
-          {/if}
-        </select>
-      </div>
-
-      <div class="filter-group">
-        <label for="album-filter">アルバム</label>
-        <select id="album-filter" bind:value={selectedAlbum} class="filter-select">
-          <option value="">すべて</option>
-          {#if albumsQuery.data}
-            {#each albumsQuery.data as album}
-              <option value={album}>{album}</option>
-            {/each}
-          {/if}
-        </select>
-      </div>
-
-      <div class="filter-group">
-        <label for="genre-filter">ジャンル</label>
-        <select id="genre-filter" bind:value={selectedGenre} class="filter-select">
-          <option value="">すべて</option>
-          {#if genresQuery.data}
-            {#each genresQuery.data as genre}
-              <option value={genre}>{genre}</option>
-            {/each}
-          {/if}
-        </select>
-      </div>
-
-      {#if hasActiveFilters}
-        <button onclick={clearFilters} class="btn-clear-filters">クリア</button>
-      {/if}
-    </div>
-  {/if}
 
   <!-- コンテンツ -->
   <div class="flex-1 overflow-y-auto">
@@ -1010,31 +982,6 @@
 
   .header-btn.active {
     @apply bg-primary border-primary text-primary-content;
-  }
-
-  .filter-badge {
-    @apply absolute -top-1 -right-1 bg-error text-white text-[0.625rem] font-semibold w-4 h-4 rounded-full flex items-center justify-center;
-  }
-
-  /* フィルターパネル */
-  .filter-panel {
-    @apply flex gap-4 px-4 py-3 bg-base-300 rounded-md mb-3 items-end;
-  }
-
-  .filter-group {
-    @apply flex flex-col gap-1 flex-1;
-  }
-
-  .filter-group label {
-    @apply text-xs font-medium text-text-muted;
-  }
-
-  .filter-select {
-    @apply py-2 px-2 bg-base-400 border border-border rounded text-sm text-text-primary cursor-pointer focus:outline-none focus:border-primary;
-  }
-
-  .btn-clear-filters {
-    @apply px-4 py-2 bg-error text-white border-none rounded cursor-pointer text-sm whitespace-nowrap hover:bg-error/80;
   }
 
   /* トラックテーブル */

@@ -22,9 +22,12 @@
     goto('/');
   }
 
-  // ライブラリ項目をクリック（browseModeをsongsにリセット）
-  function handleLibraryItemClick() {
+  // ライブラリ項目をクリック（browseModeをsongsにリセットしてナビゲート）
+  function handleLibraryItemClick(event: MouseEvent, view: 'recent' | 'mostplayed') {
+    event.preventDefault();
     browseMode.set('songs');
+    browseSearchQuery.set('');
+    goto(`/?view=${view}`);
   }
 
   // ジャンル展開をトグル
@@ -267,7 +270,7 @@
           href="/?view=recent"
           class="nav-item-base"
           class:active={$page.url.searchParams.get('view') === 'recent'}
-          onclick={handleLibraryItemClick}
+          onclick={(e) => handleLibraryItemClick(e, 'recent')}
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -280,7 +283,7 @@
           href="/?view=mostplayed"
           class="nav-item-base"
           class:active={$page.url.searchParams.get('view') === 'mostplayed'}
-          onclick={handleLibraryItemClick}
+          onclick={(e) => handleLibraryItemClick(e, 'mostplayed')}
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />

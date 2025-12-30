@@ -2,36 +2,9 @@
   import type { GenreGroup } from '$lib/types/models';
   import { useGenresGroupedQuery } from '$lib/queries/tracks';
   import { playTrackFromQueue } from '$lib/stores/player';
-  import { browseSearchQuery } from '$lib/stores/ui';
-  import GroupDetail from './GroupDetail.svelte';
+  import { browseSearchQuery, browseMode, selectedGenreName } from '$lib/stores/ui';
+  import { goto } from '$app/navigation';
   import GroupContextMenu from '../GroupContextMenu.svelte';
-
-  // 検索状態
-  let searchInput = $state('');
-  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-
-  // 検索入力のデバウンス処理
-  function handleSearchInput(event: Event) {
-    const target = event.target as HTMLInputElement;
-    searchInput = target.value;
-
-    if (debounceTimer) {
-      clearTimeout(debounceTimer);
-    }
-
-    debounceTimer = setTimeout(() => {
-      browseSearchQuery.set(searchInput);
-    }, 300);
-  }
-
-  // 検索クリア
-  function clearSearch() {
-    searchInput = '';
-    browseSearchQuery.set('');
-    if (debounceTimer) {
-      clearTimeout(debounceTimer);
-    }
-  }
 
   // クエリ
   const genresQuery = useGenresGroupedQuery();
@@ -47,9 +20,6 @@
       genre.name.toLowerCase().includes(query)
     );
   });
-
-  // 選択中のジャンル（モーダル表示用）
-  let selectedGenre = $state<GenreGroup | null>(null);
 
   // コンテキストメニュー
   let contextMenu = $state<{ x: number; y: number; genre: GenreGroup } | null>(null);
@@ -72,9 +42,12 @@
     return genreColors[index % genreColors.length];
   }
 
-  // ジャンルをクリック
+  // ジャンルをクリック（詳細ページに遷移）
   function handleGenreClick(genre: GenreGroup) {
-    selectedGenre = genre;
+    selectedGenreName.set(genre.name);
+    browseMode.set('genre-detail');
+    browseSearchQuery.set('');
+    goto('/');
   }
 
   // ジャンルをダブルクリック（すべて再生）
@@ -88,11 +61,6 @@
   function handlePlayClick(event: MouseEvent, genre: GenreGroup) {
     event.stopPropagation();
     handleGenreDoubleClick(genre);
-  }
-
-  // モーダルを閉じる
-  function handleCloseDetail() {
-    selectedGenre = null;
   }
 
   // 右クリックメニューを表示
@@ -112,23 +80,6 @@
 </script>
 
 <div class="p-4 min-h-[200px]">
-  <!-- 検索バー -->
-  <div class="browse-search-bar">
-    <svg xmlns="http://www.w3.org/2000/svg" class="search-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-    </svg>
-    <input
-      type="text"
-      placeholder="ジャンルを検索..."
-      value={searchInput}
-      oninput={handleSearchInput}
-      class="browse-search-input"
-    />
-    {#if searchInput}
-      <button onclick={clearSearch} class="search-clear-btn" aria-label="検索をクリア">✕</button>
-    {/if}
-  </div>
-
   {#if isLoading}
     <div class="state-container">
       <div class="spinner"></div>
@@ -183,13 +134,6 @@
   {/if}
 </div>
 
-<!-- 詳細モーダル -->
-<GroupDetail
-  group={selectedGenre}
-  type="genre"
-  onClose={handleCloseDetail}
-/>
-
 <!-- コンテキストメニュー -->
 {#if contextMenu}
   <GroupContextMenu
@@ -203,30 +147,6 @@
 
 <style>
 @reference "../../../app.css";
-  .browse-search-bar {
-    @apply relative flex items-center mb-4 max-w-md;
-  }
-
-  .search-icon {
-    @apply absolute left-3 w-4 h-4 text-text-dimmed;
-  }
-
-  .browse-search-input {
-    @apply w-full py-2 pl-9 pr-8 bg-base-400 border border-border rounded-md text-sm text-text-primary transition-all duration-200;
-  }
-
-  .browse-search-input:focus {
-    @apply outline-none border-primary;
-  }
-
-  .browse-search-input::placeholder {
-    @apply text-text-dimmed;
-  }
-
-  .search-clear-btn {
-    @apply absolute right-2 p-1 text-text-dimmed hover:text-text-primary bg-transparent border-none cursor-pointer;
-  }
-
   .genre-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
