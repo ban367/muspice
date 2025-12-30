@@ -755,10 +755,11 @@
   .queue-panel {
     @apply fixed z-[1001] w-80 max-h-[400px]
            bg-base-300 border border-border rounded-lg overflow-hidden
-           flex flex-col animate-slide-up;
+           flex flex-col;
     bottom: 5.5rem;
     right: 1rem;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    animation: slideUp 200ms ease-out;
   }
 
   .queue-clear-btn {
@@ -797,5 +798,16 @@
 
   .queue-remove-btn:hover {
     @apply text-error;
+  }
+
+  @keyframes slideUp {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 </style>

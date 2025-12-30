@@ -280,7 +280,7 @@
   }
 
   .track-title {
-    @apply text-[0.9375rem] text-text-primary text-truncate;
+    @apply text-[0.9375rem] text-text-primary overflow-hidden text-ellipsis whitespace-nowrap;
   }
 
   .track-row.playing .track-title {
@@ -288,7 +288,7 @@
   }
 
   .track-artist {
-    @apply text-[0.8125rem] text-text-dimmed text-truncate;
+    @apply text-[0.8125rem] text-text-dimmed overflow-hidden text-ellipsis whitespace-nowrap;
   }
 
   .track-duration {

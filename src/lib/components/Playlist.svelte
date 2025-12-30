@@ -224,7 +224,7 @@
             tabindex="0"
           >
             <div class="flex-1 min-w-0">
-              <div class="text-text-primary font-medium text-truncate">{playlist.name}</div>
+              <div class="text-text-primary font-medium overflow-hidden text-ellipsis whitespace-nowrap">{playlist.name}</div>
               <div class="text-xs text-text-muted">{playlist.tracks.length} 曲</div>
             </div>
             <button
@@ -277,8 +277,8 @@
               >
                 <div class="track-number">{index + 1}</div>
                 <div class="flex-1 min-w-0">
-                  <div class="text-text-primary font-medium text-truncate">{track.title || track.fileName}</div>
-                  <div class="text-sm text-text-muted text-truncate">{track.artist || '不明なアーティスト'}</div>
+                  <div class="text-text-primary font-medium overflow-hidden text-ellipsis whitespace-nowrap">{track.title || track.fileName}</div>
+                  <div class="text-sm text-text-muted overflow-hidden text-ellipsis whitespace-nowrap">{track.artist || '不明なアーティスト'}</div>
                 </div>
                 <div class="track-album">{track.album || '不明なアルバム'}</div>
                 <div class="track-duration">{formatDuration(track.duration)}</div>
@@ -385,7 +385,7 @@
   }
 
   .track-album {
-    @apply flex-[0_0_200px] text-sm text-text-muted text-truncate;
+    @apply flex-[0_0_200px] text-sm text-text-muted overflow-hidden text-ellipsis whitespace-nowrap;
   }
 
   .track-duration {
