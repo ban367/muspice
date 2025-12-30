@@ -203,7 +203,7 @@
 {/if}
 
 <style>
-@reference "tailwindcss";
+@reference "../../../app.css";
   .modal-header {
     @apply flex gap-6 p-6 relative;
     background: linear-gradient(to bottom, rgba(59, 130, 246, 0.15), transparent);

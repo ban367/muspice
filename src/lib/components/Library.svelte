@@ -786,7 +786,7 @@
 {/if}
 
 <style>
-@reference "tailwindcss";
+@reference "../../app.css";
   /* 選択情報 */
   .selection-info {
     @apply flex items-center gap-2 px-3 py-1.5 bg-primary/20 rounded-md text-sm text-primary;

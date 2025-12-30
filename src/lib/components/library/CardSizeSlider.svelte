@@ -32,7 +32,7 @@
 </div>
 
 <style>
-@reference "tailwindcss";
+@reference "../../../app.css";
   .size-range {
     @apply w-20 h-1 rounded-sm cursor-pointer;
     -webkit-appearance: none;

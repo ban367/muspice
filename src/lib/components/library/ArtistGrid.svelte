@@ -159,7 +159,7 @@
 />
 
 <style>
-@reference "tailwindcss";
+@reference "../../../app.css";
   .artist-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(var(--card-width), 1fr));

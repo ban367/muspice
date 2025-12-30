@@ -252,7 +252,7 @@
 </div>
 
 <style>
-@reference "tailwindcss";
+@reference "../../app.css";
   .context-menu {
     @apply fixed z-[10000] min-w-[200px] bg-base-300 border border-border rounded-lg py-2;
     box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);

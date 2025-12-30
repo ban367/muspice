@@ -343,7 +343,7 @@
 {/if}
 
 <style>
-@reference "tailwindcss";
+@reference "../../app.css";
   .playlist-sidebar {
     @apply w-64 border-r border-border flex flex-col;
   }
