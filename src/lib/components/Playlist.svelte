@@ -196,21 +196,21 @@
   }
 </script>
 
-<div class="playlist-container">
+<div class="flex h-full gap-4">
   <!-- プレイリスト一覧 -->
   <div class="playlist-sidebar">
-    <div class="sidebar-header">
-      <h2>プレイリスト</h2>
-      <button class="btn-create" onclick={openCreateDialog}>
-        <span>+</span> 新規作成
+    <div class="p-4 border-b border-border">
+      <h2 class="text-xl font-semibold text-text-primary m-0 mb-3">プレイリスト</h2>
+      <button class="btn-primary w-full flex items-center justify-center gap-1" onclick={openCreateDialog}>
+        <span class="text-xl font-bold">+</span> 新規作成
       </button>
     </div>
 
-    <div class="playlist-list">
+    <div class="flex-1 overflow-y-auto">
       {#if playlistsQuery.isLoading}
-        <div class="loading">読み込み中...</div>
+        <div class="p-4 text-center text-text-muted">読み込み中...</div>
       {:else if playlistsQuery.isError}
-        <div class="error">プレイリストの読み込みに失敗しました</div>
+        <div class="p-4 text-center text-error-light">プレイリストの読み込みに失敗しました</div>
       {:else if playlistsQuery.data}
         {#each playlistsQuery.data as Playlist[] as playlist (playlist.id)}
           <div
@@ -223,19 +223,19 @@
             role="button"
             tabindex="0"
           >
-            <div class="playlist-info">
-              <div class="playlist-name">{playlist.name}</div>
-              <div class="playlist-count">{playlist.tracks.length} 曲</div>
+            <div class="flex-1 min-w-0">
+              <div class="text-text-primary font-medium text-truncate">{playlist.name}</div>
+              <div class="text-xs text-text-muted">{playlist.tracks.length} 曲</div>
             </div>
             <button
-              class="btn-delete-playlist"
+              class="delete-btn"
               onclick={(e) => {
                 e.stopPropagation();
                 deletePlaylist(playlist);
               }}
               title="プレイリストを削除"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
               </svg>
             </button>
@@ -246,18 +246,18 @@
   </div>
 
   <!-- プレイリスト詳細 -->
-  <div class="playlist-detail">
+  <div class="flex-1 flex flex-col overflow-hidden">
     {#if selectedPlaylist}
-      <div class="detail-header">
-        <h2>{selectedPlaylist.name}</h2>
-        <div class="track-count">{selectedPlaylist.tracks.length} 曲</div>
+      <div class="p-4 border-b border-border">
+        <h2 class="text-2xl font-semibold text-text-primary m-0 mb-1">{selectedPlaylist.name}</h2>
+        <div class="text-sm text-text-muted">{selectedPlaylist.tracks.length} 曲</div>
       </div>
 
-      <div class="track-list">
+      <div class="flex-1 overflow-y-auto p-4">
         {#if selectedPlaylist.tracks.length === 0}
-          <div class="empty-message">
+          <div class="state-container">
             <p>このプレイリストにはまだトラックがありません</p>
-            <p class="hint">左側のライブラリからトラックをドラッグ&ドロップして追加できます</p>
+            <span>左側のライブラリからトラックをドラッグ&ドロップして追加できます</span>
           </div>
         {:else}
           {#each selectedPlaylist.tracks as playlistTrack, index}
@@ -276,14 +276,14 @@
                 tabindex="0"
               >
                 <div class="track-number">{index + 1}</div>
-                <div class="track-info">
-                  <div class="track-title">{track.title || track.fileName}</div>
-                  <div class="track-artist">{track.artist || '不明なアーティスト'}</div>
+                <div class="flex-1 min-w-0">
+                  <div class="text-text-primary font-medium text-truncate">{track.title || track.fileName}</div>
+                  <div class="text-sm text-text-muted text-truncate">{track.artist || '不明なアーティスト'}</div>
                 </div>
                 <div class="track-album">{track.album || '不明なアルバム'}</div>
                 <div class="track-duration">{formatDuration(track.duration)}</div>
                 <button
-                  class="btn-remove"
+                  class="remove-btn"
                   onclick={() => removeTrack(selectedPlaylist!.id, track.id)}
                   title="削除"
                 >
@@ -295,7 +295,7 @@
         {/if}
       </div>
     {:else}
-      <div class="no-selection">
+      <div class="flex items-center justify-center h-full text-text-muted">
         <p>プレイリストを選択してください</p>
       </div>
     {/if}
@@ -305,378 +305,97 @@
 <!-- 新規プレイリスト作成ダイアログ -->
 {#if showCreateDialog}
   <div
-    class="dialog-overlay"
+    class="modal-backdrop"
     onclick={closeCreateDialog}
     role="button"
     tabindex="0"
     onkeydown={(e) => e.key === 'Escape' && closeCreateDialog()}
   >
     <div
-      class="dialog"
+      class="modal-content max-w-md"
       onclick={(e) => e.stopPropagation()}
       onkeydown={(e) => e.stopPropagation()}
       role="dialog"
       tabindex="-1"
     >
-      <h3>新規プレイリスト作成</h3>
-      <input
-        type="text"
-        bind:value={newPlaylistName}
-        placeholder="プレイリスト名"
-        class="input-name"
-        onkeydown={(e) => e.key === 'Enter' && createPlaylist()}
-      />
-      <div class="dialog-actions">
-        <button class="btn-cancel" onclick={closeCreateDialog}>キャンセル</button>
-        <button
-          class="btn-submit"
-          onclick={createPlaylist}
-          disabled={!newPlaylistName.trim() || createPlaylistMutation.isPending}
-        >
-          {createPlaylistMutation.isPending ? '作成中...' : '作成'}
-        </button>
+      <div class="p-6">
+        <h3 class="text-xl font-semibold text-text-primary m-0 mb-4">新規プレイリスト作成</h3>
+        <input
+          type="text"
+          bind:value={newPlaylistName}
+          placeholder="プレイリスト名"
+          class="form-input mb-4"
+          onkeydown={(e) => e.key === 'Enter' && createPlaylist()}
+        />
+        <div class="flex gap-2 justify-end">
+          <button class="btn-secondary" onclick={closeCreateDialog}>キャンセル</button>
+          <button
+            class="btn-primary"
+            onclick={createPlaylist}
+            disabled={!newPlaylistName.trim() || createPlaylistMutation.isPending}
+          >
+            {createPlaylistMutation.isPending ? '作成中...' : '作成'}
+          </button>
+        </div>
       </div>
     </div>
   </div>
 {/if}
 
 <style>
-  .playlist-container {
-    display: flex;
-    height: 100%;
-    gap: 1rem;
-  }
-
   .playlist-sidebar {
-    width: 250px;
-    border-right: 1px solid #e5e7eb;
-    display: flex;
-    flex-direction: column;
-  }
-
-  .sidebar-header {
-    padding: 1rem;
-    border-bottom: 1px solid #e5e7eb;
-  }
-
-  .sidebar-header h2 {
-    margin: 0 0 0.5rem 0;
-    font-size: 1.25rem;
-  }
-
-  .btn-create {
-    width: 100%;
-    padding: 0.5rem;
-    background: #3b82f6;
-    color: white;
-    border: none;
-    border-radius: 0.375rem;
-    cursor: pointer;
-    font-size: 0.875rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.25rem;
-  }
-
-  .btn-create:hover {
-    background: #2563eb;
-  }
-
-  .btn-create span {
-    font-size: 1.25rem;
-    font-weight: bold;
-  }
-
-  .playlist-list {
-    flex: 1;
-    overflow-y: auto;
+    @apply w-64 border-r border-border flex flex-col;
   }
 
   .playlist-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0.75rem 1rem;
-    cursor: pointer;
-    border-bottom: 1px solid #f3f4f6;
-    transition: background-color 0.2s;
+    @apply flex items-center justify-between py-3 px-4 cursor-pointer border-b border-border/50 transition-colors;
   }
 
   .playlist-item:hover {
-    background: #f9fafb;
+    @apply bg-surface-hover;
   }
 
   .playlist-item.selected {
-    background: #eff6ff;
-    border-left: 3px solid #3b82f6;
+    @apply bg-primary/10 border-l-3 border-l-primary;
   }
 
-  .playlist-info {
-    flex: 1;
-    min-width: 0;
+  .delete-btn {
+    @apply shrink-0 w-7 h-7 p-0 border-none bg-transparent text-text-muted cursor-pointer rounded flex items-center justify-center opacity-0 transition-all;
   }
 
-  .playlist-name {
-    font-weight: 500;
-    margin-bottom: 0.25rem;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+  .playlist-item:hover .delete-btn {
+    @apply opacity-100;
   }
 
-  .playlist-count {
-    font-size: 0.75rem;
-    color: #6b7280;
-  }
-
-  .btn-delete-playlist {
-    flex-shrink: 0;
-    width: 1.75rem;
-    height: 1.75rem;
-    padding: 0;
-    border: none;
-    background: transparent;
-    color: #9ca3af;
-    cursor: pointer;
-    border-radius: 0.25rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    opacity: 0;
-    transition: all 0.2s;
-  }
-
-  .playlist-item:hover .btn-delete-playlist {
-    opacity: 1;
-  }
-
-  .btn-delete-playlist:hover {
-    background: #fee2e2;
-    color: #dc2626;
-  }
-
-  .btn-delete-playlist svg {
-    width: 1rem;
-    height: 1rem;
-  }
-
-  .playlist-detail {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-
-  .detail-header {
-    padding: 1rem;
-    border-bottom: 1px solid #e5e7eb;
-  }
-
-  .detail-header h2 {
-    margin: 0 0 0.25rem 0;
-    font-size: 1.5rem;
-  }
-
-  .track-count {
-    font-size: 0.875rem;
-    color: #6b7280;
-  }
-
-  .track-list {
-    flex: 1;
-    overflow-y: auto;
-    padding: 1rem;
+  .delete-btn:hover {
+    @apply bg-error/20 text-error-light;
   }
 
   .track-item {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    padding: 0.75rem;
-    border-radius: 0.375rem;
-    cursor: move;
-    transition: background-color 0.2s;
+    @apply flex items-center gap-4 py-3 px-3 rounded-md cursor-move transition-colors;
   }
 
   .track-item:hover {
-    background: #f9fafb;
+    @apply bg-surface-hover;
   }
 
   .track-number {
-    width: 2rem;
-    text-align: center;
-    color: #6b7280;
-    font-size: 0.875rem;
-  }
-
-  .track-info {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .track-title {
-    font-weight: 500;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .track-artist {
-    font-size: 0.875rem;
-    color: #6b7280;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    @apply w-8 text-center text-text-muted text-sm;
   }
 
   .track-album {
-    flex: 0 0 200px;
-    font-size: 0.875rem;
-    color: #6b7280;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    @apply flex-[0_0_200px] text-sm text-text-muted text-truncate;
   }
 
   .track-duration {
-    flex: 0 0 60px;
-    text-align: right;
-    font-size: 0.875rem;
-    color: #6b7280;
+    @apply flex-[0_0_60px] text-right text-sm text-text-muted;
   }
 
-  .btn-remove {
-    flex: 0 0 auto;
-    width: 2rem;
-    height: 2rem;
-    border: none;
-    background: transparent;
-    color: #6b7280;
-    font-size: 1.5rem;
-    cursor: pointer;
-    border-radius: 0.25rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.2s;
+  .remove-btn {
+    @apply flex-[0_0_auto] w-8 h-8 border-none bg-transparent text-text-muted text-2xl cursor-pointer rounded flex items-center justify-center transition-all;
   }
 
-  .btn-remove:hover {
-    background: #fee2e2;
-    color: #dc2626;
-  }
-
-  .empty-message {
-    text-align: center;
-    padding: 3rem 1rem;
-    color: #6b7280;
-  }
-
-  .empty-message p {
-    margin: 0.5rem 0;
-  }
-
-  .hint {
-    font-size: 0.875rem;
-  }
-
-  .no-selection {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 100%;
-    color: #6b7280;
-  }
-
-  .loading,
-  .error {
-    padding: 1rem;
-    text-align: center;
-    color: #6b7280;
-  }
-
-  .error {
-    color: #dc2626;
-  }
-
-  /* ダイアログ */
-  .dialog-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.5);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-  }
-
-  .dialog {
-    background: white;
-    padding: 1.5rem;
-    border-radius: 0.5rem;
-    width: 400px;
-    max-width: 90%;
-  }
-
-  .dialog h3 {
-    margin: 0 0 1rem 0;
-    font-size: 1.25rem;
-  }
-
-  .input-name {
-    width: 100%;
-    padding: 0.5rem;
-    border: 1px solid #d1d5db;
-    border-radius: 0.375rem;
-    font-size: 1rem;
-    margin-bottom: 1rem;
-  }
-
-  .input-name:focus {
-    outline: none;
-    border-color: #3b82f6;
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-  }
-
-  .dialog-actions {
-    display: flex;
-    gap: 0.5rem;
-    justify-content: flex-end;
-  }
-
-  .btn-cancel,
-  .btn-submit {
-    padding: 0.5rem 1rem;
-    border: none;
-    border-radius: 0.375rem;
-    cursor: pointer;
-    font-size: 0.875rem;
-  }
-
-  .btn-cancel {
-    background: #f3f4f6;
-    color: #374151;
-  }
-
-  .btn-cancel:hover {
-    background: #e5e7eb;
-  }
-
-  .btn-submit {
-    background: #3b82f6;
-    color: white;
-  }
-
-  .btn-submit:hover:not(:disabled) {
-    background: #2563eb;
-  }
-
-  .btn-submit:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
+  .remove-btn:hover {
+    @apply bg-error/20 text-error-light;
   }
 </style>

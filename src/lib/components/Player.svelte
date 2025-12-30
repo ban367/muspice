@@ -35,7 +35,7 @@
   let isDraggingVolume = $state(false);
   let lastPlayedTrackId = $state<string | null>(null);
   let showQueue = $state(false);
-  
+
   // アルバムアートキャッシュ
   let albumArtUrl = $state<string | null>(null);
 
@@ -111,7 +111,7 @@
 
       // 現在再生中のトラックをバックエンドに通知
       await invoke('set_current_track', { trackId: track.id });
-      
+
       // 再生回数をインクリメント
       incrementPlayCount(track.id);
     } catch (error) {
@@ -285,7 +285,7 @@
       error: target.error,
       src: target.src
     });
-    
+
     let errorMessage = '再生エラーが発生しました';
     if (target.error) {
       switch (target.error.code) {
@@ -422,27 +422,28 @@
   on:loadedmetadata={handleLoadedMetadata}
   on:ended={handleEnded}
   on:error={handleError}
+  class="hidden"
 ></audio>
 
 <!-- プレイヤーUI -->
 <div class="player-container">
   {#if $currentTrack}
     <!-- トラック情報 -->
-    <div class="track-section">
+    <div class="flex items-center gap-3 min-w-0">
       <div class="album-art">
         {#if albumArtUrl}
-          <img src={albumArtUrl} alt="アルバムアート" />
+          <img src={albumArtUrl} alt="アルバムアート" class="w-full h-full object-cover" />
         {:else}
           <div class="album-art-placeholder">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-1/2 h-1/2">
               <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
             </svg>
           </div>
         {/if}
       </div>
-      <div class="track-info">
-        <div class="track-title">{$currentTrack.title || $currentTrack.fileName}</div>
-        <div class="track-artist">
+      <div class="min-w-0">
+        <div class="text-sm font-semibold mb-0.5 text-truncate">{$currentTrack.title || $currentTrack.fileName}</div>
+        <div class="text-xs text-text-secondary text-truncate">
           {$currentTrack.artist || '不明なアーティスト'}
           {#if $currentTrack.album}
             • {$currentTrack.album}
@@ -452,8 +453,8 @@
     </div>
 
     <!-- 再生コントロール -->
-    <div class="controls-section">
-      <div class="control-buttons">
+    <div class="flex flex-col items-center gap-2">
+      <div class="flex justify-center items-center gap-3">
         <button
           class="control-button"
           class:active={$isShuffleEnabled}
@@ -479,7 +480,7 @@
         </button>
 
         <button
-          class="control-button play-pause"
+          class="play-pause-button"
           on:click={togglePlayPause}
           title={$isPlaying ? '一時停止 (Space)' : '再生 (Space)'}
           aria-label={$isPlaying ? '一時停止' : '再生'}
@@ -519,17 +520,17 @@
             <path d={getRepeatIcon($repeatMode)} />
           </svg>
           {#if $repeatMode === 'one'}
-            <span class="repeat-one-indicator">1</span>
+            <span class="absolute bottom-0.5 right-0.5 text-[0.5rem] font-bold">1</span>
           {/if}
         </button>
       </div>
 
       <!-- 進行バー -->
-      <div class="progress-section">
-        <span class="time-display">{formatTime($currentTime)}</span>
+      <div class="flex items-center gap-2 w-full max-w-[600px]">
+        <span class="text-[0.7rem] text-text-secondary min-w-[35px] text-center">{formatTime($currentTime)}</span>
         <div
           id="progress-bar"
-          class="progress-bar"
+          class="progress-bar-base flex-1"
           role="slider"
           aria-label="再生位置"
           aria-valuemin="0"
@@ -546,15 +547,15 @@
           }}
           on:mousedown={startDraggingProgress}
         >
-          <div class="progress-fill" style="width: {$progress}%"></div>
+          <div class="progress-fill-base" style="width: {$progress}%"></div>
           <div class="progress-handle" style="left: {$progress}%"></div>
         </div>
-        <span class="time-display">{formatTime($duration)}</span>
+        <span class="text-[0.7rem] text-text-secondary min-w-[35px] text-center">{formatTime($duration)}</span>
       </div>
     </div>
 
     <!-- 右側コントロール -->
-    <div class="extra-controls">
+    <div class="flex items-center justify-end gap-3">
       <button
         class="control-button small"
         class:active={showQueue}
@@ -567,7 +568,7 @@
         </svg>
       </button>
 
-      <div class="volume-section">
+      <div class="flex items-center gap-2">
         <button
           class="control-button small"
           on:click={() => {
@@ -614,14 +615,14 @@
           }}
           on:mousedown={startDraggingVolume}
         >
-          <div class="volume-fill" style="width: {$volume * 100}%"></div>
-          <div class="volume-handle" style="left: {$volume * 100}%"></div>
+          <div class="progress-fill-base" style="width: {$volume * 100}%"></div>
+          <div class="progress-handle" style="left: {$volume * 100}%"></div>
         </div>
       </div>
     </div>
   {:else}
-    <div class="no-track">
-      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" class="no-track-icon">
+    <div class="col-span-3 flex items-center justify-center gap-3 text-text-dimmed py-4">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" class="opacity-50">
         <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
       </svg>
       <span>トラックを選択して再生</span>
@@ -632,33 +633,33 @@
 <!-- 再生キューパネル -->
 {#if showQueue && $currentTrack}
   <div class="queue-panel">
-    <div class="queue-header">
-      <h3>再生キュー</h3>
-      <div class="queue-actions">
-        <button class="btn-clear-queue" on:click={clearQueue}>クリア</button>
-        <button class="btn-close-queue" on:click={() => showQueue = false}>✕</button>
+    <div class="flex justify-between items-center px-4 py-3 border-b border-border">
+      <h3 class="m-0 text-sm font-semibold">再生キュー</h3>
+      <div class="flex gap-2">
+        <button class="queue-clear-btn" on:click={clearQueue}>クリア</button>
+        <button class="queue-close-btn" on:click={() => showQueue = false}>✕</button>
       </div>
     </div>
-    <div class="queue-now-playing">
-      <div class="queue-label">再生中</div>
-      <div class="queue-track current">
-        <span class="queue-track-title">{$currentTrack.title || $currentTrack.fileName}</span>
-        <span class="queue-track-artist">{$currentTrack.artist || '不明なアーティスト'}</span>
+    <div class="px-4 py-3 bg-secondary/10 border-b border-border">
+      <div class="text-[0.625rem] font-semibold uppercase text-text-muted mb-1.5">再生中</div>
+      <div class="flex flex-col gap-0.5">
+        <span class="text-[0.8rem] text-text-primary text-truncate">{$currentTrack.title || $currentTrack.fileName}</span>
+        <span class="text-[0.7rem] text-text-muted text-truncate">{$currentTrack.artist || '不明なアーティスト'}</span>
       </div>
     </div>
     {#if $upcomingTracks.length > 0}
-      <div class="queue-upcoming">
-        <div class="queue-label">次に再生 ({$upcomingTracks.length}曲)</div>
-        <div class="queue-list">
+      <div class="flex-1 overflow-hidden flex flex-col">
+        <div class="text-[0.625rem] font-semibold uppercase text-text-muted pt-3 pb-1.5 px-4">次に再生 ({$upcomingTracks.length}曲)</div>
+        <div class="flex-1 overflow-y-auto px-2 pb-2">
           {#each $upcomingTracks as track, index (track.id)}
             <div class="queue-track">
-              <span class="queue-track-number">{index + 1}</span>
-              <div class="queue-track-info">
-                <span class="queue-track-title">{track.title || track.fileName}</span>
-                <span class="queue-track-artist">{track.artist || '不明なアーティスト'}</span>
+              <span class="text-xs text-text-dimmed w-6 text-center">{index + 1}</span>
+              <div class="flex-1 min-w-0 flex flex-col gap-0.5">
+                <span class="text-[0.8rem] text-text-primary text-truncate">{track.title || track.fileName}</span>
+                <span class="text-[0.7rem] text-text-muted text-truncate">{track.artist || '不明なアーティスト'}</span>
               </div>
               <button
-                class="btn-remove-from-queue"
+                class="queue-remove-btn"
                 on:click={() => removeFromQueue(track.id)}
                 title="キューから削除"
               >
@@ -669,484 +670,131 @@
         </div>
       </div>
     {:else}
-      <div class="queue-empty">キューに他のトラックはありません</div>
+      <div class="py-8 px-4 text-center text-text-dimmed text-sm">キューに他のトラックはありません</div>
     {/if}
   </div>
 {/if}
 
 <style>
+  /* プレイヤーコンテナ */
   .player-container {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    background: linear-gradient(to top, #0a0a12 0%, #12121e 100%);
-    color: #ffffff;
-    padding: 0.75rem 1.5rem;
-    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.5);
-    display: grid;
+    @apply fixed bottom-0 left-0 right-0 z-50
+           px-6 py-3 grid items-center gap-4
+           border-t border-border text-text-primary;
     grid-template-columns: 1fr 2fr 1fr;
-    gap: 1rem;
-    align-items: center;
-    z-index: 1000;
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    background: linear-gradient(to top, var(--color-base-100) 0%, var(--color-base-300) 100%);
+    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.5);
   }
 
-  /* トラック情報セクション */
-  .track-section {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    min-width: 0;
-  }
-
+  /* アルバムアート */
   .album-art {
-    width: 3.5rem;
-    height: 3.5rem;
-    border-radius: 0.375rem;
-    overflow: hidden;
-    flex-shrink: 0;
-    background-color: #1e1e2e;
-  }
-
-  .album-art img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
+    @apply w-14 h-14 rounded-md overflow-hidden shrink-0 bg-base-300;
   }
 
   .album-art-placeholder {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: rgba(255, 255, 255, 0.8);
+    @apply w-full h-full flex items-center justify-center text-white/80;
+    background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-accent-focus) 100%);
   }
 
-  .album-art-placeholder svg {
-    width: 50%;
-    height: 50%;
-  }
-
-  .track-info {
-    min-width: 0;
-  }
-
-  .track-title {
-    font-size: 0.9rem;
-    font-weight: 600;
-    margin-bottom: 0.125rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .track-artist {
-    font-size: 0.75rem;
-    color: #b3b3b3;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  /* コントロールセクション */
-  .controls-section {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.5rem;
-  }
-
-  .control-buttons {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: 0.75rem;
-  }
-
+  /* コントロールボタン */
   .control-button {
-    background: none;
-    border: none;
-    color: #b3b3b3;
-    cursor: pointer;
-    padding: 0.5rem;
-    border-radius: 50%;
-    transition: all 0.2s;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    position: relative;
+    @apply bg-transparent border-none text-text-secondary cursor-pointer
+           p-2 rounded-full transition-all duration-normal
+           flex items-center justify-center relative;
   }
 
   .control-button:hover {
-    color: #fff;
-    background-color: rgba(255, 255, 255, 0.1);
+    @apply text-text-primary bg-surface-active;
   }
 
   .control-button:active {
-    transform: scale(0.95);
+    @apply scale-95;
   }
 
   .control-button:disabled {
-    opacity: 0.3;
-    cursor: not-allowed;
+    @apply opacity-30 cursor-not-allowed;
   }
 
   .control-button:disabled:hover {
-    background-color: transparent;
-    color: #b3b3b3;
+    @apply bg-transparent text-text-secondary;
   }
 
   .control-button.active {
-    color: #1db954;
-  }
-
-  .control-button.play-pause {
-    background-color: #fff;
-    color: #000;
-    padding: 0.625rem;
-  }
-
-  .control-button.play-pause:hover {
-    transform: scale(1.05);
-    background-color: #fff;
-    color: #000;
+    @apply text-secondary;
   }
 
   .control-button.small {
-    padding: 0.375rem;
+    @apply p-1.5;
   }
 
-  .repeat-one-indicator {
-    position: absolute;
-    bottom: 2px;
-    right: 2px;
-    font-size: 0.5rem;
-    font-weight: bold;
+  /* 再生/一時停止ボタン */
+  .play-pause-button {
+    @apply bg-white text-black p-2.5 rounded-full cursor-pointer
+           flex items-center justify-center transition-transform duration-fast border-none;
   }
 
-  .progress-section {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    width: 100%;
-    max-width: 600px;
+  .play-pause-button:hover {
+    @apply scale-105;
   }
 
-  .time-display {
-    font-size: 0.7rem;
-    color: #b3b3b3;
-    min-width: 35px;
-    text-align: center;
-  }
-
-  .progress-bar {
-    flex: 1;
-    height: 4px;
-    background: #404040;
-    border-radius: 2px;
-    position: relative;
-    cursor: pointer;
-  }
-
-  .progress-bar:hover {
-    height: 6px;
-  }
-
-  .progress-fill {
-    height: 100%;
-    background: #fff;
-    border-radius: 2px;
-    transition: width 0.1s linear;
-  }
-
-  .progress-bar:hover .progress-fill {
-    background: #1db954;
-  }
-
-  .progress-handle {
-    position: absolute;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    width: 12px;
-    height: 12px;
-    background: #fff;
-    border-radius: 50%;
-    opacity: 0;
-    transition: opacity 0.2s;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-  }
-
-  .progress-bar:hover .progress-handle {
-    opacity: 1;
-  }
-
-  /* 右側コントロール */
-  .extra-controls {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 0.75rem;
-  }
-
-  .volume-section {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-
+  /* 音量バー */
   .volume-bar {
-    width: 80px;
-    height: 4px;
-    background: #404040;
-    border-radius: 2px;
-    position: relative;
-    cursor: pointer;
+    @apply w-20 h-1 bg-progress-bg rounded-full relative cursor-pointer;
   }
 
-  .volume-fill {
-    height: 100%;
-    background: #fff;
-    border-radius: 2px;
-    transition: width 0.1s linear;
+  .volume-bar:hover .progress-fill-base {
+    @apply bg-secondary;
   }
 
-  .volume-bar:hover .volume-fill {
-    background: #1db954;
-  }
-
-  .volume-handle {
-    position: absolute;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    width: 10px;
-    height: 10px;
-    background: #fff;
-    border-radius: 50%;
-    opacity: 0;
-    transition: opacity 0.2s;
-  }
-
-  .volume-bar:hover .volume-handle {
-    opacity: 1;
-  }
-
-  .no-track {
-    grid-column: 1 / -1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.75rem;
-    color: #666;
-    padding: 1rem;
-  }
-
-  .no-track-icon {
-    opacity: 0.5;
-  }
-
-  audio {
-    display: none;
+  .volume-bar:hover .progress-handle {
+    @apply opacity-100;
   }
 
   /* 再生キューパネル */
   .queue-panel {
-    position: fixed;
+    @apply fixed z-[1001] w-80 max-h-[400px]
+           bg-base-300 border border-border rounded-lg overflow-hidden
+           flex flex-col animate-slide-up;
     bottom: 5.5rem;
     right: 1rem;
-    width: 320px;
-    max-height: 400px;
-    background: #1e1e2e;
-    border: 1px solid #333;
-    border-radius: 0.5rem;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-    z-index: 1001;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    animation: slideUp 0.2s ease-out;
   }
 
-  @keyframes slideUp {
-    from {
-      opacity: 0;
-      transform: translateY(10px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
+  .queue-clear-btn {
+    @apply px-2 py-1 bg-transparent border border-border-light rounded
+           text-text-secondary text-xs cursor-pointer transition-all duration-normal;
   }
 
-  .queue-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 0.75rem 1rem;
-    border-bottom: 1px solid #333;
+  .queue-clear-btn:hover {
+    @apply bg-surface-active text-text-primary;
   }
 
-  .queue-header h3 {
-    margin: 0;
-    font-size: 0.875rem;
-    font-weight: 600;
+  .queue-close-btn {
+    @apply bg-transparent border-none text-text-dimmed text-base cursor-pointer p-1;
   }
 
-  .queue-actions {
-    display: flex;
-    gap: 0.5rem;
-  }
-
-  .btn-clear-queue {
-    padding: 0.25rem 0.5rem;
-    background: transparent;
-    border: 1px solid #444;
-    border-radius: 0.25rem;
-    color: #aaa;
-    font-size: 0.75rem;
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-
-  .btn-clear-queue:hover {
-    background: rgba(255, 255, 255, 0.1);
-    color: #fff;
-  }
-
-  .btn-close-queue {
-    background: transparent;
-    border: none;
-    color: #666;
-    font-size: 1rem;
-    cursor: pointer;
-    padding: 0.25rem;
-  }
-
-  .btn-close-queue:hover {
-    color: #fff;
-  }
-
-  .queue-now-playing {
-    padding: 0.75rem 1rem;
-    background: rgba(29, 185, 84, 0.1);
-    border-bottom: 1px solid #333;
-  }
-
-  .queue-label {
-    font-size: 0.625rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    color: #888;
-    margin-bottom: 0.375rem;
+  .queue-close-btn:hover {
+    @apply text-text-primary;
   }
 
   .queue-track {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem;
-    border-radius: 0.25rem;
-    transition: background-color 0.2s;
+    @apply flex items-center gap-2 p-2 rounded transition-colors duration-normal;
   }
 
   .queue-track:hover {
-    background: rgba(255, 255, 255, 0.05);
+    @apply bg-surface;
   }
 
-  .queue-track.current {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.125rem;
-    padding: 0;
+  .queue-remove-btn {
+    @apply bg-transparent border-none text-text-dimmed text-xs cursor-pointer p-1
+           opacity-0 transition-all duration-normal;
   }
 
-  .queue-track-number {
-    font-size: 0.75rem;
-    color: #666;
-    width: 1.5rem;
-    text-align: center;
+  .queue-track:hover .queue-remove-btn {
+    @apply opacity-100;
   }
 
-  .queue-track-info {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.125rem;
-  }
-
-  .queue-track-title {
-    font-size: 0.8rem;
-    color: #fff;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .queue-track-artist {
-    font-size: 0.7rem;
-    color: #888;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .btn-remove-from-queue {
-    background: transparent;
-    border: none;
-    color: #666;
-    font-size: 0.75rem;
-    cursor: pointer;
-    padding: 0.25rem;
-    opacity: 0;
-    transition: all 0.2s;
-  }
-
-  .queue-track:hover .btn-remove-from-queue {
-    opacity: 1;
-  }
-
-  .btn-remove-from-queue:hover {
-    color: #ef4444;
-  }
-
-  .queue-upcoming {
-    flex: 1;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-  }
-
-  .queue-upcoming .queue-label {
-    padding: 0.75rem 1rem 0.375rem;
-  }
-
-  .queue-list {
-    flex: 1;
-    overflow-y: auto;
-    padding: 0 0.5rem 0.5rem;
-  }
-
-  .queue-empty {
-    padding: 2rem 1rem;
-    text-align: center;
-    color: #666;
-    font-size: 0.875rem;
-  }
-
-  /* スクロールバー */
-  .queue-list::-webkit-scrollbar {
-    width: 6px;
-  }
-
-  .queue-list::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  .queue-list::-webkit-scrollbar-thumb {
-    background-color: rgba(255, 255, 255, 0.2);
-    border-radius: 3px;
+  .queue-remove-btn:hover {
+    @apply text-error;
   }
 </style>

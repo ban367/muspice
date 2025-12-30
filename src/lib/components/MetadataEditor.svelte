@@ -183,44 +183,49 @@
 </script>
 
 <div
-  class="metadata-editor-overlay"
+  class="modal-backdrop"
   onclick={handleCancel}
   onkeydown={(e) => e.key === 'Escape' && handleCancel()}
   role="button"
   tabindex="0"
 >
   <div
-    class="metadata-editor"
+    class="modal-content max-w-lg"
     onclick={(e) => e.stopPropagation()}
     onkeydown={(e) => e.stopPropagation()}
     role="dialog"
     aria-modal="true"
     tabindex="-1"
   >
-    <div class="editor-header">
-      <h3>
+    <div class="flex justify-between items-center p-6 border-b border-border">
+      <h3 class="m-0 text-xl font-semibold text-text-primary">
         {#if isSingleEdit}
           メタデータを編集
         {:else}
           {tracks.length}件のトラックを一括編集
         {/if}
       </h3>
-      <button class="close-button" onclick={handleCancel} aria-label="閉じる"> ✕ </button>
+      <button class="btn-icon w-8 h-8" onclick={handleCancel} aria-label="閉じる">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
     </div>
 
-    <div class="editor-content">
+    <div class="flex-1 overflow-y-auto p-6">
       {#if isMultipleEdit}
-        <div class="info-message">
+        <div class="message-info mb-4">
           空欄のフィールドは変更されません。変更したいフィールドのみ入力してください。
         </div>
       {/if}
 
       <form onsubmit={(e) => e.preventDefault()}>
         <div class="form-group">
-          <label for="title">タイトル</label>
+          <label for="title" class="form-label">タイトル</label>
           <input
             id="title"
             type="text"
+            class="form-input"
             bind:value={title}
             placeholder={isMultipleEdit ? '変更しない' : 'タイトルを入力'}
             disabled={isLoading}
@@ -228,10 +233,11 @@
         </div>
 
         <div class="form-group">
-          <label for="artist">アーティスト</label>
+          <label for="artist" class="form-label">アーティスト</label>
           <input
             id="artist"
             type="text"
+            class="form-input"
             bind:value={artist}
             placeholder={isMultipleEdit ? '変更しない' : 'アーティストを入力'}
             disabled={isLoading}
@@ -239,10 +245,11 @@
         </div>
 
         <div class="form-group">
-          <label for="album">アルバム</label>
+          <label for="album" class="form-label">アルバム</label>
           <input
             id="album"
             type="text"
+            class="form-input"
             bind:value={album}
             placeholder={isMultipleEdit ? '変更しない' : 'アルバムを入力'}
             disabled={isLoading}
@@ -250,10 +257,11 @@
         </div>
 
         <div class="form-group">
-          <label for="genre">ジャンル</label>
+          <label for="genre" class="form-label">ジャンル</label>
           <input
             id="genre"
             type="text"
+            class="form-input"
             bind:value={genre}
             placeholder={isMultipleEdit ? '変更しない' : 'ジャンルを入力'}
             disabled={isLoading}
@@ -261,10 +269,11 @@
         </div>
 
         <div class="form-group">
-          <label for="year">年</label>
+          <label for="year" class="form-label">年</label>
           <input
             id="year"
             type="number"
+            class="form-input"
             value={year ?? ''}
             oninput={handleYearInput}
             placeholder={isMultipleEdit ? '変更しない' : '例: 2023'}
@@ -275,29 +284,29 @@
         </div>
 
         {#if isSingleEdit}
-          <div class="form-group checkbox-group">
-            <label>
-              <input type="checkbox" bind:checked={updateFile} disabled={isLoading} />
-              ファイル自体のメタデータも更新する
+          <div class="form-group">
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" class="w-4 h-4" bind:checked={updateFile} disabled={isLoading} />
+              <span class="text-text-secondary">ファイル自体のメタデータも更新する</span>
             </label>
           </div>
         {/if}
 
         {#if validationError}
-          <div class="validation-error">{validationError}</div>
+          <div class="message-error mt-4">{validationError}</div>
         {/if}
 
         {#if error}
-          <div class="error-message">{error}</div>
+          <div class="message-error mt-4">{error}</div>
         {/if}
       </form>
     </div>
 
-    <div class="editor-footer">
-      <button class="cancel-button" onclick={handleCancel} disabled={isLoading}>
+    <div class="flex justify-end gap-3 p-6 border-t border-border">
+      <button class="btn-secondary" onclick={handleCancel} disabled={isLoading}>
         キャンセル
       </button>
-      <button class="save-button" onclick={handleSave} disabled={isLoading}>
+      <button class="btn-primary" onclick={handleSave} disabled={isLoading}>
         {#if isLoading}
           保存中...
         {:else}
@@ -307,232 +316,3 @@
     </div>
   </div>
 </div>
-
-<style>
-  .metadata-editor-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background-color: rgba(0, 0, 0, 0.5);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-  }
-
-  .metadata-editor {
-    background-color: white;
-    border-radius: 8px;
-    width: 90%;
-    max-width: 500px;
-    max-height: 90vh;
-    display: flex;
-    flex-direction: column;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
-  }
-
-  .editor-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 1.5rem;
-    border-bottom: 1px solid #e0e0e0;
-  }
-
-  .editor-header h3 {
-    margin: 0;
-    font-size: 1.25rem;
-    font-weight: 600;
-  }
-
-  .close-button {
-    background: none;
-    border: none;
-    font-size: 1.5rem;
-    color: #666;
-    cursor: pointer;
-    padding: 0;
-    width: 2rem;
-    height: 2rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 4px;
-    transition: background-color 0.2s;
-  }
-
-  .close-button:hover {
-    background-color: #f0f0f0;
-  }
-
-  .editor-content {
-    flex: 1;
-    overflow-y: auto;
-    padding: 1.5rem;
-  }
-
-  .info-message {
-    background-color: #e3f2fd;
-    color: #1976d2;
-    padding: 0.75rem;
-    border-radius: 4px;
-    margin-bottom: 1rem;
-    font-size: 0.9rem;
-  }
-
-  .form-group {
-    margin-bottom: 1rem;
-  }
-
-  .form-group label {
-    display: block;
-    margin-bottom: 0.5rem;
-    font-weight: 500;
-    color: #333;
-  }
-
-  .form-group input[type='text'],
-  .form-group input[type='number'] {
-    width: 100%;
-    padding: 0.75rem;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    font-size: 1rem;
-    transition: border-color 0.2s;
-  }
-
-  .form-group input[type='text']:focus,
-  .form-group input[type='number']:focus {
-    outline: none;
-    border-color: #007bff;
-  }
-
-  .form-group input:disabled {
-    background-color: #f5f5f5;
-    cursor: not-allowed;
-  }
-
-  .checkbox-group label {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    cursor: pointer;
-  }
-
-  .checkbox-group input[type='checkbox'] {
-    width: auto;
-    cursor: pointer;
-  }
-
-  .validation-error,
-  .error-message {
-    background-color: #ffebee;
-    color: #c62828;
-    padding: 0.75rem;
-    border-radius: 4px;
-    margin-top: 1rem;
-    font-size: 0.9rem;
-  }
-
-  .editor-footer {
-    display: flex;
-    justify-content: flex-end;
-    gap: 1rem;
-    padding: 1.5rem;
-    border-top: 1px solid #e0e0e0;
-  }
-
-  .cancel-button,
-  .save-button {
-    padding: 0.75rem 1.5rem;
-    border: none;
-    border-radius: 4px;
-    font-size: 1rem;
-    cursor: pointer;
-    transition: background-color 0.2s;
-  }
-
-  .cancel-button {
-    background-color: #f5f5f5;
-    color: #333;
-  }
-
-  .cancel-button:hover:not(:disabled) {
-    background-color: #e0e0e0;
-  }
-
-  .save-button {
-    background-color: #007bff;
-    color: white;
-  }
-
-  .save-button:hover:not(:disabled) {
-    background-color: #0056b3;
-  }
-
-  .cancel-button:disabled,
-  .save-button:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
-  @media (prefers-color-scheme: dark) {
-    .metadata-editor {
-      background-color: #1e1e1e;
-      color: #fff;
-    }
-
-    .editor-header {
-      border-bottom-color: #444;
-    }
-
-    .close-button {
-      color: #aaa;
-    }
-
-    .close-button:hover {
-      background-color: #333;
-    }
-
-    .info-message {
-      background-color: #1a237e;
-      color: #90caf9;
-    }
-
-    .form-group label {
-      color: #fff;
-    }
-
-    .form-group input[type='text'],
-    .form-group input[type='number'] {
-      background-color: #2a2a2a;
-      border-color: #555;
-      color: #fff;
-    }
-
-    .form-group input:disabled {
-      background-color: #333;
-    }
-
-    .validation-error,
-    .error-message {
-      background-color: #5d1f1f;
-      color: #ef5350;
-    }
-
-    .editor-footer {
-      border-top-color: #444;
-    }
-
-    .cancel-button {
-      background-color: #333;
-      color: #fff;
-    }
-
-    .cancel-button:hover:not(:disabled) {
-      background-color: #444;
-    }
-  }
-</style>

@@ -109,7 +109,7 @@
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="modal-backdrop" onclick={handleBackdropClick}>
-    <div class="modal-content">
+    <div class="modal-content max-w-3xl">
       <!-- ヘッダー -->
       <div class="modal-header">
         <div class="header-art">
@@ -137,25 +137,25 @@
           {/if}
         </div>
         <div class="header-info">
-          <span class="header-type">
+          <span class="text-xs uppercase tracking-wider text-text-muted mb-2">
             {type === 'album' ? 'アルバム' : type === 'artist' ? 'アーティスト' : 'ジャンル'}
           </span>
-          <h2 class="header-title">{group.name}</h2>
+          <h2 class="text-2xl font-bold text-text-primary m-0 leading-tight">{group.name}</h2>
           {#if 'artist' in group && group.artist}
-            <p class="header-artist">{group.artist}</p>
+            <p class="text-base text-text-secondary mt-2 m-0">{group.artist}</p>
           {/if}
-          <p class="header-meta">
+          <p class="text-sm text-text-dimmed mt-2 m-0">
             {group.trackCount}曲 · {formatTotalDuration(group.totalDuration)}
           </p>
-          <div class="header-actions">
+          <div class="flex gap-3 mt-4">
             <button class="action-button primary" onclick={handlePlayAll}>
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4">
                 <path d="M8 5v14l11-7z" />
               </svg>
               再生
             </button>
             <button class="action-button" onclick={handleShufflePlay}>
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-4 h-4">
                 <polyline points="16 3 21 3 21 8" />
                 <line x1="4" y1="20" x2="21" y2="3" />
                 <polyline points="21 16 21 21 16 21" />
@@ -167,7 +167,7 @@
           </div>
         </div>
         <button class="close-button" onclick={onClose} title="閉じる">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-4 h-4">
             <line x1="18" y1="6" x2="6" y2="18" />
             <line x1="6" y1="6" x2="18" y2="18" />
           </svg>
@@ -203,119 +203,26 @@
 {/if}
 
 <style>
-  .modal-backdrop {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.8);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 100;
-    padding: 2rem;
-  }
-
-  .modal-content {
-    background: #1e1e2e;
-    border-radius: 1rem;
-    width: 100%;
-    max-width: 800px;
-    max-height: 80vh;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-  }
-
   .modal-header {
-    display: flex;
-    gap: 1.5rem;
-    padding: 1.5rem;
+    @apply flex gap-6 p-6 relative;
     background: linear-gradient(to bottom, rgba(59, 130, 246, 0.15), transparent);
-    position: relative;
   }
 
   .header-art {
-    width: 160px;
-    height: 160px;
-    flex-shrink: 0;
-    border-radius: 0.5rem;
-    overflow: hidden;
+    @apply w-40 h-40 shrink-0 rounded-lg overflow-hidden;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
   }
 
   .header-art img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-
-  .art-placeholder {
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(135deg, #2a2a3a, #1a1a2a);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .art-placeholder svg {
-    width: 48px;
-    height: 48px;
-    color: #666;
+    @apply w-full h-full object-cover;
   }
 
   .header-info {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-  }
-
-  .header-type {
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: #888;
-    margin-bottom: 0.5rem;
-  }
-
-  .header-title {
-    font-size: 1.75rem;
-    font-weight: 700;
-    color: #fff;
-    margin: 0;
-    line-height: 1.2;
-  }
-
-  .header-artist {
-    font-size: 1rem;
-    color: #aaa;
-    margin: 0.5rem 0 0;
-  }
-
-  .header-meta {
-    font-size: 0.875rem;
-    color: #666;
-    margin: 0.5rem 0 0;
-  }
-
-  .header-actions {
-    display: flex;
-    gap: 0.75rem;
-    margin-top: 1rem;
+    @apply flex-1 flex flex-col justify-center;
   }
 
   .action-button {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.625rem 1.25rem;
-    border: none;
-    border-radius: 2rem;
-    font-size: 0.875rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.15s ease;
+    @apply flex items-center gap-2 py-2.5 px-5 border-none rounded-full text-sm font-medium cursor-pointer transition-all duration-fast;
     background: rgba(255, 255, 255, 0.1);
     color: #fff;
   }
@@ -325,66 +232,34 @@
   }
 
   .action-button.primary {
-    background: #1db954;
-    color: #000;
+    @apply bg-secondary text-black;
   }
 
   .action-button.primary:hover {
-    background: #1ed760;
-    transform: scale(1.02);
-  }
-
-  .action-button svg {
-    width: 1rem;
-    height: 1rem;
+    @apply bg-secondary-focus scale-[1.02];
   }
 
   .close-button {
-    position: absolute;
-    top: 1rem;
-    right: 1rem;
-    width: 2rem;
-    height: 2rem;
-    border: none;
+    @apply absolute top-4 right-4 w-8 h-8 border-none rounded-full flex items-center justify-center cursor-pointer text-text-muted transition-all duration-fast;
     background: rgba(255, 255, 255, 0.1);
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    color: #888;
-    transition: all 0.15s ease;
   }
 
   .close-button:hover {
     background: rgba(255, 255, 255, 0.15);
-    color: #fff;
-  }
-
-  .close-button svg {
-    width: 1rem;
-    height: 1rem;
+    @apply text-text-primary;
   }
 
   .track-list {
-    flex: 1;
-    overflow-y: auto;
-    padding: 0 0.5rem 0.5rem;
+    @apply flex-1 overflow-y-auto px-2 pb-2;
   }
 
   .track-row {
-    display: grid;
+    @apply grid gap-3 py-2.5 px-3 items-center rounded-md cursor-pointer transition-colors duration-100;
     grid-template-columns: 3rem 1fr 4rem;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 0.625rem 0.75rem;
-    border-radius: 0.375rem;
-    cursor: pointer;
-    transition: background 0.1s ease;
   }
 
   .track-row:hover {
-    background: rgba(255, 255, 255, 0.05);
+    @apply bg-surface-hover;
   }
 
   .track-row.playing {
@@ -392,45 +267,30 @@
   }
 
   .track-number {
-    font-size: 0.875rem;
-    color: #666;
-    text-align: center;
+    @apply text-sm text-text-dimmed text-center;
   }
 
   .track-row.playing .track-number {
-    color: #1db954;
+    @apply text-secondary;
   }
 
   .track-info {
-    display: flex;
-    flex-direction: column;
-    gap: 0.125rem;
-    min-width: 0;
+    @apply flex flex-col gap-0.5 min-w-0;
   }
 
   .track-title {
-    font-size: 0.9375rem;
-    color: #fff;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    @apply text-[0.9375rem] text-text-primary text-truncate;
   }
 
   .track-row.playing .track-title {
-    color: #1db954;
+    @apply text-secondary;
   }
 
   .track-artist {
-    font-size: 0.8125rem;
-    color: #666;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    @apply text-[0.8125rem] text-text-dimmed text-truncate;
   }
 
   .track-duration {
-    font-size: 0.8125rem;
-    color: #666;
-    text-align: right;
+    @apply text-[0.8125rem] text-text-dimmed text-right;
   }
 </style>

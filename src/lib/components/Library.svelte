@@ -102,7 +102,6 @@
     event.stopPropagation();
     try {
       await toggleFavorite(trackId);
-      // キャッシュを更新
       queryClient.invalidateQueries({ queryKey: ['tracks'] });
     } catch (error) {
       console.error('お気に入りの切り替えに失敗しました:', error);
@@ -116,7 +115,6 @@
     event.stopPropagation();
     try {
       await setRating(trackId, rating);
-      // キャッシュを更新
       queryClient.invalidateQueries({ queryKey: ['tracks'] });
     } catch (error) {
       console.error('レーティングの設定に失敗しました:', error);
@@ -152,8 +150,7 @@
     return null;
   });
 
-  // 表示するクエリを選択（検索 > フィルター > ベースクエリ）
-  // 注: お気に入りや最近再生などの特殊ビューでは検索/フィルターを無効化
+  // 表示するクエリを選択
   const activeQuery = $derived.by(() => {
     if (viewModeParam !== 'all') {
       return baseQuery;
@@ -165,16 +162,16 @@
   const isLoading = $derived(activeQuery.isLoading);
   const isError = $derived(activeQuery.isError);
   const error = $derived(activeQuery.error);
-  
+
   // ソートされたトラック
   const tracks = $derived.by(() => {
     const data = activeQuery.data;
     if (!data) return null;
-    
+
     return [...data].sort((a, b) => {
       let aVal: string | number | null;
       let bVal: string | number | null;
-      
+
       switch (sortField) {
         case 'title':
           aVal = a.title || a.fileName;
@@ -199,17 +196,17 @@
         default:
           return 0;
       }
-      
+
       if (aVal === null) aVal = '';
       if (bVal === null) bVal = '';
-      
+
       let comparison = 0;
       if (typeof aVal === 'string' && typeof bVal === 'string') {
         comparison = aVal.localeCompare(bVal, 'ja');
       } else {
         comparison = aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
       }
-      
+
       return sortDirection === 'asc' ? comparison : -comparison;
     });
   });
@@ -217,9 +214,6 @@
   // 現在再生中のトラックID
   const currentPlayingTrackId = $derived($currentTrack?.id);
 
-  /**
-   * ソートを切り替え
-   */
   function toggleSort(field: SortField) {
     if (sortField === field) {
       sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
@@ -229,35 +223,24 @@
     }
   }
 
-  /**
-   * ソートアイコンを取得
-   */
   function getSortIcon(field: SortField): string {
     if (sortField !== field) return '';
     return sortDirection === 'asc' ? '↑' : '↓';
   }
 
-  /**
-   * 検索入力のデバウンス処理
-   */
   function handleSearchInput(event: Event) {
     const target = event.target as HTMLInputElement;
     searchTerm = target.value;
 
-    // 既存のタイマーをクリア
     if (debounceTimer) {
       clearTimeout(debounceTimer);
     }
 
-    // 300ms後に検索を実行（サニタイズ済み）
     debounceTimer = setTimeout(() => {
       debouncedSearchTerm = sanitizeSearchQuery(searchTerm);
     }, 300);
   }
 
-  /**
-   * 検索をクリア
-   */
   function clearSearch() {
     searchTerm = '';
     debouncedSearchTerm = '';
@@ -266,19 +249,12 @@
     }
   }
 
-  /**
-   * テキスト内の検索語をハイライト
-   */
   function highlightText(text: string, search: string): string {
     if (!search || !text) return text;
-
     const regex = new RegExp(`(${search})`, 'gi');
-    return text.replace(regex, '<mark>$1</mark>');
+    return text.replace(regex, '<mark class="bg-warning text-black px-0.5 rounded-sm">$1</mark>');
   }
 
-  /**
-   * 再生時間をフォーマット (秒 -> mm:ss)
-   */
   function formatDuration(seconds: number | null): string {
     if (!seconds) return '--:--';
     const mins = Math.floor(seconds / 60);
@@ -286,49 +262,30 @@
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   }
 
-  /**
-   * 表示モードを切り替え
-   */
   function toggleDisplayMode() {
     displayMode = displayMode === 'grid' ? 'list' : 'grid';
   }
 
-  /**
-   * フィルター表示を切り替え
-   */
   function toggleFilters() {
     showFilters = !showFilters;
   }
 
-  /**
-   * すべてのフィルターをクリア
-   */
   function clearFilters() {
     selectedArtist = '';
     selectedAlbum = '';
     selectedGenre = '';
   }
 
-  /**
-   * フィルターが適用されているかチェック
-   */
   const hasActiveFilters = $derived(!!(selectedArtist || selectedAlbum || selectedGenre));
 
-  /**
-   * 選択されたトラックを取得
-   */
   const selectedTracks = $derived.by(() => {
     if (!tracks) return [];
     return tracks.filter((track) => selectedTrackIds.has(track.id));
   });
 
-  /**
-   * トラックの選択を切り替え
-   */
   function toggleTrackSelection(trackId: string, event: MouseEvent | KeyboardEvent) {
     event.stopPropagation();
 
-    // キーボードイベントの場合は通常の選択のみ
     if (event instanceof KeyboardEvent) {
       const newSelection = new Set(selectedTrackIds);
       if (newSelection.has(trackId)) {
@@ -344,7 +301,6 @@
     const newSelection = new Set(selectedTrackIds);
 
     if (event.shiftKey && selectedTrackIds.size > 0 && tracks) {
-      // Shift+クリックで範囲選択
       const lastSelectedId = Array.from(selectedTrackIds).pop();
       const lastIndex = tracks.findIndex((t) => t.id === lastSelectedId);
       const currentIndex = tracks.findIndex((t) => t.id === trackId);
@@ -358,14 +314,12 @@
         }
       }
     } else if (event.ctrlKey || event.metaKey) {
-      // Ctrl/Cmd+クリックで複数選択
       if (newSelection.has(trackId)) {
         newSelection.delete(trackId);
       } else {
         newSelection.add(trackId);
       }
     } else {
-      // 通常のクリックで単一選択
       if (newSelection.has(trackId) && newSelection.size === 1) {
         newSelection.clear();
       } else {
@@ -377,60 +331,40 @@
     selectedTrackIds = newSelection;
   }
 
-  /**
-   * すべての選択を解除
-   */
   function clearSelection() {
     selectedTrackIds = new Set();
   }
 
-  /**
-   * メタデータエディタを開く
-   */
   function openMetadataEditor() {
     if (selectedTrackIds.size > 0) {
       showMetadataEditor = true;
     }
   }
 
-  /**
-   * メタデータエディタを閉じる
-   */
   function closeMetadataEditor() {
     showMetadataEditor = false;
   }
 
-  /**
-   * メタデータ保存後の処理
-   */
   function handleMetadataSaved() {
     clearSelection();
   }
 
-  /**
-   * トラックをダブルクリックで再生
-   */
   function handleTrackDoubleClick(track: Track) {
     if (!tracks) return;
 
-    // 現在のトラックリストから再生キューを作成
     const trackIndex = tracks.findIndex((t) => t.id === track.id);
     if (trackIndex !== -1) {
       playTrackFromQueue(tracks, trackIndex);
     }
   }
 
-  /**
-   * 右クリックでコンテキストメニューを表示
-   */
   function handleContextMenu(event: MouseEvent, track: Track) {
     event.preventDefault();
-    
-    // トラックが選択されていない場合は、右クリックしたトラックを選択
+
     if (!selectedTrackIds.has(track.id)) {
       selectedTrackIds = new Set([track.id]);
     }
-    
+
     contextMenu = {
       x: event.clientX,
       y: event.clientY,
@@ -438,43 +372,29 @@
     };
   }
 
-  /**
-   * コンテキストメニューを閉じる
-   */
   function closeContextMenu() {
     contextMenu = null;
   }
 
-  /**
-   * 次に再生
-   */
   function handlePlayNext() {
     const queue = get(playQueue);
     const currentIndex = get(currentTrackIndex);
-    
+
     const newQueue = [...queue];
     newQueue.splice(currentIndex + 1, 0, ...selectedTracks);
     playQueue.set(newQueue);
   }
 
-  /**
-   * キューに追加
-   */
   function handleAddToQueue() {
     const queue = get(playQueue);
     playQueue.set([...queue, ...selectedTracks]);
   }
 
-  /**
-   * アルバムアートを取得
-   */
   async function loadAlbumArt(trackId: string): Promise<void> {
-    // 既にキャッシュにある場合はスキップ
     if (albumArtCache.has(trackId)) {
       return;
     }
 
-    // ローディング中のプレースホルダーを設定
     albumArtCache.set(trackId, null);
 
     try {
@@ -490,42 +410,30 @@
     }
   }
 
-  /**
-   * アルバムアートのData URLを取得
-   */
   function getAlbumArtUrl(trackId: string): string | null {
     return albumArtCache.get(trackId) ?? null;
   }
 
-  /**
-   * グリッドカードサイズを計算（アートサイズ + パディング）
-   */
-  const cardWidth = $derived(artSize + 24); // 12px padding on each side
+  const cardWidth = $derived(artSize + 24);
 
-  /**
-   * ドラッグ開始時のハンドラー
-   */
   function handleDragStart(event: DragEvent, track: Track) {
     if (!event.dataTransfer) return;
-    
+
     event.dataTransfer.effectAllowed = 'copy';
-    
-    // 選択されているトラックがある場合は複数のトラックIDを設定
+
     let trackIds: string[];
     if (selectedTrackIds.size > 0 && selectedTrackIds.has(track.id)) {
       trackIds = Array.from(selectedTrackIds);
     } else {
       trackIds = [track.id];
     }
-    
+
     event.dataTransfer.setData('application/json', JSON.stringify(trackIds));
     event.dataTransfer.setData('text/plain', trackIds[0]);
-    
-    // ドラッグ状態を設定
+
     isDragging = true;
     draggedTrackIds = trackIds;
-    
-    // カスタムドラッグ画像を作成
+
     const dragImage = document.createElement('div');
     dragImage.className = 'drag-preview';
     dragImage.innerHTML = `
@@ -540,29 +448,22 @@
     dragImage.style.left = '-9999px';
     dragImage.style.top = '-9999px';
     document.body.appendChild(dragImage);
-    
+
     event.dataTransfer.setDragImage(dragImage, 40, 25);
-    
-    // クリーンアップ
+
     setTimeout(() => {
       document.body.removeChild(dragImage);
     }, 0);
   }
 
-  /**
-   * ドラッグ終了時のハンドラー
-   */
   function handleDragEnd() {
     isDragging = false;
     draggedTrackIds = [];
   }
 
-  // トラックが変更されたときにアルバムアートを読み込む
   $effect(() => {
     if (tracks && displayMode === 'grid') {
-      // 表示されているトラックのアルバムアートを順次読み込む
       for (const track of tracks.slice(0, 50)) {
-        // 最初の50件のみ
         if (!albumArtCache.has(track.id)) {
           loadAlbumArt(track.id);
         }
@@ -571,18 +472,18 @@
   });
 </script>
 
-<div class="library-container">
+<div class="flex flex-col h-full">
   <!-- ヘッダー -->
-  <div class="library-header">
-    <div class="header-left">
+  <div class="flex justify-between items-center py-3 mb-3 border-b border-border">
+    <div class="flex items-center gap-3">
       {#if viewModeParam === 'all'}
         <BrowseModeSelector />
       {/if}
       {#if $browseMode === 'songs' && tracks}
-        <span class="track-count">{tracks.length}曲</span>
+        <span class="text-sm text-text-muted">{tracks.length}曲</span>
       {/if}
     </div>
-    <div class="header-controls">
+    <div class="flex gap-3 items-center">
       {#if selectedTrackIds.size > 0}
         <div class="selection-info">
           {selectedTrackIds.size}件選択中
@@ -593,10 +494,9 @@
         </div>
       {/if}
       {#if $browseMode === 'songs' || viewModeParam !== 'all'}
-        <!-- 曲表示モードのコントロール -->
         {#if viewModeParam === 'all'}
           <div class="search-box">
-            <svg xmlns="http://www.w3.org/2000/svg" class="search-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg xmlns="http://www.w3.org/2000/svg" class="absolute left-3 w-4 h-4 text-text-dimmed" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
             <input
@@ -607,25 +507,25 @@
               class="search-input"
             />
             {#if searchTerm}
-              <button onclick={clearSearch} class="clear-button" aria-label="検索をクリア">✕</button>
+              <button onclick={clearSearch} class="absolute right-2 p-1 text-text-dimmed hover:text-text-primary" aria-label="検索をクリア">✕</button>
             {/if}
           </div>
-          <button onclick={toggleFilters} class="btn-icon" class:active={showFilters} title="フィルター">
-            <svg xmlns="http://www.w3.org/2000/svg" class="icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <button onclick={toggleFilters} class="header-btn" class:active={showFilters} title="フィルター">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
             </svg>
             {#if hasActiveFilters}
-              <span class="badge">{[selectedArtist, selectedAlbum, selectedGenre].filter(Boolean).length}</span>
+              <span class="filter-badge">{[selectedArtist, selectedAlbum, selectedGenre].filter(Boolean).length}</span>
             {/if}
           </button>
         {/if}
-        <button onclick={toggleDisplayMode} class="btn-icon" title={displayMode === 'grid' ? 'リスト表示' : 'グリッド表示'}>
+        <button onclick={toggleDisplayMode} class="header-btn" title={displayMode === 'grid' ? 'リスト表示' : 'グリッド表示'}>
           {#if displayMode === 'grid'}
-            <svg xmlns="http://www.w3.org/2000/svg" class="icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16" />
             </svg>
           {:else}
-            <svg xmlns="http://www.w3.org/2000/svg" class="icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
             </svg>
           {/if}
@@ -634,7 +534,6 @@
           <CardSizeSlider />
         {/if}
       {:else if $browseMode === 'albums' || $browseMode === 'artists'}
-        <!-- アルバム/アーティスト表示のサイズコントロール -->
         <CardSizeSlider />
       {/if}
     </div>
@@ -686,7 +585,7 @@
   {/if}
 
   <!-- コンテンツ -->
-  <div class="library-content">
+  <div class="flex-1 overflow-y-auto">
     {#if viewModeParam === 'all' && $browseMode === 'albums'}
       <AlbumGrid />
     {:else if viewModeParam === 'all' && $browseMode === 'artists'}
@@ -694,38 +593,37 @@
     {:else if viewModeParam === 'all' && $browseMode === 'genres'}
       <GenreGrid />
     {:else if isLoading}
-      <div class="loading">
-        <div class="loading-spinner"></div>
+      <div class="empty-state">
+        <div class="spinner"></div>
         <p>読み込み中...</p>
       </div>
     {:else if isError}
-      <div class="error">
+      <div class="empty-state text-error">
         <p>エラーが発生しました</p>
-        <p class="error-detail">{error?.message || '不明なエラー'}</p>
+        <p class="text-sm text-text-muted">{error?.message || '不明なエラー'}</p>
       </div>
     {:else if tracks && tracks.length > 0}
-      <!-- トラック表示 -->
       {#if displayMode === 'list'}
         <!-- リスト表示 -->
         <div class="track-table">
           <div class="table-header">
             <div class="col-checkbox"></div>
             <div class="col-favorite"></div>
-            <button class="col-title sortable" onclick={() => toggleSort('title')}>
+            <button class="sortable" onclick={() => toggleSort('title')}>
               タイトル {getSortIcon('title')}
             </button>
-            <button class="col-artist sortable" onclick={() => toggleSort('artist')}>
+            <button class="sortable" onclick={() => toggleSort('artist')}>
               アーティスト {getSortIcon('artist')}
             </button>
-            <button class="col-album sortable" onclick={() => toggleSort('album')}>
+            <button class="sortable" onclick={() => toggleSort('album')}>
               アルバム {getSortIcon('album')}
             </button>
             <div class="col-rating">評価</div>
-            <button class="col-duration sortable" onclick={() => toggleSort('duration')}>
+            <button class="sortable text-right" onclick={() => toggleSort('duration')}>
               時間 {getSortIcon('duration')}
             </button>
           </div>
-          <div class="table-body">
+          <div class="flex flex-col">
             {#each tracks as track (track.id)}
               <div
                 class="track-row"
@@ -742,33 +640,33 @@
                 role="button"
                 tabindex="0"
               >
-                <div class="col-checkbox">
+                <div class="col-checkbox flex items-center justify-center">
                   {#if currentPlayingTrackId === track.id}
                     <PlayingIndicator size="small" />
                   {/if}
                 </div>
-                <div class="col-favorite">
+                <div class="col-favorite flex items-center justify-center">
                   <button
                     class="favorite-btn"
                     class:active={track.isFavorite}
                     onclick={(e) => handleToggleFavorite(track.id, e)}
                     title={track.isFavorite ? 'お気に入りから削除' : 'お気に入りに追加'}
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill={track.isFavorite ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill={track.isFavorite ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" class="w-4 h-4">
                       <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
                     </svg>
                   </button>
                 </div>
-                <div class="col-title">
+                <div class="text-truncate text-text-primary">
                   {@html highlightText(track.title || track.fileName, debouncedSearchTerm)}
                 </div>
-                <div class="col-artist">
+                <div class="text-truncate text-text-secondary text-sm">
                   {@html highlightText(track.artist || '不明なアーティスト', debouncedSearchTerm)}
                 </div>
-                <div class="col-album">
+                <div class="text-truncate text-text-secondary text-sm">
                   {@html highlightText(track.album || '不明なアルバム', debouncedSearchTerm)}
                 </div>
-                <div class="col-rating">
+                <div class="col-rating flex items-center justify-center">
                   <div class="rating-stars">
                     {#each [1, 2, 3, 4, 5] as star}
                       <button
@@ -782,7 +680,7 @@
                     {/each}
                   </div>
                 </div>
-                <div class="col-duration">
+                <div class="text-right text-text-muted text-sm">
                   {formatDuration(track.duration)}
                 </div>
               </div>
@@ -792,14 +690,15 @@
       {:else}
         <!-- グリッド表示 -->
         <div
-          class="tracks-grid"
-          style="--card-width: {cardWidth}px; --art-size: {artSize}px;"
+          class="grid gap-4 justify-items-center"
+          style="grid-template-columns: repeat(auto-fill, minmax({cardWidth}px, 1fr));"
         >
           {#each tracks as track (track.id)}
             <div
               class="track-card"
               class:selected={selectedTrackIds.has(track.id)}
               class:playing={currentPlayingTrackId === track.id}
+              style="width: {cardWidth}px;"
               draggable="true"
               ondragstart={(e) => handleDragStart(e, track)}
               onclick={(e) => toggleTrackSelection(track.id, e)}
@@ -809,32 +708,32 @@
               role="button"
               tabindex="0"
             >
-              <div class="album-art" style="width: {artSize}px; height: {artSize}px;">
+              <div class="relative shrink-0 rounded-md overflow-hidden bg-base-400 mb-2" style="width: {artSize}px; height: {artSize}px;">
                 {#if getAlbumArtUrl(track.id)}
                   <img
                     src={getAlbumArtUrl(track.id)}
                     alt="アルバムアート"
-                    class="album-art-image"
+                    class="w-full h-full object-cover"
                     loading="lazy"
                   />
                 {:else}
-                  <div class="album-art-placeholder">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="music-icon">
+                  <div class="w-full h-full flex items-center justify-center text-white/80 bg-gradient-to-br from-accent to-accent-focus">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-2/5 h-2/5">
                       <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
                     </svg>
                   </div>
                 {/if}
                 {#if currentPlayingTrackId === track.id}
-                  <div class="playing-overlay">
+                  <div class="absolute inset-0 bg-black/50 flex items-center justify-center">
                     <PlayingIndicator size="large" />
                   </div>
                 {/if}
               </div>
-              <div class="track-info">
-                <div class="track-title" title={track.title || track.fileName}>
+              <div class="w-full text-center min-w-0">
+                <div class="font-semibold mb-1 text-truncate text-sm text-text-primary" title={track.title || track.fileName}>
                   {@html highlightText(track.title || track.fileName, debouncedSearchTerm)}
                 </div>
-                <div class="track-artist" title={track.artist || '不明なアーティスト'}>
+                <div class="text-xs text-text-muted text-truncate" title={track.artist || '不明なアーティスト'}>
                   {@html highlightText(track.artist || '不明なアーティスト', debouncedSearchTerm)}
                 </div>
               </div>
@@ -843,20 +742,20 @@
         </div>
       {/if}
     {:else if isSearching}
-      <div class="empty">
-        <svg xmlns="http://www.w3.org/2000/svg" class="empty-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <div class="empty-state">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-16 h-16 text-text-dimmed/50 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
         </svg>
         <p>結果が見つかりません</p>
-        <p class="hint">別の検索語を試してください</p>
+        <p class="text-sm text-text-dimmed">別の検索語を試してください</p>
       </div>
     {:else}
-      <div class="empty">
-        <svg xmlns="http://www.w3.org/2000/svg" class="empty-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <div class="empty-state">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-16 h-16 text-text-dimmed/50 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
         </svg>
         <p>音楽ライブラリが空です</p>
-        <p class="hint">フォルダをインポートして音楽を追加してください</p>
+        <p class="text-sm text-text-dimmed">フォルダをインポートして音楽を追加してください</p>
       </div>
     {/if}
   </div>
@@ -887,596 +786,178 @@
 {/if}
 
 <style>
-  .library-container {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-  }
-
-  .library-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 0.75rem 0;
-    margin-bottom: 0.75rem;
-    border-bottom: 1px solid #333;
-  }
-
-  .header-left {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-  }
-
-  .library-header h2 {
-    margin: 0;
-    font-size: 1.5rem;
-    font-weight: 600;
-    color: #fff;
-  }
-
-  .track-count {
-    font-size: 0.875rem;
-    color: #888;
-  }
-
-  .header-controls {
-    display: flex;
-    gap: 0.75rem;
-    align-items: center;
-  }
-
+  /* 選択情報 */
   .selection-info {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.375rem 0.75rem;
-    background-color: rgba(59, 130, 246, 0.2);
-    border-radius: 0.375rem;
-    font-size: 0.875rem;
-    color: #60a5fa;
+    @apply flex items-center gap-2 px-3 py-1.5 bg-primary/20 rounded-md text-sm text-primary;
   }
 
   .btn-text {
-    padding: 0.25rem 0.5rem;
-    background: transparent;
-    border: none;
-    color: #60a5fa;
-    cursor: pointer;
-    font-size: 0.875rem;
-  }
-
-  .btn-text:hover {
-    text-decoration: underline;
+    @apply px-2 py-1 bg-transparent border-none text-primary cursor-pointer text-sm hover:underline;
   }
 
   .btn-primary-sm {
-    padding: 0.25rem 0.75rem;
-    background-color: #3b82f6;
-    color: #fff;
-    border: none;
-    border-radius: 0.25rem;
-    cursor: pointer;
-    font-size: 0.875rem;
+    @apply px-3 py-1 bg-primary text-primary-content border-none rounded cursor-pointer text-sm hover:bg-primary-focus;
   }
 
-  .btn-primary-sm:hover {
-    background-color: #2563eb;
-  }
-
+  /* 検索ボックス */
   .search-box {
-    position: relative;
-    display: flex;
-    align-items: center;
-  }
-
-  .search-icon {
-    position: absolute;
-    left: 0.75rem;
-    width: 1rem;
-    height: 1rem;
-    color: #666;
+    @apply relative flex items-center;
   }
 
   .search-input {
-    padding: 0.5rem 2rem 0.5rem 2.25rem;
-    background-color: #2a2a3a;
-    border: 1px solid #444;
-    border-radius: 0.375rem;
-    font-size: 0.875rem;
-    color: #fff;
-    width: 200px;
-    transition: border-color 0.2s, width 0.2s;
+    @apply py-2 pl-9 pr-8 bg-base-400 border border-border rounded-md text-sm text-text-primary w-52 transition-all duration-normal;
   }
 
   .search-input:focus {
-    outline: none;
-    border-color: #3b82f6;
-    width: 280px;
+    @apply outline-none border-primary w-72;
   }
 
   .search-input::placeholder {
-    color: #666;
+    @apply text-text-dimmed;
   }
 
-  .clear-button {
-    position: absolute;
-    right: 0.5rem;
-    background: none;
-    border: none;
-    color: #666;
-    cursor: pointer;
-    font-size: 0.875rem;
-    padding: 0.25rem;
+  /* ヘッダーボタン */
+  .header-btn {
+    @apply flex items-center justify-center relative w-9 h-9 p-0 bg-base-400 border border-border rounded-md text-text-secondary cursor-pointer transition-all duration-normal;
   }
 
-  .clear-button:hover {
-    color: #fff;
+  .header-btn:hover {
+    @apply bg-surface-hover text-text-primary;
   }
 
-  .btn-icon {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    position: relative;
-    width: 2.25rem;
-    height: 2.25rem;
-    padding: 0;
-    background-color: #2a2a3a;
-    border: 1px solid #444;
-    border-radius: 0.375rem;
-    color: #ccc;
-    cursor: pointer;
-    transition: all 0.2s;
+  .header-btn.active {
+    @apply bg-primary border-primary text-primary-content;
   }
 
-  .btn-icon:hover {
-    background-color: #3a3a4a;
-    color: #fff;
+  .filter-badge {
+    @apply absolute -top-1 -right-1 bg-error text-white text-[0.625rem] font-semibold w-4 h-4 rounded-full flex items-center justify-center;
   }
 
-  .btn-icon.active {
-    background-color: #3b82f6;
-    border-color: #3b82f6;
-    color: #fff;
-  }
-
-  .btn-icon .icon {
-    width: 1.25rem;
-    height: 1.25rem;
-  }
-
-  .btn-icon .badge {
-    position: absolute;
-    top: -0.25rem;
-    right: -0.25rem;
-    background-color: #ef4444;
-    color: #fff;
-    font-size: 0.625rem;
-    font-weight: 600;
-    width: 1rem;
-    height: 1rem;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
+  /* フィルターパネル */
   .filter-panel {
-    display: flex;
-    gap: 1rem;
-    padding: 0.75rem 1rem;
-    background-color: #1e1e2e;
-    border-radius: 0.375rem;
-    margin-bottom: 0.75rem;
-    align-items: flex-end;
+    @apply flex gap-4 px-4 py-3 bg-base-300 rounded-md mb-3 items-end;
   }
 
   .filter-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    flex: 1;
+    @apply flex flex-col gap-1 flex-1;
   }
 
   .filter-group label {
-    font-size: 0.75rem;
-    font-weight: 500;
-    color: #888;
+    @apply text-xs font-medium text-text-muted;
   }
 
   .filter-select {
-    padding: 0.5rem;
-    background-color: #2a2a3a;
-    border: 1px solid #444;
-    border-radius: 0.25rem;
-    font-size: 0.875rem;
-    color: #fff;
-    cursor: pointer;
-  }
-
-  .filter-select:focus {
-    outline: none;
-    border-color: #3b82f6;
+    @apply py-2 px-2 bg-base-400 border border-border rounded text-sm text-text-primary cursor-pointer focus:outline-none focus:border-primary;
   }
 
   .btn-clear-filters {
-    padding: 0.5rem 1rem;
-    background-color: #ef4444;
-    color: white;
-    border: none;
-    border-radius: 0.25rem;
-    cursor: pointer;
-    font-size: 0.875rem;
-    white-space: nowrap;
+    @apply px-4 py-2 bg-error text-white border-none rounded cursor-pointer text-sm whitespace-nowrap hover:bg-error/80;
   }
 
-  .btn-clear-filters:hover {
-    background-color: #dc2626;
-  }
-
-  :global(mark) {
-    background-color: #fbbf24;
-    color: #000;
-    padding: 0 2px;
-    border-radius: 2px;
-  }
-
-  .library-content {
-    flex: 1;
-    overflow-y: auto;
-  }
-
-  .loading,
-  .error,
-  .empty {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    height: 100%;
-    color: #888;
-    text-align: center;
-    padding: 2rem;
-  }
-
-  .loading-spinner {
-    width: 2rem;
-    height: 2rem;
-    border: 2px solid #333;
-    border-top-color: #3b82f6;
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-    margin-bottom: 1rem;
-  }
-
-  @keyframes spin {
-    to { transform: rotate(360deg); }
-  }
-
-  .error {
-    color: #ef4444;
-  }
-
-  .error-detail {
-    font-size: 0.875rem;
-    color: #888;
-  }
-
-  .empty-icon {
-    width: 4rem;
-    height: 4rem;
-    margin-bottom: 1rem;
-    opacity: 0.5;
-  }
-
-  .empty p {
-    margin: 0.25rem 0;
-  }
-
-  .hint {
-    font-size: 0.875rem;
-    color: #666;
-  }
-
-  /* テーブル表示 */
+  /* トラックテーブル */
   .track-table {
-    display: flex;
-    flex-direction: column;
+    @apply flex flex-col;
   }
 
   .table-header {
-    display: grid;
+    @apply grid gap-3 px-4 py-2 text-xs font-semibold uppercase text-text-muted border-b border-border sticky top-0 bg-base-100 z-10;
     grid-template-columns: 2.5rem 2rem 2fr 1.5fr 1.5fr 5rem 4rem;
-    gap: 0.75rem;
-    padding: 0.5rem 1rem;
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    color: #888;
-    border-bottom: 1px solid #333;
-    position: sticky;
-    top: 0;
-    background-color: #0f0f1a;
-    z-index: 1;
   }
 
   .sortable {
-    background: none;
-    border: none;
-    color: #888;
-    cursor: pointer;
-    text-align: left;
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    padding: 0;
-    transition: color 0.2s;
-  }
-
-  .sortable:hover {
-    color: #fff;
-  }
-
-  .table-body {
-    display: flex;
-    flex-direction: column;
+    @apply bg-transparent border-none text-text-muted cursor-pointer text-left text-xs font-semibold uppercase p-0 transition-colors hover:text-text-primary;
   }
 
   .track-row {
-    display: grid;
+    @apply grid gap-3 px-4 py-2 items-center cursor-pointer rounded transition-colors;
     grid-template-columns: 2.5rem 2rem 2fr 1.5fr 1.5fr 5rem 4rem;
-    gap: 0.75rem;
-    padding: 0.5rem 1rem;
-    align-items: center;
-    cursor: pointer;
-    border-radius: 0.25rem;
-    transition: background-color 0.15s;
   }
 
   .track-row:hover {
-    background-color: rgba(255, 255, 255, 0.05);
+    @apply bg-surface;
   }
 
   .track-row.selected {
-    background-color: rgba(59, 130, 246, 0.2);
+    @apply bg-primary/20;
   }
 
   .track-row.playing {
-    background-color: rgba(29, 185, 84, 0.15);
+    @apply bg-secondary/15;
   }
 
-  .track-row.playing .col-title {
-    color: #1db954;
+  .track-row.playing > div:nth-child(3) {
+    @apply text-secondary;
   }
 
-  .col-checkbox {
-    display: flex;
-    align-items: center;
-    justify-content: center;
+  .track-row.dragging {
+    @apply opacity-50 bg-primary/30;
   }
 
-  .col-title {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: #fff;
-  }
-
-  .col-artist,
-  .col-album {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: #aaa;
-    font-size: 0.875rem;
-  }
-
-  .col-duration {
-    text-align: right;
-    color: #888;
-    font-size: 0.875rem;
-  }
-
-  /* グリッド表示 */
-  .tracks-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(var(--card-width, 150px), 1fr));
-    gap: 1rem;
-    justify-items: center;
-  }
-
-  .track-card {
-    width: var(--card-width, 150px);
-    padding: 0.75rem;
-    background-color: #1e1e2e;
-    border-radius: 0.5rem;
-    cursor: pointer;
-    transition: transform 0.2s, box-shadow 0.2s, background-color 0.2s;
-    border: 2px solid transparent;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-  }
-
-  .track-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    background-color: #252538;
-  }
-
-  .track-card.selected {
-    background-color: rgba(59, 130, 246, 0.2);
-    border-color: #3b82f6;
-  }
-
-  .track-card.playing {
-    border-color: #1db954;
-  }
-
-  .album-art {
-    position: relative;
-    flex-shrink: 0;
-    border-radius: 0.375rem;
-    overflow: hidden;
-    background-color: #2a2a3a;
-    margin-bottom: 0.5rem;
-  }
-
-  .album-art-image {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-
-  .album-art-placeholder {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: rgba(255, 255, 255, 0.8);
-  }
-
-  .music-icon {
-    width: 40%;
-    height: 40%;
-  }
-
-  .playing-overlay {
-    position: absolute;
-    inset: 0;
-    background-color: rgba(0, 0, 0, 0.5);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .track-info {
-    width: 100%;
-    text-align: center;
-    min-width: 0;
-  }
-
-  .track-title {
-    font-weight: 600;
-    margin-bottom: 0.25rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 0.875rem;
-    color: #fff;
-  }
-
-  .track-artist {
-    font-size: 0.75rem;
-    color: #888;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  /* お気に入りとレーティング */
-  .col-favorite {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .col-rating {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.75rem;
-    color: #888;
-  }
-
+  /* お気に入りボタン */
   .favorite-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.5rem;
-    height: 1.5rem;
-    padding: 0;
-    background: none;
-    border: none;
-    color: #666;
-    cursor: pointer;
-    transition: color 0.15s, transform 0.15s;
+    @apply flex items-center justify-center w-6 h-6 p-0 bg-transparent border-none text-text-dimmed cursor-pointer transition-all;
   }
 
   .favorite-btn:hover {
-    color: #f43f5e;
-    transform: scale(1.1);
+    @apply text-error scale-110;
   }
 
   .favorite-btn.active {
-    color: #f43f5e;
+    @apply text-error;
   }
 
-  .favorite-btn svg {
-    width: 1rem;
-    height: 1rem;
+  /* レーティング */
+  .col-rating {
+    @apply text-xs text-text-muted;
   }
 
   .rating-stars {
-    display: flex;
-    gap: 1px;
+    @apply flex gap-px;
   }
 
   .star-btn {
-    background: none;
-    border: none;
-    padding: 0;
-    font-size: 0.875rem;
-    color: #444;
-    cursor: pointer;
-    transition: color 0.1s, transform 0.1s;
-    line-height: 1;
+    @apply bg-transparent border-none p-0 text-sm text-base-400 cursor-pointer transition-all leading-none;
   }
 
   .star-btn:hover {
-    color: #fbbf24;
-    transform: scale(1.2);
+    @apply text-warning scale-125;
   }
 
   .star-btn.active {
-    color: #fbbf24;
+    @apply text-warning;
   }
 
-  /* ドラッグ状態 */
-  .track-row.dragging,
-  .track-card.dragging {
-    opacity: 0.5;
-    background-color: rgba(59, 130, 246, 0.3);
+  /* トラックカード */
+  .track-card {
+    @apply p-3 bg-base-300 rounded-lg cursor-pointer transition-all border-2 border-transparent flex flex-col items-center;
   }
 
-  /* グローバルドラッグプレビュー */
+  .track-card:hover {
+    @apply -translate-y-0.5 shadow-lg bg-surface-hover;
+  }
+
+  .track-card.selected {
+    @apply bg-primary/20 border-primary;
+  }
+
+  .track-card.playing {
+    @apply border-secondary;
+  }
+
+  /* ドラッグプレビュー */
   :global(.drag-preview) {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem 0.75rem;
-    background-color: #3b82f6;
-    color: white;
-    border-radius: 0.375rem;
-    font-size: 0.875rem;
-    font-weight: 500;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    @apply flex items-center gap-2 px-3 py-2 bg-primary text-white rounded-md text-sm font-medium shadow-lg;
   }
 
   :global(.drag-preview-icon) {
-    width: 1.25rem;
-    height: 1.25rem;
+    @apply w-5 h-5;
   }
 
   :global(.drag-preview-icon svg) {
-    width: 100%;
-    height: 100%;
+    @apply w-full h-full;
   }
 
   :global(.drag-preview-count) {
-    white-space: nowrap;
+    @apply whitespace-nowrap;
   }
 </style>

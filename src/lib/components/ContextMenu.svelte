@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount } from 'svelte';
   import type { Track, Playlist } from '$lib/types/models';
   import { usePlaylistsQuery, useAddTrackToPlaylistMutation } from '$lib/queries/playlists';
   import { playSingleTrack, playQueue, currentTrackIndex } from '$lib/stores/player';
@@ -101,7 +101,7 @@
       // デフォルト動作: キューの現在位置の次に挿入
       const queue = get(playQueue);
       const currentIndex = get(currentTrackIndex);
-      
+
       const newQueue = [...queue];
       newQueue.splice(currentIndex + 1, 0, ...selectedTracks);
       playQueue.set(newQueue);
@@ -253,14 +253,8 @@
 
 <style>
   .context-menu {
-    position: fixed;
-    z-index: 10000;
-    min-width: 200px;
-    background-color: #1e1e2e;
-    border: 1px solid #333;
-    border-radius: 0.5rem;
+    @apply fixed z-[10000] min-w-[200px] bg-base-300 border border-border rounded-lg py-2;
     box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
-    padding: 0.5rem 0;
     animation: fadeIn 0.1s ease-out;
   }
 
@@ -276,81 +270,48 @@
   }
 
   .menu-header {
-    padding: 0.5rem 1rem;
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: #888;
-    text-transform: uppercase;
+    @apply py-2 px-4 text-xs font-semibold text-text-muted uppercase;
   }
 
   .menu-item {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    width: 100%;
-    padding: 0.5rem 1rem;
-    background: none;
-    border: none;
-    color: #e0e0e0;
-    font-size: 0.875rem;
-    text-align: left;
-    cursor: pointer;
-    transition: background-color 0.15s;
+    @apply flex items-center gap-3 w-full py-2 px-4 bg-transparent border-none text-text-secondary text-sm text-left cursor-pointer transition-colors duration-fast;
   }
 
   .menu-item:hover {
-    background-color: rgba(255, 255, 255, 0.1);
+    @apply bg-surface-active;
   }
 
   .menu-icon {
-    width: 1rem;
-    height: 1rem;
-    flex-shrink: 0;
+    @apply w-4 h-4 shrink-0;
   }
 
   .menu-item span {
-    flex: 1;
+    @apply flex-1;
   }
 
   .menu-shortcut {
-    font-size: 0.75rem;
-    color: #666;
+    @apply text-xs text-text-dimmed shrink-0;
     flex: none !important;
   }
 
   .menu-arrow {
-    width: 0.75rem;
-    height: 0.75rem;
-    flex-shrink: 0;
-    color: #666;
+    @apply w-3 h-3 shrink-0 text-text-dimmed;
   }
 
   .menu-divider {
-    height: 1px;
-    background-color: #333;
-    margin: 0.5rem 0;
+    @apply h-px bg-border my-2;
   }
 
   .submenu-trigger {
-    position: relative;
+    @apply relative;
   }
 
   .submenu {
-    position: absolute;
-    left: 100%;
-    top: 0;
-    min-width: 180px;
-    background-color: #1e1e2e;
-    border: 1px solid #333;
-    border-radius: 0.5rem;
+    @apply absolute left-full top-0 min-w-[180px] bg-base-300 border border-border rounded-lg py-2 ml-1;
     box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
-    padding: 0.5rem 0;
-    margin-left: 0.25rem;
   }
 
   .menu-message {
-    padding: 0.5rem 1rem;
-    font-size: 0.875rem;
-    color: #666;
+    @apply py-2 px-4 text-sm text-text-dimmed;
   }
 </style>
