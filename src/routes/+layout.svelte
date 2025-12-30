@@ -1,8 +1,10 @@
 <script lang="ts">
-  import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
+  import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/svelte-query';
   import { Toast } from '$lib/components/ui';
   import Player from '$lib/components/Player.svelte';
   import Sidebar from '$lib/components/Sidebar.svelte';
+  import ImportDialog from '$lib/components/ImportDialog.svelte';
+  import type { ImportResult } from '$lib/types/models';
   import '../app.css';
 
   // パフォーマンス最適化されたQueryClient設定
@@ -25,6 +27,18 @@
   });
 
   let { children } = $props();
+
+  /**
+   * インポート完了時の処理
+   */
+  function handleImportComplete(result: ImportResult) {
+    console.log('インポート完了:', result);
+    // トラック一覧を再取得
+    queryClient.invalidateQueries({ queryKey: ['tracks'] });
+    queryClient.invalidateQueries({ queryKey: ['albums'] });
+    queryClient.invalidateQueries({ queryKey: ['artists'] });
+    queryClient.invalidateQueries({ queryKey: ['genres'] });
+  }
 </script>
 
 <QueryClientProvider client={queryClient}>
@@ -56,6 +70,9 @@
       <Player />
     </div>
   </div>
+
+  <!-- インポートダイアログ -->
+  <ImportDialog onImportComplete={handleImportComplete} />
 </QueryClientProvider>
 
 <style>

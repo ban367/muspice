@@ -2,7 +2,12 @@
   import { page } from '$app/stores';
   import { usePlaylistsQuery, useAddTrackToPlaylistMutation, useCreatePlaylistMutation } from '$lib/queries/playlists';
   import { validatePlaylistName, toSafeString } from '$lib/utils/validation';
-  import { browseMode, type BrowseMode } from '$lib/stores/ui';
+  import { browseMode, type BrowseMode, isImportDialogOpen } from '$lib/stores/ui';
+
+  // インポートダイアログを開く
+  function handleOpenImportDialog() {
+    isImportDialogOpen.set(true);
+  }
 
   // ブラウズモードを変更
   function handleBrowseModeChange(mode: BrowseMode) {
@@ -81,8 +86,17 @@
 
 <aside class="flex flex-col h-full p-4 bg-base-200 text-text-secondary">
   <!-- サイドバーヘッダー -->
-  <div class="mb-6">
+  <div class="mb-6 flex items-center justify-between">
     <h1 class="text-2xl font-bold text-text-primary m-0">Muspice</h1>
+    <button
+      class="btn-icon w-8 h-8 p-0"
+      title="フォルダをインポート"
+      onclick={handleOpenImportDialog}
+    >
+      <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+      </svg>
+    </button>
   </div>
 
   <!-- ブラウズセクション -->

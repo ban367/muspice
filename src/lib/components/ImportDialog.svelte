@@ -4,14 +4,14 @@
   import type { ImportResult } from '$lib/types/models';
   import { DuplicateAction } from '$lib/types/models';
   import { validateFilePath } from '$lib/utils/validation';
+  import { isImportDialogOpen } from '$lib/stores/ui';
 
   interface Props {
-    isOpen?: boolean;
     onClose?: () => void;
     onImportComplete?: (result: ImportResult) => void;
   }
 
-  let { isOpen = $bindable(false), onClose, onImportComplete }: Props = $props();
+  let { onClose, onImportComplete }: Props = $props();
 
   let selectedFolder = $state<string>('');
   let duplicateAction = $state<DuplicateAction>(DuplicateAction.Skip);
@@ -99,7 +99,7 @@
    * ダイアログを閉じる
    */
   function closeDialog() {
-    isOpen = false;
+    isImportDialogOpen.set(false);
     selectedFolder = '';
     duplicateAction = DuplicateAction.Skip;
     progress = 0;
@@ -111,7 +111,7 @@
   }
 </script>
 
-{#if isOpen}
+{#if $isImportDialogOpen}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="modal-backdrop" onclick={closeDialog}>
