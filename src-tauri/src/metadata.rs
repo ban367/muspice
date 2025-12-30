@@ -10,6 +10,7 @@ use std::path::Path;
 
 /// アルバムアート情報
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AlbumArt {
     /// Base64エンコードされた画像データ
     pub data: String,
