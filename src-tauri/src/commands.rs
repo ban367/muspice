@@ -898,13 +898,8 @@ pub async fn rename_playlist(
     validate_playlist_id(&playlist_id)?;
 
     // 名前をバリデーション
-    let name = crate::validation::sanitize_string(&name);
-    if name.is_empty() {
-        return Err("プレイリスト名を入力してください".to_string());
-    }
-    if name.len() > 100 {
-        return Err("プレイリスト名は100文字以内で入力してください".to_string());
-    }
+    let name = name.trim().to_string();
+    crate::validation::validate_playlist_name(&name)?;
 
     let db = state
         .db
