@@ -241,6 +241,7 @@
 {/if}
 
 <style>
+@reference "tailwindcss";
   .progress-bar-container {
     @apply w-full h-6 bg-base-400 rounded-full overflow-hidden;
   }

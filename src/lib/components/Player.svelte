@@ -676,6 +676,7 @@
 {/if}
 
 <style>
+@reference "tailwindcss";
   /* プレイヤーコンテナ */
   .player-container {
     @apply fixed bottom-0 left-0 right-0 z-50
@@ -699,7 +700,7 @@
   /* コントロールボタン */
   .control-button {
     @apply bg-transparent border-none text-text-secondary cursor-pointer
-           p-2 rounded-full transition-all duration-normal
+           p-2 rounded-full transition-all duration-200
            flex items-center justify-center relative;
   }
 
@@ -730,7 +731,7 @@
   /* 再生/一時停止ボタン */
   .play-pause-button {
     @apply bg-white text-black p-2.5 rounded-full cursor-pointer
-           flex items-center justify-center transition-transform duration-fast border-none;
+           flex items-center justify-center transition-transform duration-150 border-none;
   }
 
   .play-pause-button:hover {
@@ -762,7 +763,7 @@
 
   .queue-clear-btn {
     @apply px-2 py-1 bg-transparent border border-border-light rounded
-           text-text-secondary text-xs cursor-pointer transition-all duration-normal;
+           text-text-secondary text-xs cursor-pointer transition-all duration-200;
   }
 
   .queue-clear-btn:hover {
@@ -778,7 +779,7 @@
   }
 
   .queue-track {
-    @apply flex items-center gap-2 p-2 rounded transition-colors duration-normal;
+    @apply flex items-center gap-2 p-2 rounded transition-colors duration-200;
   }
 
   .queue-track:hover {
@@ -787,7 +788,7 @@
 
   .queue-remove-btn {
     @apply bg-transparent border-none text-text-dimmed text-xs cursor-pointer p-1
-           opacity-0 transition-all duration-normal;
+           opacity-0 transition-all duration-200;
   }
 
   .queue-track:hover .queue-remove-btn {

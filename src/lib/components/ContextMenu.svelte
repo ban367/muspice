@@ -252,6 +252,7 @@
 </div>
 
 <style>
+@reference "tailwindcss";
   .context-menu {
     @apply fixed z-[10000] min-w-[200px] bg-base-300 border border-border rounded-lg py-2;
     box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
@@ -274,7 +275,7 @@
   }
 
   .menu-item {
-    @apply flex items-center gap-3 w-full py-2 px-4 bg-transparent border-none text-text-secondary text-sm text-left cursor-pointer transition-colors duration-fast;
+    @apply flex items-center gap-3 w-full py-2 px-4 bg-transparent border-none text-text-secondary text-sm text-left cursor-pointer transition-colors duration-150;
   }
 
   .menu-item:hover {

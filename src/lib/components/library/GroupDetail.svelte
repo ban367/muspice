@@ -203,6 +203,7 @@
 {/if}
 
 <style>
+@reference "tailwindcss";
   .modal-header {
     @apply flex gap-6 p-6 relative;
     background: linear-gradient(to bottom, rgba(59, 130, 246, 0.15), transparent);
@@ -222,7 +223,7 @@
   }
 
   .action-button {
-    @apply flex items-center gap-2 py-2.5 px-5 border-none rounded-full text-sm font-medium cursor-pointer transition-all duration-fast;
+    @apply flex items-center gap-2 py-2.5 px-5 border-none rounded-full text-sm font-medium cursor-pointer transition-all duration-150;
     background: rgba(255, 255, 255, 0.1);
     color: #fff;
   }
@@ -240,7 +241,7 @@
   }
 
   .close-button {
-    @apply absolute top-4 right-4 w-8 h-8 border-none rounded-full flex items-center justify-center cursor-pointer text-text-muted transition-all duration-fast;
+    @apply absolute top-4 right-4 w-8 h-8 border-none rounded-full flex items-center justify-center cursor-pointer text-text-muted transition-all duration-150;
     background: rgba(255, 255, 255, 0.1);
   }
 

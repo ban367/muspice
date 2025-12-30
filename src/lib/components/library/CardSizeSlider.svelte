@@ -32,6 +32,7 @@
 </div>
 
 <style>
+@reference "tailwindcss";
   .size-range {
     @apply w-20 h-1 rounded-sm cursor-pointer;
     -webkit-appearance: none;
@@ -42,7 +43,7 @@
   .size-range::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
-    @apply w-3 h-3 rounded-full bg-primary cursor-pointer transition-transform duration-fast;
+    @apply w-3 h-3 rounded-full bg-primary cursor-pointer transition-transform duration-150;
   }
 
   .size-range::-webkit-slider-thumb:hover {
@@ -50,7 +51,7 @@
   }
 
   .size-range::-moz-range-thumb {
-    @apply w-3 h-3 rounded-full bg-primary cursor-pointer border-none transition-transform duration-fast;
+    @apply w-3 h-3 rounded-full bg-primary cursor-pointer border-none transition-transform duration-150;
   }
 
   .size-range::-moz-range-thumb:hover {

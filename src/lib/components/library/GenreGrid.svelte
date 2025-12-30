@@ -109,6 +109,7 @@
 />
 
 <style>
+@reference "tailwindcss";
   .genre-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
@@ -116,12 +117,12 @@
   }
 
   .genre-card {
-    @apply relative rounded-lg p-6 cursor-pointer transition-all duration-normal min-h-[120px] flex items-end overflow-hidden;
+    @apply relative rounded-lg p-6 cursor-pointer transition-all duration-200 min-h-[120px] flex items-end overflow-hidden;
   }
 
   .genre-card::before {
     content: '';
-    @apply absolute inset-0 bg-black/20 opacity-0 transition-opacity duration-normal;
+    @apply absolute inset-0 bg-black/20 opacity-0 transition-opacity duration-200;
   }
 
   .genre-card:hover::before {
@@ -148,7 +149,7 @@
   }
 
   .genre-play-overlay {
-    @apply absolute top-3 right-3 opacity-0 transition-opacity duration-normal z-20;
+    @apply absolute top-3 right-3 opacity-0 transition-opacity duration-200 z-20;
   }
 
   .genre-card:hover .genre-play-overlay {
@@ -156,7 +157,7 @@
   }
 
   .genre-play-button {
-    @apply w-10 h-10 border-none rounded-full flex items-center justify-center cursor-pointer transition-transform duration-fast;
+    @apply w-10 h-10 border-none rounded-full flex items-center justify-center cursor-pointer transition-transform duration-150;
     background: rgba(255, 255, 255, 0.9);
     color: #000;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);

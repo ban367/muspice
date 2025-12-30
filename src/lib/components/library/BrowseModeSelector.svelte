@@ -50,8 +50,9 @@
 </div>
 
 <style>
+@reference "tailwindcss";
   .mode-button {
-    @apply flex items-center gap-1.5 py-2 px-3 border-none bg-transparent text-text-muted text-sm rounded-md cursor-pointer transition-all duration-fast;
+    @apply flex items-center gap-1.5 py-2 px-3 border-none bg-transparent text-text-muted text-sm rounded-md cursor-pointer transition-all duration-150;
   }
 
   .mode-button:hover {

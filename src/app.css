@@ -128,7 +128,7 @@ html, body {
 
 /* カードスタイル */
 .card-base {
-  @apply bg-surface rounded-lg p-3 transition-all duration-normal;
+  @apply bg-surface rounded-lg p-3 transition-all duration-200;
 }
 
 .card-base:hover {
@@ -139,7 +139,7 @@ html, body {
 .btn-icon {
   @apply flex items-center justify-center rounded-full
          bg-transparent border-none cursor-pointer
-         text-text-secondary transition-all duration-normal;
+         text-text-secondary transition-all duration-200;
 }
 
 .btn-icon:hover {
@@ -180,7 +180,7 @@ html, body {
 /* ナビゲーションアイテム */
 .nav-item-base {
   @apply flex items-center gap-3 px-3 py-2 rounded-md
-         text-text-secondary no-underline transition-all duration-normal;
+         text-text-secondary no-underline transition-all duration-200;
 }
 
 .nav-item-base:hover {
@@ -298,7 +298,7 @@ html, body {
    グリッドカードスタイル
    ================================ */
 .grid-card {
-  @apply bg-surface rounded-lg p-3 cursor-pointer transition-all duration-normal;
+  @apply bg-surface rounded-lg p-3 cursor-pointer transition-all duration-200;
 }
 
 .grid-card:hover {
@@ -325,7 +325,7 @@ html, body {
 }
 
 .play-overlay {
-  @apply absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 transition-opacity duration-normal;
+  @apply absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 transition-opacity duration-200;
 }
 
 .grid-card:hover .play-overlay {
@@ -333,7 +333,7 @@ html, body {
 }
 
 .play-button-circle {
-  @apply w-12 h-12 border-none rounded-full bg-secondary text-black flex items-center justify-center cursor-pointer transition-transform duration-fast;
+  @apply w-12 h-12 border-none rounded-full bg-secondary text-black flex items-center justify-center cursor-pointer transition-transform duration-150;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
@@ -366,7 +366,7 @@ html, body {
    フォームスタイル
    ================================ */
 .form-input {
-  @apply w-full py-2 px-3 bg-base-400 border border-border rounded-md text-sm text-text-primary transition-all duration-normal;
+  @apply w-full py-2 px-3 bg-base-400 border border-border rounded-md text-sm text-text-primary transition-all duration-200;
 }
 
 .form-input:focus {
@@ -389,7 +389,7 @@ html, body {
    ボタンスタイル
    ================================ */
 .btn-primary {
-  @apply py-2 px-4 bg-primary text-white border-none rounded-md cursor-pointer font-medium transition-all duration-normal;
+  @apply py-2 px-4 bg-primary text-white border-none rounded-md cursor-pointer font-medium transition-all duration-200;
 }
 
 .btn-primary:hover:not(:disabled) {
@@ -401,7 +401,7 @@ html, body {
 }
 
 .btn-secondary {
-  @apply py-2 px-4 bg-base-400 text-text-primary border border-border rounded-md cursor-pointer font-medium transition-all duration-normal;
+  @apply py-2 px-4 bg-base-400 text-text-primary border border-border rounded-md cursor-pointer font-medium transition-all duration-200;
 }
 
 .btn-secondary:hover:not(:disabled) {
@@ -413,7 +413,7 @@ html, body {
 }
 
 .btn-success {
-  @apply py-2 px-4 bg-secondary text-black border-none rounded-md cursor-pointer font-medium transition-all duration-normal;
+  @apply py-2 px-4 bg-secondary text-black border-none rounded-md cursor-pointer font-medium transition-all duration-200;
 }
 
 .btn-success:hover:not(:disabled) {
@@ -421,7 +421,7 @@ html, body {
 }
 
 .btn-danger {
-  @apply py-2 px-4 bg-error text-white border-none rounded-md cursor-pointer font-medium transition-all duration-normal;
+  @apply py-2 px-4 bg-error text-white border-none rounded-md cursor-pointer font-medium transition-all duration-200;
 }
 
 .btn-danger:hover:not(:disabled) {

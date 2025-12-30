@@ -786,6 +786,7 @@
 {/if}
 
 <style>
+@reference "tailwindcss";
   /* 選択情報 */
   .selection-info {
     @apply flex items-center gap-2 px-3 py-1.5 bg-primary/20 rounded-md text-sm text-primary;
@@ -805,7 +806,7 @@
   }
 
   .search-input {
-    @apply py-2 pl-9 pr-8 bg-base-400 border border-border rounded-md text-sm text-text-primary w-52 transition-all duration-normal;
+    @apply py-2 pl-9 pr-8 bg-base-400 border border-border rounded-md text-sm text-text-primary w-52 transition-all duration-200;
   }
 
   .search-input:focus {
@@ -818,7 +819,7 @@
 
   /* ヘッダーボタン */
   .header-btn {
-    @apply flex items-center justify-center relative w-9 h-9 p-0 bg-base-400 border border-border rounded-md text-text-secondary cursor-pointer transition-all duration-normal;
+    @apply flex items-center justify-center relative w-9 h-9 p-0 bg-base-400 border border-border rounded-md text-text-secondary cursor-pointer transition-all duration-200;
   }
 
   .header-btn:hover {
