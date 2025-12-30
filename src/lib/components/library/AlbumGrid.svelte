@@ -29,11 +29,18 @@
     loadingArts = new Set(loadingArts);
 
     try {
+      console.log('Loading album art for:', trackId);
       const art = await getAlbumArt(trackId);
+      console.log('Album art result:', art ? 'found' : 'not found', art);
       if (art) {
-        albumArtCache.set(trackId, `data:${art.mimeType};base64,${art.data}`);
+        const dataUrl = `data:${art.mimeType};base64,${art.data}`;
+        console.log('Data URL created, length:', dataUrl.length);
+        albumArtCache.set(trackId, dataUrl);
         albumArtCache = new Map(albumArtCache);
+        console.log('Cache updated, size:', albumArtCache.size);
       }
+    } catch (err) {
+      console.error('Error loading album art:', err);
     } finally {
       loadingArts.delete(trackId);
       loadingArts = new Set(loadingArts);
@@ -42,6 +49,7 @@
 
   // アルバムカードが表示されたらアートを読み込み
   function handleAlbumVisible(album: AlbumGroup) {
+    console.log('Album visible:', album.name, 'trackId:', album.representativeTrackId);
     if (album.representativeTrackId) {
       loadAlbumArt(album.representativeTrackId);
     }
