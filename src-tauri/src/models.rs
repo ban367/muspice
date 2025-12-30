@@ -68,6 +68,7 @@ pub struct Metadata {
 
 /// アルバムグループ（アルバム表示用）
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct AlbumGroup {
     pub name: String,
     pub artist: Option<String>,
@@ -79,6 +80,7 @@ pub struct AlbumGroup {
 
 /// アーティストグループ（アーティスト表示用）
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct ArtistGroup {
     pub name: String,
     pub album_count: i32,
@@ -90,6 +92,7 @@ pub struct ArtistGroup {
 
 /// ジャンルグループ（ジャンル表示用）
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct GenreGroup {
     pub name: String,
     pub track_count: i32,
