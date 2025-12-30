@@ -7,10 +7,8 @@
     useUniqueArtistsQuery,
     useUniqueAlbumsQuery,
     useUniqueGenresQuery,
-    useFavoriteTracksQuery,
     useMostPlayedTracksQuery,
     useRecentlyPlayedTracksQuery,
-    toggleFavorite,
     setRating,
     type FilterOptions
   } from '$lib/queries/tracks';
@@ -31,7 +29,7 @@
 
   // Props
   interface Props {
-    viewMode?: 'all' | 'favorites' | 'recent' | 'mostplayed';
+    viewMode?: 'all' | 'recent' | 'mostplayed';
   }
 
   let { viewMode: viewModeParam = 'all' }: Props = $props();
@@ -74,7 +72,6 @@
 
   const queryClient = useQueryClient();
   const tracksQuery = useTracksQuery();
-  const favoritesQuery = useFavoriteTracksQuery();
   const recentQuery = useRecentlyPlayedTracksQuery(50);
   const mostPlayedQuery = useMostPlayedTracksQuery(50);
   const artistsQuery = useUniqueArtistsQuery();
@@ -84,8 +81,6 @@
   // ビューモードに応じたベースクエリを選択
   const baseQuery = $derived.by(() => {
     switch (viewModeParam) {
-      case 'favorites':
-        return favoritesQuery;
       case 'recent':
         return recentQuery;
       case 'mostplayed':
@@ -94,19 +89,6 @@
         return tracksQuery;
     }
   });
-
-  /**
-   * お気に入りをトグル
-   */
-  async function handleToggleFavorite(trackId: string, event: MouseEvent) {
-    event.stopPropagation();
-    try {
-      await toggleFavorite(trackId);
-      queryClient.invalidateQueries({ queryKey: ['tracks'] });
-    } catch (error) {
-      console.error('お気に入りの切り替えに失敗しました:', error);
-    }
-  }
 
   /**
    * レーティングを設定
@@ -484,15 +466,6 @@
       {/if}
     </div>
     <div class="flex gap-3 items-center">
-      {#if selectedTrackIds.size > 0}
-        <div class="selection-info">
-          {selectedTrackIds.size}件選択中
-          <button onclick={clearSelection} class="btn-text">選択解除</button>
-          <button onclick={openMetadataEditor} class="btn-primary-sm">
-            メタデータを編集
-          </button>
-        </div>
-      {/if}
       {#if $browseMode === 'songs' || viewModeParam !== 'all'}
         {#if viewModeParam === 'all'}
           <div class="search-box">
@@ -608,7 +581,6 @@
         <div class="track-table">
           <div class="table-header">
             <div class="col-checkbox"></div>
-            <div class="col-favorite"></div>
             <button class="sortable" onclick={() => toggleSort('title')}>
               タイトル {getSortIcon('title')}
             </button>
@@ -644,18 +616,6 @@
                   {#if currentPlayingTrackId === track.id}
                     <PlayingIndicator size="small" />
                   {/if}
-                </div>
-                <div class="col-favorite flex items-center justify-center">
-                  <button
-                    class="favorite-btn"
-                    class:active={track.isFavorite}
-                    onclick={(e) => handleToggleFavorite(track.id, e)}
-                    title={track.isFavorite ? 'お気に入りから削除' : 'お気に入りに追加'}
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill={track.isFavorite ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" class="w-4 h-4">
-                      <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
-                    </svg>
-                  </button>
                 </div>
                 <div class="text-truncate text-text-primary">
                   {@html highlightText(track.title || track.fileName, debouncedSearchTerm)}
@@ -787,19 +747,6 @@
 
 <style>
 @reference "../../app.css";
-  /* 選択情報 */
-  .selection-info {
-    @apply flex items-center gap-2 px-3 py-1.5 bg-primary/20 rounded-md text-sm text-primary;
-  }
-
-  .btn-text {
-    @apply px-2 py-1 bg-transparent border-none text-primary cursor-pointer text-sm hover:underline;
-  }
-
-  .btn-primary-sm {
-    @apply px-3 py-1 bg-primary text-primary-content border-none rounded cursor-pointer text-sm hover:bg-primary-focus;
-  }
-
   /* 検索ボックス */
   .search-box {
     @apply relative flex items-center;
@@ -892,19 +839,6 @@
 
   .track-row.dragging {
     @apply opacity-50 bg-primary/30;
-  }
-
-  /* お気に入りボタン */
-  .favorite-btn {
-    @apply flex items-center justify-center w-6 h-6 p-0 bg-transparent border-none text-text-dimmed cursor-pointer transition-all;
-  }
-
-  .favorite-btn:hover {
-    @apply text-error scale-110;
-  }
-
-  .favorite-btn.active {
-    @apply text-error;
   }
 
   /* レーティング */
