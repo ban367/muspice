@@ -2,7 +2,7 @@
   import type { GenreGroup } from '$lib/types/models';
   import { useGenresGroupedQuery } from '$lib/queries/tracks';
   import { playTrackFromQueue } from '$lib/stores/player';
-  import { browseSearchQuery, browseMode, selectedGenreName } from '$lib/stores/ui';
+  import { browseSearchQuery } from '$lib/stores/ui';
   import { goto } from '$app/navigation';
   import GroupContextMenu from '../GroupContextMenu.svelte';
 
@@ -44,10 +44,7 @@
 
   // ジャンルをクリック（詳細ページに遷移）
   function handleGenreClick(genre: GenreGroup) {
-    selectedGenreName.set(genre.name);
-    browseMode.set('genre-detail');
-    browseSearchQuery.set('');
-    goto('/');
+    goto(`/library/genres/${encodeURIComponent(genre.name)}`);
   }
 
   // ジャンルをダブルクリック（すべて再生）

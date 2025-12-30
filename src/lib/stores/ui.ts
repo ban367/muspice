@@ -8,28 +8,11 @@ import { writable, type Writable } from 'svelte/store';
 export type ViewMode = 'grid' | 'list';
 export const viewMode: Writable<ViewMode> = writable('grid');
 
-// ブラウズモード（データのグループ化方法）
-export type BrowseMode = 'songs' | 'albums' | 'artists' | 'genres' | 'genre-detail';
-export const browseMode: Writable<BrowseMode> = writable('songs');
-
-// 選択中のジャンル名（genre-detailモード用）
-export const selectedGenreName: Writable<string | null> = writable(null);
-
-// サイドバーで展開中のジャンル（Set型）
-export const expandedGenres: Writable<Set<string>> = writable(new Set());
-
 // 選択中のトラックID
 export const selectedTracks: Writable<string[]> = writable([]);
 
 // サイドバーの開閉状態
 export const isSidebarOpen: Writable<boolean> = writable(true);
-
-// 現在のビュー（ライブラリ/プレイリスト）
-export type CurrentView = 'library' | 'playlist';
-export const currentView: Writable<CurrentView> = writable('library');
-
-// 選択中のプレイリストID
-export const selectedPlaylistId: Writable<string | null> = writable(null);
 
 // 検索クエリ
 export const searchQuery: Writable<string> = writable('');

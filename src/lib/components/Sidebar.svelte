@@ -1,9 +1,8 @@
 <script lang="ts">
   import { page } from '$app/stores';
-  import { goto } from '$app/navigation';
   import { usePlaylistsQuery, useAddTrackToPlaylistMutation, useCreatePlaylistMutation } from '$lib/queries/playlists';
   import { validatePlaylistName, toSafeString } from '$lib/utils/validation';
-  import { browseMode, type BrowseMode, isImportDialogOpen, browseSearchQuery, selectedGenreName, expandedGenres } from '$lib/stores/ui';
+  import { isImportDialogOpen } from '$lib/stores/ui';
   import { useGenresGroupedQuery } from '$lib/queries/tracks';
   import type { Playlist } from '$lib/types/models';
   import PlaylistContextMenu from './PlaylistContextMenu.svelte';
@@ -13,58 +12,15 @@
     isImportDialogOpen.set(true);
   }
 
-  // ブラウズモードを変更（URLパラメータもクリア）
-  function handleBrowseModeChange(mode: BrowseMode) {
-    browseMode.set(mode);
-    // 検索クエリをクリア
-    browseSearchQuery.set('');
-    // viewパラメータをクリアしてブラウズモードを有効に
-    goto('/');
-  }
-
-  // ライブラリ項目をクリック（browseModeをsongsにリセットしてナビゲート）
-  function handleLibraryItemClick(event: MouseEvent, view: 'recent' | 'mostplayed') {
-    event.preventDefault();
-    browseMode.set('songs');
-    browseSearchQuery.set('');
-    goto(`/?view=${view}`);
-  }
-
-  // ジャンル展開をトグル
-  function toggleGenreExpand() {
-    expandedGenres.update(set => {
-      const newSet = new Set(set);
-      if (newSet.size > 0) {
-        newSet.clear();
-      } else {
-        // ジャンルビューに切り替え
-        handleBrowseModeChange('genres');
-      }
-      return newSet;
-    });
-  }
-
-  // ジャンルを選択（詳細表示）
-  function handleGenreSelect(genreName: string) {
-    selectedGenreName.set(genreName);
-    browseMode.set('genre-detail');
-    browseSearchQuery.set('');
-    goto('/');
-  }
-
-  // ジャンルビューに戻る
-  function handleBackToGenres() {
-    selectedGenreName.set(null);
-    browseMode.set('genres');
-    goto('/');
-  }
-
   // ジャンルクエリ
   const genresQuery = useGenresGroupedQuery();
   const genres = $derived(genresQuery.data ?? []);
 
   // ジャンルが展開されているか
-  const isGenreExpanded = $derived($browseMode === 'genres' || $browseMode === 'genre-detail');
+  let isGenreExpanded = $state(false);
+
+  // 現在のパスからアクティブなページを判定
+  const currentPath = $derived($page.url.pathname);
 
   // クエリとミューテーション
   const playlistsQuery = usePlaylistsQuery();
@@ -156,6 +112,11 @@
       addTrackMutation.mutate({ playlistId, trackId });
     }
   }
+
+  // ジャンル展開トグル
+  function toggleGenreExpand() {
+    isGenreExpanded = !isGenreExpanded;
+  }
 </script>
 
 <aside class="flex flex-col h-full p-4 bg-base-200 text-text-secondary">
@@ -178,10 +139,10 @@
     <h2 class="section-title">ブラウズ</h2>
     <ul class="list-none m-0 p-0">
       <li>
-        <button
-          class="nav-item-base w-full"
-          class:active={$browseMode === 'songs'}
-          onclick={() => handleBrowseModeChange('songs')}
+        <a
+          href="/library/songs"
+          class="nav-item-base"
+          class:active={currentPath === '/library/songs'}
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path d="M9 18V5l12-2v13" />
@@ -189,39 +150,39 @@
             <circle cx="18" cy="16" r="3" />
           </svg>
           <span>曲</span>
-        </button>
+        </a>
       </li>
       <li>
-        <button
-          class="nav-item-base w-full"
-          class:active={$browseMode === 'albums'}
-          onclick={() => handleBrowseModeChange('albums')}
+        <a
+          href="/library/albums"
+          class="nav-item-base"
+          class:active={currentPath === '/library/albums'}
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <circle cx="12" cy="12" r="10" />
             <circle cx="12" cy="12" r="3" />
           </svg>
           <span>アルバム</span>
-        </button>
+        </a>
       </li>
       <li>
-        <button
-          class="nav-item-base w-full"
-          class:active={$browseMode === 'artists'}
-          onclick={() => handleBrowseModeChange('artists')}
+        <a
+          href="/library/artists"
+          class="nav-item-base"
+          class:active={currentPath === '/library/artists'}
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
             <circle cx="12" cy="7" r="4" />
           </svg>
           <span>アーティスト</span>
-        </button>
+        </a>
       </li>
       <li>
         <button
           class="nav-item-base w-full"
-          class:active={$browseMode === 'genres' || $browseMode === 'genre-detail'}
-          onclick={() => handleBrowseModeChange('genres')}
+          class:active={currentPath.startsWith('/library/genres')}
+          onclick={toggleGenreExpand}
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
@@ -245,14 +206,14 @@
           <ul class="genre-sublist">
             {#each genres as genre (genre.name)}
               <li>
-                <button
+                <a
+                  href="/library/genres/{encodeURIComponent(genre.name)}"
                   class="genre-item"
-                  class:active={$browseMode === 'genre-detail' && $selectedGenreName === genre.name}
-                  onclick={() => handleGenreSelect(genre.name)}
+                  class:active={currentPath === `/library/genres/${encodeURIComponent(genre.name)}`}
                 >
                   <span class="genre-name">{genre.name}</span>
                   <span class="genre-count">{genre.trackCount}</span>
-                </button>
+                </a>
               </li>
             {/each}
           </ul>
@@ -267,10 +228,9 @@
     <ul class="list-none m-0 p-0">
       <li>
         <a
-          href="/?view=recent"
+          href="/library/recent"
           class="nav-item-base"
-          class:active={$page.url.searchParams.get('view') === 'recent'}
-          onclick={(e) => handleLibraryItemClick(e, 'recent')}
+          class:active={currentPath === '/library/recent'}
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -280,10 +240,9 @@
       </li>
       <li>
         <a
-          href="/?view=mostplayed"
+          href="/library/mostplayed"
           class="nav-item-base"
-          class:active={$page.url.searchParams.get('view') === 'mostplayed'}
-          onclick={(e) => handleLibraryItemClick(e, 'mostplayed')}
+          class:active={currentPath === '/library/mostplayed'}
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
@@ -318,9 +277,9 @@
         {#each playlistsQuery.data as playlist (playlist.id)}
           <li>
             <a
-              href="/playlists?id={playlist.id}"
+              href="/playlists/{playlist.id}"
               class="nav-item-base relative"
-              class:active={$page.url.pathname === '/playlists' && $page.url.searchParams.get('id') === playlist.id}
+              class:active={currentPath === `/playlists/${playlist.id}`}
               ondragover={handleDragOver}
               ondragleave={handleDragLeave}
               ondrop={(e) => handleDrop(e, playlist.id)}

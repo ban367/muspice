@@ -1,57 +1,52 @@
 <script lang="ts">
   import { invoke } from '@tauri-apps/api/core';
-  import {
-    useTracksQuery,
-    useSearchQuery,
-    useFilterQuery,
-    useMostPlayedTracksQuery,
-    useRecentlyPlayedTracksQuery,
-    setRating
-  } from '$lib/queries/tracks';
   import { useQueryClient } from '@tanstack/svelte-query';
-  import MetadataEditor from './MetadataEditor.svelte';
-  import ContextMenu from './ContextMenu.svelte';
-  import { sanitizeSearchQuery } from '$lib/utils/validation';
-  import { playTrackFromQueue, currentTrack, playQueue, currentTrackIndex, isPlaying } from '$lib/stores/player';
-  import { browseMode, gridCardSize, MIN_CARD_SIZE, MAX_CARD_SIZE, selectedGenreName, columnWidths, browseSearchQuery, type ColumnWidths } from '$lib/stores/ui';
+  import { setRating } from '$lib/queries/tracks';
+  import { playTrackFromQueue, currentTrack, playQueue, currentTrackIndex } from '$lib/stores/player';
+  import { columnWidths, gridCardSize, type ColumnWidths } from '$lib/stores/ui';
   import { get } from 'svelte/store';
   import type { Track, AlbumArt } from '$lib/types/models';
-  import AlbumGrid from './library/AlbumGrid.svelte';
-  import ArtistGrid from './library/ArtistGrid.svelte';
-  import GenreGrid from './library/GenreGrid.svelte';
-  import PlayingIndicator from './library/PlayingIndicator.svelte';
-  import CardSizeSlider from './library/CardSizeSlider.svelte';
+  import PlayingIndicator from './PlayingIndicator.svelte';
+  import CardSizeSlider from './CardSizeSlider.svelte';
+  import MetadataEditor from '../MetadataEditor.svelte';
+  import ContextMenu from '../ContextMenu.svelte';
 
   // Props
   interface Props {
-    viewMode?: 'all' | 'recent' | 'mostplayed';
+    tracks: Track[] | null;
+    isLoading?: boolean;
+    isError?: boolean;
+    error?: Error | null;
+    searchTerm?: string;
+    showSearch?: boolean;
+    emptyMessage?: string;
+    emptyHint?: string;
   }
 
-  let { viewMode: viewModeParam = 'all' }: Props = $props();
+  let {
+    tracks,
+    isLoading = false,
+    isError = false,
+    error = null,
+    searchTerm = '',
+    showSearch = false,
+    emptyMessage = '音楽ライブラリが空です',
+    emptyHint = 'フォルダをインポートして音楽を追加してください'
+  }: Props = $props();
 
   type DisplayMode = 'grid' | 'list';
   type SortField = 'title' | 'artist' | 'album' | 'duration' | 'createdAt';
   type SortDirection = 'asc' | 'desc';
 
   let displayMode = $state<DisplayMode>('list');
-  let searchTerm = $state('');
-  let debouncedSearchTerm = $state('');
-  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-
-  // ブラウズ検索用
-  let browseSearchTerm = $state('');
-  let browseDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-
-  // ソート状態
   let sortField = $state<SortField>('createdAt');
   let sortDirection = $state<SortDirection>('desc');
 
-  // アルバムアートサイズは共通ストアから取得
+  // アルバムアートサイズ
   const artSize = $derived($gridCardSize);
 
   // アルバムアートキャッシュ
   let albumArtCache = $state<Map<string, string | null>>(new Map());
-
 
   // トラック選択状態
   let selectedTrackIds = $state<Set<string>>(new Set());
@@ -76,77 +71,15 @@
   );
 
   const queryClient = useQueryClient();
-  const tracksQuery = useTracksQuery();
-  const recentQuery = useRecentlyPlayedTracksQuery(50);
-  const mostPlayedQuery = useMostPlayedTracksQuery(50);
 
-  // ビューモードに応じたベースクエリを選択
-  const baseQuery = $derived.by(() => {
-    switch (viewModeParam) {
-      case 'recent':
-        return recentQuery;
-      case 'mostplayed':
-        return mostPlayedQuery;
-      default:
-        return tracksQuery;
-    }
-  });
-
-  /**
-   * レーティングを設定
-   */
-  async function handleSetRating(trackId: string, rating: number, event: MouseEvent) {
-    event.stopPropagation();
-    try {
-      await setRating(trackId, rating);
-      queryClient.invalidateQueries({ queryKey: ['tracks'] });
-    } catch (error) {
-      console.error('レーティングの設定に失敗しました:', error);
-    }
-  }
-
-  // 検索中かどうかを判定
-  const isSearching = $derived(debouncedSearchTerm.length > 0);
-
-  // 検索クエリを動的に作成
-  const searchQuery = $derived.by(() => {
-    if (isSearching) {
-      return useSearchQuery(debouncedSearchTerm);
-    }
-    return null;
-  });
-
-  // ジャンル詳細クエリを動的に作成
-  const genreDetailQuery = $derived.by(() => {
-    if ($browseMode === 'genre-detail' && $selectedGenreName) {
-      return useFilterQuery({ genre: $selectedGenreName });
-    }
-    return null;
-  });
-
-  // 表示するクエリを選択
-  const activeQuery = $derived.by(() => {
-    if (viewModeParam !== 'all') {
-      return baseQuery;
-    }
-    // ジャンル詳細モードの場合
-    if ($browseMode === 'genre-detail' && genreDetailQuery) {
-      return genreDetailQuery;
-    }
-    return searchQuery || baseQuery;
-  });
-
-  // クエリ結果を取得
-  const isLoading = $derived(activeQuery.isLoading);
-  const isError = $derived(activeQuery.isError);
-  const error = $derived(activeQuery.error);
+  // 現在再生中のトラックID
+  const currentPlayingTrackId = $derived($currentTrack?.id);
 
   // ソートされたトラック
-  const tracks = $derived.by(() => {
-    const data = activeQuery.data;
-    if (!data) return null;
+  const sortedTracks = $derived.by(() => {
+    if (!tracks) return null;
 
-    return [...data].sort((a, b) => {
+    return [...tracks].sort((a, b) => {
       let aVal: string | number | null;
       let bVal: string | number | null;
 
@@ -189,8 +122,18 @@
     });
   });
 
-  // 現在再生中のトラックID
-  const currentPlayingTrackId = $derived($currentTrack?.id);
+  /**
+   * レーティングを設定
+   */
+  async function handleSetRating(trackId: string, rating: number, event: MouseEvent) {
+    event.stopPropagation();
+    try {
+      await setRating(trackId, rating);
+      queryClient.invalidateQueries({ queryKey: ['tracks'] });
+    } catch (error) {
+      console.error('レーティングの設定に失敗しました:', error);
+    }
+  }
 
   function toggleSort(field: SortField) {
     if (sortField === field) {
@@ -205,72 +148,6 @@
     if (sortField !== field) return '';
     return sortDirection === 'asc' ? '↑' : '↓';
   }
-
-  function handleSearchInput(event: Event) {
-    const target = event.target as HTMLInputElement;
-    searchTerm = target.value;
-
-    if (debounceTimer) {
-      clearTimeout(debounceTimer);
-    }
-
-    debounceTimer = setTimeout(() => {
-      debouncedSearchTerm = sanitizeSearchQuery(searchTerm);
-    }, 300);
-  }
-
-  function clearSearch() {
-    searchTerm = '';
-    debouncedSearchTerm = '';
-    if (debounceTimer) {
-      clearTimeout(debounceTimer);
-    }
-  }
-
-  // ブラウズ検索入力のデバウンス処理
-  function handleBrowseSearchInput(event: Event) {
-    const target = event.target as HTMLInputElement;
-    browseSearchTerm = target.value;
-
-    if (browseDebounceTimer) {
-      clearTimeout(browseDebounceTimer);
-    }
-
-    browseDebounceTimer = setTimeout(() => {
-      browseSearchQuery.set(browseSearchTerm);
-    }, 300);
-  }
-
-  function clearBrowseSearch() {
-    browseSearchTerm = '';
-    browseSearchQuery.set('');
-    if (browseDebounceTimer) {
-      clearTimeout(browseDebounceTimer);
-    }
-  }
-
-  // ブラウズモード変更時に検索をクリア
-  $effect(() => {
-    // ブラウズモードの監視
-    const mode = $browseMode;
-    // 検索状態をリセット
-    browseSearchTerm = '';
-    browseSearchQuery.set('');
-  });
-
-  // プレースホルダーテキストを取得
-  const browseSearchPlaceholder = $derived.by(() => {
-    switch ($browseMode) {
-      case 'albums':
-        return 'アルバムを検索...';
-      case 'artists':
-        return 'アーティストを検索...';
-      case 'genres':
-        return 'ジャンルを検索...';
-      default:
-        return '検索...';
-    }
-  });
 
   function highlightText(text: string, search: string): string {
     if (!search || !text) return text;
@@ -290,8 +167,8 @@
   }
 
   const selectedTracks = $derived.by(() => {
-    if (!tracks) return [];
-    return tracks.filter((track) => selectedTrackIds.has(track.id));
+    if (!sortedTracks) return [];
+    return sortedTracks.filter((track) => selectedTrackIds.has(track.id));
   });
 
   function toggleTrackSelection(trackId: string, event: MouseEvent | KeyboardEvent) {
@@ -311,17 +188,17 @@
 
     const newSelection = new Set(selectedTrackIds);
 
-    if (event.shiftKey && selectedTrackIds.size > 0 && tracks) {
+    if (event.shiftKey && selectedTrackIds.size > 0 && sortedTracks) {
       const lastSelectedId = Array.from(selectedTrackIds).pop();
-      const lastIndex = tracks.findIndex((t) => t.id === lastSelectedId);
-      const currentIndex = tracks.findIndex((t) => t.id === trackId);
+      const lastIndex = sortedTracks.findIndex((t) => t.id === lastSelectedId);
+      const currentIndex = sortedTracks.findIndex((t) => t.id === trackId);
 
       if (lastIndex !== -1 && currentIndex !== -1) {
         const start = Math.min(lastIndex, currentIndex);
         const end = Math.max(lastIndex, currentIndex);
 
         for (let i = start; i <= end; i++) {
-          newSelection.add(tracks[i].id);
+          newSelection.add(sortedTracks[i].id);
         }
       }
     } else if (event.ctrlKey || event.metaKey) {
@@ -361,11 +238,11 @@
   }
 
   function handleTrackDoubleClick(track: Track) {
-    if (!tracks) return;
+    if (!sortedTracks) return;
 
-    const trackIndex = tracks.findIndex((t) => t.id === track.id);
+    const trackIndex = sortedTracks.findIndex((t) => t.id === track.id);
     if (trackIndex !== -1) {
-      playTrackFromQueue(tracks, trackIndex);
+      playTrackFromQueue(sortedTracks, trackIndex);
     }
   }
 
@@ -480,7 +357,6 @@
     resizeStartX = event.clientX;
     resizeStartWidth = $columnWidths[column];
 
-    // グローバルイベントリスナーを追加
     document.addEventListener('mousemove', handleResizeMove);
     document.addEventListener('mouseup', handleResizeEnd);
   }
@@ -490,7 +366,7 @@
     if (!isResizing || !resizingColumn) return;
 
     const delta = event.clientX - resizeStartX;
-    const newWidth = Math.max(50, resizeStartWidth + delta); // 最小幅50px
+    const newWidth = Math.max(50, resizeStartWidth + delta);
 
     columnWidths.update(widths => ({
       ...widths,
@@ -507,8 +383,8 @@
   }
 
   $effect(() => {
-    if (tracks && displayMode === 'grid') {
-      for (const track of tracks.slice(0, 50)) {
+    if (sortedTracks && displayMode === 'grid') {
+      for (const track of sortedTracks.slice(0, 50)) {
         if (!albumArtCache.has(track.id)) {
           loadAlbumArt(track.id);
         }
@@ -521,239 +397,31 @@
   <!-- ヘッダー -->
   <div class="flex justify-between items-center py-3 mb-3 border-b border-border">
     <div class="flex items-center gap-3">
-      {#if $browseMode === 'songs' && tracks}
-        <span class="text-sm text-text-muted">{tracks.length}曲</span>
+      {#if sortedTracks}
+        <span class="text-sm text-text-muted">{sortedTracks.length}曲</span>
       {/if}
     </div>
     <div class="flex gap-3 items-center">
-      {#if $browseMode === 'songs' || $browseMode === 'genre-detail' || viewModeParam !== 'all'}
-        {#if viewModeParam === 'all' && $browseMode !== 'genre-detail'}
-          <div class="search-box">
-            <svg xmlns="http://www.w3.org/2000/svg" class="absolute left-3 w-4 h-4 text-text-dimmed" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-            <input
-              type="text"
-              placeholder="検索..."
-              value={searchTerm}
-              oninput={handleSearchInput}
-              class="search-input"
-            />
-            {#if searchTerm}
-              <button onclick={clearSearch} class="absolute right-2 p-1 text-text-dimmed hover:text-text-primary" aria-label="検索をクリア">✕</button>
-            {/if}
-          </div>
-        {/if}
-        <button onclick={toggleDisplayMode} class="header-btn" title={displayMode === 'grid' ? 'リスト表示' : 'グリッド表示'}>
-          {#if displayMode === 'grid'}
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16" />
-            </svg>
-          {:else}
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-            </svg>
-          {/if}
-        </button>
+      <button onclick={toggleDisplayMode} class="header-btn" title={displayMode === 'grid' ? 'リスト表示' : 'グリッド表示'}>
         {#if displayMode === 'grid'}
-          <CardSizeSlider />
-        {/if}
-      {:else if $browseMode === 'albums' || $browseMode === 'artists' || $browseMode === 'genres'}
-        <!-- ブラウズ検索バー -->
-        <div class="search-box">
-          <svg xmlns="http://www.w3.org/2000/svg" class="absolute left-3 w-4 h-4 text-text-dimmed" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16" />
           </svg>
-          <input
-            type="text"
-            placeholder={browseSearchPlaceholder}
-            value={browseSearchTerm}
-            oninput={handleBrowseSearchInput}
-            class="search-input"
-          />
-          {#if browseSearchTerm}
-            <button onclick={clearBrowseSearch} class="absolute right-2 p-1 text-text-dimmed hover:text-text-primary" aria-label="検索をクリア">✕</button>
-          {/if}
-        </div>
-        {#if $browseMode !== 'genres'}
-          <CardSizeSlider />
+        {:else}
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+          </svg>
         {/if}
+      </button>
+      {#if displayMode === 'grid'}
+        <CardSizeSlider />
       {/if}
     </div>
   </div>
 
   <!-- コンテンツ -->
   <div class="flex-1 overflow-y-auto">
-    {#if viewModeParam === 'all' && $browseMode === 'albums'}
-      <AlbumGrid />
-    {:else if viewModeParam === 'all' && $browseMode === 'artists'}
-      <ArtistGrid />
-    {:else if viewModeParam === 'all' && $browseMode === 'genres'}
-      <GenreGrid />
-    {:else if viewModeParam === 'all' && $browseMode === 'genre-detail' && $selectedGenreName}
-      <!-- ジャンル詳細ヘッダー -->
-      <div class="genre-detail-header">
-        <h2 class="text-xl font-bold text-text-primary">{$selectedGenreName}</h2>
-        {#if tracks}
-          <span class="text-sm text-text-muted ml-2">{tracks.length}曲</span>
-        {/if}
-      </div>
-      {#if isLoading}
-        <div class="empty-state">
-          <div class="spinner"></div>
-          <p>読み込み中...</p>
-        </div>
-      {:else if tracks && tracks.length > 0}
-        {#if displayMode === 'list'}
-          <!-- リスト表示 -->
-          <div class="track-table">
-            <div class="table-header" style="grid-template-columns: {gridTemplateColumns};">
-              <div class="col-checkbox"></div>
-              <div class="resizable-header">
-                <button class="sortable" onclick={() => toggleSort('title')}>
-                  タイトル {getSortIcon('title')}
-                </button>
-                <div
-                  class="resize-handle"
-                  onmousedown={(e) => handleResizeStart(e, 'title')}
-                  role="separator"
-                  aria-orientation="vertical"
-                ></div>
-              </div>
-              <div class="resizable-header">
-                <button class="sortable" onclick={() => toggleSort('artist')}>
-                  アーティスト {getSortIcon('artist')}
-                </button>
-                <div
-                  class="resize-handle"
-                  onmousedown={(e) => handleResizeStart(e, 'artist')}
-                  role="separator"
-                  aria-orientation="vertical"
-                ></div>
-              </div>
-              <div class="resizable-header">
-                <div class="col-rating">評価</div>
-                <div
-                  class="resize-handle"
-                  onmousedown={(e) => handleResizeStart(e, 'rating')}
-                  role="separator"
-                  aria-orientation="vertical"
-                ></div>
-              </div>
-              <button class="sortable text-right" onclick={() => toggleSort('duration')}>
-                時間 {getSortIcon('duration')}
-              </button>
-            </div>
-            <div class="flex flex-col">
-              {#each tracks as track (track.id)}
-                <div
-                  class="track-row"
-                  class:selected={selectedTrackIds.has(track.id)}
-                  class:playing={currentPlayingTrackId === track.id}
-                  class:dragging={isDragging && draggedTrackIds.includes(track.id)}
-                  style="grid-template-columns: {gridTemplateColumns};"
-                  draggable="true"
-                  ondragstart={(e) => handleDragStart(e, track)}
-                  ondragend={handleDragEnd}
-                  onclick={(e) => toggleTrackSelection(track.id, e)}
-                  ondblclick={() => handleTrackDoubleClick(track)}
-                  oncontextmenu={(e) => handleContextMenu(e, track)}
-                  onkeydown={(e) => e.key === 'Enter' && handleTrackDoubleClick(track)}
-                  role="button"
-                  tabindex="0"
-                >
-                  <div class="col-checkbox flex items-center justify-center">
-                    {#if currentPlayingTrackId === track.id}
-                      <PlayingIndicator size="small" />
-                    {/if}
-                  </div>
-                  <div class="text-truncate text-text-primary">
-                    {track.title || track.fileName}
-                  </div>
-                  <div class="text-truncate text-text-secondary text-sm">
-                    {track.artist || '不明なアーティスト'}
-                  </div>
-                  <div class="col-rating flex items-center justify-center">
-                    <div class="rating-stars">
-                      {#each [1, 2, 3, 4, 5] as star}
-                        <button
-                          class="star-btn"
-                          class:active={track.rating >= star}
-                          onclick={(e) => handleSetRating(track.id, track.rating === star ? 0 : star, e)}
-                          title={`${star}つ星`}
-                        >
-                          ★
-                        </button>
-                      {/each}
-                    </div>
-                  </div>
-                  <div class="text-right text-text-muted text-sm">
-                    {formatDuration(track.duration)}
-                  </div>
-                </div>
-              {/each}
-            </div>
-          </div>
-        {:else}
-          <!-- グリッド表示 -->
-          <div
-            class="grid gap-4 justify-items-center"
-            style="grid-template-columns: repeat(auto-fill, minmax({cardWidth}px, 1fr));"
-          >
-            {#each tracks as track (track.id)}
-              <div
-                class="track-card"
-                class:selected={selectedTrackIds.has(track.id)}
-                class:playing={currentPlayingTrackId === track.id}
-                style="width: {cardWidth}px;"
-                draggable="true"
-                ondragstart={(e) => handleDragStart(e, track)}
-                onclick={(e) => toggleTrackSelection(track.id, e)}
-                ondblclick={() => handleTrackDoubleClick(track)}
-                oncontextmenu={(e) => handleContextMenu(e, track)}
-                onkeydown={(e) => e.key === 'Enter' && handleTrackDoubleClick(track)}
-                role="button"
-                tabindex="0"
-              >
-                <div class="relative shrink-0 rounded-md overflow-hidden bg-base-400 mb-2" style="width: {artSize}px; height: {artSize}px;">
-                  {#if getAlbumArtUrl(track.id)}
-                    <img
-                      src={getAlbumArtUrl(track.id)}
-                      alt="アルバムアート"
-                      class="w-full h-full object-cover"
-                      loading="lazy"
-                    />
-                  {:else}
-                    <div class="w-full h-full flex items-center justify-center text-white/80 bg-gradient-to-br from-accent to-accent-focus">
-                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-2/5 h-2/5">
-                        <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
-                      </svg>
-                    </div>
-                  {/if}
-                  {#if currentPlayingTrackId === track.id}
-                    <div class="absolute inset-0 bg-black/50 flex items-center justify-center">
-                      <PlayingIndicator size="large" />
-                    </div>
-                  {/if}
-                </div>
-                <div class="w-full text-center min-w-0">
-                  <div class="font-semibold mb-1 text-truncate text-sm text-text-primary" title={track.title || track.fileName}>
-                    {track.title || track.fileName}
-                  </div>
-                  <div class="text-xs text-text-muted text-truncate" title={track.artist || '不明なアーティスト'}>
-                    {track.artist || '不明なアーティスト'}
-                  </div>
-                </div>
-              </div>
-            {/each}
-          </div>
-        {/if}
-      {:else}
-        <div class="empty-state">
-          <p>このジャンルに曲がありません</p>
-        </div>
-      {/if}
-    {:else if isLoading}
+    {#if isLoading}
       <div class="empty-state">
         <div class="spinner"></div>
         <p>読み込み中...</p>
@@ -763,7 +431,7 @@
         <p>エラーが発生しました</p>
         <p class="text-sm text-text-muted">{error?.message || '不明なエラー'}</p>
       </div>
-    {:else if tracks && tracks.length > 0}
+    {:else if sortedTracks && sortedTracks.length > 0}
       {#if displayMode === 'list'}
         <!-- リスト表示 -->
         <div class="track-table">
@@ -805,7 +473,7 @@
             </button>
           </div>
           <div class="flex flex-col">
-            {#each tracks as track (track.id)}
+            {#each sortedTracks as track (track.id)}
               <div
                 class="track-row"
                 class:selected={selectedTrackIds.has(track.id)}
@@ -828,10 +496,18 @@
                   {/if}
                 </div>
                 <div class="text-truncate text-text-primary">
-                  {@html highlightText(track.title || track.fileName, debouncedSearchTerm)}
+                  {#if searchTerm}
+                    {@html highlightText(track.title || track.fileName, searchTerm)}
+                  {:else}
+                    {track.title || track.fileName}
+                  {/if}
                 </div>
                 <div class="text-truncate text-text-secondary text-sm">
-                  {@html highlightText(track.artist || '不明なアーティスト', debouncedSearchTerm)}
+                  {#if searchTerm}
+                    {@html highlightText(track.artist || '不明なアーティスト', searchTerm)}
+                  {:else}
+                    {track.artist || '不明なアーティスト'}
+                  {/if}
                 </div>
                 <div class="col-rating flex items-center justify-center">
                   <div class="rating-stars">
@@ -860,7 +536,7 @@
           class="grid gap-4 justify-items-center"
           style="grid-template-columns: repeat(auto-fill, minmax({cardWidth}px, 1fr));"
         >
-          {#each tracks as track (track.id)}
+          {#each sortedTracks as track (track.id)}
             <div
               class="track-card"
               class:selected={selectedTrackIds.has(track.id)}
@@ -898,31 +574,31 @@
               </div>
               <div class="w-full text-center min-w-0">
                 <div class="font-semibold mb-1 text-truncate text-sm text-text-primary" title={track.title || track.fileName}>
-                  {@html highlightText(track.title || track.fileName, debouncedSearchTerm)}
+                  {#if searchTerm}
+                    {@html highlightText(track.title || track.fileName, searchTerm)}
+                  {:else}
+                    {track.title || track.fileName}
+                  {/if}
                 </div>
                 <div class="text-xs text-text-muted text-truncate" title={track.artist || '不明なアーティスト'}>
-                  {@html highlightText(track.artist || '不明なアーティスト', debouncedSearchTerm)}
+                  {#if searchTerm}
+                    {@html highlightText(track.artist || '不明なアーティスト', searchTerm)}
+                  {:else}
+                    {track.artist || '不明なアーティスト'}
+                  {/if}
                 </div>
               </div>
             </div>
           {/each}
         </div>
       {/if}
-    {:else if isSearching}
-      <div class="empty-state">
-        <svg xmlns="http://www.w3.org/2000/svg" class="w-16 h-16 text-text-dimmed/50 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-        </svg>
-        <p>結果が見つかりません</p>
-        <p class="text-sm text-text-dimmed">別の検索語を試してください</p>
-      </div>
     {:else}
       <div class="empty-state">
         <svg xmlns="http://www.w3.org/2000/svg" class="w-16 h-16 text-text-dimmed/50 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
         </svg>
-        <p>音楽ライブラリが空です</p>
-        <p class="text-sm text-text-dimmed">フォルダをインポートして音楽を追加してください</p>
+        <p>{emptyMessage}</p>
+        <p class="text-sm text-text-dimmed">{emptyHint}</p>
       </div>
     {/if}
   </div>
@@ -943,7 +619,7 @@
     x={contextMenu.x}
     y={contextMenu.y}
     track={contextMenu.track}
-    tracks={tracks || []}
+    tracks={sortedTracks || []}
     selectedTrackIds={selectedTrackIds}
     onClose={closeContextMenu}
     onEditMetadata={openMetadataEditor}
@@ -953,24 +629,7 @@
 {/if}
 
 <style>
-@reference "../../app.css";
-  /* 検索ボックス */
-  .search-box {
-    @apply relative flex items-center;
-  }
-
-  .search-input {
-    @apply py-2 pl-9 pr-8 bg-base-400 border border-border rounded-md text-sm text-text-primary w-52 transition-all duration-200;
-  }
-
-  .search-input:focus {
-    @apply outline-none border-primary w-72;
-  }
-
-  .search-input::placeholder {
-    @apply text-text-dimmed;
-  }
-
+@reference "../../../app.css";
   /* ヘッダーボタン */
   .header-btn {
     @apply flex items-center justify-center relative w-9 h-9 p-0 bg-base-400 border border-border rounded-md text-text-secondary cursor-pointer transition-all duration-200;
@@ -1070,11 +729,6 @@
 
   .track-card.playing {
     @apply border-secondary;
-  }
-
-  /* ジャンル詳細ヘッダー */
-  .genre-detail-header {
-    @apply flex items-center mb-4 px-4 pt-4;
   }
 
   /* ドラッグプレビュー */
