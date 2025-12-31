@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 /// 音楽トラックのデータモデル
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct Track {
     pub id: String,
     pub file_path: String,
@@ -28,6 +29,7 @@ pub struct Track {
 /// 将来の詳細な再生履歴機能で使用予定
 #[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct PlayHistory {
     pub id: i64,
     pub track_id: String,
@@ -36,6 +38,7 @@ pub struct PlayHistory {
 
 /// プレイリストのデータモデル
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct Playlist {
     pub id: String,
     pub name: String,
@@ -47,6 +50,7 @@ pub struct Playlist {
 
 /// プレイリスト内のトラック情報
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct PlaylistTrack {
     pub track_id: String,
     pub position: i32,
@@ -55,6 +59,7 @@ pub struct PlaylistTrack {
 
 /// メタデータのデータモデル
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct Metadata {
     pub title: Option<String>,
     pub artist: Option<String>,
