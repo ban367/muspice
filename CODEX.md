@@ -25,7 +25,7 @@
 ## コーディング規約（抜粋）
 
 - 命名: SvelteはPascalCase、TypeScriptはcamelCase、Rustはsnake_case。型はPascalCase、定数はUPPER_SNAKE_CASE。
-- Tailwind: カスタムクラスを`@apply`で使用しない。スタイルブロックでは`@reference`を先頭に追加。
+- Tailwind: カスタムクラスを`@apply`で使わない。スタイルブロックでは`@reference`を先頭に追加。
 - Svelte 5のRunes構文を推奨。既存フォーマットに従いPrettier/ESLint/rustfmtを適用。
 - エラーはユーザーフレンドリーな日本語で返す。
 
