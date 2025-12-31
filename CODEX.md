@@ -29,7 +29,7 @@
 - Svelte 5のRunes構文を推奨。既存フォーマットに従いPrettier/ESLint/rustfmtを適用。
 - エラーはユーザーフレンドリーな日本語で返す。
 
-## PR/コミット
+## コミット・PRガイドライン
 
 - コミットメッセージは英語のConventional Commits形式。
 - PRには目的、検証手順、UI変更時のスクリーンショット、関連Issue（あれば）を含める。
