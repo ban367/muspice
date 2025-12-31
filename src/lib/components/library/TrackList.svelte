@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { invoke } from '@tauri-apps/api/core';
   import { useQueryClient } from '@tanstack/svelte-query';
   import { setRating } from '$lib/queries/tracks';
   import {
@@ -9,8 +8,15 @@
     currentTrackIndex
   } from '$lib/stores/player';
   import { columnWidths, gridCardSize, type ColumnWidths } from '$lib/stores/ui';
+  import {
+    loadAlbumArt,
+    getCachedAlbumArt,
+    hasAlbumArt,
+    albumArtCacheVersion
+  } from '$lib/stores/albumArtCache';
+  import { formatDuration } from '$lib/utils/format';
   import { get } from 'svelte/store';
-  import type { Track, AlbumArt } from '$lib/types/models';
+  import type { Track } from '$lib/types/models';
   import PlayingIndicator from './PlayingIndicator.svelte';
   import MetadataEditor from '../MetadataEditor.svelte';
   import ContextMenu from '../ContextMenu.svelte';
@@ -46,8 +52,9 @@
   // アルバムアートサイズ
   const artSize = $derived($gridCardSize);
 
-  // アルバムアートキャッシュ
-  let albumArtCache = $state<Map<string, string | null>>(new Map());
+  // キャッシュ更新の追跡（リアクティビティのため）
+  // eslint-disable-next-line no-unused-vars
+  let _cacheVersion = $derived($albumArtCacheVersion);
 
   // トラック選択状態
   let selectedTrackIds = $state<Set<string>>(new Set());
@@ -154,13 +161,6 @@
     if (!search || !text) return text;
     const regex = new RegExp(`(${search})`, 'gi');
     return text.replace(regex, '<mark class="bg-warning text-black px-0.5 rounded-sm">$1</mark>');
-  }
-
-  function formatDuration(seconds: number | null): string {
-    if (!seconds) return '--:--';
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
   }
 
   const selectedTracks = $derived.by(() => {
@@ -275,30 +275,6 @@
     playQueue.set([...queue, ...selectedTracks]);
   }
 
-  async function loadAlbumArt(trackId: string): Promise<void> {
-    if (albumArtCache.has(trackId)) {
-      return;
-    }
-
-    albumArtCache.set(trackId, null);
-
-    try {
-      const art = await invoke<AlbumArt | null>('get_album_art', { trackId });
-      if (art) {
-        const dataUrl = `data:${art.mimeType};base64,${art.data}`;
-        albumArtCache = new Map(albumArtCache.set(trackId, dataUrl));
-      } else {
-        albumArtCache = new Map(albumArtCache.set(trackId, null));
-      }
-    } catch {
-      albumArtCache = new Map(albumArtCache.set(trackId, null));
-    }
-  }
-
-  function getAlbumArtUrl(trackId: string): string | null {
-    return albumArtCache.get(trackId) ?? null;
-  }
-
   const cardWidth = $derived(artSize + 24);
 
   function handleDragStart(event: DragEvent, track: Track) {
@@ -382,9 +358,7 @@
   $effect(() => {
     if (sortedTracks && displayMode === 'grid') {
       for (const track of sortedTracks.slice(0, 50)) {
-        if (!albumArtCache.has(track.id)) {
-          loadAlbumArt(track.id);
-        }
+        loadAlbumArt(track.id);
       }
     }
   });
@@ -531,9 +505,9 @@
                 class="relative shrink-0 rounded-md overflow-hidden bg-base-400 mb-2"
                 style="width: {artSize}px; height: {artSize}px;"
               >
-                {#if getAlbumArtUrl(track.id)}
+                {#if hasAlbumArt(track.id)}
                   <img
-                    src={getAlbumArtUrl(track.id)}
+                    src={getCachedAlbumArt(track.id)}
                     alt="アルバムアート"
                     class="w-full h-full object-cover"
                     loading="lazy"
