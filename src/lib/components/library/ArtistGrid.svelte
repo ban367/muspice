@@ -6,7 +6,7 @@
   import {
     loadAlbumArt,
     getCachedAlbumArt,
-    hasAlbumArt,
+    isCached,
     albumArtCacheVersion
   } from '$lib/stores/albumArtCache';
   import GroupDetail from './GroupDetail.svelte';
@@ -39,6 +39,7 @@
   let contextMenu = $state<{ x: number; y: number; artist: ArtistGroup } | null>(null);
 
   // キャッシュ更新の追跡（リアクティビティのため）
+  // eslint-disable-next-line no-unused-vars
   const cacheVersion = $derived($albumArtCacheVersion);
 
   // カードサイズの計算
@@ -114,7 +115,7 @@
   }
 </script>
 
-<div class="p-4 min-h-[200px]" data-cache-version={cacheVersion}>
+<div class="p-4 min-h-[200px]">
   {#if isLoading}
     <div class="state-container">
       <div class="spinner"></div>
@@ -157,7 +158,7 @@
             use:intersectionObserver={{ callback: () => handleArtistVisible(artist) }}
           >
             <div class="artist-art" style="width: {$gridCardSize}px; height: {$gridCardSize}px;">
-              {#if hasAlbumArt(artist.representativeTrackId)}
+              {#if isCached(artist.representativeTrackId)}
                 <img
                   src={getCachedAlbumArt(artist.representativeTrackId)}
                   alt={artist.name}
@@ -214,7 +215,7 @@
             use:intersectionObserver={{ callback: () => handleArtistVisible(artist) }}
           >
             <div class="list-art artist-list-art">
-              {#if hasAlbumArt(artist.representativeTrackId)}
+              {#if isCached(artist.representativeTrackId)}
                 <img
                   src={getCachedAlbumArt(artist.representativeTrackId)}
                   alt={artist.name}

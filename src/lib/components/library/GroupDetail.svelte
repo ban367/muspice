@@ -4,7 +4,7 @@
   import {
     loadAlbumArt,
     getCachedAlbumArt,
-    hasAlbumArt,
+    isCached,
     albumArtCacheVersion
   } from '$lib/stores/albumArtCache';
   import { formatDuration, formatTotalDuration } from '$lib/utils/format';
@@ -20,6 +20,7 @@
   let { group, type, onClose }: Props = $props();
 
   // キャッシュ更新の追跡（リアクティビティのため）
+  // eslint-disable-next-line no-unused-vars
   const cacheVersion = $derived($albumArtCacheVersion);
 
   // グループからトラックリストを取得
@@ -81,12 +82,12 @@
 {#if group}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="modal-backdrop" onclick={handleBackdropClick} data-cache-version={cacheVersion}>
+  <div class="modal-backdrop" onclick={handleBackdropClick}>
     <div class="modal-content max-w-3xl">
       <!-- ヘッダー -->
       <div class="modal-header">
         <div class="header-art">
-          {#if hasAlbumArt(group.representativeTrackId)}
+          {#if isCached(group.representativeTrackId)}
             <img src={getCachedAlbumArt(group.representativeTrackId)} alt={group.name} />
           {:else}
             <div class="art-placeholder">

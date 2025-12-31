@@ -11,7 +11,7 @@
   import {
     loadAlbumArt,
     getCachedAlbumArt,
-    hasAlbumArt,
+    isCached,
     albumArtCacheVersion
   } from '$lib/stores/albumArtCache';
   import { formatDuration } from '$lib/utils/format';
@@ -53,6 +53,7 @@
   const artSize = $derived($gridCardSize);
 
   // キャッシュ更新の追跡（リアクティビティのため）
+  // eslint-disable-next-line no-unused-vars
   const cacheVersion = $derived($albumArtCacheVersion);
 
   // トラック選択状態
@@ -363,7 +364,7 @@
   });
 </script>
 
-<div class="flex flex-col h-full" data-cache-version={cacheVersion}>
+<div class="flex flex-col h-full">
   <!-- コンテンツ -->
   <div class="flex-1 overflow-y-auto">
     {#if isLoading}
@@ -504,7 +505,7 @@
                 class="relative shrink-0 rounded-md overflow-hidden bg-base-400 mb-2"
                 style="width: {artSize}px; height: {artSize}px;"
               >
-                {#if hasAlbumArt(track.id)}
+                {#if isCached(track.id)}
                   <img
                     src={getCachedAlbumArt(track.id)}
                     alt="アルバムアート"

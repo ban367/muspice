@@ -32,11 +32,11 @@ export function formatTotalDuration(seconds: number): string {
 
 /**
  * ファイルサイズをフォーマット
- * @param bytes - バイト数
+ * @param bytes - バイト数（null/undefined の場合は '--'、0 の場合は '0 B'）
  * @returns フォーマットされた文字列 (例: "1.5 MB")
  */
 export function formatFileSize(bytes: number | null): string {
-  if (bytes === null || bytes === undefined) return '--';
+  if (bytes == null) return '--';
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;

@@ -26,10 +26,11 @@ export function getCachedAlbumArt(trackId: string): string | null {
 
 /**
  * アルバムアートがキャッシュされているかチェック
+ * キャッシュにnull（アルバムアートなし）が設定されている場合はfalseを返す
  * @param trackId - トラックID
  * @returns キャッシュに有効なアルバムアートが存在するかどうか
  */
-export function hasAlbumArt(trackId: string): boolean {
+export function isCached(trackId: string): boolean {
   const value = cache.get(trackId);
   return value !== null && value !== undefined;
 }

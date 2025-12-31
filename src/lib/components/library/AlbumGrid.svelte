@@ -6,7 +6,7 @@
   import {
     loadAlbumArt,
     getCachedAlbumArt,
-    hasAlbumArt,
+    isCached,
     albumArtCacheVersion
   } from '$lib/stores/albumArtCache';
   import { formatDuration } from '$lib/utils/format';
@@ -44,6 +44,7 @@
   let contextMenu = $state<{ x: number; y: number; album: AlbumGroup } | null>(null);
 
   // キャッシュ更新の追跡（リアクティビティのため）
+  // eslint-disable-next-line no-unused-vars
   const cacheVersion = $derived($albumArtCacheVersion);
 
   // カードサイズの計算
@@ -123,7 +124,7 @@
   }
 </script>
 
-<div class="p-4 min-h-[200px]" data-cache-version={cacheVersion}>
+<div class="p-4 min-h-[200px]">
   {#if isLoading}
     <div class="state-container">
       <div class="spinner"></div>
@@ -166,7 +167,7 @@
             use:intersectionObserver={{ callback: () => handleAlbumVisible(album) }}
           >
             <div class="grid-card-art" style="width: {$gridCardSize}px; height: {$gridCardSize}px;">
-              {#if hasAlbumArt(album.representativeTrackId)}
+              {#if isCached(album.representativeTrackId)}
                 <img
                   src={getCachedAlbumArt(album.representativeTrackId)}
                   alt={album.name}
@@ -224,7 +225,7 @@
             use:intersectionObserver={{ callback: () => handleAlbumVisible(album) }}
           >
             <div class="list-art">
-              {#if hasAlbumArt(album.representativeTrackId)}
+              {#if isCached(album.representativeTrackId)}
                 <img
                   src={getCachedAlbumArt(album.representativeTrackId)}
                   alt={album.name}
