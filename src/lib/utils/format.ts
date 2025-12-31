@@ -5,11 +5,11 @@
 
 /**
  * 秒数を mm:ss 形式にフォーマット
- * @param seconds - 秒数（nullの場合は '--:--' を返す）
+ * @param seconds - 秒数（null/undefined/0の場合は '--:--' を返す）
  * @returns フォーマットされた文字列
  */
 export function formatDuration(seconds: number | null): string {
-  if (seconds === null || seconds === undefined) return '--:--';
+  if (!seconds) return '--:--';
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
   return `${mins}:${secs.toString().padStart(2, '0')}`;
@@ -51,6 +51,7 @@ export function formatFileSize(bytes: number | null): string {
 export function formatDate(dateString: string | null): string {
   if (!dateString) return '--';
   const date = new Date(dateString);
+  if (isNaN(date.getTime())) return '--';
   return date.toLocaleDateString('ja-JP', {
     year: 'numeric',
     month: 'short',

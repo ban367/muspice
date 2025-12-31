@@ -9,13 +9,13 @@
  * @param delay - 遅延時間（ミリ秒）
  * @returns デバウンスされた関数とキャンセル関数
  */
-export function createDebounce<T extends (...args: Parameters<T>) => void>(
-  callback: T,
+export function createDebounce<TArgs extends unknown[]>(
+  callback: (...args: TArgs) => void,
   delay: number = 300
-): { debounced: (...args: Parameters<T>) => void; cancel: () => void } {
+): { debounced: (...args: TArgs) => void; cancel: () => void } {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
-  const debounced = (...args: Parameters<T>) => {
+  const debounced = (...args: TArgs) => {
     if (timeoutId) {
       clearTimeout(timeoutId);
     }

@@ -39,8 +39,7 @@
   let contextMenu = $state<{ x: number; y: number; artist: ArtistGroup } | null>(null);
 
   // キャッシュ更新の追跡（リアクティビティのため）
-  // eslint-disable-next-line no-unused-vars
-  let _cacheVersion = $derived($albumArtCacheVersion);
+  const cacheVersion = $derived($albumArtCacheVersion);
 
   // カードサイズの計算
   const cardWidth = $derived($gridCardSize + 24); // padding分を追加
@@ -115,7 +114,7 @@
   }
 </script>
 
-<div class="p-4 min-h-[200px]">
+<div class="p-4 min-h-[200px]" data-cache-version={cacheVersion}>
   {#if isLoading}
     <div class="state-container">
       <div class="spinner"></div>

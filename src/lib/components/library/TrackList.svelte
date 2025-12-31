@@ -53,8 +53,7 @@
   const artSize = $derived($gridCardSize);
 
   // キャッシュ更新の追跡（リアクティビティのため）
-  // eslint-disable-next-line no-unused-vars
-  let _cacheVersion = $derived($albumArtCacheVersion);
+  const cacheVersion = $derived($albumArtCacheVersion);
 
   // トラック選択状態
   let selectedTrackIds = $state<Set<string>>(new Set());
@@ -364,7 +363,7 @@
   });
 </script>
 
-<div class="flex flex-col h-full">
+<div class="flex flex-col h-full" data-cache-version={cacheVersion}>
   <!-- コンテンツ -->
   <div class="flex-1 overflow-y-auto">
     {#if isLoading}
