@@ -1106,10 +1106,7 @@ pub async fn get_current_track(state: State<'_, AppState>) -> Result<Option<Trac
 
 /// お気に入りを切り替え
 #[tauri::command]
-pub async fn toggle_favorite(
-    track_id: String,
-    state: State<'_, AppState>,
-) -> Result<bool, String> {
+pub async fn toggle_favorite(track_id: String, state: State<'_, AppState>) -> Result<bool, String> {
     validate_track_id(&track_id)?;
 
     let db = state
@@ -1381,7 +1378,7 @@ pub async fn show_in_folder(path: String) -> Result<(), String> {
     use std::process::Command;
 
     let file_path = Path::new(&path);
-    
+
     if !file_path.exists() {
         return Err("ファイルが見つかりません".to_string());
     }
@@ -1561,7 +1558,10 @@ pub async fn get_artists_grouped(state: State<'_, AppState>) -> Result<Vec<Artis
 
     for track in tracks {
         if let Some(artist) = &track.artist {
-            let album_name = track.album.clone().unwrap_or_else(|| "不明なアルバム".to_string());
+            let album_name = track
+                .album
+                .clone()
+                .unwrap_or_else(|| "不明なアルバム".to_string());
             artist_map
                 .entry(artist.clone())
                 .or_insert_with(HashMap::new)
@@ -1580,7 +1580,8 @@ pub async fn get_artists_grouped(state: State<'_, AppState>) -> Result<Vec<Artis
                 .map(|(album_name, tracks)| {
                     let track_count = tracks.len() as i32;
                     let total_duration = tracks.iter().filter_map(|t| t.duration).sum();
-                    let representative_track_id = tracks.first().map(|t| t.id.clone()).unwrap_or_default();
+                    let representative_track_id =
+                        tracks.first().map(|t| t.id.clone()).unwrap_or_default();
 
                     AlbumGroup {
                         name: album_name,

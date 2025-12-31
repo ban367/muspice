@@ -1,5 +1,5 @@
-use base64::{engine::general_purpose::STANDARD, Engine as _};
 use crate::models::Metadata;
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use lofty::config::WriteOptions;
 use lofty::file::{AudioFile, TaggedFileExt};
 use lofty::picture::PictureType;
@@ -122,7 +122,10 @@ pub fn extract_album_art(file_path: &Path) -> Result<Option<AlbumArt>, String> {
 
         if let Some(pic) = picture {
             let data = STANDARD.encode(pic.data());
-            let mime_type = pic.mime_type().map(|m| m.to_string()).unwrap_or_else(|| "image/jpeg".to_string());
+            let mime_type = pic
+                .mime_type()
+                .map(|m| m.to_string())
+                .unwrap_or_else(|| "image/jpeg".to_string());
 
             return Ok(Some(AlbumArt { data, mime_type }));
         }
