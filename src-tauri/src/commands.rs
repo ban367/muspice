@@ -1146,7 +1146,7 @@ pub async fn set_rating(
 ) -> Result<(), String> {
     validate_track_id(&track_id)?;
 
-    if rating < 0 || rating > 5 {
+    if !(0..=5).contains(&rating) {
         return Err("レーティングは0から5の間で指定してください".to_string());
     }
 
@@ -1470,10 +1470,7 @@ pub async fn get_albums_grouped(state: State<'_, AppState>) -> Result<Vec<AlbumG
 
     for track in tracks {
         if let Some(album) = &track.album {
-            album_map
-                .entry(album.clone())
-                .or_insert_with(Vec::new)
-                .push(track);
+            album_map.entry(album.clone()).or_default().push(track);
         }
     }
 
@@ -1564,9 +1561,9 @@ pub async fn get_artists_grouped(state: State<'_, AppState>) -> Result<Vec<Artis
                 .unwrap_or_else(|| "不明なアルバム".to_string());
             artist_map
                 .entry(artist.clone())
-                .or_insert_with(HashMap::new)
+                .or_default()
                 .entry(album_name)
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(track);
         }
     }
@@ -1674,10 +1671,7 @@ pub async fn get_genres_grouped(state: State<'_, AppState>) -> Result<Vec<GenreG
 
     for track in tracks {
         if let Some(genre) = &track.genre {
-            genre_map
-                .entry(genre.clone())
-                .or_insert_with(Vec::new)
-                .push(track);
+            genre_map.entry(genre.clone()).or_default().push(track);
         }
     }
 

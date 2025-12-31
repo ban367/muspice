@@ -138,14 +138,14 @@ pub fn extract_album_art(file_path: &Path) -> Result<Option<AlbumArt>, String> {
 pub fn validate_metadata(metadata: &Metadata) -> Result<(), String> {
     // 年のバリデーション
     if let Some(year) = metadata.year {
-        if year < 1000 || year > 9999 {
+        if !(1000..=9999).contains(&year) {
             return Err("年は1000から9999の範囲で指定してください".to_string());
         }
     }
 
     // トラック番号のバリデーション
     if let Some(track_number) = metadata.track_number {
-        if track_number < 1 || track_number > 999 {
+        if !(1..=999).contains(&track_number) {
             return Err("トラック番号は1から999の範囲で指定してください".to_string());
         }
     }

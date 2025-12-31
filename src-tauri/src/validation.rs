@@ -57,10 +57,7 @@ pub fn validate_playlist_name(name: &str) -> Result<(), String> {
 pub fn sanitize_search_query(query: &str) -> String {
     // 危険な文字を除去
     query
-        .replace(';', "")
-        .replace('\'', "")
-        .replace('"', "")
-        .replace('\\', "")
+        .replace([';', '\'', '"', '\\'], "")
         .replace("--", "")
         .replace("/*", "")
         .replace("*/", "")
