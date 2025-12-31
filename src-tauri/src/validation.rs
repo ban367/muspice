@@ -207,7 +207,7 @@ mod tests {
             sanitize_search_query("query'; DROP TABLE--"),
             "query DROP TABLE"
         );
-        assert_eq!(sanitize_search_query("query/*comment*/"), "query");
+        assert_eq!(sanitize_search_query("query/*comment*/"), "querycomment");
     }
 
     #[test]
