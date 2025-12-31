@@ -121,9 +121,25 @@
     <div class="modal-content max-w-xl" onclick={(e) => e.stopPropagation()}>
       <div class="flex justify-between items-center p-6 border-b border-border">
         <h3 class="m-0 text-xl font-semibold text-text-primary">音楽フォルダをインポート</h3>
-        <button class="btn-icon w-8 h-8" onclick={closeDialog} disabled={isImporting} aria-label="閉じる">
-          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+        <button
+          class="btn-icon w-8 h-8"
+          onclick={closeDialog}
+          disabled={isImporting}
+          aria-label="閉じる"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="w-5 h-5"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M6 18L18 6M6 6l12 12"
+            />
           </svg>
         </button>
       </div>
@@ -141,7 +157,11 @@
                 value={selectedFolder || 'フォルダが選択されていません'}
                 class="form-input flex-1"
               />
-              <button onclick={selectFolder} disabled={isImporting} class="btn-secondary whitespace-nowrap">
+              <button
+                onclick={selectFolder}
+                disabled={isImporting}
+                class="btn-secondary whitespace-nowrap"
+              >
                 フォルダを選択
               </button>
             </div>
@@ -242,7 +262,7 @@
 {/if}
 
 <style>
-@reference "../../app.css";
+  @reference "../../app.css";
   .progress-bar-container {
     @apply w-full h-6 bg-base-400 rounded-full overflow-hidden;
   }

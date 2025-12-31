@@ -18,7 +18,13 @@
   <!-- ジャンルヘッダー -->
   <div class="genre-header">
     <a href="/library/genres" class="back-link">
-      <svg xmlns="http://www.w3.org/2000/svg" class="back-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="back-icon"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
       </svg>
       ジャンル一覧
@@ -43,7 +49,7 @@
 </div>
 
 <style>
-@reference "../../../../app.css";
+  @reference "../../../../app.css";
   .genre-detail-page {
     @apply flex flex-col h-full;
   }

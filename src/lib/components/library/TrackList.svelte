@@ -2,7 +2,12 @@
   import { invoke } from '@tauri-apps/api/core';
   import { useQueryClient } from '@tanstack/svelte-query';
   import { setRating } from '$lib/queries/tracks';
-  import { playTrackFromQueue, currentTrack, playQueue, currentTrackIndex } from '$lib/stores/player';
+  import {
+    playTrackFromQueue,
+    currentTrack,
+    playQueue,
+    currentTrackIndex
+  } from '$lib/stores/player';
   import { columnWidths, gridCardSize, type ColumnWidths } from '$lib/stores/ui';
   import { get } from 'svelte/store';
   import type { Track, AlbumArt } from '$lib/types/models';
@@ -360,7 +365,7 @@
     const delta = event.clientX - resizeStartX;
     const newWidth = Math.max(50, resizeStartWidth + delta);
 
-    columnWidths.update(widths => ({
+    columnWidths.update((widths) => ({
       ...widths,
       [resizingColumn!]: newWidth
     }));
@@ -485,7 +490,8 @@
                       <button
                         class="star-btn"
                         class:active={track.rating >= star}
-                        onclick={(e) => handleSetRating(track.id, track.rating === star ? 0 : star, e)}
+                        onclick={(e) =>
+                          handleSetRating(track.id, track.rating === star ? 0 : star, e)}
                         title={`${star}つ星`}
                       >
                         ★
@@ -521,7 +527,10 @@
               role="button"
               tabindex="0"
             >
-              <div class="relative shrink-0 rounded-md overflow-hidden bg-base-400 mb-2" style="width: {artSize}px; height: {artSize}px;">
+              <div
+                class="relative shrink-0 rounded-md overflow-hidden bg-base-400 mb-2"
+                style="width: {artSize}px; height: {artSize}px;"
+              >
                 {#if getAlbumArtUrl(track.id)}
                   <img
                     src={getAlbumArtUrl(track.id)}
@@ -530,9 +539,18 @@
                     loading="lazy"
                   />
                 {:else}
-                  <div class="w-full h-full flex items-center justify-center text-white/80 bg-gradient-to-br from-accent to-accent-focus">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-2/5 h-2/5">
-                      <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
+                  <div
+                    class="w-full h-full flex items-center justify-center text-white/80 bg-gradient-to-br from-accent to-accent-focus"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      fill="currentColor"
+                      class="w-2/5 h-2/5"
+                    >
+                      <path
+                        d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"
+                      />
                     </svg>
                   </div>
                 {/if}
@@ -543,14 +561,20 @@
                 {/if}
               </div>
               <div class="w-full text-center min-w-0">
-                <div class="font-semibold mb-1 text-truncate text-sm text-text-primary" title={track.title || track.fileName}>
+                <div
+                  class="font-semibold mb-1 text-truncate text-sm text-text-primary"
+                  title={track.title || track.fileName}
+                >
                   {#if searchTerm}
                     {@html highlightText(track.title || track.fileName, searchTerm)}
                   {:else}
                     {track.title || track.fileName}
                   {/if}
                 </div>
-                <div class="text-xs text-text-muted text-truncate" title={track.artist || '不明なアーティスト'}>
+                <div
+                  class="text-xs text-text-muted text-truncate"
+                  title={track.artist || '不明なアーティスト'}
+                >
                   {#if searchTerm}
                     {@html highlightText(track.artist || '不明なアーティスト', searchTerm)}
                   {:else}
@@ -564,8 +588,19 @@
       {/if}
     {:else}
       <div class="empty-state">
-        <svg xmlns="http://www.w3.org/2000/svg" class="w-16 h-16 text-text-dimmed/50 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          class="w-16 h-16 text-text-dimmed/50 mb-4"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"
+          />
         </svg>
         <p>{emptyMessage}</p>
         <p class="text-sm text-text-dimmed">{emptyHint}</p>
@@ -590,7 +625,7 @@
     y={contextMenu.y}
     track={contextMenu.track}
     tracks={sortedTracks || []}
-    selectedTrackIds={selectedTrackIds}
+    {selectedTrackIds}
     onClose={closeContextMenu}
     onEditMetadata={openMetadataEditor}
     onPlayNext={handlePlayNext}
@@ -599,7 +634,7 @@
 {/if}
 
 <style>
-@reference "../../../app.css";
+  @reference "../../../app.css";
   /* トラックテーブル */
   .track-table {
     @apply flex flex-col;

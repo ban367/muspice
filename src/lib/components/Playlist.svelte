@@ -201,7 +201,10 @@
   <div class="playlist-sidebar">
     <div class="p-4 border-b border-border">
       <h2 class="text-xl font-semibold text-text-primary m-0 mb-3">プレイリスト</h2>
-      <button class="btn-primary w-full flex items-center justify-center gap-1" onclick={openCreateDialog}>
+      <button
+        class="btn-primary w-full flex items-center justify-center gap-1"
+        onclick={openCreateDialog}
+      >
         <span class="text-xl font-bold">+</span> 新規作成
       </button>
     </div>
@@ -224,7 +227,11 @@
             tabindex="0"
           >
             <div class="flex-1 min-w-0">
-              <div class="text-text-primary font-medium overflow-hidden text-ellipsis whitespace-nowrap">{playlist.name}</div>
+              <div
+                class="text-text-primary font-medium overflow-hidden text-ellipsis whitespace-nowrap"
+              >
+                {playlist.name}
+              </div>
               <div class="text-xs text-text-muted">{playlist.tracks.length} 曲</div>
             </div>
             <button
@@ -235,8 +242,19 @@
               }}
               title="プレイリストを削除"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="w-4 h-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                />
               </svg>
             </button>
           </div>
@@ -277,8 +295,16 @@
               >
                 <div class="track-number">{index + 1}</div>
                 <div class="flex-1 min-w-0">
-                  <div class="text-text-primary font-medium overflow-hidden text-ellipsis whitespace-nowrap">{track.title || track.fileName}</div>
-                  <div class="text-sm text-text-muted overflow-hidden text-ellipsis whitespace-nowrap">{track.artist || '不明なアーティスト'}</div>
+                  <div
+                    class="text-text-primary font-medium overflow-hidden text-ellipsis whitespace-nowrap"
+                  >
+                    {track.title || track.fileName}
+                  </div>
+                  <div
+                    class="text-sm text-text-muted overflow-hidden text-ellipsis whitespace-nowrap"
+                  >
+                    {track.artist || '不明なアーティスト'}
+                  </div>
                 </div>
                 <div class="track-album">{track.album || '不明なアルバム'}</div>
                 <div class="track-duration">{formatDuration(track.duration)}</div>
@@ -343,7 +369,7 @@
 {/if}
 
 <style>
-@reference "../../app.css";
+  @reference "../../app.css";
   .playlist-sidebar {
     @apply w-64 border-r border-border flex flex-col;
   }

@@ -63,7 +63,7 @@
 </div>
 
 <style>
-@reference "../../../app.css";
+  @reference "../../../app.css";
   .genres-page {
     @apply flex flex-col h-full;
   }

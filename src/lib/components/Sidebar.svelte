@@ -1,6 +1,10 @@
 <script lang="ts">
   import { page } from '$app/stores';
-  import { usePlaylistsQuery, useAddTrackToPlaylistMutation, useCreatePlaylistMutation } from '$lib/queries/playlists';
+  import {
+    usePlaylistsQuery,
+    useAddTrackToPlaylistMutation,
+    useCreatePlaylistMutation
+  } from '$lib/queries/playlists';
   import { validatePlaylistName, toSafeString } from '$lib/utils/validation';
   import { isImportDialogOpen, isSidebarOpen } from '$lib/stores/ui';
   import { useGenresGroupedQuery } from '$lib/queries/tracks';
@@ -141,8 +145,19 @@
       title="フォルダをインポート"
       onclick={handleOpenImportDialog}
     >
-      <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="w-5 h-5"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        stroke-width="2"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
+        />
       </svg>
     </button>
   </div>
@@ -157,7 +172,14 @@
           class="nav-item-base"
           class:active={currentPath === '/library/songs'}
         >
-          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="w-5 h-5 shrink-0"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            stroke-width="2"
+          >
             <path d="M9 18V5l12-2v13" />
             <circle cx="6" cy="18" r="3" />
             <circle cx="18" cy="16" r="3" />
@@ -171,7 +193,14 @@
           class="nav-item-base"
           class:active={currentPath === '/library/albums'}
         >
-          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="w-5 h-5 shrink-0"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            stroke-width="2"
+          >
             <circle cx="12" cy="12" r="10" />
             <circle cx="12" cy="12" r="3" />
           </svg>
@@ -184,7 +213,14 @@
           class="nav-item-base"
           class:active={currentPath === '/library/artists'}
         >
-          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="w-5 h-5 shrink-0"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            stroke-width="2"
+          >
             <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
             <circle cx="12" cy="7" r="4" />
           </svg>
@@ -198,7 +234,14 @@
             class="nav-item-base flex-1"
             class:active={currentPath === '/library/genres'}
           >
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="w-5 h-5 shrink-0"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              stroke-width="2"
+            >
               <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
               <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
             </svg>
@@ -254,8 +297,19 @@
           class="nav-item-base"
           class:active={currentPath === '/library/recent'}
         >
-          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="w-5 h-5 shrink-0"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
           </svg>
           <span>最近再生した曲</span>
         </a>
@@ -266,8 +320,19 @@
           class="nav-item-base"
           class:active={currentPath === '/library/mostplayed'}
         >
-          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="w-5 h-5 shrink-0"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"
+            />
           </svg>
           <span>よく再生する曲</span>
         </a>
@@ -278,14 +343,27 @@
   <!-- プレイリストセクション -->
   <div class="flex-1 flex flex-col min-h-0 mb-6">
     <div class="flex items-center justify-between mb-2 px-2">
-      <h2 class="text-xs font-semibold uppercase tracking-wider text-text-muted m-0">プレイリスト</h2>
+      <h2 class="text-xs font-semibold uppercase tracking-wider text-text-muted m-0">
+        プレイリスト
+      </h2>
       <button
         class="btn-icon w-6 h-6 p-0"
         title="新規プレイリスト (Ctrl+N)"
         onclick={handleCreatePlaylist}
       >
-        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          class="w-4 h-4"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M12 4v16m8-8H4"
+          />
         </svg>
       </button>
     </div>
@@ -307,8 +385,19 @@
               ondrop={(e) => handleDrop(e, playlist.id)}
               oncontextmenu={(e) => handleContextMenu(e, playlist)}
             >
-              <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="w-5 h-5 shrink-0"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M4 6h16M4 10h16M4 14h16M4 18h16"
+                />
               </svg>
               <span class="flex-1 text-truncate">{playlist.name}</span>
               <span class="text-xs text-text-dimmed shrink-0">{playlist.tracks.length}</span>
@@ -334,7 +423,7 @@
 {/if}
 
 <style>
-@reference "../../app.css";
+  @reference "../../app.css";
   .genre-nav-container {
     @apply flex items-center;
   }

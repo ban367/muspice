@@ -18,7 +18,17 @@
     onPlayNext?: () => void;
   }
 
-  let { x, y, track, tracks = [], selectedTrackIds = new Set(), onClose, onEditMetadata, onAddToQueue, onPlayNext }: Props = $props();
+  let {
+    x,
+    y,
+    track,
+    tracks = [],
+    selectedTrackIds = new Set(),
+    onClose,
+    onEditMetadata,
+    onAddToQueue,
+    onPlayNext
+  }: Props = $props();
 
   // クエリとミューテーション
   const playlistsQuery = usePlaylistsQuery();
@@ -38,7 +48,7 @@
   // 選択されたトラックのリスト
   const selectedTracks = $derived.by(() => {
     if (selectedTrackIds.size > 0 && tracks.length > 0) {
-      return tracks.filter(t => selectedTrackIds.has(t.id));
+      return tracks.filter((t) => selectedTrackIds.has(t.id));
     }
     return [track];
   });
@@ -171,22 +181,49 @@
   {/if}
 
   <button class="menu-item" onclick={handlePlay} role="menuitem">
-    <svg xmlns="http://www.w3.org/2000/svg" class="menu-icon" viewBox="0 0 24 24" fill="currentColor">
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      class="menu-icon"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+    >
       <path d="M8 5v14l11-7z" />
     </svg>
     <span>再生</span>
   </button>
 
   <button class="menu-item" onclick={handlePlayNext} role="menuitem">
-    <svg xmlns="http://www.w3.org/2000/svg" class="menu-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      class="menu-icon"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+    >
+      <path
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="2"
+        d="M13 5l7 7-7 7M5 5l7 7-7 7"
+      />
     </svg>
     <span>次に再生</span>
   </button>
 
   <button class="menu-item" onclick={handleAddToQueue} role="menuitem">
-    <svg xmlns="http://www.w3.org/2000/svg" class="menu-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h7" />
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      class="menu-icon"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+    >
+      <path
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="2"
+        d="M4 6h16M4 10h16M4 14h16M4 18h7"
+      />
     </svg>
     <span>キューに追加</span>
   </button>
@@ -195,16 +232,28 @@
 
   <div
     class="menu-item submenu-trigger"
-    onmouseenter={() => showPlaylistSubmenu = true}
-    onmouseleave={() => showPlaylistSubmenu = false}
+    onmouseenter={() => (showPlaylistSubmenu = true)}
+    onmouseleave={() => (showPlaylistSubmenu = false)}
     role="menuitem"
     tabindex="0"
   >
-    <svg xmlns="http://www.w3.org/2000/svg" class="menu-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      class="menu-icon"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+    >
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
     </svg>
     <span>プレイリストに追加</span>
-    <svg xmlns="http://www.w3.org/2000/svg" class="menu-arrow" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      class="menu-arrow"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+    >
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
     </svg>
 
@@ -214,13 +263,20 @@
           <div class="menu-message">読み込み中...</div>
         {:else if playlistsQuery.data && playlistsQuery.data.length > 0}
           {#each playlistsQuery.data as playlist (playlist.id)}
-            <button
-              class="menu-item"
-              onclick={() => handleAddToPlaylist(playlist)}
-              role="menuitem"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" class="menu-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+            <button class="menu-item" onclick={() => handleAddToPlaylist(playlist)} role="menuitem">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="menu-icon"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M4 6h16M4 10h16M4 14h16M4 18h16"
+                />
               </svg>
               <span>{playlist.name}</span>
             </button>
@@ -236,8 +292,19 @@
 
   {#if onEditMetadata}
     <button class="menu-item" onclick={handleEditMetadata} role="menuitem">
-      <svg xmlns="http://www.w3.org/2000/svg" class="menu-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="menu-icon"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+        />
       </svg>
       <span>メタデータを編集</span>
       <span class="menu-shortcut">Ctrl+I</span>
@@ -245,15 +312,26 @@
   {/if}
 
   <button class="menu-item" onclick={handleShowInFolder} role="menuitem">
-    <svg xmlns="http://www.w3.org/2000/svg" class="menu-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      class="menu-icon"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+    >
+      <path
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="2"
+        d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
+      />
     </svg>
     <span>ファイルの場所を開く</span>
   </button>
 </div>
 
 <style>
-@reference "../../app.css";
+  @reference "../../app.css";
   .context-menu {
     @apply fixed z-[10000] min-w-[200px] bg-base-300 border border-border rounded-lg py-2;
     box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);

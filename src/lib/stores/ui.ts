@@ -33,11 +33,11 @@ export const isMetadataEditorOpen: Writable<boolean> = writable(false);
 
 // 列幅のデフォルト値（ピクセル単位）
 const DEFAULT_COLUMN_WIDTHS = {
-  checkbox: 40,     // 2.5rem
-  title: 300,       // 可変幅の基準
-  artist: 200,      // 可変幅の基準
-  rating: 80,       // 5rem
-  duration: 64      // 4rem
+  checkbox: 40, // 2.5rem
+  title: 300, // 可変幅の基準
+  artist: 200, // 可変幅の基準
+  rating: 80, // 5rem
+  duration: 64 // 4rem
 };
 
 // 列幅のストア（localStorageと同期）

@@ -53,7 +53,11 @@
   async function handleDeletePlaylist() {
     if (!selectedPlaylist) return;
 
-    if (!confirm(`プレイリスト「${selectedPlaylist.name}」を削除しますか？\nこの操作は取り消せません。`)) {
+    if (
+      !confirm(
+        `プレイリスト「${selectedPlaylist.name}」を削除しますか？\nこの操作は取り消せません。`
+      )
+    ) {
       return;
     }
 
@@ -184,8 +188,19 @@
     <div class="playlist-header">
       <div class="playlist-info">
         <div class="playlist-icon">
-          <svg xmlns="http://www.w3.org/2000/svg" class="icon-playlist" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="icon-playlist"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M4 6h16M4 10h16M4 14h16M4 18h16"
+            />
           </svg>
         </div>
         <div class="playlist-details">
@@ -210,14 +225,30 @@
           }}
           disabled={selectedPlaylist.tracks.length === 0}
         >
-          <svg xmlns="http://www.w3.org/2000/svg" class="icon-play" viewBox="0 0 24 24" fill="currentColor">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="icon-play"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+          >
             <path d="M8 5v14l11-7z" />
           </svg>
           すべて再生
         </button>
         <button class="btn-delete" onclick={handleDeletePlaylist} title="プレイリストを削除">
-          <svg xmlns="http://www.w3.org/2000/svg" class="icon-delete" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="icon-delete"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+            />
           </svg>
         </button>
       </div>
@@ -226,8 +257,19 @@
     <div class="track-list">
       {#if selectedPlaylist.tracks.length === 0}
         <div class="empty-playlist">
-          <svg xmlns="http://www.w3.org/2000/svg" class="icon-empty" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="icon-empty"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"
+            />
           </svg>
           <p>このプレイリストにはまだトラックがありません</p>
           <p class="hint">ライブラリからトラックをドラッグ&ドロップして追加できます</p>
@@ -250,7 +292,9 @@
             <div
               class="track-row"
               draggable="true"
-              ondragstart={() => { draggedTrackId = track.id; }}
+              ondragstart={() => {
+                draggedTrackId = track.id;
+              }}
               ondragover={handleDragOver}
               ondrop={(e) => handleDropOnTrack(e, track.id)}
               ondblclick={() => handleTrackDoubleClick(track)}
@@ -271,8 +315,19 @@
                   onclick={() => handleRemoveTrack(track.id)}
                   title="プレイリストから削除"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" class="icon-remove" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    class="icon-remove"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M6 18L18 6M6 6l12 12"
+                    />
                   </svg>
                 </button>
               </div>
@@ -285,7 +340,7 @@
 </div>
 
 <style>
-@reference "../../../app.css";
+  @reference "../../../app.css";
   .playlist-detail-page {
     @apply h-full flex flex-col;
   }

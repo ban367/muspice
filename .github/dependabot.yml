@@ -1,31 +1,31 @@
 version: 2
 updates:
   # npm依存関係の更新
-  - package-ecosystem: "npm"
-    directory: "/"
+  - package-ecosystem: 'npm'
+    directory: '/'
     schedule:
-      interval: "weekly"
+      interval: 'weekly'
     open-pull-requests-limit: 5
     labels:
-      - "dependencies"
-      - "npm"
+      - 'dependencies'
+      - 'npm'
 
   # Cargo依存関係の更新
-  - package-ecosystem: "cargo"
-    directory: "/src-tauri"
+  - package-ecosystem: 'cargo'
+    directory: '/src-tauri'
     schedule:
-      interval: "weekly"
+      interval: 'weekly'
     open-pull-requests-limit: 5
     labels:
-      - "dependencies"
-      - "rust"
+      - 'dependencies'
+      - 'rust'
 
   # GitHub Actionsの更新
-  - package-ecosystem: "github-actions"
-    directory: "/"
+  - package-ecosystem: 'github-actions'
+    directory: '/'
     schedule:
-      interval: "weekly"
+      interval: 'weekly'
     open-pull-requests-limit: 3
     labels:
-      - "dependencies"
-      - "ci"
+      - 'dependencies'
+      - 'ci'

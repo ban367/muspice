@@ -98,7 +98,7 @@ export function toggleShuffle(): void {
   if (!shuffle) {
     // シャッフルを有効にする
     originalQueue.set([...queue]);
-    
+
     if (current && queue.length > 0) {
       // 現在のトラックを除いてシャッフル
       const otherTracks = queue.filter((t) => t.id !== current.id);
@@ -141,14 +141,14 @@ export function playTrackFromQueue(tracks: Track[], index: number): void {
   }
 
   const shuffle = get(isShuffleEnabled);
-  
+
   if (shuffle) {
     // シャッフルモードの場合、選択したトラックを先頭にしてシャッフル
     const selectedTrack = tracks[index];
     const otherTracks = tracks.filter((_, i) => i !== index);
     const shuffledOthers = shuffleArray(otherTracks);
     const newQueue = [selectedTrack, ...shuffledOthers];
-    
+
     originalQueue.set([...tracks]);
     playQueue.set(newQueue);
     currentTrackIndex.set(0);
@@ -289,7 +289,7 @@ export function removeFromQueue(trackId: string): void {
  */
 export function clearQueue(): void {
   const current = get(currentTrack);
-  
+
   if (current) {
     playQueue.set([current]);
     originalQueue.set([current]);

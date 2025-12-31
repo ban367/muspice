@@ -252,9 +252,12 @@
       // 1曲リピート: 同じトラックを再生
       if (audioElement) {
         audioElement.currentTime = 0;
-        audioElement.play().then(() => {
-          isPlaying.set(true);
-        }).catch(console.error);
+        audioElement
+          .play()
+          .then(() => {
+            isPlaying.set(true);
+          })
+          .catch(console.error);
       }
     } else {
       // 次のトラックがあれば自動再生
@@ -312,11 +315,7 @@
    */
   function handleGlobalKeydown(event: KeyboardEvent) {
     const target = event.target as HTMLElement;
-    if (
-      target.tagName === 'INPUT' ||
-      target.tagName === 'TEXTAREA' ||
-      target.isContentEditable
-    ) {
+    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
       return;
     }
 
@@ -421,14 +420,23 @@
           <img src={albumArtUrl} alt="アルバムアート" class="w-full h-full object-cover" />
         {:else}
           <div class="album-art-placeholder">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-1/2 h-1/2">
-              <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              class="w-1/2 h-1/2"
+            >
+              <path
+                d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"
+              />
             </svg>
           </div>
         {/if}
       </div>
       <div class="min-w-0">
-        <div class="text-sm font-semibold mb-0.5 text-truncate">{$currentTrack.title || $currentTrack.fileName}</div>
+        <div class="text-sm font-semibold mb-0.5 text-truncate">
+          {$currentTrack.title || $currentTrack.fileName}
+        </div>
         <div class="text-xs text-text-secondary text-truncate">
           {$currentTrack.artist || '不明なアーティスト'}
           {#if $currentTrack.album}
@@ -448,8 +456,16 @@
           title="シャッフル (S)"
           aria-label="シャッフル"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+          >
+            <path
+              d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"
+            />
           </svg>
         </button>
 
@@ -460,7 +476,13 @@
           title="前へ (Ctrl+←)"
           aria-label="前のトラック"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+          >
             <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z" />
           </svg>
         </button>
@@ -472,12 +494,24 @@
           aria-label={$isPlaying ? '一時停止' : '再生'}
         >
           {#if $isPlaying}
-            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="28"
+              height="28"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+            >
               <rect x="6" y="4" width="4" height="16" />
               <rect x="14" y="4" width="4" height="16" />
             </svg>
           {:else}
-            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="28"
+              height="28"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+            >
               <path d="M8 5v14l11-7z" />
             </svg>
           {/if}
@@ -490,7 +524,13 @@
           title="次へ (Ctrl+→)"
           aria-label="次のトラック"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+          >
             <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
           </svg>
         </button>
@@ -499,10 +539,20 @@
           class="control-button"
           class:active={$repeatMode !== 'off'}
           onclick={toggleRepeat}
-          title="リピート (R): {$repeatMode === 'off' ? 'オフ' : $repeatMode === 'all' ? '全曲' : '1曲'}"
+          title="リピート (R): {$repeatMode === 'off'
+            ? 'オフ'
+            : $repeatMode === 'all'
+              ? '全曲'
+              : '1曲'}"
           aria-label="リピート"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+          >
             <path d={getRepeatIcon($repeatMode)} />
           </svg>
           {#if $repeatMode === 'one'}
@@ -513,7 +563,9 @@
 
       <!-- 進行バー -->
       <div class="flex items-center gap-2 w-full max-w-[600px]">
-        <span class="text-[0.7rem] text-text-secondary min-w-[35px] text-center">{formatTime($currentTime)}</span>
+        <span class="text-[0.7rem] text-text-secondary min-w-[35px] text-center"
+          >{formatTime($currentTime)}</span
+        >
         <div
           id="progress-bar"
           class="progress-bar-base flex-1"
@@ -536,7 +588,9 @@
           <div class="progress-fill-base" style="width: {$progress}%"></div>
           <div class="progress-handle" style="left: {$progress}%"></div>
         </div>
-        <span class="text-[0.7rem] text-text-secondary min-w-[35px] text-center">{formatTime($duration)}</span>
+        <span class="text-[0.7rem] text-text-secondary min-w-[35px] text-center"
+          >{formatTime($duration)}</span
+        >
       </div>
     </div>
 
@@ -545,12 +599,24 @@
       <button
         class="control-button small"
         class:active={showQueue}
-        onclick={() => showQueue = !showQueue}
+        onclick={() => (showQueue = !showQueue)}
         title="再生キュー (Q)"
         aria-label="再生キュー"
       >
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M4 6h16M4 10h16M4 14h10M4 18h7" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/>
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="currentColor"
+        >
+          <path
+            d="M4 6h16M4 10h16M4 14h10M4 18h7"
+            stroke="currentColor"
+            stroke-width="2"
+            fill="none"
+            stroke-linecap="round"
+          />
         </svg>
       </button>
 
@@ -569,16 +635,40 @@
           aria-label="ミュート"
         >
           {#if $volume === 0}
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+            >
+              <path
+                d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"
+              />
             </svg>
           {:else if $volume < 0.5}
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+            >
+              <path
+                d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"
+              />
             </svg>
           {:else}
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+            >
+              <path
+                d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"
+              />
             </svg>
           {/if}
         </button>
@@ -608,8 +698,17 @@
     </div>
   {:else}
     <div class="col-span-3 flex items-center justify-center gap-3 text-text-dimmed py-4">
-      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" class="opacity-50">
-        <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="24"
+        height="24"
+        viewBox="0 0 24 24"
+        fill="currentColor"
+        class="opacity-50"
+      >
+        <path
+          d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"
+        />
       </svg>
       <span>トラックを選択して再生</span>
     </div>
@@ -623,26 +722,36 @@
       <h3 class="m-0 text-sm font-semibold">再生キュー</h3>
       <div class="flex gap-2">
         <button class="queue-clear-btn" onclick={clearQueue}>クリア</button>
-        <button class="queue-close-btn" onclick={() => showQueue = false}>✕</button>
+        <button class="queue-close-btn" onclick={() => (showQueue = false)}>✕</button>
       </div>
     </div>
     <div class="px-4 py-3 bg-secondary/10 border-b border-border">
       <div class="text-[0.625rem] font-semibold uppercase text-text-muted mb-1.5">再生中</div>
       <div class="flex flex-col gap-0.5">
-        <span class="text-[0.8rem] text-text-primary text-truncate">{$currentTrack.title || $currentTrack.fileName}</span>
-        <span class="text-[0.7rem] text-text-muted text-truncate">{$currentTrack.artist || '不明なアーティスト'}</span>
+        <span class="text-[0.8rem] text-text-primary text-truncate"
+          >{$currentTrack.title || $currentTrack.fileName}</span
+        >
+        <span class="text-[0.7rem] text-text-muted text-truncate"
+          >{$currentTrack.artist || '不明なアーティスト'}</span
+        >
       </div>
     </div>
     {#if $upcomingTracks.length > 0}
       <div class="flex-1 overflow-hidden flex flex-col">
-        <div class="text-[0.625rem] font-semibold uppercase text-text-muted pt-3 pb-1.5 px-4">次に再生 ({$upcomingTracks.length}曲)</div>
+        <div class="text-[0.625rem] font-semibold uppercase text-text-muted pt-3 pb-1.5 px-4">
+          次に再生 ({$upcomingTracks.length}曲)
+        </div>
         <div class="flex-1 overflow-y-auto px-2 pb-2">
           {#each $upcomingTracks as track, index (track.id)}
             <div class="queue-track">
               <span class="text-xs text-text-dimmed w-6 text-center">{index + 1}</span>
               <div class="flex-1 min-w-0 flex flex-col gap-0.5">
-                <span class="text-[0.8rem] text-text-primary text-truncate">{track.title || track.fileName}</span>
-                <span class="text-[0.7rem] text-text-muted text-truncate">{track.artist || '不明なアーティスト'}</span>
+                <span class="text-[0.8rem] text-text-primary text-truncate"
+                  >{track.title || track.fileName}</span
+                >
+                <span class="text-[0.7rem] text-text-muted text-truncate"
+                  >{track.artist || '不明なアーティスト'}</span
+                >
               </div>
               <button
                 class="queue-remove-btn"
@@ -656,13 +765,15 @@
         </div>
       </div>
     {:else}
-      <div class="py-8 px-4 text-center text-text-dimmed text-sm">キューに他のトラックはありません</div>
+      <div class="py-8 px-4 text-center text-text-dimmed text-sm">
+        キューに他のトラックはありません
+      </div>
     {/if}
   </div>
 {/if}
 
 <style>
-@reference "../../app.css";
+  @reference "../../app.css";
   /* プレイヤーコンテナ */
   .player-container {
     @apply fixed bottom-0 left-0 right-0 z-50

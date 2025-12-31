@@ -159,15 +159,31 @@
   <div class="menu-divider"></div>
 
   <button class="menu-item" onclick={handlePlayAll} role="menuitem">
-    <svg xmlns="http://www.w3.org/2000/svg" class="menu-icon" viewBox="0 0 24 24" fill="currentColor">
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      class="menu-icon"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+    >
       <path d="M8 5v14l11-7z" />
     </svg>
     <span>{typeLabel}を再生</span>
   </button>
 
   <button class="menu-item" onclick={handleShufflePlay} role="menuitem">
-    <svg xmlns="http://www.w3.org/2000/svg" class="menu-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      class="menu-icon"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+    >
+      <path
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="2"
+        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+      />
     </svg>
     <span>シャッフル再生</span>
   </button>
@@ -175,15 +191,37 @@
   <div class="menu-divider"></div>
 
   <button class="menu-item" onclick={handlePlayNext} role="menuitem">
-    <svg xmlns="http://www.w3.org/2000/svg" class="menu-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      class="menu-icon"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+    >
+      <path
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="2"
+        d="M13 5l7 7-7 7M5 5l7 7-7 7"
+      />
     </svg>
     <span>次に再生</span>
   </button>
 
   <button class="menu-item" onclick={handleAddToQueue} role="menuitem">
-    <svg xmlns="http://www.w3.org/2000/svg" class="menu-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h7" />
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      class="menu-icon"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+    >
+      <path
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="2"
+        d="M4 6h16M4 10h16M4 14h16M4 18h7"
+      />
     </svg>
     <span>キューに追加</span>
   </button>
@@ -193,16 +231,28 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="menu-item submenu-trigger"
-    onmouseenter={() => showPlaylistSubmenu = true}
-    onmouseleave={() => showPlaylistSubmenu = false}
+    onmouseenter={() => (showPlaylistSubmenu = true)}
+    onmouseleave={() => (showPlaylistSubmenu = false)}
     role="menuitem"
     tabindex="0"
   >
-    <svg xmlns="http://www.w3.org/2000/svg" class="menu-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      class="menu-icon"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+    >
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
     </svg>
     <span>プレイリストに追加</span>
-    <svg xmlns="http://www.w3.org/2000/svg" class="menu-arrow" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      class="menu-arrow"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+    >
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
     </svg>
 
@@ -212,13 +262,20 @@
           <div class="menu-message">読み込み中...</div>
         {:else if playlistsQuery.data && playlistsQuery.data.length > 0}
           {#each playlistsQuery.data as playlist (playlist.id)}
-            <button
-              class="menu-item"
-              onclick={() => handleAddToPlaylist(playlist)}
-              role="menuitem"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" class="menu-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+            <button class="menu-item" onclick={() => handleAddToPlaylist(playlist)} role="menuitem">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="menu-icon"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M4 6h16M4 10h16M4 14h16M4 18h16"
+                />
               </svg>
               <span>{playlist.name}</span>
             </button>
@@ -232,7 +289,7 @@
 </div>
 
 <style>
-@reference "../../app.css";
+  @reference "../../app.css";
   .context-menu {
     @apply fixed z-[10000] min-w-[200px] bg-base-300 border border-border rounded-lg py-2;
     box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);

@@ -9,7 +9,14 @@
 </script>
 
 <div class="flex items-center gap-2">
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-3.5 h-3.5 text-text-dimmed shrink-0">
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    class="w-3.5 h-3.5 text-text-dimmed shrink-0"
+  >
     <rect x="3" y="3" width="7" height="7" rx="1" />
     <rect x="14" y="3" width="7" height="7" rx="1" />
     <rect x="3" y="14" width="7" height="7" rx="1" />
@@ -23,7 +30,14 @@
     oninput={handleSizeChange}
     class="size-range"
   />
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-5 h-5 text-text-dimmed shrink-0">
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    class="w-5 h-5 text-text-dimmed shrink-0"
+  >
     <rect x="3" y="3" width="7" height="7" rx="1" />
     <rect x="14" y="3" width="7" height="7" rx="1" />
     <rect x="3" y="14" width="7" height="7" rx="1" />
@@ -32,7 +46,7 @@
 </div>
 
 <style>
-@reference "../../../app.css";
+  @reference "../../../app.css";
   .size-range {
     @apply w-20 h-1 rounded-sm cursor-pointer;
     -webkit-appearance: none;

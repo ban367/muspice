@@ -23,9 +23,10 @@
   const albums = $derived.by(() => {
     const query = $browseSearchQuery.toLowerCase().trim();
     if (!query) return allAlbums;
-    return allAlbums.filter(album =>
-      album.name.toLowerCase().includes(query) ||
-      (album.artist && album.artist.toLowerCase().includes(query))
+    return allAlbums.filter(
+      (album) =>
+        album.name.toLowerCase().includes(query) ||
+        (album.artist && album.artist.toLowerCase().includes(query))
     );
   });
 
@@ -124,14 +125,17 @@
 
   // Intersection Observer アクション
   function intersectionObserver(node: HTMLElement, options: { callback: () => void }) {
-    const observer = new IntersectionObserver((entries) => {
-      entries.forEach((entry) => {
-        if (entry.isIntersecting) {
-          options.callback();
-          observer.unobserve(node);
-        }
-      });
-    }, { rootMargin: '100px' });
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            options.callback();
+            observer.unobserve(node);
+          }
+        });
+      },
+      { rootMargin: '100px' }
+    );
 
     observer.observe(node);
 
@@ -155,8 +159,19 @@
     </div>
   {:else if allAlbums.length > 0 && albums.length === 0}
     <div class="state-container">
-      <svg xmlns="http://www.w3.org/2000/svg" class="w-12 h-12 text-text-dimmed/50 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="w-12 h-12 text-text-dimmed/50 mb-4"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+        />
       </svg>
       <p>「{$browseSearchQuery}」に一致するアルバムが見つかりません</p>
     </div>
@@ -176,17 +191,31 @@
           >
             <div class="grid-card-art" style="width: {$gridCardSize}px; height: {$gridCardSize}px;">
               {#if albumArtCache.has(album.representativeTrackId)}
-                <img src={albumArtCache.get(album.representativeTrackId)} alt={album.name} loading="lazy" />
+                <img
+                  src={albumArtCache.get(album.representativeTrackId)}
+                  alt={album.name}
+                  loading="lazy"
+                />
               {:else}
                 <div class="art-placeholder">
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                  >
                     <circle cx="12" cy="12" r="10" />
                     <circle cx="12" cy="12" r="3" />
                   </svg>
                 </div>
               {/if}
               <div class="play-overlay">
-                <button class="play-button-circle" onclick={(e) => handlePlayClick(e, album)} title="アルバムを再生">
+                <button
+                  class="play-button-circle"
+                  onclick={(e) => handlePlayClick(e, album)}
+                  title="アルバムを再生"
+                >
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M8 5v14l11-7z" />
                   </svg>
@@ -194,8 +223,12 @@
               </div>
             </div>
             <div class="min-w-0">
-              <h3 class="text-[0.9375rem] font-semibold text-text-primary m-0 text-truncate">{album.name}</h3>
-              <p class="text-[0.8125rem] text-text-muted mt-1 m-0 text-truncate">{album.artist || '不明なアーティスト'}</p>
+              <h3 class="text-[0.9375rem] font-semibold text-text-primary m-0 text-truncate">
+                {album.name}
+              </h3>
+              <p class="text-[0.8125rem] text-text-muted mt-1 m-0 text-truncate">
+                {album.artist || '不明なアーティスト'}
+              </p>
               <p class="text-xs text-text-dimmed mt-1 m-0">{album.trackCount}曲</p>
             </div>
           </div>
@@ -216,10 +249,20 @@
           >
             <div class="list-art">
               {#if albumArtCache.has(album.representativeTrackId)}
-                <img src={albumArtCache.get(album.representativeTrackId)} alt={album.name} loading="lazy" />
+                <img
+                  src={albumArtCache.get(album.representativeTrackId)}
+                  alt={album.name}
+                  loading="lazy"
+                />
               {:else}
                 <div class="art-placeholder small">
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                  >
                     <circle cx="12" cy="12" r="10" />
                     <circle cx="12" cy="12" r="3" />
                   </svg>
@@ -236,7 +279,11 @@
             <div class="list-duration">
               {formatDuration(getTotalDuration(album))}
             </div>
-            <button class="list-play-btn" onclick={(e) => handlePlayClick(e, album)} title="アルバムを再生">
+            <button
+              class="list-play-btn"
+              onclick={(e) => handlePlayClick(e, album)}
+              title="アルバムを再生"
+            >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M8 5v14l11-7z" />
               </svg>
@@ -247,7 +294,13 @@
     {/if}
   {:else}
     <div class="state-container">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.5"
+      >
         <circle cx="12" cy="12" r="10" />
         <circle cx="12" cy="12" r="3" />
       </svg>
@@ -258,11 +311,7 @@
 </div>
 
 <!-- 詳細モーダル -->
-<GroupDetail
-  group={selectedAlbum}
-  type="album"
-  onClose={handleCloseDetail}
-/>
+<GroupDetail group={selectedAlbum} type="album" onClose={handleCloseDetail} />
 
 <!-- コンテキストメニュー -->
 {#if contextMenu}
@@ -276,7 +325,7 @@
 {/if}
 
 <style>
-@reference "../../../app.css";
+  @reference "../../../app.css";
   .album-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(var(--card-width), 1fr));

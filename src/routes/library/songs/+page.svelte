@@ -86,7 +86,7 @@
 </div>
 
 <style>
-@reference "../../../app.css";
+  @reference "../../../app.css";
   .songs-page {
     @apply flex flex-col h-full;
   }

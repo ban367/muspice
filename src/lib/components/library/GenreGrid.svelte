@@ -23,9 +23,7 @@
   const genres = $derived.by(() => {
     const query = $browseSearchQuery.toLowerCase().trim();
     if (!query) return allGenres;
-    return allGenres.filter(genre =>
-      genre.name.toLowerCase().includes(query)
-    );
+    return allGenres.filter((genre) => genre.name.toLowerCase().includes(query));
   });
 
   // コンテキストメニュー
@@ -95,8 +93,19 @@
     </div>
   {:else if allGenres.length > 0 && genres.length === 0}
     <div class="state-container">
-      <svg xmlns="http://www.w3.org/2000/svg" class="w-12 h-12 text-text-dimmed/50 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="w-12 h-12 text-text-dimmed/50 mb-4"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+        />
       </svg>
       <p>「{$browseSearchQuery}」に一致するジャンルが見つかりません</p>
     </div>
@@ -119,7 +128,11 @@
               <p class="genre-meta">{genre.trackCount}曲</p>
             </div>
             <div class="genre-play-overlay">
-              <button class="genre-play-button" onclick={(e) => handlePlayClick(e, genre)} title="ジャンルを再生">
+              <button
+                class="genre-play-button"
+                onclick={(e) => handlePlayClick(e, genre)}
+                title="ジャンルを再生"
+              >
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M8 5v14l11-7z" />
                 </svg>
@@ -145,7 +158,11 @@
               <span class="list-title">{genre.name}</span>
               <span class="list-meta">{genre.trackCount}曲</span>
             </div>
-            <button class="list-play-btn" onclick={(e) => handlePlayClick(e, genre)} title="ジャンルを再生">
+            <button
+              class="list-play-btn"
+              onclick={(e) => handlePlayClick(e, genre)}
+              title="ジャンルを再生"
+            >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M8 5v14l11-7z" />
               </svg>
@@ -156,7 +173,13 @@
     {/if}
   {:else}
     <div class="state-container">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.5"
+      >
         <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
         <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
       </svg>
@@ -178,7 +201,7 @@
 {/if}
 
 <style>
-@reference "../../../app.css";
+  @reference "../../../app.css";
   .genre-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));

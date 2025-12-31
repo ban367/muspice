@@ -23,9 +23,7 @@
   const artists = $derived.by(() => {
     const query = $browseSearchQuery.toLowerCase().trim();
     if (!query) return allArtists;
-    return allArtists.filter(artist =>
-      artist.name.toLowerCase().includes(query)
-    );
+    return allArtists.filter((artist) => artist.name.toLowerCase().includes(query));
   });
 
   // 選択中のアーティスト（モーダル表示用）
@@ -108,14 +106,17 @@
 
   // Intersection Observer アクション
   function intersectionObserver(node: HTMLElement, options: { callback: () => void }) {
-    const observer = new IntersectionObserver((entries) => {
-      entries.forEach((entry) => {
-        if (entry.isIntersecting) {
-          options.callback();
-          observer.unobserve(node);
-        }
-      });
-    }, { rootMargin: '100px' });
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            options.callback();
+            observer.unobserve(node);
+          }
+        });
+      },
+      { rootMargin: '100px' }
+    );
 
     observer.observe(node);
 
@@ -139,8 +140,19 @@
     </div>
   {:else if allArtists.length > 0 && artists.length === 0}
     <div class="state-container">
-      <svg xmlns="http://www.w3.org/2000/svg" class="w-12 h-12 text-text-dimmed/50 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="w-12 h-12 text-text-dimmed/50 mb-4"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+        />
       </svg>
       <p>「{$browseSearchQuery}」に一致するアーティストが見つかりません</p>
     </div>
@@ -160,17 +172,31 @@
           >
             <div class="artist-art" style="width: {$gridCardSize}px; height: {$gridCardSize}px;">
               {#if albumArtCache.has(artist.representativeTrackId)}
-                <img src={albumArtCache.get(artist.representativeTrackId)} alt={artist.name} loading="lazy" />
+                <img
+                  src={albumArtCache.get(artist.representativeTrackId)}
+                  alt={artist.name}
+                  loading="lazy"
+                />
               {:else}
                 <div class="art-placeholder artist-placeholder">
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                  >
                     <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
                     <circle cx="12" cy="7" r="4" />
                   </svg>
                 </div>
               {/if}
               <div class="play-overlay rounded-full">
-                <button class="play-button-circle" onclick={(e) => handlePlayClick(e, artist)} title="アーティストを再生">
+                <button
+                  class="play-button-circle"
+                  onclick={(e) => handlePlayClick(e, artist)}
+                  title="アーティストを再生"
+                >
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M8 5v14l11-7z" />
                   </svg>
@@ -178,8 +204,12 @@
               </div>
             </div>
             <div class="text-center min-w-0">
-              <h3 class="text-[0.9375rem] font-semibold text-text-primary m-0 text-truncate">{artist.name}</h3>
-              <p class="text-xs text-text-dimmed mt-1.5 m-0">{artist.albumCount}アルバム · {artist.trackCount}曲</p>
+              <h3 class="text-[0.9375rem] font-semibold text-text-primary m-0 text-truncate">
+                {artist.name}
+              </h3>
+              <p class="text-xs text-text-dimmed mt-1.5 m-0">
+                {artist.albumCount}アルバム · {artist.trackCount}曲
+              </p>
             </div>
           </div>
         {/each}
@@ -199,10 +229,20 @@
           >
             <div class="list-art artist-list-art">
               {#if albumArtCache.has(artist.representativeTrackId)}
-                <img src={albumArtCache.get(artist.representativeTrackId)} alt={artist.name} loading="lazy" />
+                <img
+                  src={albumArtCache.get(artist.representativeTrackId)}
+                  alt={artist.name}
+                  loading="lazy"
+                />
               {:else}
                 <div class="art-placeholder small artist-placeholder">
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                  >
                     <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
                     <circle cx="12" cy="7" r="4" />
                   </svg>
@@ -213,7 +253,11 @@
               <span class="list-title">{artist.name}</span>
               <span class="list-artist">{artist.albumCount}アルバム · {artist.trackCount}曲</span>
             </div>
-            <button class="list-play-btn" onclick={(e) => handlePlayClick(e, artist)} title="アーティストを再生">
+            <button
+              class="list-play-btn"
+              onclick={(e) => handlePlayClick(e, artist)}
+              title="アーティストを再生"
+            >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M8 5v14l11-7z" />
               </svg>
@@ -224,7 +268,13 @@
     {/if}
   {:else}
     <div class="state-container">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.5"
+      >
         <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
         <circle cx="12" cy="7" r="4" />
       </svg>
@@ -235,11 +285,7 @@
 </div>
 
 <!-- 詳細モーダル -->
-<GroupDetail
-  group={selectedArtist}
-  type="artist"
-  onClose={handleCloseDetail}
-/>
+<GroupDetail group={selectedArtist} type="artist" onClose={handleCloseDetail} />
 
 <!-- コンテキストメニュー -->
 {#if contextMenu}
@@ -253,7 +299,7 @@
 {/if}
 
 <style>
-@reference "../../../app.css";
+  @reference "../../../app.css";
   .artist-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(var(--card-width), 1fr));
