@@ -12,6 +12,14 @@
       "options": {
         "parser": "svelte"
       }
+    },
+    {
+      "files": "*.md",
+      "options": {
+        "parser": "markdown",
+        "proseWrap": "preserve",
+        "printWidth": 100
+      }
     }
   ]
 }
