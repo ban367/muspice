@@ -1,7 +1,13 @@
 <script lang="ts">
   import type { Track, AlbumGroup, ArtistGroup, GenreGroup } from '$lib/types/models';
   import { playTrackFromQueue, currentTrack } from '$lib/stores/player';
-  import { getAlbumArt } from '$lib/queries/tracks';
+  import {
+    loadAlbumArt,
+    getCachedAlbumArt,
+    isCached,
+    albumArtCacheVersion
+  } from '$lib/stores/albumArtCache';
+  import { formatDuration, formatTotalDuration } from '$lib/utils/format';
   import PlayingIndicator from './PlayingIndicator.svelte';
 
   // Props
@@ -13,9 +19,9 @@
 
   let { group, type, onClose }: Props = $props();
 
-  // アルバムアートのキャッシュ
-  let albumArtCache = $state<Map<string, string>>(new Map());
-  let loadingArt = $state(false);
+  // キャッシュ更新の追跡（リアクティビティのため）
+  // eslint-disable-next-line no-unused-vars
+  const cacheVersion = $derived($albumArtCacheVersion);
 
   // グループからトラックリストを取得
   const tracks = $derived.by((): Track[] => {
@@ -31,42 +37,10 @@
 
   // アルバムアートを読み込み
   $effect(() => {
-    if (group && group.representativeTrackId && !albumArtCache.has(group.representativeTrackId)) {
+    if (group && group.representativeTrackId) {
       loadAlbumArt(group.representativeTrackId);
     }
   });
-
-  async function loadAlbumArt(trackId: string) {
-    if (loadingArt || albumArtCache.has(trackId)) return;
-    loadingArt = true;
-    try {
-      const art = await getAlbumArt(trackId);
-      if (art) {
-        albumArtCache.set(trackId, `data:${art.mimeType};base64,${art.data}`);
-        albumArtCache = new Map(albumArtCache);
-      }
-    } finally {
-      loadingArt = false;
-    }
-  }
-
-  // 再生時間のフォーマット
-  function formatDuration(seconds: number | null): string {
-    if (seconds === null) return '--:--';
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  }
-
-  // 合計時間のフォーマット
-  function formatTotalDuration(seconds: number): string {
-    const hours = Math.floor(seconds / 3600);
-    const mins = Math.floor((seconds % 3600) / 60);
-    if (hours > 0) {
-      return `${hours}時間${mins}分`;
-    }
-    return `${mins}分`;
-  }
 
   // トラックをダブルクリックで再生
   function handleTrackDoubleClick(index: number) {
@@ -113,8 +87,8 @@
       <!-- ヘッダー -->
       <div class="modal-header">
         <div class="header-art">
-          {#if albumArtCache.has(group.representativeTrackId)}
-            <img src={albumArtCache.get(group.representativeTrackId)} alt={group.name} />
+          {#if isCached(group.representativeTrackId)}
+            <img src={getCachedAlbumArt(group.representativeTrackId)} alt={group.name} />
           {:else}
             <div class="art-placeholder">
               {#if type === 'album'}

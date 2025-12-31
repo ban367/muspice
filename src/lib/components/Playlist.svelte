@@ -10,6 +10,7 @@
   import { useTracksQuery } from '$lib/queries/tracks';
   import type { Playlist, Track } from '$lib/types/models';
   import { validatePlaylistName, toSafeString } from '$lib/utils/validation';
+  import { formatDuration } from '$lib/utils/format';
   import { playTrackFromQueue } from '$lib/stores/player';
 
   // クエリとミューテーション
@@ -170,14 +171,6 @@
   // トラックIDからトラック情報を取得
   function getTrackById(trackId: string): Track | undefined {
     return tracksQuery.data?.find((t: Track) => t.id === trackId);
-  }
-
-  // 時間をフォーマット
-  function formatDuration(seconds: number | null): string {
-    if (!seconds) return '--:--';
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
   }
 
   // トラックをダブルクリックで再生

@@ -10,6 +10,7 @@
   import { useTracksQuery } from '$lib/queries/tracks';
   import type { Playlist, Track } from '$lib/types/models';
   import { playTrackFromQueue } from '$lib/stores/player';
+  import { formatDuration, formatTotalDuration } from '$lib/utils/format';
 
   // URLからプレイリストIDを取得
   const playlistId = $derived($page.params.id);
@@ -35,16 +36,6 @@
    */
   function getTrackById(trackId: string): Track | undefined {
     return tracksQuery.data?.find((t: Track) => t.id === trackId);
-  }
-
-  /**
-   * 再生時間をフォーマット
-   */
-  function formatDuration(seconds: number | null): string {
-    if (!seconds) return '--:--';
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
   }
 
   /**
@@ -159,19 +150,6 @@
       return total + (track?.duration || 0);
     }, 0);
   });
-
-  /**
-   * 合計時間をフォーマット
-   */
-  function formatTotalDuration(seconds: number): string {
-    if (!seconds) return '0分';
-    const hours = Math.floor(seconds / 3600);
-    const mins = Math.floor((seconds % 3600) / 60);
-    if (hours > 0) {
-      return `${hours}時間${mins}分`;
-    }
-    return `${mins}分`;
-  }
 </script>
 
 <div class="playlist-detail-page">
