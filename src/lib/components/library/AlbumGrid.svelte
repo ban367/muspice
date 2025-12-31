@@ -1,8 +1,15 @@
 <script lang="ts">
   import type { AlbumGroup } from '$lib/types/models';
-  import { useAlbumsGroupedQuery, getAlbumArt } from '$lib/queries/tracks';
+  import { useAlbumsGroupedQuery } from '$lib/queries/tracks';
   import { playTrackFromQueue } from '$lib/stores/player';
   import { gridCardSize, browseSearchQuery } from '$lib/stores/ui';
+  import {
+    loadAlbumArt,
+    getCachedAlbumArt,
+    hasAlbumArt,
+    albumArtCacheVersion
+  } from '$lib/stores/albumArtCache';
+  import { formatDuration } from '$lib/utils/format';
   import GroupDetail from './GroupDetail.svelte';
   import GroupContextMenu from '../GroupContextMenu.svelte';
 
@@ -36,34 +43,12 @@
   // コンテキストメニュー
   let contextMenu = $state<{ x: number; y: number; album: AlbumGroup } | null>(null);
 
-  // アルバムアートのキャッシュ
-  let albumArtCache = $state<Map<string, string>>(new Map());
-  let loadingArts = $state<Set<string>>(new Set());
+  // キャッシュ更新の追跡（リアクティビティのため）
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  let _cacheVersion = $derived($albumArtCacheVersion);
 
   // カードサイズの計算
   const cardWidth = $derived($gridCardSize + 24); // padding分を追加
-
-  // アルバムアートを読み込み
-  async function loadAlbumArt(trackId: string) {
-    if (loadingArts.has(trackId) || albumArtCache.has(trackId)) return;
-
-    loadingArts.add(trackId);
-    loadingArts = new Set(loadingArts);
-
-    try {
-      const art = await getAlbumArt(trackId);
-      if (art) {
-        const dataUrl = `data:${art.mimeType};base64,${art.data}`;
-        albumArtCache.set(trackId, dataUrl);
-        albumArtCache = new Map(albumArtCache);
-      }
-    } catch (err) {
-      console.error('Error loading album art:', err);
-    } finally {
-      loadingArts.delete(trackId);
-      loadingArts = new Set(loadingArts);
-    }
-  }
 
   // アルバムカードが表示されたらアートを読み込み
   function handleAlbumVisible(album: AlbumGroup) {
@@ -108,14 +93,6 @@
   // 右クリックメニューを閉じる
   function closeContextMenu() {
     contextMenu = null;
-  }
-
-  // 再生時間フォーマット
-  function formatDuration(seconds: number | null): string {
-    if (!seconds) return '--:--';
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
   }
 
   // アルバムの総再生時間を計算
@@ -190,9 +167,9 @@
             use:intersectionObserver={{ callback: () => handleAlbumVisible(album) }}
           >
             <div class="grid-card-art" style="width: {$gridCardSize}px; height: {$gridCardSize}px;">
-              {#if albumArtCache.has(album.representativeTrackId)}
+              {#if hasAlbumArt(album.representativeTrackId)}
                 <img
-                  src={albumArtCache.get(album.representativeTrackId)}
+                  src={getCachedAlbumArt(album.representativeTrackId)}
                   alt={album.name}
                   loading="lazy"
                 />
@@ -248,9 +225,9 @@
             use:intersectionObserver={{ callback: () => handleAlbumVisible(album) }}
           >
             <div class="list-art">
-              {#if albumArtCache.has(album.representativeTrackId)}
+              {#if hasAlbumArt(album.representativeTrackId)}
                 <img
-                  src={albumArtCache.get(album.representativeTrackId)}
+                  src={getCachedAlbumArt(album.representativeTrackId)}
                   alt={album.name}
                   loading="lazy"
                 />

@@ -1,8 +1,14 @@
 <script lang="ts">
   import type { ArtistGroup } from '$lib/types/models';
-  import { useArtistsGroupedQuery, getAlbumArt } from '$lib/queries/tracks';
+  import { useArtistsGroupedQuery } from '$lib/queries/tracks';
   import { playTrackFromQueue } from '$lib/stores/player';
   import { gridCardSize, browseSearchQuery } from '$lib/stores/ui';
+  import {
+    loadAlbumArt,
+    getCachedAlbumArt,
+    hasAlbumArt,
+    albumArtCacheVersion
+  } from '$lib/stores/albumArtCache';
   import GroupDetail from './GroupDetail.svelte';
   import GroupContextMenu from '../GroupContextMenu.svelte';
 
@@ -32,31 +38,12 @@
   // コンテキストメニュー
   let contextMenu = $state<{ x: number; y: number; artist: ArtistGroup } | null>(null);
 
-  // アルバムアートのキャッシュ
-  let albumArtCache = $state<Map<string, string>>(new Map());
-  let loadingArts = $state<Set<string>>(new Set());
+  // キャッシュ更新の追跡（リアクティビティのため）
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  let _cacheVersion = $derived($albumArtCacheVersion);
 
   // カードサイズの計算
   const cardWidth = $derived($gridCardSize + 24); // padding分を追加
-
-  // アルバムアートを読み込み
-  async function loadAlbumArt(trackId: string) {
-    if (loadingArts.has(trackId) || albumArtCache.has(trackId)) return;
-
-    loadingArts.add(trackId);
-    loadingArts = new Set(loadingArts);
-
-    try {
-      const art = await getAlbumArt(trackId);
-      if (art) {
-        albumArtCache.set(trackId, `data:${art.mimeType};base64,${art.data}`);
-        albumArtCache = new Map(albumArtCache);
-      }
-    } finally {
-      loadingArts.delete(trackId);
-      loadingArts = new Set(loadingArts);
-    }
-  }
 
   // アーティストカードが表示されたらアートを読み込み
   function handleArtistVisible(artist: ArtistGroup) {
@@ -171,9 +158,9 @@
             use:intersectionObserver={{ callback: () => handleArtistVisible(artist) }}
           >
             <div class="artist-art" style="width: {$gridCardSize}px; height: {$gridCardSize}px;">
-              {#if albumArtCache.has(artist.representativeTrackId)}
+              {#if hasAlbumArt(artist.representativeTrackId)}
                 <img
-                  src={albumArtCache.get(artist.representativeTrackId)}
+                  src={getCachedAlbumArt(artist.representativeTrackId)}
                   alt={artist.name}
                   loading="lazy"
                 />
@@ -228,9 +215,9 @@
             use:intersectionObserver={{ callback: () => handleArtistVisible(artist) }}
           >
             <div class="list-art artist-list-art">
-              {#if albumArtCache.has(artist.representativeTrackId)}
+              {#if hasAlbumArt(artist.representativeTrackId)}
                 <img
-                  src={albumArtCache.get(artist.representativeTrackId)}
+                  src={getCachedAlbumArt(artist.representativeTrackId)}
                   alt={artist.name}
                   loading="lazy"
                 />
