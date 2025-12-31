@@ -469,12 +469,12 @@ text.replace([';', '\'', '"'], "")
 ```css
 /* NG: カスタムクラスは@applyで使用不可 */
 .my-class {
-  @apply text-truncate;  /* app.cssのカスタムクラス → エラー */
+  @apply text-truncate; /* app.cssのカスタムクラス → エラー */
 }
 
 /* OK: Tailwind組み込みクラスを使用 */
 .my-class {
-  @apply truncate;  /* Tailwind組み込み */
+  @apply truncate; /* Tailwind組み込み */
 }
 ```
 
@@ -515,10 +515,12 @@ text.replace([';', '\'', '"'], "")
 ```
 
 **レイアウト構成**:
+
 - 左側: タイトル、カウント、表示切り替えボタン、カードサイズスライダー
 - 右側: 検索バー（固定位置）
 
 **表示切り替えボタンの動作**:
+
 - グリッド/リストボタンは常に表示
 - 利用不可の場合は`disabled`状態にする（レイアウトのズレを防止）
 
@@ -551,14 +553,12 @@ type DisplayMode = 'grid' | 'list';
   let items = $state<Item[]>([]);
 
   // 派生値
-  const filteredItems = $derived(
-    items.filter(item => item.name.includes(searchTerm))
-  );
+  const filteredItems = $derived(items.filter((item) => item.name.includes(searchTerm)));
 
   // 派生値（複雑なロジック）
   const processedData = $derived.by(() => {
     if (!items.length) return null;
-    return items.map(item => ({ ...item, processed: true }));
+    return items.map((item) => ({ ...item, processed: true }));
   });
 
   // エフェクト
@@ -610,13 +610,13 @@ refactor: extract shared LibraryHeader component
 
 ### よくあるCI失敗パターン
 
-| エラー | 原因 | 解決方法 |
-|--------|------|----------|
-| `Cannot apply unknown utility class` | カスタムクラスを@applyで使用 | Tailwind組み込みクラスに変更 |
-| `manual_range_contains` | 手動範囲チェック | `!(range).contains(&value)`に変更 |
-| `unwrap_or_default` | `or_insert_with(Vec::new)` | `.or_default()`に変更 |
-| `collapsible_str_replace` | 連続replace呼び出し | 配列で一括置換 |
-| パッケージ競合 | libappindicator3-dev | libayatana-appindicator3-devのみ使用 |
+| エラー                               | 原因                         | 解決方法                             |
+| ------------------------------------ | ---------------------------- | ------------------------------------ |
+| `Cannot apply unknown utility class` | カスタムクラスを@applyで使用 | Tailwind組み込みクラスに変更         |
+| `manual_range_contains`              | 手動範囲チェック             | `!(range).contains(&value)`に変更    |
+| `unwrap_or_default`                  | `or_insert_with(Vec::new)`   | `.or_default()`に変更                |
+| `collapsible_str_replace`            | 連続replace呼び出し          | 配列で一括置換                       |
+| パッケージ競合                       | libappindicator3-dev         | libayatana-appindicator3-devのみ使用 |
 
 ### ローカルでClippy実行不可の場合
 
