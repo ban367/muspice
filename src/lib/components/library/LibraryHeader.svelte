@@ -59,7 +59,7 @@
 </script>
 
 <div class="library-header">
-  <!-- 左側: タイトルとカウント -->
+  <!-- 左側: タイトル、カウント、表示切り替え、スライダー -->
   <div class="header-left">
     {#if title}
       <h2 class="header-title">{title}</h2>
@@ -67,29 +67,7 @@
     {#if count !== undefined}
       <span class="header-count">{count}{countUnit}</span>
     {/if}
-  </div>
 
-  <!-- 中央: 検索バー -->
-  <div class="header-center">
-    <div class="search-box">
-      <svg xmlns="http://www.w3.org/2000/svg" class="search-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-      </svg>
-      <input
-        type="text"
-        placeholder={searchPlaceholder}
-        value={internalSearchTerm}
-        oninput={handleInput}
-        class="search-input"
-      />
-      {#if internalSearchTerm}
-        <button onclick={handleClear} class="search-clear" aria-label="検索をクリア">✕</button>
-      {/if}
-    </div>
-  </div>
-
-  <!-- 右側: ビュー切り替えとスライダー -->
-  <div class="header-right">
     <!-- ビュー切り替えボタン -->
     <div class="view-toggle">
       <button
@@ -123,6 +101,25 @@
       <CardSizeSlider />
     {/if}
   </div>
+
+  <!-- 右側: 検索バー -->
+  <div class="header-right">
+    <div class="search-box">
+      <svg xmlns="http://www.w3.org/2000/svg" class="search-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+      </svg>
+      <input
+        type="text"
+        placeholder={searchPlaceholder}
+        value={internalSearchTerm}
+        oninput={handleInput}
+        class="search-input"
+      />
+      {#if internalSearchTerm}
+        <button onclick={handleClear} class="search-clear" aria-label="検索をクリア">✕</button>
+      {/if}
+    </div>
+  </div>
 </div>
 
 <style>
@@ -140,15 +137,15 @@
   }
 
   .header-count {
-    @apply text-sm text-text-muted;
+    @apply text-sm text-text-muted mr-2;
   }
 
-  .header-center {
-    @apply flex-1 flex justify-center max-w-md;
+  .header-right {
+    @apply flex items-center gap-3 shrink-0;
   }
 
   .search-box {
-    @apply relative flex items-center w-full;
+    @apply relative flex items-center;
   }
 
   .search-icon {
@@ -156,11 +153,11 @@
   }
 
   .search-input {
-    @apply w-full py-2 pl-9 pr-8 bg-base-400 border border-border rounded-md text-sm text-text-primary transition-all duration-200;
+    @apply w-56 py-2 pl-9 pr-8 bg-base-400 border border-border rounded-md text-sm text-text-primary transition-all duration-200;
   }
 
   .search-input:focus {
-    @apply outline-none border-primary;
+    @apply outline-none border-primary w-72;
   }
 
   .search-input::placeholder {
@@ -169,10 +166,6 @@
 
   .search-clear {
     @apply absolute right-2 p-1 text-text-dimmed hover:text-text-primary bg-transparent border-none cursor-pointer;
-  }
-
-  .header-right {
-    @apply flex items-center gap-3;
   }
 
   .view-toggle {
