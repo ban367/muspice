@@ -122,7 +122,7 @@ export function validatePlaylistName(name: string): { valid: boolean; error?: st
   }
   
   // 危険な文字をチェック
-  const dangerousChars = /[<>:"\/\\|?*]/;
+  const dangerousChars = /[<>:"/\\|?*]/;
   if (dangerousChars.test(name)) {
     return { valid: false, error: 'プレイリスト名に使用できない文字が含まれています' };
   }

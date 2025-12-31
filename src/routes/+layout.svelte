@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/svelte-query';
+  import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
   import { Toast } from '$lib/components/ui';
   import Player from '$lib/components/Player.svelte';
   import Sidebar from '$lib/components/Sidebar.svelte';

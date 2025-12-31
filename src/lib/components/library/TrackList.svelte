@@ -18,7 +18,6 @@
     isError?: boolean;
     error?: Error | null;
     searchTerm?: string;
-    showSearch?: boolean;
     emptyMessage?: string;
     emptyHint?: string;
   }
@@ -29,7 +28,6 @@
     isError = false,
     error = null,
     searchTerm = '',
-    showSearch = false,
     emptyMessage = '音楽ライブラリが空です',
     emptyHint = 'フォルダをインポートして音楽を追加してください'
   }: Props = $props();
@@ -441,6 +439,7 @@
               <button class="sortable" onclick={() => toggleSort('title')}>
                 タイトル {getSortIcon('title')}
               </button>
+              <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
               <div
                 class="resize-handle"
                 onmousedown={(e) => handleResizeStart(e, 'title')}
@@ -452,6 +451,7 @@
               <button class="sortable" onclick={() => toggleSort('artist')}>
                 アーティスト {getSortIcon('artist')}
               </button>
+              <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
               <div
                 class="resize-handle"
                 onmousedown={(e) => handleResizeStart(e, 'artist')}
@@ -461,6 +461,7 @@
             </div>
             <div class="resizable-header">
               <div class="col-rating">評価</div>
+              <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
               <div
                 class="resize-handle"
                 onmousedown={(e) => handleResizeStart(e, 'rating')}
@@ -637,10 +638,6 @@
 
   .header-btn:hover {
     @apply bg-surface-hover text-text-primary;
-  }
-
-  .header-btn.active {
-    @apply bg-primary border-primary text-primary-content;
   }
 
   /* トラックテーブル */

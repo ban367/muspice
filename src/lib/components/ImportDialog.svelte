@@ -8,6 +8,7 @@
 
   interface Props {
     onClose?: () => void;
+    // eslint-disable-next-line no-unused-vars
     onImportComplete?: (result: ImportResult) => void;
   }
 
@@ -120,7 +121,7 @@
     <div class="modal-content max-w-xl" onclick={(e) => e.stopPropagation()}>
       <div class="flex justify-between items-center p-6 border-b border-border">
         <h3 class="m-0 text-xl font-semibold text-text-primary">音楽フォルダをインポート</h3>
-        <button class="btn-icon w-8 h-8" onclick={closeDialog} disabled={isImporting}>
+        <button class="btn-icon w-8 h-8" onclick={closeDialog} disabled={isImporting} aria-label="閉じる">
           <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
           </svg>
@@ -147,8 +148,8 @@
           </div>
 
           <!-- 重複ファイル処理の選択 -->
-          <div class="form-group">
-            <label class="form-label">重複ファイルの処理</label>
+          <fieldset class="form-group border-none p-0 m-0">
+            <legend class="form-label">重複ファイルの処理</legend>
             <div class="flex flex-col gap-2">
               <label class="flex items-center gap-2 cursor-pointer text-text-secondary">
                 <input
@@ -171,7 +172,7 @@
                 置き換え（新しいファイルで上書き）
               </label>
             </div>
-          </div>
+          </fieldset>
 
           <!-- 進行状況バー -->
           {#if isImporting}

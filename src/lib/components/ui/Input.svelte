@@ -6,7 +6,9 @@
     disabled?: boolean;
     required?: boolean;
     class?: string;
+    // eslint-disable-next-line no-unused-vars
     oninput?: (e: Event) => void;
+    // eslint-disable-next-line no-unused-vars
     onchange?: (e: Event) => void;
   }
 

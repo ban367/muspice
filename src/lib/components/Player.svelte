@@ -20,8 +20,6 @@
     toggleShuffle,
     toggleRepeat,
     upcomingTracks,
-    playQueue,
-    currentTrackIndex,
     removeFromQueue,
     clearQueue,
     type RepeatMode
@@ -138,18 +136,6 @@
     } catch (error) {
       console.error('再生/一時停止の切り替えに失敗しました:', error);
     }
-  }
-
-  /**
-   * 停止
-   */
-  function stop() {
-    if (!audioElement) return;
-
-    audioElement.pause();
-    audioElement.currentTime = 0;
-    isPlaying.set(false);
-    currentTime.set(0);
   }
 
   /**
@@ -418,10 +404,10 @@
 <!-- 非表示のオーディオ要素 -->
 <audio
   bind:this={audioElement}
-  on:timeupdate={handleTimeUpdate}
-  on:loadedmetadata={handleLoadedMetadata}
-  on:ended={handleEnded}
-  on:error={handleError}
+  ontimeupdate={handleTimeUpdate}
+  onloadedmetadata={handleLoadedMetadata}
+  onended={handleEnded}
+  onerror={handleError}
   class="hidden"
 ></audio>
 
@@ -458,7 +444,7 @@
         <button
           class="control-button"
           class:active={$isShuffleEnabled}
-          on:click={toggleShuffle}
+          onclick={toggleShuffle}
           title="シャッフル (S)"
           aria-label="シャッフル"
         >
@@ -469,7 +455,7 @@
 
         <button
           class="control-button"
-          on:click={() => playPreviousTrack()}
+          onclick={() => playPreviousTrack()}
           disabled={!$hasPreviousTrack}
           title="前へ (Ctrl+←)"
           aria-label="前のトラック"
@@ -481,7 +467,7 @@
 
         <button
           class="play-pause-button"
-          on:click={togglePlayPause}
+          onclick={togglePlayPause}
           title={$isPlaying ? '一時停止 (Space)' : '再生 (Space)'}
           aria-label={$isPlaying ? '一時停止' : '再生'}
         >
@@ -499,7 +485,7 @@
 
         <button
           class="control-button"
-          on:click={() => playNextTrack()}
+          onclick={() => playNextTrack()}
           disabled={!$hasNextTrack}
           title="次へ (Ctrl+→)"
           aria-label="次のトラック"
@@ -512,7 +498,7 @@
         <button
           class="control-button"
           class:active={$repeatMode !== 'off'}
-          on:click={toggleRepeat}
+          onclick={toggleRepeat}
           title="リピート (R): {$repeatMode === 'off' ? 'オフ' : $repeatMode === 'all' ? '全曲' : '1曲'}"
           aria-label="リピート"
         >
@@ -537,15 +523,15 @@
           aria-valuemax="100"
           aria-valuenow={$progress}
           tabindex="0"
-          on:click={seekToPosition}
-          on:keydown={(e) => {
+          onclick={seekToPosition}
+          onkeydown={(e) => {
             if (e.key === 'ArrowLeft') {
               audioElement.currentTime = Math.max(0, audioElement.currentTime - 5);
             } else if (e.key === 'ArrowRight') {
               audioElement.currentTime = Math.min($duration, audioElement.currentTime + 5);
             }
           }}
-          on:mousedown={startDraggingProgress}
+          onmousedown={startDraggingProgress}
         >
           <div class="progress-fill-base" style="width: {$progress}%"></div>
           <div class="progress-handle" style="left: {$progress}%"></div>
@@ -559,7 +545,7 @@
       <button
         class="control-button small"
         class:active={showQueue}
-        on:click={() => showQueue = !showQueue}
+        onclick={() => showQueue = !showQueue}
         title="再生キュー (Q)"
         aria-label="再生キュー"
       >
@@ -571,7 +557,7 @@
       <div class="flex items-center gap-2">
         <button
           class="control-button small"
-          on:click={() => {
+          onclick={() => {
             if ($volume > 0) {
               previousVolume = $volume;
               volume.set(0);
@@ -605,15 +591,15 @@
           aria-valuemax="100"
           aria-valuenow={$volume * 100}
           tabindex="0"
-          on:click={changeVolume}
-          on:keydown={(e) => {
+          onclick={changeVolume}
+          onkeydown={(e) => {
             if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
               volume.set(Math.max(0, $volume - 0.1));
             } else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
               volume.set(Math.min(1, $volume + 0.1));
             }
           }}
-          on:mousedown={startDraggingVolume}
+          onmousedown={startDraggingVolume}
         >
           <div class="progress-fill-base" style="width: {$volume * 100}%"></div>
           <div class="progress-handle" style="left: {$volume * 100}%"></div>
@@ -636,8 +622,8 @@
     <div class="flex justify-between items-center px-4 py-3 border-b border-border">
       <h3 class="m-0 text-sm font-semibold">再生キュー</h3>
       <div class="flex gap-2">
-        <button class="queue-clear-btn" on:click={clearQueue}>クリア</button>
-        <button class="queue-close-btn" on:click={() => showQueue = false}>✕</button>
+        <button class="queue-clear-btn" onclick={clearQueue}>クリア</button>
+        <button class="queue-close-btn" onclick={() => showQueue = false}>✕</button>
       </div>
     </div>
     <div class="px-4 py-3 bg-secondary/10 border-b border-border">
@@ -660,7 +646,7 @@
               </div>
               <button
                 class="queue-remove-btn"
-                on:click={() => removeFromQueue(track.id)}
+                onclick={() => removeFromQueue(track.id)}
                 title="キューから削除"
               >
                 ✕
