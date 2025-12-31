@@ -192,28 +192,37 @@
         </a>
       </li>
       <li>
-        <button
-          class="nav-item-base w-full"
-          class:active={currentPath.startsWith('/library/genres')}
-          onclick={toggleGenreExpand}
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-          </svg>
-          <span class="flex-1 text-left">ジャンル</span>
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="w-4 h-4 shrink-0 transition-transform duration-200"
-            class:rotate-90={isGenreExpanded}
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            stroke-width="2"
+        <div class="genre-nav-container">
+          <a
+            href="/library/genres"
+            class="nav-item-base flex-1"
+            class:active={currentPath === '/library/genres'}
           >
-            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-          </svg>
-        </button>
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+              <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+            </svg>
+            <span class="flex-1 text-left">ジャンル</span>
+          </a>
+          <button
+            class="genre-expand-btn"
+            class:active={isGenreExpanded}
+            onclick={toggleGenreExpand}
+            title="ジャンルを展開"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="w-4 h-4 transition-transform duration-200"
+              class:rotate-90={isGenreExpanded}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+        </div>
         <!-- ジャンルサブリスト -->
         {#if isGenreExpanded && genres.length > 0}
           <ul class="genre-sublist">
@@ -326,6 +335,22 @@
 
 <style>
 @reference "../../app.css";
+  .genre-nav-container {
+    @apply flex items-center;
+  }
+
+  .genre-expand-btn {
+    @apply flex items-center justify-center w-8 h-8 rounded text-text-muted bg-transparent border-none cursor-pointer transition-colors duration-150;
+  }
+
+  .genre-expand-btn:hover {
+    @apply bg-surface-hover text-text-primary;
+  }
+
+  .genre-expand-btn.active {
+    @apply text-primary;
+  }
+
   .genre-sublist {
     @apply list-none m-0 p-0 ml-4 mt-1 border-l border-border;
   }

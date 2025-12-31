@@ -6,6 +6,13 @@
   import { goto } from '$app/navigation';
   import GroupContextMenu from '../GroupContextMenu.svelte';
 
+  // Props
+  interface Props {
+    displayMode?: 'grid' | 'list';
+  }
+
+  let { displayMode = 'grid' }: Props = $props();
+
   // クエリ
   const genresQuery = useGenresGroupedQuery();
   const isLoading = $derived(genresQuery.isLoading);
@@ -26,16 +33,16 @@
 
   // ジャンルごとの色を生成
   const genreColors = [
-    { bg: 'linear-gradient(135deg, #e91e63, #9c27b0)' },
-    { bg: 'linear-gradient(135deg, #2196f3, #00bcd4)' },
-    { bg: 'linear-gradient(135deg, #4caf50, #8bc34a)' },
-    { bg: 'linear-gradient(135deg, #ff9800, #ff5722)' },
-    { bg: 'linear-gradient(135deg, #9c27b0, #673ab7)' },
-    { bg: 'linear-gradient(135deg, #00bcd4, #009688)' },
-    { bg: 'linear-gradient(135deg, #f44336, #e91e63)' },
-    { bg: 'linear-gradient(135deg, #3f51b5, #2196f3)' },
-    { bg: 'linear-gradient(135deg, #ff5722, #ffc107)' },
-    { bg: 'linear-gradient(135deg, #795548, #607d8b)' }
+    { bg: 'linear-gradient(135deg, #e91e63, #9c27b0)', solid: '#e91e63' },
+    { bg: 'linear-gradient(135deg, #2196f3, #00bcd4)', solid: '#2196f3' },
+    { bg: 'linear-gradient(135deg, #4caf50, #8bc34a)', solid: '#4caf50' },
+    { bg: 'linear-gradient(135deg, #ff9800, #ff5722)', solid: '#ff9800' },
+    { bg: 'linear-gradient(135deg, #9c27b0, #673ab7)', solid: '#9c27b0' },
+    { bg: 'linear-gradient(135deg, #00bcd4, #009688)', solid: '#00bcd4' },
+    { bg: 'linear-gradient(135deg, #f44336, #e91e63)', solid: '#f44336' },
+    { bg: 'linear-gradient(135deg, #3f51b5, #2196f3)', solid: '#3f51b5' },
+    { bg: 'linear-gradient(135deg, #ff5722, #ffc107)', solid: '#ff5722' },
+    { bg: 'linear-gradient(135deg, #795548, #607d8b)', solid: '#795548' }
   ];
 
   function getGenreColor(index: number) {
@@ -94,31 +101,59 @@
       <p>「{$browseSearchQuery}」に一致するジャンルが見つかりません</p>
     </div>
   {:else if genres.length > 0}
-    <div class="genre-grid">
-      {#each genres as genre, index (genre.name)}
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <div
-          class="genre-card"
-          style="background: {getGenreColor(index).bg}"
-          onclick={() => handleGenreClick(genre)}
-          ondblclick={() => handleGenreDoubleClick(genre)}
-          oncontextmenu={(e) => handleContextMenu(e, genre)}
-        >
-          <div class="genre-content">
-            <h3 class="genre-name">{genre.name}</h3>
-            <p class="genre-meta">{genre.trackCount}曲</p>
+    {#if displayMode === 'grid'}
+      <!-- グリッド表示 -->
+      <div class="genre-grid">
+        {#each genres as genre, index (genre.name)}
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <div
+            class="genre-card"
+            style="background: {getGenreColor(index).bg}"
+            onclick={() => handleGenreClick(genre)}
+            ondblclick={() => handleGenreDoubleClick(genre)}
+            oncontextmenu={(e) => handleContextMenu(e, genre)}
+          >
+            <div class="genre-content">
+              <h3 class="genre-name">{genre.name}</h3>
+              <p class="genre-meta">{genre.trackCount}曲</p>
+            </div>
+            <div class="genre-play-overlay">
+              <button class="genre-play-button" onclick={(e) => handlePlayClick(e, genre)} title="ジャンルを再生">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+              </button>
+            </div>
           </div>
-          <div class="genre-play-overlay">
-            <button class="genre-play-button" onclick={(e) => handlePlayClick(e, genre)} title="ジャンルを再生">
+        {/each}
+      </div>
+    {:else}
+      <!-- リスト表示 -->
+      <div class="genre-list">
+        {#each genres as genre, index (genre.name)}
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <div
+            class="list-row"
+            onclick={() => handleGenreClick(genre)}
+            ondblclick={() => handleGenreDoubleClick(genre)}
+            oncontextmenu={(e) => handleContextMenu(e, genre)}
+          >
+            <div class="list-color-bar" style="background: {getGenreColor(index).solid}"></div>
+            <div class="list-info">
+              <span class="list-title">{genre.name}</span>
+              <span class="list-meta">{genre.trackCount}曲</span>
+            </div>
+            <button class="list-play-btn" onclick={(e) => handlePlayClick(e, genre)} title="ジャンルを再生">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M8 5v14l11-7z" />
               </svg>
             </button>
           </div>
-        </div>
-      {/each}
-    </div>
+        {/each}
+      </div>
+    {/if}
   {:else}
     <div class="state-container">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -203,5 +238,51 @@
 
   .genre-play-button svg {
     @apply w-5 h-5 ml-0.5;
+  }
+
+  /* リスト表示スタイル */
+  .genre-list {
+    @apply flex flex-col;
+  }
+
+  .list-row {
+    @apply grid gap-3 px-3 py-2.5 items-center rounded-md cursor-pointer transition-colors duration-100;
+    grid-template-columns: 0.5rem 1fr 2.5rem;
+  }
+
+  .list-row:hover {
+    @apply bg-surface-hover;
+  }
+
+  .list-color-bar {
+    @apply w-1 h-8 rounded-full;
+  }
+
+  .list-info {
+    @apply flex flex-col gap-0.5 min-w-0;
+  }
+
+  .list-title {
+    @apply text-sm font-medium text-text-primary truncate;
+  }
+
+  .list-meta {
+    @apply text-xs text-text-muted;
+  }
+
+  .list-play-btn {
+    @apply w-8 h-8 flex items-center justify-center bg-transparent border-none rounded-full text-text-muted cursor-pointer transition-all duration-150 opacity-0;
+  }
+
+  .list-row:hover .list-play-btn {
+    @apply opacity-100;
+  }
+
+  .list-play-btn:hover {
+    @apply bg-primary text-primary-content;
+  }
+
+  .list-play-btn svg {
+    @apply w-4 h-4;
   }
 </style>

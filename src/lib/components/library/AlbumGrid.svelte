@@ -6,6 +6,13 @@
   import GroupDetail from './GroupDetail.svelte';
   import GroupContextMenu from '../GroupContextMenu.svelte';
 
+  // Props
+  interface Props {
+    displayMode?: 'grid' | 'list';
+  }
+
+  let { displayMode = 'grid' }: Props = $props();
+
   // クエリ
   const albumsQuery = useAlbumsGroupedQuery();
   const isLoading = $derived(albumsQuery.isLoading);
@@ -43,15 +50,11 @@
     loadingArts = new Set(loadingArts);
 
     try {
-      console.log('Loading album art for:', trackId);
       const art = await getAlbumArt(trackId);
-      console.log('Album art result:', art ? 'found' : 'not found', art);
       if (art) {
         const dataUrl = `data:${art.mimeType};base64,${art.data}`;
-        console.log('Data URL created, length:', dataUrl.length);
         albumArtCache.set(trackId, dataUrl);
         albumArtCache = new Map(albumArtCache);
-        console.log('Cache updated, size:', albumArtCache.size);
       }
     } catch (err) {
       console.error('Error loading album art:', err);
@@ -63,7 +66,6 @@
 
   // アルバムカードが表示されたらアートを読み込み
   function handleAlbumVisible(album: AlbumGroup) {
-    console.log('Album visible:', album.name, 'trackId:', album.representativeTrackId);
     if (album.representativeTrackId) {
       loadAlbumArt(album.representativeTrackId);
     }
@@ -107,6 +109,19 @@
     contextMenu = null;
   }
 
+  // 再生時間フォーマット
+  function formatDuration(seconds: number | null): string {
+    if (!seconds) return '--:--';
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  }
+
+  // アルバムの総再生時間を計算
+  function getTotalDuration(album: AlbumGroup): number {
+    return album.tracks.reduce((sum, track) => sum + (track.duration || 0), 0);
+  }
+
   // Intersection Observer アクション
   function intersectionObserver(node: HTMLElement, options: { callback: () => void }) {
     const observer = new IntersectionObserver((entries) => {
@@ -146,44 +161,90 @@
       <p>「{$browseSearchQuery}」に一致するアルバムが見つかりません</p>
     </div>
   {:else if albums.length > 0}
-    <div class="album-grid" style="--card-width: {cardWidth}px; --art-size: {$gridCardSize}px;">
-      {#each albums as album (album.name)}
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <div
-          class="grid-card"
-          onclick={() => handleAlbumClick(album)}
-          ondblclick={() => handleAlbumDoubleClick(album)}
-          oncontextmenu={(e) => handleContextMenu(e, album)}
-          use:intersectionObserver={{ callback: () => handleAlbumVisible(album) }}
-        >
-          <div class="grid-card-art" style="width: {$gridCardSize}px; height: {$gridCardSize}px;">
-            {#if albumArtCache.has(album.representativeTrackId)}
-              <img src={albumArtCache.get(album.representativeTrackId)} alt={album.name} loading="lazy" />
-            {:else}
-              <div class="art-placeholder">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                  <circle cx="12" cy="12" r="10" />
-                  <circle cx="12" cy="12" r="3" />
-                </svg>
+    {#if displayMode === 'grid'}
+      <!-- グリッド表示 -->
+      <div class="album-grid" style="--card-width: {cardWidth}px; --art-size: {$gridCardSize}px;">
+        {#each albums as album (album.name)}
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <div
+            class="grid-card"
+            onclick={() => handleAlbumClick(album)}
+            ondblclick={() => handleAlbumDoubleClick(album)}
+            oncontextmenu={(e) => handleContextMenu(e, album)}
+            use:intersectionObserver={{ callback: () => handleAlbumVisible(album) }}
+          >
+            <div class="grid-card-art" style="width: {$gridCardSize}px; height: {$gridCardSize}px;">
+              {#if albumArtCache.has(album.representativeTrackId)}
+                <img src={albumArtCache.get(album.representativeTrackId)} alt={album.name} loading="lazy" />
+              {:else}
+                <div class="art-placeholder">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <circle cx="12" cy="12" r="10" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+                </div>
+              {/if}
+              <div class="play-overlay">
+                <button class="play-button-circle" onclick={(e) => handlePlayClick(e, album)} title="アルバムを再生">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
+                </button>
               </div>
-            {/if}
-            <div class="play-overlay">
-              <button class="play-button-circle" onclick={(e) => handlePlayClick(e, album)} title="アルバムを再生">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M8 5v14l11-7z" />
-                </svg>
-              </button>
+            </div>
+            <div class="min-w-0">
+              <h3 class="text-[0.9375rem] font-semibold text-text-primary m-0 text-truncate">{album.name}</h3>
+              <p class="text-[0.8125rem] text-text-muted mt-1 m-0 text-truncate">{album.artist || '不明なアーティスト'}</p>
+              <p class="text-xs text-text-dimmed mt-1 m-0">{album.trackCount}曲</p>
             </div>
           </div>
-          <div class="min-w-0">
-            <h3 class="text-[0.9375rem] font-semibold text-text-primary m-0 text-truncate">{album.name}</h3>
-            <p class="text-[0.8125rem] text-text-muted mt-1 m-0 text-truncate">{album.artist || '不明なアーティスト'}</p>
-            <p class="text-xs text-text-dimmed mt-1 m-0">{album.trackCount}曲</p>
+        {/each}
+      </div>
+    {:else}
+      <!-- リスト表示 -->
+      <div class="album-list">
+        {#each albums as album (album.name)}
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <div
+            class="list-row"
+            onclick={() => handleAlbumClick(album)}
+            ondblclick={() => handleAlbumDoubleClick(album)}
+            oncontextmenu={(e) => handleContextMenu(e, album)}
+            use:intersectionObserver={{ callback: () => handleAlbumVisible(album) }}
+          >
+            <div class="list-art">
+              {#if albumArtCache.has(album.representativeTrackId)}
+                <img src={albumArtCache.get(album.representativeTrackId)} alt={album.name} loading="lazy" />
+              {:else}
+                <div class="art-placeholder small">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <circle cx="12" cy="12" r="10" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+                </div>
+              {/if}
+            </div>
+            <div class="list-info">
+              <span class="list-title">{album.name}</span>
+              <span class="list-artist">{album.artist || '不明なアーティスト'}</span>
+            </div>
+            <div class="list-meta">
+              <span>{album.trackCount}曲</span>
+            </div>
+            <div class="list-duration">
+              {formatDuration(getTotalDuration(album))}
+            </div>
+            <button class="list-play-btn" onclick={(e) => handlePlayClick(e, album)} title="アルバムを再生">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M8 5v14l11-7z" />
+              </svg>
+            </button>
           </div>
-        </div>
-      {/each}
-    </div>
+        {/each}
+      </div>
+    {/if}
   {:else}
     <div class="state-container">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -220,5 +281,71 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(var(--card-width), 1fr));
     gap: 1.25rem;
+  }
+
+  /* リスト表示スタイル */
+  .album-list {
+    @apply flex flex-col;
+  }
+
+  .list-row {
+    @apply grid gap-3 px-3 py-2.5 items-center rounded-md cursor-pointer transition-colors duration-100;
+    grid-template-columns: 3rem 1fr 5rem 4rem 2.5rem;
+  }
+
+  .list-row:hover {
+    @apply bg-surface-hover;
+  }
+
+  .list-art {
+    @apply w-12 h-12 rounded overflow-hidden shrink-0;
+  }
+
+  .list-art img {
+    @apply w-full h-full object-cover;
+  }
+
+  .art-placeholder.small {
+    @apply w-full h-full;
+  }
+
+  .art-placeholder.small svg {
+    @apply w-6 h-6;
+  }
+
+  .list-info {
+    @apply flex flex-col gap-0.5 min-w-0;
+  }
+
+  .list-title {
+    @apply text-sm font-medium text-text-primary truncate;
+  }
+
+  .list-artist {
+    @apply text-xs text-text-muted truncate;
+  }
+
+  .list-meta {
+    @apply text-xs text-text-dimmed text-right;
+  }
+
+  .list-duration {
+    @apply text-xs text-text-dimmed text-right;
+  }
+
+  .list-play-btn {
+    @apply w-8 h-8 flex items-center justify-center bg-transparent border-none rounded-full text-text-muted cursor-pointer transition-all duration-150 opacity-0;
+  }
+
+  .list-row:hover .list-play-btn {
+    @apply opacity-100;
+  }
+
+  .list-play-btn:hover {
+    @apply bg-primary text-primary-content;
+  }
+
+  .list-play-btn svg {
+    @apply w-4 h-4;
   }
 </style>

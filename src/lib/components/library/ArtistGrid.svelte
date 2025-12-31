@@ -6,6 +6,13 @@
   import GroupDetail from './GroupDetail.svelte';
   import GroupContextMenu from '../GroupContextMenu.svelte';
 
+  // Props
+  interface Props {
+    displayMode?: 'grid' | 'list';
+  }
+
+  let { displayMode = 'grid' }: Props = $props();
+
   // クエリ
   const artistsQuery = useArtistsGroupedQuery();
   const isLoading = $derived(artistsQuery.isLoading);
@@ -138,43 +145,83 @@
       <p>「{$browseSearchQuery}」に一致するアーティストが見つかりません</p>
     </div>
   {:else if artists.length > 0}
-    <div class="artist-grid" style="--card-width: {cardWidth}px; --art-size: {$gridCardSize}px;">
-      {#each artists as artist (artist.name)}
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <div
-          class="grid-card"
-          onclick={() => handleArtistClick(artist)}
-          ondblclick={() => handleArtistDoubleClick(artist)}
-          oncontextmenu={(e) => handleContextMenu(e, artist)}
-          use:intersectionObserver={{ callback: () => handleArtistVisible(artist) }}
-        >
-          <div class="artist-art" style="width: {$gridCardSize}px; height: {$gridCardSize}px;">
-            {#if albumArtCache.has(artist.representativeTrackId)}
-              <img src={albumArtCache.get(artist.representativeTrackId)} alt={artist.name} loading="lazy" />
-            {:else}
-              <div class="art-placeholder artist-placeholder">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                  <circle cx="12" cy="7" r="4" />
-                </svg>
+    {#if displayMode === 'grid'}
+      <!-- グリッド表示 -->
+      <div class="artist-grid" style="--card-width: {cardWidth}px; --art-size: {$gridCardSize}px;">
+        {#each artists as artist (artist.name)}
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <div
+            class="grid-card artist-card"
+            onclick={() => handleArtistClick(artist)}
+            ondblclick={() => handleArtistDoubleClick(artist)}
+            oncontextmenu={(e) => handleContextMenu(e, artist)}
+            use:intersectionObserver={{ callback: () => handleArtistVisible(artist) }}
+          >
+            <div class="artist-art" style="width: {$gridCardSize}px; height: {$gridCardSize}px;">
+              {#if albumArtCache.has(artist.representativeTrackId)}
+                <img src={albumArtCache.get(artist.representativeTrackId)} alt={artist.name} loading="lazy" />
+              {:else}
+                <div class="art-placeholder artist-placeholder">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                    <circle cx="12" cy="7" r="4" />
+                  </svg>
+                </div>
+              {/if}
+              <div class="play-overlay rounded-full">
+                <button class="play-button-circle" onclick={(e) => handlePlayClick(e, artist)} title="アーティストを再生">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
+                </button>
               </div>
-            {/if}
-            <div class="play-overlay rounded-full">
-              <button class="play-button-circle" onclick={(e) => handlePlayClick(e, artist)} title="アーティストを再生">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M8 5v14l11-7z" />
-                </svg>
-              </button>
+            </div>
+            <div class="text-center min-w-0">
+              <h3 class="text-[0.9375rem] font-semibold text-text-primary m-0 text-truncate">{artist.name}</h3>
+              <p class="text-xs text-text-dimmed mt-1.5 m-0">{artist.albumCount}アルバム · {artist.trackCount}曲</p>
             </div>
           </div>
-          <div class="text-center min-w-0">
-            <h3 class="text-[0.9375rem] font-semibold text-text-primary m-0 text-truncate">{artist.name}</h3>
-            <p class="text-xs text-text-dimmed mt-1.5 m-0">{artist.albumCount}アルバム · {artist.trackCount}曲</p>
+        {/each}
+      </div>
+    {:else}
+      <!-- リスト表示 -->
+      <div class="artist-list">
+        {#each artists as artist (artist.name)}
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <div
+            class="list-row"
+            onclick={() => handleArtistClick(artist)}
+            ondblclick={() => handleArtistDoubleClick(artist)}
+            oncontextmenu={(e) => handleContextMenu(e, artist)}
+            use:intersectionObserver={{ callback: () => handleArtistVisible(artist) }}
+          >
+            <div class="list-art artist-list-art">
+              {#if albumArtCache.has(artist.representativeTrackId)}
+                <img src={albumArtCache.get(artist.representativeTrackId)} alt={artist.name} loading="lazy" />
+              {:else}
+                <div class="art-placeholder small artist-placeholder">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                    <circle cx="12" cy="7" r="4" />
+                  </svg>
+                </div>
+              {/if}
+            </div>
+            <div class="list-info">
+              <span class="list-title">{artist.name}</span>
+              <span class="list-artist">{artist.albumCount}アルバム · {artist.trackCount}曲</span>
+            </div>
+            <button class="list-play-btn" onclick={(e) => handlePlayClick(e, artist)} title="アーティストを再生">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M8 5v14l11-7z" />
+              </svg>
+            </button>
           </div>
-        </div>
-      {/each}
-    </div>
+        {/each}
+      </div>
+    {/if}
   {:else}
     <div class="state-container">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -213,6 +260,11 @@
     gap: 1.25rem;
   }
 
+  /* アーティストカード: 中央揃え修正 */
+  .artist-card {
+    @apply flex flex-col items-center;
+  }
+
   .artist-art {
     @apply relative aspect-square rounded-full overflow-hidden mb-3;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
@@ -229,5 +281,67 @@
 
   .artist-placeholder svg {
     @apply text-text-muted;
+  }
+
+  /* リスト表示スタイル */
+  .artist-list {
+    @apply flex flex-col;
+  }
+
+  .list-row {
+    @apply grid gap-3 px-3 py-2.5 items-center rounded-md cursor-pointer transition-colors duration-100;
+    grid-template-columns: 3rem 1fr 2.5rem;
+  }
+
+  .list-row:hover {
+    @apply bg-surface-hover;
+  }
+
+  .list-art {
+    @apply w-12 h-12 rounded overflow-hidden shrink-0;
+  }
+
+  .artist-list-art {
+    @apply rounded-full;
+  }
+
+  .list-art img {
+    @apply w-full h-full object-cover;
+  }
+
+  .art-placeholder.small {
+    @apply w-full h-full;
+  }
+
+  .art-placeholder.small svg {
+    @apply w-6 h-6;
+  }
+
+  .list-info {
+    @apply flex flex-col gap-0.5 min-w-0;
+  }
+
+  .list-title {
+    @apply text-sm font-medium text-text-primary truncate;
+  }
+
+  .list-artist {
+    @apply text-xs text-text-muted truncate;
+  }
+
+  .list-play-btn {
+    @apply w-8 h-8 flex items-center justify-center bg-transparent border-none rounded-full text-text-muted cursor-pointer transition-all duration-150 opacity-0;
+  }
+
+  .list-row:hover .list-play-btn {
+    @apply opacity-100;
+  }
+
+  .list-play-btn:hover {
+    @apply bg-primary text-primary-content;
+  }
+
+  .list-play-btn svg {
+    @apply w-4 h-4;
   }
 </style>
