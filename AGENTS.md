@@ -45,7 +45,7 @@
 ## コミット・PRガイドライン
 
 - コミットは英語のConventional Commits形式で簡潔に。
-- PRには目的、検証手順、UI変更時のスクリーンショット、関連Issue（あれば）を含める。
+- PRの作成時は、CLAUDE.mdの「PRチェックリスト」セクションに従うこと。
 - ブランチ戦略: `main`は安定版、作業は`feature/*`ブランチで行いPRを作成する。
 - PR前の推奨チェック: `npm run format` / `npm run check` / `npm run lint`、`cd src-tauri && cargo fmt` / `cargo clippy -- -D warnings` / `cargo test`。
 
