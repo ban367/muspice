@@ -22,7 +22,7 @@
    - `cd src-tauri && cargo test`
 4. ブランチ戦略: `main`は安定版、作業は`feature/*`で行いPRを作成する。
 
-## コーディング規約（抜粋）
+## コーディング規約
 
 - 命名: SvelteはPascalCase、TypeScriptはcamelCase、Rustはsnake_case。型はPascalCase、定数はUPPER_SNAKE_CASE。
 - Tailwind: カスタムクラスを`@apply`で使わない。スタイルブロックでは`@reference`を先頭に追加。
