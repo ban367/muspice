@@ -386,3 +386,239 @@ npm run tauri build           # 本番用Tauriアプリをビルド
 - パフォーマンスに影響する変更はバッチ処理を検討
 - セキュリティ関連の変更は慎重に review
 - コミット前に`npm run check`と`cargo test`を実行
+
+## CI/CD
+
+### GitHub Actions ワークフロー
+
+CIは`.github/workflows/ci.yml`で定義されており、以下の3つのジョブで構成されます:
+
+1. **Frontend Check**: TypeScript型チェック、ESLint、Prettierフォーマットチェック
+2. **Backend Check**: Rustフォーマットチェック、Clippy、ユニットテスト
+3. **Build Test**: PRのみで実行される完全ビルドテスト
+
+### プッシュ前の必須チェック
+
+```bash
+# フロントエンド
+npm run check        # TypeScript型チェック
+npm run lint         # ESLint
+npm run format       # Prettierフォーマット
+
+# バックエンド
+cargo fmt --manifest-path src-tauri/Cargo.toml           # Rustフォーマット
+cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings  # Clippy
+cargo test --manifest-path src-tauri/Cargo.toml          # テスト
+```
+
+### システム依存関係（Ubuntu/CI環境）
+
+```bash
+# 必須パッケージ（ci.ymlに定義済み）
+libwebkit2gtk-4.1-dev
+librsvg2-dev
+patchelf
+libgtk-3-dev
+libayatana-appindicator3-dev  # 注意: libappindicator3-devとは競合するため使用不可
+```
+
+### Node.jsバージョン
+
+- **Node.js 24**を使用（ci.ymlで指定）
+
+## Rustコーディング規約（Clippy準拠）
+
+### 範囲チェック
+
+```rust
+// NG: 手動での範囲チェック
+if rating < 0 || rating > 5 { ... }
+
+// OK: RangeInclusive::containsを使用
+if !(0..=5).contains(&rating) { ... }
+```
+
+### HashMap/Vecのデフォルト値挿入
+
+```rust
+// NG: or_insert_withでコンストラクタを渡す
+map.entry(key).or_insert_with(Vec::new).push(value);
+map.entry(key).or_insert_with(HashMap::new);
+
+// OK: or_defaultを使用
+map.entry(key).or_default().push(value);
+map.entry(key).or_default();
+```
+
+### 文字列置換
+
+```rust
+// NG: 同じ置換値で連続するreplace
+text.replace(';', "").replace('\'', "").replace('"', "")
+
+// OK: 配列で一括置換
+text.replace([';', '\'', '"'], "")
+```
+
+## TailwindCSS規約
+
+### @applyディレクティブでの制限
+
+コンポーネントの`<style>`ブロック内では、`app.css`で定義されたカスタムクラスは`@apply`で使用できません。
+
+```css
+/* NG: カスタムクラスは@applyで使用不可 */
+.my-class {
+  @apply text-truncate;  /* app.cssのカスタムクラス → エラー */
+}
+
+/* OK: Tailwind組み込みクラスを使用 */
+.my-class {
+  @apply truncate;  /* Tailwind組み込み */
+}
+```
+
+### @referenceディレクティブ
+
+コンポーネントでTailwindクラスを使用する場合、スタイルブロックの先頭に`@reference`を追加:
+
+```svelte
+<style>
+  @reference "../../../app.css";
+  .my-class {
+    @apply flex items-center;
+  }
+</style>
+```
+
+## UIコンポーネント規約
+
+### ライブラリヘッダー（LibraryHeader）
+
+全てのライブラリビュー（曲、アルバム、アーティスト、ジャンル）で統一されたヘッダーコンポーネントを使用:
+
+```svelte
+<LibraryHeader
+  title="タイトル"
+  count={itemCount}
+  countUnit="曲"
+  searchPlaceholder="検索..."
+  {searchTerm}
+  onSearchInput={handleSearchInput}
+  onSearchClear={clearSearch}
+  {displayMode}
+  onDisplayModeChange={handleDisplayModeChange}
+  showGridMode={true}
+  showListMode={true}
+  showCardSizeSlider={true}
+/>
+```
+
+**レイアウト構成**:
+- 左側: タイトル、カウント、表示切り替えボタン、カードサイズスライダー
+- 右側: 検索バー（固定位置）
+
+**表示切り替えボタンの動作**:
+- グリッド/リストボタンは常に表示
+- 利用不可の場合は`disabled`状態にする（レイアウトのズレを防止）
+
+### 表示モード（displayMode）
+
+```typescript
+type DisplayMode = 'grid' | 'list';
+```
+
+- 全てのライブラリビューでグリッド/リスト表示を切り替え可能
+- `displayMode`は親コンポーネントで管理し、子コンポーネントにpropsとして渡す
+- 子コンポーネント内で独自のヘッダーを持たない（重複を避ける）
+
+## Svelte 5 パターン
+
+### Runes構文
+
+```svelte
+<script lang="ts">
+  // Props定義
+  interface Props {
+    title: string;
+    count?: number;
+    onAction?: (value: string) => void;
+  }
+  let { title, count = 0, onAction }: Props = $props();
+
+  // リアクティブ状態
+  let searchTerm = $state('');
+  let items = $state<Item[]>([]);
+
+  // 派生値
+  const filteredItems = $derived(
+    items.filter(item => item.name.includes(searchTerm))
+  );
+
+  // 派生値（複雑なロジック）
+  const processedData = $derived.by(() => {
+    if (!items.length) return null;
+    return items.map(item => ({ ...item, processed: true }));
+  });
+
+  // エフェクト
+  $effect(() => {
+    console.log('searchTerm changed:', searchTerm);
+  });
+</script>
+```
+
+## Gitワークフロー
+
+### ブランチ戦略
+
+- `main`: 安定版
+- `feature/*`: 機能開発ブランチ
+
+### コミット規約
+
+```bash
+# 形式
+<type>: <description>
+
+# type一覧
+feat:     新機能
+fix:      バグ修正
+refactor: リファクタリング
+style:    フォーマット変更（コード動作に影響なし）
+docs:     ドキュメント更新
+test:     テスト追加・修正
+chore:    ビルド設定等の変更
+
+# 例
+feat: add list view to album grid
+fix: resolve Clippy warnings
+refactor: extract shared LibraryHeader component
+```
+
+### PRチェックリスト
+
+1. `npm run format` でコードフォーマット
+2. `npm run check` でTypeScript型チェック
+3. `npm run lint` でESLintチェック
+4. `cargo fmt` でRustコードフォーマット
+5. `cargo clippy -- -D warnings` でClippyチェック
+6. `cargo test` でテスト実行
+7. 全てのCIチェックがパスすることを確認
+
+## トラブルシューティング
+
+### よくあるCI失敗パターン
+
+| エラー | 原因 | 解決方法 |
+|--------|------|----------|
+| `Cannot apply unknown utility class` | カスタムクラスを@applyで使用 | Tailwind組み込みクラスに変更 |
+| `manual_range_contains` | 手動範囲チェック | `!(range).contains(&value)`に変更 |
+| `unwrap_or_default` | `or_insert_with(Vec::new)` | `.or_default()`に変更 |
+| `collapsible_str_replace` | 連続replace呼び出し | 配列で一括置換 |
+| パッケージ競合 | libappindicator3-dev | libayatana-appindicator3-devのみ使用 |
+
+### ローカルでClippy実行不可の場合
+
+ローカル環境にpkg-config等がない場合、Clippyをローカルで実行できないことがあります。
+その場合は変更をコミット・プッシュしてCIで確認してください。
