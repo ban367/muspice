@@ -7,7 +7,6 @@
   import { get } from 'svelte/store';
   import type { Track, AlbumArt } from '$lib/types/models';
   import PlayingIndicator from './PlayingIndicator.svelte';
-  import CardSizeSlider from './CardSizeSlider.svelte';
   import MetadataEditor from '../MetadataEditor.svelte';
   import ContextMenu from '../ContextMenu.svelte';
 
@@ -20,6 +19,7 @@
     searchTerm?: string;
     emptyMessage?: string;
     emptyHint?: string;
+    displayMode?: 'grid' | 'list';
   }
 
   let {
@@ -29,14 +29,12 @@
     error = null,
     searchTerm = '',
     emptyMessage = '音楽ライブラリが空です',
-    emptyHint = 'フォルダをインポートして音楽を追加してください'
+    emptyHint = 'フォルダをインポートして音楽を追加してください',
+    displayMode = 'list'
   }: Props = $props();
 
-  type DisplayMode = 'grid' | 'list';
   type SortField = 'title' | 'artist' | 'album' | 'duration' | 'createdAt';
   type SortDirection = 'asc' | 'desc';
-
-  let displayMode = $state<DisplayMode>('list');
   let sortField = $state<SortField>('createdAt');
   let sortDirection = $state<SortDirection>('desc');
 
@@ -158,10 +156,6 @@
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, '0')}`;
-  }
-
-  function toggleDisplayMode() {
-    displayMode = displayMode === 'grid' ? 'list' : 'grid';
   }
 
   const selectedTracks = $derived.by(() => {
@@ -392,31 +386,6 @@
 </script>
 
 <div class="flex flex-col h-full">
-  <!-- ヘッダー -->
-  <div class="flex justify-between items-center py-3 mb-3 border-b border-border">
-    <div class="flex items-center gap-3">
-      {#if sortedTracks}
-        <span class="text-sm text-text-muted">{sortedTracks.length}曲</span>
-      {/if}
-    </div>
-    <div class="flex gap-3 items-center">
-      <button onclick={toggleDisplayMode} class="header-btn" title={displayMode === 'grid' ? 'リスト表示' : 'グリッド表示'}>
-        {#if displayMode === 'grid'}
-          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16" />
-          </svg>
-        {:else}
-          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-          </svg>
-        {/if}
-      </button>
-      {#if displayMode === 'grid'}
-        <CardSizeSlider />
-      {/if}
-    </div>
-  </div>
-
   <!-- コンテンツ -->
   <div class="flex-1 overflow-y-auto">
     {#if isLoading}
@@ -631,15 +600,6 @@
 
 <style>
 @reference "../../../app.css";
-  /* ヘッダーボタン */
-  .header-btn {
-    @apply flex items-center justify-center relative w-9 h-9 p-0 bg-base-400 border border-border rounded-md text-text-secondary cursor-pointer transition-all duration-200;
-  }
-
-  .header-btn:hover {
-    @apply bg-surface-hover text-text-primary;
-  }
-
   /* トラックテーブル */
   .track-table {
     @apply flex flex-col;

@@ -4,6 +4,9 @@
   import TrackList from '$lib/components/library/TrackList.svelte';
   import LibraryHeader from '$lib/components/library/LibraryHeader.svelte';
 
+  // 表示モード
+  let displayMode = $state<'grid' | 'list'>('list');
+
   // 検索状態
   let searchTerm = $state('');
   let debouncedSearchTerm = $state('');
@@ -47,6 +50,10 @@
       clearTimeout(debounceTimer);
     }
   }
+
+  function handleDisplayModeChange(mode: 'grid' | 'list') {
+    displayMode = mode;
+  }
 </script>
 
 <div class="songs-page">
@@ -58,10 +65,11 @@
     {searchTerm}
     onSearchInput={handleSearchInput}
     onSearchClear={clearSearch}
-    displayMode="list"
-    showGridMode={false}
+    {displayMode}
+    onDisplayModeChange={handleDisplayModeChange}
+    showGridMode={true}
     showListMode={true}
-    showCardSizeSlider={false}
+    showCardSizeSlider={true}
   />
 
   <!-- トラックリスト -->
@@ -72,6 +80,7 @@
       {isError}
       {error}
       searchTerm={debouncedSearchTerm}
+      {displayMode}
     />
   </div>
 </div>
