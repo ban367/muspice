@@ -9,6 +9,7 @@ const SUPPORTED_EXTENSIONS: &[&str] = &["mp3", "flac", "wav", "m4a"];
 
 /// フォルダから音楽ファイルをインポートする結果
 #[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ImportResult {
     pub imported_count: usize,
     pub skipped_count: usize,

@@ -27,6 +27,7 @@
   import type { Track, AlbumArt } from '$lib/types/models';
   import { handleError as reportError } from '$lib/stores/error';
   import { incrementPlayCount } from '$lib/queries/tracks';
+  import MarqueeText from './MarqueeText.svelte';
 
   let audioElement: HTMLAudioElement;
   let isDraggingProgress = $state(false);
@@ -434,15 +435,14 @@
         {/if}
       </div>
       <div class="min-w-0">
-        <div class="text-sm font-semibold mb-0.5 text-truncate">
-          {$currentTrack.title || $currentTrack.fileName}
-        </div>
-        <div class="text-xs text-text-secondary text-truncate">
-          {$currentTrack.artist || '不明なアーティスト'}
-          {#if $currentTrack.album}
-            • {$currentTrack.album}
-          {/if}
-        </div>
+        <MarqueeText
+          text={$currentTrack.title || $currentTrack.fileName}
+          class="text-sm font-semibold mb-0.5"
+        />
+        <MarqueeText
+          text={`${$currentTrack.artist || '不明なアーティスト'}${$currentTrack.album ? ' • ' + $currentTrack.album : ''}`}
+          class="text-xs text-text-secondary"
+        />
       </div>
     </div>
 
@@ -728,12 +728,14 @@
     <div class="px-4 py-3 bg-secondary/10 border-b border-border">
       <div class="text-[0.625rem] font-semibold uppercase text-text-muted mb-1.5">再生中</div>
       <div class="flex flex-col gap-0.5">
-        <span class="text-[0.8rem] text-text-primary text-truncate"
-          >{$currentTrack.title || $currentTrack.fileName}</span
-        >
-        <span class="text-[0.7rem] text-text-muted text-truncate"
-          >{$currentTrack.artist || '不明なアーティスト'}</span
-        >
+        <MarqueeText
+          text={$currentTrack.title || $currentTrack.fileName}
+          class="text-[0.8rem] text-text-primary"
+        />
+        <MarqueeText
+          text={$currentTrack.artist || '不明なアーティスト'}
+          class="text-[0.7rem] text-text-muted"
+        />
       </div>
     </div>
     {#if $upcomingTracks.length > 0}
@@ -746,12 +748,14 @@
             <div class="queue-track">
               <span class="text-xs text-text-dimmed w-6 text-center">{index + 1}</span>
               <div class="flex-1 min-w-0 flex flex-col gap-0.5">
-                <span class="text-[0.8rem] text-text-primary text-truncate"
-                  >{track.title || track.fileName}</span
-                >
-                <span class="text-[0.7rem] text-text-muted text-truncate"
-                  >{track.artist || '不明なアーティスト'}</span
-                >
+                <MarqueeText
+                  text={track.title || track.fileName}
+                  class="text-[0.8rem] text-text-primary"
+                />
+                <MarqueeText
+                  text={track.artist || '不明なアーティスト'}
+                  class="text-[0.7rem] text-text-muted"
+                />
               </div>
               <button
                 class="queue-remove-btn"

@@ -5,6 +5,7 @@
   import { browseSearchQuery } from '$lib/stores/ui';
   import { goto } from '$app/navigation';
   import GroupContextMenu from '../GroupContextMenu.svelte';
+  import MarqueeText from '../MarqueeText.svelte';
 
   // Props
   interface Props {
@@ -155,7 +156,7 @@
           >
             <div class="list-color-bar" style="background: {getGenreColor(index).solid}"></div>
             <div class="list-info">
-              <span class="list-title">{genre.name}</span>
+              <MarqueeText text={genre.name} class="list-title" />
               <span class="list-meta">{genre.trackCount}曲</span>
             </div>
             <button

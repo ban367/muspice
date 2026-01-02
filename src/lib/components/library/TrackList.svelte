@@ -21,6 +21,7 @@
   import MetadataEditor from '../MetadataEditor.svelte';
   import ContextMenu from '../ContextMenu.svelte';
   import DeleteTrackDialog from '../DeleteTrackDialog.svelte';
+  import MarqueeText from '../MarqueeText.svelte';
 
   // Props
   interface Props {
@@ -463,20 +464,16 @@
                     <PlayingIndicator size="small" />
                   {/if}
                 </div>
-                <div class="text-truncate text-text-primary">
-                  {#if searchTerm}
-                    {@html highlightText(track.title || track.fileName, searchTerm)}
-                  {:else}
-                    {track.title || track.fileName}
-                  {/if}
-                </div>
-                <div class="text-truncate text-text-secondary text-sm">
-                  {#if searchTerm}
-                    {@html highlightText(track.artist || '不明なアーティスト', searchTerm)}
-                  {:else}
-                    {track.artist || '不明なアーティスト'}
-                  {/if}
-                </div>
+                <MarqueeText
+                  text={searchTerm ? track.title || track.fileName : track.title || track.fileName}
+                  class="text-text-primary"
+                />
+                <MarqueeText
+                  text={searchTerm
+                    ? track.artist || '不明なアーティスト'
+                    : track.artist || '不明なアーティスト'}
+                  class="text-text-secondary text-sm"
+                />
                 <div class="col-rating flex items-center justify-center">
                   <div class="rating-stars">
                     {#each [1, 2, 3, 4, 5] as star}
@@ -554,26 +551,14 @@
                 {/if}
               </div>
               <div class="w-full text-center min-w-0">
-                <div
-                  class="font-semibold mb-1 text-truncate text-sm text-text-primary"
-                  title={track.title || track.fileName}
-                >
-                  {#if searchTerm}
-                    {@html highlightText(track.title || track.fileName, searchTerm)}
-                  {:else}
-                    {track.title || track.fileName}
-                  {/if}
-                </div>
-                <div
-                  class="text-xs text-text-muted text-truncate"
-                  title={track.artist || '不明なアーティスト'}
-                >
-                  {#if searchTerm}
-                    {@html highlightText(track.artist || '不明なアーティスト', searchTerm)}
-                  {:else}
-                    {track.artist || '不明なアーティスト'}
-                  {/if}
-                </div>
+                <MarqueeText
+                  text={track.title || track.fileName}
+                  class="font-semibold mb-1 text-sm text-text-primary"
+                />
+                <MarqueeText
+                  text={track.artist || '不明なアーティスト'}
+                  class="text-xs text-text-muted"
+                />
               </div>
             </div>
           {/each}

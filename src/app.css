@@ -128,6 +128,14 @@ body {
   @apply overflow-hidden text-ellipsis whitespace-nowrap;
 }
 
+/* マーキーテキスト用のコンテナ幅変数設定 */
+.marquee-container {
+  --container-width: 100%;
+}
+.marquee-container:hover {
+  --container-width: var(--actual-width, 100%);
+}
+
 /* グラスモーフィズム */
 .glass {
   @apply bg-white/5 backdrop-blur-md;

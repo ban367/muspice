@@ -11,6 +11,7 @@
   } from '$lib/stores/albumArtCache';
   import GroupDetail from './GroupDetail.svelte';
   import GroupContextMenu from '../GroupContextMenu.svelte';
+  import MarqueeText from '../MarqueeText.svelte';
 
   // Props
   interface Props {
@@ -190,10 +191,11 @@
                 </button>
               </div>
             </div>
-            <div class="text-center min-w-0">
-              <h3 class="text-[0.9375rem] font-semibold text-text-primary m-0 text-truncate">
-                {artist.name}
-              </h3>
+            <div class="text-center min-w-0 w-full">
+              <MarqueeText
+                text={artist.name}
+                class="text-[0.9375rem] font-semibold text-text-primary m-0"
+              />
               <p class="text-xs text-text-dimmed mt-1.5 m-0">
                 {artist.albumCount}アルバム · {artist.trackCount}曲
               </p>
@@ -237,7 +239,7 @@
               {/if}
             </div>
             <div class="list-info">
-              <span class="list-title">{artist.name}</span>
+              <MarqueeText text={artist.name} class="list-title" />
               <span class="list-artist">{artist.albumCount}アルバム · {artist.trackCount}曲</span>
             </div>
             <button

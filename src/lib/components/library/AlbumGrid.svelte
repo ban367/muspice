@@ -12,6 +12,7 @@
   import { formatDuration } from '$lib/utils/format';
   import GroupDetail from './GroupDetail.svelte';
   import GroupContextMenu from '../GroupContextMenu.svelte';
+  import MarqueeText from '../MarqueeText.svelte';
 
   // Props
   interface Props {
@@ -199,13 +200,15 @@
                 </button>
               </div>
             </div>
-            <div class="min-w-0">
-              <h3 class="text-[0.9375rem] font-semibold text-text-primary m-0 text-truncate">
-                {album.name}
-              </h3>
-              <p class="text-[0.8125rem] text-text-muted mt-1 m-0 text-truncate">
-                {album.artist || '不明なアーティスト'}
-              </p>
+            <div class="min-w-0 w-full">
+              <MarqueeText
+                text={album.name}
+                class="text-[0.9375rem] font-semibold text-text-primary m-0"
+              />
+              <MarqueeText
+                text={album.artist || '不明なアーティスト'}
+                class="text-[0.8125rem] text-text-muted mt-1 m-0"
+              />
               <p class="text-xs text-text-dimmed mt-1 m-0">{album.trackCount}曲</p>
             </div>
           </div>
@@ -247,8 +250,8 @@
               {/if}
             </div>
             <div class="list-info">
-              <span class="list-title">{album.name}</span>
-              <span class="list-artist">{album.artist || '不明なアーティスト'}</span>
+              <MarqueeText text={album.name} class="list-title" />
+              <MarqueeText text={album.artist || '不明なアーティスト'} class="list-artist" />
             </div>
             <div class="list-meta">
               <span>{album.trackCount}曲</span>
