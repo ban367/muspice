@@ -23,7 +23,7 @@
     onchange
   }: Props = $props();
 
-  const classes = `input input-bordered w-full ${className}`;
+  const classes = $derived(`input input-bordered w-full ${className}`);
 </script>
 
 <input {type} {placeholder} bind:value {disabled} {required} class={classes} {oninput} {onchange} />

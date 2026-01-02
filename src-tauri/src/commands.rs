@@ -1,6 +1,6 @@
 use crate::library::{
-    get_default_title, get_file_format, get_file_size, is_duplicate_file, scan_directory,
-    DuplicateAction, ImportResult,
+    delete_tracks, delete_tracks_with_files, get_default_title, get_file_format, get_file_size,
+    is_duplicate_file, scan_directory, DeleteResult, DuplicateAction, ImportResult,
 };
 use crate::metadata::{
     extract_album_art, extract_bitrate, extract_duration, extract_metadata, extract_sample_rate,
@@ -1697,4 +1697,54 @@ pub async fn get_genres_grouped(state: State<'_, AppState>) -> Result<Vec<GenreG
     genre_groups.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
 
     Ok(genre_groups)
+}
+
+// ========== トラック削除コマンド ==========
+
+/// トラックをライブラリから削除（データベースのみ）
+/// ファイルは削除せず、データベースからのみ削除
+#[tauri::command]
+pub async fn delete_tracks_command(
+    track_ids: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<usize, String> {
+    if track_ids.is_empty() {
+        return Err("削除するトラックが指定されていません".to_string());
+    }
+
+    // 各トラックIDをバリデーション
+    for track_id in &track_ids {
+        validate_track_id(track_id)?;
+    }
+
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
+
+    delete_tracks(&db, &track_ids)
+}
+
+/// トラックをライブラリとファイルシステムから削除
+/// データベースとファイル両方を削除
+#[tauri::command]
+pub async fn delete_tracks_with_files_command(
+    track_ids: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<DeleteResult, String> {
+    if track_ids.is_empty() {
+        return Err("削除するトラックが指定されていません".to_string());
+    }
+
+    // 各トラックIDをバリデーション
+    for track_id in &track_ids {
+        validate_track_id(track_id)?;
+    }
+
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
+
+    delete_tracks_with_files(&db, &track_ids)
 }

@@ -21,7 +21,7 @@
     children
   }: Props = $props();
 
-  const variantClasses = {
+  const variantClasses: Record<string, string> = {
     primary: 'btn-primary',
     secondary: 'btn-secondary',
     accent: 'btn-accent',
@@ -29,14 +29,14 @@
     link: 'btn-link'
   };
 
-  const sizeClasses = {
+  const sizeClasses: Record<string, string> = {
     xs: 'btn-xs',
     sm: 'btn-sm',
     md: 'btn-md',
     lg: 'btn-lg'
   };
 
-  const classes = `btn ${variantClasses[variant]} ${sizeClasses[size]} ${className}`;
+  const classes = $derived(`btn ${variantClasses[variant]} ${sizeClasses[size]} ${className}`);
 </script>
 
 <button {type} class={classes} {disabled} class:loading {onclick}>

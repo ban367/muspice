@@ -304,9 +304,7 @@
 <style>
   @reference "../../../app.css";
   .album-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(var(--card-width), 1fr));
-    gap: 1.25rem;
+    @apply grid grid-cols-[repeat(auto-fill,minmax(var(--card-width),1fr))] gap-5;
   }
 
   /* リスト表示スタイル */
@@ -315,8 +313,8 @@
   }
 
   .list-row {
-    @apply grid gap-3 px-3 py-2.5 items-center rounded-md cursor-pointer transition-colors duration-100;
-    grid-template-columns: 3rem 1fr 5rem 4rem 2.5rem;
+    @apply grid gap-3 px-3 py-2.5 items-center rounded-md cursor-pointer transition-colors duration-100
+           grid-cols-[3rem_1fr_5rem_4rem_2.5rem];
   }
 
   .list-row:hover {

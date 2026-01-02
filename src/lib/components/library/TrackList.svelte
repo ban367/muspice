@@ -20,6 +20,7 @@
   import PlayingIndicator from './PlayingIndicator.svelte';
   import MetadataEditor from '../MetadataEditor.svelte';
   import ContextMenu from '../ContextMenu.svelte';
+  import DeleteTrackDialog from '../DeleteTrackDialog.svelte';
 
   // Props
   interface Props {
@@ -59,6 +60,7 @@
   // トラック選択状態
   let selectedTrackIds = $state<Set<string>>(new Set());
   let showMetadataEditor = $state(false);
+  let showDeleteDialog = $state(false);
 
   // コンテキストメニュー状態
   let contextMenu = $state<{ x: number; y: number; track: Track } | null>(null);
@@ -273,6 +275,23 @@
   function handleAddToQueue() {
     const queue = get(playQueue);
     playQueue.set([...queue, ...selectedTracks]);
+  }
+
+  /**
+   * 削除ダイアログを開く
+   */
+  function openDeleteDialog() {
+    if (selectedTrackIds.size > 0) {
+      showDeleteDialog = true;
+    }
+  }
+
+  /**
+   * 削除ダイアログを閉じる
+   */
+  function closeDeleteDialog() {
+    showDeleteDialog = false;
+    clearSelection();
   }
 
   const cardWidth = $derived(artSize + 24);
@@ -604,8 +623,16 @@
     onEditMetadata={openMetadataEditor}
     onPlayNext={handlePlayNext}
     onAddToQueue={handleAddToQueue}
+    onDelete={openDeleteDialog}
   />
 {/if}
+
+<!-- 削除ダイアログ -->
+<DeleteTrackDialog
+  bind:open={showDeleteDialog}
+  tracks={selectedTracks}
+  onClose={closeDeleteDialog}
+/>
 
 <style>
   @reference "../../../app.css";

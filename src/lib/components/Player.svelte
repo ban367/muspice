@@ -774,14 +774,14 @@
 
 <style>
   @reference "../../app.css";
+
   /* プレイヤーコンテナ */
   .player-container {
     @apply fixed bottom-0 left-0 right-0 z-50
            px-6 py-3 grid items-center gap-4
-           border-t border-border text-text-primary;
-    grid-template-columns: 1fr 2fr 1fr;
-    background: linear-gradient(to top, var(--color-base-100) 0%, var(--color-base-300) 100%);
-    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.5);
+           border-t border-border text-text-primary
+           grid-cols-(--grid-player) bg-linear-to-t from-base-100 to-base-300
+           shadow-[0_-4px_20px_rgba(0,0,0,0.5)];
   }
 
   /* アルバムアート */
@@ -790,8 +790,8 @@
   }
 
   .album-art-placeholder {
-    @apply w-full h-full flex items-center justify-center text-white/80;
-    background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-accent-focus) 100%);
+    @apply w-full h-full flex items-center justify-center text-white/80
+           bg-linear-to-br from-accent to-accent-focus;
   }
 
   /* コントロールボタン */
@@ -852,11 +852,9 @@
   .queue-panel {
     @apply fixed z-[1001] w-80 max-h-[400px]
            bg-base-300 border border-border rounded-lg overflow-hidden
-           flex flex-col;
-    bottom: 5.5rem;
-    right: 1rem;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-    animation: slideUp 200ms ease-out;
+           flex flex-col bottom-player-height right-4
+           shadow-[0_10px_30px_rgba(0,0,0,0.5)];
+    animation: slideUp var(--transition-normal) ease-out;
   }
 
   .queue-clear-btn {

@@ -16,6 +16,7 @@
     onEditMetadata?: () => void;
     onAddToQueue?: () => void;
     onPlayNext?: () => void;
+    onDelete?: () => void;
   }
 
   let {
@@ -27,7 +28,8 @@
     onClose,
     onEditMetadata,
     onAddToQueue,
-    onPlayNext
+    onPlayNext,
+    onDelete
   }: Props = $props();
 
   // クエリとミューテーション
@@ -39,8 +41,14 @@
   let menuElement: HTMLDivElement | null = null;
 
   // メニュー位置の調整
-  let adjustedX = $state(x);
-  let adjustedY = $state(y);
+  let adjustedX = $state(0);
+  let adjustedY = $state(0);
+
+  // propsからの初期位置を設定
+  $effect(() => {
+    adjustedX = x;
+    adjustedY = y;
+  });
 
   // 選択されたトラックの数
   const selectedCount = $derived(selectedTrackIds.size > 0 ? selectedTrackIds.size : 1);
@@ -164,6 +172,16 @@
       await invoke('show_in_folder', { path: track.filePath });
     } catch (error) {
       console.error('ファイルの場所を開けませんでした:', error);
+    }
+    onClose();
+  }
+
+  /**
+   * トラックを削除
+   */
+  function handleDelete() {
+    if (onDelete) {
+      onDelete();
     }
     onClose();
   }
@@ -328,6 +346,28 @@
     </svg>
     <span>ファイルの場所を開く</span>
   </button>
+
+  {#if onDelete}
+    <div class="menu-divider"></div>
+
+    <button class="menu-item menu-item-danger" onclick={handleDelete} role="menuitem">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="menu-icon"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+        />
+      </svg>
+      <span>削除...</span>
+    </button>
+  {/if}
 </div>
 
 <style>
@@ -393,5 +433,13 @@
 
   .menu-message {
     @apply py-2 px-4 text-sm text-text-dimmed;
+  }
+
+  .menu-item-danger {
+    @apply text-error;
+  }
+
+  .menu-item-danger:hover {
+    @apply bg-error/10;
   }
 </style>

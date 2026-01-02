@@ -82,7 +82,7 @@
 {#if group}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="modal-backdrop" onclick={handleBackdropClick}>
+  <div class="custom-modal-backdrop" onclick={handleBackdropClick}>
     <div class="modal-content max-w-3xl">
       <!-- ヘッダー -->
       <div class="modal-header">

@@ -1,4 +1,5 @@
 use crate::models::Track;
+use crate::validation::validate_track_id;
 use rusqlite::Connection;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -20,6 +21,30 @@ pub struct ImportResult {
 pub enum DuplicateAction {
     Skip,    // 既存ファイルをスキップ
     Replace, // 既存ファイルを置き換え
+}
+
+/// トラック削除の結果
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteResult {
+    /// 削除に成功したトラック数
+    pub success_count: usize,
+    /// 削除に失敗したトラック数
+    pub failed_count: usize,
+    /// 削除に失敗したトラックの詳細
+    pub failed_tracks: Vec<DeleteFailure>,
+}
+
+/// 削除失敗の詳細
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteFailure {
+    /// トラックID
+    pub track_id: String,
+    /// ファイルパス
+    pub file_path: String,
+    /// 失敗の理由
+    pub reason: String,
 }
 
 /// ディレクトリを再帰的にスキャンして音楽ファイルを検索
@@ -151,6 +176,122 @@ pub fn get_file_format(file_path: &Path) -> String {
         .and_then(|s| s.to_str())
         .unwrap_or("unknown")
         .to_uppercase()
+}
+
+/// トラックをデータベースから削除（ライブラリからのみ削除）
+/// ON DELETE CASCADEにより、playlist_tracksとplay_historyの関連レコードも自動削除される
+pub fn delete_tracks(conn: &Connection, track_ids: &[String]) -> Result<usize, String> {
+    // トラックIDのバリデーション
+    for track_id in track_ids {
+        validate_track_id(track_id)?;
+    }
+
+    if track_ids.is_empty() {
+        return Ok(0);
+    }
+
+    // トランザクションを使用して一括削除
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| format!("トランザクションの開始に失敗しました: {}", e))?;
+
+    let mut deleted_count = 0;
+
+    for track_id in track_ids {
+        let rows_affected = tx
+            .execute("DELETE FROM tracks WHERE id = ?1", [track_id])
+            .map_err(|e| format!("トラックの削除に失敗しました: {}", e))?;
+        deleted_count += rows_affected;
+    }
+
+    tx.commit()
+        .map_err(|e| format!("トランザクションのコミットに失敗しました: {}", e))?;
+
+    Ok(deleted_count)
+}
+
+/// トラックをデータベースとファイルシステムから削除
+/// ファイル削除に失敗した場合でも、可能な限り処理を続行する
+pub fn delete_tracks_with_files(conn: &Connection, track_ids: &[String]) -> Result<DeleteResult, String> {
+    // トラックIDのバリデーション
+    for track_id in track_ids {
+        validate_track_id(track_id)?;
+    }
+
+    if track_ids.is_empty() {
+        return Ok(DeleteResult {
+            success_count: 0,
+            failed_count: 0,
+            failed_tracks: Vec::new(),
+        });
+    }
+
+    // まずファイルパスを取得
+    let mut track_info: Vec<(String, String)> = Vec::new();
+    for track_id in track_ids {
+        let file_path: Result<String, _> = conn.query_row(
+            "SELECT file_path FROM tracks WHERE id = ?1",
+            [track_id],
+            |row| row.get(0),
+        );
+
+        match file_path {
+            Ok(path) => track_info.push((track_id.clone(), path)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => {
+                // トラックが見つからない場合はスキップ
+                continue;
+            }
+            Err(e) => {
+                return Err(format!("トラック情報の取得に失敗しました: {}", e));
+            }
+        }
+    }
+
+    let mut success_count = 0;
+    let mut failed_tracks: Vec<DeleteFailure> = Vec::new();
+
+    // トランザクションを使用してデータベースから削除
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| format!("トランザクションの開始に失敗しました: {}", e))?;
+
+    for (track_id, file_path) in &track_info {
+        // ファイルの削除を試みる
+        let file_delete_result = fs::remove_file(file_path);
+
+        match file_delete_result {
+            Ok(()) => {
+                // ファイル削除成功、データベースからも削除
+                tx.execute("DELETE FROM tracks WHERE id = ?1", [track_id])
+                    .map_err(|e| format!("トラックの削除に失敗しました: {}", e))?;
+                success_count += 1;
+            }
+            Err(e) => {
+                // ファイル削除失敗
+                // ファイルが見つからない場合はDBからも削除を許可
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    tx.execute("DELETE FROM tracks WHERE id = ?1", [track_id])
+                        .map_err(|e| format!("トラックの削除に失敗しました: {}", e))?;
+                    success_count += 1;
+                } else {
+                    failed_tracks.push(DeleteFailure {
+                        track_id: track_id.clone(),
+                        file_path: file_path.clone(),
+                        reason: format!("ファイルの削除に失敗しました: {}", e),
+                    });
+                }
+            }
+        }
+    }
+
+    tx.commit()
+        .map_err(|e| format!("トランザクションのコミットに失敗しました: {}", e))?;
+
+    Ok(DeleteResult {
+        success_count,
+        failed_count: failed_tracks.len(),
+        failed_tracks,
+    })
 }
 
 #[cfg(test)]

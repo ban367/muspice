@@ -13,7 +13,7 @@
     lg: 'loading-lg'
   };
 
-  const classes = `loading loading-spinner ${sizeClasses[size]} ${className}`;
+  const classes = $derived(`loading loading-spinner ${sizeClasses[size]} ${className}`);
 </script>
 
 <span class={classes}></span>

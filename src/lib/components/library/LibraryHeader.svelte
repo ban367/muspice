@@ -35,11 +35,12 @@
   }: Props = $props();
 
   // 内部検索状態
-  let internalSearchTerm = $state(searchTerm);
+  let internalSearchTerm = $state('');
 
-  // 外部からの値で同期
+  // 外部からの値で同期（propsを直接参照するのではなくクロージャで参照）
   $effect(() => {
-    internalSearchTerm = searchTerm;
+    const currentSearchTerm = searchTerm;
+    internalSearchTerm = currentSearchTerm;
   });
 
   function handleInput(event: Event) {

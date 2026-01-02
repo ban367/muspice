@@ -7,7 +7,7 @@
 
   let { title, class: className = '', children }: Props = $props();
 
-  const classes = `card bg-base-100 shadow-xl ${className}`;
+  const classes = $derived(`card bg-base-100 shadow-xl ${className}`);
 </script>
 
 <div class={classes}>

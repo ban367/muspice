@@ -29,8 +29,14 @@
   let menuElement: HTMLDivElement | null = null;
 
   // メニュー位置の調整
-  let adjustedX = $state(x);
-  let adjustedY = $state(y);
+  let adjustedX = $state(0);
+  let adjustedY = $state(0);
+
+  // propsからの初期位置を設定
+  $effect(() => {
+    adjustedX = x;
+    adjustedY = y;
+  });
 
   // グループ内のすべてのトラック
   const allTracks = $derived.by((): Track[] => {
@@ -228,7 +234,6 @@
 
   <div class="menu-divider"></div>
 
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="menu-item submenu-trigger"
     onmouseenter={() => (showPlaylistSubmenu = true)}

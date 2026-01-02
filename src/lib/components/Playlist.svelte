@@ -324,7 +324,7 @@
 <!-- 新規プレイリスト作成ダイアログ -->
 {#if showCreateDialog}
   <div
-    class="modal-backdrop"
+    class="custom-modal-backdrop"
     onclick={closeCreateDialog}
     role="button"
     tabindex="0"
