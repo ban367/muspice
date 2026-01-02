@@ -325,7 +325,7 @@
   }
 
   .list-art {
-    @apply w-12 h-12 rounded overflow-hidden shrink-0;
+    @apply w-12 h-12 rounded overflow-hidden shrink-0 flex items-center justify-center;
   }
 
   .list-art img {

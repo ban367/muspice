@@ -15,11 +15,15 @@
 
   // オーバーフロー状態
   let isOverflowing = $state(false);
+  let overflowAmount = $state(0);
 
   // テキストがコンテナをはみ出しているかチェック
   function checkOverflow() {
     if (containerRef && textRef) {
-      isOverflowing = textRef.scrollWidth > containerRef.clientWidth;
+      const textWidth = textRef.scrollWidth;
+      const containerWidth = containerRef.clientWidth;
+      isOverflowing = textWidth > containerWidth;
+      overflowAmount = textWidth - containerWidth;
     }
   }
 
@@ -53,6 +57,7 @@
   bind:this={containerRef}
   class="marquee-container {className}"
   title={isOverflowing ? text : undefined}
+  style={isOverflowing ? `--overflow-amount: -${overflowAmount}px` : ''}
 >
   <span bind:this={textRef} class="marquee-text" class:overflowing={isOverflowing}>
     {text}
@@ -72,21 +77,31 @@
     will-change: transform;
   }
 
+  /* 自身へのホバーでアニメーション */
   .marquee-container:hover .marquee-text.overflowing {
-    animation: marquee-scroll var(--marquee-duration, 5s) linear infinite;
-    animation-delay: 0.3s;
+    animation: marquee-scroll 4s ease-in-out infinite;
+  }
+
+  /* 親カード(.grid-card)へのホバーでもアニメーション */
+  :global(.grid-card:hover) .marquee-text.overflowing,
+  :global(.track-card:hover) .marquee-text.overflowing,
+  :global(.list-row:hover) .marquee-text.overflowing,
+  :global(.artist-card:hover) .marquee-text.overflowing,
+  :global(.queue-track:hover) .marquee-text.overflowing,
+  :global(.nav-item-base:hover) .marquee-text.overflowing {
+    animation: marquee-scroll 4s ease-in-out infinite;
   }
 
   @keyframes marquee-scroll {
     0%,
-    10% {
+    5% {
       transform: translateX(0);
     }
-    45%,
-    55% {
-      transform: translateX(calc(-100% + var(--container-width, 100%)));
+    35%,
+    65% {
+      transform: translateX(var(--overflow-amount, 0));
     }
-    90%,
+    95%,
     100% {
       transform: translateX(0);
     }
