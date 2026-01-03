@@ -103,8 +103,8 @@ pub fn save_track(conn: &Connection, track: &Track) -> Result<(), rusqlite::Erro
     conn.execute(
         "INSERT INTO tracks (
             id, file_path, file_name, title, artist, album, genre, year,
-            duration, file_size, format, bitrate, sample_rate, created_at, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+            track_number, disc_number, duration, file_size, format, bitrate, sample_rate, created_at, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
         rusqlite::params![
             track.id,
             track.file_path,
@@ -114,6 +114,8 @@ pub fn save_track(conn: &Connection, track: &Track) -> Result<(), rusqlite::Erro
             track.album,
             track.genre,
             track.year,
+            track.track_number,
+            track.disc_number,
             track.duration,
             track.file_size,
             track.format,
@@ -132,8 +134,8 @@ pub fn update_track(conn: &Connection, track: &Track) -> Result<(), rusqlite::Er
     conn.execute(
         "UPDATE tracks SET
             file_name = ?2, title = ?3, artist = ?4, album = ?5, genre = ?6, year = ?7,
-            duration = ?8, file_size = ?9, format = ?10, bitrate = ?11, sample_rate = ?12,
-            updated_at = ?13
+            track_number = ?8, disc_number = ?9, duration = ?10, file_size = ?11, format = ?12, bitrate = ?13, sample_rate = ?14,
+            updated_at = ?15
         WHERE file_path = ?1",
         rusqlite::params![
             track.file_path,
@@ -143,6 +145,8 @@ pub fn update_track(conn: &Connection, track: &Track) -> Result<(), rusqlite::Er
             track.album,
             track.genre,
             track.year,
+            track.track_number,
+            track.disc_number,
             track.duration,
             track.file_size,
             track.format,

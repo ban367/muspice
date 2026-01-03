@@ -10,6 +10,8 @@ export interface Track {
   album: string | null;
   genre: string | null;
   year: number | null;
+  trackNumber: number | null;
+  discNumber: number | null;
   duration: number | null;
   fileSize: number;
   format: string;

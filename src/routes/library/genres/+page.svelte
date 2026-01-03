@@ -3,6 +3,10 @@
   import LibraryHeader from '$lib/components/library/LibraryHeader.svelte';
   import { browseSearchQuery } from '$lib/stores/ui';
   import { useGenresGroupedQuery } from '$lib/queries/tracks';
+  import { useQueryClient } from '@tanstack/svelte-query';
+
+  // QueryClient for refetching
+  const queryClient = useQueryClient();
 
   // 表示モード
   let displayMode = $state<'grid' | 'list'>('grid');
@@ -38,6 +42,13 @@
   function handleDisplayModeChange(mode: 'grid' | 'list') {
     displayMode = mode;
   }
+
+  function handleRefreshComplete() {
+    queryClient.invalidateQueries({ queryKey: ['tracks'] });
+    queryClient.invalidateQueries({ queryKey: ['albums'] });
+    queryClient.invalidateQueries({ queryKey: ['artists'] });
+    queryClient.invalidateQueries({ queryKey: ['genres'] });
+  }
 </script>
 
 <div class="genres-page">
@@ -54,6 +65,7 @@
     showGridMode={true}
     showListMode={true}
     showCardSizeSlider={false}
+    onRefreshComplete={handleRefreshComplete}
   />
 
   <!-- ジャンルグリッド -->

@@ -6,6 +6,10 @@
   import LibraryHeader from '$lib/components/library/LibraryHeader.svelte';
   import { browseSearchQuery } from '$lib/stores/ui';
   import { useArtistsGroupedQuery } from '$lib/queries/tracks';
+  import { useQueryClient } from '@tanstack/svelte-query';
+
+  // QueryClient for refetching
+  const queryClient = useQueryClient();
 
   // 表示モード
   let displayMode = $state<'grid' | 'list'>('list');
@@ -65,6 +69,13 @@
   function handleArtistSelect(artist: ArtistGroup) {
     selectedArtist = artist;
   }
+
+  function handleRefreshComplete() {
+    queryClient.invalidateQueries({ queryKey: ['tracks'] });
+    queryClient.invalidateQueries({ queryKey: ['albums'] });
+    queryClient.invalidateQueries({ queryKey: ['artists'] });
+    queryClient.invalidateQueries({ queryKey: ['genres'] });
+  }
 </script>
 
 <div class="artists-page">
@@ -81,6 +92,7 @@
     showGridMode={true}
     showListMode={true}
     showCardSizeSlider={displayMode === 'grid'}
+    onRefreshComplete={handleRefreshComplete}
   />
 
   {#if displayMode === 'grid'}

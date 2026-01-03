@@ -15,10 +15,10 @@ use commands::{
     get_all_tracks, get_artists_grouped, get_current_track, get_favorite_tracks,
     get_genres_grouped, get_most_played_tracks, get_playlists, get_recently_played_tracks,
     get_track_file_path, get_unique_albums, get_unique_artists, get_unique_genres, import_folder,
-    increment_play_count, remove_track_from_playlist, rename_playlist, reorder_playlist_tracks,
-    search_tracks, set_current_track, set_rating, show_in_folder, toggle_favorite,
-    update_multiple_tracks_metadata, update_track_metadata, update_track_metadata_with_file,
-    validate_metadata_command,
+    increment_play_count, refresh_library_metadata, remove_track_from_playlist, rename_playlist,
+    reorder_playlist_tracks, search_tracks, set_current_track, set_rating, show_in_folder,
+    toggle_favorite, update_multiple_tracks_metadata, update_track_metadata,
+    update_track_metadata_with_file, validate_metadata_command,
 };
 use state::AppState;
 use std::path::PathBuf;
@@ -64,7 +64,8 @@ pub fn run() {
             get_most_played_tracks,
             get_recently_played_tracks,
             delete_tracks_command,
-            delete_tracks_with_files_command
+            delete_tracks_with_files_command,
+            refresh_library_metadata
         ])
         .setup(|app| {
             // アプリケーションデータディレクトリを取得

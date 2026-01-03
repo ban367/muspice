@@ -152,12 +152,11 @@
               class:playing={$currentTrack?.id === track.id}
               ondblclick={() => handleTrackDoubleClick(album, index)}
             >
-              <span class="track-number">
+              <span class="track-number" class:playing={$currentTrack?.id === track.id}>
                 {#if $currentTrack?.id === track.id}
                   <PlayingIndicator size="small" />
-                {:else}
-                  {index + 1}
                 {/if}
+                {index + 1}
               </span>
               <div class="track-info">
                 <MarqueeText text={track.title || track.fileName} class="track-title" />
@@ -300,7 +299,11 @@
   }
 
   .track-number {
-    @apply text-sm text-text-dimmed text-center;
+    @apply text-sm text-text-dimmed text-center flex items-center gap-1;
+  }
+
+  .track-number.playing {
+    @apply text-secondary font-medium;
   }
 
   .track-row.playing .track-number {

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { AlbumGroup } from '$lib/types/models';
+  import type { AlbumGroup, Track } from '$lib/types/models';
   import { playTrackFromQueue, currentTrack } from '$lib/stores/player';
   import { loadAlbumArt, albumArtCache } from '$lib/stores/albumArtCache';
   import { formatDuration, formatTotalDuration } from '$lib/utils/format';
@@ -33,6 +33,37 @@
     album.tracks.reduce((sum, track) => sum + (track.duration || 0), 0)
   );
 
+  // マルチディスクアルバムかどうか
+  const hasMultipleDiscs = $derived(() => {
+    const discNumbers = new Set(album.tracks.map((t) => t.discNumber ?? 1));
+    return discNumbers.size > 1;
+  });
+
+  // ディスクごとにグループ化されたトラック
+  const groupedTracks = $derived.by(() => {
+    if (!hasMultipleDiscs()) {
+      return [{ discNumber: 1, tracks: album.tracks }];
+    }
+
+    const groups = new Map<number, Track[]>();
+    for (const track of album.tracks) {
+      const disc = track.discNumber ?? 1;
+      if (!groups.has(disc)) {
+        groups.set(disc, []);
+      }
+      groups.get(disc)!.push(track);
+    }
+
+    return Array.from(groups.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([discNumber, tracks]) => ({ discNumber, tracks }));
+  });
+
+  // トラック番号を取得
+  function formatTrackNumber(track: Track): string {
+    return (track.trackNumber ?? 0).toString();
+  }
+
   // すべて再生
   function handlePlayAll() {
     if (album.tracks.length > 0) {
@@ -51,6 +82,15 @@
   // トラックをダブルクリックで再生
   function handleTrackDoubleClick(index: number) {
     playTrackFromQueue(album.tracks, index);
+  }
+
+  // グループ内のトラックインデックスを取得（全体のインデックス用）
+  function getGlobalTrackIndex(discIndex: number, trackIndexInDisc: number): number {
+    let index = 0;
+    for (let i = 0; i < discIndex; i++) {
+      index += groupedTracks[i].tracks.length;
+    }
+    return index + trackIndexInDisc;
   }
 </script>
 
@@ -120,33 +160,40 @@
 
   <!-- トラックリスト -->
   <div class="track-list">
-    {#each album.tracks as track, index (track.id)}
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div
-        class="track-row"
-        class:playing={$currentTrack?.id === track.id}
-        ondblclick={() => handleTrackDoubleClick(index)}
-      >
-        <span class="track-number">
-          {#if $currentTrack?.id === track.id}
-            <PlayingIndicator size="small" />
-          {:else}
-            {index + 1}
-          {/if}
-        </span>
-        <div class="track-info">
-          <MarqueeText text={track.title || track.fileName} class="track-title" />
-          <span class="track-artist">{track.artist || album.artist || '不明なアーティスト'}</span>
+    {#each groupedTracks as discGroup, discIndex (discGroup.discNumber)}
+      {#if hasMultipleDiscs()}
+        <div class="disc-header">
+          <span class="disc-label">Disc {discGroup.discNumber}</span>
         </div>
-        <span class="track-duration">{formatDuration(track.duration)}</span>
-        <button class="track-action-btn" title="その他">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-            <circle cx="12" cy="5" r="2" />
-            <circle cx="12" cy="12" r="2" />
-            <circle cx="12" cy="19" r="2" />
-          </svg>
-        </button>
-      </div>
+      {/if}
+      {#each discGroup.tracks as track, trackIndexInDisc (track.id)}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="track-row"
+          class:playing={$currentTrack?.id === track.id}
+          ondblclick={() =>
+            handleTrackDoubleClick(getGlobalTrackIndex(discIndex, trackIndexInDisc))}
+        >
+          <span class="track-number" class:playing={$currentTrack?.id === track.id}>
+            {#if $currentTrack?.id === track.id}
+              <PlayingIndicator size="small" />
+            {/if}
+            {formatTrackNumber(track)}
+          </span>
+          <div class="track-info">
+            <MarqueeText text={track.title || track.fileName} class="track-title" />
+            <span class="track-artist">{track.artist || album.artist || '不明なアーティスト'}</span>
+          </div>
+          <span class="track-duration">{formatDuration(track.duration)}</span>
+          <button class="track-action-btn" title="その他">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+              <circle cx="12" cy="5" r="2" />
+              <circle cx="12" cy="12" r="2" />
+              <circle cx="12" cy="19" r="2" />
+            </svg>
+          </button>
+        </div>
+      {/each}
     {/each}
   </div>
 </div>
@@ -236,6 +283,15 @@
     @apply flex-1 overflow-y-auto px-4 pb-4;
   }
 
+  .disc-header {
+    @apply flex items-center gap-3 py-3 px-3 mt-2 first:mt-0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .disc-label {
+    @apply text-sm font-semibold text-text-secondary uppercase tracking-wider;
+  }
+
   .track-row {
     @apply grid gap-3 py-2.5 px-3 items-center rounded-md cursor-pointer transition-colors duration-100;
     grid-template-columns: 2.5rem 1fr 4rem 2rem;
@@ -250,7 +306,11 @@
   }
 
   .track-number {
-    @apply text-sm text-text-dimmed text-center;
+    @apply text-sm text-text-dimmed text-center flex items-center gap-1;
+  }
+
+  .track-number.playing {
+    @apply text-secondary font-medium;
   }
 
   .track-row.playing .track-number {

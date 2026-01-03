@@ -128,8 +128,8 @@ fn process_and_save_track_in_tx(
     tx.execute(
         "INSERT INTO tracks (
             id, file_path, file_name, title, artist, album, genre, year,
-            duration, file_size, format, bitrate, sample_rate, created_at, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+            track_number, disc_number, duration, file_size, format, bitrate, sample_rate, created_at, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
         rusqlite::params![
             track.id,
             track.file_path,
@@ -139,6 +139,8 @@ fn process_and_save_track_in_tx(
             track.album,
             track.genre,
             track.year,
+            track.track_number,
+            track.disc_number,
             track.duration,
             track.file_size,
             track.format,
@@ -161,8 +163,8 @@ fn process_and_update_track_in_tx(
     tx.execute(
         "UPDATE tracks SET
             file_name = ?2, title = ?3, artist = ?4, album = ?5, genre = ?6, year = ?7,
-            duration = ?8, file_size = ?9, format = ?10, bitrate = ?11, sample_rate = ?12,
-            updated_at = ?13
+            track_number = ?8, disc_number = ?9, duration = ?10, file_size = ?11, format = ?12, bitrate = ?13, sample_rate = ?14,
+            updated_at = ?15
         WHERE file_path = ?1",
         rusqlite::params![
             track.file_path,
@@ -172,6 +174,8 @@ fn process_and_update_track_in_tx(
             track.album,
             track.genre,
             track.year,
+            track.track_number,
+            track.disc_number,
             track.duration,
             track.file_size,
             track.format,
@@ -223,6 +227,8 @@ fn create_track_from_file(file_path: &Path) -> Result<Track, String> {
         album: metadata.album,
         genre: metadata.genre,
         year: metadata.year,
+        track_number: metadata.track_number,
+        disc_number: metadata.disc_number,
         duration,
         file_size,
         format,
@@ -248,7 +254,7 @@ pub async fn get_all_tracks(state: State<'_, AppState>) -> Result<Vec<Track>, St
     let mut stmt = db
         .prepare(
             "SELECT id, file_path, file_name, title, artist, album, genre, year,
-                    duration, file_size, format, bitrate, sample_rate,
+                    track_number, disc_number, duration, file_size, format, bitrate, sample_rate,
                     COALESCE(is_favorite, 0), COALESCE(rating, 0), COALESCE(play_count, 0), last_played_at,
                     created_at, updated_at
              FROM tracks
@@ -267,17 +273,19 @@ pub async fn get_all_tracks(state: State<'_, AppState>) -> Result<Vec<Track>, St
                 album: row.get(5)?,
                 genre: row.get(6)?,
                 year: row.get(7)?,
-                duration: row.get(8)?,
-                file_size: row.get(9)?,
-                format: row.get(10)?,
-                bitrate: row.get(11)?,
-                sample_rate: row.get(12)?,
-                is_favorite: row.get::<_, i32>(13)? != 0,
-                rating: row.get(14)?,
-                play_count: row.get(15)?,
-                last_played_at: row.get(16)?,
-                created_at: row.get(17)?,
-                updated_at: row.get(18)?,
+                track_number: row.get(8)?,
+                disc_number: row.get(9)?,
+                duration: row.get(10)?,
+                file_size: row.get(11)?,
+                format: row.get(12)?,
+                bitrate: row.get(13)?,
+                sample_rate: row.get(14)?,
+                is_favorite: row.get::<_, i32>(15)? != 0,
+                rating: row.get(16)?,
+                play_count: row.get(17)?,
+                last_played_at: row.get(18)?,
+                created_at: row.get(19)?,
+                updated_at: row.get(20)?,
             })
         })
         .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
@@ -319,7 +327,7 @@ pub async fn search_tracks(
         let mut stmt = db
             .prepare(
                 "SELECT t.id, t.file_path, t.file_name, t.title, t.artist, t.album, t.genre, t.year,
-                        t.duration, t.file_size, t.format, t.bitrate, t.sample_rate,
+                        t.track_number, t.disc_number, t.duration, t.file_size, t.format, t.bitrate, t.sample_rate,
                         COALESCE(t.is_favorite, 0), COALESCE(t.rating, 0), COALESCE(t.play_count, 0), t.last_played_at,
                         t.created_at, t.updated_at
                  FROM tracks t
@@ -341,17 +349,19 @@ pub async fn search_tracks(
                     album: row.get(5)?,
                     genre: row.get(6)?,
                     year: row.get(7)?,
-                    duration: row.get(8)?,
-                    file_size: row.get(9)?,
-                    format: row.get(10)?,
-                    bitrate: row.get(11)?,
-                    sample_rate: row.get(12)?,
-                    is_favorite: row.get(13)?,
-                    rating: row.get(14)?,
-                    play_count: row.get(15)?,
-                    last_played_at: row.get(16)?,
-                    created_at: row.get(17)?,
-                    updated_at: row.get(18)?,
+                    track_number: row.get(8)?,
+                    disc_number: row.get(9)?,
+                    duration: row.get(10)?,
+                    file_size: row.get(11)?,
+                    format: row.get(12)?,
+                    bitrate: row.get(13)?,
+                    sample_rate: row.get(14)?,
+                    is_favorite: row.get(15)?,
+                    rating: row.get(16)?,
+                    play_count: row.get(17)?,
+                    last_played_at: row.get(18)?,
+                    created_at: row.get(19)?,
+                    updated_at: row.get(20)?,
                 })
             })
             .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
@@ -366,7 +376,7 @@ pub async fn search_tracks(
         let mut stmt = db
             .prepare(
                 "SELECT id, file_path, file_name, title, artist, album, genre, year,
-                        duration, file_size, format, bitrate, sample_rate,
+                        track_number, disc_number, duration, file_size, format, bitrate, sample_rate,
                         COALESCE(is_favorite, 0), COALESCE(rating, 0), COALESCE(play_count, 0), last_played_at,
                         created_at, updated_at
                  FROM tracks
@@ -394,17 +404,19 @@ pub async fn search_tracks(
                     album: row.get(5)?,
                     genre: row.get(6)?,
                     year: row.get(7)?,
-                    duration: row.get(8)?,
-                    file_size: row.get(9)?,
-                    format: row.get(10)?,
-                    bitrate: row.get(11)?,
-                    sample_rate: row.get(12)?,
-                    is_favorite: row.get(13)?,
-                    rating: row.get(14)?,
-                    play_count: row.get(15)?,
-                    last_played_at: row.get(16)?,
-                    created_at: row.get(17)?,
-                    updated_at: row.get(18)?,
+                    track_number: row.get(8)?,
+                    disc_number: row.get(9)?,
+                    duration: row.get(10)?,
+                    file_size: row.get(11)?,
+                    format: row.get(12)?,
+                    bitrate: row.get(13)?,
+                    sample_rate: row.get(14)?,
+                    is_favorite: row.get(15)?,
+                    rating: row.get(16)?,
+                    play_count: row.get(17)?,
+                    last_played_at: row.get(18)?,
+                    created_at: row.get(19)?,
+                    updated_at: row.get(20)?,
                 })
             })
             .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
@@ -436,7 +448,7 @@ pub async fn filter_tracks(
 
     let mut query = String::from(
         "SELECT id, file_path, file_name, title, artist, album, genre, year,
-                duration, file_size, format, bitrate, sample_rate,
+                track_number, disc_number, duration, file_size, format, bitrate, sample_rate,
                 COALESCE(is_favorite, 0), COALESCE(rating, 0), COALESCE(play_count, 0), last_played_at,
                 created_at, updated_at
          FROM tracks WHERE 1=1",
@@ -479,17 +491,19 @@ pub async fn filter_tracks(
                 album: row.get(5)?,
                 genre: row.get(6)?,
                 year: row.get(7)?,
-                duration: row.get(8)?,
-                file_size: row.get(9)?,
-                format: row.get(10)?,
-                bitrate: row.get(11)?,
-                sample_rate: row.get(12)?,
-                is_favorite: row.get(13)?,
-                rating: row.get(14)?,
-                play_count: row.get(15)?,
-                last_played_at: row.get(16)?,
-                created_at: row.get(17)?,
-                updated_at: row.get(18)?,
+                track_number: row.get(8)?,
+                disc_number: row.get(9)?,
+                duration: row.get(10)?,
+                file_size: row.get(11)?,
+                format: row.get(12)?,
+                bitrate: row.get(13)?,
+                sample_rate: row.get(14)?,
+                is_favorite: row.get(15)?,
+                rating: row.get(16)?,
+                play_count: row.get(17)?,
+                last_played_at: row.get(18)?,
+                created_at: row.get(19)?,
+                updated_at: row.get(20)?,
             })
         })
         .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
@@ -1058,7 +1072,7 @@ pub async fn get_current_track(state: State<'_, AppState>) -> Result<Option<Trac
         let mut stmt = db
             .prepare(
                 "SELECT id, file_path, file_name, title, artist, album, genre, year,
-                        duration, file_size, format, bitrate, sample_rate,
+                        track_number, disc_number, duration, file_size, format, bitrate, sample_rate,
                         COALESCE(is_favorite, 0), COALESCE(rating, 0), COALESCE(play_count, 0), last_played_at,
                         created_at, updated_at
                  FROM tracks WHERE id = ?1",
@@ -1076,17 +1090,19 @@ pub async fn get_current_track(state: State<'_, AppState>) -> Result<Option<Trac
                     album: row.get(5)?,
                     genre: row.get(6)?,
                     year: row.get(7)?,
-                    duration: row.get(8)?,
-                    file_size: row.get(9)?,
-                    format: row.get(10)?,
-                    bitrate: row.get(11)?,
-                    sample_rate: row.get(12)?,
-                    is_favorite: row.get(13)?,
-                    rating: row.get(14)?,
-                    play_count: row.get(15)?,
-                    last_played_at: row.get(16)?,
-                    created_at: row.get(17)?,
-                    updated_at: row.get(18)?,
+                    track_number: row.get(8)?,
+                    disc_number: row.get(9)?,
+                    duration: row.get(10)?,
+                    file_size: row.get(11)?,
+                    format: row.get(12)?,
+                    bitrate: row.get(13)?,
+                    sample_rate: row.get(14)?,
+                    is_favorite: row.get(15)?,
+                    rating: row.get(16)?,
+                    play_count: row.get(17)?,
+                    last_played_at: row.get(18)?,
+                    created_at: row.get(19)?,
+                    updated_at: row.get(20)?,
                 })
             })
             .map_err(|e| match e {
@@ -1218,7 +1234,7 @@ pub async fn get_favorite_tracks(state: State<'_, AppState>) -> Result<Vec<Track
     let mut stmt = db
         .prepare(
             "SELECT id, file_path, file_name, title, artist, album, genre, year,
-                    duration, file_size, format, bitrate, sample_rate,
+                    track_number, disc_number, duration, file_size, format, bitrate, sample_rate,
                     COALESCE(is_favorite, 0), COALESCE(rating, 0), COALESCE(play_count, 0), last_played_at,
                     created_at, updated_at
              FROM tracks
@@ -1238,17 +1254,19 @@ pub async fn get_favorite_tracks(state: State<'_, AppState>) -> Result<Vec<Track
                 album: row.get(5)?,
                 genre: row.get(6)?,
                 year: row.get(7)?,
-                duration: row.get(8)?,
-                file_size: row.get(9)?,
-                format: row.get(10)?,
-                bitrate: row.get(11)?,
-                sample_rate: row.get(12)?,
-                is_favorite: row.get::<_, i32>(13)? != 0,
-                rating: row.get(14)?,
-                play_count: row.get(15)?,
-                last_played_at: row.get(16)?,
-                created_at: row.get(17)?,
-                updated_at: row.get(18)?,
+                track_number: row.get(8)?,
+                disc_number: row.get(9)?,
+                duration: row.get(10)?,
+                file_size: row.get(11)?,
+                format: row.get(12)?,
+                bitrate: row.get(13)?,
+                sample_rate: row.get(14)?,
+                is_favorite: row.get::<_, i32>(15)? != 0,
+                rating: row.get(16)?,
+                play_count: row.get(17)?,
+                last_played_at: row.get(18)?,
+                created_at: row.get(19)?,
+                updated_at: row.get(20)?,
             })
         })
         .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
@@ -1274,7 +1292,7 @@ pub async fn get_most_played_tracks(
     let mut stmt = db
         .prepare(
             "SELECT id, file_path, file_name, title, artist, album, genre, year,
-                    duration, file_size, format, bitrate, sample_rate,
+                    track_number, disc_number, duration, file_size, format, bitrate, sample_rate,
                     COALESCE(is_favorite, 0), COALESCE(rating, 0), COALESCE(play_count, 0), last_played_at,
                     created_at, updated_at
              FROM tracks
@@ -1295,17 +1313,19 @@ pub async fn get_most_played_tracks(
                 album: row.get(5)?,
                 genre: row.get(6)?,
                 year: row.get(7)?,
-                duration: row.get(8)?,
-                file_size: row.get(9)?,
-                format: row.get(10)?,
-                bitrate: row.get(11)?,
-                sample_rate: row.get(12)?,
-                is_favorite: row.get::<_, i32>(13)? != 0,
-                rating: row.get(14)?,
-                play_count: row.get(15)?,
-                last_played_at: row.get(16)?,
-                created_at: row.get(17)?,
-                updated_at: row.get(18)?,
+                track_number: row.get(8)?,
+                disc_number: row.get(9)?,
+                duration: row.get(10)?,
+                file_size: row.get(11)?,
+                format: row.get(12)?,
+                bitrate: row.get(13)?,
+                sample_rate: row.get(14)?,
+                is_favorite: row.get::<_, i32>(15)? != 0,
+                rating: row.get(16)?,
+                play_count: row.get(17)?,
+                last_played_at: row.get(18)?,
+                created_at: row.get(19)?,
+                updated_at: row.get(20)?,
             })
         })
         .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
@@ -1331,7 +1351,7 @@ pub async fn get_recently_played_tracks(
     let mut stmt = db
         .prepare(
             "SELECT id, file_path, file_name, title, artist, album, genre, year,
-                    duration, file_size, format, bitrate, sample_rate,
+                    track_number, disc_number, duration, file_size, format, bitrate, sample_rate,
                     COALESCE(is_favorite, 0), COALESCE(rating, 0), COALESCE(play_count, 0), last_played_at,
                     created_at, updated_at
              FROM tracks
@@ -1352,17 +1372,19 @@ pub async fn get_recently_played_tracks(
                 album: row.get(5)?,
                 genre: row.get(6)?,
                 year: row.get(7)?,
-                duration: row.get(8)?,
-                file_size: row.get(9)?,
-                format: row.get(10)?,
-                bitrate: row.get(11)?,
-                sample_rate: row.get(12)?,
-                is_favorite: row.get::<_, i32>(13)? != 0,
-                rating: row.get(14)?,
-                play_count: row.get(15)?,
-                last_played_at: row.get(16)?,
-                created_at: row.get(17)?,
-                updated_at: row.get(18)?,
+                track_number: row.get(8)?,
+                disc_number: row.get(9)?,
+                duration: row.get(10)?,
+                file_size: row.get(11)?,
+                format: row.get(12)?,
+                bitrate: row.get(13)?,
+                sample_rate: row.get(14)?,
+                is_favorite: row.get::<_, i32>(15)? != 0,
+                rating: row.get(16)?,
+                play_count: row.get(17)?,
+                last_played_at: row.get(18)?,
+                created_at: row.get(19)?,
+                updated_at: row.get(20)?,
             })
         })
         .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
@@ -1427,12 +1449,12 @@ pub async fn get_albums_grouped(state: State<'_, AppState>) -> Result<Vec<AlbumG
     let mut stmt = db
         .prepare(
             "SELECT id, file_path, file_name, title, artist, album, genre, year,
-                    duration, file_size, format, bitrate, sample_rate,
+                    track_number, disc_number, duration, file_size, format, bitrate, sample_rate,
                     COALESCE(is_favorite, 0), COALESCE(rating, 0), COALESCE(play_count, 0), last_played_at,
                     created_at, updated_at
              FROM tracks
              WHERE album IS NOT NULL AND album != ''
-             ORDER BY album, COALESCE(title, file_name)",
+             ORDER BY album, COALESCE(disc_number, 1), COALESCE(track_number, 0), COALESCE(title, file_name)",
         )
         .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
 
@@ -1447,17 +1469,19 @@ pub async fn get_albums_grouped(state: State<'_, AppState>) -> Result<Vec<AlbumG
                 album: row.get(5)?,
                 genre: row.get(6)?,
                 year: row.get(7)?,
-                duration: row.get(8)?,
-                file_size: row.get(9)?,
-                format: row.get(10)?,
-                bitrate: row.get(11)?,
-                sample_rate: row.get(12)?,
-                is_favorite: row.get::<_, i32>(13)? != 0,
-                rating: row.get(14)?,
-                play_count: row.get(15)?,
-                last_played_at: row.get(16)?,
-                created_at: row.get(17)?,
-                updated_at: row.get(18)?,
+                track_number: row.get(8)?,
+                disc_number: row.get(9)?,
+                duration: row.get(10)?,
+                file_size: row.get(11)?,
+                format: row.get(12)?,
+                bitrate: row.get(13)?,
+                sample_rate: row.get(14)?,
+                is_favorite: row.get::<_, i32>(15)? != 0,
+                rating: row.get(16)?,
+                play_count: row.get(17)?,
+                last_played_at: row.get(18)?,
+                created_at: row.get(19)?,
+                updated_at: row.get(20)?,
             })
         })
         .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
@@ -1512,12 +1536,12 @@ pub async fn get_artists_grouped(state: State<'_, AppState>) -> Result<Vec<Artis
     let mut stmt = db
         .prepare(
             "SELECT id, file_path, file_name, title, artist, album, genre, year,
-                    duration, file_size, format, bitrate, sample_rate,
+                    track_number, disc_number, duration, file_size, format, bitrate, sample_rate,
                     COALESCE(is_favorite, 0), COALESCE(rating, 0), COALESCE(play_count, 0), last_played_at,
                     created_at, updated_at
              FROM tracks
              WHERE artist IS NOT NULL AND artist != ''
-             ORDER BY artist, album, COALESCE(title, file_name)",
+             ORDER BY artist, album, COALESCE(disc_number, 1), COALESCE(track_number, 0), COALESCE(title, file_name)",
         )
         .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
 
@@ -1532,17 +1556,19 @@ pub async fn get_artists_grouped(state: State<'_, AppState>) -> Result<Vec<Artis
                 album: row.get(5)?,
                 genre: row.get(6)?,
                 year: row.get(7)?,
-                duration: row.get(8)?,
-                file_size: row.get(9)?,
-                format: row.get(10)?,
-                bitrate: row.get(11)?,
-                sample_rate: row.get(12)?,
-                is_favorite: row.get::<_, i32>(13)? != 0,
-                rating: row.get(14)?,
-                play_count: row.get(15)?,
-                last_played_at: row.get(16)?,
-                created_at: row.get(17)?,
-                updated_at: row.get(18)?,
+                track_number: row.get(8)?,
+                disc_number: row.get(9)?,
+                duration: row.get(10)?,
+                file_size: row.get(11)?,
+                format: row.get(12)?,
+                bitrate: row.get(13)?,
+                sample_rate: row.get(14)?,
+                is_favorite: row.get::<_, i32>(15)? != 0,
+                rating: row.get(16)?,
+                play_count: row.get(17)?,
+                last_played_at: row.get(18)?,
+                created_at: row.get(19)?,
+                updated_at: row.get(20)?,
             })
         })
         .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
@@ -1628,12 +1654,12 @@ pub async fn get_genres_grouped(state: State<'_, AppState>) -> Result<Vec<GenreG
     let mut stmt = db
         .prepare(
             "SELECT id, file_path, file_name, title, artist, album, genre, year,
-                    duration, file_size, format, bitrate, sample_rate,
+                    track_number, disc_number, duration, file_size, format, bitrate, sample_rate,
                     COALESCE(is_favorite, 0), COALESCE(rating, 0), COALESCE(play_count, 0), last_played_at,
                     created_at, updated_at
              FROM tracks
              WHERE genre IS NOT NULL AND genre != ''
-             ORDER BY genre, artist, COALESCE(title, file_name)",
+             ORDER BY genre, artist, album, COALESCE(disc_number, 1), COALESCE(track_number, 0), COALESCE(title, file_name)",
         )
         .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
 
@@ -1648,17 +1674,19 @@ pub async fn get_genres_grouped(state: State<'_, AppState>) -> Result<Vec<GenreG
                 album: row.get(5)?,
                 genre: row.get(6)?,
                 year: row.get(7)?,
-                duration: row.get(8)?,
-                file_size: row.get(9)?,
-                format: row.get(10)?,
-                bitrate: row.get(11)?,
-                sample_rate: row.get(12)?,
-                is_favorite: row.get::<_, i32>(13)? != 0,
-                rating: row.get(14)?,
-                play_count: row.get(15)?,
-                last_played_at: row.get(16)?,
-                created_at: row.get(17)?,
-                updated_at: row.get(18)?,
+                track_number: row.get(8)?,
+                disc_number: row.get(9)?,
+                duration: row.get(10)?,
+                file_size: row.get(11)?,
+                format: row.get(12)?,
+                bitrate: row.get(13)?,
+                sample_rate: row.get(14)?,
+                is_favorite: row.get::<_, i32>(15)? != 0,
+                rating: row.get(16)?,
+                play_count: row.get(17)?,
+                last_played_at: row.get(18)?,
+                created_at: row.get(19)?,
+                updated_at: row.get(20)?,
             })
         })
         .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
@@ -1747,4 +1775,124 @@ pub async fn delete_tracks_with_files_command(
         .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
 
     delete_tracks_with_files(&db, &track_ids)
+}
+
+/// メタデータ更新の結果
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RefreshMetadataResult {
+    pub updated_count: i32,
+    pub skipped_count: i32,
+    pub error_count: i32,
+    pub errors: Vec<String>,
+}
+
+/// ライブラリ全体のメタデータを更新
+/// ファイルからtrack_numberとdisc_numberを再読み込み
+#[tauri::command]
+pub async fn refresh_library_metadata(
+    state: State<'_, AppState>,
+) -> Result<RefreshMetadataResult, String> {
+    let mut updated_count = 0;
+    let mut skipped_count = 0;
+    let mut error_count = 0;
+    let mut errors = Vec::new();
+
+    let mut db = state
+        .db
+        .lock()
+        .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
+
+    // 全トラックのファイルパスを取得
+    let tracks: Vec<(String, String)> = {
+        let mut stmt = db
+            .prepare("SELECT id, file_path FROM tracks")
+            .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
+
+        let result: Vec<(String, String)> = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("結果の取得に失敗しました: {}", e))?;
+        result
+    };
+
+    let total_tracks = tracks.len();
+    crate::logger::info(&format!("メタデータ更新を開始: {} トラック", total_tracks));
+
+    // バッチ処理で更新
+    const BATCH_SIZE: usize = 50;
+    for (batch_idx, chunk) in tracks.chunks(BATCH_SIZE).enumerate() {
+        let tx = db
+            .transaction()
+            .map_err(|e| format!("トランザクションの開始に失敗しました: {}", e))?;
+
+        for (track_id, file_path) in chunk {
+            let path = Path::new(file_path);
+
+            // ファイルが存在しない場合はスキップ
+            if !path.exists() {
+                skipped_count += 1;
+                continue;
+            }
+
+            // メタデータを抽出
+            match extract_metadata(path) {
+                Ok(metadata) => {
+                    // ログ: 抽出されたトラック番号とディスク番号
+                    crate::logger::info(&format!(
+                        "メタデータ抽出: {} - track={:?}, disc={:?}",
+                        file_path,
+                        metadata.track_number,
+                        metadata.disc_number
+                    ));
+
+                    // track_numberとdisc_numberを更新
+                    let now = Utc::now().to_rfc3339();
+                    match tx.execute(
+                        "UPDATE tracks SET track_number = ?1, disc_number = ?2, updated_at = ?3 WHERE id = ?4",
+                        rusqlite::params![
+                            metadata.track_number,
+                            metadata.disc_number,
+                            now,
+                            track_id,
+                        ],
+                    ) {
+                        Ok(_) => updated_count += 1,
+                        Err(e) => {
+                            errors.push(format!("{}: DB更新失敗 - {}", file_path, e));
+                            error_count += 1;
+                        }
+                    }
+                }
+                Err(e) => {
+                    errors.push(format!("{}: {}", file_path, e));
+                    error_count += 1;
+                }
+            }
+        }
+
+        tx.commit()
+            .map_err(|e| format!("トランザクションのコミットに失敗しました: {}", e))?;
+
+        let processed = (batch_idx + 1) * BATCH_SIZE.min(total_tracks - batch_idx * BATCH_SIZE);
+        crate::logger::info(&format!(
+            "メタデータ更新進行状況: {}/{} トラック処理完了",
+            processed,
+            total_tracks
+        ));
+    }
+
+    crate::logger::info(&format!(
+        "メタデータ更新完了: 更新={}, スキップ={}, エラー={}",
+        updated_count,
+        skipped_count,
+        error_count
+    ));
+
+    Ok(RefreshMetadataResult {
+        updated_count,
+        skipped_count,
+        error_count,
+        errors,
+    })
 }

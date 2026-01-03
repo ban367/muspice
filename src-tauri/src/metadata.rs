@@ -30,6 +30,15 @@ pub fn extract_metadata(file_path: &Path) -> Result<Metadata, String> {
         .or_else(|| tagged_file.first_tag());
 
     let metadata = if let Some(tag) = tag {
+        // ディスク番号を取得（ItemKey::DiscNumber を優先、tag.disk() をフォールバック）
+        let disc_number = tag
+            .get_string(&lofty::tag::ItemKey::DiscNumber)
+            .and_then(|s| {
+                // "2/2" のような形式から先頭の数字を取得
+                s.split('/').next().and_then(|n| n.trim().parse::<i32>().ok())
+            })
+            .or_else(|| tag.disk().map(|d| d as i32));
+
         Metadata {
             title: tag.title().map(|s| s.to_string()),
             artist: tag.artist().map(|s| s.to_string()),
@@ -37,6 +46,7 @@ pub fn extract_metadata(file_path: &Path) -> Result<Metadata, String> {
             genre: tag.genre().map(|s| s.to_string()),
             year: tag.year().map(|y| y as i32),
             track_number: tag.track().map(|t| t as i32),
+            disc_number,
             album_artist: tag
                 .get_string(&lofty::tag::ItemKey::AlbumArtist)
                 .map(|s| s.to_string()),
@@ -53,6 +63,7 @@ pub fn extract_metadata(file_path: &Path) -> Result<Metadata, String> {
             genre: None,
             year: None,
             track_number: None,
+            disc_number: None,
             album_artist: None,
             composer: None,
         }
@@ -237,6 +248,7 @@ mod tests {
             genre: Some("Rock".to_string()),
             year: Some(2023),
             track_number: Some(1),
+            disc_number: Some(1),
             album_artist: None,
             composer: None,
         };
@@ -253,6 +265,7 @@ mod tests {
             genre: None,
             year: Some(999),
             track_number: None,
+            disc_number: None,
             album_artist: None,
             composer: None,
         };
@@ -269,6 +282,7 @@ mod tests {
             genre: None,
             year: None,
             track_number: Some(1000),
+            disc_number: None,
             album_artist: None,
             composer: None,
         };
