@@ -8,12 +8,7 @@
     currentTrackIndex
   } from '$lib/stores/player';
   import { columnWidths, gridCardSize, type ColumnWidths } from '$lib/stores/ui';
-  import {
-    loadAlbumArt,
-    getCachedAlbumArt,
-    isCached,
-    albumArtCacheVersion
-  } from '$lib/stores/albumArtCache';
+  import { loadAlbumArt, albumArtCache } from '$lib/stores/albumArtCache';
   import { formatDuration } from '$lib/utils/format';
   import { get } from 'svelte/store';
   import type { Track } from '$lib/types/models';
@@ -54,9 +49,13 @@
   // アルバムアートサイズ
   const artSize = $derived($gridCardSize);
 
-  // キャッシュ更新の追跡（リアクティビティのため）
-  // eslint-disable-next-line no-unused-vars
-  const cacheVersion = $derived($albumArtCacheVersion);
+  // リアクティブなキャッシュを購読
+  const cache = $derived($albumArtCache);
+
+  // キャッシュからアルバムアートを取得
+  function getArt(trackId: string): string | null {
+    return cache[trackId] ?? null;
+  }
 
   // トラック選択状態
   let selectedTrackIds = $state<Set<string>>(new Set());
@@ -375,13 +374,33 @@
     document.removeEventListener('mouseup', handleResizeEnd);
   }
 
-  $effect(() => {
-    if (sortedTracks && displayMode === 'grid') {
-      for (const track of sortedTracks.slice(0, 50)) {
-        loadAlbumArt(track.id);
+  // Intersection Observer アクション
+  function intersectionObserver(node: HTMLElement, options: { callback: () => void }) {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            options.callback();
+            observer.unobserve(node);
+          }
+        });
+      },
+      { rootMargin: '100px' }
+    );
+
+    observer.observe(node);
+
+    return {
+      destroy() {
+        observer.disconnect();
       }
-    }
-  });
+    };
+  }
+
+  // トラックカードが表示されたらアートを読み込み
+  function handleTrackVisible(trackId: string) {
+    loadAlbumArt(trackId);
+  }
 </script>
 
 <div class="flex flex-col h-full">
@@ -516,14 +535,15 @@
               onkeydown={(e) => e.key === 'Enter' && handleTrackDoubleClick(track)}
               role="button"
               tabindex="0"
+              use:intersectionObserver={{ callback: () => handleTrackVisible(track.id) }}
             >
               <div
                 class="relative shrink-0 rounded-md overflow-hidden bg-base-400 mb-2"
                 style="width: {artSize}px; height: {artSize}px;"
               >
-                {#if isCached(track.id)}
+                {#if getArt(track.id)}
                   <img
-                    src={getCachedAlbumArt(track.id)}
+                    src={getArt(track.id)}
                     alt="アルバムアート"
                     class="w-full h-full object-cover"
                     loading="lazy"

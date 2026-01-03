@@ -3,12 +3,7 @@
   import { useArtistsGroupedQuery } from '$lib/queries/tracks';
   import { playTrackFromQueue } from '$lib/stores/player';
   import { gridCardSize, browseSearchQuery } from '$lib/stores/ui';
-  import {
-    loadAlbumArt,
-    getCachedAlbumArt,
-    isCached,
-    albumArtCacheVersion
-  } from '$lib/stores/albumArtCache';
+  import { loadAlbumArt, albumArtCache } from '$lib/stores/albumArtCache';
   import GroupDetail from './GroupDetail.svelte';
   import GroupContextMenu from '../GroupContextMenu.svelte';
   import MarqueeText from '../MarqueeText.svelte';
@@ -39,12 +34,16 @@
   // コンテキストメニュー
   let contextMenu = $state<{ x: number; y: number; artist: ArtistGroup } | null>(null);
 
-  // キャッシュ更新の追跡（リアクティビティのため）
-  // eslint-disable-next-line no-unused-vars
-  const cacheVersion = $derived($albumArtCacheVersion);
+  // リアクティブなキャッシュを購読
+  const cache = $derived($albumArtCache);
 
   // カードサイズの計算
   const cardWidth = $derived($gridCardSize + 24); // padding分を追加
+
+  // キャッシュからアルバムアートを取得
+  function getArt(trackId: string): string | null {
+    return cache[trackId] ?? null;
+  }
 
   // アーティストカードが表示されたらアートを読み込み
   function handleArtistVisible(artist: ArtistGroup) {
@@ -159,12 +158,8 @@
             use:intersectionObserver={{ callback: () => handleArtistVisible(artist) }}
           >
             <div class="artist-art" style="width: {$gridCardSize}px; height: {$gridCardSize}px;">
-              {#if isCached(artist.representativeTrackId)}
-                <img
-                  src={getCachedAlbumArt(artist.representativeTrackId)}
-                  alt={artist.name}
-                  loading="lazy"
-                />
+              {#if getArt(artist.representativeTrackId)}
+                <img src={getArt(artist.representativeTrackId)} alt={artist.name} loading="lazy" />
               {:else}
                 <div class="art-placeholder artist-placeholder">
                   <svg
@@ -217,12 +212,8 @@
             use:intersectionObserver={{ callback: () => handleArtistVisible(artist) }}
           >
             <div class="list-art artist-list-art">
-              {#if isCached(artist.representativeTrackId)}
-                <img
-                  src={getCachedAlbumArt(artist.representativeTrackId)}
-                  alt={artist.name}
-                  loading="lazy"
-                />
+              {#if getArt(artist.representativeTrackId)}
+                <img src={getArt(artist.representativeTrackId)} alt={artist.name} loading="lazy" />
               {:else}
                 <div class="art-placeholder small artist-placeholder">
                   <svg

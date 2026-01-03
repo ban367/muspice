@@ -227,7 +227,8 @@ body {
 
 /* カスタムモーダルバックドロップ（DaisyUIと競合を避けるため独自クラス名を使用） */
 .custom-modal-backdrop {
-  @apply fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-8;
+  @apply fixed inset-0 bg-black/80 flex items-center justify-center z-50;
+  padding: 2rem 2rem calc(2rem + var(--spacing-player-height)) 2rem;
 }
 
 .modal-content {

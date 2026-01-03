@@ -1,18 +1,29 @@
 /**
  * アルバムアートキャッシュストア
  * 全コンポーネントで共有されるアルバムアート画像のキャッシュ
+ * Svelte 5のリアクティビティに対応
  */
 
-import { writable } from 'svelte/store';
+import { writable, get } from 'svelte/store';
 import { getAlbumArt } from '$lib/queries/tracks';
 
-// グローバルキャッシュマップ（trackId -> data URL）
-const cache = new Map<string, string | null>();
+// キャッシュデータ型
+interface AlbumArtCacheData {
+  [trackId: string]: string | null;
+}
+
+// リアクティブなキャッシュストア
+const cacheStore = writable<AlbumArtCacheData>({});
 
 // 現在読み込み中のトラックID
 const loading = new Set<string>();
 
-// キャッシュ更新を通知するためのストア
+// キャッシュストアをエクスポート（コンポーネント内で購読するため）
+export const albumArtCache = {
+  subscribe: cacheStore.subscribe
+};
+
+// 後方互換性のためのバージョンストア（非推奨、cacheStoreを使用してください）
 export const albumArtCacheVersion = writable(0);
 
 /**
@@ -21,7 +32,8 @@ export const albumArtCacheVersion = writable(0);
  * @returns キャッシュされたアルバムアートのdata URL、またはnull
  */
 export function getCachedAlbumArt(trackId: string): string | null {
-  return cache.get(trackId) ?? null;
+  const cache = get(cacheStore);
+  return cache[trackId] ?? null;
 }
 
 /**
@@ -31,7 +43,8 @@ export function getCachedAlbumArt(trackId: string): string | null {
  * @returns キャッシュに有効なアルバムアートが存在するかどうか
  */
 export function isCached(trackId: string): boolean {
-  const value = cache.get(trackId);
+  const cache = get(cacheStore);
+  const value = cache[trackId];
   return value !== null && value !== undefined;
 }
 
@@ -41,8 +54,10 @@ export function isCached(trackId: string): boolean {
  * @param trackId - トラックID
  */
 export async function loadAlbumArt(trackId: string): Promise<void> {
+  const cache = get(cacheStore);
+  
   // 既にキャッシュ済みまたは読み込み中の場合はスキップ
-  if (cache.has(trackId) || loading.has(trackId)) {
+  if (trackId in cache || loading.has(trackId)) {
     return;
   }
 
@@ -50,17 +65,18 @@ export async function loadAlbumArt(trackId: string): Promise<void> {
 
   try {
     const art = await getAlbumArt(trackId);
+    let dataUrl: string | null = null;
+    
     if (art?.data && art?.mimeType) {
-      const dataUrl = `data:${art.mimeType};base64,${art.data}`;
-      cache.set(trackId, dataUrl);
-    } else {
-      cache.set(trackId, null);
+      dataUrl = `data:${art.mimeType};base64,${art.data}`;
     }
 
-    // キャッシュ更新を通知
+    // キャッシュを更新（リアクティブに通知）
+    cacheStore.update((c) => ({ ...c, [trackId]: dataUrl }));
     albumArtCacheVersion.update((v) => v + 1);
   } catch {
-    cache.set(trackId, null);
+    // エラー時はnullをキャッシュ
+    cacheStore.update((c) => ({ ...c, [trackId]: null }));
     albumArtCacheVersion.update((v) => v + 1);
   } finally {
     loading.delete(trackId);
@@ -72,8 +88,9 @@ export async function loadAlbumArt(trackId: string): Promise<void> {
  * @param trackIds - トラックIDの配列
  */
 export async function loadAlbumArts(trackIds: string[]): Promise<void> {
+  const cache = get(cacheStore);
   const promises = trackIds
-    .filter((id) => !cache.has(id) && !loading.has(id))
+    .filter((id) => !(id in cache) && !loading.has(id))
     .map((id) => loadAlbumArt(id));
 
   await Promise.all(promises);
@@ -83,7 +100,7 @@ export async function loadAlbumArts(trackIds: string[]): Promise<void> {
  * キャッシュをクリア
  */
 export function clearAlbumArtCache(): void {
-  cache.clear();
+  cacheStore.set({});
   loading.clear();
   albumArtCacheVersion.update((v) => v + 1);
 }
@@ -93,7 +110,11 @@ export function clearAlbumArtCache(): void {
  * @param trackId - トラックID
  */
 export function invalidateAlbumArt(trackId: string): void {
-  cache.delete(trackId);
+  cacheStore.update((c) => {
+    const newCache = { ...c };
+    delete newCache[trackId];
+    return newCache;
+  });
   albumArtCacheVersion.update((v) => v + 1);
 }
 
@@ -102,5 +123,6 @@ export function invalidateAlbumArt(trackId: string): void {
  * @returns キャッシュされているアイテム数
  */
 export function getAlbumArtCacheSize(): number {
-  return cache.size;
+  const cache = get(cacheStore);
+  return Object.keys(cache).length;
 }

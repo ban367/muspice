@@ -1,12 +1,7 @@
 <script lang="ts">
   import type { Track, AlbumGroup, ArtistGroup, GenreGroup } from '$lib/types/models';
   import { playTrackFromQueue, currentTrack } from '$lib/stores/player';
-  import {
-    loadAlbumArt,
-    getCachedAlbumArt,
-    isCached,
-    albumArtCacheVersion
-  } from '$lib/stores/albumArtCache';
+  import { loadAlbumArt, albumArtCache } from '$lib/stores/albumArtCache';
   import { formatDuration, formatTotalDuration } from '$lib/utils/format';
   import PlayingIndicator from './PlayingIndicator.svelte';
 
@@ -19,9 +14,13 @@
 
   let { group, type, onClose }: Props = $props();
 
-  // キャッシュ更新の追跡（リアクティビティのため）
-  // eslint-disable-next-line no-unused-vars
-  const cacheVersion = $derived($albumArtCacheVersion);
+  // リアクティブなキャッシュを購読
+  const cache = $derived($albumArtCache);
+
+  // キャッシュからアルバムアートを取得
+  function getArt(trackId: string): string | null {
+    return cache[trackId] ?? null;
+  }
 
   // グループからトラックリストを取得
   const tracks = $derived.by((): Track[] => {
@@ -87,8 +86,8 @@
       <!-- ヘッダー -->
       <div class="modal-header">
         <div class="header-art">
-          {#if isCached(group.representativeTrackId)}
-            <img src={getCachedAlbumArt(group.representativeTrackId)} alt={group.name} />
+          {#if getArt(group.representativeTrackId)}
+            <img src={getArt(group.representativeTrackId)} alt={group.name} />
           {:else}
             <div class="art-placeholder">
               {#if type === 'album'}
