@@ -286,10 +286,6 @@
     @apply flex flex-col gap-0.5 min-w-0;
   }
 
-  .list-title {
-    @apply text-sm font-medium text-text-primary truncate;
-  }
-
   .list-meta {
     @apply text-xs text-text-muted;
   }

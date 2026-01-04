@@ -35,7 +35,9 @@ pub fn extract_metadata(file_path: &Path) -> Result<Metadata, String> {
             .get_string(&lofty::tag::ItemKey::DiscNumber)
             .and_then(|s| {
                 // "2/2" のような形式から先頭の数字を取得
-                s.split('/').next().and_then(|n| n.trim().parse::<i32>().ok())
+                s.split('/')
+                    .next()
+                    .and_then(|n| n.trim().parse::<i32>().ok())
             })
             .or_else(|| tag.disk().map(|d| d as i32));
 

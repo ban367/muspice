@@ -684,11 +684,6 @@
     @apply w-14 h-14 rounded-md overflow-hidden shrink-0 bg-base-300;
   }
 
-  .album-art-placeholder {
-    @apply w-full h-full flex items-center justify-center text-white/80
-           bg-linear-to-br from-accent to-accent-focus;
-  }
-
   /* コントロールボタン */
   .control-button {
     @apply bg-transparent border-none text-text-secondary cursor-pointer

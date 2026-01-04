@@ -4,7 +4,6 @@
   import {
     playQueue,
     currentTrack,
-    currentTrackIndex,
     upcomingTracks,
     removeFromQueue,
     clearQueue

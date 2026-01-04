@@ -1841,9 +1841,7 @@ pub async fn refresh_library_metadata(
                     // ログ: 抽出されたトラック番号とディスク番号
                     crate::logger::info(&format!(
                         "メタデータ抽出: {} - track={:?}, disc={:?}",
-                        file_path,
-                        metadata.track_number,
-                        metadata.disc_number
+                        file_path, metadata.track_number, metadata.disc_number
                     ));
 
                     // track_numberとdisc_numberを更新
@@ -1877,16 +1875,13 @@ pub async fn refresh_library_metadata(
         let processed = (batch_idx + 1) * BATCH_SIZE.min(total_tracks - batch_idx * BATCH_SIZE);
         crate::logger::info(&format!(
             "メタデータ更新進行状況: {}/{} トラック処理完了",
-            processed,
-            total_tracks
+            processed, total_tracks
         ));
     }
 
     crate::logger::info(&format!(
         "メタデータ更新完了: 更新={}, スキップ={}, エラー={}",
-        updated_count,
-        skipped_count,
-        error_count
+        updated_count, skipped_count, error_count
     ));
 
     Ok(RefreshMetadataResult {

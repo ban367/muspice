@@ -157,12 +157,6 @@
     return sortDirection === 'asc' ? '↑' : '↓';
   }
 
-  function highlightText(text: string, search: string): string {
-    if (!search || !text) return text;
-    const regex = new RegExp(`(${search})`, 'gi');
-    return text.replace(regex, '<mark class="bg-warning text-black px-0.5 rounded-sm">$1</mark>');
-  }
-
   const selectedTracks = $derived.by(() => {
     if (!sortedTracks) return [];
     return sortedTracks.filter((track) => selectedTrackIds.has(track.id));

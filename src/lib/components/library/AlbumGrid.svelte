@@ -289,28 +289,8 @@
     @apply w-12 h-12 rounded overflow-hidden shrink-0 flex items-center justify-center;
   }
 
-  .list-art img {
-    @apply w-full h-full object-contain bg-base-300;
-  }
-
-  .art-placeholder.small {
-    @apply w-full h-full;
-  }
-
-  .art-placeholder.small svg {
-    @apply w-6 h-6;
-  }
-
   .list-info {
     @apply flex flex-col gap-0.5 min-w-0;
-  }
-
-  .list-title {
-    @apply text-sm font-medium text-text-primary truncate;
-  }
-
-  .list-artist {
-    @apply text-xs text-text-muted truncate;
   }
 
   .list-meta {

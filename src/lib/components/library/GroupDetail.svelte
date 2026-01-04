@@ -191,10 +191,6 @@
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
   }
 
-  .header-art img {
-    @apply w-full h-full object-contain bg-base-300;
-  }
-
   .header-info {
     @apply flex-1 flex flex-col justify-center;
   }

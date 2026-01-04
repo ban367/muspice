@@ -149,15 +149,9 @@ pub fn run() {
                 .build()?;
 
             let help_menu = SubmenuBuilder::with_id(app, "help", "ヘルプ")
-                .item(
-                    &MenuItemBuilder::with_id("about", "Muspice について")
-                        .build(app)?,
-                )
+                .item(&MenuItemBuilder::with_id("about", "Muspice について").build(app)?)
                 .separator()
-                .item(
-                    &MenuItemBuilder::with_id("open_github", "GitHub を開く")
-                        .build(app)?,
-                )
+                .item(&MenuItemBuilder::with_id("open_github", "GitHub を開く").build(app)?)
                 .build()?;
 
             let menu = MenuBuilder::new(app)

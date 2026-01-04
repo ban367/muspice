@@ -73,19 +73,6 @@
     @apply w-10 h-10 rounded overflow-hidden shrink-0;
   }
 
-  .album-art img {
-    @apply w-full h-full object-contain bg-base-300;
-  }
-
-  .art-placeholder {
-    @apply w-full h-full flex items-center justify-center;
-    background: linear-gradient(135deg, #3a3a4a, #2a2a3a);
-  }
-
-  .art-placeholder svg {
-    @apply w-5 h-5 text-text-muted;
-  }
-
   .album-info {
     @apply flex flex-col gap-0.5 min-w-0 flex-1;
   }

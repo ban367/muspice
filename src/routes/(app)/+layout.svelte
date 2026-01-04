@@ -72,11 +72,11 @@
    */
   function handleImportComplete(result: ImportResult) {
     console.log('インポート完了:', result);
-    // トラック一覧を再取得
+    // トラック一覧を再取得（実際のクエリキーに合わせる）
     queryClient.invalidateQueries({ queryKey: ['tracks'] });
-    queryClient.invalidateQueries({ queryKey: ['albums'] });
-    queryClient.invalidateQueries({ queryKey: ['artists'] });
-    queryClient.invalidateQueries({ queryKey: ['genres'] });
+    queryClient.invalidateQueries({ queryKey: ['albums', 'grouped'] });
+    queryClient.invalidateQueries({ queryKey: ['artists', 'grouped'] });
+    queryClient.invalidateQueries({ queryKey: ['genres', 'grouped'] });
   }
 </script>
 

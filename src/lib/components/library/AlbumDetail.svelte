@@ -202,19 +202,6 @@
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
   }
 
-  .album-art img {
-    @apply w-full h-full object-contain bg-base-300;
-  }
-
-  .art-placeholder {
-    @apply w-full h-full flex items-center justify-center;
-    background: linear-gradient(135deg, var(--color-base-400), var(--color-base-200));
-  }
-
-  .art-placeholder svg {
-    @apply w-16 h-16 text-text-dimmed;
-  }
-
   .album-info {
     @apply flex flex-col justify-center;
   }

@@ -76,19 +76,6 @@
     @apply w-8 h-8 rounded-full overflow-hidden shrink-0;
   }
 
-  .artist-avatar img {
-    @apply w-full h-full object-contain bg-base-300;
-  }
-
-  .avatar-placeholder {
-    @apply w-full h-full flex items-center justify-center;
-    background: linear-gradient(135deg, #3a3a4a, #2a2a3a);
-  }
-
-  .avatar-placeholder svg {
-    @apply w-4 h-4 text-text-muted;
-  }
-
   :global(.artist-name) {
     @apply text-sm text-text-primary truncate flex-1;
   }

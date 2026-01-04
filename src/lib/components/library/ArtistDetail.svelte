@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { ArtistGroup, AlbumGroup, Track } from '$lib/types/models';
+  import type { ArtistGroup, AlbumGroup } from '$lib/types/models';
   import { playTrackFromQueue, currentTrack } from '$lib/stores/player';
   import { loadAlbumArt, albumArtCache } from '$lib/stores/albumArtCache';
   import { formatDuration } from '$lib/utils/format';
@@ -225,19 +225,6 @@
   .album-art {
     @apply w-24 h-24 rounded-lg overflow-hidden shrink-0;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  }
-
-  .album-art img {
-    @apply w-full h-full object-contain bg-base-300;
-  }
-
-  .art-placeholder {
-    @apply w-full h-full flex items-center justify-center;
-    background: linear-gradient(135deg, var(--color-base-400), var(--color-base-200));
-  }
-
-  .art-placeholder svg {
-    @apply w-10 h-10 text-text-dimmed;
   }
 
   .album-info {

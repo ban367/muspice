@@ -217,7 +217,10 @@ pub fn delete_tracks(conn: &Connection, track_ids: &[String]) -> Result<usize, S
 
 /// トラックをデータベースとファイルシステムから削除
 /// ファイル削除に失敗した場合でも、可能な限り処理を続行する
-pub fn delete_tracks_with_files(conn: &Connection, track_ids: &[String]) -> Result<DeleteResult, String> {
+pub fn delete_tracks_with_files(
+    conn: &Connection,
+    track_ids: &[String],
+) -> Result<DeleteResult, String> {
     // トラックIDのバリデーション
     for track_id in track_ids {
         validate_track_id(track_id)?;
