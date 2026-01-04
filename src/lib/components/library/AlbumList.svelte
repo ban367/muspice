@@ -2,6 +2,7 @@
   import type { AlbumGroup } from '$lib/types/models';
   import { loadAlbumArt, albumArtCache } from '$lib/stores/albumArtCache';
   import MarqueeText from '../MarqueeText.svelte';
+  import AlbumArt from '../AlbumArt.svelte';
 
   // Props
   interface Props {
@@ -39,22 +40,7 @@
       onclick={() => onSelect(album)}
     >
       <div class="album-art">
-        {#if getArt(album.representativeTrackId)}
-          <img src={getArt(album.representativeTrackId)} alt={album.name} loading="lazy" />
-        {:else}
-          <div class="art-placeholder">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.5"
-            >
-              <circle cx="12" cy="12" r="10" />
-              <circle cx="12" cy="12" r="3" />
-            </svg>
-          </div>
-        {/if}
+        <AlbumArt src={getArt(album.representativeTrackId)} alt={album.name} rounded="sm" />
       </div>
       <div class="album-info">
         <MarqueeText text={album.name} class="album-name" />
@@ -88,7 +74,7 @@
   }
 
   .album-art img {
-    @apply w-full h-full object-cover;
+    @apply w-full h-full object-contain bg-base-300;
   }
 
   .art-placeholder {

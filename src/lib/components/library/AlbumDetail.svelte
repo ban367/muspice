@@ -5,6 +5,7 @@
   import { formatDuration, formatTotalDuration } from '$lib/utils/format';
   import PlayingIndicator from './PlayingIndicator.svelte';
   import MarqueeText from '../MarqueeText.svelte';
+  import AlbumArt from '../AlbumArt.svelte';
 
   // Props
   interface Props {
@@ -98,22 +99,7 @@
   <!-- ヘッダー -->
   <div class="detail-header">
     <div class="album-art">
-      {#if getArt(album.representativeTrackId)}
-        <img src={getArt(album.representativeTrackId)} alt={album.name} />
-      {:else}
-        <div class="art-placeholder">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.5"
-          >
-            <circle cx="12" cy="12" r="10" />
-            <circle cx="12" cy="12" r="3" />
-          </svg>
-        </div>
-      {/if}
+      <AlbumArt src={getArt(album.representativeTrackId)} alt={album.name} rounded="lg" />
     </div>
     <div class="album-info">
       <h1 class="album-name">{album.name}</h1>
@@ -217,7 +203,7 @@
   }
 
   .album-art img {
-    @apply w-full h-full object-cover;
+    @apply w-full h-full object-contain bg-base-300;
   }
 
   .art-placeholder {

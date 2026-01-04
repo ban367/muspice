@@ -4,6 +4,7 @@
   import { loadAlbumArt, albumArtCache } from '$lib/stores/albumArtCache';
   import { formatDuration, formatTotalDuration } from '$lib/utils/format';
   import PlayingIndicator from './PlayingIndicator.svelte';
+  import AlbumArt from '../AlbumArt.svelte';
 
   // Props
   interface Props {
@@ -86,46 +87,12 @@
       <!-- ヘッダー -->
       <div class="modal-header">
         <div class="header-art">
-          {#if getArt(group.representativeTrackId)}
-            <img src={getArt(group.representativeTrackId)} alt={group.name} />
-          {:else}
-            <div class="art-placeholder">
-              {#if type === 'album'}
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                >
-                  <circle cx="12" cy="12" r="10" />
-                  <circle cx="12" cy="12" r="3" />
-                </svg>
-              {:else if type === 'artist'}
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                >
-                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                  <circle cx="12" cy="7" r="4" />
-                </svg>
-              {:else}
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                >
-                  <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-                  <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-                </svg>
-              {/if}
-            </div>
-          {/if}
+          <AlbumArt
+            src={getArt(group.representativeTrackId)}
+            alt={group.name}
+            rounded="lg"
+            placeholderType={type === 'artist' ? 'person' : 'disc'}
+          />
         </div>
         <div class="header-info">
           <span class="text-xs uppercase tracking-wider text-text-muted mb-2">
@@ -225,7 +192,7 @@
   }
 
   .header-art img {
-    @apply w-full h-full object-cover;
+    @apply w-full h-full object-contain bg-base-300;
   }
 
   .header-info {

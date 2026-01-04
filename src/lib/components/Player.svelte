@@ -21,8 +21,9 @@
     toggleRepeat,
     type RepeatMode
   } from '$lib/stores/player';
-  import type { Track, AlbumArt } from '$lib/types/models';
+  import type { Track, AlbumArt as AlbumArtType } from '$lib/types/models';
   import { handleError as reportError } from '$lib/stores/error';
+  import AlbumArt from './AlbumArt.svelte';
   import { incrementPlayCount } from '$lib/queries/tracks';
   import MarqueeText from './MarqueeText.svelte';
 
@@ -60,7 +61,7 @@
    */
   async function loadAlbumArt(trackId: string) {
     try {
-      const art = await invoke<AlbumArt | null>('get_album_art', { trackId });
+      const art = await invoke<AlbumArtType | null>('get_album_art', { trackId });
       if (art) {
         albumArtUrl = `data:${art.mimeType};base64,${art.data}`;
       } else {
@@ -407,22 +408,7 @@
     <!-- トラック情報 -->
     <div class="flex items-center gap-3 min-w-0">
       <div class="album-art">
-        {#if albumArtUrl}
-          <img src={albumArtUrl} alt="アルバムアート" class="w-full h-full object-cover" />
-        {:else}
-          <div class="album-art-placeholder">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              fill="currentColor"
-              class="w-1/2 h-1/2"
-            >
-              <path
-                d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"
-              />
-            </svg>
-          </div>
-        {/if}
+        <AlbumArt src={albumArtUrl} alt="アルバムアート" placeholderType="music" />
       </div>
       <div class="min-w-0">
         <MarqueeText

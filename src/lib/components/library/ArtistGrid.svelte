@@ -7,6 +7,7 @@
   import GroupDetail from './GroupDetail.svelte';
   import GroupContextMenu from '../GroupContextMenu.svelte';
   import MarqueeText from '../MarqueeText.svelte';
+  import AlbumArt from '../AlbumArt.svelte';
 
   // Props
   interface Props {
@@ -38,7 +39,7 @@
   const cache = $derived($albumArtCache);
 
   // カードサイズの計算
-  const cardWidth = $derived($gridCardSize + 24); // padding分を追加
+  const cardWidth = $derived($gridCardSize + 16); // padding分を追加
 
   // キャッシュからアルバムアートを取得
   function getArt(trackId: string): string | null {
@@ -115,7 +116,7 @@
   }
 </script>
 
-<div class="p-4 min-h-[200px]">
+<div class="p-2 min-h-[200px]">
   {#if isLoading}
     <div class="state-container">
       <div class="spinner"></div>
@@ -158,22 +159,12 @@
             use:intersectionObserver={{ callback: () => handleArtistVisible(artist) }}
           >
             <div class="artist-art" style="width: {$gridCardSize}px; height: {$gridCardSize}px;">
-              {#if getArt(artist.representativeTrackId)}
-                <img src={getArt(artist.representativeTrackId)} alt={artist.name} loading="lazy" />
-              {:else}
-                <div class="art-placeholder artist-placeholder">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.5"
-                  >
-                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                    <circle cx="12" cy="7" r="4" />
-                  </svg>
-                </div>
-              {/if}
+              <AlbumArt
+                src={getArt(artist.representativeTrackId)}
+                alt={artist.name}
+                rounded="full"
+                placeholderType="person"
+              />
               <div class="play-overlay rounded-full">
                 <button
                   class="play-button-circle"
@@ -212,22 +203,12 @@
             use:intersectionObserver={{ callback: () => handleArtistVisible(artist) }}
           >
             <div class="list-art artist-list-art">
-              {#if getArt(artist.representativeTrackId)}
-                <img src={getArt(artist.representativeTrackId)} alt={artist.name} loading="lazy" />
-              {:else}
-                <div class="art-placeholder small artist-placeholder">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.5"
-                  >
-                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                    <circle cx="12" cy="7" r="4" />
-                  </svg>
-                </div>
-              {/if}
+              <AlbumArt
+                src={getArt(artist.representativeTrackId)}
+                alt={artist.name}
+                rounded="full"
+                placeholderType="person"
+              />
             </div>
             <div class="list-info">
               <MarqueeText text={artist.name} class="list-title" />
@@ -283,7 +264,7 @@
   .artist-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(var(--card-width), 1fr));
-    gap: 1.25rem;
+    gap: 0.75rem;
   }
 
   /* アーティストカード: 中央揃え修正 */
@@ -297,7 +278,7 @@
   }
 
   .artist-art img {
-    @apply w-full h-full object-cover;
+    @apply w-full h-full object-contain bg-base-300;
   }
 
   .artist-placeholder {
@@ -332,7 +313,7 @@
   }
 
   .list-art img {
-    @apply w-full h-full object-cover;
+    @apply w-full h-full object-contain bg-base-300;
   }
 
   .art-placeholder.small {

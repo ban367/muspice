@@ -8,6 +8,7 @@
   import GroupDetail from './GroupDetail.svelte';
   import GroupContextMenu from '../GroupContextMenu.svelte';
   import MarqueeText from '../MarqueeText.svelte';
+  import AlbumArt from '../AlbumArt.svelte';
 
   // Props
   interface Props {
@@ -43,7 +44,7 @@
   const cache = $derived($albumArtCache);
 
   // カードサイズの計算
-  const cardWidth = $derived($gridCardSize + 24); // padding分を追加
+  const cardWidth = $derived($gridCardSize + 16); // padding分を追加
 
   // キャッシュからアルバムアートを取得
   function getArt(trackId: string): string | null {
@@ -124,7 +125,7 @@
   }
 </script>
 
-<div class="p-4 min-h-[200px]">
+<div class="p-2 min-h-[200px]">
   {#if isLoading}
     <div class="state-container">
       <div class="spinner"></div>
@@ -160,29 +161,14 @@
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <div
-            class="grid-card"
+            class="grid-card flex flex-col items-center"
             onclick={() => handleAlbumClick(album)}
             ondblclick={() => handleAlbumDoubleClick(album)}
             oncontextmenu={(e) => handleContextMenu(e, album)}
             use:intersectionObserver={{ callback: () => handleAlbumVisible(album) }}
           >
             <div class="grid-card-art" style="width: {$gridCardSize}px; height: {$gridCardSize}px;">
-              {#if getArt(album.representativeTrackId)}
-                <img src={getArt(album.representativeTrackId)} alt={album.name} loading="lazy" />
-              {:else}
-                <div class="art-placeholder">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.5"
-                  >
-                    <circle cx="12" cy="12" r="10" />
-                    <circle cx="12" cy="12" r="3" />
-                  </svg>
-                </div>
-              {/if}
+              <AlbumArt src={getArt(album.representativeTrackId)} alt={album.name} />
               <div class="play-overlay">
                 <button
                   class="play-button-circle"
@@ -195,7 +181,7 @@
                 </button>
               </div>
             </div>
-            <div class="min-w-0 w-full">
+            <div class="min-w-0 w-full text-center">
               <MarqueeText
                 text={album.name}
                 class="text-[0.9375rem] font-semibold text-text-primary m-0"
@@ -204,7 +190,6 @@
                 text={album.artist || '不明なアーティスト'}
                 class="text-[0.8125rem] text-text-muted mt-1 m-0"
               />
-              <p class="text-xs text-text-dimmed mt-1 m-0">{album.trackCount}曲</p>
             </div>
           </div>
         {/each}
@@ -223,22 +208,7 @@
             use:intersectionObserver={{ callback: () => handleAlbumVisible(album) }}
           >
             <div class="list-art">
-              {#if getArt(album.representativeTrackId)}
-                <img src={getArt(album.representativeTrackId)} alt={album.name} loading="lazy" />
-              {:else}
-                <div class="art-placeholder small">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.5"
-                  >
-                    <circle cx="12" cy="12" r="10" />
-                    <circle cx="12" cy="12" r="3" />
-                  </svg>
-                </div>
-              {/if}
+              <AlbumArt src={getArt(album.representativeTrackId)} alt={album.name} />
             </div>
             <div class="list-info">
               <MarqueeText text={album.name} class="list-title" />
@@ -298,7 +268,7 @@
 <style>
   @reference "../../../app.css";
   .album-grid {
-    @apply grid grid-cols-[repeat(auto-fill,minmax(var(--card-width),1fr))] gap-5;
+    @apply grid grid-cols-[repeat(auto-fill,minmax(var(--card-width),1fr))] gap-3;
   }
 
   /* リスト表示スタイル */
@@ -320,7 +290,7 @@
   }
 
   .list-art img {
-    @apply w-full h-full object-cover;
+    @apply w-full h-full object-contain bg-base-300;
   }
 
   .art-placeholder.small {

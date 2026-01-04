@@ -82,7 +82,7 @@
   }
 </script>
 
-<div class="p-4 min-h-[200px]">
+<div class="p-2 min-h-[200px]">
   {#if isLoading}
     <div class="state-container">
       <div class="spinner"></div>
@@ -205,12 +205,12 @@
   @reference "../../../app.css";
   .genre-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap: 1rem;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 0.75rem;
   }
 
   .genre-card {
-    @apply relative rounded-lg p-6 cursor-pointer transition-all duration-200 min-h-[120px] flex items-end overflow-hidden;
+    @apply relative rounded-lg p-4 cursor-pointer transition-all duration-200 min-h-[100px] flex items-end overflow-hidden;
   }
 
   .genre-card::before {

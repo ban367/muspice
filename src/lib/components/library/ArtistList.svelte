@@ -2,6 +2,7 @@
   import type { ArtistGroup } from '$lib/types/models';
   import { loadAlbumArt, albumArtCache } from '$lib/stores/albumArtCache';
   import MarqueeText from '../MarqueeText.svelte';
+  import AlbumArt from '../AlbumArt.svelte';
 
   // Props
   interface Props {
@@ -40,22 +41,12 @@
       onclick={() => onSelect(artist)}
     >
       <div class="artist-avatar">
-        {#if getArt(artist.representativeTrackId)}
-          <img src={getArt(artist.representativeTrackId)} alt={artist.name} loading="lazy" />
-        {:else}
-          <div class="avatar-placeholder">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.5"
-            >
-              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-              <circle cx="12" cy="7" r="4" />
-            </svg>
-          </div>
-        {/if}
+        <AlbumArt
+          src={getArt(artist.representativeTrackId)}
+          alt={artist.name}
+          rounded="full"
+          placeholderType="person"
+        />
       </div>
       <MarqueeText text={artist.name} class="artist-name" />
     </button>
@@ -86,7 +77,7 @@
   }
 
   .artist-avatar img {
-    @apply w-full h-full object-cover;
+    @apply w-full h-full object-contain bg-base-300;
   }
 
   .avatar-placeholder {

@@ -17,6 +17,7 @@
   import ContextMenu from '../ContextMenu.svelte';
   import DeleteTrackDialog from '../DeleteTrackDialog.svelte';
   import MarqueeText from '../MarqueeText.svelte';
+  import AlbumArt from '../AlbumArt.svelte';
 
   // Props
   interface Props {
@@ -519,7 +520,7 @@
       {:else}
         <!-- グリッド表示 -->
         <div
-          class="grid gap-4 justify-items-center"
+          class="grid gap-3 justify-items-center"
           style="grid-template-columns: repeat(auto-fill, minmax({cardWidth}px, 1fr));"
         >
           {#each sortedTracks as track (track.id)}
@@ -542,29 +543,7 @@
                 class="relative shrink-0 rounded-md overflow-hidden bg-base-400 mb-2"
                 style="width: {artSize}px; height: {artSize}px;"
               >
-                {#if getArt(track.id)}
-                  <img
-                    src={getArt(track.id)}
-                    alt="アルバムアート"
-                    class="w-full h-full object-cover"
-                    loading="lazy"
-                  />
-                {:else}
-                  <div
-                    class="w-full h-full flex items-center justify-center text-white/80 bg-gradient-to-br from-accent to-accent-focus"
-                  >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      viewBox="0 0 24 24"
-                      fill="currentColor"
-                      class="w-2/5 h-2/5"
-                    >
-                      <path
-                        d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"
-                      />
-                    </svg>
-                  </div>
-                {/if}
+                <AlbumArt src={getArt(track.id)} alt="アルバムアート" placeholderType="music" />
                 {#if $currentTrack?.id === track.id}
                   <div class="absolute inset-0 bg-black/50 flex items-center justify-center">
                     <PlayingIndicator size="large" />
