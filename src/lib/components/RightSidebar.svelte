@@ -45,18 +45,21 @@
   </button>
 </div>
 
+<!-- バックドロップ（モーダル的に閉じる） -->
+{#if $isRightSidebarExpanded}
+  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+  <div class="backdrop" onclick={close}></div>
+{/if}
+
 <!-- キューパネル（展開時のみ表示） -->
 {#if $isRightSidebarExpanded}
   <aside class="queue-panel" transition:fly={{ x: 200, duration: 200 }}>
     <!-- ヘッダー -->
     <div class="queue-header">
       <h3>再生キュー</h3>
-      <div class="header-actions">
-        {#if $playQueue.length > 1}
-          <button class="clear-btn" onclick={clearQueue}>クリア</button>
-        {/if}
-        <button class="close-btn" onclick={close} aria-label="閉じる">✕</button>
-      </div>
+      {#if $playQueue.length > 1}
+        <button class="clear-btn" onclick={clearQueue}>クリア</button>
+      {/if}
     </div>
 
     <!-- 再生中 -->
@@ -127,6 +130,11 @@
     @apply text-secondary;
   }
 
+  /* バックドロップ（モーダル的に閉じる） */
+  .backdrop {
+    @apply fixed inset-0 z-20 bg-black/30;
+  }
+
   /* キューパネル（アイコンバーの左に表示） */
   .queue-panel {
     @apply fixed top-0 z-30 h-full
@@ -144,10 +152,6 @@
     @apply m-0 text-sm font-semibold text-text-primary;
   }
 
-  .header-actions {
-    @apply flex items-center gap-2;
-  }
-
   .clear-btn {
     @apply px-2 py-1 bg-transparent border border-border-light rounded
            text-text-secondary text-xs cursor-pointer transition-all duration-200;
@@ -155,15 +159,6 @@
 
   .clear-btn:hover {
     @apply bg-surface-active text-text-primary;
-  }
-
-  .close-btn {
-    @apply bg-transparent border-none text-text-dimmed cursor-pointer p-1
-           text-base transition-colors duration-200;
-  }
-
-  .close-btn:hover {
-    @apply text-text-primary;
   }
 
   /* 再生中セクション */
