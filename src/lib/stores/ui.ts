@@ -34,6 +34,9 @@ export const browseSearchQuery: Writable<string> = writable('');
 // メタデータエディタの開閉状態
 export const isMetadataEditorOpen: Writable<boolean> = writable(false);
 
+// Aboutダイアログの開閉状態
+export const isAboutDialogOpen: Writable<boolean> = writable(false);
+
 // 列幅のデフォルト値（ピクセル単位）
 const DEFAULT_COLUMN_WIDTHS = {
   status: 32, // ステータス列（再生中/エラー等）

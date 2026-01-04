@@ -49,7 +49,7 @@
 </div>
 
 <style>
-  @reference "../../../../app.css";
+  @reference "../../../../../app.css";
   .genre-detail-page {
     @apply flex flex-col h-full;
   }

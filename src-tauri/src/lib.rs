@@ -22,7 +22,9 @@ use commands::{
 };
 use state::AppState;
 use std::path::PathBuf;
-use tauri::Manager;
+use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+use tauri::webview::WebviewWindowBuilder;
+use tauri::{Emitter, Manager};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -99,7 +101,123 @@ pub fn run() {
             let app_state = AppState::new(conn);
             app.manage(app_state);
 
+            // メニューバーを構築
+            let app_menu = SubmenuBuilder::new(app, "Muspice")
+                .about(None)
+                .separator()
+                .item(
+                    &MenuItemBuilder::with_id("settings", "設定...")
+                        .accelerator("CmdOrCtrl+,")
+                        .build(app)?,
+                )
+                .separator()
+                .quit()
+                .build()?;
+
+            let file_menu = SubmenuBuilder::new(app, "ファイル")
+                .item(
+                    &MenuItemBuilder::with_id("import_folder", "フォルダをインポート...")
+                        .accelerator("CmdOrCtrl+I")
+                        .build(app)?,
+                )
+                .separator()
+                .close_window()
+                .build()?;
+
+            let edit_menu = SubmenuBuilder::new(app, "編集")
+                .undo()
+                .redo()
+                .separator()
+                .cut()
+                .copy()
+                .paste()
+                .select_all()
+                .build()?;
+
+            let view_menu = SubmenuBuilder::new(app, "表示")
+                .item(
+                    &MenuItemBuilder::with_id("toggle_fullscreen", "フルスクリーン切替")
+                        .accelerator("Ctrl+CmdOrCtrl+F")
+                        .build(app)?,
+                )
+                .separator()
+                .item(
+                    &MenuItemBuilder::with_id("toggle_sidebar", "サイドバーを表示/隠す")
+                        .accelerator("CmdOrCtrl+\\")
+                        .build(app)?,
+                )
+                .build()?;
+
+            let help_menu = SubmenuBuilder::with_id(app, "help", "ヘルプ")
+                .item(
+                    &MenuItemBuilder::with_id("about", "Muspice について")
+                        .build(app)?,
+                )
+                .separator()
+                .item(
+                    &MenuItemBuilder::with_id("open_github", "GitHub を開く")
+                        .build(app)?,
+                )
+                .build()?;
+
+            let menu = MenuBuilder::new(app)
+                .items(&[&app_menu, &file_menu, &edit_menu, &view_menu, &help_menu])
+                .build()?;
+
+            app.set_menu(menu)?;
+
+            logger::info("メニューバーを初期化しました");
+
             Ok(())
+        })
+        .on_menu_event(|app, event| {
+            let id = event.id().as_ref();
+            match id {
+                "settings" => {
+                    // 設定ウィンドウを開く（既存なら前面に）
+                    if let Some(window) = app.get_webview_window("settings") {
+                        let _ = window.set_focus();
+                    } else {
+                        let _ = WebviewWindowBuilder::new(
+                            app,
+                            "settings",
+                            tauri::WebviewUrl::App("/settings".into()),
+                        )
+                        .title("設定")
+                        .inner_size(700.0, 500.0)
+                        .resizable(true)
+                        .build();
+                    }
+                }
+                "about" => {
+                    // Aboutダイアログを表示するイベントをフロントエンドに送信
+                    let _ = app.emit("show-about-dialog", ());
+                }
+                "import_folder" => {
+                    // インポートダイアログを開くイベントをフロントエンドに送信
+                    let _ = app.emit("open-import-dialog", ());
+                }
+                "toggle_sidebar" => {
+                    // サイドバー切替イベントをフロントエンドに送信
+                    let _ = app.emit("toggle-sidebar", ());
+                }
+                "toggle_fullscreen" => {
+                    // フルスクリーン切替
+                    if let Some(window) = app.get_webview_window("main") {
+                        if let Ok(is_fullscreen) = window.is_fullscreen() {
+                            let _ = window.set_fullscreen(!is_fullscreen);
+                        }
+                    }
+                }
+                "open_github" => {
+                    // GitHubを開く
+                    let _ = tauri_plugin_opener::open_url(
+                        "https://github.com/ban367/muspice",
+                        None::<&str>,
+                    );
+                }
+                _ => {}
+            }
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,13 +1,16 @@
 <script lang="ts">
   import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
+  import { listen } from '@tauri-apps/api/event';
+  import { onMount } from 'svelte';
   import { Toast } from '$lib/components/ui';
   import Player from '$lib/components/Player.svelte';
   import Sidebar from '$lib/components/Sidebar.svelte';
   import RightSidebar from '$lib/components/RightSidebar.svelte';
   import ImportDialog from '$lib/components/ImportDialog.svelte';
-  import { isSidebarOpen } from '$lib/stores/ui';
+  import AboutDialog from '$lib/components/AboutDialog.svelte';
+  import { isSidebarOpen, isImportDialogOpen, isAboutDialogOpen } from '$lib/stores/ui';
   import type { ImportResult } from '$lib/types/models';
-  import '../app.css';
+  import '../../app.css';
 
   // サイドバーの開閉を切り替え
   function toggleSidebar() {
@@ -18,6 +21,30 @@
   function closeSidebar() {
     isSidebarOpen.set(false);
   }
+
+  // メニューバーからのイベントをリッスン
+  onMount(() => {
+    // インポートダイアログを開くイベント
+    const unlistenImport = listen('open-import-dialog', () => {
+      isImportDialogOpen.set(true);
+    });
+
+    // サイドバー切替イベント
+    const unlistenSidebar = listen('toggle-sidebar', () => {
+      isSidebarOpen.update((v) => !v);
+    });
+
+    // Aboutダイアログイベント
+    const unlistenAbout = listen('show-about-dialog', () => {
+      isAboutDialogOpen.set(true);
+    });
+
+    return () => {
+      unlistenImport.then((fn) => fn());
+      unlistenSidebar.then((fn) => fn());
+      unlistenAbout.then((fn) => fn());
+    };
+  });
 
   // パフォーマンス最適化されたQueryClient設定
   const queryClient = new QueryClient({
@@ -101,10 +128,13 @@
 
   <!-- インポートダイアログ -->
   <ImportDialog onImportComplete={handleImportComplete} />
+
+  <!-- Aboutダイアログ -->
+  <AboutDialog />
 </QueryClientProvider>
 
 <style>
-  @reference "../app.css";
+  @reference "../../app.css";
 
   .app-container {
     @apply flex h-screen overflow-hidden relative;

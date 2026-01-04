@@ -141,7 +141,7 @@
 </div>
 
 <style>
-  @reference "../../../app.css";
+  @reference "../../../../app.css";
 
   .albums-page {
     @apply flex flex-col h-full;
