@@ -14,6 +14,9 @@ export const selectedTracks: Writable<string[]> = writable([]);
 // サイドバーの開閉状態
 export const isSidebarOpen: Writable<boolean> = writable(true);
 
+// 右サイドバーの展開状態
+export const isRightSidebarExpanded: Writable<boolean> = writable(false);
+
 // 検索クエリ
 export const searchQuery: Writable<string> = writable('');
 

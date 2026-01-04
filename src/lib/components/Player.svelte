@@ -19,9 +19,6 @@
     repeatMode,
     toggleShuffle,
     toggleRepeat,
-    upcomingTracks,
-    removeFromQueue,
-    clearQueue,
     type RepeatMode
   } from '$lib/stores/player';
   import type { Track, AlbumArt } from '$lib/types/models';
@@ -33,7 +30,6 @@
   let isDraggingProgress = $state(false);
   let isDraggingVolume = $state(false);
   let lastPlayedTrackId = $state<string | null>(null);
-  let showQueue = $state(false);
 
   // アルバムアートキャッシュ
   let albumArtUrl = $state<string | null>(null);
@@ -372,12 +368,6 @@
           toggleRepeat();
         }
         break;
-      case 'KeyQ':
-        if (!event.ctrlKey && !event.metaKey && !event.altKey) {
-          event.preventDefault();
-          showQueue = !showQueue;
-        }
-        break;
     }
   }
 
@@ -596,30 +586,6 @@
 
     <!-- 右側コントロール -->
     <div class="flex items-center justify-end gap-3">
-      <button
-        class="control-button small"
-        class:active={showQueue}
-        onclick={() => (showQueue = !showQueue)}
-        title="再生キュー (Q)"
-        aria-label="再生キュー"
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="18"
-          height="18"
-          viewBox="0 0 24 24"
-          fill="currentColor"
-        >
-          <path
-            d="M4 6h16M4 10h16M4 14h10M4 18h7"
-            stroke="currentColor"
-            stroke-width="2"
-            fill="none"
-            stroke-linecap="round"
-          />
-        </svg>
-      </button>
-
       <div class="flex items-center gap-2">
         <button
           class="control-button small"
@@ -715,67 +681,6 @@
   {/if}
 </div>
 
-<!-- 再生キューパネル -->
-{#if showQueue && $currentTrack}
-  <div class="queue-panel">
-    <div class="flex justify-between items-center px-4 py-3 border-b border-border">
-      <h3 class="m-0 text-sm font-semibold">再生キュー</h3>
-      <div class="flex gap-2">
-        <button class="queue-clear-btn" onclick={clearQueue}>クリア</button>
-        <button class="queue-close-btn" onclick={() => (showQueue = false)}>✕</button>
-      </div>
-    </div>
-    <div class="px-4 py-3 bg-secondary/10 border-b border-border">
-      <div class="text-[0.625rem] font-semibold uppercase text-text-muted mb-1.5">再生中</div>
-      <div class="flex flex-col gap-0.5">
-        <MarqueeText
-          text={$currentTrack.title || $currentTrack.fileName}
-          class="text-[0.8rem] text-text-primary"
-        />
-        <MarqueeText
-          text={$currentTrack.artist || '不明なアーティスト'}
-          class="text-[0.7rem] text-text-muted"
-        />
-      </div>
-    </div>
-    {#if $upcomingTracks.length > 0}
-      <div class="flex-1 overflow-hidden flex flex-col">
-        <div class="text-[0.625rem] font-semibold uppercase text-text-muted pt-3 pb-1.5 px-4">
-          次に再生 ({$upcomingTracks.length}曲)
-        </div>
-        <div class="flex-1 overflow-y-auto px-2 pb-2">
-          {#each $upcomingTracks as track, index (track.id)}
-            <div class="queue-track">
-              <span class="text-xs text-text-dimmed w-6 text-center">{index + 1}</span>
-              <div class="flex-1 min-w-0 flex flex-col gap-0.5">
-                <MarqueeText
-                  text={track.title || track.fileName}
-                  class="text-[0.8rem] text-text-primary"
-                />
-                <MarqueeText
-                  text={track.artist || '不明なアーティスト'}
-                  class="text-[0.7rem] text-text-muted"
-                />
-              </div>
-              <button
-                class="queue-remove-btn"
-                onclick={() => removeFromQueue(track.id)}
-                title="キューから削除"
-              >
-                ✕
-              </button>
-            </div>
-          {/each}
-        </div>
-      </div>
-    {:else}
-      <div class="py-8 px-4 text-center text-text-dimmed text-sm">
-        キューに他のトラックはありません
-      </div>
-    {/if}
-  </div>
-{/if}
-
 <style>
   @reference "../../app.css";
 
@@ -850,63 +755,5 @@
 
   .volume-bar:hover .progress-handle {
     @apply opacity-100;
-  }
-
-  /* 再生キューパネル */
-  .queue-panel {
-    @apply fixed z-[1001] w-80 max-h-[400px]
-           bg-base-300 border border-border rounded-lg overflow-hidden
-           flex flex-col bottom-player-height right-4
-           shadow-[0_10px_30px_rgba(0,0,0,0.5)];
-    animation: slideUp var(--transition-normal) ease-out;
-  }
-
-  .queue-clear-btn {
-    @apply px-2 py-1 bg-transparent border border-border-light rounded
-           text-text-secondary text-xs cursor-pointer transition-all duration-200;
-  }
-
-  .queue-clear-btn:hover {
-    @apply bg-surface-active text-text-primary;
-  }
-
-  .queue-close-btn {
-    @apply bg-transparent border-none text-text-dimmed text-base cursor-pointer p-1;
-  }
-
-  .queue-close-btn:hover {
-    @apply text-text-primary;
-  }
-
-  .queue-track {
-    @apply flex items-center gap-2 p-2 rounded transition-colors duration-200;
-  }
-
-  .queue-track:hover {
-    @apply bg-surface;
-  }
-
-  .queue-remove-btn {
-    @apply bg-transparent border-none text-text-dimmed text-xs cursor-pointer p-1
-           opacity-0 transition-all duration-200;
-  }
-
-  .queue-track:hover .queue-remove-btn {
-    @apply opacity-100;
-  }
-
-  .queue-remove-btn:hover {
-    @apply text-error;
-  }
-
-  @keyframes slideUp {
-    from {
-      opacity: 0;
-      transform: translateY(10px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
   }
 </style>

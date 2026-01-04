@@ -3,6 +3,7 @@
   import { Toast } from '$lib/components/ui';
   import Player from '$lib/components/Player.svelte';
   import Sidebar from '$lib/components/Sidebar.svelte';
+  import RightSidebar from '$lib/components/RightSidebar.svelte';
   import ImportDialog from '$lib/components/ImportDialog.svelte';
   import { isSidebarOpen } from '$lib/stores/ui';
   import type { ImportResult } from '$lib/types/models';
@@ -93,6 +94,9 @@
       <!-- プレイヤー -->
       <Player />
     </div>
+
+    <!-- 右サイドバー -->
+    <RightSidebar />
   </div>
 
   <!-- インポートダイアログ -->
@@ -140,6 +144,7 @@
 
   .main-content {
     @apply flex-1 overflow-auto p-4 pb-player-height bg-base-100;
+    padding-right: calc(1rem + 3rem); /* 右サイドバー分のスペース */
   }
 
   /* レスポンシブ対応 */
