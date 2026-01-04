@@ -155,8 +155,9 @@
               <span class="track-number" class:playing={$currentTrack?.id === track.id}>
                 {#if $currentTrack?.id === track.id}
                   <PlayingIndicator size="small" />
+                {:else}
+                  {index + 1}
                 {/if}
-                {index + 1}
               </span>
               <div class="track-info">
                 <MarqueeText text={track.title || track.fileName} class="track-title" />

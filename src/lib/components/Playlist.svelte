@@ -11,7 +11,8 @@
   import type { Playlist, Track } from '$lib/types/models';
   import { validatePlaylistName, toSafeString } from '$lib/utils/validation';
   import { formatDuration } from '$lib/utils/format';
-  import { playTrackFromQueue } from '$lib/stores/player';
+  import { playTrackFromQueue, currentTrack } from '$lib/stores/player';
+  import PlayingIndicator from './library/PlayingIndicator.svelte';
 
   // クエリとミューテーション
   let playlistsQuery = $derived(usePlaylistsQuery());
@@ -286,7 +287,13 @@
                 role="button"
                 tabindex="0"
               >
-                <div class="track-number">{index + 1}</div>
+                <div class="track-number">
+                  {#if $currentTrack?.id === track.id}
+                    <PlayingIndicator size="small" />
+                  {:else}
+                    {index + 1}
+                  {/if}
+                </div>
                 <div class="flex-1 min-w-0">
                   <div
                     class="text-text-primary font-medium overflow-hidden text-ellipsis whitespace-nowrap"

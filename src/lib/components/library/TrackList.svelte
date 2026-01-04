@@ -77,13 +77,10 @@
 
   // グリッドテンプレート列を計算
   const gridTemplateColumns = $derived(
-    `${$columnWidths.status}px ${$columnWidths.number}px ${$columnWidths.title}px ${$columnWidths.artist}px ${$columnWidths.rating}px ${$columnWidths.duration}px`
+    `${$columnWidths.number}px ${$columnWidths.title}px ${$columnWidths.artist}px ${$columnWidths.rating}px ${$columnWidths.duration}px`
   );
 
   const queryClient = useQueryClient();
-
-  // 現在再生中のトラックID
-  const currentPlayingTrackId = $derived($currentTrack?.id);
 
   // ソートされたトラック
   const sortedTracks = $derived.by(() => {
@@ -421,7 +418,6 @@
         <!-- リスト表示 -->
         <div class="track-table">
           <div class="table-header" style="grid-template-columns: {gridTemplateColumns};">
-            <div class="col-status"></div>
             <div class="col-number">#</div>
             <div class="resizable-header">
               <button class="sortable" onclick={() => toggleSort('title')}>
@@ -466,7 +462,7 @@
               <div
                 class="track-row"
                 class:selected={selectedTrackIds.has(track.id)}
-                class:playing={currentPlayingTrackId === track.id}
+                class:playing={$currentTrack?.id === track.id}
                 class:dragging={isDragging && draggedTrackIds.includes(track.id)}
                 style="grid-template-columns: {gridTemplateColumns};"
                 draggable="true"
@@ -479,15 +475,14 @@
                 role="button"
                 tabindex="0"
               >
-                <div class="col-status flex items-center justify-center">
-                  {#if currentPlayingTrackId === track.id}
-                    <PlayingIndicator size="small" />
-                  {/if}
-                </div>
                 <div class="col-number flex items-center justify-center">
-                  <span class="track-index" class:playing={currentPlayingTrackId === track.id}>
-                    {sortedTracks.indexOf(track) + 1}
-                  </span>
+                  {#if $currentTrack?.id === track.id}
+                    <PlayingIndicator size="small" />
+                  {:else}
+                    <span class="track-index">
+                      {sortedTracks.indexOf(track) + 1}
+                    </span>
+                  {/if}
                 </div>
                 <MarqueeText
                   text={searchTerm ? track.title || track.fileName : track.title || track.fileName}
@@ -531,7 +526,7 @@
             <div
               class="track-card"
               class:selected={selectedTrackIds.has(track.id)}
-              class:playing={currentPlayingTrackId === track.id}
+              class:playing={$currentTrack?.id === track.id}
               style="width: {cardWidth}px;"
               draggable="true"
               ondragstart={(e) => handleDragStart(e, track)}
@@ -570,7 +565,7 @@
                     </svg>
                   </div>
                 {/if}
-                {#if currentPlayingTrackId === track.id}
+                {#if $currentTrack?.id === track.id}
                   <div class="absolute inset-0 bg-black/50 flex items-center justify-center">
                     <PlayingIndicator size="large" />
                   </div>
@@ -697,11 +692,6 @@
     @apply opacity-50 bg-primary/30;
   }
 
-  /* ステータス列 */
-  .col-status {
-    @apply w-full h-full;
-  }
-
   /* 番号列 */
   .col-number {
     @apply text-xs;
@@ -709,10 +699,6 @@
 
   .track-index {
     @apply text-sm text-text-muted min-w-5 text-center;
-  }
-
-  .track-index.playing {
-    @apply text-primary font-bold;
   }
 
   /* レーティング */

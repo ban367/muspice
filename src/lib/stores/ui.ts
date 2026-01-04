@@ -39,8 +39,7 @@ export const isAboutDialogOpen: Writable<boolean> = writable(false);
 
 // 列幅のデフォルト値（ピクセル単位）
 const DEFAULT_COLUMN_WIDTHS = {
-  status: 32, // ステータス列（再生中/エラー等）
-  number: 40, // トラック番号
+  number: 48, // トラック番号（再生中アイコンも表示）
   title: 300, // 可変幅の基準
   artist: 200, // 可変幅の基準
   rating: 80, // 5rem
@@ -56,13 +55,15 @@ function createColumnWidthsStore() {
       const stored = localStorage.getItem('muspice:columnWidths');
       if (stored) {
         const parsed = JSON.parse(stored);
-        // 古いcheckboxキーを削除（マイグレーション）
+        // 古い不要なキーを削除（マイグレーション）
         if ('checkbox' in parsed) {
           delete parsed.checkbox;
         }
+        if ('status' in parsed) {
+          delete parsed.status;
+        }
         // 新しいキーがない場合はデフォルト値を使用
         initialWidths = {
-          status: parsed.status ?? DEFAULT_COLUMN_WIDTHS.status,
           number: parsed.number ?? DEFAULT_COLUMN_WIDTHS.number,
           title: parsed.title ?? DEFAULT_COLUMN_WIDTHS.title,
           artist: parsed.artist ?? DEFAULT_COLUMN_WIDTHS.artist,
