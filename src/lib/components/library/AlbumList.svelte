@@ -54,11 +54,11 @@
   @reference "../../../app.css";
 
   .album-list {
-    @apply flex flex-col h-full overflow-y-auto py-2;
+    @apply flex flex-col h-full overflow-y-auto py-1;
   }
 
   .album-item {
-    @apply flex items-center gap-3 px-4 py-2 mx-2 border-none bg-transparent rounded-md cursor-pointer transition-colors duration-150 text-left;
+    @apply flex items-center gap-3 px-3 py-1.5 mx-2 border-none bg-transparent rounded-md cursor-pointer transition-colors duration-150 text-left;
   }
 
   .album-item:hover {

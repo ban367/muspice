@@ -621,7 +621,7 @@
   }
 
   .table-header {
-    @apply grid gap-3 px-4 py-2 text-xs font-semibold uppercase text-text-muted border-b border-border sticky top-0 bg-base-100 z-10;
+    @apply grid gap-3 px-4 py-1.5 text-xs font-semibold uppercase text-text-muted border-b border-border sticky top-0 bg-base-100 z-10;
   }
 
   .resizable-header {
@@ -642,7 +642,7 @@
   }
 
   .track-row {
-    @apply grid gap-3 px-4 py-2 items-center cursor-pointer rounded transition-colors;
+    @apply grid gap-3 px-4 py-1.5 items-center cursor-pointer rounded transition-colors;
   }
 
   .track-row:hover {

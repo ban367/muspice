@@ -267,7 +267,7 @@
   }
 
   .track-row {
-    @apply grid gap-3 py-2.5 px-3 items-center rounded-md cursor-pointer transition-colors duration-100;
+    @apply grid gap-3 py-1.5 px-3 items-center rounded-md cursor-pointer transition-colors duration-100;
     grid-template-columns: 2.5rem 1fr 4rem 2rem;
   }
 
