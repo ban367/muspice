@@ -59,7 +59,14 @@ export default [
       ...svelte.configs.recommended.rules,
       'svelte/no-unused-svelte-ignore': 'warn',
       'svelte/valid-compile': 'error',
-      'no-undef': 'off'
+      'no-undef': 'off',
+      'no-unused-vars': [
+        'warn',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_'
+        }
+      ]
     }
   },
   {
