@@ -55,7 +55,7 @@ export function isCached(trackId: string): boolean {
  */
 export async function loadAlbumArt(trackId: string): Promise<void> {
   const cache = get(cacheStore);
-  
+
   // 既にキャッシュ済みまたは読み込み中の場合はスキップ
   if (trackId in cache || loading.has(trackId)) {
     return;
@@ -66,7 +66,7 @@ export async function loadAlbumArt(trackId: string): Promise<void> {
   try {
     const art = await getAlbumArt(trackId);
     let dataUrl: string | null = null;
-    
+
     if (art?.data && art?.mimeType) {
       dataUrl = `data:${art.mimeType};base64,${art.data}`;
     }
