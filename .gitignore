@@ -11,3 +11,6 @@ vite.config.ts.timestamp-*
 
 # Rust analyzer
 target/rust-analyzer/
+
+.gemini/
+gha-creds-*.json
