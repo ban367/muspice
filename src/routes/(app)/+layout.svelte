@@ -8,7 +8,13 @@
   import RightSidebar from '$lib/components/RightSidebar.svelte';
   import ImportDialog from '$lib/components/ImportDialog.svelte';
   import AboutDialog from '$lib/components/AboutDialog.svelte';
-  import { isSidebarOpen, isImportDialogOpen, isAboutDialogOpen } from '$lib/stores/ui';
+  import {
+    isSidebarOpen,
+    isImportDialogOpen,
+    isAboutDialogOpen,
+    isRightSidebarPinned,
+    isRightSidebarExpanded
+  } from '$lib/stores/ui';
   import type { ImportResult } from '$lib/types/models';
   import '../../app.css';
 
@@ -96,7 +102,10 @@
     </div>
 
     <!-- メインコンテンツ -->
-    <div class="main-container">
+    <div
+      class="main-container"
+      class:sidebar-pinned={$isRightSidebarPinned && $isRightSidebarExpanded}
+    >
       <!-- モバイル用ヘッダー -->
       <header class="mobile-header">
         <button class="menu-button" aria-label="メニューを開く" onclick={toggleSidebar}>
@@ -122,7 +131,7 @@
       <Player />
     </div>
 
-    <!-- 右サイドバー -->
+    <!-- 右サイドバー（固定時は埋め込み表示） -->
     <RightSidebar />
   </div>
 
@@ -150,6 +159,12 @@
 
   .main-container {
     @apply flex-1 flex flex-col min-w-0 h-full overflow-hidden;
+    transition: margin-right 0.2s ease;
+  }
+
+  /* 右サイドバー固定時のメインコンテンツ調整 */
+  .main-container.sidebar-pinned {
+    margin-right: 17rem; /* キューパネルの幅のみ（アイコンバーは常時固定表示で別） */
   }
 
   .mobile-header {
