@@ -10,6 +10,7 @@
   import { useGenresGroupedQuery } from '$lib/queries/tracks';
   import type { Playlist } from '$lib/types/models';
   import PlaylistContextMenu from './PlaylistContextMenu.svelte';
+  import MarqueeText from './MarqueeText.svelte';
 
   // パス変更時にサイドバーを閉じる（モバイル用）
   let previousPath = $state('');
@@ -399,8 +400,8 @@
                   d="M4 6h16M4 10h16M4 14h16M4 18h16"
                 />
               </svg>
-              <span class="flex-1 text-truncate">{playlist.name}</span>
-              <span class="text-xs text-text-dimmed shrink-0">{playlist.tracks.length}</span>
+              <MarqueeText text={playlist.name} class="flex-1" />
+              <span class="text-xs text-text-dimmed shrink-0 ml-2">{playlist.tracks.length}</span>
             </a>
           </li>
         {/each}

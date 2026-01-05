@@ -1,15 +1,19 @@
 <script lang="ts">
-  import ArtistGrid from '$lib/components/library/ArtistGrid.svelte';
+  import GenreGrid from '$lib/components/library/GenreGrid.svelte';
   import LibraryHeader from '$lib/components/library/LibraryHeader.svelte';
   import { browseSearchQuery } from '$lib/stores/ui';
-  import { useArtistsGroupedQuery } from '$lib/queries/tracks';
+  import { useGenresGroupedQuery } from '$lib/queries/tracks';
+  import { useQueryClient } from '@tanstack/svelte-query';
+
+  // QueryClient for refetching
+  const queryClient = useQueryClient();
 
   // 表示モード
   let displayMode = $state<'grid' | 'list'>('grid');
 
   // クエリ
-  const artistsQuery = useArtistsGroupedQuery();
-  const artistCount = $derived(artistsQuery.data?.length ?? 0);
+  const genresQuery = useGenresGroupedQuery();
+  const genreCount = $derived(genresQuery.data?.length ?? 0);
 
   // 検索状態
   let searchTerm = $state('');
@@ -38,14 +42,21 @@
   function handleDisplayModeChange(mode: 'grid' | 'list') {
     displayMode = mode;
   }
+
+  function handleRefreshComplete() {
+    queryClient.invalidateQueries({ queryKey: ['tracks'] });
+    queryClient.invalidateQueries({ queryKey: ['albums'] });
+    queryClient.invalidateQueries({ queryKey: ['artists'] });
+    queryClient.invalidateQueries({ queryKey: ['genres'] });
+  }
 </script>
 
-<div class="artists-page">
+<div class="genres-page">
   <LibraryHeader
-    title="アーティスト"
-    count={artistCount}
-    countUnit="人"
-    searchPlaceholder="アーティストを検索..."
+    title="ジャンル"
+    count={genreCount}
+    countUnit="種類"
+    searchPlaceholder="ジャンルを検索..."
     {searchTerm}
     onSearchInput={handleSearchInput}
     onSearchClear={clearSearch}
@@ -53,18 +64,19 @@
     onDisplayModeChange={handleDisplayModeChange}
     showGridMode={true}
     showListMode={true}
-    showCardSizeSlider={true}
+    showCardSizeSlider={false}
+    onRefreshComplete={handleRefreshComplete}
   />
 
-  <!-- アーティストグリッド -->
+  <!-- ジャンルグリッド -->
   <div class="grid-container">
-    <ArtistGrid {displayMode} />
+    <GenreGrid {displayMode} />
   </div>
 </div>
 
 <style>
-  @reference "../../../app.css";
-  .artists-page {
+  @reference "../../../../app.css";
+  .genres-page {
     @apply flex flex-col h-full;
   }
 

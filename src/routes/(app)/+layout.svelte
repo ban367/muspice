@@ -1,12 +1,16 @@
 <script lang="ts">
   import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
+  import { listen } from '@tauri-apps/api/event';
+  import { onMount } from 'svelte';
   import { Toast } from '$lib/components/ui';
   import Player from '$lib/components/Player.svelte';
   import Sidebar from '$lib/components/Sidebar.svelte';
+  import RightSidebar from '$lib/components/RightSidebar.svelte';
   import ImportDialog from '$lib/components/ImportDialog.svelte';
-  import { isSidebarOpen } from '$lib/stores/ui';
+  import AboutDialog from '$lib/components/AboutDialog.svelte';
+  import { isSidebarOpen, isImportDialogOpen, isAboutDialogOpen } from '$lib/stores/ui';
   import type { ImportResult } from '$lib/types/models';
-  import '../app.css';
+  import '../../app.css';
 
   // サイドバーの開閉を切り替え
   function toggleSidebar() {
@@ -17,6 +21,30 @@
   function closeSidebar() {
     isSidebarOpen.set(false);
   }
+
+  // メニューバーからのイベントをリッスン
+  onMount(() => {
+    // インポートダイアログを開くイベント
+    const unlistenImport = listen('open-import-dialog', () => {
+      isImportDialogOpen.set(true);
+    });
+
+    // サイドバー切替イベント
+    const unlistenSidebar = listen('toggle-sidebar', () => {
+      isSidebarOpen.update((v) => !v);
+    });
+
+    // Aboutダイアログイベント
+    const unlistenAbout = listen('show-about-dialog', () => {
+      isAboutDialogOpen.set(true);
+    });
+
+    return () => {
+      unlistenImport.then((fn) => fn());
+      unlistenSidebar.then((fn) => fn());
+      unlistenAbout.then((fn) => fn());
+    };
+  });
 
   // パフォーマンス最適化されたQueryClient設定
   const queryClient = new QueryClient({
@@ -44,11 +72,11 @@
    */
   function handleImportComplete(result: ImportResult) {
     console.log('インポート完了:', result);
-    // トラック一覧を再取得
+    // トラック一覧を再取得（実際のクエリキーに合わせる）
     queryClient.invalidateQueries({ queryKey: ['tracks'] });
-    queryClient.invalidateQueries({ queryKey: ['albums'] });
-    queryClient.invalidateQueries({ queryKey: ['artists'] });
-    queryClient.invalidateQueries({ queryKey: ['genres'] });
+    queryClient.invalidateQueries({ queryKey: ['albums', 'grouped'] });
+    queryClient.invalidateQueries({ queryKey: ['artists', 'grouped'] });
+    queryClient.invalidateQueries({ queryKey: ['genres', 'grouped'] });
   }
 </script>
 
@@ -93,118 +121,78 @@
       <!-- プレイヤー -->
       <Player />
     </div>
+
+    <!-- 右サイドバー -->
+    <RightSidebar />
   </div>
 
   <!-- インポートダイアログ -->
   <ImportDialog onImportComplete={handleImportComplete} />
+
+  <!-- Aboutダイアログ -->
+  <AboutDialog />
 </QueryClientProvider>
 
 <style>
+  @reference "../../app.css";
+
   .app-container {
-    display: flex;
-    height: 100vh;
-    overflow: hidden;
-    position: relative;
+    @apply flex h-screen overflow-hidden relative;
   }
 
   .sidebar-overlay {
-    display: none;
+    @apply hidden;
   }
 
   .sidebar-container {
-    width: 256px;
-    flex-shrink: 0;
-    height: 100%;
-    overflow: hidden;
+    @apply w-64 shrink-0 h-full overflow-hidden;
   }
 
   .main-container {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    height: 100%;
-    overflow: hidden;
+    @apply flex-1 flex flex-col min-w-0 h-full overflow-hidden;
   }
 
   .mobile-header {
-    display: none;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 0.75rem 1rem;
-    background-color: #1e1e2e;
-    border-bottom: 1px solid #333;
+    @apply hidden items-center gap-3 py-3 px-4 bg-base-300 border-b border-border;
   }
 
   .menu-button {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 2.5rem;
-    height: 2.5rem;
-    padding: 0;
-    border: none;
-    background: transparent;
-    color: #fff;
-    cursor: pointer;
-    border-radius: 0.375rem;
+    @apply flex items-center justify-center w-10 h-10 p-0 border-none bg-transparent text-white cursor-pointer rounded-md;
   }
 
   .menu-button:hover {
-    background-color: rgba(255, 255, 255, 0.1);
+    @apply bg-surface-active;
   }
 
   .menu-button .icon {
-    width: 1.5rem;
-    height: 1.5rem;
+    @apply w-6 h-6;
   }
 
   .mobile-title {
-    font-size: 1.25rem;
-    font-weight: 700;
-    color: #fff;
+    @apply text-xl font-bold text-white;
   }
 
   .main-content {
-    flex: 1;
-    overflow: auto;
-    padding: 1rem;
-    padding-bottom: 8rem; /* プレイヤーの高さ分のパディング */
+    @apply flex-1 overflow-auto p-4 pb-player-height bg-base-100;
+    padding-right: calc(1rem + 3rem); /* 右サイドバー分のスペース */
   }
 
   /* レスポンシブ対応 */
   @media (max-width: 1024px) {
     .sidebar-overlay {
-      display: block;
-      position: fixed;
-      inset: 0;
-      background-color: rgba(0, 0, 0, 0.5);
-      z-index: 40;
+      @apply block fixed inset-0 bg-black/50 z-40;
     }
 
     .sidebar-container {
-      position: fixed;
-      left: 0;
-      top: 0;
-      bottom: 0;
-      z-index: 50;
-      transform: translateX(-100%);
-      transition: transform 0.3s ease;
+      @apply fixed left-0 top-0 bottom-0 z-50 -translate-x-full transition-transform duration-300;
     }
 
     .sidebar-container.open {
-      transform: translateX(0);
+      @apply translate-x-0;
     }
 
     .mobile-header {
-      display: flex;
-    }
-  }
-
-  /* ダークモード */
-  @media (prefers-color-scheme: dark) {
-    .main-content {
-      background-color: #0f0f1a;
+      @apply flex;
     }
   }
 </style>

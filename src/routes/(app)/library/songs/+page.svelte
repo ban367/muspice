@@ -3,6 +3,10 @@
   import { sanitizeSearchQuery } from '$lib/utils/validation';
   import TrackList from '$lib/components/library/TrackList.svelte';
   import LibraryHeader from '$lib/components/library/LibraryHeader.svelte';
+  import { useQueryClient } from '@tanstack/svelte-query';
+
+  // QueryClient for refetching
+  const queryClient = useQueryClient();
 
   // 表示モード
   let displayMode = $state<'grid' | 'list'>('list');
@@ -54,6 +58,15 @@
   function handleDisplayModeChange(mode: 'grid' | 'list') {
     displayMode = mode;
   }
+
+  function handleRefreshComplete() {
+    // 全てのトラック関連クエリをリフレッシュ
+    queryClient.invalidateQueries({ queryKey: ['tracks'] });
+    queryClient.invalidateQueries({ queryKey: ['search'] });
+    queryClient.invalidateQueries({ queryKey: ['albums'] });
+    queryClient.invalidateQueries({ queryKey: ['artists'] });
+    queryClient.invalidateQueries({ queryKey: ['genres'] });
+  }
 </script>
 
 <div class="songs-page">
@@ -70,6 +83,7 @@
     showGridMode={true}
     showListMode={true}
     showCardSizeSlider={true}
+    onRefreshComplete={handleRefreshComplete}
   />
 
   <!-- トラックリスト -->
@@ -86,7 +100,7 @@
 </div>
 
 <style>
-  @reference "../../../app.css";
+  @reference "../../../../app.css";
   .songs-page {
     @apply flex flex-col h-full;
   }

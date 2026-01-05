@@ -1,14 +1,10 @@
 <script lang="ts">
   import type { Track, AlbumGroup, ArtistGroup, GenreGroup } from '$lib/types/models';
   import { playTrackFromQueue, currentTrack } from '$lib/stores/player';
-  import {
-    loadAlbumArt,
-    getCachedAlbumArt,
-    isCached,
-    albumArtCacheVersion
-  } from '$lib/stores/albumArtCache';
+  import { loadAlbumArt, albumArtCache } from '$lib/stores/albumArtCache';
   import { formatDuration, formatTotalDuration } from '$lib/utils/format';
   import PlayingIndicator from './PlayingIndicator.svelte';
+  import AlbumArt from '../AlbumArt.svelte';
 
   // Props
   interface Props {
@@ -19,9 +15,13 @@
 
   let { group, type, onClose }: Props = $props();
 
-  // キャッシュ更新の追跡（リアクティビティのため）
-  // eslint-disable-next-line no-unused-vars
-  const cacheVersion = $derived($albumArtCacheVersion);
+  // リアクティブなキャッシュを購読
+  const cache = $derived($albumArtCache);
+
+  // キャッシュからアルバムアートを取得
+  function getArt(trackId: string): string | null {
+    return cache[trackId] ?? null;
+  }
 
   // グループからトラックリストを取得
   const tracks = $derived.by((): Track[] => {
@@ -82,51 +82,17 @@
 {#if group}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="modal-backdrop" onclick={handleBackdropClick}>
+  <div class="custom-modal-backdrop" onclick={handleBackdropClick}>
     <div class="modal-content max-w-3xl">
       <!-- ヘッダー -->
       <div class="modal-header">
         <div class="header-art">
-          {#if isCached(group.representativeTrackId)}
-            <img src={getCachedAlbumArt(group.representativeTrackId)} alt={group.name} />
-          {:else}
-            <div class="art-placeholder">
-              {#if type === 'album'}
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                >
-                  <circle cx="12" cy="12" r="10" />
-                  <circle cx="12" cy="12" r="3" />
-                </svg>
-              {:else if type === 'artist'}
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                >
-                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                  <circle cx="12" cy="7" r="4" />
-                </svg>
-              {:else}
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                >
-                  <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-                  <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-                </svg>
-              {/if}
-            </div>
-          {/if}
+          <AlbumArt
+            src={getArt(group.representativeTrackId)}
+            alt={group.name}
+            rounded="lg"
+            placeholderType={type === 'artist' ? 'person' : 'disc'}
+          />
         </div>
         <div class="header-info">
           <span class="text-xs uppercase tracking-wider text-text-muted mb-2">
@@ -223,10 +189,6 @@
   .header-art {
     @apply w-40 h-40 shrink-0 rounded-lg overflow-hidden;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-  }
-
-  .header-art img {
-    @apply w-full h-full object-cover;
   }
 
   .header-info {

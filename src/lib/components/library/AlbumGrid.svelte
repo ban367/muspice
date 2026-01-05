@@ -3,15 +3,12 @@
   import { useAlbumsGroupedQuery } from '$lib/queries/tracks';
   import { playTrackFromQueue } from '$lib/stores/player';
   import { gridCardSize, browseSearchQuery } from '$lib/stores/ui';
-  import {
-    loadAlbumArt,
-    getCachedAlbumArt,
-    isCached,
-    albumArtCacheVersion
-  } from '$lib/stores/albumArtCache';
+  import { loadAlbumArt, albumArtCache } from '$lib/stores/albumArtCache';
   import { formatDuration } from '$lib/utils/format';
   import GroupDetail from './GroupDetail.svelte';
   import GroupContextMenu from '../GroupContextMenu.svelte';
+  import MarqueeText from '../MarqueeText.svelte';
+  import AlbumArt from '../AlbumArt.svelte';
 
   // Props
   interface Props {
@@ -43,12 +40,16 @@
   // コンテキストメニュー
   let contextMenu = $state<{ x: number; y: number; album: AlbumGroup } | null>(null);
 
-  // キャッシュ更新の追跡（リアクティビティのため）
-  // eslint-disable-next-line no-unused-vars
-  const cacheVersion = $derived($albumArtCacheVersion);
+  // リアクティブなキャッシュを購読
+  const cache = $derived($albumArtCache);
 
   // カードサイズの計算
-  const cardWidth = $derived($gridCardSize + 24); // padding分を追加
+  const cardWidth = $derived($gridCardSize + 16); // padding分を追加
+
+  // キャッシュからアルバムアートを取得
+  function getArt(trackId: string): string | null {
+    return cache[trackId] ?? null;
+  }
 
   // アルバムカードが表示されたらアートを読み込み
   function handleAlbumVisible(album: AlbumGroup) {
@@ -124,7 +125,7 @@
   }
 </script>
 
-<div class="p-4 min-h-[200px]">
+<div class="p-2 min-h-[200px]">
   {#if isLoading}
     <div class="state-container">
       <div class="spinner"></div>
@@ -160,33 +161,14 @@
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <div
-            class="grid-card"
+            class="grid-card flex flex-col items-center"
             onclick={() => handleAlbumClick(album)}
             ondblclick={() => handleAlbumDoubleClick(album)}
             oncontextmenu={(e) => handleContextMenu(e, album)}
             use:intersectionObserver={{ callback: () => handleAlbumVisible(album) }}
           >
             <div class="grid-card-art" style="width: {$gridCardSize}px; height: {$gridCardSize}px;">
-              {#if isCached(album.representativeTrackId)}
-                <img
-                  src={getCachedAlbumArt(album.representativeTrackId)}
-                  alt={album.name}
-                  loading="lazy"
-                />
-              {:else}
-                <div class="art-placeholder">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.5"
-                  >
-                    <circle cx="12" cy="12" r="10" />
-                    <circle cx="12" cy="12" r="3" />
-                  </svg>
-                </div>
-              {/if}
+              <AlbumArt src={getArt(album.representativeTrackId)} alt={album.name} />
               <div class="play-overlay">
                 <button
                   class="play-button-circle"
@@ -199,14 +181,15 @@
                 </button>
               </div>
             </div>
-            <div class="min-w-0">
-              <h3 class="text-[0.9375rem] font-semibold text-text-primary m-0 text-truncate">
-                {album.name}
-              </h3>
-              <p class="text-[0.8125rem] text-text-muted mt-1 m-0 text-truncate">
-                {album.artist || '不明なアーティスト'}
-              </p>
-              <p class="text-xs text-text-dimmed mt-1 m-0">{album.trackCount}曲</p>
+            <div class="min-w-0 w-full text-center">
+              <MarqueeText
+                text={album.name}
+                class="text-[0.9375rem] font-semibold text-text-primary m-0"
+              />
+              <MarqueeText
+                text={album.artist || '不明なアーティスト'}
+                class="text-[0.8125rem] text-text-muted mt-1 m-0"
+              />
             </div>
           </div>
         {/each}
@@ -225,30 +208,11 @@
             use:intersectionObserver={{ callback: () => handleAlbumVisible(album) }}
           >
             <div class="list-art">
-              {#if isCached(album.representativeTrackId)}
-                <img
-                  src={getCachedAlbumArt(album.representativeTrackId)}
-                  alt={album.name}
-                  loading="lazy"
-                />
-              {:else}
-                <div class="art-placeholder small">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.5"
-                  >
-                    <circle cx="12" cy="12" r="10" />
-                    <circle cx="12" cy="12" r="3" />
-                  </svg>
-                </div>
-              {/if}
+              <AlbumArt src={getArt(album.representativeTrackId)} alt={album.name} />
             </div>
             <div class="list-info">
-              <span class="list-title">{album.name}</span>
-              <span class="list-artist">{album.artist || '不明なアーティスト'}</span>
+              <MarqueeText text={album.name} class="list-title" />
+              <MarqueeText text={album.artist || '不明なアーティスト'} class="list-artist" />
             </div>
             <div class="list-meta">
               <span>{album.trackCount}曲</span>
@@ -304,9 +268,7 @@
 <style>
   @reference "../../../app.css";
   .album-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(var(--card-width), 1fr));
-    gap: 1.25rem;
+    @apply grid grid-cols-[repeat(auto-fill,minmax(var(--card-width),1fr))] gap-3;
   }
 
   /* リスト表示スタイル */
@@ -315,8 +277,8 @@
   }
 
   .list-row {
-    @apply grid gap-3 px-3 py-2.5 items-center rounded-md cursor-pointer transition-colors duration-100;
-    grid-template-columns: 3rem 1fr 5rem 4rem 2.5rem;
+    @apply grid gap-3 px-3 py-2.5 items-center rounded-md cursor-pointer transition-colors duration-100
+           grid-cols-[3rem_1fr_5rem_4rem_2.5rem];
   }
 
   .list-row:hover {
@@ -324,31 +286,11 @@
   }
 
   .list-art {
-    @apply w-12 h-12 rounded overflow-hidden shrink-0;
-  }
-
-  .list-art img {
-    @apply w-full h-full object-cover;
-  }
-
-  .art-placeholder.small {
-    @apply w-full h-full;
-  }
-
-  .art-placeholder.small svg {
-    @apply w-6 h-6;
+    @apply w-12 h-12 rounded overflow-hidden shrink-0 flex items-center justify-center;
   }
 
   .list-info {
     @apply flex flex-col gap-0.5 min-w-0;
-  }
-
-  .list-title {
-    @apply text-sm font-medium text-text-primary truncate;
-  }
-
-  .list-artist {
-    @apply text-xs text-text-muted truncate;
   }
 
   .list-meta {

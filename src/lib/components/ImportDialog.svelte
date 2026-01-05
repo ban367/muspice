@@ -115,7 +115,7 @@
 {#if $isImportDialogOpen}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="modal-backdrop" onclick={closeDialog}>
+  <div class="custom-modal-backdrop" onclick={closeDialog}>
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="modal-content max-w-xl" onclick={(e) => e.stopPropagation()}>

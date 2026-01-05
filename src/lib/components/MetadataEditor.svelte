@@ -183,7 +183,7 @@
 </script>
 
 <div
-  class="modal-backdrop"
+  class="custom-modal-backdrop"
   onclick={handleCancel}
   onkeydown={(e) => e.key === 'Escape' && handleCancel()}
   role="button"

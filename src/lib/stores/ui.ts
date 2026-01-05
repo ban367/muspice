@@ -14,6 +14,9 @@ export const selectedTracks: Writable<string[]> = writable([]);
 // サイドバーの開閉状態
 export const isSidebarOpen: Writable<boolean> = writable(true);
 
+// 右サイドバーの展開状態
+export const isRightSidebarExpanded: Writable<boolean> = writable(false);
+
 // 検索クエリ
 export const searchQuery: Writable<string> = writable('');
 
@@ -31,9 +34,12 @@ export const browseSearchQuery: Writable<string> = writable('');
 // メタデータエディタの開閉状態
 export const isMetadataEditorOpen: Writable<boolean> = writable(false);
 
+// Aboutダイアログの開閉状態
+export const isAboutDialogOpen: Writable<boolean> = writable(false);
+
 // 列幅のデフォルト値（ピクセル単位）
 const DEFAULT_COLUMN_WIDTHS = {
-  checkbox: 40, // 2.5rem
+  number: 48, // トラック番号（再生中アイコンも表示）
   title: 300, // 可変幅の基準
   artist: 200, // 可変幅の基準
   rating: 80, // 5rem
@@ -49,7 +55,23 @@ function createColumnWidthsStore() {
       const stored = localStorage.getItem('muspice:columnWidths');
       if (stored) {
         const parsed = JSON.parse(stored);
-        initialWidths = { ...DEFAULT_COLUMN_WIDTHS, ...parsed };
+        // 古い不要なキーを削除（マイグレーション）
+        if ('checkbox' in parsed) {
+          delete parsed.checkbox;
+        }
+        if ('status' in parsed) {
+          delete parsed.status;
+        }
+        // 新しいキーがない場合はデフォルト値を使用
+        initialWidths = {
+          number: parsed.number ?? DEFAULT_COLUMN_WIDTHS.number,
+          title: parsed.title ?? DEFAULT_COLUMN_WIDTHS.title,
+          artist: parsed.artist ?? DEFAULT_COLUMN_WIDTHS.artist,
+          rating: parsed.rating ?? DEFAULT_COLUMN_WIDTHS.rating,
+          duration: parsed.duration ?? DEFAULT_COLUMN_WIDTHS.duration
+        };
+        // 更新された値を保存
+        localStorage.setItem('muspice:columnWidths', JSON.stringify(initialWidths));
       }
     } catch {
       // パースエラー時はデフォルト値を使用

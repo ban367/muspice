@@ -62,6 +62,10 @@ fn run_migrations(conn: &Connection) -> Result<()> {
     add_column_if_not_exists(conn, "tracks", "play_count", "INTEGER DEFAULT 0")?;
     add_column_if_not_exists(conn, "tracks", "last_played_at", "TEXT")?;
 
+    // トラック番号/ディスク番号のカラムを追加
+    add_column_if_not_exists(conn, "tracks", "track_number", "INTEGER")?;
+    add_column_if_not_exists(conn, "tracks", "disc_number", "INTEGER")?;
+
     // 再生履歴テーブルの作成
     conn.execute(
         "CREATE TABLE IF NOT EXISTS play_history (

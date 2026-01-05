@@ -7,7 +7,7 @@
 </div>
 
 <style>
-  @reference "../../app.css";
+  @reference "../../../app.css";
   .library-layout {
     @apply flex flex-col h-full overflow-hidden;
   }

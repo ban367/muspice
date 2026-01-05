@@ -44,7 +44,7 @@
 </div>
 
 <style>
-  @reference "../../../app.css";
+  @reference "../../../../app.css";
   .mostplayed-page {
     @apply flex flex-col h-full;
   }

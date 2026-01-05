@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { invoke } from '@tauri-apps/api/core';
   import CardSizeSlider from './CardSizeSlider.svelte';
 
   // Props
@@ -17,6 +18,8 @@
     showGridMode?: boolean;
     showListMode?: boolean;
     showCardSizeSlider?: boolean;
+    showRefreshButton?: boolean;
+    onRefreshComplete?: () => void;
   }
 
   let {
@@ -31,15 +34,19 @@
     onDisplayModeChange,
     showGridMode = true,
     showListMode = true,
-    showCardSizeSlider = true
+    showCardSizeSlider = true,
+    showRefreshButton = true,
+    onRefreshComplete
   }: Props = $props();
 
   // 内部検索状態
-  let internalSearchTerm = $state(searchTerm);
+  let internalSearchTerm = $state('');
+  let isRefreshing = $state(false);
 
-  // 外部からの値で同期
+  // 外部からの値で同期（propsを直接参照するのではなくクロージャで参照）
   $effect(() => {
-    internalSearchTerm = searchTerm;
+    const currentSearchTerm = searchTerm;
+    internalSearchTerm = currentSearchTerm;
   });
 
   function handleInput(event: Event) {
@@ -55,6 +62,32 @@
 
   function setDisplayMode(mode: 'grid' | 'list') {
     onDisplayModeChange?.(mode);
+  }
+
+  interface RefreshResult {
+    updated_count: number;
+    skipped_count: number;
+    error_count: number;
+    errors: string[];
+  }
+
+  async function handleRefreshMetadata() {
+    if (isRefreshing) return;
+
+    isRefreshing = true;
+    try {
+      const result = await invoke<RefreshResult>('refresh_library_metadata');
+      console.log('メタデータ更新結果:', result);
+      alert(
+        `メタデータ更新完了\n更新: ${result.updated_count}件\nスキップ: ${result.skipped_count}件\nエラー: ${result.error_count}件`
+      );
+      onRefreshComplete?.();
+    } catch (error) {
+      console.error('メタデータ更新エラー:', error);
+      alert('メタデータ更新中にエラーが発生しました: ' + error);
+    } finally {
+      isRefreshing = false;
+    }
   }
 </script>
 
@@ -124,8 +157,33 @@
     {/if}
   </div>
 
-  <!-- 右側: 検索バー -->
+  <!-- 右側: 更新ボタン、検索バー -->
   <div class="header-right">
+    {#if showRefreshButton}
+      <button
+        class="refresh-btn"
+        class:refreshing={isRefreshing}
+        onclick={handleRefreshMetadata}
+        disabled={isRefreshing}
+        title="メタデータを更新"
+        aria-label="メタデータを更新"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          class="w-4 h-4"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+          />
+        </svg>
+      </button>
+    {/if}
     <div class="search-box">
       <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -219,5 +277,30 @@
 
   .view-btn:disabled {
     @apply opacity-40 cursor-not-allowed;
+  }
+
+  .refresh-btn {
+    @apply flex items-center justify-center w-8 h-8 bg-base-400 border-none rounded text-text-muted cursor-pointer transition-all duration-150;
+  }
+
+  .refresh-btn:hover:not(:disabled) {
+    @apply text-text-primary bg-surface-hover;
+  }
+
+  .refresh-btn:disabled {
+    @apply opacity-40 cursor-not-allowed;
+  }
+
+  .refresh-btn.refreshing svg {
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
   }
 </style>

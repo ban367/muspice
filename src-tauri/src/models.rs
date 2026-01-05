@@ -12,6 +12,8 @@ pub struct Track {
     pub album: Option<String>,
     pub genre: Option<String>,
     pub year: Option<i32>,
+    pub track_number: Option<i32>,
+    pub disc_number: Option<i32>,
     pub duration: Option<i32>,
     pub file_size: i64,
     pub format: String,
@@ -67,6 +69,7 @@ pub struct Metadata {
     pub genre: Option<String>,
     pub year: Option<i32>,
     pub track_number: Option<i32>,
+    pub disc_number: Option<i32>,
     pub album_artist: Option<String>,
     pub composer: Option<String>,
 }

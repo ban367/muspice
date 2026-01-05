@@ -1,6 +1,4 @@
 {
-  "svelte.enable-ts-plugin": true,
-  "kiroAgent.configureMCP": "Disabled",
   "editor.formatOnSave": true,
   "editor.defaultFormatter": "esbenp.prettier-vscode",
   "editor.codeActionsOnSave": {

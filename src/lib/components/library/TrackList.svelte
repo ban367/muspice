@@ -8,18 +8,16 @@
     currentTrackIndex
   } from '$lib/stores/player';
   import { columnWidths, gridCardSize, type ColumnWidths } from '$lib/stores/ui';
-  import {
-    loadAlbumArt,
-    getCachedAlbumArt,
-    isCached,
-    albumArtCacheVersion
-  } from '$lib/stores/albumArtCache';
+  import { loadAlbumArt, albumArtCache } from '$lib/stores/albumArtCache';
   import { formatDuration } from '$lib/utils/format';
   import { get } from 'svelte/store';
   import type { Track } from '$lib/types/models';
   import PlayingIndicator from './PlayingIndicator.svelte';
   import MetadataEditor from '../MetadataEditor.svelte';
   import ContextMenu from '../ContextMenu.svelte';
+  import DeleteTrackDialog from '../DeleteTrackDialog.svelte';
+  import MarqueeText from '../MarqueeText.svelte';
+  import AlbumArt from '../AlbumArt.svelte';
 
   // Props
   interface Props {
@@ -52,13 +50,18 @@
   // アルバムアートサイズ
   const artSize = $derived($gridCardSize);
 
-  // キャッシュ更新の追跡（リアクティビティのため）
-  // eslint-disable-next-line no-unused-vars
-  const cacheVersion = $derived($albumArtCacheVersion);
+  // リアクティブなキャッシュを購読
+  const cache = $derived($albumArtCache);
+
+  // キャッシュからアルバムアートを取得
+  function getArt(trackId: string): string | null {
+    return cache[trackId] ?? null;
+  }
 
   // トラック選択状態
   let selectedTrackIds = $state<Set<string>>(new Set());
   let showMetadataEditor = $state(false);
+  let showDeleteDialog = $state(false);
 
   // コンテキストメニュー状態
   let contextMenu = $state<{ x: number; y: number; track: Track } | null>(null);
@@ -75,13 +78,10 @@
 
   // グリッドテンプレート列を計算
   const gridTemplateColumns = $derived(
-    `${$columnWidths.checkbox}px ${$columnWidths.title}px ${$columnWidths.artist}px ${$columnWidths.rating}px ${$columnWidths.duration}px`
+    `${$columnWidths.number}px ${$columnWidths.title}px ${$columnWidths.artist}px ${$columnWidths.rating}px ${$columnWidths.duration}px`
   );
 
   const queryClient = useQueryClient();
-
-  // 現在再生中のトラックID
-  const currentPlayingTrackId = $derived($currentTrack?.id);
 
   // ソートされたトラック
   const sortedTracks = $derived.by(() => {
@@ -155,12 +155,6 @@
   function getSortIcon(field: SortField): string {
     if (sortField !== field) return '';
     return sortDirection === 'asc' ? '↑' : '↓';
-  }
-
-  function highlightText(text: string, search: string): string {
-    if (!search || !text) return text;
-    const regex = new RegExp(`(${search})`, 'gi');
-    return text.replace(regex, '<mark class="bg-warning text-black px-0.5 rounded-sm">$1</mark>');
   }
 
   const selectedTracks = $derived.by(() => {
@@ -275,6 +269,23 @@
     playQueue.set([...queue, ...selectedTracks]);
   }
 
+  /**
+   * 削除ダイアログを開く
+   */
+  function openDeleteDialog() {
+    if (selectedTrackIds.size > 0) {
+      showDeleteDialog = true;
+    }
+  }
+
+  /**
+   * 削除ダイアログを閉じる
+   */
+  function closeDeleteDialog() {
+    showDeleteDialog = false;
+    clearSelection();
+  }
+
   const cardWidth = $derived(artSize + 24);
 
   function handleDragStart(event: DragEvent, track: Track) {
@@ -355,13 +366,33 @@
     document.removeEventListener('mouseup', handleResizeEnd);
   }
 
-  $effect(() => {
-    if (sortedTracks && displayMode === 'grid') {
-      for (const track of sortedTracks.slice(0, 50)) {
-        loadAlbumArt(track.id);
+  // Intersection Observer アクション
+  function intersectionObserver(node: HTMLElement, options: { callback: () => void }) {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            options.callback();
+            observer.unobserve(node);
+          }
+        });
+      },
+      { rootMargin: '100px' }
+    );
+
+    observer.observe(node);
+
+    return {
+      destroy() {
+        observer.disconnect();
       }
-    }
-  });
+    };
+  }
+
+  // トラックカードが表示されたらアートを読み込み
+  function handleTrackVisible(trackId: string) {
+    loadAlbumArt(trackId);
+  }
 </script>
 
 <div class="flex flex-col h-full">
@@ -382,7 +413,7 @@
         <!-- リスト表示 -->
         <div class="track-table">
           <div class="table-header" style="grid-template-columns: {gridTemplateColumns};">
-            <div class="col-checkbox"></div>
+            <div class="col-number">#</div>
             <div class="resizable-header">
               <button class="sortable" onclick={() => toggleSort('title')}>
                 タイトル {getSortIcon('title')}
@@ -426,7 +457,7 @@
               <div
                 class="track-row"
                 class:selected={selectedTrackIds.has(track.id)}
-                class:playing={currentPlayingTrackId === track.id}
+                class:playing={$currentTrack?.id === track.id}
                 class:dragging={isDragging && draggedTrackIds.includes(track.id)}
                 style="grid-template-columns: {gridTemplateColumns};"
                 draggable="true"
@@ -439,25 +470,25 @@
                 role="button"
                 tabindex="0"
               >
-                <div class="col-checkbox flex items-center justify-center">
-                  {#if currentPlayingTrackId === track.id}
+                <div class="col-number flex items-center justify-center">
+                  {#if $currentTrack?.id === track.id}
                     <PlayingIndicator size="small" />
-                  {/if}
-                </div>
-                <div class="text-truncate text-text-primary">
-                  {#if searchTerm}
-                    {@html highlightText(track.title || track.fileName, searchTerm)}
                   {:else}
-                    {track.title || track.fileName}
+                    <span class="track-index">
+                      {sortedTracks.indexOf(track) + 1}
+                    </span>
                   {/if}
                 </div>
-                <div class="text-truncate text-text-secondary text-sm">
-                  {#if searchTerm}
-                    {@html highlightText(track.artist || '不明なアーティスト', searchTerm)}
-                  {:else}
-                    {track.artist || '不明なアーティスト'}
-                  {/if}
-                </div>
+                <MarqueeText
+                  text={searchTerm ? track.title || track.fileName : track.title || track.fileName}
+                  class="text-text-primary"
+                />
+                <MarqueeText
+                  text={searchTerm
+                    ? track.artist || '不明なアーティスト'
+                    : track.artist || '不明なアーティスト'}
+                  class="text-text-secondary text-sm"
+                />
                 <div class="col-rating flex items-center justify-center">
                   <div class="rating-stars">
                     {#each [1, 2, 3, 4, 5] as star}
@@ -483,14 +514,14 @@
       {:else}
         <!-- グリッド表示 -->
         <div
-          class="grid gap-4 justify-items-center"
+          class="grid gap-3 justify-items-center"
           style="grid-template-columns: repeat(auto-fill, minmax({cardWidth}px, 1fr));"
         >
           {#each sortedTracks as track (track.id)}
             <div
               class="track-card"
               class:selected={selectedTrackIds.has(track.id)}
-              class:playing={currentPlayingTrackId === track.id}
+              class:playing={$currentTrack?.id === track.id}
               style="width: {cardWidth}px;"
               draggable="true"
               ondragstart={(e) => handleDragStart(e, track)}
@@ -500,61 +531,28 @@
               onkeydown={(e) => e.key === 'Enter' && handleTrackDoubleClick(track)}
               role="button"
               tabindex="0"
+              use:intersectionObserver={{ callback: () => handleTrackVisible(track.id) }}
             >
               <div
                 class="relative shrink-0 rounded-md overflow-hidden bg-base-400 mb-2"
                 style="width: {artSize}px; height: {artSize}px;"
               >
-                {#if isCached(track.id)}
-                  <img
-                    src={getCachedAlbumArt(track.id)}
-                    alt="アルバムアート"
-                    class="w-full h-full object-cover"
-                    loading="lazy"
-                  />
-                {:else}
-                  <div
-                    class="w-full h-full flex items-center justify-center text-white/80 bg-gradient-to-br from-accent to-accent-focus"
-                  >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      viewBox="0 0 24 24"
-                      fill="currentColor"
-                      class="w-2/5 h-2/5"
-                    >
-                      <path
-                        d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"
-                      />
-                    </svg>
-                  </div>
-                {/if}
-                {#if currentPlayingTrackId === track.id}
+                <AlbumArt src={getArt(track.id)} alt="アルバムアート" placeholderType="music" />
+                {#if $currentTrack?.id === track.id}
                   <div class="absolute inset-0 bg-black/50 flex items-center justify-center">
                     <PlayingIndicator size="large" />
                   </div>
                 {/if}
               </div>
               <div class="w-full text-center min-w-0">
-                <div
-                  class="font-semibold mb-1 text-truncate text-sm text-text-primary"
-                  title={track.title || track.fileName}
-                >
-                  {#if searchTerm}
-                    {@html highlightText(track.title || track.fileName, searchTerm)}
-                  {:else}
-                    {track.title || track.fileName}
-                  {/if}
-                </div>
-                <div
-                  class="text-xs text-text-muted text-truncate"
-                  title={track.artist || '不明なアーティスト'}
-                >
-                  {#if searchTerm}
-                    {@html highlightText(track.artist || '不明なアーティスト', searchTerm)}
-                  {:else}
-                    {track.artist || '不明なアーティスト'}
-                  {/if}
-                </div>
+                <MarqueeText
+                  text={track.title || track.fileName}
+                  class="font-semibold mb-1 text-sm text-text-primary"
+                />
+                <MarqueeText
+                  text={track.artist || '不明なアーティスト'}
+                  class="text-xs text-text-muted"
+                />
               </div>
             </div>
           {/each}
@@ -604,8 +602,16 @@
     onEditMetadata={openMetadataEditor}
     onPlayNext={handlePlayNext}
     onAddToQueue={handleAddToQueue}
+    onDelete={openDeleteDialog}
   />
 {/if}
+
+<!-- 削除ダイアログ -->
+<DeleteTrackDialog
+  bind:open={showDeleteDialog}
+  tracks={selectedTracks}
+  onClose={closeDeleteDialog}
+/>
 
 <style>
   @reference "../../../app.css";
@@ -657,6 +663,15 @@
 
   .track-row.dragging {
     @apply opacity-50 bg-primary/30;
+  }
+
+  /* 番号列 */
+  .col-number {
+    @apply text-xs;
+  }
+
+  .track-index {
+    @apply text-sm text-text-muted min-w-5 text-center;
   }
 
   /* レーティング */

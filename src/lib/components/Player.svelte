@@ -19,20 +19,18 @@
     repeatMode,
     toggleShuffle,
     toggleRepeat,
-    upcomingTracks,
-    removeFromQueue,
-    clearQueue,
     type RepeatMode
   } from '$lib/stores/player';
-  import type { Track, AlbumArt } from '$lib/types/models';
+  import type { Track, AlbumArt as AlbumArtType } from '$lib/types/models';
   import { handleError as reportError } from '$lib/stores/error';
+  import AlbumArt from './AlbumArt.svelte';
   import { incrementPlayCount } from '$lib/queries/tracks';
+  import MarqueeText from './MarqueeText.svelte';
 
   let audioElement: HTMLAudioElement;
   let isDraggingProgress = $state(false);
   let isDraggingVolume = $state(false);
   let lastPlayedTrackId = $state<string | null>(null);
-  let showQueue = $state(false);
 
   // アルバムアートキャッシュ
   let albumArtUrl = $state<string | null>(null);
@@ -63,7 +61,7 @@
    */
   async function loadAlbumArt(trackId: string) {
     try {
-      const art = await invoke<AlbumArt | null>('get_album_art', { trackId });
+      const art = await invoke<AlbumArtType | null>('get_album_art', { trackId });
       if (art) {
         albumArtUrl = `data:${art.mimeType};base64,${art.data}`;
       } else {
@@ -371,12 +369,6 @@
           toggleRepeat();
         }
         break;
-      case 'KeyQ':
-        if (!event.ctrlKey && !event.metaKey && !event.altKey) {
-          event.preventDefault();
-          showQueue = !showQueue;
-        }
-        break;
     }
   }
 
@@ -416,33 +408,17 @@
     <!-- トラック情報 -->
     <div class="flex items-center gap-3 min-w-0">
       <div class="album-art">
-        {#if albumArtUrl}
-          <img src={albumArtUrl} alt="アルバムアート" class="w-full h-full object-cover" />
-        {:else}
-          <div class="album-art-placeholder">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              fill="currentColor"
-              class="w-1/2 h-1/2"
-            >
-              <path
-                d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"
-              />
-            </svg>
-          </div>
-        {/if}
+        <AlbumArt src={albumArtUrl} alt="アルバムアート" placeholderType="music" />
       </div>
       <div class="min-w-0">
-        <div class="text-sm font-semibold mb-0.5 text-truncate">
-          {$currentTrack.title || $currentTrack.fileName}
-        </div>
-        <div class="text-xs text-text-secondary text-truncate">
-          {$currentTrack.artist || '不明なアーティスト'}
-          {#if $currentTrack.album}
-            • {$currentTrack.album}
-          {/if}
-        </div>
+        <MarqueeText
+          text={$currentTrack.title || $currentTrack.fileName}
+          class="text-sm font-semibold mb-0.5"
+        />
+        <MarqueeText
+          text={`${$currentTrack.artist || '不明なアーティスト'}${$currentTrack.album ? ' • ' + $currentTrack.album : ''}`}
+          class="text-xs text-text-secondary"
+        />
       </div>
     </div>
 
@@ -596,30 +572,6 @@
 
     <!-- 右側コントロール -->
     <div class="flex items-center justify-end gap-3">
-      <button
-        class="control-button small"
-        class:active={showQueue}
-        onclick={() => (showQueue = !showQueue)}
-        title="再生キュー (Q)"
-        aria-label="再生キュー"
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="18"
-          height="18"
-          viewBox="0 0 24 24"
-          fill="currentColor"
-        >
-          <path
-            d="M4 6h16M4 10h16M4 14h10M4 18h7"
-            stroke="currentColor"
-            stroke-width="2"
-            fill="none"
-            stroke-linecap="round"
-          />
-        </svg>
-      </button>
-
       <div class="flex items-center gap-2">
         <button
           class="control-button small"
@@ -715,83 +667,21 @@
   {/if}
 </div>
 
-<!-- 再生キューパネル -->
-{#if showQueue && $currentTrack}
-  <div class="queue-panel">
-    <div class="flex justify-between items-center px-4 py-3 border-b border-border">
-      <h3 class="m-0 text-sm font-semibold">再生キュー</h3>
-      <div class="flex gap-2">
-        <button class="queue-clear-btn" onclick={clearQueue}>クリア</button>
-        <button class="queue-close-btn" onclick={() => (showQueue = false)}>✕</button>
-      </div>
-    </div>
-    <div class="px-4 py-3 bg-secondary/10 border-b border-border">
-      <div class="text-[0.625rem] font-semibold uppercase text-text-muted mb-1.5">再生中</div>
-      <div class="flex flex-col gap-0.5">
-        <span class="text-[0.8rem] text-text-primary text-truncate"
-          >{$currentTrack.title || $currentTrack.fileName}</span
-        >
-        <span class="text-[0.7rem] text-text-muted text-truncate"
-          >{$currentTrack.artist || '不明なアーティスト'}</span
-        >
-      </div>
-    </div>
-    {#if $upcomingTracks.length > 0}
-      <div class="flex-1 overflow-hidden flex flex-col">
-        <div class="text-[0.625rem] font-semibold uppercase text-text-muted pt-3 pb-1.5 px-4">
-          次に再生 ({$upcomingTracks.length}曲)
-        </div>
-        <div class="flex-1 overflow-y-auto px-2 pb-2">
-          {#each $upcomingTracks as track, index (track.id)}
-            <div class="queue-track">
-              <span class="text-xs text-text-dimmed w-6 text-center">{index + 1}</span>
-              <div class="flex-1 min-w-0 flex flex-col gap-0.5">
-                <span class="text-[0.8rem] text-text-primary text-truncate"
-                  >{track.title || track.fileName}</span
-                >
-                <span class="text-[0.7rem] text-text-muted text-truncate"
-                  >{track.artist || '不明なアーティスト'}</span
-                >
-              </div>
-              <button
-                class="queue-remove-btn"
-                onclick={() => removeFromQueue(track.id)}
-                title="キューから削除"
-              >
-                ✕
-              </button>
-            </div>
-          {/each}
-        </div>
-      </div>
-    {:else}
-      <div class="py-8 px-4 text-center text-text-dimmed text-sm">
-        キューに他のトラックはありません
-      </div>
-    {/if}
-  </div>
-{/if}
-
 <style>
   @reference "../../app.css";
+
   /* プレイヤーコンテナ */
   .player-container {
     @apply fixed bottom-0 left-0 right-0 z-50
            px-6 py-3 grid items-center gap-4
-           border-t border-border text-text-primary;
-    grid-template-columns: 1fr 2fr 1fr;
-    background: linear-gradient(to top, var(--color-base-100) 0%, var(--color-base-300) 100%);
-    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.5);
+           border-t border-border text-text-primary
+           grid-cols-(--grid-player) bg-linear-to-t from-base-100 to-base-300
+           shadow-[0_-4px_20px_rgba(0,0,0,0.5)];
   }
 
   /* アルバムアート */
   .album-art {
     @apply w-14 h-14 rounded-md overflow-hidden shrink-0 bg-base-300;
-  }
-
-  .album-art-placeholder {
-    @apply w-full h-full flex items-center justify-center text-white/80;
-    background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-accent-focus) 100%);
   }
 
   /* コントロールボタン */
@@ -846,65 +736,5 @@
 
   .volume-bar:hover .progress-handle {
     @apply opacity-100;
-  }
-
-  /* 再生キューパネル */
-  .queue-panel {
-    @apply fixed z-[1001] w-80 max-h-[400px]
-           bg-base-300 border border-border rounded-lg overflow-hidden
-           flex flex-col;
-    bottom: 5.5rem;
-    right: 1rem;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-    animation: slideUp 200ms ease-out;
-  }
-
-  .queue-clear-btn {
-    @apply px-2 py-1 bg-transparent border border-border-light rounded
-           text-text-secondary text-xs cursor-pointer transition-all duration-200;
-  }
-
-  .queue-clear-btn:hover {
-    @apply bg-surface-active text-text-primary;
-  }
-
-  .queue-close-btn {
-    @apply bg-transparent border-none text-text-dimmed text-base cursor-pointer p-1;
-  }
-
-  .queue-close-btn:hover {
-    @apply text-text-primary;
-  }
-
-  .queue-track {
-    @apply flex items-center gap-2 p-2 rounded transition-colors duration-200;
-  }
-
-  .queue-track:hover {
-    @apply bg-surface;
-  }
-
-  .queue-remove-btn {
-    @apply bg-transparent border-none text-text-dimmed text-xs cursor-pointer p-1
-           opacity-0 transition-all duration-200;
-  }
-
-  .queue-track:hover .queue-remove-btn {
-    @apply opacity-100;
-  }
-
-  .queue-remove-btn:hover {
-    @apply text-error;
-  }
-
-  @keyframes slideUp {
-    from {
-      opacity: 0;
-      transform: translateY(10px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
   }
 </style>

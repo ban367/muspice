@@ -3,14 +3,11 @@
   import { useArtistsGroupedQuery } from '$lib/queries/tracks';
   import { playTrackFromQueue } from '$lib/stores/player';
   import { gridCardSize, browseSearchQuery } from '$lib/stores/ui';
-  import {
-    loadAlbumArt,
-    getCachedAlbumArt,
-    isCached,
-    albumArtCacheVersion
-  } from '$lib/stores/albumArtCache';
+  import { loadAlbumArt, albumArtCache } from '$lib/stores/albumArtCache';
   import GroupDetail from './GroupDetail.svelte';
   import GroupContextMenu from '../GroupContextMenu.svelte';
+  import MarqueeText from '../MarqueeText.svelte';
+  import AlbumArt from '../AlbumArt.svelte';
 
   // Props
   interface Props {
@@ -38,12 +35,16 @@
   // コンテキストメニュー
   let contextMenu = $state<{ x: number; y: number; artist: ArtistGroup } | null>(null);
 
-  // キャッシュ更新の追跡（リアクティビティのため）
-  // eslint-disable-next-line no-unused-vars
-  const cacheVersion = $derived($albumArtCacheVersion);
+  // リアクティブなキャッシュを購読
+  const cache = $derived($albumArtCache);
 
   // カードサイズの計算
-  const cardWidth = $derived($gridCardSize + 24); // padding分を追加
+  const cardWidth = $derived($gridCardSize + 16); // padding分を追加
+
+  // キャッシュからアルバムアートを取得
+  function getArt(trackId: string): string | null {
+    return cache[trackId] ?? null;
+  }
 
   // アーティストカードが表示されたらアートを読み込み
   function handleArtistVisible(artist: ArtistGroup) {
@@ -115,7 +116,7 @@
   }
 </script>
 
-<div class="p-4 min-h-[200px]">
+<div class="p-2 min-h-[200px]">
   {#if isLoading}
     <div class="state-container">
       <div class="spinner"></div>
@@ -158,26 +159,12 @@
             use:intersectionObserver={{ callback: () => handleArtistVisible(artist) }}
           >
             <div class="artist-art" style="width: {$gridCardSize}px; height: {$gridCardSize}px;">
-              {#if isCached(artist.representativeTrackId)}
-                <img
-                  src={getCachedAlbumArt(artist.representativeTrackId)}
-                  alt={artist.name}
-                  loading="lazy"
-                />
-              {:else}
-                <div class="art-placeholder artist-placeholder">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.5"
-                  >
-                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                    <circle cx="12" cy="7" r="4" />
-                  </svg>
-                </div>
-              {/if}
+              <AlbumArt
+                src={getArt(artist.representativeTrackId)}
+                alt={artist.name}
+                rounded="full"
+                placeholderType="person"
+              />
               <div class="play-overlay rounded-full">
                 <button
                   class="play-button-circle"
@@ -190,10 +177,11 @@
                 </button>
               </div>
             </div>
-            <div class="text-center min-w-0">
-              <h3 class="text-[0.9375rem] font-semibold text-text-primary m-0 text-truncate">
-                {artist.name}
-              </h3>
+            <div class="text-center min-w-0 w-full">
+              <MarqueeText
+                text={artist.name}
+                class="text-[0.9375rem] font-semibold text-text-primary m-0"
+              />
               <p class="text-xs text-text-dimmed mt-1.5 m-0">
                 {artist.albumCount}アルバム · {artist.trackCount}曲
               </p>
@@ -215,29 +203,15 @@
             use:intersectionObserver={{ callback: () => handleArtistVisible(artist) }}
           >
             <div class="list-art artist-list-art">
-              {#if isCached(artist.representativeTrackId)}
-                <img
-                  src={getCachedAlbumArt(artist.representativeTrackId)}
-                  alt={artist.name}
-                  loading="lazy"
-                />
-              {:else}
-                <div class="art-placeholder small artist-placeholder">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.5"
-                  >
-                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                    <circle cx="12" cy="7" r="4" />
-                  </svg>
-                </div>
-              {/if}
+              <AlbumArt
+                src={getArt(artist.representativeTrackId)}
+                alt={artist.name}
+                rounded="full"
+                placeholderType="person"
+              />
             </div>
             <div class="list-info">
-              <span class="list-title">{artist.name}</span>
+              <MarqueeText text={artist.name} class="list-title" />
               <span class="list-artist">{artist.albumCount}アルバム · {artist.trackCount}曲</span>
             </div>
             <button
@@ -290,7 +264,7 @@
   .artist-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(var(--card-width), 1fr));
-    gap: 1.25rem;
+    gap: 0.75rem;
   }
 
   /* アーティストカード: 中央揃え修正 */
@@ -301,19 +275,6 @@
   .artist-art {
     @apply relative aspect-square rounded-full overflow-hidden mb-3;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  }
-
-  .artist-art img {
-    @apply w-full h-full object-cover;
-  }
-
-  .artist-placeholder {
-    @apply flex items-center justify-center;
-    background: linear-gradient(135deg, #3a3a4a, #2a2a3a);
-  }
-
-  .artist-placeholder svg {
-    @apply text-text-muted;
   }
 
   /* リスト表示スタイル */
@@ -338,28 +299,8 @@
     @apply rounded-full;
   }
 
-  .list-art img {
-    @apply w-full h-full object-cover;
-  }
-
-  .art-placeholder.small {
-    @apply w-full h-full;
-  }
-
-  .art-placeholder.small svg {
-    @apply w-6 h-6;
-  }
-
   .list-info {
     @apply flex flex-col gap-0.5 min-w-0;
-  }
-
-  .list-title {
-    @apply text-sm font-medium text-text-primary truncate;
-  }
-
-  .list-artist {
-    @apply text-xs text-text-muted truncate;
   }
 
   .list-play-btn {

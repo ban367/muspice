@@ -318,7 +318,7 @@
 </div>
 
 <style>
-  @reference "../../../app.css";
+  @reference "../../../../app.css";
   .playlist-detail-page {
     @apply h-full flex flex-col;
   }

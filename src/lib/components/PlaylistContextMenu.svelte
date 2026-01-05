@@ -26,8 +26,14 @@
   let menuElement: HTMLDivElement | null = null;
 
   // メニュー位置の調整
-  let adjustedX = $state(x);
-  let adjustedY = $state(y);
+  let adjustedX = $state(0);
+  let adjustedY = $state(0);
+
+  // propsからの初期位置を設定
+  $effect(() => {
+    adjustedX = x;
+    adjustedY = y;
+  });
 
   // プレイリスト内のトラック
   const playlistTracks = $derived.by(() => {

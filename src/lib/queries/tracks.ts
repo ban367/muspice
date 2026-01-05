@@ -1,7 +1,20 @@
-import { createQuery } from '@tanstack/svelte-query';
+import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
 import { invoke } from '@tauri-apps/api/core';
 import type { Track, AlbumArt, AlbumGroup, ArtistGroup, GenreGroup } from '$lib/types/models';
-import { handleError } from '$lib/stores/error';
+import { handleError, showSuccess, showWarning } from '$lib/stores/error';
+
+/**
+ * トラック削除の結果
+ */
+export interface DeleteResult {
+  successCount: number;
+  failedCount: number;
+  failedTracks: Array<{
+    trackId: string;
+    filePath: string;
+    reason: string;
+  }>;
+}
 
 export interface FilterOptions {
   artist?: string;
@@ -293,5 +306,83 @@ export function useGenresGroupedQuery() {
     },
     staleTime: 10 * 60 * 1000, // 10分間キャッシュ
     gcTime: 30 * 60 * 1000
+  }));
+}
+
+// ========== トラック削除ミューテーション ==========
+
+/**
+ * 関連するすべてのクエリを無効化するヘルパー関数
+ */
+function invalidateAllTrackQueries(queryClient: ReturnType<typeof useQueryClient>) {
+  // トラック関連のクエリを無効化
+  queryClient.invalidateQueries({ queryKey: ['tracks'] });
+  queryClient.invalidateQueries({ queryKey: ['albums', 'grouped'] });
+  queryClient.invalidateQueries({ queryKey: ['artists', 'grouped'] });
+  queryClient.invalidateQueries({ queryKey: ['genres', 'grouped'] });
+  queryClient.invalidateQueries({ queryKey: ['unique'] });
+  queryClient.invalidateQueries({ queryKey: ['playlists'] });
+}
+
+/**
+ * トラックをライブラリから削除するミューテーション（データベースのみ）
+ * ファイルは削除せず、データベースからのみ削除
+ */
+export function useDeleteTracksMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: async (trackIds: string[]) => {
+      try {
+        return await invoke<number>('delete_tracks_command', { trackIds });
+      } catch (error) {
+        handleError(error, 'トラックの削除');
+        throw error;
+      }
+    },
+    onSuccess: (deletedCount) => {
+      invalidateAllTrackQueries(queryClient);
+      showSuccess(
+        deletedCount === 1
+          ? 'トラックをライブラリから削除しました'
+          : `${deletedCount}曲をライブラリから削除しました`
+      );
+    }
+  }));
+}
+
+/**
+ * トラックをライブラリとファイルシステムから削除するミューテーション
+ * データベースとファイル両方を削除
+ */
+export function useDeleteTracksWithFilesMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: async (trackIds: string[]) => {
+      try {
+        return await invoke<DeleteResult>('delete_tracks_with_files_command', { trackIds });
+      } catch (error) {
+        handleError(error, 'トラックとファイルの削除');
+        throw error;
+      }
+    },
+    onSuccess: (result) => {
+      invalidateAllTrackQueries(queryClient);
+
+      if (result.failedCount === 0) {
+        showSuccess(
+          result.successCount === 1
+            ? 'トラックとファイルを削除しました'
+            : `${result.successCount}曲とファイルを削除しました`
+        );
+      } else if (result.successCount === 0) {
+        handleError(new Error('すべてのトラックの削除に失敗しました'), 'トラックの削除');
+      } else {
+        showWarning(
+          `${result.successCount}曲を削除しました（${result.failedCount}曲は削除に失敗）`
+        );
+      }
+    }
   }));
 }
