@@ -1,6 +1,6 @@
 <script lang="ts">
   import { fly } from 'svelte/transition';
-  import { isRightSidebarExpanded } from '$lib/stores/ui';
+  import { isRightSidebarExpanded, isRightSidebarPinned } from '$lib/stores/ui';
   import {
     playQueue,
     currentTrack,
@@ -15,44 +15,93 @@
     isRightSidebarExpanded.update((v) => !v);
   }
 
-  // 閉じる
+  // 閉じる（バックドロップクリック時）
+  function closeByBackdrop() {
+    // 固定時はバックドロップクリックで閉じない
+    if ($isRightSidebarPinned) return;
+    isRightSidebarExpanded.set(false);
+  }
+
+  // 明示的に閉じる（×ボタン等）
   function close() {
     isRightSidebarExpanded.set(false);
+  }
+
+  // ピン状態をトグル
+  function togglePin() {
+    isRightSidebarPinned.toggle();
   }
 </script>
 
 <!-- アイコンバー（常に右端に固定表示） -->
 <div class="icon-bar">
-  <button
-    class="icon-button"
-    class:active={$isRightSidebarExpanded}
-    onclick={toggleExpanded}
-    title="再生キュー (Q)"
-    aria-label="再生キューを開く"
-  >
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="20"
-      height="20"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="2"
+  <!-- 上部アイコン -->
+  <div class="icon-bar-top">
+    <button
+      class="icon-button"
+      class:active={$isRightSidebarExpanded}
+      onclick={toggleExpanded}
+      title="再生キュー (Q)"
+      aria-label="再生キューを開く"
     >
-      <path d="M4 6h16M4 10h16M4 14h10M4 18h7" stroke-linecap="round" />
-    </svg>
-  </button>
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+      >
+        <path d="M4 6h16M4 10h16M4 14h10M4 18h7" stroke-linecap="round" />
+      </svg>
+    </button>
+  </div>
+
+  <!-- 下部アイコン（ピンボタン） -->
+  <div class="icon-bar-bottom">
+    <button
+      class="icon-button"
+      class:active={$isRightSidebarPinned}
+      onclick={togglePin}
+      title={$isRightSidebarPinned ? '固定解除' : 'サイドバーを固定'}
+      aria-label={$isRightSidebarPinned ? '固定解除' : 'サイドバーを固定'}
+    >
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill={$isRightSidebarPinned ? 'currentColor' : 'none'}
+        stroke="currentColor"
+        stroke-width="2"
+      >
+        <path d="M12 17v5" stroke-linecap="round" />
+        <path d="M5 17h14" stroke-linecap="round" />
+        <path
+          d="M7 11V7a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v4"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+        <path d="M7 11l-2 6h14l-2-6" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+    </button>
+  </div>
 </div>
 
-<!-- バックドロップ（モーダル的に閉じる） -->
-{#if $isRightSidebarExpanded}
+<!-- バックドロップ（固定時は表示しない） -->
+{#if $isRightSidebarExpanded && !$isRightSidebarPinned}
   <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-  <div class="backdrop" onclick={close}></div>
+  <div class="backdrop" onclick={closeByBackdrop}></div>
 {/if}
 
-<!-- キューパネル（展開時のみ表示） -->
+<!-- キューパネル（展開時のみ表示、固定時はアニメーションなし） -->
 {#if $isRightSidebarExpanded}
-  <aside class="queue-panel" transition:fly={{ x: 200, duration: 200 }}>
+  <aside
+    class="queue-panel"
+    class:pinned={$isRightSidebarPinned}
+    transition:fly={{ x: 200, duration: $isRightSidebarPinned ? 0 : 200 }}
+  >
     <!-- ヘッダー -->
     <div class="queue-header">
       <h3>再生キュー</h3>
@@ -109,9 +158,17 @@
   /* アイコンバー（右端に固定） */
   .icon-bar {
     @apply fixed right-0 top-0 z-40 w-12 h-full
-           flex flex-col items-center py-4 gap-2
+           flex flex-col items-center justify-between py-4
            bg-base-300 border-l border-border;
     padding-bottom: var(--spacing-player-height);
+  }
+
+  .icon-bar-top {
+    @apply flex flex-col items-center gap-2;
+  }
+
+  .icon-bar-bottom {
+    @apply flex flex-col items-center gap-2;
   }
 
   .icon-button {

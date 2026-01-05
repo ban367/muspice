@@ -227,12 +227,12 @@ body {
 
 /* カスタムモーダルバックドロップ（DaisyUIと競合を避けるため独自クラス名を使用） */
 .custom-modal-backdrop {
-  @apply fixed inset-0 bg-black/80 flex items-center justify-center z-50;
-  padding: 2rem 2rem calc(2rem + var(--spacing-player-height)) 2rem;
+  @apply fixed inset-0 bg-black/80 flex items-start justify-center z-50;
+  padding: 4rem 2rem calc(4rem + var(--spacing-player-height)) 2rem;
 }
 
 .modal-content {
-  @apply bg-base-300 rounded-xl w-full max-w-3xl max-h-[80vh] flex flex-col overflow-hidden shadow-xl;
+  @apply bg-base-300 rounded-xl w-full max-w-3xl max-h-[78vh] flex flex-col overflow-hidden shadow-xl;
 }
 
 /* ================================

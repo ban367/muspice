@@ -17,6 +17,51 @@ export const isSidebarOpen: Writable<boolean> = writable(true);
 // 右サイドバーの展開状態
 export const isRightSidebarExpanded: Writable<boolean> = writable(false);
 
+// 右サイドバーの固定状態（固定時は明示的に閉じるまで表示され続ける）
+function createPinnedStore() {
+  let initialValue = false;
+  if (typeof window !== 'undefined') {
+    try {
+      const stored = localStorage.getItem('muspice:rightSidebarPinned');
+      if (stored !== null) {
+        initialValue = JSON.parse(stored);
+      }
+    } catch {
+      // パースエラー時はデフォルト値を使用
+    }
+  }
+
+  const { subscribe, set, update } = writable(initialValue);
+
+  return {
+    subscribe,
+    set: (value: boolean) => {
+      set(value);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('muspice:rightSidebarPinned', JSON.stringify(value));
+      }
+      // 固定化した時は自動的に展開状態にする
+      if (value) {
+        isRightSidebarExpanded.set(true);
+      }
+    },
+    toggle: () => {
+      update((current) => {
+        const newValue = !current;
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('muspice:rightSidebarPinned', JSON.stringify(newValue));
+        }
+        if (newValue) {
+          isRightSidebarExpanded.set(true);
+        }
+        return newValue;
+      });
+    }
+  };
+}
+
+export const isRightSidebarPinned = createPinnedStore();
+
 // 検索クエリ
 export const searchQuery: Writable<string> = writable('');
 
