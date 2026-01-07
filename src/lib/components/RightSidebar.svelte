@@ -1,6 +1,11 @@
 <script lang="ts">
   import { fly } from 'svelte/transition';
-  import { isRightSidebarExpanded, isRightSidebarPinned } from '$lib/stores/ui';
+  import {
+    isRightSidebarExpanded,
+    isRightSidebarPinned,
+    activeRightSidebarPanel,
+    type RightSidebarPanel
+  } from '$lib/stores/ui';
   import {
     playQueue,
     currentTrack,
@@ -9,10 +14,18 @@
     clearQueue
   } from '$lib/stores/player';
   import MarqueeText from './MarqueeText.svelte';
+  import EqualizerPanel from './EqualizerPanel.svelte';
 
-  // 展開状態をトグル
-  function toggleExpanded() {
-    isRightSidebarExpanded.update((v) => !v);
+  // パネルを開く/切り替え
+  function openPanel(panel: RightSidebarPanel) {
+    if ($isRightSidebarExpanded && $activeRightSidebarPanel === panel) {
+      // 同じパネルをクリックした場合は閉じる
+      isRightSidebarExpanded.set(false);
+    } else {
+      // パネルを切り替えて開く
+      activeRightSidebarPanel.set(panel);
+      isRightSidebarExpanded.set(true);
+    }
   }
 
   // 閉じる（バックドロップクリック時）
@@ -22,8 +35,8 @@
     isRightSidebarExpanded.set(false);
   }
 
-  // 明示的に閉じる（×ボタン等）
-  function close() {
+  // 明示的に閉じる（×ボタン等）- 将来の使用のため保持
+  function _close() {
     isRightSidebarExpanded.set(false);
   }
 
@@ -37,10 +50,11 @@
 <div class="icon-bar">
   <!-- 上部アイコン -->
   <div class="icon-bar-top">
+    <!-- 再生キューボタン -->
     <button
       class="icon-button"
-      class:active={$isRightSidebarExpanded}
-      onclick={toggleExpanded}
+      class:active={$isRightSidebarExpanded && $activeRightSidebarPanel === 'queue'}
+      onclick={() => openPanel('queue')}
       title="再生キュー (Q)"
       aria-label="再生キューを開く"
     >
@@ -54,6 +68,35 @@
         stroke-width="2"
       >
         <path d="M4 6h16M4 10h16M4 14h10M4 18h7" stroke-linecap="round" />
+      </svg>
+    </button>
+
+    <!-- イコライザボタン -->
+    <button
+      class="icon-button"
+      class:active={$isRightSidebarExpanded && $activeRightSidebarPanel === 'equalizer'}
+      onclick={() => openPanel('equalizer')}
+      title="イコライザ (E)"
+      aria-label="イコライザを開く"
+    >
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+      >
+        <line x1="4" y1="21" x2="4" y2="14" stroke-linecap="round" />
+        <line x1="4" y1="10" x2="4" y2="3" stroke-linecap="round" />
+        <line x1="12" y1="21" x2="12" y2="12" stroke-linecap="round" />
+        <line x1="12" y1="8" x2="12" y2="3" stroke-linecap="round" />
+        <line x1="20" y1="21" x2="20" y2="16" stroke-linecap="round" />
+        <line x1="20" y1="12" x2="20" y2="3" stroke-linecap="round" />
+        <line x1="1" y1="14" x2="7" y2="14" stroke-linecap="round" />
+        <line x1="9" y1="8" x2="15" y2="8" stroke-linecap="round" />
+        <line x1="17" y1="16" x2="23" y2="16" stroke-linecap="round" />
       </svg>
     </button>
   </div>
@@ -95,60 +138,66 @@
   <div class="backdrop" onclick={closeByBackdrop}></div>
 {/if}
 
-<!-- キューパネル（展開時のみ表示、固定時はアニメーションなし） -->
+<!-- パネル（展開時のみ表示、固定時はアニメーションなし） -->
 {#if $isRightSidebarExpanded}
   <aside
-    class="queue-panel"
+    class="side-panel"
     class:pinned={$isRightSidebarPinned}
     transition:fly={{ x: 200, duration: $isRightSidebarPinned ? 0 : 200 }}
   >
-    <!-- ヘッダー -->
-    <div class="queue-header">
-      <h3>再生キュー</h3>
-      {#if $playQueue.length > 1}
-        <button class="clear-btn" onclick={clearQueue}>クリア</button>
-      {/if}
-    </div>
-
-    <!-- 再生中 -->
-    {#if $currentTrack}
-      <div class="now-playing">
-        <div class="section-label">再生中</div>
-        <div class="track-info">
-          <MarqueeText text={$currentTrack.title || $currentTrack.fileName} class="track-title" />
-          <MarqueeText text={$currentTrack.artist || '不明なアーティスト'} class="track-artist" />
-        </div>
+    {#if $activeRightSidebarPanel === 'queue'}
+      <!-- 再生キューパネル -->
+      <!-- ヘッダー -->
+      <div class="queue-header">
+        <h3>再生キュー</h3>
+        {#if $playQueue.length > 1}
+          <button class="clear-btn" onclick={clearQueue}>クリア</button>
+        {/if}
       </div>
-    {/if}
 
-    <!-- 次に再生 -->
-    <div class="upcoming-section">
-      {#if $upcomingTracks.length > 0}
-        <div class="section-label">次に再生 ({$upcomingTracks.length}曲)</div>
-        <div class="upcoming-list">
-          {#each $upcomingTracks as track, index (track.id)}
-            <div class="queue-track">
-              <span class="track-number">{index + 1}</span>
-              <div class="track-details">
-                <MarqueeText text={track.title || track.fileName} class="track-title" />
-                <MarqueeText text={track.artist || '不明なアーティスト'} class="track-artist" />
-              </div>
-              <button
-                class="remove-btn"
-                onclick={() => removeFromQueue(track.id)}
-                title="キューから削除"
-              >
-                ✕
-              </button>
-            </div>
-          {/each}
+      <!-- 再生中 -->
+      {#if $currentTrack}
+        <div class="now-playing">
+          <div class="section-label">再生中</div>
+          <div class="track-info">
+            <MarqueeText text={$currentTrack.title || $currentTrack.fileName} class="track-title" />
+            <MarqueeText text={$currentTrack.artist || '不明なアーティスト'} class="track-artist" />
+          </div>
         </div>
-      {:else if $currentTrack}
-        <div class="empty-queue">キューに他のトラックはありません</div>
-      {:else}
-        <div class="empty-queue">トラックを選択して再生</div>
       {/if}
-    </div>
+
+      <!-- 次に再生 -->
+      <div class="upcoming-section">
+        {#if $upcomingTracks.length > 0}
+          <div class="section-label">次に再生 ({$upcomingTracks.length}曲)</div>
+          <div class="upcoming-list">
+            {#each $upcomingTracks as track, index (track.id)}
+              <div class="queue-track">
+                <span class="track-number">{index + 1}</span>
+                <div class="track-details">
+                  <MarqueeText text={track.title || track.fileName} class="track-title" />
+                  <MarqueeText text={track.artist || '不明なアーティスト'} class="track-artist" />
+                </div>
+                <button
+                  class="remove-btn"
+                  onclick={() => removeFromQueue(track.id)}
+                  title="キューから削除"
+                >
+                  ✕
+                </button>
+              </div>
+            {/each}
+          </div>
+        {:else if $currentTrack}
+          <div class="empty-queue">キューに他のトラックはありません</div>
+        {:else}
+          <div class="empty-queue">トラックを選択して再生</div>
+        {/if}
+      </div>
+    {:else if $activeRightSidebarPanel === 'equalizer'}
+      <!-- イコライザパネル -->
+      <EqualizerPanel />
+    {/if}
   </aside>
 {/if}
 
@@ -191,8 +240,8 @@
     @apply fixed inset-0 z-20 bg-black/30;
   }
 
-  /* キューパネル（アイコンバーの左に表示） */
-  .queue-panel {
+  /* サイドパネル（アイコンバーの左に表示） */
+  .side-panel {
     @apply fixed top-0 z-30 h-full
            flex flex-col bg-base-100 border-l border-border;
     right: 3rem; /* アイコンバーの幅 */

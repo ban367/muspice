@@ -26,11 +26,13 @@
   import AlbumArt from './AlbumArt.svelte';
   import { incrementPlayCount } from '$lib/queries/tracks';
   import MarqueeText from './MarqueeText.svelte';
+  import { initializeEqualizer, cleanupEqualizer } from '$lib/stores/equalizer';
 
   let audioElement: HTMLAudioElement;
   let isDraggingProgress = $state(false);
   let isDraggingVolume = $state(false);
   let lastPlayedTrackId = $state<string | null>(null);
+  let equalizerInitialized = $state(false);
 
   // アルバムアートキャッシュ
   let albumArtUrl = $state<string | null>(null);
@@ -380,6 +382,19 @@
     window.addEventListener('mousemove', onDragVolume);
     window.addEventListener('mouseup', stopDraggingVolume);
     window.addEventListener('keydown', handleGlobalKeydown);
+
+    // イコライザ初期化（Audio要素がバインドされた後に実行）
+    // setTimeoutを使用してaudioElementのバインドを待つ
+    setTimeout(async () => {
+      if (audioElement && !equalizerInitialized) {
+        try {
+          await initializeEqualizer(audioElement);
+          equalizerInitialized = true;
+        } catch (error) {
+          console.error('イコライザの初期化に失敗しました:', error);
+        }
+      }
+    }, 100);
   });
 
   onDestroy(() => {
@@ -389,6 +404,9 @@
     window.removeEventListener('mouseup', stopDraggingVolume);
     window.removeEventListener('keydown', handleGlobalKeydown);
     resetPlayer();
+
+    // イコライザのクリーンアップ
+    cleanupEqualizer();
   });
 </script>
 

@@ -17,6 +17,10 @@ export const isSidebarOpen: Writable<boolean> = writable(true);
 // 右サイドバーの展開状態
 export const isRightSidebarExpanded: Writable<boolean> = writable(false);
 
+// 右サイドバーのアクティブパネル（queue: 再生キュー, equalizer: イコライザ）
+export type RightSidebarPanel = 'queue' | 'equalizer';
+export const activeRightSidebarPanel: Writable<RightSidebarPanel> = writable('queue');
+
 // 右サイドバーの固定状態（固定時は明示的に閉じるまで表示され続ける）
 function createPinnedStore() {
   let initialValue = false;
