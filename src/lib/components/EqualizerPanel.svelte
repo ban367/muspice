@@ -5,13 +5,14 @@
     EQ_FREQUENCY_LABELS,
     MIN_GAIN,
     MAX_GAIN,
-    PRESET_LABELS,
-    type PresetName,
+    BUILTIN_PRESET_LABELS,
+    isBuiltinPreset,
+    type BuiltinPresetName,
     type EQFrequency
   } from '$lib/stores/equalizer';
 
-  // プリセットの選択肢
-  const presetOptions: PresetName[] = [
+  // ビルトインプリセットの選択肢
+  const builtinPresetOptions: BuiltinPresetName[] = [
     'flat',
     'bass_boost',
     'treble_boost',
@@ -22,28 +23,30 @@
     'classical'
   ];
 
-  // スライダーの値を反転（上が+、下が-）
-  function invertGain(gain: number): number {
-    return -gain;
-  }
+  // カスタムプリセット保存ダイアログ
+  let showSaveDialog = $state(false);
+  let newPresetName = $state('');
 
-  // スライダーの値を元に戻す
-  function revertGain(inverted: number): number {
-    return -inverted;
-  }
+  // カスタム状態かどうか（プリセットが選択されていない= スライダー操作された状態）
+  const isCustom = $derived($equalizer.currentPreset === null);
 
   // プリセット変更ハンドラー
   function handlePresetChange(event: Event) {
     const target = event.target as HTMLSelectElement;
-    const presetName = target.value as PresetName;
-    equalizer.applyPreset(presetName);
+    const presetName = target.value;
+    // "custom"は特別な値なので無視
+    if (presetName && presetName !== '_custom_') {
+      equalizer.applyPreset(presetName);
+    }
   }
 
   // バンドゲイン変更ハンドラー
+  // スライダーはmin=MAX, max=MINで逆にしているため、値を反転
   function handleBandChange(frequency: EQFrequency, event: Event) {
     const target = event.target as HTMLInputElement;
     const invertedValue = parseFloat(target.value);
-    const gain = revertGain(invertedValue);
+    // 反転を戻す（スライダーが逆なので）
+    const gain = -invertedValue;
     equalizer.setBandGain(frequency, gain);
   }
 
@@ -53,10 +56,37 @@
     return gain.toString();
   }
 
-  // ゲインから位置を計算（0-100%）
+  // ゲインから位置を計算（0-100%、下が-12、上が+12）
   function gainToPercent(gain: number): number {
     return ((gain - MIN_GAIN) / (MAX_GAIN - MIN_GAIN)) * 100;
   }
+
+  // ゲインをスライダー値に変換（反転）
+  function gainToSliderValue(gain: number): number {
+    return -gain;
+  }
+
+  // カスタムプリセットを保存
+  function savePreset() {
+    const trimmedName = newPresetName.trim();
+    if (trimmedName) {
+      equalizer.saveCustomPreset(trimmedName);
+      newPresetName = '';
+      showSaveDialog = false;
+    }
+  }
+
+  // カスタムプリセットを削除
+  function deletePreset(name: string) {
+    if (confirm(`"${name}" を削除しますか？`)) {
+      equalizer.deleteCustomPreset(name);
+    }
+  }
+
+  // 現在選択されているプリセットの値（セレクト用）
+  const currentSelectValue = $derived(
+    $equalizer.currentPreset === null ? '_custom_' : $equalizer.currentPreset
+  );
 </script>
 
 <div class="equalizer-panel">
@@ -76,20 +106,59 @@
     </button>
   </div>
 
-  <!-- プリセットとリセット -->
+  <!-- プリセットコントロール -->
   <div class="eq-controls">
     <select
       class="preset-select"
-      value={$equalizer.currentPreset || 'flat'}
+      value={currentSelectValue}
       onchange={handlePresetChange}
       disabled={!$equalizer.enabled}
     >
-      {#each presetOptions as preset}
-        <option value={preset}>{PRESET_LABELS[preset]}</option>
-      {/each}
+      <!-- カスタム状態を表示 -->
+      {#if isCustom}
+        <option value="_custom_" disabled>カスタム</option>
+      {/if}
+      <optgroup label="ビルトイン">
+        {#each builtinPresetOptions as preset}
+          <option value={preset}>{BUILTIN_PRESET_LABELS[preset]}</option>
+        {/each}
+      </optgroup>
+      {#if $equalizer.customPresets.length > 0}
+        <optgroup label="保存済み">
+          {#each $equalizer.customPresets as customPreset}
+            <option value={customPreset.name}>{customPreset.name}</option>
+          {/each}
+        </optgroup>
+      {/if}
     </select>
+
+    <!-- 保存ボタン（カスタム状態でのみ有効） -->
     <button
-      class="reset-btn"
+      class="icon-btn"
+      class:highlight={isCustom}
+      onclick={() => (showSaveDialog = !showSaveDialog)}
+      disabled={!$equalizer.enabled || !isCustom}
+      title={isCustom ? 'プリセットを保存' : 'プリセットを変更すると保存可能'}
+      aria-label="プリセットを保存"
+    >
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+      >
+        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+        <polyline points="17 21 17 13 7 13 7 21" />
+        <polyline points="7 3 7 8 15 8" />
+      </svg>
+    </button>
+
+    <!-- リセットボタン -->
+    <button
+      class="icon-btn"
       onclick={() => equalizer.reset()}
       disabled={!$equalizer.enabled}
       title="リセット"
@@ -109,6 +178,35 @@
       </svg>
     </button>
   </div>
+
+  <!-- プリセット保存ダイアログ -->
+  {#if showSaveDialog && isCustom}
+    <div class="save-dialog">
+      <input
+        type="text"
+        class="preset-name-input"
+        placeholder="プリセット名を入力"
+        bind:value={newPresetName}
+        onkeydown={(e) => e.key === 'Enter' && savePreset()}
+      />
+      <button class="save-btn" onclick={savePreset} disabled={!newPresetName.trim()}>保存</button>
+      <button class="cancel-btn" onclick={() => (showSaveDialog = false)}>×</button>
+    </div>
+  {/if}
+
+  <!-- 選択中のカスタムプリセット名と削除ボタン -->
+  {#if $equalizer.currentPreset && !isBuiltinPreset($equalizer.currentPreset)}
+    <div class="custom-preset-info">
+      <span class="preset-name">📁 {$equalizer.currentPreset}</span>
+      <button
+        class="delete-preset-btn"
+        onclick={() => deletePreset($equalizer.currentPreset!)}
+        title="プリセットを削除"
+      >
+        削除
+      </button>
+    </div>
+  {/if}
 
   <!-- スライダーエリア -->
   <div class="eq-sliders-wrapper" class:disabled={!$equalizer.enabled}>
@@ -132,13 +230,14 @@
               style="bottom: {gainToPercent($equalizer.bands[freq])}%"
             ></div>
           </div>
-          <!-- 非表示のネイティブスライダー -->
+          <!-- ネイティブスライダー（透明）
+               min/maxを反転して上に行くほど値が大きくなるようにする -->
           <input
             type="range"
-            min={invertGain(MAX_GAIN)}
-            max={invertGain(MIN_GAIN)}
+            min={-MAX_GAIN}
+            max={-MIN_GAIN}
             step="1"
-            value={invertGain($equalizer.bands[freq])}
+            value={gainToSliderValue($equalizer.bands[freq])}
             oninput={(e) => handleBandChange(freq, e)}
             disabled={!$equalizer.enabled}
             class="native-slider"
@@ -173,7 +272,7 @@
 
   .equalizer-panel {
     @apply flex flex-col p-3 gap-2 overflow-hidden;
-    max-height: 320px;
+    max-height: 380px;
   }
 
   /* ヘッダー */
@@ -208,11 +307,11 @@
 
   /* コントロールエリア */
   .eq-controls {
-    @apply flex items-center gap-2 shrink-0;
+    @apply flex items-center gap-1 shrink-0;
   }
 
   .preset-select {
-    @apply flex-1 px-2 py-1.5 bg-surface border border-border rounded text-xs text-text-primary
+    @apply flex-1 px-2 py-1 bg-surface border border-border rounded text-xs text-text-primary
            cursor-pointer transition-colors duration-200;
   }
 
@@ -224,23 +323,70 @@
     @apply opacity-50 cursor-not-allowed;
   }
 
-  .reset-btn {
+  .icon-btn {
     @apply p-1 bg-transparent border border-border rounded text-text-secondary
            cursor-pointer transition-all duration-200 flex items-center justify-center;
   }
 
-  .reset-btn:hover:not(:disabled) {
+  .icon-btn:hover:not(:disabled) {
     @apply bg-surface-active text-text-primary;
   }
 
-  .reset-btn:disabled {
+  .icon-btn:disabled {
+    @apply opacity-30 cursor-not-allowed;
+  }
+
+  .icon-btn.highlight {
+    @apply border-primary text-primary;
+  }
+
+  .icon-btn.highlight:hover:not(:disabled) {
+    @apply bg-primary/10;
+  }
+
+  /* プリセット保存ダイアログ */
+  .save-dialog {
+    @apply flex items-center gap-1 shrink-0;
+  }
+
+  .preset-name-input {
+    @apply flex-1 px-2 py-1 bg-surface border border-border rounded text-xs text-text-primary;
+  }
+
+  .preset-name-input:focus {
+    @apply outline-none border-primary;
+  }
+
+  .save-btn {
+    @apply px-2 py-1 bg-primary text-white text-xs rounded border-none cursor-pointer;
+  }
+
+  .save-btn:disabled {
     @apply opacity-50 cursor-not-allowed;
+  }
+
+  .cancel-btn {
+    @apply px-1.5 py-1 bg-transparent text-text-secondary text-xs rounded border border-border cursor-pointer;
+  }
+
+  /* カスタムプリセット情報 */
+  .custom-preset-info {
+    @apply flex items-center justify-between px-2 py-1 bg-surface-active rounded text-xs shrink-0;
+  }
+
+  .preset-name {
+    @apply text-text-primary truncate;
+  }
+
+  .delete-preset-btn {
+    @apply px-1.5 py-0.5 bg-transparent text-error text-[0.6rem] rounded border border-error/30 cursor-pointer
+           hover:bg-error/10;
   }
 
   /* スライダーエリア */
   .eq-sliders-wrapper {
     @apply flex gap-1 overflow-hidden;
-    height: 180px;
+    height: 160px;
   }
 
   .eq-sliders-wrapper.disabled {
@@ -290,7 +436,7 @@
   .native-slider {
     @apply absolute inset-0 opacity-0 cursor-pointer;
     writing-mode: vertical-lr;
-    direction: rtl;
+    direction: ltr;
   }
 
   .native-slider:disabled {

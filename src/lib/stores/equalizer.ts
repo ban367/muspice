@@ -45,8 +45,8 @@ const DEFAULT_BANDS: EQBands = {
   16000: 0
 };
 
-// プリセット定義
-export type PresetName =
+// ビルトインプリセット名
+export type BuiltinPresetName =
   | 'flat'
   | 'bass_boost'
   | 'treble_boost'
@@ -56,7 +56,10 @@ export type PresetName =
   | 'jazz'
   | 'classical';
 
-export const PRESET_LABELS: Record<PresetName, string> = {
+// プリセット名（ビルトイン + カスタム）
+export type PresetName = BuiltinPresetName | string;
+
+export const BUILTIN_PRESET_LABELS: Record<BuiltinPresetName, string> = {
   flat: 'Flat',
   bass_boost: 'Bass Boost',
   treble_boost: 'Treble Boost',
@@ -67,7 +70,7 @@ export const PRESET_LABELS: Record<PresetName, string> = {
   classical: 'Classical'
 };
 
-export const PRESETS: Record<PresetName, EQBands> = {
+export const BUILTIN_PRESETS: Record<BuiltinPresetName, EQBands> = {
   flat: { ...DEFAULT_BANDS },
   bass_boost: {
     31: 8,
@@ -155,11 +158,18 @@ export const PRESETS: Record<PresetName, EQBands> = {
   }
 };
 
+// カスタムプリセット
+export interface CustomPreset {
+  name: string;
+  bands: EQBands;
+}
+
 // イコライザの状態
 interface EqualizerState {
   enabled: boolean;
   bands: EQBands;
   currentPreset: PresetName | null;
+  customPresets: CustomPreset[];
 }
 
 // ストレージキー
@@ -169,7 +179,8 @@ const STORAGE_KEY = 'muspice:equalizer';
 const DEFAULT_STATE: EqualizerState = {
   enabled: false,
   bands: { ...DEFAULT_BANDS },
-  currentPreset: 'flat'
+  currentPreset: 'flat',
+  customPresets: []
 };
 
 // localStorageから状態を読み込み
@@ -183,7 +194,8 @@ function loadState(): EqualizerState {
       return {
         enabled: parsed.enabled ?? DEFAULT_STATE.enabled,
         bands: parsed.bands ?? { ...DEFAULT_BANDS },
-        currentPreset: parsed.currentPreset ?? DEFAULT_STATE.currentPreset
+        currentPreset: parsed.currentPreset ?? DEFAULT_STATE.currentPreset,
+        customPresets: parsed.customPresets ?? []
       };
     }
   } catch {
@@ -201,6 +213,11 @@ function saveState(state: EqualizerState): void {
   } catch {
     // 保存エラーは無視
   }
+}
+
+// ビルトインプリセットかどうかをチェック
+export function isBuiltinPreset(name: string): name is BuiltinPresetName {
+  return name in BUILTIN_PRESETS;
 }
 
 // イコライザストアを作成
@@ -244,10 +261,24 @@ function createEqualizerStore() {
       });
     },
 
-    // プリセットを適用
+    // プリセットを適用（ビルトインまたはカスタム）
     applyPreset: (presetName: PresetName) => {
       update((state) => {
-        const preset = PRESETS[presetName];
+        let preset: EQBands | undefined;
+
+        // ビルトインプリセットをチェック
+        if (isBuiltinPreset(presetName)) {
+          preset = BUILTIN_PRESETS[presetName];
+        } else {
+          // カスタムプリセットを検索
+          const customPreset = state.customPresets.find((p) => p.name === presetName);
+          if (customPreset) {
+            preset = customPreset.bands;
+          }
+        }
+
+        if (!preset) return state;
+
         const newState = {
           ...state,
           bands: { ...preset },
@@ -255,6 +286,49 @@ function createEqualizerStore() {
         };
         saveState(newState);
         applyEqualizerSettings(newState);
+        return newState;
+      });
+    },
+
+    // カスタムプリセットを保存
+    saveCustomPreset: (name: string) => {
+      update((state) => {
+        // 既存のカスタムプリセットを更新するか、新しく追加
+        const existingIndex = state.customPresets.findIndex((p) => p.name === name);
+        const newPreset: CustomPreset = {
+          name,
+          bands: { ...state.bands }
+        };
+
+        let newCustomPresets: CustomPreset[];
+        if (existingIndex >= 0) {
+          newCustomPresets = [...state.customPresets];
+          newCustomPresets[existingIndex] = newPreset;
+        } else {
+          newCustomPresets = [...state.customPresets, newPreset];
+        }
+
+        const newState = {
+          ...state,
+          customPresets: newCustomPresets,
+          currentPreset: name
+        };
+        saveState(newState);
+        return newState;
+      });
+    },
+
+    // カスタムプリセットを削除
+    deleteCustomPreset: (name: string) => {
+      update((state) => {
+        const newCustomPresets = state.customPresets.filter((p) => p.name !== name);
+        const newState = {
+          ...state,
+          customPresets: newCustomPresets,
+          // 削除したプリセットが選択されていた場合はnullに
+          currentPreset: state.currentPreset === name ? null : state.currentPreset
+        };
+        saveState(newState);
         return newState;
       });
     },
@@ -385,3 +459,7 @@ export async function resumeAudioContext(): Promise<void> {
 export function isEqualizerInitialized(): boolean {
   return isInitialized;
 }
+
+// 後方互換性のためのエクスポート
+export const PRESETS = BUILTIN_PRESETS;
+export const PRESET_LABELS = BUILTIN_PRESET_LABELS;
