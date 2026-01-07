@@ -198,8 +198,9 @@ function loadState(): EqualizerState {
         customPresets: parsed.customPresets ?? []
       };
     }
-  } catch {
+  } catch (error) {
     // パースエラー時はデフォルト値を使用
+    console.warn('イコライザ設定の読み込みに失敗しました:', error);
   }
   return { ...DEFAULT_STATE };
 }
@@ -210,8 +211,9 @@ function saveState(state: EqualizerState): void {
 
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch {
-    // 保存エラーは無視
+  } catch (error) {
+    // 保存エラーをログに記録（プライベートブラウジングモードや容量制限など）
+    console.warn('イコライザ設定の保存に失敗しました:', error);
   }
 }
 
@@ -421,7 +423,7 @@ function applyEqualizerSettings(state: EqualizerState): void {
 /**
  * イコライザをクリーンアップ
  */
-export function cleanupEqualizer(): void {
+export async function cleanupEqualizer(): Promise<void> {
   if (sourceNode) {
     sourceNode.disconnect();
     sourceNode = null;
@@ -436,7 +438,7 @@ export function cleanupEqualizer(): void {
   }
 
   if (audioContext) {
-    audioContext.close();
+    await audioContext.close();
     audioContext = null;
   }
 

@@ -35,11 +35,6 @@
     isRightSidebarExpanded.set(false);
   }
 
-  // 明示的に閉じる（×ボタン等）- 将来の使用のため保持
-  function _close() {
-    isRightSidebarExpanded.set(false);
-  }
-
   // ピン状態をトグル
   function togglePin() {
     isRightSidebarPinned.toggle();

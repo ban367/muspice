@@ -26,13 +26,17 @@
   import AlbumArt from './AlbumArt.svelte';
   import { incrementPlayCount } from '$lib/queries/tracks';
   import MarqueeText from './MarqueeText.svelte';
-  import { initializeEqualizer, cleanupEqualizer } from '$lib/stores/equalizer';
+  import {
+    initializeEqualizer,
+    cleanupEqualizer,
+    resumeAudioContext,
+    isEqualizerInitialized
+  } from '$lib/stores/equalizer';
 
   let audioElement: HTMLAudioElement;
   let isDraggingProgress = $state(false);
   let isDraggingVolume = $state(false);
   let lastPlayedTrackId = $state<string | null>(null);
-  let equalizerInitialized = $state(false);
 
   // アルバムアートキャッシュ
   let albumArtUrl = $state<string | null>(null);
@@ -94,6 +98,9 @@
 
       // オーディオソースを設定
       audioElement.src = assetUrl;
+
+      // ユーザージェスチャー後にAudioContextを再開（自動再生ポリシー対応）
+      await resumeAudioContext();
 
       // 再生を開始
       try {
@@ -382,22 +389,18 @@
     window.addEventListener('mousemove', onDragVolume);
     window.addEventListener('mouseup', stopDraggingVolume);
     window.addEventListener('keydown', handleGlobalKeydown);
-
-    // イコライザ初期化（Audio要素がバインドされた後に実行）
-    // setTimeoutを使用してaudioElementのバインドを待つ
-    setTimeout(async () => {
-      if (audioElement && !equalizerInitialized) {
-        try {
-          await initializeEqualizer(audioElement);
-          equalizerInitialized = true;
-        } catch (error) {
-          console.error('イコライザの初期化に失敗しました:', error);
-        }
-      }
-    }, 100);
   });
 
-  onDestroy(() => {
+  // audioElementがバインドされた後にイコライザを初期化
+  $effect(() => {
+    if (audioElement && !isEqualizerInitialized()) {
+      initializeEqualizer(audioElement).catch((error) => {
+        console.error('イコライザの初期化に失敗しました:', error);
+      });
+    }
+  });
+
+  onDestroy(async () => {
     window.removeEventListener('mousemove', onDragProgress);
     window.removeEventListener('mouseup', stopDraggingProgress);
     window.removeEventListener('mousemove', onDragVolume);
@@ -406,7 +409,7 @@
     resetPlayer();
 
     // イコライザのクリーンアップ
-    cleanupEqualizer();
+    await cleanupEqualizer();
   });
 </script>
 
