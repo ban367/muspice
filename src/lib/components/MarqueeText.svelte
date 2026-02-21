@@ -1,6 +1,4 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-
   // Props
   interface Props {
     text: string;
@@ -27,18 +25,17 @@
     }
   }
 
-  // マウントとテキスト変更時にオーバーフローをチェック
-  onMount(() => {
+  // コンテナサイズの変更を監視
+  $effect(() => {
+    if (!containerRef) return;
+
     checkOverflow();
 
-    // ResizeObserverでコンテナサイズの変更を監視
     const resizeObserver = new ResizeObserver(() => {
       checkOverflow();
     });
 
-    if (containerRef) {
-      resizeObserver.observe(containerRef);
-    }
+    resizeObserver.observe(containerRef);
 
     return () => {
       resizeObserver.disconnect();

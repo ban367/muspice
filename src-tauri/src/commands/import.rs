@@ -9,9 +9,22 @@ use crate::models::Track;
 use crate::state::AppState;
 use crate::validation::validate_file_path;
 use chrono::Utc;
+use serde::Serialize;
 use std::path::Path;
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
+
+/// インポート進捗イベントのペイロード
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ImportProgress {
+    /// 処理済みファイル数
+    current: usize,
+    /// 総ファイル数
+    total: usize,
+    /// 現在処理中のファイル名
+    current_file: String,
+}
 
 /// フォルダから音楽ファイルをインポート（バッチ処理最適化版）
 #[tauri::command]
@@ -19,6 +32,7 @@ pub async fn import_folder(
     folder_path: String,
     duplicate_action: DuplicateAction,
     state: State<'_, AppState>,
+    app_handle: AppHandle,
 ) -> Result<ImportResult, String> {
     // ファイルパスをバリデーション
     validate_file_path(&folder_path)?;
@@ -41,9 +55,10 @@ pub async fn import_folder(
     // バッチサイズ（一度にコミットするファイル数）
     const BATCH_SIZE: usize = 50;
     let total_files = audio_files.len();
+    let mut processed_count = 0;
 
     // バッチ処理でインポート
-    for (batch_idx, chunk) in audio_files.chunks(BATCH_SIZE).enumerate() {
+    for chunk in audio_files.chunks(BATCH_SIZE) {
         // トランザクション開始
         let tx = db
             .transaction()
@@ -53,6 +68,23 @@ pub async fn import_folder(
             let file_path_str = file_path
                 .to_str()
                 .ok_or_else(|| "ファイルパスの変換に失敗しました".to_string())?;
+
+            // 進捗イベントを送信
+            processed_count += 1;
+            let current_file = file_path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("不明なファイル")
+                .to_string();
+
+            let _ = app_handle.emit(
+                "import-progress",
+                ImportProgress {
+                    current: processed_count,
+                    total: total_files,
+                    current_file,
+                },
+            );
 
             // 重複チェック
             let is_duplicate = match is_duplicate_file(&tx, file_path_str) {
@@ -97,11 +129,10 @@ pub async fn import_folder(
         tx.commit()
             .map_err(|e| format!("トランザクションのコミットに失敗しました: {}", e))?;
 
-        // 進行状況をログ出力（将来的にはイベントで通知可能）
-        let processed = (batch_idx + 1) * BATCH_SIZE.min(total_files - batch_idx * BATCH_SIZE);
+        // 進行状況をログ出力
         log::info!(
             "インポート進行状況: {}/{} ファイル処理完了",
-            processed,
+            processed_count,
             total_files
         );
     }

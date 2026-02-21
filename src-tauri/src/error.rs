@@ -1,82 +1,46 @@
-use std::fmt;
+use thiserror::Error;
 
 /// アプリケーション全体で使用するカスタムエラー型
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum AppError {
     /// ファイルが見つからない
+    #[error("ファイルが見つかりません: {0}")]
     FileNotFound(String),
     /// サポートされていないファイル形式
+    #[error("サポートされていないファイル形式です: {0}")]
     UnsupportedFormat(String),
     /// メタデータ抽出エラー
+    #[error("メタデータの抽出に失敗しました: {0}")]
     MetadataExtraction(String),
     /// データベースエラー
+    #[error("データベースエラー: {0}")]
     Database(String),
     /// 再生エラー
+    #[error("再生エラー: {0}")]
     Playback(String),
     /// バリデーションエラー
+    #[error("バリデーションエラー: {0}")]
     Validation(String),
     /// I/Oエラー
-    Io(String),
+    #[error("I/Oエラー: {0}")]
+    Io(#[from] std::io::Error),
     /// ロックエラー
+    #[error("ロックエラー: {0}")]
     Lock(String),
+    /// rusqliteエラー
+    #[error("データベースエラー: {0}")]
+    Sqlite(#[from] rusqlite::Error),
+    /// loftyエラー
+    #[error("メタデータの抽出に失敗しました: {0}")]
+    Lofty(#[from] lofty::error::LoftyError),
     /// その他のエラー
+    #[error("エラー: {0}")]
     Other(String),
 }
-
-impl fmt::Display for AppError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            AppError::FileNotFound(msg) => write!(f, "ファイルが見つかりません: {}", msg),
-            AppError::UnsupportedFormat(msg) => {
-                write!(f, "サポートされていないファイル形式です: {}", msg)
-            }
-            AppError::MetadataExtraction(msg) => {
-                write!(f, "メタデータの抽出に失敗しました: {}", msg)
-            }
-            AppError::Database(msg) => write!(f, "データベースエラー: {}", msg),
-            AppError::Playback(msg) => write!(f, "再生エラー: {}", msg),
-            AppError::Validation(msg) => write!(f, "バリデーションエラー: {}", msg),
-            AppError::Io(msg) => write!(f, "I/Oエラー: {}", msg),
-            AppError::Lock(msg) => write!(f, "ロックエラー: {}", msg),
-            AppError::Other(msg) => write!(f, "エラー: {}", msg),
-        }
-    }
-}
-
-impl std::error::Error for AppError {}
 
 /// Result型のエイリアス（将来の使用のため）
 #[allow(dead_code)]
 pub type AppResult<T> = Result<T, AppError>;
-
-/// std::io::Errorからの変換
-impl From<std::io::Error> for AppError {
-    fn from(err: std::io::Error) -> Self {
-        match err.kind() {
-            std::io::ErrorKind::NotFound => AppError::FileNotFound(err.to_string()),
-            _ => AppError::Io(err.to_string()),
-        }
-    }
-}
-
-/// rusqlite::Errorからの変換
-impl From<rusqlite::Error> for AppError {
-    fn from(err: rusqlite::Error) -> Self {
-        match err {
-            rusqlite::Error::QueryReturnedNoRows => {
-                AppError::Database("データが見つかりません".to_string())
-            }
-            _ => AppError::Database(err.to_string()),
-        }
-    }
-}
-
-/// lofty::LoftyErrorからの変換
-impl From<lofty::error::LoftyError> for AppError {
-    fn from(err: lofty::error::LoftyError) -> Self {
-        AppError::MetadataExtraction(err.to_string())
-    }
-}
 
 /// Stringからの変換（既存のエラーハンドリングとの互換性のため）
 impl From<String> for AppError {

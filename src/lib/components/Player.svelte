@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { untrack } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { convertFileSrc } from '@tauri-apps/api/core';
   import {
@@ -383,12 +383,27 @@
 
   let previousVolume = 1;
 
-  onMount(() => {
+  // グローバルイベントリスナーの登録/解除
+  $effect(() => {
     window.addEventListener('mousemove', onDragProgress);
     window.addEventListener('mouseup', stopDraggingProgress);
     window.addEventListener('mousemove', onDragVolume);
     window.addEventListener('mouseup', stopDraggingVolume);
     window.addEventListener('keydown', handleGlobalKeydown);
+
+    return () => {
+      window.removeEventListener('mousemove', onDragProgress);
+      window.removeEventListener('mouseup', stopDraggingProgress);
+      window.removeEventListener('mousemove', onDragVolume);
+      window.removeEventListener('mouseup', stopDraggingVolume);
+      window.removeEventListener('keydown', handleGlobalKeydown);
+      untrack(() => resetPlayer());
+
+      // イコライザのクリーンアップ
+      cleanupEqualizer().catch((error) => {
+        console.error('イコライザのクリーンアップに失敗しました:', error);
+      });
+    };
   });
 
   // audioElementがバインドされた後にイコライザを初期化
@@ -398,18 +413,6 @@
         console.error('イコライザの初期化に失敗しました:', error);
       });
     }
-  });
-
-  onDestroy(async () => {
-    window.removeEventListener('mousemove', onDragProgress);
-    window.removeEventListener('mouseup', stopDraggingProgress);
-    window.removeEventListener('mousemove', onDragVolume);
-    window.removeEventListener('mouseup', stopDraggingVolume);
-    window.removeEventListener('keydown', handleGlobalKeydown);
-    resetPlayer();
-
-    // イコライザのクリーンアップ
-    await cleanupEqualizer();
   });
 </script>
 
