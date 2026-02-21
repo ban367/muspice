@@ -32,7 +32,7 @@ fn add_column_if_not_exists(
 }
 
 /// データベースマイグレーションを実行
-fn run_migrations(conn: &Connection) -> Result<()> {
+pub fn run_migrations(conn: &Connection) -> Result<()> {
     // tracksテーブルの作成
     conn.execute(
         "CREATE TABLE IF NOT EXISTS tracks (

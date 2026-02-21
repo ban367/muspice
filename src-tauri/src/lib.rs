@@ -6,6 +6,7 @@ mod logger;
 mod metadata;
 mod models;
 mod playlist;
+mod repository;
 mod state;
 mod validation;
 

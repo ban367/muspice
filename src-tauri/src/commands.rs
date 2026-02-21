@@ -3,8 +3,8 @@ use crate::library::{
     is_duplicate_file, scan_directory, DeleteResult, DuplicateAction, ImportResult,
 };
 use crate::metadata::{
-    extract_album_art, extract_bitrate, extract_duration, extract_metadata, extract_sample_rate,
-    update_file_metadata, validate_metadata, AlbumArt,
+    extract_album_art, extract_all_file_info, extract_metadata, update_file_metadata,
+    validate_metadata, AlbumArt,
 };
 use crate::models::{AlbumGroup, ArtistGroup, GenreGroup, Metadata, Track};
 use crate::state::AppState;
@@ -13,7 +13,6 @@ use crate::validation::{
     validate_string_length, validate_track_id,
 };
 use chrono::Utc;
-use serde::Deserialize;
 use std::path::Path;
 use tauri::State;
 use uuid::Uuid;
@@ -201,18 +200,15 @@ fn create_track_from_file(file_path: &Path) -> Result<Track, String> {
         .ok_or_else(|| "ファイルパスの変換に失敗しました".to_string())?
         .to_string();
 
-    // メタデータを抽出
-    let metadata = extract_metadata(file_path)?;
+    // 1回のファイルオープンで全情報を一括抽出
+    let file_info = extract_all_file_info(file_path)?;
 
     // タイトルがない場合はファイル名をデフォルトとして使用
-    let title = metadata
+    let title = file_info
+        .metadata
         .title
         .or_else(|| Some(get_default_title(file_path)));
 
-    // その他の情報を取得
-    let duration = extract_duration(file_path)?;
-    let bitrate = extract_bitrate(file_path)?;
-    let sample_rate = extract_sample_rate(file_path)?;
     let file_size = get_file_size(file_path)?;
     let format = get_file_format(file_path);
 
@@ -223,17 +219,17 @@ fn create_track_from_file(file_path: &Path) -> Result<Track, String> {
         file_path: file_path_str,
         file_name,
         title,
-        artist: metadata.artist,
-        album: metadata.album,
-        genre: metadata.genre,
-        year: metadata.year,
-        track_number: metadata.track_number,
-        disc_number: metadata.disc_number,
-        duration,
+        artist: file_info.metadata.artist,
+        album: file_info.metadata.album,
+        genre: file_info.metadata.genre,
+        year: file_info.metadata.year,
+        track_number: file_info.metadata.track_number,
+        disc_number: file_info.metadata.disc_number,
+        duration: file_info.duration,
         file_size,
         format,
-        bitrate,
-        sample_rate,
+        bitrate: file_info.bitrate,
+        sample_rate: file_info.sample_rate,
         is_favorite: false,
         rating: 0,
         play_count: 0,
@@ -251,60 +247,18 @@ pub async fn get_all_tracks(state: State<'_, AppState>) -> Result<Vec<Track>, St
         .lock()
         .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
 
-    let mut stmt = db
-        .prepare(
-            "SELECT id, file_path, file_name, title, artist, album, genre, year,
-                    track_number, disc_number, duration, file_size, format, bitrate, sample_rate,
-                    COALESCE(is_favorite, 0), COALESCE(rating, 0), COALESCE(play_count, 0), last_played_at,
-                    created_at, updated_at
-             FROM tracks
-             ORDER BY created_at DESC",
-        )
-        .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
-
-    let tracks = stmt
-        .query_map([], |row| {
-            Ok(Track {
-                id: row.get(0)?,
-                file_path: row.get(1)?,
-                file_name: row.get(2)?,
-                title: row.get(3)?,
-                artist: row.get(4)?,
-                album: row.get(5)?,
-                genre: row.get(6)?,
-                year: row.get(7)?,
-                track_number: row.get(8)?,
-                disc_number: row.get(9)?,
-                duration: row.get(10)?,
-                file_size: row.get(11)?,
-                format: row.get(12)?,
-                bitrate: row.get(13)?,
-                sample_rate: row.get(14)?,
-                is_favorite: row.get::<_, i32>(15)? != 0,
-                rating: row.get(16)?,
-                play_count: row.get(17)?,
-                last_played_at: row.get(18)?,
-                created_at: row.get(19)?,
-                updated_at: row.get(20)?,
-            })
-        })
-        .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| format!("結果の取得に失敗しました: {}", e))?;
-
-    Ok(tracks)
+    crate::repository::find_all_tracks(&db)
 }
 
-/// トラックを検索（FTS5全文検索を使用した高速版）
+/// トラックを検索（FTS5 + LIKEフォールバック）
 #[tauri::command]
 pub async fn search_tracks(
     query: String,
     state: State<'_, AppState>,
 ) -> Result<Vec<Track>, String> {
     // 検索クエリをサニタイズ
-    let sanitized_query = sanitize_search_query(&query);
-
-    if sanitized_query.is_empty() {
+    let sanitized = sanitize_search_query(&query);
+    if sanitized.is_empty() {
         return Ok(Vec::new());
     }
 
@@ -313,127 +267,11 @@ pub async fn search_tracks(
         .lock()
         .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
 
-    // FTS5テーブルが存在するか確認
-    let fts_exists: bool = db
-        .query_row(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='tracks_fts'",
-            [],
-            |row| row.get::<_, i64>(0).map(|count| count > 0),
-        )
-        .unwrap_or(false);
-
-    if fts_exists {
-        // FTS5を使用した高速検索
-        let mut stmt = db
-            .prepare(
-                "SELECT t.id, t.file_path, t.file_name, t.title, t.artist, t.album, t.genre, t.year,
-                        t.track_number, t.disc_number, t.duration, t.file_size, t.format, t.bitrate, t.sample_rate,
-                        COALESCE(t.is_favorite, 0), COALESCE(t.rating, 0), COALESCE(t.play_count, 0), t.last_played_at,
-                        t.created_at, t.updated_at
-                 FROM tracks t
-                 INNER JOIN tracks_fts fts ON t.rowid = fts.rowid
-                 WHERE tracks_fts MATCH ?1
-                 ORDER BY rank
-                 LIMIT 1000",
-            )
-            .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
-
-        let tracks = stmt
-            .query_map([&sanitized_query], |row| {
-                Ok(Track {
-                    id: row.get(0)?,
-                    file_path: row.get(1)?,
-                    file_name: row.get(2)?,
-                    title: row.get(3)?,
-                    artist: row.get(4)?,
-                    album: row.get(5)?,
-                    genre: row.get(6)?,
-                    year: row.get(7)?,
-                    track_number: row.get(8)?,
-                    disc_number: row.get(9)?,
-                    duration: row.get(10)?,
-                    file_size: row.get(11)?,
-                    format: row.get(12)?,
-                    bitrate: row.get(13)?,
-                    sample_rate: row.get(14)?,
-                    is_favorite: row.get(15)?,
-                    rating: row.get(16)?,
-                    play_count: row.get(17)?,
-                    last_played_at: row.get(18)?,
-                    created_at: row.get(19)?,
-                    updated_at: row.get(20)?,
-                })
-            })
-            .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| format!("結果の取得に失敗しました: {}", e))?;
-
-        Ok(tracks)
-    } else {
-        // フォールバック: 通常のLIKE検索
-        let search_pattern = format!("%{}%", sanitized_query);
-
-        let mut stmt = db
-            .prepare(
-                "SELECT id, file_path, file_name, title, artist, album, genre, year,
-                        track_number, disc_number, duration, file_size, format, bitrate, sample_rate,
-                        COALESCE(is_favorite, 0), COALESCE(rating, 0), COALESCE(play_count, 0), last_played_at,
-                        created_at, updated_at
-                 FROM tracks
-                 WHERE title LIKE ?1 OR artist LIKE ?1 OR album LIKE ?1 OR genre LIKE ?1
-                 ORDER BY 
-                    CASE 
-                        WHEN title LIKE ?1 THEN 1
-                        WHEN artist LIKE ?1 THEN 2
-                        WHEN album LIKE ?1 THEN 3
-                        ELSE 4
-                    END,
-                    created_at DESC
-                 LIMIT 1000",
-            )
-            .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
-
-        let tracks = stmt
-            .query_map([&search_pattern], |row| {
-                Ok(Track {
-                    id: row.get(0)?,
-                    file_path: row.get(1)?,
-                    file_name: row.get(2)?,
-                    title: row.get(3)?,
-                    artist: row.get(4)?,
-                    album: row.get(5)?,
-                    genre: row.get(6)?,
-                    year: row.get(7)?,
-                    track_number: row.get(8)?,
-                    disc_number: row.get(9)?,
-                    duration: row.get(10)?,
-                    file_size: row.get(11)?,
-                    format: row.get(12)?,
-                    bitrate: row.get(13)?,
-                    sample_rate: row.get(14)?,
-                    is_favorite: row.get(15)?,
-                    rating: row.get(16)?,
-                    play_count: row.get(17)?,
-                    last_played_at: row.get(18)?,
-                    created_at: row.get(19)?,
-                    updated_at: row.get(20)?,
-                })
-            })
-            .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| format!("結果の取得に失敗しました: {}", e))?;
-
-        Ok(tracks)
-    }
+    crate::repository::search_tracks_by_query(&db, &sanitized)
 }
 
-/// フィルタオプション
-#[derive(Debug, Deserialize)]
-pub struct FilterOptions {
-    pub artist: Option<String>,
-    pub album: Option<String>,
-    pub genre: Option<String>,
-}
+/// フィルタオプション（repository::FilterOptionsの再エクスポート）
+pub type FilterOptions = crate::repository::FilterOptions;
 
 /// トラックをフィルタリング
 #[tauri::command]
@@ -446,71 +284,7 @@ pub async fn filter_tracks(
         .lock()
         .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
 
-    let mut query = String::from(
-        "SELECT id, file_path, file_name, title, artist, album, genre, year,
-                track_number, disc_number, duration, file_size, format, bitrate, sample_rate,
-                COALESCE(is_favorite, 0), COALESCE(rating, 0), COALESCE(play_count, 0), last_played_at,
-                created_at, updated_at
-         FROM tracks WHERE 1=1",
-    );
-
-    let mut params: Vec<String> = Vec::new();
-
-    if let Some(artist) = filters.artist {
-        query.push_str(" AND artist = ?");
-        params.push(artist);
-    }
-
-    if let Some(album) = filters.album {
-        query.push_str(" AND album = ?");
-        params.push(album);
-    }
-
-    if let Some(genre) = filters.genre {
-        query.push_str(" AND genre = ?");
-        params.push(genre);
-    }
-
-    query.push_str(" ORDER BY created_at DESC LIMIT 1000");
-
-    let mut stmt = db
-        .prepare(&query)
-        .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
-
-    let params_refs: Vec<&dyn rusqlite::ToSql> =
-        params.iter().map(|p| p as &dyn rusqlite::ToSql).collect();
-
-    let tracks = stmt
-        .query_map(params_refs.as_slice(), |row| {
-            Ok(Track {
-                id: row.get(0)?,
-                file_path: row.get(1)?,
-                file_name: row.get(2)?,
-                title: row.get(3)?,
-                artist: row.get(4)?,
-                album: row.get(5)?,
-                genre: row.get(6)?,
-                year: row.get(7)?,
-                track_number: row.get(8)?,
-                disc_number: row.get(9)?,
-                duration: row.get(10)?,
-                file_size: row.get(11)?,
-                format: row.get(12)?,
-                bitrate: row.get(13)?,
-                sample_rate: row.get(14)?,
-                is_favorite: row.get(15)?,
-                rating: row.get(16)?,
-                play_count: row.get(17)?,
-                last_played_at: row.get(18)?,
-                created_at: row.get(19)?,
-                updated_at: row.get(20)?,
-            })
-        })
-        .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| format!("結果の取得に失敗しました: {}", e))?;
-
-    Ok(tracks)
+    crate::repository::find_tracks_by_filter(&db, &filters)
 }
 
 /// ユニークなアーティスト一覧を取得
@@ -521,17 +295,7 @@ pub async fn get_unique_artists(state: State<'_, AppState>) -> Result<Vec<String
         .lock()
         .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
 
-    let mut stmt = db
-        .prepare("SELECT DISTINCT artist FROM tracks WHERE artist IS NOT NULL ORDER BY artist")
-        .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
-
-    let artists = stmt
-        .query_map([], |row| row.get(0))
-        .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| format!("結果の取得に失敗しました: {}", e))?;
-
-    Ok(artists)
+    crate::repository::find_unique_artists(&db)
 }
 
 /// ユニークなアルバム一覧を取得
@@ -542,17 +306,7 @@ pub async fn get_unique_albums(state: State<'_, AppState>) -> Result<Vec<String>
         .lock()
         .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
 
-    let mut stmt = db
-        .prepare("SELECT DISTINCT album FROM tracks WHERE album IS NOT NULL ORDER BY album")
-        .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
-
-    let albums = stmt
-        .query_map([], |row| row.get(0))
-        .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| format!("結果の取得に失敗しました: {}", e))?;
-
-    Ok(albums)
+    crate::repository::find_unique_albums(&db)
 }
 
 /// ユニークなジャンル一覧を取得
@@ -563,17 +317,7 @@ pub async fn get_unique_genres(state: State<'_, AppState>) -> Result<Vec<String>
         .lock()
         .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
 
-    let mut stmt = db
-        .prepare("SELECT DISTINCT genre FROM tracks WHERE genre IS NOT NULL ORDER BY genre")
-        .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
-
-    let genres = stmt
-        .query_map([], |row| row.get(0))
-        .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| format!("結果の取得に失敗しました: {}", e))?;
-
-    Ok(genres)
+    crate::repository::find_unique_genres(&db)
 }
 
 /// トラックのメタデータを更新（データベースのみ）
@@ -1023,20 +767,7 @@ pub async fn get_track_file_path(
         .lock()
         .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
 
-    let mut stmt = db
-        .prepare("SELECT file_path FROM tracks WHERE id = ?1")
-        .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
-
-    let file_path: String = stmt
-        .query_row([&track_id], |row| row.get(0))
-        .map_err(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => {
-                "指定されたトラックが見つかりません".to_string()
-            }
-            _ => format!("トラックの取得に失敗しました: {}", e),
-        })?;
-
-    Ok(file_path)
+    crate::repository::find_file_path_by_track_id(&db, &track_id)
 }
 
 /// 現在再生中のトラックIDを設定
@@ -1061,60 +792,21 @@ pub async fn get_current_track(state: State<'_, AppState>) -> Result<Option<Trac
     let current_track_id = state
         .current_track_id
         .lock()
-        .map_err(|e| format!("ステートロックの取得に失敗しました: {}", e))?;
+        .map_err(|e| format!("現在のトラック情報の取得に失敗しました: {}", e))?;
 
-    if let Some(track_id) = current_track_id.as_ref() {
-        let db = state
-            .db
-            .lock()
-            .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
+    let track_id = match current_track_id.as_ref() {
+        Some(id) => id.clone(),
+        None => return Ok(None),
+    };
 
-        let mut stmt = db
-            .prepare(
-                "SELECT id, file_path, file_name, title, artist, album, genre, year,
-                        track_number, disc_number, duration, file_size, format, bitrate, sample_rate,
-                        COALESCE(is_favorite, 0), COALESCE(rating, 0), COALESCE(play_count, 0), last_played_at,
-                        created_at, updated_at
-                 FROM tracks WHERE id = ?1",
-            )
-            .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
 
-        let track = stmt
-            .query_row([track_id], |row| {
-                Ok(Track {
-                    id: row.get(0)?,
-                    file_path: row.get(1)?,
-                    file_name: row.get(2)?,
-                    title: row.get(3)?,
-                    artist: row.get(4)?,
-                    album: row.get(5)?,
-                    genre: row.get(6)?,
-                    year: row.get(7)?,
-                    track_number: row.get(8)?,
-                    disc_number: row.get(9)?,
-                    duration: row.get(10)?,
-                    file_size: row.get(11)?,
-                    format: row.get(12)?,
-                    bitrate: row.get(13)?,
-                    sample_rate: row.get(14)?,
-                    is_favorite: row.get(15)?,
-                    rating: row.get(16)?,
-                    play_count: row.get(17)?,
-                    last_played_at: row.get(18)?,
-                    created_at: row.get(19)?,
-                    updated_at: row.get(20)?,
-                })
-            })
-            .map_err(|e| match e {
-                rusqlite::Error::QueryReturnedNoRows => {
-                    "指定されたトラックが見つかりません".to_string()
-                }
-                _ => format!("トラックの取得に失敗しました: {}", e),
-            })?;
-
-        Ok(Some(track))
-    } else {
-        Ok(None)
+    match crate::repository::find_track_by_id(&db, &track_id) {
+        Ok(track) => Ok(Some(track)),
+        Err(_) => Ok(None),
     }
 }
 
@@ -1223,7 +915,7 @@ pub async fn increment_play_count(
     Ok(new_count)
 }
 
-/// お気に入りトラックを取得
+/// お気に入りトラック一覧を取得
 #[tauri::command]
 pub async fn get_favorite_tracks(state: State<'_, AppState>) -> Result<Vec<Track>, String> {
     let db = state
@@ -1231,167 +923,37 @@ pub async fn get_favorite_tracks(state: State<'_, AppState>) -> Result<Vec<Track
         .lock()
         .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
 
-    let mut stmt = db
-        .prepare(
-            "SELECT id, file_path, file_name, title, artist, album, genre, year,
-                    track_number, disc_number, duration, file_size, format, bitrate, sample_rate,
-                    COALESCE(is_favorite, 0), COALESCE(rating, 0), COALESCE(play_count, 0), last_played_at,
-                    created_at, updated_at
-             FROM tracks
-             WHERE is_favorite = 1
-             ORDER BY updated_at DESC",
-        )
-        .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
-
-    let tracks = stmt
-        .query_map([], |row| {
-            Ok(Track {
-                id: row.get(0)?,
-                file_path: row.get(1)?,
-                file_name: row.get(2)?,
-                title: row.get(3)?,
-                artist: row.get(4)?,
-                album: row.get(5)?,
-                genre: row.get(6)?,
-                year: row.get(7)?,
-                track_number: row.get(8)?,
-                disc_number: row.get(9)?,
-                duration: row.get(10)?,
-                file_size: row.get(11)?,
-                format: row.get(12)?,
-                bitrate: row.get(13)?,
-                sample_rate: row.get(14)?,
-                is_favorite: row.get::<_, i32>(15)? != 0,
-                rating: row.get(16)?,
-                play_count: row.get(17)?,
-                last_played_at: row.get(18)?,
-                created_at: row.get(19)?,
-                updated_at: row.get(20)?,
-            })
-        })
-        .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| format!("結果の取得に失敗しました: {}", e))?;
-
-    Ok(tracks)
+    crate::repository::find_favorite_tracks(&db)
 }
 
-/// よく聴くトラック（再生回数順）を取得
+/// 最も再生されたトラック一覧を取得
 #[tauri::command]
 pub async fn get_most_played_tracks(
     limit: Option<i32>,
     state: State<'_, AppState>,
 ) -> Result<Vec<Track>, String> {
+    let limit = limit.unwrap_or(50);
     let db = state
         .db
         .lock()
         .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
 
-    let limit = limit.unwrap_or(50);
-
-    let mut stmt = db
-        .prepare(
-            "SELECT id, file_path, file_name, title, artist, album, genre, year,
-                    track_number, disc_number, duration, file_size, format, bitrate, sample_rate,
-                    COALESCE(is_favorite, 0), COALESCE(rating, 0), COALESCE(play_count, 0), last_played_at,
-                    created_at, updated_at
-             FROM tracks
-             WHERE play_count > 0
-             ORDER BY play_count DESC, last_played_at DESC
-             LIMIT ?1",
-        )
-        .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
-
-    let tracks = stmt
-        .query_map([limit], |row| {
-            Ok(Track {
-                id: row.get(0)?,
-                file_path: row.get(1)?,
-                file_name: row.get(2)?,
-                title: row.get(3)?,
-                artist: row.get(4)?,
-                album: row.get(5)?,
-                genre: row.get(6)?,
-                year: row.get(7)?,
-                track_number: row.get(8)?,
-                disc_number: row.get(9)?,
-                duration: row.get(10)?,
-                file_size: row.get(11)?,
-                format: row.get(12)?,
-                bitrate: row.get(13)?,
-                sample_rate: row.get(14)?,
-                is_favorite: row.get::<_, i32>(15)? != 0,
-                rating: row.get(16)?,
-                play_count: row.get(17)?,
-                last_played_at: row.get(18)?,
-                created_at: row.get(19)?,
-                updated_at: row.get(20)?,
-            })
-        })
-        .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| format!("結果の取得に失敗しました: {}", e))?;
-
-    Ok(tracks)
+    crate::repository::find_most_played_tracks(&db, limit)
 }
 
-/// 最近再生したトラックを取得
+/// 最近再生されたトラック一覧を取得
 #[tauri::command]
 pub async fn get_recently_played_tracks(
     limit: Option<i32>,
     state: State<'_, AppState>,
 ) -> Result<Vec<Track>, String> {
+    let limit = limit.unwrap_or(50);
     let db = state
         .db
         .lock()
         .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
 
-    let limit = limit.unwrap_or(50);
-
-    let mut stmt = db
-        .prepare(
-            "SELECT id, file_path, file_name, title, artist, album, genre, year,
-                    track_number, disc_number, duration, file_size, format, bitrate, sample_rate,
-                    COALESCE(is_favorite, 0), COALESCE(rating, 0), COALESCE(play_count, 0), last_played_at,
-                    created_at, updated_at
-             FROM tracks
-             WHERE last_played_at IS NOT NULL
-             ORDER BY last_played_at DESC
-             LIMIT ?1",
-        )
-        .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
-
-    let tracks = stmt
-        .query_map([limit], |row| {
-            Ok(Track {
-                id: row.get(0)?,
-                file_path: row.get(1)?,
-                file_name: row.get(2)?,
-                title: row.get(3)?,
-                artist: row.get(4)?,
-                album: row.get(5)?,
-                genre: row.get(6)?,
-                year: row.get(7)?,
-                track_number: row.get(8)?,
-                disc_number: row.get(9)?,
-                duration: row.get(10)?,
-                file_size: row.get(11)?,
-                format: row.get(12)?,
-                bitrate: row.get(13)?,
-                sample_rate: row.get(14)?,
-                is_favorite: row.get::<_, i32>(15)? != 0,
-                rating: row.get(16)?,
-                play_count: row.get(17)?,
-                last_played_at: row.get(18)?,
-                created_at: row.get(19)?,
-                updated_at: row.get(20)?,
-            })
-        })
-        .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| format!("結果の取得に失敗しました: {}", e))?;
-
-    Ok(tracks)
+    crate::repository::find_recently_played_tracks(&db, limit)
 }
 
 /// ファイルの場所をシステムのファイルマネージャーで開く
@@ -1437,7 +999,7 @@ pub async fn show_in_folder(path: String) -> Result<(), String> {
 
 // ========== グループ化データ取得コマンド ==========
 
-/// アルバムごとにグループ化されたトラックを取得
+/// アルバム一覧（グループ化）を取得
 #[tauri::command]
 pub async fn get_albums_grouped(state: State<'_, AppState>) -> Result<Vec<AlbumGroup>, String> {
     let db = state
@@ -1445,86 +1007,10 @@ pub async fn get_albums_grouped(state: State<'_, AppState>) -> Result<Vec<AlbumG
         .lock()
         .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
 
-    // アルバムごとにトラックを取得
-    let mut stmt = db
-        .prepare(
-            "SELECT id, file_path, file_name, title, artist, album, genre, year,
-                    track_number, disc_number, duration, file_size, format, bitrate, sample_rate,
-                    COALESCE(is_favorite, 0), COALESCE(rating, 0), COALESCE(play_count, 0), last_played_at,
-                    created_at, updated_at
-             FROM tracks
-             WHERE album IS NOT NULL AND album != ''
-             ORDER BY album, COALESCE(disc_number, 1), COALESCE(track_number, 0), COALESCE(title, file_name)",
-        )
-        .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
-
-    let tracks = stmt
-        .query_map([], |row| {
-            Ok(Track {
-                id: row.get(0)?,
-                file_path: row.get(1)?,
-                file_name: row.get(2)?,
-                title: row.get(3)?,
-                artist: row.get(4)?,
-                album: row.get(5)?,
-                genre: row.get(6)?,
-                year: row.get(7)?,
-                track_number: row.get(8)?,
-                disc_number: row.get(9)?,
-                duration: row.get(10)?,
-                file_size: row.get(11)?,
-                format: row.get(12)?,
-                bitrate: row.get(13)?,
-                sample_rate: row.get(14)?,
-                is_favorite: row.get::<_, i32>(15)? != 0,
-                rating: row.get(16)?,
-                play_count: row.get(17)?,
-                last_played_at: row.get(18)?,
-                created_at: row.get(19)?,
-                updated_at: row.get(20)?,
-            })
-        })
-        .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| format!("結果の取得に失敗しました: {}", e))?;
-
-    // アルバムごとにグループ化
-    use std::collections::HashMap;
-    let mut album_map: HashMap<String, Vec<Track>> = HashMap::new();
-
-    for track in tracks {
-        if let Some(album) = &track.album {
-            album_map.entry(album.clone()).or_default().push(track);
-        }
-    }
-
-    // AlbumGroupに変換
-    let mut album_groups: Vec<AlbumGroup> = album_map
-        .into_iter()
-        .map(|(name, tracks)| {
-            let track_count = tracks.len() as i32;
-            let total_duration = tracks.iter().filter_map(|t| t.duration).sum();
-            let artist = tracks.first().and_then(|t| t.artist.clone());
-            let representative_track_id = tracks.first().map(|t| t.id.clone()).unwrap_or_default();
-
-            AlbumGroup {
-                name,
-                artist,
-                track_count,
-                total_duration,
-                representative_track_id,
-                tracks,
-            }
-        })
-        .collect();
-
-    // アルバム名でソート
-    album_groups.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-
-    Ok(album_groups)
+    crate::repository::find_albums_grouped(&db)
 }
 
-/// アーティストごとにグループ化されたトラックを取得
+/// アーティスト一覧（グループ化）を取得
 #[tauri::command]
 pub async fn get_artists_grouped(state: State<'_, AppState>) -> Result<Vec<ArtistGroup>, String> {
     let db = state
@@ -1532,117 +1018,10 @@ pub async fn get_artists_grouped(state: State<'_, AppState>) -> Result<Vec<Artis
         .lock()
         .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
 
-    // アーティストごとにトラックを取得
-    let mut stmt = db
-        .prepare(
-            "SELECT id, file_path, file_name, title, artist, album, genre, year,
-                    track_number, disc_number, duration, file_size, format, bitrate, sample_rate,
-                    COALESCE(is_favorite, 0), COALESCE(rating, 0), COALESCE(play_count, 0), last_played_at,
-                    created_at, updated_at
-             FROM tracks
-             WHERE artist IS NOT NULL AND artist != ''
-             ORDER BY artist, album, COALESCE(disc_number, 1), COALESCE(track_number, 0), COALESCE(title, file_name)",
-        )
-        .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
-
-    let tracks = stmt
-        .query_map([], |row| {
-            Ok(Track {
-                id: row.get(0)?,
-                file_path: row.get(1)?,
-                file_name: row.get(2)?,
-                title: row.get(3)?,
-                artist: row.get(4)?,
-                album: row.get(5)?,
-                genre: row.get(6)?,
-                year: row.get(7)?,
-                track_number: row.get(8)?,
-                disc_number: row.get(9)?,
-                duration: row.get(10)?,
-                file_size: row.get(11)?,
-                format: row.get(12)?,
-                bitrate: row.get(13)?,
-                sample_rate: row.get(14)?,
-                is_favorite: row.get::<_, i32>(15)? != 0,
-                rating: row.get(16)?,
-                play_count: row.get(17)?,
-                last_played_at: row.get(18)?,
-                created_at: row.get(19)?,
-                updated_at: row.get(20)?,
-            })
-        })
-        .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| format!("結果の取得に失敗しました: {}", e))?;
-
-    // アーティスト -> アルバム -> トラックの階層構造を構築
-    use std::collections::HashMap;
-    let mut artist_map: HashMap<String, HashMap<String, Vec<Track>>> = HashMap::new();
-
-    for track in tracks {
-        if let Some(artist) = &track.artist {
-            let album_name = track
-                .album
-                .clone()
-                .unwrap_or_else(|| "不明なアルバム".to_string());
-            artist_map
-                .entry(artist.clone())
-                .or_default()
-                .entry(album_name)
-                .or_default()
-                .push(track);
-        }
-    }
-
-    // ArtistGroupに変換
-    let mut artist_groups: Vec<ArtistGroup> = artist_map
-        .into_iter()
-        .map(|(name, album_map)| {
-            let albums: Vec<AlbumGroup> = album_map
-                .into_iter()
-                .map(|(album_name, tracks)| {
-                    let track_count = tracks.len() as i32;
-                    let total_duration = tracks.iter().filter_map(|t| t.duration).sum();
-                    let representative_track_id =
-                        tracks.first().map(|t| t.id.clone()).unwrap_or_default();
-
-                    AlbumGroup {
-                        name: album_name,
-                        artist: Some(name.clone()),
-                        track_count,
-                        total_duration,
-                        representative_track_id,
-                        tracks,
-                    }
-                })
-                .collect();
-
-            let album_count = albums.len() as i32;
-            let track_count: i32 = albums.iter().map(|a| a.track_count).sum();
-            let total_duration: i32 = albums.iter().map(|a| a.total_duration).sum();
-            let representative_track_id = albums
-                .first()
-                .map(|a| a.representative_track_id.clone())
-                .unwrap_or_default();
-
-            ArtistGroup {
-                name,
-                album_count,
-                track_count,
-                total_duration,
-                representative_track_id,
-                albums,
-            }
-        })
-        .collect();
-
-    // アーティスト名でソート
-    artist_groups.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-
-    Ok(artist_groups)
+    crate::repository::find_artists_grouped(&db)
 }
 
-/// ジャンルごとにグループ化されたトラックを取得
+/// ジャンル一覧（グループ化）を取得
 #[tauri::command]
 pub async fn get_genres_grouped(state: State<'_, AppState>) -> Result<Vec<GenreGroup>, String> {
     let db = state
@@ -1650,81 +1029,7 @@ pub async fn get_genres_grouped(state: State<'_, AppState>) -> Result<Vec<GenreG
         .lock()
         .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
 
-    // ジャンルごとにトラックを取得
-    let mut stmt = db
-        .prepare(
-            "SELECT id, file_path, file_name, title, artist, album, genre, year,
-                    track_number, disc_number, duration, file_size, format, bitrate, sample_rate,
-                    COALESCE(is_favorite, 0), COALESCE(rating, 0), COALESCE(play_count, 0), last_played_at,
-                    created_at, updated_at
-             FROM tracks
-             WHERE genre IS NOT NULL AND genre != ''
-             ORDER BY genre, artist, album, COALESCE(disc_number, 1), COALESCE(track_number, 0), COALESCE(title, file_name)",
-        )
-        .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
-
-    let tracks = stmt
-        .query_map([], |row| {
-            Ok(Track {
-                id: row.get(0)?,
-                file_path: row.get(1)?,
-                file_name: row.get(2)?,
-                title: row.get(3)?,
-                artist: row.get(4)?,
-                album: row.get(5)?,
-                genre: row.get(6)?,
-                year: row.get(7)?,
-                track_number: row.get(8)?,
-                disc_number: row.get(9)?,
-                duration: row.get(10)?,
-                file_size: row.get(11)?,
-                format: row.get(12)?,
-                bitrate: row.get(13)?,
-                sample_rate: row.get(14)?,
-                is_favorite: row.get::<_, i32>(15)? != 0,
-                rating: row.get(16)?,
-                play_count: row.get(17)?,
-                last_played_at: row.get(18)?,
-                created_at: row.get(19)?,
-                updated_at: row.get(20)?,
-            })
-        })
-        .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| format!("結果の取得に失敗しました: {}", e))?;
-
-    // ジャンルごとにグループ化
-    use std::collections::HashMap;
-    let mut genre_map: HashMap<String, Vec<Track>> = HashMap::new();
-
-    for track in tracks {
-        if let Some(genre) = &track.genre {
-            genre_map.entry(genre.clone()).or_default().push(track);
-        }
-    }
-
-    // GenreGroupに変換
-    let mut genre_groups: Vec<GenreGroup> = genre_map
-        .into_iter()
-        .map(|(name, tracks)| {
-            let track_count = tracks.len() as i32;
-            let total_duration = tracks.iter().filter_map(|t| t.duration).sum();
-            let representative_track_id = tracks.first().map(|t| t.id.clone()).unwrap_or_default();
-
-            GenreGroup {
-                name,
-                track_count,
-                total_duration,
-                representative_track_id,
-                tracks,
-            }
-        })
-        .collect();
-
-    // ジャンル名でソート
-    genre_groups.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-
-    Ok(genre_groups)
+    crate::repository::find_genres_grouped(&db)
 }
 
 // ========== トラック削除コマンド ==========
