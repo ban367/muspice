@@ -77,14 +77,16 @@ pub async fn import_folder(
                 .unwrap_or("不明なファイル")
                 .to_string();
 
-            let _ = app_handle.emit(
+            if let Err(e) = app_handle.emit(
                 "import-progress",
                 ImportProgress {
                     current: processed_count,
                     total: total_files,
                     current_file,
                 },
-            );
+            ) {
+                log::warn!("進捗イベントの送信に失敗しました: {}", e);
+            }
 
             // 重複チェック
             let is_duplicate = match is_duplicate_file(&tx, file_path_str) {

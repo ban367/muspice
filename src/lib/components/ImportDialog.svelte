@@ -78,16 +78,18 @@
     errorMessage = '';
     importResult = null;
 
-    // インポート進捗イベントをリッスン
-    const unlisten = await listen<ImportProgress>('import-progress', (event) => {
-      const { current, total, currentFile: file } = event.payload;
-      processedFiles = current;
-      totalFiles = total;
-      currentFile = file;
-      progress = total > 0 ? Math.round((current / total) * 100) : 0;
-    });
+    let unlisten: (() => void) | null = null;
 
     try {
+      // インポート進捗イベントをリッスン
+      unlisten = await listen<ImportProgress>('import-progress', (event) => {
+        const { current, total, currentFile: file } = event.payload;
+        processedFiles = current;
+        totalFiles = total;
+        currentFile = file;
+        progress = total > 0 ? Math.round((current / total) * 100) : 0;
+      });
+
       const result = await invoke<ImportResult>('import_folder', {
         folderPath: selectedFolder,
         duplicateAction: duplicateAction
@@ -111,7 +113,7 @@
     } finally {
       isImporting = false;
       // イベントリスナーを解除
-      unlisten();
+      unlisten?.();
     }
   }
 

@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { convertFileSrc } from '@tauri-apps/api/core';
   import {
@@ -397,7 +396,7 @@
       window.removeEventListener('mousemove', onDragVolume);
       window.removeEventListener('mouseup', stopDraggingVolume);
       window.removeEventListener('keydown', handleGlobalKeydown);
-      untrack(() => resetPlayer());
+      resetPlayer();
 
       // イコライザのクリーンアップ
       cleanupEqualizer().catch((error) => {

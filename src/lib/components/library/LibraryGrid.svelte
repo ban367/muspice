@@ -6,14 +6,11 @@
 
   カードの見た目はSnippetでカスタマイズ可能。
 -->
-<script lang="ts" generics="T extends { name: string }">
+<script lang="ts" generics="T extends AlbumGroup | ArtistGroup | GenreGroup">
   import type { Snippet } from 'svelte';
   import type { AlbumGroup, ArtistGroup, GenreGroup } from '$lib/types/models';
   import { browseSearchQuery } from '$lib/stores/ui';
   import GroupContextMenu from '../GroupContextMenu.svelte';
-
-  // GroupContextMenuが受け取れるグループ型
-  type Group = AlbumGroup | ArtistGroup | GenreGroup;
 
   // Props
   interface Props {
@@ -154,7 +151,7 @@
   <GroupContextMenu
     x={contextMenu.x}
     y={contextMenu.y}
-    group={contextMenu.item as unknown as Group}
+    group={contextMenu.item}
     type={groupType}
     onClose={closeContextMenu}
   />

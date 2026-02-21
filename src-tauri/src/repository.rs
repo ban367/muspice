@@ -9,6 +9,12 @@ use rusqlite::{Connection, Row};
 
 use crate::models::{AlbumGroup, ArtistGroup, GenreGroup, Track};
 
+/// クエリ結果の最大取得件数
+///
+/// パフォーマンスとメモリ使用量のバランスを考慮した設計上の制限。
+/// 仮想スクロール（100曲以上のリスト）と組み合わせて使用する。
+const DEFAULT_QUERY_LIMIT: usize = 1000;
+
 /// SELECTで使用するトラックカラム列挙（21列）
 ///
 /// is_favorite, rating, play_countはCOALESCEでNULL安全にしている。
@@ -49,8 +55,8 @@ pub fn map_track_row(row: &Row) -> rusqlite::Result<Track> {
 /// 全トラックを取得（作成日時の降順、最大1000件）
 pub fn find_all_tracks(conn: &Connection) -> Result<Vec<Track>, String> {
     let sql = format!(
-        "SELECT {} FROM tracks ORDER BY created_at DESC LIMIT 1000",
-        TRACK_COLUMNS
+        "SELECT {} FROM tracks ORDER BY created_at DESC LIMIT {}",
+        TRACK_COLUMNS, DEFAULT_QUERY_LIMIT
     );
     let mut stmt = conn
         .prepare(&sql)
@@ -120,8 +126,8 @@ fn search_tracks_fts(conn: &Connection, query: &str) -> Result<Vec<Track>, Strin
          WHERE id IN (
              SELECT id FROM tracks_fts WHERE tracks_fts MATCH ?1
          )
-         ORDER BY created_at DESC LIMIT 1000",
-        TRACK_COLUMNS
+         ORDER BY created_at DESC LIMIT {}",
+        TRACK_COLUMNS, DEFAULT_QUERY_LIMIT
     );
 
     let mut stmt = conn
@@ -143,8 +149,8 @@ fn search_tracks_like(conn: &Connection, query: &str) -> Result<Vec<Track>, Stri
     let sql = format!(
         "SELECT {} FROM tracks
          WHERE title LIKE ?1 OR artist LIKE ?1 OR album LIKE ?1 OR genre LIKE ?1
-         ORDER BY created_at DESC LIMIT 1000",
-        TRACK_COLUMNS
+         ORDER BY created_at DESC LIMIT {}",
+        TRACK_COLUMNS, DEFAULT_QUERY_LIMIT
     );
 
     let mut stmt = conn
@@ -191,7 +197,10 @@ pub fn find_tracks_by_filter(
         params.push(genre.clone());
     }
 
-    sql.push_str(" ORDER BY created_at DESC LIMIT 1000");
+    sql.push_str(&format!(
+        " ORDER BY created_at DESC LIMIT {}",
+        DEFAULT_QUERY_LIMIT
+    ));
 
     let mut stmt = conn
         .prepare(&sql)
@@ -227,8 +236,8 @@ pub fn find_file_path_by_track_id(conn: &Connection, track_id: &str) -> Result<S
 /// お気に入りトラックを取得
 pub fn find_favorite_tracks(conn: &Connection) -> Result<Vec<Track>, String> {
     let sql = format!(
-        "SELECT {} FROM tracks WHERE is_favorite = 1 ORDER BY updated_at DESC LIMIT 1000",
-        TRACK_COLUMNS
+        "SELECT {} FROM tracks WHERE is_favorite = 1 ORDER BY updated_at DESC LIMIT {}",
+        TRACK_COLUMNS, DEFAULT_QUERY_LIMIT
     );
     query_tracks(conn, &sql, &[])
 }
