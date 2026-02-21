@@ -7,13 +7,6 @@ pub fn validate_file_path(path: &str) -> Result<(), String> {
         return Err("ファイルパスが空です".to_string());
     }
 
-    // パストラバーサルパターンをチェック
-    if path.contains("..") {
-        return Err(
-            "不正なファイルパス: 親ディレクトリへのアクセスは許可されていません".to_string(),
-        );
-    }
-
     // Null文字をチェック
     if path.contains('\0') {
         return Err("不正なファイルパス: Null文字が含まれています".to_string());
@@ -22,6 +15,17 @@ pub fn validate_file_path(path: &str) -> Result<(), String> {
     // パスの長さをチェック（システム制限）
     if path.len() > 4096 {
         return Err("ファイルパスが長すぎます".to_string());
+    }
+
+    // パストラバーサルパターンをチェック（パスコンポーネント単位で判定）
+    // ファイル名に".."を含むケース（例: "Artist..Live.mp3"）は許可する
+    let file_path = Path::new(path);
+    for component in file_path.components() {
+        if let std::path::Component::ParentDir = component {
+            return Err(
+                "不正なファイルパス: 親ディレクトリへのアクセスは許可されていません".to_string(),
+            );
+        }
     }
 
     Ok(())
@@ -168,12 +172,16 @@ mod tests {
     fn test_validate_file_path_valid() {
         assert!(validate_file_path("/home/user/music/song.mp3").is_ok());
         assert!(validate_file_path("C:\\Users\\Music\\song.mp3").is_ok());
+        // ファイル名に".."を含むケースは許可する
+        assert!(validate_file_path("/home/user/music/Artist..Live.mp3").is_ok());
+        assert!(validate_file_path("/home/user/music/track..2024.flac").is_ok());
     }
 
     #[test]
     fn test_validate_file_path_traversal() {
         assert!(validate_file_path("../../../etc/passwd").is_err());
         assert!(validate_file_path("/home/user/../../../etc/passwd").is_err());
+        assert!(validate_file_path("/home/user/music/../../etc/passwd").is_err());
     }
 
     #[test]
