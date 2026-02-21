@@ -2,7 +2,7 @@ use chrono::Local;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 
 /// ログレベル
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -119,21 +119,23 @@ impl Logger {
 }
 
 /// グローバルロガーのインスタンス
-static mut GLOBAL_LOGGER: Option<Logger> = None;
+static GLOBAL_LOGGER: OnceLock<Logger> = OnceLock::new();
 
 /// グローバルロガーを初期化
 pub fn init_logger(log_dir: PathBuf, min_level: LogLevel) -> Result<(), std::io::Error> {
     let logger = Logger::new(log_dir, min_level)?;
-    unsafe {
-        GLOBAL_LOGGER = Some(logger);
-    }
+    GLOBAL_LOGGER.set(logger).map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "ロガーは既に初期化されています",
+        )
+    })?;
     Ok(())
 }
 
 /// グローバルロガーを取得
-#[allow(static_mut_refs)]
 fn get_logger() -> Option<&'static Logger> {
-    unsafe { GLOBAL_LOGGER.as_ref() }
+    GLOBAL_LOGGER.get()
 }
 
 /// デバッグログを記録

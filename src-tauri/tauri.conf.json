@@ -18,12 +18,21 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: file: asset: https://asset.localhost; connect-src 'self' ipc: http://localhost:1420",
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: file: asset: https://asset.localhost; connect-src 'self' ipc: http://ipc.localhost",
       "dangerousDisableAssetCspModification": false,
       "freezePrototype": true,
       "assetProtocol": {
         "enable": true,
-        "scope": ["$HOME/**", "/**"]
+        "scope": [
+          "$HOME/**",
+          "$AUDIO/**",
+          "/Volumes/**",
+          "/media/**",
+          "/mnt/**",
+          "D:\\**",
+          "E:\\**",
+          "F:\\**"
+        ]
       }
     }
   },

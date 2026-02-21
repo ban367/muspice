@@ -1,11 +1,15 @@
 //! システム関連コマンド
 
+use crate::validation::validate_file_path;
 use std::path::Path;
 
 /// ファイルの場所をシステムのファイルマネージャーで開く
 #[tauri::command]
 pub async fn show_in_folder(path: String) -> Result<(), String> {
     use std::process::Command;
+
+    // パスバリデーション（パストラバーサル攻撃対策）
+    validate_file_path(&path)?;
 
     let file_path = Path::new(&path);
 
