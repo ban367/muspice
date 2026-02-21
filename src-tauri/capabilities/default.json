@@ -15,7 +15,15 @@
     "fs:allow-read",
     {
       "identifier": "fs:scope",
-      "allow": ["$HOME/**", "/**"]
+      "allow": [
+        "$HOME/**",
+        "$AUDIO/**",
+        "$APPDATA/**",
+        "/Volumes/**",
+        "/media/**",
+        "/mnt/**",
+        "/run/media/**"
+      ]
     }
   ]
 }
