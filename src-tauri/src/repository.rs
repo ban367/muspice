@@ -57,7 +57,7 @@ pub fn find_all_tracks(conn: &Connection) -> Result<Vec<Track>, String> {
         .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
 
     let tracks = stmt
-        .query_map([], |row| map_track_row(row))
+        .query_map([], map_track_row)
         .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| format!("結果の取得に失敗しました: {}", e))?;
@@ -72,7 +72,7 @@ pub fn find_track_by_id(conn: &Connection, track_id: &str) -> Result<Track, Stri
         .prepare(&sql)
         .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
 
-    stmt.query_row([track_id], |row| map_track_row(row))
+    stmt.query_row([track_id], map_track_row)
         .map_err(|e| match e {
             rusqlite::Error::QueryReturnedNoRows => {
                 "指定されたトラックが見つかりません".to_string()
@@ -129,7 +129,7 @@ fn search_tracks_fts(conn: &Connection, query: &str) -> Result<Vec<Track>, Strin
         .map_err(|e| format!("FTS5クエリの準備に失敗しました: {}", e))?;
 
     let tracks = stmt
-        .query_map([&fts_query], |row| map_track_row(row))
+        .query_map([&fts_query], map_track_row)
         .map_err(|e| format!("FTS5クエリの実行に失敗しました: {}", e))?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| format!("FTS5結果の取得に失敗しました: {}", e))?;
@@ -152,7 +152,7 @@ fn search_tracks_like(conn: &Connection, query: &str) -> Result<Vec<Track>, Stri
         .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
 
     let tracks = stmt
-        .query_map([&like_pattern], |row| map_track_row(row))
+        .query_map([&like_pattern], map_track_row)
         .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| format!("結果の取得に失敗しました: {}", e))?;
@@ -201,7 +201,7 @@ pub fn find_tracks_by_filter(
         params.iter().map(|p| p as &dyn rusqlite::ToSql).collect();
 
     let tracks = stmt
-        .query_map(params_refs.as_slice(), |row| map_track_row(row))
+        .query_map(params_refs.as_slice(), map_track_row)
         .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| format!("結果の取得に失敗しました: {}", e))?;
@@ -262,7 +262,7 @@ fn query_tracks(
         .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
 
     let tracks = stmt
-        .query_map(params, |row| map_track_row(row))
+        .query_map(params, map_track_row)
         .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| format!("結果の取得に失敗しました: {}", e))?;
