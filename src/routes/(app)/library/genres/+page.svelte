@@ -2,7 +2,7 @@
   import GenreGrid from '$lib/components/library/GenreGrid.svelte';
   import LibraryHeader from '$lib/components/library/LibraryHeader.svelte';
   import { browseSearchQuery } from '$lib/stores/ui';
-  import { useGenresGroupedQuery } from '$lib/queries/tracks';
+  import { useGenresGroupedQuery, invalidateTrackListQueries } from '$lib/queries/tracks';
   import { useQueryClient } from '@tanstack/svelte-query';
 
   // QueryClient for refetching
@@ -44,10 +44,7 @@
   }
 
   function handleRefreshComplete() {
-    queryClient.invalidateQueries({ queryKey: ['tracks'] });
-    queryClient.invalidateQueries({ queryKey: ['albums'] });
-    queryClient.invalidateQueries({ queryKey: ['artists'] });
-    queryClient.invalidateQueries({ queryKey: ['genres'] });
+    invalidateTrackListQueries(queryClient);
   }
 </script>
 

@@ -1,6 +1,18 @@
-import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
+import {
+  createMutation,
+  createQuery,
+  useQueryClient,
+  type QueryClient
+} from '@tanstack/svelte-query';
 import { invoke } from '@tauri-apps/api/core';
-import type { Track, AlbumArt, AlbumGroup, ArtistGroup, GenreGroup } from '$lib/types/models';
+import type {
+  Track,
+  Metadata,
+  AlbumArt,
+  AlbumGroup,
+  ArtistGroup,
+  GenreGroup
+} from '$lib/types/models';
 import { handleError, showSuccess, showWarning } from '$lib/stores/error';
 
 /**
@@ -21,6 +33,52 @@ export interface FilterOptions {
   album?: string;
   genre?: string;
 }
+
+// ========== Query Invalidation ヘルパー ==========
+
+/**
+ * トラック一覧と関連グループクエリを無効化（トラック削除・インポート時）
+ */
+export function invalidateTrackListQueries(queryClient: QueryClient) {
+  queryClient.invalidateQueries({ queryKey: ['tracks'] });
+  queryClient.invalidateQueries({ queryKey: ['albums', 'grouped'] });
+  queryClient.invalidateQueries({ queryKey: ['artists', 'grouped'] });
+  queryClient.invalidateQueries({ queryKey: ['genres', 'grouped'] });
+  queryClient.invalidateQueries({ queryKey: ['unique'] });
+  // プレイリストは除外（トラック削除でプレイリスト自体は変わらない）
+}
+
+/**
+ * メタデータ変更に関連するクエリを無効化（メタデータ編集時）
+ */
+export function invalidateTrackMetadataQueries(queryClient: QueryClient) {
+  queryClient.invalidateQueries({ queryKey: ['tracks'] });
+  queryClient.invalidateQueries({ queryKey: ['albums', 'grouped'] });
+  queryClient.invalidateQueries({ queryKey: ['artists', 'grouped'] });
+  queryClient.invalidateQueries({ queryKey: ['genres', 'grouped'] });
+  queryClient.invalidateQueries({ queryKey: ['unique'] });
+}
+
+/**
+ * 再生統計関連のクエリを無効化（お気に入り・レーティング・再生回数変更時）
+ */
+export function invalidatePlayStatsQueries(queryClient: QueryClient) {
+  queryClient.invalidateQueries({ queryKey: ['tracks', 'favorites'] });
+  queryClient.invalidateQueries({ queryKey: ['tracks', 'mostPlayed'] });
+  queryClient.invalidateQueries({ queryKey: ['tracks', 'recentlyPlayed'] });
+  // メイントラック一覧も更新（isFavorite, rating, playCount表示のため）
+  queryClient.invalidateQueries({ queryKey: ['tracks'], exact: true });
+}
+
+/**
+ * 全トラック関連クエリを無効化（後方互換性のため残す）
+ */
+function invalidateAllTrackQueries(queryClient: QueryClient) {
+  invalidateTrackListQueries(queryClient);
+  queryClient.invalidateQueries({ queryKey: ['playlists'] });
+}
+
+// ========== 読み取りクエリ ==========
 
 /**
  * トラック一覧を取得するクエリ（パフォーマンス最適化版）
@@ -60,7 +118,9 @@ export function useSearchQuery(searchTerm: string) {
     enabled: searchTerm.length > 0,
     staleTime: 5 * 60 * 1000, // 5分間キャッシュ
     gcTime: 15 * 60 * 1000, // 15分間メモリに保持
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: false,
+    // 検索中に前回結果を表示し続ける（ちらつき防止）
+    placeholderData: (previousData: Track[] | undefined) => previousData
   }));
 }
 
@@ -81,7 +141,9 @@ export function useFilterQuery(filters: FilterOptions) {
     enabled: !!(filters.artist || filters.album || filters.genre),
     staleTime: 5 * 60 * 1000, // 5分間キャッシュ
     gcTime: 15 * 60 * 1000, // 15分間メモリに保持
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: false,
+    // フィルタリング中に前回結果を表示し続ける
+    placeholderData: (previousData: Track[] | undefined) => previousData
   }));
 }
 
@@ -214,42 +276,6 @@ export function useRecentlyPlayedTracksQuery(limit: number = 50) {
   }));
 }
 
-/**
- * お気に入りをトグルする関数
- */
-export async function toggleFavorite(trackId: string): Promise<boolean> {
-  try {
-    return await invoke<boolean>('toggle_favorite', { trackId });
-  } catch (error) {
-    handleError(error, 'お気に入りの切り替え');
-    throw error;
-  }
-}
-
-/**
- * レーティングを設定する関数
- */
-export async function setRating(trackId: string, rating: number): Promise<void> {
-  try {
-    await invoke('set_rating', { trackId, rating });
-  } catch (error) {
-    handleError(error, 'レーティングの設定');
-    throw error;
-  }
-}
-
-/**
- * 再生回数をインクリメントする関数
- */
-export async function incrementPlayCount(trackId: string): Promise<void> {
-  try {
-    await invoke('increment_play_count', { trackId });
-  } catch (error) {
-    // 再生回数の更新エラーは静かに処理
-    console.debug('再生回数更新エラー:', error);
-  }
-}
-
 // ========== グループ化データ取得クエリ ==========
 
 /**
@@ -309,20 +335,113 @@ export function useGenresGroupedQuery() {
   }));
 }
 
-// ========== トラック削除ミューテーション ==========
+// ========== 再生統計ミューテーション ==========
 
 /**
- * 関連するすべてのクエリを無効化するヘルパー関数
+ * お気に入りをトグルするミューテーション
  */
-function invalidateAllTrackQueries(queryClient: ReturnType<typeof useQueryClient>) {
-  // トラック関連のクエリを無効化
-  queryClient.invalidateQueries({ queryKey: ['tracks'] });
-  queryClient.invalidateQueries({ queryKey: ['albums', 'grouped'] });
-  queryClient.invalidateQueries({ queryKey: ['artists', 'grouped'] });
-  queryClient.invalidateQueries({ queryKey: ['genres', 'grouped'] });
-  queryClient.invalidateQueries({ queryKey: ['unique'] });
-  queryClient.invalidateQueries({ queryKey: ['playlists'] });
+export function useToggleFavoriteMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: async (trackId: string) => {
+      try {
+        return await invoke<boolean>('toggle_favorite', { trackId });
+      } catch (error) {
+        handleError(error, 'お気に入りの切り替え');
+        throw error;
+      }
+    },
+    onSuccess: () => {
+      invalidatePlayStatsQueries(queryClient);
+    }
+  }));
 }
+
+/**
+ * レーティングを設定するミューテーション
+ */
+export function useSetRatingMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: async ({ trackId, rating }: { trackId: string; rating: number }) => {
+      try {
+        await invoke('set_rating', { trackId, rating });
+      } catch (error) {
+        handleError(error, 'レーティングの設定');
+        throw error;
+      }
+    },
+    onSuccess: () => {
+      invalidatePlayStatsQueries(queryClient);
+    }
+  }));
+}
+
+/**
+ * 再生回数をインクリメントする関数（fire-and-forget、UIブロック不要）
+ */
+export async function incrementPlayCount(trackId: string): Promise<void> {
+  try {
+    await invoke('increment_play_count', { trackId });
+  } catch (error) {
+    // 再生回数の更新エラーは静かに処理
+    console.debug('再生回数更新エラー:', error);
+  }
+}
+
+// ========== メタデータ更新ミューテーション ==========
+
+/**
+ * 単一トラックのメタデータを更新するミューテーション（DBのみ）
+ */
+export function useUpdateTrackMetadataMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: async ({ trackId, metadata }: { trackId: string; metadata: Metadata }) => {
+      await invoke('update_track_metadata', { trackId, metadata });
+    },
+    onSuccess: () => {
+      invalidateTrackMetadataQueries(queryClient);
+    }
+  }));
+}
+
+/**
+ * 単一トラックのメタデータを更新するミューテーション（DB + ファイル）
+ */
+export function useUpdateTrackMetadataWithFileMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: async ({ trackId, metadata }: { trackId: string; metadata: Metadata }) => {
+      await invoke('update_track_metadata_with_file', { trackId, metadata });
+    },
+    onSuccess: () => {
+      invalidateTrackMetadataQueries(queryClient);
+    }
+  }));
+}
+
+/**
+ * 複数トラックのメタデータを一括更新するミューテーション
+ */
+export function useUpdateMultipleTracksMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: async ({ trackIds, metadata }: { trackIds: string[]; metadata: Metadata }) => {
+      await invoke('update_multiple_tracks_metadata', { trackIds, metadata });
+    },
+    onSuccess: () => {
+      invalidateTrackMetadataQueries(queryClient);
+    }
+  }));
+}
+
+// ========== トラック削除ミューテーション ==========
 
 /**
  * トラックをライブラリから削除するミューテーション（データベースのみ）

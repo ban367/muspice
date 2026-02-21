@@ -5,7 +5,7 @@
   import AlbumDetail from '$lib/components/library/AlbumDetail.svelte';
   import LibraryHeader from '$lib/components/library/LibraryHeader.svelte';
   import { browseSearchQuery } from '$lib/stores/ui';
-  import { useAlbumsGroupedQuery } from '$lib/queries/tracks';
+  import { useAlbumsGroupedQuery, invalidateTrackListQueries } from '$lib/queries/tracks';
   import { useQueryClient } from '@tanstack/svelte-query';
 
   // QueryClient for refetching
@@ -75,10 +75,7 @@
   }
 
   function handleRefreshComplete() {
-    queryClient.invalidateQueries({ queryKey: ['tracks'] });
-    queryClient.invalidateQueries({ queryKey: ['albums'] });
-    queryClient.invalidateQueries({ queryKey: ['artists'] });
-    queryClient.invalidateQueries({ queryKey: ['genres'] });
+    invalidateTrackListQueries(queryClient);
   }
 </script>
 

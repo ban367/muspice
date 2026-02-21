@@ -16,6 +16,7 @@
     isRightSidebarExpanded
   } from '$lib/stores/ui';
   import type { ImportResult } from '$lib/types/models';
+  import { invalidateTrackListQueries } from '$lib/queries/tracks';
   import '../../app.css';
 
   // サイドバーの開閉を切り替え
@@ -78,11 +79,8 @@
    */
   function handleImportComplete(result: ImportResult) {
     console.log('インポート完了:', result);
-    // トラック一覧を再取得（実際のクエリキーに合わせる）
-    queryClient.invalidateQueries({ queryKey: ['tracks'] });
-    queryClient.invalidateQueries({ queryKey: ['albums', 'grouped'] });
-    queryClient.invalidateQueries({ queryKey: ['artists', 'grouped'] });
-    queryClient.invalidateQueries({ queryKey: ['genres', 'grouped'] });
+    // トラック一覧と関連グループクエリを無効化
+    invalidateTrackListQueries(queryClient);
   }
 </script>
 
