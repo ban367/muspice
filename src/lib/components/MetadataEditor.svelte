@@ -1,7 +1,11 @@
 <script lang="ts">
   import { invoke } from '@tauri-apps/api/core';
   import type { Track, Metadata } from '$lib/types/models';
-  import { useQueryClient } from '@tanstack/svelte-query';
+  import {
+    useUpdateTrackMetadataMutation,
+    useUpdateTrackMetadataWithFileMutation,
+    useUpdateMultipleTracksMutation
+  } from '$lib/queries/tracks';
   import {
     validateYear,
     validateFieldLength,
@@ -17,7 +21,10 @@
 
   let { tracks, onClose, onSave }: Props = $props();
 
-  const queryClient = useQueryClient();
+  // ミューテーション
+  let updateMetadataMutation = $derived(useUpdateTrackMetadataMutation());
+  let updateMetadataWithFileMutation = $derived(useUpdateTrackMetadataWithFileMutation());
+  let updateMultipleTracksMutation = $derived(useUpdateMultipleTracksMutation());
 
   // 単一トラック編集か複数トラック編集かを判定
   const isSingleEdit = $derived(tracks.length === 1);
@@ -112,15 +119,9 @@
         const trackId = tracks[0].id;
 
         if (updateFile) {
-          await invoke('update_track_metadata_with_file', {
-            trackId,
-            metadata
-          });
+          await updateMetadataWithFileMutation.mutateAsync({ trackId, metadata });
         } else {
-          await invoke('update_track_metadata', {
-            trackId,
-            metadata
-          });
+          await updateMetadataMutation.mutateAsync({ trackId, metadata });
         }
       } else {
         // 複数トラック編集（データベースのみ）
@@ -134,14 +135,13 @@
         if (genre) updateMetadata.genre = genre;
         if (year) updateMetadata.year = year;
 
-        await invoke('update_multiple_tracks_metadata', {
+        await updateMultipleTracksMutation.mutateAsync({
           trackIds,
           metadata: updateMetadata
         });
       }
 
-      // キャッシュを無効化してライブラリを再取得
-      await queryClient.invalidateQueries({ queryKey: ['tracks'] });
+      // キャッシュ無効化はミューテーションのonSuccessで自動実行
 
       // 成功コールバック
       if (onSave) {

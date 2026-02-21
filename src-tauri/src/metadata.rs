@@ -18,6 +18,80 @@ pub struct AlbumArt {
     pub mime_type: String,
 }
 
+/// ファイルから一括抽出された情報（メタデータ、時間、ビットレート、サンプルレート）
+///
+/// 1回のProbe::openで全情報を取得することで、ファイルI/Oを4回→1回に削減する。
+pub struct FileInfo {
+    pub metadata: Metadata,
+    pub duration: Option<i32>,
+    pub bitrate: Option<i32>,
+    pub sample_rate: Option<i32>,
+}
+
+/// 音楽ファイルから全情報を一括抽出する
+///
+/// `extract_metadata`, `extract_duration`, `extract_bitrate`, `extract_sample_rate`を
+/// 個別に呼ぶ代わりに、1回のファイルオープンで全て取得する。
+pub fn extract_all_file_info(file_path: &Path) -> Result<FileInfo, String> {
+    let tagged_file = Probe::open(file_path)
+        .map_err(|e| format!("ファイルのオープンに失敗しました: {}", e))?
+        .read()
+        .map_err(|e| format!("ファイルの読み取りに失敗しました: {}", e))?;
+
+    // メタデータ抽出
+    let tag = tagged_file
+        .primary_tag()
+        .or_else(|| tagged_file.first_tag());
+
+    let metadata = if let Some(tag) = tag {
+        let disc_number = tag
+            .get_string(&ItemKey::DiscNumber)
+            .and_then(|s| {
+                s.split('/')
+                    .next()
+                    .and_then(|n| n.trim().parse::<i32>().ok())
+            })
+            .or_else(|| tag.disk().map(|d| d as i32));
+
+        Metadata {
+            title: tag.title().map(|s| s.to_string()),
+            artist: tag.artist().map(|s| s.to_string()),
+            album: tag.album().map(|s| s.to_string()),
+            genre: tag.genre().map(|s| s.to_string()),
+            year: tag.year().map(|y| y as i32),
+            track_number: tag.track().map(|t| t as i32),
+            disc_number,
+            album_artist: tag.get_string(&ItemKey::AlbumArtist).map(|s| s.to_string()),
+            composer: tag.get_string(&ItemKey::Composer).map(|s| s.to_string()),
+        }
+    } else {
+        Metadata {
+            title: None,
+            artist: None,
+            album: None,
+            genre: None,
+            year: None,
+            track_number: None,
+            disc_number: None,
+            album_artist: None,
+            composer: None,
+        }
+    };
+
+    // オーディオプロパティ抽出
+    let properties = tagged_file.properties();
+    let duration = Some(properties.duration().as_secs() as i32);
+    let bitrate = properties.audio_bitrate().map(|b| b as i32);
+    let sample_rate = properties.sample_rate().map(|s| s as i32);
+
+    Ok(FileInfo {
+        metadata,
+        duration,
+        bitrate,
+        sample_rate,
+    })
+}
+
 /// 音楽ファイルからメタデータを抽出
 pub fn extract_metadata(file_path: &Path) -> Result<Metadata, String> {
     let tagged_file = Probe::open(file_path)
@@ -72,42 +146,6 @@ pub fn extract_metadata(file_path: &Path) -> Result<Metadata, String> {
     };
 
     Ok(metadata)
-}
-
-/// 音楽ファイルの再生時間を取得（秒単位）
-pub fn extract_duration(file_path: &Path) -> Result<Option<i32>, String> {
-    let tagged_file = Probe::open(file_path)
-        .map_err(|e| format!("ファイルのオープンに失敗しました: {}", e))?
-        .read()
-        .map_err(|e| format!("ファイルの読み取りに失敗しました: {}", e))?;
-
-    let duration = tagged_file.properties().duration().as_secs() as i32;
-
-    Ok(Some(duration))
-}
-
-/// 音楽ファイルのビットレートを取得（kbps）
-pub fn extract_bitrate(file_path: &Path) -> Result<Option<i32>, String> {
-    let tagged_file = Probe::open(file_path)
-        .map_err(|e| format!("ファイルのオープンに失敗しました: {}", e))?
-        .read()
-        .map_err(|e| format!("ファイルの読み取りに失敗しました: {}", e))?;
-
-    let bitrate = tagged_file.properties().audio_bitrate().map(|b| b as i32);
-
-    Ok(bitrate)
-}
-
-/// 音楽ファイルのサンプルレートを取得（Hz）
-pub fn extract_sample_rate(file_path: &Path) -> Result<Option<i32>, String> {
-    let tagged_file = Probe::open(file_path)
-        .map_err(|e| format!("ファイルのオープンに失敗しました: {}", e))?
-        .read()
-        .map_err(|e| format!("ファイルの読み取りに失敗しました: {}", e))?;
-
-    let sample_rate = tagged_file.properties().sample_rate().map(|s| s as i32);
-
-    Ok(sample_rate)
 }
 
 /// 音楽ファイルからアルバムアートを抽出

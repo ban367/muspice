@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from '@tauri-apps/api/core';
+  import { listen } from '@tauri-apps/api/event';
   import { open } from '@tauri-apps/plugin-dialog';
   import type { ImportResult } from '$lib/types/models';
   import { DuplicateAction } from '$lib/types/models';
@@ -18,8 +19,20 @@
   let duplicateAction = $state<DuplicateAction>(DuplicateAction.Skip);
   let isImporting = $state(false);
   let progress = $state(0);
+  let currentFile = $state('');
+  let totalFiles = $state(0);
+  let processedFiles = $state(0);
   let importResult = $state<ImportResult | null>(null);
   let errorMessage = $state<string>('');
+
+  /**
+   * インポート進捗イベントの型
+   */
+  interface ImportProgress {
+    current: number;
+    total: number;
+    currentFile: string;
+  }
 
   /**
    * フォルダ選択ダイアログを開く
@@ -59,23 +72,29 @@
 
     isImporting = true;
     progress = 0;
+    currentFile = '';
+    totalFiles = 0;
+    processedFiles = 0;
     errorMessage = '';
     importResult = null;
 
+    let unlisten: (() => void) | null = null;
+
     try {
-      // プログレスバーのアニメーション（実際の進行状況はバックエンドから取得する必要がある）
-      const progressInterval = setInterval(() => {
-        if (progress < 90) {
-          progress += 10;
-        }
-      }, 200);
+      // インポート進捗イベントをリッスン
+      unlisten = await listen<ImportProgress>('import-progress', (event) => {
+        const { current, total, currentFile: file } = event.payload;
+        processedFiles = current;
+        totalFiles = total;
+        currentFile = file;
+        progress = total > 0 ? Math.round((current / total) * 100) : 0;
+      });
 
       const result = await invoke<ImportResult>('import_folder', {
         folderPath: selectedFolder,
         duplicateAction: duplicateAction
       });
 
-      clearInterval(progressInterval);
       progress = 100;
       importResult = result;
 
@@ -93,6 +112,8 @@
       progress = 0;
     } finally {
       isImporting = false;
+      // イベントリスナーを解除
+      unlisten?.();
     }
   }
 
@@ -104,6 +125,9 @@
     selectedFolder = '';
     duplicateAction = DuplicateAction.Skip;
     progress = 0;
+    currentFile = '';
+    totalFiles = 0;
+    processedFiles = 0;
     importResult = null;
     errorMessage = '';
     if (onClose) {
@@ -197,11 +221,24 @@
           <!-- 進行状況バー -->
           {#if isImporting}
             <div class="mt-6">
-              <p class="text-center text-text-secondary mb-2">インポート中...</p>
+              <p class="text-center text-text-secondary mb-2">
+                {#if totalFiles > 0}
+                  インポート中... ({processedFiles}/{totalFiles})
+                {:else}
+                  スキャン中...
+                {/if}
+              </p>
               <div class="progress-bar-container">
                 <div class="progress-bar-fill" style="width: {progress}%"></div>
               </div>
-              <p class="text-center text-primary font-semibold mt-2">{progress}%</p>
+              <div class="mt-2 flex flex-col items-center gap-1">
+                <p class="text-center text-primary font-semibold m-0">{progress}%</p>
+                {#if currentFile}
+                  <p class="text-center text-text-dimmed text-xs m-0 max-w-full truncate">
+                    {currentFile}
+                  </p>
+                {/if}
+              </div>
             </div>
           {/if}
 

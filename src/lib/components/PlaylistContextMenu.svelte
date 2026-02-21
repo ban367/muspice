@@ -1,6 +1,11 @@
+<!--
+  @component PlaylistContextMenu
+  プレイリスト用コンテキストメニュー。
+  再生、シャッフル再生、キュー操作、名前変更、削除のアクションを提供する。
+-->
 <script lang="ts">
-  import { onMount } from 'svelte';
   import type { Playlist } from '$lib/types/models';
+  import { BaseContextMenu } from '$lib/components/ui';
   import { useDeletePlaylistMutation, useRenamePlaylistMutation } from '$lib/queries/playlists';
   import { playTrackFromQueue, playQueue, currentTrackIndex } from '$lib/stores/player';
   import { useTracksQuery } from '$lib/queries/tracks';
@@ -23,61 +28,11 @@
   // トラッククエリ（プレイリスト内のトラック情報取得用）
   const tracksQuery = useTracksQuery();
 
-  let menuElement: HTMLDivElement | null = null;
-
-  // メニュー位置の調整
-  let adjustedX = $state(0);
-  let adjustedY = $state(0);
-
-  // propsからの初期位置を設定
-  $effect(() => {
-    adjustedX = x;
-    adjustedY = y;
-  });
-
   // プレイリスト内のトラック
   const playlistTracks = $derived.by(() => {
     if (!tracksQuery.data) return [];
     const trackIds = new Set(playlist.tracks.map((t) => t.trackId));
     return tracksQuery.data.filter((t) => trackIds.has(t.id));
-  });
-
-  onMount(() => {
-    // メニューが画面外に出ないように位置を調整
-    if (menuElement) {
-      const rect = menuElement.getBoundingClientRect();
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
-
-      if (x + rect.width > viewportWidth) {
-        adjustedX = viewportWidth - rect.width - 10;
-      }
-      if (y + rect.height > viewportHeight) {
-        adjustedY = viewportHeight - rect.height - 10;
-      }
-    }
-
-    // クリックイベントでメニューを閉じる
-    const handleClick = (e: MouseEvent) => {
-      if (menuElement && !menuElement.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-
-    // Escキーでメニューを閉じる
-    const handleKeydown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-
-    document.addEventListener('click', handleClick);
-    document.addEventListener('keydown', handleKeydown);
-
-    return () => {
-      document.removeEventListener('click', handleClick);
-      document.removeEventListener('keydown', handleKeydown);
-    };
   });
 
   /**
@@ -145,12 +100,7 @@
   }
 </script>
 
-<div
-  class="context-menu"
-  bind:this={menuElement}
-  style="left: {adjustedX}px; top: {adjustedY}px;"
-  role="menu"
->
+<BaseContextMenu {x} {y} {onClose}>
   <div class="menu-header">{playlist.name}</div>
   <div class="menu-subheader">{playlist.tracks.length}曲</div>
   <div class="menu-divider"></div>
@@ -280,26 +230,10 @@
     </svg>
     <span>削除</span>
   </button>
-</div>
+</BaseContextMenu>
 
 <style>
   @reference "../../app.css";
-  .context-menu {
-    @apply fixed z-[10000] min-w-[200px] bg-base-300 border border-border rounded-lg py-2;
-    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
-    animation: fadeIn 0.1s ease-out;
-  }
-
-  @keyframes fadeIn {
-    from {
-      opacity: 0;
-      transform: scale(0.95);
-    }
-    to {
-      opacity: 1;
-      transform: scale(1);
-    }
-  }
 
   .menu-header {
     @apply py-1 px-4 text-sm font-semibold text-text-primary;

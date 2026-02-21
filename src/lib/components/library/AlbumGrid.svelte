@@ -1,12 +1,17 @@
+<!--
+  @component AlbumGrid
+  アルバム一覧のグリッド/リスト表示コンポーネント。
+  LibraryGridを使用して共通ロジックを委譲し、アルバム固有の表示をSnippetで実装。
+-->
 <script lang="ts">
   import type { AlbumGroup } from '$lib/types/models';
   import { useAlbumsGroupedQuery } from '$lib/queries/tracks';
   import { playTrackFromQueue } from '$lib/stores/player';
-  import { gridCardSize, browseSearchQuery } from '$lib/stores/ui';
+  import { gridCardSize } from '$lib/stores/ui';
   import { loadAlbumArt, albumArtCache } from '$lib/stores/albumArtCache';
   import { formatDuration } from '$lib/utils/format';
+  import LibraryGrid from './LibraryGrid.svelte';
   import GroupDetail from './GroupDetail.svelte';
-  import GroupContextMenu from '../GroupContextMenu.svelte';
   import MarqueeText from '../MarqueeText.svelte';
   import AlbumArt from '../AlbumArt.svelte';
 
@@ -23,28 +28,17 @@
   const isError = $derived(albumsQuery.isError);
   const allAlbums = $derived(albumsQuery.data ?? []);
 
-  // 検索でフィルタリングされたアルバム
-  const albums = $derived.by(() => {
-    const query = $browseSearchQuery.toLowerCase().trim();
-    if (!query) return allAlbums;
-    return allAlbums.filter(
-      (album) =>
-        album.name.toLowerCase().includes(query) ||
-        (album.artist && album.artist.toLowerCase().includes(query))
-    );
-  });
-
   // 選択中のアルバム（モーダル表示用）
   let selectedAlbum = $state<AlbumGroup | null>(null);
 
-  // コンテキストメニュー
-  let contextMenu = $state<{ x: number; y: number; album: AlbumGroup } | null>(null);
+  // LibraryGridコンポーネントの参照
+  let libraryGrid: LibraryGrid<AlbumGroup>;
 
   // リアクティブなキャッシュを購読
   const cache = $derived($albumArtCache);
 
   // カードサイズの計算
-  const cardWidth = $derived($gridCardSize + 16); // padding分を追加
+  const cardWidth = $derived($gridCardSize + 16);
 
   // キャッシュからアルバムアートを取得
   function getArt(trackId: string): string | null {
@@ -81,24 +75,17 @@
     selectedAlbum = null;
   }
 
-  // 右クリックメニューを表示
-  function handleContextMenu(event: MouseEvent, album: AlbumGroup) {
-    event.preventDefault();
-    contextMenu = {
-      x: event.clientX,
-      y: event.clientY,
-      album
-    };
-  }
-
-  // 右クリックメニューを閉じる
-  function closeContextMenu() {
-    contextMenu = null;
-  }
-
   // アルバムの総再生時間を計算
   function getTotalDuration(album: AlbumGroup): number {
     return album.tracks.reduce((sum, track) => sum + (track.duration || 0), 0);
+  }
+
+  // 検索フィルター
+  function filterAlbum(album: AlbumGroup, query: string): boolean {
+    return (
+      album.name.toLowerCase().includes(query) ||
+      (album.artist != null && album.artist.toLowerCase().includes(query))
+    );
   }
 
   // Intersection Observer アクション
@@ -125,155 +112,114 @@
   }
 </script>
 
-<div class="p-2 min-h-[200px]">
-  {#if isLoading}
-    <div class="state-container">
-      <div class="spinner"></div>
-      <p>アルバムを読み込み中...</p>
-    </div>
-  {:else if isError}
-    <div class="state-container">
-      <p class="text-error-light">アルバムの読み込みに失敗しました</p>
-    </div>
-  {:else if allAlbums.length > 0 && albums.length === 0}
-    <div class="state-container">
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        class="w-12 h-12 text-text-dimmed/50 mb-4"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-      >
-        <path
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="2"
-          d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+<LibraryGrid
+  bind:this={libraryGrid}
+  items={allAlbums}
+  {isLoading}
+  {isError}
+  {displayMode}
+  itemLabel="アルバム"
+  emptyMessage="アルバムがありません"
+  emptyHint="音楽をインポートしてアルバムを追加してください"
+  filterFn={filterAlbum}
+  gridStyle="--card-width: {cardWidth}px; --art-size: {$gridCardSize}px;"
+  gridClass="album-grid"
+  groupType="album"
+>
+  {#snippet emptyIcon()}
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.5"
+    >
+      <circle cx="12" cy="12" r="10" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  {/snippet}
+
+  {#snippet gridCard(album)}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <div
+      class="grid-card flex flex-col items-center"
+      onclick={() => handleAlbumClick(album)}
+      ondblclick={() => handleAlbumDoubleClick(album)}
+      oncontextmenu={(e) => libraryGrid.handleContextMenu(e, album)}
+      use:intersectionObserver={{ callback: () => handleAlbumVisible(album) }}
+    >
+      <div class="grid-card-art" style="width: {$gridCardSize}px; height: {$gridCardSize}px;">
+        <AlbumArt src={getArt(album.representativeTrackId)} alt={album.name} />
+        <div class="play-overlay">
+          <button
+            class="play-button-circle"
+            onclick={(e) => handlePlayClick(e, album)}
+            title="アルバムを再生"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M8 5v14l11-7z" />
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="min-w-0 w-full text-center">
+        <MarqueeText
+          text={album.name}
+          class="text-[0.9375rem] font-semibold text-text-primary m-0"
         />
-      </svg>
-      <p>「{$browseSearchQuery}」に一致するアルバムが見つかりません</p>
+        <MarqueeText
+          text={album.artist || '不明なアーティスト'}
+          class="text-[0.8125rem] text-text-muted mt-1 m-0"
+        />
+      </div>
     </div>
-  {:else if albums.length > 0}
-    {#if displayMode === 'grid'}
-      <!-- グリッド表示 -->
-      <div class="album-grid" style="--card-width: {cardWidth}px; --art-size: {$gridCardSize}px;">
-        {#each albums as album (album.name)}
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <!-- svelte-ignore a11y_click_events_have_key_events -->
-          <div
-            class="grid-card flex flex-col items-center"
-            onclick={() => handleAlbumClick(album)}
-            ondblclick={() => handleAlbumDoubleClick(album)}
-            oncontextmenu={(e) => handleContextMenu(e, album)}
-            use:intersectionObserver={{ callback: () => handleAlbumVisible(album) }}
-          >
-            <div class="grid-card-art" style="width: {$gridCardSize}px; height: {$gridCardSize}px;">
-              <AlbumArt src={getArt(album.representativeTrackId)} alt={album.name} />
-              <div class="play-overlay">
-                <button
-                  class="play-button-circle"
-                  onclick={(e) => handlePlayClick(e, album)}
-                  title="アルバムを再生"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M8 5v14l11-7z" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-            <div class="min-w-0 w-full text-center">
-              <MarqueeText
-                text={album.name}
-                class="text-[0.9375rem] font-semibold text-text-primary m-0"
-              />
-              <MarqueeText
-                text={album.artist || '不明なアーティスト'}
-                class="text-[0.8125rem] text-text-muted mt-1 m-0"
-              />
-            </div>
-          </div>
-        {/each}
+  {/snippet}
+
+  {#snippet listRow(album)}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <div
+      class="list-row"
+      onclick={() => handleAlbumClick(album)}
+      ondblclick={() => handleAlbumDoubleClick(album)}
+      oncontextmenu={(e) => libraryGrid.handleContextMenu(e, album)}
+      use:intersectionObserver={{ callback: () => handleAlbumVisible(album) }}
+    >
+      <div class="list-art">
+        <AlbumArt src={getArt(album.representativeTrackId)} alt={album.name} />
       </div>
-    {:else}
-      <!-- リスト表示 -->
-      <div class="album-list">
-        {#each albums as album (album.name)}
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <!-- svelte-ignore a11y_click_events_have_key_events -->
-          <div
-            class="list-row"
-            onclick={() => handleAlbumClick(album)}
-            ondblclick={() => handleAlbumDoubleClick(album)}
-            oncontextmenu={(e) => handleContextMenu(e, album)}
-            use:intersectionObserver={{ callback: () => handleAlbumVisible(album) }}
-          >
-            <div class="list-art">
-              <AlbumArt src={getArt(album.representativeTrackId)} alt={album.name} />
-            </div>
-            <div class="list-info">
-              <MarqueeText text={album.name} class="list-title" />
-              <MarqueeText text={album.artist || '不明なアーティスト'} class="list-artist" />
-            </div>
-            <div class="list-meta">
-              <span>{album.trackCount}曲</span>
-            </div>
-            <div class="list-duration">
-              {formatDuration(getTotalDuration(album))}
-            </div>
-            <button
-              class="list-play-btn"
-              onclick={(e) => handlePlayClick(e, album)}
-              title="アルバムを再生"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M8 5v14l11-7z" />
-              </svg>
-            </button>
-          </div>
-        {/each}
+      <div class="list-info">
+        <MarqueeText text={album.name} class="list-title" />
+        <MarqueeText text={album.artist || '不明なアーティスト'} class="list-artist" />
       </div>
-    {/if}
-  {:else}
-    <div class="state-container">
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.5"
+      <div class="list-meta">
+        <span>{album.trackCount}曲</span>
+      </div>
+      <div class="list-duration">
+        {formatDuration(getTotalDuration(album))}
+      </div>
+      <button
+        class="list-play-btn"
+        onclick={(e) => handlePlayClick(e, album)}
+        title="アルバムを再生"
       >
-        <circle cx="12" cy="12" r="10" />
-        <circle cx="12" cy="12" r="3" />
-      </svg>
-      <p>アルバムがありません</p>
-      <span>音楽をインポートしてアルバムを追加してください</span>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M8 5v14l11-7z" />
+        </svg>
+      </button>
     </div>
-  {/if}
-</div>
+  {/snippet}
 
-<!-- 詳細モーダル -->
-<GroupDetail group={selectedAlbum} type="album" onClose={handleCloseDetail} />
-
-<!-- コンテキストメニュー -->
-{#if contextMenu}
-  <GroupContextMenu
-    x={contextMenu.x}
-    y={contextMenu.y}
-    group={contextMenu.album}
-    type="album"
-    onClose={closeContextMenu}
-  />
-{/if}
+  {#snippet footer()}
+    <GroupDetail group={selectedAlbum} type="album" onClose={handleCloseDetail} />
+  {/snippet}
+</LibraryGrid>
 
 <style>
   @reference "../../../app.css";
-  .album-grid {
+  :global(.album-grid) {
     @apply grid grid-cols-[repeat(auto-fill,minmax(var(--card-width),1fr))] gap-3;
-  }
-
-  /* リスト表示スタイル */
-  .album-list {
-    @apply flex flex-col;
   }
 
   .list-row {

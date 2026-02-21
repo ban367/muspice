@@ -1,10 +1,14 @@
+<!--
+  @component GenreGrid
+  ジャンル一覧のグリッド/リスト表示コンポーネント。
+  LibraryGridを使用して共通ロジックを委譲し、ジャンル固有の表示（カラーグラデーション）をSnippetで実装。
+-->
 <script lang="ts">
   import type { GenreGroup } from '$lib/types/models';
   import { useGenresGroupedQuery } from '$lib/queries/tracks';
   import { playTrackFromQueue } from '$lib/stores/player';
-  import { browseSearchQuery } from '$lib/stores/ui';
   import { goto } from '$app/navigation';
-  import GroupContextMenu from '../GroupContextMenu.svelte';
+  import LibraryGrid from './LibraryGrid.svelte';
   import MarqueeText from '../MarqueeText.svelte';
 
   // Props
@@ -20,15 +24,8 @@
   const isError = $derived(genresQuery.isError);
   const allGenres = $derived(genresQuery.data ?? []);
 
-  // 検索でフィルタリングされたジャンル
-  const genres = $derived.by(() => {
-    const query = $browseSearchQuery.toLowerCase().trim();
-    if (!query) return allGenres;
-    return allGenres.filter((genre) => genre.name.toLowerCase().includes(query));
-  });
-
-  // コンテキストメニュー
-  let contextMenu = $state<{ x: number; y: number; genre: GenreGroup } | null>(null);
+  // LibraryGridコンポーネントの参照
+  let libraryGrid: LibraryGrid<GenreGroup>;
 
   // ジャンルごとの色を生成
   const genreColors = [
@@ -46,6 +43,11 @@
 
   function getGenreColor(index: number) {
     return genreColors[index % genreColors.length];
+  }
+
+  // ジャンルのインデックスを取得（フィルタリング後でもオリジナルの色を維持するため）
+  function getGenreIndex(genre: GenreGroup): number {
+    return allGenres.findIndex((g) => g.name === genre.name);
   }
 
   // ジャンルをクリック（詳細ページに遷移）
@@ -66,144 +68,99 @@
     handleGenreDoubleClick(genre);
   }
 
-  // 右クリックメニューを表示
-  function handleContextMenu(event: MouseEvent, genre: GenreGroup) {
-    event.preventDefault();
-    contextMenu = {
-      x: event.clientX,
-      y: event.clientY,
-      genre
-    };
-  }
-
-  // 右クリックメニューを閉じる
-  function closeContextMenu() {
-    contextMenu = null;
+  // 検索フィルター
+  function filterGenre(genre: GenreGroup, query: string): boolean {
+    return genre.name.toLowerCase().includes(query);
   }
 </script>
 
-<div class="p-2 min-h-[200px]">
-  {#if isLoading}
-    <div class="state-container">
-      <div class="spinner"></div>
-      <p>ジャンルを読み込み中...</p>
-    </div>
-  {:else if isError}
-    <div class="state-container">
-      <p class="text-error-light">ジャンルの読み込みに失敗しました</p>
-    </div>
-  {:else if allGenres.length > 0 && genres.length === 0}
-    <div class="state-container">
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        class="w-12 h-12 text-text-dimmed/50 mb-4"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-      >
-        <path
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="2"
-          d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-        />
-      </svg>
-      <p>「{$browseSearchQuery}」に一致するジャンルが見つかりません</p>
-    </div>
-  {:else if genres.length > 0}
-    {#if displayMode === 'grid'}
-      <!-- グリッド表示 -->
-      <div class="genre-grid">
-        {#each genres as genre, index (genre.name)}
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <!-- svelte-ignore a11y_click_events_have_key_events -->
-          <div
-            class="genre-card"
-            style="background: {getGenreColor(index).bg}"
-            onclick={() => handleGenreClick(genre)}
-            ondblclick={() => handleGenreDoubleClick(genre)}
-            oncontextmenu={(e) => handleContextMenu(e, genre)}
-          >
-            <div class="genre-content">
-              <h3 class="genre-name">{genre.name}</h3>
-              <p class="genre-meta">{genre.trackCount}曲</p>
-            </div>
-            <div class="genre-play-overlay">
-              <button
-                class="genre-play-button"
-                onclick={(e) => handlePlayClick(e, genre)}
-                title="ジャンルを再生"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M8 5v14l11-7z" />
-                </svg>
-              </button>
-            </div>
-          </div>
-        {/each}
-      </div>
-    {:else}
-      <!-- リスト表示 -->
-      <div class="genre-list">
-        {#each genres as genre, index (genre.name)}
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <!-- svelte-ignore a11y_click_events_have_key_events -->
-          <div
-            class="list-row"
-            onclick={() => handleGenreClick(genre)}
-            ondblclick={() => handleGenreDoubleClick(genre)}
-            oncontextmenu={(e) => handleContextMenu(e, genre)}
-          >
-            <div class="list-color-bar" style="background: {getGenreColor(index).solid}"></div>
-            <div class="list-info">
-              <MarqueeText text={genre.name} class="list-title" />
-              <span class="list-meta">{genre.trackCount}曲</span>
-            </div>
-            <button
-              class="list-play-btn"
-              onclick={(e) => handlePlayClick(e, genre)}
-              title="ジャンルを再生"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M8 5v14l11-7z" />
-              </svg>
-            </button>
-          </div>
-        {/each}
-      </div>
-    {/if}
-  {:else}
-    <div class="state-container">
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.5"
-      >
-        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-      </svg>
-      <p>ジャンルがありません</p>
-      <span>音楽をインポートしてジャンルを追加してください</span>
-    </div>
-  {/if}
-</div>
+<LibraryGrid
+  bind:this={libraryGrid}
+  items={allGenres}
+  {isLoading}
+  {isError}
+  {displayMode}
+  itemLabel="ジャンル"
+  emptyMessage="ジャンルがありません"
+  emptyHint="音楽をインポートしてジャンルを追加してください"
+  filterFn={filterGenre}
+  gridClass="genre-grid"
+  groupType="genre"
+>
+  {#snippet emptyIcon()}
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.5"
+    >
+      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+    </svg>
+  {/snippet}
 
-<!-- コンテキストメニュー -->
-{#if contextMenu}
-  <GroupContextMenu
-    x={contextMenu.x}
-    y={contextMenu.y}
-    group={contextMenu.genre}
-    type="genre"
-    onClose={closeContextMenu}
-  />
-{/if}
+  {#snippet gridCard(genre)}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <div
+      class="genre-card"
+      style="background: {getGenreColor(getGenreIndex(genre)).bg}"
+      onclick={() => handleGenreClick(genre)}
+      ondblclick={() => handleGenreDoubleClick(genre)}
+      oncontextmenu={(e) => libraryGrid.handleContextMenu(e, genre)}
+    >
+      <div class="genre-content">
+        <h3 class="genre-name">{genre.name}</h3>
+        <p class="genre-meta">{genre.trackCount}曲</p>
+      </div>
+      <div class="genre-play-overlay">
+        <button
+          class="genre-play-button"
+          onclick={(e) => handlePlayClick(e, genre)}
+          title="ジャンルを再生"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M8 5v14l11-7z" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  {/snippet}
+
+  {#snippet listRow(genre)}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <div
+      class="list-row"
+      onclick={() => handleGenreClick(genre)}
+      ondblclick={() => handleGenreDoubleClick(genre)}
+      oncontextmenu={(e) => libraryGrid.handleContextMenu(e, genre)}
+    >
+      <div
+        class="list-color-bar"
+        style="background: {getGenreColor(getGenreIndex(genre)).solid}"
+      ></div>
+      <div class="list-info">
+        <MarqueeText text={genre.name} class="list-title" />
+        <span class="list-meta">{genre.trackCount}曲</span>
+      </div>
+      <button
+        class="list-play-btn"
+        onclick={(e) => handlePlayClick(e, genre)}
+        title="ジャンルを再生"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M8 5v14l11-7z" />
+        </svg>
+      </button>
+    </div>
+  {/snippet}
+</LibraryGrid>
 
 <style>
   @reference "../../../app.css";
-  .genre-grid {
+  :global(.genre-grid) {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
     gap: 0.75rem;
@@ -262,11 +219,6 @@
 
   .genre-play-button svg {
     @apply w-5 h-5 ml-0.5;
-  }
-
-  /* リスト表示スタイル */
-  .genre-list {
-    @apply flex flex-col;
   }
 
   .list-row {

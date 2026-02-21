@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { useQueryClient } from '@tanstack/svelte-query';
-  import { setRating } from '$lib/queries/tracks';
+  import { useSetRatingMutation } from '$lib/queries/tracks';
   import {
     playTrackFromQueue,
     currentTrack,
@@ -81,7 +80,8 @@
     `${$columnWidths.number}px ${$columnWidths.title}px ${$columnWidths.artist}px ${$columnWidths.rating}px ${$columnWidths.duration}px`
   );
 
-  const queryClient = useQueryClient();
+  // レーティングミューテーション
+  let setRatingMutation = $derived(useSetRatingMutation());
 
   // ソートされたトラック
   const sortedTracks = $derived.by(() => {
@@ -135,12 +135,7 @@
    */
   async function handleSetRating(trackId: string, rating: number, event: MouseEvent) {
     event.stopPropagation();
-    try {
-      await setRating(trackId, rating);
-      queryClient.invalidateQueries({ queryKey: ['tracks'] });
-    } catch (error) {
-      console.error('レーティングの設定に失敗しました:', error);
-    }
+    setRatingMutation.mutate({ trackId, rating });
   }
 
   function toggleSort(field: SortField) {

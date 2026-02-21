@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { useTracksQuery, useSearchQuery } from '$lib/queries/tracks';
+  import { useTracksQuery, useSearchQuery, invalidateTrackListQueries } from '$lib/queries/tracks';
   import { sanitizeSearchQuery } from '$lib/utils/validation';
   import TrackList from '$lib/components/library/TrackList.svelte';
   import LibraryHeader from '$lib/components/library/LibraryHeader.svelte';
@@ -61,11 +61,7 @@
 
   function handleRefreshComplete() {
     // 全てのトラック関連クエリをリフレッシュ
-    queryClient.invalidateQueries({ queryKey: ['tracks'] });
-    queryClient.invalidateQueries({ queryKey: ['search'] });
-    queryClient.invalidateQueries({ queryKey: ['albums'] });
-    queryClient.invalidateQueries({ queryKey: ['artists'] });
-    queryClient.invalidateQueries({ queryKey: ['genres'] });
+    invalidateTrackListQueries(queryClient);
   }
 </script>
 

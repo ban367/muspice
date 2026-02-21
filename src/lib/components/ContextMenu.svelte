@@ -1,7 +1,11 @@
+<!--
+  @component ContextMenu
+  トラック用コンテキストメニュー。
+  再生、キュー操作、プレイリスト追加、メタデータ編集、削除などのアクションを提供する。
+-->
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import type { Track, Playlist } from '$lib/types/models';
-  import { usePlaylistsQuery, useAddTrackToPlaylistMutation } from '$lib/queries/playlists';
+  import type { Track } from '$lib/types/models';
+  import { BaseContextMenu, PlaylistSubmenu } from '$lib/components/ui';
   import { playSingleTrack, playQueue, currentTrackIndex } from '$lib/stores/player';
   import { get } from 'svelte/store';
 
@@ -32,24 +36,6 @@
     onDelete
   }: Props = $props();
 
-  // クエリとミューテーション
-  const playlistsQuery = usePlaylistsQuery();
-  const addTrackMutation = useAddTrackToPlaylistMutation();
-
-  // サブメニュー表示状態
-  let showPlaylistSubmenu = $state(false);
-  let menuElement: HTMLDivElement | null = null;
-
-  // メニュー位置の調整
-  let adjustedX = $state(0);
-  let adjustedY = $state(0);
-
-  // propsからの初期位置を設定
-  $effect(() => {
-    adjustedX = x;
-    adjustedY = y;
-  });
-
   // 選択されたトラックの数
   const selectedCount = $derived(selectedTrackIds.size > 0 ? selectedTrackIds.size : 1);
 
@@ -59,44 +45,6 @@
       return tracks.filter((t) => selectedTrackIds.has(t.id));
     }
     return [track];
-  });
-
-  onMount(() => {
-    // メニューが画面外に出ないように位置を調整
-    if (menuElement) {
-      const rect = menuElement.getBoundingClientRect();
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
-
-      if (x + rect.width > viewportWidth) {
-        adjustedX = viewportWidth - rect.width - 10;
-      }
-      if (y + rect.height > viewportHeight) {
-        adjustedY = viewportHeight - rect.height - 10;
-      }
-    }
-
-    // クリックイベントでメニューを閉じる
-    const handleClick = (e: MouseEvent) => {
-      if (menuElement && !menuElement.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-
-    // Escキーでメニューを閉じる
-    const handleKeydown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-
-    document.addEventListener('click', handleClick);
-    document.addEventListener('keydown', handleKeydown);
-
-    return () => {
-      document.removeEventListener('click', handleClick);
-      document.removeEventListener('keydown', handleKeydown);
-    };
   });
 
   /**
@@ -141,19 +89,6 @@
   }
 
   /**
-   * プレイリストに追加
-   */
-  async function handleAddToPlaylist(playlist: Playlist) {
-    for (const t of selectedTracks) {
-      await addTrackMutation.mutateAsync({
-        playlistId: playlist.id,
-        trackId: t.id
-      });
-    }
-    onClose();
-  }
-
-  /**
    * メタデータを編集
    */
   function handleEditMetadata() {
@@ -164,7 +99,7 @@
   }
 
   /**
-   * ファイルの場所を開く（Tauriコマンドが必要）
+   * ファイルの場所を開く（Tauriコマンド）
    */
   async function handleShowInFolder() {
     try {
@@ -187,12 +122,7 @@
   }
 </script>
 
-<div
-  class="context-menu"
-  bind:this={menuElement}
-  style="left: {adjustedX}px; top: {adjustedY}px;"
-  role="menu"
->
+<BaseContextMenu {x} {y} {onClose}>
   {#if selectedCount > 1}
     <div class="menu-header">{selectedCount}曲を選択中</div>
     <div class="menu-divider"></div>
@@ -248,63 +178,7 @@
 
   <div class="menu-divider"></div>
 
-  <div
-    class="menu-item submenu-trigger"
-    onmouseenter={() => (showPlaylistSubmenu = true)}
-    onmouseleave={() => (showPlaylistSubmenu = false)}
-    role="menuitem"
-    tabindex="0"
-  >
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      class="menu-icon"
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-    >
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-    </svg>
-    <span>プレイリストに追加</span>
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      class="menu-arrow"
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-    >
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-    </svg>
-
-    {#if showPlaylistSubmenu}
-      <div class="submenu">
-        {#if playlistsQuery.isLoading}
-          <div class="menu-message">読み込み中...</div>
-        {:else if playlistsQuery.data && playlistsQuery.data.length > 0}
-          {#each playlistsQuery.data as playlist (playlist.id)}
-            <button class="menu-item" onclick={() => handleAddToPlaylist(playlist)} role="menuitem">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                class="menu-icon"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M4 6h16M4 10h16M4 14h16M4 18h16"
-                />
-              </svg>
-              <span>{playlist.name}</span>
-            </button>
-          {/each}
-        {:else}
-          <div class="menu-message">プレイリストがありません</div>
-        {/if}
-      </div>
-    {/if}
-  </div>
+  <PlaylistSubmenu tracks={selectedTracks} {onClose} />
 
   <div class="menu-divider"></div>
 
@@ -368,26 +242,10 @@
       <span>削除...</span>
     </button>
   {/if}
-</div>
+</BaseContextMenu>
 
 <style>
   @reference "../../app.css";
-  .context-menu {
-    @apply fixed z-[10000] min-w-[200px] bg-base-300 border border-border rounded-lg py-2;
-    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
-    animation: fadeIn 0.1s ease-out;
-  }
-
-  @keyframes fadeIn {
-    from {
-      opacity: 0;
-      transform: scale(0.95);
-    }
-    to {
-      opacity: 1;
-      transform: scale(1);
-    }
-  }
 
   .menu-header {
     @apply py-2 px-4 text-xs font-semibold text-text-muted uppercase;
@@ -414,25 +272,8 @@
     flex: none !important;
   }
 
-  .menu-arrow {
-    @apply w-3 h-3 shrink-0 text-text-dimmed;
-  }
-
   .menu-divider {
     @apply h-px bg-border my-2;
-  }
-
-  .submenu-trigger {
-    @apply relative;
-  }
-
-  .submenu {
-    @apply absolute left-full top-0 min-w-[180px] bg-base-300 border border-border rounded-lg py-2 ml-1;
-    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
-  }
-
-  .menu-message {
-    @apply py-2 px-4 text-sm text-text-dimmed;
   }
 
   .menu-item-danger {
