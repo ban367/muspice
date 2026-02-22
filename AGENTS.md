@@ -1,55 +1,52 @@
-# Repository Guidelines
+# Muspice
 
-## 優先順位と適用範囲
+## 言語設定
 
-- このリポジトリの指示体系は**CLAUDE.mdを最上位ソース**とし、本ファイルはそれと整合する形での**リポジトリ共通の運用・開発ガイドライン**を定義する。
-- より深い階層にAGENTS.mdがあれば、そちらの内容を優先する。
-- 生成物ディレクトリ（`build/`, `src-tauri/target/`）はコミット対象外。
-- Codex系エージェントは`CODEX.md`も参照し、CLAUDE.mdおよび本ファイルとの整合を保つこと（`CODEX.md`はCodex系エージェント向けの補助ガイドラインであり、CLAUDE.md/AGENTS.mdの要約ではない）。
+- すべての応答・コードコメント・エラーメッセージは日本語で記述
+- **コミットメッセージは英語**（Conventional Commits形式: `feat:`, `fix:`, `refactor:` 等）
+- 技術用語は不自然な日本語訳を避け英語併記可
 
-## 言語・コミュニケーション
+## プロジェクト概要
 
-- すべて日本語で応答する。コードコメント・ユーザー向けエラーも日本語。ログの技術情報のみ英語可。
-- コミットメッセージは英語で、Conventional Commits形式（例: `feat: add playlist deletion`）。
+Tauri 2 + SvelteKit で構築されたデスクトップ音楽管理アプリ。音楽ファイルのインポート・メタデータ管理・プレイリスト・再生・検索機能を提供。
 
-## プロジェクト構成
+## ディレクトリ構造
 
-- `src/`: SvelteKitフロントエンド。`src/routes/`に画面、`src/lib/`に共通ロジック。
-- `src-tauri/`: Tauri + Rustバックエンド。`src-tauri/src/`にRust、`src-tauri/tauri.conf.json`に設定。
-- `static/`: アイコンなどの静的アセット。
+- `src/` - SvelteKitフロントエンド（`routes/`, `lib/components/`, `lib/queries/`, `lib/stores/`, `lib/types/`, `lib/utils/`）
+- `src-tauri/` - Tauri + Rustバックエンド（`src/`配下に`commands.rs`, `db.rs`, `models.rs`, `library.rs`, `metadata.rs`, `playlist.rs`, `validation.rs`, `error.rs`, `state.rs`等）
+- `static/` - 静的アセット
+- `docs/` - 詳細ドキュメント
 
-## 開発・ビルド・テストコマンド
+## 開発コマンド
 
-- `npm install`: フロントエンド依存関係の導入。
-- `npm run tauri dev`: デスクトップアプリの開発モード（推奨）。
-- `npm run dev`: フロントエンドのみ起動（Viteポート1420）。
-- `npm run build`: フロントエンドビルド。`npm run tauri build`は本番アプリを生成。
-- `npm run check`: SvelteKit同期と型チェック。
-- `npm run lint` / `npm run lint:fix`: ESLint実行。
-- `npm run format` / `npm run format:check`: Prettierフォーマット。
-- `cd src-tauri && cargo fmt` / `cargo clippy -- -D warnings` / `cargo test`: Rustフォーマット・静的解析・テスト。
+```bash
+npm install                   # フロントエンド依存関係
+npm run tauri dev             # 開発モード（推奨）
+npm run dev                   # フロントエンドのみ（ポート1420）
+npm run check                 # TypeScript型チェック
+npm run lint                  # ESLint
+npm run format                # Prettierフォーマット
+cd src-tauri && cargo test    # Rustテスト
+cd src-tauri && cargo fmt     # Rustフォーマット
+cd src-tauri && cargo clippy -- -D warnings  # Clippy
+npm run tauri build           # 本番ビルド
+```
 
-## コーディング規約
+## 設計方針
 
-- 命名: SvelteはPascalCase、TypeScriptはcamelCase、Rustはsnake_case。型はPascalCase、定数はUPPER_SNAKE_CASE。
-- コメント・ユーザー向けエラーメッセージは日本語。エラーはユーザーフレンドリーに。
-- Tailwind: カスタムクラスを`@apply`で使わない。必要ならプロジェクト規約に従いスタイルブロック先頭で`@reference`を追加。
-- Svelte 5のRunes構文を推奨。既存フォーマットに従いPrettier/ESLint/rustfmtを適用。
+- **状態管理**: Svelte Stores（UI状態）+ TanStack Query（データキャッシング）+ Tauri State（バックエンド永続化）
+- **DB**: SQLite + FTS5全文検索。スキーマは`tracks`, `playlists`, `playlist_tracks`, `tracks_fts`
+- **エラー**: Rust側は`Result<T, String>`で日本語メッセージ返却。フロントは`handleError`で一元管理。トースト通知
+- **命名**: Svelte=PascalCase、TypeScript=camelCase、Rust=snake_case。型=PascalCase、定数=UPPER_SNAKE_CASE
+- **Svelte 5**: Runes構文（`$props()`, `$state()`, `$derived()`, `$effect()`）を使用
+- **TailwindCSS**: カスタムクラスを`@apply`で使わない。スタイルブロック先頭に`@reference`を追加
+- **セキュリティ**: Tauriのallowlistでアクセス制限。ローカルデータのみ。外部通信なし
+- **パフォーマンス**: バッチインポート（50件/TX）、FTS5検索、DBインデックス、クエリ制限（1000件）、デバウンス（300ms）、仮想スクロール
 
-## テスト指針
+## 詳細ドキュメント
 
-- Rustは`cargo test`でサービス層・ユーティリティを検証（目標カバレッジ90%）。
-- UIは手動テストを重視（インポート、再生、検索、メタデータ編集）。
-- 追加テストは対象モジュール近くに配置し、内容が分かる名称にする。
-
-## コミット・PRガイドライン
-
-- コミットは英語のConventional Commits形式で簡潔に。
-- PRの作成時は、CLAUDE.mdの「PRチェックリスト」セクションに従うこと。
-- ブランチ戦略: `main`は安定版、作業は`feature/*`ブランチで行いPRを作成する。
-- PR前の推奨チェック: `npm run format` / `npm run check` / `npm run lint`、`cd src-tauri && cargo fmt` / `cargo clippy -- -D warnings` / `cargo test`。
-
-## セキュリティと構成
-
-- Tauriのallowlistとファイルスコープを遵守し、ユーザー選択ディレクトリのみアクセス。
-- DBとログはアプリ固有データディレクトリに保存（`{app_data_dir}/muspice.db`, `{app_data_dir}/logs`）。
+- [docs/tech-stack.md](docs/tech-stack.md) - 言語設定、技術スタック、オーディオサポート
+- [docs/architecture.md](docs/architecture.md) - フロントエンド/バックエンド構成、DB、データフロー
+- [docs/features.md](docs/features.md) - 機能要件（インポート、メタデータ、プレイリスト、再生、検索）
+- [docs/conventions.md](docs/conventions.md) - コードスタイル、Clippy/Tailwind/UIコンポーネント規約、Svelte 5パターン
+- [docs/development.md](docs/development.md) - 開発コマンド詳細、テスト、CI/CD、Git、トラブルシューティング
