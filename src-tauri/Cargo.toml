@@ -28,7 +28,7 @@ serde_json = "1"
 rusqlite = { version = "0.38", features = ["bundled"] }
 uuid = { version = "1.21", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
-lofty = "0.22"
+lofty = "0.23"
 log = "0.4"
 base64 = "0.22"
 thiserror = "2"
