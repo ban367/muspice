@@ -1,42 +1,74 @@
-<!-- このファイルは docs/design-doc.md の一部です -->
-
 # 設計概要: アーキテクチャ・データフロー
 
-## 4. 設計概要
-
-<!-- システム全体の構造を俯瞰できる図・フローを記載する。
-     詳細に入る前に「何をどう組み合わせるか」の全体像を示す。 -->
-
-### アーキテクチャ図
+## 全体アーキテクチャ
 
 ```mermaid
 graph TD
-    A[クライアント] -->|HTTP/REST| B[API Gateway]
-    B --> C[アプリケーションサーバー]
-    C --> D[(データベース)]
-    C --> E[外部サービス]
+    U[User] --> FE[SvelteKit UI]
+    FE --> STORES[Svelte Stores]
+    FE --> QUERY[TanStack Query]
+    QUERY --> INVOKE[@tauri-apps/api/core invoke]
+    INVOKE --> CMD[Rust Commands]
+    CMD --> REPO[repository / playlist / library / metadata]
+    REPO --> DB[(SQLite + FTS5)]
+    REPO --> FS[(ローカル音楽ファイル)]
+    CMD --> EVT[Tauri Event Emitter]
+    EVT --> FE
 ```
 
-### データフロー
+## レイヤー責務
+
+| レイヤー                  | 主な実装                                                    | 責務                                               |
+| ------------------------- | ----------------------------------------------------------- | -------------------------------------------------- |
+| UI                        | `src/routes`, `src/lib/components`                          | 画面描画、ユーザー操作の受付                       |
+| クライアント状態          | `src/lib/stores`                                            | 再生状態・UI状態など即時反映が必要な状態管理       |
+| サーバー状態キャッシュ    | `src/lib/queries`                                           | `invoke`呼び出し、キャッシュ、再取得制御           |
+| コマンド層                | `src-tauri/src/commands/*`                                  | 入力バリデーション、ユースケース単位の操作公開     |
+| ドメイン/データアクセス層 | `repository.rs`, `library.rs`, `playlist.rs`, `metadata.rs` | SQL実行、ファイル走査、タグ読み書き                |
+| 永続化                    | SQLite, ローカルファイル                                    | トラック/プレイリスト/統計の保存、音楽ファイル実体 |
+
+## フロントエンド構成
+
+- ルート: `src/routes/(app)` 配下にライブラリ・プレイリスト、`src/routes/settings` に設定画面
+- UI部品: `src/lib/components` と `src/lib/components/ui`
+- 型: `src/lib/types/models.ts` をRustモデルと対応させる
+- データ取得: `src/lib/queries/*.ts` で `invoke()` をラップ
+
+## バックエンド構成
+
+- エントリーポイント: `src-tauri/src/lib.rs`
+- アプリ状態: `AppState { db: Mutex<Connection>, current_track_id: Mutex<Option<String>> }`
+- コマンド登録: `tauri::generate_handler!` でインポート/検索/編集/再生/統計/システム操作を公開
+- DB初期化: `db.rs` のマイグレーションでテーブル・インデックス・FTS5・トリガーを作成
+
+## 主要データフロー
+
+### インポート
 
 ```mermaid
 sequenceDiagram
     participant User
     participant Frontend
-    participant Backend
-    participant DB
+    participant TauriCmd as import_folder
+    participant DB as SQLite
 
-    User->>Frontend: 操作
-    Frontend->>Backend: APIリクエスト
-    Backend->>DB: クエリ
-    DB-->>Backend: 結果
-    Backend-->>Frontend: レスポンス
-    Frontend-->>User: 表示
+    User->>Frontend: フォルダ選択
+    Frontend->>TauriCmd: invoke(import_folder)
+    TauriCmd->>TauriCmd: ディレクトリ再帰走査 / 重複判定
+    TauriCmd->>DB: 50件単位でトランザクション保存
+    TauriCmd-->>Frontend: import-progressイベント送信
+    TauriCmd-->>Frontend: ImportResult返却
 ```
 
-### 主要コンポーネント
+### 検索
 
-| コンポーネント  | 役割     | 技術         |
-| --------------- | -------- | ------------ |
-| コンポーネントA | （役割） | （使用技術） |
-| コンポーネントB | （役割） | （使用技術） |
+1. フロントエンドで300msデバウンス
+2. `search_tracks` 実行
+3. バックエンドはFTS5 `MATCH` を優先し、失敗時は `LIKE` にフォールバック
+4. 結果をTanStack QueryでキャッシュしてUIへ反映
+
+### メタデータ編集
+
+1. 入力値バリデーション（ID形式、文字数、年・トラック番号）
+2. `update_track_metadata`（DBのみ）または`update_track_metadata_with_file`（DB+ファイル）を実行
+3. 成功後に関連クエリをinvalidateして一覧表示を同期

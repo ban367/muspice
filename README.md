@@ -83,3 +83,7 @@ cd src-tauri && cargo test
 ## 詳細ドキュメント
 
 - [Design Doc](docs/design-doc.md) - 設計ドキュメントのエントリポイント
+- [詳細設計](docs/design/detailed-design.md) - データモデル・Tauriコマンド仕様
+- [実装方針](docs/design/implementation.md) - ファイル配置・コーディング規約・開発運用
+- [設計概要](docs/design/architecture.md) - コンポーネント構成・データフロー
+- [概要](docs/design/overview.md) - 背景・目的・スコープ

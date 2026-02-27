@@ -1,50 +1,123 @@
-<!-- このファイルは docs/design-doc.md の一部です -->
-
 # 実装方針: 技術スタック・ディレクトリ・規約・テスト
 
-## 6. 実装方針
+## 技術スタック
 
-<!-- AIがファイルの配置場所を判断できるよう、ディレクトリ構成をツリー形式で明示する。
-     AGENTS.mdはプロジェクト横断の規約、このセクションは機能固有の制約を記述する。 -->
+| 層               | 技術                            | バージョン（2026-02-27時点）                        | 備考                             |
+| ---------------- | ------------------------------- | --------------------------------------------------- | -------------------------------- |
+| フロントエンド   | SvelteKit + Svelte + TypeScript | `@sveltejs/kit` 2.49.x / `svelte` 5.46.x / TS 5.9.x | SPA構成（adapter-static）        |
+| UIスタイル       | TailwindCSS + DaisyUI           | Tailwind 4.1.x / DaisyUI 5.5.x                      | `@apply`運用に制限あり           |
+| データ取得       | TanStack Query（Svelte）        | 6.0.x                                               | Queryキャッシュ/再取得制御       |
+| デスクトップ基盤 | Tauri                           | 2.x                                                 | `invoke()`でRustコマンド呼び出し |
+| バックエンド     | Rust                            | edition 2021（stable）                              | コアロジック/DBアクセス          |
+| DB               | SQLite + FTS5                   | rusqlite 0.38（bundled）                            | 全文検索・ローカル保存           |
+| メタデータ       | lofty                           | 0.22                                                | タグ読み書き/アルバムアート抽出  |
 
-### 技術スタック
-
-| 層             | 技術             | バージョン | 選定理由 |
-| -------------- | ---------------- | ---------- | -------- |
-| フロントエンド | （例）Next.js    | 15.x       | （理由） |
-| バックエンド   | （例）Node.js    | 22.x       | （理由） |
-| データベース   | （例）PostgreSQL | 17.x       | （理由） |
-
-### ディレクトリ構成
+## ディレクトリ構成
 
 ```text
 src/
-├── features/
-│   └── <feature-name>/        # この機能のコード
-│       ├── components/        # UIコンポーネント
-│       ├── hooks/             # カスタムフック
-│       ├── api/               # APIクライアント
-│       └── types.ts           # 型定義
-├── shared/
-│   ├── components/            # 共通コンポーネント
-│   └── utils/                 # 共通ユーティリティ
-└── pages/
-    └── api/                   # APIルート
+├── routes/
+│   ├── (app)/
+│   │   ├── library/
+│   │   └── playlists/
+│   └── settings/
+└── lib/
+    ├── components/
+    │   ├── ui/
+    │   └── library/
+    ├── queries/
+    ├── stores/
+    ├── types/
+    └── utils/
+
+src-tauri/src/
+├── commands/
+│   ├── import.rs
+│   ├── metadata_cmd.rs
+│   ├── player.rs
+│   ├── playlist_cmd.rs
+│   ├── stats.rs
+│   ├── system.rs
+│   └── tracks.rs
+├── lib.rs
+├── db.rs
+├── repository.rs
+├── library.rs
+├── playlist.rs
+├── metadata.rs
+├── models.rs
+├── validation.rs
+├── error.rs
+└── state.rs
 ```
 
-### コーディング規約（機能固有）
+## 実装規約
 
-<!-- 機能固有の制約・パターンをここに記述する。
-     プロジェクト横断の規約はAGENTS.mdを参照。 -->
+### 命名
 
-- （例）このモジュールでは楽観的更新パターンを使用する
-- （例）エラー処理はすべてカスタムフック内で行い、コンポーネントに漏らさない
-- （例）外部APIの呼び出しは必ずリトライロジックを含める
+- Svelteコンポーネント: PascalCase（例: `Player.svelte`）
+- TypeScript関数/変数: camelCase
+- Rust関数/変数: snake_case
+- 型名: PascalCase
+- 定数: UPPER_SNAKE_CASE
 
-### テスト方針
+### Svelte 5
 
-| テスト種別     | カバレッジ目標   | ツール     |
-| -------------- | ---------------- | ---------- |
-| ユニットテスト | 80%以上          | Vitest     |
-| 統合テスト     | 主要フロー       | Playwright |
-| E2Eテスト      | クリティカルパス | Playwright |
+- Runes構文（`$props`, `$state`, `$derived`, `$effect`）を使用
+- UIローカル状態は`stores`に集約し、データ取得状態はQueryに分離する
+
+### TailwindCSS
+
+- カスタムクラスを`@apply`で適用しない
+- コンポーネントの`<style>`先頭に、対象ファイルから`src/app.css`への相対パスで`@reference`を記述する
+
+### エラーハンドリング
+
+- Rustコマンドは `Result<T, String>` で日本語メッセージを返す
+- フロントエンドでは `handleError` を必ず経由する
+
+### 状態管理の使い分け
+
+| 状態                           | 管理方式         |
+| ------------------------------ | ---------------- |
+| 再生状態・UI表示状態           | Svelte Stores    |
+| トラック/プレイリスト/検索結果 | TanStack Query   |
+| DB接続・現在トラックID         | Tauri `AppState` |
+
+## 開発・品質コマンド
+
+```bash
+npm install
+npm run tauri dev
+npm run dev
+npm run check
+npm run lint
+npm run format
+cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
+cargo test --manifest-path src-tauri/Cargo.toml
+```
+
+## テスト方針
+
+- Rustユニットテストを `cargo test` で実行
+- 変更前後で最低限以下を確認する
+  - 型チェック（`npm run check`）
+  - Lint（`npm run lint`）
+  - Rust静的検査（`cargo clippy ... -D warnings`）
+  - Rustテスト（`cargo test`）
+
+## CI方針
+
+`.github/workflows/ci.yml` で以下を実行:
+
+1. Frontend Check（type-check, lint, format:check）
+2. Backend Check（fmt --check, clippy, test）
+3. Build Test（PR時のみ、Tauri build）
+
+## 実装時のドキュメント同期ルール
+
+- データモデル・API仕様変更: `docs/design/detailed-design.md`
+- 技術スタック・構成・規約変更: `docs/design/implementation.md`
+- 全体構成・データフロー変更: `docs/design/architecture.md`
+- 代替案・トレードオフ: `docs/design/decisions.md`
