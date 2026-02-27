@@ -5,6 +5,9 @@
       "path": "."
     },
     {
+      "path": "docs"
+    },
+    {
       "name": "tauri",
       "path": "src-tauri"
     }

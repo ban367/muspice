@@ -12,6 +12,7 @@
   },
   "eslint.validate": ["javascript", "typescript", "svelte"],
   "files.exclude": {
-    "src-tauri": true
+    "src-tauri": true,
+    "docs": true
   }
 }
