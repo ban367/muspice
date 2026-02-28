@@ -13,7 +13,7 @@ Tauri 2 + SvelteKit で構築されたデスクトップ音楽管理アプリ。
 ## ディレクトリ構造
 
 - `src/` - SvelteKitフロントエンド（`routes/`, `lib/components/`, `lib/queries/`, `lib/stores/`, `lib/types/`, `lib/utils/`）
-- `src-tauri/` - Tauri + Rustバックエンド（`src/`配下に`commands.rs`, `db.rs`, `models.rs`, `library.rs`, `metadata.rs`, `playlist.rs`, `validation.rs`, `error.rs`, `state.rs`等）
+- `src-tauri/` - Tauri + Rustバックエンド（`src/commands/`, `db.rs`, `models.rs`, `library.rs`, `metadata.rs`, `playlist.rs`, `validation.rs`, `error.rs`, `state.rs` 等）
 - `static/` - 静的アセット
 - `docs/` - 詳細ドキュメント
 
@@ -43,10 +43,17 @@ npm run tauri build           # 本番ビルド
 - **セキュリティ**: Tauriのallowlistでアクセス制限。ローカルデータのみ。外部通信なし
 - **パフォーマンス**: バッチインポート（50件/TX）、FTS5検索、DBインデックス、クエリ制限（1000件）、デバウンス（300ms）、仮想スクロール
 
-## 詳細ドキュメント
+## ドキュメント参照ルール
 
-- [docs/tech-stack.md](docs/tech-stack.md) - 言語設定、技術スタック、オーディオサポート
-- [docs/architecture.md](docs/architecture.md) - フロントエンド/バックエンド構成、DB、データフロー
-- [docs/features.md](docs/features.md) - 機能要件（インポート、メタデータ、プレイリスト、再生、検索）
-- [docs/conventions.md](docs/conventions.md) - コードスタイル、Clippy/Tailwind/UIコンポーネント規約、Svelte 5パターン
-- [docs/development.md](docs/development.md) - 開発コマンド詳細、テスト、CI/CD、Git、トラブルシューティング
+- エントリポイントは `docs/design-doc.md`（ドキュメント構成表あり）
+- 実装タスクでは以下を優先参照する:
+  - `docs/design/detailed-design.md` - データモデル・API仕様
+  - `docs/design/implementation.md` - ファイル配置・コーディング規約
+- アーキテクチャ全体の確認が必要な場合は `docs/design/architecture.md` を参照する
+- 機能の背景・スコープを確認する場合のみ `docs/design/overview.md` を参照する
+- 設計の意図・判断・制約が変わった場合は、実装と同時に該当ドキュメントを更新する:
+  - データモデル・APIの変更 → `docs/design/detailed-design.md`
+  - ディレクトリ構成・技術スタック・規約の変更 → `docs/design/implementation.md`
+  - コンポーネント構成・データフローの変更 → `docs/design/architecture.md`
+  - 採用しなかった代替案・トレードオフ → `docs/design/decisions.md`
+- ドキュメントと実装の乖離を発見した場合は、ドキュメントを実態に合わせて修正する

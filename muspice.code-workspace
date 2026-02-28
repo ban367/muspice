@@ -1,8 +1,12 @@
 {
   "folders": [
     {
-      "name": "app",
+      "name": "root",
       "path": "."
+    },
+    {
+      "name": "docs",
+      "path": "docs"
     },
     {
       "name": "tauri",
@@ -10,7 +14,6 @@
     }
   ],
   "settings": {
-    "svelte.enable-ts-plugin": true,
-    "kiroAgent.configureMCP": "Disabled"
+    "svelte.enable-ts-plugin": true
   }
 }

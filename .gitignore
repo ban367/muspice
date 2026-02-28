@@ -1,3 +1,7 @@
+# Agent
+CLAUDE.local.md
+settings.local.json
+
 .DS_Store
 node_modules
 /build
