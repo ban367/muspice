@@ -29,6 +29,7 @@ MuspiceのDesign Docは、実装判断の根拠と制約を一元管理するた
 - データモデル・APIの変更: `docs/design/detailed-design.md`
 - ディレクトリ構成・技術スタック・規約の変更: `docs/design/implementation.md`
 - コンポーネント構成・データフローの変更: `docs/design/architecture.md`
+- パフォーマンス・セキュリティ・可用性要件の変更: `docs/design/non-functional.md`
 - 採用しなかった代替案・トレードオフの追加: `docs/design/decisions.md`
 
 実装とドキュメントの乖離を見つけた場合は、ドキュメントを実装の実態に合わせて修正します。

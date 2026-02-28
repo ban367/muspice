@@ -71,6 +71,11 @@ src-tauri/src/
 - カスタムクラスを`@apply`で適用しない
 - コンポーネントの`<style>`先頭に、対象ファイルから`src/app.css`への相対パスで`@reference`を記述する
 
+### VS Codeワークスペース運用
+
+- `muspice.code-workspace` は `root` / `docs` / `tauri` の3ルート構成とする
+- `.vscode/settings.json` の `files.exclude.docs = true` は appルート内での重複表示を避けるために維持し、編集は workspace の各ルートから行う
+
 ### エラーハンドリング
 
 - Rustコマンドは `Result<T, String>` で日本語メッセージを返す
@@ -120,4 +125,5 @@ cargo test --manifest-path src-tauri/Cargo.toml
 - データモデル・API仕様変更: `docs/design/detailed-design.md`
 - 技術スタック・構成・規約変更: `docs/design/implementation.md`
 - 全体構成・データフロー変更: `docs/design/architecture.md`
+- 非機能要件（パフォーマンス・セキュリティ・可用性）に関わる変更: `docs/design/non-functional.md`
 - 代替案・トレードオフ: `docs/design/decisions.md`
