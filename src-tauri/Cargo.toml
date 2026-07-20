@@ -30,3 +30,4 @@ uuid = { version = "1.22", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 lofty = "0.24"
 base64 = "0.22"
+thiserror = "2"

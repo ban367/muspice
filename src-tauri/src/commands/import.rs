@@ -1,5 +1,6 @@
 //! 音楽ファイルのインポート関連コマンド
 
+use crate::error::{AppError, AppResult};
 use crate::library::{
     get_default_title, get_file_format, get_file_size, scan_directory, DuplicateAction,
     ImportResult,
@@ -33,7 +34,7 @@ pub async fn import_folder(
     duplicate_action: DuplicateAction,
     state: State<'_, AppState>,
     app_handle: AppHandle,
-) -> Result<ImportResult, String> {
+) -> AppResult<ImportResult> {
     // ファイルパスをバリデーション
     validate_file_path(&folder_path)?;
 
@@ -56,14 +57,14 @@ pub async fn import_folder(
         // バッチ処理でインポート
         for chunk in audio_files.chunks(BATCH_SIZE) {
             // トランザクション開始
-            let tx = db
-                .transaction()
-                .map_err(|e| format!("トランザクションの開始に失敗しました: {}", e))?;
+            let tx = db.transaction().map_err(|e| {
+                AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
+            })?;
 
             for file_path in chunk {
                 let file_path_str = file_path
                     .to_str()
-                    .ok_or_else(|| "ファイルパスの変換に失敗しました".to_string())?;
+                    .ok_or_else(|| AppError::Io("ファイルパスの変換に失敗しました".to_string()))?;
 
                 // 進捗イベントを送信
                 processed_count += 1;
@@ -125,8 +126,9 @@ pub async fn import_folder(
             }
 
             // バッチをコミット
-            tx.commit()
-                .map_err(|e| format!("トランザクションのコミットに失敗しました: {}", e))?;
+            tx.commit().map_err(|e| {
+                AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
+            })?;
 
             // 進行状況をログ出力
             crate::logger::info(&format!(
@@ -145,34 +147,28 @@ pub async fn import_folder(
 }
 
 /// トラックを処理してトランザクション内で保存
-fn process_and_save_track_in_tx(
-    tx: &rusqlite::Transaction,
-    file_path: &Path,
-) -> Result<(), String> {
+fn process_and_save_track_in_tx(tx: &rusqlite::Transaction, file_path: &Path) -> AppResult<()> {
     let track = create_track_from_file(file_path)?;
     crate::repository::insert_track(tx, &track)
 }
 
 /// トラックを処理してトランザクション内で更新
-fn process_and_update_track_in_tx(
-    tx: &rusqlite::Transaction,
-    file_path: &Path,
-) -> Result<(), String> {
+fn process_and_update_track_in_tx(tx: &rusqlite::Transaction, file_path: &Path) -> AppResult<()> {
     let track = create_track_from_file(file_path)?;
     crate::repository::update_track_by_file_path(tx, &track)
 }
 
 /// ファイルからトラック情報を作成
-fn create_track_from_file(file_path: &Path) -> Result<Track, String> {
+fn create_track_from_file(file_path: &Path) -> AppResult<Track> {
     let file_name = file_path
         .file_name()
         .and_then(|s| s.to_str())
-        .ok_or_else(|| "ファイル名の取得に失敗しました".to_string())?
+        .ok_or_else(|| AppError::Io("ファイル名の取得に失敗しました".to_string()))?
         .to_string();
 
     let file_path_str = file_path
         .to_str()
-        .ok_or_else(|| "ファイルパスの変換に失敗しました".to_string())?
+        .ok_or_else(|| AppError::Io("ファイルパスの変換に失敗しました".to_string()))?
         .to_string();
 
     // 1回のファイルオープンで全情報を一括抽出

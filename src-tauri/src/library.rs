@@ -1,3 +1,4 @@
+use crate::error::{AppError, AppResult};
 use rusqlite::Connection;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -47,7 +48,7 @@ pub struct DeleteFailure {
 }
 
 /// ディレクトリを再帰的にスキャンして音楽ファイルを検索
-pub fn scan_directory(dir_path: &Path) -> Result<Vec<PathBuf>, String> {
+pub fn scan_directory(dir_path: &Path) -> AppResult<Vec<PathBuf>> {
     let mut audio_files = Vec::new();
 
     scan_directory_recursive(dir_path, &mut audio_files)?;
@@ -56,12 +57,13 @@ pub fn scan_directory(dir_path: &Path) -> Result<Vec<PathBuf>, String> {
 }
 
 /// 再帰的にディレクトリをスキャンする内部関数
-fn scan_directory_recursive(dir_path: &Path, audio_files: &mut Vec<PathBuf>) -> Result<(), String> {
+fn scan_directory_recursive(dir_path: &Path, audio_files: &mut Vec<PathBuf>) -> AppResult<()> {
     let entries = fs::read_dir(dir_path)
-        .map_err(|e| format!("ディレクトリの読み取りに失敗しました: {}", e))?;
+        .map_err(|e| AppError::Io(format!("ディレクトリの読み取りに失敗しました: {}", e)))?;
 
     for entry in entries {
-        let entry = entry.map_err(|e| format!("エントリの読み取りに失敗しました: {}", e))?;
+        let entry =
+            entry.map_err(|e| AppError::Io(format!("エントリの読み取りに失敗しました: {}", e)))?;
         let path = entry.path();
 
         if path.is_dir() {
@@ -98,9 +100,9 @@ pub fn get_default_title(file_path: &Path) -> String {
 }
 
 /// ファイルサイズを取得
-pub fn get_file_size(file_path: &Path) -> Result<i64, String> {
+pub fn get_file_size(file_path: &Path) -> AppResult<i64> {
     let metadata = fs::metadata(file_path)
-        .map_err(|e| format!("ファイルメタデータの取得に失敗しました: {}", e))?;
+        .map_err(|e| AppError::Io(format!("ファイルメタデータの取得に失敗しました: {}", e)))?;
     Ok(metadata.len() as i64)
 }
 
@@ -116,7 +118,7 @@ pub fn get_file_format(file_path: &Path) -> String {
 /// トラックをデータベースから削除（ライブラリからのみ削除）
 ///
 /// トラックIDのバリデーションはコマンド層（入力境界）で実施済みであることを前提とする。
-pub fn delete_tracks(conn: &Connection, track_ids: &[String]) -> Result<usize, String> {
+pub fn delete_tracks(conn: &Connection, track_ids: &[String]) -> AppResult<usize> {
     if track_ids.is_empty() {
         return Ok(0);
     }
@@ -124,7 +126,7 @@ pub fn delete_tracks(conn: &Connection, track_ids: &[String]) -> Result<usize, S
     // トランザクションを使用して一括削除
     let tx = conn
         .unchecked_transaction()
-        .map_err(|e| format!("トランザクションの開始に失敗しました: {}", e))?;
+        .map_err(|e| AppError::Database(format!("トランザクションの開始に失敗しました: {}", e)))?;
 
     let mut deleted_count = 0;
 
@@ -132,8 +134,9 @@ pub fn delete_tracks(conn: &Connection, track_ids: &[String]) -> Result<usize, S
         deleted_count += crate::repository::delete_track(&tx, track_id)?;
     }
 
-    tx.commit()
-        .map_err(|e| format!("トランザクションのコミットに失敗しました: {}", e))?;
+    tx.commit().map_err(|e| {
+        AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
+    })?;
 
     Ok(deleted_count)
 }
@@ -143,7 +146,7 @@ pub fn delete_tracks(conn: &Connection, track_ids: &[String]) -> Result<usize, S
 pub fn delete_tracks_with_files(
     conn: &Connection,
     track_ids: &[String],
-) -> Result<DeleteResult, String> {
+) -> AppResult<DeleteResult> {
     if track_ids.is_empty() {
         return Ok(DeleteResult {
             success_count: 0,
@@ -166,7 +169,7 @@ pub fn delete_tracks_with_files(
     // トランザクションを使用してデータベースから削除
     let tx = conn
         .unchecked_transaction()
-        .map_err(|e| format!("トランザクションの開始に失敗しました: {}", e))?;
+        .map_err(|e| AppError::Database(format!("トランザクションの開始に失敗しました: {}", e)))?;
 
     for (track_id, file_path) in &track_info {
         // ファイルの削除を試みる
@@ -195,8 +198,9 @@ pub fn delete_tracks_with_files(
         }
     }
 
-    tx.commit()
-        .map_err(|e| format!("トランザクションのコミットに失敗しました: {}", e))?;
+    tx.commit().map_err(|e| {
+        AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
+    })?;
 
     Ok(DeleteResult {
         success_count,

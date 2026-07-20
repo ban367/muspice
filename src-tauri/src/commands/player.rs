@@ -1,5 +1,6 @@
 //! 音楽再生関連コマンド
 
+use crate::error::{AppError, AppResult};
 use crate::metadata::{extract_album_art, AlbumArt};
 use crate::models::Track;
 use crate::state::AppState;
@@ -12,7 +13,7 @@ use tauri::State;
 pub async fn get_track_file_path(
     track_id: String,
     state: State<'_, AppState>,
-) -> Result<String, String> {
+) -> AppResult<String> {
     // トラックIDをバリデーション
     validate_track_id(&track_id)?;
 
@@ -24,11 +25,11 @@ pub async fn get_track_file_path(
 pub async fn set_current_track(
     track_id: Option<String>,
     state: State<'_, AppState>,
-) -> Result<(), String> {
+) -> AppResult<()> {
     let mut current_track = state
         .current_track_id
         .lock()
-        .map_err(|e| format!("ステートロックの取得に失敗しました: {}", e))?;
+        .map_err(|e| AppError::Lock(format!("ステートロックの取得に失敗しました: {}", e)))?;
 
     *current_track = track_id;
 
@@ -37,12 +38,11 @@ pub async fn set_current_track(
 
 /// 現在再生中のトラック情報を取得
 #[tauri::command]
-pub async fn get_current_track(state: State<'_, AppState>) -> Result<Option<Track>, String> {
+pub async fn get_current_track(state: State<'_, AppState>) -> AppResult<Option<Track>> {
     let track_id = {
-        let current_track_id = state
-            .current_track_id
-            .lock()
-            .map_err(|e| format!("現在のトラック情報の取得に失敗しました: {}", e))?;
+        let current_track_id = state.current_track_id.lock().map_err(|e| {
+            AppError::Lock(format!("現在のトラック情報の取得に失敗しました: {}", e))
+        })?;
 
         match current_track_id.as_ref() {
             Some(id) => id.clone(),
@@ -63,7 +63,7 @@ pub async fn get_current_track(state: State<'_, AppState>) -> Result<Option<Trac
 pub async fn get_album_art(
     track_id: String,
     state: State<'_, AppState>,
-) -> Result<Option<AlbumArt>, String> {
+) -> AppResult<Option<AlbumArt>> {
     // トラックIDをバリデーション
     validate_track_id(&track_id)?;
 
