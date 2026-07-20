@@ -9,8 +9,8 @@
 | データ取得       | TanStack Query（Svelte）        | 6.0.x                                               | Queryキャッシュ/再取得制御       |
 | デスクトップ基盤 | Tauri                           | 2.x                                                 | `invoke()`でRustコマンド呼び出し |
 | バックエンド     | Rust                            | edition 2021（stable）                              | コアロジック/DBアクセス          |
-| DB               | SQLite + FTS5                   | rusqlite 0.38（bundled）                            | 全文検索・ローカル保存           |
-| メタデータ       | lofty                           | 0.22                                                | タグ読み書き/アルバムアート抽出  |
+| DB               | SQLite + FTS5                   | rusqlite 0.39（bundled）                            | 全文検索・ローカル保存           |
+| メタデータ       | lofty                           | 0.24                                                | タグ読み書き/アルバムアート抽出  |
 
 ## ディレクトリ構成
 

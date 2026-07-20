@@ -314,7 +314,7 @@ pub fn find_albums_grouped(conn: &Connection) -> Result<Vec<AlbumGroup>, String>
         })
         .collect();
 
-    albums.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    albums.sort_by_cached_key(|a| a.name.to_lowercase());
     Ok(albums)
 }
 
@@ -374,7 +374,7 @@ pub fn find_artists_grouped(conn: &Connection) -> Result<Vec<ArtistGroup>, Strin
                 });
             }
 
-            all_albums.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+            all_albums.sort_by_cached_key(|a| a.name.to_lowercase());
 
             ArtistGroup {
                 name: artist_name,
@@ -387,7 +387,7 @@ pub fn find_artists_grouped(conn: &Connection) -> Result<Vec<ArtistGroup>, Strin
         })
         .collect();
 
-    artists.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    artists.sort_by_cached_key(|a| a.name.to_lowercase());
     Ok(artists)
 }
 
@@ -424,7 +424,7 @@ pub fn find_genres_grouped(conn: &Connection) -> Result<Vec<GenreGroup>, String>
         })
         .collect();
 
-    genres.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    genres.sort_by_cached_key(|a| a.name.to_lowercase());
     Ok(genres)
 }
 

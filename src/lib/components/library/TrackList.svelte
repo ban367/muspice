@@ -119,12 +119,14 @@
       if (aVal === null) aVal = '';
       if (bVal === null) bVal = '';
 
-      let comparison = 0;
-      if (typeof aVal === 'string' && typeof bVal === 'string') {
-        comparison = aVal.localeCompare(bVal, 'ja');
-      } else {
-        comparison = aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
-      }
+      const comparison =
+        typeof aVal === 'string' && typeof bVal === 'string'
+          ? aVal.localeCompare(bVal, 'ja')
+          : aVal < bVal
+            ? -1
+            : aVal > bVal
+              ? 1
+              : 0;
 
       return sortDirection === 'asc' ? comparison : -comparison;
     });
