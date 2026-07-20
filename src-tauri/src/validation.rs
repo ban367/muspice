@@ -1,20 +1,23 @@
+use crate::error::{AppError, AppResult};
 use std::path::Path;
 
 /// ファイルパスをバリデーション（パストラバーサル攻撃対策）
-pub fn validate_file_path(path: &str) -> Result<(), String> {
+pub fn validate_file_path(path: &str) -> AppResult<()> {
     // 空のパスをチェック
     if path.is_empty() {
-        return Err("ファイルパスが空です".to_string());
+        return Err(AppError::Validation("ファイルパスが空です".to_string()));
     }
 
     // Null文字をチェック
     if path.contains('\0') {
-        return Err("不正なファイルパス: Null文字が含まれています".to_string());
+        return Err(AppError::Validation(
+            "不正なファイルパス: Null文字が含まれています".to_string(),
+        ));
     }
 
     // パスの長さをチェック（システム制限）
     if path.len() > 4096 {
-        return Err("ファイルパスが長すぎます".to_string());
+        return Err(AppError::Validation("ファイルパスが長すぎます".to_string()));
     }
 
     // パストラバーサルパターンをチェック（パスコンポーネント単位で判定）
@@ -22,9 +25,9 @@ pub fn validate_file_path(path: &str) -> Result<(), String> {
     let file_path = Path::new(path);
     for component in file_path.components() {
         if let std::path::Component::ParentDir = component {
-            return Err(
+            return Err(AppError::Validation(
                 "不正なファイルパス: 親ディレクトリへのアクセスは許可されていません".to_string(),
-            );
+            ));
         }
     }
 
@@ -32,26 +35,34 @@ pub fn validate_file_path(path: &str) -> Result<(), String> {
 }
 
 /// プレイリスト名をバリデーション
-pub fn validate_playlist_name(name: &str) -> Result<(), String> {
+pub fn validate_playlist_name(name: &str) -> AppResult<()> {
     // 空の名前をチェック
     if name.trim().is_empty() {
-        return Err("プレイリスト名を入力してください".to_string());
+        return Err(AppError::Validation(
+            "プレイリスト名を入力してください".to_string(),
+        ));
     }
 
     // 長さをチェック
     if name.len() > 100 {
-        return Err("プレイリスト名は100文字以内で入力してください".to_string());
+        return Err(AppError::Validation(
+            "プレイリスト名は100文字以内で入力してください".to_string(),
+        ));
     }
 
     // 危険な文字をチェック（ファイルシステムで問題となる文字）
     let dangerous_chars = ['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
     if name.chars().any(|c| dangerous_chars.contains(&c)) {
-        return Err("プレイリスト名に使用できない文字が含まれています".to_string());
+        return Err(AppError::Validation(
+            "プレイリスト名に使用できない文字が含まれています".to_string(),
+        ));
     }
 
     // Null文字をチェック
     if name.contains('\0') {
-        return Err("不正なプレイリスト名: Null文字が含まれています".to_string());
+        return Err(AppError::Validation(
+            "不正なプレイリスト名: Null文字が含まれています".to_string(),
+        ));
     }
 
     Ok(())
@@ -70,20 +81,20 @@ pub fn sanitize_search_query(query: &str) -> String {
 }
 
 /// トラックIDをバリデーション（UUID形式）
-pub fn validate_track_id(id: &str) -> Result<(), String> {
+pub fn validate_track_id(id: &str) -> AppResult<()> {
     if id.is_empty() {
-        return Err("トラックIDが空です".to_string());
+        return Err(AppError::Validation("トラックIDが空です".to_string()));
     }
 
     // UUID形式をチェック（簡易版）
     if id.len() != 36 {
-        return Err("不正なトラックID形式です".to_string());
+        return Err(AppError::Validation("不正なトラックID形式です".to_string()));
     }
 
     // ハイフンの位置をチェック
     let parts: Vec<&str> = id.split('-').collect();
     if parts.len() != 5 {
-        return Err("不正なトラックID形式です".to_string());
+        return Err(AppError::Validation("不正なトラックID形式です".to_string()));
     }
 
     // 各パートの長さをチェック
@@ -93,13 +104,13 @@ pub fn validate_track_id(id: &str) -> Result<(), String> {
         || parts[3].len() != 4
         || parts[4].len() != 12
     {
-        return Err("不正なトラックID形式です".to_string());
+        return Err(AppError::Validation("不正なトラックID形式です".to_string()));
     }
 
     // 16進数文字のみを含むかチェック
     for part in parts {
         if !part.chars().all(|c| c.is_ascii_hexdigit()) {
-            return Err("不正なトラックID形式です".to_string());
+            return Err(AppError::Validation("不正なトラックID形式です".to_string()));
         }
     }
 
@@ -107,8 +118,9 @@ pub fn validate_track_id(id: &str) -> Result<(), String> {
 }
 
 /// プレイリストIDをバリデーション（UUID形式）
-pub fn validate_playlist_id(id: &str) -> Result<(), String> {
-    validate_track_id(id).map_err(|_| "不正なプレイリストID形式です".to_string())
+pub fn validate_playlist_id(id: &str) -> AppResult<()> {
+    validate_track_id(id)
+        .map_err(|_| AppError::Validation("不正なプレイリストID形式です".to_string()))
 }
 
 /// 文字列の長さをバリデーション
@@ -116,15 +128,15 @@ pub fn validate_string_length(
     value: &Option<String>,
     field_name: &str,
     max_length: usize,
-) -> Result<(), String> {
+) -> AppResult<()> {
     if let Some(s) = value {
         if s.len() > max_length {
-            return Err(format!(
+            return Err(AppError::Validation(format!(
                 "{}は{}文字以内で入力してください（現在: {}文字）",
                 field_name,
                 max_length,
                 s.len()
-            ));
+            )));
         }
     }
     Ok(())

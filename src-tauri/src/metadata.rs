@@ -1,3 +1,4 @@
+use crate::error::{AppError, AppResult};
 use crate::models::Metadata;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use lofty::config::WriteOptions;
@@ -45,11 +46,11 @@ pub struct FileInfo {
 ///
 /// `extract_metadata`, `extract_duration`, `extract_bitrate`, `extract_sample_rate`を
 /// 個別に呼ぶ代わりに、1回のファイルオープンで全て取得する。
-pub fn extract_all_file_info(file_path: &Path) -> Result<FileInfo, String> {
+pub fn extract_all_file_info(file_path: &Path) -> AppResult<FileInfo> {
     let tagged_file = Probe::open(file_path)
-        .map_err(|e| format!("ファイルのオープンに失敗しました: {}", e))?
+        .map_err(|e| AppError::Metadata(format!("ファイルのオープンに失敗しました: {}", e)))?
         .read()
-        .map_err(|e| format!("ファイルの読み取りに失敗しました: {}", e))?;
+        .map_err(|e| AppError::Metadata(format!("ファイルの読み取りに失敗しました: {}", e)))?;
 
     // メタデータ抽出
     let tag = tagged_file
@@ -106,11 +107,11 @@ pub fn extract_all_file_info(file_path: &Path) -> Result<FileInfo, String> {
 }
 
 /// 音楽ファイルからメタデータを抽出
-pub fn extract_metadata(file_path: &Path) -> Result<Metadata, String> {
+pub fn extract_metadata(file_path: &Path) -> AppResult<Metadata> {
     let tagged_file = Probe::open(file_path)
-        .map_err(|e| format!("ファイルのオープンに失敗しました: {}", e))?
+        .map_err(|e| AppError::Metadata(format!("ファイルのオープンに失敗しました: {}", e)))?
         .read()
-        .map_err(|e| format!("ファイルの読み取りに失敗しました: {}", e))?;
+        .map_err(|e| AppError::Metadata(format!("ファイルの読み取りに失敗しました: {}", e)))?;
 
     let tag = tagged_file
         .primary_tag()
@@ -162,11 +163,11 @@ pub fn extract_metadata(file_path: &Path) -> Result<Metadata, String> {
 }
 
 /// 音楽ファイルからアルバムアートを抽出
-pub fn extract_album_art(file_path: &Path) -> Result<Option<AlbumArt>, String> {
+pub fn extract_album_art(file_path: &Path) -> AppResult<Option<AlbumArt>> {
     let tagged_file = Probe::open(file_path)
-        .map_err(|e| format!("ファイルのオープンに失敗しました: {}", e))?
+        .map_err(|e| AppError::Metadata(format!("ファイルのオープンに失敗しました: {}", e)))?
         .read()
-        .map_err(|e| format!("ファイルの読み取りに失敗しました: {}", e))?;
+        .map_err(|e| AppError::Metadata(format!("ファイルの読み取りに失敗しました: {}", e)))?;
 
     let tag = tagged_file
         .primary_tag()
@@ -199,18 +200,22 @@ pub fn extract_album_art(file_path: &Path) -> Result<Option<AlbumArt>, String> {
 }
 
 /// メタデータをバリデーション
-pub fn validate_metadata(metadata: &Metadata) -> Result<(), String> {
+pub fn validate_metadata(metadata: &Metadata) -> AppResult<()> {
     // 年のバリデーション
     if let Some(year) = metadata.year {
         if !YEAR_RANGE.contains(&year) {
-            return Err("年は1000から9999の範囲で指定してください".to_string());
+            return Err(AppError::Validation(
+                "年は1000から9999の範囲で指定してください".to_string(),
+            ));
         }
     }
 
     // トラック番号のバリデーション
     if let Some(track_number) = metadata.track_number {
         if !(1..=999).contains(&track_number) {
-            return Err("トラック番号は1から999の範囲で指定してください".to_string());
+            return Err(AppError::Validation(
+                "トラック番号は1から999の範囲で指定してください".to_string(),
+            ));
         }
     }
 
@@ -218,15 +223,15 @@ pub fn validate_metadata(metadata: &Metadata) -> Result<(), String> {
 }
 
 /// 音楽ファイルのメタデータを更新
-pub fn update_file_metadata(file_path: &Path, metadata: &Metadata) -> Result<(), String> {
+pub fn update_file_metadata(file_path: &Path, metadata: &Metadata) -> AppResult<()> {
     // メタデータをバリデーション
     validate_metadata(metadata)?;
 
     // ファイルを読み込み
     let mut tagged_file = Probe::open(file_path)
-        .map_err(|e| format!("ファイルのオープンに失敗しました: {}", e))?
+        .map_err(|e| AppError::Metadata(format!("ファイルのオープンに失敗しました: {}", e)))?
         .read()
-        .map_err(|e| format!("ファイルの読み取りに失敗しました: {}", e))?;
+        .map_err(|e| AppError::Metadata(format!("ファイルの読み取りに失敗しました: {}", e)))?;
 
     // プライマリタグを取得または作成
     let tag = match tagged_file.primary_tag_mut() {
@@ -237,7 +242,7 @@ pub fn update_file_metadata(file_path: &Path, metadata: &Metadata) -> Result<(),
             tagged_file.insert_tag(Tag::new(tag_type));
             tagged_file
                 .primary_tag_mut()
-                .ok_or_else(|| "タグの作成に失敗しました".to_string())?
+                .ok_or_else(|| AppError::Metadata("タグの作成に失敗しました".to_string()))?
         }
     };
 
@@ -281,7 +286,7 @@ pub fn update_file_metadata(file_path: &Path, metadata: &Metadata) -> Result<(),
     // ファイルに保存
     tagged_file
         .save_to_path(file_path, WriteOptions::default())
-        .map_err(|e| format!("メタデータの保存に失敗しました: {}", e))?;
+        .map_err(|e| AppError::Metadata(format!("メタデータの保存に失敗しました: {}", e)))?;
 
     Ok(())
 }

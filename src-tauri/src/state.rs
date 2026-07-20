@@ -1,3 +1,4 @@
+use crate::error::{AppError, AppResult};
 use rusqlite::Connection;
 use std::sync::Mutex;
 
@@ -22,14 +23,10 @@ impl AppState {
     /// ロック取得失敗時のエラーメッセージ生成を一元化する。
     /// トランザクションが必要な場合のため`&mut Connection`を渡す
     /// （読み取りのみの場合は`&Connection`として自動的に扱える）。
-    pub fn with_db<T>(
-        &self,
-        f: impl FnOnce(&mut Connection) -> Result<T, String>,
-    ) -> Result<T, String> {
-        let mut db = self
-            .db
-            .lock()
-            .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
+    pub fn with_db<T>(&self, f: impl FnOnce(&mut Connection) -> AppResult<T>) -> AppResult<T> {
+        let mut db = self.db.lock().map_err(|e| {
+            AppError::Lock(format!("データベースロックの取得に失敗しました: {}", e))
+        })?;
         f(&mut db)
     }
 }

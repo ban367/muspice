@@ -36,7 +36,7 @@ npm run tauri build           # 本番ビルド
 
 - **状態管理**: Svelte Stores（UI状態）+ TanStack Query（データキャッシング）+ Tauri State（バックエンド永続化）
 - **DB**: SQLite + FTS5全文検索。スキーマは`tracks`, `playlists`, `playlist_tracks`, `play_history`, `tracks_fts`。SQLは`repository.rs`（トラック）と`playlist.rs`（プレイリスト）に集約し、コマンド層は`AppState::with_db`経由でアクセスする
-- **エラー**: Rust側は`Result<T, String>`で日本語メッセージ返却。フロントは`handleError`で一元管理。トースト通知
+- **エラー**: Rust側は`AppResult<T>`（`AppError`）で`{code, message}`を返却（messageは日本語）。フロントは`handleError`でcodeベースに分類し一元管理。トースト通知
 - **命名**: Svelte=PascalCase、TypeScript=camelCase、Rust=snake_case。型=PascalCase、定数=UPPER_SNAKE_CASE
 - **Svelte 5**: Runes構文（`$props()`, `$state()`, `$derived()`, `$effect()`）を使用
 - **TailwindCSS**: カスタムクラスを`@apply`で使わない。スタイルブロック先頭に`@reference`を追加

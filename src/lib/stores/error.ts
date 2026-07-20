@@ -39,16 +39,55 @@ function createErrorStore() {
 export const errorStore = createErrorStore();
 
 /**
+ * バックエンド（Tauriコマンド）から返される構造化エラー
+ *
+ * Rust側の`AppError`が`{ code, message }`形式でシリアライズされたもの。
+ * codeの一覧はsrc-tauri/src/error.rsを参照。
+ */
+export interface ApiError {
+  code: string;
+  message: string;
+}
+
+/**
+ * 構造化エラーかどうかを判定する型ガード
+ */
+function isApiError(value: unknown): value is ApiError {
+  if (typeof value !== 'object' || value === null) return false;
+  const record = value as Record<string, unknown>;
+  return typeof record.code === 'string' && typeof record.message === 'string';
+}
+
+/**
+ * 技術的詳細をユーザーに見せないエラーコードの汎用メッセージ
+ *
+ * NOT_FOUND / VALIDATION はバックエンドのメッセージ自体がユーザー向けの
+ * 日本語文言のため、このマップに含めずそのまま表示する。
+ */
+const GENERIC_MESSAGES_BY_CODE: Record<string, string> = {
+  LOCK: '処理が競合しています。しばらく待ってからもう一度お試しください。',
+  DATABASE: 'データベースの操作中にエラーが発生しました。もう一度お試しください。',
+  IO: 'ファイル操作中にエラーが発生しました。ファイルの状態を確認してください。',
+  METADATA: 'メタデータの処理中にエラーが発生しました。ファイルが破損している可能性があります。'
+};
+
+/**
  * グローバルエラーハンドラー
- * Tauriコマンドのエラーをユーザーフレンドリーなメッセージに変換
+ *
+ * バックエンドの構造化エラーはcodeで分類してユーザー向けメッセージに変換し、
+ * それ以外（フロントエンド内で発生したエラー等）はメッセージをそのまま表示する。
  */
 export function handleError(error: unknown, context?: string): void {
-  let message = 'エラーが発生しました';
+  let message: string;
 
-  if (typeof error === 'string') {
+  if (isApiError(error)) {
+    message = GENERIC_MESSAGES_BY_CODE[error.code] ?? error.message;
+  } else if (typeof error === 'string') {
     message = error;
   } else if (error instanceof Error) {
     message = error.message;
+  } else {
+    message = 'エラーが発生しました';
   }
 
   // コンテキストがある場合は追加
@@ -56,61 +95,11 @@ export function handleError(error: unknown, context?: string): void {
     message = `${context}: ${message}`;
   }
 
-  // エラーメッセージをユーザーフレンドリーに変換
-  message = convertToUserFriendlyMessage(message);
-
   // エラーストアに追加
   errorStore.addError(message, 'error');
 
   // コンソールにも出力（開発用）
   console.error('[Error]', context || '', error);
-}
-
-/**
- * エラーメッセージをユーザーフレンドリーに変換
- */
-function convertToUserFriendlyMessage(message: string): string {
-  // データベース関連のエラー
-  if (message.includes('データベース')) {
-    return 'データベースの操作中にエラーが発生しました。もう一度お試しください。';
-  }
-
-  // ファイル関連のエラー
-  if (message.includes('ファイルが見つかりません')) {
-    return '指定されたファイルが見つかりません。ファイルが移動または削除された可能性があります。';
-  }
-
-  if (message.includes('サポートされていないファイル形式')) {
-    return 'このファイル形式はサポートされていません。MP3、FLAC、WAV、M4Aファイルのみ対応しています。';
-  }
-
-  // メタデータ関連のエラー
-  if (message.includes('メタデータ')) {
-    return 'メタデータの処理中にエラーが発生しました。ファイルが破損している可能性があります。';
-  }
-
-  // プレイリスト関連のエラー
-  if (message.includes('プレイリスト')) {
-    return 'プレイリストの操作中にエラーが発生しました。もう一度お試しください。';
-  }
-
-  // トラック関連のエラー
-  if (message.includes('トラックが見つかりません')) {
-    return '指定された楽曲が見つかりません。';
-  }
-
-  // バリデーション関連のエラー
-  if (message.includes('バリデーション')) {
-    return '入力内容に問題があります。入力内容を確認してください。';
-  }
-
-  // ロック関連のエラー
-  if (message.includes('ロック')) {
-    return '処理が競合しています。しばらく待ってからもう一度お試しください。';
-  }
-
-  // デフォルトメッセージ
-  return message;
 }
 
 /**

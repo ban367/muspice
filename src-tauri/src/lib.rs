@@ -1,5 +1,6 @@
 mod commands;
 mod db;
+mod error;
 mod library;
 mod logger;
 mod metadata;

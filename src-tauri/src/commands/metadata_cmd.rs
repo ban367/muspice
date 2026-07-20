@@ -1,5 +1,6 @@
 //! メタデータ編集関連コマンド
 
+use crate::error::{AppError, AppResult};
 use crate::metadata::{extract_metadata, update_file_metadata, validate_metadata};
 use crate::models::Metadata;
 use crate::state::AppState;
@@ -9,7 +10,7 @@ use std::path::Path;
 use tauri::State;
 
 /// メタデータの内容と各フィールドの長さをまとめてバリデーション
-fn validate_metadata_input(metadata: &Metadata) -> Result<(), String> {
+fn validate_metadata_input(metadata: &Metadata) -> AppResult<()> {
     validate_metadata(metadata)?;
     validate_string_length(&metadata.title, "タイトル", 255)?;
     validate_string_length(&metadata.artist, "アーティスト", 255)?;
@@ -26,7 +27,7 @@ pub async fn update_track_metadata(
     track_id: String,
     metadata: Metadata,
     state: State<'_, AppState>,
-) -> Result<(), String> {
+) -> AppResult<()> {
     validate_track_id(&track_id)?;
     validate_metadata_input(&metadata)?;
 
@@ -39,7 +40,7 @@ pub async fn update_track_metadata_with_file(
     track_id: String,
     metadata: Metadata,
     state: State<'_, AppState>,
-) -> Result<(), String> {
+) -> AppResult<()> {
     validate_track_id(&track_id)?;
     validate_metadata_input(&metadata)?;
 
@@ -60,9 +61,11 @@ pub async fn update_multiple_tracks_metadata(
     track_ids: Vec<String>,
     metadata: Metadata,
     state: State<'_, AppState>,
-) -> Result<(), String> {
+) -> AppResult<()> {
     if track_ids.is_empty() {
-        return Err("トラックIDが指定されていません".to_string());
+        return Err(AppError::Validation(
+            "トラックIDが指定されていません".to_string(),
+        ));
     }
 
     // 各トラックIDをバリデーション
@@ -76,22 +79,25 @@ pub async fn update_multiple_tracks_metadata(
         let now = Utc::now().to_rfc3339();
 
         // トランザクションを開始
-        let tx = db
-            .transaction()
-            .map_err(|e| format!("トランザクションの開始に失敗しました: {}", e))?;
+        let tx = db.transaction().map_err(|e| {
+            AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
+        })?;
 
         for track_id in track_ids {
             // トラックの存在確認
             let mut stmt = tx
                 .prepare("SELECT id FROM tracks WHERE id = ?1")
-                .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
+                .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
 
             let exists = stmt
                 .exists([&track_id])
-                .map_err(|e| format!("トラックの確認に失敗しました: {}", e))?;
+                .map_err(|e| AppError::Database(format!("トラックの確認に失敗しました: {}", e)))?;
 
             if !exists {
-                return Err(format!("トラックが見つかりません: {}", track_id));
+                return Err(AppError::NotFound(format!(
+                    "トラックが見つかりません: {}",
+                    track_id
+                )));
             }
 
             // メタデータを更新（Noneでないフィールドのみ）
@@ -137,13 +143,15 @@ pub async fn update_multiple_tracks_metadata(
             let params_refs: Vec<&dyn rusqlite::ToSql> =
                 params.iter().map(|p| p.as_ref()).collect();
 
-            tx.execute(&query, params_refs.as_slice())
-                .map_err(|e| format!("メタデータの更新に失敗しました: {}", e))?;
+            tx.execute(&query, params_refs.as_slice()).map_err(|e| {
+                AppError::Database(format!("メタデータの更新に失敗しました: {}", e))
+            })?;
         }
 
         // トランザクションをコミット
-        tx.commit()
-            .map_err(|e| format!("トランザクションのコミットに失敗しました: {}", e))?;
+        tx.commit().map_err(|e| {
+            AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
+        })?;
 
         Ok(())
     })
@@ -151,7 +159,7 @@ pub async fn update_multiple_tracks_metadata(
 
 /// メタデータをバリデーション（フロントエンド用）
 #[tauri::command]
-pub async fn validate_metadata_command(metadata: Metadata) -> Result<(), String> {
+pub async fn validate_metadata_command(metadata: Metadata) -> AppResult<()> {
     validate_metadata(&metadata)
 }
 
@@ -169,7 +177,7 @@ pub struct RefreshMetadataResult {
 #[tauri::command]
 pub async fn refresh_library_metadata(
     state: State<'_, AppState>,
-) -> Result<RefreshMetadataResult, String> {
+) -> AppResult<RefreshMetadataResult> {
     state.with_db(|db| {
         let mut updated_count = 0;
         let mut skipped_count = 0;
@@ -180,13 +188,13 @@ pub async fn refresh_library_metadata(
         let tracks: Vec<(String, String)> = {
             let mut stmt = db
                 .prepare("SELECT id, file_path FROM tracks")
-                .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
+                .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
 
             let result: Vec<(String, String)> = stmt
                 .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
-                .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
+                .map_err(|e| AppError::Database(format!("クエリの実行に失敗しました: {}", e)))?
                 .collect::<Result<Vec<_>, _>>()
-                .map_err(|e| format!("結果の取得に失敗しました: {}", e))?;
+                .map_err(|e| AppError::Database(format!("結果の取得に失敗しました: {}", e)))?;
             result
         };
 
@@ -198,7 +206,7 @@ pub async fn refresh_library_metadata(
         for (batch_idx, chunk) in tracks.chunks(BATCH_SIZE).enumerate() {
             let tx = db
                 .transaction()
-                .map_err(|e| format!("トランザクションの開始に失敗しました: {}", e))?;
+                .map_err(|e| AppError::Database(format!("トランザクションの開始に失敗しました: {}", e)))?;
 
             for (track_id, file_path) in chunk {
                 let path = Path::new(file_path);
@@ -244,7 +252,7 @@ pub async fn refresh_library_metadata(
             }
 
             tx.commit()
-                .map_err(|e| format!("トランザクションのコミットに失敗しました: {}", e))?;
+                .map_err(|e| AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e)))?;
 
             let processed = batch_idx * BATCH_SIZE + chunk.len();
             crate::logger::info(&format!(

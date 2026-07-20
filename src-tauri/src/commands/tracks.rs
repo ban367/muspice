@@ -1,5 +1,6 @@
 //! トラック取得・検索・フィルタリング・グループ化コマンド
 
+use crate::error::{AppError, AppResult};
 use crate::library::{delete_tracks, delete_tracks_with_files, DeleteResult};
 use crate::models::{AlbumGroup, ArtistGroup, GenreGroup, Track};
 use crate::state::AppState;
@@ -11,16 +12,13 @@ pub type FilterOptions = crate::repository::FilterOptions;
 
 /// すべてのトラックを取得
 #[tauri::command]
-pub async fn get_all_tracks(state: State<'_, AppState>) -> Result<Vec<Track>, String> {
+pub async fn get_all_tracks(state: State<'_, AppState>) -> AppResult<Vec<Track>> {
     state.with_db(|db| crate::repository::find_all_tracks(db))
 }
 
 /// トラックを検索（FTS5 + LIKEフォールバック）
 #[tauri::command]
-pub async fn search_tracks(
-    query: String,
-    state: State<'_, AppState>,
-) -> Result<Vec<Track>, String> {
+pub async fn search_tracks(query: String, state: State<'_, AppState>) -> AppResult<Vec<Track>> {
     // 検索クエリをサニタイズ
     let sanitized = sanitize_search_query(&query);
     if sanitized.is_empty() {
@@ -35,43 +33,43 @@ pub async fn search_tracks(
 pub async fn filter_tracks(
     filters: FilterOptions,
     state: State<'_, AppState>,
-) -> Result<Vec<Track>, String> {
+) -> AppResult<Vec<Track>> {
     state.with_db(|db| crate::repository::find_tracks_by_filter(db, &filters))
 }
 
 /// ユニークなアーティスト一覧を取得
 #[tauri::command]
-pub async fn get_unique_artists(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+pub async fn get_unique_artists(state: State<'_, AppState>) -> AppResult<Vec<String>> {
     state.with_db(|db| crate::repository::find_unique_artists(db))
 }
 
 /// ユニークなアルバム一覧を取得
 #[tauri::command]
-pub async fn get_unique_albums(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+pub async fn get_unique_albums(state: State<'_, AppState>) -> AppResult<Vec<String>> {
     state.with_db(|db| crate::repository::find_unique_albums(db))
 }
 
 /// ユニークなジャンル一覧を取得
 #[tauri::command]
-pub async fn get_unique_genres(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+pub async fn get_unique_genres(state: State<'_, AppState>) -> AppResult<Vec<String>> {
     state.with_db(|db| crate::repository::find_unique_genres(db))
 }
 
 /// アルバム一覧（グループ化）を取得
 #[tauri::command]
-pub async fn get_albums_grouped(state: State<'_, AppState>) -> Result<Vec<AlbumGroup>, String> {
+pub async fn get_albums_grouped(state: State<'_, AppState>) -> AppResult<Vec<AlbumGroup>> {
     state.with_db(|db| crate::repository::find_albums_grouped(db))
 }
 
 /// アーティスト一覧（グループ化）を取得
 #[tauri::command]
-pub async fn get_artists_grouped(state: State<'_, AppState>) -> Result<Vec<ArtistGroup>, String> {
+pub async fn get_artists_grouped(state: State<'_, AppState>) -> AppResult<Vec<ArtistGroup>> {
     state.with_db(|db| crate::repository::find_artists_grouped(db))
 }
 
 /// ジャンル一覧（グループ化）を取得
 #[tauri::command]
-pub async fn get_genres_grouped(state: State<'_, AppState>) -> Result<Vec<GenreGroup>, String> {
+pub async fn get_genres_grouped(state: State<'_, AppState>) -> AppResult<Vec<GenreGroup>> {
     state.with_db(|db| crate::repository::find_genres_grouped(db))
 }
 
@@ -81,9 +79,11 @@ pub async fn get_genres_grouped(state: State<'_, AppState>) -> Result<Vec<GenreG
 pub async fn delete_tracks_command(
     track_ids: Vec<String>,
     state: State<'_, AppState>,
-) -> Result<usize, String> {
+) -> AppResult<usize> {
     if track_ids.is_empty() {
-        return Err("削除するトラックが指定されていません".to_string());
+        return Err(AppError::Validation(
+            "削除するトラックが指定されていません".to_string(),
+        ));
     }
 
     // 各トラックIDをバリデーション
@@ -100,9 +100,11 @@ pub async fn delete_tracks_command(
 pub async fn delete_tracks_with_files_command(
     track_ids: Vec<String>,
     state: State<'_, AppState>,
-) -> Result<DeleteResult, String> {
+) -> AppResult<DeleteResult> {
     if track_ids.is_empty() {
-        return Err("削除するトラックが指定されていません".to_string());
+        return Err(AppError::Validation(
+            "削除するトラックが指定されていません".to_string(),
+        ));
     }
 
     // 各トラックIDをバリデーション
