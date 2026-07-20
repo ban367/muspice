@@ -477,6 +477,112 @@ pub fn update_track_metadata(
     Ok(())
 }
 
+/// トラックの存在を確認
+pub fn track_exists(conn: &Connection, track_id: &str) -> AppResult<bool> {
+    let mut stmt = conn
+        .prepare("SELECT 1 FROM tracks WHERE id = ?1")
+        .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
+
+    stmt.exists([track_id])
+        .map_err(|e| AppError::Database(format!("トラックの確認に失敗しました: {}", e)))
+}
+
+/// トラックのメタデータを部分更新（Someのフィールドのみ・一括編集用）
+///
+/// 対象トラックが存在しない場合はエラーを返す。
+/// 更新するフィールドがない場合は何もしない。
+pub fn update_track_metadata_partial(
+    conn: &Connection,
+    track_id: &str,
+    metadata: &Metadata,
+    now: &str,
+) -> AppResult<()> {
+    if !track_exists(conn, track_id)? {
+        return Err(AppError::NotFound(format!(
+            "トラックが見つかりません: {}",
+            track_id
+        )));
+    }
+
+    let mut update_parts = Vec::new();
+    let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+    if metadata.title.is_some() {
+        update_parts.push("title = ?");
+        params.push(Box::new(metadata.title.clone()));
+    }
+
+    if metadata.artist.is_some() {
+        update_parts.push("artist = ?");
+        params.push(Box::new(metadata.artist.clone()));
+    }
+
+    if metadata.album.is_some() {
+        update_parts.push("album = ?");
+        params.push(Box::new(metadata.album.clone()));
+    }
+
+    if metadata.genre.is_some() {
+        update_parts.push("genre = ?");
+        params.push(Box::new(metadata.genre.clone()));
+    }
+
+    if metadata.year.is_some() {
+        update_parts.push("year = ?");
+        params.push(Box::new(metadata.year));
+    }
+
+    if update_parts.is_empty() {
+        return Ok(()); // 更新するフィールドがない場合はスキップ
+    }
+
+    update_parts.push("updated_at = ?");
+    params.push(Box::new(now.to_string()));
+
+    let sql = format!("UPDATE tracks SET {} WHERE id = ?", update_parts.join(", "));
+    params.push(Box::new(track_id.to_string()));
+
+    let params_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+
+    conn.execute(&sql, params_refs.as_slice())
+        .map_err(|e| AppError::Database(format!("メタデータの更新に失敗しました: {}", e)))?;
+
+    Ok(())
+}
+
+/// 全トラックの (id, file_path) 一覧を取得
+pub fn find_all_track_file_paths(conn: &Connection) -> AppResult<Vec<(String, String)>> {
+    let mut stmt = conn
+        .prepare("SELECT id, file_path FROM tracks")
+        .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
+
+    let paths = stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .map_err(|e| AppError::Database(format!("クエリの実行に失敗しました: {}", e)))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| AppError::Database(format!("結果の取得に失敗しました: {}", e)))?;
+
+    Ok(paths)
+}
+
+/// トラック番号・ディスク番号を更新
+pub fn update_track_numbers(
+    conn: &Connection,
+    track_id: &str,
+    track_number: Option<i32>,
+    disc_number: Option<i32>,
+) -> AppResult<()> {
+    let now = chrono::Utc::now().to_rfc3339();
+
+    conn.execute(
+        "UPDATE tracks SET track_number = ?1, disc_number = ?2, updated_at = ?3 WHERE id = ?4",
+        rusqlite::params![track_number, disc_number, now, track_id],
+    )
+    .map_err(|e| AppError::Database(format!("トラック番号の更新に失敗しました: {}", e)))?;
+
+    Ok(())
+}
+
 /// トラックを新規挿入
 pub fn insert_track(conn: &Connection, track: &Track) -> AppResult<()> {
     conn.execute(
