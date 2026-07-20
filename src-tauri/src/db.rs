@@ -169,34 +169,43 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
              SELECT rowid, id, title, artist, album, genre FROM tracks",
             [],
         )?;
+    }
 
-        // トリガーを作成してデータの同期を自動化
-        conn.execute(
-            "CREATE TRIGGER IF NOT EXISTS tracks_ai AFTER INSERT ON tracks BEGIN
-                INSERT INTO tracks_fts(rowid, id, title, artist, album, genre)
-                VALUES (new.rowid, new.id, new.title, new.artist, new.album, new.genre);
-             END",
-            [],
-        )?;
+    // 同期トリガーを作成（定義変更を反映できるよう毎回作り直す・冪等）
+    //
+    // external contentテーブル（content=tracks）ではFTSインデックスの直接
+    // DELETE/UPDATEは正しく動作しないため、公式ドキュメントの'delete'コマンド
+    // パターンで古いトークンを除去してから新しい値を挿入する。
+    // https://www.sqlite.org/fts5.html#external_content_tables
+    conn.execute_batch(
+        "DROP TRIGGER IF EXISTS tracks_ai;
+         DROP TRIGGER IF EXISTS tracks_ad;
+         DROP TRIGGER IF EXISTS tracks_au;
 
-        conn.execute(
-            "CREATE TRIGGER IF NOT EXISTS tracks_ad AFTER DELETE ON tracks BEGIN
-                DELETE FROM tracks_fts WHERE rowid = old.rowid;
-             END",
-            [],
-        )?;
+         CREATE TRIGGER tracks_ai AFTER INSERT ON tracks BEGIN
+             INSERT INTO tracks_fts(rowid, id, title, artist, album, genre)
+             VALUES (new.rowid, new.id, new.title, new.artist, new.album, new.genre);
+         END;
 
-        conn.execute(
-            "CREATE TRIGGER IF NOT EXISTS tracks_au AFTER UPDATE ON tracks BEGIN
-                UPDATE tracks_fts SET 
-                    title = new.title,
-                    artist = new.artist,
-                    album = new.album,
-                    genre = new.genre
-                WHERE rowid = old.rowid;
-             END",
-            [],
-        )?;
+         CREATE TRIGGER tracks_ad AFTER DELETE ON tracks BEGIN
+             INSERT INTO tracks_fts(tracks_fts, rowid, id, title, artist, album, genre)
+             VALUES ('delete', old.rowid, old.id, old.title, old.artist, old.album, old.genre);
+         END;
+
+         CREATE TRIGGER tracks_au AFTER UPDATE ON tracks BEGIN
+             INSERT INTO tracks_fts(tracks_fts, rowid, id, title, artist, album, genre)
+             VALUES ('delete', old.rowid, old.id, old.title, old.artist, old.album, old.genre);
+             INSERT INTO tracks_fts(rowid, id, title, artist, album, genre)
+             VALUES (new.rowid, new.id, new.title, new.artist, new.album, new.genre);
+         END;",
+    )?;
+
+    // 旧トリガー（直接DELETE/UPDATE方式）で破損した可能性のある
+    // インデックスを一度だけ再構築する（user_versionで実行済みを管理）
+    let user_version: i32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    if user_version < 1 {
+        conn.execute("INSERT INTO tracks_fts(tracks_fts) VALUES('rebuild')", [])?;
+        conn.execute_batch("PRAGMA user_version = 1")?;
     }
 
     Ok(())
@@ -206,6 +215,53 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
 mod tests {
     use super::*;
     use std::fs;
+
+    /// FTS5インデックスがトラックのINSERT/UPDATE/DELETEに追随することを検証
+    #[test]
+    fn test_fts_triggers_keep_index_in_sync() {
+        let conn = Connection::open_in_memory().expect("インメモリDB作成に失敗");
+        run_migrations(&conn).expect("マイグレーション実行に失敗");
+
+        conn.execute(
+            "INSERT INTO tracks (id, file_path, file_name, title, artist, album, genre, year, format, file_size, created_at, updated_at)
+             VALUES ('t1', '/test/t1.mp3', 't1.mp3', '夜に駆ける', 'YOASOBI', 'THE BOOK', 'JPOP', 2020, 'mp3', 1000, datetime('now'), datetime('now'))",
+            [],
+        )
+        .expect("トラック挿入に失敗");
+
+        let count_match = |query: &str| -> i64 {
+            conn.query_row(
+                "SELECT COUNT(*) FROM tracks_fts WHERE tracks_fts MATCH ?1",
+                [query],
+                |row| row.get(0),
+            )
+            .expect("FTS検索に失敗")
+        };
+
+        // INSERT後に検索でヒットする
+        assert_eq!(count_match("\"YOASOBI\""), 1);
+
+        // UPDATE後は新しい値でヒットし、古い値ではヒットしない
+        conn.execute(
+            "UPDATE tracks SET title = 'アイドル', artist = 'NEWARTIST' WHERE id = 't1'",
+            [],
+        )
+        .expect("トラック更新に失敗");
+        assert_eq!(count_match("\"NEWARTIST\""), 1);
+        assert_eq!(count_match("\"YOASOBI\""), 0);
+
+        // DELETE後はヒットしない
+        conn.execute("DELETE FROM tracks WHERE id = 't1'", [])
+            .expect("トラック削除に失敗");
+        assert_eq!(count_match("\"NEWARTIST\""), 0);
+
+        // FTS5インデックスと実データの整合性チェック
+        conn.execute(
+            "INSERT INTO tracks_fts(tracks_fts) VALUES('integrity-check')",
+            [],
+        )
+        .expect("FTS5インデックスが破損しています");
+    }
 
     #[test]
     fn test_init_db() {

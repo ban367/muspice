@@ -47,7 +47,7 @@ src-tauri/src/
 ├── metadata.rs
 ├── models.rs
 ├── validation.rs
-├── error.rs
+├── logger.rs
 └── state.rs
 ```
 
@@ -80,6 +80,9 @@ src-tauri/src/
 
 - Rustコマンドは `Result<T, String>` で日本語メッセージを返す
 - フロントエンドでは `handleError` を必ず経由する
+- DBアクセスはコマンド層で `AppState::with_db` を経由し、ロック取得エラーの処理を一元化する
+- トラック関連のSQLは `repository.rs`、プレイリスト関連のSQLは `playlist.rs` に集約する（コマンド層に生SQLを書かない）
+- ログは `crate::logger`（`logger.rs`）を使用する（`log` クレートは未初期化のため使用しない）
 
 ### 状態管理の使い分け
 

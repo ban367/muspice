@@ -130,40 +130,6 @@ pub fn validate_string_length(
     Ok(())
 }
 
-/// ファイルが存在し、読み取り可能かチェック（将来の使用のため）
-#[allow(dead_code)]
-pub fn validate_file_exists(path: &Path) -> Result<(), String> {
-    if !path.exists() {
-        return Err(format!("ファイルが見つかりません: {:?}", path));
-    }
-
-    if !path.is_file() {
-        return Err(format!(
-            "指定されたパスはファイルではありません: {:?}",
-            path
-        ));
-    }
-
-    Ok(())
-}
-
-/// ディレクトリが存在し、読み取り可能かチェック（将来の使用のため）
-#[allow(dead_code)]
-pub fn validate_directory_exists(path: &Path) -> Result<(), String> {
-    if !path.exists() {
-        return Err(format!("ディレクトリが見つかりません: {:?}", path));
-    }
-
-    if !path.is_dir() {
-        return Err(format!(
-            "指定されたパスはディレクトリではありません: {:?}",
-            path
-        ));
-    }
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

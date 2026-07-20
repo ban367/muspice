@@ -13,7 +13,7 @@ Tauri 2 + SvelteKit で構築されたデスクトップ音楽管理アプリ。
 ## ディレクトリ構造
 
 - `src/` - SvelteKitフロントエンド（`routes/`, `lib/components/`, `lib/queries/`, `lib/stores/`, `lib/types/`, `lib/utils/`）
-- `src-tauri/` - Tauri + Rustバックエンド（`src/commands/`, `db.rs`, `models.rs`, `library.rs`, `metadata.rs`, `playlist.rs`, `validation.rs`, `error.rs`, `state.rs` 等）
+- `src-tauri/` - Tauri + Rustバックエンド（`src/commands/`, `db.rs`, `repository.rs`, `models.rs`, `library.rs`, `metadata.rs`, `playlist.rs`, `validation.rs`, `logger.rs`, `state.rs` 等）
 - `static/` - 静的アセット
 - `docs/` - 詳細ドキュメント
 
@@ -35,7 +35,7 @@ npm run tauri build           # 本番ビルド
 ## 設計方針
 
 - **状態管理**: Svelte Stores（UI状態）+ TanStack Query（データキャッシング）+ Tauri State（バックエンド永続化）
-- **DB**: SQLite + FTS5全文検索。スキーマは`tracks`, `playlists`, `playlist_tracks`, `tracks_fts`
+- **DB**: SQLite + FTS5全文検索。スキーマは`tracks`, `playlists`, `playlist_tracks`, `play_history`, `tracks_fts`。SQLは`repository.rs`（トラック）と`playlist.rs`（プレイリスト）に集約し、コマンド層は`AppState::with_db`経由でアクセスする
 - **エラー**: Rust側は`Result<T, String>`で日本語メッセージ返却。フロントは`handleError`で一元管理。トースト通知
 - **命名**: Svelte=PascalCase、TypeScript=camelCase、Rust=snake_case。型=PascalCase、定数=UPPER_SNAKE_CASE
 - **Svelte 5**: Runes構文（`$props()`, `$state()`, `$derived()`, `$effect()`）を使用

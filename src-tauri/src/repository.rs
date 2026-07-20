@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use rusqlite::{Connection, Row};
 
-use crate::models::{AlbumGroup, ArtistGroup, GenreGroup, Track};
+use crate::models::{AlbumGroup, ArtistGroup, GenreGroup, Metadata, Track};
 
 /// クエリ結果の最大取得件数
 ///
@@ -220,17 +220,24 @@ pub fn find_tracks_by_filter(
 
 /// トラックIDからファイルパスを取得
 pub fn find_file_path_by_track_id(conn: &Connection, track_id: &str) -> Result<String, String> {
+    try_find_file_path_by_track_id(conn, track_id)?
+        .ok_or_else(|| "指定されたトラックが見つかりません".to_string())
+}
+
+/// トラックIDからファイルパスを取得（存在しない場合はNone）
+pub fn try_find_file_path_by_track_id(
+    conn: &Connection,
+    track_id: &str,
+) -> Result<Option<String>, String> {
     let mut stmt = conn
         .prepare("SELECT file_path FROM tracks WHERE id = ?1")
         .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
 
-    stmt.query_row([track_id], |row| row.get(0))
-        .map_err(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => {
-                "指定されたトラックが見つかりません".to_string()
-            }
-            _ => format!("トラックの取得に失敗しました: {}", e),
-        })
+    match stmt.query_row([track_id], |row| row.get(0)) {
+        Ok(path) => Ok(Some(path)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(format!("トラックの取得に失敗しました: {}", e)),
+    }
 }
 
 /// お気に入りトラックを取得
@@ -426,6 +433,195 @@ pub fn find_genres_grouped(conn: &Connection) -> Result<Vec<GenreGroup>, String>
 
     genres.sort_by_cached_key(|a| a.name.to_lowercase());
     Ok(genres)
+}
+
+/// トラックのメタデータ（title/artist/album/genre/year）を更新
+///
+/// 対象トラックが存在しない場合はエラーを返す。
+pub fn update_track_metadata(
+    conn: &Connection,
+    track_id: &str,
+    metadata: &Metadata,
+) -> Result<(), String> {
+    let now = chrono::Utc::now().to_rfc3339();
+
+    let rows_affected = conn
+        .execute(
+            "UPDATE tracks SET
+                title = ?1,
+                artist = ?2,
+                album = ?3,
+                genre = ?4,
+                year = ?5,
+                updated_at = ?6
+             WHERE id = ?7",
+            rusqlite::params![
+                metadata.title,
+                metadata.artist,
+                metadata.album,
+                metadata.genre,
+                metadata.year,
+                now,
+                track_id,
+            ],
+        )
+        .map_err(|e| format!("メタデータの更新に失敗しました: {}", e))?;
+
+    if rows_affected == 0 {
+        return Err("指定されたトラックが見つかりません".to_string());
+    }
+
+    Ok(())
+}
+
+/// トラックを新規挿入
+pub fn insert_track(conn: &Connection, track: &Track) -> Result<(), String> {
+    conn.execute(
+        "INSERT INTO tracks (
+            id, file_path, file_name, title, artist, album, genre, year,
+            track_number, disc_number, duration, file_size, format, bitrate, sample_rate, created_at, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+        rusqlite::params![
+            track.id,
+            track.file_path,
+            track.file_name,
+            track.title,
+            track.artist,
+            track.album,
+            track.genre,
+            track.year,
+            track.track_number,
+            track.disc_number,
+            track.duration,
+            track.file_size,
+            track.format,
+            track.bitrate,
+            track.sample_rate,
+            track.created_at,
+            track.updated_at,
+        ],
+    )
+    .map_err(|e| format!("トラックの保存に失敗しました: {}", e))?;
+    Ok(())
+}
+
+/// file_pathをキーに既存トラックを更新（重複時の置き換え用）
+pub fn update_track_by_file_path(conn: &Connection, track: &Track) -> Result<(), String> {
+    conn.execute(
+        "UPDATE tracks SET
+            file_name = ?2, title = ?3, artist = ?4, album = ?5, genre = ?6, year = ?7,
+            track_number = ?8, disc_number = ?9, duration = ?10, file_size = ?11, format = ?12, bitrate = ?13, sample_rate = ?14,
+            updated_at = ?15
+        WHERE file_path = ?1",
+        rusqlite::params![
+            track.file_path,
+            track.file_name,
+            track.title,
+            track.artist,
+            track.album,
+            track.genre,
+            track.year,
+            track.track_number,
+            track.disc_number,
+            track.duration,
+            track.file_size,
+            track.format,
+            track.bitrate,
+            track.sample_rate,
+            track.updated_at,
+        ],
+    )
+    .map_err(|e| format!("トラックの更新に失敗しました: {}", e))?;
+    Ok(())
+}
+
+/// ファイルパスが既にデータベースに存在するかチェック
+pub fn track_exists_by_file_path(conn: &Connection, file_path: &str) -> Result<bool, String> {
+    let mut stmt = conn
+        .prepare("SELECT COUNT(*) FROM tracks WHERE file_path = ?1")
+        .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
+    let count: i64 = stmt
+        .query_row([file_path], |row| row.get(0))
+        .map_err(|e| format!("重複チェックに失敗しました: {}", e))?;
+    Ok(count > 0)
+}
+
+/// トラックを1件削除（削除された行数を返す）
+///
+/// ON DELETE CASCADEにより、playlist_tracksとplay_historyの関連レコードも自動削除される。
+pub fn delete_track(conn: &Connection, track_id: &str) -> Result<usize, String> {
+    conn.execute("DELETE FROM tracks WHERE id = ?1", [track_id])
+        .map_err(|e| format!("トラックの削除に失敗しました: {}", e))
+}
+
+/// お気に入り状態をトグルし、新しい状態を返す
+pub fn toggle_track_favorite(conn: &Connection, track_id: &str) -> Result<bool, String> {
+    // 現在のお気に入り状態を取得
+    let current: i32 = conn
+        .query_row(
+            "SELECT COALESCE(is_favorite, 0) FROM tracks WHERE id = ?1",
+            [track_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => "トラックが見つかりません".to_string(),
+            _ => format!("お気に入り状態の取得に失敗しました: {}", e),
+        })?;
+
+    let new_value = if current == 0 { 1 } else { 0 };
+    let now = chrono::Utc::now().to_rfc3339();
+
+    conn.execute(
+        "UPDATE tracks SET is_favorite = ?1, updated_at = ?2 WHERE id = ?3",
+        rusqlite::params![new_value, now, track_id],
+    )
+    .map_err(|e| format!("お気に入りの更新に失敗しました: {}", e))?;
+
+    Ok(new_value == 1)
+}
+
+/// レーティングを設定
+pub fn set_track_rating(conn: &Connection, track_id: &str, rating: i32) -> Result<(), String> {
+    let now = chrono::Utc::now().to_rfc3339();
+
+    conn.execute(
+        "UPDATE tracks SET rating = ?1, updated_at = ?2 WHERE id = ?3",
+        rusqlite::params![rating, now, track_id],
+    )
+    .map_err(|e| format!("レーティングの更新に失敗しました: {}", e))?;
+
+    Ok(())
+}
+
+/// 再生回数をインクリメントして再生履歴に追加し、新しい再生回数を返す
+pub fn increment_track_play_count(conn: &Connection, track_id: &str) -> Result<i32, String> {
+    let now = chrono::Utc::now().to_rfc3339();
+
+    // 再生回数をインクリメントし、最終再生日時を更新
+    conn.execute(
+        "UPDATE tracks SET
+            play_count = COALESCE(play_count, 0) + 1,
+            last_played_at = ?1,
+            updated_at = ?1
+         WHERE id = ?2",
+        rusqlite::params![now, track_id],
+    )
+    .map_err(|e| format!("再生回数の更新に失敗しました: {}", e))?;
+
+    // 再生履歴に追加
+    conn.execute(
+        "INSERT INTO play_history (track_id, played_at) VALUES (?1, ?2)",
+        rusqlite::params![track_id, now],
+    )
+    .map_err(|e| format!("再生履歴の追加に失敗しました: {}", e))?;
+
+    // 新しい再生回数を取得
+    conn.query_row(
+        "SELECT play_count FROM tracks WHERE id = ?1",
+        [track_id],
+        |row| row.get(0),
+    )
+    .map_err(|e| format!("再生回数の取得に失敗しました: {}", e))
 }
 
 /// ユニークなアーティスト一覧を取得

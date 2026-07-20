@@ -74,6 +74,8 @@ export interface Playlist {
 - `playlist_tracks(playlist_id)` にインデックス
 - `playlist_tracks`, `play_history` は `tracks` / `playlists` への外部キー（`ON DELETE CASCADE`）
 - `tracks_fts` は `tracks` とINSERT/UPDATE/DELETEトリガーで同期
+  - external contentテーブル（`content=tracks`）のため、UPDATE/DELETEは`'delete'`コマンドパターンで古いトークンを除去する
+  - 旧トリガー（直接DELETE/UPDATE方式）によるインデックス破損対策として、`PRAGMA user_version < 1` の場合に起動時へ一度だけ`rebuild`を実行する
 
 ### クエリ制限
 

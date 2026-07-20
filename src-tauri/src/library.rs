@@ -1,5 +1,3 @@
-use crate::models::Track;
-use crate::validation::validate_track_id;
 use rusqlite::Connection;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -90,74 +88,6 @@ pub fn is_supported_audio_file(path: &Path) -> bool {
     false
 }
 
-/// ファイルパスが既にデータベースに存在するかチェック
-pub fn is_duplicate_file(conn: &Connection, file_path: &str) -> Result<bool, rusqlite::Error> {
-    let mut stmt = conn.prepare("SELECT COUNT(*) FROM tracks WHERE file_path = ?1")?;
-    let count: i64 = stmt.query_row([file_path], |row| row.get(0))?;
-    Ok(count > 0)
-}
-
-/// トラックをデータベースに保存（将来の使用のため）
-#[allow(dead_code)]
-pub fn save_track(conn: &Connection, track: &Track) -> Result<(), rusqlite::Error> {
-    conn.execute(
-        "INSERT INTO tracks (
-            id, file_path, file_name, title, artist, album, genre, year,
-            track_number, disc_number, duration, file_size, format, bitrate, sample_rate, created_at, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
-        rusqlite::params![
-            track.id,
-            track.file_path,
-            track.file_name,
-            track.title,
-            track.artist,
-            track.album,
-            track.genre,
-            track.year,
-            track.track_number,
-            track.disc_number,
-            track.duration,
-            track.file_size,
-            track.format,
-            track.bitrate,
-            track.sample_rate,
-            track.created_at,
-            track.updated_at,
-        ],
-    )?;
-    Ok(())
-}
-
-/// 既存のトラックを更新（重複時の置き換え用、将来の使用のため）
-#[allow(dead_code)]
-pub fn update_track(conn: &Connection, track: &Track) -> Result<(), rusqlite::Error> {
-    conn.execute(
-        "UPDATE tracks SET
-            file_name = ?2, title = ?3, artist = ?4, album = ?5, genre = ?6, year = ?7,
-            track_number = ?8, disc_number = ?9, duration = ?10, file_size = ?11, format = ?12, bitrate = ?13, sample_rate = ?14,
-            updated_at = ?15
-        WHERE file_path = ?1",
-        rusqlite::params![
-            track.file_path,
-            track.file_name,
-            track.title,
-            track.artist,
-            track.album,
-            track.genre,
-            track.year,
-            track.track_number,
-            track.disc_number,
-            track.duration,
-            track.file_size,
-            track.format,
-            track.bitrate,
-            track.sample_rate,
-            track.updated_at,
-        ],
-    )?;
-    Ok(())
-}
-
 /// ファイル名からデフォルトのタイトルを生成
 pub fn get_default_title(file_path: &Path) -> String {
     file_path
@@ -184,13 +114,9 @@ pub fn get_file_format(file_path: &Path) -> String {
 }
 
 /// トラックをデータベースから削除（ライブラリからのみ削除）
-/// ON DELETE CASCADEにより、playlist_tracksとplay_historyの関連レコードも自動削除される
+///
+/// トラックIDのバリデーションはコマンド層（入力境界）で実施済みであることを前提とする。
 pub fn delete_tracks(conn: &Connection, track_ids: &[String]) -> Result<usize, String> {
-    // トラックIDのバリデーション
-    for track_id in track_ids {
-        validate_track_id(track_id)?;
-    }
-
     if track_ids.is_empty() {
         return Ok(0);
     }
@@ -203,10 +129,7 @@ pub fn delete_tracks(conn: &Connection, track_ids: &[String]) -> Result<usize, S
     let mut deleted_count = 0;
 
     for track_id in track_ids {
-        let rows_affected = tx
-            .execute("DELETE FROM tracks WHERE id = ?1", [track_id])
-            .map_err(|e| format!("トラックの削除に失敗しました: {}", e))?;
-        deleted_count += rows_affected;
+        deleted_count += crate::repository::delete_track(&tx, track_id)?;
     }
 
     tx.commit()
@@ -221,11 +144,6 @@ pub fn delete_tracks_with_files(
     conn: &Connection,
     track_ids: &[String],
 ) -> Result<DeleteResult, String> {
-    // トラックIDのバリデーション
-    for track_id in track_ids {
-        validate_track_id(track_id)?;
-    }
-
     if track_ids.is_empty() {
         return Ok(DeleteResult {
             success_count: 0,
@@ -234,24 +152,11 @@ pub fn delete_tracks_with_files(
         });
     }
 
-    // まずファイルパスを取得
+    // まずファイルパスを取得（見つからないトラックはスキップ）
     let mut track_info: Vec<(String, String)> = Vec::new();
     for track_id in track_ids {
-        let file_path: Result<String, _> = conn.query_row(
-            "SELECT file_path FROM tracks WHERE id = ?1",
-            [track_id],
-            |row| row.get(0),
-        );
-
-        match file_path {
-            Ok(path) => track_info.push((track_id.clone(), path)),
-            Err(rusqlite::Error::QueryReturnedNoRows) => {
-                // トラックが見つからない場合はスキップ
-                continue;
-            }
-            Err(e) => {
-                return Err(format!("トラック情報の取得に失敗しました: {}", e));
-            }
+        if let Some(path) = crate::repository::try_find_file_path_by_track_id(conn, track_id)? {
+            track_info.push((track_id.clone(), path));
         }
     }
 
@@ -270,16 +175,14 @@ pub fn delete_tracks_with_files(
         match file_delete_result {
             Ok(()) => {
                 // ファイル削除成功、データベースからも削除
-                tx.execute("DELETE FROM tracks WHERE id = ?1", [track_id])
-                    .map_err(|e| format!("トラックの削除に失敗しました: {}", e))?;
+                crate::repository::delete_track(&tx, track_id)?;
                 success_count += 1;
             }
             Err(e) => {
                 // ファイル削除失敗
                 // ファイルが見つからない場合はDBからも削除を許可
                 if e.kind() == std::io::ErrorKind::NotFound {
-                    tx.execute("DELETE FROM tracks WHERE id = ?1", [track_id])
-                        .map_err(|e| format!("トラックの削除に失敗しました: {}", e))?;
+                    crate::repository::delete_track(&tx, track_id)?;
                     success_count += 1;
                 } else {
                     failed_tracks.push(DeleteFailure {
