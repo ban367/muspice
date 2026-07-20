@@ -12,12 +12,7 @@ pub type FilterOptions = crate::repository::FilterOptions;
 /// すべてのトラックを取得
 #[tauri::command]
 pub async fn get_all_tracks(state: State<'_, AppState>) -> Result<Vec<Track>, String> {
-    let db = state
-        .db
-        .lock()
-        .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
-
-    crate::repository::find_all_tracks(&db)
+    state.with_db(|db| crate::repository::find_all_tracks(db))
 }
 
 /// トラックを検索（FTS5 + LIKEフォールバック）
@@ -32,12 +27,7 @@ pub async fn search_tracks(
         return Ok(Vec::new());
     }
 
-    let db = state
-        .db
-        .lock()
-        .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
-
-    crate::repository::search_tracks_by_query(&db, &sanitized)
+    state.with_db(|db| crate::repository::search_tracks_by_query(db, &sanitized))
 }
 
 /// トラックをフィルタリング
@@ -46,78 +36,43 @@ pub async fn filter_tracks(
     filters: FilterOptions,
     state: State<'_, AppState>,
 ) -> Result<Vec<Track>, String> {
-    let db = state
-        .db
-        .lock()
-        .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
-
-    crate::repository::find_tracks_by_filter(&db, &filters)
+    state.with_db(|db| crate::repository::find_tracks_by_filter(db, &filters))
 }
 
 /// ユニークなアーティスト一覧を取得
 #[tauri::command]
 pub async fn get_unique_artists(state: State<'_, AppState>) -> Result<Vec<String>, String> {
-    let db = state
-        .db
-        .lock()
-        .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
-
-    crate::repository::find_unique_artists(&db)
+    state.with_db(|db| crate::repository::find_unique_artists(db))
 }
 
 /// ユニークなアルバム一覧を取得
 #[tauri::command]
 pub async fn get_unique_albums(state: State<'_, AppState>) -> Result<Vec<String>, String> {
-    let db = state
-        .db
-        .lock()
-        .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
-
-    crate::repository::find_unique_albums(&db)
+    state.with_db(|db| crate::repository::find_unique_albums(db))
 }
 
 /// ユニークなジャンル一覧を取得
 #[tauri::command]
 pub async fn get_unique_genres(state: State<'_, AppState>) -> Result<Vec<String>, String> {
-    let db = state
-        .db
-        .lock()
-        .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
-
-    crate::repository::find_unique_genres(&db)
+    state.with_db(|db| crate::repository::find_unique_genres(db))
 }
 
 /// アルバム一覧（グループ化）を取得
 #[tauri::command]
 pub async fn get_albums_grouped(state: State<'_, AppState>) -> Result<Vec<AlbumGroup>, String> {
-    let db = state
-        .db
-        .lock()
-        .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
-
-    crate::repository::find_albums_grouped(&db)
+    state.with_db(|db| crate::repository::find_albums_grouped(db))
 }
 
 /// アーティスト一覧（グループ化）を取得
 #[tauri::command]
 pub async fn get_artists_grouped(state: State<'_, AppState>) -> Result<Vec<ArtistGroup>, String> {
-    let db = state
-        .db
-        .lock()
-        .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
-
-    crate::repository::find_artists_grouped(&db)
+    state.with_db(|db| crate::repository::find_artists_grouped(db))
 }
 
 /// ジャンル一覧（グループ化）を取得
 #[tauri::command]
 pub async fn get_genres_grouped(state: State<'_, AppState>) -> Result<Vec<GenreGroup>, String> {
-    let db = state
-        .db
-        .lock()
-        .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
-
-    crate::repository::find_genres_grouped(&db)
+    state.with_db(|db| crate::repository::find_genres_grouped(db))
 }
 
 /// トラックをライブラリから削除（データベースのみ）
@@ -136,12 +91,7 @@ pub async fn delete_tracks_command(
         validate_track_id(track_id)?;
     }
 
-    let db = state
-        .db
-        .lock()
-        .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
-
-    delete_tracks(&db, &track_ids)
+    state.with_db(|db| delete_tracks(db, &track_ids))
 }
 
 /// トラックをライブラリとファイルシステムから削除
@@ -160,10 +110,5 @@ pub async fn delete_tracks_with_files_command(
         validate_track_id(track_id)?;
     }
 
-    let db = state
-        .db
-        .lock()
-        .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
-
-    delete_tracks_with_files(&db, &track_ids)
+    state.with_db(|db| delete_tracks_with_files(db, &track_ids))
 }

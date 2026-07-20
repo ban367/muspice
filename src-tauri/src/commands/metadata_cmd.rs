@@ -8,6 +8,16 @@ use chrono::Utc;
 use std::path::Path;
 use tauri::State;
 
+/// メタデータの内容と各フィールドの長さをまとめてバリデーション
+fn validate_metadata_input(metadata: &Metadata) -> Result<(), String> {
+    validate_metadata(metadata)?;
+    validate_string_length(&metadata.title, "タイトル", 255)?;
+    validate_string_length(&metadata.artist, "アーティスト", 255)?;
+    validate_string_length(&metadata.album, "アルバム", 255)?;
+    validate_string_length(&metadata.genre, "ジャンル", 100)?;
+    Ok(())
+}
+
 /// トラックのメタデータを更新（データベースのみ）
 #[tauri::command]
 pub async fn update_track_metadata(
@@ -15,61 +25,10 @@ pub async fn update_track_metadata(
     metadata: Metadata,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    // トラックIDをバリデーション
     validate_track_id(&track_id)?;
+    validate_metadata_input(&metadata)?;
 
-    // メタデータをバリデーション
-    validate_metadata(&metadata)?;
-
-    // メタデータフィールドの長さをバリデーション
-    validate_string_length(&metadata.title, "タイトル", 255)?;
-    validate_string_length(&metadata.artist, "アーティスト", 255)?;
-    validate_string_length(&metadata.album, "アルバム", 255)?;
-    validate_string_length(&metadata.genre, "ジャンル", 100)?;
-
-    let db = state
-        .db
-        .lock()
-        .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
-
-    // トラックの存在確認
-    let mut stmt = db
-        .prepare("SELECT id FROM tracks WHERE id = ?1")
-        .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
-
-    let exists = stmt
-        .exists([&track_id])
-        .map_err(|e| format!("トラックの確認に失敗しました: {}", e))?;
-
-    if !exists {
-        return Err("指定されたトラックが見つかりません".to_string());
-    }
-
-    // メタデータを更新
-    let now = Utc::now().to_rfc3339();
-
-    db.execute(
-        "UPDATE tracks SET
-            title = ?1,
-            artist = ?2,
-            album = ?3,
-            genre = ?4,
-            year = ?5,
-            updated_at = ?6
-         WHERE id = ?7",
-        rusqlite::params![
-            metadata.title,
-            metadata.artist,
-            metadata.album,
-            metadata.genre,
-            metadata.year,
-            now,
-            track_id,
-        ],
-    )
-    .map_err(|e| format!("メタデータの更新に失敗しました: {}", e))?;
-
-    Ok(())
+    state.with_db(|db| crate::repository::update_track_metadata(db, &track_id, &metadata))
 }
 
 /// トラックのメタデータを更新（ファイルとデータベース両方）
@@ -79,66 +38,19 @@ pub async fn update_track_metadata_with_file(
     metadata: Metadata,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    // トラックIDをバリデーション
     validate_track_id(&track_id)?;
+    validate_metadata_input(&metadata)?;
 
-    // メタデータをバリデーション
-    validate_metadata(&metadata)?;
+    state.with_db(|db| {
+        // トラックのファイルパスを取得
+        let file_path = crate::repository::find_file_path_by_track_id(db, &track_id)?;
 
-    // メタデータフィールドの長さをバリデーション
-    validate_string_length(&metadata.title, "タイトル", 255)?;
-    validate_string_length(&metadata.artist, "アーティスト", 255)?;
-    validate_string_length(&metadata.album, "アルバム", 255)?;
-    validate_string_length(&metadata.genre, "ジャンル", 100)?;
+        // ファイルのメタデータを更新
+        update_file_metadata(Path::new(&file_path), &metadata)?;
 
-    let db = state
-        .db
-        .lock()
-        .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
-
-    // トラックのファイルパスを取得
-    let mut stmt = db
-        .prepare("SELECT file_path FROM tracks WHERE id = ?1")
-        .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
-
-    let file_path: String = stmt
-        .query_row([&track_id], |row| row.get(0))
-        .map_err(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => {
-                "指定されたトラックが見つかりません".to_string()
-            }
-            _ => format!("トラックの取得に失敗しました: {}", e),
-        })?;
-
-    // ファイルのメタデータを更新
-    let path = Path::new(&file_path);
-    update_file_metadata(path, &metadata)?;
-
-    // データベースのメタデータを更新
-    let now = Utc::now().to_rfc3339();
-
-    db.execute(
-        "UPDATE tracks SET
-            title = ?1,
-            artist = ?2,
-            album = ?3,
-            genre = ?4,
-            year = ?5,
-            updated_at = ?6
-         WHERE id = ?7",
-        rusqlite::params![
-            metadata.title,
-            metadata.artist,
-            metadata.album,
-            metadata.genre,
-            metadata.year,
-            now,
-            track_id,
-        ],
-    )
-    .map_err(|e| format!("データベースの更新に失敗しました: {}", e))?;
-
-    Ok(())
+        // データベースのメタデータを更新
+        crate::repository::update_track_metadata(db, &track_id, &metadata)
+    })
 }
 
 /// 複数トラックのメタデータを一括更新（データベースのみ）
@@ -157,92 +69,83 @@ pub async fn update_multiple_tracks_metadata(
         validate_track_id(track_id)?;
     }
 
-    // メタデータをバリデーション
-    validate_metadata(&metadata)?;
+    validate_metadata_input(&metadata)?;
 
-    // メタデータフィールドの長さをバリデーション
-    validate_string_length(&metadata.title, "タイトル", 255)?;
-    validate_string_length(&metadata.artist, "アーティスト", 255)?;
-    validate_string_length(&metadata.album, "アルバム", 255)?;
-    validate_string_length(&metadata.genre, "ジャンル", 100)?;
+    state.with_db(|db| {
+        let now = Utc::now().to_rfc3339();
 
-    let mut db = state
-        .db
-        .lock()
-        .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
+        // トランザクションを開始
+        let tx = db
+            .transaction()
+            .map_err(|e| format!("トランザクションの開始に失敗しました: {}", e))?;
 
-    let now = Utc::now().to_rfc3339();
+        for track_id in track_ids {
+            // トラックの存在確認
+            let mut stmt = tx
+                .prepare("SELECT id FROM tracks WHERE id = ?1")
+                .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
 
-    // トランザクションを開始
-    let tx = db
-        .transaction()
-        .map_err(|e| format!("トランザクションの開始に失敗しました: {}", e))?;
+            let exists = stmt
+                .exists([&track_id])
+                .map_err(|e| format!("トラックの確認に失敗しました: {}", e))?;
 
-    for track_id in track_ids {
-        // トラックの存在確認
-        let mut stmt = tx
-            .prepare("SELECT id FROM tracks WHERE id = ?1")
-            .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
+            if !exists {
+                return Err(format!("トラックが見つかりません: {}", track_id));
+            }
 
-        let exists = stmt
-            .exists([&track_id])
-            .map_err(|e| format!("トラックの確認に失敗しました: {}", e))?;
+            // メタデータを更新（Noneでないフィールドのみ）
+            let mut update_parts = Vec::new();
+            let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
-        if !exists {
-            return Err(format!("トラックが見つかりません: {}", track_id));
+            if metadata.title.is_some() {
+                update_parts.push("title = ?");
+                params.push(Box::new(metadata.title.clone()));
+            }
+
+            if metadata.artist.is_some() {
+                update_parts.push("artist = ?");
+                params.push(Box::new(metadata.artist.clone()));
+            }
+
+            if metadata.album.is_some() {
+                update_parts.push("album = ?");
+                params.push(Box::new(metadata.album.clone()));
+            }
+
+            if metadata.genre.is_some() {
+                update_parts.push("genre = ?");
+                params.push(Box::new(metadata.genre.clone()));
+            }
+
+            if metadata.year.is_some() {
+                update_parts.push("year = ?");
+                params.push(Box::new(metadata.year));
+            }
+
+            if update_parts.is_empty() {
+                continue; // 更新するフィールドがない場合はスキップ
+            }
+
+            update_parts.push("updated_at = ?");
+            params.push(Box::new(now.clone()));
+
+            let query = format!("UPDATE tracks SET {} WHERE id = ?", update_parts.join(", "));
+
+            params.push(Box::new(track_id.clone()));
+
+            let params_refs: Vec<&dyn rusqlite::ToSql> =
+                params.iter().map(|p| p.as_ref()).collect();
+
+            tx.execute(&query, params_refs.as_slice())
+                .map_err(|e| format!("メタデータの更新に失敗しました: {}", e))?;
         }
 
-        // メタデータを更新（Noneでないフィールドのみ）
-        let mut update_parts = Vec::new();
-        let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+        // トランザクションをコミット
+        tx.commit()
+            .map_err(|e| format!("トランザクションのコミットに失敗しました: {}", e))?;
 
-        if metadata.title.is_some() {
-            update_parts.push("title = ?");
-            params.push(Box::new(metadata.title.clone()));
-        }
-
-        if metadata.artist.is_some() {
-            update_parts.push("artist = ?");
-            params.push(Box::new(metadata.artist.clone()));
-        }
-
-        if metadata.album.is_some() {
-            update_parts.push("album = ?");
-            params.push(Box::new(metadata.album.clone()));
-        }
-
-        if metadata.genre.is_some() {
-            update_parts.push("genre = ?");
-            params.push(Box::new(metadata.genre.clone()));
-        }
-
-        if metadata.year.is_some() {
-            update_parts.push("year = ?");
-            params.push(Box::new(metadata.year));
-        }
-
-        if update_parts.is_empty() {
-            continue; // 更新するフィールドがない場合はスキップ
-        }
-
-        update_parts.push("updated_at = ?");
-        params.push(Box::new(now.clone()));
-
-        let query = format!("UPDATE tracks SET {} WHERE id = ?", update_parts.join(", "));
-
-        params.push(Box::new(track_id.clone()));
-
-        let params_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
-
-        tx.execute(&query, params_refs.as_slice())
-            .map_err(|e| format!("メタデータの更新に失敗しました: {}", e))?;
-    }
-
-    // トランザクションをコミット
-    tx.commit()
-        .map_err(|e| format!("トランザクションのコミットに失敗しました: {}", e))?;
-
-    Ok(())
+        Ok(())
+    })
 }
 
 /// メタデータをバリデーション（フロントエンド用）
@@ -266,102 +169,99 @@ pub struct RefreshMetadataResult {
 pub async fn refresh_library_metadata(
     state: State<'_, AppState>,
 ) -> Result<RefreshMetadataResult, String> {
-    let mut updated_count = 0;
-    let mut skipped_count = 0;
-    let mut error_count = 0;
-    let mut errors = Vec::new();
+    state.with_db(|db| {
+        let mut updated_count = 0;
+        let mut skipped_count = 0;
+        let mut error_count = 0;
+        let mut errors = Vec::new();
 
-    let mut db = state
-        .db
-        .lock()
-        .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
+        // 全トラックのファイルパスを取得
+        let tracks: Vec<(String, String)> = {
+            let mut stmt = db
+                .prepare("SELECT id, file_path FROM tracks")
+                .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
 
-    // 全トラックのファイルパスを取得
-    let tracks: Vec<(String, String)> = {
-        let mut stmt = db
-            .prepare("SELECT id, file_path FROM tracks")
-            .map_err(|e| format!("クエリの準備に失敗しました: {}", e))?;
+            let result: Vec<(String, String)> = stmt
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| format!("結果の取得に失敗しました: {}", e))?;
+            result
+        };
 
-        let result: Vec<(String, String)> = stmt
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
-            .map_err(|e| format!("クエリの実行に失敗しました: {}", e))?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| format!("結果の取得に失敗しました: {}", e))?;
-        result
-    };
+        let total_tracks = tracks.len();
+        crate::logger::info(&format!("メタデータ更新を開始: {} トラック", total_tracks));
 
-    let total_tracks = tracks.len();
-    crate::logger::info(&format!("メタデータ更新を開始: {} トラック", total_tracks));
+        // バッチ処理で更新
+        const BATCH_SIZE: usize = 50;
+        for (batch_idx, chunk) in tracks.chunks(BATCH_SIZE).enumerate() {
+            let tx = db
+                .transaction()
+                .map_err(|e| format!("トランザクションの開始に失敗しました: {}", e))?;
 
-    // バッチ処理で更新
-    const BATCH_SIZE: usize = 50;
-    for (batch_idx, chunk) in tracks.chunks(BATCH_SIZE).enumerate() {
-        let tx = db
-            .transaction()
-            .map_err(|e| format!("トランザクションの開始に失敗しました: {}", e))?;
+            for (track_id, file_path) in chunk {
+                let path = Path::new(file_path);
 
-        for (track_id, file_path) in chunk {
-            let path = Path::new(file_path);
+                // ファイルが存在しない場合はスキップ
+                if !path.exists() {
+                    skipped_count += 1;
+                    continue;
+                }
 
-            // ファイルが存在しない場合はスキップ
-            if !path.exists() {
-                skipped_count += 1;
-                continue;
-            }
+                // メタデータを抽出
+                match extract_metadata(path) {
+                    Ok(metadata) => {
+                        // ログ: 抽出されたトラック番号とディスク番号
+                        crate::logger::info(&format!(
+                            "メタデータ抽出: {} - track={:?}, disc={:?}",
+                            file_path, metadata.track_number, metadata.disc_number
+                        ));
 
-            // メタデータを抽出
-            match extract_metadata(path) {
-                Ok(metadata) => {
-                    // ログ: 抽出されたトラック番号とディスク番号
-                    crate::logger::info(&format!(
-                        "メタデータ抽出: {} - track={:?}, disc={:?}",
-                        file_path, metadata.track_number, metadata.disc_number
-                    ));
-
-                    // track_numberとdisc_numberを更新
-                    let now = Utc::now().to_rfc3339();
-                    match tx.execute(
-                        "UPDATE tracks SET track_number = ?1, disc_number = ?2, updated_at = ?3 WHERE id = ?4",
-                        rusqlite::params![
-                            metadata.track_number,
-                            metadata.disc_number,
-                            now,
-                            track_id,
-                        ],
-                    ) {
-                        Ok(_) => updated_count += 1,
-                        Err(e) => {
-                            errors.push(format!("{}: DB更新失敗 - {}", file_path, e));
-                            error_count += 1;
+                        // track_numberとdisc_numberを更新
+                        let now = Utc::now().to_rfc3339();
+                        match tx.execute(
+                            "UPDATE tracks SET track_number = ?1, disc_number = ?2, updated_at = ?3 WHERE id = ?4",
+                            rusqlite::params![
+                                metadata.track_number,
+                                metadata.disc_number,
+                                now,
+                                track_id,
+                            ],
+                        ) {
+                            Ok(_) => updated_count += 1,
+                            Err(e) => {
+                                errors.push(format!("{}: DB更新失敗 - {}", file_path, e));
+                                error_count += 1;
+                            }
                         }
                     }
-                }
-                Err(e) => {
-                    errors.push(format!("{}: {}", file_path, e));
-                    error_count += 1;
+                    Err(e) => {
+                        errors.push(format!("{}: {}", file_path, e));
+                        error_count += 1;
+                    }
                 }
             }
+
+            tx.commit()
+                .map_err(|e| format!("トランザクションのコミットに失敗しました: {}", e))?;
+
+            let processed = (batch_idx + 1) * BATCH_SIZE.min(total_tracks - batch_idx * BATCH_SIZE);
+            crate::logger::info(&format!(
+                "メタデータ更新進行状況: {}/{} トラック処理完了",
+                processed, total_tracks
+            ));
         }
 
-        tx.commit()
-            .map_err(|e| format!("トランザクションのコミットに失敗しました: {}", e))?;
-
-        let processed = (batch_idx + 1) * BATCH_SIZE.min(total_tracks - batch_idx * BATCH_SIZE);
         crate::logger::info(&format!(
-            "メタデータ更新進行状況: {}/{} トラック処理完了",
-            processed, total_tracks
+            "メタデータ更新完了: 更新={}, スキップ={}, エラー={}",
+            updated_count, skipped_count, error_count
         ));
-    }
 
-    crate::logger::info(&format!(
-        "メタデータ更新完了: 更新={}, スキップ={}, エラー={}",
-        updated_count, skipped_count, error_count
-    ));
-
-    Ok(RefreshMetadataResult {
-        updated_count,
-        skipped_count,
-        error_count,
-        errors,
+        Ok(RefreshMetadataResult {
+            updated_count,
+            skipped_count,
+            error_count,
+            errors,
+        })
     })
 }

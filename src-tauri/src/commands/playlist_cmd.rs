@@ -13,13 +13,10 @@ pub async fn create_playlist(
     // プレイリスト名をバリデーション
     validate_playlist_name(&name)?;
 
-    let db = state
-        .db
-        .lock()
-        .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
-
-    crate::playlist::create_playlist(&db, &name)
-        .map_err(|e| format!("プレイリストの作成に失敗しました: {}", e))
+    state.with_db(|db| {
+        crate::playlist::create_playlist(db, &name)
+            .map_err(|e| format!("プレイリストの作成に失敗しました: {}", e))
+    })
 }
 
 /// すべてのプレイリストを取得
@@ -27,13 +24,10 @@ pub async fn create_playlist(
 pub async fn get_playlists(
     state: State<'_, AppState>,
 ) -> Result<Vec<crate::models::Playlist>, String> {
-    let db = state
-        .db
-        .lock()
-        .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
-
-    crate::playlist::get_all_playlists(&db)
-        .map_err(|e| format!("プレイリストの取得に失敗しました: {}", e))
+    state.with_db(|db| {
+        crate::playlist::get_all_playlists(db)
+            .map_err(|e| format!("プレイリストの取得に失敗しました: {}", e))
+    })
 }
 
 /// プレイリストにトラックを追加
@@ -47,16 +41,13 @@ pub async fn add_track_to_playlist(
     validate_playlist_id(&playlist_id)?;
     validate_track_id(&track_id)?;
 
-    let db = state
-        .db
-        .lock()
-        .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
-
-    crate::playlist::add_track_to_playlist(&db, &playlist_id, &track_id).map_err(|e| match e {
-        rusqlite::Error::QueryReturnedNoRows => {
-            "プレイリストまたはトラックが見つかりません".to_string()
-        }
-        _ => format!("トラックの追加に失敗しました: {}", e),
+    state.with_db(|db| {
+        crate::playlist::add_track_to_playlist(db, &playlist_id, &track_id).map_err(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => {
+                "プレイリストまたはトラックが見つかりません".to_string()
+            }
+            _ => format!("トラックの追加に失敗しました: {}", e),
+        })
     })
 }
 
@@ -71,16 +62,15 @@ pub async fn remove_track_from_playlist(
     validate_playlist_id(&playlist_id)?;
     validate_track_id(&track_id)?;
 
-    let db = state
-        .db
-        .lock()
-        .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
-
-    crate::playlist::remove_track_from_playlist(&db, &playlist_id, &track_id).map_err(|e| match e {
-        rusqlite::Error::QueryReturnedNoRows => {
-            "プレイリストまたはトラックが見つかりません".to_string()
-        }
-        _ => format!("トラックの削除に失敗しました: {}", e),
+    state.with_db(|db| {
+        crate::playlist::remove_track_from_playlist(db, &playlist_id, &track_id).map_err(
+            |e| match e {
+                rusqlite::Error::QueryReturnedNoRows => {
+                    "プレイリストまたはトラックが見つかりません".to_string()
+                }
+                _ => format!("トラックの削除に失敗しました: {}", e),
+            },
+        )
     })
 }
 
@@ -98,14 +88,11 @@ pub async fn rename_playlist(
     let name = name.trim().to_string();
     validate_playlist_name(&name)?;
 
-    let db = state
-        .db
-        .lock()
-        .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
-
-    crate::playlist::rename_playlist(&db, &playlist_id, &name).map_err(|e| match e {
-        rusqlite::Error::QueryReturnedNoRows => "プレイリストが見つかりません".to_string(),
-        _ => format!("プレイリスト名の変更に失敗しました: {}", e),
+    state.with_db(|db| {
+        crate::playlist::rename_playlist(db, &playlist_id, &name).map_err(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => "プレイリストが見つかりません".to_string(),
+            _ => format!("プレイリスト名の変更に失敗しました: {}", e),
+        })
     })
 }
 
@@ -118,14 +105,11 @@ pub async fn delete_playlist(
     // プレイリストIDをバリデーション
     validate_playlist_id(&playlist_id)?;
 
-    let db = state
-        .db
-        .lock()
-        .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
-
-    crate::playlist::delete_playlist(&db, &playlist_id).map_err(|e| match e {
-        rusqlite::Error::QueryReturnedNoRows => "プレイリストが見つかりません".to_string(),
-        _ => format!("プレイリストの削除に失敗しました: {}", e),
+    state.with_db(|db| {
+        crate::playlist::delete_playlist(db, &playlist_id).map_err(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => "プレイリストが見つかりません".to_string(),
+            _ => format!("プレイリストの削除に失敗しました: {}", e),
+        })
     })
 }
 
@@ -144,13 +128,12 @@ pub async fn reorder_playlist_tracks(
         validate_track_id(track_id)?;
     }
 
-    let db = state
-        .db
-        .lock()
-        .map_err(|e| format!("データベースロックの取得に失敗しました: {}", e))?;
-
-    crate::playlist::reorder_playlist_tracks(&db, &playlist_id, &track_ids).map_err(|e| match e {
-        rusqlite::Error::QueryReturnedNoRows => "プレイリストが見つかりません".to_string(),
-        _ => format!("トラックの並び替えに失敗しました: {}", e),
+    state.with_db(|db| {
+        crate::playlist::reorder_playlist_tracks(db, &playlist_id, &track_ids).map_err(
+            |e| match e {
+                rusqlite::Error::QueryReturnedNoRows => "プレイリストが見つかりません".to_string(),
+                _ => format!("トラックの並び替えに失敗しました: {}", e),
+            },
+        )
     })
 }

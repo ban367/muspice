@@ -2216,7 +2216,6 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "lofty",
- "log",
  "rusqlite",
  "serde",
  "serde_json",
@@ -2225,7 +2224,6 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-fs",
  "tauri-plugin-opener",
- "thiserror 2.0.18",
  "uuid",
 ]
 
