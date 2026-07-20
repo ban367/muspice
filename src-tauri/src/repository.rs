@@ -575,6 +575,8 @@ pub fn find_all_track_file_paths(conn: &Connection) -> AppResult<Vec<(String, St
 }
 
 /// トラック番号・ディスク番号を更新
+///
+/// 対象トラックが存在しない場合はエラーを返す。
 pub fn update_track_numbers(
     conn: &Connection,
     track_id: &str,
@@ -583,11 +585,19 @@ pub fn update_track_numbers(
 ) -> AppResult<()> {
     let now = chrono::Utc::now().to_rfc3339();
 
-    conn.execute(
-        "UPDATE tracks SET track_number = ?1, disc_number = ?2, updated_at = ?3 WHERE id = ?4",
-        rusqlite::params![track_number, disc_number, now, track_id],
-    )
-    .map_err(|e| AppError::Database(format!("トラック番号の更新に失敗しました: {}", e)))?;
+    let rows_affected = conn
+        .execute(
+            "UPDATE tracks SET track_number = ?1, disc_number = ?2, updated_at = ?3 WHERE id = ?4",
+            rusqlite::params![track_number, disc_number, now, track_id],
+        )
+        .map_err(|e| AppError::Database(format!("トラック番号の更新に失敗しました: {}", e)))?;
+
+    if rows_affected == 0 {
+        return Err(AppError::NotFound(format!(
+            "トラックが見つかりません: {}",
+            track_id
+        )));
+    }
 
     Ok(())
 }
@@ -1142,5 +1152,12 @@ mod tests {
         let track = find_track_by_id(&conn, "t1").unwrap();
         assert_eq!(track.track_number, Some(3));
         assert_eq!(track.disc_number, Some(2));
+
+        // 存在しないID → NotFound
+        let result = update_track_numbers(&conn, "nonexistent", Some(1), Some(1));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("トラックが見つかりません"));
     }
 }
