@@ -43,16 +43,15 @@ pub async fn update_track_metadata_with_file(
     validate_track_id(&track_id)?;
     validate_metadata_input(&metadata)?;
 
-    state.with_db(|db| {
-        // トラックのファイルパスを取得
-        let file_path = crate::repository::find_file_path_by_track_id(db, &track_id)?;
+    // トラックのファイルパスを取得
+    let file_path =
+        state.with_db(|db| crate::repository::find_file_path_by_track_id(db, &track_id))?;
 
-        // ファイルのメタデータを更新
-        update_file_metadata(Path::new(&file_path), &metadata)?;
+    // ファイルのメタデータを更新（ファイルI/OのためDBロック外で実行）
+    update_file_metadata(Path::new(&file_path), &metadata)?;
 
-        // データベースのメタデータを更新
-        crate::repository::update_track_metadata(db, &track_id, &metadata)
-    })
+    // データベースのメタデータを更新
+    state.with_db(|db| crate::repository::update_track_metadata(db, &track_id, &metadata))
 }
 
 /// 複数トラックのメタデータを一括更新（データベースのみ）

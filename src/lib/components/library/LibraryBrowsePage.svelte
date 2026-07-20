@@ -90,9 +90,16 @@
   // 選択されたアイテム（リストモード用）
   let selectedItem = $state<T | null>(null);
 
-  // リストモードで最初のアイテムを自動選択
+  // リストモードで選択状態をフィルタ結果と同期する
+  // - 未選択なら先頭を自動選択
+  // - 選択中のアイテムがフィルタ結果から外れたら先頭に差し替え
+  // - フィルタ結果が空なら選択を解除
   $effect(() => {
-    if (hasTwoPaneList && displayMode === 'list' && filteredItems.length > 0 && !selectedItem) {
+    if (!hasTwoPaneList || displayMode !== 'list') return;
+
+    if (filteredItems.length === 0) {
+      selectedItem = null;
+    } else if (!selectedItem || !filteredItems.includes(selectedItem)) {
       selectedItem = filteredItems[0];
     }
   });
