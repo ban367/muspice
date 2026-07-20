@@ -23,9 +23,7 @@ pub async fn show_in_folder(path: String) -> AppResult<()> {
         Command::new("open")
             .args(["-R", file_path.to_str().unwrap()])
             .spawn()
-            .map_err(|e| {
-                AppError::Io(format!("ファイルマネージャーを開けませんでした: {}", e))
-            })?;
+            .map_err(|e| AppError::Io(format!("ファイルマネージャーを開けませんでした: {}", e)))?;
     }
 
     #[cfg(target_os = "windows")]
@@ -33,9 +31,7 @@ pub async fn show_in_folder(path: String) -> AppResult<()> {
         Command::new("explorer")
             .args(["/select,", file_path.to_str().unwrap()])
             .spawn()
-            .map_err(|e| {
-                AppError::Io(format!("ファイルマネージャーを開けませんでした: {}", e))
-            })?;
+            .map_err(|e| AppError::Io(format!("ファイルマネージャーを開けませんでした: {}", e)))?;
     }
 
     #[cfg(target_os = "linux")]
