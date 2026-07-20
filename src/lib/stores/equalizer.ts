@@ -47,7 +47,14 @@ const DEFAULT_BANDS: EQBands = {
 
 // ビルトインプリセット名
 export type BuiltinPresetName =
-  'flat' | 'bass_boost' | 'treble_boost' | 'vocal' | 'rock' | 'pop' | 'jazz' | 'classical';
+  | 'flat'
+  | 'bass_boost'
+  | 'treble_boost'
+  | 'vocal'
+  | 'rock'
+  | 'pop'
+  | 'jazz'
+  | 'classical';
 
 // プリセット名（ビルトイン + カスタム）
 export type PresetName = BuiltinPresetName | string;

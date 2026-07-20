@@ -8,19 +8,6 @@ use lofty::tag::{Accessor, ItemKey, Tag};
 use serde::Serialize;
 use std::path::Path;
 
-/// アプリが扱う年の有効範囲
-const YEAR_RANGE: std::ops::RangeInclusive<i32> = 1000..=9999;
-
-/// タグから年を取得する
-///
-/// lofty 0.24 の `Timestamp` は年が未設定・不正なタグでも `year = 0` を返すことがあるため、
-/// アプリが扱う範囲外の年は `None` に正規化する。
-fn extract_year(tag: &Tag) -> Option<i32> {
-    tag.date()
-        .map(|d| d.year as i32)
-        .filter(|y| YEAR_RANGE.contains(y))
-}
-
 /// アルバムアート情報
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -58,7 +45,7 @@ pub fn extract_all_file_info(file_path: &Path) -> Result<FileInfo, String> {
 
     let metadata = if let Some(tag) = tag {
         let disc_number = tag
-            .get_string(ItemKey::DiscNumber)
+            .get_string(&ItemKey::DiscNumber)
             .and_then(|s| {
                 s.split('/')
                     .next()
@@ -71,11 +58,11 @@ pub fn extract_all_file_info(file_path: &Path) -> Result<FileInfo, String> {
             artist: tag.artist().map(|s| s.to_string()),
             album: tag.album().map(|s| s.to_string()),
             genre: tag.genre().map(|s| s.to_string()),
-            year: extract_year(tag),
+            year: tag.year().map(|y| y as i32),
             track_number: tag.track().map(|t| t as i32),
             disc_number,
-            album_artist: tag.get_string(ItemKey::AlbumArtist).map(|s| s.to_string()),
-            composer: tag.get_string(ItemKey::Composer).map(|s| s.to_string()),
+            album_artist: tag.get_string(&ItemKey::AlbumArtist).map(|s| s.to_string()),
+            composer: tag.get_string(&ItemKey::Composer).map(|s| s.to_string()),
         }
     } else {
         Metadata {
@@ -119,7 +106,7 @@ pub fn extract_metadata(file_path: &Path) -> Result<Metadata, String> {
     let metadata = if let Some(tag) = tag {
         // ディスク番号を取得（ItemKey::DiscNumber を優先、tag.disk() をフォールバック）
         let disc_number = tag
-            .get_string(lofty::tag::ItemKey::DiscNumber)
+            .get_string(&lofty::tag::ItemKey::DiscNumber)
             .and_then(|s| {
                 // "2/2" のような形式から先頭の数字を取得
                 s.split('/')
@@ -133,14 +120,14 @@ pub fn extract_metadata(file_path: &Path) -> Result<Metadata, String> {
             artist: tag.artist().map(|s| s.to_string()),
             album: tag.album().map(|s| s.to_string()),
             genre: tag.genre().map(|s| s.to_string()),
-            year: extract_year(tag),
+            year: tag.year().map(|y| y as i32),
             track_number: tag.track().map(|t| t as i32),
             disc_number,
             album_artist: tag
-                .get_string(lofty::tag::ItemKey::AlbumArtist)
+                .get_string(&lofty::tag::ItemKey::AlbumArtist)
                 .map(|s| s.to_string()),
             composer: tag
-                .get_string(lofty::tag::ItemKey::Composer)
+                .get_string(&lofty::tag::ItemKey::Composer)
                 .map(|s| s.to_string()),
         }
     } else {
@@ -202,7 +189,7 @@ pub fn extract_album_art(file_path: &Path) -> Result<Option<AlbumArt>, String> {
 pub fn validate_metadata(metadata: &Metadata) -> Result<(), String> {
     // 年のバリデーション
     if let Some(year) = metadata.year {
-        if !YEAR_RANGE.contains(&year) {
+        if !(1000..=9999).contains(&year) {
             return Err("年は1000から9999の範囲で指定してください".to_string());
         }
     }
@@ -259,11 +246,7 @@ pub fn update_file_metadata(file_path: &Path, metadata: &Metadata) -> Result<(),
     }
 
     if let Some(year) = metadata.year {
-        // lofty 0.24 で set_year が廃止されたため date/Timestamp を使う。
-        // 既存の月日などを消さないよう、現在の Timestamp の年だけを差し替える。
-        let mut timestamp = tag.date().unwrap_or_default();
-        timestamp.year = year as u16;
-        tag.set_date(timestamp);
+        tag.set_year(year as u32);
     }
 
     if let Some(track_number) = metadata.track_number {
