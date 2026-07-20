@@ -569,10 +569,11 @@ pub fn toggle_track_favorite(conn: &Connection, track_id: &str) -> Result<bool, 
         })?;
 
     let new_value = if current == 0 { 1 } else { 0 };
+    let now = chrono::Utc::now().to_rfc3339();
 
     conn.execute(
-        "UPDATE tracks SET is_favorite = ?1, updated_at = datetime('now') WHERE id = ?2",
-        rusqlite::params![new_value, track_id],
+        "UPDATE tracks SET is_favorite = ?1, updated_at = ?2 WHERE id = ?3",
+        rusqlite::params![new_value, now, track_id],
     )
     .map_err(|e| format!("お気に入りの更新に失敗しました: {}", e))?;
 
@@ -581,9 +582,11 @@ pub fn toggle_track_favorite(conn: &Connection, track_id: &str) -> Result<bool, 
 
 /// レーティングを設定
 pub fn set_track_rating(conn: &Connection, track_id: &str, rating: i32) -> Result<(), String> {
+    let now = chrono::Utc::now().to_rfc3339();
+
     conn.execute(
-        "UPDATE tracks SET rating = ?1, updated_at = datetime('now') WHERE id = ?2",
-        rusqlite::params![rating, track_id],
+        "UPDATE tracks SET rating = ?1, updated_at = ?2 WHERE id = ?3",
+        rusqlite::params![rating, now, track_id],
     )
     .map_err(|e| format!("レーティングの更新に失敗しました: {}", e))?;
 
@@ -592,21 +595,23 @@ pub fn set_track_rating(conn: &Connection, track_id: &str, rating: i32) -> Resul
 
 /// 再生回数をインクリメントして再生履歴に追加し、新しい再生回数を返す
 pub fn increment_track_play_count(conn: &Connection, track_id: &str) -> Result<i32, String> {
+    let now = chrono::Utc::now().to_rfc3339();
+
     // 再生回数をインクリメントし、最終再生日時を更新
     conn.execute(
         "UPDATE tracks SET
             play_count = COALESCE(play_count, 0) + 1,
-            last_played_at = datetime('now'),
-            updated_at = datetime('now')
-         WHERE id = ?1",
-        [track_id],
+            last_played_at = ?1,
+            updated_at = ?1
+         WHERE id = ?2",
+        rusqlite::params![now, track_id],
     )
     .map_err(|e| format!("再生回数の更新に失敗しました: {}", e))?;
 
     // 再生履歴に追加
     conn.execute(
-        "INSERT INTO play_history (track_id, played_at) VALUES (?1, datetime('now'))",
-        [track_id],
+        "INSERT INTO play_history (track_id, played_at) VALUES (?1, ?2)",
+        rusqlite::params![track_id, now],
     )
     .map_err(|e| format!("再生履歴の追加に失敗しました: {}", e))?;
 

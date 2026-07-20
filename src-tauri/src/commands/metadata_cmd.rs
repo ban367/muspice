@@ -15,6 +15,8 @@ fn validate_metadata_input(metadata: &Metadata) -> Result<(), String> {
     validate_string_length(&metadata.artist, "アーティスト", 255)?;
     validate_string_length(&metadata.album, "アルバム", 255)?;
     validate_string_length(&metadata.genre, "ジャンル", 100)?;
+    validate_string_length(&metadata.album_artist, "アルバムアーティスト", 255)?;
+    validate_string_length(&metadata.composer, "作曲者", 255)?;
     Ok(())
 }
 
