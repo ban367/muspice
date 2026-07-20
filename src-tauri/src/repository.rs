@@ -497,13 +497,6 @@ pub fn update_track_metadata_partial(
     metadata: &Metadata,
     now: &str,
 ) -> AppResult<()> {
-    if !track_exists(conn, track_id)? {
-        return Err(AppError::NotFound(format!(
-            "トラックが見つかりません: {}",
-            track_id
-        )));
-    }
-
     let mut update_parts = Vec::new();
     let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
@@ -533,7 +526,14 @@ pub fn update_track_metadata_partial(
     }
 
     if update_parts.is_empty() {
-        return Ok(()); // 更新するフィールドがない場合はスキップ
+        // 更新するフィールドがない場合も存在チェックのみ行う
+        if !track_exists(conn, track_id)? {
+            return Err(AppError::NotFound(format!(
+                "トラックが見つかりません: {}",
+                track_id
+            )));
+        }
+        return Ok(());
     }
 
     update_parts.push("updated_at = ?");
@@ -544,8 +544,17 @@ pub fn update_track_metadata_partial(
 
     let params_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
 
-    conn.execute(&sql, params_refs.as_slice())
+    // 更新行数で存在判定する（事前チェックだと確認後の削除との競合を検出できない）
+    let rows_affected = conn
+        .execute(&sql, params_refs.as_slice())
         .map_err(|e| AppError::Database(format!("メタデータの更新に失敗しました: {}", e)))?;
+
+    if rows_affected == 0 {
+        return Err(AppError::NotFound(format!(
+            "トラックが見つかりません: {}",
+            track_id
+        )));
+    }
 
     Ok(())
 }
@@ -1032,5 +1041,106 @@ mod tests {
             .unwrap();
         let track = find_track_by_id(&conn, "t1").unwrap();
         assert!(track.is_favorite);
+    }
+
+    /// 部分更新用の空メタデータを作成
+    fn empty_metadata() -> Metadata {
+        Metadata {
+            title: None,
+            artist: None,
+            album: None,
+            genre: None,
+            year: None,
+            track_number: None,
+            disc_number: None,
+            album_artist: None,
+            composer: None,
+        }
+    }
+
+    #[test]
+    fn test_track_exists() {
+        let conn = setup_test_db();
+        insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
+
+        assert!(track_exists(&conn, "t1").unwrap());
+        assert!(!track_exists(&conn, "nonexistent").unwrap());
+    }
+
+    #[test]
+    fn test_update_track_metadata_partial_updates_only_some_fields() {
+        let conn = setup_test_db();
+        insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
+
+        // titleのみ更新（他フィールドは不変であること）
+        let metadata = Metadata {
+            title: Some("新タイトル".to_string()),
+            ..empty_metadata()
+        };
+        update_track_metadata_partial(&conn, "t1", &metadata, "2026-01-01T00:00:00+00:00").unwrap();
+
+        let track = find_track_by_id(&conn, "t1").unwrap();
+        assert_eq!(track.title, Some("新タイトル".to_string()));
+        assert_eq!(track.artist, Some("アーティストX".to_string()));
+        assert_eq!(track.album, Some("アルバム1".to_string()));
+        assert_eq!(track.genre, Some("ロック".to_string()));
+        assert_eq!(track.updated_at, "2026-01-01T00:00:00+00:00");
+    }
+
+    #[test]
+    fn test_update_track_metadata_partial_not_found() {
+        let conn = setup_test_db();
+
+        // 存在しないID + 更新フィールドあり → NotFound
+        let metadata = Metadata {
+            title: Some("新タイトル".to_string()),
+            ..empty_metadata()
+        };
+        let result = update_track_metadata_partial(
+            &conn,
+            "nonexistent",
+            &metadata,
+            "2026-01-01T00:00:00+00:00",
+        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("トラックが見つかりません"));
+
+        // 存在しないID + 更新フィールドなし → NotFound
+        let result = update_track_metadata_partial(
+            &conn,
+            "nonexistent",
+            &empty_metadata(),
+            "2026-01-01T00:00:00+00:00",
+        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("トラックが見つかりません"));
+    }
+
+    #[test]
+    fn test_find_all_track_file_paths() {
+        let conn = setup_test_db();
+        insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
+        insert_test_track(&conn, "t2", "曲B", "アーティストY", "アルバム2", "ポップ");
+
+        let paths = find_all_track_file_paths(&conn).unwrap();
+        assert_eq!(paths.len(), 2);
+        assert!(paths.contains(&("t1".to_string(), "/test/t1.mp3".to_string())));
+        assert!(paths.contains(&("t2".to_string(), "/test/t2.mp3".to_string())));
+    }
+
+    #[test]
+    fn test_update_track_numbers() {
+        let conn = setup_test_db();
+        insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
+
+        update_track_numbers(&conn, "t1", Some(3), Some(2)).unwrap();
+
+        let track = find_track_by_id(&conn, "t1").unwrap();
+        assert_eq!(track.track_number, Some(3));
+        assert_eq!(track.disc_number, Some(2));
     }
 }
