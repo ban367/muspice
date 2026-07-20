@@ -247,7 +247,7 @@ pub async fn refresh_library_metadata(
             tx.commit()
                 .map_err(|e| format!("トランザクションのコミットに失敗しました: {}", e))?;
 
-            let processed = (batch_idx + 1) * BATCH_SIZE.min(total_tracks - batch_idx * BATCH_SIZE);
+            let processed = batch_idx * BATCH_SIZE + chunk.len();
             crate::logger::info(&format!(
                 "メタデータ更新進行状況: {}/{} トラック処理完了",
                 processed, total_tracks
