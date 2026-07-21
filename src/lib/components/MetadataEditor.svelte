@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { invoke } from '@tauri-apps/api/core';
+  import { commands } from '$lib/bindings';
   import type { Track, Metadata } from '$lib/types/models';
   import {
     useUpdateTrackMetadataMutation,
@@ -80,7 +80,7 @@
 
     // バックエンドでのバリデーション
     try {
-      await invoke('validate_metadata_command', { metadata });
+      await commands.validateMetadataCommand(metadata);
       validationError = null;
       return true;
     } catch (e) {

@@ -1,5 +1,5 @@
 import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
-import { invoke } from '@tauri-apps/api/core';
+import { commands } from '$lib/bindings';
 import type { Playlist } from '$lib/types/models';
 import { handleError, showSuccess } from '$lib/stores/error';
 
@@ -11,7 +11,7 @@ export function usePlaylistsQuery() {
     queryKey: ['playlists'],
     queryFn: async () => {
       try {
-        return await invoke<Playlist[]>('get_playlists');
+        return await commands.getPlaylists();
       } catch (error) {
         handleError(error, 'プレイリスト一覧の取得');
         throw error;
@@ -29,7 +29,7 @@ export function useCreatePlaylistMutation() {
   return createMutation(() => ({
     mutationFn: async (name: string) => {
       try {
-        return await invoke<Playlist>('create_playlist', { name });
+        return await commands.createPlaylist(name);
       } catch (error) {
         handleError(error, 'プレイリストの作成');
         throw error;
@@ -52,7 +52,7 @@ export function useAddTrackToPlaylistMutation() {
   return createMutation(() => ({
     mutationFn: async ({ playlistId, trackId }: { playlistId: string; trackId: string }) => {
       try {
-        await invoke('add_track_to_playlist', { playlistId, trackId });
+        await commands.addTrackToPlaylist(playlistId, trackId);
       } catch (error) {
         handleError(error, 'トラックの追加');
         throw error;
@@ -115,7 +115,7 @@ export function useRemoveTrackFromPlaylistMutation() {
   return createMutation(() => ({
     mutationFn: async ({ playlistId, trackId }: { playlistId: string; trackId: string }) => {
       try {
-        await invoke('remove_track_from_playlist', { playlistId, trackId });
+        await commands.removeTrackFromPlaylist(playlistId, trackId);
       } catch (error) {
         handleError(error, 'トラックの削除');
         throw error;
@@ -166,7 +166,7 @@ export function useReorderPlaylistTracksMutation() {
   return createMutation(() => ({
     mutationFn: async ({ playlistId, trackIds }: { playlistId: string; trackIds: string[] }) => {
       try {
-        await invoke('reorder_playlist_tracks', { playlistId, trackIds });
+        await commands.reorderPlaylistTracks(playlistId, trackIds);
       } catch (error) {
         handleError(error, 'トラックの並び替え');
         throw error;
@@ -189,7 +189,7 @@ export function useRenamePlaylistMutation() {
   return createMutation(() => ({
     mutationFn: async ({ playlistId, name }: { playlistId: string; name: string }) => {
       try {
-        await invoke('rename_playlist', { playlistId, name });
+        await commands.renamePlaylist(playlistId, name);
       } catch (error) {
         handleError(error, 'プレイリスト名の変更');
         throw error;
@@ -233,7 +233,7 @@ export function useDeletePlaylistMutation() {
   return createMutation(() => ({
     mutationFn: async (playlistId: string) => {
       try {
-        await invoke('delete_playlist', { playlistId });
+        await commands.deletePlaylist(playlistId);
       } catch (error) {
         handleError(error, 'プレイリストの削除');
         throw error;

@@ -1,4 +1,5 @@
 import { writable } from 'svelte/store';
+import type { AppError } from '$lib/types/models';
 
 export interface ErrorNotification {
   id: string;
@@ -39,20 +40,11 @@ function createErrorStore() {
 export const errorStore = createErrorStore();
 
 /**
- * バックエンド（Tauriコマンド）から返される構造化エラー
+ * 構造化エラー（Rust側の`AppError`）かどうかを判定する型ガード
  *
- * Rust側の`AppError`が`{ code, message }`形式でシリアライズされたもの。
- * codeの一覧はsrc-tauri/src/error.rsを参照。
+ * `AppError`はtauri-spectaが生成した型で、codeの一覧はそちらが正となる。
  */
-export interface ApiError {
-  code: string;
-  message: string;
-}
-
-/**
- * 構造化エラーかどうかを判定する型ガード
- */
-function isApiError(value: unknown): value is ApiError {
+function isAppError(value: unknown): value is AppError {
   if (typeof value !== 'object' || value === null) return false;
   const record = value as Record<string, unknown>;
   return typeof record.code === 'string' && typeof record.message === 'string';
@@ -63,8 +55,9 @@ function isApiError(value: unknown): value is ApiError {
  *
  * NOT_FOUND / VALIDATION はバックエンドのメッセージ自体がユーザー向けの
  * 日本語文言のため、このマップに含めずそのまま表示する。
+ * （Partialにより、コードを追加してもここへの追加は任意）
  */
-const GENERIC_MESSAGES_BY_CODE: Record<string, string> = {
+const GENERIC_MESSAGES_BY_CODE: Partial<Record<AppError['code'], string>> = {
   LOCK: '処理が競合しています。しばらく待ってからもう一度お試しください。',
   DATABASE: 'データベースの操作中にエラーが発生しました。もう一度お試しください。',
   IO: 'ファイル操作中にエラーが発生しました。ファイルの状態を確認してください。',
@@ -80,7 +73,7 @@ const GENERIC_MESSAGES_BY_CODE: Record<string, string> = {
 export function handleError(error: unknown, context?: string): void {
   let message: string;
 
-  if (isApiError(error)) {
+  if (isAppError(error)) {
     message = GENERIC_MESSAGES_BY_CODE[error.code] ?? error.message;
   } else if (typeof error === 'string') {
     message = error;

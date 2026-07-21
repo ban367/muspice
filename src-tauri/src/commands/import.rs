@@ -29,6 +29,7 @@ struct ImportProgress {
 
 /// フォルダから音楽ファイルをインポート（バッチ処理最適化版）
 #[tauri::command]
+#[specta::specta]
 pub async fn import_folder(
     folder_path: String,
     duplicate_action: DuplicateAction,

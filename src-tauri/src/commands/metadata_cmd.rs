@@ -23,6 +23,7 @@ fn validate_metadata_input(metadata: &Metadata) -> AppResult<()> {
 
 /// トラックのメタデータを更新（データベースのみ）
 #[tauri::command]
+#[specta::specta]
 pub async fn update_track_metadata(
     track_id: String,
     metadata: Metadata,
@@ -36,6 +37,7 @@ pub async fn update_track_metadata(
 
 /// トラックのメタデータを更新（ファイルとデータベース両方）
 #[tauri::command]
+#[specta::specta]
 pub async fn update_track_metadata_with_file(
     track_id: String,
     metadata: Metadata,
@@ -57,6 +59,7 @@ pub async fn update_track_metadata_with_file(
 
 /// 複数トラックのメタデータを一括更新（データベースのみ）
 #[tauri::command]
+#[specta::specta]
 pub async fn update_multiple_tracks_metadata(
     track_ids: Vec<String>,
     metadata: Metadata,
@@ -98,12 +101,14 @@ pub async fn update_multiple_tracks_metadata(
 
 /// メタデータをバリデーション（フロントエンド用）
 #[tauri::command]
+#[specta::specta]
 pub async fn validate_metadata_command(metadata: Metadata) -> AppResult<()> {
     validate_metadata(&metadata)
 }
 
 /// メタデータ更新の結果
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
 pub struct RefreshMetadataResult {
     pub updated_count: i32,
     pub skipped_count: i32,
@@ -114,6 +119,7 @@ pub struct RefreshMetadataResult {
 /// ライブラリ全体のメタデータを更新
 /// ファイルからtrack_numberとdisc_numberを再読み込み
 #[tauri::command]
+#[specta::specta]
 pub async fn refresh_library_metadata(
     state: State<'_, AppState>,
 ) -> AppResult<RefreshMetadataResult> {

@@ -31,3 +31,6 @@ chrono = { version = "0.4", features = ["serde"] }
 lofty = "0.24"
 base64 = "0.22"
 thiserror = "2"
+specta = { version = "=2.0.0-rc.25", features = ["derive"] }
+specta-typescript = "0.0.12"
+tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }

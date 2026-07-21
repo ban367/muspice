@@ -4,12 +4,16 @@
 //! フロントエンド（`src/lib/stores/error.ts`）はcodeでエラーを分類する。
 //! messageはユーザー向けの日本語メッセージを保持する。
 
-use serde::ser::SerializeStruct;
-use serde::{Serialize, Serializer};
+use serde::Serialize;
 use thiserror::Error;
 
 /// アプリケーション全体で使用するエラー型
-#[derive(Debug, Error)]
+///
+/// serdeのadjacently tagged表現により `{ "code": "LOCK", "message": "..." }`
+/// 形式でシリアライズされる。specta::Typeによりコードのリテラル型union
+/// としてTypeScriptへエクスポートされる。
+#[derive(Debug, Error, Serialize, specta::Type)]
+#[serde(tag = "code", content = "message", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum AppError {
     /// ロック取得の失敗（DBロック・ステートロック）
     #[error("{0}")]
@@ -31,30 +35,6 @@ pub enum AppError {
     Metadata(String),
 }
 
-impl AppError {
-    /// フロントエンドでの分類に使用するエラーコード
-    pub fn code(&self) -> &'static str {
-        match self {
-            AppError::Lock(_) => "LOCK",
-            AppError::Database(_) => "DATABASE",
-            AppError::NotFound(_) => "NOT_FOUND",
-            AppError::Validation(_) => "VALIDATION",
-            AppError::Io(_) => "IO",
-            AppError::Metadata(_) => "METADATA",
-        }
-    }
-}
-
-/// `{ code, message }` 形式でシリアライズする（Tauriコマンドのエラー戻り値用）
-impl Serialize for AppError {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut state = serializer.serialize_struct("AppError", 2)?;
-        state.serialize_field("code", self.code())?;
-        state.serialize_field("message", &self.to_string())?;
-        state.end()
-    }
-}
-
 /// アプリケーション共通のResult型
 pub type AppResult<T> = Result<T, AppError>;
 
@@ -68,6 +48,13 @@ mod tests {
         let json = serde_json::to_value(&error).unwrap();
         assert_eq!(json["code"], "NOT_FOUND");
         assert_eq!(json["message"], "指定されたトラックが見つかりません");
+    }
+
+    #[test]
+    fn test_serialize_lock_code() {
+        let error = AppError::Lock("データベースロックの取得に失敗しました".to_string());
+        let json = serde_json::to_value(&error).unwrap();
+        assert_eq!(json["code"], "LOCK");
     }
 
     #[test]

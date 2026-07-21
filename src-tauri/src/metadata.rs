@@ -23,7 +23,7 @@ fn extract_year(tag: &Tag) -> Option<i32> {
 }
 
 /// アルバムアート情報
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AlbumArt {
     /// Base64エンコードされた画像データ
