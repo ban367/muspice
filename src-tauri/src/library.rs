@@ -115,6 +115,15 @@ pub fn get_file_format(file_path: &Path) -> String {
         .to_uppercase()
 }
 
+/// 件数（usize）をフロントエンドへ返すu32へ変換する
+///
+/// u32に収まらない件数は現実的に発生しないが、`as`によるサイレントな
+/// 切り捨てを避けるため明示的に変換し、収まらない場合はエラーとする。
+fn to_count(value: usize) -> AppResult<u32> {
+    u32::try_from(value)
+        .map_err(|_| AppError::Database(format!("件数が扱える範囲を超えました: {}", value)))
+}
+
 /// トラックをデータベースから削除（ライブラリからのみ削除）
 ///
 /// トラックIDのバリデーションはコマンド層（入力境界）で実施済みであることを前提とする。
@@ -128,17 +137,17 @@ pub fn delete_tracks(conn: &Connection, track_ids: &[String]) -> AppResult<u32> 
         .unchecked_transaction()
         .map_err(|e| AppError::Database(format!("トランザクションの開始に失敗しました: {}", e)))?;
 
-    let mut deleted_count = 0;
+    let mut deleted_count: usize = 0;
 
     for track_id in track_ids {
-        deleted_count += crate::repository::delete_track(&tx, track_id)? as u32;
+        deleted_count += crate::repository::delete_track(&tx, track_id)?;
     }
 
     tx.commit().map_err(|e| {
         AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
     })?;
 
-    Ok(deleted_count)
+    to_count(deleted_count)
 }
 
 /// トラックをデータベースとファイルシステムから削除
@@ -163,7 +172,7 @@ pub fn delete_tracks_with_files(
         }
     }
 
-    let mut success_count = 0;
+    let mut success_count: usize = 0;
     let mut failed_tracks: Vec<DeleteFailure> = Vec::new();
 
     // トランザクションを使用してデータベースから削除
@@ -203,8 +212,8 @@ pub fn delete_tracks_with_files(
     })?;
 
     Ok(DeleteResult {
-        success_count,
-        failed_count: failed_tracks.len() as u32,
+        success_count: to_count(success_count)?,
+        failed_count: to_count(failed_tracks.len())?,
         failed_tracks,
     })
 }
@@ -237,5 +246,19 @@ mod tests {
     fn test_get_file_format() {
         assert_eq!(get_file_format(Path::new("test.mp3")), "MP3");
         assert_eq!(get_file_format(Path::new("test.flac")), "FLAC");
+    }
+
+    #[test]
+    fn test_to_count() {
+        assert_eq!(to_count(0).unwrap(), 0);
+        assert_eq!(to_count(42).unwrap(), 42);
+        assert_eq!(to_count(u32::MAX as usize).unwrap(), u32::MAX);
+    }
+
+    /// u32に収まらない件数は切り捨てずエラーにする（64bit環境でのみ検証可能）
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn test_to_count_overflow() {
+        assert!(to_count(u32::MAX as usize + 1).is_err());
     }
 }
