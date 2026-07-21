@@ -55,7 +55,10 @@ pub async fn import_folder(
     let mut processed_count = 0;
 
     // 登録済みファイルパスを一度だけ取得する（ファイルごとの重複クエリを避ける）
-    let existing_paths = state.with_db(|db| crate::repository::find_all_file_paths(db))?;
+    //
+    // 処理済みのパスも随時追加していくため、同一インポート内で同じパスが
+    // 複数回現れた場合も2回目以降は重複として扱われる（file_pathはUNIQUE）。
+    let mut known_paths = state.with_db(|db| crate::repository::find_all_file_paths(db))?;
 
     // バッチ処理でインポート
     //
@@ -90,8 +93,10 @@ pub async fn import_folder(
                 crate::logger::warning(&format!("進捗イベントの送信に失敗しました: {}", e));
             }
 
-            // 重複チェック（事前取得したパス集合を使用）
-            let is_duplicate = existing_paths.contains(file_path_str);
+            // 重複チェック
+            // insertは未登録のパスの場合にtrueを返すため、falseなら重複
+            // （DBに存在するか、このインポートで既に処理済みのいずれか）
+            let is_duplicate = !known_paths.insert(file_path_str.to_string());
             if is_duplicate && matches!(duplicate_action, DuplicateAction::Skip) {
                 skipped_count += 1;
                 continue;

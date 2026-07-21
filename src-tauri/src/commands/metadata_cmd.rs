@@ -116,6 +116,17 @@ pub struct RefreshMetadataResult {
     pub errors: Vec<String>,
 }
 
+/// ファイルから抽出済みのトラック番号・ディスク番号
+///
+/// ロック外の抽出フェーズで用意し、ロック内の書き込みフェーズで消費する。
+/// 更新失敗時のエラーメッセージにファイルパスを含められるよう保持している。
+struct PendingTrackNumbers<'a> {
+    track_id: &'a str,
+    file_path: &'a str,
+    track_number: Option<i32>,
+    disc_number: Option<i32>,
+}
+
 /// ライブラリ全体のメタデータを更新
 /// ファイルからtrack_numberとdisc_numberを再読み込み
 #[tauri::command]
@@ -141,7 +152,7 @@ pub async fn refresh_library_metadata(
     const BATCH_SIZE: usize = 50;
     for (batch_idx, chunk) in tracks.chunks(BATCH_SIZE).enumerate() {
         // 1. ロック外: ファイルからメタデータを抽出する
-        let mut pending: Vec<(&String, Option<i32>, Option<i32>)> = Vec::new();
+        let mut pending: Vec<PendingTrackNumbers> = Vec::new();
 
         for (track_id, file_path) in chunk {
             let path = Path::new(file_path);
@@ -159,7 +170,12 @@ pub async fn refresh_library_metadata(
                         "メタデータ抽出: {} - track={:?}, disc={:?}",
                         file_path, metadata.track_number, metadata.disc_number
                     ));
-                    pending.push((track_id, metadata.track_number, metadata.disc_number));
+                    pending.push(PendingTrackNumbers {
+                        track_id,
+                        file_path,
+                        track_number: metadata.track_number,
+                        disc_number: metadata.disc_number,
+                    });
                 }
                 Err(e) => {
                     errors.push(format!("{}: {}", file_path, e));
@@ -175,16 +191,16 @@ pub async fn refresh_library_metadata(
                     AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
                 })?;
 
-                for (track_id, track_number, disc_number) in &pending {
+                for item in &pending {
                     match crate::repository::update_track_numbers(
                         &tx,
-                        track_id,
-                        *track_number,
-                        *disc_number,
+                        item.track_id,
+                        item.track_number,
+                        item.disc_number,
                     ) {
                         Ok(()) => updated_count += 1,
                         Err(e) => {
-                            errors.push(format!("{}: DB更新失敗 - {}", track_id, e));
+                            errors.push(format!("{}: DB更新失敗 - {}", item.file_path, e));
                             error_count += 1;
                         }
                     }
