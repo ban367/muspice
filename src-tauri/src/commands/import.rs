@@ -44,119 +44,114 @@ pub async fn import_folder(
     // ディレクトリをスキャン
     let audio_files = scan_directory(path)?;
 
-    state.with_db(|db| {
-        let mut imported_count = 0;
-        let mut skipped_count = 0;
-        let mut error_count = 0;
-        let mut errors = Vec::new();
+    let mut imported_count = 0;
+    let mut skipped_count = 0;
+    let mut error_count = 0;
+    let mut errors = Vec::new();
 
-        // バッチサイズ（一度にコミットするファイル数）
-        const BATCH_SIZE: usize = 50;
-        let total_files = audio_files.len();
-        let mut processed_count = 0;
+    // バッチサイズ（一度にコミットするファイル数）
+    const BATCH_SIZE: usize = 50;
+    let total_files = audio_files.len();
+    let mut processed_count = 0;
 
-        // バッチ処理でインポート
-        for chunk in audio_files.chunks(BATCH_SIZE) {
-            // トランザクション開始
+    // 登録済みファイルパスを一度だけ取得する（ファイルごとの重複クエリを避ける）
+    let existing_paths = state.with_db(|db| crate::repository::find_all_file_paths(db))?;
+
+    // バッチ処理でインポート
+    //
+    // ファイル読み取り（メタデータ抽出）はDBロックの外で行い、
+    // ロックはバッチ単位の書き込みの間だけ保持する。
+    // これにより大量インポート中も再生などの他操作がブロックされない。
+    for chunk in audio_files.chunks(BATCH_SIZE) {
+        // 1. ロック外: ファイルからトラック情報を抽出する
+        let mut pending: Vec<(Track, bool)> = Vec::new();
+
+        for file_path in chunk {
+            let file_path_str = file_path
+                .to_str()
+                .ok_or_else(|| AppError::Io("ファイルパスの変換に失敗しました".to_string()))?;
+
+            // 進捗イベントを送信
+            processed_count += 1;
+            let current_file = file_path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("不明なファイル")
+                .to_string();
+
+            if let Err(e) = app_handle.emit(
+                "import-progress",
+                ImportProgress {
+                    current: processed_count,
+                    total: total_files,
+                    current_file,
+                },
+            ) {
+                crate::logger::warning(&format!("進捗イベントの送信に失敗しました: {}", e));
+            }
+
+            // 重複チェック（事前取得したパス集合を使用）
+            let is_duplicate = existing_paths.contains(file_path_str);
+            if is_duplicate && matches!(duplicate_action, DuplicateAction::Skip) {
+                skipped_count += 1;
+                continue;
+            }
+
+            match create_track_from_file(file_path) {
+                Ok(track) => pending.push((track, is_duplicate)),
+                Err(e) => {
+                    errors.push(format!("{}: {}", file_path_str, e));
+                    error_count += 1;
+                }
+            }
+        }
+
+        if pending.is_empty() {
+            continue;
+        }
+
+        // 2. ロック内: バッチをまとめて書き込む
+        state.with_db(|db| {
             let tx = db.transaction().map_err(|e| {
                 AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
             })?;
 
-            for file_path in chunk {
-                let file_path_str = file_path
-                    .to_str()
-                    .ok_or_else(|| AppError::Io("ファイルパスの変換に失敗しました".to_string()))?;
-
-                // 進捗イベントを送信
-                processed_count += 1;
-                let current_file = file_path
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("不明なファイル")
-                    .to_string();
-
-                if let Err(e) = app_handle.emit(
-                    "import-progress",
-                    ImportProgress {
-                        current: processed_count,
-                        total: total_files,
-                        current_file,
-                    },
-                ) {
-                    crate::logger::warning(&format!("進捗イベントの送信に失敗しました: {}", e));
-                }
-
-                // 重複チェック
-                let is_duplicate =
-                    match crate::repository::track_exists_by_file_path(&tx, file_path_str) {
-                        Ok(dup) => dup,
-                        Err(e) => {
-                            errors.push(format!("{}: {}", file_path_str, e));
-                            error_count += 1;
-                            continue;
-                        }
-                    };
-
-                if is_duplicate {
-                    match duplicate_action {
-                        DuplicateAction::Skip => {
-                            skipped_count += 1;
-                            continue;
-                        }
-                        DuplicateAction::Replace => {
-                            // 既存のトラックを更新
-                            match process_and_update_track_in_tx(&tx, file_path) {
-                                Ok(_) => imported_count += 1,
-                                Err(e) => {
-                                    errors.push(format!("{}: {}", file_path_str, e));
-                                    error_count += 1;
-                                }
-                            }
-                        }
-                    }
+            for (track, is_duplicate) in &pending {
+                let result = if *is_duplicate {
+                    // 既存のトラックを更新
+                    crate::repository::update_track_by_file_path(&tx, track)
                 } else {
                     // 新しいトラックを追加
-                    match process_and_save_track_in_tx(&tx, file_path) {
-                        Ok(_) => imported_count += 1,
-                        Err(e) => {
-                            errors.push(format!("{}: {}", file_path_str, e));
-                            error_count += 1;
-                        }
+                    crate::repository::insert_track(&tx, track)
+                };
+
+                match result {
+                    Ok(()) => imported_count += 1,
+                    Err(e) => {
+                        errors.push(format!("{}: {}", track.file_path, e));
+                        error_count += 1;
                     }
                 }
             }
 
-            // バッチをコミット
             tx.commit().map_err(|e| {
                 AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
-            })?;
+            })
+        })?;
 
-            // 進行状況をログ出力
-            crate::logger::info(&format!(
-                "インポート進行状況: {}/{} ファイル処理完了",
-                processed_count, total_files
-            ));
-        }
+        // 進行状況をログ出力
+        crate::logger::info(&format!(
+            "インポート進行状況: {}/{} ファイル処理完了",
+            processed_count, total_files
+        ));
+    }
 
-        Ok(ImportResult {
-            imported_count,
-            skipped_count,
-            error_count,
-            errors,
-        })
+    Ok(ImportResult {
+        imported_count,
+        skipped_count,
+        error_count,
+        errors,
     })
-}
-
-/// トラックを処理してトランザクション内で保存
-fn process_and_save_track_in_tx(tx: &rusqlite::Transaction, file_path: &Path) -> AppResult<()> {
-    let track = create_track_from_file(file_path)?;
-    crate::repository::insert_track(tx, &track)
-}
-
-/// トラックを処理してトランザクション内で更新
-fn process_and_update_track_in_tx(tx: &rusqlite::Transaction, file_path: &Path) -> AppResult<()> {
-    let track = create_track_from_file(file_path)?;
-    crate::repository::update_track_by_file_path(tx, &track)
 }
 
 /// ファイルからトラック情報を作成
