@@ -8,6 +8,7 @@ import { commands } from '$lib/bindings';
 import type { Track, Metadata, AlbumArt, DeleteResult, FilterOptions } from '$lib/types/models';
 import { handleError, showSuccess, showWarning } from '$lib/stores/error';
 import { queryKeys } from './keys';
+import { CACHE_POLICY, withErrorToast } from './shared';
 
 // 呼び出し側の利便性のため、このモジュールからも型を再エクスポートする
 export type { DeleteResult, FilterOptions };
@@ -64,16 +65,8 @@ function invalidateAllTrackQueries(queryClient: QueryClient) {
 export function useTracksQuery() {
   return createQuery(() => ({
     queryKey: queryKeys.tracks.all,
-    queryFn: async () => {
-      try {
-        return await commands.getAllTracks();
-      } catch (error) {
-        handleError(error, 'トラック一覧の取得');
-        throw error;
-      }
-    },
-    staleTime: 10 * 60 * 1000, // 10分間キャッシュ（新鮮とみなす時間）
-    gcTime: 30 * 60 * 1000, // 30分間メモリに保持
+    queryFn: () => withErrorToast('トラック一覧の取得', () => commands.getAllTracks()),
+    ...CACHE_POLICY.library,
     refetchOnWindowFocus: false, // ウィンドウフォーカス時の自動再取得を無効化
     refetchOnMount: false // マウント時の自動再取得を無効化（キャッシュがあれば使用）
   }));
@@ -85,17 +78,9 @@ export function useTracksQuery() {
 export function useSearchQuery(searchTerm: string) {
   return createQuery(() => ({
     queryKey: queryKeys.tracks.search(searchTerm),
-    queryFn: async () => {
-      try {
-        return await commands.searchTracks(searchTerm);
-      } catch (error) {
-        handleError(error, 'トラック検索');
-        throw error;
-      }
-    },
+    queryFn: () => withErrorToast('トラック検索', () => commands.searchTracks(searchTerm)),
     enabled: searchTerm.length > 0,
-    staleTime: 5 * 60 * 1000, // 5分間キャッシュ
-    gcTime: 15 * 60 * 1000, // 15分間メモリに保持
+    ...CACHE_POLICY.search,
     refetchOnWindowFocus: false,
     // 検索中に前回結果を表示し続ける（ちらつき防止）
     placeholderData: (previousData: Track[] | undefined) => previousData
@@ -108,17 +93,9 @@ export function useSearchQuery(searchTerm: string) {
 export function useFilterQuery(filters: FilterOptions) {
   return createQuery(() => ({
     queryKey: queryKeys.tracks.filter(filters),
-    queryFn: async () => {
-      try {
-        return await commands.filterTracks(filters);
-      } catch (error) {
-        handleError(error, 'トラックフィルタリング');
-        throw error;
-      }
-    },
+    queryFn: () => withErrorToast('トラックフィルタリング', () => commands.filterTracks(filters)),
     enabled: !!(filters.artist || filters.album || filters.genre),
-    staleTime: 5 * 60 * 1000, // 5分間キャッシュ
-    gcTime: 15 * 60 * 1000, // 15分間メモリに保持
+    ...CACHE_POLICY.search,
     refetchOnWindowFocus: false,
     // フィルタリング中に前回結果を表示し続ける
     placeholderData: (previousData: Track[] | undefined) => previousData
@@ -134,7 +111,7 @@ export function useUniqueArtistsQuery() {
     queryFn: async () => {
       return await commands.getUniqueArtists();
     },
-    staleTime: 10 * 60 * 1000 // 10分間キャッシュ
+    ...CACHE_POLICY.library
   }));
 }
 
@@ -147,7 +124,7 @@ export function useUniqueAlbumsQuery() {
     queryFn: async () => {
       return await commands.getUniqueAlbums();
     },
-    staleTime: 10 * 60 * 1000 // 10分間キャッシュ
+    ...CACHE_POLICY.library
   }));
 }
 
@@ -160,7 +137,7 @@ export function useUniqueGenresQuery() {
     queryFn: async () => {
       return await commands.getUniqueGenres();
     },
-    staleTime: 10 * 60 * 1000 // 10分間キャッシュ
+    ...CACHE_POLICY.library
   }));
 }
 
@@ -181,8 +158,7 @@ export function useAlbumArtQuery(trackId: string | null) {
       }
     },
     enabled: !!trackId,
-    staleTime: 30 * 60 * 1000, // 30分間キャッシュ
-    gcTime: 60 * 60 * 1000 // 1時間メモリに保持
+    ...CACHE_POLICY.albumArt
   }));
 }
 
@@ -203,16 +179,8 @@ export async function getAlbumArt(trackId: string): Promise<AlbumArt | null> {
 export function useFavoriteTracksQuery() {
   return createQuery(() => ({
     queryKey: queryKeys.tracks.favorites,
-    queryFn: async () => {
-      try {
-        return await commands.getFavoriteTracks();
-      } catch (error) {
-        handleError(error, 'お気に入り一覧の取得');
-        throw error;
-      }
-    },
-    staleTime: 5 * 60 * 1000,
-    gcTime: 15 * 60 * 1000
+    queryFn: () => withErrorToast('お気に入り一覧の取得', () => commands.getFavoriteTracks()),
+    ...CACHE_POLICY.playStats
   }));
 }
 
@@ -222,16 +190,9 @@ export function useFavoriteTracksQuery() {
 export function useMostPlayedTracksQuery(limit: number = 50) {
   return createQuery(() => ({
     queryKey: queryKeys.tracks.mostPlayed(limit),
-    queryFn: async () => {
-      try {
-        return await commands.getMostPlayedTracks(limit);
-      } catch (error) {
-        handleError(error, 'よく再生するトラック一覧の取得');
-        throw error;
-      }
-    },
-    staleTime: 5 * 60 * 1000,
-    gcTime: 15 * 60 * 1000
+    queryFn: () =>
+      withErrorToast('よく再生するトラック一覧の取得', () => commands.getMostPlayedTracks(limit)),
+    ...CACHE_POLICY.playStats
   }));
 }
 
@@ -241,16 +202,11 @@ export function useMostPlayedTracksQuery(limit: number = 50) {
 export function useRecentlyPlayedTracksQuery(limit: number = 50) {
   return createQuery(() => ({
     queryKey: queryKeys.tracks.recentlyPlayed(limit),
-    queryFn: async () => {
-      try {
-        return await commands.getRecentlyPlayedTracks(limit);
-      } catch (error) {
-        handleError(error, '最近再生したトラック一覧の取得');
-        throw error;
-      }
-    },
-    staleTime: 1 * 60 * 1000, // 1分間キャッシュ（頻繁に更新される）
-    gcTime: 5 * 60 * 1000
+    queryFn: () =>
+      withErrorToast('最近再生したトラック一覧の取得', () =>
+        commands.getRecentlyPlayedTracks(limit)
+      ),
+    ...CACHE_POLICY.volatile
   }));
 }
 
@@ -262,16 +218,8 @@ export function useRecentlyPlayedTracksQuery(limit: number = 50) {
 export function useAlbumsGroupedQuery() {
   return createQuery(() => ({
     queryKey: queryKeys.albums.grouped,
-    queryFn: async () => {
-      try {
-        return await commands.getAlbumsGrouped();
-      } catch (error) {
-        handleError(error, 'アルバム一覧の取得');
-        throw error;
-      }
-    },
-    staleTime: 10 * 60 * 1000, // 10分間キャッシュ
-    gcTime: 30 * 60 * 1000
+    queryFn: () => withErrorToast('アルバム一覧の取得', () => commands.getAlbumsGrouped()),
+    ...CACHE_POLICY.library
   }));
 }
 
@@ -281,16 +229,8 @@ export function useAlbumsGroupedQuery() {
 export function useArtistsGroupedQuery() {
   return createQuery(() => ({
     queryKey: queryKeys.artists.grouped,
-    queryFn: async () => {
-      try {
-        return await commands.getArtistsGrouped();
-      } catch (error) {
-        handleError(error, 'アーティスト一覧の取得');
-        throw error;
-      }
-    },
-    staleTime: 10 * 60 * 1000, // 10分間キャッシュ
-    gcTime: 30 * 60 * 1000
+    queryFn: () => withErrorToast('アーティスト一覧の取得', () => commands.getArtistsGrouped()),
+    ...CACHE_POLICY.library
   }));
 }
 
@@ -300,16 +240,8 @@ export function useArtistsGroupedQuery() {
 export function useGenresGroupedQuery() {
   return createQuery(() => ({
     queryKey: queryKeys.genres.grouped,
-    queryFn: async () => {
-      try {
-        return await commands.getGenresGrouped();
-      } catch (error) {
-        handleError(error, 'ジャンル一覧の取得');
-        throw error;
-      }
-    },
-    staleTime: 10 * 60 * 1000, // 10分間キャッシュ
-    gcTime: 30 * 60 * 1000
+    queryFn: () => withErrorToast('ジャンル一覧の取得', () => commands.getGenresGrouped()),
+    ...CACHE_POLICY.library
   }));
 }
 
@@ -323,12 +255,7 @@ export function useToggleFavoriteMutation() {
 
   return createMutation(() => ({
     mutationFn: async (trackId: string) => {
-      try {
-        return await commands.toggleFavorite(trackId);
-      } catch (error) {
-        handleError(error, 'お気に入りの切り替え');
-        throw error;
-      }
+      return withErrorToast('お気に入りの切り替え', () => commands.toggleFavorite(trackId));
     },
     onSuccess: () => {
       invalidatePlayStatsQueries(queryClient);
@@ -344,12 +271,7 @@ export function useSetRatingMutation() {
 
   return createMutation(() => ({
     mutationFn: async ({ trackId, rating }: { trackId: string; rating: number }) => {
-      try {
-        await commands.setRating(trackId, rating);
-      } catch (error) {
-        handleError(error, 'レーティングの設定');
-        throw error;
-      }
+      await withErrorToast('レーティングの設定', () => commands.setRating(trackId, rating));
     },
     onSuccess: () => {
       invalidatePlayStatsQueries(queryClient);
@@ -430,12 +352,7 @@ export function useDeleteTracksMutation() {
 
   return createMutation(() => ({
     mutationFn: async (trackIds: string[]) => {
-      try {
-        return await commands.deleteTracksCommand(trackIds);
-      } catch (error) {
-        handleError(error, 'トラックの削除');
-        throw error;
-      }
+      return withErrorToast('トラックの削除', () => commands.deleteTracksCommand(trackIds));
     },
     onSuccess: (deletedCount) => {
       invalidateAllTrackQueries(queryClient);
@@ -457,12 +374,9 @@ export function useDeleteTracksWithFilesMutation() {
 
   return createMutation(() => ({
     mutationFn: async (trackIds: string[]) => {
-      try {
-        return await commands.deleteTracksWithFilesCommand(trackIds);
-      } catch (error) {
-        handleError(error, 'トラックとファイルの削除');
-        throw error;
-      }
+      return withErrorToast('トラックとファイルの削除', () =>
+        commands.deleteTracksWithFilesCommand(trackIds)
+      );
     },
     onSuccess: (result) => {
       invalidateAllTrackQueries(queryClient);
