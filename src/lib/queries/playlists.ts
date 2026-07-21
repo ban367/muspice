@@ -2,13 +2,14 @@ import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-qu
 import { commands } from '$lib/bindings';
 import type { Playlist } from '$lib/types/models';
 import { handleError, showSuccess } from '$lib/stores/error';
+import { queryKeys } from './keys';
 
 /**
  * プレイリスト一覧を取得するクエリ
  */
 export function usePlaylistsQuery() {
   return createQuery(() => ({
-    queryKey: ['playlists'],
+    queryKey: queryKeys.playlists,
     queryFn: async () => {
       try {
         return await commands.getPlaylists();
@@ -37,7 +38,7 @@ export function useCreatePlaylistMutation() {
     },
     onSuccess: () => {
       // プレイリスト一覧を再取得
-      queryClient.invalidateQueries({ queryKey: ['playlists'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.playlists });
       showSuccess('プレイリストを作成しました');
     }
   }));
@@ -61,15 +62,15 @@ export function useAddTrackToPlaylistMutation() {
     // Optimistic Update: UIを先行更新
     onMutate: async ({ playlistId, trackId }) => {
       // 進行中のクエリをキャンセル
-      await queryClient.cancelQueries({ queryKey: ['playlists'] });
+      await queryClient.cancelQueries({ queryKey: queryKeys.playlists });
 
       // 前回のデータを保存（ロールバック用）
-      const previousPlaylists = queryClient.getQueryData<Playlist[]>(['playlists']);
+      const previousPlaylists = queryClient.getQueryData<Playlist[]>(queryKeys.playlists);
 
       // キャッシュを楽観的に更新
       if (previousPlaylists) {
         queryClient.setQueryData<Playlist[]>(
-          ['playlists'],
+          queryKeys.playlists,
           previousPlaylists.map((pl) =>
             pl.id === playlistId
               ? {
@@ -93,12 +94,12 @@ export function useAddTrackToPlaylistMutation() {
     // エラー時にロールバック
     onError: (_error, _variables, context) => {
       if (context?.previousPlaylists) {
-        queryClient.setQueryData(['playlists'], context.previousPlaylists);
+        queryClient.setQueryData(queryKeys.playlists, context.previousPlaylists);
       }
     },
     // 成功・エラーに関わらず最終的にサーバーデータで同期
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['playlists'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.playlists });
     },
     onSuccess: () => {
       showSuccess('トラックをプレイリストに追加しました');
@@ -123,13 +124,13 @@ export function useRemoveTrackFromPlaylistMutation() {
     },
     // Optimistic Update
     onMutate: async ({ playlistId, trackId }) => {
-      await queryClient.cancelQueries({ queryKey: ['playlists'] });
+      await queryClient.cancelQueries({ queryKey: queryKeys.playlists });
 
-      const previousPlaylists = queryClient.getQueryData<Playlist[]>(['playlists']);
+      const previousPlaylists = queryClient.getQueryData<Playlist[]>(queryKeys.playlists);
 
       if (previousPlaylists) {
         queryClient.setQueryData<Playlist[]>(
-          ['playlists'],
+          queryKeys.playlists,
           previousPlaylists.map((pl) =>
             pl.id === playlistId
               ? {
@@ -145,11 +146,11 @@ export function useRemoveTrackFromPlaylistMutation() {
     },
     onError: (_error, _variables, context) => {
       if (context?.previousPlaylists) {
-        queryClient.setQueryData(['playlists'], context.previousPlaylists);
+        queryClient.setQueryData(queryKeys.playlists, context.previousPlaylists);
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['playlists'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.playlists });
     },
     onSuccess: () => {
       showSuccess('トラックをプレイリストから削除しました');
@@ -174,7 +175,7 @@ export function useReorderPlaylistTracksMutation() {
     },
     onSuccess: () => {
       // プレイリスト一覧を再取得
-      queryClient.invalidateQueries({ queryKey: ['playlists'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.playlists });
       showSuccess('トラックを並び替えました');
     }
   }));
@@ -197,13 +198,13 @@ export function useRenamePlaylistMutation() {
     },
     // Optimistic Update
     onMutate: async ({ playlistId, name }) => {
-      await queryClient.cancelQueries({ queryKey: ['playlists'] });
+      await queryClient.cancelQueries({ queryKey: queryKeys.playlists });
 
-      const previousPlaylists = queryClient.getQueryData<Playlist[]>(['playlists']);
+      const previousPlaylists = queryClient.getQueryData<Playlist[]>(queryKeys.playlists);
 
       if (previousPlaylists) {
         queryClient.setQueryData<Playlist[]>(
-          ['playlists'],
+          queryKeys.playlists,
           previousPlaylists.map((pl) => (pl.id === playlistId ? { ...pl, name } : pl))
         );
       }
@@ -212,11 +213,11 @@ export function useRenamePlaylistMutation() {
     },
     onError: (_error, _variables, context) => {
       if (context?.previousPlaylists) {
-        queryClient.setQueryData(['playlists'], context.previousPlaylists);
+        queryClient.setQueryData(queryKeys.playlists, context.previousPlaylists);
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['playlists'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.playlists });
     },
     onSuccess: () => {
       showSuccess('プレイリスト名を変更しました');
@@ -241,13 +242,13 @@ export function useDeletePlaylistMutation() {
     },
     // Optimistic Update
     onMutate: async (playlistId) => {
-      await queryClient.cancelQueries({ queryKey: ['playlists'] });
+      await queryClient.cancelQueries({ queryKey: queryKeys.playlists });
 
-      const previousPlaylists = queryClient.getQueryData<Playlist[]>(['playlists']);
+      const previousPlaylists = queryClient.getQueryData<Playlist[]>(queryKeys.playlists);
 
       if (previousPlaylists) {
         queryClient.setQueryData<Playlist[]>(
-          ['playlists'],
+          queryKeys.playlists,
           previousPlaylists.filter((pl) => pl.id !== playlistId)
         );
       }
@@ -256,11 +257,11 @@ export function useDeletePlaylistMutation() {
     },
     onError: (_error, _variables, context) => {
       if (context?.previousPlaylists) {
-        queryClient.setQueryData(['playlists'], context.previousPlaylists);
+        queryClient.setQueryData(queryKeys.playlists, context.previousPlaylists);
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['playlists'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.playlists });
     },
     onSuccess: () => {
       showSuccess('プレイリストを削除しました');

@@ -13,6 +13,7 @@
   import GroupDetail from './GroupDetail.svelte';
   import MarqueeText from '../MarqueeText.svelte';
   import AlbumArt from '../AlbumArt.svelte';
+  import { intersectionObserver } from '$lib/utils/actions';
 
   // Props
   interface Props {
@@ -78,29 +79,6 @@
   // 検索フィルター
   function filterArtist(artist: ArtistGroup, query: string): boolean {
     return artist.name.toLowerCase().includes(query);
-  }
-
-  // Intersection Observer アクション
-  function intersectionObserver(node: HTMLElement, options: { callback: () => void }) {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            options.callback();
-            observer.unobserve(node);
-          }
-        });
-      },
-      { rootMargin: '100px' }
-    );
-
-    observer.observe(node);
-
-    return {
-      destroy() {
-        observer.disconnect();
-      }
-    };
   }
 </script>
 

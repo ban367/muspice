@@ -17,6 +17,7 @@
   import DeleteTrackDialog from '../DeleteTrackDialog.svelte';
   import MarqueeText from '../MarqueeText.svelte';
   import AlbumArt from '../AlbumArt.svelte';
+  import { intersectionObserver } from '$lib/utils/actions';
 
   // Props
   interface Props {
@@ -361,29 +362,6 @@
     resizingColumn = null;
     document.removeEventListener('mousemove', handleResizeMove);
     document.removeEventListener('mouseup', handleResizeEnd);
-  }
-
-  // Intersection Observer アクション
-  function intersectionObserver(node: HTMLElement, options: { callback: () => void }) {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            options.callback();
-            observer.unobserve(node);
-          }
-        });
-      },
-      { rootMargin: '100px' }
-    );
-
-    observer.observe(node);
-
-    return {
-      destroy() {
-        observer.disconnect();
-      }
-    };
   }
 
   // トラックカードが表示されたらアートを読み込み
