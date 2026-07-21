@@ -7,6 +7,7 @@ import {
 import { commands } from '$lib/bindings';
 import type { Track, Metadata, AlbumArt, DeleteResult, FilterOptions } from '$lib/types/models';
 import { handleError, showSuccess, showWarning } from '$lib/stores/error';
+import { queryKeys } from './keys';
 
 // 呼び出し側の利便性のため、このモジュールからも型を再エクスポートする
 export type { DeleteResult, FilterOptions };
@@ -17,11 +18,11 @@ export type { DeleteResult, FilterOptions };
  * トラック一覧と関連グループクエリを無効化（トラック削除・インポート時）
  */
 export function invalidateTrackListQueries(queryClient: QueryClient) {
-  queryClient.invalidateQueries({ queryKey: ['tracks'] });
-  queryClient.invalidateQueries({ queryKey: ['albums', 'grouped'] });
-  queryClient.invalidateQueries({ queryKey: ['artists', 'grouped'] });
-  queryClient.invalidateQueries({ queryKey: ['genres', 'grouped'] });
-  queryClient.invalidateQueries({ queryKey: ['unique'] });
+  queryClient.invalidateQueries({ queryKey: queryKeys.tracks.all });
+  queryClient.invalidateQueries({ queryKey: queryKeys.albums.grouped });
+  queryClient.invalidateQueries({ queryKey: queryKeys.artists.grouped });
+  queryClient.invalidateQueries({ queryKey: queryKeys.genres.grouped });
+  queryClient.invalidateQueries({ queryKey: queryKeys.unique.all });
   // プレイリストは除外（トラック削除でプレイリスト自体は変わらない）
 }
 
@@ -29,21 +30,22 @@ export function invalidateTrackListQueries(queryClient: QueryClient) {
  * メタデータ変更に関連するクエリを無効化（メタデータ編集時）
  */
 export function invalidateTrackMetadataQueries(queryClient: QueryClient) {
-  queryClient.invalidateQueries({ queryKey: ['tracks'] });
-  queryClient.invalidateQueries({ queryKey: ['albums', 'grouped'] });
-  queryClient.invalidateQueries({ queryKey: ['artists', 'grouped'] });
-  queryClient.invalidateQueries({ queryKey: ['genres', 'grouped'] });
-  queryClient.invalidateQueries({ queryKey: ['unique'] });
+  queryClient.invalidateQueries({ queryKey: queryKeys.tracks.all });
+  queryClient.invalidateQueries({ queryKey: queryKeys.albums.grouped });
+  queryClient.invalidateQueries({ queryKey: queryKeys.artists.grouped });
+  queryClient.invalidateQueries({ queryKey: queryKeys.genres.grouped });
+  queryClient.invalidateQueries({ queryKey: queryKeys.unique.all });
 }
 
 /**
  * 再生統計関連のクエリを無効化（お気に入り・レーティング・再生回数変更時）
  *
- * ['tracks']プレフィックスの全クエリ（一覧、検索、フィルタ、お気に入り等）を無効化する。
+ * queryKeys.tracks.allをプレフィックスに持つ全クエリ（一覧、検索、フィルタ、
+ * お気に入り等）を無効化する。
  * exact: trueを使用しないことで、検索/フィルタ結果でもisFavorite/rating表示が更新される。
  */
 export function invalidatePlayStatsQueries(queryClient: QueryClient) {
-  queryClient.invalidateQueries({ queryKey: ['tracks'] });
+  queryClient.invalidateQueries({ queryKey: queryKeys.tracks.all });
 }
 
 /**
@@ -51,7 +53,7 @@ export function invalidatePlayStatsQueries(queryClient: QueryClient) {
  */
 function invalidateAllTrackQueries(queryClient: QueryClient) {
   invalidateTrackListQueries(queryClient);
-  queryClient.invalidateQueries({ queryKey: ['playlists'] });
+  queryClient.invalidateQueries({ queryKey: queryKeys.playlists });
 }
 
 // ========== 読み取りクエリ ==========
@@ -61,7 +63,7 @@ function invalidateAllTrackQueries(queryClient: QueryClient) {
  */
 export function useTracksQuery() {
   return createQuery(() => ({
-    queryKey: ['tracks'],
+    queryKey: queryKeys.tracks.all,
     queryFn: async () => {
       try {
         return await commands.getAllTracks();
@@ -82,7 +84,7 @@ export function useTracksQuery() {
  */
 export function useSearchQuery(searchTerm: string) {
   return createQuery(() => ({
-    queryKey: ['tracks', 'search', searchTerm],
+    queryKey: queryKeys.tracks.search(searchTerm),
     queryFn: async () => {
       try {
         return await commands.searchTracks(searchTerm);
@@ -105,7 +107,7 @@ export function useSearchQuery(searchTerm: string) {
  */
 export function useFilterQuery(filters: FilterOptions) {
   return createQuery(() => ({
-    queryKey: ['tracks', 'filter', filters],
+    queryKey: queryKeys.tracks.filter(filters),
     queryFn: async () => {
       try {
         return await commands.filterTracks(filters);
@@ -128,7 +130,7 @@ export function useFilterQuery(filters: FilterOptions) {
  */
 export function useUniqueArtistsQuery() {
   return createQuery(() => ({
-    queryKey: ['unique', 'artists'],
+    queryKey: queryKeys.unique.artists,
     queryFn: async () => {
       return await commands.getUniqueArtists();
     },
@@ -141,7 +143,7 @@ export function useUniqueArtistsQuery() {
  */
 export function useUniqueAlbumsQuery() {
   return createQuery(() => ({
-    queryKey: ['unique', 'albums'],
+    queryKey: queryKeys.unique.albums,
     queryFn: async () => {
       return await commands.getUniqueAlbums();
     },
@@ -154,7 +156,7 @@ export function useUniqueAlbumsQuery() {
  */
 export function useUniqueGenresQuery() {
   return createQuery(() => ({
-    queryKey: ['unique', 'genres'],
+    queryKey: queryKeys.unique.genres,
     queryFn: async () => {
       return await commands.getUniqueGenres();
     },
@@ -167,7 +169,7 @@ export function useUniqueGenresQuery() {
  */
 export function useAlbumArtQuery(trackId: string | null) {
   return createQuery(() => ({
-    queryKey: ['albumArt', trackId],
+    queryKey: queryKeys.albumArt(trackId),
     queryFn: async () => {
       if (!trackId) return null;
       try {
@@ -200,7 +202,7 @@ export async function getAlbumArt(trackId: string): Promise<AlbumArt | null> {
  */
 export function useFavoriteTracksQuery() {
   return createQuery(() => ({
-    queryKey: ['tracks', 'favorites'],
+    queryKey: queryKeys.tracks.favorites,
     queryFn: async () => {
       try {
         return await commands.getFavoriteTracks();
@@ -219,7 +221,7 @@ export function useFavoriteTracksQuery() {
  */
 export function useMostPlayedTracksQuery(limit: number = 50) {
   return createQuery(() => ({
-    queryKey: ['tracks', 'mostPlayed', limit],
+    queryKey: queryKeys.tracks.mostPlayed(limit),
     queryFn: async () => {
       try {
         return await commands.getMostPlayedTracks(limit);
@@ -238,7 +240,7 @@ export function useMostPlayedTracksQuery(limit: number = 50) {
  */
 export function useRecentlyPlayedTracksQuery(limit: number = 50) {
   return createQuery(() => ({
-    queryKey: ['tracks', 'recentlyPlayed', limit],
+    queryKey: queryKeys.tracks.recentlyPlayed(limit),
     queryFn: async () => {
       try {
         return await commands.getRecentlyPlayedTracks(limit);
@@ -259,7 +261,7 @@ export function useRecentlyPlayedTracksQuery(limit: number = 50) {
  */
 export function useAlbumsGroupedQuery() {
   return createQuery(() => ({
-    queryKey: ['albums', 'grouped'],
+    queryKey: queryKeys.albums.grouped,
     queryFn: async () => {
       try {
         return await commands.getAlbumsGrouped();
@@ -278,7 +280,7 @@ export function useAlbumsGroupedQuery() {
  */
 export function useArtistsGroupedQuery() {
   return createQuery(() => ({
-    queryKey: ['artists', 'grouped'],
+    queryKey: queryKeys.artists.grouped,
     queryFn: async () => {
       try {
         return await commands.getArtistsGrouped();
@@ -297,7 +299,7 @@ export function useArtistsGroupedQuery() {
  */
 export function useGenresGroupedQuery() {
   return createQuery(() => ({
-    queryKey: ['genres', 'grouped'],
+    queryKey: queryKeys.genres.grouped,
     queryFn: async () => {
       try {
         return await commands.getGenresGrouped();

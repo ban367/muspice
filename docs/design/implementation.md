@@ -67,6 +67,12 @@ src-tauri/src/
 
 - Runes構文（`$props`, `$state`, `$derived`, `$effect`）を使用
 - UIローカル状態は`stores`に集約し、データ取得状態はQueryに分離する
+- 複数コンポーネントで使うSvelteアクション（`use:`）は`$lib/utils/actions.ts`に置く
+
+### TanStack Query
+
+- クエリキーは`src/lib/queries/keys.ts`の`queryKeys`に集約する。クエリ定義・無効化のどちらもここを参照し、`['tracks']`のようなマジック配列を直接書かない
+- 無効化はプレフィックス一致で波及するため、キーの階層がそのまま無効化の粒度になる（例: `queryKeys.tracks.all`の無効化は検索・フィルタ・お気に入りにも及ぶ）
 
 ### TailwindCSS
 
