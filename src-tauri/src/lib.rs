@@ -79,6 +79,15 @@ fn typescript_exporter() -> specta_typescript::Typescript {
     specta_typescript::Typescript::default()
 }
 
+/// TypeScriptバインディングの出力先
+///
+/// 実行時のカレントディレクトリに依存しないよう、コンパイル時に確定する
+/// クレートルート（`CARGO_MANIFEST_DIR`）を基点に解決する。
+#[cfg(any(debug_assertions, test))]
+fn bindings_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../src/lib/bindings.ts")
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = specta_builder();
@@ -86,7 +95,7 @@ pub fn run() {
     // デバッグビルド時にTypeScriptバインディングを自動生成する
     #[cfg(debug_assertions)]
     builder
-        .export(typescript_exporter(), "../src/lib/bindings.ts")
+        .export(typescript_exporter(), bindings_path())
         .expect("TypeScriptバインディングのエクスポートに失敗しました");
 
     tauri::Builder::default()
@@ -250,7 +259,7 @@ mod tests {
     #[test]
     fn export_typescript_bindings() {
         super::specta_builder()
-            .export(super::typescript_exporter(), "../src/lib/bindings.ts")
+            .export(super::typescript_exporter(), super::bindings_path())
             .expect("TypeScriptバインディングのエクスポートに失敗しました");
     }
 }
