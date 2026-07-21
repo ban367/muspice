@@ -721,10 +721,14 @@ pub fn toggle_track_favorite(conn: &Connection, track_id: &str) -> AppResult<boo
     // 反転と読み出しを1文で行う
     // SELECTしてからUPDATEすると、その間に別の更新が入った場合に
     // 古い値を元にした反転結果で上書きしてしまう
+    //
+    // is_favoriteに値域制約はないため、0以外はすべて「お気に入り」とみなして
+    // 0を返すCASEにしている（1 - is_favorite だと異常値から負値が生じる）
     let new_value: i32 = conn
         .query_row(
             "UPDATE tracks
-             SET is_favorite = 1 - COALESCE(is_favorite, 0), updated_at = ?1
+             SET is_favorite = CASE WHEN COALESCE(is_favorite, 0) = 0 THEN 1 ELSE 0 END,
+                 updated_at = ?1
              WHERE id = ?2
              RETURNING is_favorite",
             rusqlite::params![now, track_id],
@@ -1037,6 +1041,29 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("トラックが見つかりません"));
+    }
+
+    /// is_favoriteに0/1以外が入っていても、負値を作らず0（解除）に倒す
+    ///
+    /// カラムに値域制約がないため、外部要因で異常値が入り得る前提で検証する。
+    #[test]
+    fn test_toggle_track_favorite_with_unexpected_value() {
+        let conn = setup_test_db();
+        insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
+        conn.execute("UPDATE tracks SET is_favorite = 2 WHERE id = 't1'", [])
+            .unwrap();
+
+        // 0以外はお気に入り扱いのため、トグルすると解除される
+        assert!(!toggle_track_favorite(&conn, "t1").unwrap());
+
+        let stored: i32 = conn
+            .query_row(
+                "SELECT is_favorite FROM tracks WHERE id = 't1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(stored, 0);
     }
 
     #[test]
