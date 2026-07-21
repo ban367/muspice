@@ -1,9 +1,8 @@
 <script lang="ts">
-  import { invoke } from '@tauri-apps/api/core';
+  import { commands } from '$lib/bindings';
   import { listen } from '@tauri-apps/api/event';
   import { open } from '@tauri-apps/plugin-dialog';
-  import type { ImportResult } from '$lib/types/models';
-  import { DuplicateAction } from '$lib/types/models';
+  import type { DuplicateAction, ImportResult } from '$lib/types/models';
   import { validateFilePath } from '$lib/utils/validation';
   import { isImportDialogOpen } from '$lib/stores/ui';
 
@@ -16,7 +15,7 @@
   let { onClose, onImportComplete }: Props = $props();
 
   let selectedFolder = $state<string>('');
-  let duplicateAction = $state<DuplicateAction>(DuplicateAction.Skip);
+  let duplicateAction = $state<DuplicateAction>('Skip');
   let isImporting = $state(false);
   let progress = $state(0);
   let currentFile = $state('');
@@ -90,10 +89,7 @@
         progress = total > 0 ? Math.round((current / total) * 100) : 0;
       });
 
-      const result = await invoke<ImportResult>('import_folder', {
-        folderPath: selectedFolder,
-        duplicateAction: duplicateAction
-      });
+      const result = await commands.importFolder(selectedFolder, duplicateAction);
 
       progress = 100;
       importResult = result;
@@ -123,7 +119,7 @@
   function closeDialog() {
     isImportDialogOpen.set(false);
     selectedFolder = '';
-    duplicateAction = DuplicateAction.Skip;
+    duplicateAction = 'Skip';
     progress = 0;
     currentFile = '';
     totalFiles = 0;
@@ -199,7 +195,7 @@
                 <input
                   type="radio"
                   bind:group={duplicateAction}
-                  value={DuplicateAction.Skip}
+                  value="Skip"
                   disabled={isImporting}
                   class="w-4 h-4"
                 />
@@ -209,7 +205,7 @@
                 <input
                   type="radio"
                   bind:group={duplicateAction}
-                  value={DuplicateAction.Replace}
+                  value="Replace"
                   disabled={isImporting}
                   class="w-4 h-4"
                 />

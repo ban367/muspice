@@ -9,3 +9,6 @@ target
 *.config.ts
 package-lock.json
 pnpm-lock.yaml
+
+# tauri-spectaによる生成物（フォーマットは生成側に任せる）
+src/lib/bindings.ts

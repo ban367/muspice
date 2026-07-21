@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { invoke } from '@tauri-apps/api/core';
+  import { commands } from '$lib/bindings';
   import CardSizeSlider from './CardSizeSlider.svelte';
 
   // Props
@@ -64,22 +64,15 @@
     onDisplayModeChange?.(mode);
   }
 
-  interface RefreshResult {
-    updated_count: number;
-    skipped_count: number;
-    error_count: number;
-    errors: string[];
-  }
-
   async function handleRefreshMetadata() {
     if (isRefreshing) return;
 
     isRefreshing = true;
     try {
-      const result = await invoke<RefreshResult>('refresh_library_metadata');
+      const result = await commands.refreshLibraryMetadata();
       console.log('メタデータ更新結果:', result);
       alert(
-        `メタデータ更新完了\n更新: ${result.updated_count}件\nスキップ: ${result.skipped_count}件\nエラー: ${result.error_count}件`
+        `メタデータ更新完了\n更新: ${result.updatedCount}件\nスキップ: ${result.skippedCount}件\nエラー: ${result.errorCount}件`
       );
       onRefreshComplete?.();
     } catch (error) {

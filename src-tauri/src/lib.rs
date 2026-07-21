@@ -27,13 +27,15 @@ use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::webview::WebviewWindowBuilder;
 use tauri::{Emitter, Manager};
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_fs::init())
-        .invoke_handler(tauri::generate_handler![
+/// tauri-spectaビルダーを構築する
+///
+/// コマンド一覧はここで一元管理され、TypeScriptバインディング
+/// （`src/lib/bindings.ts`）はデバッグビルド起動時に自動生成される。
+fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
+    tauri_specta::Builder::<tauri::Wry>::new()
+        // エラーは{code, message}のAppErrorをthrowする（フロントのhandleErrorと整合）
+        .error_handling(tauri_specta::ErrorHandlingMode::Throw)
+        .commands(tauri_specta::collect_commands![
             import_folder,
             get_all_tracks,
             search_tracks,
@@ -70,6 +72,28 @@ pub fn run() {
             delete_tracks_with_files_command,
             refresh_library_metadata
         ])
+}
+
+/// TypeScriptエクスポート設定
+fn typescript_exporter() -> specta_typescript::Typescript {
+    specta_typescript::Typescript::default()
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    let builder = specta_builder();
+
+    // デバッグビルド時にTypeScriptバインディングを自動生成する
+    #[cfg(debug_assertions)]
+    builder
+        .export(typescript_exporter(), "../src/lib/bindings.ts")
+        .expect("TypeScriptバインディングのエクスポートに失敗しました");
+
+    tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
+        .invoke_handler(builder.invoke_handler())
         .setup(|app| {
             // アプリケーションデータディレクトリを取得
             let app_data_dir = app
@@ -216,4 +240,17 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    /// TypeScriptバインディングを生成する（`cargo test`でも再生成可能にする）
+    ///
+    /// エクスポートが壊れた場合（Type未実装の型の混入等）はこのテストが失敗する。
+    #[test]
+    fn export_typescript_bindings() {
+        super::specta_builder()
+            .export(super::typescript_exporter(), "../src/lib/bindings.ts")
+            .expect("TypeScriptバインディングのエクスポートに失敗しました");
+    }
 }

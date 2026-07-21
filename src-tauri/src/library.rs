@@ -7,36 +7,36 @@ use std::path::{Path, PathBuf};
 const SUPPORTED_EXTENSIONS: &[&str] = &["mp3", "flac", "wav", "m4a"];
 
 /// フォルダから音楽ファイルをインポートする結果
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportResult {
-    pub imported_count: usize,
-    pub skipped_count: usize,
-    pub error_count: usize,
+    pub imported_count: u32,
+    pub skipped_count: u32,
+    pub error_count: u32,
     pub errors: Vec<String>,
 }
 
 /// 重複ファイルの処理方法
-#[derive(Debug, serde::Deserialize, Clone, Copy)]
+#[derive(Debug, serde::Deserialize, Clone, Copy, specta::Type)]
 pub enum DuplicateAction {
     Skip,    // 既存ファイルをスキップ
     Replace, // 既存ファイルを置き換え
 }
 
 /// トラック削除の結果
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DeleteResult {
     /// 削除に成功したトラック数
-    pub success_count: usize,
+    pub success_count: u32,
     /// 削除に失敗したトラック数
-    pub failed_count: usize,
+    pub failed_count: u32,
     /// 削除に失敗したトラックの詳細
     pub failed_tracks: Vec<DeleteFailure>,
 }
 
 /// 削除失敗の詳細
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DeleteFailure {
     /// トラックID
@@ -118,7 +118,7 @@ pub fn get_file_format(file_path: &Path) -> String {
 /// トラックをデータベースから削除（ライブラリからのみ削除）
 ///
 /// トラックIDのバリデーションはコマンド層（入力境界）で実施済みであることを前提とする。
-pub fn delete_tracks(conn: &Connection, track_ids: &[String]) -> AppResult<usize> {
+pub fn delete_tracks(conn: &Connection, track_ids: &[String]) -> AppResult<u32> {
     if track_ids.is_empty() {
         return Ok(0);
     }
@@ -131,7 +131,7 @@ pub fn delete_tracks(conn: &Connection, track_ids: &[String]) -> AppResult<usize
     let mut deleted_count = 0;
 
     for track_id in track_ids {
-        deleted_count += crate::repository::delete_track(&tx, track_id)?;
+        deleted_count += crate::repository::delete_track(&tx, track_id)? as u32;
     }
 
     tx.commit().map_err(|e| {
@@ -204,7 +204,7 @@ pub fn delete_tracks_with_files(
 
     Ok(DeleteResult {
         success_count,
-        failed_count: failed_tracks.len(),
+        failed_count: failed_tracks.len() as u32,
         failed_tracks,
     })
 }

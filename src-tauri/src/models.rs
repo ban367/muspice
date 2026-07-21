@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// 音楽トラックのデータモデル
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Track {
     pub id: String,
@@ -15,6 +15,8 @@ pub struct Track {
     pub track_number: Option<i32>,
     pub disc_number: Option<i32>,
     pub duration: Option<i32>,
+    // ファイルサイズは2^53未満の前提でnumberとしてエクスポートする
+    #[specta(type = specta_typescript::Number)]
     pub file_size: i64,
     pub format: String,
     pub bitrate: Option<i32>,
@@ -30,16 +32,18 @@ pub struct Track {
 /// 再生履歴のデータモデル
 /// 将来の詳細な再生履歴機能で使用予定
 #[allow(dead_code)]
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PlayHistory {
+    // 履歴IDは2^53未満の前提でnumberとしてエクスポートする
+    #[specta(type = specta_typescript::Number)]
     pub id: i64,
     pub track_id: String,
     pub played_at: String,
 }
 
 /// プレイリストのデータモデル
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Playlist {
     pub id: String,
@@ -51,7 +55,7 @@ pub struct Playlist {
 }
 
 /// プレイリスト内のトラック情報
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PlaylistTrack {
     pub track_id: String,
@@ -60,22 +64,31 @@ pub struct PlaylistTrack {
 }
 
 /// メタデータのデータモデル
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Metadata {
+    #[specta(optional)]
     pub title: Option<String>,
+    #[specta(optional)]
     pub artist: Option<String>,
+    #[specta(optional)]
     pub album: Option<String>,
+    #[specta(optional)]
     pub genre: Option<String>,
+    #[specta(optional)]
     pub year: Option<i32>,
+    #[specta(optional)]
     pub track_number: Option<i32>,
+    #[specta(optional)]
     pub disc_number: Option<i32>,
+    #[specta(optional)]
     pub album_artist: Option<String>,
+    #[specta(optional)]
     pub composer: Option<String>,
 }
 
 /// アルバムグループ（アルバム表示用）
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AlbumGroup {
     pub name: String,
@@ -87,7 +100,7 @@ pub struct AlbumGroup {
 }
 
 /// アーティストグループ（アーティスト表示用）
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ArtistGroup {
     pub name: String,
@@ -99,7 +112,7 @@ pub struct ArtistGroup {
 }
 
 /// ジャンルグループ（ジャンル表示用）
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct GenreGroup {
     pub name: String,

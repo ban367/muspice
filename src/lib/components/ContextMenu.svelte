@@ -103,8 +103,8 @@
    */
   async function handleShowInFolder() {
     try {
-      const { invoke } = await import('@tauri-apps/api/core');
-      await invoke('show_in_folder', { path: track.filePath });
+      const { commands } = await import('$lib/bindings');
+      await commands.showInFolder(track.filePath);
     } catch (error) {
       console.error('ファイルの場所を開けませんでした:', error);
     }

@@ -4,35 +4,12 @@ import {
   useQueryClient,
   type QueryClient
 } from '@tanstack/svelte-query';
-import { invoke } from '@tauri-apps/api/core';
-import type {
-  Track,
-  Metadata,
-  AlbumArt,
-  AlbumGroup,
-  ArtistGroup,
-  GenreGroup
-} from '$lib/types/models';
+import { commands } from '$lib/bindings';
+import type { Track, Metadata, AlbumArt, DeleteResult, FilterOptions } from '$lib/types/models';
 import { handleError, showSuccess, showWarning } from '$lib/stores/error';
 
-/**
- * トラック削除の結果
- */
-export interface DeleteResult {
-  successCount: number;
-  failedCount: number;
-  failedTracks: Array<{
-    trackId: string;
-    filePath: string;
-    reason: string;
-  }>;
-}
-
-export interface FilterOptions {
-  artist?: string;
-  album?: string;
-  genre?: string;
-}
+// 呼び出し側の利便性のため、このモジュールからも型を再エクスポートする
+export type { DeleteResult, FilterOptions };
 
 // ========== Query Invalidation ヘルパー ==========
 
@@ -87,7 +64,7 @@ export function useTracksQuery() {
     queryKey: ['tracks'],
     queryFn: async () => {
       try {
-        return await invoke<Track[]>('get_all_tracks');
+        return await commands.getAllTracks();
       } catch (error) {
         handleError(error, 'トラック一覧の取得');
         throw error;
@@ -108,7 +85,7 @@ export function useSearchQuery(searchTerm: string) {
     queryKey: ['tracks', 'search', searchTerm],
     queryFn: async () => {
       try {
-        return await invoke<Track[]>('search_tracks', { query: searchTerm });
+        return await commands.searchTracks(searchTerm);
       } catch (error) {
         handleError(error, 'トラック検索');
         throw error;
@@ -131,7 +108,7 @@ export function useFilterQuery(filters: FilterOptions) {
     queryKey: ['tracks', 'filter', filters],
     queryFn: async () => {
       try {
-        return await invoke<Track[]>('filter_tracks', { filters });
+        return await commands.filterTracks(filters);
       } catch (error) {
         handleError(error, 'トラックフィルタリング');
         throw error;
@@ -153,7 +130,7 @@ export function useUniqueArtistsQuery() {
   return createQuery(() => ({
     queryKey: ['unique', 'artists'],
     queryFn: async () => {
-      return await invoke<string[]>('get_unique_artists');
+      return await commands.getUniqueArtists();
     },
     staleTime: 10 * 60 * 1000 // 10分間キャッシュ
   }));
@@ -166,7 +143,7 @@ export function useUniqueAlbumsQuery() {
   return createQuery(() => ({
     queryKey: ['unique', 'albums'],
     queryFn: async () => {
-      return await invoke<string[]>('get_unique_albums');
+      return await commands.getUniqueAlbums();
     },
     staleTime: 10 * 60 * 1000 // 10分間キャッシュ
   }));
@@ -179,7 +156,7 @@ export function useUniqueGenresQuery() {
   return createQuery(() => ({
     queryKey: ['unique', 'genres'],
     queryFn: async () => {
-      return await invoke<string[]>('get_unique_genres');
+      return await commands.getUniqueGenres();
     },
     staleTime: 10 * 60 * 1000 // 10分間キャッシュ
   }));
@@ -194,7 +171,7 @@ export function useAlbumArtQuery(trackId: string | null) {
     queryFn: async () => {
       if (!trackId) return null;
       try {
-        return await invoke<AlbumArt | null>('get_album_art', { trackId });
+        return await commands.getAlbumArt(trackId);
       } catch (error) {
         // アルバムアートがない場合はエラーを無視
         console.debug('アルバムアート取得エラー:', error);
@@ -212,7 +189,7 @@ export function useAlbumArtQuery(trackId: string | null) {
  */
 export async function getAlbumArt(trackId: string): Promise<AlbumArt | null> {
   try {
-    return await invoke<AlbumArt | null>('get_album_art', { trackId });
+    return await commands.getAlbumArt(trackId);
   } catch {
     return null;
   }
@@ -226,7 +203,7 @@ export function useFavoriteTracksQuery() {
     queryKey: ['tracks', 'favorites'],
     queryFn: async () => {
       try {
-        return await invoke<Track[]>('get_favorite_tracks');
+        return await commands.getFavoriteTracks();
       } catch (error) {
         handleError(error, 'お気に入り一覧の取得');
         throw error;
@@ -245,7 +222,7 @@ export function useMostPlayedTracksQuery(limit: number = 50) {
     queryKey: ['tracks', 'mostPlayed', limit],
     queryFn: async () => {
       try {
-        return await invoke<Track[]>('get_most_played_tracks', { limit });
+        return await commands.getMostPlayedTracks(limit);
       } catch (error) {
         handleError(error, 'よく再生するトラック一覧の取得');
         throw error;
@@ -264,7 +241,7 @@ export function useRecentlyPlayedTracksQuery(limit: number = 50) {
     queryKey: ['tracks', 'recentlyPlayed', limit],
     queryFn: async () => {
       try {
-        return await invoke<Track[]>('get_recently_played_tracks', { limit });
+        return await commands.getRecentlyPlayedTracks(limit);
       } catch (error) {
         handleError(error, '最近再生したトラック一覧の取得');
         throw error;
@@ -285,7 +262,7 @@ export function useAlbumsGroupedQuery() {
     queryKey: ['albums', 'grouped'],
     queryFn: async () => {
       try {
-        return await invoke<AlbumGroup[]>('get_albums_grouped');
+        return await commands.getAlbumsGrouped();
       } catch (error) {
         handleError(error, 'アルバム一覧の取得');
         throw error;
@@ -304,7 +281,7 @@ export function useArtistsGroupedQuery() {
     queryKey: ['artists', 'grouped'],
     queryFn: async () => {
       try {
-        return await invoke<ArtistGroup[]>('get_artists_grouped');
+        return await commands.getArtistsGrouped();
       } catch (error) {
         handleError(error, 'アーティスト一覧の取得');
         throw error;
@@ -323,7 +300,7 @@ export function useGenresGroupedQuery() {
     queryKey: ['genres', 'grouped'],
     queryFn: async () => {
       try {
-        return await invoke<GenreGroup[]>('get_genres_grouped');
+        return await commands.getGenresGrouped();
       } catch (error) {
         handleError(error, 'ジャンル一覧の取得');
         throw error;
@@ -345,7 +322,7 @@ export function useToggleFavoriteMutation() {
   return createMutation(() => ({
     mutationFn: async (trackId: string) => {
       try {
-        return await invoke<boolean>('toggle_favorite', { trackId });
+        return await commands.toggleFavorite(trackId);
       } catch (error) {
         handleError(error, 'お気に入りの切り替え');
         throw error;
@@ -366,7 +343,7 @@ export function useSetRatingMutation() {
   return createMutation(() => ({
     mutationFn: async ({ trackId, rating }: { trackId: string; rating: number }) => {
       try {
-        await invoke('set_rating', { trackId, rating });
+        await commands.setRating(trackId, rating);
       } catch (error) {
         handleError(error, 'レーティングの設定');
         throw error;
@@ -383,7 +360,7 @@ export function useSetRatingMutation() {
  */
 export async function incrementPlayCount(trackId: string): Promise<void> {
   try {
-    await invoke('increment_play_count', { trackId });
+    await commands.incrementPlayCount(trackId);
   } catch (error) {
     // 再生回数の更新エラーは静かに処理
     console.debug('再生回数更新エラー:', error);
@@ -400,7 +377,7 @@ export function useUpdateTrackMetadataMutation() {
 
   return createMutation(() => ({
     mutationFn: async ({ trackId, metadata }: { trackId: string; metadata: Metadata }) => {
-      await invoke('update_track_metadata', { trackId, metadata });
+      await commands.updateTrackMetadata(trackId, metadata);
     },
     onSuccess: () => {
       invalidateTrackMetadataQueries(queryClient);
@@ -416,7 +393,7 @@ export function useUpdateTrackMetadataWithFileMutation() {
 
   return createMutation(() => ({
     mutationFn: async ({ trackId, metadata }: { trackId: string; metadata: Metadata }) => {
-      await invoke('update_track_metadata_with_file', { trackId, metadata });
+      await commands.updateTrackMetadataWithFile(trackId, metadata);
     },
     onSuccess: () => {
       invalidateTrackMetadataQueries(queryClient);
@@ -432,7 +409,7 @@ export function useUpdateMultipleTracksMutation() {
 
   return createMutation(() => ({
     mutationFn: async ({ trackIds, metadata }: { trackIds: string[]; metadata: Metadata }) => {
-      await invoke('update_multiple_tracks_metadata', { trackIds, metadata });
+      await commands.updateMultipleTracksMetadata(trackIds, metadata);
     },
     onSuccess: () => {
       invalidateTrackMetadataQueries(queryClient);
@@ -452,7 +429,7 @@ export function useDeleteTracksMutation() {
   return createMutation(() => ({
     mutationFn: async (trackIds: string[]) => {
       try {
-        return await invoke<number>('delete_tracks_command', { trackIds });
+        return await commands.deleteTracksCommand(trackIds);
       } catch (error) {
         handleError(error, 'トラックの削除');
         throw error;
@@ -479,7 +456,7 @@ export function useDeleteTracksWithFilesMutation() {
   return createMutation(() => ({
     mutationFn: async (trackIds: string[]) => {
       try {
-        return await invoke<DeleteResult>('delete_tracks_with_files_command', { trackIds });
+        return await commands.deleteTracksWithFilesCommand(trackIds);
       } catch (error) {
         handleError(error, 'トラックとファイルの削除');
         throw error;

@@ -1,131 +1,25 @@
 /**
- * 音楽トラックのデータモデル
+ * バックエンド（Rust）と共有するデータモデル
+ *
+ * 型定義はtauri-spectaが`src/lib/bindings.ts`へ自動生成したものを再エクスポートする。
+ * 手動での型定義は追加せず、Rust側の型を変更して再生成すること。
+ * 生成は`npm run tauri dev`（デバッグビルド起動時）または
+ * `cargo test export_typescript_bindings`で実行される。
  */
-export interface Track {
-  id: string;
-  filePath: string;
-  fileName: string;
-  title: string | null;
-  artist: string | null;
-  album: string | null;
-  genre: string | null;
-  year: number | null;
-  trackNumber: number | null;
-  discNumber: number | null;
-  duration: number | null;
-  fileSize: number;
-  format: string;
-  bitrate: number | null;
-  sampleRate: number | null;
-  isFavorite: boolean;
-  rating: number;
-  playCount: number;
-  lastPlayedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-/**
- * 再生履歴のデータモデル
- */
-export interface PlayHistory {
-  id: number;
-  trackId: string;
-  playedAt: string;
-}
-
-/**
- * プレイリストのデータモデル
- */
-export interface Playlist {
-  id: string;
-  name: string;
-  description: string | null;
-  tracks: PlaylistTrack[];
-  createdAt: string;
-  updatedAt: string;
-}
-
-/**
- * プレイリスト内のトラック情報
- */
-export interface PlaylistTrack {
-  trackId: string;
-  position: number;
-  addedAt: string;
-}
-
-/**
- * メタデータのデータモデル
- */
-export interface Metadata {
-  title?: string;
-  artist?: string;
-  album?: string;
-  genre?: string;
-  year?: number;
-  trackNumber?: number;
-  albumArtist?: string;
-  composer?: string;
-}
-
-/**
- * インポート結果
- */
-export interface ImportResult {
-  importedCount: number;
-  skippedCount: number;
-  errorCount: number;
-  errors: string[];
-}
-
-/**
- * 重複ファイルの処理方法
- */
-export enum DuplicateAction {
-  Skip = 'Skip',
-  Replace = 'Replace'
-}
-
-/**
- * アルバムアート情報
- */
-export interface AlbumArt {
-  data: string;
-  mimeType: string;
-}
-
-/**
- * アルバムグループ（アルバム表示用）
- */
-export interface AlbumGroup {
-  name: string;
-  artist: string | null;
-  trackCount: number;
-  totalDuration: number;
-  representativeTrackId: string;
-  tracks: Track[];
-}
-
-/**
- * アーティストグループ（アーティスト表示用）
- */
-export interface ArtistGroup {
-  name: string;
-  albumCount: number;
-  trackCount: number;
-  totalDuration: number;
-  representativeTrackId: string;
-  albums: AlbumGroup[];
-}
-
-/**
- * ジャンルグループ（ジャンル表示用）
- */
-export interface GenreGroup {
-  name: string;
-  trackCount: number;
-  totalDuration: number;
-  representativeTrackId: string;
-  tracks: Track[];
-}
+export type {
+  AlbumArt,
+  AlbumGroup,
+  AppError,
+  ArtistGroup,
+  DeleteFailure,
+  DeleteResult,
+  DuplicateAction,
+  FilterOptions,
+  GenreGroup,
+  ImportResult,
+  Metadata,
+  Playlist,
+  PlaylistTrack,
+  RefreshMetadataResult,
+  Track
+} from '$lib/bindings';

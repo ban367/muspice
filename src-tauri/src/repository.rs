@@ -168,10 +168,13 @@ fn search_tracks_like(conn: &Connection, query: &str) -> AppResult<Vec<Track>> {
 }
 
 /// フィルタオプション
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, specta::Type)]
 pub struct FilterOptions {
+    #[specta(optional)]
     pub artist: Option<String>,
+    #[specta(optional)]
     pub album: Option<String>,
+    #[specta(optional)]
     pub genre: Option<String>,
 }
 

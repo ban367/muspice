@@ -7,6 +7,7 @@ use tauri::State;
 
 /// プレイリストを作成
 #[tauri::command]
+#[specta::specta]
 pub async fn create_playlist(
     name: String,
     state: State<'_, AppState>,
@@ -22,6 +23,7 @@ pub async fn create_playlist(
 
 /// すべてのプレイリストを取得
 #[tauri::command]
+#[specta::specta]
 pub async fn get_playlists(state: State<'_, AppState>) -> AppResult<Vec<crate::models::Playlist>> {
     state.with_db(|db| {
         crate::playlist::get_all_playlists(db)
@@ -31,6 +33,7 @@ pub async fn get_playlists(state: State<'_, AppState>) -> AppResult<Vec<crate::m
 
 /// プレイリストにトラックを追加
 #[tauri::command]
+#[specta::specta]
 pub async fn add_track_to_playlist(
     playlist_id: String,
     track_id: String,
@@ -52,6 +55,7 @@ pub async fn add_track_to_playlist(
 
 /// プレイリストからトラックを削除
 #[tauri::command]
+#[specta::specta]
 pub async fn remove_track_from_playlist(
     playlist_id: String,
     track_id: String,
@@ -75,6 +79,7 @@ pub async fn remove_track_from_playlist(
 
 /// プレイリストの名前を変更
 #[tauri::command]
+#[specta::specta]
 pub async fn rename_playlist(
     playlist_id: String,
     name: String,
@@ -99,6 +104,7 @@ pub async fn rename_playlist(
 
 /// プレイリストを削除
 #[tauri::command]
+#[specta::specta]
 pub async fn delete_playlist(playlist_id: String, state: State<'_, AppState>) -> AppResult<()> {
     // プレイリストIDをバリデーション
     validate_playlist_id(&playlist_id)?;
@@ -115,6 +121,7 @@ pub async fn delete_playlist(playlist_id: String, state: State<'_, AppState>) ->
 
 /// プレイリスト内のトラックを並び替え
 #[tauri::command]
+#[specta::specta]
 pub async fn reorder_playlist_tracks(
     playlist_id: String,
     track_ids: Vec<String>,

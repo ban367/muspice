@@ -8,6 +8,7 @@ use tauri::State;
 
 /// お気に入りを切り替え
 #[tauri::command]
+#[specta::specta]
 pub async fn toggle_favorite(track_id: String, state: State<'_, AppState>) -> AppResult<bool> {
     validate_track_id(&track_id)?;
 
@@ -16,6 +17,7 @@ pub async fn toggle_favorite(track_id: String, state: State<'_, AppState>) -> Ap
 
 /// レーティングを設定
 #[tauri::command]
+#[specta::specta]
 pub async fn set_rating(
     track_id: String,
     rating: i32,
@@ -34,6 +36,7 @@ pub async fn set_rating(
 
 /// 再生回数をインクリメント
 #[tauri::command]
+#[specta::specta]
 pub async fn increment_play_count(track_id: String, state: State<'_, AppState>) -> AppResult<i32> {
     validate_track_id(&track_id)?;
 
@@ -42,12 +45,14 @@ pub async fn increment_play_count(track_id: String, state: State<'_, AppState>) 
 
 /// お気に入りトラック一覧を取得
 #[tauri::command]
+#[specta::specta]
 pub async fn get_favorite_tracks(state: State<'_, AppState>) -> AppResult<Vec<Track>> {
     state.with_db(|db| crate::repository::find_favorite_tracks(db))
 }
 
 /// 最も再生されたトラック一覧を取得
 #[tauri::command]
+#[specta::specta]
 pub async fn get_most_played_tracks(
     limit: Option<i32>,
     state: State<'_, AppState>,
@@ -58,6 +63,7 @@ pub async fn get_most_played_tracks(
 
 /// 最近再生されたトラック一覧を取得
 #[tauri::command]
+#[specta::specta]
 pub async fn get_recently_played_tracks(
     limit: Option<i32>,
     state: State<'_, AppState>,

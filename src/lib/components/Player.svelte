@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { invoke } from '@tauri-apps/api/core';
+  import { commands } from '$lib/bindings';
   import { convertFileSrc } from '@tauri-apps/api/core';
   import {
     currentTrack,
@@ -20,7 +20,7 @@
     toggleRepeat,
     type RepeatMode
   } from '$lib/stores/player';
-  import type { Track, AlbumArt as AlbumArtType } from '$lib/types/models';
+  import type { Track } from '$lib/types/models';
   import { handleError as reportError } from '$lib/stores/error';
   import AlbumArt from './AlbumArt.svelte';
   import { incrementPlayCount } from '$lib/queries/tracks';
@@ -66,7 +66,7 @@
    */
   async function loadAlbumArt(trackId: string) {
     try {
-      const art = await invoke<AlbumArtType | null>('get_album_art', { trackId });
+      const art = await commands.getAlbumArt(trackId);
       if (art) {
         albumArtUrl = `data:${art.mimeType};base64,${art.data}`;
       } else {
@@ -83,9 +83,7 @@
   async function loadAndPlayTrack(track: Track) {
     try {
       // トラックのファイルパスを取得
-      const filePath = await invoke<string>('get_track_file_path', {
-        trackId: track.id
-      });
+      const filePath = await commands.getTrackFilePath(track.id);
 
       // Tauriのファイルパスを変換
       const assetUrl = convertFileSrc(filePath);
@@ -114,7 +112,7 @@
       }
 
       // 現在再生中のトラックをバックエンドに通知
-      await invoke('set_current_track', { trackId: track.id });
+      await commands.setCurrentTrack(track.id);
 
       // 再生回数をインクリメント
       incrementPlayCount(track.id);

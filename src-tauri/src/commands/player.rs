@@ -10,6 +10,7 @@ use tauri::State;
 
 /// トラックのファイルパスを取得
 #[tauri::command]
+#[specta::specta]
 pub async fn get_track_file_path(
     track_id: String,
     state: State<'_, AppState>,
@@ -22,6 +23,7 @@ pub async fn get_track_file_path(
 
 /// 現在再生中のトラックIDを設定
 #[tauri::command]
+#[specta::specta]
 pub async fn set_current_track(
     track_id: Option<String>,
     state: State<'_, AppState>,
@@ -38,6 +40,7 @@ pub async fn set_current_track(
 
 /// 現在再生中のトラック情報を取得
 #[tauri::command]
+#[specta::specta]
 pub async fn get_current_track(state: State<'_, AppState>) -> AppResult<Option<Track>> {
     let track_id = {
         let current_track_id = state.current_track_id.lock().map_err(|e| {
@@ -60,6 +63,7 @@ pub async fn get_current_track(state: State<'_, AppState>) -> AppResult<Option<T
 
 /// トラックのアルバムアートを取得
 #[tauri::command]
+#[specta::specta]
 pub async fn get_album_art(
     track_id: String,
     state: State<'_, AppState>,

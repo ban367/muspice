@@ -74,6 +74,15 @@ jobs:
       - name: Run tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
+      # テスト実行時にbindings.tsが再生成されるため、
+      # コミット済みの内容と差分がないこと（生成物が最新であること）を確認する
+      - name: Check generated bindings are up to date
+        run: |
+          if ! git diff --exit-code -- src/lib/bindings.ts; then
+            echo "::error::src/lib/bindings.ts が古くなっています。'cargo test --manifest-path src-tauri/Cargo.toml' を実行して再生成し、コミットしてください。"
+            exit 1
+          fi
+
   # ビルドテスト（PRのみ）
   build:
     name: Build Test

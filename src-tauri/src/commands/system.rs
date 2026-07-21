@@ -6,6 +6,7 @@ use std::path::Path;
 
 /// ファイルの場所をシステムのファイルマネージャーで開く
 #[tauri::command]
+#[specta::specta]
 pub async fn show_in_folder(path: String) -> AppResult<()> {
     use std::process::Command;
 

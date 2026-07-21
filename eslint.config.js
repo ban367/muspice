@@ -76,6 +76,8 @@ export default [
       'dist/**',
       'node_modules/**',
       'src-tauri/target/**',
+      // tauri-spectaによる生成物
+      'src/lib/bindings.ts',
       '*.config.js',
       '*.config.ts'
     ]
