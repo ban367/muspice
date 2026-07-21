@@ -116,6 +116,17 @@ pub struct RefreshMetadataResult {
     pub errors: Vec<String>,
 }
 
+/// ファイルから抽出済みのトラック番号・ディスク番号
+///
+/// ロック外の抽出フェーズで用意し、ロック内の書き込みフェーズで消費する。
+/// 更新失敗時のエラーメッセージにファイルパスを含められるよう保持している。
+struct PendingTrackNumbers<'a> {
+    track_id: &'a str,
+    file_path: &'a str,
+    track_number: Option<i32>,
+    disc_number: Option<i32>,
+}
+
 /// ライブラリ全体のメタデータを更新
 /// ファイルからtrack_numberとdisc_numberを再読み込み
 #[tauri::command]
@@ -123,85 +134,100 @@ pub struct RefreshMetadataResult {
 pub async fn refresh_library_metadata(
     state: State<'_, AppState>,
 ) -> AppResult<RefreshMetadataResult> {
-    state.with_db(|db| {
-        let mut updated_count = 0;
-        let mut skipped_count = 0;
-        let mut error_count = 0;
-        let mut errors = Vec::new();
+    let mut updated_count = 0;
+    let mut skipped_count = 0;
+    let mut error_count = 0;
+    let mut errors = Vec::new();
 
-        // 全トラックのファイルパスを取得
-        let tracks = crate::repository::find_all_track_file_paths(db)?;
+    // 全トラックのファイルパスを取得
+    let tracks = state.with_db(|db| crate::repository::find_all_track_file_paths(db))?;
 
-        let total_tracks = tracks.len();
-        crate::logger::info(&format!("メタデータ更新を開始: {} トラック", total_tracks));
+    let total_tracks = tracks.len();
+    crate::logger::info(&format!("メタデータ更新を開始: {} トラック", total_tracks));
 
-        // バッチ処理で更新
-        const BATCH_SIZE: usize = 50;
-        for (batch_idx, chunk) in tracks.chunks(BATCH_SIZE).enumerate() {
-            let tx = db.transaction().map_err(|e| {
-                AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
-            })?;
+    // バッチ処理で更新
+    //
+    // ファイル読み取り（メタデータ抽出）はDBロックの外で行い、
+    // ロックはバッチ単位の書き込みの間だけ保持する。
+    const BATCH_SIZE: usize = 50;
+    for (batch_idx, chunk) in tracks.chunks(BATCH_SIZE).enumerate() {
+        // 1. ロック外: ファイルからメタデータを抽出する
+        let mut pending: Vec<PendingTrackNumbers<'_>> = Vec::new();
 
-            for (track_id, file_path) in chunk {
-                let path = Path::new(file_path);
+        for (track_id, file_path) in chunk {
+            let path = Path::new(file_path);
 
-                // ファイルが存在しない場合はスキップ
-                if !path.exists() {
-                    skipped_count += 1;
-                    continue;
-                }
-
-                // メタデータを抽出
-                match extract_metadata(path) {
-                    Ok(metadata) => {
-                        // ログ: 抽出されたトラック番号とディスク番号
-                        crate::logger::info(&format!(
-                            "メタデータ抽出: {} - track={:?}, disc={:?}",
-                            file_path, metadata.track_number, metadata.disc_number
-                        ));
-
-                        // track_numberとdisc_numberを更新
-                        match crate::repository::update_track_numbers(
-                            &tx,
-                            track_id,
-                            metadata.track_number,
-                            metadata.disc_number,
-                        ) {
-                            Ok(()) => updated_count += 1,
-                            Err(e) => {
-                                errors.push(format!("{}: DB更新失敗 - {}", file_path, e));
-                                error_count += 1;
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        errors.push(format!("{}: {}", file_path, e));
-                        error_count += 1;
-                    }
-                }
+            // ファイルが存在しない場合はスキップ
+            if !path.exists() {
+                skipped_count += 1;
+                continue;
             }
 
-            tx.commit().map_err(|e| {
-                AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
-            })?;
-
-            let processed = batch_idx * BATCH_SIZE + chunk.len();
-            crate::logger::info(&format!(
-                "メタデータ更新進行状況: {}/{} トラック処理完了",
-                processed, total_tracks
-            ));
+            match extract_metadata(path) {
+                Ok(metadata) => {
+                    // ログ: 抽出されたトラック番号とディスク番号
+                    crate::logger::info(&format!(
+                        "メタデータ抽出: {} - track={:?}, disc={:?}",
+                        file_path, metadata.track_number, metadata.disc_number
+                    ));
+                    pending.push(PendingTrackNumbers {
+                        track_id,
+                        file_path,
+                        track_number: metadata.track_number,
+                        disc_number: metadata.disc_number,
+                    });
+                }
+                Err(e) => {
+                    errors.push(format!("{}: {}", file_path, e));
+                    error_count += 1;
+                }
+            }
         }
 
-        crate::logger::info(&format!(
-            "メタデータ更新完了: 更新={}, スキップ={}, エラー={}",
-            updated_count, skipped_count, error_count
-        ));
+        // 2. ロック内: バッチをまとめて書き込む
+        if !pending.is_empty() {
+            state.with_db(|db| {
+                let tx = db.transaction().map_err(|e| {
+                    AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
+                })?;
 
-        Ok(RefreshMetadataResult {
-            updated_count,
-            skipped_count,
-            error_count,
-            errors,
-        })
+                for item in &pending {
+                    match crate::repository::update_track_numbers(
+                        &tx,
+                        item.track_id,
+                        item.track_number,
+                        item.disc_number,
+                    ) {
+                        Ok(()) => updated_count += 1,
+                        Err(e) => {
+                            errors.push(format!("{}: DB更新失敗 - {}", item.file_path, e));
+                            error_count += 1;
+                        }
+                    }
+                }
+
+                tx.commit().map_err(|e| {
+                    AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
+                })
+            })?;
+        }
+
+        let processed = batch_idx * BATCH_SIZE + chunk.len();
+        crate::logger::info(&format!(
+            "メタデータ更新進行状況: {}/{} トラック処理完了",
+            processed, total_tracks
+        ));
+    }
+
+    crate::logger::info(&format!(
+        "メタデータ更新完了: 更新={}, スキップ={}, エラー={}",
+        updated_count, skipped_count, error_count
+    ));
+
+    Ok(RefreshMetadataResult {
+        updated_count,
+        skipped_count,
+        error_count,
+        errors,
     })
 }

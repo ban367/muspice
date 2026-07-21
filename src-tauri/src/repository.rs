@@ -4,7 +4,7 @@
 //! 全てのデータベース読み取り操作はこのモジュールを経由する。
 
 use crate::error::{AppError, AppResult};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use rusqlite::{Connection, Row};
 
@@ -144,12 +144,24 @@ fn search_tracks_fts(conn: &Connection, query: &str) -> AppResult<Vec<Track>> {
     Ok(tracks)
 }
 
+/// LIKEパターンのワイルドカード（`%`・`_`）をエスケープする
+///
+/// エスケープ文字は`\`とし、SQL側で`ESCAPE '\'`を指定する。
+/// これがないと「50%」のような検索語で`%`が任意文字列として解釈される。
+fn escape_like_pattern(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
 /// LIKE検索によるフォールバック
 fn search_tracks_like(conn: &Connection, query: &str) -> AppResult<Vec<Track>> {
-    let like_pattern = format!("%{}%", query);
+    let like_pattern = format!("%{}%", escape_like_pattern(query));
     let sql = format!(
         "SELECT {} FROM tracks
-         WHERE title LIKE ?1 OR artist LIKE ?1 OR album LIKE ?1 OR genre LIKE ?1
+         WHERE title LIKE ?1 ESCAPE '\\' OR artist LIKE ?1 ESCAPE '\\'
+            OR album LIKE ?1 ESCAPE '\\' OR genre LIKE ?1 ESCAPE '\\'
          ORDER BY created_at DESC LIMIT {}",
         TRACK_COLUMNS, DEFAULT_QUERY_LIMIT
     );
@@ -637,8 +649,10 @@ pub fn insert_track(conn: &Connection, track: &Track) -> AppResult<()> {
 }
 
 /// file_pathをキーに既存トラックを更新（重複時の置き換え用）
+///
+/// 対象が存在しない場合はエラーを返す（更新したつもりで実際は無変更、を防ぐ）。
 pub fn update_track_by_file_path(conn: &Connection, track: &Track) -> AppResult<()> {
-    conn.execute(
+    let rows_affected = conn.execute(
         "UPDATE tracks SET
             file_name = ?2, title = ?3, artist = ?4, album = ?5, genre = ?6, year = ?7,
             track_number = ?8, disc_number = ?9, duration = ?10, file_size = ?11, format = ?12, bitrate = ?13, sample_rate = ?14,
@@ -663,18 +677,33 @@ pub fn update_track_by_file_path(conn: &Connection, track: &Track) -> AppResult<
         ],
     )
     .map_err(|e| AppError::Database(format!("トラックの更新に失敗しました: {}", e)))?;
+
+    if rows_affected == 0 {
+        return Err(AppError::NotFound(format!(
+            "更新対象のトラックが見つかりません: {}",
+            track.file_path
+        )));
+    }
+
     Ok(())
 }
 
-/// ファイルパスが既にデータベースに存在するかチェック
-pub fn track_exists_by_file_path(conn: &Connection, file_path: &str) -> AppResult<bool> {
+/// 登録済みの全ファイルパスを取得する
+///
+/// インポート時の重複判定に使用する。ファイルごとにクエリを発行する代わりに
+/// 一度だけ取得することで、DBロックの保持時間とクエリ回数を削減する。
+pub fn find_all_file_paths(conn: &Connection) -> AppResult<HashSet<String>> {
     let mut stmt = conn
-        .prepare("SELECT COUNT(*) FROM tracks WHERE file_path = ?1")
+        .prepare("SELECT file_path FROM tracks")
         .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
-    let count: i64 = stmt
-        .query_row([file_path], |row| row.get(0))
-        .map_err(|e| AppError::Database(format!("重複チェックに失敗しました: {}", e)))?;
-    Ok(count > 0)
+
+    let paths = stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|e| AppError::Database(format!("クエリの実行に失敗しました: {}", e)))?
+        .collect::<Result<HashSet<_>, _>>()
+        .map_err(|e| AppError::Database(format!("結果の取得に失敗しました: {}", e)))?;
+
+    Ok(paths)
 }
 
 /// トラックを1件削除（削除された行数を返す）
@@ -879,6 +908,54 @@ mod tests {
         let tracks = search_tracks_by_query(&conn, "Lemon").unwrap();
         assert_eq!(tracks.len(), 1);
         assert_eq!(tracks[0].artist, Some("米津玄師".to_string()));
+    }
+
+    #[test]
+    fn test_escape_like_pattern() {
+        assert_eq!(escape_like_pattern("normal"), "normal");
+        assert_eq!(escape_like_pattern("50%"), "50\\%");
+        assert_eq!(escape_like_pattern("a_b"), "a\\_b");
+        assert_eq!(escape_like_pattern("a\\b"), "a\\\\b");
+    }
+
+    /// LIKE検索でワイルドカードがリテラルとして扱われることを検証する
+    ///
+    /// `search_tracks_by_query`はFTS5を優先するため、フォールバック実装を直接呼ぶ。
+    #[test]
+    fn test_search_tracks_like_escapes_wildcards() {
+        let conn = setup_test_db();
+        insert_test_track(
+            &conn,
+            "t1",
+            "50%OFF",
+            "アーティストX",
+            "アルバム1",
+            "ロック",
+        );
+        insert_test_track(
+            &conn,
+            "t2",
+            "50XOFF",
+            "アーティストY",
+            "アルバム2",
+            "ロック",
+        );
+        insert_test_track(&conn, "t3", "a_b", "アーティストZ", "アルバム3", "ロック");
+        insert_test_track(&conn, "t4", "axb", "アーティストW", "アルバム4", "ロック");
+
+        // `%`はリテラルとして扱われ、"50XOFF"にはマッチしない
+        let tracks = search_tracks_like(&conn, "50%O").unwrap();
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].id, "t1");
+
+        // `_`もリテラルとして扱われ、"axb"にはマッチしない
+        let tracks = search_tracks_like(&conn, "a_b").unwrap();
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].id, "t3");
+
+        // 通常の検索語は従来どおり部分一致する
+        let tracks = search_tracks_like(&conn, "OFF").unwrap();
+        assert_eq!(tracks.len(), 2);
     }
 
     #[test]
@@ -1131,6 +1208,46 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("トラックが見つかりません"));
+    }
+
+    /// 存在しないfile_pathへの更新は成功扱いにせずエラーにする
+    #[test]
+    fn test_update_track_by_file_path_not_found() {
+        let conn = setup_test_db();
+        insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
+
+        let mut track = find_track_by_id(&conn, "t1").unwrap();
+        track.title = Some("新タイトル".to_string());
+
+        // 既存パスなら更新される
+        update_track_by_file_path(&conn, &track).unwrap();
+        assert_eq!(
+            find_track_by_id(&conn, "t1").unwrap().title,
+            Some("新タイトル".to_string())
+        );
+
+        // 存在しないパスならNotFound
+        track.file_path = "/test/unknown.mp3".to_string();
+        let result = update_track_by_file_path(&conn, &track);
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("更新対象のトラックが見つかりません"));
+    }
+
+    #[test]
+    fn test_find_all_file_paths() {
+        let conn = setup_test_db();
+        assert!(find_all_file_paths(&conn).unwrap().is_empty());
+
+        insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
+        insert_test_track(&conn, "t2", "曲B", "アーティストY", "アルバム2", "ポップ");
+
+        let paths = find_all_file_paths(&conn).unwrap();
+        assert_eq!(paths.len(), 2);
+        assert!(paths.contains("/test/t1.mp3"));
+        assert!(paths.contains("/test/t2.mp3"));
+        assert!(!paths.contains("/test/unknown.mp3"));
     }
 
     #[test]
