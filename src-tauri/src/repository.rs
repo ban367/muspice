@@ -716,28 +716,30 @@ pub fn delete_track(conn: &Connection, track_id: &str) -> AppResult<usize> {
 
 /// お気に入り状態をトグルし、新しい状態を返す
 pub fn toggle_track_favorite(conn: &Connection, track_id: &str) -> AppResult<bool> {
-    // 現在のお気に入り状態を取得
-    let current: i32 = conn
+    let now = chrono::Utc::now().to_rfc3339();
+
+    // 反転と読み出しを1文で行う
+    // SELECTしてからUPDATEすると、その間に別の更新が入った場合に
+    // 古い値を元にした反転結果で上書きしてしまう
+    //
+    // is_favoriteに値域制約はないため、0以外はすべて「お気に入り」とみなして
+    // 0を返すCASEにしている（1 - is_favorite だと異常値から負値が生じる）
+    let new_value: i32 = conn
         .query_row(
-            "SELECT COALESCE(is_favorite, 0) FROM tracks WHERE id = ?1",
-            [track_id],
+            "UPDATE tracks
+             SET is_favorite = CASE WHEN COALESCE(is_favorite, 0) = 0 THEN 1 ELSE 0 END,
+                 updated_at = ?1
+             WHERE id = ?2
+             RETURNING is_favorite",
+            rusqlite::params![now, track_id],
             |row| row.get(0),
         )
         .map_err(|e| match e {
             rusqlite::Error::QueryReturnedNoRows => {
                 AppError::NotFound("トラックが見つかりません".to_string())
             }
-            _ => AppError::Database(format!("お気に入り状態の取得に失敗しました: {}", e)),
+            _ => AppError::Database(format!("お気に入りの更新に失敗しました: {}", e)),
         })?;
-
-    let new_value = if current == 0 { 1 } else { 0 };
-    let now = chrono::Utc::now().to_rfc3339();
-
-    conn.execute(
-        "UPDATE tracks SET is_favorite = ?1, updated_at = ?2 WHERE id = ?3",
-        rusqlite::params![new_value, now, track_id],
-    )
-    .map_err(|e| AppError::Database(format!("お気に入りの更新に失敗しました: {}", e)))?;
 
     Ok(new_value == 1)
 }
@@ -759,16 +761,24 @@ pub fn set_track_rating(conn: &Connection, track_id: &str, rating: i32) -> AppRe
 pub fn increment_track_play_count(conn: &Connection, track_id: &str) -> AppResult<i32> {
     let now = chrono::Utc::now().to_rfc3339();
 
-    // 再生回数をインクリメントし、最終再生日時を更新
-    conn.execute(
-        "UPDATE tracks SET
-            play_count = COALESCE(play_count, 0) + 1,
-            last_played_at = ?1,
-            updated_at = ?1
-         WHERE id = ?2",
-        rusqlite::params![now, track_id],
-    )
-    .map_err(|e| AppError::Database(format!("再生回数の更新に失敗しました: {}", e)))?;
+    // 再生回数をインクリメントし、更新後の値をそのまま受け取る
+    let new_count: i32 = conn
+        .query_row(
+            "UPDATE tracks SET
+                play_count = COALESCE(play_count, 0) + 1,
+                last_played_at = ?1,
+                updated_at = ?1
+             WHERE id = ?2
+             RETURNING play_count",
+            rusqlite::params![now, track_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => {
+                AppError::NotFound("トラックが見つかりません".to_string())
+            }
+            _ => AppError::Database(format!("再生回数の更新に失敗しました: {}", e)),
+        })?;
 
     // 再生履歴に追加
     conn.execute(
@@ -777,13 +787,7 @@ pub fn increment_track_play_count(conn: &Connection, track_id: &str) -> AppResul
     )
     .map_err(|e| AppError::Database(format!("再生履歴の追加に失敗しました: {}", e)))?;
 
-    // 新しい再生回数を取得
-    conn.query_row(
-        "SELECT play_count FROM tracks WHERE id = ?1",
-        [track_id],
-        |row| row.get(0),
-    )
-    .map_err(|e| AppError::Database(format!("再生回数の取得に失敗しました: {}", e)))
+    Ok(new_count)
 }
 
 /// ユニークなアーティスト一覧を取得
@@ -1016,6 +1020,81 @@ mod tests {
         assert_eq!(tracks.len(), 1);
         assert_eq!(tracks[0].id, "t1");
         assert!(tracks[0].is_favorite);
+    }
+
+    #[test]
+    fn test_toggle_track_favorite() {
+        let conn = setup_test_db();
+        insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
+
+        // 未設定 → お気に入り
+        assert!(toggle_track_favorite(&conn, "t1").unwrap());
+        assert!(find_track_by_id(&conn, "t1").unwrap().is_favorite);
+
+        // お気に入り → 解除
+        assert!(!toggle_track_favorite(&conn, "t1").unwrap());
+        assert!(!find_track_by_id(&conn, "t1").unwrap().is_favorite);
+
+        // 存在しないトラックはNotFound
+        let result = toggle_track_favorite(&conn, "nonexistent");
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("トラックが見つかりません"));
+    }
+
+    /// is_favoriteに0/1以外が入っていても、負値を作らず0（解除）に倒す
+    ///
+    /// カラムに値域制約がないため、外部要因で異常値が入り得る前提で検証する。
+    #[test]
+    fn test_toggle_track_favorite_with_unexpected_value() {
+        let conn = setup_test_db();
+        insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
+        conn.execute("UPDATE tracks SET is_favorite = 2 WHERE id = 't1'", [])
+            .unwrap();
+
+        // 0以外はお気に入り扱いのため、トグルすると解除される
+        assert!(!toggle_track_favorite(&conn, "t1").unwrap());
+
+        let stored: i32 = conn
+            .query_row(
+                "SELECT is_favorite FROM tracks WHERE id = 't1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(stored, 0);
+    }
+
+    #[test]
+    fn test_increment_track_play_count() {
+        let conn = setup_test_db();
+        insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
+
+        // 戻り値は更新後の再生回数
+        assert_eq!(increment_track_play_count(&conn, "t1").unwrap(), 1);
+        assert_eq!(increment_track_play_count(&conn, "t1").unwrap(), 2);
+
+        let track = find_track_by_id(&conn, "t1").unwrap();
+        assert_eq!(track.play_count, 2);
+        assert!(track.last_played_at.is_some());
+
+        // 再生履歴も追加される
+        let history_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM play_history WHERE track_id = 't1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(history_count, 2);
+
+        // 存在しないトラックはNotFound（履歴も追加しない）
+        let result = increment_track_play_count(&conn, "nonexistent");
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("トラックが見つかりません"));
     }
 
     #[test]

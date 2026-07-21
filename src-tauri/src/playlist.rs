@@ -1,6 +1,7 @@
 use crate::models::{Playlist, PlaylistTrack};
 use chrono::Utc;
 use rusqlite::{Connection, Result};
+use std::collections::HashMap;
 use uuid::Uuid;
 
 /// プレイリストを作成
@@ -24,7 +25,39 @@ pub fn create_playlist(conn: &Connection, name: &str) -> Result<Playlist> {
 }
 
 /// すべてのプレイリストを取得
+///
+/// プレイリストごとにトラックを問い合わせるとN+1クエリになるため、
+/// 全プレイリストのトラックを1クエリで取得してから割り当てる。
 pub fn get_all_playlists(conn: &Connection) -> Result<Vec<Playlist>> {
+    // 1. 全プレイリストのトラックをまとめて取得し、プレイリストIDごとに分配する
+    let mut tracks_by_playlist: HashMap<String, Vec<PlaylistTrack>> = HashMap::new();
+    {
+        let mut stmt = conn.prepare(
+            "SELECT playlist_id, track_id, position, added_at FROM playlist_tracks
+             ORDER BY playlist_id, position",
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                PlaylistTrack {
+                    track_id: row.get(1)?,
+                    position: row.get(2)?,
+                    added_at: row.get(3)?,
+                },
+            ))
+        })?;
+
+        for row in rows {
+            let (playlist_id, track) = row?;
+            tracks_by_playlist
+                .entry(playlist_id)
+                .or_default()
+                .push(track);
+        }
+    }
+
+    // 2. プレイリスト本体を取得し、対応するトラックを割り当てる
     let mut stmt = conn.prepare(
         "SELECT id, name, description, created_at, updated_at FROM playlists ORDER BY created_at DESC",
     )?;
@@ -32,7 +65,7 @@ pub fn get_all_playlists(conn: &Connection) -> Result<Vec<Playlist>> {
     let playlists = stmt
         .query_map([], |row| {
             let playlist_id: String = row.get(0)?;
-            let tracks = get_playlist_tracks(conn, &playlist_id).unwrap_or_default();
+            let tracks = tracks_by_playlist.remove(&playlist_id).unwrap_or_default();
 
             Ok(Playlist {
                 id: playlist_id,
@@ -46,26 +79,6 @@ pub fn get_all_playlists(conn: &Connection) -> Result<Vec<Playlist>> {
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(playlists)
-}
-
-/// プレイリストのトラックを取得
-fn get_playlist_tracks(conn: &Connection, playlist_id: &str) -> Result<Vec<PlaylistTrack>> {
-    let mut stmt = conn.prepare(
-        "SELECT track_id, position, added_at FROM playlist_tracks 
-         WHERE playlist_id = ?1 ORDER BY position",
-    )?;
-
-    let tracks = stmt
-        .query_map([playlist_id], |row| {
-            Ok(PlaylistTrack {
-                track_id: row.get(0)?,
-                position: row.get(1)?,
-                added_at: row.get(2)?,
-            })
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
-
-    Ok(tracks)
 }
 
 /// プレイリストにトラックを追加
@@ -347,6 +360,53 @@ mod tests {
 
         let playlists = get_all_playlists(&conn).unwrap();
         assert_eq!(playlists.len(), 2);
+    }
+
+    /// 複数プレイリストのトラックを一括取得しても、正しい所属先に割り当てられること
+    #[test]
+    fn test_get_all_playlists_assigns_tracks_to_correct_playlist() {
+        let conn = setup_test_db();
+        let playlist_a = create_playlist(&conn, "Playlist A").unwrap();
+        let playlist_b = create_playlist(&conn, "Playlist B").unwrap();
+        let playlist_empty = create_playlist(&conn, "Playlist Empty").unwrap();
+
+        for id in ["track1", "track2", "track3"] {
+            insert_test_track(&conn, id);
+        }
+
+        add_track_to_playlist(&conn, &playlist_a.id, "track1").unwrap();
+        add_track_to_playlist(&conn, &playlist_a.id, "track2").unwrap();
+        add_track_to_playlist(&conn, &playlist_b.id, "track3").unwrap();
+
+        let playlists = get_all_playlists(&conn).unwrap();
+        let find = |id: &str| {
+            playlists
+                .iter()
+                .find(|p| p.id == id)
+                .expect("プレイリストが見つかりません")
+        };
+
+        // それぞれ自分のトラックだけを持ち、position順に並ぶ
+        let a = find(&playlist_a.id);
+        assert_eq!(
+            a.tracks
+                .iter()
+                .map(|t| t.track_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["track1", "track2"]
+        );
+
+        let b = find(&playlist_b.id);
+        assert_eq!(
+            b.tracks
+                .iter()
+                .map(|t| t.track_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["track3"]
+        );
+
+        // トラックを持たないプレイリストは空になる
+        assert!(find(&playlist_empty.id).tracks.is_empty());
     }
 
     #[test]
