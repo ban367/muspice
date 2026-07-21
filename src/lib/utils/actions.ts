@@ -17,7 +17,9 @@ export interface IntersectionObserverOptions {
  *
  * @example
  * ```svelte
- * <div use:intersectionObserver={{ callback: () => loadAlbumArt(id) }}>
+ * <div use:intersectionObserver={{ callback: () => loadAlbumArt(track.id) }}>
+ *   <AlbumArt src={art} alt={track.title} />
+ * </div>
  * ```
  */
 export function intersectionObserver(node: HTMLElement, options: IntersectionObserverOptions) {
