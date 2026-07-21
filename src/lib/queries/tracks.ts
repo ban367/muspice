@@ -40,7 +40,8 @@ export function invalidateTrackMetadataQueries(queryClient: QueryClient) {
 /**
  * 再生統計関連のクエリを無効化（お気に入り・レーティング・再生回数変更時）
  *
- * ['tracks']プレフィックスの全クエリ（一覧、検索、フィルタ、お気に入り等）を無効化する。
+ * queryKeys.tracks.allをプレフィックスに持つ全クエリ（一覧、検索、フィルタ、
+ * お気に入り等）を無効化する。
  * exact: trueを使用しないことで、検索/フィルタ結果でもisFavorite/rating表示が更新される。
  */
 export function invalidatePlayStatsQueries(queryClient: QueryClient) {
