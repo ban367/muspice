@@ -649,8 +649,10 @@ pub fn insert_track(conn: &Connection, track: &Track) -> AppResult<()> {
 }
 
 /// file_pathをキーに既存トラックを更新（重複時の置き換え用）
+///
+/// 対象が存在しない場合はエラーを返す（更新したつもりで実際は無変更、を防ぐ）。
 pub fn update_track_by_file_path(conn: &Connection, track: &Track) -> AppResult<()> {
-    conn.execute(
+    let rows_affected = conn.execute(
         "UPDATE tracks SET
             file_name = ?2, title = ?3, artist = ?4, album = ?5, genre = ?6, year = ?7,
             track_number = ?8, disc_number = ?9, duration = ?10, file_size = ?11, format = ?12, bitrate = ?13, sample_rate = ?14,
@@ -675,6 +677,14 @@ pub fn update_track_by_file_path(conn: &Connection, track: &Track) -> AppResult<
         ],
     )
     .map_err(|e| AppError::Database(format!("トラックの更新に失敗しました: {}", e)))?;
+
+    if rows_affected == 0 {
+        return Err(AppError::NotFound(format!(
+            "更新対象のトラックが見つかりません: {}",
+            track.file_path
+        )));
+    }
+
     Ok(())
 }
 
@@ -1198,6 +1208,31 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("トラックが見つかりません"));
+    }
+
+    /// 存在しないfile_pathへの更新は成功扱いにせずエラーにする
+    #[test]
+    fn test_update_track_by_file_path_not_found() {
+        let conn = setup_test_db();
+        insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
+
+        let mut track = find_track_by_id(&conn, "t1").unwrap();
+        track.title = Some("新タイトル".to_string());
+
+        // 既存パスなら更新される
+        update_track_by_file_path(&conn, &track).unwrap();
+        assert_eq!(
+            find_track_by_id(&conn, "t1").unwrap().title,
+            Some("新タイトル".to_string())
+        );
+
+        // 存在しないパスならNotFound
+        track.file_path = "/test/unknown.mp3".to_string();
+        let result = update_track_by_file_path(&conn, &track);
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("更新対象のトラックが見つかりません"));
     }
 
     #[test]

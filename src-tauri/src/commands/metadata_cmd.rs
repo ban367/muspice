@@ -152,7 +152,7 @@ pub async fn refresh_library_metadata(
     const BATCH_SIZE: usize = 50;
     for (batch_idx, chunk) in tracks.chunks(BATCH_SIZE).enumerate() {
         // 1. ロック外: ファイルからメタデータを抽出する
-        let mut pending: Vec<PendingTrackNumbers> = Vec::new();
+        let mut pending: Vec<PendingTrackNumbers<'_>> = Vec::new();
 
         for (track_id, file_path) in chunk {
             let path = Path::new(file_path);
