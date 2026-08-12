@@ -29,7 +29,7 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 uuid = { version = "1.22", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 lofty = "0.24"
-base64 = "0.22"
+base64 = "0.23"
 thiserror = "2"
 specta = { version = "=2.0.0-rc.25", features = ["derive"] }
 specta-typescript = "0.0.12"
