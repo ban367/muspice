@@ -4,7 +4,7 @@
 
 | 層               | 技術                            | バージョン（2026-10-01時点）                        | 備考                                                 |
 | ---------------- | ------------------------------- | --------------------------------------------------- | ---------------------------------------------------- |
-| フロントエンド   | SvelteKit + Svelte + TypeScript | `@sveltejs/kit` 2.70.x / `svelte` 5.57.x / TS 5.9.x | SPA構成（adapter-static）                            |
+| フロントエンド   | SvelteKit + Svelte + TypeScript | `@sveltejs/kit` 2.70.x / `svelte` 5.57.x / TS 6.0.x | SPA構成（adapter-static）                            |
 | ビルド           | Vite                            | 8.3.x                                               | Tailwindは`@tailwindcss/vite`経由（PostCSS設定なし） |
 | UIスタイル       | TailwindCSS + DaisyUI           | Tailwind 4.3.x / DaisyUI 5.7.x                      | `@apply`運用に制限あり                               |
 | データ取得       | TanStack Query（Svelte）        | 6.3.x                                               | Queryキャッシュ/再取得制御                           |
