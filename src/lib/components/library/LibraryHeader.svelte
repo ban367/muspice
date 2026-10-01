@@ -9,11 +9,9 @@
     countUnit?: string;
     searchPlaceholder?: string;
     searchTerm?: string;
-    // eslint-disable-next-line no-unused-vars
     onSearchInput?: (value: string) => void;
     onSearchClear?: () => void;
     displayMode?: 'grid' | 'list';
-    // eslint-disable-next-line no-unused-vars
     onDisplayModeChange?: (mode: 'grid' | 'list') => void;
     showGridMode?: boolean;
     showListMode?: boolean;

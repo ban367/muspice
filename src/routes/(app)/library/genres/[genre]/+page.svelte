@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { resolve } from '$app/paths';
   import { page } from '$app/stores';
   import { useFilterQuery } from '$lib/queries/tracks';
   import TrackList from '$lib/components/library/TrackList.svelte';
@@ -19,7 +20,7 @@
 <div class="genre-detail-page">
   <!-- ジャンルヘッダー -->
   <div class="genre-header">
-    <a href="/library/genres" class="back-link">
+    <a href={resolve('/library/genres')} class="back-link">
       <svg
         xmlns="http://www.w3.org/2000/svg"
         class="back-icon"

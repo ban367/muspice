@@ -29,7 +29,6 @@
     /** ブラウズ対象のアイテム一覧（2ペイン表示に使用） */
     items?: T[];
     /** 検索クエリ（小文字化・trim済み）によるフィルタ関数 */
-    // eslint-disable-next-line no-unused-vars
     filterFn?: (item: T, query: string) => boolean;
     /** ヘッダーに表示する件数（省略時はitemsの件数） */
     count?: number;
@@ -44,7 +43,6 @@
     /** グリッド表示（現在の表示モードを受け取る） */
     gridView: Snippet<['grid' | 'list']>;
     /** リストモードの左ペイン（フィルタ済みアイテム・選択中・選択ハンドラを受け取る） */
-    // eslint-disable-next-line no-unused-vars
     listView?: Snippet<[T[], T | null, (item: T) => void]>;
     /** リストモードの右ペイン（選択中アイテムを受け取る） */
     detailView?: Snippet<[T]>;

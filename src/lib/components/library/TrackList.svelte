@@ -18,6 +18,7 @@
   import MarqueeText from '../MarqueeText.svelte';
   import AlbumArt from '../AlbumArt.svelte';
   import { intersectionObserver } from '$lib/utils/actions';
+  import { computeClickSelection, toggleKeyboardSelection } from '$lib/utils/selection';
 
   // Props
   interface Props {
@@ -164,48 +165,14 @@
     event.stopPropagation();
 
     if (event instanceof KeyboardEvent) {
-      const newSelection = new Set(selectedTrackIds);
-      if (newSelection.has(trackId)) {
-        newSelection.clear();
-      } else {
-        newSelection.clear();
-        newSelection.add(trackId);
-      }
-      selectedTrackIds = newSelection;
+      selectedTrackIds = toggleKeyboardSelection(selectedTrackIds, trackId);
       return;
     }
 
-    const newSelection = new Set(selectedTrackIds);
-
-    if (event.shiftKey && selectedTrackIds.size > 0 && sortedTracks) {
-      const lastSelectedId = Array.from(selectedTrackIds).pop();
-      const lastIndex = sortedTracks.findIndex((t) => t.id === lastSelectedId);
-      const currentIndex = sortedTracks.findIndex((t) => t.id === trackId);
-
-      if (lastIndex !== -1 && currentIndex !== -1) {
-        const start = Math.min(lastIndex, currentIndex);
-        const end = Math.max(lastIndex, currentIndex);
-
-        for (let i = start; i <= end; i++) {
-          newSelection.add(sortedTracks[i].id);
-        }
-      }
-    } else if (event.ctrlKey || event.metaKey) {
-      if (newSelection.has(trackId)) {
-        newSelection.delete(trackId);
-      } else {
-        newSelection.add(trackId);
-      }
-    } else {
-      if (newSelection.has(trackId) && newSelection.size === 1) {
-        newSelection.clear();
-      } else {
-        newSelection.clear();
-        newSelection.add(trackId);
-      }
-    }
-
-    selectedTrackIds = newSelection;
+    selectedTrackIds = computeClickSelection(selectedTrackIds, sortedTracks, trackId, {
+      shiftKey: event.shiftKey,
+      toggleKey: event.ctrlKey || event.metaKey
+    });
   }
 
   function clearSelection() {
@@ -466,7 +433,7 @@
                 />
                 <div class="col-rating flex items-center justify-center">
                   <div class="rating-stars">
-                    {#each [1, 2, 3, 4, 5] as star}
+                    {#each [1, 2, 3, 4, 5] as star (star)}
                       <button
                         class="star-btn"
                         class:active={track.rating >= star}

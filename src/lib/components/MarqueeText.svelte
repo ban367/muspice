@@ -44,7 +44,7 @@
 
   // テキストが変更されたらオーバーフローを再チェック
   $effect(() => {
-    text;
+    void text;
     // 次のフレームでチェック（DOMが更新された後）
     requestAnimationFrame(checkOverflow);
   });

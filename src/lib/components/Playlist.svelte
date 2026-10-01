@@ -277,7 +277,7 @@
             <span>左側のライブラリからトラックをドラッグ&ドロップして追加できます</span>
           </div>
         {:else}
-          {#each selectedPlaylist.tracks as playlistTrack, index}
+          {#each selectedPlaylist.tracks as playlistTrack, index (playlistTrack.trackId)}
             {@const track = getTrackById(playlistTrack.trackId)}
             {#if track}
               <div

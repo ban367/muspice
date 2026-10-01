@@ -1,9 +1,11 @@
 <script lang="ts">
+  import type { Snippet } from 'svelte';
+
   interface Props {
     open?: boolean;
     title?: string;
     onclose?: () => void;
-    children?: any;
+    children?: Snippet;
   }
 
   let { open = $bindable(false), title, onclose, children }: Props = $props();

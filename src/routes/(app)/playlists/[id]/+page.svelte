@@ -1,6 +1,7 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
+  import { resolve } from '$app/paths';
   import {
     usePlaylistsQuery,
     useDeletePlaylistMutation,
@@ -55,7 +56,7 @@
 
     try {
       await deletePlaylistMutation.mutateAsync(selectedPlaylist.id);
-      goto('/playlists');
+      goto(resolve('/playlists'));
     } catch (error) {
       console.error('プレイリストの削除に失敗しました:', error);
     }
@@ -160,7 +161,7 @@
     <div class="no-selection">
       <h2>プレイリストが見つかりません</h2>
       <p>選択されたプレイリストは存在しないか、削除された可能性があります</p>
-      <a href="/playlists" class="back-link">プレイリスト一覧に戻る</a>
+      <a href={resolve('/playlists')} class="back-link">プレイリスト一覧に戻る</a>
     </div>
   {:else}
     <!-- プレイリスト詳細 -->

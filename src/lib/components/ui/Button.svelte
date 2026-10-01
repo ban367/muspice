@@ -1,4 +1,6 @@
 <script lang="ts">
+  import type { Snippet } from 'svelte';
+
   interface Props {
     variant?: 'primary' | 'secondary' | 'accent' | 'ghost' | 'link';
     size?: 'xs' | 'sm' | 'md' | 'lg';
@@ -7,7 +9,7 @@
     onclick?: () => void;
     type?: 'button' | 'submit' | 'reset';
     class?: string;
-    children?: any;
+    children?: Snippet;
   }
 
   let {
