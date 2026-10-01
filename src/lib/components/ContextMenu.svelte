@@ -104,7 +104,7 @@
   async function handleShowInFolder() {
     try {
       const { commands } = await import('$lib/bindings');
-      await commands.showInFolder(track.filePath);
+      await commands.showInFolder(track.id);
     } catch (error) {
       console.error('ファイルの場所を開けませんでした:', error);
     }

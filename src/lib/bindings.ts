@@ -87,8 +87,12 @@ export const commands = {
 	createdAt: string,
 	updatedAt: string,
 } | null>("get_current_track"),
-	/**  ファイルの場所をシステムのファイルマネージャーで開く */
-	showInFolder: (path: string) => __TAURI_INVOKE<null>("show_in_folder", { path }),
+	/**
+	 *  トラックのファイルをシステムのファイルマネージャーで表示
+	 * 
+	 *  WebViewから任意のパスを指定できないよう、トラックIDからDB上のパスを解決する。
+	 */
+	showInFolder: (trackId: string) => __TAURI_INVOKE<null>("show_in_folder", { trackId }),
 	/**  お気に入りを切り替え */
 	toggleFavorite: (trackId: string) => __TAURI_INVOKE<boolean>("toggle_favorite", { trackId }),
 	/**  レーティングを設定 */

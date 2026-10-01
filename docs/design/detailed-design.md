@@ -142,7 +142,7 @@ export interface Playlist {
 | `get_favorite_tracks`        | なし                      | `Track[]`          |
 | `get_most_played_tracks`     | `limit?`                  | `Track[]`          |
 | `get_recently_played_tracks` | `limit?`                  | `Track[]`          |
-| `show_in_folder`             | `path`                    | `void`             |
+| `show_in_folder`             | `trackId`                 | `void`             |
 
 ## バリデーション仕様
 
