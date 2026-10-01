@@ -98,10 +98,11 @@ pub fn run() {
         .export(typescript_exporter(), bindings_path())
         .expect("TypeScriptバインディングのエクスポートに失敗しました");
 
+    // WebViewに公開するプラグインはdialogのみ。ファイルアクセスやURL/フォルダを開く処理は
+    // Rust側のコマンドで行い、WebViewから任意のパスやURLを扱えないようにする
+    // （tauri-plugin-openerはRust側の自由関数のみを使うためプラグイン登録しない）
     tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_fs::init())
         .invoke_handler(builder.invoke_handler())
         .setup(|app| {
             // アプリケーションデータディレクトリを取得
