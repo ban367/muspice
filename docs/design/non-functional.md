@@ -15,10 +15,15 @@
 - データはローカル保存のみ（外部サーバー送信なし）
 - ファイル/ディレクトリパスは `validation.rs` で検証（Null文字・親ディレクトリ遡りを拒否）
 - ID・入力値はコマンド入口でバリデーション
-- Tauriセキュリティ設定
-  - `assetProtocol.scope` でアクセス可能パスを制限
-  - CSPを明示（`tauri.conf.json`）
-  - `freezePrototype` を有効化
+- WebViewの権限は最小限（ADR-005）
+  - ファイルの読み書き・削除・フォルダ表示はすべてRust側のコマンドで行い、WebViewからは任意のパスを扱えない（パスはトラックIDからDBで解決する）
+  - capability（`src-tauri/capabilities/default.json`）は `core:default` と `dialog:allow-open` / `dialog:allow-message` のみ。fs / opener プラグインはWebViewに公開しない
+  - `assetProtocol.scope` は空にし、`get_track_file_path` が返すトラックファイルだけを実行時に許可する
+- CSPを明示（`tauri.conf.json`）
+  - 本番は `script-src 'self'`（SvelteKitの起動用インラインscriptはTauriがビルド時にハッシュを付与）
+  - Vite開発サーバー（HMR）向けの許可は `devCsp` に分離
+- `freezePrototype` を有効化
+- `window.confirm` はdialogプラグインにより非同期化されるため使わず、`$lib/utils/dialog` の `confirmDestructive` を `await` する（ESLintで禁止）
 
 ## 可用性・運用
 
