@@ -9,6 +9,12 @@ updates:
     labels:
       - 'dependencies'
       - 'npm'
+    # minor/patchは1つのPRにまとめる（メジャー更新は個別PRで影響を確認する）
+    groups:
+      npm-minor-patch:
+        update-types:
+          - 'minor'
+          - 'patch'
 
   # Cargo依存関係の更新
   - package-ecosystem: 'cargo'
@@ -19,6 +25,14 @@ updates:
     labels:
       - 'dependencies'
       - 'rust'
+    # minor/patchは1つのPRにまとめる
+    # 注意: 0.x系クレートのminor更新（例: lofty 0.24→0.25）は破壊的変更を含みうるが、
+    # semver上はminorとして同じグループに入る。CIが落ちた場合はグループから外して個別に対応する
+    groups:
+      cargo-minor-patch:
+        update-types:
+          - 'minor'
+          - 'patch'
 
   # GitHub Actionsの更新
   - package-ecosystem: 'github-actions'
@@ -29,3 +43,7 @@ updates:
     labels:
       - 'dependencies'
       - 'ci'
+    groups:
+      github-actions:
+        patterns:
+          - '*'

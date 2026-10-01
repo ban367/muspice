@@ -151,8 +151,8 @@ export function combineValidationResults(results: Array<{ valid: boolean; error?
 /**
  * 入力値を安全な整数に変換
  */
-export function toSafeInteger(value: any, defaultValue: number = 0): number {
-  const parsed = parseInt(value, 10);
+export function toSafeInteger(value: unknown, defaultValue: number = 0): number {
+  const parsed = parseInt(String(value), 10);
 
   if (isNaN(parsed) || !isFinite(parsed)) {
     return defaultValue;
@@ -164,7 +164,7 @@ export function toSafeInteger(value: any, defaultValue: number = 0): number {
 /**
  * 入力値を安全な文字列に変換
  */
-export function toSafeString(value: any, maxLength: number = 255): string {
+export function toSafeString(value: unknown, maxLength: number = 255): string {
   if (value === null || value === undefined) {
     return '';
   }

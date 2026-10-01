@@ -8,6 +8,7 @@
   import { useGenresGroupedQuery } from '$lib/queries/tracks';
   import { playTrackFromQueue } from '$lib/stores/player';
   import { goto } from '$app/navigation';
+  import { resolve } from '$app/paths';
   import LibraryGrid from './LibraryGrid.svelte';
   import MarqueeText from '../MarqueeText.svelte';
 
@@ -52,7 +53,7 @@
 
   // ジャンルをクリック（詳細ページに遷移）
   function handleGenreClick(genre: GenreGroup) {
-    goto(`/library/genres/${encodeURIComponent(genre.name)}`);
+    goto(resolve(`/library/genres/${encodeURIComponent(genre.name)}`));
   }
 
   // ジャンルをダブルクリック（すべて再生）

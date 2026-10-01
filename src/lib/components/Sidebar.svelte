@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { resolve } from '$app/paths';
   import { page } from '$app/stores';
   import {
     usePlaylistsQuery,
@@ -169,7 +170,7 @@
     <ul class="list-none m-0 p-0">
       <li>
         <a
-          href="/library/songs"
+          href={resolve('/library/songs')}
           class="nav-item-base"
           class:active={currentPath === '/library/songs'}
         >
@@ -190,7 +191,7 @@
       </li>
       <li>
         <a
-          href="/library/albums"
+          href={resolve('/library/albums')}
           class="nav-item-base"
           class:active={currentPath === '/library/albums'}
         >
@@ -210,7 +211,7 @@
       </li>
       <li>
         <a
-          href="/library/artists"
+          href={resolve('/library/artists')}
           class="nav-item-base"
           class:active={currentPath === '/library/artists'}
         >
@@ -231,7 +232,7 @@
       <li>
         <div class="genre-nav-container">
           <a
-            href="/library/genres"
+            href={resolve('/library/genres')}
             class="nav-item-base flex-1"
             class:active={currentPath === '/library/genres'}
           >
@@ -273,7 +274,7 @@
             {#each genres as genre (genre.name)}
               <li>
                 <a
-                  href="/library/genres/{encodeURIComponent(genre.name)}"
+                  href={resolve(`/library/genres/${encodeURIComponent(genre.name)}`)}
                   class="genre-item"
                   class:active={currentPath === `/library/genres/${encodeURIComponent(genre.name)}`}
                 >
@@ -294,7 +295,7 @@
     <ul class="list-none m-0 p-0">
       <li>
         <a
-          href="/library/recent"
+          href={resolve('/library/recent')}
           class="nav-item-base"
           class:active={currentPath === '/library/recent'}
         >
@@ -317,7 +318,7 @@
       </li>
       <li>
         <a
-          href="/library/mostplayed"
+          href={resolve('/library/mostplayed')}
           class="nav-item-base"
           class:active={currentPath === '/library/mostplayed'}
         >
@@ -378,7 +379,7 @@
         {#each playlistsQuery.data as playlist (playlist.id)}
           <li>
             <a
-              href="/playlists/{playlist.id}"
+              href={resolve(`/playlists/${playlist.id}`)}
               class="nav-item-base relative"
               class:active={currentPath === `/playlists/${playlist.id}`}
               ondragover={handleDragOver}

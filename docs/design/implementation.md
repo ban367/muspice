@@ -6,6 +6,7 @@
 | ---------------- | ------------------------------- | --------------------------------------------------- | ---------------------------------------------------- |
 | フロントエンド   | SvelteKit + Svelte + TypeScript | `@sveltejs/kit` 2.70.x / `svelte` 5.57.x / TS 6.0.x | SPA構成（adapter-static）                            |
 | ビルド           | Vite                            | 8.3.x                                               | Tailwindは`@tailwindcss/vite`経由（PostCSS設定なし） |
+| テスト           | Vitest                          | 5.0.x                                               | ストア・ユーティリティの単体テスト                   |
 | UIスタイル       | TailwindCSS + DaisyUI           | Tailwind 4.3.x / DaisyUI 5.7.x                      | `@apply`運用に制限あり                               |
 | データ取得       | TanStack Query（Svelte）        | 6.3.x                                               | Queryキャッシュ/再取得制御                           |
 | デスクトップ基盤 | Tauri + tauri-specta            | 2.12.x / 2.0.0-rc.25                                | 型付きコマンド呼び出しを自動生成                     |
@@ -123,6 +124,7 @@ npm run tauri dev
 npm run dev
 npm run check
 npm run lint
+npm test
 npm run format
 cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
@@ -132,9 +134,13 @@ cargo test --manifest-path src-tauri/Cargo.toml
 ## テスト方針
 
 - Rustユニットテストを `cargo test` で実行
+- フロントエンドのロジック（ストア・ユーティリティ）は Vitest で単体テストする（`npm test`）
+  - テストは対象と同じディレクトリに `*.test.ts` として置き、Node環境で実行する
+  - コンポーネント内の判定ロジックはテストしやすいよう `$lib/utils` の純粋関数へ切り出す（例: `selection.ts`）
 - 変更前後で最低限以下を確認する
-  - 型チェック（`npm run check`）
-  - Lint（`npm run lint`）
+  - 型チェック（`npm run check`）: 警告も失敗扱い。Tailwindの`@apply`/`@reference`をCSS言語サービスが解釈できず誤警告になるため、CSS診断は対象外（`--diagnostic-sources js,svelte`）
+  - Lint（`npm run lint`）: 警告も失敗扱い（`--max-warnings 0`）
+  - フロントエンドテスト（`npm test`）
   - Rust静的検査（`cargo clippy ... -D warnings`）
   - Rustテスト（`cargo test`）
 
@@ -142,9 +148,11 @@ cargo test --manifest-path src-tauri/Cargo.toml
 
 `.github/workflows/ci.yml` で以下を実行:
 
-1. Frontend Check（type-check, lint, format:check）
+1. Frontend Check（type-check, lint, format:check, test）
 2. Backend Check（fmt --check, clippy, test）
 3. Build Test（PR時のみ、Tauri build）
+
+`.github/workflows/audit.yml` で依存関係の脆弱性を検査する（毎週・lockfile変更PR時。詳細は `non-functional.md`）。
 
 ## 実装時のドキュメント同期ルール
 

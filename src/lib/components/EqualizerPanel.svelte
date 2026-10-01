@@ -120,13 +120,13 @@
         <option value="_custom_" disabled>カスタム</option>
       {/if}
       <optgroup label="ビルトイン">
-        {#each builtinPresetOptions as preset}
+        {#each builtinPresetOptions as preset (preset)}
           <option value={preset}>{BUILTIN_PRESET_LABELS[preset]}</option>
         {/each}
       </optgroup>
       {#if $equalizer.customPresets.length > 0}
         <optgroup label="保存済み">
-          {#each $equalizer.customPresets as customPreset}
+          {#each $equalizer.customPresets as customPreset (customPreset.name)}
             <option value={customPreset.name}>{customPreset.name}</option>
           {/each}
         </optgroup>
@@ -220,7 +220,7 @@
 
     <!-- スライダーグリッド -->
     <div class="sliders-grid">
-      {#each EQ_FREQUENCIES as freq}
+      {#each EQ_FREQUENCIES as freq (freq)}
         <div class="band-column">
           <!-- カスタムスライダー表示 -->
           <div class="custom-slider">
@@ -253,7 +253,7 @@
   <!-- 周波数ラベルと値 -->
   <div class="freq-row">
     <div class="freq-spacer"></div>
-    {#each EQ_FREQUENCIES as freq}
+    {#each EQ_FREQUENCIES as freq (freq)}
       <div class="freq-cell">
         <span class="freq-label">{EQ_FREQUENCY_LABELS[freq]}</span>
         <span

@@ -1,10 +1,13 @@
 <script lang="ts">
+  import { resolve } from '$app/paths';
   import { page } from '$app/stores';
   import { useFilterQuery } from '$lib/queries/tracks';
   import TrackList from '$lib/components/library/TrackList.svelte';
 
   // URLからジャンル名を取得
-  const genreName = $derived(decodeURIComponent($page.params.genre));
+  // SvelteKitがルートパラメータをデコード済みのため再デコードしない
+  // （再デコードすると「100% Rock」のような'%'を含むジャンル名でURIErrorになる）
+  const genreName = $derived($page.params.genre ?? '');
 
   // ジャンルでフィルタリングされたトラックを取得
   const genreQuery = $derived(useFilterQuery({ genre: genreName }));
@@ -17,7 +20,7 @@
 <div class="genre-detail-page">
   <!-- ジャンルヘッダー -->
   <div class="genre-header">
-    <a href="/library/genres" class="back-link">
+    <a href={resolve('/library/genres')} class="back-link">
       <svg
         xmlns="http://www.w3.org/2000/svg"
         class="back-icon"

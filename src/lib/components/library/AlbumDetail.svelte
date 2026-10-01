@@ -46,18 +46,14 @@
       return [{ discNumber: 1, tracks: album.tracks }];
     }
 
-    const groups = new Map<number, Track[]>();
-    for (const track of album.tracks) {
-      const disc = track.discNumber ?? 1;
-      if (!groups.has(disc)) {
-        groups.set(disc, []);
-      }
-      groups.get(disc)!.push(track);
-    }
+    const discNumbers = [...new Set(album.tracks.map((t) => t.discNumber ?? 1))].sort(
+      (a, b) => a - b
+    );
 
-    return Array.from(groups.entries())
-      .sort((a, b) => a[0] - b[0])
-      .map(([discNumber, tracks]) => ({ discNumber, tracks }));
+    return discNumbers.map((discNumber) => ({
+      discNumber,
+      tracks: album.tracks.filter((t) => (t.discNumber ?? 1) === discNumber)
+    }));
   });
 
   // トラック番号を取得

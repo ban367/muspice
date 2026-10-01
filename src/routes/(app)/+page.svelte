@@ -1,10 +1,11 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
+  import { resolve } from '$app/paths';
   import { onMount } from 'svelte';
 
   // ルートページは /library/songs にリダイレクト
   onMount(() => {
-    goto('/library/songs', { replaceState: true });
+    goto(resolve('/library/songs'), { replaceState: true });
   });
 </script>
 

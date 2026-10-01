@@ -8,7 +8,6 @@
 
   interface Props {
     onClose?: () => void;
-    // eslint-disable-next-line no-unused-vars
     onImportComplete?: (result: ImportResult) => void;
   }
 
@@ -264,7 +263,7 @@
               <div class="message-error text-left">
                 <p class="font-semibold m-0 mb-2">エラー詳細:</p>
                 <ul class="m-0 pl-6">
-                  {#each importResult.errors as error}
+                  {#each importResult.errors as error, i (i)}
                     <li class="my-1">{error}</li>
                   {/each}
                 </ul>
