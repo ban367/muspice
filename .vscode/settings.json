@@ -11,6 +11,7 @@
     "editor.defaultFormatter": "svelte.svelte-vscode"
   },
   "eslint.validate": ["javascript", "typescript", "svelte"],
+  "css.lint.unknownAtRules": "ignore",
   "files.exclude": {
     "src-tauri": true,
     "docs": true
