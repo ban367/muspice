@@ -1,29 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window with secure file system access",
+  "description": "Capability for the main window. File access is handled by backend commands; the webview only gets folder selection and message dialogs.",
   "windows": ["main"],
-  "permissions": [
-    "core:default",
-    "core:path:default",
-    "core:path:allow-resolve",
-    "core:path:allow-normalize",
-    "opener:default",
-    "dialog:default",
-    "dialog:allow-open",
-    "fs:default",
-    "fs:allow-read",
-    {
-      "identifier": "fs:scope",
-      "allow": [
-        "$HOME/**",
-        "$AUDIO/**",
-        "$APPDATA/**",
-        "/Volumes/**",
-        "/media/**",
-        "/mnt/**",
-        "/run/media/**"
-      ]
-    }
-  ]
+  "permissions": ["core:default", "dialog:allow-open", "dialog:allow-message"]
 }

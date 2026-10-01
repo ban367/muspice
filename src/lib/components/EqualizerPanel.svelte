@@ -10,6 +10,7 @@
     type BuiltinPresetName,
     type EQFrequency
   } from '$lib/stores/equalizer';
+  import { confirmDestructive } from '$lib/utils/dialog';
 
   // ビルトインプリセットの選択肢
   const builtinPresetOptions: BuiltinPresetName[] = [
@@ -77,8 +78,8 @@
   }
 
   // カスタムプリセットを削除
-  function deletePreset(name: string) {
-    if (confirm(`"${name}" を削除しますか？`)) {
+  async function deletePreset(name: string) {
+    if (await confirmDestructive(`"${name}" を削除しますか？`)) {
       equalizer.deleteCustomPreset(name);
     }
   }

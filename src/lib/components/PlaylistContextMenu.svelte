@@ -10,6 +10,7 @@
   import { playTrackFromQueue, playQueue, currentTrackIndex } from '$lib/stores/player';
   import { useTracksQuery } from '$lib/queries/tracks';
   import { get } from 'svelte/store';
+  import { confirmDestructive } from '$lib/utils/dialog';
 
   // Props
   interface Props {
@@ -92,8 +93,8 @@
   /**
    * プレイリストを削除
    */
-  function handleDelete() {
-    if (confirm(`プレイリスト「${playlist.name}」を削除しますか？`)) {
+  async function handleDelete() {
+    if (await confirmDestructive(`プレイリスト「${playlist.name}」を削除しますか？`)) {
       deletePlaylistMutation.mutate(playlist.id);
     }
     onClose();

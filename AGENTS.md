@@ -41,7 +41,7 @@ npm run tauri build           # 本番ビルド
 - **命名**: Svelte=PascalCase、TypeScript=camelCase、Rust=snake_case。型=PascalCase、定数=UPPER_SNAKE_CASE
 - **Svelte 5**: Runes構文（`$props()`, `$state()`, `$derived()`, `$effect()`）を使用
 - **TailwindCSS**: カスタムクラスを`@apply`で使わない。スタイルブロック先頭に`@reference`を追加
-- **セキュリティ**: Tauriのallowlistでアクセス制限。ローカルデータのみ。外部通信なし
+- **セキュリティ**: WebViewの権限（capability・assetProtocolスコープ）は最小限にし、ファイルアクセスはRust側のコマンドで行う。WebViewから任意のパスを受け取らずトラックID等で解決する。ローカルデータのみ。外部通信なし
 - **パフォーマンス**: バッチインポート（50件/TX）、FTS5検索、DBインデックス、クエリ制限（1000件）、デバウンス（300ms）、仮想スクロール
 
 ## ドキュメント参照ルール

@@ -11,6 +11,7 @@
   import type { Playlist, Track } from '$lib/types/models';
   import { validatePlaylistName, toSafeString } from '$lib/utils/validation';
   import { formatDuration } from '$lib/utils/format';
+  import { confirmDestructive } from '$lib/utils/dialog';
   import { playTrackFromQueue, currentTrack } from '$lib/stores/player';
   import PlayingIndicator from './library/PlayingIndicator.svelte';
 
@@ -76,7 +77,11 @@
 
   // プレイリストを削除
   async function deletePlaylist(playlist: Playlist) {
-    if (!confirm(`プレイリスト「${playlist.name}」を削除しますか？\nこの操作は取り消せません。`)) {
+    if (
+      !(await confirmDestructive(
+        `プレイリスト「${playlist.name}」を削除しますか？\nこの操作は取り消せません。`
+      ))
+    ) {
       return;
     }
 
@@ -157,7 +162,7 @@
 
   // プレイリストからトラックを削除
   async function removeTrack(playlistId: string, trackId: string) {
-    if (!confirm('このトラックをプレイリストから削除しますか？')) {
+    if (!(await confirmDestructive('このトラックをプレイリストから削除しますか？'))) {
       return;
     }
 

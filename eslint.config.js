@@ -70,6 +70,20 @@ export default [
     }
   },
   {
+    files: ['**/*.ts', '**/*.svelte'],
+    rules: {
+      // window.confirmはdialogプラグインにより非同期関数へ置き換えられており、
+      // 同期的に呼ぶと戻り値のPromiseが常にtrue扱いになる
+      'no-restricted-globals': [
+        'error',
+        {
+          name: 'confirm',
+          message: '$lib/utils/dialog の confirmDestructive を await して使用してください。'
+        }
+      ]
+    }
+  },
+  {
     ignores: [
       'build/**',
       '.svelte-kit/**',

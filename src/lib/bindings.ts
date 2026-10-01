@@ -53,7 +53,13 @@ export const commands = {
 	/**  MIMEタイプ (image/jpeg, image/png など) */
 	mimeType: string,
 } | null>("get_album_art", { trackId }),
-	/**  トラックのファイルパスを取得 */
+	/**
+	 *  トラックのファイルパスを取得
+	 * 
+	 *  asset protocolの静的スコープは空にしてあるため、ここで返すファイルだけを
+	 *  その都度スコープへ追加する。これによりWebViewから`convertFileSrc`で読めるのは
+	 *  ライブラリに登録済みのトラックに限られる。
+	 */
 	getTrackFilePath: (trackId: string) => __TAURI_INVOKE<string>("get_track_file_path", { trackId }),
 	/**  現在再生中のトラックIDを設定 */
 	setCurrentTrack: (trackId: string | null) => __TAURI_INVOKE<null>("set_current_track", { trackId }),
@@ -81,8 +87,12 @@ export const commands = {
 	createdAt: string,
 	updatedAt: string,
 } | null>("get_current_track"),
-	/**  ファイルの場所をシステムのファイルマネージャーで開く */
-	showInFolder: (path: string) => __TAURI_INVOKE<null>("show_in_folder", { path }),
+	/**
+	 *  トラックのファイルをシステムのファイルマネージャーで表示
+	 * 
+	 *  WebViewから任意のパスを指定できないよう、トラックIDからDB上のパスを解決する。
+	 */
+	showInFolder: (trackId: string) => __TAURI_INVOKE<null>("show_in_folder", { trackId }),
 	/**  お気に入りを切り替え */
 	toggleFavorite: (trackId: string) => __TAURI_INVOKE<boolean>("toggle_favorite", { trackId }),
 	/**  レーティングを設定 */
