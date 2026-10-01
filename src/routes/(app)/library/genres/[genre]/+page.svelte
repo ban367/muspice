@@ -4,7 +4,9 @@
   import TrackList from '$lib/components/library/TrackList.svelte';
 
   // URLからジャンル名を取得
-  const genreName = $derived(decodeURIComponent($page.params.genre));
+  // SvelteKitがルートパラメータをデコード済みのため再デコードしない
+  // （再デコードすると「100% Rock」のような'%'を含むジャンル名でURIErrorになる）
+  const genreName = $derived($page.params.genre ?? '');
 
   // ジャンルでフィルタリングされたトラックを取得
   const genreQuery = $derived(useFilterQuery({ genre: genreName }));
