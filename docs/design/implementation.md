@@ -152,6 +152,8 @@ cargo test --manifest-path src-tauri/Cargo.toml
 2. Backend Check（fmt --check, clippy, test）
 3. Build Test（PR時のみ、Tauri build）
 
+`.github/workflows/audit.yml` で依存関係の脆弱性を検査する（毎週・lockfile変更PR時。詳細は `non-functional.md`）。
+
 ## 実装時のドキュメント同期ルール
 
 - データモデル・API仕様変更: `docs/design/detailed-design.md`

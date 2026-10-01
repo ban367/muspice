@@ -25,6 +25,19 @@
 - `freezePrototype` を有効化
 - `window.confirm` はdialogプラグインにより非同期化されるため使わず、`$lib/utils/dialog` の `confirmDestructive` を `await` する（ESLintで禁止）
 
+### 依存関係の脆弱性監視
+
+- `.github/workflows/audit.yml` が毎週と、lockfileを変更するPRで `npm audit`（moderate以上で失敗）と `cargo-audit`（脆弱性で失敗、unmaintained・unsoundは警告）を実行する
+- Dependabotはminor/patchをエコシステムごとに1つのPRへまとめる（メジャー更新は個別PR）
+- 上流の対応待ちで受容しているアドバイザリ（解消条件を満たしたら再確認する）
+
+| 対象                    | アドバイザリ                      | 経路                        | 受容理由・解消条件                                             |
+| ----------------------- | --------------------------------- | --------------------------- | -------------------------------------------------------------- |
+| npm `cookie <0.7.0`     | GHSA-pxg6-pf52-xh8x（low）        | `@sveltejs/kit` 2.x         | サーバーを同梱しないSPAのため到達不能。SvelteKit 3で解消見込み |
+| Rust `glib 0.18`        | RUSTSEC-2024-0429（unsound）      | Tauri → muda → gtk（Linux） | TauriのGTK4移行待ち                                            |
+| Rust `proc-macro-error` | RUSTSEC-2024-0370（unmaintained） | glib-macros（同上）         | 同上                                                           |
+| Rust `paste`            | RUSTSEC-2024-0436（unmaintained） | lofty / specta のproc-macro | 上流の置き換え待ち                                             |
+
 ## 可用性・運用
 
 - ローカルアプリ前提のため、外部サービス障害の影響を受けない

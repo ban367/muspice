@@ -1,0 +1,53 @@
+name: Security Audit
+
+# 依存関係の既知の脆弱性を検査する
+# - 毎週の定期実行で、コード変更がなくても新たに公開されたアドバイザリを検知する
+# - lockfileを変更するPRでも実行し、脆弱なバージョンの混入を防ぐ
+# 受容済みのアドバイザリは docs/design/non-functional.md を参照
+
+on:
+  schedule:
+    # 毎週月曜 9:00 JST
+    - cron: '0 0 * * 1'
+  pull_request:
+    paths:
+      - 'package.json'
+      - 'package-lock.json'
+      - 'src-tauri/Cargo.toml'
+      - 'src-tauri/Cargo.lock'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  npm:
+    name: npm audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+
+      # moderate以上で失敗させる（lowのcookieはSvelteKit 2系の制約で受容済み）
+      - name: Audit npm dependencies
+        run: npm audit --audit-level=moderate
+
+  cargo:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
+        with:
+          tool: cargo-audit
+
+      # 脆弱性で失敗させる（unmaintained・unsoundは警告として表示のみ）
+      # rust-toolchain.tomlによるツールチェーン導入を避けるため、cargo経由ではなく直接実行する
+      - name: Audit Rust dependencies
+        run: cargo-audit audit --file src-tauri/Cargo.lock
