@@ -1,6 +1,13 @@
 use crate::error::{AppError, AppResult};
 use rusqlite::Connection;
 use std::sync::Mutex;
+use tokio::sync::Semaphore;
+
+/// アルバムアート抽出の同時実行数の上限
+///
+/// 一覧表示では表示中のカードの数だけ要求が同時に届くため、
+/// ファイル読み取りが一斉に走ってディスクを奪い合わないよう制限する。
+const ALBUM_ART_CONCURRENCY: usize = 4;
 
 /// アプリケーション全体の状態を管理
 pub struct AppState {
@@ -8,6 +15,8 @@ pub struct AppState {
     pub db: Mutex<Connection>,
     /// 現在再生中のトラックID
     pub current_track_id: Mutex<Option<String>>,
+    /// アルバムアート抽出の同時実行数を制限するセマフォ
+    pub album_art_limiter: Semaphore,
 }
 
 impl AppState {
@@ -15,6 +24,7 @@ impl AppState {
         Self {
             db: Mutex::new(db),
             current_track_id: Mutex::new(None),
+            album_art_limiter: Semaphore::new(ALBUM_ART_CONCURRENCY),
         }
     }
 

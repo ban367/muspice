@@ -1,11 +1,12 @@
 //! トラック取得・検索・フィルタリング・グループ化コマンド
 
+use super::run_blocking;
 use crate::error::{AppError, AppResult};
 use crate::library::{delete_tracks, delete_tracks_with_files, DeleteResult};
 use crate::models::{AlbumGroup, ArtistGroup, GenreGroup, Track};
 use crate::state::AppState;
 use crate::validation::{sanitize_search_query, validate_track_id};
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 
 /// フィルタオプション（repository::FilterOptionsの再エクスポート）
 pub type FilterOptions = crate::repository::FilterOptions;
@@ -110,7 +111,7 @@ pub async fn delete_tracks_command(
 #[specta::specta]
 pub async fn delete_tracks_with_files_command(
     track_ids: Vec<String>,
-    state: State<'_, AppState>,
+    app: AppHandle,
 ) -> AppResult<DeleteResult> {
     if track_ids.is_empty() {
         return Err(AppError::Validation(
@@ -123,5 +124,10 @@ pub async fn delete_tracks_with_files_command(
         validate_track_id(track_id)?;
     }
 
-    state.with_db(|db| delete_tracks_with_files(db, &track_ids))
+    // ファイル削除を伴うため、ブロッキング処理用スレッドで実行する
+    run_blocking(move || {
+        app.state::<AppState>()
+            .with_db(|db| delete_tracks_with_files(db, &track_ids))
+    })
+    .await
 }

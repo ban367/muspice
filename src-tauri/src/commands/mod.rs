@@ -3,6 +3,8 @@
 //! 各ドメインごとにサブモジュールに分割されたコマンドをフラットにre-exportする。
 //! lib.rsのuse文を変更不要にするため、全コマンドをここから公開する。
 
+use crate::error::{AppError, AppResult};
+
 mod import;
 mod metadata_cmd;
 mod player;
@@ -44,3 +46,19 @@ pub use stats::{
 
 // システム
 pub use system::show_in_folder;
+
+/// 重い同期処理をブロッキング処理用のスレッドで実行する
+///
+/// ファイルI/O・タグ解析・大量のDB書き込みをasyncコマンド内で直接行うと、
+/// Tauriの非同期ランタイムのワーカースレッドを占有し、他のコマンドの応答が遅れる。
+/// クロージャは`'static`である必要があるため、状態が必要な場合は
+/// `AppHandle`を移動して`app.state::<AppState>()`で取得する。
+async fn run_blocking<T, F>(f: F) -> AppResult<T>
+where
+    F: FnOnce() -> AppResult<T> + Send + 'static,
+    T: Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(f)
+        .await
+        .map_err(|e| AppError::Io(format!("バックグラウンド処理が異常終了しました: {}", e)))?
+}

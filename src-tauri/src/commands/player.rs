@@ -1,5 +1,6 @@
 //! 音楽再生関連コマンド
 
+use super::run_blocking;
 use crate::error::{AppError, AppResult};
 use crate::metadata::{extract_album_art, AlbumArt};
 use crate::models::Track;
@@ -87,6 +88,10 @@ pub async fn get_album_art(
     let file_path =
         state.with_db(|db| crate::repository::find_file_path_by_track_id(db, &track_id))?;
 
-    // アルバムアートを抽出（DBロック外で実行）
-    extract_album_art(Path::new(&file_path))
+    // アルバムアートを抽出（DBロック外・ブロッキング処理用スレッドで実行）
+    // 一覧表示で大量に要求されるため、同時実行数を制限する
+    let _permit = state.album_art_limiter.acquire().await.map_err(|e| {
+        AppError::Lock(format!("アルバムアート読み込みの待機に失敗しました: {}", e))
+    })?;
+    run_blocking(move || extract_album_art(Path::new(&file_path))).await
 }
