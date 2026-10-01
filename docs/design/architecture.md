@@ -37,7 +37,9 @@ graph TD
 ## バックエンド構成
 
 - エントリーポイント: `src-tauri/src/lib.rs`
-- アプリ状態: `AppState { db: Mutex<Connection>, current_track_id: Mutex<Option<String>> }`
+- アプリ状態: `AppState { db: Mutex<Connection>, current_track_id: Mutex<Option<String>>, album_art_limiter: Semaphore }`
+- 重い同期処理（インポート、メタデータ再読込、ファイルへのタグ書き込み、アルバムアート抽出、ファイル削除）は `run_blocking`（`spawn_blocking`）でブロッキング処理用スレッドへ逃がし、非同期ランタイムのワーカーを占有しない。アルバムアート抽出はセマフォで同時実行数を4に制限する
+- バックエンド→フロントエンドの通知は `events.rs` の型付きイベント（tauri-specta）で行い、フロントは `bindings.ts` の `events.xxx.listen()` で受け取る
 - コマンド登録: `tauri::generate_handler!` でインポート/検索/編集/再生/統計/システム操作を公開
 - DB初期化: `db.rs` のマイグレーションでテーブル・インデックス・FTS5・トリガーを作成
 
@@ -56,7 +58,7 @@ sequenceDiagram
     Frontend->>TauriCmd: invoke(import_folder)
     TauriCmd->>TauriCmd: ディレクトリ再帰走査 / 重複判定
     TauriCmd->>DB: 50件単位でトランザクション保存
-    TauriCmd-->>Frontend: import-progressイベント送信
+    TauriCmd-->>Frontend: ImportProgressイベント送信（import-progress）
     TauriCmd-->>Frontend: ImportResult返却
 ```
 

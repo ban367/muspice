@@ -100,12 +100,23 @@ export interface Playlist {
 
 ### インポート・削除
 
-| コマンド                           | 引数                            | 戻り値                  | 備考                                                 |
-| ---------------------------------- | ------------------------------- | ----------------------- | ---------------------------------------------------- |
-| `import_folder`                    | `folderPath`, `duplicateAction` | `ImportResult`          | 50件/トランザクション、`import-progress`イベント送信 |
-| `delete_tracks_command`            | `trackIds: string[]`            | `number`                | DBからのみ削除                                       |
-| `delete_tracks_with_files_command` | `trackIds: string[]`            | `DeleteResult`          | DB+ファイル削除                                      |
-| `refresh_library_metadata`         | なし                            | `RefreshMetadataResult` | 全トラックのtrack/disc番号を再抽出                   |
+| コマンド                           | 引数                            | 戻り値                  | 備考                                                |
+| ---------------------------------- | ------------------------------- | ----------------------- | --------------------------------------------------- |
+| `import_folder`                    | `folderPath`, `duplicateAction` | `ImportResult`          | 50件/トランザクション、`ImportProgress`イベント送信 |
+| `delete_tracks_command`            | `trackIds: string[]`            | `number`                | DBからのみ削除                                      |
+| `delete_tracks_with_files_command` | `trackIds: string[]`            | `DeleteResult`          | DB+ファイル削除                                     |
+| `refresh_library_metadata`         | なし                            | `RefreshMetadataResult` | 全トラックのtrack/disc番号を再抽出                  |
+
+### イベント（バックエンド→フロントエンド）
+
+`src-tauri/src/events.rs` で定義し、`bindings.ts` の `events` から型付きで購読する。イベント名は型名のケバブケース。
+
+| イベント           | ペイロード                        | 送信元                              |
+| ------------------ | --------------------------------- | ----------------------------------- |
+| `ImportProgress`   | `{ current, total, currentFile }` | `import_folder`（1ファイルごと）    |
+| `ShowAboutDialog`  | なし                              | メニュー「Muspice について」        |
+| `OpenImportDialog` | なし                              | メニュー「フォルダをインポート...」 |
+| `ToggleSidebar`    | なし                              | メニュー「サイドバーを表示/隠す」   |
 
 ### メタデータ編集
 
