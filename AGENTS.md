@@ -25,6 +25,7 @@ npm run tauri dev             # 開発モード（推奨）
 npm run dev                   # フロントエンドのみ（ポート1420）
 npm run check                 # TypeScript型チェック
 npm run lint                  # ESLint
+npm test                      # Vitest（フロントエンドの単体テスト）
 npm run format                # Prettierフォーマット
 cd src-tauri && cargo test    # Rustテスト
 cd src-tauri && cargo fmt     # Rustフォーマット
