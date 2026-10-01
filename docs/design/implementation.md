@@ -2,15 +2,16 @@
 
 ## 技術スタック
 
-| 層               | 技術                            | バージョン（2026-02-27時点）                        | 備考                             |
-| ---------------- | ------------------------------- | --------------------------------------------------- | -------------------------------- |
-| フロントエンド   | SvelteKit + Svelte + TypeScript | `@sveltejs/kit` 2.49.x / `svelte` 5.46.x / TS 5.9.x | SPA構成（adapter-static）        |
-| UIスタイル       | TailwindCSS + DaisyUI           | Tailwind 4.1.x / DaisyUI 5.5.x                      | `@apply`運用に制限あり           |
-| データ取得       | TanStack Query（Svelte）        | 6.0.x                                               | Queryキャッシュ/再取得制御       |
-| デスクトップ基盤 | Tauri + tauri-specta            | 2.x / 2.0.0-rc.25                                   | 型付きコマンド呼び出しを自動生成 |
-| バックエンド     | Rust                            | edition 2021（stable）                              | コアロジック/DBアクセス          |
-| DB               | SQLite + FTS5                   | rusqlite 0.39（bundled）                            | 全文検索・ローカル保存           |
-| メタデータ       | lofty                           | 0.24                                                | タグ読み書き/アルバムアート抽出  |
+| 層               | 技術                            | バージョン（2026-10-01時点）                        | 備考                                                 |
+| ---------------- | ------------------------------- | --------------------------------------------------- | ---------------------------------------------------- |
+| フロントエンド   | SvelteKit + Svelte + TypeScript | `@sveltejs/kit` 2.70.x / `svelte` 5.57.x / TS 6.0.x | SPA構成（adapter-static）                            |
+| ビルド           | Vite                            | 8.3.x                                               | Tailwindは`@tailwindcss/vite`経由（PostCSS設定なし） |
+| UIスタイル       | TailwindCSS + DaisyUI           | Tailwind 4.3.x / DaisyUI 5.7.x                      | `@apply`運用に制限あり                               |
+| データ取得       | TanStack Query（Svelte）        | 6.3.x                                               | Queryキャッシュ/再取得制御                           |
+| デスクトップ基盤 | Tauri + tauri-specta            | 2.12.x / 2.0.0-rc.25                                | 型付きコマンド呼び出しを自動生成                     |
+| バックエンド     | Rust                            | edition 2021（stable）                              | コアロジック/DBアクセス                              |
+| DB               | SQLite + FTS5                   | rusqlite 0.40（bundled）                            | 全文検索・ローカル保存                               |
+| メタデータ       | lofty                           | 0.25                                                | タグ読み書き/アルバムアート抽出                      |
 
 ## ディレクトリ構成
 
