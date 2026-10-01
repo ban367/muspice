@@ -23,15 +23,7 @@
       "freezePrototype": true,
       "assetProtocol": {
         "enable": true,
-        "scope": [
-          "$HOME/**",
-          "$AUDIO/**",
-          "$APPDATA/**",
-          "/Volumes/**",
-          "/media/**",
-          "/mnt/**",
-          "/run/media/**"
-        ]
+        "scope": []
       }
     }
   },
