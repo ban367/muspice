@@ -1,6 +1,7 @@
 //! 音楽ファイルのインポート関連コマンド
 
 use crate::error::{AppError, AppResult};
+use crate::events::ImportProgress;
 use crate::library::{
     get_default_title, get_file_format, get_file_size, scan_directory, DuplicateAction,
     ImportResult,
@@ -10,22 +11,10 @@ use crate::models::Track;
 use crate::state::AppState;
 use crate::validation::validate_file_path;
 use chrono::Utc;
-use serde::Serialize;
 use std::path::Path;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, State};
+use tauri_specta::Event;
 use uuid::Uuid;
-
-/// インポート進捗イベントのペイロード
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ImportProgress {
-    /// 処理済みファイル数
-    current: usize,
-    /// 総ファイル数
-    total: usize,
-    /// 現在処理中のファイル名
-    current_file: String,
-}
 
 /// フォルダから音楽ファイルをインポート（バッチ処理最適化版）
 #[tauri::command]
@@ -51,8 +40,10 @@ pub async fn import_folder(
 
     // バッチサイズ（一度にコミットするファイル数）
     const BATCH_SIZE: usize = 50;
-    let total_files = audio_files.len();
-    let mut processed_count = 0;
+    // 進捗イベントの件数はu32で送る（TypeScript側でnumberとして扱うため）
+    let total_files = u32::try_from(audio_files.len())
+        .map_err(|_| AppError::Validation("ファイル数が多すぎます".to_string()))?;
+    let mut processed_count: u32 = 0;
 
     // 登録済みファイルパスを一度だけ取得する（ファイルごとの重複クエリを避ける）
     //
@@ -82,14 +73,12 @@ pub async fn import_folder(
                 .unwrap_or("不明なファイル")
                 .to_string();
 
-            if let Err(e) = app_handle.emit(
-                "import-progress",
-                ImportProgress {
-                    current: processed_count,
-                    total: total_files,
-                    current_file,
-                },
-            ) {
+            let progress = ImportProgress {
+                current: processed_count,
+                total: total_files,
+                current_file,
+            };
+            if let Err(e) = progress.emit(&app_handle) {
                 crate::logger::warning(&format!("進捗イベントの送信に失敗しました: {}", e));
             }
 

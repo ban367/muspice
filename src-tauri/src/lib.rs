@@ -1,6 +1,7 @@
 mod commands;
 mod db;
 mod error;
+mod events;
 mod library;
 mod logger;
 mod metadata;
@@ -25,7 +26,8 @@ use state::AppState;
 use std::path::PathBuf;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::webview::WebviewWindowBuilder;
-use tauri::{Emitter, Manager};
+use tauri::Manager;
+use tauri_specta::Event;
 
 /// tauri-spectaビルダーを構築する
 ///
@@ -72,6 +74,12 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             delete_tracks_with_files_command,
             refresh_library_metadata
         ])
+        .events(tauri_specta::collect_events![
+            events::ImportProgress,
+            events::ShowAboutDialog,
+            events::OpenImportDialog,
+            events::ToggleSidebar
+        ])
 }
 
 /// TypeScriptエクスポート設定
@@ -104,7 +112,10 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(builder.invoke_handler())
-        .setup(|app| {
+        .setup(move |app| {
+            // 型付きイベントを登録する（未登録のイベントをemitするとパニックする）
+            builder.mount_events(app);
+
             // アプリケーションデータディレクトリを取得
             let app_data_dir = app
                 .path()
@@ -220,15 +231,15 @@ pub fn run() {
                 }
                 "about" => {
                     // Aboutダイアログを表示するイベントをフロントエンドに送信
-                    let _ = app.emit("show-about-dialog", ());
+                    let _ = events::ShowAboutDialog.emit(app);
                 }
                 "import_folder" => {
                     // インポートダイアログを開くイベントをフロントエンドに送信
-                    let _ = app.emit("open-import-dialog", ());
+                    let _ = events::OpenImportDialog.emit(app);
                 }
                 "toggle_sidebar" => {
                     // サイドバー切替イベントをフロントエンドに送信
-                    let _ = app.emit("toggle-sidebar", ());
+                    let _ = events::ToggleSidebar.emit(app);
                 }
                 "toggle_fullscreen" => {
                     // フルスクリーン切替
