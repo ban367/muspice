@@ -11,6 +11,7 @@
   import type { Playlist, Track } from '$lib/types/models';
   import { playTrackFromQueue } from '$lib/stores/player';
   import { formatDuration, formatTotalDuration } from '$lib/utils/format';
+  import { confirmDestructive } from '$lib/utils/dialog';
 
   // URLからプレイリストIDを取得
   const playlistId = $derived($page.params.id);
@@ -45,9 +46,9 @@
     if (!selectedPlaylist) return;
 
     if (
-      !confirm(
+      !(await confirmDestructive(
         `プレイリスト「${selectedPlaylist.name}」を削除しますか？\nこの操作は取り消せません。`
-      )
+      ))
     ) {
       return;
     }
