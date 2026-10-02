@@ -55,10 +55,6 @@ export default defineConfig(
     // コンポーネント・ページからコマンドを直接呼ばない。キャッシュの無効化とエラー通知を
     // $lib/queries に集約するため（型・eventsのimportは許可する）
     files: ['src/lib/components/**/*.svelte', 'src/routes/**/*.svelte', 'src/routes/**/*.ts'],
-    ignores: [
-      // 再生制御（ファイルパスの解決・再生中トラックの通知）を専用モジュールへ切り出すまでの例外
-      'src/lib/components/Player.svelte'
-    ],
     rules: {
       'no-restricted-imports': [
         'error',

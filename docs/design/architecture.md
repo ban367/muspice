@@ -34,6 +34,7 @@ graph TD
 - 型: `src/lib/types/models.ts` をRustモデルと対応させる
 - データ取得: `src/lib/queries/*.ts` のクエリ・ミューテーションがコマンド呼び出し・キャッシュ無効化・エラー通知を担い、コンポーネントからは直接コマンドを呼ばない
 - アルバムアート: `src/lib/stores/albumArtCache.ts` が一覧・詳細・プレイヤーで共有するキャッシュを持つ
+- 再生: `src/lib/stores/playback.ts` の再生コントローラーがaudio要素と再生状態ストア（`player.ts`）を同期し、`Player.svelte` は表示と操作の受付に専念する
 - ブラウザ確認用モック: `npm run dev:mock` のときだけ `src/hooks.client.ts` が `src/lib/mocks` のインメモリバックエンドへIPCを差し替える（`implementation.md` 参照）
 
 ## バックエンド構成

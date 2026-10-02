@@ -1,6 +1,4 @@
 <script lang="ts">
-  import { commands } from '$lib/bindings';
-  import { convertFileSrc } from '@tauri-apps/api/core';
   import {
     currentTrack,
     isPlaying,
@@ -9,9 +7,6 @@
     volume,
     progress,
     formatTime,
-    resetPlayer,
-    playNextTrack,
-    playPreviousTrack,
     hasNextTrack,
     hasPreviousTrack,
     isShuffleEnabled,
@@ -20,268 +15,102 @@
     toggleRepeat,
     type RepeatMode
   } from '$lib/stores/player';
-  import type { Track } from '$lib/types/models';
-  import { handleError as reportError } from '$lib/stores/error';
+  import { createPlaybackController, type PlaybackController } from '$lib/stores/playback';
   import AlbumArt from './AlbumArt.svelte';
   import { loadAlbumArt, albumArtCache } from '$lib/stores/albumArtCache';
-  import { incrementPlayCount } from '$lib/queries/tracks';
   import MarqueeText from './MarqueeText.svelte';
-  import {
-    initializeEqualizer,
-    cleanupEqualizer,
-    resumeAudioContext,
-    isEqualizerInitialized
-  } from '$lib/stores/equalizer';
 
-  let audioElement: HTMLAudioElement;
+  let audioElement = $state<HTMLAudioElement>();
+  let progressBar = $state<HTMLElement>();
+  let volumeBar = $state<HTMLElement>();
   let isDraggingProgress = $state(false);
   let isDraggingVolume = $state(false);
-  let lastPlayedTrackId = $state<string | null>(null);
+
+  // 再生の制御（読み込み・キュー遷移・リピート・イコライザ）はコントローラーに委ねる
+  let playback: PlaybackController | null = null;
+
+  $effect(() => {
+    if (!audioElement) return;
+    const controller = createPlaybackController(audioElement);
+    playback = controller;
+    return () => {
+      controller.destroy();
+      playback = null;
+    };
+  });
 
   // 再生中トラックのアルバムアート（一覧表示と共有のキャッシュから取得）
   const albumArtUrl = $derived($currentTrack ? ($albumArtCache[$currentTrack.id] ?? null) : null);
 
-  // 現在のトラックが変更されたときに再生を開始
   $effect(() => {
-    if ($currentTrack && audioElement) {
-      if ($currentTrack.id !== lastPlayedTrackId) {
-        lastPlayedTrackId = $currentTrack.id;
-        loadAndPlayTrack($currentTrack);
-        loadAlbumArt($currentTrack.id);
-      }
-    } else if (!$currentTrack) {
-      lastPlayedTrackId = null;
-    }
-  });
-
-  // 音量が変更されたときにオーディオ要素に反映
-  $effect(() => {
-    if (audioElement) {
-      audioElement.volume = $volume;
+    if ($currentTrack) {
+      loadAlbumArt($currentTrack.id);
     }
   });
 
   /**
-   * トラックを読み込んで再生
+   * バー上のマウス位置を0〜1の割合に変換
    */
-  async function loadAndPlayTrack(track: Track) {
-    try {
-      // トラックのファイルパスを取得
-      const filePath = await commands.getTrackFilePath(track.id);
-
-      // Tauriのファイルパスを変換
-      const assetUrl = convertFileSrc(filePath);
-
-      // トラックが変更されている可能性があるため確認
-      if ($currentTrack?.id !== track.id) {
-        return;
-      }
-
-      // オーディオソースを設定
-      audioElement.src = assetUrl;
-
-      // ユーザージェスチャー後にAudioContextを再開（自動再生ポリシー対応）
-      await resumeAudioContext();
-
-      // 再生を開始
-      try {
-        await audioElement.play();
-        isPlaying.set(true);
-      } catch (playError) {
-        // AbortErrorは無視
-        if (playError instanceof DOMException && playError.name === 'AbortError') {
-          return;
-        }
-        throw playError;
-      }
-
-      // 現在再生中のトラックをバックエンドに通知
-      await commands.setCurrentTrack(track.id);
-
-      // 再生回数をインクリメント
-      incrementPlayCount(track.id);
-    } catch (error) {
-      console.error('トラックの再生に失敗しました:', error);
-      reportError(error, 'トラックの再生に失敗しました');
-      isPlaying.set(false);
-    }
+  function ratioAt(bar: HTMLElement, clientX: number): number {
+    const rect = bar.getBoundingClientRect();
+    return Math.max(0, Math.min((clientX - rect.left) / rect.width, 1));
   }
 
   /**
-   * 再生/一時停止を切り替え
+   * 進行バーの位置へシーク
    */
-  async function togglePlayPause() {
-    if (!audioElement || !$currentTrack) return;
-
-    try {
-      if ($isPlaying) {
-        audioElement.pause();
-        isPlaying.set(false);
-      } else {
-        await audioElement.play();
-        isPlaying.set(true);
-      }
-    } catch (error) {
-      console.error('再生/一時停止の切り替えに失敗しました:', error);
-    }
+  function seekTo(clientX: number) {
+    if (!progressBar || !$duration) return;
+    playback?.seek(ratioAt(progressBar, clientX) * $duration);
   }
 
-  /**
-   * 進行バーをクリックしてシーク
-   */
-  function seekToPosition(event: MouseEvent) {
-    if (!audioElement || !$duration) return;
-
-    const progressBar = event.currentTarget as HTMLElement;
-    const rect = progressBar.getBoundingClientRect();
-    const clickX = event.clientX - rect.left;
-    const percentage = clickX / rect.width;
-    const newTime = percentage * $duration;
-
-    audioElement.currentTime = newTime;
-    currentTime.set(newTime);
-  }
-
-  /**
-   * 進行バーのドラッグ開始
-   */
   function startDraggingProgress() {
     isDraggingProgress = true;
+    playback?.setScrubbing(true);
   }
 
-  /**
-   * 進行バーのドラッグ中
-   */
   function onDragProgress(event: MouseEvent) {
-    if (!isDraggingProgress || !audioElement || !$duration) return;
-
-    const progressBar = document.getElementById('progress-bar');
-    if (!progressBar) return;
-
-    const rect = progressBar.getBoundingClientRect();
-    const clickX = Math.max(0, Math.min(event.clientX - rect.left, rect.width));
-    const percentage = clickX / rect.width;
-    const newTime = percentage * $duration;
-
-    audioElement.currentTime = newTime;
-    currentTime.set(newTime);
+    if (isDraggingProgress) seekTo(event.clientX);
   }
 
-  /**
-   * 進行バーのドラッグ終了
-   */
   function stopDraggingProgress() {
+    if (!isDraggingProgress) return;
     isDraggingProgress = false;
+    playback?.setScrubbing(false);
   }
 
   /**
-   * 音量バーをクリックして音量変更
+   * 音量バーの位置に音量を合わせる
    */
-  function changeVolume(event: MouseEvent) {
-    const volumeBar = event.currentTarget as HTMLElement;
-    const rect = volumeBar.getBoundingClientRect();
-    const clickX = event.clientX - rect.left;
-    const percentage = Math.max(0, Math.min(clickX / rect.width, 1));
-
-    volume.set(percentage);
+  function setVolumeAt(clientX: number) {
+    if (volumeBar) volume.set(ratioAt(volumeBar, clientX));
   }
 
-  /**
-   * 音量バーのドラッグ開始
-   */
   function startDraggingVolume() {
     isDraggingVolume = true;
   }
 
-  /**
-   * 音量バーのドラッグ中
-   */
   function onDragVolume(event: MouseEvent) {
-    if (!isDraggingVolume) return;
-
-    const volumeBar = document.getElementById('volume-bar');
-    if (!volumeBar) return;
-
-    const rect = volumeBar.getBoundingClientRect();
-    const clickX = Math.max(0, Math.min(event.clientX - rect.left, rect.width));
-    const percentage = clickX / rect.width;
-
-    volume.set(percentage);
+    if (isDraggingVolume) setVolumeAt(event.clientX);
   }
 
-  /**
-   * 音量バーのドラッグ終了
-   */
   function stopDraggingVolume() {
     isDraggingVolume = false;
   }
 
+  // ミュート解除時に戻す音量
+  let previousVolume = 1;
+
   /**
-   * オーディオ要素のイベントハンドラー
+   * ミュートを切り替え
    */
-  function handleTimeUpdate() {
-    if (!isDraggingProgress && audioElement) {
-      currentTime.set(audioElement.currentTime);
-    }
-  }
-
-  function handleLoadedMetadata() {
-    if (audioElement) {
-      duration.set(audioElement.duration);
-    }
-  }
-
-  function handleEnded() {
-    isPlaying.set(false);
-    currentTime.set(0);
-
-    // リピートモードに応じて処理
-    if ($repeatMode === 'one') {
-      // 1曲リピート: 同じトラックを再生
-      if (audioElement) {
-        audioElement.currentTime = 0;
-        audioElement
-          .play()
-          .then(() => {
-            isPlaying.set(true);
-          })
-          .catch(console.error);
-      }
+  function toggleMute() {
+    if ($volume > 0) {
+      previousVolume = $volume;
+      volume.set(0);
     } else {
-      // 次のトラックがあれば自動再生
-      const hasNext = playNextTrack();
-      if (!hasNext) {
-        resetPlayer();
-      }
+      volume.set(previousVolume || 1);
     }
-  }
-
-  function handleError(e: Event) {
-    const target = e.target as HTMLAudioElement;
-    console.error('オーディオの再生エラーが発生しました', {
-      error: target.error,
-      src: target.src
-    });
-
-    let errorMessage = '再生エラーが発生しました';
-    if (target.error) {
-      switch (target.error.code) {
-        case target.error.MEDIA_ERR_ABORTED:
-          return;
-        case target.error.MEDIA_ERR_NETWORK:
-          errorMessage = 'ネットワークエラーが発生しました';
-          break;
-        case target.error.MEDIA_ERR_DECODE:
-          errorMessage = 'デコードエラー: ファイルが破損しているか未対応の形式です';
-          break;
-        case target.error.MEDIA_ERR_SRC_NOT_SUPPORTED:
-          errorMessage = '未対応のフォーマットか、ファイルが見つかりません';
-          break;
-      }
-    }
-
-    reportError(errorMessage);
-    isPlaying.set(false);
   }
 
   /**
@@ -307,105 +136,74 @@
       return;
     }
 
+    const withModifier = event.ctrlKey || event.metaKey;
+    const plain = !event.ctrlKey && !event.metaKey && !event.altKey;
+
     switch (event.code) {
       case 'Space':
         event.preventDefault();
-        togglePlayPause();
+        playback?.togglePlayPause();
         break;
       case 'ArrowLeft':
-        if (event.ctrlKey || event.metaKey) {
+        if (withModifier) {
           event.preventDefault();
-          playPreviousTrack();
+          playback?.previous();
         }
         break;
       case 'ArrowRight':
-        if (event.ctrlKey || event.metaKey) {
+        if (withModifier) {
           event.preventDefault();
-          playNextTrack();
+          playback?.next();
         }
         break;
       case 'ArrowUp':
-        if (event.ctrlKey || event.metaKey) {
+        if (withModifier) {
           event.preventDefault();
           volume.set(Math.min(1, $volume + 0.1));
         }
         break;
       case 'ArrowDown':
-        if (event.ctrlKey || event.metaKey) {
+        if (withModifier) {
           event.preventDefault();
           volume.set(Math.max(0, $volume - 0.1));
         }
         break;
       case 'KeyM':
-        if (!event.ctrlKey && !event.metaKey && !event.altKey) {
+        if (plain) {
           event.preventDefault();
-          if ($volume > 0) {
-            previousVolume = $volume;
-            volume.set(0);
-          } else {
-            volume.set(previousVolume || 1);
-          }
+          toggleMute();
         }
         break;
       case 'KeyS':
-        if (!event.ctrlKey && !event.metaKey && !event.altKey) {
+        if (plain) {
           event.preventDefault();
           toggleShuffle();
         }
         break;
       case 'KeyR':
-        if (!event.ctrlKey && !event.metaKey && !event.altKey) {
+        if (plain) {
           event.preventDefault();
           toggleRepeat();
         }
         break;
     }
   }
-
-  let previousVolume = 1;
-
-  // グローバルイベントリスナーの登録/解除
-  $effect(() => {
-    window.addEventListener('mousemove', onDragProgress);
-    window.addEventListener('mouseup', stopDraggingProgress);
-    window.addEventListener('mousemove', onDragVolume);
-    window.addEventListener('mouseup', stopDraggingVolume);
-    window.addEventListener('keydown', handleGlobalKeydown);
-
-    return () => {
-      window.removeEventListener('mousemove', onDragProgress);
-      window.removeEventListener('mouseup', stopDraggingProgress);
-      window.removeEventListener('mousemove', onDragVolume);
-      window.removeEventListener('mouseup', stopDraggingVolume);
-      window.removeEventListener('keydown', handleGlobalKeydown);
-      resetPlayer();
-
-      // イコライザのクリーンアップ
-      cleanupEqualizer().catch((error) => {
-        console.error('イコライザのクリーンアップに失敗しました:', error);
-      });
-    };
-  });
-
-  // audioElementがバインドされた後にイコライザを初期化
-  $effect(() => {
-    if (audioElement && !isEqualizerInitialized()) {
-      initializeEqualizer(audioElement).catch((error) => {
-        console.error('イコライザの初期化に失敗しました:', error);
-      });
-    }
-  });
 </script>
 
-<!-- 非表示のオーディオ要素 -->
-<audio
-  bind:this={audioElement}
-  ontimeupdate={handleTimeUpdate}
-  onloadedmetadata={handleLoadedMetadata}
-  onended={handleEnded}
-  onerror={handleError}
-  class="hidden"
-></audio>
+<svelte:window
+  onmousemove={(event) => {
+    onDragProgress(event);
+    onDragVolume(event);
+  }}
+  onmouseup={() => {
+    stopDraggingProgress();
+    stopDraggingVolume();
+  }}
+  onkeydown={handleGlobalKeydown}
+/>
+
+<!-- 非表示のオーディオ要素（イベントはPlaybackControllerが購読する） -->
+<audio bind:this={audioElement} class="hidden"></audio>
 
 <!-- プレイヤーUI -->
 <div class="player-container">
@@ -452,7 +250,7 @@
 
         <button
           class="control-button"
-          onclick={() => playPreviousTrack()}
+          onclick={() => playback?.previous()}
           disabled={!$hasPreviousTrack}
           title="前へ (Ctrl+←)"
           aria-label="前のトラック"
@@ -470,7 +268,7 @@
 
         <button
           class="play-pause-button"
-          onclick={togglePlayPause}
+          onclick={() => playback?.togglePlayPause()}
           title={$isPlaying ? '一時停止 (Space)' : '再生 (Space)'}
           aria-label={$isPlaying ? '一時停止' : '再生'}
         >
@@ -500,7 +298,7 @@
 
         <button
           class="control-button"
-          onclick={() => playNextTrack()}
+          onclick={() => playback?.next()}
           disabled={!$hasNextTrack}
           title="次へ (Ctrl+→)"
           aria-label="次のトラック"
@@ -548,7 +346,7 @@
           >{formatTime($currentTime)}</span
         >
         <div
-          id="progress-bar"
+          bind:this={progressBar}
           class="progress-bar-base flex-1"
           role="slider"
           aria-label="再生位置"
@@ -556,12 +354,12 @@
           aria-valuemax="100"
           aria-valuenow={$progress}
           tabindex="0"
-          onclick={seekToPosition}
+          onclick={(e) => seekTo(e.clientX)}
           onkeydown={(e) => {
             if (e.key === 'ArrowLeft') {
-              audioElement.currentTime = Math.max(0, audioElement.currentTime - 5);
+              playback?.seekBy(-5);
             } else if (e.key === 'ArrowRight') {
-              audioElement.currentTime = Math.min($duration, audioElement.currentTime + 5);
+              playback?.seekBy(5);
             }
           }}
           onmousedown={startDraggingProgress}
@@ -580,14 +378,7 @@
       <div class="flex items-center gap-2">
         <button
           class="control-button small"
-          onclick={() => {
-            if ($volume > 0) {
-              previousVolume = $volume;
-              volume.set(0);
-            } else {
-              volume.set(previousVolume || 1);
-            }
-          }}
+          onclick={toggleMute}
           title="ミュート (M)"
           aria-label="ミュート"
         >
@@ -630,7 +421,7 @@
           {/if}
         </button>
         <div
-          id="volume-bar"
+          bind:this={volumeBar}
           class="volume-bar"
           role="slider"
           aria-label="音量"
@@ -638,7 +429,7 @@
           aria-valuemax="100"
           aria-valuenow={$volume * 100}
           tabindex="0"
-          onclick={changeVolume}
+          onclick={(e) => setVolumeAt(e.clientX)}
           onkeydown={(e) => {
             if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
               volume.set(Math.max(0, $volume - 0.1));
