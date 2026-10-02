@@ -2,7 +2,7 @@
 
 use super::run_blocking;
 use crate::error::{AppError, AppResult};
-use crate::library::{delete_tracks, delete_tracks_with_files, DeleteResult};
+use crate::library::{DeleteResult, delete_tracks, delete_tracks_with_files};
 use crate::models::{AlbumGroup, ArtistGroup, GenreGroup, Track};
 use crate::state::AppState;
 use crate::validation::{sanitize_search_query, validate_track_id};

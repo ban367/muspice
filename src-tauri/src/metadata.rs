@@ -1,6 +1,6 @@
 use crate::error::{AppError, AppResult};
 use crate::models::Metadata;
-use base64::{engine::general_purpose::STANDARD, Engine as _};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use lofty::config::WriteOptions;
 use lofty::file::{AudioFile, TaggedFileExt};
 use lofty::picture::PictureType;
@@ -202,21 +202,21 @@ pub fn extract_album_art(file_path: &Path) -> AppResult<Option<AlbumArt>> {
 /// メタデータをバリデーション
 pub fn validate_metadata(metadata: &Metadata) -> AppResult<()> {
     // 年のバリデーション
-    if let Some(year) = metadata.year {
-        if !YEAR_RANGE.contains(&year) {
-            return Err(AppError::Validation(
-                "年は1000から9999の範囲で指定してください".to_string(),
-            ));
-        }
+    if let Some(year) = metadata.year
+        && !YEAR_RANGE.contains(&year)
+    {
+        return Err(AppError::Validation(
+            "年は1000から9999の範囲で指定してください".to_string(),
+        ));
     }
 
     // トラック番号のバリデーション
-    if let Some(track_number) = metadata.track_number {
-        if !(1..=999).contains(&track_number) {
-            return Err(AppError::Validation(
-                "トラック番号は1から999の範囲で指定してください".to_string(),
-            ));
-        }
+    if let Some(track_number) = metadata.track_number
+        && !(1..=999).contains(&track_number)
+    {
+        return Err(AppError::Validation(
+            "トラック番号は1から999の範囲で指定してください".to_string(),
+        ));
     }
 
     Ok(())
