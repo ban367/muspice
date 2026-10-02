@@ -23,6 +23,7 @@
   emptyPrompt="アーティストを選択してください"
   items={allArtists}
   filterFn={filterArtist}
+  getItemKey={(artist) => artist.name}
   listPaneWidth="16rem"
 >
   {#snippet emptyIcon()}

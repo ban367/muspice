@@ -33,6 +33,7 @@ graph TD
 - UI部品: `src/lib/components` と `src/lib/components/ui`
 - 型: `src/lib/types/models.ts` をRustモデルと対応させる
 - データ取得: `src/lib/queries/*.ts` で `invoke()` をラップ
+- ブラウザ確認用モック: `npm run dev:mock` のときだけ `src/hooks.client.ts` が `src/lib/mocks` のインメモリバックエンドへIPCを差し替える（`implementation.md` 参照）
 
 ## バックエンド構成
 

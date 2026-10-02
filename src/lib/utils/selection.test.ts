@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeClickSelection, toggleKeyboardSelection } from './selection';
+import { computeClickSelection, resolveSelectedItem, toggleKeyboardSelection } from './selection';
 
 const tracks = ['a', 'b', 'c', 'd', 'e'].map((id) => ({ id }));
 const noModifiers = { shiftKey: false, toggleKey: false };
@@ -69,5 +69,31 @@ describe('computeClickSelection', () => {
     const next = computeClickSelection(current, tracks, 'b', { shiftKey: false, toggleKey: true });
     expect(next).not.toBe(current);
     expect([...current]).toEqual(['a']);
+  });
+});
+
+describe('resolveSelectedItem', () => {
+  const albums = [{ name: 'A' }, { name: 'B' }, { name: 'C' }];
+  const byName = (album: { name: string }) => album.name;
+
+  it('未選択なら先頭を返す', () => {
+    expect(resolveSelectedItem(albums, null, byName)).toBe(albums[0]);
+  });
+
+  it('選択中のキーを持つアイテムを返す', () => {
+    expect(resolveSelectedItem(albums, 'B', byName)).toBe(albums[1]);
+  });
+
+  it('データの再取得でオブジェクトが作り直されても、同じキーのアイテムを返す', () => {
+    const refetched = albums.map((album) => ({ ...album }));
+    expect(resolveSelectedItem(refetched, 'B', byName)).toBe(refetched[1]);
+  });
+
+  it('選択中のアイテムが一覧にない場合は先頭を返す', () => {
+    expect(resolveSelectedItem(albums.slice(1), 'A', byName)).toBe(albums[1]);
+  });
+
+  it('一覧が空ならnullを返す', () => {
+    expect(resolveSelectedItem([], 'A', byName)).toBeNull();
   });
 });
