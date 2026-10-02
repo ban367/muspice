@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { commands } from '$lib/bindings';
-  import { listen } from '@tauri-apps/api/event';
+  import { commands, events } from '$lib/bindings';
   import { open } from '@tauri-apps/plugin-dialog';
   import type { DuplicateAction, ImportResult } from '$lib/types/models';
   import { validateFilePath } from '$lib/utils/validation';
@@ -22,15 +21,6 @@
   let processedFiles = $state(0);
   let importResult = $state<ImportResult | null>(null);
   let errorMessage = $state<string>('');
-
-  /**
-   * インポート進捗イベントの型
-   */
-  interface ImportProgress {
-    current: number;
-    total: number;
-    currentFile: string;
-  }
 
   /**
    * フォルダ選択ダイアログを開く
@@ -80,7 +70,7 @@
 
     try {
       // インポート進捗イベントをリッスン
-      unlisten = await listen<ImportProgress>('import-progress', (event) => {
+      unlisten = await events.importProgress.listen((event) => {
         const { current, total, currentFile: file } = event.payload;
         processedFiles = current;
         totalFiles = total;

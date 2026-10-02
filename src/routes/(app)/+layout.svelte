@@ -1,6 +1,6 @@
 <script lang="ts">
   import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
-  import { listen } from '@tauri-apps/api/event';
+  import { events } from '$lib/bindings';
   import { onMount } from 'svelte';
   import { Toast } from '$lib/components/ui';
   import Player from '$lib/components/Player.svelte';
@@ -32,17 +32,17 @@
   // メニューバーからのイベントをリッスン
   onMount(() => {
     // インポートダイアログを開くイベント
-    const unlistenImport = listen('open-import-dialog', () => {
+    const unlistenImport = events.openImportDialog.listen(() => {
       isImportDialogOpen.set(true);
     });
 
     // サイドバー切替イベント
-    const unlistenSidebar = listen('toggle-sidebar', () => {
+    const unlistenSidebar = events.toggleSidebar.listen(() => {
       isSidebarOpen.update((v) => !v);
     });
 
     // Aboutダイアログイベント
-    const unlistenAbout = listen('show-about-dialog', () => {
+    const unlistenAbout = events.showAboutDialog.listen(() => {
       isAboutDialogOpen.set(true);
     });
 

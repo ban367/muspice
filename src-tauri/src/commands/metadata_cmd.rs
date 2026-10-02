@@ -1,5 +1,6 @@
 //! メタデータ編集関連コマンド
 
+use super::run_blocking;
 use crate::error::{AppError, AppResult};
 use crate::metadata::{extract_metadata, update_file_metadata, validate_metadata};
 use crate::models::Metadata;
@@ -7,7 +8,7 @@ use crate::state::AppState;
 use crate::validation::{validate_string_length, validate_track_id};
 use chrono::Utc;
 use std::path::Path;
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 
 /// メタデータの内容と各フィールドの長さをまとめてバリデーション
 fn validate_metadata_input(metadata: &Metadata) -> AppResult<()> {
@@ -50,8 +51,9 @@ pub async fn update_track_metadata_with_file(
     let file_path =
         state.with_db(|db| crate::repository::find_file_path_by_track_id(db, &track_id))?;
 
-    // ファイルのメタデータを更新（ファイルI/OのためDBロック外で実行）
-    update_file_metadata(Path::new(&file_path), &metadata)?;
+    // ファイルのメタデータを更新（ファイルI/OのためDBロック外・ブロッキング処理用スレッドで実行）
+    let file_metadata = metadata.clone();
+    run_blocking(move || update_file_metadata(Path::new(&file_path), &file_metadata)).await?;
 
     // データベースのメタデータを更新
     state.with_db(|db| crate::repository::update_track_metadata(db, &track_id, &metadata))
@@ -131,9 +133,13 @@ struct PendingTrackNumbers<'a> {
 /// ファイルからtrack_numberとdisc_numberを再読み込み
 #[tauri::command]
 #[specta::specta]
-pub async fn refresh_library_metadata(
-    state: State<'_, AppState>,
-) -> AppResult<RefreshMetadataResult> {
+pub async fn refresh_library_metadata(app: AppHandle) -> AppResult<RefreshMetadataResult> {
+    // 全ファイルの読み取りとバッチ書き込みはブロッキング処理用スレッドで行う
+    run_blocking(move || refresh_library_metadata_blocking(app.state::<AppState>().inner())).await
+}
+
+/// `refresh_library_metadata`の本体（同期処理）
+fn refresh_library_metadata_blocking(state: &AppState) -> AppResult<RefreshMetadataResult> {
     let mut updated_count = 0;
     let mut skipped_count = 0;
     let mut error_count = 0;

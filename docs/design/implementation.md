@@ -47,6 +47,7 @@ src-tauri/src/
 ├── lib.rs
 ├── db.rs
 ├── error.rs
+├── events.rs
 ├── repository.rs
 ├── library.rs
 ├── playlist.rs
@@ -94,6 +95,7 @@ src-tauri/src/
 - エラーコード: `LOCK` / `DATABASE` / `NOT_FOUND` / `VALIDATION` / `IO` / `METADATA`
 - フロントエンドでは `handleError` を必ず経由し、codeでエラーを分類する（部分文字列マッチは行わない）
 - DBアクセスはコマンド層で `AppState::with_db` を経由し、ロック取得エラーの処理を一元化する
+- ファイルI/O・タグ解析・大量のDB書き込みなど重い同期処理は `commands::run_blocking` で実行する（asyncコマンド内で直接行うと非同期ランタイムのワーカーを占有する）。状態が必要な場合は `AppHandle` を受け取り、クロージャ内で `app.state::<AppState>()` から取得する
 - トラック関連のSQLは `repository.rs`、プレイリスト関連のSQLは `playlist.rs` に集約する（コマンド層に生SQLを書かない）
 - ログは `crate::logger`（`logger.rs`）を使用する（`log` クレートは未初期化のため使用しない）
 
@@ -106,6 +108,10 @@ src-tauri/src/
   2. 引数・戻り値の型に `specta::Type` を derive する
   3. `lib.rs` の `specta_builder()` 内 `collect_commands![]` に追加する（`invoke_handler`は自動で追随する）
 - フロントエンドは `invoke()` を直接使わず `commands.xxx()` を使う（コマンド名・引数・戻り値が型チェックされる）
+- バックエンド→フロントエンドのイベントを追加する手順:
+  1. `events.rs` に `#[derive(Serialize, Type, Event)]` の型を定義する（イベント名は型名のケバブケース）
+  2. `lib.rs` の `collect_events![]` に追加する（未登録のまま `emit` するとパニックする）
+  3. Rust側は `イベント.emit(&app_handle)`、フロントは `events.xxx.listen()` を使う（`@tauri-apps/api/event` の `listen` を文字列で直接呼ばない）
 - 型定義は `src/lib/types/models.ts` が `bindings.ts` を再エクスポートする。TS側で手書きの重複定義を作らない
 - `i64`/`usize` はTypeScriptへ直接エクスポートできない（精度損失防止）。件数は `u32`、`i64` は `#[specta(type = specta_typescript::Number)]` で明示する
 - 省略可能な入力（`Option<T>`）は `#[specta(optional)]` を付け、TS側で `field?: T | null` として扱えるようにする
