@@ -1,6 +1,7 @@
 <script lang="ts">
   import { commands } from '$lib/bindings';
   import CardSizeSlider from './CardSizeSlider.svelte';
+  import { toErrorMessage } from '$lib/stores/error';
 
   // Props
   interface Props {
@@ -75,7 +76,7 @@
       onRefreshComplete?.();
     } catch (error) {
       console.error('メタデータ更新エラー:', error);
-      alert('メタデータ更新中にエラーが発生しました: ' + error);
+      alert('メタデータ更新中にエラーが発生しました: ' + toErrorMessage(error));
     } finally {
       isRefreshing = false;
     }

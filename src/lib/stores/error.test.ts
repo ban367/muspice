@@ -1,6 +1,6 @@
 import { get } from 'svelte/store';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { errorStore, handleError, showSuccess } from './error';
+import { errorStore, handleError, showSuccess, toErrorMessage } from './error';
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -62,5 +62,24 @@ describe('errorStore', () => {
 
     vi.advanceTimersByTime(1);
     expect(get(errorStore)).toHaveLength(0);
+  });
+});
+
+describe('toErrorMessage', () => {
+  it('構造化エラーはオブジェクトのまま文字列化せずメッセージを取り出す', () => {
+    const error = { code: 'IO', message: 'Permission denied (os error 13)' };
+    expect(String(error)).toBe('[object Object]');
+    expect(toErrorMessage(error)).toBe(
+      'ファイル操作中にエラーが発生しました。ファイルの状態を確認してください。'
+    );
+    expect(
+      toErrorMessage({ code: 'VALIDATION', message: '年は1000から9999の範囲で指定してください' })
+    ).toBe('年は1000から9999の範囲で指定してください');
+  });
+
+  it('文字列・Error・不明な値も変換する', () => {
+    expect(toErrorMessage('失敗')).toBe('失敗');
+    expect(toErrorMessage(new Error('boom'))).toBe('boom');
+    expect(toErrorMessage(undefined)).toBe('エラーが発生しました');
   });
 });

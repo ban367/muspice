@@ -4,6 +4,7 @@
   import type { DuplicateAction, ImportResult } from '$lib/types/models';
   import { validateFilePath } from '$lib/utils/validation';
   import { isImportDialogOpen } from '$lib/stores/ui';
+  import { toErrorMessage } from '$lib/stores/error';
 
   interface Props {
     onClose?: () => void;
@@ -93,7 +94,7 @@
       }, 2000);
     } catch (error) {
       console.error('インポートエラー:', error);
-      errorMessage = `インポートに失敗しました: ${error}`;
+      errorMessage = `インポートに失敗しました: ${toErrorMessage(error)}`;
       progress = 0;
     } finally {
       isImporting = false;

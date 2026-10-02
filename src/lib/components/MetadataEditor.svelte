@@ -12,6 +12,7 @@
     combineValidationResults,
     toSafeString
   } from '$lib/utils/validation';
+  import { toErrorMessage } from '$lib/stores/error';
 
   interface Props {
     tracks: Track[];
@@ -84,7 +85,7 @@
       validationError = null;
       return true;
     } catch (e) {
-      validationError = String(e);
+      validationError = toErrorMessage(e);
       return false;
     }
   }
@@ -151,7 +152,7 @@
       // ダイアログを閉じる
       onClose();
     } catch (e) {
-      error = String(e);
+      error = toErrorMessage(e);
     } finally {
       isLoading = false;
     }
