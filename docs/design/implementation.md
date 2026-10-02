@@ -79,8 +79,14 @@ src-tauri/src/
 - コンポーネント・ページは `commands` を直接呼ばず、`$lib/queries` のクエリ・ミューテーションを経由する（ESLintの`no-restricted-imports`で禁止）。キャッシュの無効化（`onSuccess`）とエラーのトースト通知（`withErrorToast`）をここに集約するため
   - キャッシュに影響しない操作（例: ファイルの場所を開く）も、失敗を通知するためミューテーションとして定義する
   - 画面内にエラーを表示する場合は`String(error)`ではなく`toErrorMessage(error)`を使う（`AppError`はオブジェクトのため"[object Object]"になる）
-  - 例外: 再生制御（`getTrackFilePath`・`setCurrentTrack`）は`Player.svelte`から専用モジュールへ切り出すまでPlayerで直接呼ぶ
+  - 再生制御（`getTrackFilePath`・`setCurrentTrack`）はクエリではなく`$lib/stores/playback`の再生コントローラーが呼ぶ
 - アルバムアートのキャッシュは`$lib/stores/albumArtCache`に一本化する（一覧・詳細・プレイヤーで共有する）
+
+### 再生制御
+
+- audio要素の操作・キュー遷移・リピート・再生回数の記録・イコライザの接続は`$lib/stores/playback`の`createPlaybackController(audio)`が担う。`Player.svelte`は表示と操作の受付だけを行い、コントローラーのメソッドを呼ぶ
+- 次・前のトラックの決定は`$lib/stores/player`のキュー操作（`playNextTrack`・`playPreviousTrack`）が担う。キュー操作の結果が再生中と同じトラックだった場合（1曲リピート、3秒以上再生中の「前へ」、1曲だけのキューの全曲リピート）はトラックIDが変わらず読み込みが走らないため、コントローラーが頭から再生し直す
+- 再生中かどうか（`isPlaying`）はaudio要素の`play`/`pause`イベントから更新する
 - クエリキーは`src/lib/queries/keys.ts`の`queryKeys`に集約する。クエリ定義・無効化のどちらもここを参照し、`['tracks']`のようなマジック配列を直接書かない
 - 無効化はプレフィックス一致で波及するため、キーの階層がそのまま無効化の粒度になる（例: `queryKeys.tracks.all`の無効化は検索・フィルタ・お気に入りにも及ぶ）
 
