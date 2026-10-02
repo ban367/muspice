@@ -31,8 +31,6 @@ export const commands = {
 	updateTrackMetadataWithFile: (trackId: string, metadata: Metadata) => __TAURI_INVOKE<null>("update_track_metadata_with_file", { trackId, metadata }),
 	/**  複数トラックのメタデータを一括更新（データベースのみ） */
 	updateMultipleTracksMetadata: (trackIds: string[], metadata: Metadata) => __TAURI_INVOKE<null>("update_multiple_tracks_metadata", { trackIds, metadata }),
-	/**  メタデータをバリデーション（フロントエンド用） */
-	validateMetadataCommand: (metadata: Metadata) => __TAURI_INVOKE<null>("validate_metadata_command", { metadata }),
 	/**  プレイリストを作成 */
 	createPlaylist: (name: string) => __TAURI_INVOKE<Playlist>("create_playlist", { name }),
 	/**  すべてのプレイリストを取得 */
