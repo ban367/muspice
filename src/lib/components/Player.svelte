@@ -23,6 +23,7 @@
   import type { Track } from '$lib/types/models';
   import { handleError as reportError } from '$lib/stores/error';
   import AlbumArt from './AlbumArt.svelte';
+  import { loadAlbumArt, albumArtCache } from '$lib/stores/albumArtCache';
   import { incrementPlayCount } from '$lib/queries/tracks';
   import MarqueeText from './MarqueeText.svelte';
   import {
@@ -37,8 +38,8 @@
   let isDraggingVolume = $state(false);
   let lastPlayedTrackId = $state<string | null>(null);
 
-  // アルバムアートキャッシュ
-  let albumArtUrl = $state<string | null>(null);
+  // 再生中トラックのアルバムアート（一覧表示と共有のキャッシュから取得）
+  const albumArtUrl = $derived($currentTrack ? ($albumArtCache[$currentTrack.id] ?? null) : null);
 
   // 現在のトラックが変更されたときに再生を開始
   $effect(() => {
@@ -50,7 +51,6 @@
       }
     } else if (!$currentTrack) {
       lastPlayedTrackId = null;
-      albumArtUrl = null;
     }
   });
 
@@ -60,22 +60,6 @@
       audioElement.volume = $volume;
     }
   });
-
-  /**
-   * アルバムアートを取得
-   */
-  async function loadAlbumArt(trackId: string) {
-    try {
-      const art = await commands.getAlbumArt(trackId);
-      if (art) {
-        albumArtUrl = `data:${art.mimeType};base64,${art.data}`;
-      } else {
-        albumArtUrl = null;
-      }
-    } catch {
-      albumArtUrl = null;
-    }
-  }
 
   /**
    * トラックを読み込んで再生

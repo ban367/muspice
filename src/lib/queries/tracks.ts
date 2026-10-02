@@ -5,7 +5,14 @@ import {
   type QueryClient
 } from '@tanstack/svelte-query';
 import { commands } from '$lib/bindings';
-import type { Track, Metadata, AlbumArt, DeleteResult, FilterOptions } from '$lib/types/models';
+import type {
+  Track,
+  Metadata,
+  AlbumArt,
+  DeleteResult,
+  DuplicateAction,
+  FilterOptions
+} from '$lib/types/models';
 import { handleError, showSuccess, showWarning } from '$lib/stores/error';
 import { queryKeys } from './keys';
 import { CACHE_POLICY, withErrorToast } from './shared';
@@ -142,28 +149,9 @@ export function useUniqueGenresQuery() {
 }
 
 /**
- * アルバムアートを取得するクエリ
- */
-export function useAlbumArtQuery(trackId: string | null) {
-  return createQuery(() => ({
-    queryKey: queryKeys.albumArt(trackId),
-    queryFn: async () => {
-      if (!trackId) return null;
-      try {
-        return await commands.getAlbumArt(trackId);
-      } catch (error) {
-        // アルバムアートがない場合はエラーを無視
-        console.debug('アルバムアート取得エラー:', error);
-        return null;
-      }
-    },
-    enabled: !!trackId,
-    ...CACHE_POLICY.albumArt
-  }));
-}
-
-/**
  * アルバムアートを直接取得する関数（キャッシュなし）
+ *
+ * キャッシュは`$lib/stores/albumArtCache`が担う。コンポーネントからはそちらを使う。
  */
 export async function getAlbumArt(trackId: string): Promise<AlbumArt | null> {
   try {
@@ -395,5 +383,56 @@ export function useDeleteTracksWithFilesMutation() {
         );
       }
     }
+  }));
+}
+
+// ========== ライブラリ管理ミューテーション ==========
+
+/**
+ * フォルダから音楽ファイルをインポートするミューテーション
+ *
+ * 進捗は`events.importProgress`で受け取る。失敗はインポートダイアログ内に
+ * 表示するため、トースト通知はしない。
+ */
+export function useImportFolderMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: ({
+      folderPath,
+      duplicateAction
+    }: {
+      folderPath: string;
+      duplicateAction: DuplicateAction;
+    }) => commands.importFolder(folderPath, duplicateAction),
+    onSuccess: () => {
+      invalidateTrackListQueries(queryClient);
+    }
+  }));
+}
+
+/**
+ * ライブラリ全体のトラック番号・ディスク番号をファイルから再読み込みするミューテーション
+ */
+export function useRefreshLibraryMetadataMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: () => withErrorToast('メタデータの更新', () => commands.refreshLibraryMetadata()),
+    onSuccess: () => {
+      invalidateTrackMetadataQueries(queryClient);
+    }
+  }));
+}
+
+/**
+ * トラックのファイルをファイルマネージャーで表示するミューテーション
+ *
+ * キャッシュには影響しないが、失敗をトーストで通知するためミューテーションとして扱う。
+ */
+export function useShowInFolderMutation() {
+  return createMutation(() => ({
+    mutationFn: (trackId: string) =>
+      withErrorToast('ファイルの場所を開く', () => commands.showInFolder(trackId))
   }));
 }

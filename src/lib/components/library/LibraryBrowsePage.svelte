@@ -13,9 +13,7 @@
   import LibraryHeader from './LibraryHeader.svelte';
   import { browseSearchQuery } from '$lib/stores/ui';
   import { createSearchDebounce } from '$lib/utils/debounce';
-  import { invalidateTrackListQueries } from '$lib/queries/tracks';
   import { resolveSelectedItem } from '$lib/utils/selection';
-  import { useQueryClient } from '@tanstack/svelte-query';
 
   // Props
   interface Props {
@@ -74,9 +72,6 @@
     detailView
   }: Props = $props();
 
-  // QueryClient for refetching
-  const queryClient = useQueryClient();
-
   // 表示モード（初期値のみpropsから取得する意図的な設計）
   // svelte-ignore state_referenced_locally
   let displayMode = $state<'grid' | 'list'>(initialDisplayMode);
@@ -134,10 +129,6 @@
   function handleItemSelect(item: T) {
     selectedKey = keyOf(item);
   }
-
-  function handleRefreshComplete() {
-    invalidateTrackListQueries(queryClient);
-  }
 </script>
 
 <div class="browse-page">
@@ -154,7 +145,6 @@
     showGridMode={true}
     showListMode={true}
     showCardSizeSlider={enableCardSizeSlider && displayMode === 'grid'}
-    onRefreshComplete={handleRefreshComplete}
   />
 
   {#if !hasTwoPaneList || displayMode === 'grid'}

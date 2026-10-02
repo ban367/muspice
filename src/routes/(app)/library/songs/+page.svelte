@@ -1,12 +1,8 @@
 <script lang="ts">
-  import { useTracksQuery, useSearchQuery, invalidateTrackListQueries } from '$lib/queries/tracks';
+  import { useTracksQuery, useSearchQuery } from '$lib/queries/tracks';
   import { sanitizeSearchQuery } from '$lib/utils/validation';
   import TrackList from '$lib/components/library/TrackList.svelte';
   import LibraryHeader from '$lib/components/library/LibraryHeader.svelte';
-  import { useQueryClient } from '@tanstack/svelte-query';
-
-  // QueryClient for refetching
-  const queryClient = useQueryClient();
 
   // 表示モード
   let displayMode = $state<'grid' | 'list'>('list');
@@ -58,11 +54,6 @@
   function handleDisplayModeChange(mode: 'grid' | 'list') {
     displayMode = mode;
   }
-
-  function handleRefreshComplete() {
-    // 全てのトラック関連クエリをリフレッシュ
-    invalidateTrackListQueries(queryClient);
-  }
 </script>
 
 <div class="songs-page">
@@ -79,7 +70,6 @@
     showGridMode={true}
     showListMode={true}
     showCardSizeSlider={true}
-    onRefreshComplete={handleRefreshComplete}
   />
 
   <!-- トラックリスト -->

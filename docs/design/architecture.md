@@ -32,7 +32,8 @@ graph TD
 - ルート: `src/routes/(app)` 配下にライブラリ・プレイリスト、`src/routes/settings` に設定画面
 - UI部品: `src/lib/components` と `src/lib/components/ui`
 - 型: `src/lib/types/models.ts` をRustモデルと対応させる
-- データ取得: `src/lib/queries/*.ts` で `invoke()` をラップ
+- データ取得: `src/lib/queries/*.ts` のクエリ・ミューテーションがコマンド呼び出し・キャッシュ無効化・エラー通知を担い、コンポーネントからは直接コマンドを呼ばない
+- アルバムアート: `src/lib/stores/albumArtCache.ts` が一覧・詳細・プレイヤーで共有するキャッシュを持つ
 - ブラウザ確認用モック: `npm run dev:mock` のときだけ `src/hooks.client.ts` が `src/lib/mocks` のインメモリバックエンドへIPCを差し替える（`implementation.md` 参照）
 
 ## バックエンド構成

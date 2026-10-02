@@ -23,9 +23,6 @@ export const albumArtCache = {
   subscribe: cacheStore.subscribe
 };
 
-// 後方互換性のためのバージョンストア（非推奨、cacheStoreを使用してください）
-export const albumArtCacheVersion = writable(0);
-
 /**
  * アルバムアートを取得（キャッシュがあれば即座に返す）
  * @param trackId - トラックID
@@ -73,11 +70,9 @@ export async function loadAlbumArt(trackId: string): Promise<void> {
 
     // キャッシュを更新（リアクティブに通知）
     cacheStore.update((c) => ({ ...c, [trackId]: dataUrl }));
-    albumArtCacheVersion.update((v) => v + 1);
   } catch {
     // エラー時はnullをキャッシュ
     cacheStore.update((c) => ({ ...c, [trackId]: null }));
-    albumArtCacheVersion.update((v) => v + 1);
   } finally {
     loading.delete(trackId);
   }
@@ -102,7 +97,6 @@ export async function loadAlbumArts(trackIds: string[]): Promise<void> {
 export function clearAlbumArtCache(): void {
   cacheStore.set({});
   loading.clear();
-  albumArtCacheVersion.update((v) => v + 1);
 }
 
 /**
@@ -115,7 +109,6 @@ export function invalidateAlbumArt(trackId: string): void {
     delete newCache[trackId];
     return newCache;
   });
-  albumArtCacheVersion.update((v) => v + 1);
 }
 
 /**

@@ -20,9 +20,7 @@ export const CACHE_POLICY = {
   /** 再生統計（お気に入り・よく再生する） */
   playStats: { staleTime: 5 * MINUTE, gcTime: 15 * MINUTE },
   /** 頻繁に変わるデータ（最近再生した曲） */
-  volatile: { staleTime: 1 * MINUTE, gcTime: 5 * MINUTE },
-  /** アルバムアート: ファイル由来で実質不変、デコード済みで重い */
-  albumArt: { staleTime: 30 * MINUTE, gcTime: 60 * MINUTE }
+  volatile: { staleTime: 1 * MINUTE, gcTime: 5 * MINUTE }
 } as const;
 
 /**
