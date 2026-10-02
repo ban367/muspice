@@ -35,6 +35,7 @@ target/rust-analyzer/
 Thumbs.db
 Desktop.ini
 
-# AI開発ツール設定
-.claude/
+# AI開発ツール設定（Claude Codeのプレビュー起動設定のみ共有する）
+.claude/*
+!.claude/launch.json
 .serena/

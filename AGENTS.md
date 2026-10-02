@@ -12,7 +12,7 @@ Tauri 2 + SvelteKit で構築されたデスクトップ音楽管理アプリ。
 
 ## ディレクトリ構造
 
-- `src/` - SvelteKitフロントエンド（`routes/`, `lib/components/`, `lib/queries/`, `lib/stores/`, `lib/types/`, `lib/utils/`）
+- `src/` - SvelteKitフロントエンド（`routes/`, `lib/components/`, `lib/queries/`, `lib/stores/`, `lib/types/`, `lib/utils/`, `lib/mocks/`）
 - `src-tauri/` - Tauri + Rustバックエンド（`src/commands/`, `db.rs`, `repository.rs`, `models.rs`, `library.rs`, `metadata.rs`, `playlist.rs`, `validation.rs`, `logger.rs`, `state.rs` 等）
 - `static/` - 静的アセット
 - `docs/` - 詳細ドキュメント
@@ -23,6 +23,7 @@ Tauri 2 + SvelteKit で構築されたデスクトップ音楽管理アプリ。
 npm install                   # フロントエンド依存関係
 npm run tauri dev             # 開発モード（推奨）
 npm run dev                   # フロントエンドのみ（ポート1420）
+npm run dev:mock              # ブラウザ確認用（Tauri IPCをモック、ポート1430）
 npm run check                 # TypeScript型チェック
 npm run lint                  # ESLint
 npm test                      # Vitest（フロントエンドの単体テスト）
@@ -43,6 +44,7 @@ npm run tauri build           # 本番ビルド
 - **Svelte 5**: Runes構文（`$props()`, `$state()`, `$derived()`, `$effect()`）を使用
 - **TailwindCSS**: カスタムクラスを`@apply`で使わない。スタイルブロック先頭に`@reference`を追加
 - **セキュリティ**: WebViewの権限（capability・assetProtocolスコープ）は最小限にし、ファイルアクセスはRust側のコマンドで行う。WebViewから任意のパスを受け取らずトラックID等で解決する。ローカルデータのみ。外部通信なし
+- **動作確認**: Claude CodeでのUI確認は`npm run dev:mock`（`.claude/launch.json`の`web-mock`）でTauri IPCをモックしたブラウザを使う。Rustのコマンドを変更したら`src/lib/mocks/backend.ts`も追随させる（詳細は`docs/design/implementation.md`）
 - **パフォーマンス**: バッチインポート（50件/TX）、FTS5検索、DBインデックス、クエリ制限（1000件）、デバウンス（300ms）、仮想スクロール
 
 ## ドキュメント参照ルール
