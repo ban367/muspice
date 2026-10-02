@@ -92,6 +92,12 @@ export const commands = {
 	 *  WebViewから任意のパスを指定できないよう、トラックIDからDB上のパスを解決する。
 	 */
 	showInFolder: (trackId: string) => __TAURI_INVOKE<null>("show_in_folder", { trackId }),
+	/**
+	 *  プロジェクトのページを既定のブラウザで開く
+	 * 
+	 *  WebViewから任意のURLを開けないよう、開く先は固定のURLに限る。
+	 */
+	openProjectPage: () => __TAURI_INVOKE<null>("open_project_page"),
 	/**  お気に入りを切り替え */
 	toggleFavorite: (trackId: string) => __TAURI_INVOKE<boolean>("toggle_favorite", { trackId }),
 	/**  レーティングを設定 */

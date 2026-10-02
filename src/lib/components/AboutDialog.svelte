@@ -1,5 +1,8 @@
 <script lang="ts">
   import { isAboutDialogOpen } from '$lib/stores/ui';
+  import { useOpenProjectPageMutation } from '$lib/queries/system';
+
+  const openProjectPage = useOpenProjectPageMutation();
 
   function closeDialog() {
     isAboutDialogOpen.set(false);
@@ -40,12 +43,8 @@
         </p>
 
         <div class="about-links">
-          <a
-            href="https://github.com/ban367/muspice"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="about-link"
-          >
+          <!-- 外部リンクはWebViewでは開けないため、固定URLを開くコマンドを使う -->
+          <button type="button" class="about-link" onclick={() => openProjectPage.mutate()}>
             <svg
               xmlns="http://www.w3.org/2000/svg"
               class="link-icon"
@@ -57,7 +56,7 @@
               />
             </svg>
             GitHub
-          </a>
+          </button>
         </div>
 
         <button class="btn-primary about-close-btn" onclick={closeDialog}>閉じる</button>
@@ -102,7 +101,7 @@
   }
 
   .about-link {
-    @apply inline-flex items-center gap-2 text-sm text-primary no-underline transition-colors;
+    @apply inline-flex items-center gap-2 text-sm text-primary no-underline transition-colors bg-transparent border-0 p-0 cursor-pointer;
   }
 
   .about-link:hover {

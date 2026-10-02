@@ -45,7 +45,7 @@ pub use stats::{
 };
 
 // システム
-pub use system::show_in_folder;
+pub use system::{open_project_page, show_in_folder, PROJECT_URL};
 
 /// 重い同期処理をブロッキング処理用のスレッドで実行する
 ///
