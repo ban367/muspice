@@ -5,6 +5,7 @@
   import { formatDuration, formatTotalDuration } from '$lib/utils/format';
   import PlayingIndicator from './PlayingIndicator.svelte';
   import AlbumArt from '../AlbumArt.svelte';
+  import { Modal } from '$lib/components/ui';
 
   // Props
   interface Props {
@@ -61,123 +62,109 @@
       playTrackFromQueue(shuffled, 0);
     }
   }
-
-  // モーダル外クリックで閉じる
-  function handleBackdropClick(event: MouseEvent) {
-    if (event.target === event.currentTarget) {
-      onClose();
-    }
-  }
-
-  // キーボードイベント
-  function handleKeydown(event: KeyboardEvent) {
-    if (event.key === 'Escape') {
-      onClose();
-    }
-  }
 </script>
 
-<svelte:window on:keydown={handleKeydown} />
-
-{#if group}
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="custom-modal-backdrop" onclick={handleBackdropClick}>
-    <div class="modal-content max-w-3xl">
-      <!-- ヘッダー -->
-      <div class="modal-header">
-        <div class="header-art">
-          <AlbumArt
-            src={getArt(group.representativeTrackId)}
-            alt={group.name}
-            rounded="lg"
-            placeholderType={type === 'artist' ? 'person' : 'disc'}
-          />
-        </div>
-        <div class="header-info">
-          <span class="text-xs uppercase tracking-wider text-text-muted mb-2">
-            {type === 'album' ? 'アルバム' : type === 'artist' ? 'アーティスト' : 'ジャンル'}
-          </span>
-          <h2 class="text-2xl font-bold text-text-primary m-0 leading-tight">{group.name}</h2>
-          {#if 'artist' in group && group.artist}
-            <p class="text-base text-text-secondary mt-2 m-0">{group.artist}</p>
-          {/if}
-          <p class="text-sm text-text-dimmed mt-2 m-0">
-            {group.trackCount}曲 · {formatTotalDuration(group.totalDuration)}
-          </p>
-          <div class="flex gap-3 mt-4">
-            <button class="action-button primary" onclick={handlePlayAll}>
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-                class="w-4 h-4"
-              >
-                <path d="M8 5v14l11-7z" />
-              </svg>
-              再生
-            </button>
-            <button class="action-button" onclick={handleShufflePlay}>
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                class="w-4 h-4"
-              >
-                <polyline points="16 3 21 3 21 8" />
-                <line x1="4" y1="20" x2="21" y2="3" />
-                <polyline points="21 16 21 21 16 21" />
-                <line x1="15" y1="15" x2="21" y2="21" />
-                <line x1="4" y1="4" x2="9" y2="9" />
-              </svg>
-              シャッフル
-            </button>
-          </div>
-        </div>
-        <button class="close-button" onclick={onClose} title="閉じる">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            class="w-4 h-4"
-          >
-            <line x1="18" y1="6" x2="6" y2="18" />
-            <line x1="6" y1="6" x2="18" y2="18" />
-          </svg>
-        </button>
+<Modal
+  open={group !== null}
+  {onClose}
+  label={group?.name}
+  class="max-w-3xl"
+  bodyClass="flex flex-col flex-1 min-h-0"
+>
+  {#if group}
+    <!-- ヘッダー -->
+    <div class="modal-header">
+      <div class="header-art">
+        <AlbumArt
+          src={getArt(group.representativeTrackId)}
+          alt={group.name}
+          rounded="lg"
+          placeholderType={type === 'artist' ? 'person' : 'disc'}
+        />
       </div>
-
-      <!-- トラックリスト -->
-      <div class="track-list">
-        {#each tracks as track, index (track.id)}
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div
-            class="track-row"
-            class:playing={$currentTrack?.id === track.id}
-            ondblclick={() => handleTrackDoubleClick(index)}
-          >
-            <span class="track-number">
-              {#if $currentTrack?.id === track.id}
-                <PlayingIndicator size="small" />
-              {:else}
-                {index + 1}
-              {/if}
-            </span>
-            <div class="track-info">
-              <span class="track-title">{track.title || track.fileName}</span>
-              <span class="track-artist">{track.artist || '不明なアーティスト'}</span>
-            </div>
-            <span class="track-duration">{formatDuration(track.duration)}</span>
-          </div>
-        {/each}
+      <div class="header-info">
+        <span class="text-xs uppercase tracking-wider text-text-muted mb-2">
+          {type === 'album' ? 'アルバム' : type === 'artist' ? 'アーティスト' : 'ジャンル'}
+        </span>
+        <h2 class="text-2xl font-bold text-text-primary m-0 leading-tight">{group.name}</h2>
+        {#if 'artist' in group && group.artist}
+          <p class="text-base text-text-secondary mt-2 m-0">{group.artist}</p>
+        {/if}
+        <p class="text-sm text-text-dimmed mt-2 m-0">
+          {group.trackCount}曲 · {formatTotalDuration(group.totalDuration)}
+        </p>
+        <div class="flex gap-3 mt-4">
+          <button class="action-button primary" onclick={handlePlayAll}>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              class="w-4 h-4"
+            >
+              <path d="M8 5v14l11-7z" />
+            </svg>
+            再生
+          </button>
+          <button class="action-button" onclick={handleShufflePlay}>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              class="w-4 h-4"
+            >
+              <polyline points="16 3 21 3 21 8" />
+              <line x1="4" y1="20" x2="21" y2="3" />
+              <polyline points="21 16 21 21 16 21" />
+              <line x1="15" y1="15" x2="21" y2="21" />
+              <line x1="4" y1="4" x2="9" y2="9" />
+            </svg>
+            シャッフル
+          </button>
+        </div>
       </div>
+      <button class="close-button" onclick={onClose} title="閉じる">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          class="w-4 h-4"
+        >
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      </button>
     </div>
-  </div>
-{/if}
+
+    <!-- トラックリスト -->
+    <div class="track-list">
+      {#each tracks as track, index (track.id)}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="track-row"
+          class:playing={$currentTrack?.id === track.id}
+          ondblclick={() => handleTrackDoubleClick(index)}
+        >
+          <span class="track-number">
+            {#if $currentTrack?.id === track.id}
+              <PlayingIndicator size="small" />
+            {:else}
+              {index + 1}
+            {/if}
+          </span>
+          <div class="track-info">
+            <span class="track-title">{track.title || track.fileName}</span>
+            <span class="track-artist">{track.artist || '不明なアーティスト'}</span>
+          </div>
+          <span class="track-duration">{formatDuration(track.duration)}</span>
+        </div>
+      {/each}
+    </div>
+  {/if}
+</Modal>
 
 <style>
   @reference "../../../app.css";

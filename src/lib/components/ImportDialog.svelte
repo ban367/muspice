@@ -6,6 +6,7 @@
   import { isImportDialogOpen } from '$lib/stores/ui';
   import { toErrorMessage } from '$lib/stores/error';
   import { useImportFolderMutation } from '$lib/queries/tracks';
+  import { Modal } from '$lib/components/ui';
 
   interface Props {
     onClose?: () => void;
@@ -124,167 +125,134 @@
   }
 </script>
 
-{#if $isImportDialogOpen}
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="custom-modal-backdrop" onclick={closeDialog}>
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="modal-content max-w-xl" onclick={(e) => e.stopPropagation()}>
-      <div class="flex justify-between items-center p-6 border-b border-border">
-        <h3 class="m-0 text-xl font-semibold text-text-primary">音楽フォルダをインポート</h3>
+<Modal
+  open={$isImportDialogOpen}
+  onClose={closeDialog}
+  title="音楽フォルダをインポート"
+  dismissible={!isImporting}
+  class="max-w-xl"
+>
+  {#if !importResult}
+    <!-- フォルダ選択 -->
+    <div class="form-group">
+      <label for="folder-path" class="form-label">選択されたフォルダ</label>
+      <div class="flex gap-2">
+        <input
+          id="folder-path"
+          type="text"
+          readonly
+          value={selectedFolder || 'フォルダが選択されていません'}
+          class="form-input flex-1"
+        />
         <button
-          class="btn-icon w-8 h-8"
-          onclick={closeDialog}
+          onclick={selectFolder}
           disabled={isImporting}
-          aria-label="閉じる"
+          class="btn-secondary whitespace-nowrap"
         >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="w-5 h-5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M6 18L18 6M6 6l12 12"
-            />
-          </svg>
+          フォルダを選択
         </button>
       </div>
-
-      <div class="p-6 overflow-y-auto flex-1">
-        {#if !importResult}
-          <!-- フォルダ選択 -->
-          <div class="form-group">
-            <label for="folder-path" class="form-label">選択されたフォルダ</label>
-            <div class="flex gap-2">
-              <input
-                id="folder-path"
-                type="text"
-                readonly
-                value={selectedFolder || 'フォルダが選択されていません'}
-                class="form-input flex-1"
-              />
-              <button
-                onclick={selectFolder}
-                disabled={isImporting}
-                class="btn-secondary whitespace-nowrap"
-              >
-                フォルダを選択
-              </button>
-            </div>
-          </div>
-
-          <!-- 重複ファイル処理の選択 -->
-          <fieldset class="form-group border-none p-0 m-0">
-            <legend class="form-label">重複ファイルの処理</legend>
-            <div class="flex flex-col gap-2">
-              <label class="flex items-center gap-2 cursor-pointer text-text-secondary">
-                <input
-                  type="radio"
-                  bind:group={duplicateAction}
-                  value="Skip"
-                  disabled={isImporting}
-                  class="w-4 h-4"
-                />
-                スキップ（既存ファイルを保持）
-              </label>
-              <label class="flex items-center gap-2 cursor-pointer text-text-secondary">
-                <input
-                  type="radio"
-                  bind:group={duplicateAction}
-                  value="Replace"
-                  disabled={isImporting}
-                  class="w-4 h-4"
-                />
-                置き換え（新しいファイルで上書き）
-              </label>
-            </div>
-          </fieldset>
-
-          <!-- 進行状況バー -->
-          {#if isImporting}
-            <div class="mt-6">
-              <p class="text-center text-text-secondary mb-2">
-                {#if totalFiles > 0}
-                  インポート中... ({processedFiles}/{totalFiles})
-                {:else}
-                  スキャン中...
-                {/if}
-              </p>
-              <div class="progress-bar-container">
-                <div class="progress-bar-fill" style="width: {progress}%"></div>
-              </div>
-              <div class="mt-2 flex flex-col items-center gap-1">
-                <p class="text-center text-primary font-semibold m-0">{progress}%</p>
-                {#if currentFile}
-                  <p class="text-center text-text-dimmed text-xs m-0 max-w-full truncate">
-                    {currentFile}
-                  </p>
-                {/if}
-              </div>
-            </div>
-          {/if}
-
-          <!-- エラーメッセージ -->
-          {#if errorMessage}
-            <div class="message-error mt-4">{errorMessage}</div>
-          {/if}
-        {:else}
-          <!-- インポート結果 -->
-          <div class="text-center">
-            <h4 class="text-xl font-semibold text-secondary m-0 mb-6">インポート完了</h4>
-            <div class="flex flex-col gap-3 mb-6">
-              <div class="result-stat">
-                <span class="text-text-secondary">インポート成功:</span>
-                <span class="font-semibold text-secondary">{importResult.importedCount}件</span>
-              </div>
-              <div class="result-stat">
-                <span class="text-text-secondary">スキップ:</span>
-                <span class="font-semibold text-text-primary">{importResult.skippedCount}件</span>
-              </div>
-              <div class="result-stat">
-                <span class="text-text-secondary">エラー:</span>
-                <span class="font-semibold text-error-light">{importResult.errorCount}件</span>
-              </div>
-            </div>
-            {#if importResult.errors.length > 0}
-              <div class="message-error text-left">
-                <p class="font-semibold m-0 mb-2">エラー詳細:</p>
-                <ul class="m-0 pl-6">
-                  {#each importResult.errors as error, i (i)}
-                    <li class="my-1">{error}</li>
-                  {/each}
-                </ul>
-              </div>
-            {/if}
-          </div>
-        {/if}
-      </div>
-
-      <div class="flex justify-end gap-3 p-6 border-t border-border">
-        {#if !importResult}
-          <button onclick={closeDialog} disabled={isImporting} class="btn-secondary">
-            キャンセル
-          </button>
-          <button
-            onclick={startImport}
-            disabled={!selectedFolder || isImporting}
-            class="btn-primary"
-          >
-            {isImporting ? 'インポート中...' : 'インポート開始'}
-          </button>
-        {:else}
-          <button onclick={closeDialog} class="btn-success">閉じる</button>
-        {/if}
-      </div>
     </div>
-  </div>
-{/if}
+
+    <!-- 重複ファイル処理の選択 -->
+    <fieldset class="form-group border-none p-0 m-0">
+      <legend class="form-label">重複ファイルの処理</legend>
+      <div class="flex flex-col gap-2">
+        <label class="flex items-center gap-2 cursor-pointer text-text-secondary">
+          <input
+            type="radio"
+            bind:group={duplicateAction}
+            value="Skip"
+            disabled={isImporting}
+            class="w-4 h-4"
+          />
+          スキップ（既存ファイルを保持）
+        </label>
+        <label class="flex items-center gap-2 cursor-pointer text-text-secondary">
+          <input
+            type="radio"
+            bind:group={duplicateAction}
+            value="Replace"
+            disabled={isImporting}
+            class="w-4 h-4"
+          />
+          置き換え（新しいファイルで上書き）
+        </label>
+      </div>
+    </fieldset>
+
+    <!-- 進行状況バー -->
+    {#if isImporting}
+      <div class="mt-6">
+        <p class="text-center text-text-secondary mb-2">
+          {#if totalFiles > 0}
+            インポート中... ({processedFiles}/{totalFiles})
+          {:else}
+            スキャン中...
+          {/if}
+        </p>
+        <div class="progress-bar-container">
+          <div class="progress-bar-fill" style="width: {progress}%"></div>
+        </div>
+        <div class="mt-2 flex flex-col items-center gap-1">
+          <p class="text-center text-primary font-semibold m-0">{progress}%</p>
+          {#if currentFile}
+            <p class="text-center text-text-dimmed text-xs m-0 max-w-full truncate">
+              {currentFile}
+            </p>
+          {/if}
+        </div>
+      </div>
+    {/if}
+
+    <!-- エラーメッセージ -->
+    {#if errorMessage}
+      <div class="message-error mt-4">{errorMessage}</div>
+    {/if}
+  {:else}
+    <!-- インポート結果 -->
+    <div class="text-center">
+      <h4 class="text-xl font-semibold text-secondary m-0 mb-6">インポート完了</h4>
+      <div class="flex flex-col gap-3 mb-6">
+        <div class="result-stat">
+          <span class="text-text-secondary">インポート成功:</span>
+          <span class="font-semibold text-secondary">{importResult.importedCount}件</span>
+        </div>
+        <div class="result-stat">
+          <span class="text-text-secondary">スキップ:</span>
+          <span class="font-semibold text-text-primary">{importResult.skippedCount}件</span>
+        </div>
+        <div class="result-stat">
+          <span class="text-text-secondary">エラー:</span>
+          <span class="font-semibold text-error-light">{importResult.errorCount}件</span>
+        </div>
+      </div>
+      {#if importResult.errors.length > 0}
+        <div class="message-error text-left">
+          <p class="font-semibold m-0 mb-2">エラー詳細:</p>
+          <ul class="m-0 pl-6">
+            {#each importResult.errors as error, i (i)}
+              <li class="my-1">{error}</li>
+            {/each}
+          </ul>
+        </div>
+      {/if}
+    </div>
+  {/if}
+
+  {#snippet footer()}
+    {#if !importResult}
+      <button onclick={closeDialog} disabled={isImporting} class="btn-secondary">
+        キャンセル
+      </button>
+      <button onclick={startImport} disabled={!selectedFolder || isImporting} class="btn-primary">
+        {isImporting ? 'インポート中...' : 'インポート開始'}
+      </button>
+    {:else}
+      <button onclick={closeDialog} class="btn-success">閉じる</button>
+    {/if}
+  {/snippet}
+</Modal>
 
 <style>
   @reference "../../app.css";
