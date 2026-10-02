@@ -44,6 +44,8 @@ export interface MockBackendOptions {
 export interface MockBackend {
   /** IPCのコマンド名（snake_case）と引数オブジェクトでコマンドを実行する */
   invoke(cmd: string, args?: Record<string, unknown>): Promise<unknown>;
+  /** `albumart`プロトコルの代わりに、トラックのアルバムアートをdata URLで返す（アートがなければnull） */
+  albumArtUrl(trackId: string): string | null;
 }
 
 /** インポート時に「見つかった」ことにするファイル数 */
@@ -509,12 +511,6 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       playlist.updatedAt = now();
       return null;
     },
-    getAlbumArt: (trackId) => {
-      validateTrackId(trackId);
-      const { album } = findTrack(trackId);
-      if (album === null || ALBUMS_WITHOUT_ART.has(album)) return null;
-      return createAlbumArt(album);
-    },
     getTrackFilePath: (trackId) => {
       validateTrackId(trackId);
       return findTrack(trackId).filePath;
@@ -606,6 +602,11 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       const result = await handler(...Object.values(args));
       // IPCのシリアライズと同様に複製を返し、呼び出し側から状態を書き換えられないようにする
       return structuredClone(result ?? null);
+    },
+    albumArtUrl(trackId) {
+      const album = tracks.find((t) => t.id === trackId)?.album ?? null;
+      if (album === null || ALBUMS_WITHOUT_ART.has(album)) return null;
+      return createAlbumArt(album);
     }
   };
 }

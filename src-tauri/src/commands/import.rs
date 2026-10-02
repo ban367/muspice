@@ -158,6 +158,11 @@ fn import_folder_blocking(
         ));
     }
 
+    // 同じパスのファイルが差し替わった可能性があるため、アルバムアートを読み直させる
+    if let Ok(mut cache) = state.album_art_cache.lock() {
+        cache.clear();
+    }
+
     Ok(ImportResult {
         imported_count,
         skipped_count,

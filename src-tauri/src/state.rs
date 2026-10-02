@@ -1,3 +1,4 @@
+use crate::album_art::AlbumArtCache;
 use crate::error::{AppError, AppResult};
 use rusqlite::Connection;
 use std::sync::Mutex;
@@ -17,6 +18,8 @@ pub struct AppState {
     pub current_track_id: Mutex<Option<String>>,
     /// アルバムアート抽出の同時実行数を制限するセマフォ
     pub album_art_limiter: Semaphore,
+    /// 抽出済みアルバムアートのキャッシュ（`albumart`プロトコルが使う）
+    pub album_art_cache: Mutex<AlbumArtCache>,
 }
 
 impl AppState {
@@ -25,6 +28,7 @@ impl AppState {
             db: Mutex::new(db),
             current_track_id: Mutex::new(None),
             album_art_limiter: Semaphore::new(ALBUM_ART_CONCURRENCY),
+            album_art_cache: Mutex::new(AlbumArtCache::default()),
         }
     }
 

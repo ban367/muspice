@@ -28,7 +28,6 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 uuid = { version = "1.22", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 lofty = "0.25"
-base64 = "0.23"
 thiserror = "2"
 # Tauriが内部で使うtokioと同じもの（セマフォのためsync機能のみ追加）
 tokio = { version = "1", features = ["sync"] }

@@ -8,7 +8,6 @@ import { commands } from '$lib/bindings';
 import type {
   Track,
   Metadata,
-  AlbumArt,
   DeleteResult,
   DuplicateAction,
   FilterOptions
@@ -146,19 +145,6 @@ export function useUniqueGenresQuery() {
     },
     ...CACHE_POLICY.library
   }));
-}
-
-/**
- * アルバムアートを直接取得する関数（キャッシュなし）
- *
- * キャッシュは`$lib/stores/albumArtCache`が担う。コンポーネントからはそちらを使う。
- */
-export async function getAlbumArt(trackId: string): Promise<AlbumArt | null> {
-  try {
-    return await commands.getAlbumArt(trackId);
-  } catch {
-    return null;
-  }
 }
 
 /**

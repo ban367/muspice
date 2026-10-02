@@ -45,13 +45,6 @@ export const commands = {
 	removeTrackFromPlaylist: (playlistId: string, trackId: string) => __TAURI_INVOKE<null>("remove_track_from_playlist", { playlistId, trackId }),
 	/**  プレイリスト内のトラックを並び替え */
 	reorderPlaylistTracks: (playlistId: string, trackIds: string[]) => __TAURI_INVOKE<null>("reorder_playlist_tracks", { playlistId, trackIds }),
-	/**  トラックのアルバムアートを取得 */
-	getAlbumArt: (trackId: string) => __TAURI_INVOKE<{
-	/**  Base64エンコードされた画像データ */
-	data: string,
-	/**  MIMEタイプ (image/jpeg, image/png など) */
-	mimeType: string,
-} | null>("get_album_art", { trackId }),
 	/**
 	 *  トラックのファイルパスを取得
 	 * 
@@ -136,14 +129,6 @@ export const events = {
 };
 
 /* Types */
-/**  アルバムアート情報 */
-export type AlbumArt = {
-	/**  Base64エンコードされた画像データ */
-	data: string,
-	/**  MIMEタイプ (image/jpeg, image/png など) */
-	mimeType: string,
-};
-
 /**  アルバムグループ（アルバム表示用） */
 export type AlbumGroup = {
 	name: string,

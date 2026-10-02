@@ -1,12 +1,9 @@
 //! 音楽再生関連コマンド
 
-use super::run_blocking;
 use crate::error::{AppError, AppResult};
-use crate::metadata::{AlbumArt, extract_album_art};
 use crate::models::Track;
 use crate::state::AppState;
 use crate::validation::validate_track_id;
-use std::path::Path;
 use tauri::{AppHandle, Manager, State};
 
 /// トラックのファイルパスを取得
@@ -72,26 +69,4 @@ pub async fn get_current_track(state: State<'_, AppState>) -> AppResult<Option<T
             Err(_) => Ok(None),
         },
     )
-}
-
-/// トラックのアルバムアートを取得
-#[tauri::command]
-#[specta::specta]
-pub async fn get_album_art(
-    track_id: String,
-    state: State<'_, AppState>,
-) -> AppResult<Option<AlbumArt>> {
-    // トラックIDをバリデーション
-    validate_track_id(&track_id)?;
-
-    // トラックのファイルパスを取得
-    let file_path =
-        state.with_db(|db| crate::repository::find_file_path_by_track_id(db, &track_id))?;
-
-    // アルバムアートを抽出（DBロック外・ブロッキング処理用スレッドで実行）
-    // 一覧表示で大量に要求されるため、同時実行数を制限する
-    let _permit = state.album_art_limiter.acquire().await.map_err(|e| {
-        AppError::Lock(format!("アルバムアート読み込みの待機に失敗しました: {}", e))
-    })?;
-    run_blocking(move || extract_album_art(Path::new(&file_path))).await
 }

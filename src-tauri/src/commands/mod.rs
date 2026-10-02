@@ -36,7 +36,7 @@ pub use playlist_cmd::{
 };
 
 // プレーヤー・アルバムアート
-pub use player::{get_album_art, get_current_track, get_track_file_path, set_current_track};
+pub use player::{get_current_track, get_track_file_path, set_current_track};
 
 // 統計（お気に入り・レーティング・再生回数）
 pub use stats::{

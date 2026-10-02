@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { ArtistGroup, AlbumGroup } from '$lib/types/models';
   import { playTrackFromQueue, currentTrack } from '$lib/stores/player';
-  import { loadAlbumArt, albumArtCache } from '$lib/stores/albumArtCache';
+  import { albumArtUrl } from '$lib/utils/albumArt';
   import { formatDuration } from '$lib/utils/format';
   import PlayingIndicator from './PlayingIndicator.svelte';
   import MarqueeText from '../MarqueeText.svelte';
@@ -13,25 +13,6 @@
   }
 
   let { artist }: Props = $props();
-
-  // リアクティブなキャッシュを購読
-  const cache = $derived($albumArtCache);
-
-  // アルバムアートを読み込み
-  $effect(() => {
-    if (artist) {
-      artist.albums.forEach((album) => {
-        if (album.representativeTrackId) {
-          loadAlbumArt(album.representativeTrackId);
-        }
-      });
-    }
-  });
-
-  // キャッシュからアルバムアートを取得
-  function getArt(trackId: string): string | null {
-    return cache[trackId] ?? null;
-  }
 
   // すべて再生
   function handlePlayAll() {
@@ -105,7 +86,11 @@
         <!-- アルバムヘッダー -->
         <div class="album-header">
           <div class="album-art">
-            <AlbumArt src={getArt(album.representativeTrackId)} alt={album.name} rounded="sm" />
+            <AlbumArt
+              src={albumArtUrl(album.representativeTrackId)}
+              alt={album.name}
+              rounded="sm"
+            />
           </div>
           <div class="album-info">
             <MarqueeText text={album.name} class="album-title" />

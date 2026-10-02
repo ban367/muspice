@@ -1,12 +1,10 @@
 use crate::error::{AppError, AppResult};
 use crate::models::Metadata;
-use base64::{Engine as _, engine::general_purpose::STANDARD};
 use lofty::config::WriteOptions;
 use lofty::file::{AudioFile, TaggedFileExt};
 use lofty::picture::PictureType;
 use lofty::probe::Probe;
 use lofty::tag::{Accessor, ItemKey, Tag};
-use serde::Serialize;
 use std::path::Path;
 
 /// アプリが扱う年の有効範囲
@@ -22,12 +20,11 @@ fn extract_year(tag: &Tag) -> Option<i32> {
         .filter(|y| YEAR_RANGE.contains(y))
 }
 
-/// アルバムアート情報
-#[derive(Debug, Serialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct AlbumArt {
-    /// Base64エンコードされた画像データ
-    pub data: String,
+/// 音楽ファイルに埋め込まれた画像（アルバムアート）
+#[derive(Debug, Clone)]
+pub struct EmbeddedPicture {
+    /// 画像データ
+    pub data: Vec<u8>,
     /// MIMEタイプ (image/jpeg, image/png など)
     pub mime_type: String,
 }
@@ -163,7 +160,7 @@ pub fn extract_metadata(file_path: &Path) -> AppResult<Metadata> {
 }
 
 /// 音楽ファイルからアルバムアートを抽出
-pub fn extract_album_art(file_path: &Path) -> AppResult<Option<AlbumArt>> {
+pub fn extract_album_art(file_path: &Path) -> AppResult<Option<EmbeddedPicture>> {
     let tagged_file = Probe::open(file_path)
         .map_err(|e| AppError::Metadata(format!("ファイルのオープンに失敗しました: {}", e)))?
         .read()
@@ -186,13 +183,15 @@ pub fn extract_album_art(file_path: &Path) -> AppResult<Option<AlbumArt>> {
         let picture = front_cover.or_else(|| pictures.first());
 
         if let Some(pic) = picture {
-            let data = STANDARD.encode(pic.data());
             let mime_type = pic
                 .mime_type()
                 .map(|m| m.to_string())
                 .unwrap_or_else(|| "image/jpeg".to_string());
 
-            return Ok(Some(AlbumArt { data, mime_type }));
+            return Ok(Some(EmbeddedPicture {
+                data: pic.data().to_vec(),
+                mime_type,
+            }));
         }
     }
 

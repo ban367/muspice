@@ -3,8 +3,6 @@
  *
  * 実ファイルを用意せずに済むよう、文字列から決定的に生成する。
  */
-import type { AlbumArt } from '$lib/types/models';
-
 /** 文字列から決定的なハッシュ値を得る（FNV-1a） */
 export function hashString(value: string): number {
   let hash = 0x811c9dc5;
@@ -16,11 +14,11 @@ export function hashString(value: string): number {
 }
 
 /**
- * アルバム名ごとに色の異なるグラデーション画像を生成する
+ * アルバム名ごとに色の異なるグラデーション画像をdata URLで生成する
  *
  * SVGはASCIIのみで構成し、`btoa`でそのままBase64化できるようにする。
  */
-export function createAlbumArt(albumName: string): AlbumArt {
+export function createAlbumArt(albumName: string): string {
   const hash = hashString(albumName);
   const startHue = hash % 360;
   const endHue = (startHue + 40 + ((hash >>> 9) % 80)) % 360;
@@ -34,7 +32,7 @@ export function createAlbumArt(albumName: string): AlbumArt {
     '<circle cx="60" cy="60" r="34" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="2"/>' +
     '<circle cx="60" cy="60" r="6" fill="rgba(255,255,255,0.6)"/>' +
     '</svg>';
-  return { data: btoa(svg), mimeType: 'image/svg+xml' };
+  return `data:image/svg+xml;base64,${btoa(svg)}`;
 }
 
 const SAMPLE_RATE = 8000;

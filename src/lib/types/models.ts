@@ -7,7 +7,6 @@
  * `cargo test export_typescript_bindings`で実行される。
  */
 export type {
-  AlbumArt,
   AlbumGroup,
   AppError,
   ArtistGroup,

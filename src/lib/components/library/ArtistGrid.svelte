@@ -8,12 +8,11 @@
   import { useArtistsGroupedQuery } from '$lib/queries/tracks';
   import { playTrackFromQueue } from '$lib/stores/player';
   import { gridCardSize } from '$lib/stores/ui';
-  import { loadAlbumArt, albumArtCache } from '$lib/stores/albumArtCache';
+  import { albumArtUrl } from '$lib/utils/albumArt';
   import LibraryGrid from './LibraryGrid.svelte';
   import GroupDetail from './GroupDetail.svelte';
   import MarqueeText from '../MarqueeText.svelte';
   import AlbumArt from '../AlbumArt.svelte';
-  import { intersectionObserver } from '$lib/utils/actions';
 
   // Props
   interface Props {
@@ -34,23 +33,8 @@
   // LibraryGridコンポーネントの参照
   let libraryGrid: LibraryGrid<ArtistGroup>;
 
-  // リアクティブなキャッシュを購読
-  const cache = $derived($albumArtCache);
-
   // カードサイズの計算
   const cardWidth = $derived($gridCardSize + 16);
-
-  // キャッシュからアルバムアートを取得
-  function getArt(trackId: string): string | null {
-    return cache[trackId] ?? null;
-  }
-
-  // アーティストカードが表示されたらアートを読み込み
-  function handleArtistVisible(artist: ArtistGroup) {
-    if (artist.representativeTrackId) {
-      loadAlbumArt(artist.representativeTrackId);
-    }
-  }
 
   // アーティストをクリック
   function handleArtistClick(artist: ArtistGroup) {
@@ -117,11 +101,10 @@
       onclick={() => handleArtistClick(artist)}
       ondblclick={() => handleArtistDoubleClick(artist)}
       oncontextmenu={(e) => libraryGrid.handleContextMenu(e, artist)}
-      use:intersectionObserver={{ callback: () => handleArtistVisible(artist) }}
     >
       <div class="artist-art" style="width: {$gridCardSize}px; height: {$gridCardSize}px;">
         <AlbumArt
-          src={getArt(artist.representativeTrackId)}
+          src={albumArtUrl(artist.representativeTrackId)}
           alt={artist.name}
           rounded="full"
           placeholderType="person"
@@ -158,11 +141,10 @@
       onclick={() => handleArtistClick(artist)}
       ondblclick={() => handleArtistDoubleClick(artist)}
       oncontextmenu={(e) => libraryGrid.handleContextMenu(e, artist)}
-      use:intersectionObserver={{ callback: () => handleArtistVisible(artist) }}
     >
       <div class="list-art artist-list-art">
         <AlbumArt
-          src={getArt(artist.representativeTrackId)}
+          src={albumArtUrl(artist.representativeTrackId)}
           alt={artist.name}
           rounded="full"
           placeholderType="person"
