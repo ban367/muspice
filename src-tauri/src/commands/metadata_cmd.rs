@@ -101,13 +101,6 @@ pub async fn update_multiple_tracks_metadata(
     })
 }
 
-/// メタデータをバリデーション（フロントエンド用）
-#[tauri::command]
-#[specta::specta]
-pub async fn validate_metadata_command(metadata: Metadata) -> AppResult<()> {
-    validate_metadata(&metadata)
-}
-
 /// メタデータ更新の結果
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]

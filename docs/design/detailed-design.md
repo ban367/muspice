@@ -125,7 +125,6 @@ export interface Playlist {
 | `update_track_metadata`           | `trackId`, `metadata`  | `void` | DBのみ更新             |
 | `update_track_metadata_with_file` | `trackId`, `metadata`  | `void` | ファイルタグ+DB更新    |
 | `update_multiple_tracks_metadata` | `trackIds`, `metadata` | `void` | None以外の項目のみ更新 |
-| `validate_metadata_command`       | `metadata`             | `void` | フロント事前検証用     |
 
 ### プレイリスト
 

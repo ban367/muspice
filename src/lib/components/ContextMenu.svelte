@@ -8,6 +8,7 @@
   import { BaseContextMenu, PlaylistSubmenu } from '$lib/components/ui';
   import { playSingleTrack, playQueue, currentTrackIndex } from '$lib/stores/player';
   import { get } from 'svelte/store';
+  import { useShowInFolderMutation } from '$lib/queries/tracks';
 
   // Props
   interface Props {
@@ -35,6 +36,8 @@
     onPlayNext,
     onDelete
   }: Props = $props();
+
+  const showInFolderMutation = useShowInFolderMutation();
 
   // 選択されたトラックの数
   const selectedCount = $derived(selectedTrackIds.size > 0 ? selectedTrackIds.size : 1);
@@ -99,15 +102,10 @@
   }
 
   /**
-   * ファイルの場所を開く（Tauriコマンド）
+   * ファイルの場所を開く（失敗はミューテーション内でトースト通知する）
    */
-  async function handleShowInFolder() {
-    try {
-      const { commands } = await import('$lib/bindings');
-      await commands.showInFolder(track.id);
-    } catch (error) {
-      console.error('ファイルの場所を開けませんでした:', error);
-    }
+  function handleShowInFolder() {
+    showInFolderMutation.mutate(track.id);
     onClose();
   }
 

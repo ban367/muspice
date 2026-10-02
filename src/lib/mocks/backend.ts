@@ -432,10 +432,6 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       }
       return null;
     },
-    validateMetadataCommand: (metadata) => {
-      validateMetadata(metadata);
-      return null;
-    },
     createPlaylist: (name) => {
       validatePlaylistName(name);
       const timestamp = now();

@@ -15,8 +15,6 @@
     isRightSidebarPinned,
     isRightSidebarExpanded
   } from '$lib/stores/ui';
-  import type { ImportResult } from '$lib/types/models';
-  import { invalidateTrackListQueries } from '$lib/queries/tracks';
   import '../../app.css';
 
   // サイドバーの開閉を切り替え
@@ -73,15 +71,6 @@
   });
 
   let { children } = $props();
-
-  /**
-   * インポート完了時の処理
-   */
-  function handleImportComplete(result: ImportResult) {
-    console.log('インポート完了:', result);
-    // トラック一覧と関連グループクエリを無効化
-    invalidateTrackListQueries(queryClient);
-  }
 </script>
 
 <QueryClientProvider client={queryClient}>
@@ -134,7 +123,7 @@
   </div>
 
   <!-- インポートダイアログ -->
-  <ImportDialog onImportComplete={handleImportComplete} />
+  <ImportDialog />
 
   <!-- Aboutダイアログ -->
   <AboutDialog />

@@ -41,9 +41,6 @@ export const queryKeys = {
     genres: ['unique', 'genres'] as const
   },
 
-  /** アルバムアート（トラックIDごと） */
-  albumArt: (trackId: string | null) => ['albumArt', trackId] as const,
-
   /** プレイリスト一覧 */
   playlists: ['playlists'] as const
 } as const;

@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { commands } from '$lib/bindings';
   import type { Track, Metadata } from '$lib/types/models';
   import {
     useUpdateTrackMetadataMutation,
@@ -12,6 +11,7 @@
     combineValidationResults,
     toSafeString
   } from '$lib/utils/validation';
+  import { toErrorMessage } from '$lib/stores/error';
 
   interface Props {
     tracks: Track[];
@@ -61,9 +61,11 @@
 
   /**
    * メタデータをバリデーション
+   *
+   * バックエンドも更新コマンド内で同じ検証（年の範囲・文字数）を行うため、
+   * ここでは入力中に分かる誤りを保存前に表示する目的で検証する。
    */
-  async function validateMetadata(metadata: Metadata): Promise<boolean> {
-    // フロントエンドでのバリデーション
+  function validateMetadata(metadata: Metadata): boolean {
     const validationResults = [
       validateYear(metadata.year),
       validateFieldLength(metadata.title, 'タイトル', 255),
@@ -78,15 +80,8 @@
       return false;
     }
 
-    // バックエンドでのバリデーション
-    try {
-      await commands.validateMetadataCommand(metadata);
-      validationError = null;
-      return true;
-    } catch (e) {
-      validationError = String(e);
-      return false;
-    }
+    validationError = null;
+    return true;
   }
 
   /**
@@ -108,7 +103,7 @@
       };
 
       // バリデーション
-      const isValid = await validateMetadata(metadata);
+      const isValid = validateMetadata(metadata);
       if (!isValid) {
         isLoading = false;
         return;
@@ -151,7 +146,7 @@
       // ダイアログを閉じる
       onClose();
     } catch (e) {
-      error = String(e);
+      error = toErrorMessage(e);
     } finally {
       isLoading = false;
     }

@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { commands } from '$lib/bindings';
   import CardSizeSlider from './CardSizeSlider.svelte';
+  import { useRefreshLibraryMetadataMutation } from '$lib/queries/tracks';
 
   // Props
   interface Props {
@@ -17,7 +17,6 @@
     showListMode?: boolean;
     showCardSizeSlider?: boolean;
     showRefreshButton?: boolean;
-    onRefreshComplete?: () => void;
   }
 
   let {
@@ -33,13 +32,14 @@
     showGridMode = true,
     showListMode = true,
     showCardSizeSlider = true,
-    showRefreshButton = true,
-    onRefreshComplete
+    showRefreshButton = true
   }: Props = $props();
 
   // 内部検索状態
   let internalSearchTerm = $state('');
-  let isRefreshing = $state(false);
+
+  // メタデータ再読み込み（成功時にキャッシュを無効化し、失敗はトーストで通知する）
+  const refreshMutation = useRefreshLibraryMetadataMutation();
 
   // 外部からの値で同期（propsを直接参照するのではなくクロージャで参照）
   $effect(() => {
@@ -63,21 +63,15 @@
   }
 
   async function handleRefreshMetadata() {
-    if (isRefreshing) return;
+    if (refreshMutation.isPending) return;
 
-    isRefreshing = true;
     try {
-      const result = await commands.refreshLibraryMetadata();
-      console.log('メタデータ更新結果:', result);
+      const result = await refreshMutation.mutateAsync();
       alert(
         `メタデータ更新完了\n更新: ${result.updatedCount}件\nスキップ: ${result.skippedCount}件\nエラー: ${result.errorCount}件`
       );
-      onRefreshComplete?.();
-    } catch (error) {
-      console.error('メタデータ更新エラー:', error);
-      alert('メタデータ更新中にエラーが発生しました: ' + error);
-    } finally {
-      isRefreshing = false;
+    } catch {
+      // 失敗はミューテーション内でトースト通知済み
     }
   }
 </script>
@@ -153,9 +147,9 @@
     {#if showRefreshButton}
       <button
         class="refresh-btn"
-        class:refreshing={isRefreshing}
+        class:refreshing={refreshMutation.isPending}
         onclick={handleRefreshMetadata}
-        disabled={isRefreshing}
+        disabled={refreshMutation.isPending}
         title="メタデータを更新"
         aria-label="メタデータを更新"
       >

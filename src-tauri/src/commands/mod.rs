@@ -26,7 +26,7 @@ pub use tracks::{
 // メタデータ編集
 pub use metadata_cmd::{
     refresh_library_metadata, update_multiple_tracks_metadata, update_track_metadata,
-    update_track_metadata_with_file, validate_metadata_command,
+    update_track_metadata_with_file,
 };
 
 // プレイリスト管理

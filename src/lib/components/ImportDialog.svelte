@@ -1,16 +1,20 @@
 <script lang="ts">
-  import { commands, events } from '$lib/bindings';
+  import { events } from '$lib/bindings';
   import { open } from '@tauri-apps/plugin-dialog';
   import type { DuplicateAction, ImportResult } from '$lib/types/models';
   import { validateFilePath } from '$lib/utils/validation';
   import { isImportDialogOpen } from '$lib/stores/ui';
+  import { toErrorMessage } from '$lib/stores/error';
+  import { useImportFolderMutation } from '$lib/queries/tracks';
 
   interface Props {
     onClose?: () => void;
-    onImportComplete?: (result: ImportResult) => void;
   }
 
-  let { onClose, onImportComplete }: Props = $props();
+  let { onClose }: Props = $props();
+
+  // インポート（成功時にトラック一覧のキャッシュを無効化する）
+  const importMutation = useImportFolderMutation();
 
   let selectedFolder = $state<string>('');
   let duplicateAction = $state<DuplicateAction>('Skip');
@@ -78,14 +82,13 @@
         progress = total > 0 ? Math.round((current / total) * 100) : 0;
       });
 
-      const result = await commands.importFolder(selectedFolder, duplicateAction);
+      const result = await importMutation.mutateAsync({
+        folderPath: selectedFolder,
+        duplicateAction
+      });
 
       progress = 100;
       importResult = result;
-
-      if (onImportComplete) {
-        onImportComplete(result);
-      }
 
       // 成功後、少し待ってからダイアログを閉じる
       setTimeout(() => {
@@ -93,7 +96,7 @@
       }, 2000);
     } catch (error) {
       console.error('インポートエラー:', error);
-      errorMessage = `インポートに失敗しました: ${error}`;
+      errorMessage = `インポートに失敗しました: ${toErrorMessage(error)}`;
       progress = 0;
     } finally {
       isImporting = false;

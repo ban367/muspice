@@ -65,23 +65,33 @@ const GENERIC_MESSAGES_BY_CODE: Partial<Record<AppError['code'], string>> = {
 };
 
 /**
- * グローバルエラーハンドラー
+ * エラーをユーザー向けのメッセージに変換する
  *
  * バックエンドの構造化エラーはcodeで分類してユーザー向けメッセージに変換し、
- * それ以外（フロントエンド内で発生したエラー等）はメッセージをそのまま表示する。
+ * それ以外（フロントエンド内で発生したエラー等）はメッセージをそのまま使う。
+ * 画面内にエラーを表示する場合も`String(error)`ではなくこれを使うこと
+ * （`AppError`はオブジェクトのため、文字列化すると"[object Object]"になる）。
+ */
+export function toErrorMessage(error: unknown): string {
+  if (isAppError(error)) {
+    return GENERIC_MESSAGES_BY_CODE[error.code] ?? error.message;
+  }
+  if (typeof error === 'string') {
+    return error;
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return 'エラーが発生しました';
+}
+
+/**
+ * グローバルエラーハンドラー
+ *
+ * `toErrorMessage`で変換したメッセージをトーストで通知する。
  */
 export function handleError(error: unknown, context?: string): void {
-  let message: string;
-
-  if (isAppError(error)) {
-    message = GENERIC_MESSAGES_BY_CODE[error.code] ?? error.message;
-  } else if (typeof error === 'string') {
-    message = error;
-  } else if (error instanceof Error) {
-    message = error.message;
-  } else {
-    message = 'エラーが発生しました';
-  }
+  let message = toErrorMessage(error);
 
   // コンテキストがある場合は追加
   if (context) {
