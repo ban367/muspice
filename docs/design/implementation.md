@@ -18,6 +18,7 @@
 
 ```text
 src/
+├── hooks.client.ts        # dev:mock時のみTauri IPCモックを初期化
 ├── routes/
 │   ├── (app)/
 │   │   ├── library/
@@ -28,6 +29,7 @@ src/
     ├── components/
     │   ├── ui/
     │   └── library/
+    ├── mocks/             # ブラウザ確認用のTauri IPCモック（dev:mock専用）
     ├── queries/
     ├── stores/
     ├── types/
@@ -122,6 +124,7 @@ src-tauri/src/
 npm install
 npm run tauri dev
 npm run dev
+npm run dev:mock
 npm run check
 npm run lint
 npm test
@@ -143,6 +146,22 @@ cargo test --manifest-path src-tauri/Cargo.toml
   - フロントエンドテスト（`npm test`）
   - Rust静的検査（`cargo clippy ... -D warnings`）
   - Rustテスト（`cargo test`）
+
+## ブラウザでの動作確認（IPCモック）
+
+Tauriのウィンドウ（macOSではWKWebView）はブラウザ自動化ツールから操作できないため、Claude Code等でのUI確認はTauri IPCをモックしたブラウザで行う（判断の経緯は`decisions.md`のADR-006）。
+
+- 起動: `npm run dev:mock`（Viteの`mock`モード・ポート1430）。Claude Codeでは`.claude/launch.json`の`web-mock`でプレビューを起動する
+- 仕組み: `src/hooks.client.ts`が`mock`モードのときだけ`$lib/mocks/tauri`を読み込み、`@tauri-apps/api/mocks`で`window.__TAURI_INTERNALS__`を差し替える。`tauri dev`・本番ビルドではバンドルに含まれない
+- `src/lib/mocks/`の構成:
+  - `backend.ts`: `commands`の全コマンドをメモリ上で再現するバックエンド。ハンドラ表の型を`bindings.ts`から導出しているため、Rust側でコマンドを追加・変更したら型エラーに従ってここも更新する
+  - `fixtures.ts`: 初期データ。状態はメモリ上のみで、リロードすると初期状態に戻る
+  - `media.ts`: アルバムアート（SVG）と再生用トーン（20秒のWAV）の生成
+  - `tauri.ts`: event・dialog・windowプラグインと`convertFileSrc`の差し替え
+- ネイティブメニューのイベントや確認ダイアログの回答は、開発者ツールから`window.__MUSPICE_MOCK__`で操作する
+  - `window.__MUSPICE_MOCK__.emit('open-import-dialog')`（`toggle-sidebar` / `show-about-dialog`も同様）
+  - `window.__MUSPICE_MOCK__.setConfirmResult(false)`で、以降の確認ダイアログを「キャンセル」にする
+- 確認できないもの: Rust側の処理（SQLite・FTS5・ファイルI/O・タグ読み書き）、実ファイルの再生、CSP・capabilityによる制約。これらは`cargo test`と`npm run tauri dev`で確認する
 
 ## CI方針
 

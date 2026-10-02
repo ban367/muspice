@@ -34,6 +34,9 @@ cd src-tauri && cargo build
 # 開発サーバー起動
 npm run dev
 
+# ブラウザ確認用（Tauri IPCをモック、ポート1430）
+npm run dev:mock
+
 # ビルド
 npm run build
 
