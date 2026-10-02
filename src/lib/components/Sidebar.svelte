@@ -7,6 +7,7 @@
     useCreatePlaylistMutation
   } from '$lib/queries/playlists';
   import { validatePlaylistName, toSafeString } from '$lib/utils/validation';
+  import { promptText } from '$lib/utils/dialog';
   import { isImportDialogOpen, isSidebarOpen } from '$lib/stores/ui';
   import { useGenresGroupedQuery } from '$lib/queries/tracks';
   import type { Playlist } from '$lib/types/models';
@@ -71,19 +72,16 @@
   /**
    * 新規プレイリストを作成
    */
-  function handleCreatePlaylist() {
-    const name = prompt('プレイリスト名を入力してください');
-    if (!name || !name.trim()) return;
+  async function handleCreatePlaylist() {
+    const name = await promptText({
+      title: '新規プレイリスト',
+      label: 'プレイリスト名',
+      confirmLabel: '作成',
+      validate: (value) => validatePlaylistName(value).error ?? null
+    });
+    if (name === null) return;
 
-    const trimmedName = name.trim();
-    const validation = validatePlaylistName(trimmedName);
-    if (!validation.valid) {
-      alert(validation.error);
-      return;
-    }
-
-    const safeName = toSafeString(trimmedName, 100);
-    createPlaylistMutation.mutate(safeName);
+    createPlaylistMutation.mutate(toSafeString(name, 100));
   }
 
   /**

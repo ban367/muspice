@@ -6,6 +6,9 @@
 
   表示状態は呼び出し側が持つ。閉じる操作（Escキー・背景クリック・×ボタン）があると
   `onClose`が呼ばれるので、呼び出し側で`open`をfalseにする。
+
+  開いたときは`data-autofocus`を付けた要素にフォーカスする（ない場合はブラウザの既定どおり
+  最初のフォーカス可能な要素。ヘッダーがあれば×ボタン）。
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte';
@@ -55,6 +58,7 @@
     if (!dialog) return;
     if (open && !dialog.open) {
       dialog.showModal();
+      dialog.querySelector<HTMLElement>('[data-autofocus]')?.focus();
     } else if (!open && dialog.open) {
       dialog.close();
     }
@@ -117,7 +121,10 @@
     <div class="modal-content {className}">
       {#if title}
         <div class="flex justify-between items-center p-6 border-b border-border">
-          <h3 id={titleId} class="m-0 text-xl font-semibold text-text-primary flex items-center gap-2">
+          <h3
+            id={titleId}
+            class="m-0 text-xl font-semibold text-text-primary flex items-center gap-2"
+          >
             {@render titleIcon?.()}
             {title}
           </h3>

@@ -1,7 +1,11 @@
 /**
- * ネイティブダイアログのユーティリティ
+ * ダイアログのユーティリティ
+ *
+ * 確認ダイアログはOSのネイティブダイアログ（dialogプラグイン）、テキスト入力は
+ * アプリ内のダイアログ（`TextPromptDialog`）で表示する。
  */
 import { confirm } from '@tauri-apps/plugin-dialog';
+import { get, writable } from 'svelte/store';
 
 /**
  * 削除などの取り消せない操作の確認ダイアログを表示
@@ -18,5 +22,53 @@ export function confirmDestructive(message: string): Promise<boolean> {
     kind: 'warning',
     okLabel: '削除',
     cancelLabel: 'キャンセル'
+  });
+}
+
+/** テキスト入力ダイアログの表示内容 */
+export interface TextPromptOptions {
+  /** ダイアログのタイトル */
+  title: string;
+  /** 入力欄のラベル */
+  label: string;
+  /** 入力欄の初期値 */
+  defaultValue?: string;
+  /** 確定ボタンのラベル */
+  confirmLabel?: string;
+  /** 入力値（前後の空白を除いたもの）の検証。エラーメッセージを返すと確定できない */
+  validate?: (value: string) => string | null;
+}
+
+/** 表示中のテキスト入力ダイアログ */
+export interface TextPromptRequest extends TextPromptOptions {
+  /** 入力値（キャンセル時はnull）でダイアログを閉じる */
+  resolve: (value: string | null) => void;
+}
+
+const textPrompt = writable<TextPromptRequest | null>(null);
+
+/** 表示中のテキスト入力ダイアログ（`TextPromptDialog`が購読して表示する） */
+export const textPromptRequest = { subscribe: textPrompt.subscribe };
+
+/**
+ * テキスト入力ダイアログを表示し、確定された文字列を返す
+ *
+ * `window.prompt`はmacOSのWebView（wry）が実装しておらず常にnullを返すため使わない。
+ * 表示中に別の入力を求めた場合、前のダイアログはキャンセルとして扱う。
+ * @returns 前後の空白を除いた入力値。キャンセル時はnull
+ */
+export function promptText(options: TextPromptOptions): Promise<string | null> {
+  get(textPrompt)?.resolve(null);
+
+  return new Promise((resolve) => {
+    const request: TextPromptRequest = {
+      ...options,
+      resolve: (value) => {
+        // 後から来た要求で置き換えられていたら、表示中のダイアログは閉じない
+        if (get(textPrompt) === request) textPrompt.set(null);
+        resolve(value);
+      }
+    };
+    textPrompt.set(request);
   });
 }
