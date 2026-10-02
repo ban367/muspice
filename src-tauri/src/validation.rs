@@ -129,15 +129,15 @@ pub fn validate_string_length(
     field_name: &str,
     max_length: usize,
 ) -> AppResult<()> {
-    if let Some(s) = value {
-        if s.len() > max_length {
-            return Err(AppError::Validation(format!(
-                "{}は{}文字以内で入力してください（現在: {}文字）",
-                field_name,
-                max_length,
-                s.len()
-            )));
-        }
+    if let Some(s) = value
+        && s.len() > max_length
+    {
+        return Err(AppError::Validation(format!(
+            "{}は{}文字以内で入力してください（現在: {}文字）",
+            field_name,
+            max_length,
+            s.len()
+        )));
     }
     Ok(())
 }

@@ -82,10 +82,10 @@ fn scan_directory_recursive(dir_path: &Path, audio_files: &mut Vec<PathBuf>) -> 
 
 /// ファイルがサポートされている音楽ファイルかチェック
 pub fn is_supported_audio_file(path: &Path) -> bool {
-    if let Some(extension) = path.extension() {
-        if let Some(ext_str) = extension.to_str() {
-            return SUPPORTED_EXTENSIONS.contains(&ext_str.to_lowercase().as_str());
-        }
+    if let Some(extension) = path.extension()
+        && let Some(ext_str) = extension.to_str()
+    {
+        return SUPPORTED_EXTENSIONS.contains(&ext_str.to_lowercase().as_str());
     }
     false
 }

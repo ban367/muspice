@@ -2,7 +2,7 @@
 
 use super::run_blocking;
 use crate::error::{AppError, AppResult};
-use crate::metadata::{extract_album_art, AlbumArt};
+use crate::metadata::{AlbumArt, extract_album_art};
 use crate::models::Track;
 use crate::state::AppState;
 use crate::validation::validate_track_id;

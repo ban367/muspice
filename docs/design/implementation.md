@@ -10,7 +10,7 @@
 | UIスタイル       | TailwindCSS + DaisyUI           | Tailwind 4.3.x / DaisyUI 5.7.x                      | `@apply`運用に制限あり                               |
 | データ取得       | TanStack Query（Svelte）        | 6.3.x                                               | Queryキャッシュ/再取得制御                           |
 | デスクトップ基盤 | Tauri + tauri-specta            | 2.12.x / 2.0.0-rc.25                                | 型付きコマンド呼び出しを自動生成                     |
-| バックエンド     | Rust                            | edition 2021（stable）                              | コアロジック/DBアクセス                              |
+| バックエンド     | Rust                            | edition 2024（stable）                              | コアロジック/DBアクセス                              |
 | DB               | SQLite + FTS5                   | rusqlite 0.40（bundled）                            | 全文検索・ローカル保存                               |
 | メタデータ       | lofty                           | 0.25                                                | タグ読み書き/アルバムアート抽出                      |
 

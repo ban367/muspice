@@ -4,8 +4,8 @@ use super::run_blocking;
 use crate::error::{AppError, AppResult};
 use crate::events::ImportProgress;
 use crate::library::{
-    get_default_title, get_file_format, get_file_size, scan_directory, DuplicateAction,
-    ImportResult,
+    DuplicateAction, ImportResult, get_default_title, get_file_format, get_file_size,
+    scan_directory,
 };
 use crate::metadata::extract_all_file_info;
 use crate::models::Track;

@@ -24,9 +24,9 @@ use commands::{
 };
 use state::AppState;
 use std::path::PathBuf;
+use tauri::Manager;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::webview::WebviewWindowBuilder;
-use tauri::Manager;
 use tauri_specta::Event;
 
 /// tauri-spectaビルダーを構築する
@@ -243,10 +243,10 @@ pub fn run() {
                 }
                 "toggle_fullscreen" => {
                     // フルスクリーン切替
-                    if let Some(window) = app.get_webview_window("main") {
-                        if let Ok(is_fullscreen) = window.is_fullscreen() {
-                            let _ = window.set_fullscreen(!is_fullscreen);
-                        }
+                    if let Some(window) = app.get_webview_window("main")
+                        && let Ok(is_fullscreen) = window.is_fullscreen()
+                    {
+                        let _ = window.set_fullscreen(!is_fullscreen);
                     }
                 }
                 "open_github" => {

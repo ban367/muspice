@@ -1037,10 +1037,12 @@ mod tests {
 
         // 存在しないトラックはNotFound
         let result = toggle_track_favorite(&conn, "nonexistent");
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("トラックが見つかりません"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("トラックが見つかりません")
+        );
     }
 
     /// is_favoriteに0/1以外が入っていても、負値を作らず0（解除）に倒す
@@ -1091,10 +1093,12 @@ mod tests {
 
         // 存在しないトラックはNotFound（履歴も追加しない）
         let result = increment_track_play_count(&conn, "nonexistent");
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("トラックが見つかりません"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("トラックが見つかりません")
+        );
     }
 
     #[test]
@@ -1271,10 +1275,12 @@ mod tests {
             &metadata,
             "2026-01-01T00:00:00+00:00",
         );
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("トラックが見つかりません"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("トラックが見つかりません")
+        );
 
         // 存在しないID + 更新フィールドなし → NotFound
         let result = update_track_metadata_partial(
@@ -1283,10 +1289,12 @@ mod tests {
             &empty_metadata(),
             "2026-01-01T00:00:00+00:00",
         );
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("トラックが見つかりません"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("トラックが見つかりません")
+        );
     }
 
     /// 存在しないfile_pathへの更新は成功扱いにせずエラーにする
@@ -1308,10 +1316,12 @@ mod tests {
         // 存在しないパスならNotFound
         track.file_path = "/test/unknown.mp3".to_string();
         let result = update_track_by_file_path(&conn, &track);
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("更新対象のトラックが見つかりません"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("更新対象のトラックが見つかりません")
+        );
     }
 
     #[test]
@@ -1354,9 +1364,11 @@ mod tests {
 
         // 存在しないID → NotFound
         let result = update_track_numbers(&conn, "nonexistent", Some(1), Some(1));
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("トラックが見つかりません"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("トラックが見つかりません")
+        );
     }
 }
