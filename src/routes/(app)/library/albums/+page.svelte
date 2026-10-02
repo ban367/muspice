@@ -26,6 +26,7 @@
   emptyPrompt="アルバムを選択してください"
   items={allAlbums}
   filterFn={filterAlbum}
+  getItemKey={(album) => album.name}
 >
   {#snippet emptyIcon()}
     <svg
