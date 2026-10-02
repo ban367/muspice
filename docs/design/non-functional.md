@@ -20,6 +20,7 @@
   - capability（`src-tauri/capabilities/default.json`）は `core:default` と `dialog:allow-open` / `dialog:allow-message` のみ。fs / opener プラグインはWebViewに公開しない
   - `assetProtocol.scope` は空にし、`get_track_file_path` が返すトラックファイルだけを実行時に許可する
 - CSPを明示（`tauri.conf.json`）
+  - 画像は`img-src`で`data:`と`albumart`プロトコルのみ許可する。`albumart`はDBに登録済みのトラックのアートだけを配信し、任意のファイルは読めない
   - 本番は `script-src 'self'`（SvelteKitの起動用インラインscriptはTauriがビルド時にハッシュを付与）
   - Vite開発サーバー（HMR）向けの許可は `devCsp` に分離
 - `freezePrototype` を有効化
