@@ -14,6 +14,7 @@
   import { browseSearchQuery } from '$lib/stores/ui';
   import { createSearchDebounce } from '$lib/utils/debounce';
   import { invalidateTrackListQueries } from '$lib/queries/tracks';
+  import { resolveSelectedItem } from '$lib/utils/selection';
   import { useQueryClient } from '@tanstack/svelte-query';
 
   // Props
@@ -30,6 +31,13 @@
     items?: T[];
     /** 検索クエリ（小文字化・trim済み）によるフィルタ関数 */
     filterFn?: (item: T, query: string) => boolean;
+    /**
+     * 2ペイン表示で選択中のアイテムを識別するキー
+     *
+     * データの再取得でアイテムが作り直されても選択を保つために使う。
+     * 省略時はオブジェクトの参照で比較するため、再取得のたびに先頭へ戻る。
+     */
+    getItemKey?: (item: T) => unknown;
     /** ヘッダーに表示する件数（省略時はitemsの件数） */
     count?: number;
     /** 詳細未選択時のプロンプト文言（例: アルバムを選択してください） */
@@ -55,6 +63,7 @@
     initialDisplayMode = 'list',
     items = [],
     filterFn,
+    getItemKey,
     count,
     emptyPrompt = '',
     enableCardSizeSlider = true,
@@ -85,22 +94,16 @@
     return items.filter((item) => filterFn(item, query));
   });
 
-  // 選択されたアイテム（リストモード用）
-  let selectedItem = $state<T | null>(null);
+  // 選択中アイテムのキー（リストモード用）
+  // getItemKey省略時はアイテム自体をキーにするため、$stateのProxyで包まないようrawで保持する
+  // （Proxyで包むと元のアイテムと参照が一致せず、選択を判定できない）
+  let selectedKey = $state.raw<unknown>(null);
 
-  // リストモードで選択状態をフィルタ結果と同期する
-  // - 未選択なら先頭を自動選択
-  // - 選択中のアイテムがフィルタ結果から外れたら先頭に差し替え
-  // - フィルタ結果が空なら選択を解除
-  $effect(() => {
-    if (!hasTwoPaneList || displayMode !== 'list') return;
+  const keyOf = (item: T): unknown => (getItemKey ? getItemKey(item) : item);
 
-    if (filteredItems.length === 0) {
-      selectedItem = null;
-    } else if (!selectedItem || !filteredItems.includes(selectedItem)) {
-      selectedItem = filteredItems[0];
-    }
-  });
+  // 詳細に表示するアイテム（リストモード用）
+  // 未選択・選択中のアイテムがフィルタ結果にない場合は先頭、結果が空ならnull
+  const selectedItem = $derived(resolveSelectedItem(filteredItems, selectedKey, keyOf));
 
   // 検索状態（ページ間でストアが共有されるため、現在値で初期化して表示と一致させる）
   let searchTerm = $state($browseSearchQuery);
@@ -125,11 +128,11 @@
   function handleDisplayModeChange(mode: 'grid' | 'list') {
     displayMode = mode;
     // モード切り替え時に選択をリセット
-    selectedItem = null;
+    selectedKey = null;
   }
 
   function handleItemSelect(item: T) {
-    selectedItem = item;
+    selectedKey = keyOf(item);
   }
 
   function handleRefreshComplete() {

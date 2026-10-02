@@ -1,8 +1,9 @@
 /**
- * トラック一覧の選択状態の計算
+ * 一覧の選択状態の計算
  *
- * いずれの関数も引数のSetを変更せず、新しいSetを返す（`$state`へ再代入して更新を伝える）。
- * Setの挿入順は「最後に選択したトラック」の判定（Shift+クリックの範囲選択の起点）に使う。
+ * トラック一覧の複数選択では、いずれの関数も引数のSetを変更せず、新しいSetを返す
+ * （`$state`へ再代入して更新を伝える）。Setの挿入順は「最後に選択したトラック」の判定
+ * （Shift+クリックの範囲選択の起点）に使う。
  */
 
 /** クリック時の修飾キー */
@@ -63,4 +64,26 @@ export function computeClickSelection(
   }
 
   return current.has(trackId) && current.size === 1 ? new Set() : new Set([trackId]);
+}
+
+/**
+ * 2ペイン表示（一覧＋詳細）で詳細に表示するアイテムを決める
+ *
+ * 選択はアイテムのオブジェクトではなくキーで保持する。データの再取得でオブジェクトが
+ * 作り直されても、同じキーのアイテムを選択し続けられる。
+ * - 選択中のキーを持つアイテムがあればそれを返す
+ * - 未選択、または選択中のアイテムが一覧にない（検索で絞り込まれた等）場合は先頭を返す
+ * - 一覧が空ならnullを返す
+ * @param items - 表示中のアイテム一覧
+ * @param selectedKey - 選択中のアイテムのキー（未選択ならnull）
+ * @param getKey - アイテムからキーを取り出す関数
+ */
+export function resolveSelectedItem<T, K>(
+  items: readonly T[],
+  selectedKey: K | null,
+  getKey: (item: T) => K
+): T | null {
+  const selected =
+    selectedKey === null ? undefined : items.find((item) => getKey(item) === selectedKey);
+  return selected ?? items[0] ?? null;
 }
