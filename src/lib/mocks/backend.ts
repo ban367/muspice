@@ -529,6 +529,10 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       console.info(`[mock] ファイルマネージャーで表示: ${findTrack(trackId).filePath}`);
       return null;
     },
+    openProjectPage: () => {
+      console.info('[mock] プロジェクトのページを開く操作は無視しました');
+      return null;
+    },
     toggleFavorite: (trackId) => {
       validateTrackId(trackId);
       const track = findTrack(trackId);

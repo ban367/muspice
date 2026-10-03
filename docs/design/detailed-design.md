@@ -153,6 +153,7 @@ export interface Playlist {
 | `get_most_played_tracks`     | `limit?`                  | `Track[]`          |
 | `get_recently_played_tracks` | `limit?`                  | `Track[]`          |
 | `show_in_folder`             | `trackId`                 | `void`             |
+| `open_project_page`          | なし                      | `void`             |
 
 ## バリデーション仕様
 

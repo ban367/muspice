@@ -23,7 +23,8 @@
   - 本番は `script-src 'self'`（SvelteKitの起動用インラインscriptはTauriがビルド時にハッシュを付与）
   - Vite開発サーバー（HMR）向けの許可は `devCsp` に分離
 - `freezePrototype` を有効化
-- `window.confirm` はdialogプラグインにより非同期化されるため使わず、`$lib/utils/dialog` の `confirmDestructive` を `await` する（ESLintで禁止）
+- `window.confirm` / `window.prompt` は使わず、`$lib/utils/dialog` の `confirmDestructive` / `promptText` を `await` する（ESLintで禁止。前者はdialogプラグインにより非同期化され、後者はmacOSのWebViewで動作しない）
+- 外部リンクはWebViewから開けないため、プロジェクトのページは固定URLを開く `open_project_page` コマンドで開く（任意のURLを開くコマンドは公開しない）
 
 ### 依存関係の脆弱性監視
 

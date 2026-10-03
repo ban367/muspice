@@ -17,9 +17,9 @@ use commands::{
     get_all_tracks, get_artists_grouped, get_current_track, get_favorite_tracks,
     get_genres_grouped, get_most_played_tracks, get_playlists, get_recently_played_tracks,
     get_track_file_path, get_unique_albums, get_unique_artists, get_unique_genres, import_folder,
-    increment_play_count, refresh_library_metadata, remove_track_from_playlist, rename_playlist,
-    reorder_playlist_tracks, search_tracks, set_current_track, set_rating, show_in_folder,
-    toggle_favorite, update_multiple_tracks_metadata, update_track_metadata,
+    increment_play_count, open_project_page, refresh_library_metadata, remove_track_from_playlist,
+    rename_playlist, reorder_playlist_tracks, search_tracks, set_current_track, set_rating,
+    show_in_folder, toggle_favorite, update_multiple_tracks_metadata, update_track_metadata,
     update_track_metadata_with_file,
 };
 use state::AppState;
@@ -63,6 +63,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             set_current_track,
             get_current_track,
             show_in_folder,
+            open_project_page,
             toggle_favorite,
             set_rating,
             increment_play_count,
@@ -250,10 +251,7 @@ pub fn run() {
                 }
                 "open_github" => {
                     // GitHubを開く
-                    let _ = tauri_plugin_opener::open_url(
-                        "https://github.com/ban367/muspice",
-                        None::<&str>,
-                    );
+                    let _ = tauri_plugin_opener::open_url(commands::PROJECT_URL, None::<&str>);
                 }
                 _ => {}
             }

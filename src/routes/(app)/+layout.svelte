@@ -2,7 +2,7 @@
   import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
   import { events } from '$lib/bindings';
   import { onMount } from 'svelte';
-  import { Toast } from '$lib/components/ui';
+  import { TextPromptDialog, Toast } from '$lib/components/ui';
   import Player from '$lib/components/Player.svelte';
   import Sidebar from '$lib/components/Sidebar.svelte';
   import RightSidebar from '$lib/components/RightSidebar.svelte';
@@ -127,6 +127,9 @@
 
   <!-- Aboutダイアログ -->
   <AboutDialog />
+
+  <!-- テキスト入力ダイアログ（promptText()で表示） -->
+  <TextPromptDialog />
 </QueryClientProvider>
 
 <style>

@@ -81,14 +81,24 @@ src-tauri/src/
   - 画面内にエラーを表示する場合は`String(error)`ではなく`toErrorMessage(error)`を使う（`AppError`はオブジェクトのため"[object Object]"になる）
   - 再生制御（`getTrackFilePath`・`setCurrentTrack`）はクエリではなく`$lib/stores/playback`の再生コントローラーが呼ぶ
 - アルバムアートのキャッシュは`$lib/stores/albumArtCache`に一本化する（一覧・詳細・プレイヤーで共有する）
+- クエリキーは`src/lib/queries/keys.ts`の`queryKeys`に集約する。クエリ定義・無効化のどちらもここを参照し、`['tracks']`のようなマジック配列を直接書かない
+- 無効化はプレフィックス一致で波及するため、キーの階層がそのまま無効化の粒度になる（例: `queryKeys.tracks.all`の無効化は検索・フィルタ・お気に入りにも及ぶ）
 
 ### 再生制御
 
 - audio要素の操作・キュー遷移・リピート・再生回数の記録・イコライザの接続は`$lib/stores/playback`の`createPlaybackController(audio)`が担う。`Player.svelte`は表示と操作の受付だけを行い、コントローラーのメソッドを呼ぶ
 - 次・前のトラックの決定は`$lib/stores/player`のキュー操作（`playNextTrack`・`playPreviousTrack`）が担う。キュー操作の結果が再生中と同じトラックだった場合（1曲リピート、3秒以上再生中の「前へ」、1曲だけのキューの全曲リピート）はトラックIDが変わらず読み込みが走らないため、コントローラーが頭から再生し直す
 - 再生中かどうか（`isPlaying`）はaudio要素の`play`/`pause`イベントから更新する
-- クエリキーは`src/lib/queries/keys.ts`の`queryKeys`に集約する。クエリ定義・無効化のどちらもここを参照し、`['tracks']`のようなマジック配列を直接書かない
-- 無効化はプレフィックス一致で波及するため、キーの階層がそのまま無効化の粒度になる（例: `queryKeys.tracks.all`の無効化は検索・フィルタ・お気に入りにも及ぶ）
+
+### ダイアログ
+
+- モーダルは`$lib/components/ui`の`Modal`（ネイティブの`<dialog>`を`showModal()`で表示）を使い、背景のdivや`svelte-ignore`で独自に実装しない。Escキー・背面の操作の無効化（フォーカスの閉じ込め）・閉じた後のフォーカスの復帰はブラウザに任せる
+  - 表示状態は呼び出し側が持ち、閉じる操作で呼ばれる`onClose`で`open`をfalseにする。処理中は`dismissible={false}`で閉じさせない
+  - 最大幅は`class`（例: `max-w-md`）で指定する。最初にフォーカスする要素には`data-autofocus`を付ける
+- `window.confirm` / `window.prompt`は使わない（ESLintで禁止）。確認は`$lib/utils/dialog`の`confirmDestructive`、テキスト入力は`promptText`を`await`する
+  - `confirm`はdialogプラグインにより非同期化されており、同期的に呼ぶと常にtrue扱いになる
+  - `prompt`はmacOSのWebView（wry）が実装しておらず、常にnullを返す
+- コンテキストメニューからダイアログを開く場合は、使う値を取り出してからメニューを閉じ、その後で`await`する（ダイアログの操作でメニューのコンポーネントが破棄され、`await`後にpropsを読むと失敗するため）
 
 ### TailwindCSS
 

@@ -28,3 +28,16 @@ pub async fn show_in_folder(track_id: String, state: State<'_, AppState>) -> App
     tauri_plugin_opener::reveal_item_in_dir(file_path)
         .map_err(|e| AppError::Io(format!("ファイルマネージャーを開けませんでした: {}", e)))
 }
+
+/// プロジェクトのページ（GitHub）のURL
+pub const PROJECT_URL: &str = "https://github.com/ban367/muspice";
+
+/// プロジェクトのページを既定のブラウザで開く
+///
+/// WebViewから任意のURLを開けないよう、開く先は固定のURLに限る。
+#[tauri::command]
+#[specta::specta]
+pub async fn open_project_page() -> AppResult<()> {
+    tauri_plugin_opener::open_url(PROJECT_URL, None::<&str>)
+        .map_err(|e| AppError::Io(format!("ブラウザを開けませんでした: {}", e)))
+}

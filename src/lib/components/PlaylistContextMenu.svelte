@@ -10,7 +10,8 @@
   import { playTrackFromQueue, playQueue, currentTrackIndex } from '$lib/stores/player';
   import { useTracksQuery } from '$lib/queries/tracks';
   import { get } from 'svelte/store';
-  import { confirmDestructive } from '$lib/utils/dialog';
+  import { confirmDestructive, promptText } from '$lib/utils/dialog';
+  import { validatePlaylistName, toSafeString } from '$lib/utils/validation';
 
   // Props
   interface Props {
@@ -82,22 +83,34 @@
   /**
    * プレイリストの名前を変更
    */
-  function handleRename() {
-    const newName = prompt('新しいプレイリスト名を入力してください', playlist.name);
-    if (newName && newName.trim() && newName !== playlist.name) {
-      renamePlaylistMutation.mutate({ playlistId: playlist.id, name: newName.trim() });
-    }
+  async function handleRename() {
+    // メニューを閉じるとこのコンポーネントは破棄されるため、使う値は先に取り出しておく
+    const { id, name } = playlist;
     onClose();
+
+    const newName = await promptText({
+      title: 'プレイリスト名を変更',
+      label: '新しいプレイリスト名',
+      defaultValue: name,
+      confirmLabel: '変更',
+      validate: (value) => validatePlaylistName(value).error ?? null
+    });
+    if (newName !== null && newName !== name) {
+      renamePlaylistMutation.mutate({ playlistId: id, name: toSafeString(newName, 100) });
+    }
   }
 
   /**
    * プレイリストを削除
    */
   async function handleDelete() {
-    if (await confirmDestructive(`プレイリスト「${playlist.name}」を削除しますか？`)) {
-      deletePlaylistMutation.mutate(playlist.id);
-    }
+    // メニューを閉じるとこのコンポーネントは破棄されるため、使う値は先に取り出しておく
+    const { id, name } = playlist;
     onClose();
+
+    if (await confirmDestructive(`プレイリスト「${name}」を削除しますか？`)) {
+      deletePlaylistMutation.mutate(id);
+    }
   }
 </script>
 

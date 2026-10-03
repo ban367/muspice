@@ -47,6 +47,11 @@ export default defineConfig(
         {
           name: 'confirm',
           message: '$lib/utils/dialog の confirmDestructive を await して使用してください。'
+        },
+        {
+          // macOSのWebView（wry）はwindow.promptを実装しておらず、常にnullを返す
+          name: 'prompt',
+          message: '$lib/utils/dialog の promptText を await して使用してください。'
         }
       ]
     }
