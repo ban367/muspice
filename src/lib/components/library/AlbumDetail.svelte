@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { AlbumGroup, Track } from '$lib/types/models';
   import { playTrackFromQueue, currentTrack } from '$lib/stores/player';
-  import { loadAlbumArt, albumArtCache } from '$lib/stores/albumArtCache';
+  import { albumArtUrl } from '$lib/utils/albumArt';
   import { formatDuration, formatTotalDuration } from '$lib/utils/format';
   import PlayingIndicator from './PlayingIndicator.svelte';
   import MarqueeText from '../MarqueeText.svelte';
@@ -13,21 +13,6 @@
   }
 
   let { album }: Props = $props();
-
-  // リアクティブなキャッシュを購読
-  const cache = $derived($albumArtCache);
-
-  // アルバムアートを読み込み
-  $effect(() => {
-    if (album && album.representativeTrackId) {
-      loadAlbumArt(album.representativeTrackId);
-    }
-  });
-
-  // キャッシュからアルバムアートを取得
-  function getArt(trackId: string): string | null {
-    return cache[trackId] ?? null;
-  }
 
   // 総再生時間
   const totalDuration = $derived(
@@ -95,7 +80,7 @@
   <!-- ヘッダー -->
   <div class="detail-header">
     <div class="album-art">
-      <AlbumArt src={getArt(album.representativeTrackId)} alt={album.name} rounded="lg" />
+      <AlbumArt src={albumArtUrl(album.representativeTrackId)} alt={album.name} rounded="lg" />
     </div>
     <div class="album-info">
       <h1 class="album-name">{album.name}</h1>

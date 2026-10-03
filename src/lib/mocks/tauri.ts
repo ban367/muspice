@@ -13,6 +13,9 @@ import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
 import { createMockBackend } from './backend';
 import { createToneWav } from './media';
 
+/** アートがないトラックに返すURL（読み込みエラーになり、実アプリの404と同じ扱いになる） */
+const MISSING_ALBUM_ART_URL = 'data:image/png;base64,';
+
 /** フォルダ選択ダイアログで選ばれたことにするパス */
 const MOCK_IMPORT_FOLDER = '/Users/demo/Music/Mock Import';
 
@@ -109,8 +112,12 @@ export function setupTauriMock(): void {
   });
 
   // 実ファイルの代わりに、パスごとに音程の異なる短いトーンを再生する
+  // アルバムアート（albumartプロトコル）はモックバックエンドが生成した画像を返す
   const audioUrls = new Map<string, string>();
-  tauriInternals().convertFileSrc = (filePath) => {
+  tauriInternals().convertFileSrc = (filePath, protocol = 'asset') => {
+    if (protocol === 'albumart') {
+      return backend.albumArtUrl(filePath) ?? MISSING_ALBUM_ART_URL;
+    }
     let url = audioUrls.get(filePath);
     if (!url) {
       url = URL.createObjectURL(new Blob([createToneWav(filePath)], { type: 'audio/wav' }));

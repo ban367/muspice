@@ -1,3 +1,4 @@
+mod album_art;
 mod commands;
 mod db;
 mod error;
@@ -13,20 +14,20 @@ mod validation;
 
 use commands::{
     add_track_to_playlist, create_playlist, delete_playlist, delete_tracks_command,
-    delete_tracks_with_files_command, filter_tracks, get_album_art, get_albums_grouped,
-    get_all_tracks, get_artists_grouped, get_current_track, get_favorite_tracks,
-    get_genres_grouped, get_most_played_tracks, get_playlists, get_recently_played_tracks,
-    get_track_file_path, get_unique_albums, get_unique_artists, get_unique_genres, import_folder,
-    increment_play_count, open_project_page, refresh_library_metadata, remove_track_from_playlist,
-    rename_playlist, reorder_playlist_tracks, search_tracks, set_current_track, set_rating,
-    show_in_folder, toggle_favorite, update_multiple_tracks_metadata, update_track_metadata,
+    delete_tracks_with_files_command, filter_tracks, get_albums_grouped, get_all_tracks,
+    get_artists_grouped, get_current_track, get_favorite_tracks, get_genres_grouped,
+    get_most_played_tracks, get_playlists, get_recently_played_tracks, get_track_file_path,
+    get_unique_albums, get_unique_artists, get_unique_genres, import_folder, increment_play_count,
+    open_project_page, refresh_library_metadata, remove_track_from_playlist, rename_playlist,
+    reorder_playlist_tracks, search_tracks, set_current_track, set_rating, show_in_folder,
+    toggle_favorite, update_multiple_tracks_metadata, update_track_metadata,
     update_track_metadata_with_file,
 };
 use state::AppState;
 use std::path::PathBuf;
+use tauri::Manager;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::webview::WebviewWindowBuilder;
-use tauri::Manager;
 use tauri_specta::Event;
 
 /// tauri-spectaビルダーを構築する
@@ -58,7 +59,6 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             add_track_to_playlist,
             remove_track_from_playlist,
             reorder_playlist_tracks,
-            get_album_art,
             get_track_file_path,
             set_current_track,
             get_current_track,
@@ -111,6 +111,10 @@ pub fn run() {
     // （tauri-plugin-openerはRust側の自由関数のみを使うためプラグイン登録しない）
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        // アルバムアートは`<img>`から`albumart://`で直接読み込む（IPCでbase64を渡さない）
+        .register_asynchronous_uri_scheme_protocol(album_art::SCHEME, |ctx, request, responder| {
+            album_art::handle_request(ctx.app_handle().clone(), request, responder);
+        })
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
             // 型付きイベントを登録する（未登録のイベントをemitするとパニックする）
@@ -243,10 +247,10 @@ pub fn run() {
                 }
                 "toggle_fullscreen" => {
                     // フルスクリーン切替
-                    if let Some(window) = app.get_webview_window("main") {
-                        if let Ok(is_fullscreen) = window.is_fullscreen() {
-                            let _ = window.set_fullscreen(!is_fullscreen);
-                        }
+                    if let Some(window) = app.get_webview_window("main")
+                        && let Ok(is_fullscreen) = window.is_fullscreen()
+                    {
+                        let _ = window.set_fullscreen(!is_fullscreen);
                     }
                 }
                 "open_github" => {

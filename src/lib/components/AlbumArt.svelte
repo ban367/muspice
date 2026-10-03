@@ -8,6 +8,10 @@
 
   let { src, alt, rounded = 'md', placeholderType = 'disc' }: Props = $props();
 
+  // 読み込みに失敗した画像のURL（アートがないトラックはalbumartプロトコルが404を返す）
+  let failedSrc = $state<string | null>(null);
+  const showImage = $derived(src !== null && src !== failedSrc);
+
   // ラウンド値をTailwindクラスに変換
   const roundedClass = $derived(
     {
@@ -21,8 +25,14 @@
 </script>
 
 <div class="album-art-container {roundedClass}">
-  {#if src}
-    <img {src} {alt} class="album-art-image {roundedClass}" loading="lazy" />
+  {#if showImage}
+    <img
+      {src}
+      {alt}
+      class="album-art-image {roundedClass}"
+      loading="lazy"
+      onerror={() => (failedSrc = src)}
+    />
   {:else}
     <div class="album-art-placeholder {roundedClass}">
       {#if placeholderType === 'disc'}

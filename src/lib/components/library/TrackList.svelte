@@ -7,7 +7,7 @@
     currentTrackIndex
   } from '$lib/stores/player';
   import { columnWidths, gridCardSize, type ColumnWidths } from '$lib/stores/ui';
-  import { loadAlbumArt, albumArtCache } from '$lib/stores/albumArtCache';
+  import { albumArtUrl } from '$lib/utils/albumArt';
   import { formatDuration } from '$lib/utils/format';
   import { get } from 'svelte/store';
   import type { Track } from '$lib/types/models';
@@ -17,7 +17,6 @@
   import DeleteTrackDialog from '../DeleteTrackDialog.svelte';
   import MarqueeText from '../MarqueeText.svelte';
   import AlbumArt from '../AlbumArt.svelte';
-  import { intersectionObserver } from '$lib/utils/actions';
   import { computeClickSelection, toggleKeyboardSelection } from '$lib/utils/selection';
 
   // Props
@@ -50,14 +49,6 @@
 
   // アルバムアートサイズ
   const artSize = $derived($gridCardSize);
-
-  // リアクティブなキャッシュを購読
-  const cache = $derived($albumArtCache);
-
-  // キャッシュからアルバムアートを取得
-  function getArt(trackId: string): string | null {
-    return cache[trackId] ?? null;
-  }
 
   // トラック選択状態
   let selectedTrackIds = $state<Set<string>>(new Set());
@@ -330,11 +321,6 @@
     document.removeEventListener('mousemove', handleResizeMove);
     document.removeEventListener('mouseup', handleResizeEnd);
   }
-
-  // トラックカードが表示されたらアートを読み込み
-  function handleTrackVisible(trackId: string) {
-    loadAlbumArt(trackId);
-  }
 </script>
 
 <div class="flex flex-col h-full">
@@ -473,13 +459,16 @@
               onkeydown={(e) => e.key === 'Enter' && handleTrackDoubleClick(track)}
               role="button"
               tabindex="0"
-              use:intersectionObserver={{ callback: () => handleTrackVisible(track.id) }}
             >
               <div
                 class="relative shrink-0 rounded-md overflow-hidden bg-base-400 mb-2"
                 style="width: {artSize}px; height: {artSize}px;"
               >
-                <AlbumArt src={getArt(track.id)} alt="アルバムアート" placeholderType="music" />
+                <AlbumArt
+                  src={albumArtUrl(track.id)}
+                  alt="アルバムアート"
+                  placeholderType="music"
+                />
                 {#if $currentTrack?.id === track.id}
                   <div class="absolute inset-0 bg-black/50 flex items-center justify-center">
                     <PlayingIndicator size="large" />

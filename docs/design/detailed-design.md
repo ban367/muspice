@@ -107,6 +107,12 @@ export interface Playlist {
 | `delete_tracks_with_files_command` | `trackIds: string[]`            | `DeleteResult`          | DB+ファイル削除                                     |
 | `refresh_library_metadata`         | なし                            | `RefreshMetadataResult` | 全トラックのtrack/disc番号を再抽出                  |
 
+### カスタムプロトコル
+
+| URL                                                                                | 応答                                                                                       | 備考                                                                                        |
+| ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| `albumart://localhost/<trackId>`（Windowsは`http://albumart.localhost/<trackId>`） | 画像（`Content-Type`は埋め込み画像のMIMEタイプ） / アートなし・未登録は404 / 不正なIDは400 | `<img>`から読み込む。フロントは`albumArtUrl(trackId)`でURLを作る。`Cache-Control: no-store` |
+
 ### イベント（バックエンド→フロントエンド）
 
 `src-tauri/src/events.rs` で定義し、`bindings.ts` の `events` から型付きで購読する。イベント名は型名のケバブケース。
@@ -140,20 +146,19 @@ export interface Playlist {
 
 ### 再生・統計・システム
 
-| コマンド                     | 引数                      | 戻り値             |
-| ---------------------------- | ------------------------- | ------------------ |
-| `get_track_file_path`        | `trackId`                 | `string`           |
-| `set_current_track`          | `trackId: string \| null` | `void`             |
-| `get_current_track`          | なし                      | `Track \| null`    |
-| `get_album_art`              | `trackId`                 | `AlbumArt \| null` |
-| `toggle_favorite`            | `trackId`                 | `boolean`          |
-| `set_rating`                 | `trackId`, `rating`       | `void`             |
-| `increment_play_count`       | `trackId`                 | `number`           |
-| `get_favorite_tracks`        | なし                      | `Track[]`          |
-| `get_most_played_tracks`     | `limit?`                  | `Track[]`          |
-| `get_recently_played_tracks` | `limit?`                  | `Track[]`          |
-| `show_in_folder`             | `trackId`                 | `void`             |
-| `open_project_page`          | なし                      | `void`             |
+| コマンド                     | 引数                      | 戻り値          |
+| ---------------------------- | ------------------------- | --------------- |
+| `get_track_file_path`        | `trackId`                 | `string`        |
+| `set_current_track`          | `trackId: string \| null` | `void`          |
+| `get_current_track`          | なし                      | `Track \| null` |
+| `toggle_favorite`            | `trackId`                 | `boolean`       |
+| `set_rating`                 | `trackId`, `rating`       | `void`          |
+| `increment_play_count`       | `trackId`                 | `number`        |
+| `get_favorite_tracks`        | なし                      | `Track[]`       |
+| `get_most_played_tracks`     | `limit?`                  | `Track[]`       |
+| `get_recently_played_tracks` | `limit?`                  | `Track[]`       |
+| `show_in_folder`             | `trackId`                 | `void`          |
+| `open_project_page`          | なし                      | `void`          |
 
 ## バリデーション仕様
 

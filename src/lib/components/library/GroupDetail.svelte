@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Track, AlbumGroup, ArtistGroup, GenreGroup } from '$lib/types/models';
   import { playTrackFromQueue, currentTrack } from '$lib/stores/player';
-  import { loadAlbumArt, albumArtCache } from '$lib/stores/albumArtCache';
+  import { albumArtUrl } from '$lib/utils/albumArt';
   import { formatDuration, formatTotalDuration } from '$lib/utils/format';
   import PlayingIndicator from './PlayingIndicator.svelte';
   import AlbumArt from '../AlbumArt.svelte';
@@ -16,14 +16,6 @@
 
   let { group, type, onClose }: Props = $props();
 
-  // リアクティブなキャッシュを購読
-  const cache = $derived($albumArtCache);
-
-  // キャッシュからアルバムアートを取得
-  function getArt(trackId: string): string | null {
-    return cache[trackId] ?? null;
-  }
-
   // グループからトラックリストを取得
   const tracks = $derived.by((): Track[] => {
     if (!group) return [];
@@ -34,13 +26,6 @@
       return group.albums.flatMap((album) => album.tracks);
     }
     return [];
-  });
-
-  // アルバムアートを読み込み
-  $effect(() => {
-    if (group && group.representativeTrackId) {
-      loadAlbumArt(group.representativeTrackId);
-    }
   });
 
   // トラックをダブルクリックで再生
@@ -76,7 +61,7 @@
     <div class="modal-header">
       <div class="header-art">
         <AlbumArt
-          src={getArt(group.representativeTrackId)}
+          src={albumArtUrl(group.representativeTrackId)}
           alt={group.name}
           rounded="lg"
           placeholderType={type === 'artist' ? 'person' : 'disc'}

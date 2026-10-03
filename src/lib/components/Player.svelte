@@ -17,7 +17,7 @@
   } from '$lib/stores/player';
   import { createPlaybackController, type PlaybackController } from '$lib/stores/playback';
   import AlbumArt from './AlbumArt.svelte';
-  import { loadAlbumArt, albumArtCache } from '$lib/stores/albumArtCache';
+  import { albumArtUrl } from '$lib/utils/albumArt';
   import MarqueeText from './MarqueeText.svelte';
 
   let audioElement = $state<HTMLAudioElement>();
@@ -39,14 +39,8 @@
     };
   });
 
-  // 再生中トラックのアルバムアート（一覧表示と共有のキャッシュから取得）
-  const albumArtUrl = $derived($currentTrack ? ($albumArtCache[$currentTrack.id] ?? null) : null);
-
-  $effect(() => {
-    if ($currentTrack) {
-      loadAlbumArt($currentTrack.id);
-    }
-  });
+  // 再生中トラックのアルバムアート
+  const currentArtUrl = $derived(albumArtUrl($currentTrack?.id));
 
   /**
    * バー上のマウス位置を0〜1の割合に変換
@@ -211,7 +205,7 @@
     <!-- トラック情報 -->
     <div class="flex items-center gap-3 min-w-0">
       <div class="album-art">
-        <AlbumArt src={albumArtUrl} alt="アルバムアート" placeholderType="music" />
+        <AlbumArt src={currentArtUrl} alt="アルバムアート" placeholderType="music" />
       </div>
       <div class="min-w-0">
         <MarqueeText

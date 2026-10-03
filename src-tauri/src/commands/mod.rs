@@ -36,7 +36,7 @@ pub use playlist_cmd::{
 };
 
 // プレーヤー・アルバムアート
-pub use player::{get_album_art, get_current_track, get_track_file_path, set_current_track};
+pub use player::{get_current_track, get_track_file_path, set_current_track};
 
 // 統計（お気に入り・レーティング・再生回数）
 pub use stats::{
@@ -45,7 +45,7 @@ pub use stats::{
 };
 
 // システム
-pub use system::{open_project_page, show_in_folder, PROJECT_URL};
+pub use system::{PROJECT_URL, open_project_page, show_in_folder};
 
 /// 重い同期処理をブロッキング処理用のスレッドで実行する
 ///

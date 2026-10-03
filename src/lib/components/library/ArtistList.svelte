@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { ArtistGroup } from '$lib/types/models';
-  import { loadAlbumArt, albumArtCache } from '$lib/stores/albumArtCache';
+  import { albumArtUrl } from '$lib/utils/albumArt';
   import MarqueeText from '../MarqueeText.svelte';
   import AlbumArt from '../AlbumArt.svelte';
 
@@ -12,24 +12,6 @@
   }
 
   let { artists, selectedArtist, onSelect }: Props = $props();
-
-  // リアクティブなキャッシュを購読
-  const cache = $derived($albumArtCache);
-
-  // アーティストのアルバムアートを読み込み
-  $effect(() => {
-    // artistsが変更されたらそのアルバムアートを読み込む
-    artists.forEach((artist) => {
-      if (artist.representativeTrackId) {
-        loadAlbumArt(artist.representativeTrackId);
-      }
-    });
-  });
-
-  // キャッシュからアルバムアートを取得
-  function getArt(trackId: string): string | null {
-    return cache[trackId] ?? null;
-  }
 </script>
 
 <div class="artist-list">
@@ -42,7 +24,7 @@
     >
       <div class="artist-avatar">
         <AlbumArt
-          src={getArt(artist.representativeTrackId)}
+          src={albumArtUrl(artist.representativeTrackId)}
           alt={artist.name}
           rounded="full"
           placeholderType="person"

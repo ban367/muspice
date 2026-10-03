@@ -10,7 +10,7 @@
 | UIスタイル       | TailwindCSS + DaisyUI           | Tailwind 4.3.x / DaisyUI 5.7.x                      | `@apply`運用に制限あり                               |
 | データ取得       | TanStack Query（Svelte）        | 6.3.x                                               | Queryキャッシュ/再取得制御                           |
 | デスクトップ基盤 | Tauri + tauri-specta            | 2.12.x / 2.0.0-rc.25                                | 型付きコマンド呼び出しを自動生成                     |
-| バックエンド     | Rust                            | edition 2021（stable）                              | コアロジック/DBアクセス                              |
+| バックエンド     | Rust                            | edition 2024（stable）                              | コアロジック/DBアクセス                              |
 | DB               | SQLite + FTS5                   | rusqlite 0.40（bundled）                            | 全文検索・ローカル保存                               |
 | メタデータ       | lofty                           | 0.25                                                | タグ読み書き/アルバムアート抽出                      |
 
@@ -72,7 +72,7 @@ src-tauri/src/
 
 - Runes構文（`$props`, `$state`, `$derived`, `$effect`）を使用
 - UIローカル状態は`stores`に集約し、データ取得状態はQueryに分離する
-- 複数コンポーネントで使うSvelteアクション（`use:`）は`$lib/utils/actions.ts`に置く
+- 複数コンポーネントで使うSvelteアクション（`use:`）は`$lib/utils`に置く
 
 ### TanStack Query
 
@@ -80,7 +80,7 @@ src-tauri/src/
   - キャッシュに影響しない操作（例: ファイルの場所を開く）も、失敗を通知するためミューテーションとして定義する
   - 画面内にエラーを表示する場合は`String(error)`ではなく`toErrorMessage(error)`を使う（`AppError`はオブジェクトのため"[object Object]"になる）
   - 再生制御（`getTrackFilePath`・`setCurrentTrack`）はクエリではなく`$lib/stores/playback`の再生コントローラーが呼ぶ
-- アルバムアートのキャッシュは`$lib/stores/albumArtCache`に一本化する（一覧・詳細・プレイヤーで共有する）
+- アルバムアートは`$lib/utils/albumArt`の`albumArtUrl(trackId)`をそのまま`<img>`（`AlbumArt`コンポーネント）に渡す。画像データをフロントエンドで取得・保持しない。アートがない場合は読み込みエラーになり、`AlbumArt`がプレースホルダーを表示する
 - クエリキーは`src/lib/queries/keys.ts`の`queryKeys`に集約する。クエリ定義・無効化のどちらもここを参照し、`['tracks']`のようなマジック配列を直接書かない
 - 無効化はプレフィックス一致で波及するため、キーの階層がそのまま無効化の粒度になる（例: `queryKeys.tracks.all`の無効化は検索・フィルタ・お気に入りにも及ぶ）
 
@@ -183,7 +183,7 @@ Tauriのウィンドウ（macOSではWKWebView）はブラウザ自動化ツー�
 - `src/lib/mocks/`の構成:
   - `backend.ts`: `commands`の全コマンドをメモリ上で再現するバックエンド。ハンドラ表の型を`bindings.ts`から導出しているため、Rust側でコマンドを追加・変更したら型エラーに従ってここも更新する
   - `fixtures.ts`: 初期データ。状態はメモリ上のみで、リロードすると初期状態に戻る
-  - `media.ts`: アルバムアート（SVG）と再生用トーン（20秒のWAV）の生成
+  - `media.ts`: アルバムアート（SVGのdata URL）と再生用トーン（20秒のWAV）の生成。`albumart`プロトコルの代わりに`convertFileSrc(id, 'albumart')`がdata URLを返す
   - `tauri.ts`: event・dialog・windowプラグインと`convertFileSrc`の差し替え
 - ネイティブメニューのイベントや確認ダイアログの回答は、開発者ツールから`window.__MUSPICE_MOCK__`で操作する
   - `window.__MUSPICE_MOCK__.emit('open-import-dialog')`（`toggle-sidebar` / `show-about-dialog`も同様）
