@@ -10,7 +10,7 @@
     type BuiltinPresetName,
     type EQFrequency
   } from '#lib/stores/equalizer.svelte.js';
-  import { confirmDestructive } from '#lib/utils/dialog.js';
+  import { confirmDestructive } from '#lib/utils/dialog.svelte.js';
 
   // ビルトインプリセットの選択肢
   const builtinPresetOptions: BuiltinPresetName[] = [

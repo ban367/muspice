@@ -7,7 +7,7 @@
     useCreatePlaylistMutation
   } from '#lib/queries/playlists.js';
   import { validatePlaylistName, toSafeString } from '#lib/utils/validation.js';
-  import { promptText } from '#lib/utils/dialog.js';
+  import { promptText } from '#lib/utils/dialog.svelte.js';
   import { ui } from '#lib/stores/ui.svelte.js';
   import { useGenresGroupedQuery } from '#lib/queries/tracks.js';
   import type { Playlist } from '#lib/types/models.js';

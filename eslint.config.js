@@ -5,6 +5,13 @@ import svelte from 'eslint-plugin-svelte';
 import globals from 'globals';
 import ts from 'typescript-eslint';
 
+// 共有する状態はRunes（*.svelte.tsの$state）で書く。svelte/storeは使わない
+// （規約はdocs/design/implementation.mdの「共有する状態」）
+const NO_SVELTE_STORE = {
+  name: 'svelte/store',
+  message: '共有する状態は *.svelte.ts の $state で実装してください（svelte/store は使わない）。'
+};
+
 export default defineConfig(
   {
     ignores: [
@@ -45,14 +52,15 @@ export default defineConfig(
         'error',
         {
           name: 'confirm',
-          message: '#lib/utils/dialog.js の confirmDestructive を await して使用してください。'
+          message: '#lib/utils/dialog.svelte.js の confirmDestructive を await して使用してください。'
         },
         {
           // macOSのWebView（wry）はwindow.promptを実装しておらず、常にnullを返す
           name: 'prompt',
-          message: '#lib/utils/dialog.js の promptText を await して使用してください。'
+          message: '#lib/utils/dialog.svelte.js の promptText を await して使用してください。'
         }
-      ]
+      ],
+      'no-restricted-imports': ['error', { paths: [NO_SVELTE_STORE] }]
     }
   },
   {
@@ -64,6 +72,8 @@ export default defineConfig(
         'error',
         {
           paths: [
+            // ルールの設定は上書きされるため、全体の制限もここに含める
+            NO_SVELTE_STORE,
             {
               name: '#lib/bindings.js',
               importNames: ['commands'],

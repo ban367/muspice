@@ -5,7 +5,6 @@
  * アプリ内のダイアログ（`TextPromptDialog`）で表示する。
  */
 import { confirm } from '@tauri-apps/plugin-dialog';
-import { get, writable } from 'svelte/store';
 
 /**
  * 削除などの取り消せない操作の確認ダイアログを表示
@@ -45,10 +44,34 @@ export interface TextPromptRequest extends TextPromptOptions {
   resolve: (value: string | null) => void;
 }
 
-const textPrompt = writable<TextPromptRequest | null>(null);
+/** テキスト入力ダイアログの要求（表示は`TextPromptDialog`、要求は`promptText()`で行う） */
+class TextPrompt {
+  #request = $state.raw<TextPromptRequest | null>(null);
 
-/** 表示中のテキスト入力ダイアログ（`TextPromptDialog`が購読して表示する） */
-export const textPromptRequest = { subscribe: textPrompt.subscribe };
+  /** 表示中のテキスト入力ダイアログ（`TextPromptDialog`が読んで表示する） */
+  get request(): TextPromptRequest | null {
+    return this.#request;
+  }
+
+  /** ダイアログを表示し、確定された文字列（キャンセル時はnull）を返す */
+  open(options: TextPromptOptions): Promise<string | null> {
+    this.#request?.resolve(null);
+
+    return new Promise((resolve) => {
+      const request: TextPromptRequest = {
+        ...options,
+        resolve: (value) => {
+          // 後から来た要求で置き換えられていたら、表示中のダイアログは閉じない
+          if (this.#request === request) this.#request = null;
+          resolve(value);
+        }
+      };
+      this.#request = request;
+    });
+  }
+}
+
+export const textPrompt = new TextPrompt();
 
 /**
  * テキスト入力ダイアログを表示し、確定された文字列を返す
@@ -58,17 +81,5 @@ export const textPromptRequest = { subscribe: textPrompt.subscribe };
  * @returns 前後の空白を除いた入力値。キャンセル時はnull
  */
 export function promptText(options: TextPromptOptions): Promise<string | null> {
-  get(textPrompt)?.resolve(null);
-
-  return new Promise((resolve) => {
-    const request: TextPromptRequest = {
-      ...options,
-      resolve: (value) => {
-        // 後から来た要求で置き換えられていたら、表示中のダイアログは閉じない
-        if (get(textPrompt) === request) textPrompt.set(null);
-        resolve(value);
-      }
-    };
-    textPrompt.set(request);
-  });
+  return textPrompt.open(options);
 }
