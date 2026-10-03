@@ -1,11 +1,6 @@
 <script lang="ts">
   import { fly } from 'svelte/transition';
-  import {
-    isRightSidebarExpanded,
-    isRightSidebarPinned,
-    activeRightSidebarPanel,
-    type RightSidebarPanel
-  } from '#lib/stores/ui.js';
+  import { ui, type RightSidebarPanel } from '#lib/stores/ui.svelte.js';
   import {
     playQueue,
     currentTrack,
@@ -18,26 +13,26 @@
 
   // パネルを開く/切り替え
   function openPanel(panel: RightSidebarPanel) {
-    if ($isRightSidebarExpanded && $activeRightSidebarPanel === panel) {
+    if (ui.isRightSidebarExpanded && ui.activeRightSidebarPanel === panel) {
       // 同じパネルをクリックした場合は閉じる
-      isRightSidebarExpanded.set(false);
+      ui.isRightSidebarExpanded = false;
     } else {
       // パネルを切り替えて開く
-      activeRightSidebarPanel.set(panel);
-      isRightSidebarExpanded.set(true);
+      ui.activeRightSidebarPanel = panel;
+      ui.isRightSidebarExpanded = true;
     }
   }
 
   // 閉じる（バックドロップクリック時）
   function closeByBackdrop() {
     // 固定時はバックドロップクリックで閉じない
-    if ($isRightSidebarPinned) return;
-    isRightSidebarExpanded.set(false);
+    if (ui.isRightSidebarPinned) return;
+    ui.isRightSidebarExpanded = false;
   }
 
   // ピン状態をトグル
   function togglePin() {
-    isRightSidebarPinned.toggle();
+    ui.isRightSidebarPinned = !ui.isRightSidebarPinned;
   }
 </script>
 
@@ -48,7 +43,7 @@
     <!-- 再生キューボタン -->
     <button
       class="icon-button"
-      class:active={$isRightSidebarExpanded && $activeRightSidebarPanel === 'queue'}
+      class:active={ui.isRightSidebarExpanded && ui.activeRightSidebarPanel === 'queue'}
       onclick={() => openPanel('queue')}
       title="再生キュー (Q)"
       aria-label="再生キューを開く"
@@ -69,7 +64,7 @@
     <!-- イコライザボタン -->
     <button
       class="icon-button"
-      class:active={$isRightSidebarExpanded && $activeRightSidebarPanel === 'equalizer'}
+      class:active={ui.isRightSidebarExpanded && ui.activeRightSidebarPanel === 'equalizer'}
       onclick={() => openPanel('equalizer')}
       title="イコライザ (E)"
       aria-label="イコライザを開く"
@@ -100,17 +95,17 @@
   <div class="icon-bar-bottom">
     <button
       class="icon-button"
-      class:active={$isRightSidebarPinned}
+      class:active={ui.isRightSidebarPinned}
       onclick={togglePin}
-      title={$isRightSidebarPinned ? '固定解除' : 'サイドバーを固定'}
-      aria-label={$isRightSidebarPinned ? '固定解除' : 'サイドバーを固定'}
+      title={ui.isRightSidebarPinned ? '固定解除' : 'サイドバーを固定'}
+      aria-label={ui.isRightSidebarPinned ? '固定解除' : 'サイドバーを固定'}
     >
       <svg
         xmlns="http://www.w3.org/2000/svg"
         width="20"
         height="20"
         viewBox="0 0 24 24"
-        fill={$isRightSidebarPinned ? 'currentColor' : 'none'}
+        fill={ui.isRightSidebarPinned ? 'currentColor' : 'none'}
         stroke="currentColor"
         stroke-width="2"
       >
@@ -128,19 +123,19 @@
 </div>
 
 <!-- バックドロップ（固定時は表示しない） -->
-{#if $isRightSidebarExpanded && !$isRightSidebarPinned}
+{#if ui.isRightSidebarExpanded && !ui.isRightSidebarPinned}
   <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
   <div class="backdrop" onclick={closeByBackdrop}></div>
 {/if}
 
 <!-- パネル（展開時のみ表示、固定時はアニメーションなし） -->
-{#if $isRightSidebarExpanded}
+{#if ui.isRightSidebarExpanded}
   <aside
     class="side-panel"
-    class:pinned={$isRightSidebarPinned}
-    transition:fly={{ x: 200, duration: $isRightSidebarPinned ? 0 : 200 }}
+    class:pinned={ui.isRightSidebarPinned}
+    transition:fly={{ x: 200, duration: ui.isRightSidebarPinned ? 0 : 200 }}
   >
-    {#if $activeRightSidebarPanel === 'queue'}
+    {#if ui.activeRightSidebarPanel === 'queue'}
       <!-- 再生キューパネル -->
       <!-- ヘッダー -->
       <div class="queue-header">
@@ -189,7 +184,7 @@
           <div class="empty-queue">トラックを選択して再生</div>
         {/if}
       </div>
-    {:else if $activeRightSidebarPanel === 'equalizer'}
+    {:else if ui.activeRightSidebarPanel === 'equalizer'}
       <!-- イコライザパネル -->
       <EqualizerPanel />
     {/if}

@@ -14,7 +14,7 @@ import {
   isShuffleEnabled,
   volume
 } from './player';
-import { errorStore } from './error';
+import { notifications } from './error.svelte.js';
 
 vi.mock('#lib/bindings.js', () => ({
   commands: {
@@ -89,7 +89,7 @@ beforeEach(() => {
   isShuffleEnabled.set(false);
   repeatMode.set('off');
   volume.set(1);
-  errorStore.clear();
+  notifications.clear();
   vi.clearAllMocks();
   vi.spyOn(console, 'error').mockImplementation(() => {});
   audio = new FakeAudio();
@@ -140,7 +140,7 @@ describe('トラックの読み込み', () => {
     await flush();
 
     expect(get(isPlaying)).toBe(false);
-    expect(get(errorStore).at(-1)?.message).toBe(
+    expect(notifications.items.at(-1)?.message).toBe(
       'トラックの再生に失敗しました: 指定されたトラックが見つかりません'
     );
   });

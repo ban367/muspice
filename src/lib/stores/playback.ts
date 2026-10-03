@@ -14,7 +14,7 @@ import { get } from 'svelte/store';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { commands } from '#lib/bindings.js';
 import { incrementPlayCount } from '#lib/queries/tracks.js';
-import { handleError } from './error';
+import { handleError } from './error.svelte.js';
 import {
   cleanupEqualizer,
   initializeEqualizer,

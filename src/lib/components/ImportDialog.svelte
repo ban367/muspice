@@ -3,8 +3,8 @@
   import { open } from '@tauri-apps/plugin-dialog';
   import type { DuplicateAction, ImportResult } from '#lib/types/models.js';
   import { validateFilePath } from '#lib/utils/validation.js';
-  import { isImportDialogOpen } from '#lib/stores/ui.js';
-  import { toErrorMessage } from '#lib/stores/error.js';
+  import { ui } from '#lib/stores/ui.svelte.js';
+  import { toErrorMessage } from '#lib/stores/error.svelte.js';
   import { useImportFolderMutation } from '#lib/queries/tracks.js';
   import { Modal } from '#lib/components/ui/index.js';
 
@@ -110,7 +110,7 @@
    * ダイアログを閉じる
    */
   function closeDialog() {
-    isImportDialogOpen.set(false);
+    ui.isImportDialogOpen = false;
     selectedFolder = '';
     duplicateAction = 'Skip';
     progress = 0;
@@ -126,7 +126,7 @@
 </script>
 
 <Modal
-  open={$isImportDialogOpen}
+  open={ui.isImportDialogOpen}
   onClose={closeDialog}
   title="音楽フォルダをインポート"
   dismissible={!isImporting}

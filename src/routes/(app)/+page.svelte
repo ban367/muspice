@@ -3,7 +3,7 @@
   import { resolve } from '$app/paths';
   import type { Path } from '$app/types';
   import { useSettingsQuery } from '#lib/queries/settings.js';
-  import { getLastPage } from '#lib/stores/ui.js';
+  import { getLastPage } from '#lib/stores/ui.svelte.js';
 
   const settingsQuery = useSettingsQuery();
   let redirected = false;

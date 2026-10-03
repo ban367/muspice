@@ -8,7 +8,7 @@ UIの即時反映、サーバー状態キャッシュ、バックエンド永続
 
 ### 採用
 
-- UI状態: Svelte Stores
+- UI状態: Svelteの共有状態（`src/lib/stores`。Runesの`*.svelte.ts`）
 - データ取得/キャッシュ: TanStack Query
 - 永続状態: Tauri `AppState`
 
@@ -178,6 +178,29 @@ SvelteKit 3は`$lib`エイリアスを生成しなくなり、`package.json`の`
 
 - 利点: Node・Vite・TypeScriptが標準の仕組みで解決するため、SvelteKit固有のエイリアス設定が不要になる
 - 欠点: importが長くなり、`.ts`のモジュールを`.js`で書くという約束を覚える必要がある
+
+## ADR-010: 共有する状態は`$state`を持つクラスのインスタンスにする
+
+### 背景
+
+共有する状態は`svelte/store`の`writable`で実装しており、コンポーネントでは`$store`、コンポーネント外では`get()`と`subscribe`で読む必要があった。Svelte 5のRunesに揃えるにあたり、状態をモジュールに置く形を決める必要があった。
+
+### 採用
+
+- `src/lib/stores/*.svelte.ts`に、`$state`のフィールドを持つクラスのインスタンスを置き、プロパティを直接読み書きする（例: `ui.isSidebarOpen`）
+- localStorageに保存する状態はprivateな`$state`とgetter/setterにし、setterで保存する
+- ディレクトリ名は`stores`のまま変えない（import・ドキュメントの変更を増やさないため）
+
+### 不採用とした代替案
+
+- **`$state`のオブジェクトをそのままexportする**（`export const ui = $state({...})`）: 記述は短いが、保存や連動（固定したら展開する等）をsetterに書けず、呼び出し側に処理が散る
+- **状態ごとに関数（getter/setter）をexportする**: 呼び出し側が関数呼び出しになり、`bind:`も使えない
+- **runedなどのライブラリの`PersistedState`を使う**: localStorageへの保存は数行で書けるため、依存を増やさない
+
+### トレードオフ
+
+- 利点: コンポーネント内外で同じ書き方になり、`get()`や購読（`subscribe`）とその解除が不要になる。保存や連動の処理が状態の定義と同じ場所にまとまる
+- 欠点: 配列・オブジェクトの中身を書き換えると、`$state.raw`では変更が伝わらず、setterを経由しないため保存もされない（代入で更新するという約束が必要）
 
 ## 参考資料
 

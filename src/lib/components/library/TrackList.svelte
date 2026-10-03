@@ -6,7 +6,7 @@
     playQueue,
     currentTrackIndex
   } from '#lib/stores/player.js';
-  import { columnWidths, gridCardSize, type ColumnWidths } from '#lib/stores/ui.js';
+  import { ui, type ColumnWidths } from '#lib/stores/ui.svelte.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import { formatDuration } from '#lib/utils/format.js';
   import { get } from 'svelte/store';
@@ -48,7 +48,7 @@
   let sortDirection = $state<SortDirection>('desc');
 
   // アルバムアートサイズ
-  const artSize = $derived($gridCardSize);
+  const artSize = $derived(ui.gridCardSize);
 
   // トラック選択状態
   let selectedTrackIds = $state<Set<string>>(new Set());
@@ -70,7 +70,7 @@
 
   // グリッドテンプレート列を計算
   const gridTemplateColumns = $derived(
-    `${$columnWidths.number}px ${$columnWidths.title}px ${$columnWidths.artist}px ${$columnWidths.rating}px ${$columnWidths.duration}px`
+    `${ui.columnWidths.number}px ${ui.columnWidths.title}px ${ui.columnWidths.artist}px ${ui.columnWidths.rating}px ${ui.columnWidths.duration}px`
   );
 
   // レーティングミューテーション
@@ -295,7 +295,7 @@
     isResizing = true;
     resizingColumn = column;
     resizeStartX = event.clientX;
-    resizeStartWidth = $columnWidths[column];
+    resizeStartWidth = ui.columnWidths[column];
 
     document.addEventListener('mousemove', handleResizeMove);
     document.addEventListener('mouseup', handleResizeEnd);
@@ -308,10 +308,10 @@
     const delta = event.clientX - resizeStartX;
     const newWidth = Math.max(50, resizeStartWidth + delta);
 
-    columnWidths.update((widths) => ({
-      ...widths,
-      [resizingColumn!]: newWidth
-    }));
+    ui.columnWidths = {
+      ...ui.columnWidths,
+      [resizingColumn]: newWidth
+    };
   }
 
   // 列リサイズ終了

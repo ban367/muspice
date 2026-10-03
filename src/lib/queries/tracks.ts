@@ -12,7 +12,7 @@ import type {
   DuplicateAction,
   FilterOptions
 } from '#lib/types/models.js';
-import { handleError, showSuccess, showWarning } from '#lib/stores/error.js';
+import { handleError, showSuccess, showWarning } from '#lib/stores/error.svelte.js';
 import { queryKeys } from './keys';
 import { CACHE_POLICY, withErrorToast } from './shared';
 

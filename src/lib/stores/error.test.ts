@@ -1,11 +1,10 @@
-import { get } from 'svelte/store';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { errorStore, handleError, showSuccess, toErrorMessage } from './error';
+import { handleError, notifications, showSuccess, toErrorMessage } from './error.svelte.js';
 
 beforeEach(() => {
   vi.useFakeTimers();
   vi.spyOn(console, 'error').mockImplementation(() => {});
-  errorStore.clear();
+  notifications.clear();
 });
 
 afterEach(() => {
@@ -15,8 +14,7 @@ afterEach(() => {
 
 /** 直近の通知 */
 function lastNotification() {
-  const notifications = get(errorStore);
-  return notifications[notifications.length - 1];
+  return notifications.items[notifications.items.length - 1];
 }
 
 describe('handleError', () => {
@@ -51,17 +49,17 @@ describe('handleError', () => {
   });
 });
 
-describe('errorStore', () => {
+describe('notifications', () => {
   it('通知は5秒後に自動で消える', () => {
     showSuccess('保存しました');
-    expect(get(errorStore)).toHaveLength(1);
+    expect(notifications.items).toHaveLength(1);
     expect(lastNotification().type).toBe('info');
 
     vi.advanceTimersByTime(4999);
-    expect(get(errorStore)).toHaveLength(1);
+    expect(notifications.items).toHaveLength(1);
 
     vi.advanceTimersByTime(1);
-    expect(get(errorStore)).toHaveLength(0);
+    expect(notifications.items).toHaveLength(0);
   });
 });
 

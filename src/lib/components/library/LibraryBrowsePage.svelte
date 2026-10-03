@@ -11,7 +11,7 @@
   import type { Snippet } from 'svelte';
   import { onDestroy } from 'svelte';
   import LibraryHeader from './LibraryHeader.svelte';
-  import { browseSearchQuery } from '#lib/stores/ui.js';
+  import { ui } from '#lib/stores/ui.svelte.js';
   import { createSearchDebounce } from '#lib/utils/debounce.js';
   import { resolveSelectedItem } from '#lib/utils/selection.js';
 
@@ -84,7 +84,7 @@
 
   // 検索でフィルタリングされたアイテム
   const filteredItems = $derived.by(() => {
-    const query = $browseSearchQuery.toLowerCase().trim();
+    const query = ui.browseSearchQuery.toLowerCase().trim();
     if (!query || !filterFn) return items;
     return items.filter((item) => filterFn(item, query));
   });
@@ -100,11 +100,13 @@
   // 未選択・選択中のアイテムがフィルタ結果にない場合は先頭、結果が空ならnull
   const selectedItem = $derived(resolveSelectedItem(filteredItems, selectedKey, keyOf));
 
-  // 検索状態（ページ間でストアが共有されるため、現在値で初期化して表示と一致させる）
-  let searchTerm = $state($browseSearchQuery);
+  // 検索状態（ページ間で状態が共有されるため、現在値で初期化して表示と一致させる）
+  let searchTerm = $state(ui.browseSearchQuery);
 
   const { handleInput: debouncedSearch, cancel: cancelSearchDebounce } = createSearchDebounce(
-    (query) => browseSearchQuery.set(query)
+    (query) => {
+      ui.browseSearchQuery = query;
+    }
   );
 
   onDestroy(cancelSearchDebounce);
@@ -117,7 +119,7 @@
   function clearSearch() {
     searchTerm = '';
     cancelSearchDebounce();
-    browseSearchQuery.set('');
+    ui.browseSearchQuery = '';
   }
 
   function handleDisplayModeChange(mode: 'grid' | 'list') {
