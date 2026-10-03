@@ -7,6 +7,7 @@
   import { toErrorMessage } from '#lib/stores/error.svelte.js';
   import { useImportFolderMutation } from '#lib/queries/tracks.js';
   import { Modal } from '#lib/components/ui/index.js';
+  import { m } from '#lib/i18n/i18n.svelte.js';
 
   interface Props {
     onClose?: () => void;
@@ -35,7 +36,7 @@
       const selected = await open({
         directory: true,
         multiple: false,
-        title: 'インポートするフォルダを選択'
+        title: m.importDialog.selectFolderTitle
       });
 
       if (selected && typeof selected === 'string') {
@@ -44,7 +45,7 @@
       }
     } catch (error) {
       console.error('フォルダ選択エラー:', error);
-      errorMessage = 'フォルダの選択に失敗しました';
+      errorMessage = m.importDialog.selectFolderFailed;
     }
   }
 
@@ -53,13 +54,13 @@
    */
   async function startImport() {
     if (!selectedFolder) {
-      errorMessage = 'フォルダを選択してください';
+      errorMessage = m.importDialog.folderRequired;
       return;
     }
 
     // ファイルパスをバリデーション
     if (!validateFilePath(selectedFolder)) {
-      errorMessage = '不正なファイルパスです';
+      errorMessage = m.importDialog.invalidPath;
       return;
     }
 
@@ -97,7 +98,7 @@
       }, 2000);
     } catch (error) {
       console.error('インポートエラー:', error);
-      errorMessage = `インポートに失敗しました: ${toErrorMessage(error)}`;
+      errorMessage = m.importDialog.importFailed(toErrorMessage(error));
       progress = 0;
     } finally {
       isImporting = false;
@@ -128,20 +129,20 @@
 <Modal
   open={ui.isImportDialogOpen}
   onClose={closeDialog}
-  title="音楽フォルダをインポート"
+  title={m.importDialog.title}
   dismissible={!isImporting}
   class="max-w-xl"
 >
   {#if !importResult}
     <!-- フォルダ選択 -->
     <div class="form-group">
-      <label for="folder-path" class="form-label">選択されたフォルダ</label>
+      <label for="folder-path" class="form-label">{m.importDialog.selectedFolder}</label>
       <div class="flex gap-2">
         <input
           id="folder-path"
           type="text"
           readonly
-          value={selectedFolder || 'フォルダが選択されていません'}
+          value={selectedFolder || m.importDialog.noFolder}
           class="form-input flex-1"
         />
         <button
@@ -149,14 +150,14 @@
           disabled={isImporting}
           class="btn-secondary whitespace-nowrap"
         >
-          フォルダを選択
+          {m.importDialog.selectFolder}
         </button>
       </div>
     </div>
 
     <!-- 重複ファイル処理の選択 -->
     <fieldset class="form-group border-none p-0 m-0">
-      <legend class="form-label">重複ファイルの処理</legend>
+      <legend class="form-label">{m.importDialog.duplicates}</legend>
       <div class="flex flex-col gap-2">
         <label class="flex items-center gap-2 cursor-pointer text-text-secondary">
           <input
@@ -166,7 +167,7 @@
             disabled={isImporting}
             class="w-4 h-4"
           />
-          スキップ（既存ファイルを保持）
+          {m.importDialog.skip}
         </label>
         <label class="flex items-center gap-2 cursor-pointer text-text-secondary">
           <input
@@ -176,7 +177,7 @@
             disabled={isImporting}
             class="w-4 h-4"
           />
-          置き換え（新しいファイルで上書き）
+          {m.importDialog.replace}
         </label>
       </div>
     </fieldset>
@@ -186,9 +187,9 @@
       <div class="mt-6">
         <p class="text-center text-text-secondary mb-2">
           {#if totalFiles > 0}
-            インポート中... ({processedFiles}/{totalFiles})
+            {m.importDialog.importing(processedFiles, totalFiles)}
           {:else}
-            スキャン中...
+            {m.importDialog.scanning}
           {/if}
         </p>
         <div class="progress-bar-container">
@@ -212,24 +213,30 @@
   {:else}
     <!-- インポート結果 -->
     <div class="text-center">
-      <h4 class="text-xl font-semibold text-secondary m-0 mb-6">インポート完了</h4>
+      <h4 class="text-xl font-semibold text-secondary m-0 mb-6">{m.importDialog.completed}</h4>
       <div class="flex flex-col gap-3 mb-6">
         <div class="result-stat">
-          <span class="text-text-secondary">インポート成功:</span>
-          <span class="font-semibold text-secondary">{importResult.importedCount}件</span>
+          <span class="text-text-secondary">{m.importDialog.imported}</span>
+          <span class="font-semibold text-secondary"
+            >{m.common.itemCount(importResult.importedCount)}</span
+          >
         </div>
         <div class="result-stat">
-          <span class="text-text-secondary">スキップ:</span>
-          <span class="font-semibold text-text-primary">{importResult.skippedCount}件</span>
+          <span class="text-text-secondary">{m.importDialog.skipped}</span>
+          <span class="font-semibold text-text-primary"
+            >{m.common.itemCount(importResult.skippedCount)}</span
+          >
         </div>
         <div class="result-stat">
-          <span class="text-text-secondary">エラー:</span>
-          <span class="font-semibold text-error-light">{importResult.errorCount}件</span>
+          <span class="text-text-secondary">{m.importDialog.errors}</span>
+          <span class="font-semibold text-error-light"
+            >{m.common.itemCount(importResult.errorCount)}</span
+          >
         </div>
       </div>
       {#if importResult.errors.length > 0}
         <div class="message-error text-left">
-          <p class="font-semibold m-0 mb-2">エラー詳細:</p>
+          <p class="font-semibold m-0 mb-2">{m.importDialog.errorDetails}</p>
           <ul class="m-0 pl-6">
             {#each importResult.errors as error, i (i)}
               <li class="my-1">{error}</li>
@@ -243,13 +250,13 @@
   {#snippet footer()}
     {#if !importResult}
       <button onclick={closeDialog} disabled={isImporting} class="btn-secondary">
-        キャンセル
+        {m.common.cancel}
       </button>
       <button onclick={startImport} disabled={!selectedFolder || isImporting} class="btn-primary">
-        {isImporting ? 'インポート中...' : 'インポート開始'}
+        {isImporting ? m.importDialog.importingShort : m.importDialog.start}
       </button>
     {:else}
-      <button onclick={closeDialog} class="btn-success">閉じる</button>
+      <button onclick={closeDialog} class="btn-success">{m.common.close}</button>
     {/if}
   {/snippet}
 </Modal>

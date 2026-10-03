@@ -13,6 +13,7 @@
   import GroupDetail from './GroupDetail.svelte';
   import MarqueeText from '../MarqueeText.svelte';
   import AlbumArt from '../AlbumArt.svelte';
+  import { m } from '#lib/i18n/i18n.svelte.js';
 
   // Props
   interface Props {
@@ -72,9 +73,9 @@
   {isLoading}
   {isError}
   {displayMode}
-  itemLabel="アーティスト"
-  emptyMessage="アーティストがいません"
-  emptyHint="音楽をインポートしてアーティストを追加してください"
+  itemLabel={m.library.artists}
+  emptyMessage={m.library.noArtists}
+  emptyHint={m.library.noArtistsHint}
   filterFn={filterArtist}
   gridStyle="--card-width: {cardWidth}px; --art-size: {ui.gridCardSize}px;"
   gridClass="artist-grid"
@@ -113,7 +114,7 @@
           <button
             class="play-button-circle"
             onclick={(e) => handlePlayClick(e, artist)}
-            title="アーティストを再生"
+            title={m.library.playArtist}
           >
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
               <path d="M8 5v14l11-7z" />
@@ -127,7 +128,7 @@
           class="text-[0.9375rem] font-semibold text-text-primary m-0"
         />
         <p class="text-xs text-text-dimmed mt-1.5 m-0">
-          {artist.albumCount}アルバム · {artist.trackCount}曲
+          {m.library.albumsAndTracks(artist.albumCount, artist.trackCount)}
         </p>
       </div>
     </div>
@@ -152,12 +153,14 @@
       </div>
       <div class="list-info">
         <MarqueeText text={artist.name} class="list-title" />
-        <span class="list-artist">{artist.albumCount}アルバム · {artist.trackCount}曲</span>
+        <span class="list-artist"
+          >{m.library.albumsAndTracks(artist.albumCount, artist.trackCount)}</span
+        >
       </div>
       <button
         class="list-play-btn"
         onclick={(e) => handlePlayClick(e, artist)}
-        title="アーティストを再生"
+        title={m.library.playArtist}
       >
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
           <path d="M8 5v14l11-7z" />

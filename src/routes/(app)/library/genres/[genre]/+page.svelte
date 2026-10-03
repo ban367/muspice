@@ -3,6 +3,7 @@
   import { page } from '$app/state';
   import { useFilterQuery } from '#lib/queries/tracks.js';
   import TrackList from '#lib/components/library/TrackList.svelte';
+  import { m } from '#lib/i18n/i18n.svelte.js';
 
   // URLからジャンル名を取得
   // SvelteKitがルートパラメータをデコード済みのため再デコードしない
@@ -30,11 +31,11 @@
       >
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
       </svg>
-      ジャンル一覧
+      {m.library.genreList}
     </a>
     <h1 class="genre-title">{genreName}</h1>
     {#if tracks}
-      <span class="track-count">{tracks.length}曲</span>
+      <span class="track-count">{m.common.trackCount(tracks.length)}</span>
     {/if}
   </div>
 
@@ -45,8 +46,8 @@
       {isLoading}
       {isError}
       {error}
-      emptyMessage="このジャンルに曲がありません"
-      emptyHint="他のジャンルを選択してください"
+      emptyMessage={m.library.noTracksInGenre}
+      emptyHint={m.library.noTracksInGenreHint}
     />
   </div>
 </div>

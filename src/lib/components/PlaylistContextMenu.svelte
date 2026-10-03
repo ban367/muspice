@@ -11,6 +11,7 @@
   import { useTracksQuery } from '#lib/queries/tracks.js';
   import { confirmDestructive, promptText } from '#lib/utils/dialog.svelte.js';
   import { validatePlaylistName, toSafeString } from '#lib/utils/validation.js';
+  import { m } from '#lib/i18n/i18n.svelte.js';
 
   // Props
   interface Props {
@@ -85,10 +86,10 @@
     onClose();
 
     const newName = await promptText({
-      title: 'プレイリスト名を変更',
-      label: '新しいプレイリスト名',
+      title: m.contextMenu.renamePlaylistTitle,
+      label: m.contextMenu.newPlaylistName,
       defaultValue: name,
-      confirmLabel: '変更',
+      confirmLabel: m.contextMenu.renameConfirm,
       validate: (value) => validatePlaylistName(value).error ?? null
     });
     if (newName !== null && newName !== name) {
@@ -104,7 +105,7 @@
     const { id, name } = playlist;
     onClose();
 
-    if (await confirmDestructive(`プレイリスト「${name}」を削除しますか？`)) {
+    if (await confirmDestructive(m.contextMenu.confirmDeletePlaylist(name))) {
       deletePlaylistMutation.mutate(id);
     }
   }
@@ -112,7 +113,7 @@
 
 <BaseContextMenu {x} {y} {onClose}>
   <div class="menu-header">{playlist.name}</div>
-  <div class="menu-subheader">{playlist.tracks.length}曲</div>
+  <div class="menu-subheader">{m.common.trackCount(playlist.tracks.length)}</div>
   <div class="menu-divider"></div>
 
   <button
@@ -129,7 +130,7 @@
     >
       <path d="M8 5v14l11-7z" />
     </svg>
-    <span>プレイリストを再生</span>
+    <span>{m.contextMenu.playPlaylist}</span>
   </button>
 
   <button
@@ -152,7 +153,7 @@
         d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
       />
     </svg>
-    <span>シャッフル再生</span>
+    <span>{m.common.shufflePlay}</span>
   </button>
 
   <div class="menu-divider"></div>
@@ -177,7 +178,7 @@
         d="M13 5l7 7-7 7M5 5l7 7-7 7"
       />
     </svg>
-    <span>次に再生</span>
+    <span>{m.common.playNext}</span>
   </button>
 
   <button
@@ -200,7 +201,7 @@
         d="M4 6h16M4 10h16M4 14h16M4 18h7"
       />
     </svg>
-    <span>キューに追加</span>
+    <span>{m.common.addToQueue}</span>
   </button>
 
   <div class="menu-divider"></div>
@@ -220,7 +221,7 @@
         d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
       />
     </svg>
-    <span>名前を変更</span>
+    <span>{m.contextMenu.rename}</span>
   </button>
 
   <button class="menu-item menu-item-danger" onclick={handleDelete} role="menuitem">
@@ -238,7 +239,7 @@
         d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
       />
     </svg>
-    <span>削除</span>
+    <span>{m.common.delete}</span>
   </button>
 </BaseContextMenu>
 

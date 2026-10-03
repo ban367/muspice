@@ -3,6 +3,7 @@
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import MarqueeText from '../MarqueeText.svelte';
   import AlbumArt from '../AlbumArt.svelte';
+  import { m } from '#lib/i18n/i18n.svelte.js';
 
   // Props
   interface Props {
@@ -27,7 +28,7 @@
       </div>
       <div class="album-info">
         <MarqueeText text={album.name} class="album-name" />
-        <span class="album-artist">{album.artist || '不明なアーティスト'}</span>
+        <span class="album-artist">{album.artist || m.common.unknownArtist}</span>
       </div>
     </button>
   {/each}

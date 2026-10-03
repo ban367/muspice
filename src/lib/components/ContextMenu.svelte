@@ -8,6 +8,7 @@
   import { BaseContextMenu, PlaylistSubmenu } from '#lib/components/ui/index.js';
   import { player, playSingleTrack } from '#lib/stores/player.svelte.js';
   import { useShowInFolderMutation } from '#lib/queries/tracks.js';
+  import { m } from '#lib/i18n/i18n.svelte.js';
 
   // Props
   interface Props {
@@ -121,7 +122,7 @@
 
 <BaseContextMenu {x} {y} {onClose}>
   {#if selectedCount > 1}
-    <div class="menu-header">{selectedCount}曲を選択中</div>
+    <div class="menu-header">{m.contextMenu.selectedCount(selectedCount)}</div>
     <div class="menu-divider"></div>
   {/if}
 
@@ -134,7 +135,7 @@
     >
       <path d="M8 5v14l11-7z" />
     </svg>
-    <span>再生</span>
+    <span>{m.common.play}</span>
   </button>
 
   <button class="menu-item" onclick={handlePlayNext} role="menuitem">
@@ -152,7 +153,7 @@
         d="M13 5l7 7-7 7M5 5l7 7-7 7"
       />
     </svg>
-    <span>次に再生</span>
+    <span>{m.common.playNext}</span>
   </button>
 
   <button class="menu-item" onclick={handleAddToQueue} role="menuitem">
@@ -170,7 +171,7 @@
         d="M4 6h16M4 10h16M4 14h16M4 18h7"
       />
     </svg>
-    <span>キューに追加</span>
+    <span>{m.common.addToQueue}</span>
   </button>
 
   <div class="menu-divider"></div>
@@ -195,7 +196,7 @@
           d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
         />
       </svg>
-      <span>メタデータを編集</span>
+      <span>{m.contextMenu.editMetadata}</span>
       <span class="menu-shortcut">Ctrl+I</span>
     </button>
   {/if}
@@ -215,7 +216,7 @@
         d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
       />
     </svg>
-    <span>ファイルの場所を開く</span>
+    <span>{m.contextMenu.showInFolder}</span>
   </button>
 
   {#if onDelete}
@@ -236,7 +237,7 @@
           d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
         />
       </svg>
-      <span>削除...</span>
+      <span>{m.contextMenu.deleteEllipsis}</span>
     </button>
   {/if}
 </BaseContextMenu>

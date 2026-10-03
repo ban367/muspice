@@ -5,6 +5,7 @@
   import AlbumDetail from '#lib/components/library/AlbumDetail.svelte';
   import LibraryBrowsePage from '#lib/components/library/LibraryBrowsePage.svelte';
   import { useAlbumsGroupedQuery } from '#lib/queries/tracks.js';
+  import { m } from '#lib/i18n/i18n.svelte.js';
 
   // クエリ
   const albumsQuery = useAlbumsGroupedQuery();
@@ -20,10 +21,11 @@
 </script>
 
 <LibraryBrowsePage
-  title="アルバム"
-  countUnit="枚"
-  searchPlaceholder="アルバムを検索..."
-  emptyPrompt="アルバムを選択してください"
+  title={m.library.albums}
+  formatCount={m.library.albumCount}
+  formatCountSummary={m.library.albumSummary}
+  searchPlaceholder={m.library.searchAlbums}
+  emptyPrompt={m.library.selectAlbum}
   items={allAlbums}
   filterFn={filterAlbum}
   getItemKey={(album) => album.name}

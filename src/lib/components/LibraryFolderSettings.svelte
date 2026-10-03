@@ -19,6 +19,7 @@
   import { Modal } from '#lib/components/ui/index.js';
   import { formatDateTime } from '#lib/utils/format.js';
   import { describeRescan, sumRescanResults } from '#lib/utils/rescan.js';
+  import { m } from '#lib/i18n/i18n.svelte.js';
 
   const foldersQuery = useLibraryFoldersQuery();
   const rescanMutation = useRescanLibraryFolderMutation();
@@ -71,10 +72,10 @@
     const totals = sumRescanResults(results);
     showSuccess(describeRescan(totals));
     if (totals.errorCount > 0) {
-      showWarning(`${totals.errorCount}件のファイルを読み込めませんでした`);
+      showWarning(m.libraryFolders.readErrors(totals.errorCount));
     }
     for (const path of totals.removalSkippedPaths) {
-      showWarning(`音楽ファイルが見つからないため、ライブラリから曲を外しませんでした: ${path}`);
+      showWarning(m.libraryFolders.removalSkipped(path));
     }
   }
 
@@ -94,9 +95,7 @@
     try {
       const removed = await removeMutation.mutateAsync({ folderId, removeTracks });
       showSuccess(
-        removeTracks
-          ? `ライブラリフォルダを削除し、${removed}曲をライブラリから外しました`
-          : 'ライブラリフォルダを削除しました'
+        removeTracks ? m.libraryFolders.removedWithTracks(removed) : m.libraryFolders.removed
       );
       removingFolder = null;
     } catch {
@@ -106,13 +105,13 @@
 </script>
 
 <section class="settings-section">
-  <h3 class="section-title">ライブラリ</h3>
+  <h3 class="section-title">{m.libraryFolders.title}</h3>
 
   <div class="folders-header">
     <div>
-      <p class="setting-label">ライブラリフォルダ</p>
+      <p class="setting-label">{m.libraryFolders.folders}</p>
       <p class="setting-description">
-        インポートしたフォルダです。再スキャンすると、フォルダ内で追加・削除・変更されたファイルをライブラリに反映します。
+        {m.libraryFolders.foldersHint}
       </p>
     </div>
     <button
@@ -121,27 +120,31 @@
       onclick={() => rescan(scannableFolders)}
       disabled={isScanning || scannableFolders.length === 0}
     >
-      すべて再スキャン
+      {m.libraryFolders.rescanAll}
     </button>
   </div>
 
   {#if isScanning}
     <p class="scan-progress" role="status">
       {#if scanProgress}
-        読み込み中 {scanProgress.current} / {scanProgress.total}: {scanProgress.currentFile}
+        {m.libraryFolders.progress(
+          scanProgress.current,
+          scanProgress.total,
+          scanProgress.currentFile
+        )}
       {:else}
-        フォルダを確認しています...
+        {m.libraryFolders.checking}
       {/if}
     </p>
   {/if}
 
   {#if foldersQuery.isPending}
-    <p class="setting-description">読み込み中...</p>
+    <p class="setting-description">{m.common.loading}</p>
   {:else if foldersQuery.isError}
-    <p class="setting-description">ライブラリフォルダを読み込めませんでした</p>
+    <p class="setting-description">{m.libraryFolders.loadFailed}</p>
   {:else if folders.length === 0}
     <p class="empty-message">
-      ライブラリフォルダはまだありません。メニューの「フォルダをインポート...」でフォルダを取り込むと、ここに追加されます。
+      {m.libraryFolders.empty}
     </p>
   {:else}
     <ul class="folder-list">
@@ -151,10 +154,13 @@
             <p class="folder-path" title={folder.path}>{folder.path}</p>
             <p class="folder-meta">
               {#if folder.exists}
-                {folder.trackCount}曲・最終スキャン: {formatDateTime(folder.lastScannedAt)}
+                {m.libraryFolders.folderMeta(
+                  folder.trackCount,
+                  formatDateTime(folder.lastScannedAt)
+                )}
               {:else}
-                <span class="folder-missing">フォルダが見つかりません</span>
-                （{folder.trackCount}曲。外付けドライブなどが接続されているか確認してください）
+                <span class="folder-missing">{m.libraryFolders.missing}</span>
+                {m.libraryFolders.missingHint(folder.trackCount)}
               {/if}
             </p>
           </div>
@@ -166,7 +172,9 @@
               disabled={isScanning || !folder.exists}
               aria-busy={scanningFolderId === folder.id}
             >
-              {scanningFolderId === folder.id ? '再スキャン中...' : '再スキャン'}
+              {scanningFolderId === folder.id
+                ? m.libraryFolders.rescanning
+                : m.libraryFolders.rescan}
             </button>
             <button
               type="button"
@@ -174,7 +182,7 @@
               onclick={() => openRemoveDialog(folder)}
               disabled={isScanning}
             >
-              削除
+              {m.common.delete}
             </button>
           </div>
         </li>
@@ -184,8 +192,7 @@
 
   {#if foldersQuery.data && foldersQuery.data.unregisteredTrackCount > 0}
     <p class="setting-description mt-3">
-      どのライブラリフォルダにも含まれない曲が{foldersQuery.data
-        .unregisteredTrackCount}曲あります（フォルダの記録を始める前にインポートした曲など）。同じフォルダをもう一度インポートすると、ライブラリフォルダとして登録されます（登録済みの曲は読み直しません）。
+      {m.libraryFolders.unregistered(foldersQuery.data.unregisteredTrackCount)}
     </p>
   {/if}
 </section>
@@ -193,18 +200,18 @@
 <Modal
   open={removingFolder !== null}
   onClose={closeRemoveDialog}
-  title="ライブラリフォルダの削除"
+  title={m.libraryFolders.removeTitle}
   dismissible={!removeMutation.isPending}
   class="max-w-md"
 >
   {#if removingFolder}
-    <p class="mb-4 break-all">「{removingFolder.path}」をライブラリフォルダから外しますか？</p>
+    <p class="mb-4 break-all">{m.libraryFolders.removeConfirm(removingFolder.path)}</p>
     <label class="flex items-start gap-2 text-sm cursor-pointer">
       <input type="checkbox" class="checkbox checkbox-sm mt-0.5" bind:checked={removeTracks} />
       <span>
-        フォルダ内の{removingFolder.trackCount}曲もライブラリから外す
+        {m.libraryFolders.removeTracks(removingFolder.trackCount)}
         <span class="block text-xs text-text-muted">
-          ファイルは削除しません。外した曲はプレイリストからも消えます
+          {m.libraryFolders.removeTracksHint}
         </span>
       </span>
     </label>
@@ -218,7 +225,7 @@
       disabled={removeMutation.isPending}
       data-autofocus
     >
-      キャンセル
+      {m.common.cancel}
     </button>
     <button
       type="button"
@@ -226,7 +233,7 @@
       onclick={confirmRemove}
       disabled={removeMutation.isPending}
     >
-      削除
+      {m.common.delete}
     </button>
   {/snippet}
 </Modal>

@@ -10,6 +10,7 @@ import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-qu
 import { commands } from '#lib/bindings.js';
 import { queryKeys } from './keys';
 import { withErrorToast } from './shared';
+import { m } from '#lib/i18n/i18n.svelte.js';
 
 /**
  * ライブラリフォルダの一覧を取得するクエリ
@@ -20,7 +21,8 @@ import { withErrorToast } from './shared';
 export function useLibraryFoldersQuery() {
   return createQuery(() => ({
     queryKey: queryKeys.libraryFolders,
-    queryFn: () => withErrorToast('ライブラリフォルダの取得', () => commands.getLibraryFolders())
+    queryFn: () =>
+      withErrorToast(m.operations.fetchLibraryFolders, () => commands.getLibraryFolders())
   }));
 }
 
@@ -32,7 +34,9 @@ export function useRescanLibraryFolderMutation() {
 
   return createMutation(() => ({
     mutationFn: (folderId: string) =>
-      withErrorToast('再スキャン', () => commands.rescanLibraryFolder(folderId)),
+      withErrorToast(m.operations.rescanLibraryFolder, () =>
+        commands.rescanLibraryFolder(folderId)
+      ),
     // 失敗した場合もスキャンの途中までは反映されているため、一覧を読み直す
     onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.libraryFolders })
   }));
@@ -48,7 +52,7 @@ export function useRemoveLibraryFolderMutation() {
 
   return createMutation(() => ({
     mutationFn: ({ folderId, removeTracks }: { folderId: string; removeTracks: boolean }) =>
-      withErrorToast('ライブラリフォルダの削除', () =>
+      withErrorToast(m.operations.removeLibraryFolder, () =>
         commands.removeLibraryFolder(folderId, removeTracks)
       ),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.libraryFolders })

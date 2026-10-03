@@ -256,6 +256,13 @@ export type ImportResult = {
 	errors: string[],
 };
 
+/**  表示の言語 */
+export type Language = 
+/**  日本語 */
+"ja" | 
+/**  英語 */
+"en";
+
 /**
  *  再スキャン・ライブラリフォルダの削除で、ライブラリのトラックが変わった
  * 
@@ -364,6 +371,8 @@ export type RescanResult = {
 
 /**  アプリケーション設定 */
 export type Settings = {
+	/**  表示の言語 */
+	language: Language,
 	/**  起動時に開く画面 */
 	startupPage: StartupPage,
 	/**  画面の配色 */

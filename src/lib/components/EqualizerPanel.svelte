@@ -11,6 +11,7 @@
     type EQFrequency
   } from '#lib/stores/equalizer.svelte.js';
   import { confirmDestructive } from '#lib/utils/dialog.svelte.js';
+  import { m } from '#lib/i18n/i18n.svelte.js';
 
   // ビルトインプリセットの選択肢
   const builtinPresetOptions: BuiltinPresetName[] = [
@@ -79,7 +80,7 @@
 
   // カスタムプリセットを削除
   async function deletePreset(name: string) {
-    if (await confirmDestructive(`"${name}" を削除しますか？`)) {
+    if (await confirmDestructive(m.equalizer.confirmDeletePreset(name))) {
       equalizer.deleteCustomPreset(name);
     }
   }
@@ -93,13 +94,13 @@
 <div class="equalizer-panel">
   <!-- ヘッダー -->
   <div class="eq-header">
-    <h3>イコライザ</h3>
+    <h3>{m.equalizer.title}</h3>
     <button
       class="eq-toggle"
       class:active={equalizer.enabled}
       onclick={() => equalizer.toggle()}
-      title={equalizer.enabled ? 'イコライザをオフ' : 'イコライザをオン'}
-      aria-label={equalizer.enabled ? 'イコライザをオフ' : 'イコライザをオン'}
+      title={equalizer.enabled ? m.equalizer.turnOff : m.equalizer.turnOn}
+      aria-label={equalizer.enabled ? m.equalizer.turnOff : m.equalizer.turnOn}
     >
       <span class="toggle-track">
         <span class="toggle-thumb"></span>
@@ -117,15 +118,15 @@
     >
       <!-- カスタム状態を表示 -->
       {#if isCustom}
-        <option value="_custom_" disabled>カスタム</option>
+        <option value="_custom_" disabled>{m.equalizer.custom}</option>
       {/if}
-      <optgroup label="ビルトイン">
+      <optgroup label={m.equalizer.builtIn}>
         {#each builtinPresetOptions as preset (preset)}
           <option value={preset}>{BUILTIN_PRESET_LABELS[preset]}</option>
         {/each}
       </optgroup>
       {#if equalizer.customPresets.length > 0}
-        <optgroup label="保存済み">
+        <optgroup label={m.equalizer.saved}>
           {#each equalizer.customPresets as customPreset (customPreset.name)}
             <option value={customPreset.name}>{customPreset.name}</option>
           {/each}
@@ -139,8 +140,8 @@
       class:highlight={isCustom}
       onclick={() => (showSaveDialog = !showSaveDialog)}
       disabled={!equalizer.enabled || !isCustom}
-      title={isCustom ? 'プリセットを保存' : 'プリセットを変更すると保存可能'}
-      aria-label="プリセットを保存"
+      title={isCustom ? m.equalizer.savePreset : m.equalizer.savePresetHint}
+      aria-label={m.equalizer.savePreset}
     >
       <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -162,8 +163,8 @@
       class="icon-btn"
       onclick={() => equalizer.reset()}
       disabled={!equalizer.enabled}
-      title="リセット"
-      aria-label="イコライザをリセット"
+      title={m.equalizer.reset}
+      aria-label={m.equalizer.resetLabel}
     >
       <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -186,11 +187,13 @@
       <input
         type="text"
         class="preset-name-input"
-        placeholder="プリセット名を入力"
+        placeholder={m.equalizer.presetNamePlaceholder}
         bind:value={newPresetName}
         onkeydown={(e) => e.key === 'Enter' && savePreset()}
       />
-      <button class="save-btn" onclick={savePreset} disabled={!newPresetName.trim()}>保存</button>
+      <button class="save-btn" onclick={savePreset} disabled={!newPresetName.trim()}
+        >{m.common.save}</button
+      >
       <button class="cancel-btn" onclick={() => (showSaveDialog = false)}>×</button>
     </div>
   {/if}
@@ -202,9 +205,9 @@
       <button
         class="delete-preset-btn"
         onclick={() => deletePreset(equalizer.currentPreset!)}
-        title="プリセットを削除"
+        title={m.equalizer.deletePreset}
       >
-        削除
+        {m.common.delete}
       </button>
     </div>
   {/if}

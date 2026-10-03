@@ -12,6 +12,7 @@ import { commands } from '#lib/bindings.js';
 import type { Settings } from '#lib/types/models.js';
 import { queryKeys } from './keys';
 import { withErrorToast } from './shared';
+import { m } from '#lib/i18n/i18n.svelte.js';
 
 /**
  * 現在の設定を取得するクエリ
@@ -21,7 +22,7 @@ import { withErrorToast } from './shared';
 export function useSettingsQuery() {
   return createQuery(() => ({
     queryKey: queryKeys.settings,
-    queryFn: () => withErrorToast('設定の読み込み', () => commands.getSettings()),
+    queryFn: () => withErrorToast(m.operations.loadSettings, () => commands.getSettings()),
     staleTime: Infinity
   }));
 }
@@ -34,7 +35,7 @@ export function useSaveSettingsMutation() {
 
   return createMutation(() => ({
     mutationFn: (settings: Settings) =>
-      withErrorToast('設定の保存', () => commands.saveSettings(settings)),
+      withErrorToast(m.operations.saveSettings, () => commands.saveSettings(settings)),
     onSuccess: (_, settings) => {
       queryClient.setQueryData(queryKeys.settings, settings);
     }

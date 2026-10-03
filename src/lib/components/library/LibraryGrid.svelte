@@ -11,6 +11,7 @@
   import type { AlbumGroup, ArtistGroup, GenreGroup } from '#lib/types/models.js';
   import { ui } from '#lib/stores/ui.svelte.js';
   import GroupContextMenu from '../GroupContextMenu.svelte';
+  import { m } from '#lib/i18n/i18n.svelte.js';
 
   // Props
   interface Props {
@@ -94,11 +95,11 @@
   {#if isLoading}
     <div class="state-container">
       <div class="spinner"></div>
-      <p>{itemLabel}を読み込み中...</p>
+      <p>{m.library.loadingItems(itemLabel)}</p>
     </div>
   {:else if isError}
     <div class="state-container">
-      <p class="text-error-light">{itemLabel}の読み込みに失敗しました</p>
+      <p class="text-error-light">{m.library.loadItemsFailed(itemLabel)}</p>
     </div>
   {:else if items.length > 0 && filteredItems.length === 0}
     <div class="state-container">
@@ -116,7 +117,7 @@
           d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
         />
       </svg>
-      <p>「{ui.browseSearchQuery}」に一致する{itemLabel}が見つかりません</p>
+      <p>{m.library.noMatch(ui.browseSearchQuery, itemLabel)}</p>
     </div>
   {:else if filteredItems.length > 0}
     {#if displayMode === 'grid'}

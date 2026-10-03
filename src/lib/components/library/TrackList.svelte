@@ -12,6 +12,7 @@
   import MarqueeText from '../MarqueeText.svelte';
   import AlbumArt from '../AlbumArt.svelte';
   import { computeClickSelection, toggleKeyboardSelection } from '#lib/utils/selection.js';
+  import { m } from '#lib/i18n/i18n.svelte.js';
 
   // Props
   interface Props {
@@ -31,8 +32,8 @@
     isError = false,
     error = null,
     searchTerm = '',
-    emptyMessage = '音楽ライブラリが空です',
-    emptyHint = 'フォルダをインポートして音楽を追加してください',
+    emptyMessage,
+    emptyHint,
     displayMode = 'list'
   }: Props = $props();
 
@@ -264,7 +265,7 @@
           <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
         </svg>
       </div>
-      <span class="drag-preview-count">${trackIds.length}曲</span>
+      <span class="drag-preview-count">${m.common.trackCount(trackIds.length)}</span>
     `;
     dragImage.style.position = 'absolute';
     dragImage.style.left = '-9999px';
@@ -323,12 +324,12 @@
     {#if isLoading}
       <div class="empty-state">
         <div class="spinner"></div>
-        <p>読み込み中...</p>
+        <p>{m.common.loading}</p>
       </div>
     {:else if isError}
       <div class="empty-state text-error">
-        <p>エラーが発生しました</p>
-        <p class="text-sm text-text-muted">{error?.message || '不明なエラー'}</p>
+        <p>{m.common.errorOccurred}</p>
+        <p class="text-sm text-text-muted">{error?.message || m.common.unknownError}</p>
       </div>
     {:else if sortedTracks && sortedTracks.length > 0}
       {#if displayMode === 'list'}
@@ -338,7 +339,8 @@
             <div class="col-number">#</div>
             <div class="resizable-header">
               <button class="sortable" onclick={() => toggleSort('title')}>
-                タイトル {getSortIcon('title')}
+                {m.fields.title}
+                {getSortIcon('title')}
               </button>
               <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
               <div
@@ -350,7 +352,8 @@
             </div>
             <div class="resizable-header">
               <button class="sortable" onclick={() => toggleSort('artist')}>
-                アーティスト {getSortIcon('artist')}
+                {m.fields.artist}
+                {getSortIcon('artist')}
               </button>
               <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
               <div
@@ -361,7 +364,7 @@
               ></div>
             </div>
             <div class="resizable-header">
-              <div class="col-rating">評価</div>
+              <div class="col-rating">{m.fields.rating}</div>
               <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
               <div
                 class="resize-handle"
@@ -371,7 +374,8 @@
               ></div>
             </div>
             <button class="sortable text-right" onclick={() => toggleSort('duration')}>
-              時間 {getSortIcon('duration')}
+              {m.fields.duration}
+              {getSortIcon('duration')}
             </button>
           </div>
           <div class="flex flex-col">
@@ -407,8 +411,8 @@
                 />
                 <MarqueeText
                   text={searchTerm
-                    ? track.artist || '不明なアーティスト'
-                    : track.artist || '不明なアーティスト'}
+                    ? track.artist || m.common.unknownArtist
+                    : track.artist || m.common.unknownArtist}
                   class="text-text-secondary text-sm"
                 />
                 <div class="col-rating flex items-center justify-center">
@@ -419,7 +423,7 @@
                         class:active={track.rating >= star}
                         onclick={(e) =>
                           handleSetRating(track.id, track.rating === star ? 0 : star, e)}
-                        title={`${star}つ星`}
+                        title={m.library.stars(star)}
                       >
                         ★
                       </button>
@@ -460,7 +464,7 @@
               >
                 <AlbumArt
                   src={albumArtUrl(track.id)}
-                  alt="アルバムアート"
+                  alt={m.common.albumArt}
                   placeholderType="music"
                 />
                 {#if player.currentTrack?.id === track.id}
@@ -475,7 +479,7 @@
                   class="font-semibold mb-1 text-sm text-text-primary"
                 />
                 <MarqueeText
-                  text={track.artist || '不明なアーティスト'}
+                  text={track.artist || m.common.unknownArtist}
                   class="text-xs text-text-muted"
                 />
               </div>
@@ -499,8 +503,8 @@
             d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"
           />
         </svg>
-        <p>{emptyMessage}</p>
-        <p class="text-sm text-text-dimmed">{emptyHint}</p>
+        <p>{emptyMessage ?? m.library.emptyLibrary}</p>
+        <p class="text-sm text-text-dimmed">{emptyHint ?? m.library.emptyLibraryHint}</p>
       </div>
     {/if}
   </div>

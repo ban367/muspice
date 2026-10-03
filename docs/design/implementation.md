@@ -30,6 +30,7 @@ src/
     ├── components/
     │   ├── ui/
     │   └── library/
+    ├── i18n/              # 多言語化（i18n.svelte.ts と messages/ja.ts・en.ts）
     ├── mocks/             # ブラウザ確認用のTauri IPCモック（dev:mock専用）
     ├── queries/
     ├── stores/
@@ -56,6 +57,7 @@ src-tauri/src/
 ├── library.rs
 ├── library_folder.rs
 ├── library_sync.rs        # ライブラリフォルダの変更の自動反映（起動時・定期・監視）
+├── menu.rs                # メニューバーと設定ウィンドウのタイトル（言語に合わせる）
 ├── playlist.rs
 ├── metadata.rs
 ├── models.rs
@@ -128,6 +130,17 @@ src-tauri/src/
 - 音量の正規化は、再生中のトラックの`replayGain`と設定の`volumeNormalization`から`#lib/utils/normalization`の`normalizationGain`で倍率を求め、イコライザの前段のGainNodeへ`setNormalizationGain`で反映する。コントローラーは設定を直接読まず、`options`の関数（`normalizationMode`・`gapless`・`crossfadeSeconds`）で受け取る（テストで差し替えるため）。補正はデッキごとにかけ、各デッキが読み込んだトラックの値を使う。audio要素の`volume`はユーザーの音量のまま変えない
 - アルバム・プレイリストなどの「シャッフル再生」は`playShuffled(tracks)`を使う（配列を`sort(() => Math.random() - 0.5)`などで独自に並べ替えない）。シャッフルモードを有効にし、元の順序を保持するため、解除すると元の順序に戻る
 
+### 多言語化（i18n）
+
+- 画面に表示する文言は、コンポーネントに直接書かず`src/lib/i18n/messages/ja.ts`（正）と`en.ts`に定義し、`#lib/i18n/i18n.svelte`の`m`から読む（例: `m.common.cancel`、`m.common.trackCount(3)`）。英語は`Messages`型（`typeof ja`）にするため、キーの過不足は型チェックで分かる
+  - 引数のある文言は関数にし、語順や単数形・複数形は言語ごとの関数で決める（文字列をつなげて文を作らない）
+  - コンソールのログ（`console.*`）・Rustのログは日本語のまま（利用者に表示しない）
+- `m`は読むたびに今の言語のメッセージを返す。テンプレート・`$derived`・イベント処理の中で読む。スクリプトの初期化時に文字列として取り出すと、言語を切り替えても変わらない（選択肢は値の配列にして、ラベルをテンプレートで`m`から読む。propsの既定値に文言を書かず、テンプレートで`??`で補う）
+- 日付・数値の書式は`i18n.locale`（例: `ja-JP`）を使う（`#lib/utils/format`）
+- 言語は設定の`language`。メインウィンドウは`SettingsSync`、設定ウィンドウは設定画面が`applyLanguage`で反映し、設定を読み込むまでの間は`restoreLanguage`で前回の言語を使う
+- エラー: `toErrorMessage`はcodeごとの汎用メッセージ（`m.errors.byCode`）を使う。日本語では、`NOT_FOUND`・`VALIDATION`はバックエンドの日本語のメッセージをそのまま表示し、英語では汎用メッセージにする（バックエンドのメッセージは日本語のため）
+- Rust側の文言はメニューバーと設定ウィンドウのタイトルだけ（`menu.rs`）。言語を変えて保存すると`save_settings`が作り直す
+
 ### ダイアログ
 
 - モーダルは`#lib/components/ui`の`Modal`（ネイティブの`<dialog>`を`showModal()`で表示）を使い、背景のdivや`svelte-ignore`で独自に実装しない。Escキー・背面の操作の無効化（フォーカスの閉じ込め）・閉じた後のフォーカスの復帰はブラウザに任せる
@@ -152,7 +165,7 @@ src-tauri/src/
 
 ### エラーハンドリング
 
-- Rustコマンドは `AppResult<T>`（`error.rs` の `AppError`）を返す。エラーは `{ code, message }` 形式でシリアライズされ、messageは日本語のユーザー向け文言とする
+- Rustコマンドは `AppResult<T>`（`error.rs` の `AppError`）を返す。エラーは `{ code, message }` 形式でシリアライズされ、messageは日本語のユーザー向け文言とする（英語の表示ではcodeごとの汎用メッセージを使う。「多言語化」参照）
 - エラーコード: `LOCK` / `DATABASE` / `NOT_FOUND` / `VALIDATION` / `IO` / `METADATA`
 - フロントエンドでは `handleError` を必ず経由し、codeでエラーを分類する（部分文字列マッチは行わない）
 - DBアクセスはコマンド層で `AppState::with_db` を経由し、ロック取得エラーの処理を一元化する

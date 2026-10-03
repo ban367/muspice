@@ -1,3 +1,4 @@
+import { m } from '#lib/i18n/i18n.svelte.js';
 import type { AppError } from '#lib/types/models.js';
 
 export interface ErrorNotification {
@@ -57,30 +58,19 @@ function isAppError(value: unknown): value is AppError {
 }
 
 /**
- * 技術的詳細をユーザーに見せないエラーコードの汎用メッセージ
- *
- * NOT_FOUND / VALIDATION はバックエンドのメッセージ自体がユーザー向けの
- * 日本語文言のため、このマップに含めずそのまま表示する。
- * （Partialにより、コードを追加してもここへの追加は任意）
- */
-const GENERIC_MESSAGES_BY_CODE: Partial<Record<AppError['code'], string>> = {
-  LOCK: '処理が競合しています。しばらく待ってからもう一度お試しください。',
-  DATABASE: 'データベースの操作中にエラーが発生しました。もう一度お試しください。',
-  IO: 'ファイル操作中にエラーが発生しました。ファイルの状態を確認してください。',
-  METADATA: 'メタデータの処理中にエラーが発生しました。ファイルが破損している可能性があります。'
-};
-
-/**
  * エラーをユーザー向けのメッセージに変換する
  *
- * バックエンドの構造化エラーはcodeで分類してユーザー向けメッセージに変換し、
- * それ以外（フロントエンド内で発生したエラー等）はメッセージをそのまま使う。
+ * バックエンドの構造化エラーはcodeで分類してユーザー向けメッセージ（`m.errors.byCode`）に
+ * 変換し、それ以外（フロントエンド内で発生したエラー等）はメッセージをそのまま使う。
+ * 技術的な詳細を見せないコード（LOCK・DATABASEなど）は常に汎用メッセージにする。
+ * NOT_FOUND / VALIDATION のバックエンドのメッセージは日本語のユーザー向けの文言のため、
+ * 日本語ではそのまま表示し、英語では汎用メッセージにする。
  * 画面内にエラーを表示する場合も`String(error)`ではなくこれを使うこと
  * （`AppError`はオブジェクトのため、文字列化すると"[object Object]"になる）。
  */
 export function toErrorMessage(error: unknown): string {
   if (isAppError(error)) {
-    return GENERIC_MESSAGES_BY_CODE[error.code] ?? error.message;
+    return m.errors.byCode[error.code] ?? error.message;
   }
   if (typeof error === 'string') {
     return error;
@@ -88,7 +78,7 @@ export function toErrorMessage(error: unknown): string {
   if (error instanceof Error) {
     return error.message;
   }
-  return 'エラーが発生しました';
+  return m.errors.unknown;
 }
 
 /**
@@ -101,7 +91,7 @@ export function handleError(error: unknown, context?: string): void {
 
   // コンテキストがある場合は追加
   if (context) {
-    message = `${context}: ${message}`;
+    message = m.errors.withContext(context, message);
   }
 
   // トーストで通知

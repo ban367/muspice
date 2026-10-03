@@ -1,6 +1,7 @@
 <script lang="ts">
   import { useRecentlyPlayedTracksQuery } from '#lib/queries/tracks.js';
   import TrackList from '#lib/components/library/TrackList.svelte';
+  import { m } from '#lib/i18n/i18n.svelte.js';
 
   // 最近再生した曲を取得
   const recentQuery = useRecentlyPlayedTracksQuery(50);
@@ -27,7 +28,7 @@
         d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
       />
     </svg>
-    <h1 class="page-title">最近再生した曲</h1>
+    <h1 class="page-title">{m.library.recentlyPlayed}</h1>
   </div>
 
   <!-- トラックリスト -->
@@ -37,8 +38,8 @@
       {isLoading}
       {isError}
       {error}
-      emptyMessage="最近再生した曲がありません"
-      emptyHint="曲を再生すると、ここに表示されます"
+      emptyMessage={m.library.noRecentlyPlayed}
+      emptyHint={m.library.noRecentlyPlayedHint}
     />
   </div>
 </div>

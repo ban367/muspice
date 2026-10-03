@@ -1,6 +1,7 @@
 <script lang="ts">
   import { notifications, type ErrorNotification } from '#lib/stores/error.svelte.js';
   import { fly } from 'svelte/transition';
+  import { m } from '#lib/i18n/i18n.svelte.js';
 
   function getTypeClass(type: ErrorNotification['type']): string {
     switch (type) {
@@ -44,7 +45,7 @@
       <button
         class="flex-shrink-0 hover:opacity-70 transition-opacity"
         onclick={() => removeNotification(notification.id)}
-        aria-label="閉じる"
+        aria-label={m.common.close}
       >
         ✕
       </button>

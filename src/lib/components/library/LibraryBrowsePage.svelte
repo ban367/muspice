@@ -19,8 +19,10 @@
   interface Props {
     /** ページタイトル（例: アルバム） */
     title: string;
-    /** 件数の単位（例: 枚、人、種類） */
-    countUnit: string;
+    /** ヘッダーの件数の表示（例: 12枚） */
+    formatCount: (count: number) => string;
+    /** 詳細未選択時の件数の表示（例: 12枚のアルバム） */
+    formatCountSummary: (count: number) => string;
     /** 検索ボックスのプレースホルダー */
     searchPlaceholder: string;
     /** 初期表示モード */
@@ -56,7 +58,8 @@
 
   let {
     title,
-    countUnit,
+    formatCount,
+    formatCountSummary,
     searchPlaceholder,
     initialDisplayMode = 'list',
     items = [],
@@ -137,7 +140,7 @@
   <LibraryHeader
     {title}
     count={itemCount}
-    {countUnit}
+    {formatCount}
     {searchPlaceholder}
     {searchTerm}
     onSearchInput={handleSearchInput}
@@ -171,7 +174,7 @@
             <div class="empty-detail">
               {@render emptyIcon?.()}
               <p>{emptyPrompt}</p>
-              <span>{itemCount}{countUnit}の{title}</span>
+              <span>{formatCountSummary(itemCount)}</span>
             </div>
           </div>
         {/if}

@@ -4,6 +4,7 @@
   import { player, removeFromQueue, clearQueue } from '#lib/stores/player.svelte.js';
   import MarqueeText from './MarqueeText.svelte';
   import EqualizerPanel from './EqualizerPanel.svelte';
+  import { m } from '#lib/i18n/i18n.svelte.js';
 
   // パネルを開く/切り替え
   function openPanel(panel: RightSidebarPanel) {
@@ -39,8 +40,8 @@
       class="icon-button"
       class:active={ui.isRightSidebarExpanded && ui.activeRightSidebarPanel === 'queue'}
       onclick={() => openPanel('queue')}
-      title="再生キュー (Q)"
-      aria-label="再生キューを開く"
+      title={m.rightSidebar.queueTitle}
+      aria-label={m.rightSidebar.openQueue}
     >
       <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -60,8 +61,8 @@
       class="icon-button"
       class:active={ui.isRightSidebarExpanded && ui.activeRightSidebarPanel === 'equalizer'}
       onclick={() => openPanel('equalizer')}
-      title="イコライザ (E)"
-      aria-label="イコライザを開く"
+      title={m.rightSidebar.equalizerTitle}
+      aria-label={m.rightSidebar.openEqualizer}
     >
       <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -91,8 +92,8 @@
       class="icon-button"
       class:active={ui.isRightSidebarPinned}
       onclick={togglePin}
-      title={ui.isRightSidebarPinned ? '固定解除' : 'サイドバーを固定'}
-      aria-label={ui.isRightSidebarPinned ? '固定解除' : 'サイドバーを固定'}
+      title={ui.isRightSidebarPinned ? m.rightSidebar.unpin : m.rightSidebar.pin}
+      aria-label={ui.isRightSidebarPinned ? m.rightSidebar.unpin : m.rightSidebar.pin}
     >
       <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -133,23 +134,23 @@
       <!-- 再生キューパネル -->
       <!-- ヘッダー -->
       <div class="queue-header">
-        <h3>再生キュー</h3>
+        <h3>{m.rightSidebar.queue}</h3>
         {#if player.playQueue.length > 1}
-          <button class="clear-btn" onclick={clearQueue}>クリア</button>
+          <button class="clear-btn" onclick={clearQueue}>{m.rightSidebar.clear}</button>
         {/if}
       </div>
 
       <!-- 再生中 -->
       {#if player.currentTrack}
         <div class="now-playing">
-          <div class="section-label">再生中</div>
+          <div class="section-label">{m.rightSidebar.nowPlaying}</div>
           <div class="track-info">
             <MarqueeText
               text={player.currentTrack.title || player.currentTrack.fileName}
               class="track-title"
             />
             <MarqueeText
-              text={player.currentTrack.artist || '不明なアーティスト'}
+              text={player.currentTrack.artist || m.common.unknownArtist}
               class="track-artist"
             />
           </div>
@@ -159,19 +160,19 @@
       <!-- 次に再生 -->
       <div class="upcoming-section">
         {#if player.upcomingTracks.length > 0}
-          <div class="section-label">次に再生 ({player.upcomingTracks.length}曲)</div>
+          <div class="section-label">{m.rightSidebar.upNext(player.upcomingTracks.length)}</div>
           <div class="upcoming-list">
             {#each player.upcomingTracks as track, index (track.id)}
               <div class="queue-track">
                 <span class="track-number">{index + 1}</span>
                 <div class="track-details">
                   <MarqueeText text={track.title || track.fileName} class="track-title" />
-                  <MarqueeText text={track.artist || '不明なアーティスト'} class="track-artist" />
+                  <MarqueeText text={track.artist || m.common.unknownArtist} class="track-artist" />
                 </div>
                 <button
                   class="remove-btn"
                   onclick={() => removeFromQueue(track.id)}
-                  title="キューから削除"
+                  title={m.rightSidebar.removeFromQueue}
                 >
                   ✕
                 </button>
@@ -179,9 +180,9 @@
             {/each}
           </div>
         {:else if player.currentTrack}
-          <div class="empty-queue">キューに他のトラックはありません</div>
+          <div class="empty-queue">{m.rightSidebar.noUpcoming}</div>
         {:else}
-          <div class="empty-queue">トラックを選択して再生</div>
+          <div class="empty-queue">{m.player.noTrack}</div>
         {/if}
       </div>
     {:else if ui.activeRightSidebarPanel === 'equalizer'}

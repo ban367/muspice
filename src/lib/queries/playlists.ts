@@ -9,6 +9,7 @@ import type { Playlist } from '#lib/types/models.js';
 import { showSuccess } from '#lib/stores/error.svelte.js';
 import { queryKeys } from './keys';
 import { withErrorToast } from './shared';
+import { m } from '#lib/i18n/i18n.svelte.js';
 
 /** ロールバック用に直前のプレイリスト一覧を保持するコンテキスト */
 interface PlaylistSnapshot {
@@ -64,7 +65,7 @@ function optimisticPlaylistUpdate<TVariables>(
 export function usePlaylistsQuery() {
   return createQuery(() => ({
     queryKey: queryKeys.playlists,
-    queryFn: () => withErrorToast('プレイリスト一覧の取得', () => commands.getPlaylists())
+    queryFn: () => withErrorToast(m.operations.fetchPlaylists, () => commands.getPlaylists())
   }));
 }
 
@@ -76,11 +77,11 @@ export function useCreatePlaylistMutation() {
 
   return createMutation(() => ({
     mutationFn: (name: string) =>
-      withErrorToast('プレイリストの作成', () => commands.createPlaylist(name)),
+      withErrorToast(m.operations.createPlaylist, () => commands.createPlaylist(name)),
     onSuccess: () => {
       // プレイリスト一覧を再取得
       queryClient.invalidateQueries({ queryKey: queryKeys.playlists });
-      showSuccess('プレイリストを作成しました');
+      showSuccess(m.notices.playlistCreated);
     }
   }));
 }
@@ -93,7 +94,9 @@ export function useAddTrackToPlaylistMutation() {
 
   return createMutation(() => ({
     mutationFn: ({ playlistId, trackId }: { playlistId: string; trackId: string }) =>
-      withErrorToast('トラックの追加', () => commands.addTrackToPlaylist(playlistId, trackId)),
+      withErrorToast(m.operations.addTrackToPlaylist, () =>
+        commands.addTrackToPlaylist(playlistId, trackId)
+      ),
     ...optimisticPlaylistUpdate<{ playlistId: string; trackId: string }>(
       queryClient,
       (playlists, { playlistId, trackId }) =>
@@ -114,7 +117,7 @@ export function useAddTrackToPlaylistMutation() {
         )
     ),
     onSuccess: () => {
-      showSuccess('トラックをプレイリストに追加しました');
+      showSuccess(m.notices.trackAddedToPlaylist);
     }
   }));
 }
@@ -127,7 +130,9 @@ export function useRemoveTrackFromPlaylistMutation() {
 
   return createMutation(() => ({
     mutationFn: ({ playlistId, trackId }: { playlistId: string; trackId: string }) =>
-      withErrorToast('トラックの削除', () => commands.removeTrackFromPlaylist(playlistId, trackId)),
+      withErrorToast(m.operations.removeTrackFromPlaylist, () =>
+        commands.removeTrackFromPlaylist(playlistId, trackId)
+      ),
     ...optimisticPlaylistUpdate<{ playlistId: string; trackId: string }>(
       queryClient,
       (playlists, { playlistId, trackId }) =>
@@ -138,7 +143,7 @@ export function useRemoveTrackFromPlaylistMutation() {
         )
     ),
     onSuccess: () => {
-      showSuccess('トラックをプレイリストから削除しました');
+      showSuccess(m.notices.trackRemovedFromPlaylist);
     }
   }));
 }
@@ -151,13 +156,13 @@ export function useReorderPlaylistTracksMutation() {
 
   return createMutation(() => ({
     mutationFn: ({ playlistId, trackIds }: { playlistId: string; trackIds: string[] }) =>
-      withErrorToast('トラックの並び替え', () =>
+      withErrorToast(m.operations.reorderPlaylistTracks, () =>
         commands.reorderPlaylistTracks(playlistId, trackIds)
       ),
     onSuccess: () => {
       // プレイリスト一覧を再取得
       queryClient.invalidateQueries({ queryKey: queryKeys.playlists });
-      showSuccess('トラックを並び替えました');
+      showSuccess(m.notices.tracksReordered);
     }
   }));
 }
@@ -170,14 +175,14 @@ export function useRenamePlaylistMutation() {
 
   return createMutation(() => ({
     mutationFn: ({ playlistId, name }: { playlistId: string; name: string }) =>
-      withErrorToast('プレイリスト名の変更', () => commands.renamePlaylist(playlistId, name)),
+      withErrorToast(m.operations.renamePlaylist, () => commands.renamePlaylist(playlistId, name)),
     ...optimisticPlaylistUpdate<{ playlistId: string; name: string }>(
       queryClient,
       (playlists, { playlistId, name }) =>
         playlists.map((pl) => (pl.id === playlistId ? { ...pl, name } : pl))
     ),
     onSuccess: () => {
-      showSuccess('プレイリスト名を変更しました');
+      showSuccess(m.notices.playlistRenamed);
     }
   }));
 }
@@ -190,12 +195,12 @@ export function useDeletePlaylistMutation() {
 
   return createMutation(() => ({
     mutationFn: (playlistId: string) =>
-      withErrorToast('プレイリストの削除', () => commands.deletePlaylist(playlistId)),
+      withErrorToast(m.operations.deletePlaylist, () => commands.deletePlaylist(playlistId)),
     ...optimisticPlaylistUpdate<string>(queryClient, (playlists, playlistId) =>
       playlists.filter((pl) => pl.id !== playlistId)
     ),
     onSuccess: () => {
-      showSuccess('プレイリストを削除しました');
+      showSuccess(m.notices.playlistDeleted);
     }
   }));
 }

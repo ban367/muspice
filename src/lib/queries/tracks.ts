@@ -15,6 +15,7 @@ import type {
 import { handleError, showSuccess, showWarning } from '#lib/stores/error.svelte.js';
 import { queryKeys } from './keys';
 import { CACHE_POLICY, withErrorToast } from './shared';
+import { m } from '#lib/i18n/i18n.svelte.js';
 
 // 呼び出し側の利便性のため、このモジュールからも型を再エクスポートする
 export type { DeleteResult, FilterOptions };
@@ -73,7 +74,7 @@ export function invalidateAllTrackQueries(queryClient: QueryClient) {
 export function useTracksQuery() {
   return createQuery(() => ({
     queryKey: queryKeys.tracks.all,
-    queryFn: () => withErrorToast('トラック一覧の取得', () => commands.getAllTracks()),
+    queryFn: () => withErrorToast(m.operations.fetchTracks, () => commands.getAllTracks()),
     ...CACHE_POLICY.library,
     refetchOnWindowFocus: false, // ウィンドウフォーカス時の自動再取得を無効化
     refetchOnMount: false // マウント時の自動再取得を無効化（キャッシュがあれば使用）
@@ -86,7 +87,8 @@ export function useTracksQuery() {
 export function useSearchQuery(searchTerm: string) {
   return createQuery(() => ({
     queryKey: queryKeys.tracks.search(searchTerm),
-    queryFn: () => withErrorToast('トラック検索', () => commands.searchTracks(searchTerm)),
+    queryFn: () =>
+      withErrorToast(m.operations.searchTracks, () => commands.searchTracks(searchTerm)),
     enabled: searchTerm.length > 0,
     ...CACHE_POLICY.search,
     refetchOnWindowFocus: false,
@@ -101,7 +103,7 @@ export function useSearchQuery(searchTerm: string) {
 export function useFilterQuery(filters: FilterOptions) {
   return createQuery(() => ({
     queryKey: queryKeys.tracks.filter(filters),
-    queryFn: () => withErrorToast('トラックフィルタリング', () => commands.filterTracks(filters)),
+    queryFn: () => withErrorToast(m.operations.filterTracks, () => commands.filterTracks(filters)),
     enabled: !!(filters.artist || filters.album || filters.genre),
     ...CACHE_POLICY.search,
     refetchOnWindowFocus: false,
@@ -155,7 +157,7 @@ export function useUniqueGenresQuery() {
 export function useFavoriteTracksQuery() {
   return createQuery(() => ({
     queryKey: queryKeys.tracks.favorites,
-    queryFn: () => withErrorToast('お気に入り一覧の取得', () => commands.getFavoriteTracks()),
+    queryFn: () => withErrorToast(m.operations.fetchFavorites, () => commands.getFavoriteTracks()),
     ...CACHE_POLICY.playStats
   }));
 }
@@ -167,7 +169,7 @@ export function useMostPlayedTracksQuery(limit: number = 50) {
   return createQuery(() => ({
     queryKey: queryKeys.tracks.mostPlayed(limit),
     queryFn: () =>
-      withErrorToast('よく再生するトラック一覧の取得', () => commands.getMostPlayedTracks(limit)),
+      withErrorToast(m.operations.fetchMostPlayed, () => commands.getMostPlayedTracks(limit)),
     ...CACHE_POLICY.playStats
   }));
 }
@@ -179,7 +181,7 @@ export function useRecentlyPlayedTracksQuery(limit: number = 50) {
   return createQuery(() => ({
     queryKey: queryKeys.tracks.recentlyPlayed(limit),
     queryFn: () =>
-      withErrorToast('最近再生したトラック一覧の取得', () =>
+      withErrorToast(m.operations.fetchRecentlyPlayed, () =>
         commands.getRecentlyPlayedTracks(limit)
       ),
     ...CACHE_POLICY.volatile
@@ -194,7 +196,7 @@ export function useRecentlyPlayedTracksQuery(limit: number = 50) {
 export function useAlbumsGroupedQuery() {
   return createQuery(() => ({
     queryKey: queryKeys.albums.grouped,
-    queryFn: () => withErrorToast('アルバム一覧の取得', () => commands.getAlbumsGrouped()),
+    queryFn: () => withErrorToast(m.operations.fetchAlbums, () => commands.getAlbumsGrouped()),
     ...CACHE_POLICY.library
   }));
 }
@@ -205,7 +207,7 @@ export function useAlbumsGroupedQuery() {
 export function useArtistsGroupedQuery() {
   return createQuery(() => ({
     queryKey: queryKeys.artists.grouped,
-    queryFn: () => withErrorToast('アーティスト一覧の取得', () => commands.getArtistsGrouped()),
+    queryFn: () => withErrorToast(m.operations.fetchArtists, () => commands.getArtistsGrouped()),
     ...CACHE_POLICY.library
   }));
 }
@@ -216,7 +218,7 @@ export function useArtistsGroupedQuery() {
 export function useGenresGroupedQuery() {
   return createQuery(() => ({
     queryKey: queryKeys.genres.grouped,
-    queryFn: () => withErrorToast('ジャンル一覧の取得', () => commands.getGenresGrouped()),
+    queryFn: () => withErrorToast(m.operations.fetchGenres, () => commands.getGenresGrouped()),
     ...CACHE_POLICY.library
   }));
 }
@@ -231,7 +233,7 @@ export function useToggleFavoriteMutation() {
 
   return createMutation(() => ({
     mutationFn: async (trackId: string) => {
-      return withErrorToast('お気に入りの切り替え', () => commands.toggleFavorite(trackId));
+      return withErrorToast(m.operations.toggleFavorite, () => commands.toggleFavorite(trackId));
     },
     onSuccess: () => {
       invalidatePlayStatsQueries(queryClient);
@@ -247,7 +249,7 @@ export function useSetRatingMutation() {
 
   return createMutation(() => ({
     mutationFn: async ({ trackId, rating }: { trackId: string; rating: number }) => {
-      await withErrorToast('レーティングの設定', () => commands.setRating(trackId, rating));
+      await withErrorToast(m.operations.setRating, () => commands.setRating(trackId, rating));
     },
     onSuccess: () => {
       invalidatePlayStatsQueries(queryClient);
@@ -328,15 +330,13 @@ export function useDeleteTracksMutation() {
 
   return createMutation(() => ({
     mutationFn: async (trackIds: string[]) => {
-      return withErrorToast('トラックの削除', () => commands.deleteTracksCommand(trackIds));
+      return withErrorToast(m.operations.deleteTracks, () =>
+        commands.deleteTracksCommand(trackIds)
+      );
     },
     onSuccess: (deletedCount) => {
       invalidateAllTrackQueries(queryClient);
-      showSuccess(
-        deletedCount === 1
-          ? 'トラックをライブラリから削除しました'
-          : `${deletedCount}曲をライブラリから削除しました`
-      );
+      showSuccess(m.notices.tracksRemovedFromLibrary(deletedCount));
     }
   }));
 }
@@ -350,7 +350,7 @@ export function useDeleteTracksWithFilesMutation() {
 
   return createMutation(() => ({
     mutationFn: async (trackIds: string[]) => {
-      return withErrorToast('トラックとファイルの削除', () =>
+      return withErrorToast(m.operations.deleteTracksAndFiles, () =>
         commands.deleteTracksWithFilesCommand(trackIds)
       );
     },
@@ -358,17 +358,11 @@ export function useDeleteTracksWithFilesMutation() {
       invalidateAllTrackQueries(queryClient);
 
       if (result.failedCount === 0) {
-        showSuccess(
-          result.successCount === 1
-            ? 'トラックとファイルを削除しました'
-            : `${result.successCount}曲とファイルを削除しました`
-        );
+        showSuccess(m.notices.tracksAndFilesDeleted(result.successCount));
       } else if (result.successCount === 0) {
-        handleError(new Error('すべてのトラックの削除に失敗しました'), 'トラックの削除');
+        handleError(new Error(m.notices.allTracksDeleteFailed), m.operations.deleteTracks);
       } else {
-        showWarning(
-          `${result.successCount}曲を削除しました（${result.failedCount}曲は削除に失敗）`
-        );
+        showWarning(m.notices.tracksPartiallyDeleted(result.successCount, result.failedCount));
       }
     }
   }));
@@ -406,7 +400,8 @@ export function useRefreshLibraryMetadataMutation() {
   const queryClient = useQueryClient();
 
   return createMutation(() => ({
-    mutationFn: () => withErrorToast('メタデータの更新', () => commands.refreshLibraryMetadata()),
+    mutationFn: () =>
+      withErrorToast(m.operations.refreshMetadata, () => commands.refreshLibraryMetadata()),
     onSuccess: () => {
       invalidateTrackMetadataQueries(queryClient);
     }
@@ -421,6 +416,6 @@ export function useRefreshLibraryMetadataMutation() {
 export function useShowInFolderMutation() {
   return createMutation(() => ({
     mutationFn: (trackId: string) =>
-      withErrorToast('ファイルの場所を開く', () => commands.showInFolder(trackId))
+      withErrorToast(m.operations.showInFolder, () => commands.showInFolder(trackId))
   }));
 }

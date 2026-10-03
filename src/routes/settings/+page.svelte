@@ -1,8 +1,15 @@
 <script lang="ts">
   import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
   import { useSaveSettingsMutation, useSettingsQuery } from '#lib/queries/settings.js';
-  import type { Settings, StartupPage, Theme, VolumeNormalization } from '#lib/types/models.js';
+  import type {
+    Language,
+    Settings,
+    StartupPage,
+    Theme,
+    VolumeNormalization
+  } from '#lib/types/models.js';
   import { applyAccentColor, applyTheme } from '#lib/utils/theme.js';
+  import { applyLanguage, m } from '#lib/i18n/i18n.svelte.js';
   import LibraryFolderSettings from '#lib/components/LibraryFolderSettings.svelte';
 
   // 既定のアクセントカラー（Rust側のDEFAULT_ACCENT_COLORと同じ）
@@ -11,38 +18,20 @@
   const MAX_CROSSFADE_SECONDS = 12;
 
   // ライブラリフォルダの定期的な再スキャンの間隔（分。Rust側のLIBRARY_SCAN_INTERVALSと同じ）
-  const scanIntervalOptions: { value: number; label: string }[] = [
-    { value: 0, label: 'しない' },
-    { value: 15, label: '15分ごと' },
-    { value: 30, label: '30分ごと' },
-    { value: 60, label: '1時間ごと' },
-    { value: 360, label: '6時間ごと' }
-  ];
+  const scanIntervals = [0, 15, 30, 60, 360];
 
   type SettingsSection = 'general' | 'playback' | 'library' | 'appearance';
 
-  const sections = [
-    { id: 'general' as const, label: '一般' },
-    { id: 'playback' as const, label: '再生' },
-    { id: 'library' as const, label: 'ライブラリ' },
-    { id: 'appearance' as const, label: '外観' }
-  ];
+  // 選択肢の値（ラベルは表示の言語に合わせてテンプレートで`m`から読む）
+  const sections: SettingsSection[] = ['general', 'playback', 'library', 'appearance'];
+  const startupPages: StartupPage[] = ['lastOpened', 'songs'];
+  const themes: Theme[] = ['dark', 'light', 'system'];
+  const volumeNormalizations: VolumeNormalization[] = ['off', 'track', 'album'];
 
-  const startupPageOptions: { value: StartupPage; label: string }[] = [
-    { value: 'lastOpened', label: '前回開いていた画面' },
-    { value: 'songs', label: '曲一覧' }
-  ];
-
-  const themeOptions: { value: Theme; label: string }[] = [
-    { value: 'dark', label: 'ダーク' },
-    { value: 'light', label: 'ライト' },
-    { value: 'system', label: 'OSの設定に従う' }
-  ];
-
-  const volumeNormalizationOptions: { value: VolumeNormalization; label: string }[] = [
-    { value: 'off', label: 'オフ' },
-    { value: 'track', label: 'トラック単位' },
-    { value: 'album', label: 'アルバム単位' }
+  // 言語の名前は、その言語で表示する（どの言語を表示中でも選べるように）
+  const languages: { value: Language; label: string }[] = [
+    { value: 'ja', label: '日本語' },
+    { value: 'en', label: 'English' }
   ];
 
   let activeSection: SettingsSection = $state('general');
@@ -66,7 +55,12 @@
     return (Object.keys(saved) as (keyof Settings)[]).some((key) => current[key] !== saved[key]);
   });
 
-  // 設定ウィンドウにも保存済みのテーマ・アクセントカラーを反映する
+  // 設定ウィンドウにも保存済みの言語・テーマ・アクセントカラーを反映する
+  $effect(() => {
+    const language = settingsQuery.data?.language;
+    if (language) applyLanguage(language);
+  });
+
   $effect(() => {
     if (settingsQuery.data) {
       applyAccentColor(settingsQuery.data.accentColor);
@@ -95,16 +89,16 @@
 <div class="settings-container">
   <!-- サイドバー -->
   <nav class="settings-sidebar">
-    <h2 class="settings-header">設定</h2>
+    <h2 class="settings-header">{m.settings.title}</h2>
     <ul class="settings-nav">
-      {#each sections as section (section.id)}
+      {#each sections as section (section)}
         <li>
           <button
             class="settings-nav-item"
-            class:active={activeSection === section.id}
-            onclick={() => (activeSection = section.id)}
+            class:active={activeSection === section}
+            onclick={() => (activeSection = section)}
           >
-            {#if section.id === 'general'}
+            {#if section === 'general'}
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 class="icon"
@@ -124,7 +118,7 @@
                   d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
                 />
               </svg>
-            {:else if section.id === 'playback'}
+            {:else if section === 'playback'}
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 class="icon"
@@ -139,7 +133,7 @@
                   d="M11 5L6 9H2v6h4l5 4V5zM15.54 8.46a5 5 0 010 7.07M19.07 4.93a10 10 0 010 14.14"
                 />
               </svg>
-            {:else if section.id === 'library'}
+            {:else if section === 'library'}
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 class="icon"
@@ -170,7 +164,7 @@
                 />
               </svg>
             {/if}
-            {section.label}
+            {m.settings.sections[section]}
           </button>
         </li>
       {/each}
@@ -186,7 +180,7 @@
 
         {#if pending}
           <section class="settings-section">
-            <h4 class="subsection-title">変更の自動反映</h4>
+            <h4 class="subsection-title">{m.settings.autoSync}</h4>
 
             <div class="setting-item">
               <label class="setting-checkbox-label">
@@ -195,63 +189,73 @@
                   class="setting-checkbox"
                   bind:checked={pending.watchLibraryFolders}
                 />
-                フォルダの変更を監視する
+                {m.settings.watchFolders}
               </label>
               <p class="setting-description">
-                ライブラリフォルダでファイルが追加・削除・変更されたら、数秒後にライブラリへ反映します。外付けドライブやネットワーク上のフォルダでは、変更が通知されない場合があります
+                {m.settings.watchFoldersHint}
               </p>
             </div>
 
             <div class="setting-item">
-              <label class="setting-label" for="scan-interval">定期的な再スキャン</label>
+              <label class="setting-label" for="scan-interval">{m.settings.scanInterval}</label>
               <select
                 id="scan-interval"
                 class="setting-select"
                 bind:value={pending.libraryScanIntervalMinutes}
               >
-                {#each scanIntervalOptions as option (option.value)}
-                  <option value={option.value}>{option.label}</option>
+                {#each scanIntervals as minutes (minutes)}
+                  <option value={minutes}>{m.settings.scanIntervals[minutes]}</option>
                 {/each}
               </select>
               <p class="setting-description">
-                どちらかを有効にすると、アプリの起動時にも再スキャンします。フォルダが見つからない場合（外付けドライブが外れているなど）は、曲をライブラリから外さずに飛ばします
+                {m.settings.scanIntervalHint}
               </p>
             </div>
           </section>
         {/if}
       {:else if !pending}
         <p class="setting-description">
-          {settingsQuery.isError ? '設定を読み込めませんでした' : '読み込み中...'}
+          {settingsQuery.isError ? m.settings.loadFailed : m.common.loading}
         </p>
       {:else if activeSection === 'general'}
         <section class="settings-section">
-          <h3 class="section-title">一般</h3>
+          <h3 class="section-title">{m.settings.sections.general}</h3>
 
           <div class="setting-item">
-            <label class="setting-label" for="startup">起動時に開く画面</label>
-            <select id="startup" class="setting-select" bind:value={pending.startupPage}>
-              {#each startupPageOptions as option (option.value)}
+            <label class="setting-label" for="language">{m.settings.language}</label>
+            <select id="language" class="setting-select" bind:value={pending.language}>
+              {#each languages as option (option.value)}
                 <option value={option.value}>{option.label}</option>
+              {/each}
+            </select>
+          </div>
+
+          <div class="setting-item">
+            <label class="setting-label" for="startup">{m.settings.startupPage}</label>
+            <select id="startup" class="setting-select" bind:value={pending.startupPage}>
+              {#each startupPages as page (page)}
+                <option value={page}>{m.settings.startupPages[page]}</option>
               {/each}
             </select>
           </div>
         </section>
       {:else if activeSection === 'playback'}
         <section class="settings-section">
-          <h3 class="section-title">再生</h3>
+          <h3 class="section-title">{m.settings.sections.playback}</h3>
           <div class="setting-item">
-            <label class="setting-label" for="normalization">音量の正規化</label>
+            <label class="setting-label" for="normalization">{m.settings.volumeNormalization}</label
+            >
             <select
               id="normalization"
               class="setting-select"
               bind:value={pending.volumeNormalization}
             >
-              {#each volumeNormalizationOptions as option (option.value)}
-                <option value={option.value}>{option.label}</option>
+              {#each volumeNormalizations as mode (mode)}
+                <option value={mode}>{m.settings.volumeNormalizations[mode]}</option>
               {/each}
             </select>
             <p class="setting-description">
-              曲ごとの音量の差を、ファイルのReplayGainのタグを使ってそろえます。アルバム単位では、アルバム内の曲の音量の差はそのまま残します。タグのない曲は補正しません（既存の曲のタグは「メタデータを更新」で読み込まれます）
+              {m.settings.volumeNormalizationHint}
             </p>
           </div>
 
@@ -262,15 +266,15 @@
                 class="setting-checkbox"
                 bind:checked={pending.gaplessPlayback}
               />
-              ギャップレス再生
+              {m.settings.gaplessPlayback}
             </label>
             <p class="setting-description">
-              次の曲を先に読み込んでおき、曲と曲の間に無音を入れずに続けて再生します
+              {m.settings.gaplessPlaybackHint}
             </p>
           </div>
 
           <div class="setting-item">
-            <label class="setting-label" for="crossfade">クロスフェード</label>
+            <label class="setting-label" for="crossfade">{m.settings.crossfade}</label>
             <div class="setting-slider-row">
               <input
                 type="range"
@@ -282,32 +286,34 @@
                 bind:value={pending.crossfadeSeconds}
               />
               <span class="setting-slider-value">
-                {pending.crossfadeSeconds === 0 ? 'オフ' : `${pending.crossfadeSeconds}秒`}
+                {pending.crossfadeSeconds === 0
+                  ? m.common.off
+                  : m.settings.crossfadeSeconds(pending.crossfadeSeconds)}
               </span>
             </div>
             <p class="setting-description">
-              曲の終わりを設定した秒数でフェードアウトしながら、次の曲をフェードインします。短い曲では曲の長さの半分までにします。「次へ」などの操作で曲を変えたときと、1曲リピートではクロスフェードしません
+              {m.settings.crossfadeHint}
             </p>
           </div>
         </section>
       {:else}
         <section class="settings-section">
-          <h3 class="section-title">外観</h3>
+          <h3 class="section-title">{m.settings.sections.appearance}</h3>
 
           <div class="setting-item">
-            <label class="setting-label" for="theme">テーマ</label>
+            <label class="setting-label" for="theme">{m.settings.theme}</label>
             <select id="theme" class="setting-select" bind:value={pending.theme}>
-              {#each themeOptions as option (option.value)}
-                <option value={option.value}>{option.label}</option>
+              {#each themes as theme (theme)}
+                <option value={theme}>{m.settings.themes[theme]}</option>
               {/each}
             </select>
             <p class="setting-description">
-              「OSの設定に従う」では、OSのダークモードの切り替えに合わせて変わります
+              {m.settings.themeHint}
             </p>
           </div>
 
           <div class="setting-item">
-            <label class="setting-label" for="accent">アクセントカラー</label>
+            <label class="setting-label" for="accent">{m.settings.accentColor}</label>
             <div class="setting-color-row">
               <input
                 type="color"
@@ -321,10 +327,10 @@
                 onclick={() => pending && (pending.accentColor = DEFAULT_ACCENT_COLOR)}
                 disabled={pending.accentColor === DEFAULT_ACCENT_COLOR}
               >
-                既定に戻す
+                {m.settings.resetToDefault}
               </button>
             </div>
-            <p class="setting-description">ボタンや選択中の項目などの色に使われます</p>
+            <p class="setting-description">{m.settings.accentColorHint}</p>
           </div>
         </section>
       {/if}
@@ -332,13 +338,13 @@
 
     <!-- フッター -->
     <footer class="settings-footer">
-      <button class="btn-secondary" onclick={cancel}>キャンセル</button>
+      <button class="btn-secondary" onclick={cancel}>{m.common.cancel}</button>
       <button
         class="btn-primary"
         onclick={applySettings}
         disabled={!hasChanges || saveMutation.isPending}
       >
-        {saveMutation.isPending ? '保存中...' : '適用'}
+        {saveMutation.isPending ? m.common.saving : m.common.apply}
       </button>
     </footer>
   </div>

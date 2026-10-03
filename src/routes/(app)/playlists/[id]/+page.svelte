@@ -13,6 +13,7 @@
   import { playTrackFromQueue } from '#lib/stores/player.svelte.js';
   import { formatDuration, formatTotalDuration } from '#lib/utils/format.js';
   import { confirmDestructive } from '#lib/utils/dialog.svelte.js';
+  import { m } from '#lib/i18n/i18n.svelte.js';
 
   // URLからプレイリストIDを取得
   const playlistId = $derived(page.params.id);
@@ -46,11 +47,7 @@
   async function handleDeletePlaylist() {
     if (!selectedPlaylist) return;
 
-    if (
-      !(await confirmDestructive(
-        `プレイリスト「${selectedPlaylist.name}」を削除しますか？\nこの操作は取り消せません。`
-      ))
-    ) {
+    if (!(await confirmDestructive(m.playlists.confirmDelete(selectedPlaylist.name)))) {
       return;
     }
 
@@ -156,12 +153,12 @@
 
 <div class="playlist-detail-page">
   {#if playlistsQuery.isLoading}
-    <div class="loading">読み込み中...</div>
+    <div class="loading">{m.common.loading}</div>
   {:else if !selectedPlaylist}
     <div class="no-selection">
-      <h2>プレイリストが見つかりません</h2>
-      <p>選択されたプレイリストは存在しないか、削除された可能性があります</p>
-      <a href={resolve('playlists')} class="back-link">プレイリスト一覧に戻る</a>
+      <h2>{m.playlists.notFound}</h2>
+      <p>{m.playlists.notFoundHint}</p>
+      <a href={resolve('playlists')} class="back-link">{m.playlists.backToList}</a>
     </div>
   {:else}
     <!-- プレイリスト詳細 -->
@@ -186,7 +183,10 @@
         <div class="playlist-details">
           <h1 class="playlist-title">{selectedPlaylist.name}</h1>
           <p class="playlist-meta">
-            {selectedPlaylist.tracks.length}曲 • {formatTotalDuration(totalDuration)}
+            {m.common.trackCountAndDuration(
+              selectedPlaylist.tracks.length,
+              formatTotalDuration(totalDuration)
+            )}
           </p>
         </div>
       </div>
@@ -213,9 +213,13 @@
           >
             <path d="M8 5v14l11-7z" />
           </svg>
-          すべて再生
+          {m.common.playAll}
         </button>
-        <button class="btn-delete" onclick={handleDeletePlaylist} title="プレイリストを削除">
+        <button
+          class="btn-delete"
+          onclick={handleDeletePlaylist}
+          title={m.playlists.deletePlaylist}
+        >
           <svg
             xmlns="http://www.w3.org/2000/svg"
             class="icon-delete"
@@ -251,17 +255,17 @@
               d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"
             />
           </svg>
-          <p>このプレイリストにはまだトラックがありません</p>
-          <p class="hint">ライブラリからトラックをドラッグ&ドロップして追加できます</p>
+          <p>{m.playlists.noTracks}</p>
+          <p class="hint">{m.playlists.noTracksHint}</p>
         </div>
       {:else}
         <!-- テーブルヘッダー -->
         <div class="track-header">
           <div class="col-number">#</div>
-          <div class="col-title">タイトル</div>
-          <div class="col-artist">アーティスト</div>
-          <div class="col-album">アルバム</div>
-          <div class="col-duration">時間</div>
+          <div class="col-title">{m.fields.title}</div>
+          <div class="col-artist">{m.fields.artist}</div>
+          <div class="col-album">{m.fields.album}</div>
+          <div class="col-duration">{m.fields.duration}</div>
           <div class="col-actions"></div>
         </div>
 
@@ -286,14 +290,14 @@
               <div class="col-title">
                 <span class="track-name">{track.title || track.fileName}</span>
               </div>
-              <div class="col-artist">{track.artist || '不明なアーティスト'}</div>
-              <div class="col-album">{track.album || '不明なアルバム'}</div>
+              <div class="col-artist">{track.artist || m.common.unknownArtist}</div>
+              <div class="col-album">{track.album || m.common.unknownAlbum}</div>
               <div class="col-duration">{formatDuration(track.duration)}</div>
               <div class="col-actions">
                 <button
                   class="btn-remove-track"
                   onclick={() => handleRemoveTrack(track.id)}
-                  title="プレイリストから削除"
+                  title={m.playlists.removeFromPlaylist}
                 >
                   <svg
                     xmlns="http://www.w3.org/2000/svg"

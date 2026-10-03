@@ -1,12 +1,15 @@
 <script lang="ts">
   import CardSizeSlider from './CardSizeSlider.svelte';
   import { useRefreshLibraryMetadataMutation } from '#lib/queries/tracks.js';
+  import { m } from '#lib/i18n/i18n.svelte.js';
 
   // Props
   interface Props {
     title?: string;
     count?: number;
-    countUnit?: string;
+    /** 件数の表示（省略時は曲数。例: 12曲） */
+    formatCount?: (count: number) => string;
+    /** 検索ボックスのプレースホルダー（省略時は「検索...」） */
     searchPlaceholder?: string;
     searchTerm?: string;
     onSearchInput?: (value: string) => void;
@@ -22,8 +25,8 @@
   let {
     title = '',
     count,
-    countUnit = '曲',
-    searchPlaceholder = '検索...',
+    formatCount = (count: number) => m.common.trackCount(count),
+    searchPlaceholder,
     searchTerm = '',
     onSearchInput,
     onSearchClear,
@@ -68,7 +71,7 @@
     try {
       const result = await refreshMutation.mutateAsync();
       alert(
-        `メタデータ更新完了\n更新: ${result.updatedCount}件\nスキップ: ${result.skippedCount}件\nエラー: ${result.errorCount}件`
+        m.notices.metadataRefreshed(result.updatedCount, result.skippedCount, result.errorCount)
       );
     } catch {
       // 失敗はミューテーション内でトースト通知済み
@@ -83,7 +86,7 @@
       <h2 class="header-title">{title}</h2>
     {/if}
     {#if count !== undefined}
-      <span class="header-count">{count}{countUnit}</span>
+      <span class="header-count">{formatCount(count)}</span>
     {/if}
 
     <!-- ビュー切り替えボタン -->
@@ -93,8 +96,8 @@
         class:active={displayMode === 'list'}
         onclick={() => setDisplayMode('list')}
         disabled={!showListMode}
-        title="リスト表示"
-        aria-label="リスト表示"
+        title={m.library.listView}
+        aria-label={m.library.listView}
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -116,8 +119,8 @@
         class:active={displayMode === 'grid'}
         onclick={() => setDisplayMode('grid')}
         disabled={!showGridMode}
-        title="グリッド表示"
-        aria-label="グリッド表示"
+        title={m.library.gridView}
+        aria-label={m.library.gridView}
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -150,8 +153,8 @@
         class:refreshing={refreshMutation.isPending}
         onclick={handleRefreshMetadata}
         disabled={refreshMutation.isPending}
-        title="メタデータを更新"
-        aria-label="メタデータを更新"
+        title={m.library.refreshMetadata}
+        aria-label={m.library.refreshMetadata}
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -186,13 +189,15 @@
       </svg>
       <input
         type="text"
-        placeholder={searchPlaceholder}
+        placeholder={searchPlaceholder ?? m.library.search}
         value={internalSearchTerm}
         oninput={handleInput}
         class="search-input"
       />
       {#if internalSearchTerm}
-        <button onclick={handleClear} class="search-clear" aria-label="検索をクリア">✕</button>
+        <button onclick={handleClear} class="search-clear" aria-label={m.library.clearSearch}
+          >✕</button
+        >
       {/if}
     </div>
   </div>

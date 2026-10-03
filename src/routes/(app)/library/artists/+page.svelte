@@ -5,6 +5,7 @@
   import ArtistDetail from '#lib/components/library/ArtistDetail.svelte';
   import LibraryBrowsePage from '#lib/components/library/LibraryBrowsePage.svelte';
   import { useArtistsGroupedQuery } from '#lib/queries/tracks.js';
+  import { m } from '#lib/i18n/i18n.svelte.js';
 
   // クエリ
   const artistsQuery = useArtistsGroupedQuery();
@@ -17,10 +18,11 @@
 </script>
 
 <LibraryBrowsePage
-  title="アーティスト"
-  countUnit="人"
-  searchPlaceholder="アーティストを検索..."
-  emptyPrompt="アーティストを選択してください"
+  title={m.library.artists}
+  formatCount={m.library.artistCount}
+  formatCountSummary={m.library.artistSummary}
+  searchPlaceholder={m.library.searchArtists}
+  emptyPrompt={m.library.selectArtist}
   items={allArtists}
   filterFn={filterArtist}
   getItemKey={(artist) => artist.name}
