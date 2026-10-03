@@ -7,7 +7,12 @@
   import type { Playlist } from '$lib/types/models';
   import { BaseContextMenu } from '$lib/components/ui';
   import { useDeletePlaylistMutation, useRenamePlaylistMutation } from '$lib/queries/playlists';
-  import { playTrackFromQueue, playQueue, currentTrackIndex } from '$lib/stores/player';
+  import {
+    playTrackFromQueue,
+    playQueue,
+    currentTrackIndex,
+    playShuffled
+  } from '$lib/stores/player';
   import { useTracksQuery } from '$lib/queries/tracks';
   import { get } from 'svelte/store';
   import { confirmDestructive, promptText } from '$lib/utils/dialog';
@@ -51,10 +56,7 @@
    * シャッフル再生
    */
   function handleShufflePlay() {
-    if (playlistTracks.length > 0) {
-      const shuffled = [...playlistTracks].sort(() => Math.random() - 0.5);
-      playTrackFromQueue(shuffled, 0);
-    }
+    playShuffled(playlistTracks);
     onClose();
   }
 

@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { ArtistGroup, AlbumGroup } from '$lib/types/models';
-  import { playTrackFromQueue, currentTrack } from '$lib/stores/player';
+  import { playTrackFromQueue, currentTrack, playShuffled } from '$lib/stores/player';
   import { albumArtUrl } from '$lib/utils/albumArt';
   import { formatDuration } from '$lib/utils/format';
   import PlayingIndicator from './PlayingIndicator.svelte';
@@ -24,11 +24,7 @@
 
   // シャッフル再生
   function handleShufflePlay() {
-    const allTracks = artist.albums.flatMap((album) => album.tracks);
-    if (allTracks.length > 0) {
-      const shuffled = [...allTracks].sort(() => Math.random() - 0.5);
-      playTrackFromQueue(shuffled, 0);
-    }
+    playShuffled(artist.albums.flatMap((album) => album.tracks));
   }
 
   // トラックをダブルクリックで再生

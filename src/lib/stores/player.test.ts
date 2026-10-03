@@ -14,6 +14,7 @@ import {
   playNextTrack,
   playPreviousTrack,
   playQueue,
+  playShuffled,
   playTrackFromQueue,
   removeFromQueue,
   repeatMode,
@@ -168,6 +169,38 @@ describe('toggleShuffle', () => {
     expect(get(isShuffleEnabled)).toBe(false);
     expect(ids(get(playQueue))).toEqual(['t1', 't2', 't3', 't4']);
     expect(get(playQueue)[get(currentTrackIndex)].id).toBe(playing);
+  });
+});
+
+describe('playShuffled', () => {
+  it('シャッフルモードを有効にし、ランダムに選んだトラックから再生する', () => {
+    // Math.random() = 0.6 → 4曲中インデックス2（t3）を先頭にする
+    vi.spyOn(Math, 'random').mockReturnValue(0.6);
+    playShuffled(tracks);
+
+    const queue = ids(get(playQueue));
+    expect(get(isShuffleEnabled)).toBe(true);
+    expect(get(currentTrack)?.id).toBe('t3');
+    expect(queue[0]).toBe('t3');
+    expect([...queue].sort()).toEqual(['t1', 't2', 't3', 't4']);
+  });
+
+  it('元の順序を保持し、シャッフルを解除すると戻る', () => {
+    playShuffled(tracks);
+    const playing = get(currentTrack)?.id;
+
+    expect(ids(get(originalQueue))).toEqual(['t1', 't2', 't3', 't4']);
+
+    toggleShuffle();
+    expect(get(isShuffleEnabled)).toBe(false);
+    expect(ids(get(playQueue))).toEqual(['t1', 't2', 't3', 't4']);
+    expect(get(playQueue)[get(currentTrackIndex)].id).toBe(playing);
+  });
+
+  it('空の一覧では何もしない', () => {
+    playShuffled([]);
+    expect(get(isShuffleEnabled)).toBe(false);
+    expect(get(currentTrack)).toBeNull();
   });
 });
 

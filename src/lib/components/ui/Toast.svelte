@@ -49,7 +49,7 @@
       <p class="flex-1 text-sm">{notification.message}</p>
       <button
         class="flex-shrink-0 hover:opacity-70 transition-opacity"
-        on:click={() => removeNotification(notification.id)}
+        onclick={() => removeNotification(notification.id)}
         aria-label="閉じる"
       >
         ✕

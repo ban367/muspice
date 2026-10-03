@@ -162,6 +162,18 @@ export function playTrackFromQueue(tracks: Track[], index: number): void {
 }
 
 /**
+ * トラック一覧をシャッフル再生
+ *
+ * シャッフルモードを有効にして、ランダムに選んだトラックから再生する（残りはFisher-Yatesで
+ * 並べ替えるため、並び全体が均等にランダムになる）。元の順序は保持し、シャッフルを解除すると戻る。
+ */
+export function playShuffled(tracks: Track[]): void {
+  if (tracks.length === 0) return;
+  isShuffleEnabled.set(true);
+  playTrackFromQueue(tracks, Math.floor(Math.random() * tracks.length));
+}
+
+/**
  * 単一のトラックを再生（キューをクリア）
  */
 export function playSingleTrack(track: Track): void {
