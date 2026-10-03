@@ -35,6 +35,25 @@ pub struct LibraryScanProgress {
     pub current_file: String,
 }
 
+/// デバイスへの同期の進捗（コピー中のファイル）
+#[derive(Debug, Clone, Serialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceSyncProgress {
+    /// 同期しているデバイス
+    pub device_id: String,
+    /// コピーが済んだファイル数
+    pub current: u32,
+    /// コピーするファイルの総数
+    pub total: u32,
+    /// コピーが済んだバイト数と、コピーするバイト数の合計
+    #[specta(type = specta_typescript::Number)]
+    pub bytes_done: i64,
+    #[specta(type = specta_typescript::Number)]
+    pub bytes_total: i64,
+    /// コピー中のファイル名
+    pub current_file: String,
+}
+
 /// 再スキャン・ライブラリフォルダの削除で、ライブラリのトラックが変わった
 ///
 /// 設定ウィンドウでの操作を、メインウィンドウの一覧（Queryのキャッシュ）に反映する。

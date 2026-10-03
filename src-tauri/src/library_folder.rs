@@ -219,7 +219,7 @@ const DST_SHIFT_SECONDS: i64 = 3600;
 const MTIME_TOLERANCE_SECONDS: i64 = 2;
 
 /// 更新日時の違いが、夏時間の切り替えによるずれ（ちょうど1時間）か
-fn is_dst_shift(recorded: i64, current: i64) -> bool {
+pub(crate) fn is_dst_shift(recorded: i64, current: i64) -> bool {
     ((current - recorded).abs() - DST_SHIFT_SECONDS).abs() <= MTIME_TOLERANCE_SECONDS
 }
 

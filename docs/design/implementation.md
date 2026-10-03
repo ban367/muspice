@@ -14,6 +14,7 @@
 | DB               | SQLite + FTS5                   | rusqlite 0.40（bundled）                           | 全文検索・ローカル保存                               |
 | メタデータ       | lofty                           | 0.25                                               | タグ読み書き/アルバムアート抽出                      |
 | フォルダの監視   | notify-debouncer-mini（notify） | 0.7（notify 8）                                    | ライブラリフォルダの変更の自動反映                   |
+| デバイスへの転送 | fs4 / unicode-normalization     | 1.1 / 0.1                                          | 転送先の空き容量の取得 / ファイル名のNFC正規化       |
 
 ## ディレクトリ構成
 
@@ -22,6 +23,7 @@ src/
 ├── hooks.client.ts        # dev:mock時のみTauri IPCモックを初期化
 ├── routes/
 │   ├── (app)/
+│   │   ├── devices/       # 転送先デバイスのページ
 │   │   ├── library/
 │   │   └── playlists/
 │   └── settings/
@@ -39,6 +41,7 @@ src/
 
 src-tauri/src/
 ├── commands/
+│   ├── devices.rs         # 転送先デバイスの登録・設定・同期
 │   ├── import.rs
 │   ├── library_folders.rs
 │   ├── metadata_cmd.rs
@@ -51,6 +54,10 @@ src-tauri/src/
 ├── lib.rs
 ├── album_art.rs
 ├── db.rs
+├── device.rs              # 転送先デバイスの記録（SQL）と同期の実行状態
+├── device_manifest.rs     # デバイス側の管理ファイル（.muspice/manifest.json）
+├── device_sync.rs         # デバイス上の配置と差分の計算（ファイルシステムに触れない）
+├── device_transfer.rs     # 同期の実行（削除・リネーム・コピー・プレイリストの書き出し）
 ├── error.rs
 ├── events.rs
 ├── repository.rs
@@ -170,7 +177,7 @@ src-tauri/src/
 - フロントエンドでは `handleError` を必ず経由し、codeでエラーを分類する（部分文字列マッチは行わない）
 - DBアクセスはコマンド層で `AppState::with_db` を経由し、ロック取得エラーの処理を一元化する
 - ファイルI/O・タグ解析・大量のDB書き込みなど重い同期処理は `commands::run_blocking` で実行する（asyncコマンド内で直接行うと非同期ランタイムのワーカーを占有する）。状態が必要な場合は `AppHandle` を受け取り、クロージャ内で `app.state::<AppState>()` から取得する
-- トラック関連のSQLは `repository.rs`、プレイリスト関連のSQLは `playlist.rs`、ライブラリフォルダの記録のSQLは `library_folder.rs` に集約する（コマンド層に生SQLを書かない）
+- トラック関連のSQLは `repository.rs`、プレイリスト関連のSQLは `playlist.rs`、ライブラリフォルダの記録のSQLは `library_folder.rs`、転送先デバイスの記録のSQLは `device.rs` に集約する（コマンド層に生SQLを書かない）
 - ログは `log` クレートのマクロ（`log::info!` / `log::warn!` / `log::error!`）で出力する。`lib.rs` の `log_plugin()` が `tauri-plugin-log` を `log` のロガーとして登録しており、Tauriや依存クレートのログも同じ出力先に記録される
   - プラグインのJS API（`log:default` 等）はcapabilityに追加しない。WebViewからログを書き込ませない（ADR-005）
 
@@ -244,6 +251,8 @@ Tauriのウィンドウ（macOSではWKWebView）はブラウザ自動化ツー�
 - ネイティブメニューのイベントや確認ダイアログの回答は、開発者ツールから`window.__MUSPICE_MOCK__`で操作する
   - `window.__MUSPICE_MOCK__.emit('open-import-dialog')`（`toggle-sidebar` / `show-about-dialog`も同様）
   - `window.__MUSPICE_MOCK__.setConfirmResult(false)`で、以降の確認ダイアログを「キャンセル」にする
+  - `window.__MUSPICE_MOCK__.setFolderResult('/Volumes/NEW_SD')`で、以降のフォルダ選択ダイアログで選ばれるパスを変える。既定のパスはライブラリフォルダの中のため、転送先デバイスの追加を確認するときはライブラリの外のパスにする
+- デバイスへの転送は、デバイス上の曲を「コピー済みのトラックの集合」で再現する（配置の決定・リネーム・プレイリストのファイルは再現しない）
 - 確認できないもの: Rust側の処理（SQLite・FTS5・ファイルI/O・タグ読み書き）、実ファイルの再生、CSP・capabilityによる制約。これらは`cargo test`と`npm run tauri dev`で確認する
 
 ## CI方針

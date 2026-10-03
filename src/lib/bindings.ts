@@ -27,6 +27,52 @@ export const commands = {
 	 *  フォルダが見つからない場合はエラーにする（トラックは外さない）。
 	 */
 	rescanLibraryFolder: (folderId: string) => __TAURI_INVOKE<RescanResult>("rescan_library_folder", { folderId }),
+	/**
+	 *  登録済みのデバイスの一覧を取得する
+	 * 
+	 *  接続の確認は、外れたネットワークドライブなどで時間がかかることがあるため、
+	 *  ブロッキング処理用スレッドで行う。
+	 */
+	getSyncDevices: () => __TAURI_INVOKE<SyncDevice[]>("get_sync_devices"),
+	/**
+	 *  フォルダを転送先デバイスとして登録する
+	 * 
+	 *  フォルダに管理ファイルがある場合は、そのデバイスとして扱う（登録済みなら転送先を
+	 *  更新し、未登録なら管理ファイルを引き継いで登録する）。なければ新しく作る。
+	 */
+	registerSyncDevice: (folderPath: string, name: string) => __TAURI_INVOKE<SyncDevice>("register_sync_device", { folderPath, name }),
+	/**  デバイスの設定（名前と同期する対象）を更新する */
+	updateSyncDevice: (deviceId: string, config: SyncDeviceConfig) => __TAURI_INVOKE<SyncDevice>("update_sync_device", { deviceId, config }),
+	/**
+	 *  デバイスの転送先のフォルダを変える（マウント先が変わった場合や、カードを初期化した場合）
+	 * 
+	 *  フォルダに別のデバイスの管理ファイルがある場合はエラーにする。管理ファイルがなければ、
+	 *  このデバイスの管理ファイルを新しく作る。
+	 */
+	relinkSyncDevice: (deviceId: string, folderPath: string) => __TAURI_INVOKE<SyncDevice>("relink_sync_device", { deviceId, folderPath }),
+	/**
+	 *  デバイスの登録を解除する
+	 * 
+	 *  デバイス上の曲と管理ファイルは消さない（同じフォルダをもう一度登録すると、
+	 *  コピー済みの曲を引き継ぐ）。
+	 */
+	removeSyncDevice: (deviceId: string) => __TAURI_INVOKE<null>("remove_sync_device", { deviceId }),
+	/**
+	 *  同期で行う処理の件数と必要な容量を調べる（デバイスには書き込まない）
+	 * 
+	 *  デバイスが接続されていない場合は`NOT_FOUND`。
+	 */
+	planDeviceSync: (deviceId: string) => __TAURI_INVOKE<DeviceSyncPlan>("plan_device_sync", { deviceId }),
+	/**
+	 *  デバイスへ同期する（削除 → リネーム → コピー → プレイリストの書き出し）
+	 * 
+	 *  `DeviceSyncProgress`を送る。同時に実行できる同期は1つで、実行中は`LOCK`。
+	 *  同期する対象を選んでいない場合と、空き容量が足りない場合は`VALIDATION`。
+	 *  ファイル単位の失敗は結果の`errors`に入れて続ける。
+	 */
+	runDeviceSync: (deviceId: string) => __TAURI_INVOKE<DeviceSyncResult>("run_device_sync", { deviceId }),
+	/**  実行中の同期を中止する（コピー中のファイルの途中でも止める。実行中でなければ何もしない） */
+	cancelDeviceSync: () => __TAURI_INVOKE<null>("cancel_device_sync"),
 	/**  現在の設定を取得 */
 	getSettings: () => __TAURI_INVOKE<Settings>("get_settings"),
 	/**
@@ -153,6 +199,7 @@ export const commands = {
 
 /** Events */
 export const events = {
+	deviceSyncProgress: makeEvent<DeviceSyncProgress>("device-sync-progress"),
 	importProgress: makeEvent<ImportProgress>("import-progress"),
 	libraryChanged: makeEvent<LibraryChanged>("library-changed"),
 	libraryScanProgress: makeEvent<LibraryScanProgress>("library-scan-progress"),
@@ -229,6 +276,57 @@ export type DeleteResult = {
 	failedCount: number,
 	/**  削除に失敗したトラックの詳細 */
 	failedTracks: DeleteFailure[],
+};
+
+/**  同期で行う処理の件数と、必要な容量（同期の前の確認用） */
+export type DeviceSyncPlan = {
+	/**  コピーする曲数とサイズの合計（バイト） */
+	copyCount: number,
+	copyBytes: number,
+	/**  デバイスから削除する曲数とサイズの合計（バイト） */
+	deleteCount: number,
+	deleteBytes: number,
+	/**  デバイス上で名前を変える曲数（タグが変わって配置が変わった曲） */
+	renameCount: number,
+	/**  そのまま残す曲数 */
+	unchangedCount: number,
+	/**  書き出すプレイリスト数 */
+	playlistCount: number,
+	/**  元のファイルが見つからない曲数（コピーできない。コピー済みならデバイスに残す） */
+	missingSourceCount: number,
+	/**  デバイスの空き容量と、同期で増える容量（バイト） */
+	freeBytes: number,
+	requiredBytes: number,
+	/**  空き容量が足りるか */
+	hasEnoughSpace: boolean,
+};
+
+/**  デバイスへの同期の進捗（コピー中のファイル） */
+export type DeviceSyncProgress = {
+	/**  同期しているデバイス */
+	deviceId: string,
+	/**  コピーが済んだファイル数 */
+	current: number,
+	/**  コピーするファイルの総数 */
+	total: number,
+	/**  コピーが済んだバイト数と、コピーするバイト数の合計 */
+	bytesDone: number,
+	bytesTotal: number,
+	/**  コピー中のファイル名 */
+	currentFile: string,
+};
+
+/**  同期の結果 */
+export type DeviceSyncResult = {
+	copiedCount: number,
+	deletedCount: number,
+	renamedCount: number,
+	/**  書き出したプレイリスト数 */
+	playlistCount: number,
+	errorCount: number,
+	errors: string[],
+	/**  途中で中止された */
+	cancelled: boolean,
 };
 
 /**  重複ファイルの処理方法 */
@@ -415,6 +513,35 @@ export type StartupPage =
 "lastOpened" | 
 /**  曲一覧 */
 "songs";
+
+/**  転送先デバイス（一覧表示用） */
+export type SyncDevice = {
+	id: string,
+	name: string,
+	/**  転送先のフォルダ */
+	path: string,
+	/**  ライブラリの全曲を同期するか */
+	syncAll: boolean,
+	/**  同期するプレイリスト（`.m3u8`も書き出す。全曲を同期しない場合は、曲もここから決まる） */
+	playlistIds: string[],
+	/**  同期の対象から外れた曲を、デバイスから削除するか */
+	removeUnselected: boolean,
+	/**  接続されているか（転送先のフォルダに、このデバイスの管理ファイルがあるか） */
+	connected: boolean,
+	/**  空き容量・全体の容量（バイト）。接続されていない場合は値なし */
+	freeBytes: number | null,
+	totalBytes: number | null,
+	createdAt: string,
+	lastSyncedAt: string | null,
+};
+
+/**  デバイスの設定（名前と同期する対象） */
+export type SyncDeviceConfig = {
+	name: string,
+	syncAll: boolean,
+	playlistIds: string[],
+	removeUnselected: boolean,
+};
 
 /**  画面の配色 */
 export type Theme = 

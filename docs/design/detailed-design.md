@@ -71,18 +71,27 @@ export interface Playlist {
 - `LibraryFolderList`: `folders[]`, `unregisteredTrackCount`（どのフォルダにも属さない曲数）
 - `RescanResult`: `addedCount`, `updatedCount`, `removedCount`, `errorCount`, `errors[]`, `removalSkipped`（音楽ファイルが見つからず、曲を外さなかった）
 
+### 転送先デバイス型
+
+- `SyncDevice`: `id`, `name`, `path`（転送先のフォルダ）, `syncAll`（全曲を同期するか）, `playlistIds`（同期するプレイリスト）, `removeUnselected`（対象から外れた曲をデバイスから削除するか）, `connected`（転送先のフォルダに、このデバイスの管理ファイルがあるか）, `freeBytes` / `totalBytes`（接続されていなければnull）, `createdAt`, `lastSyncedAt`
+- `SyncDeviceConfig`: `name`, `syncAll`, `playlistIds`, `removeUnselected`
+- `DeviceSyncPlan`: `copyCount` / `copyBytes`, `deleteCount` / `deleteBytes`, `renameCount`, `unchangedCount`, `playlistCount`, `missingSourceCount`（元のファイルが見つからない曲数）, `freeBytes`, `requiredBytes`（コピーする容量から、削除で空く容量を引いたもの）, `hasEnoughSpace`
+- `DeviceSyncResult`: `copiedCount`, `deletedCount`, `renamedCount`, `playlistCount`, `errorCount`, `errors[]`, `cancelled`
+
 ## データベース仕様（SQLite）
 
 ### テーブル
 
-| テーブル          | 用途               | 主なカラム                                                                                                                                                                                                           |
-| ----------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tracks`          | トラック本体       | `id`, `file_path`, `title`, `artist`, `album`, `genre`, `year`, `track_number`, `disc_number`, `duration`, `file_size`, `file_modified_at`, `is_favorite`, `rating`, `play_count`, `last_played_at`, `replay_gain_*` |
-| `library_folders` | ライブラリフォルダ | `id`, `path`（UNIQUE）, `added_at`, `last_scanned_at`                                                                                                                                                                |
-| `playlists`       | プレイリスト本体   | `id`, `name`, `description`, `created_at`, `updated_at`                                                                                                                                                              |
-| `playlist_tracks` | プレイリスト内順序 | `playlist_id`, `track_id`, `position`, `added_at`                                                                                                                                                                    |
-| `play_history`    | 再生履歴           | `id`, `track_id`, `played_at`                                                                                                                                                                                        |
-| `tracks_fts`      | 全文検索（FTS5）   | `id`, `title`, `artist`, `album`, `genre`                                                                                                                                                                            |
+| テーブル                | 用途                           | 主なカラム                                                                                                                                                                                                           |
+| ----------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tracks`                | トラック本体                   | `id`, `file_path`, `title`, `artist`, `album`, `genre`, `year`, `track_number`, `disc_number`, `duration`, `file_size`, `file_modified_at`, `is_favorite`, `rating`, `play_count`, `last_played_at`, `replay_gain_*` |
+| `library_folders`       | ライブラリフォルダ             | `id`, `path`（UNIQUE）, `added_at`, `last_scanned_at`                                                                                                                                                                |
+| `playlists`             | プレイリスト本体               | `id`, `name`, `description`, `created_at`, `updated_at`                                                                                                                                                              |
+| `playlist_tracks`       | プレイリスト内順序             | `playlist_id`, `track_id`, `position`, `added_at`                                                                                                                                                                    |
+| `play_history`          | 再生履歴                       | `id`, `track_id`, `played_at`                                                                                                                                                                                        |
+| `tracks_fts`            | 全文検索（FTS5）               | `id`, `title`, `artist`, `album`, `genre`                                                                                                                                                                            |
+| `sync_devices`          | 転送先デバイス                 | `id`, `name`, `path`, `sync_all`, `remove_unselected`, `created_at`, `last_synced_at`                                                                                                                                |
+| `sync_device_playlists` | デバイスに同期するプレイリスト | `device_id`, `playlist_id`                                                                                                                                                                                           |
 
 ### インデックス/制約
 
@@ -92,6 +101,8 @@ export interface Playlist {
 - `tracks.file_modified_at` はファイルの更新日時（UNIX時間の秒）。再スキャンで、サイズとあわせて変更の検出に使う。列を追加する前に登録したトラックはNULLで、再スキャンで（ファイルを読み直さずに）記録する。サイズが同じで更新日時がちょうど1時間（±2秒）ずれた場合は、夏時間の切り替えによるずれ（更新日時をローカル時刻で記録するFAT32など）とみなし、読み直さずに日時だけ記録する
 - `tracks.replay_gain_track_gain` / `replay_gain_track_peak` / `replay_gain_album_gain` / `replay_gain_album_peak`（REAL）はファイルのタグから読んだReplayGain。`REPLAYGAIN_*`を優先し、ゲインがない場合はOpusの`R128_*_GAIN`（Q7.8形式、基準が-23 LUFSのため+5 dBしてReplayGainの基準にそろえる）を使う。範囲外（ゲインは±60 dB、ピークは0以下）は読まない。列を追加する前に登録したトラックはNULLで、`refresh_library_metadata`か再スキャン（ファイルが変わった場合）で読み込む
 - `library_folders` とトラックの対応は `tracks.file_path` の前方一致（フォルダのパス＋区切り文字）で判定する。`file_path >= 接頭辞 AND file_path < 上限`（接頭辞の最後の文字を次の文字にしたもの）の範囲で比較する（二分比較のため大文字・小文字を区別し、`file_path`のUNIQUEのインデックスを使える。`LIKE`はASCIIの大文字・小文字を区別しない）。フォルダ同士は入れ子にしない（中のフォルダはインポートしても登録せず、外のフォルダをインポートすると中のフォルダの記録をまとめる）
+- `sync_device_playlists` は `sync_devices` / `playlists` への外部キー（`ON DELETE CASCADE`）。取得するときも `playlists` と結合し、削除済みのプレイリストを含めない
+- `sync_devices.id` はデバイス側の管理ファイル（後述）の `deviceId` と同じ値。デバイスにコピーしたファイルの一覧はDBに持たず、管理ファイルに記録する
 - `tracks_fts` は `tracks` とINSERT/UPDATE/DELETEトリガーで同期
   - external contentテーブル（`content=tracks`）のため、UPDATE/DELETEは`'delete'`コマンドパターンで古いトークンを除去する
   - 旧トリガー（直接DELETE/UPDATE方式）によるインデックス破損対策として、`PRAGMA user_version < 1` の場合に起動時へ一度だけ`rebuild`を実行する
@@ -147,6 +158,81 @@ export interface Playlist {
 - `save_settings`は、自動反映への反映（監視の開始）を待たずに返る。反映は、その時点で保存済みの設定を読む
 - インポート・再スキャン・ライブラリフォルダの削除は`AppState::lock_library_scan`で1つずつ行う（手動と自動が同じファイルを同時に登録しない。削除したフォルダの曲を再スキャンが書き戻さない）
 
+### 転送先デバイス
+
+| コマンド               | 引数                     | 戻り値             | 備考                                                                                                                                                                                                                            |
+| ---------------------- | ------------------------ | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `get_sync_devices`     | なし                     | `SyncDevice[]`     | 名前順。接続の確認と容量の取得のため、ファイルシステムにアクセスする                                                                                                                                                            |
+| `register_sync_device` | `folderPath`, `name`     | `SyncDevice`       | フォルダに管理ファイルがなければ新しく作る。あれば、そのデバイスとして扱う（登録済みなら転送先を更新、未登録なら管理ファイルを引き継いで登録）。ライブラリフォルダと重なるフォルダは`VALIDATION`、フォルダがなければ`NOT_FOUND` |
+| `update_sync_device`   | `deviceId`, `config`     | `SyncDevice`       | 名前と同期する対象を更新する。見つからないプレイリストは無視する                                                                                                                                                                |
+| `relink_sync_device`   | `deviceId`, `folderPath` | `SyncDevice`       | 転送先のフォルダを変える。別のデバイスの管理ファイルがあるフォルダは`VALIDATION`。管理ファイルがなければ、このデバイスの管理ファイルを作る                                                                                      |
+| `remove_sync_device`   | `deviceId`               | `void`             | 登録を解除する。デバイス上の曲と管理ファイルは消さない                                                                                                                                                                          |
+| `plan_device_sync`     | `deviceId`               | `DeviceSyncPlan`   | 差分を調べる（デバイスには書き込まない）。接続されていなければ`NOT_FOUND`                                                                                                                                                       |
+| `run_device_sync`      | `deviceId`               | `DeviceSyncResult` | 同期する。`DeviceSyncProgress`を送る。他の同期が実行中なら`LOCK`、対象を選んでいない・空き容量が足りない場合は`VALIDATION`。ファイル単位の失敗は`errors`に入れて続け、デバイスが外れた場合は`IO`で中止する                      |
+| `cancel_device_sync`   | なし                     | `void`             | 実行中の同期を中止する（コピー中のファイルの途中でも止める）                                                                                                                                                                    |
+
+フォルダのパスを受け取るのは`register_sync_device`と`relink_sync_device`だけで、それ以外はデバイスのIDからDBで解決する。
+
+#### 同期する曲とプレイリスト
+
+- 曲: `syncAll`ならライブラリの全曲（件数の上限なし。`repository::find_transfer_tracks`）、そうでなければ選んだプレイリストの曲（複数のプレイリストにある曲は1回だけコピーする）
+- プレイリスト: 選んだプレイリストを、デバイスのフォルダの直下に`プレイリスト名.m3u8`（拡張M3U・UTF-8・改行はCRLF）で書き出す。曲のパスはデバイスのフォルダからの相対パス（区切りは`/`。直下に置くため`..`を含まない）で、デバイスにある曲だけを曲順どおりに書く
+
+#### デバイス上の配置（`device_sync.rs`）
+
+- `アーティスト/アルバム/01 タイトル.拡張子`。ディスク番号があれば`1-01 タイトル`。タグがない場合は`Unknown Artist` / `Unknown Album`（表示の言語によらず固定）、タイトルは元のファイル名
+- フォルダ名・ファイル名は、NFCにそろえる、FAT32・exFAT・Windowsで使えない文字（`<>:"/\|?*`と制御文字）を`_`にする、先頭のドットと前後の空白・末尾のドットを除く、80文字かつ200バイトで切り詰める、Windowsで使えない名前（`CON`など）には`_`を付ける
+- パスは大文字・小文字を区別せずに比べる。同じパスになる曲には連番（` (2)`）を付ける
+- 一度決めたパスは管理ファイルに記録し、タグが変わらない限り変えない（連番の付いたパスも、そのまま使い続ける）
+
+#### 差分の計算（`device_sync::plan_sync`）
+
+| 状態                                                           | 処理                                                               |
+| -------------------------------------------------------------- | ------------------------------------------------------------------ |
+| 記録がない曲                                                   | コピー                                                             |
+| 記録がなく、同じ場所に同じサイズのファイルがある               | コピー済みとして記録する（対象から外れた曲の記録なら、付け替える） |
+| 記録があり、元のファイルが変わった（サイズか更新日時）         | 同じ場所にコピーし直す                                             |
+| 記録があり、デバイス上のファイルがない・サイズが違う           | 同じ場所にコピーし直す                                             |
+| 記録があり、タグが変わって配置が変わった（元のファイルは同じ） | デバイス上で名前を変える                                           |
+| 記録があり、配置も元のファイルも変わった                       | 古いファイルを削除し、新しい場所にコピー                           |
+| 記録があり、元のファイルが見つからない                         | そのまま残す（`missingSourceCount`に数える）                       |
+| 記録があるが、対象から外れた（トラックが削除された場合を含む） | `removeUnselected`なら削除、そうでなければ残す                     |
+
+- 元のファイルが変わったかは、コピーした時点のサイズ・更新日時（管理ファイルの記録）と、今のファイルを比べて判定する。デバイス側の更新日時は見ない。サイズが同じで更新日時がちょうど1時間（±2秒）ずれた場合は、夏時間の切り替えによるずれとみなす
+- 削除・上書きするのは、管理ファイルに記録のあるファイルだけ。記録のないファイルがある場所は避ける（連番を付ける）
+- プレイリストのファイルは毎回書き直す。名前を変えたプレイリストは古いファイルを消す。対象から外れたプレイリストのファイルは、`removeUnselected`なら削除する
+
+#### 同期の実行（`device_transfer::execute_plan`）
+
+- 順序は「削除 → リネーム → コピー → プレイリスト」。空になったフォルダは削除する
+- コピーは別名（`.part`）に書いてから置き換える。アルバムの曲順にコピーする
+- 管理ファイルは、削除・リネームの後、50曲コピーするごと、最後に保存する（別名で書いてから置き換える）
+- 中止された場合と、デバイスの容量が足りなくなった場合は、プレイリストを書き出さずに終わる（コピー済みの曲は記録する）。最終同期の日時は、中止されなかった場合だけ記録する
+- 空き容量は、コピーする容量から削除で空く容量を引いたものに1MiBを足して判定する
+
+#### デバイス側の管理ファイル（`device_manifest.rs`）
+
+転送先のフォルダの`.muspice/manifest.json`。
+
+```json
+{
+  "version": 1,
+  "deviceId": "（UUID）",
+  "files": [
+    {
+      "path": "Artist/Album/01 Title.flac",
+      "trackId": "（UUID）",
+      "size": 12345678,
+      "modifiedAt": 1700000000
+    }
+  ],
+  "playlists": [{ "path": "通勤.m3u8", "playlistId": "（UUID）" }]
+}
+```
+
+- `path`はデバイスのフォルダからの相対パス（区切りは`/`）。`size` / `modifiedAt`はコピーした時点の元のファイルのもの
+- 読むときに、フォルダの外を指すパス（空の要素・`.`・`..`・絶対パス・`\`や`:`を含むもの・`.muspice`の中）の記録は無視する。壊れている場合は`IO`、`version`が新しい場合は`VALIDATION`でエラーにする（空として扱わない）
+
 ### 設定
 
 | コマンド        | 引数                 | 戻り値     | 備考                                                                                                                                                                      |
@@ -166,15 +252,16 @@ export interface Playlist {
 
 `src-tauri/src/events.rs` で定義し、`bindings.ts` の `events` から型付きで購読する。イベント名は型名のケバブケース。
 
-| イベント              | ペイロード                        | 送信元                                                                             |
-| --------------------- | --------------------------------- | ---------------------------------------------------------------------------------- |
-| `ImportProgress`      | `{ current, total, currentFile }` | `import_folder`（1ファイルごと）                                                   |
-| `LibraryScanProgress` | `{ current, total, currentFile }` | `rescan_library_folder`（読み込むファイルごと）                                    |
-| `LibraryChanged`      | なし                              | インポートの後、再スキャン（自動を含む）・ライブラリフォルダの削除で曲が変わった時 |
-| `ShowAboutDialog`     | なし                              | メニュー「Muspice について」                                                       |
-| `OpenImportDialog`    | なし                              | メニュー「フォルダをインポート...」                                                |
-| `ToggleSidebar`       | なし                              | メニュー「サイドバーを表示/隠す」                                                  |
-| `SettingsChanged`     | `Settings`                        | `save_settings`                                                                    |
+| イベント              | ペイロード                                                         | 送信元                                                                             |
+| --------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
+| `ImportProgress`      | `{ current, total, currentFile }`                                  | `import_folder`（1ファイルごと）                                                   |
+| `LibraryScanProgress` | `{ current, total, currentFile }`                                  | `rescan_library_folder`（読み込むファイルごと）                                    |
+| `LibraryChanged`      | なし                                                               | インポートの後、再スキャン（自動を含む）・ライブラリフォルダの削除で曲が変わった時 |
+| `DeviceSyncProgress`  | `{ deviceId, current, total, bytesDone, bytesTotal, currentFile }` | `run_device_sync`（コピーするファイルごと。大きなファイルでは途中でも送る）        |
+| `ShowAboutDialog`     | なし                                                               | メニュー「Muspice について」                                                       |
+| `OpenImportDialog`    | なし                                                               | メニュー「フォルダをインポート...」                                                |
+| `ToggleSidebar`       | なし                                                               | メニュー「サイドバーを表示/隠す」                                                  |
+| `SettingsChanged`     | `Settings`                                                         | `save_settings`                                                                    |
 
 ### メタデータ編集
 
@@ -217,6 +304,8 @@ export interface Playlist {
 | 対象                       | ルール                                                      |
 | -------------------------- | ----------------------------------------------------------- |
 | `track_id` / `playlist_id` | UUID形式（36文字、ハイフン区切り、16進数）                  |
+| `device_id`                | UUID形式（同上）                                            |
+| デバイス名                 | 必須（前後の空白を除く）、100バイト以内、制御文字禁止       |
 | `playlist_name`            | 必須、100文字以内、危険文字禁止（`<>:"/\\\|?*`）            |
 | ファイルパス               | 空/Null文字禁止、`..`による親ディレクトリ遡り禁止、長さ制限 |
 | `Metadata.year`            | 1000〜9999                                                  |
