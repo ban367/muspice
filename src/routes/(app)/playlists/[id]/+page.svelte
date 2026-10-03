@@ -345,7 +345,7 @@
   /* プレイリストヘッダー */
   .playlist-header {
     @apply flex items-center justify-between p-6 rounded-lg mb-4;
-    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    background: linear-gradient(135deg, var(--color-base-200) 0%, var(--color-base-300) 100%);
   }
 
   .playlist-info {
@@ -366,7 +366,7 @@
   }
 
   .playlist-title {
-    @apply m-0 text-2xl font-bold text-white;
+    @apply m-0 text-2xl font-bold text-text-primary;
   }
 
   .playlist-meta {

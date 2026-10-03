@@ -26,6 +26,7 @@ export type {
   RescanResult,
   Settings,
   StartupPage,
+  Theme,
   Track,
   VolumeNormalization
 } from '#lib/bindings.js';

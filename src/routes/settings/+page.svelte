@@ -1,8 +1,8 @@
 <script lang="ts">
   import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
   import { useSaveSettingsMutation, useSettingsQuery } from '#lib/queries/settings.js';
-  import type { Settings, StartupPage, VolumeNormalization } from '#lib/types/models.js';
-  import { applyAccentColor } from '#lib/utils/theme.js';
+  import type { Settings, StartupPage, Theme, VolumeNormalization } from '#lib/types/models.js';
+  import { applyAccentColor, applyTheme } from '#lib/utils/theme.js';
   import LibraryFolderSettings from '#lib/components/LibraryFolderSettings.svelte';
 
   // 既定のアクセントカラー（Rust側のDEFAULT_ACCENT_COLORと同じ）
@@ -33,6 +33,12 @@
     { value: 'songs', label: '曲一覧' }
   ];
 
+  const themeOptions: { value: Theme; label: string }[] = [
+    { value: 'dark', label: 'ダーク' },
+    { value: 'light', label: 'ライト' },
+    { value: 'system', label: 'OSの設定に従う' }
+  ];
+
   const volumeNormalizationOptions: { value: VolumeNormalization; label: string }[] = [
     { value: 'off', label: 'オフ' },
     { value: 'track', label: 'トラック単位' },
@@ -60,11 +66,16 @@
     return (Object.keys(saved) as (keyof Settings)[]).some((key) => current[key] !== saved[key]);
   });
 
-  // 設定ウィンドウにも保存済みのアクセントカラーを反映する
+  // 設定ウィンドウにも保存済みのテーマ・アクセントカラーを反映する
   $effect(() => {
     if (settingsQuery.data) {
       applyAccentColor(settingsQuery.data.accentColor);
     }
+  });
+
+  $effect(() => {
+    const theme = settingsQuery.data?.theme;
+    if (theme) return applyTheme(theme);
   });
 
   async function applySettings() {
@@ -282,6 +293,18 @@
       {:else}
         <section class="settings-section">
           <h3 class="section-title">外観</h3>
+
+          <div class="setting-item">
+            <label class="setting-label" for="theme">テーマ</label>
+            <select id="theme" class="setting-select" bind:value={pending.theme}>
+              {#each themeOptions as option (option.value)}
+                <option value={option.value}>{option.label}</option>
+              {/each}
+            </select>
+            <p class="setting-description">
+              「OSの設定に従う」では、OSのダークモードの切り替えに合わせて変わります
+            </p>
+          </div>
 
           <div class="setting-item">
             <label class="setting-label" for="accent">アクセントカラー</label>

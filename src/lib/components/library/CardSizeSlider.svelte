@@ -51,7 +51,7 @@
     @apply w-20 h-1 rounded-sm cursor-pointer;
     -webkit-appearance: none;
     appearance: none;
-    background: rgba(255, 255, 255, 0.1);
+    @apply bg-surface-active;
   }
 
   .size-range::-webkit-slider-thumb {

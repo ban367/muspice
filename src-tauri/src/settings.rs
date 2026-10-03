@@ -35,6 +35,19 @@ pub enum StartupPage {
     Songs,
 }
 
+/// 画面の配色
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum Theme {
+    /// ダーク
+    #[default]
+    Dark,
+    /// ライト
+    Light,
+    /// OSの設定に従う
+    System,
+}
+
 /// 音量の正規化（ReplayGain）
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -54,6 +67,8 @@ pub enum VolumeNormalization {
 pub struct Settings {
     /// 起動時に開く画面
     pub startup_page: StartupPage,
+    /// 画面の配色
+    pub theme: Theme,
     /// アクセントカラー（`#rrggbb`）
     pub accent_color: String,
     /// 音量の正規化
@@ -79,6 +94,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             startup_page: StartupPage::default(),
+            theme: Theme::default(),
             accent_color: DEFAULT_ACCENT_COLOR.to_string(),
             volume_normalization: VolumeNormalization::default(),
             gapless_playback: true,
@@ -224,6 +240,7 @@ mod tests {
         let state = SettingsState::load(path.clone());
         let settings = Settings {
             startup_page: StartupPage::Songs,
+            theme: Theme::System,
             accent_color: "#ff8800".to_string(),
             volume_normalization: VolumeNormalization::Album,
             gapless_playback: false,
@@ -248,6 +265,7 @@ mod tests {
         assert_eq!(settings.startup_page, StartupPage::Songs);
         assert_eq!(settings.accent_color, DEFAULT_ACCENT_COLOR);
         // 項目を追加する前に保存したファイルでも、新しい項目は既定値になる
+        assert_eq!(settings.theme, Theme::Dark);
         assert_eq!(settings.volume_normalization, VolumeNormalization::Off);
         assert!(settings.gapless_playback);
         assert_eq!(settings.crossfade_seconds, 0);

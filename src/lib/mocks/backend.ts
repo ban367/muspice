@@ -199,6 +199,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   let currentTrackId: string | null = null;
   let settings: Settings = {
     startupPage: 'lastOpened',
+    theme: 'dark',
     accentColor: '#3b82f6',
     volumeNormalization: 'off',
     gaplessPlayback: true,

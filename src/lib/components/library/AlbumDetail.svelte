@@ -172,7 +172,12 @@
 
   .detail-header {
     @apply flex gap-6 p-6 shrink-0;
-    background: linear-gradient(to bottom, rgba(59, 130, 246, 0.15), transparent);
+    /* アクセントカラーを薄くした色から透明へ */
+    background: linear-gradient(
+      to bottom,
+      color-mix(in oklab, var(--color-primary) 15%, transparent),
+      transparent
+    );
   }
 
   .album-art {
@@ -206,12 +211,11 @@
 
   .action-btn {
     @apply flex items-center gap-2 py-2.5 px-5 border-none rounded-full text-sm font-medium cursor-pointer transition-all duration-150;
-    background: rgba(255, 255, 255, 0.1);
-    color: #fff;
+    @apply bg-surface-active text-text-primary;
   }
 
   .action-btn:hover {
-    background: rgba(255, 255, 255, 0.15);
+    @apply bg-surface-strong;
   }
 
   .action-btn.play {
@@ -224,7 +228,7 @@
 
   .action-btn.icon-only {
     @apply w-10 h-10 p-0 justify-center;
-    background: rgba(255, 255, 255, 0.1);
+    @apply bg-surface-active;
   }
 
   .action-btn svg {
@@ -237,7 +241,7 @@
 
   .disc-header {
     @apply flex items-center gap-3 py-3 px-3 mt-2 first:mt-0;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    @apply border-b border-border;
   }
 
   .disc-label {
@@ -254,7 +258,7 @@
   }
 
   .track-row.playing {
-    background: rgba(29, 185, 84, 0.15);
+    @apply bg-secondary/15;
   }
 
   .track-number {
