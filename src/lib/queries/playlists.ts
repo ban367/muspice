@@ -4,9 +4,9 @@ import {
   useQueryClient,
   type QueryClient
 } from '@tanstack/svelte-query';
-import { commands } from '$lib/bindings';
-import type { Playlist } from '$lib/types/models';
-import { showSuccess } from '$lib/stores/error';
+import { commands } from '#lib/bindings.js';
+import type { Playlist } from '#lib/types/models.js';
+import { showSuccess } from '#lib/stores/error.js';
 import { queryKeys } from './keys';
 import { withErrorToast } from './shared';
 

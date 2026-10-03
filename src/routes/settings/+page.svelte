@@ -1,8 +1,8 @@
 <script lang="ts">
   import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-  import { useSaveSettingsMutation, useSettingsQuery } from '$lib/queries/settings';
-  import type { Settings, StartupPage } from '$lib/types/models';
-  import { applyAccentColor } from '$lib/utils/theme';
+  import { useSaveSettingsMutation, useSettingsQuery } from '#lib/queries/settings.js';
+  import type { Settings, StartupPage } from '#lib/types/models.js';
+  import { applyAccentColor } from '#lib/utils/theme.js';
 
   // 既定のアクセントカラー（Rust側のDEFAULT_ACCENT_COLORと同じ）
   const DEFAULT_ACCENT_COLOR = '#3b82f6';

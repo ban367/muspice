@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { isPlaying } from '$lib/stores/player';
+  import { isPlaying } from '#lib/stores/player.js';
 
   // Props
   interface Props {

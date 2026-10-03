@@ -4,14 +4,14 @@
   すべて再生、シャッフル再生、キュー操作、プレイリスト追加のアクションを提供する。
 -->
 <script lang="ts">
-  import type { Track, AlbumGroup, ArtistGroup, GenreGroup } from '$lib/types/models';
-  import { BaseContextMenu, PlaylistSubmenu } from '$lib/components/ui';
+  import type { Track, AlbumGroup, ArtistGroup, GenreGroup } from '#lib/types/models.js';
+  import { BaseContextMenu, PlaylistSubmenu } from '#lib/components/ui/index.js';
   import {
     playTrackFromQueue,
     playQueue,
     currentTrackIndex,
     playShuffled
-  } from '$lib/stores/player';
+  } from '#lib/stores/player.js';
   import { get } from 'svelte/store';
 
   // グループタイプ

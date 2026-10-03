@@ -1,7 +1,10 @@
 <script lang="ts">
-  import type { Track } from '$lib/types/models';
-  import { useDeleteTracksMutation, useDeleteTracksWithFilesMutation } from '$lib/queries/tracks';
-  import { Button, Modal } from '$lib/components/ui';
+  import type { Track } from '#lib/types/models.js';
+  import {
+    useDeleteTracksMutation,
+    useDeleteTracksWithFilesMutation
+  } from '#lib/queries/tracks.js';
+  import { Button, Modal } from '#lib/components/ui/index.js';
 
   // Props
   interface Props {

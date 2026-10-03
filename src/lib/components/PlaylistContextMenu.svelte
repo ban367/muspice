@@ -4,19 +4,19 @@
   再生、シャッフル再生、キュー操作、名前変更、削除のアクションを提供する。
 -->
 <script lang="ts">
-  import type { Playlist } from '$lib/types/models';
-  import { BaseContextMenu } from '$lib/components/ui';
-  import { useDeletePlaylistMutation, useRenamePlaylistMutation } from '$lib/queries/playlists';
+  import type { Playlist } from '#lib/types/models.js';
+  import { BaseContextMenu } from '#lib/components/ui/index.js';
+  import { useDeletePlaylistMutation, useRenamePlaylistMutation } from '#lib/queries/playlists.js';
   import {
     playTrackFromQueue,
     playQueue,
     currentTrackIndex,
     playShuffled
-  } from '$lib/stores/player';
-  import { useTracksQuery } from '$lib/queries/tracks';
+  } from '#lib/stores/player.js';
+  import { useTracksQuery } from '#lib/queries/tracks.js';
   import { get } from 'svelte/store';
-  import { confirmDestructive, promptText } from '$lib/utils/dialog';
-  import { validatePlaylistName, toSafeString } from '$lib/utils/validation';
+  import { confirmDestructive, promptText } from '#lib/utils/dialog.js';
+  import { validatePlaylistName, toSafeString } from '#lib/utils/validation.js';
 
   // Props
   interface Props {

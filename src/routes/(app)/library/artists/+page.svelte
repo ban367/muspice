@@ -1,10 +1,10 @@
 <script lang="ts">
-  import type { ArtistGroup } from '$lib/types/models';
-  import ArtistGrid from '$lib/components/library/ArtistGrid.svelte';
-  import ArtistList from '$lib/components/library/ArtistList.svelte';
-  import ArtistDetail from '$lib/components/library/ArtistDetail.svelte';
-  import LibraryBrowsePage from '$lib/components/library/LibraryBrowsePage.svelte';
-  import { useArtistsGroupedQuery } from '$lib/queries/tracks';
+  import type { ArtistGroup } from '#lib/types/models.js';
+  import ArtistGrid from '#lib/components/library/ArtistGrid.svelte';
+  import ArtistList from '#lib/components/library/ArtistList.svelte';
+  import ArtistDetail from '#lib/components/library/ArtistDetail.svelte';
+  import LibraryBrowsePage from '#lib/components/library/LibraryBrowsePage.svelte';
+  import { useArtistsGroupedQuery } from '#lib/queries/tracks.js';
 
   // クエリ
   const artistsQuery = useArtistsGroupedQuery();

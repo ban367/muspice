@@ -4,7 +4,6 @@ import { defineConfig } from 'eslint/config';
 import svelte from 'eslint-plugin-svelte';
 import globals from 'globals';
 import ts from 'typescript-eslint';
-import svelteConfig from './svelte.config.js';
 
 export default defineConfig(
   {
@@ -46,19 +45,19 @@ export default defineConfig(
         'error',
         {
           name: 'confirm',
-          message: '$lib/utils/dialog の confirmDestructive を await して使用してください。'
+          message: '#lib/utils/dialog.js の confirmDestructive を await して使用してください。'
         },
         {
           // macOSのWebView（wry）はwindow.promptを実装しておらず、常にnullを返す
           name: 'prompt',
-          message: '$lib/utils/dialog の promptText を await して使用してください。'
+          message: '#lib/utils/dialog.js の promptText を await して使用してください。'
         }
       ]
     }
   },
   {
     // コンポーネント・ページからコマンドを直接呼ばない。キャッシュの無効化とエラー通知を
-    // $lib/queries に集約するため（型・eventsのimportは許可する）
+    // #lib/queries に集約するため（型・eventsのimportは許可する）
     files: ['src/lib/components/**/*.svelte', 'src/routes/**/*.svelte', 'src/routes/**/*.ts'],
     rules: {
       'no-restricted-imports': [
@@ -66,9 +65,9 @@ export default defineConfig(
         {
           paths: [
             {
-              name: '$lib/bindings',
+              name: '#lib/bindings.js',
               importNames: ['commands'],
-              message: '$lib/queries のクエリ・ミューテーションを経由して呼び出してください。'
+              message: '#lib/queries のクエリ・ミューテーションを経由して呼び出してください。'
             }
           ]
         }
@@ -80,8 +79,7 @@ export default defineConfig(
     languageOptions: {
       parserOptions: {
         parser: ts.parser,
-        extraFileExtensions: ['.svelte'],
-        svelteConfig
+        extraFileExtensions: ['.svelte']
       }
     },
     rules: {

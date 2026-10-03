@@ -1,6 +1,6 @@
 import { get } from 'svelte/store';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Track } from '$lib/types/models';
+import type { Track } from '#lib/types/models.js';
 import {
   clearQueue,
   currentTime,

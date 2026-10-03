@@ -1,8 +1,8 @@
 import { get } from 'svelte/store';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Track } from '$lib/types/models';
-import { commands } from '$lib/bindings';
-import { incrementPlayCount } from '$lib/queries/tracks';
+import type { Track } from '#lib/types/models.js';
+import { commands } from '#lib/bindings.js';
+import { incrementPlayCount } from '#lib/queries/tracks.js';
 import { createPlaybackController, mediaErrorMessage, type PlaybackController } from './playback';
 import {
   currentTime,
@@ -16,7 +16,7 @@ import {
 } from './player';
 import { errorStore } from './error';
 
-vi.mock('$lib/bindings', () => ({
+vi.mock('#lib/bindings.js', () => ({
   commands: {
     getTrackFilePath: vi.fn(async (trackId: string) => `/music/${trackId}.mp3`),
     setCurrentTrack: vi.fn(async () => null)
@@ -25,7 +25,7 @@ vi.mock('$lib/bindings', () => ({
 vi.mock('@tauri-apps/api/core', () => ({
   convertFileSrc: (path: string) => `asset://localhost/${encodeURIComponent(path)}`
 }));
-vi.mock('$lib/queries/tracks', () => ({
+vi.mock('#lib/queries/tracks.js', () => ({
   incrementPlayCount: vi.fn(async () => {})
 }));
 vi.mock('./equalizer', () => ({

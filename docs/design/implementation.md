@@ -2,17 +2,17 @@
 
 ## 技術スタック
 
-| 層               | 技術                            | バージョン（2026-10-01時点）                        | 備考                                                 |
-| ---------------- | ------------------------------- | --------------------------------------------------- | ---------------------------------------------------- |
-| フロントエンド   | SvelteKit + Svelte + TypeScript | `@sveltejs/kit` 2.70.x / `svelte` 5.57.x / TS 6.0.x | SPA構成（adapter-static）                            |
-| ビルド           | Vite                            | 8.3.x                                               | Tailwindは`@tailwindcss/vite`経由（PostCSS設定なし） |
-| テスト           | Vitest                          | 5.0.x                                               | ストア・ユーティリティの単体テスト                   |
-| UIスタイル       | TailwindCSS + DaisyUI           | Tailwind 4.3.x / DaisyUI 5.7.x                      | `@apply`運用に制限あり                               |
-| データ取得       | TanStack Query（Svelte）        | 6.3.x                                               | Queryキャッシュ/再取得制御                           |
-| デスクトップ基盤 | Tauri + tauri-specta            | 2.12.x / 2.0.0-rc.25                                | 型付きコマンド呼び出しを自動生成                     |
-| バックエンド     | Rust                            | edition 2024（stable）                              | コアロジック/DBアクセス                              |
-| DB               | SQLite + FTS5                   | rusqlite 0.40（bundled）                            | 全文検索・ローカル保存                               |
-| メタデータ       | lofty                           | 0.25                                                | タグ読み書き/アルバムアート抽出                      |
+| 層               | 技術                            | バージョン（2026-10-03時点）                       | 備考                                                 |
+| ---------------- | ------------------------------- | -------------------------------------------------- | ---------------------------------------------------- |
+| フロントエンド   | SvelteKit + Svelte + TypeScript | `@sveltejs/kit` 3.0.x / `svelte` 5.57.x / TS 6.0.x | SPA構成（adapter-static）                            |
+| ビルド           | Vite                            | 8.3.x                                              | Tailwindは`@tailwindcss/vite`経由（PostCSS設定なし） |
+| テスト           | Vitest                          | 5.0.x                                              | ストア・ユーティリティの単体テスト                   |
+| UIスタイル       | TailwindCSS + DaisyUI           | Tailwind 4.3.x / DaisyUI 5.7.x                     | `@apply`運用に制限あり                               |
+| データ取得       | TanStack Query（Svelte）        | 6.3.x                                              | Queryキャッシュ/再取得制御                           |
+| デスクトップ基盤 | Tauri + tauri-specta            | 2.12.x / 2.0.0-rc.25                               | 型付きコマンド呼び出しを自動生成                     |
+| バックエンド     | Rust                            | edition 2024（stable）                             | コアロジック/DBアクセス                              |
+| DB               | SQLite + FTS5                   | rusqlite 0.40（bundled）                           | 全文検索・ローカル保存                               |
+| メタデータ       | lofty                           | 0.25                                               | タグ読み書き/アルバムアート抽出                      |
 
 ## ディレクトリ構成
 
@@ -72,31 +72,39 @@ src-tauri/src/
 
 - Runes構文（`$props`, `$state`, `$derived`, `$effect`）を使用
 - UIローカル状態は`stores`に集約し、データ取得状態はQueryに分離する
-- 複数コンポーネントで使うSvelteアクション（`use:`）は`$lib/utils`に置く
+- 複数コンポーネントで使うSvelteアクション（`use:`）は`#lib/utils`に置く
+
+### SvelteKit 3
+
+- 設定は`vite.config.js`の`sveltekit({...})`に渡す（`svelte.config.js`は使えない）。`tsconfig.json`は`svelte-kit sync`が生成する`$app/tsconfig`を継承する
+- `src/lib`は`$lib`ではなく`#lib`（`package.json`の`imports`）で参照し、拡張子を付ける。`.ts`のモジュールは`.js`（例: `#lib/stores/ui.js`）、`index.ts`は`/index.js`（例: `#lib/components/ui/index.js`）、`.svelte`はそのまま
+- ページの状態は`$app/state`の`page`を使う（`$app/stores`は削除された）
+- `resolve()`（`$app/paths`）に渡すパスは先頭に`/`を付けない（例: `resolve('library/songs')`）。先頭が`/`の文字列はルートIDとして扱われ、`(...)`を含むセグメントがルートグループとして消えるため、ジャンル名などを含むパスは必ずパスとして渡す
+- `goto()`はアプリのルートに一致しないURLで拒否（reject）する。保存したパスなど、存在しない可能性がある遷移先は`catch`で代わりの画面へ移動する
 
 ### TanStack Query
 
-- コンポーネント・ページは `commands` を直接呼ばず、`$lib/queries` のクエリ・ミューテーションを経由する（ESLintの`no-restricted-imports`で禁止）。キャッシュの無効化（`onSuccess`）とエラーのトースト通知（`withErrorToast`）をここに集約するため
+- コンポーネント・ページは `commands` を直接呼ばず、`#lib/queries` のクエリ・ミューテーションを経由する（ESLintの`no-restricted-imports`で禁止）。キャッシュの無効化（`onSuccess`）とエラーのトースト通知（`withErrorToast`）をここに集約するため
   - キャッシュに影響しない操作（例: ファイルの場所を開く）も、失敗を通知するためミューテーションとして定義する
   - 画面内にエラーを表示する場合は`String(error)`ではなく`toErrorMessage(error)`を使う（`AppError`はオブジェクトのため"[object Object]"になる）
-  - 再生制御（`getTrackFilePath`・`setCurrentTrack`）はクエリではなく`$lib/stores/playback`の再生コントローラーが呼ぶ
-- アルバムアートは`$lib/utils/albumArt`の`albumArtUrl(trackId)`をそのまま`<img>`（`AlbumArt`コンポーネント）に渡す。画像データをフロントエンドで取得・保持しない。アートがない場合は読み込みエラーになり、`AlbumArt`がプレースホルダーを表示する
+  - 再生制御（`getTrackFilePath`・`setCurrentTrack`）はクエリではなく`#lib/stores/playback`の再生コントローラーが呼ぶ
+- アルバムアートは`#lib/utils/albumArt`の`albumArtUrl(trackId)`をそのまま`<img>`（`AlbumArt`コンポーネント）に渡す。画像データをフロントエンドで取得・保持しない。アートがない場合は読み込みエラーになり、`AlbumArt`がプレースホルダーを表示する
 - クエリキーは`src/lib/queries/keys.ts`の`queryKeys`に集約する。クエリ定義・無効化のどちらもここを参照し、`['tracks']`のようなマジック配列を直接書かない
 - 無効化はプレフィックス一致で波及するため、キーの階層がそのまま無効化の粒度になる（例: `queryKeys.tracks.all`の無効化は検索・フィルタ・お気に入りにも及ぶ）
 
 ### 再生制御
 
-- audio要素の操作・キュー遷移・リピート・再生回数の記録・イコライザの接続は`$lib/stores/playback`の`createPlaybackController(audio)`が担う。`Player.svelte`は表示と操作の受付だけを行い、コントローラーのメソッドを呼ぶ
-- 次・前のトラックの決定は`$lib/stores/player`のキュー操作（`playNextTrack`・`playPreviousTrack`）が担う。キュー操作の結果が再生中と同じトラックだった場合（1曲リピート、3秒以上再生中の「前へ」、1曲だけのキューの全曲リピート）はトラックIDが変わらず読み込みが走らないため、コントローラーが頭から再生し直す
+- audio要素の操作・キュー遷移・リピート・再生回数の記録・イコライザの接続は`#lib/stores/playback`の`createPlaybackController(audio)`が担う。`Player.svelte`は表示と操作の受付だけを行い、コントローラーのメソッドを呼ぶ
+- 次・前のトラックの決定は`#lib/stores/player`のキュー操作（`playNextTrack`・`playPreviousTrack`）が担う。キュー操作の結果が再生中と同じトラックだった場合（1曲リピート、3秒以上再生中の「前へ」、1曲だけのキューの全曲リピート）はトラックIDが変わらず読み込みが走らないため、コントローラーが頭から再生し直す
 - 再生中かどうか（`isPlaying`）はaudio要素の`play`/`pause`イベントから更新する
 - アルバム・プレイリストなどの「シャッフル再生」は`playShuffled(tracks)`を使う（配列を`sort(() => Math.random() - 0.5)`などで独自に並べ替えない）。シャッフルモードを有効にし、元の順序を保持するため、解除すると元の順序に戻る
 
 ### ダイアログ
 
-- モーダルは`$lib/components/ui`の`Modal`（ネイティブの`<dialog>`を`showModal()`で表示）を使い、背景のdivや`svelte-ignore`で独自に実装しない。Escキー・背面の操作の無効化（フォーカスの閉じ込め）・閉じた後のフォーカスの復帰はブラウザに任せる
+- モーダルは`#lib/components/ui`の`Modal`（ネイティブの`<dialog>`を`showModal()`で表示）を使い、背景のdivや`svelte-ignore`で独自に実装しない。Escキー・背面の操作の無効化（フォーカスの閉じ込め）・閉じた後のフォーカスの復帰はブラウザに任せる
   - 表示状態は呼び出し側が持ち、閉じる操作で呼ばれる`onClose`で`open`をfalseにする。処理中は`dismissible={false}`で閉じさせない
   - 最大幅は`class`（例: `max-w-md`）で指定する。最初にフォーカスする要素には`data-autofocus`を付ける
-- `window.confirm` / `window.prompt`は使わない（ESLintで禁止）。確認は`$lib/utils/dialog`の`confirmDestructive`、テキスト入力は`promptText`を`await`する
+- `window.confirm` / `window.prompt`は使わない（ESLintで禁止）。確認は`#lib/utils/dialog`の`confirmDestructive`、テキスト入力は`promptText`を`await`する
   - `confirm`はdialogプラグインにより非同期化されており、同期的に呼ぶと常にtrue扱いになる
   - `prompt`はmacOSのWebView（wry）が実装しておらず、常にnullを返す
 - コンテキストメニューからダイアログを開く場合は、使う値を取り出してからメニューを閉じ、その後で`await`する（ダイアログの操作でメニューのコンポーネントが破棄され、`await`後にpropsを読むと失敗するため）
@@ -167,7 +175,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 - Rustユニットテストを `cargo test` で実行
 - フロントエンドのロジック（ストア・ユーティリティ）は Vitest で単体テストする（`npm test`）
   - テストは対象と同じディレクトリに `*.test.ts` として置き、Node環境で実行する
-  - コンポーネント内の判定ロジックはテストしやすいよう `$lib/utils` の純粋関数へ切り出す（例: `selection.ts`）
+  - コンポーネント内の判定ロジックはテストしやすいよう `#lib/utils` の純粋関数へ切り出す（例: `selection.ts`）
 - 変更前後で最低限以下を確認する
   - 型チェック（`npm run check`）: 警告も失敗扱い。Tailwindの`@apply`/`@reference`をCSS言語サービスが解釈できず誤警告になるため、CSS診断は対象外（`--diagnostic-sources js,svelte`）
   - Lint（`npm run lint`）: 警告も失敗扱い（`--max-warnings 0`）
@@ -180,7 +188,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 Tauriのウィンドウ（macOSではWKWebView）はブラウザ自動化ツールから操作できないため、Claude Code等でのUI確認はTauri IPCをモックしたブラウザで行う（判断の経緯は`decisions.md`のADR-006）。
 
 - 起動: `npm run dev:mock`（Viteの`mock`モード・ポート1430）。Claude Codeでは`.claude/launch.json`の`web-mock`でプレビューを起動する
-- 仕組み: `src/hooks.client.ts`が`mock`モードのときだけ`$lib/mocks/tauri`を読み込み、`@tauri-apps/api/mocks`で`window.__TAURI_INTERNALS__`を差し替える。`tauri dev`・本番ビルドではバンドルに含まれない
+- 仕組み: `src/hooks.client.ts`が`mock`モードのときだけ`#lib/mocks/tauri`を読み込み、`@tauri-apps/api/mocks`で`window.__TAURI_INTERNALS__`を差し替える。`tauri dev`・本番ビルドではバンドルに含まれない
 - `src/lib/mocks/`の構成:
   - `backend.ts`: `commands`の全コマンドをメモリ上で再現するバックエンド。ハンドラ表の型を`bindings.ts`から導出しているため、Rust側でコマンドを追加・変更したら型エラーに従ってここも更新する
   - `fixtures.ts`: 初期データ。状態はメモリ上のみで、リロードすると初期状態に戻る

@@ -1,6 +1,6 @@
 <script lang="ts">
   import CardSizeSlider from './CardSizeSlider.svelte';
-  import { useRefreshLibraryMetadataMutation } from '$lib/queries/tracks';
+  import { useRefreshLibraryMetadataMutation } from '#lib/queries/tracks.js';
 
   // Props
   interface Props {

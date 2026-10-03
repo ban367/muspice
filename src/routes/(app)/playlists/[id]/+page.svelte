@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
   import {
@@ -7,15 +7,15 @@
     useDeletePlaylistMutation,
     useRemoveTrackFromPlaylistMutation,
     useReorderPlaylistTracksMutation
-  } from '$lib/queries/playlists';
-  import { useTracksQuery } from '$lib/queries/tracks';
-  import type { Playlist, Track } from '$lib/types/models';
-  import { playTrackFromQueue } from '$lib/stores/player';
-  import { formatDuration, formatTotalDuration } from '$lib/utils/format';
-  import { confirmDestructive } from '$lib/utils/dialog';
+  } from '#lib/queries/playlists.js';
+  import { useTracksQuery } from '#lib/queries/tracks.js';
+  import type { Playlist, Track } from '#lib/types/models.js';
+  import { playTrackFromQueue } from '#lib/stores/player.js';
+  import { formatDuration, formatTotalDuration } from '#lib/utils/format.js';
+  import { confirmDestructive } from '#lib/utils/dialog.js';
 
   // URLからプレイリストIDを取得
-  const playlistId = $derived($page.params.id);
+  const playlistId = $derived(page.params.id);
 
   // クエリとミューテーション
   const playlistsQuery = usePlaylistsQuery();
@@ -56,7 +56,7 @@
 
     try {
       await deletePlaylistMutation.mutateAsync(selectedPlaylist.id);
-      goto(resolve('/playlists'));
+      goto(resolve('playlists'));
     } catch (error) {
       console.error('プレイリストの削除に失敗しました:', error);
     }
@@ -161,7 +161,7 @@
     <div class="no-selection">
       <h2>プレイリストが見つかりません</h2>
       <p>選択されたプレイリストは存在しないか、削除された可能性があります</p>
-      <a href={resolve('/playlists')} class="back-link">プレイリスト一覧に戻る</a>
+      <a href={resolve('playlists')} class="back-link">プレイリスト一覧に戻る</a>
     </div>
   {:else}
     <!-- プレイリスト詳細 -->

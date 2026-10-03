@@ -5,10 +5,10 @@
 -->
 <script lang="ts">
   import { useQueryClient } from '@tanstack/svelte-query';
-  import { events } from '$lib/bindings';
-  import { queryKeys } from '$lib/queries/keys';
-  import { useSettingsQuery } from '$lib/queries/settings';
-  import { applyAccentColor } from '$lib/utils/theme';
+  import { events } from '#lib/bindings.js';
+  import { queryKeys } from '#lib/queries/keys.js';
+  import { useSettingsQuery } from '#lib/queries/settings.js';
+  import { applyAccentColor } from '#lib/utils/theme.js';
 
   const queryClient = useQueryClient();
   const settingsQuery = useSettingsQuery();

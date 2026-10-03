@@ -4,11 +4,11 @@
   再生、キュー操作、プレイリスト追加、メタデータ編集、削除などのアクションを提供する。
 -->
 <script lang="ts">
-  import type { Track } from '$lib/types/models';
-  import { BaseContextMenu, PlaylistSubmenu } from '$lib/components/ui';
-  import { playSingleTrack, playQueue, currentTrackIndex } from '$lib/stores/player';
+  import type { Track } from '#lib/types/models.js';
+  import { BaseContextMenu, PlaylistSubmenu } from '#lib/components/ui/index.js';
+  import { playSingleTrack, playQueue, currentTrackIndex } from '#lib/stores/player.js';
   import { get } from 'svelte/store';
-  import { useShowInFolderMutation } from '$lib/queries/tracks';
+  import { useShowInFolderMutation } from '#lib/queries/tracks.js';
 
   // Props
   interface Props {

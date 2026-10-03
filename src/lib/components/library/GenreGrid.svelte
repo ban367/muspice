@@ -4,9 +4,9 @@
   LibraryGridを使用して共通ロジックを委譲し、ジャンル固有の表示（カラーグラデーション）をSnippetで実装。
 -->
 <script lang="ts">
-  import type { GenreGroup } from '$lib/types/models';
-  import { useGenresGroupedQuery } from '$lib/queries/tracks';
-  import { playTrackFromQueue } from '$lib/stores/player';
+  import type { GenreGroup } from '#lib/types/models.js';
+  import { useGenresGroupedQuery } from '#lib/queries/tracks.js';
+  import { playTrackFromQueue } from '#lib/stores/player.js';
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
   import LibraryGrid from './LibraryGrid.svelte';
@@ -53,7 +53,7 @@
 
   // ジャンルをクリック（詳細ページに遷移）
   function handleGenreClick(genre: GenreGroup) {
-    goto(resolve(`/library/genres/${encodeURIComponent(genre.name)}`));
+    goto(resolve(`library/genres/${encodeURIComponent(genre.name)}`));
   }
 
   // ジャンルをダブルクリック（すべて再生）

@@ -23,4 +23,4 @@ export type {
   Settings,
   StartupPage,
   Track
-} from '$lib/bindings';
+} from '#lib/bindings.js';

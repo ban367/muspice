@@ -1,6 +1,6 @@
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { commands } from '$lib/bindings';
+import { commands } from '#lib/bindings.js';
 import { createMockBackend, toCommandName } from './backend';
 import { mockPlaylistId, mockTrackId } from './fixtures';
 

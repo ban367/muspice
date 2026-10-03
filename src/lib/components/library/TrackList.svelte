@@ -1,23 +1,23 @@
 <script lang="ts">
-  import { useSetRatingMutation } from '$lib/queries/tracks';
+  import { useSetRatingMutation } from '#lib/queries/tracks.js';
   import {
     playTrackFromQueue,
     currentTrack,
     playQueue,
     currentTrackIndex
-  } from '$lib/stores/player';
-  import { columnWidths, gridCardSize, type ColumnWidths } from '$lib/stores/ui';
-  import { albumArtUrl } from '$lib/utils/albumArt';
-  import { formatDuration } from '$lib/utils/format';
+  } from '#lib/stores/player.js';
+  import { columnWidths, gridCardSize, type ColumnWidths } from '#lib/stores/ui.js';
+  import { albumArtUrl } from '#lib/utils/albumArt.js';
+  import { formatDuration } from '#lib/utils/format.js';
   import { get } from 'svelte/store';
-  import type { Track } from '$lib/types/models';
+  import type { Track } from '#lib/types/models.js';
   import PlayingIndicator from './PlayingIndicator.svelte';
   import MetadataEditor from '../MetadataEditor.svelte';
   import ContextMenu from '../ContextMenu.svelte';
   import DeleteTrackDialog from '../DeleteTrackDialog.svelte';
   import MarqueeText from '../MarqueeText.svelte';
   import AlbumArt from '../AlbumArt.svelte';
-  import { computeClickSelection, toggleKeyboardSelection } from '$lib/utils/selection';
+  import { computeClickSelection, toggleKeyboardSelection } from '#lib/utils/selection.js';
 
   // Props
   interface Props {

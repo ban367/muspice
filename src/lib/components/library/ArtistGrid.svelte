@@ -4,11 +4,11 @@
   LibraryGridを使用して共通ロジックを委譲し、アーティスト固有の表示をSnippetで実装。
 -->
 <script lang="ts">
-  import type { ArtistGroup } from '$lib/types/models';
-  import { useArtistsGroupedQuery } from '$lib/queries/tracks';
-  import { playTrackFromQueue } from '$lib/stores/player';
-  import { gridCardSize } from '$lib/stores/ui';
-  import { albumArtUrl } from '$lib/utils/albumArt';
+  import type { ArtistGroup } from '#lib/types/models.js';
+  import { useArtistsGroupedQuery } from '#lib/queries/tracks.js';
+  import { playTrackFromQueue } from '#lib/stores/player.js';
+  import { gridCardSize } from '#lib/stores/ui.js';
+  import { albumArtUrl } from '#lib/utils/albumArt.js';
   import LibraryGrid from './LibraryGrid.svelte';
   import GroupDetail from './GroupDetail.svelte';
   import MarqueeText from '../MarqueeText.svelte';

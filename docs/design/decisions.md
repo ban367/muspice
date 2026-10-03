@@ -157,6 +157,28 @@ AIエージェント（Claude Code）によるUIの動作確認は、ブラウ�
 - 利点: フロントエンドが画像データを持たなくなり、IPCとbase64の変換もなくなる。表示中でない画像の保持はWebView（画像のデコードキャッシュ）に任せられる
 - 欠点: 画像が表示されるたびにプロトコルの処理が走る（キャッシュにあればメモリから返す）。キャッシュは再起動で消えるため、起動直後は再度ファイルから抽出する。ブラウザモードのモックでは`convertFileSrc`の差し替えで代替する
 
+## ADR-009: SvelteKit 3では`$lib`をやめ、`#lib`のsubpath importsに移行する
+
+### 背景
+
+SvelteKit 3は`$lib`エイリアスを生成しなくなり、`package.json`の`imports`（Node.jsのsubpath imports）で宣言する`#lib`に置き換えた。subpath importsは拡張子の補完をしないため、importに拡張子が必要になる。
+
+### 採用
+
+- `package.json`の`imports`に`"#lib/*": "./src/lib/*"`を宣言し、すべてのimportを`#lib/...`（拡張子付き）に置き換える
+- 拡張子は公式の移行ツール（`sv migrate sveltekit-3`）と同じく、`.ts`のモジュールを`.js`で参照する
+- 移行ツールの出力は使わず、import指定子だけを機械的に置き換えた（ツールはSVGの自己終了タグの展開やコメントの移動など、無関係な書き換えを大量に含んでいたため）
+
+### 不採用とした代替案
+
+- **Viteの`resolve.alias`と`tsconfig`の`paths`で`$lib`を残す**: 差分は小さいが、SvelteKitの既定から外れた設定を自前で保守することになる
+- **`.ts`の拡張子で参照する**（`$app/tsconfig`は`allowImportingTsExtensions`を有効にしている）: 動作はするが、公式の移行ツール・ドキュメントの書き方（`.js`）と揃わない
+
+### トレードオフ
+
+- 利点: Node・Vite・TypeScriptが標準の仕組みで解決するため、SvelteKit固有のエイリアス設定が不要になる
+- 欠点: importが長くなり、`.ts`のモジュールを`.js`で書くという約束を覚える必要がある
+
 ## 参考資料
 
 - `src-tauri/src/lib.rs` - コマンド登録とアプリ初期化

@@ -12,8 +12,8 @@
  */
 import { get } from 'svelte/store';
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { commands } from '$lib/bindings';
-import { incrementPlayCount } from '$lib/queries/tracks';
+import { commands } from '#lib/bindings.js';
+import { incrementPlayCount } from '#lib/queries/tracks.js';
 import { handleError } from './error';
 import {
   cleanupEqualizer,
@@ -31,7 +31,7 @@ import {
   resetPlayer,
   volume
 } from './player';
-import type { Track } from '$lib/types/models';
+import type { Track } from '#lib/types/models.js';
 
 /** `MediaError.code`の値（Node環境のテストでも参照できるよう定数で持つ） */
 const MEDIA_ERR_ABORTED = 1;

@@ -1,5 +1,5 @@
 import { writable } from 'svelte/store';
-import type { AppError } from '$lib/types/models';
+import type { AppError } from '#lib/types/models.js';
 
 export interface ErrorNotification {
   id: string;

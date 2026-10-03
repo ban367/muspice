@@ -8,8 +8,8 @@
  */
 
 import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
-import { commands } from '$lib/bindings';
-import type { Settings } from '$lib/types/models';
+import { commands } from '#lib/bindings.js';
+import type { Settings } from '#lib/types/models.js';
 import { queryKeys } from './keys';
 import { withErrorToast } from './shared';
 

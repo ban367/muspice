@@ -5,7 +5,7 @@
  * 複数アルバムを持つアーティスト・アルバム未設定・メタデータなし・長いタイトル等を含める。
  * IDと日時は固定値にし、リロードごとに同じ状態から確認できるようにする。
  */
-import type { Playlist, Track } from '$lib/types/models';
+import type { Playlist, Track } from '#lib/types/models.js';
 
 /** フィクスチャの基準日時（createdAtはここから1時間ずつ進む） */
 const BASE_TIME = Date.parse('2026-09-01T09:00:00.000Z');

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { errorStore, type ErrorNotification } from '$lib/stores/error';
+  import { errorStore, type ErrorNotification } from '#lib/stores/error.js';
   import { fly } from 'svelte/transition';
 
   let notifications: ErrorNotification[] = [];
