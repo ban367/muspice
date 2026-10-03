@@ -151,7 +151,7 @@ fn load_picture(app: &AppHandle, track_id: &str) -> Response<Vec<u8>> {
             Ok(Some(path)) => path,
             Ok(None) => return empty_response(StatusCode::NOT_FOUND),
             Err(e) => {
-                crate::logger::error(&format!("アルバムアートのパス取得に失敗しました: {}", e));
+                log::error!("アルバムアートのパス取得に失敗しました: {}", e);
                 return empty_response(StatusCode::INTERNAL_SERVER_ERROR);
             }
         };
@@ -160,10 +160,7 @@ fn load_picture(app: &AppHandle, track_id: &str) -> Response<Vec<u8>> {
         Ok(picture) => picture,
         Err(e) => {
             // 読めないファイルは「アートなし」として扱い、何度も読みに行かない
-            crate::logger::warning(&format!(
-                "アルバムアートの抽出に失敗しました: {}: {}",
-                file_path, e
-            ));
+            log::warn!("アルバムアートの抽出に失敗しました: {}: {}", file_path, e);
             None
         }
     };

@@ -97,7 +97,7 @@ fn import_folder_blocking(
                 current_file,
             };
             if let Err(e) = progress.emit(app_handle) {
-                crate::logger::warning(&format!("進捗イベントの送信に失敗しました: {}", e));
+                log::warn!("進捗イベントの送信に失敗しました: {}", e);
             }
 
             // 重複チェック
@@ -152,10 +152,11 @@ fn import_folder_blocking(
         })?;
 
         // 進行状況をログ出力
-        crate::logger::info(&format!(
+        log::info!(
             "インポート進行状況: {}/{} ファイル処理完了",
-            processed_count, total_files
-        ));
+            processed_count,
+            total_files
+        );
     }
 
     // 同じパスのファイルが差し替わった可能性があるため、アルバムアートを読み直させる
