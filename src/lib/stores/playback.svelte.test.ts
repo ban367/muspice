@@ -20,6 +20,7 @@ import { notifications } from './error.svelte.js';
 import {
   fadeDeck,
   isEqualizerInitialized,
+  resumeAudioContext,
   setDeckFade,
   setNormalizationGain
 } from './equalizer.svelte.js';
@@ -164,6 +165,28 @@ describe('トラックの読み込み', () => {
     expect(audio.src).toContain('t2.mp3');
     expect(commands.setCurrentTrack).toHaveBeenCalledTimes(1);
     expect(commands.setCurrentTrack).toHaveBeenCalledWith('t2');
+  });
+
+  it('AudioContextの再開を待つ間に別のトラックへ切り替わったら、古いトラックを再生も記録もしない', async () => {
+    let resumeFirst: () => void = () => {};
+    vi.mocked(resumeAudioContext).mockImplementationOnce(
+      () => new Promise<void>((resolve) => (resumeFirst = resolve))
+    );
+
+    playTrackFromQueue(tracks, 0);
+    await flush();
+    // t1はAudioContextの再開を待っている
+    expect(audio.play).not.toHaveBeenCalled();
+
+    playTrackFromQueue(tracks, 1);
+    await flush();
+    expect(commands.setCurrentTrack).toHaveBeenCalledWith('t2');
+
+    resumeFirst();
+    await flush();
+    expect(commands.setCurrentTrack).toHaveBeenCalledTimes(1);
+    expect(incrementPlayCount).not.toHaveBeenCalledWith('t1');
+    expect(audio.src).toContain('t2.mp3');
   });
 
   it('同じ処理の中で続けてトラックが変わった場合は、最後のトラックだけを読み込む', async () => {
@@ -660,6 +683,35 @@ describe('クロスフェード', () => {
     audio.finish();
     await vi.advanceTimersByTimeAsync(0);
     expect(audio.src).toContain('t3.mp3');
+  });
+
+  it('シークなどで切り替えが遅れた場合は、前の曲の残りより長くフェードしない', async () => {
+    playTrackFromQueue(tracks, 0);
+    await flush();
+    vi.useFakeTimers();
+
+    // 終わりの2秒前へシークした（設定は5秒）
+    controller.seek(198);
+    audio.advanceTo(198);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(player.currentTrack?.id).toBe('t2');
+    expect(fadeDeck).toHaveBeenCalledWith(0, 'out', 2);
+    expect(fadeDeck).toHaveBeenCalledWith(1, 'in', 2);
+  });
+
+  it('フェードアウト中の前の曲がエラーになったら、前の曲を止めて再生中の曲を通常の音量にする', async () => {
+    await playUntilCrossfade();
+    vi.mocked(setDeckFade).mockClear();
+
+    audio.error = { code: 3 };
+    audio.dispatchEvent(new Event('error'));
+
+    expect(audio.paused).toBe(true);
+    expect(setDeckFade).toHaveBeenCalledWith(1, 1);
+    expect(standbyAudio.paused).toBe(false);
+    // 再生中の曲には影響がないため、エラーは表示しない
+    expect(notifications.items).toHaveLength(0);
   });
 
   it('短い曲では、曲の長さの半分を超えて重ねない', async () => {

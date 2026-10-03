@@ -7,7 +7,12 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 export const commands = {
 	/**  フォルダから音楽ファイルをインポート（バッチ処理最適化版） */
 	importFolder: (folderPath: string, duplicateAction: DuplicateAction) => __TAURI_INVOKE<ImportResult>("import_folder", { folderPath, duplicateAction }),
-	/**  ライブラリフォルダの一覧を取得 */
+	/**
+	 *  ライブラリフォルダの一覧を取得
+	 * 
+	 *  フォルダの存在確認は、外れたネットワークドライブなどで時間がかかることがあるため、
+	 *  ブロッキング処理用スレッドで行う。
+	 */
 	getLibraryFolders: () => __TAURI_INVOKE<LibraryFolderList>("get_library_folders"),
 	/**
 	 *  ライブラリフォルダの記録を削除する
@@ -156,6 +161,13 @@ export const events = {
 	showAboutDialog: makeEvent<ShowAboutDialog>("show-about-dialog"),
 	toggleSidebar: makeEvent<ToggleSidebar>("toggle-sidebar"),
 };
+
+/* Constants */
+export const DEFAULT_ACCENT_COLOR = "#3b82f6" as const;
+
+export const LIBRARY_SCAN_INTERVALS = [0,15,30,60,360] as const;
+
+export const MAX_CROSSFADE_SECONDS = 12 as const;
 
 /* Types */
 /**  アルバムグループ（アルバム表示用） */

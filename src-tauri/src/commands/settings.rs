@@ -1,6 +1,5 @@
 //! アプリケーション設定のコマンド
 
-use super::run_blocking;
 use crate::error::AppResult;
 use crate::events::SettingsChanged;
 use crate::library_sync::LibrarySync;
@@ -35,10 +34,10 @@ pub async fn save_settings(
         log::warn!("設定変更の通知に失敗しました: {}", e);
     }
 
-    // ライブラリフォルダの自動反映（監視の開始はフォルダの数によって時間がかかるため、別スレッドで）
-    run_blocking(move || {
-        app.state::<LibrarySync>().apply_settings(&app, &settings);
-        Ok(())
-    })
-    .await
+    // ライブラリフォルダの自動反映に反映する。監視の開始はフォルダの数によって時間がかかるため、
+    // 別スレッドで行い、保存の完了を待たせない（反映するのは、その時点で保存済みの設定）
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<LibrarySync>().apply_saved_settings(&app);
+    });
+    Ok(())
 }

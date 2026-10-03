@@ -124,7 +124,7 @@ src-tauri/src/
   - 同じ曲を繰り返す切り替え（1曲リピート）は、従来の頭からの再生し直しと同じく、再生回数に数えない
 - クロスフェードは、ギャップレス再生の切り替えを曲の終わりの設定した秒数前に早め、`equalizer.svelte`の`fadeDeck`で前の曲のデッキをフェードアウト、次の曲のデッキをフェードインさせる（等パワーの曲線）
   - 秒数が1以上なら、ギャップレス再生の設定にかかわらず先読みする
-  - 秒数は、どちらの曲も長さの半分までにする。同じ曲の繰り返し（1曲リピート）・`ended`での切り替え・手動の操作（「次へ」・曲の選択）・Web Audioの経路を作れていない場合はクロスフェードしない
+  - 秒数は、どちらの曲も長さの半分まで、かつ前の曲の残りまで（シークなどで切り替えが遅れた場合）にする。同じ曲の繰り返し（1曲リピート）・`ended`での切り替え・手動の操作（「次へ」・曲の選択）・Web Audioの経路を作れていない場合はクロスフェードしない
   - クロスフェードの途中で一時停止・シーク・曲の選択などをしたら、前の曲を止めて再生中の曲を通常の音量に戻す（`endCrossfade`）
   - デッキが再生中になるときは、フェードの音量を必ず決め直す（フェードインか1）。前の曲として音量を0まで下げたデッキを、そのまま使わないため
 - 音量の正規化は、再生中のトラックの`replayGain`と設定の`volumeNormalization`から`#lib/utils/normalization`の`normalizationGain`で倍率を求め、イコライザの前段のGainNodeへ`setNormalizationGain`で反映する。コントローラーは設定を直接読まず、`options`の関数（`normalizationMode`・`gapless`・`crossfadeSeconds`）で受け取る（テストで差し替えるため）。補正はデッキごとにかけ、各デッキが読み込んだトラックの値を使う。audio要素の`volume`はユーザーの音量のまま変えない
@@ -188,6 +188,7 @@ src-tauri/src/
   2. `lib.rs` の `collect_events![]` に追加する（未登録のまま `emit` するとパニックする）
   3. Rust側は `イベント.emit(&app_handle)`、フロントは `events.xxx.listen()` を使う（`@tauri-apps/api/event` の `listen` を文字列で直接呼ばない）
 - 型定義は `src/lib/types/models.ts` が `bindings.ts` を再エクスポートする。TS側で手書きの重複定義を作らない
+- フロントと共有する定数（設定の値の範囲など）は、`specta_builder()` の `.constant()` で `bindings.ts` にエクスポートし、TS側で同じ値を書かない（例: `MAX_CROSSFADE_SECONDS`・`LIBRARY_SCAN_INTERVALS`）
 - `i64`/`usize` はTypeScriptへ直接エクスポートできない（精度損失防止）。件数は `u32`、`i64` は `#[specta(type = specta_typescript::Number)]` で明示する
 - 省略可能な入力（`Option<T>`）は `#[specta(optional)]` を付け、TS側で `field?: T | null` として扱えるようにする
 

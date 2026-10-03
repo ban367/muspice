@@ -10,15 +10,13 @@
   } from '#lib/types/models.js';
   import { applyAccentColor, applyTheme } from '#lib/utils/theme.js';
   import { applyLanguage, m } from '#lib/i18n/i18n.svelte.js';
+  // 設定の値の範囲はRust側（settings.rs）の定数をtauri-spectaで共有する
+  import {
+    DEFAULT_ACCENT_COLOR,
+    LIBRARY_SCAN_INTERVALS,
+    MAX_CROSSFADE_SECONDS
+  } from '#lib/bindings.js';
   import LibraryFolderSettings from '#lib/components/LibraryFolderSettings.svelte';
-
-  // 既定のアクセントカラー（Rust側のDEFAULT_ACCENT_COLORと同じ）
-  const DEFAULT_ACCENT_COLOR = '#3b82f6';
-  // クロスフェードの最大の秒数（Rust側のMAX_CROSSFADE_SECONDSと同じ）
-  const MAX_CROSSFADE_SECONDS = 12;
-
-  // ライブラリフォルダの定期的な再スキャンの間隔（分。Rust側のLIBRARY_SCAN_INTERVALSと同じ）
-  const scanIntervals = [0, 15, 30, 60, 360];
 
   type SettingsSection = 'general' | 'playback' | 'library' | 'appearance';
 
@@ -174,10 +172,13 @@
   <!-- メインコンテンツ -->
   <div class="settings-main">
     <div class="settings-content">
-      {#if activeSection === 'library'}
-        <!-- ライブラリフォルダの操作はすぐに反映する（下の「適用」の対象外） -->
+      <!-- ライブラリフォルダの操作はすぐに反映する（下の「適用」の対象外）。
+           再スキャンの途中で別のセクションへ移っても進捗を保つよう、常に置いて表示だけを切り替える -->
+      <div hidden={activeSection !== 'library'}>
         <LibraryFolderSettings />
+      </div>
 
+      {#if activeSection === 'library'}
         {#if pending}
           <section class="settings-section">
             <h4 class="subsection-title">{m.settings.autoSync}</h4>
@@ -203,7 +204,7 @@
                 class="setting-select"
                 bind:value={pending.libraryScanIntervalMinutes}
               >
-                {#each scanIntervals as minutes (minutes)}
+                {#each LIBRARY_SCAN_INTERVALS as minutes (minutes)}
                   <option value={minutes}>{m.settings.scanIntervals[minutes]}</option>
                 {/each}
               </select>

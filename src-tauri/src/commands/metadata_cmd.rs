@@ -64,13 +64,19 @@ pub async fn update_track_metadata_with_file(
     })
     .await?;
 
-    // データベースのメタデータを更新
+    // データベースのメタデータと、ファイルのサイズ・更新日時を1つのトランザクションで更新する
+    // （片方だけ反映されると、次の再スキャンで自分の書き込みを外部の変更として読み直すため）
     state.with_db(|db| {
-        crate::repository::update_track_metadata(db, &track_id, &metadata)?;
+        let tx = db.transaction().map_err(|e| {
+            AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
+        })?;
+        crate::repository::update_track_metadata(&tx, &track_id, &metadata)?;
         if let Some(file_size) = file_size {
-            crate::repository::set_track_file_state(db, &track_id, file_size, file_modified_at)?;
+            crate::repository::set_track_file_state(&tx, &track_id, file_size, file_modified_at)?;
         }
-        Ok(())
+        tx.commit().map_err(|e| {
+            AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
+        })
     })
 }
 

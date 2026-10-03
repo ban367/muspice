@@ -15,8 +15,9 @@ import { m } from '#lib/i18n/i18n.svelte.js';
 /**
  * ライブラリフォルダの一覧を取得するクエリ
  *
- * メインウィンドウでインポートするとフォルダが増えるため、ウィンドウに戻った時に
- * 再取得させる（staleTimeを設けない）。
+ * メインウィンドウでのインポート・自動の再スキャン（`LibraryChanged`）と、設定ウィンドウに
+ * 戻ったとき（外付けドライブの接続など）に、`LibraryFolderSettings`が無効化して読み直す
+ * （staleTimeを設けない）。
  */
 export function useLibraryFoldersQuery() {
   return createQuery(() => ({

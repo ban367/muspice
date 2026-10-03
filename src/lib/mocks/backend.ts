@@ -8,7 +8,12 @@
  * ハンドラ表の型は`bindings.ts`の`commands`から導出しているため、Rust側でコマンドが
  * 追加・変更されてバインディングが再生成されると、ここが型エラーになり追随が必要になる。
  */
-import type { commands } from '#lib/bindings.js';
+import {
+  DEFAULT_ACCENT_COLOR,
+  LIBRARY_SCAN_INTERVALS,
+  MAX_CROSSFADE_SECONDS,
+  type commands
+} from '#lib/bindings.js';
 import type {
   AlbumGroup,
   AppError,
@@ -201,7 +206,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     language: 'ja',
     startupPage: 'lastOpened',
     theme: 'dark',
-    accentColor: '#3b82f6',
+    accentColor: DEFAULT_ACCENT_COLOR,
     volumeNormalization: 'off',
     gaplessPlayback: true,
     crossfadeSeconds: 0,
@@ -296,14 +301,14 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     duplicateAction: DuplicateAction
   ): Promise<ImportResult> {
     validateFilePath(folderPath);
-    const folder = folderPath.replace(/[\\/]+$/, '');
-    const album = folder.split(/[\\/]/).pop() || 'Imported';
+    const folder = normalizeFolderPath(folderPath);
+    const album = folder.split(/[\\/]/).filter(Boolean).pop() || 'Imported';
     let importedCount = 0;
     let skippedCount = 0;
 
     for (let index = 0; index < IMPORT_FILE_COUNT; index++) {
       const fileName = `Mock Track ${String(index + 1).padStart(2, '0')}.mp3`;
-      const filePath = `${folder}/${fileName}`;
+      const filePath = `${folderPrefix(folder)}${fileName}`;
       options.emit('import-progress', {
         current: index + 1,
         total: IMPORT_FILE_COUNT,
@@ -350,16 +355,25 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       importedCount++;
     }
 
+    // Rustと同じく、インポートの後にライブラリが変わったことを知らせる
     registerLibraryFolder(folder);
+    options.emit('library-changed', null);
     return { importedCount, skippedCount, errorCount: 0, errors: [] };
   }
 
   // ---- ライブラリフォルダ（src-tauri/src/library_folder.rsに対応） ----
 
+  /** フォルダのパスの末尾の区切り文字を除く（ルートは残す。Rustの`normalize_folder_path`と同じ） */
+  function normalizeFolderPath(path: string): string {
+    const trimmed = path.replace(/[\\/]+$/, '');
+    return trimmed === '' || trimmed.endsWith(':') ? path : trimmed;
+  }
+  /** フォルダ内のファイルのパスの接頭辞（Rustの`track_path_prefix`と同じ） */
+  const folderPrefix = (folder: string) => (/[\\/]$/.test(folder) ? folder : `${folder}/`);
   const isSameOrWithin = (path: string, folder: string) =>
-    path === folder || path.startsWith(`${folder}/`);
+    path === folder || path.startsWith(folderPrefix(folder));
   const tracksUnder = (folder: string) =>
-    tracks.filter((track) => track.filePath.startsWith(`${folder}/`));
+    tracks.filter((track) => track.filePath.startsWith(folderPrefix(folder)));
 
   /** インポートしたフォルダを記録する（フォルダ同士は入れ子にしない） */
   function registerLibraryFolder(path: string): void {
@@ -597,11 +611,13 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       if (
         !Number.isInteger(next.crossfadeSeconds) ||
         next.crossfadeSeconds < 0 ||
-        next.crossfadeSeconds > 12
+        next.crossfadeSeconds > MAX_CROSSFADE_SECONDS
       ) {
-        fail('VALIDATION', 'クロスフェードは0〜12秒で指定してください');
+        fail('VALIDATION', `クロスフェードは0〜${MAX_CROSSFADE_SECONDS}秒で指定してください`);
       }
-      if (![0, 15, 30, 60, 360].includes(next.libraryScanIntervalMinutes)) {
+      if (
+        !(LIBRARY_SCAN_INTERVALS as readonly number[]).includes(next.libraryScanIntervalMinutes)
+      ) {
         fail('VALIDATION', '再スキャンの間隔が選べる値ではありません');
       }
       settings = { ...next };

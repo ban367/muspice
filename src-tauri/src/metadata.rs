@@ -94,10 +94,8 @@ pub struct FileInfo {
     pub replay_gain: ReplayGain,
 }
 
-/// 音楽ファイルから全情報を一括抽出する
-///
-/// `extract_metadata`, `extract_duration`, `extract_bitrate`, `extract_sample_rate`を
-/// 個別に呼ぶ代わりに、1回のファイルオープンで全て取得する。
+/// 音楽ファイルから全情報（タグ・長さ・ビットレート・サンプルレート・ReplayGain）を
+/// 1回のファイルオープンでまとめて抽出する
 pub fn extract_all_file_info(file_path: &Path) -> AppResult<FileInfo> {
     let tagged_file = Probe::open(file_path)
         .map_err(|e| AppError::Metadata(format!("ファイルのオープンに失敗しました: {}", e)))?

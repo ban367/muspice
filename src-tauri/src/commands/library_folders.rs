@@ -4,7 +4,7 @@ use super::import::create_track_from_file;
 use super::run_blocking;
 use crate::error::{AppError, AppResult};
 use crate::events::{LibraryChanged, LibraryScanProgress};
-use crate::library::{get_file_modified_at, scan_directory};
+use crate::library::{modified_at_of, scan_directory, to_count};
 use crate::library_folder::{
     DiskFile, LibraryFolder, LibraryFolderList, RescanPlan, RescanResult, find_all_folders,
     find_folder, plan_rescan, track_path_prefix,
@@ -15,7 +15,7 @@ use crate::state::AppState;
 use crate::validation::validate_track_id;
 use std::fs;
 use std::path::Path;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 
 /// 1回のトランザクションで書き込むトラック数（インポートと同じ）
@@ -27,16 +27,18 @@ fn validate_folder_id(id: &str) -> AppResult<()> {
         .map_err(|_| AppError::Validation("不正なライブラリフォルダID形式です".to_string()))
 }
 
-/// 件数（usize）をフロントエンドへ返すu32へ変換する
-fn to_count(value: usize) -> AppResult<u32> {
-    u32::try_from(value)
-        .map_err(|_| AppError::Validation(format!("件数が扱える範囲を超えました: {}", value)))
-}
-
 /// ライブラリフォルダの一覧を取得
+///
+/// フォルダの存在確認は、外れたネットワークドライブなどで時間がかかることがあるため、
+/// ブロッキング処理用スレッドで行う。
 #[tauri::command]
 #[specta::specta]
-pub async fn get_library_folders(state: State<'_, AppState>) -> AppResult<LibraryFolderList> {
+pub async fn get_library_folders(app_handle: AppHandle) -> AppResult<LibraryFolderList> {
+    run_blocking(move || list_folders(app_handle.state::<AppState>().inner())).await
+}
+
+/// `get_library_folders`の本体（同期処理）
+fn list_folders(state: &AppState) -> AppResult<LibraryFolderList> {
     let (records, counts, total) = state.with_db(|db| {
         let records = find_all_folders(db)?;
         let counts = records
@@ -82,33 +84,47 @@ pub async fn remove_library_folder(
 ) -> AppResult<u32> {
     validate_folder_id(&folder_id)?;
 
+    // 再スキャン（自動のものを含む）が終わるのを待ち、監視の更新もするため、ブロッキング処理用スレッドで行う
+    run_blocking(move || remove_folder_blocking(&folder_id, remove_tracks, &app_handle)).await
+}
+
+/// `remove_library_folder`の本体（同期処理）
+fn remove_folder_blocking(
+    folder_id: &str,
+    remove_tracks: bool,
+    app_handle: &AppHandle,
+) -> AppResult<u32> {
     let state = app_handle.state::<AppState>();
-    let removed = state.with_db(|db| {
-        let folder = find_folder(db, &folder_id)?;
-        let tx = db.transaction().map_err(|e| {
-            AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
-        })?;
+    let removed = {
+        // 同じフォルダの再スキャンの途中で消すと、再スキャンが曲を書き戻してしまうため、終わるまで待つ
+        let _scan = state.lock_library_scan();
+        state.with_db(|db| {
+            let folder = find_folder(db, folder_id)?;
+            let tx = db.transaction().map_err(|e| {
+                AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
+            })?;
 
-        let removed = if remove_tracks {
-            crate::repository::delete_tracks_under(&tx, &track_path_prefix(&folder.path))?
-        } else {
-            0
-        };
-        crate::library_folder::delete_folder(&tx, &folder.id)?;
+            let removed = if remove_tracks {
+                crate::repository::delete_tracks_under(&tx, &track_path_prefix(&folder.path))?
+            } else {
+                0
+            };
+            crate::library_folder::delete_folder(&tx, &folder.id)?;
 
-        tx.commit().map_err(|e| {
-            AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
-        })?;
-        to_count(removed)
-    })?;
+            tx.commit().map_err(|e| {
+                AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
+            })?;
+            to_count(removed)
+        })?
+    };
 
     // 削除したフォルダは監視しない
     app_handle
         .state::<LibrarySync>()
-        .refresh_watches(&app_handle);
+        .refresh_watches(app_handle);
 
     if removed > 0 {
-        notify_library_changed(&app_handle);
+        notify_library_changed(app_handle);
     }
     Ok(removed)
 }
@@ -159,7 +175,7 @@ pub(crate) fn rescan_folder(
             let metadata = fs::metadata(&path).ok();
             Some(DiskFile {
                 size: metadata.as_ref().map(|m| m.len() as i64),
-                modified_at: metadata.and(get_file_modified_at(&path)),
+                modified_at: metadata.as_ref().and_then(modified_at_of),
                 path: path_str,
             })
         })
@@ -176,28 +192,17 @@ pub(crate) fn rescan_folder(
 
     // 2. 追加・変更のあったファイルを読み込み、バッチごとに書き込む
     let progress = report_progress.then_some(app_handle);
-    read_and_write_tracks(&plan, state, progress, &mut result)?;
+    let mut outcome = read_and_write_tracks(&plan, state, progress, &mut result);
 
-    // 3. 更新日時の記録と、見つからなくなったトラックの削除
-    let removed = state.with_db(|db| {
-        let tx = db.transaction().map_err(|e| {
-            AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
-        })?;
-        for (track_id, modified_at) in &plan.to_record_modified_at {
-            crate::repository::set_track_file_modified_at(&tx, track_id, *modified_at)?;
+    // 3. 更新日時の記録と、見つからなくなったトラックの削除（書き込みに失敗した場合は行わない）
+    if outcome.is_ok() {
+        match record_and_remove(state, &folder.id, &plan) {
+            Ok(removed) => result.removed_count = removed,
+            Err(e) => outcome = Err(e),
         }
-        let mut removed = 0;
-        for track_id in &plan.to_remove {
-            removed += crate::repository::delete_track(&tx, track_id)?;
-        }
-        crate::library_folder::mark_scanned(&tx, &folder.id)?;
-        tx.commit().map_err(|e| {
-            AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
-        })?;
-        Ok(removed)
-    })?;
-    result.removed_count = to_count(removed)?;
+    }
 
+    // 失敗した場合も、それまでに書き込んだバッチはライブラリに反映されているため、通知する
     log::info!(
         "ライブラリフォルダを再スキャンしました: {} 追加={}, 更新={}, 削除={}, エラー={}",
         folder.path,
@@ -217,7 +222,31 @@ pub(crate) fn rescan_folder(
         notify_library_changed(app_handle);
     }
 
-    Ok(result)
+    outcome.map(|()| result)
+}
+
+/// 更新日時を記録し、見つからなくなったトラックを外して、スキャン日時を記録する
+///
+/// @returns 外したトラック数
+fn record_and_remove(state: &AppState, folder_id: &str, plan: &RescanPlan) -> AppResult<u32> {
+    let removed = state.with_db(|db| {
+        let tx = db.transaction().map_err(|e| {
+            AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
+        })?;
+        for (track_id, modified_at) in &plan.to_record_modified_at {
+            crate::repository::set_track_file_modified_at(&tx, track_id, *modified_at)?;
+        }
+        let mut removed = 0;
+        for track_id in &plan.to_remove {
+            removed += crate::repository::delete_track(&tx, track_id)?;
+        }
+        crate::library_folder::mark_scanned(&tx, folder_id)?;
+        tx.commit().map_err(|e| {
+            AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
+        })?;
+        Ok(removed)
+    })?;
+    to_count(removed)
 }
 
 /// 追加・変更のあったファイルを読み込んでライブラリに書き込む

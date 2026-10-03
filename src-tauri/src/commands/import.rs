@@ -2,7 +2,7 @@
 
 use super::run_blocking;
 use crate::error::{AppError, AppResult};
-use crate::events::ImportProgress;
+use crate::events::{ImportProgress, LibraryChanged};
 use crate::library::{
     DuplicateAction, ImportResult, get_default_title, get_file_format, get_file_modified_at,
     get_file_size, scan_directory,
@@ -46,6 +46,10 @@ pub async fn import_folder(
         app_handle
             .state::<LibrarySync>()
             .refresh_watches(&app_handle);
+        // 設定ウィンドウのライブラリフォルダの一覧にも反映させる
+        if let Err(e) = LibraryChanged.emit(&app_handle) {
+            log::warn!("ライブラリの変更の通知に失敗しました: {}", e);
+        }
         Ok(result)
     })
     .await
@@ -176,8 +180,10 @@ fn import_folder_blocking(
     }
 
     // インポートしたフォルダをライブラリフォルダとして記録する（再スキャンの対象になる）
-    // 記録に失敗してもインポート自体は成功しているため、結果は返す
-    if let Some(folder_path) = path.to_str()
+    // 音楽ファイルが見つからなかったフォルダは記録しない（中のライブラリフォルダの記録を
+    // まとめて消さないため）。記録に失敗してもインポート自体は成功しているため、結果は返す
+    if !audio_files.is_empty()
+        && let Some(folder_path) = path.to_str()
         && let Err(e) = state.with_db(|db| crate::library_folder::register_folder(db, folder_path))
     {
         log::error!("ライブラリフォルダの記録に失敗しました: {}", e);

@@ -91,6 +91,10 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::ToggleSidebar,
             events::SettingsChanged
         ])
+        // 設定の値の範囲（フロントの設定画面・モックと共有する）
+        .constant("DEFAULT_ACCENT_COLOR", settings::DEFAULT_ACCENT_COLOR)
+        .constant("MAX_CROSSFADE_SECONDS", settings::MAX_CROSSFADE_SECONDS)
+        .constant("LIBRARY_SCAN_INTERVALS", settings::LIBRARY_SCAN_INTERVALS)
 }
 
 /// ログファイル1つあたりの上限（超えたら日時付きの名前に変えて新しいファイルに切り替える）

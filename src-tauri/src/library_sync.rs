@@ -12,7 +12,8 @@
 
 use crate::commands::rescan_folder;
 use crate::library::is_supported_audio_file;
-use crate::library_folder::{FolderRecord, find_all_folders};
+use crate::library_folder::{FolderRecord, find_all_folders, track_path_prefix};
+use crate::repository::count_tracks_under;
 use crate::settings::{Settings, SettingsState};
 use crate::state::AppState;
 use notify_debouncer_mini::notify::{RecommendedWatcher, RecursiveMode};
@@ -43,7 +44,9 @@ struct Inner {
     interval_minutes: u32,
     /// 定期的な再スキャンのスレッドへの送信側（落とすとスレッドが止まる）
     timer: Option<mpsc::Sender<()>>,
-    /// フォルダの監視（落とすと止まる）
+    /// 設定でフォルダの監視が有効か
+    watch_enabled: bool,
+    /// フォルダの監視（落とすと止まる。有効でも、作れなかった場合はない）
     watcher: Option<Debouncer<RecommendedWatcher>>,
     /// 監視しているフォルダ
     watched: HashSet<PathBuf>,
@@ -57,51 +60,74 @@ impl LibrarySync {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    /// 設定を反映する（定期的な再スキャンとフォルダの監視を、必要に応じて開始・停止する）
+    /// 保存されている設定を反映する（定期的な再スキャンとフォルダの監視を、必要に応じて開始・停止する）
     ///
-    /// 監視を始めるときは、フォルダの数によって時間がかかるため、非同期処理の中では呼ばない。
-    pub fn apply_settings(&self, app: &AppHandle, settings: &Settings) {
+    /// 設定は呼んだ時点の保存済みの値を読む（設定の保存が続き、反映の順序が入れ替わっても、
+    /// 最後に保存した設定になる）。監視を始めるときは、フォルダの数によって時間がかかるため、
+    /// 非同期処理の中では呼ばない。
+    pub fn apply_saved_settings(&self, app: &AppHandle) {
         let mut inner = self.lock();
-
-        if inner.interval_minutes != settings.library_scan_interval_minutes {
-            // 前のスレッドは送信側を落とすと止まる
-            inner.timer = None;
-            inner.interval_minutes = settings.library_scan_interval_minutes;
-            if inner.interval_minutes > 0 {
-                let interval = Duration::from_secs(u64::from(inner.interval_minutes) * 60);
-                inner.timer = Some(spawn_timer(app.clone(), interval));
-                log::info!(
-                    "ライブラリフォルダを{}分ごとに再スキャンします",
-                    inner.interval_minutes
+        let settings = match app.state::<SettingsState>().get() {
+            Ok(settings) => settings,
+            Err(e) => {
+                log::error!(
+                    "設定を読み込めないため、ライブラリフォルダの自動反映を変えません: {}",
+                    e
                 );
+                return;
             }
-        }
-
-        match (settings.watch_library_folders, inner.watcher.is_some()) {
-            (true, false) => {
-                inner.watcher = create_watcher(app);
-                inner.watched.clear();
-                update_watches(app, &mut inner);
-            }
-            (false, true) => {
-                inner.watcher = None;
-                inner.watched.clear();
-                log::info!("ライブラリフォルダの監視を止めました");
-            }
-            _ => {}
-        }
+        };
+        apply_settings(app, &mut inner, &settings);
     }
 
     /// 監視するフォルダを、記録しているライブラリフォルダに合わせる
     ///
     /// フォルダの追加・削除の後と、定期的な再スキャンのたびに呼ぶ（外れていた外付けドライブが
     /// つながった場合など、監視を始めた時点で見つからなかったフォルダも監視する）。
+    /// 監視を作れていなければ作り直す。時間がかかることがあるため、非同期処理の中では呼ばない。
     pub fn refresh_watches(&self, app: &AppHandle) {
         let mut inner = self.lock();
-        if inner.watcher.is_some() {
-            update_watches(app, &mut inner);
+        if inner.watch_enabled {
+            ensure_watching(app, &mut inner);
         }
     }
+}
+
+/// 設定を反映する（`LibrarySync::apply_saved_settings`の本体）
+fn apply_settings(app: &AppHandle, inner: &mut Inner, settings: &Settings) {
+    if inner.interval_minutes != settings.library_scan_interval_minutes {
+        // 前のスレッドは送信側を落とすと止まる
+        inner.timer = None;
+        inner.interval_minutes = settings.library_scan_interval_minutes;
+        if inner.interval_minutes > 0 {
+            let interval = Duration::from_secs(u64::from(inner.interval_minutes) * 60);
+            inner.timer = Some(spawn_timer(app.clone(), interval));
+            log::info!(
+                "ライブラリフォルダを{}分ごとに再スキャンします",
+                inner.interval_minutes
+            );
+        }
+    }
+
+    inner.watch_enabled = settings.watch_library_folders;
+    if inner.watch_enabled {
+        ensure_watching(app, inner);
+    } else if inner.watcher.take().is_some() {
+        inner.watched.clear();
+        log::info!("ライブラリフォルダの監視を止めました");
+    }
+}
+
+/// 監視を（なければ作って）記録しているライブラリフォルダに合わせる
+///
+/// 監視を作れなかった場合（OSの監視の数の上限など）は、次に呼ばれたとき（フォルダの追加・削除、
+/// 定期的な再スキャン、設定の保存）に作り直す。
+fn ensure_watching(app: &AppHandle, inner: &mut Inner) {
+    if inner.watcher.is_none() {
+        inner.watcher = create_watcher(app);
+        inner.watched.clear();
+    }
+    update_watches(app, inner);
 }
 
 /// アプリの起動時に呼ぶ: 設定を反映し、自動反映が有効なら全フォルダを再スキャンする
@@ -120,7 +146,7 @@ pub fn start(app: &AppHandle) {
                 return;
             }
         };
-        app.state::<LibrarySync>().apply_settings(&app, &settings);
+        app.state::<LibrarySync>().apply_saved_settings(&app);
         if settings.auto_sync_enabled() {
             thread::sleep(STARTUP_SCAN_DELAY);
             rescan_all_folders(&app, "起動時");
@@ -155,13 +181,16 @@ fn create_watcher(app: &AppHandle) -> Option<Debouncer<RecommendedWatcher>> {
     let handler_app = app.clone();
     let handler = move |result: DebounceEventResult| match result {
         Ok(events) => {
+            let has_tracks_under = |path: &Path| has_tracks_under(&handler_app, path);
             let paths: Vec<PathBuf> = events
                 .into_iter()
                 .map(|event| event.path)
-                .filter(|path| is_relevant_change(path, &ignored))
+                .filter(|path| is_relevant_change(path, &ignored, has_tracks_under))
                 .collect();
             if !paths.is_empty() {
-                rescan_folders_containing(&handler_app, &paths);
+                rescan_folders(&handler_app, "変更の通知", |folder| {
+                    contains_any(folder, &paths)
+                });
             }
         }
         Err(e) => log::warn!("フォルダの監視でエラーが発生しました: {}", e),
@@ -242,40 +271,53 @@ fn app_directories(app: &AppHandle) -> Vec<PathBuf> {
     .collect()
 }
 
-/// ライブラリに影響しうる変更か（音楽ファイル・フォルダ・なくなったパス）
+/// ライブラリに影響しうる変更か
 ///
-/// なくなったパスは、ファイルかフォルダか分からないため含める（フォルダごと消された場合のため）。
-fn is_relevant_change(path: &Path, ignored: &[PathBuf]) -> bool {
+/// - 音楽ファイル（追加・変更・削除）
+/// - 今あるフォルダ（移動・コピーされてきたフォルダ）
+/// - なくなったパスのうち、ライブラリの曲を含むもの（フォルダごと消された・移された場合）
+///
+/// なくなった一時ファイル・画像などで再スキャン（フォルダ全体の走査）をしないよう、
+/// なくなったパスは曲を含む場合だけにする。
+fn is_relevant_change(
+    path: &Path,
+    ignored: &[PathBuf],
+    has_tracks_under: impl Fn(&Path) -> bool,
+) -> bool {
     if ignored.iter().any(|dir| path.starts_with(dir)) {
         return false;
     }
-    is_supported_audio_file(path) || path.is_dir() || !path.exists()
-}
-
-/// 変更のあったパスを含むライブラリフォルダを再スキャンする
-fn rescan_folders_containing(app: &AppHandle, paths: &[PathBuf]) {
-    let folders = match app.state::<AppState>().with_db(|db| find_all_folders(db)) {
-        Ok(folders) => folders,
-        Err(e) => {
-            log::error!("ライブラリフォルダを取得できませんでした: {}", e);
-            return;
-        }
-    };
-    for folder in folders_containing(&folders, paths) {
-        rescan_quietly(app, folder, "変更の通知");
+    if is_supported_audio_file(path) {
+        return true;
     }
+    if path.exists() {
+        return path.is_dir();
+    }
+    has_tracks_under(path)
 }
 
-/// パスのいずれかを含むフォルダ
-fn folders_containing<'a>(folders: &'a [FolderRecord], paths: &[PathBuf]) -> Vec<&'a FolderRecord> {
-    folders
-        .iter()
-        .filter(|folder| paths.iter().any(|path| path.starts_with(&folder.path)))
-        .collect()
+/// パスの下にライブラリの曲があるか（なくなったフォルダの判定に使う。調べられない場合はtrue）
+fn has_tracks_under(app: &AppHandle, path: &Path) -> bool {
+    let Some(path) = path.to_str() else {
+        return true;
+    };
+    app.state::<AppState>()
+        .with_db(|db| count_tracks_under(db, &track_path_prefix(path)))
+        .map_or(true, |count| count > 0)
+}
+
+/// フォルダが、パスのいずれかを含むか
+fn contains_any(folder: &FolderRecord, paths: &[PathBuf]) -> bool {
+    paths.iter().any(|path| path.starts_with(&folder.path))
 }
 
 /// すべてのライブラリフォルダを再スキャンする
 fn rescan_all_folders(app: &AppHandle, reason: &str) {
+    rescan_folders(app, reason, |_| true);
+}
+
+/// 条件に合うライブラリフォルダを再スキャンする
+fn rescan_folders(app: &AppHandle, reason: &str, filter: impl Fn(&FolderRecord) -> bool) {
     let folders = match app.state::<AppState>().with_db(|db| find_all_folders(db)) {
         Ok(folders) => folders,
         Err(e) => {
@@ -283,7 +325,7 @@ fn rescan_all_folders(app: &AppHandle, reason: &str) {
             return;
         }
     };
-    for folder in &folders {
+    for folder in folders.iter().filter(|folder| filter(folder)) {
         rescan_quietly(app, folder, reason);
     }
 }
@@ -324,19 +366,15 @@ mod tests {
     }
 
     #[test]
-    fn test_folders_containing_matches_whole_components() {
-        let folders = [folder("/music/rock"), folder("/music/jazz")];
+    fn test_contains_any_matches_whole_components() {
         let paths = [
             PathBuf::from("/music/rock/album/01.mp3"),
             // 名前の先頭が同じだけのフォルダは含まない
             PathBuf::from("/music/jazz-live/01.mp3"),
         ];
 
-        let ids: Vec<&str> = folders_containing(&folders, &paths)
-            .iter()
-            .map(|f| f.id.as_str())
-            .collect();
-        assert_eq!(ids, ["/music/rock"]);
+        assert!(contains_any(&folder("/music/rock"), &paths));
+        assert!(!contains_any(&folder("/music/jazz"), &paths));
     }
 
     #[test]
@@ -349,19 +387,24 @@ mod tests {
         let song = dir.join("01.flac");
         fs::write(&song, b"").unwrap();
         let ignored = [app_data.clone()];
+        // ライブラリの曲を含むパス（なくなったフォルダの判定に使う）
+        let removed_album = dir.join("removed-album");
+        let has_tracks_under = |path: &Path| path == removed_album;
+        let relevant = |path: &Path| is_relevant_change(path, &ignored, has_tracks_under);
 
-        // 音楽ファイル・フォルダ・なくなったパスは含める
-        assert!(is_relevant_change(&song, &ignored));
-        assert!(is_relevant_change(&dir, &ignored));
-        assert!(is_relevant_change(&dir.join("removed-album"), &ignored));
+        // 音楽ファイル（なくなったものも）・今あるフォルダは含める
+        assert!(relevant(&song));
+        assert!(relevant(&dir.join("removed.mp3")));
+        assert!(relevant(&dir));
+        // なくなったパスは、ライブラリの曲を含む場合だけ含める（一時ファイルでは再スキャンしない）
+        assert!(relevant(&removed_album));
+        assert!(!relevant(&dir.join("download.part")));
+        assert!(!relevant(&dir.join("removed-empty-folder")));
         // 音楽ファイル以外の、今あるファイルは含めない
-        assert!(!is_relevant_change(&cover, &ignored));
+        assert!(!relevant(&cover));
         // アプリのデータの中の変更は含めない（DBの書き込みで再スキャンを繰り返さない）
-        assert!(!is_relevant_change(
-            &app_data.join("muspice.db-journal"),
-            &ignored
-        ));
-        assert!(!is_relevant_change(&app_data, &ignored));
+        assert!(!relevant(&app_data.join("muspice.db-journal")));
+        assert!(!relevant(&app_data));
 
         fs::remove_dir_all(&dir).ok();
     }
