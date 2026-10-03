@@ -6,7 +6,12 @@
 <script lang="ts">
   import type { Track, AlbumGroup, ArtistGroup, GenreGroup } from '$lib/types/models';
   import { BaseContextMenu, PlaylistSubmenu } from '$lib/components/ui';
-  import { playTrackFromQueue, playQueue, currentTrackIndex } from '$lib/stores/player';
+  import {
+    playTrackFromQueue,
+    playQueue,
+    currentTrackIndex,
+    playShuffled
+  } from '$lib/stores/player';
   import { get } from 'svelte/store';
 
   // グループタイプ
@@ -59,10 +64,7 @@
    * シャッフル再生
    */
   function handleShufflePlay() {
-    if (allTracks.length > 0) {
-      const shuffled = [...allTracks].sort(() => Math.random() - 0.5);
-      playTrackFromQueue(shuffled, 0);
-    }
+    playShuffled(allTracks);
     onClose();
   }
 
