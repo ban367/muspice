@@ -5,6 +5,7 @@
     useDeleteTracksWithFilesMutation
   } from '#lib/queries/tracks.js';
   import { Button, Modal } from '#lib/components/ui/index.js';
+  import { m } from '#lib/i18n/i18n.svelte.js';
 
   // Props
   interface Props {
@@ -74,7 +75,7 @@
 <Modal
   {open}
   onClose={handleClose}
-  title="トラックの削除"
+  title={m.deleteDialog.title}
   dismissible={!isDeleting}
   class="max-w-md"
 >
@@ -99,9 +100,12 @@
 
   <p class="mb-4">
     {#if trackName}
-      「<span class="font-semibold">{trackName}</span>」を削除しますか？
+      {m.deleteDialog.confirm.before}<span class="font-semibold">{trackName}</span>{m.deleteDialog
+        .confirm.after}
     {:else}
-      <span class="font-semibold">{trackCount}曲</span>を削除しますか？
+      {m.deleteDialog.confirmMany.before}<span class="font-semibold"
+        >{m.common.trackCount(trackCount)}</span
+      >{m.deleteDialog.confirmMany.after}
     {/if}
   </p>
 
@@ -125,8 +129,8 @@
         <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" />
       </svg>
       <div class="text-left">
-        <div class="font-medium">ライブラリから削除</div>
-        <div class="text-xs opacity-60">ファイルはそのまま残ります</div>
+        <div class="font-medium">{m.deleteDialog.fromLibrary}</div>
+        <div class="text-xs opacity-60">{m.deleteDialog.fromLibraryHint}</div>
       </div>
     </button>
 
@@ -151,8 +155,8 @@
         <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
       </svg>
       <div class="text-left">
-        <div class="font-medium">ファイルも削除</div>
-        <div class="text-xs opacity-60">この操作は取り消せません</div>
+        <div class="font-medium">{m.deleteDialog.withFiles}</div>
+        <div class="text-xs opacity-60">{m.deleteDialog.withFilesHint}</div>
       </div>
     </button>
   </div>
@@ -160,11 +164,11 @@
   {#if isDeleting}
     <div class="flex items-center justify-center gap-2 mt-4 text-sm opacity-60">
       <span class="loading loading-spinner loading-sm"></span>
-      <span>削除中...</span>
+      <span>{m.common.deleting}</span>
     </div>
   {/if}
 
   {#snippet footer()}
-    <Button variant="ghost" onclick={handleClose} disabled={isDeleting}>キャンセル</Button>
+    <Button variant="ghost" onclick={handleClose} disabled={isDeleting}>{m.common.cancel}</Button>
   {/snippet}
 </Modal>

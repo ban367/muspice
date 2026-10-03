@@ -4,6 +4,7 @@
   import type { Path } from '$app/types';
   import { useSettingsQuery } from '#lib/queries/settings.js';
   import { getLastPage } from '#lib/stores/ui.svelte.js';
+  import { m } from '#lib/i18n/i18n.svelte.js';
 
   const settingsQuery = useSettingsQuery();
   let redirected = false;
@@ -25,7 +26,7 @@
 </script>
 
 <div class="redirect-page">
-  <p>読み込み中...</p>
+  <p>{m.common.loading}</p>
 </div>
 
 <style>

@@ -15,6 +15,7 @@
   import AlbumArt from './AlbumArt.svelte';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import MarqueeText from './MarqueeText.svelte';
+  import { m } from '#lib/i18n/i18n.svelte.js';
 
   // 再生に使う2つのaudio要素（ギャップレス再生で、次の曲をもう一方に先読みする）
   let audioElement = $state<HTMLAudioElement>();
@@ -215,7 +216,7 @@
     <!-- トラック情報 -->
     <div class="flex items-center gap-3 min-w-0">
       <div class="album-art">
-        <AlbumArt src={currentArtUrl} alt="アルバムアート" placeholderType="music" />
+        <AlbumArt src={currentArtUrl} alt={m.common.albumArt} placeholderType="music" />
       </div>
       <div class="min-w-0">
         <MarqueeText
@@ -223,7 +224,7 @@
           class="text-sm font-semibold mb-0.5"
         />
         <MarqueeText
-          text={`${player.currentTrack.artist || '不明なアーティスト'}${player.currentTrack.album ? ' • ' + player.currentTrack.album : ''}`}
+          text={`${player.currentTrack.artist || m.common.unknownArtist}${player.currentTrack.album ? ' • ' + player.currentTrack.album : ''}`}
           class="text-xs text-text-secondary"
         />
       </div>
@@ -236,8 +237,8 @@
           class="control-button"
           class:active={player.isShuffleEnabled}
           onclick={toggleShuffle}
-          title="シャッフル (S)"
-          aria-label="シャッフル"
+          title={m.player.shuffleTitle}
+          aria-label={m.player.shuffle}
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -256,8 +257,8 @@
           class="control-button"
           onclick={() => playback?.previous()}
           disabled={!player.hasPreviousTrack}
-          title="前へ (Ctrl+←)"
-          aria-label="前のトラック"
+          title={m.player.previousTitle}
+          aria-label={m.player.previous}
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -273,8 +274,8 @@
         <button
           class="play-pause-button"
           onclick={() => playback?.togglePlayPause()}
-          title={player.isPlaying ? '一時停止 (Space)' : '再生 (Space)'}
-          aria-label={player.isPlaying ? '一時停止' : '再生'}
+          title={player.isPlaying ? m.player.pauseTitle : m.player.playTitle}
+          aria-label={player.isPlaying ? m.player.pause : m.player.play}
         >
           {#if player.isPlaying}
             <svg
@@ -304,8 +305,8 @@
           class="control-button"
           onclick={() => playback?.next()}
           disabled={!player.hasNextTrack}
-          title="次へ (Ctrl+→)"
-          aria-label="次のトラック"
+          title={m.player.nextTitle}
+          aria-label={m.player.next}
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -322,12 +323,8 @@
           class="control-button"
           class:active={player.repeatMode !== 'off'}
           onclick={toggleRepeat}
-          title="リピート (R): {player.repeatMode === 'off'
-            ? 'オフ'
-            : player.repeatMode === 'all'
-              ? '全曲'
-              : '1曲'}"
-          aria-label="リピート"
+          title={m.player.repeatTitle(m.player.repeatModes[player.repeatMode])}
+          aria-label={m.player.repeat}
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -353,7 +350,7 @@
           bind:this={progressBar}
           class="progress-bar-base flex-1"
           role="slider"
-          aria-label="再生位置"
+          aria-label={m.player.seek}
           aria-valuemin="0"
           aria-valuemax="100"
           aria-valuenow={player.progress}
@@ -383,8 +380,8 @@
         <button
           class="control-button small"
           onclick={toggleMute}
-          title="ミュート (M)"
-          aria-label="ミュート"
+          title={m.player.muteTitle}
+          aria-label={m.player.mute}
         >
           {#if player.volume === 0}
             <svg
@@ -428,7 +425,7 @@
           bind:this={volumeBar}
           class="volume-bar"
           role="slider"
-          aria-label="音量"
+          aria-label={m.player.volume}
           aria-valuemin="0"
           aria-valuemax="100"
           aria-valuenow={player.volume * 100}
@@ -462,7 +459,7 @@
           d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"
         />
       </svg>
-      <span>トラックを選択して再生</span>
+      <span>{m.player.noTrack}</span>
     </div>
   {/if}
 </div>

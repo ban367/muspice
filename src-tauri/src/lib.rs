@@ -6,6 +6,7 @@ mod events;
 mod library;
 mod library_folder;
 mod library_sync;
+mod menu;
 mod metadata;
 mod models;
 mod playlist;
@@ -29,7 +30,6 @@ use commands::{
 use state::AppState;
 use std::path::PathBuf;
 use tauri::Manager;
-use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::webview::WebviewWindowBuilder;
 use tauri_specta::Event;
 
@@ -193,63 +193,8 @@ pub fn run() {
             app.manage(library_sync::LibrarySync::default());
             library_sync::start(app.handle());
 
-            // メニューバーを構築
-            let app_menu = SubmenuBuilder::new(app, "Muspice")
-                .about(None)
-                .separator()
-                .item(
-                    &MenuItemBuilder::with_id("settings", "設定...")
-                        .accelerator("CmdOrCtrl+,")
-                        .build(app)?,
-                )
-                .separator()
-                .quit()
-                .build()?;
-
-            let file_menu = SubmenuBuilder::new(app, "ファイル")
-                .item(
-                    &MenuItemBuilder::with_id("import_folder", "フォルダをインポート...")
-                        .accelerator("CmdOrCtrl+I")
-                        .build(app)?,
-                )
-                .separator()
-                .close_window()
-                .build()?;
-
-            let edit_menu = SubmenuBuilder::new(app, "編集")
-                .undo()
-                .redo()
-                .separator()
-                .cut()
-                .copy()
-                .paste()
-                .select_all()
-                .build()?;
-
-            let view_menu = SubmenuBuilder::new(app, "表示")
-                .item(
-                    &MenuItemBuilder::with_id("toggle_fullscreen", "フルスクリーン切替")
-                        .accelerator("Ctrl+CmdOrCtrl+F")
-                        .build(app)?,
-                )
-                .separator()
-                .item(
-                    &MenuItemBuilder::with_id("toggle_sidebar", "サイドバーを表示/隠す")
-                        .accelerator("CmdOrCtrl+\\")
-                        .build(app)?,
-                )
-                .build()?;
-
-            let help_menu = SubmenuBuilder::with_id(app, "help", "ヘルプ")
-                .item(&MenuItemBuilder::with_id("about", "Muspice について").build(app)?)
-                .separator()
-                .item(&MenuItemBuilder::with_id("open_github", "GitHub を開く").build(app)?)
-                .build()?;
-
-            let menu = MenuBuilder::new(app)
-                .items(&[&app_menu, &file_menu, &edit_menu, &view_menu, &help_menu])
-                .build()?;
-
+            // メニューバーを構築（設定の言語に合わせる。言語を変えると`save_settings`が作り直す）
+            let menu = menu::build_menu(app.handle(), menu::current_language(app.handle()))?;
             app.set_menu(menu)?;
 
             log::info!("メニューバーを初期化しました");
@@ -261,15 +206,15 @@ pub fn run() {
             match id {
                 "settings" => {
                     // 設定ウィンドウを開く（既存なら前面に）
-                    if let Some(window) = app.get_webview_window("settings") {
+                    if let Some(window) = app.get_webview_window(menu::SETTINGS_WINDOW) {
                         let _ = window.set_focus();
                     } else {
                         let _ = WebviewWindowBuilder::new(
                             app,
-                            "settings",
+                            menu::SETTINGS_WINDOW,
                             tauri::WebviewUrl::App("/settings".into()),
                         )
-                        .title("設定")
+                        .title(menu::settings_window_title(menu::current_language(app)))
                         .inner_size(700.0, 500.0)
                         .resizable(true)
                         .build();

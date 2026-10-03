@@ -1,6 +1,7 @@
 /**
  * ライブラリフォルダの再スキャン結果の集計と通知文
  */
+import { m } from '#lib/i18n/i18n.svelte.js';
 import type { RescanResult } from '#lib/types/models.js';
 
 /** 複数フォルダの再スキャン結果の合計 */
@@ -34,12 +35,11 @@ export function sumRescanResults(results: { path: string; result: RescanResult }
 
 /** 再スキャンの結果の通知文（変更がなければ「変更はありませんでした」） */
 export function describeRescan(totals: RescanTotals): string {
+  const messages = m.libraryFolders;
   const changes = [
-    totals.addedCount > 0 ? `追加 ${totals.addedCount}曲` : null,
-    totals.updatedCount > 0 ? `更新 ${totals.updatedCount}曲` : null,
-    totals.removedCount > 0 ? `削除 ${totals.removedCount}曲` : null
+    totals.addedCount > 0 ? messages.added(totals.addedCount) : null,
+    totals.updatedCount > 0 ? messages.updated(totals.updatedCount) : null,
+    totals.removedCount > 0 ? messages.removedTracks(totals.removedCount) : null
   ].filter((change) => change !== null);
-  return changes.length > 0
-    ? `再スキャンしました（${changes.join('・')}）`
-    : '再スキャンしました（変更はありませんでした）';
+  return messages.rescanned(changes);
 }

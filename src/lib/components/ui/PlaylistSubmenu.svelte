@@ -6,6 +6,7 @@
 <script lang="ts">
   import type { Track, Playlist } from '#lib/types/models.js';
   import { usePlaylistsQuery, useAddTrackToPlaylistMutation } from '#lib/queries/playlists.js';
+  import { m } from '#lib/i18n/i18n.svelte.js';
 
   // Props
   interface Props {
@@ -52,7 +53,7 @@
   >
     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
   </svg>
-  <span>プレイリストに追加</span>
+  <span>{m.contextMenu.addToPlaylist}</span>
   <svg
     xmlns="http://www.w3.org/2000/svg"
     class="menu-arrow"
@@ -66,7 +67,7 @@
   {#if showSubmenu}
     <div class="submenu">
       {#if playlistsQuery.isLoading}
-        <div class="menu-message">読み込み中...</div>
+        <div class="menu-message">{m.common.loading}</div>
       {:else if playlistsQuery.data && playlistsQuery.data.length > 0}
         {#each playlistsQuery.data as playlist (playlist.id)}
           <button class="menu-item" onclick={() => handleAddToPlaylist(playlist)} role="menuitem">
@@ -88,7 +89,7 @@
           </button>
         {/each}
       {:else}
-        <div class="menu-message">プレイリストがありません</div>
+        <div class="menu-message">{m.contextMenu.noPlaylists}</div>
       {/if}
     </div>
   {/if}

@@ -25,7 +25,12 @@ pub async fn save_settings(
     state: State<'_, SettingsState>,
     app: AppHandle,
 ) -> AppResult<()> {
+    let previous_language = state.get()?.language;
     state.save(settings.clone())?;
+    // 言語が変わったら、メニューバーと設定ウィンドウのタイトルを作り直す
+    if settings.language != previous_language {
+        crate::menu::apply_language(&app, settings.language);
+    }
     if let Err(e) = SettingsChanged(settings.clone()).emit(&app) {
         log::warn!("設定変更の通知に失敗しました: {}", e);
     }

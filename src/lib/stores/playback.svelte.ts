@@ -41,6 +41,7 @@ import {
 } from './player.svelte.js';
 import type { Track, VolumeNormalization } from '#lib/types/models.js';
 import { normalizationGain } from '#lib/utils/normalization.js';
+import { m } from '#lib/i18n/i18n.svelte.js';
 
 /** `MediaError.code`の値（Node環境のテストでも参照できるよう定数で持つ） */
 const MEDIA_ERR_ABORTED = 1;
@@ -109,13 +110,13 @@ export function mediaErrorMessage(error: Pick<MediaError, 'code'> | null): strin
     case MEDIA_ERR_ABORTED:
       return null;
     case MEDIA_ERR_NETWORK:
-      return 'ネットワークエラーが発生しました';
+      return m.errors.media.network;
     case MEDIA_ERR_DECODE:
-      return 'デコードエラー: ファイルが破損しているか未対応の形式です';
+      return m.errors.media.decode;
     case MEDIA_ERR_SRC_NOT_SUPPORTED:
-      return '未対応のフォーマットか、ファイルが見つかりません';
+      return m.errors.media.unsupported;
     default:
-      return '再生エラーが発生しました';
+      return m.errors.media.generic;
   }
 }
 
@@ -194,7 +195,7 @@ export function createPlaybackController(
 
   /** トラックの再生の失敗を通知し、再生中の表示を解除する */
   function reportPlaybackError(error: unknown): void {
-    handleError(error, 'トラックの再生に失敗しました');
+    handleError(error, m.errors.playbackFailed);
     player.isPlaying = false;
   }
 

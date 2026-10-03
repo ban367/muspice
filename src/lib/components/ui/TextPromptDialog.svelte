@@ -5,6 +5,7 @@
 <script lang="ts">
   import Modal from './Modal.svelte';
   import { textPrompt } from '#lib/utils/dialog.svelte.js';
+  import { m } from '#lib/i18n/i18n.svelte.js';
 
   const id = $props.id();
   const request = $derived(textPrompt.request);
@@ -29,7 +30,7 @@
     if (!request) return;
 
     const trimmed = value.trim();
-    const message = trimmed ? (request.validate?.(trimmed) ?? null) : '入力してください';
+    const message = trimmed ? (request.validate?.(trimmed) ?? null) : m.validation.inputRequired;
     if (message) {
       error = message;
       return;
@@ -57,7 +58,7 @@
   </form>
 
   {#snippet footer()}
-    <button type="button" class="btn-secondary" onclick={cancel}>キャンセル</button>
+    <button type="button" class="btn-secondary" onclick={cancel}>{m.common.cancel}</button>
     <button type="submit" form="{id}-form" class="btn-primary">
       {request?.confirmLabel ?? 'OK'}
     </button>

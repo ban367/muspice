@@ -2,6 +2,7 @@
   import GenreGrid from '#lib/components/library/GenreGrid.svelte';
   import LibraryBrowsePage from '#lib/components/library/LibraryBrowsePage.svelte';
   import { useGenresGroupedQuery } from '#lib/queries/tracks.js';
+  import { m } from '#lib/i18n/i18n.svelte.js';
 
   // クエリ
   const genresQuery = useGenresGroupedQuery();
@@ -9,9 +10,10 @@
 </script>
 
 <LibraryBrowsePage
-  title="ジャンル"
-  countUnit="種類"
-  searchPlaceholder="ジャンルを検索..."
+  title={m.library.genres}
+  formatCount={m.library.genreCount}
+  formatCountSummary={m.library.genreSummary}
+  searchPlaceholder={m.library.searchGenres}
   initialDisplayMode="grid"
   count={genreCount}
   enableCardSizeSlider={false}

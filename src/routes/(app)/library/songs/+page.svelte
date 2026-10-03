@@ -3,6 +3,7 @@
   import { sanitizeSearchQuery } from '#lib/utils/validation.js';
   import TrackList from '#lib/components/library/TrackList.svelte';
   import LibraryHeader from '#lib/components/library/LibraryHeader.svelte';
+  import { m } from '#lib/i18n/i18n.svelte.js';
 
   // 表示モード
   let displayMode = $state<'grid' | 'list'>('list');
@@ -58,10 +59,10 @@
 
 <div class="songs-page">
   <LibraryHeader
-    title="曲"
+    title={m.library.songs}
     count={trackCount}
-    countUnit="曲"
-    searchPlaceholder="曲を検索..."
+    formatCount={m.library.songCount}
+    searchPlaceholder={m.library.searchSongs}
     {searchTerm}
     onSearchInput={handleSearchInput}
     onSearchClear={clearSearch}

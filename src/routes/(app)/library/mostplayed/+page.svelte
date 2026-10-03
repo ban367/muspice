@@ -1,6 +1,7 @@
 <script lang="ts">
   import { useMostPlayedTracksQuery } from '#lib/queries/tracks.js';
   import TrackList from '#lib/components/library/TrackList.svelte';
+  import { m } from '#lib/i18n/i18n.svelte.js';
 
   // よく再生する曲を取得
   const mostPlayedQuery = useMostPlayedTracksQuery(50);
@@ -27,7 +28,7 @@
         d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"
       />
     </svg>
-    <h1 class="page-title">よく再生する曲</h1>
+    <h1 class="page-title">{m.library.mostPlayed}</h1>
   </div>
 
   <!-- トラックリスト -->
@@ -37,8 +38,8 @@
       {isLoading}
       {isError}
       {error}
-      emptyMessage="よく再生する曲がありません"
-      emptyHint="曲を繰り返し再生すると、ここに表示されます"
+      emptyMessage={m.library.noMostPlayed}
+      emptyHint={m.library.noMostPlayedHint}
     />
   </div>
 </div>

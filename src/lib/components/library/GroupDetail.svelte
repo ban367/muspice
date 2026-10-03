@@ -6,6 +6,7 @@
   import PlayingIndicator from './PlayingIndicator.svelte';
   import AlbumArt from '../AlbumArt.svelte';
   import { Modal } from '#lib/components/ui/index.js';
+  import { m } from '#lib/i18n/i18n.svelte.js';
 
   // Props
   interface Props {
@@ -66,14 +67,17 @@
       </div>
       <div class="header-info">
         <span class="text-xs uppercase tracking-wider text-text-muted mb-2">
-          {type === 'album' ? 'アルバム' : type === 'artist' ? 'アーティスト' : 'ジャンル'}
+          {type === 'album' ? m.fields.album : type === 'artist' ? m.fields.artist : m.fields.genre}
         </span>
         <h2 class="text-2xl font-bold text-text-primary m-0 leading-tight">{group.name}</h2>
         {#if 'artist' in group && group.artist}
           <p class="text-base text-text-secondary mt-2 m-0">{group.artist}</p>
         {/if}
         <p class="text-sm text-text-dimmed mt-2 m-0">
-          {group.trackCount}曲 · {formatTotalDuration(group.totalDuration)}
+          {m.common.trackCountAndDuration(
+            group.trackCount,
+            formatTotalDuration(group.totalDuration)
+          )}
         </p>
         <div class="flex gap-3 mt-4">
           <button class="action-button primary" onclick={handlePlayAll}>
@@ -85,7 +89,7 @@
             >
               <path d="M8 5v14l11-7z" />
             </svg>
-            再生
+            {m.common.play}
           </button>
           <button class="action-button" onclick={handleShufflePlay}>
             <svg
@@ -102,11 +106,11 @@
               <line x1="15" y1="15" x2="21" y2="21" />
               <line x1="4" y1="4" x2="9" y2="9" />
             </svg>
-            シャッフル
+            {m.common.shuffle}
           </button>
         </div>
       </div>
-      <button class="close-button" onclick={onClose} title="閉じる">
+      <button class="close-button" onclick={onClose} title={m.common.close}>
         <svg
           xmlns="http://www.w3.org/2000/svg"
           viewBox="0 0 24 24"
@@ -139,7 +143,7 @@
           </span>
           <div class="track-info">
             <span class="track-title">{track.title || track.fileName}</span>
-            <span class="track-artist">{track.artist || '不明なアーティスト'}</span>
+            <span class="track-artist">{track.artist || m.common.unknownArtist}</span>
           </div>
           <span class="track-duration">{formatDuration(track.duration)}</span>
         </div>

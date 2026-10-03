@@ -6,6 +6,7 @@
   import PlayingIndicator from './PlayingIndicator.svelte';
   import MarqueeText from '../MarqueeText.svelte';
   import AlbumArt from '../AlbumArt.svelte';
+  import { m } from '#lib/i18n/i18n.svelte.js';
 
   // Props
   interface Props {
@@ -45,12 +46,12 @@
   <div class="detail-header">
     <h1 class="artist-name">{artist.name}</h1>
     <div class="header-actions">
-      <button class="action-btn play" onclick={handlePlayAll} title="すべて再生">
+      <button class="action-btn play" onclick={handlePlayAll} title={m.common.playAll}>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
           <path d="M8 5v14l11-7z" />
         </svg>
       </button>
-      <button class="action-btn" onclick={handleShufflePlay} title="シャッフル">
+      <button class="action-btn" onclick={handleShufflePlay} title={m.common.shuffle}>
         <svg
           xmlns="http://www.w3.org/2000/svg"
           viewBox="0 0 24 24"
@@ -65,7 +66,7 @@
           <line x1="4" y1="4" x2="9" y2="9" />
         </svg>
       </button>
-      <button class="action-btn" title="その他">
+      <button class="action-btn" title={m.common.more}>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
           <circle cx="12" cy="5" r="2" />
           <circle cx="12" cy="12" r="2" />
@@ -91,16 +92,21 @@
           <div class="album-info">
             <MarqueeText text={album.name} class="album-title" />
             <span class="album-meta"
-              >{album.tracks[0]?.genre || 'ジャンル不明'} · {album.tracks[0]?.year || ''}</span
+              >{album.tracks[0]?.genre || m.common.unknownGenre} · {album.tracks[0]?.year ||
+                ''}</span
             >
           </div>
           <div class="album-actions">
-            <button class="album-action-btn" onclick={() => handleAlbumPlay(album)} title="再生">
+            <button
+              class="album-action-btn"
+              onclick={() => handleAlbumPlay(album)}
+              title={m.common.play}
+            >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M8 5v14l11-7z" />
               </svg>
             </button>
-            <button class="album-action-btn" title="その他">
+            <button class="album-action-btn" title={m.common.more}>
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
                 <circle cx="12" cy="5" r="2" />
                 <circle cx="12" cy="12" r="2" />
@@ -130,7 +136,7 @@
                 <MarqueeText text={track.title || track.fileName} class="track-title" />
               </div>
               <span class="track-duration">{formatDuration(track.duration)}</span>
-              <button class="track-action-btn" title="その他">
+              <button class="track-action-btn" title={m.common.more}>
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
                   <circle cx="12" cy="5" r="2" />
                   <circle cx="12" cy="12" r="2" />

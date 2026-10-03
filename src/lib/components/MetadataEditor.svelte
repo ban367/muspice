@@ -13,6 +13,7 @@
   } from '#lib/utils/validation.js';
   import { toErrorMessage } from '#lib/stores/error.svelte.js';
   import { Modal } from '#lib/components/ui/index.js';
+  import { m } from '#lib/i18n/i18n.svelte.js';
 
   interface Props {
     tracks: Track[];
@@ -31,7 +32,7 @@
   const isSingleEdit = $derived(tracks.length === 1);
 
   const dialogTitle = $derived(
-    isSingleEdit ? 'メタデータを編集' : `${tracks.length}件のトラックを一括編集`
+    isSingleEdit ? m.metadataEditor.editTitle : m.metadataEditor.bulkEditTitle(tracks.length)
   );
   const isMultipleEdit = $derived(tracks.length > 1);
 
@@ -73,10 +74,10 @@
   function validateMetadata(metadata: Metadata): boolean {
     const validationResults = [
       validateYear(metadata.year),
-      validateFieldLength(metadata.title, 'タイトル', 255),
-      validateFieldLength(metadata.artist, 'アーティスト', 255),
-      validateFieldLength(metadata.album, 'アルバム', 255),
-      validateFieldLength(metadata.genre, 'ジャンル', 100)
+      validateFieldLength(metadata.title, m.fields.title, 255),
+      validateFieldLength(metadata.artist, m.fields.artist, 255),
+      validateFieldLength(metadata.album, m.fields.album, 255),
+      validateFieldLength(metadata.genre, m.fields.genre, 100)
     ];
 
     const combined = combineValidationResults(validationResults);
@@ -185,68 +186,76 @@
 <Modal open onClose={handleCancel} title={dialogTitle} dismissible={!isLoading} class="max-w-lg">
   {#if isMultipleEdit}
     <div class="message-info mb-4">
-      空欄のフィールドは変更されません。変更したいフィールドのみ入力してください。
+      {m.metadataEditor.bulkHint}
     </div>
   {/if}
 
   <form onsubmit={(e) => e.preventDefault()}>
     <div class="form-group">
-      <label for="title" class="form-label">タイトル</label>
+      <label for="title" class="form-label">{m.fields.title}</label>
       <input
         id="title"
         type="text"
         class="form-input"
         bind:value={title}
-        placeholder={isMultipleEdit ? '変更しない' : 'タイトルを入力'}
+        placeholder={isMultipleEdit
+          ? m.metadataEditor.unchanged
+          : m.metadataEditor.titlePlaceholder}
         disabled={isLoading}
       />
     </div>
 
     <div class="form-group">
-      <label for="artist" class="form-label">アーティスト</label>
+      <label for="artist" class="form-label">{m.fields.artist}</label>
       <input
         id="artist"
         type="text"
         class="form-input"
         bind:value={artist}
-        placeholder={isMultipleEdit ? '変更しない' : 'アーティストを入力'}
+        placeholder={isMultipleEdit
+          ? m.metadataEditor.unchanged
+          : m.metadataEditor.artistPlaceholder}
         disabled={isLoading}
       />
     </div>
 
     <div class="form-group">
-      <label for="album" class="form-label">アルバム</label>
+      <label for="album" class="form-label">{m.fields.album}</label>
       <input
         id="album"
         type="text"
         class="form-input"
         bind:value={album}
-        placeholder={isMultipleEdit ? '変更しない' : 'アルバムを入力'}
+        placeholder={isMultipleEdit
+          ? m.metadataEditor.unchanged
+          : m.metadataEditor.albumPlaceholder}
         disabled={isLoading}
       />
     </div>
 
     <div class="form-group">
-      <label for="genre" class="form-label">ジャンル</label>
+      <label for="genre" class="form-label">{m.fields.genre}</label>
       <input
         id="genre"
         type="text"
         class="form-input"
         bind:value={genre}
-        placeholder={isMultipleEdit ? '変更しない' : 'ジャンルを入力'}
+        placeholder={isMultipleEdit
+          ? m.metadataEditor.unchanged
+          : m.metadataEditor.genrePlaceholder}
         disabled={isLoading}
       />
     </div>
 
     <div class="form-group">
-      <label for="year" class="form-label">年</label>
+      <label for="year" class="form-label">{m.fields.year}</label>
       <input
         id="year"
         type="number"
         class="form-input"
         value={year ?? ''}
         oninput={handleYearInput}
-        placeholder={isMultipleEdit ? '変更しない' : '例: 2023'}
+        placeholder={isMultipleEdit ? m.metadataEditor.unchanged : m.metadataEditor.yearPlaceholder}
         min="1000"
         max="9999"
         disabled={isLoading}
@@ -257,7 +266,7 @@
       <div class="form-group">
         <label class="flex items-center gap-2 cursor-pointer">
           <input type="checkbox" class="w-4 h-4" bind:checked={updateFile} disabled={isLoading} />
-          <span class="text-text-secondary">ファイル自体のメタデータも更新する</span>
+          <span class="text-text-secondary">{m.metadataEditor.writeToFile}</span>
         </label>
       </div>
     {/if}
@@ -272,12 +281,14 @@
   </form>
 
   {#snippet footer()}
-    <button class="btn-secondary" onclick={handleCancel} disabled={isLoading}> キャンセル </button>
+    <button class="btn-secondary" onclick={handleCancel} disabled={isLoading}
+      >{m.common.cancel}</button
+    >
     <button class="btn-primary" onclick={handleSave} disabled={isLoading}>
       {#if isLoading}
-        保存中...
+        {m.common.saving}
       {:else}
-        保存
+        {m.common.save}
       {/if}
     </button>
   {/snippet}

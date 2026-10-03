@@ -2,6 +2,7 @@
   import { ui } from '#lib/stores/ui.svelte.js';
   import { useOpenProjectPageMutation } from '#lib/queries/system.js';
   import { Modal } from '#lib/components/ui/index.js';
+  import { m } from '#lib/i18n/i18n.svelte.js';
 
   const openProjectPage = useOpenProjectPageMutation();
 
@@ -13,7 +14,7 @@
 <Modal
   open={ui.isAboutDialogOpen}
   onClose={closeDialog}
-  label="Muspice について"
+  label={m.about.title}
   class="max-w-sm"
   bodyClass="p-8 text-center"
 >
@@ -35,10 +36,10 @@
 
   <!-- アプリ情報 -->
   <h2 class="about-title">Muspice</h2>
-  <p class="about-version">バージョン 0.1.0</p>
+  <p class="about-version">{m.about.version('0.1.0')}</p>
 
   <p class="about-description">
-    モダンな音楽プレイヤー<br />
+    {m.about.tagline}<br />
     Built with Tauri + Svelte
   </p>
 
@@ -59,7 +60,7 @@
     </button>
   </div>
 
-  <button class="btn-primary about-close-btn" onclick={closeDialog}>閉じる</button>
+  <button class="btn-primary about-close-btn" onclick={closeDialog}>{m.common.close}</button>
 </Modal>
 
 <style>

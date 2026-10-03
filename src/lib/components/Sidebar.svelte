@@ -13,6 +13,7 @@
   import type { Playlist } from '#lib/types/models.js';
   import PlaylistContextMenu from './PlaylistContextMenu.svelte';
   import MarqueeText from './MarqueeText.svelte';
+  import { m } from '#lib/i18n/i18n.svelte.js';
 
   // パス変更時にサイドバーを閉じる（モバイル用）
   let previousPath = $state('');
@@ -74,9 +75,9 @@
    */
   async function handleCreatePlaylist() {
     const name = await promptText({
-      title: '新規プレイリスト',
-      label: 'プレイリスト名',
-      confirmLabel: '作成',
+      title: m.sidebar.newPlaylist,
+      label: m.sidebar.playlistName,
+      confirmLabel: m.sidebar.create,
       validate: (value) => validatePlaylistName(value).error ?? null
     });
     if (name === null) return;
@@ -142,7 +143,7 @@
     <h1 class="text-2xl font-bold text-text-primary m-0">Muspice</h1>
     <button
       class="btn-icon w-8 h-8 p-0"
-      title="フォルダをインポート"
+      title={m.sidebar.importFolder}
       onclick={handleOpenImportDialog}
     >
       <svg
@@ -164,7 +165,7 @@
 
   <!-- ブラウズセクション -->
   <div class="mb-6">
-    <h2 class="section-title">ブラウズ</h2>
+    <h2 class="section-title">{m.sidebar.browse}</h2>
     <ul class="list-none m-0 p-0">
       <li>
         <a
@@ -184,7 +185,7 @@
             <circle cx="6" cy="18" r="3" />
             <circle cx="18" cy="16" r="3" />
           </svg>
-          <span>曲</span>
+          <span>{m.sidebar.songs}</span>
         </a>
       </li>
       <li>
@@ -204,7 +205,7 @@
             <circle cx="12" cy="12" r="10" />
             <circle cx="12" cy="12" r="3" />
           </svg>
-          <span>アルバム</span>
+          <span>{m.sidebar.albums}</span>
         </a>
       </li>
       <li>
@@ -224,7 +225,7 @@
             <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
             <circle cx="12" cy="7" r="4" />
           </svg>
-          <span>アーティスト</span>
+          <span>{m.sidebar.artists}</span>
         </a>
       </li>
       <li>
@@ -245,13 +246,13 @@
               <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
               <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
             </svg>
-            <span class="flex-1 text-left">ジャンル</span>
+            <span class="flex-1 text-left">{m.sidebar.genres}</span>
           </a>
           <button
             class="genre-expand-btn"
             class:active={isGenreExpanded}
             onclick={toggleGenreExpand}
-            title="ジャンルを展開"
+            title={m.sidebar.expandGenres}
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -289,7 +290,7 @@
 
   <!-- ライブラリセクション -->
   <div class="mb-6">
-    <h2 class="section-title">ライブラリ</h2>
+    <h2 class="section-title">{m.sidebar.library}</h2>
     <ul class="list-none m-0 p-0">
       <li>
         <a
@@ -311,7 +312,7 @@
               d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
             />
           </svg>
-          <span>最近再生した曲</span>
+          <span>{m.sidebar.recentlyPlayed}</span>
         </a>
       </li>
       <li>
@@ -334,7 +335,7 @@
               d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"
             />
           </svg>
-          <span>よく再生する曲</span>
+          <span>{m.sidebar.mostPlayed}</span>
         </a>
       </li>
     </ul>
@@ -344,11 +345,11 @@
   <div class="flex-1 flex flex-col min-h-0 mb-6">
     <div class="flex items-center justify-between mb-2 px-2">
       <h2 class="text-xs font-semibold uppercase tracking-wider text-text-muted m-0">
-        プレイリスト
+        {m.sidebar.playlists}
       </h2>
       <button
         class="btn-icon w-6 h-6 p-0"
-        title="新規プレイリスト (Ctrl+N)"
+        title={m.sidebar.newPlaylistTitle}
         onclick={handleCreatePlaylist}
       >
         <svg
@@ -370,9 +371,9 @@
 
     <ul class="list-none m-0 p-0 flex-1 overflow-y-auto">
       {#if playlistsQuery.isLoading}
-        <li class="px-3 py-2 text-sm text-text-dimmed">読み込み中...</li>
+        <li class="px-3 py-2 text-sm text-text-dimmed">{m.common.loading}</li>
       {:else if playlistsQuery.isError}
-        <li class="px-3 py-2 text-sm text-error-light">エラーが発生しました</li>
+        <li class="px-3 py-2 text-sm text-error-light">{m.common.errorOccurred}</li>
       {:else if playlistsQuery.data}
         {#each playlistsQuery.data as playlist (playlist.id)}
           <li>
@@ -405,7 +406,7 @@
           </li>
         {/each}
         {#if playlistsQuery.data.length === 0}
-          <li class="px-3 py-2 text-sm text-text-dimmed">プレイリストがありません</li>
+          <li class="px-3 py-2 text-sm text-text-dimmed">{m.sidebar.noPlaylists}</li>
         {/if}
       {/if}
     </ul>

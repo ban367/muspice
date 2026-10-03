@@ -12,6 +12,7 @@
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte';
+  import { m } from '#lib/i18n/i18n.svelte.js';
 
   interface Props {
     /** 表示するか */
@@ -132,7 +133,7 @@
             class="btn-icon w-8 h-8"
             onclick={requestClose}
             disabled={!dismissible}
-            aria-label="閉じる"
+            aria-label={m.common.close}
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"

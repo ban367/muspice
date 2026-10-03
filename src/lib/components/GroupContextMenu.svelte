@@ -7,6 +7,7 @@
   import type { Track, AlbumGroup, ArtistGroup, GenreGroup } from '#lib/types/models.js';
   import { BaseContextMenu, PlaylistSubmenu } from '#lib/components/ui/index.js';
   import { player, playTrackFromQueue, playShuffled } from '#lib/stores/player.svelte.js';
+  import { m } from '#lib/i18n/i18n.svelte.js';
 
   // グループタイプ
   type GroupType = 'album' | 'artist' | 'genre';
@@ -36,11 +37,11 @@
   const typeLabel = $derived.by(() => {
     switch (type) {
       case 'album':
-        return 'アルバム';
+        return m.fields.album;
       case 'artist':
-        return 'アーティスト';
+        return m.fields.artist;
       case 'genre':
-        return 'ジャンル';
+        return m.fields.genre;
     }
   });
 
@@ -87,7 +88,7 @@
 
 <BaseContextMenu {x} {y} {onClose}>
   <div class="menu-header">{group.name}</div>
-  <div class="menu-subheader">{allTracks.length}曲</div>
+  <div class="menu-subheader">{m.common.trackCount(allTracks.length)}</div>
   <div class="menu-divider"></div>
 
   <button class="menu-item" onclick={handlePlayAll} role="menuitem">
@@ -99,7 +100,7 @@
     >
       <path d="M8 5v14l11-7z" />
     </svg>
-    <span>{typeLabel}を再生</span>
+    <span>{m.contextMenu.playGroup(typeLabel)}</span>
   </button>
 
   <button class="menu-item" onclick={handleShufflePlay} role="menuitem">
@@ -117,7 +118,7 @@
         d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
       />
     </svg>
-    <span>シャッフル再生</span>
+    <span>{m.common.shufflePlay}</span>
   </button>
 
   <div class="menu-divider"></div>
@@ -137,7 +138,7 @@
         d="M13 5l7 7-7 7M5 5l7 7-7 7"
       />
     </svg>
-    <span>次に再生</span>
+    <span>{m.common.playNext}</span>
   </button>
 
   <button class="menu-item" onclick={handleAddToQueue} role="menuitem">
@@ -155,7 +156,7 @@
         d="M4 6h16M4 10h16M4 14h16M4 18h7"
       />
     </svg>
-    <span>キューに追加</span>
+    <span>{m.common.addToQueue}</span>
   </button>
 
   <div class="menu-divider"></div>

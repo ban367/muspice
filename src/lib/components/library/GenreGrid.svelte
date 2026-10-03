@@ -11,6 +11,7 @@
   import { resolve } from '$app/paths';
   import LibraryGrid from './LibraryGrid.svelte';
   import MarqueeText from '../MarqueeText.svelte';
+  import { m } from '#lib/i18n/i18n.svelte.js';
 
   // Props
   interface Props {
@@ -81,9 +82,9 @@
   {isLoading}
   {isError}
   {displayMode}
-  itemLabel="ジャンル"
-  emptyMessage="ジャンルがありません"
-  emptyHint="音楽をインポートしてジャンルを追加してください"
+  itemLabel={m.library.genres}
+  emptyMessage={m.library.noGenres}
+  emptyHint={m.library.noGenresHint}
   filterFn={filterGenre}
   gridClass="genre-grid"
   groupType="genre"
@@ -113,13 +114,13 @@
     >
       <div class="genre-content">
         <h3 class="genre-name">{genre.name}</h3>
-        <p class="genre-meta">{genre.trackCount}曲</p>
+        <p class="genre-meta">{m.common.trackCount(genre.trackCount)}</p>
       </div>
       <div class="genre-play-overlay">
         <button
           class="genre-play-button"
           onclick={(e) => handlePlayClick(e, genre)}
-          title="ジャンルを再生"
+          title={m.library.playGenre}
         >
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
             <path d="M8 5v14l11-7z" />
@@ -144,12 +145,12 @@
       ></div>
       <div class="list-info">
         <MarqueeText text={genre.name} class="list-title" />
-        <span class="list-meta">{genre.trackCount}曲</span>
+        <span class="list-meta">{m.common.trackCount(genre.trackCount)}</span>
       </div>
       <button
         class="list-play-btn"
         onclick={(e) => handlePlayClick(e, genre)}
-        title="ジャンルを再生"
+        title={m.library.playGenre}
       >
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
           <path d="M8 5v14l11-7z" />

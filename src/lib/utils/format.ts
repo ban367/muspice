@@ -1,7 +1,8 @@
 /**
  * フォーマットユーティリティ関数
- * 時間、再生時間などの表示形式を統一
+ * 時間、再生時間などの表示形式を統一（表示の言語に合わせる）
  */
+import { i18n, m } from '#lib/i18n/i18n.svelte.js';
 
 /**
  * 秒数を mm:ss 形式にフォーマット
@@ -21,13 +22,10 @@ export function formatDuration(seconds: number | null): string {
  * @returns フォーマットされた文字列
  */
 export function formatTotalDuration(seconds: number): string {
-  if (!seconds) return '0分';
+  if (!seconds) return m.format.totalDuration(0, 0);
   const hours = Math.floor(seconds / 3600);
   const mins = Math.floor((seconds % 3600) / 60);
-  if (hours > 0) {
-    return `${hours}時間${mins}分`;
-  }
-  return `${mins}分`;
+  return m.format.totalDuration(hours, mins);
 }
 
 /**
@@ -52,7 +50,7 @@ export function formatDate(dateString: string | null): string {
   if (!dateString) return '--';
   const date = new Date(dateString);
   if (isNaN(date.getTime())) return '--';
-  return date.toLocaleDateString('ja-JP', {
+  return date.toLocaleDateString(i18n.locale, {
     year: 'numeric',
     month: 'short',
     day: 'numeric'
@@ -68,7 +66,7 @@ export function formatDateTime(dateString: string | null): string {
   if (!dateString) return '--';
   const date = new Date(dateString);
   if (isNaN(date.getTime())) return '--';
-  return date.toLocaleString('ja-JP', {
+  return date.toLocaleString(i18n.locale, {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -83,5 +81,5 @@ export function formatDateTime(dateString: string | null): string {
  * @returns フォーマットされた文字列 (例: "12曲")
  */
 export function formatTrackCount(count: number): string {
-  return `${count}曲`;
+  return m.common.trackCount(count);
 }

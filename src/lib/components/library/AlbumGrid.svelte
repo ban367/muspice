@@ -14,6 +14,7 @@
   import GroupDetail from './GroupDetail.svelte';
   import MarqueeText from '../MarqueeText.svelte';
   import AlbumArt from '../AlbumArt.svelte';
+  import { m } from '#lib/i18n/i18n.svelte.js';
 
   // Props
   interface Props {
@@ -80,9 +81,9 @@
   {isLoading}
   {isError}
   {displayMode}
-  itemLabel="アルバム"
-  emptyMessage="アルバムがありません"
-  emptyHint="音楽をインポートしてアルバムを追加してください"
+  itemLabel={m.library.albums}
+  emptyMessage={m.library.noAlbums}
+  emptyHint={m.library.noAlbumsHint}
   filterFn={filterAlbum}
   gridStyle="--card-width: {cardWidth}px; --art-size: {ui.gridCardSize}px;"
   gridClass="album-grid"
@@ -116,7 +117,7 @@
           <button
             class="play-button-circle"
             onclick={(e) => handlePlayClick(e, album)}
-            title="アルバムを再生"
+            title={m.library.playAlbum}
           >
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
               <path d="M8 5v14l11-7z" />
@@ -130,7 +131,7 @@
           class="text-[0.9375rem] font-semibold text-text-primary m-0"
         />
         <MarqueeText
-          text={album.artist || '不明なアーティスト'}
+          text={album.artist || m.common.unknownArtist}
           class="text-[0.8125rem] text-text-muted mt-1 m-0"
         />
       </div>
@@ -151,10 +152,10 @@
       </div>
       <div class="list-info">
         <MarqueeText text={album.name} class="list-title" />
-        <MarqueeText text={album.artist || '不明なアーティスト'} class="list-artist" />
+        <MarqueeText text={album.artist || m.common.unknownArtist} class="list-artist" />
       </div>
       <div class="list-meta">
-        <span>{album.trackCount}曲</span>
+        <span>{m.common.trackCount(album.trackCount)}</span>
       </div>
       <div class="list-duration">
         {formatDuration(getTotalDuration(album))}
@@ -162,7 +163,7 @@
       <button
         class="list-play-btn"
         onclick={(e) => handlePlayClick(e, album)}
-        title="アルバムを再生"
+        title={m.library.playAlbum}
       >
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
           <path d="M8 5v14l11-7z" />

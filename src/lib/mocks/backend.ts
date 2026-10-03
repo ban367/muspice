@@ -198,6 +198,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   let playlists: Playlist[] = createFixturePlaylists();
   let currentTrackId: string | null = null;
   let settings: Settings = {
+    language: 'ja',
     startupPage: 'lastOpened',
     theme: 'dark',
     accentColor: '#3b82f6',

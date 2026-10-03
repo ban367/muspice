@@ -35,6 +35,17 @@ pub enum StartupPage {
     Songs,
 }
 
+/// 表示の言語
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum Language {
+    /// 日本語
+    #[default]
+    Ja,
+    /// 英語
+    En,
+}
+
 /// 画面の配色
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -65,6 +76,8 @@ pub enum VolumeNormalization {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
+    /// 表示の言語
+    pub language: Language,
     /// 起動時に開く画面
     pub startup_page: StartupPage,
     /// 画面の配色
@@ -93,6 +106,7 @@ impl Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            language: Language::default(),
             startup_page: StartupPage::default(),
             theme: Theme::default(),
             accent_color: DEFAULT_ACCENT_COLOR.to_string(),
@@ -239,6 +253,7 @@ mod tests {
         let path = temp_settings_path("round-trip");
         let state = SettingsState::load(path.clone());
         let settings = Settings {
+            language: Language::En,
             startup_page: StartupPage::Songs,
             theme: Theme::System,
             accent_color: "#ff8800".to_string(),
@@ -266,6 +281,7 @@ mod tests {
         assert_eq!(settings.accent_color, DEFAULT_ACCENT_COLOR);
         // 項目を追加する前に保存したファイルでも、新しい項目は既定値になる
         assert_eq!(settings.theme, Theme::Dark);
+        assert_eq!(settings.language, Language::Ja);
         assert_eq!(settings.volume_normalization, VolumeNormalization::Off);
         assert!(settings.gapless_playback);
         assert_eq!(settings.crossfade_seconds, 0);

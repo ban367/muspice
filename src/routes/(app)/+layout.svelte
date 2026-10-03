@@ -13,9 +13,12 @@
   import { ui, saveLastPage } from '#lib/stores/ui.svelte.js';
   import { invalidateAllTrackQueries } from '#lib/queries/tracks.js';
   import { restoreTheme } from '#lib/utils/theme.js';
+  import { restoreLanguage } from '#lib/i18n/i18n.svelte.js';
   import '../../app.css';
+  import { m } from '#lib/i18n/i18n.svelte.js';
 
-  // 設定を読み込むまでの間も、前回のテーマで表示する（読み込んだ後は`SettingsSync`が反映する）
+  // 設定を読み込むまでの間も、前回の言語・テーマで表示する（読み込んだ後は`SettingsSync`が反映する）
+  restoreLanguage();
   restoreTheme();
 
   // 起動時に「前回開いていた画面」を開けるよう、開いた画面を記録する
@@ -108,7 +111,7 @@
     >
       <!-- モバイル用ヘッダー -->
       <header class="mobile-header">
-        <button class="menu-button" aria-label="メニューを開く" onclick={toggleSidebar}>
+        <button class="menu-button" aria-label={m.sidebar.openMenu} onclick={toggleSidebar}>
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="icon">
             <path
               stroke-linecap="round"

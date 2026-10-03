@@ -5,6 +5,7 @@
  * アプリ内のダイアログ（`TextPromptDialog`）で表示する。
  */
 import { confirm } from '@tauri-apps/plugin-dialog';
+import { m } from '#lib/i18n/i18n.svelte.js';
 
 /**
  * 削除などの取り消せない操作の確認ダイアログを表示
@@ -17,10 +18,10 @@ import { confirm } from '@tauri-apps/plugin-dialog';
  */
 export function confirmDestructive(message: string): Promise<boolean> {
   return confirm(message, {
-    title: '確認',
+    title: m.dialog.confirmTitle,
     kind: 'warning',
-    okLabel: '削除',
-    cancelLabel: 'キャンセル'
+    okLabel: m.common.delete,
+    cancelLabel: m.common.cancel
   });
 }
 

@@ -7,12 +7,13 @@
 import { createMutation } from '@tanstack/svelte-query';
 import { commands } from '#lib/bindings.js';
 import { withErrorToast } from './shared';
+import { m } from '#lib/i18n/i18n.svelte.js';
 
 /**
  * プロジェクトのページ（GitHub）を既定のブラウザで開くミューテーション
  */
 export function useOpenProjectPageMutation() {
   return createMutation(() => ({
-    mutationFn: () => withErrorToast('ページを開く', () => commands.openProjectPage())
+    mutationFn: () => withErrorToast(m.operations.openProjectPage, () => commands.openProjectPage())
   }));
 }

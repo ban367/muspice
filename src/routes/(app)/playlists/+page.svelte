@@ -1,6 +1,7 @@
 <script lang="ts">
   import { resolve } from '$app/paths';
   import { usePlaylistsQuery } from '#lib/queries/playlists.js';
+  import { m } from '#lib/i18n/i18n.svelte.js';
 
   const playlistsQuery = usePlaylistsQuery();
 </script>
@@ -21,12 +22,12 @@
         d="M4 6h16M4 10h16M4 14h16M4 18h16"
       />
     </svg>
-    <h1 class="page-title">プレイリスト</h1>
+    <h1 class="page-title">{m.playlists.title}</h1>
   </div>
 
   <div class="playlists-content">
     {#if playlistsQuery.isLoading}
-      <div class="loading">読み込み中...</div>
+      <div class="loading">{m.common.loading}</div>
     {:else if playlistsQuery.data && playlistsQuery.data.length > 0}
       <div class="playlists-grid">
         {#each playlistsQuery.data as playlist (playlist.id)}
@@ -49,7 +50,7 @@
             </div>
             <div class="playlist-info">
               <h3 class="playlist-name">{playlist.name}</h3>
-              <p class="playlist-meta">{playlist.tracks.length}曲</p>
+              <p class="playlist-meta">{m.common.trackCount(playlist.tracks.length)}</p>
             </div>
           </a>
         {/each}
@@ -70,8 +71,8 @@
             d="M4 6h16M4 10h16M4 14h16M4 18h16"
           />
         </svg>
-        <p>プレイリストがありません</p>
-        <p class="hint">サイドバーの「+」ボタンから新しいプレイリストを作成できます</p>
+        <p>{m.playlists.empty}</p>
+        <p class="hint">{m.playlists.emptyHint}</p>
       </div>
     {/if}
   </div>

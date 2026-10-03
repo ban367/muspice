@@ -1,6 +1,9 @@
 /**
  * 入力バリデーションとサニタイゼーションユーティリティ
+ *
+ * エラーの文言は表示の言語に合わせる。
  */
+import { m } from '#lib/i18n/i18n.svelte.js';
 
 /**
  * 文字列をサニタイズ（XSS対策）
@@ -43,11 +46,11 @@ export function validateYear(year: number | null | undefined): { valid: boolean;
   }
 
   if (typeof year !== 'number' || isNaN(year)) {
-    return { valid: false, error: '年は数値で入力してください' };
+    return { valid: false, error: m.validation.yearNotNumber };
   }
 
   if (year < 1000 || year > 9999) {
-    return { valid: false, error: '年は1000から9999の範囲で指定してください' };
+    return { valid: false, error: m.validation.yearOutOfRange };
   }
 
   return { valid: true };
@@ -65,11 +68,11 @@ export function validateTrackNumber(trackNumber: number | null | undefined): {
   }
 
   if (typeof trackNumber !== 'number' || isNaN(trackNumber)) {
-    return { valid: false, error: 'トラック番号は数値で入力してください' };
+    return { valid: false, error: m.validation.trackNumberNotNumber };
   }
 
   if (trackNumber < 1 || trackNumber > 999) {
-    return { valid: false, error: 'トラック番号は1から999の範囲で指定してください' };
+    return { valid: false, error: m.validation.trackNumberOutOfRange };
   }
 
   return { valid: true };
@@ -90,7 +93,7 @@ export function validateFieldLength(
   if (value.length > maxLength) {
     return {
       valid: false,
-      error: `${fieldName}は${maxLength}文字以内で入力してください（現在: ${value.length}文字）`
+      error: m.validation.tooLong(fieldName, maxLength, value.length)
     };
   }
 
@@ -117,17 +120,17 @@ export function sanitizeSearchQuery(query: string): string {
  */
 export function validatePlaylistName(name: string): { valid: boolean; error?: string } {
   if (!name || name.trim().length === 0) {
-    return { valid: false, error: 'プレイリスト名を入力してください' };
+    return { valid: false, error: m.validation.playlistNameRequired };
   }
 
   if (name.length > 100) {
-    return { valid: false, error: 'プレイリスト名は100文字以内で入力してください' };
+    return { valid: false, error: m.validation.playlistNameTooLong };
   }
 
   // 危険な文字をチェック
   const dangerousChars = /[<>:"/\\|?*]/;
   if (dangerousChars.test(name)) {
-    return { valid: false, error: 'プレイリスト名に使用できない文字が含まれています' };
+    return { valid: false, error: m.validation.playlistNameInvalid };
   }
 
   return { valid: true };

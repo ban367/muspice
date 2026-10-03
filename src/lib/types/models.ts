@@ -16,6 +16,7 @@ export type {
   FilterOptions,
   GenreGroup,
   ImportResult,
+  Language,
   LibraryFolder,
   LibraryFolderList,
   Metadata,
