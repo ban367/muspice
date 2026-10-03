@@ -1,7 +1,7 @@
 use crate::album_art::AlbumArtCache;
 use crate::error::{AppError, AppResult};
 use rusqlite::Connection;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 use tokio::sync::Semaphore;
 
 /// アルバムアート抽出の同時実行数の上限
@@ -20,6 +20,11 @@ pub struct AppState {
     pub album_art_limiter: Semaphore,
     /// 抽出済みアルバムアートのキャッシュ（`albumart`プロトコルが使う）
     pub album_art_cache: Mutex<AlbumArtCache>,
+    /// ライブラリフォルダの読み込み（インポート・再スキャン）を1つずつ行うためのロック
+    ///
+    /// 手動の操作と自動の再スキャンが同じファイルを同時に登録しないようにする。
+    /// `lock_library_scan`で取得する。
+    library_scan_lock: Mutex<()>,
 }
 
 impl AppState {
@@ -29,7 +34,18 @@ impl AppState {
             current_track_id: Mutex::new(None),
             album_art_limiter: Semaphore::new(ALBUM_ART_CONCURRENCY),
             album_art_cache: Mutex::new(AlbumArtCache::default()),
+            library_scan_lock: Mutex::new(()),
         }
+    }
+
+    /// ライブラリフォルダの読み込みのロックを取得する（他の読み込みが終わるまで待つ）
+    ///
+    /// DBロックより先に取得する（逆の順序で取得しない）。
+    /// 守るデータを持たないため、途中でパニックしたスレッドがあっても続ける。
+    pub fn lock_library_scan(&self) -> MutexGuard<'_, ()> {
+        self.library_scan_lock
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     /// DBロックを取得してクロージャを実行する共通ヘルパー

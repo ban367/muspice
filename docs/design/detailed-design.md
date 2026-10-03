@@ -136,14 +136,24 @@ export interface Playlist {
 
 再スキャン・削除でライブラリの曲が変わると`LibraryChanged`イベントを送る。
 
+#### 変更の自動反映（`library_sync.rs`）
+
+設定（`watchLibraryFolders`・`libraryScanIntervalMinutes`）に応じて、`rescan_library_folder`と同じ処理でライブラリフォルダを自動で再スキャンする（`LibraryScanProgress`は送らない）。
+
+- 起動時: どちらかが有効なら、起動の5秒後に全フォルダを再スキャンする
+- 定期: 設定した間隔ごとに全フォルダを再スキャンする（あわせて監視するフォルダを更新する）
+- 監視: ファイルの変更の通知を3秒まとめ、変更のあったパスを含むフォルダだけを再スキャンする。音楽ファイル・フォルダ・なくなったパス以外の変更と、アプリのデータ（DB・ログなど）のフォルダの中の変更は無視する
+- 見つからないフォルダ（外付けドライブが外れているなど）は飛ばす。監視は、監視を始めた時点で見つかるフォルダだけが対象（フォルダの追加・削除・定期の再スキャンのときに更新する）
+- インポート・再スキャンは`AppState::lock_library_scan`で1つずつ行う（手動と自動が同じファイルを同時に登録しない）
+
 ### 設定
 
-| コマンド        | 引数                 | 戻り値     | 備考                                                                                          |
-| --------------- | -------------------- | ---------- | --------------------------------------------------------------------------------------------- |
-| `get_settings`  | なし                 | `Settings` | `settings.json`がない・壊れている場合は既定値                                                 |
-| `save_settings` | `settings: Settings` | `void`     | アクセントカラーは`#rrggbb`、クロスフェードは0〜12秒。保存後に`SettingsChanged`イベントを送る |
+| コマンド        | 引数                 | 戻り値     | 備考                                                                                                                                                                      |
+| --------------- | -------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `get_settings`  | なし                 | `Settings` | `settings.json`がない・壊れている場合は既定値                                                                                                                             |
+| `save_settings` | `settings: Settings` | `void`     | アクセントカラーは`#rrggbb`、クロスフェードは0〜12秒、再スキャンの間隔は選択肢の値。保存後に`SettingsChanged`イベントを送り、ライブラリフォルダの自動反映に設定を反映する |
 
-`Settings`: `{ startupPage: 'lastOpened' \| 'songs', accentColor: string, volumeNormalization: 'off' \| 'track' \| 'album', gaplessPlayback: boolean, crossfadeSeconds: number }`。既定値は`lastOpened`・`#3b82f6`・`off`・`true`・`0`。`crossfadeSeconds`は0〜12（整数）で、範囲外は`VALIDATION_ERROR`。ファイルにない項目は既定値で補う（項目を追加しても古いファイルを読める）。
+`Settings`: `{ startupPage: 'lastOpened' \| 'songs', accentColor: string, volumeNormalization: 'off' \| 'track' \| 'album', gaplessPlayback: boolean, crossfadeSeconds: number, watchLibraryFolders: boolean, libraryScanIntervalMinutes: number }`。既定値は`lastOpened`・`#3b82f6`・`off`・`true`・`0`・`false`・`0`。`crossfadeSeconds`は0〜12（整数）、`libraryScanIntervalMinutes`は0（しない）・15・30・60・360のいずれかで、それ以外は`VALIDATION_ERROR`。ファイルにない項目は既定値で補う（項目を追加しても古いファイルを読める）。
 
 ### カスタムプロトコル
 
@@ -155,15 +165,15 @@ export interface Playlist {
 
 `src-tauri/src/events.rs` で定義し、`bindings.ts` の `events` から型付きで購読する。イベント名は型名のケバブケース。
 
-| イベント              | ペイロード                        | 送信元                                               |
-| --------------------- | --------------------------------- | ---------------------------------------------------- |
-| `ImportProgress`      | `{ current, total, currentFile }` | `import_folder`（1ファイルごと）                     |
-| `LibraryScanProgress` | `{ current, total, currentFile }` | `rescan_library_folder`（読み込むファイルごと）      |
-| `LibraryChanged`      | なし                              | 再スキャン・ライブラリフォルダの削除で曲が変わった時 |
-| `ShowAboutDialog`     | なし                              | メニュー「Muspice について」                         |
-| `OpenImportDialog`    | なし                              | メニュー「フォルダをインポート...」                  |
-| `ToggleSidebar`       | なし                              | メニュー「サイドバーを表示/隠す」                    |
-| `SettingsChanged`     | `Settings`                        | `save_settings`                                      |
+| イベント              | ペイロード                        | 送信元                                                             |
+| --------------------- | --------------------------------- | ------------------------------------------------------------------ |
+| `ImportProgress`      | `{ current, total, currentFile }` | `import_folder`（1ファイルごと）                                   |
+| `LibraryScanProgress` | `{ current, total, currentFile }` | `rescan_library_folder`（読み込むファイルごと）                    |
+| `LibraryChanged`      | なし                              | 再スキャン（自動を含む）・ライブラリフォルダの削除で曲が変わった時 |
+| `ShowAboutDialog`     | なし                              | メニュー「Muspice について」                                       |
+| `OpenImportDialog`    | なし                              | メニュー「フォルダをインポート...」                                |
+| `ToggleSidebar`       | なし                              | メニュー「サイドバーを表示/隠す」                                  |
+| `SettingsChanged`     | `Settings`                        | `save_settings`                                                    |
 
 ### メタデータ編集
 

@@ -1,9 +1,11 @@
 //! アプリケーション設定のコマンド
 
+use super::run_blocking;
 use crate::error::AppResult;
 use crate::events::SettingsChanged;
+use crate::library_sync::LibrarySync;
 use crate::settings::{Settings, SettingsState};
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 use tauri_specta::Event;
 
 /// 現在の設定を取得
@@ -24,8 +26,14 @@ pub async fn save_settings(
     app: AppHandle,
 ) -> AppResult<()> {
     state.save(settings.clone())?;
-    if let Err(e) = SettingsChanged(settings).emit(&app) {
+    if let Err(e) = SettingsChanged(settings.clone()).emit(&app) {
         log::warn!("設定変更の通知に失敗しました: {}", e);
     }
-    Ok(())
+
+    // ライブラリフォルダの自動反映（監視の開始はフォルダの数によって時間がかかるため、別スレッドで）
+    run_blocking(move || {
+        app.state::<LibrarySync>().apply_settings(&app, &settings);
+        Ok(())
+    })
+    .await
 }

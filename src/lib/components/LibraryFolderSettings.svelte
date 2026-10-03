@@ -2,10 +2,13 @@
   @component LibraryFolderSettings
   設定ウィンドウの「ライブラリ」: インポートしたフォルダ（ライブラリフォルダ）の一覧・再スキャン・削除。
   操作はすぐに反映する（設定の「適用」は不要）。ライブラリが変わると、Rustが送る
-  `LibraryChanged`イベントでメインウィンドウの一覧が更新される。
+  `LibraryChanged`イベントでメインウィンドウの一覧が更新される。自動の再スキャン
+  （起動時・定期・フォルダの監視）でライブラリが変わった場合も、同じイベントで曲数などを読み直す。
 -->
 <script lang="ts">
+  import { useQueryClient } from '@tanstack/svelte-query';
   import { events } from '#lib/bindings.js';
+  import { queryKeys } from '#lib/queries/keys.js';
   import {
     useLibraryFoldersQuery,
     useRemoveLibraryFolderMutation,
@@ -33,12 +36,19 @@
   const folders = $derived(foldersQuery.data?.folders ?? []);
   const scannableFolders = $derived(folders.filter((folder) => folder.exists));
 
+  const queryClient = useQueryClient();
+
   $effect(() => {
-    const unlisten = events.libraryScanProgress.listen((event) => {
+    const unlistenProgress = events.libraryScanProgress.listen((event) => {
       scanProgress = event.payload;
     });
+    // 自動の再スキャンでライブラリが変わったら、曲数・最終スキャンの日時を読み直す
+    const unlistenChanged = events.libraryChanged.listen(() => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.libraryFolders });
+    });
     return () => {
-      unlisten.then((fn) => fn());
+      unlistenProgress.then((fn) => fn());
+      unlistenChanged.then((fn) => fn());
     };
   });
 
