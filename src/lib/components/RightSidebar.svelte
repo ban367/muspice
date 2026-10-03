@@ -1,13 +1,7 @@
 <script lang="ts">
   import { fly } from 'svelte/transition';
   import { ui, type RightSidebarPanel } from '#lib/stores/ui.svelte.js';
-  import {
-    playQueue,
-    currentTrack,
-    upcomingTracks,
-    removeFromQueue,
-    clearQueue
-  } from '#lib/stores/player.js';
+  import { player, removeFromQueue, clearQueue } from '#lib/stores/player.svelte.js';
   import MarqueeText from './MarqueeText.svelte';
   import EqualizerPanel from './EqualizerPanel.svelte';
 
@@ -140,28 +134,34 @@
       <!-- ヘッダー -->
       <div class="queue-header">
         <h3>再生キュー</h3>
-        {#if $playQueue.length > 1}
+        {#if player.playQueue.length > 1}
           <button class="clear-btn" onclick={clearQueue}>クリア</button>
         {/if}
       </div>
 
       <!-- 再生中 -->
-      {#if $currentTrack}
+      {#if player.currentTrack}
         <div class="now-playing">
           <div class="section-label">再生中</div>
           <div class="track-info">
-            <MarqueeText text={$currentTrack.title || $currentTrack.fileName} class="track-title" />
-            <MarqueeText text={$currentTrack.artist || '不明なアーティスト'} class="track-artist" />
+            <MarqueeText
+              text={player.currentTrack.title || player.currentTrack.fileName}
+              class="track-title"
+            />
+            <MarqueeText
+              text={player.currentTrack.artist || '不明なアーティスト'}
+              class="track-artist"
+            />
           </div>
         </div>
       {/if}
 
       <!-- 次に再生 -->
       <div class="upcoming-section">
-        {#if $upcomingTracks.length > 0}
-          <div class="section-label">次に再生 ({$upcomingTracks.length}曲)</div>
+        {#if player.upcomingTracks.length > 0}
+          <div class="section-label">次に再生 ({player.upcomingTracks.length}曲)</div>
           <div class="upcoming-list">
-            {#each $upcomingTracks as track, index (track.id)}
+            {#each player.upcomingTracks as track, index (track.id)}
               <div class="queue-track">
                 <span class="track-number">{index + 1}</span>
                 <div class="track-details">
@@ -178,7 +178,7 @@
               </div>
             {/each}
           </div>
-        {:else if $currentTrack}
+        {:else if player.currentTrack}
           <div class="empty-queue">キューに他のトラックはありません</div>
         {:else}
           <div class="empty-queue">トラックを選択して再生</div>

@@ -1,16 +1,16 @@
 /**
  * 再生コントローラー
  *
- * audio要素の操作（読み込み・再生・シーク・音量）と再生状態ストア（`./player`）の同期、
+ * audio要素の操作（読み込み・再生・シーク・音量）と再生状態（`./player.svelte.ts`）の同期、
  * トラック終了時のキュー遷移、再生回数の記録、イコライザの接続をまとめて扱う。
  * Playerコンポーネントは表示と操作の受付だけを行い、再生の制御はここに委ねる。
  *
- * 次・前のトラックの決定はストアのキュー操作（`playNextTrack` / `playPreviousTrack`）が担う。
- * ストアは「再生中の曲をもう一度」の場合（1曲リピート、3秒以上再生中の「前へ」、
+ * 次・前のトラックの決定はキュー操作（`playNextTrack` / `playPreviousTrack`）が担う。
+ * キュー操作は「再生中の曲をもう一度」の場合（1曲リピート、3秒以上再生中の「前へ」、
  * 1曲だけのキューの全曲リピート）に同じトラックを再設定するが、トラックIDが変わらないため
  * それだけでは再生し直されない。ここでその場合を検出して頭から再生し直す。
  */
-import { get } from 'svelte/store';
+import { untrack } from 'svelte';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { commands } from '#lib/bindings.js';
 import { incrementPlayCount } from '#lib/queries/tracks.js';
@@ -21,16 +21,7 @@ import {
   isEqualizerInitialized,
   resumeAudioContext
 } from './equalizer.svelte.js';
-import {
-  currentTime,
-  currentTrack,
-  duration,
-  isPlaying,
-  playNextTrack,
-  playPreviousTrack,
-  resetPlayer,
-  volume
-} from './player';
+import { player, playNextTrack, playPreviousTrack, resetPlayer } from './player.svelte.js';
 import type { Track } from '#lib/types/models.js';
 
 /** `MediaError.code`の値（Node環境のテストでも参照できるよう定数で持つ） */
@@ -83,7 +74,9 @@ function isAbortError(error: unknown): boolean {
 /**
  * audio要素を制御する再生コントローラーを作成する
  *
- * 作成した時点から`currentTrack`を購読し、トラックが変わるたびに読み込んで再生する。
+ * 作成した時点から`player.currentTrack`を監視し、トラックが変わるたびに読み込んで再生する。
+ * 監視は`$effect`のため、状態の変更から少し遅れて（マイクロタスクで）反映される。
+ * 同じ同期処理の中でトラックが続けて変わった場合は、最後のトラックだけを読み込む。
  */
 export function createPlaybackController(audio: HTMLAudioElement): PlaybackController {
   /** 最後に読み込みを始めたトラックのID（同じトラックの再設定で読み込み直さないため） */
@@ -110,7 +103,7 @@ export function createPlaybackController(audio: HTMLAudioElement): PlaybackContr
       const filePath = await commands.getTrackFilePath(track.id);
 
       // パスの取得中に別のトラックへ切り替わっていたら何もしない
-      if (get(currentTrack)?.id !== track.id) return;
+      if (player.currentTrack?.id !== track.id) return;
 
       audio.src = convertFileSrc(filePath);
 
@@ -129,14 +122,14 @@ export function createPlaybackController(audio: HTMLAudioElement): PlaybackContr
       void incrementPlayCount(track.id);
     } catch (error) {
       handleError(error, 'トラックの再生に失敗しました');
-      isPlaying.set(false);
+      player.isPlaying = false;
     }
   }
 
   /** 再生中のトラックを頭から再生し直す */
   function restart(): void {
     audio.currentTime = 0;
-    currentTime.set(0);
+    player.currentTime = 0;
     void play();
   }
 
@@ -148,9 +141,9 @@ export function createPlaybackController(audio: HTMLAudioElement): PlaybackContr
    * @returns キューを移動できたか（ストアのキュー操作の戻り値）
    */
   function moveInQueue(move: () => boolean): boolean {
-    const playingId = get(currentTrack)?.id;
+    const playingId = player.currentTrack?.id;
     const moved = move();
-    if (moved && playingId !== undefined && get(currentTrack)?.id === playingId) {
+    if (moved && playingId !== undefined && player.currentTrack?.id === playingId) {
       restart();
     }
     return moved;
@@ -160,25 +153,25 @@ export function createPlaybackController(audio: HTMLAudioElement): PlaybackContr
     const max = Number.isFinite(audio.duration) ? audio.duration : time;
     const clamped = Math.max(0, Math.min(time, max));
     audio.currentTime = clamped;
-    currentTime.set(clamped);
+    player.currentTime = clamped;
   }
 
   // ---------- audio要素のイベント ----------
 
   const listeners: Array<[keyof HTMLMediaElementEventMap, () => void]> = [
-    ['play', () => isPlaying.set(true)],
-    ['pause', () => isPlaying.set(false)],
+    ['play', () => (player.isPlaying = true)],
+    ['pause', () => (player.isPlaying = false)],
     [
       'timeupdate',
       () => {
-        if (!scrubbing) currentTime.set(audio.currentTime);
+        if (!scrubbing) player.currentTime = audio.currentTime;
       }
     ],
-    ['loadedmetadata', () => duration.set(audio.duration)],
+    ['loadedmetadata', () => (player.duration = audio.duration)],
     [
       'ended',
       () => {
-        currentTime.set(0);
+        player.currentTime = 0;
         // 次がなければ（リピートなしでキューの最後）再生を終える
         if (!moveInQueue(playNextTrack)) {
           resetPlayer();
@@ -195,7 +188,7 @@ export function createPlaybackController(audio: HTMLAudioElement): PlaybackContr
           src: audio.src
         });
         handleError(message);
-        isPlaying.set(false);
+        player.isPlaying = false;
       }
     ]
   ];
@@ -203,22 +196,29 @@ export function createPlaybackController(audio: HTMLAudioElement): PlaybackContr
     audio.addEventListener(type, listener);
   }
 
-  // ---------- ストアの購読 ----------
+  // ---------- 再生状態の監視 ----------
 
-  const unsubscribeTrack = currentTrack.subscribe((track) => {
-    if (!track) {
-      // キューが空になったら再生を止める
-      loadedTrackId = null;
-      audio.pause();
-      return;
-    }
-    if (track.id === loadedTrackId) return;
-    loadedTrackId = track.id;
-    void load(track);
-  });
+  // コンポーネントの外でも動かし、destroy()で止めるため$effect.rootで作る
+  const stopEffects = $effect.root(() => {
+    $effect(() => {
+      const track = player.currentTrack;
+      // 読み込みの処理の中で読む状態（再生中かどうか等）には反応させない
+      untrack(() => {
+        if (!track) {
+          // キューが空になったら再生を止める
+          loadedTrackId = null;
+          audio.pause();
+          return;
+        }
+        if (track.id === loadedTrackId) return;
+        loadedTrackId = track.id;
+        void load(track);
+      });
+    });
 
-  const unsubscribeVolume = volume.subscribe((value) => {
-    audio.volume = value;
+    $effect(() => {
+      audio.volume = player.volume;
+    });
   });
 
   if (!isEqualizerInitialized()) {
@@ -229,7 +229,7 @@ export function createPlaybackController(audio: HTMLAudioElement): PlaybackContr
 
   return {
     async togglePlayPause() {
-      if (!get(currentTrack)) return;
+      if (!player.currentTrack) return;
       if (audio.paused) {
         await play();
       } else {
@@ -250,8 +250,7 @@ export function createPlaybackController(audio: HTMLAudioElement): PlaybackContr
       scrubbing = value;
     },
     destroy() {
-      unsubscribeTrack();
-      unsubscribeVolume();
+      stopEffects();
       for (const [type, listener] of listeners) {
         audio.removeEventListener(type, listener);
       }

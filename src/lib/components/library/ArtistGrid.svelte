@@ -6,7 +6,7 @@
 <script lang="ts">
   import type { ArtistGroup } from '#lib/types/models.js';
   import { useArtistsGroupedQuery } from '#lib/queries/tracks.js';
-  import { playTrackFromQueue } from '#lib/stores/player.js';
+  import { playTrackFromQueue } from '#lib/stores/player.svelte.js';
   import { ui } from '#lib/stores/ui.svelte.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import LibraryGrid from './LibraryGrid.svelte';

@@ -7,14 +7,8 @@
   import type { Playlist } from '#lib/types/models.js';
   import { BaseContextMenu } from '#lib/components/ui/index.js';
   import { useDeletePlaylistMutation, useRenamePlaylistMutation } from '#lib/queries/playlists.js';
-  import {
-    playTrackFromQueue,
-    playQueue,
-    currentTrackIndex,
-    playShuffled
-  } from '#lib/stores/player.js';
+  import { player, playTrackFromQueue, playShuffled } from '#lib/stores/player.svelte.js';
   import { useTracksQuery } from '#lib/queries/tracks.js';
-  import { get } from 'svelte/store';
   import { confirmDestructive, promptText } from '#lib/utils/dialog.js';
   import { validatePlaylistName, toSafeString } from '#lib/utils/validation.js';
 
@@ -64,8 +58,8 @@
    * キューに追加
    */
   function handleAddToQueue() {
-    const queue = get(playQueue);
-    playQueue.set([...queue, ...playlistTracks]);
+    const queue = player.playQueue;
+    player.playQueue = [...queue, ...playlistTracks];
     onClose();
   }
 
@@ -73,12 +67,12 @@
    * 次に再生
    */
   function handlePlayNext() {
-    const queue = get(playQueue);
-    const currentIndex = get(currentTrackIndex);
+    const queue = player.playQueue;
+    const currentIndex = player.currentTrackIndex;
 
     const newQueue = [...queue];
     newQueue.splice(currentIndex + 1, 0, ...playlistTracks);
-    playQueue.set(newQueue);
+    player.playQueue = newQueue;
     onClose();
   }
 

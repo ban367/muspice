@@ -1,15 +1,9 @@
 <script lang="ts">
   import { useSetRatingMutation } from '#lib/queries/tracks.js';
-  import {
-    playTrackFromQueue,
-    currentTrack,
-    playQueue,
-    currentTrackIndex
-  } from '#lib/stores/player.js';
+  import { player, playTrackFromQueue } from '#lib/stores/player.svelte.js';
   import { ui, type ColumnWidths } from '#lib/stores/ui.svelte.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import { formatDuration } from '#lib/utils/format.js';
-  import { get } from 'svelte/store';
   import type { Track } from '#lib/types/models.js';
   import PlayingIndicator from './PlayingIndicator.svelte';
   import MetadataEditor from '../MetadataEditor.svelte';
@@ -212,17 +206,17 @@
   }
 
   function handlePlayNext() {
-    const queue = get(playQueue);
-    const currentIndex = get(currentTrackIndex);
+    const queue = player.playQueue;
+    const currentIndex = player.currentTrackIndex;
 
     const newQueue = [...queue];
     newQueue.splice(currentIndex + 1, 0, ...selectedTracks);
-    playQueue.set(newQueue);
+    player.playQueue = newQueue;
   }
 
   function handleAddToQueue() {
-    const queue = get(playQueue);
-    playQueue.set([...queue, ...selectedTracks]);
+    const queue = player.playQueue;
+    player.playQueue = [...queue, ...selectedTracks];
   }
 
   /**
@@ -385,7 +379,7 @@
               <div
                 class="track-row"
                 class:selected={selectedTrackIds.has(track.id)}
-                class:playing={$currentTrack?.id === track.id}
+                class:playing={player.currentTrack?.id === track.id}
                 class:dragging={isDragging && draggedTrackIds.includes(track.id)}
                 style="grid-template-columns: {gridTemplateColumns};"
                 draggable="true"
@@ -399,7 +393,7 @@
                 tabindex="0"
               >
                 <div class="col-number flex items-center justify-center">
-                  {#if $currentTrack?.id === track.id}
+                  {#if player.currentTrack?.id === track.id}
                     <PlayingIndicator size="small" />
                   {:else}
                     <span class="track-index">
@@ -449,7 +443,7 @@
             <div
               class="track-card"
               class:selected={selectedTrackIds.has(track.id)}
-              class:playing={$currentTrack?.id === track.id}
+              class:playing={player.currentTrack?.id === track.id}
               style="width: {cardWidth}px;"
               draggable="true"
               ondragstart={(e) => handleDragStart(e, track)}
@@ -469,7 +463,7 @@
                   alt="アルバムアート"
                   placeholderType="music"
                 />
-                {#if $currentTrack?.id === track.id}
+                {#if player.currentTrack?.id === track.id}
                   <div class="absolute inset-0 bg-black/50 flex items-center justify-center">
                     <PlayingIndicator size="large" />
                   </div>

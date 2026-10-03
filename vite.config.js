@@ -7,6 +7,8 @@ import tailwindcss from "@tailwindcss/vite";
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
+// @ts-expect-error process is a nodejs global
+const isVitest = Boolean(process.env.VITEST);
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
@@ -26,10 +28,13 @@ export default defineConfig(async () => ({
   ],
 
   // Vitest: ロジック（ストア・ユーティリティ）の単体テストをNode環境で実行する
+  // （Runesの$effectを動かすため、Svelteはクライアント向けにコンパイルする。vitest.environment.ts参照）
   test: {
     include: ["src/**/*.test.ts"],
-    environment: "node",
+    environment: "./vitest.environment.ts",
   },
+  // テスト時はsvelte本体もクライアント用（browser条件）を読み込む（サーバー用では$effectが動かない）
+  resolve: isVitest ? { conditions: ["browser"] } : undefined,
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //

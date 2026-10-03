@@ -1,21 +1,16 @@
 <script lang="ts">
   import {
-    currentTrack,
-    isPlaying,
-    currentTime,
-    duration,
-    volume,
-    progress,
+    player,
     formatTime,
-    hasNextTrack,
-    hasPreviousTrack,
-    isShuffleEnabled,
-    repeatMode,
     toggleShuffle,
     toggleRepeat,
     type RepeatMode
-  } from '#lib/stores/player.js';
-  import { createPlaybackController, type PlaybackController } from '#lib/stores/playback.js';
+  } from '#lib/stores/player.svelte.js';
+  import {
+    createPlaybackController,
+    type PlaybackController
+  } from '#lib/stores/playback.svelte.js';
+  import { untrack } from 'svelte';
   import AlbumArt from './AlbumArt.svelte';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import MarqueeText from './MarqueeText.svelte';
@@ -31,7 +26,9 @@
 
   $effect(() => {
     if (!audioElement) return;
-    const controller = createPlaybackController(audioElement);
+    const audio = audioElement;
+    // audio要素が変わったときだけ作り直す（作成中に読む再生状態には反応させない）
+    const controller = untrack(() => createPlaybackController(audio));
     playback = controller;
     return () => {
       controller.destroy();
@@ -40,7 +37,7 @@
   });
 
   // 再生中トラックのアルバムアート
-  const currentArtUrl = $derived(albumArtUrl($currentTrack?.id));
+  const currentArtUrl = $derived(albumArtUrl(player.currentTrack?.id));
 
   /**
    * バー上のマウス位置を0〜1の割合に変換
@@ -54,8 +51,8 @@
    * 進行バーの位置へシーク
    */
   function seekTo(clientX: number) {
-    if (!progressBar || !$duration) return;
-    playback?.seek(ratioAt(progressBar, clientX) * $duration);
+    if (!progressBar || !player.duration) return;
+    playback?.seek(ratioAt(progressBar, clientX) * player.duration);
   }
 
   function startDraggingProgress() {
@@ -77,7 +74,7 @@
    * 音量バーの位置に音量を合わせる
    */
   function setVolumeAt(clientX: number) {
-    if (volumeBar) volume.set(ratioAt(volumeBar, clientX));
+    if (volumeBar) player.volume = ratioAt(volumeBar, clientX);
   }
 
   function startDraggingVolume() {
@@ -99,11 +96,11 @@
    * ミュートを切り替え
    */
   function toggleMute() {
-    if ($volume > 0) {
-      previousVolume = $volume;
-      volume.set(0);
+    if (player.volume > 0) {
+      previousVolume = player.volume;
+      player.volume = 0;
     } else {
-      volume.set(previousVolume || 1);
+      player.volume = previousVolume || 1;
     }
   }
 
@@ -153,13 +150,13 @@
       case 'ArrowUp':
         if (withModifier) {
           event.preventDefault();
-          volume.set(Math.min(1, $volume + 0.1));
+          player.volume = Math.min(1, player.volume + 0.1);
         }
         break;
       case 'ArrowDown':
         if (withModifier) {
           event.preventDefault();
-          volume.set(Math.max(0, $volume - 0.1));
+          player.volume = Math.max(0, player.volume - 0.1);
         }
         break;
       case 'KeyM':
@@ -201,7 +198,7 @@
 
 <!-- プレイヤーUI -->
 <div class="player-container">
-  {#if $currentTrack}
+  {#if player.currentTrack}
     <!-- トラック情報 -->
     <div class="flex items-center gap-3 min-w-0">
       <div class="album-art">
@@ -209,11 +206,11 @@
       </div>
       <div class="min-w-0">
         <MarqueeText
-          text={$currentTrack.title || $currentTrack.fileName}
+          text={player.currentTrack.title || player.currentTrack.fileName}
           class="text-sm font-semibold mb-0.5"
         />
         <MarqueeText
-          text={`${$currentTrack.artist || '不明なアーティスト'}${$currentTrack.album ? ' • ' + $currentTrack.album : ''}`}
+          text={`${player.currentTrack.artist || '不明なアーティスト'}${player.currentTrack.album ? ' • ' + player.currentTrack.album : ''}`}
           class="text-xs text-text-secondary"
         />
       </div>
@@ -224,7 +221,7 @@
       <div class="flex justify-center items-center gap-3">
         <button
           class="control-button"
-          class:active={$isShuffleEnabled}
+          class:active={player.isShuffleEnabled}
           onclick={toggleShuffle}
           title="シャッフル (S)"
           aria-label="シャッフル"
@@ -245,7 +242,7 @@
         <button
           class="control-button"
           onclick={() => playback?.previous()}
-          disabled={!$hasPreviousTrack}
+          disabled={!player.hasPreviousTrack}
           title="前へ (Ctrl+←)"
           aria-label="前のトラック"
         >
@@ -263,10 +260,10 @@
         <button
           class="play-pause-button"
           onclick={() => playback?.togglePlayPause()}
-          title={$isPlaying ? '一時停止 (Space)' : '再生 (Space)'}
-          aria-label={$isPlaying ? '一時停止' : '再生'}
+          title={player.isPlaying ? '一時停止 (Space)' : '再生 (Space)'}
+          aria-label={player.isPlaying ? '一時停止' : '再生'}
         >
-          {#if $isPlaying}
+          {#if player.isPlaying}
             <svg
               xmlns="http://www.w3.org/2000/svg"
               width="28"
@@ -293,7 +290,7 @@
         <button
           class="control-button"
           onclick={() => playback?.next()}
-          disabled={!$hasNextTrack}
+          disabled={!player.hasNextTrack}
           title="次へ (Ctrl+→)"
           aria-label="次のトラック"
         >
@@ -310,11 +307,11 @@
 
         <button
           class="control-button"
-          class:active={$repeatMode !== 'off'}
+          class:active={player.repeatMode !== 'off'}
           onclick={toggleRepeat}
-          title="リピート (R): {$repeatMode === 'off'
+          title="リピート (R): {player.repeatMode === 'off'
             ? 'オフ'
-            : $repeatMode === 'all'
+            : player.repeatMode === 'all'
               ? '全曲'
               : '1曲'}"
           aria-label="リピート"
@@ -326,9 +323,9 @@
             viewBox="0 0 24 24"
             fill="currentColor"
           >
-            <path d={getRepeatIcon($repeatMode)} />
+            <path d={getRepeatIcon(player.repeatMode)} />
           </svg>
-          {#if $repeatMode === 'one'}
+          {#if player.repeatMode === 'one'}
             <span class="absolute bottom-0.5 right-0.5 text-[0.5rem] font-bold">1</span>
           {/if}
         </button>
@@ -337,7 +334,7 @@
       <!-- 進行バー -->
       <div class="flex items-center gap-2 w-full max-w-[600px]">
         <span class="text-[0.7rem] text-text-secondary min-w-[35px] text-center"
-          >{formatTime($currentTime)}</span
+          >{formatTime(player.currentTime)}</span
         >
         <div
           bind:this={progressBar}
@@ -346,7 +343,7 @@
           aria-label="再生位置"
           aria-valuemin="0"
           aria-valuemax="100"
-          aria-valuenow={$progress}
+          aria-valuenow={player.progress}
           tabindex="0"
           onclick={(e) => seekTo(e.clientX)}
           onkeydown={(e) => {
@@ -358,11 +355,11 @@
           }}
           onmousedown={startDraggingProgress}
         >
-          <div class="progress-fill-base" style="width: {$progress}%"></div>
-          <div class="progress-handle" style="left: {$progress}%"></div>
+          <div class="progress-fill-base" style="width: {player.progress}%"></div>
+          <div class="progress-handle" style="left: {player.progress}%"></div>
         </div>
         <span class="text-[0.7rem] text-text-secondary min-w-[35px] text-center"
-          >{formatTime($duration)}</span
+          >{formatTime(player.duration)}</span
         >
       </div>
     </div>
@@ -376,7 +373,7 @@
           title="ミュート (M)"
           aria-label="ミュート"
         >
-          {#if $volume === 0}
+          {#if player.volume === 0}
             <svg
               xmlns="http://www.w3.org/2000/svg"
               width="18"
@@ -388,7 +385,7 @@
                 d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"
               />
             </svg>
-          {:else if $volume < 0.5}
+          {:else if player.volume < 0.5}
             <svg
               xmlns="http://www.w3.org/2000/svg"
               width="18"
@@ -421,20 +418,20 @@
           aria-label="音量"
           aria-valuemin="0"
           aria-valuemax="100"
-          aria-valuenow={$volume * 100}
+          aria-valuenow={player.volume * 100}
           tabindex="0"
           onclick={(e) => setVolumeAt(e.clientX)}
           onkeydown={(e) => {
             if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
-              volume.set(Math.max(0, $volume - 0.1));
+              player.volume = Math.max(0, player.volume - 0.1);
             } else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
-              volume.set(Math.min(1, $volume + 0.1));
+              player.volume = Math.min(1, player.volume + 0.1);
             }
           }}
           onmousedown={startDraggingVolume}
         >
-          <div class="progress-fill-base" style="width: {$volume * 100}%"></div>
-          <div class="progress-handle" style="left: {$volume * 100}%"></div>
+          <div class="progress-fill-base" style="width: {player.volume * 100}%"></div>
+          <div class="progress-handle" style="left: {player.volume * 100}%"></div>
         </div>
       </div>
     </div>

@@ -5,5 +5,5 @@
     "strict": true
   },
   // $app/tsconfig（svelte-kit syncが生成）はinclude/excludeを持たないため、ここで指定する
-  "include": ["src", "vite.config.js"]
+  "include": ["src", "vite.config.js", "vitest.environment.ts"]
 }
