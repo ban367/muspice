@@ -16,7 +16,7 @@ import { createToneWav } from './media';
 /** アートがないトラックに返すURL（読み込みエラーになり、実アプリの404と同じ扱いになる） */
 const MISSING_ALBUM_ART_URL = 'data:image/png;base64,';
 
-/** フォルダ選択ダイアログで選ばれたことにするパス */
+/** フォルダ選択ダイアログで選ばれたことにするパス（`setFolderResult`で切り替える） */
 const MOCK_IMPORT_FOLDER = '/Users/demo/Music/Mock Import';
 
 /** 開発者ツールから操作するためのハンドル */
@@ -25,6 +25,13 @@ interface MuspiceMockHandle {
   emit(event: string, payload?: unknown): void;
   /** 確認ダイアログ（dialogプラグインのconfirm）の回答を切り替える。既定はOK */
   setConfirmResult(result: boolean): void;
+  /**
+   * フォルダ選択ダイアログで選ばれたことにするパスを切り替える（nullはキャンセル）
+   *
+   * 既定のパスはライブラリフォルダの中のため、転送先デバイスの追加を確認するときは
+   * ライブラリの外のパス（例: `/Volumes/NEW_SD`）にする。
+   */
+  setFolderResult(path: string | null): void;
 }
 
 /** モックで使う`__TAURI_INTERNALS__`の一部（公開型がないため最小限を定義する） */
@@ -63,6 +70,7 @@ export function setupTauriMock(): void {
   // 購読を解除しないため、解除済みのコールバックへ送信して警告が出てしまう
   const listeners = new Map<string, Set<number>>();
   let confirmResult = true;
+  let folderResult: string | null = MOCK_IMPORT_FOLDER;
 
   function emit(event: string, payload?: unknown): void {
     for (const handlerId of [...(listeners.get(event) ?? [])]) {
@@ -92,7 +100,7 @@ export function setupTauriMock(): void {
         return null;
       case 'plugin:dialog|open': {
         const options = args.options as { directory?: boolean } | undefined;
-        return options?.directory ? MOCK_IMPORT_FOLDER : null;
+        return options?.directory ? folderResult : null;
       }
       case 'plugin:dialog|message': {
         const answer = answerMessageDialog(args.buttons, confirmResult);
@@ -130,6 +138,9 @@ export function setupTauriMock(): void {
     emit,
     setConfirmResult: (result) => {
       confirmResult = result;
+    },
+    setFolderResult: (path) => {
+      folderResult = path;
     }
   };
 

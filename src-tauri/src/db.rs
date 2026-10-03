@@ -136,6 +136,33 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         [],
     )?;
 
+    // 転送先デバイス（SDカードなどのフォルダ。同期する対象をデバイスごとに記録する）
+    // デバイス上のファイルの一覧は、デバイス側の管理ファイルに記録する（`device_manifest`）
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS sync_devices (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            path TEXT NOT NULL,
+            sync_all INTEGER NOT NULL DEFAULT 0,
+            remove_unselected INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now')),
+            last_synced_at TEXT
+        )",
+        [],
+    )?;
+
+    // デバイスに同期するプレイリスト
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS sync_device_playlists (
+            device_id TEXT NOT NULL,
+            playlist_id TEXT NOT NULL,
+            PRIMARY KEY (device_id, playlist_id),
+            FOREIGN KEY (device_id) REFERENCES sync_devices(id) ON DELETE CASCADE,
+            FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
+
     // パフォーマンス向上のためのインデックス作成
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_tracks_artist ON tracks(artist)",
@@ -309,6 +336,8 @@ mod tests {
         assert!(tables.contains(&"playlists".to_string()));
         assert!(tables.contains(&"playlist_tracks".to_string()));
         assert!(tables.contains(&"library_folders".to_string()));
+        assert!(tables.contains(&"sync_devices".to_string()));
+        assert!(tables.contains(&"sync_device_playlists".to_string()));
 
         // テスト後にクリーンアップ
         drop(conn);

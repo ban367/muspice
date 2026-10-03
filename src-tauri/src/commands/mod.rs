@@ -5,6 +5,7 @@
 
 use crate::error::{AppError, AppResult};
 
+mod devices;
 mod import;
 mod library_folders;
 mod metadata_cmd;
@@ -22,6 +23,12 @@ pub use import::import_folder;
 pub use library_folders::{get_library_folders, remove_library_folder, rescan_library_folder};
 // 自動の再スキャン（`library_sync`）が使う
 pub(crate) use library_folders::rescan_folder;
+
+// 転送先デバイス（SDカードなどのフォルダ）の登録・設定・同期
+pub use devices::{
+    cancel_device_sync, get_sync_devices, plan_device_sync, register_sync_device,
+    relink_sync_device, remove_sync_device, run_device_sync, update_sync_device,
+};
 
 // トラック取得・検索・フィルタリング・グループ化・削除
 pub use tracks::{

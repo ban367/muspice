@@ -12,6 +12,9 @@ export type {
   ArtistGroup,
   DeleteFailure,
   DeleteResult,
+  DeviceSyncPlan,
+  DeviceSyncProgress,
+  DeviceSyncResult,
   DuplicateAction,
   FilterOptions,
   GenreGroup,
@@ -27,6 +30,8 @@ export type {
   RescanResult,
   Settings,
   StartupPage,
+  SyncDevice,
+  SyncDeviceConfig,
   Theme,
   Track,
   VolumeNormalization
