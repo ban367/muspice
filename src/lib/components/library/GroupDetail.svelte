@@ -1,11 +1,11 @@
 <script lang="ts">
-  import type { Track, AlbumGroup, ArtistGroup, GenreGroup } from '$lib/types/models';
-  import { playTrackFromQueue, currentTrack, playShuffled } from '$lib/stores/player';
-  import { albumArtUrl } from '$lib/utils/albumArt';
-  import { formatDuration, formatTotalDuration } from '$lib/utils/format';
+  import type { Track, AlbumGroup, ArtistGroup, GenreGroup } from '#lib/types/models.js';
+  import { playTrackFromQueue, currentTrack, playShuffled } from '#lib/stores/player.js';
+  import { albumArtUrl } from '#lib/utils/albumArt.js';
+  import { formatDuration, formatTotalDuration } from '#lib/utils/format.js';
   import PlayingIndicator from './PlayingIndicator.svelte';
   import AlbumArt from '../AlbumArt.svelte';
-  import { Modal } from '$lib/components/ui';
+  import { Modal } from '#lib/components/ui/index.js';
 
   // Props
   interface Props {

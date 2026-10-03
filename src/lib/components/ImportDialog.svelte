@@ -1,12 +1,12 @@
 <script lang="ts">
-  import { events } from '$lib/bindings';
+  import { events } from '#lib/bindings.js';
   import { open } from '@tauri-apps/plugin-dialog';
-  import type { DuplicateAction, ImportResult } from '$lib/types/models';
-  import { validateFilePath } from '$lib/utils/validation';
-  import { isImportDialogOpen } from '$lib/stores/ui';
-  import { toErrorMessage } from '$lib/stores/error';
-  import { useImportFolderMutation } from '$lib/queries/tracks';
-  import { Modal } from '$lib/components/ui';
+  import type { DuplicateAction, ImportResult } from '#lib/types/models.js';
+  import { validateFilePath } from '#lib/utils/validation.js';
+  import { isImportDialogOpen } from '#lib/stores/ui.js';
+  import { toErrorMessage } from '#lib/stores/error.js';
+  import { useImportFolderMutation } from '#lib/queries/tracks.js';
+  import { Modal } from '#lib/components/ui/index.js';
 
   interface Props {
     onClose?: () => void;

@@ -14,10 +14,10 @@
     toggleShuffle,
     toggleRepeat,
     type RepeatMode
-  } from '$lib/stores/player';
-  import { createPlaybackController, type PlaybackController } from '$lib/stores/playback';
+  } from '#lib/stores/player.js';
+  import { createPlaybackController, type PlaybackController } from '#lib/stores/playback.js';
   import AlbumArt from './AlbumArt.svelte';
-  import { albumArtUrl } from '$lib/utils/albumArt';
+  import { albumArtUrl } from '#lib/utils/albumArt.js';
   import MarqueeText from './MarqueeText.svelte';
 
   let audioElement = $state<HTMLAudioElement>();

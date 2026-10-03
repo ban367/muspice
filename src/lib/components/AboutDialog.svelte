@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { isAboutDialogOpen } from '$lib/stores/ui';
-  import { useOpenProjectPageMutation } from '$lib/queries/system';
-  import { Modal } from '$lib/components/ui';
+  import { isAboutDialogOpen } from '#lib/stores/ui.js';
+  import { useOpenProjectPageMutation } from '#lib/queries/system.js';
+  import { Modal } from '#lib/components/ui/index.js';
 
   const openProjectPage = useOpenProjectPageMutation();
 

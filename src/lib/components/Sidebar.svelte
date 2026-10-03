@@ -1,23 +1,23 @@
 <script lang="ts">
   import { resolve } from '$app/paths';
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import {
     usePlaylistsQuery,
     useAddTrackToPlaylistMutation,
     useCreatePlaylistMutation
-  } from '$lib/queries/playlists';
-  import { validatePlaylistName, toSafeString } from '$lib/utils/validation';
-  import { promptText } from '$lib/utils/dialog';
-  import { isImportDialogOpen, isSidebarOpen } from '$lib/stores/ui';
-  import { useGenresGroupedQuery } from '$lib/queries/tracks';
-  import type { Playlist } from '$lib/types/models';
+  } from '#lib/queries/playlists.js';
+  import { validatePlaylistName, toSafeString } from '#lib/utils/validation.js';
+  import { promptText } from '#lib/utils/dialog.js';
+  import { isImportDialogOpen, isSidebarOpen } from '#lib/stores/ui.js';
+  import { useGenresGroupedQuery } from '#lib/queries/tracks.js';
+  import type { Playlist } from '#lib/types/models.js';
   import PlaylistContextMenu from './PlaylistContextMenu.svelte';
   import MarqueeText from './MarqueeText.svelte';
 
   // パス変更時にサイドバーを閉じる（モバイル用）
   let previousPath = $state('');
   $effect(() => {
-    const path = $page.url.pathname;
+    const path = page.url.pathname;
     if (previousPath && path !== previousPath) {
       // パスが変更されたらサイドバーを閉じる（モバイル幅の場合のみ）
       if (typeof window !== 'undefined' && window.innerWidth <= 1024) {
@@ -40,7 +40,7 @@
   let isGenreExpanded = $state(false);
 
   // 現在のパスからアクティブなページを判定
-  const currentPath = $derived($page.url.pathname);
+  const currentPath = $derived(page.url.pathname);
 
   // クエリとミューテーション
   const playlistsQuery = usePlaylistsQuery();
@@ -168,7 +168,7 @@
     <ul class="list-none m-0 p-0">
       <li>
         <a
-          href={resolve('/library/songs')}
+          href={resolve('library/songs')}
           class="nav-item-base"
           class:active={currentPath === '/library/songs'}
         >
@@ -189,7 +189,7 @@
       </li>
       <li>
         <a
-          href={resolve('/library/albums')}
+          href={resolve('library/albums')}
           class="nav-item-base"
           class:active={currentPath === '/library/albums'}
         >
@@ -209,7 +209,7 @@
       </li>
       <li>
         <a
-          href={resolve('/library/artists')}
+          href={resolve('library/artists')}
           class="nav-item-base"
           class:active={currentPath === '/library/artists'}
         >
@@ -230,7 +230,7 @@
       <li>
         <div class="genre-nav-container">
           <a
-            href={resolve('/library/genres')}
+            href={resolve('library/genres')}
             class="nav-item-base flex-1"
             class:active={currentPath === '/library/genres'}
           >
@@ -272,7 +272,7 @@
             {#each genres as genre (genre.name)}
               <li>
                 <a
-                  href={resolve(`/library/genres/${encodeURIComponent(genre.name)}`)}
+                  href={resolve(`library/genres/${encodeURIComponent(genre.name)}`)}
                   class="genre-item"
                   class:active={currentPath === `/library/genres/${encodeURIComponent(genre.name)}`}
                 >
@@ -293,7 +293,7 @@
     <ul class="list-none m-0 p-0">
       <li>
         <a
-          href={resolve('/library/recent')}
+          href={resolve('library/recent')}
           class="nav-item-base"
           class:active={currentPath === '/library/recent'}
         >
@@ -316,7 +316,7 @@
       </li>
       <li>
         <a
-          href={resolve('/library/mostplayed')}
+          href={resolve('library/mostplayed')}
           class="nav-item-base"
           class:active={currentPath === '/library/mostplayed'}
         >
@@ -377,7 +377,7 @@
         {#each playlistsQuery.data as playlist (playlist.id)}
           <li>
             <a
-              href={resolve(`/playlists/${playlist.id}`)}
+              href={resolve(`playlists/${playlist.id}`)}
               class="nav-item-base relative"
               class:active={currentPath === `/playlists/${playlist.id}`}
               ondragover={handleDragOver}

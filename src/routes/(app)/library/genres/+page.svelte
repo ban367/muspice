@@ -1,7 +1,7 @@
 <script lang="ts">
-  import GenreGrid from '$lib/components/library/GenreGrid.svelte';
-  import LibraryBrowsePage from '$lib/components/library/LibraryBrowsePage.svelte';
-  import { useGenresGroupedQuery } from '$lib/queries/tracks';
+  import GenreGrid from '#lib/components/library/GenreGrid.svelte';
+  import LibraryBrowsePage from '#lib/components/library/LibraryBrowsePage.svelte';
+  import { useGenresGroupedQuery } from '#lib/queries/tracks.js';
 
   // クエリ
   const genresQuery = useGenresGroupedQuery();

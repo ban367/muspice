@@ -4,7 +4,7 @@
 -->
 <script lang="ts">
   import Modal from './Modal.svelte';
-  import { textPromptRequest } from '$lib/utils/dialog';
+  import { textPromptRequest } from '#lib/utils/dialog.js';
 
   const id = $props.id();
   const request = $derived($textPromptRequest);

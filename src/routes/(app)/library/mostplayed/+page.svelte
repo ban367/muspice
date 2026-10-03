@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { useMostPlayedTracksQuery } from '$lib/queries/tracks';
-  import TrackList from '$lib/components/library/TrackList.svelte';
+  import { useMostPlayedTracksQuery } from '#lib/queries/tracks.js';
+  import TrackList from '#lib/components/library/TrackList.svelte';
 
   // よく再生する曲を取得
   const mostPlayedQuery = useMostPlayedTracksQuery(50);

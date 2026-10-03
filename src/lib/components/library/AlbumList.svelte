@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { AlbumGroup } from '$lib/types/models';
-  import { albumArtUrl } from '$lib/utils/albumArt';
+  import type { AlbumGroup } from '#lib/types/models.js';
+  import { albumArtUrl } from '#lib/utils/albumArt.js';
   import MarqueeText from '../MarqueeText.svelte';
   import AlbumArt from '../AlbumArt.svelte';
 

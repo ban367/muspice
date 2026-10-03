@@ -5,7 +5,7 @@
  */
 
 import { createMutation } from '@tanstack/svelte-query';
-import { commands } from '$lib/bindings';
+import { commands } from '#lib/bindings.js';
 import { withErrorToast } from './shared';
 
 /**

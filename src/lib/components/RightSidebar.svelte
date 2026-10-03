@@ -5,14 +5,14 @@
     isRightSidebarPinned,
     activeRightSidebarPanel,
     type RightSidebarPanel
-  } from '$lib/stores/ui';
+  } from '#lib/stores/ui.js';
   import {
     playQueue,
     currentTrack,
     upcomingTracks,
     removeFromQueue,
     clearQueue
-  } from '$lib/stores/player';
+  } from '#lib/stores/player.js';
   import MarqueeText from './MarqueeText.svelte';
   import EqualizerPanel from './EqualizerPanel.svelte';
 

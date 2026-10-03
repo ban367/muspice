@@ -225,7 +225,7 @@ body {
   @apply w-16 h-16 text-text-dimmed/50 mb-4;
 }
 
-/* モーダルのパネル（$lib/components/ui/Modal.svelte が使う。DaisyUIのmodalと競合しないよう独自クラス名にしている）
+/* モーダルのパネル（#lib/components/ui/Modal.svelte が使う。DaisyUIのmodalと競合しないよう独自クラス名にしている）
    最大幅はModalのclassで指定する。ここはレイヤー外のため、ここで指定するとmax-w-*のユーティリティより優先されてしまう */
 .modal-content {
   @apply bg-base-300 rounded-xl w-full max-h-[78vh] flex flex-col overflow-hidden shadow-xl;

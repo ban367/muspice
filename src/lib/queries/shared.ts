@@ -2,7 +2,7 @@
  * クエリ／ミューテーション共通のヘルパーとキャッシュ方針
  */
 
-import { handleError } from '$lib/stores/error';
+import { handleError } from '#lib/stores/error.js';
 
 const MINUTE = 60 * 1000;
 

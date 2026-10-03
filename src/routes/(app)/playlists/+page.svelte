@@ -1,6 +1,6 @@
 <script lang="ts">
   import { resolve } from '$app/paths';
-  import { usePlaylistsQuery } from '$lib/queries/playlists';
+  import { usePlaylistsQuery } from '#lib/queries/playlists.js';
 
   const playlistsQuery = usePlaylistsQuery();
 </script>
@@ -30,7 +30,7 @@
     {:else if playlistsQuery.data && playlistsQuery.data.length > 0}
       <div class="playlists-grid">
         {#each playlistsQuery.data as playlist (playlist.id)}
-          <a href={resolve(`/playlists/${playlist.id}`)} class="playlist-card">
+          <a href={resolve(`playlists/${playlist.id}`)} class="playlist-card">
             <div class="playlist-icon">
               <svg
                 xmlns="http://www.w3.org/2000/svg"

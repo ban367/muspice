@@ -4,8 +4,8 @@
   ContextMenuとGroupContextMenuで共通のプレイリスト追加サブメニューを独立化。
 -->
 <script lang="ts">
-  import type { Track, Playlist } from '$lib/types/models';
-  import { usePlaylistsQuery, useAddTrackToPlaylistMutation } from '$lib/queries/playlists';
+  import type { Track, Playlist } from '#lib/types/models.js';
+  import { usePlaylistsQuery, useAddTrackToPlaylistMutation } from '#lib/queries/playlists.js';
 
   // Props
   interface Props {

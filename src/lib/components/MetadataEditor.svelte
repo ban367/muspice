@@ -1,18 +1,18 @@
 <script lang="ts">
-  import type { Track, Metadata } from '$lib/types/models';
+  import type { Track, Metadata } from '#lib/types/models.js';
   import {
     useUpdateTrackMetadataMutation,
     useUpdateTrackMetadataWithFileMutation,
     useUpdateMultipleTracksMutation
-  } from '$lib/queries/tracks';
+  } from '#lib/queries/tracks.js';
   import {
     validateYear,
     validateFieldLength,
     combineValidationResults,
     toSafeString
-  } from '$lib/utils/validation';
-  import { toErrorMessage } from '$lib/stores/error';
-  import { Modal } from '$lib/components/ui';
+  } from '#lib/utils/validation.js';
+  import { toErrorMessage } from '#lib/stores/error.js';
+  import { Modal } from '#lib/components/ui/index.js';
 
   interface Props {
     tracks: Track[];

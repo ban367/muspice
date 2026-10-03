@@ -32,7 +32,7 @@ jobs:
         with:
           node-version: '24'
 
-      # moderate以上で失敗させる（lowのcookieはSvelteKit 2系の制約で受容済み）
+      # moderate以上で失敗させる
       - name: Audit npm dependencies
         run: npm audit --audit-level=moderate
 

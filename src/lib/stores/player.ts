@@ -1,5 +1,5 @@
 import { writable, derived, get, type Writable, type Readable } from 'svelte/store';
-import type { Track } from '$lib/types/models';
+import type { Track } from '#lib/types/models.js';
 
 /**
  * 再生状態を管理するストア

@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { useTracksQuery, useSearchQuery } from '$lib/queries/tracks';
-  import { sanitizeSearchQuery } from '$lib/utils/validation';
-  import TrackList from '$lib/components/library/TrackList.svelte';
-  import LibraryHeader from '$lib/components/library/LibraryHeader.svelte';
+  import { useTracksQuery, useSearchQuery } from '#lib/queries/tracks.js';
+  import { sanitizeSearchQuery } from '#lib/utils/validation.js';
+  import TrackList from '#lib/components/library/TrackList.svelte';
+  import LibraryHeader from '#lib/components/library/LibraryHeader.svelte';
 
   // 表示モード
   let displayMode = $state<'grid' | 'list'>('list');

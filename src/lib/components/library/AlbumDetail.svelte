@@ -1,8 +1,8 @@
 <script lang="ts">
-  import type { AlbumGroup, Track } from '$lib/types/models';
-  import { playTrackFromQueue, currentTrack, playShuffled } from '$lib/stores/player';
-  import { albumArtUrl } from '$lib/utils/albumArt';
-  import { formatDuration, formatTotalDuration } from '$lib/utils/format';
+  import type { AlbumGroup, Track } from '#lib/types/models.js';
+  import { playTrackFromQueue, currentTrack, playShuffled } from '#lib/stores/player.js';
+  import { albumArtUrl } from '#lib/utils/albumArt.js';
+  import { formatDuration, formatTotalDuration } from '#lib/utils/format.js';
   import PlayingIndicator from './PlayingIndicator.svelte';
   import MarqueeText from '../MarqueeText.svelte';
   import AlbumArt from '../AlbumArt.svelte';

@@ -11,9 +11,9 @@
   import type { Snippet } from 'svelte';
   import { onDestroy } from 'svelte';
   import LibraryHeader from './LibraryHeader.svelte';
-  import { browseSearchQuery } from '$lib/stores/ui';
-  import { createSearchDebounce } from '$lib/utils/debounce';
-  import { resolveSelectedItem } from '$lib/utils/selection';
+  import { browseSearchQuery } from '#lib/stores/ui.js';
+  import { createSearchDebounce } from '#lib/utils/debounce.js';
+  import { resolveSelectedItem } from '#lib/utils/selection.js';
 
   // Props
   interface Props {

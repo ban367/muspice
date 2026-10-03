@@ -9,8 +9,8 @@
     isBuiltinPreset,
     type BuiltinPresetName,
     type EQFrequency
-  } from '$lib/stores/equalizer';
-  import { confirmDestructive } from '$lib/utils/dialog';
+  } from '#lib/stores/equalizer.js';
+  import { confirmDestructive } from '#lib/utils/dialog.js';
 
   // ビルトインプリセットの選択肢
   const builtinPresetOptions: BuiltinPresetName[] = [

@@ -8,7 +8,7 @@
  * ハンドラ表の型は`bindings.ts`の`commands`から導出しているため、Rust側でコマンドが
  * 追加・変更されてバインディングが再生成されると、ここが型エラーになり追随が必要になる。
  */
-import type { commands } from '$lib/bindings';
+import type { commands } from '#lib/bindings.js';
 import type {
   AlbumGroup,
   AppError,
@@ -20,7 +20,7 @@ import type {
   Playlist,
   Settings,
   Track
-} from '$lib/types/models';
+} from '#lib/types/models.js';
 import { ALBUMS_WITHOUT_ART, createFixturePlaylists, createFixtureTracks } from './fixtures';
 import { createAlbumArt } from './media';
 

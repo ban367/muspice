@@ -1,9 +1,9 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
-  import type { Pathname } from '$app/types';
-  import { useSettingsQuery } from '$lib/queries/settings';
-  import { getLastPage } from '$lib/stores/ui';
+  import type { Path } from '$app/types';
+  import { useSettingsQuery } from '#lib/queries/settings.js';
+  import { getLastPage } from '#lib/stores/ui.js';
 
   const settingsQuery = useSettingsQuery();
   let redirected = false;
@@ -15,9 +15,12 @@
     redirected = true;
 
     const lastPage = settingsQuery.data?.startupPage === 'lastOpened' ? getLastPage() : null;
-    goto(lastPage ? resolve(lastPage as Pathname) : resolve('/library/songs'), {
-      replaceState: true
-    });
+    const songsPage = resolve('library/songs');
+    // 記録はpathname（先頭が'/'）のため、'/'を外してresolveに渡す
+    // （resolveは先頭が'/'の文字列をルートIDとして扱い、'(...)'を含むジャンル名をルートグループとして消してしまう）
+    const target = lastPage ? resolve(lastPage.slice(1) as Path) : songsPage;
+    // 記録した画面が現在のルートにない場合、gotoは拒否されるため曲一覧を開く
+    goto(target, { replace: true }).catch(() => goto(songsPage, { replace: true }));
   });
 </script>
 

@@ -8,8 +8,8 @@
 -->
 <script lang="ts" generics="T extends AlbumGroup | ArtistGroup | GenreGroup">
   import type { Snippet } from 'svelte';
-  import type { AlbumGroup, ArtistGroup, GenreGroup } from '$lib/types/models';
-  import { browseSearchQuery } from '$lib/stores/ui';
+  import type { AlbumGroup, ArtistGroup, GenreGroup } from '#lib/types/models.js';
+  import { browseSearchQuery } from '#lib/stores/ui.js';
   import GroupContextMenu from '../GroupContextMenu.svelte';
 
   // Props

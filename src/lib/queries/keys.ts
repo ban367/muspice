@@ -9,7 +9,7 @@
  * お気に入りなど`['tracks', ...]`で始まる全クエリに波及する。
  */
 
-import type { FilterOptions } from '$lib/types/models';
+import type { FilterOptions } from '#lib/types/models.js';
 
 export const queryKeys = {
   /** トラック関連（一覧・検索・フィルタ・再生統計） */

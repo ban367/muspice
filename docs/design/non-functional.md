@@ -25,7 +25,7 @@
   - 本番は `script-src 'self'`（SvelteKitの起動用インラインscriptはTauriがビルド時にハッシュを付与）
   - Vite開発サーバー（HMR）向けの許可は `devCsp` に分離
 - `freezePrototype` を有効化
-- `window.confirm` / `window.prompt` は使わず、`$lib/utils/dialog` の `confirmDestructive` / `promptText` を `await` する（ESLintで禁止。前者はdialogプラグインにより非同期化され、後者はmacOSのWebViewで動作しない）
+- `window.confirm` / `window.prompt` は使わず、`#lib/utils/dialog` の `confirmDestructive` / `promptText` を `await` する（ESLintで禁止。前者はdialogプラグインにより非同期化され、後者はmacOSのWebViewで動作しない）
 - 外部リンクはWebViewから開けないため、プロジェクトのページは固定URLを開く `open_project_page` コマンドで開く（任意のURLを開くコマンドは公開しない）
 
 ### 依存関係の脆弱性監視
@@ -34,12 +34,11 @@
 - Dependabotはminor/patchをエコシステムごとに1つのPRへまとめる（メジャー更新は個別PR）
 - 上流の対応待ちで受容しているアドバイザリ（解消条件を満たしたら再確認する）
 
-| 対象                    | アドバイザリ                      | 経路                        | 受容理由・解消条件                                             |
-| ----------------------- | --------------------------------- | --------------------------- | -------------------------------------------------------------- |
-| npm `cookie <0.7.0`     | GHSA-pxg6-pf52-xh8x（low）        | `@sveltejs/kit` 2.x         | サーバーを同梱しないSPAのため到達不能。SvelteKit 3で解消見込み |
-| Rust `glib 0.18`        | RUSTSEC-2024-0429（unsound）      | Tauri → muda → gtk（Linux） | TauriのGTK4移行待ち                                            |
-| Rust `proc-macro-error` | RUSTSEC-2024-0370（unmaintained） | glib-macros（同上）         | 同上                                                           |
-| Rust `paste`            | RUSTSEC-2024-0436（unmaintained） | lofty / specta のproc-macro | 上流の置き換え待ち                                             |
+| 対象                    | アドバイザリ                      | 経路                        | 受容理由・解消条件  |
+| ----------------------- | --------------------------------- | --------------------------- | ------------------- |
+| Rust `glib 0.18`        | RUSTSEC-2024-0429（unsound）      | Tauri → muda → gtk（Linux） | TauriのGTK4移行待ち |
+| Rust `proc-macro-error` | RUSTSEC-2024-0370（unmaintained） | glib-macros（同上）         | 同上                |
+| Rust `paste`            | RUSTSEC-2024-0436（unmaintained） | lofty / specta のproc-macro | 上流の置き換え待ち  |
 
 ## 可用性・運用
 

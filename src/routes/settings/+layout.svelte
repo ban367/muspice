@@ -1,6 +1,6 @@
 <script lang="ts">
   import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
-  import { Toast } from '$lib/components/ui';
+  import { Toast } from '#lib/components/ui/index.js';
   import '../../app.css';
 
   let { children } = $props();

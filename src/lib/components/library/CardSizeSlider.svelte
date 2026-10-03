@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { gridCardSize, MIN_CARD_SIZE, MAX_CARD_SIZE } from '$lib/stores/ui';
+  import { gridCardSize, MIN_CARD_SIZE, MAX_CARD_SIZE } from '#lib/stores/ui.js';
 
   // サイズを変更
   function handleSizeChange(event: Event) {

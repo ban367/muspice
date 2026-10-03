@@ -1,10 +1,10 @@
 <script lang="ts">
-  import type { AlbumGroup } from '$lib/types/models';
-  import AlbumGrid from '$lib/components/library/AlbumGrid.svelte';
-  import AlbumList from '$lib/components/library/AlbumList.svelte';
-  import AlbumDetail from '$lib/components/library/AlbumDetail.svelte';
-  import LibraryBrowsePage from '$lib/components/library/LibraryBrowsePage.svelte';
-  import { useAlbumsGroupedQuery } from '$lib/queries/tracks';
+  import type { AlbumGroup } from '#lib/types/models.js';
+  import AlbumGrid from '#lib/components/library/AlbumGrid.svelte';
+  import AlbumList from '#lib/components/library/AlbumList.svelte';
+  import AlbumDetail from '#lib/components/library/AlbumDetail.svelte';
+  import LibraryBrowsePage from '#lib/components/library/LibraryBrowsePage.svelte';
+  import { useAlbumsGroupedQuery } from '#lib/queries/tracks.js';
 
   // クエリ
   const albumsQuery = useAlbumsGroupedQuery();

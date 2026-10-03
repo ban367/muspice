@@ -4,15 +4,15 @@ import {
   useQueryClient,
   type QueryClient
 } from '@tanstack/svelte-query';
-import { commands } from '$lib/bindings';
+import { commands } from '#lib/bindings.js';
 import type {
   Track,
   Metadata,
   DeleteResult,
   DuplicateAction,
   FilterOptions
-} from '$lib/types/models';
-import { handleError, showSuccess, showWarning } from '$lib/stores/error';
+} from '#lib/types/models.js';
+import { handleError, showSuccess, showWarning } from '#lib/stores/error.js';
 import { queryKeys } from './keys';
 import { CACHE_POLICY, withErrorToast } from './shared';
 

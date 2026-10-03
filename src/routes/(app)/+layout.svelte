@@ -1,15 +1,15 @@
 <script lang="ts">
   import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
-  import { events } from '$lib/bindings';
+  import { events } from '#lib/bindings.js';
   import { onMount } from 'svelte';
   import { afterNavigate } from '$app/navigation';
-  import { TextPromptDialog, Toast } from '$lib/components/ui';
-  import Player from '$lib/components/Player.svelte';
-  import Sidebar from '$lib/components/Sidebar.svelte';
-  import RightSidebar from '$lib/components/RightSidebar.svelte';
-  import ImportDialog from '$lib/components/ImportDialog.svelte';
-  import AboutDialog from '$lib/components/AboutDialog.svelte';
-  import SettingsSync from '$lib/components/SettingsSync.svelte';
+  import { TextPromptDialog, Toast } from '#lib/components/ui/index.js';
+  import Player from '#lib/components/Player.svelte';
+  import Sidebar from '#lib/components/Sidebar.svelte';
+  import RightSidebar from '#lib/components/RightSidebar.svelte';
+  import ImportDialog from '#lib/components/ImportDialog.svelte';
+  import AboutDialog from '#lib/components/AboutDialog.svelte';
+  import SettingsSync from '#lib/components/SettingsSync.svelte';
   import {
     isSidebarOpen,
     isImportDialogOpen,
@@ -17,7 +17,7 @@
     isRightSidebarPinned,
     isRightSidebarExpanded,
     saveLastPage
-  } from '$lib/stores/ui';
+  } from '#lib/stores/ui.js';
   import '../../app.css';
 
   // 起動時に「前回開いていた画面」を開けるよう、開いた画面を記録する

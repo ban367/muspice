@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { useRecentlyPlayedTracksQuery } from '$lib/queries/tracks';
-  import TrackList from '$lib/components/library/TrackList.svelte';
+  import { useRecentlyPlayedTracksQuery } from '#lib/queries/tracks.js';
+  import TrackList from '#lib/components/library/TrackList.svelte';
 
   // 最近再生した曲を取得
   const recentQuery = useRecentlyPlayedTracksQuery(50);
