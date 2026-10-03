@@ -41,10 +41,12 @@ src-tauri/src/
 │   ├── metadata_cmd.rs
 │   ├── player.rs
 │   ├── playlist_cmd.rs
+│   ├── settings.rs
 │   ├── stats.rs
 │   ├── system.rs
 │   └── tracks.rs
 ├── lib.rs
+├── album_art.rs
 ├── db.rs
 ├── error.rs
 ├── events.rs
@@ -53,8 +55,8 @@ src-tauri/src/
 ├── playlist.rs
 ├── metadata.rs
 ├── models.rs
+├── settings.rs
 ├── validation.rs
-├── logger.rs
 └── state.rs
 ```
 
@@ -127,7 +129,8 @@ src-tauri/src/
 - DBアクセスはコマンド層で `AppState::with_db` を経由し、ロック取得エラーの処理を一元化する
 - ファイルI/O・タグ解析・大量のDB書き込みなど重い同期処理は `commands::run_blocking` で実行する（asyncコマンド内で直接行うと非同期ランタイムのワーカーを占有する）。状態が必要な場合は `AppHandle` を受け取り、クロージャ内で `app.state::<AppState>()` から取得する
 - トラック関連のSQLは `repository.rs`、プレイリスト関連のSQLは `playlist.rs` に集約する（コマンド層に生SQLを書かない）
-- ログは `crate::logger`（`logger.rs`）を使用する（`log` クレートは未初期化のため使用しない）
+- ログは `log` クレートのマクロ（`log::info!` / `log::warn!` / `log::error!`）で出力する。`lib.rs` の `log_plugin()` が `tauri-plugin-log` を `log` のロガーとして登録しており、Tauriや依存クレートのログも同じ出力先に記録される
+  - プラグインのJS API（`log:default` 等）はcapabilityに追加しない。WebViewからログを書き込ませない（ADR-005）
 
 ### 型共有（tauri-specta）
 
