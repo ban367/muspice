@@ -10,14 +10,7 @@
   import ImportDialog from '#lib/components/ImportDialog.svelte';
   import AboutDialog from '#lib/components/AboutDialog.svelte';
   import SettingsSync from '#lib/components/SettingsSync.svelte';
-  import {
-    isSidebarOpen,
-    isImportDialogOpen,
-    isAboutDialogOpen,
-    isRightSidebarPinned,
-    isRightSidebarExpanded,
-    saveLastPage
-  } from '#lib/stores/ui.js';
+  import { ui, saveLastPage } from '#lib/stores/ui.svelte.js';
   import '../../app.css';
 
   // 起動時に「前回開いていた画面」を開けるよう、開いた画面を記録する
@@ -27,29 +20,29 @@
 
   // サイドバーの開閉を切り替え
   function toggleSidebar() {
-    isSidebarOpen.update((v) => !v);
+    ui.isSidebarOpen = !ui.isSidebarOpen;
   }
 
   // サイドバーを閉じる（オーバーレイクリック時）
   function closeSidebar() {
-    isSidebarOpen.set(false);
+    ui.isSidebarOpen = false;
   }
 
   // メニューバーからのイベントをリッスン
   onMount(() => {
     // インポートダイアログを開くイベント
     const unlistenImport = events.openImportDialog.listen(() => {
-      isImportDialogOpen.set(true);
+      ui.isImportDialogOpen = true;
     });
 
     // サイドバー切替イベント
     const unlistenSidebar = events.toggleSidebar.listen(() => {
-      isSidebarOpen.update((v) => !v);
+      ui.isSidebarOpen = !ui.isSidebarOpen;
     });
 
     // Aboutダイアログイベント
     const unlistenAbout = events.showAboutDialog.listen(() => {
-      isAboutDialogOpen.set(true);
+      ui.isAboutDialogOpen = true;
     });
 
     return () => {
@@ -86,21 +79,21 @@
   <SettingsSync />
   <div class="app-container">
     <!-- モバイル用オーバーレイ -->
-    {#if $isSidebarOpen}
+    {#if ui.isSidebarOpen}
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div class="sidebar-overlay" onclick={closeSidebar}></div>
     {/if}
 
     <!-- サイドバー -->
-    <div class="sidebar-container" class:open={$isSidebarOpen}>
+    <div class="sidebar-container" class:open={ui.isSidebarOpen}>
       <Sidebar />
     </div>
 
     <!-- メインコンテンツ -->
     <div
       class="main-container"
-      class:sidebar-pinned={$isRightSidebarPinned && $isRightSidebarExpanded}
+      class:sidebar-pinned={ui.isRightSidebarPinned && ui.isRightSidebarExpanded}
     >
       <!-- モバイル用ヘッダー -->
       <header class="mobile-header">

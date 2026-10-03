@@ -1,4 +1,3 @@
-import { writable } from 'svelte/store';
 import type { AppError } from '#lib/types/models.js';
 
 export interface ErrorNotification {
@@ -8,36 +7,43 @@ export interface ErrorNotification {
   timestamp: Date;
 }
 
-function createErrorStore() {
-  const { subscribe, update } = writable<ErrorNotification[]>([]);
+/** 通知を自動で消すまでの時間（ms） */
+const NOTIFICATION_DURATION_MS = 5000;
 
-  return {
-    subscribe,
-    addError: (message: string, type: 'error' | 'warning' | 'info' = 'error') => {
-      const notification: ErrorNotification = {
-        id: crypto.randomUUID(),
-        message,
-        type,
-        timestamp: new Date()
-      };
+/**
+ * トースト通知の一覧
+ *
+ * 通知の追加は`handleError` / `showSuccess` / `showWarning`を使い、
+ * 表示（`Toast`）は`notifications.items`を読む。
+ */
+class Notifications {
+  /** 表示中の通知（古い順）。中身は書き換えず配列ごと置き換える */
+  items = $state.raw<ErrorNotification[]>([]);
 
-      update((errors) => [...errors, notification]);
+  add(message: string, type: ErrorNotification['type'] = 'error'): void {
+    const notification: ErrorNotification = {
+      id: crypto.randomUUID(),
+      message,
+      type,
+      timestamp: new Date()
+    };
 
-      // 5秒後に自動削除
-      setTimeout(() => {
-        update((errors) => errors.filter((e) => e.id !== notification.id));
-      }, 5000);
-    },
-    removeError: (id: string) => {
-      update((errors) => errors.filter((e) => e.id !== id));
-    },
-    clear: () => {
-      update(() => []);
-    }
-  };
+    this.items = [...this.items, notification];
+
+    // 一定時間後に自動削除
+    setTimeout(() => this.remove(notification.id), NOTIFICATION_DURATION_MS);
+  }
+
+  remove(id: string): void {
+    this.items = this.items.filter((n) => n.id !== id);
+  }
+
+  clear(): void {
+    this.items = [];
+  }
 }
 
-export const errorStore = createErrorStore();
+export const notifications = new Notifications();
 
 /**
  * 構造化エラー（Rust側の`AppError`）かどうかを判定する型ガード
@@ -98,8 +104,8 @@ export function handleError(error: unknown, context?: string): void {
     message = `${context}: ${message}`;
   }
 
-  // エラーストアに追加
-  errorStore.addError(message, 'error');
+  // トーストで通知
+  notifications.add(message, 'error');
 
   // コンソールにも出力（開発用）
   console.error('[Error]', context || '', error);
@@ -109,12 +115,12 @@ export function handleError(error: unknown, context?: string): void {
  * 成功メッセージを表示
  */
 export function showSuccess(message: string): void {
-  errorStore.addError(message, 'info');
+  notifications.add(message, 'info');
 }
 
 /**
  * 警告メッセージを表示
  */
 export function showWarning(message: string): void {
-  errorStore.addError(message, 'warning');
+  notifications.add(message, 'warning');
 }

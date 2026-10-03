@@ -8,7 +8,7 @@
   } from '#lib/queries/playlists.js';
   import { validatePlaylistName, toSafeString } from '#lib/utils/validation.js';
   import { promptText } from '#lib/utils/dialog.js';
-  import { isImportDialogOpen, isSidebarOpen } from '#lib/stores/ui.js';
+  import { ui } from '#lib/stores/ui.svelte.js';
   import { useGenresGroupedQuery } from '#lib/queries/tracks.js';
   import type { Playlist } from '#lib/types/models.js';
   import PlaylistContextMenu from './PlaylistContextMenu.svelte';
@@ -21,7 +21,7 @@
     if (previousPath && path !== previousPath) {
       // パスが変更されたらサイドバーを閉じる（モバイル幅の場合のみ）
       if (typeof window !== 'undefined' && window.innerWidth <= 1024) {
-        isSidebarOpen.set(false);
+        ui.isSidebarOpen = false;
       }
     }
     previousPath = path;
@@ -29,7 +29,7 @@
 
   // インポートダイアログを開く
   function handleOpenImportDialog() {
-    isImportDialogOpen.set(true);
+    ui.isImportDialogOpen = true;
   }
 
   // ジャンルクエリ

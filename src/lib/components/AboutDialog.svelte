@@ -1,17 +1,17 @@
 <script lang="ts">
-  import { isAboutDialogOpen } from '#lib/stores/ui.js';
+  import { ui } from '#lib/stores/ui.svelte.js';
   import { useOpenProjectPageMutation } from '#lib/queries/system.js';
   import { Modal } from '#lib/components/ui/index.js';
 
   const openProjectPage = useOpenProjectPageMutation();
 
   function closeDialog() {
-    isAboutDialogOpen.set(false);
+    ui.isAboutDialogOpen = false;
   }
 </script>
 
 <Modal
-  open={$isAboutDialogOpen}
+  open={ui.isAboutDialogOpen}
   onClose={closeDialog}
   label="Muspice について"
   class="max-w-sm"

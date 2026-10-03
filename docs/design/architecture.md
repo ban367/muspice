@@ -5,7 +5,7 @@
 ```mermaid
 graph TD
     U[User] --> FE[SvelteKit UI]
-    FE --> STORES[Svelte Stores]
+    FE --> STORES[共有状態 stores]
     FE --> QUERY[TanStack Query]
     QUERY --> INVOKE[@tauri-apps/api/core invoke]
     INVOKE --> CMD[Rust Commands]

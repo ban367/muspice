@@ -11,7 +11,7 @@
     combineValidationResults,
     toSafeString
   } from '#lib/utils/validation.js';
-  import { toErrorMessage } from '#lib/stores/error.js';
+  import { toErrorMessage } from '#lib/stores/error.svelte.js';
   import { Modal } from '#lib/components/ui/index.js';
 
   interface Props {

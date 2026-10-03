@@ -9,7 +9,7 @@
 <script lang="ts" generics="T extends AlbumGroup | ArtistGroup | GenreGroup">
   import type { Snippet } from 'svelte';
   import type { AlbumGroup, ArtistGroup, GenreGroup } from '#lib/types/models.js';
-  import { browseSearchQuery } from '#lib/stores/ui.js';
+  import { ui } from '#lib/stores/ui.svelte.js';
   import GroupContextMenu from '../GroupContextMenu.svelte';
 
   // Props
@@ -66,7 +66,7 @@
 
   // 検索でフィルタリングされたアイテム
   const filteredItems = $derived.by(() => {
-    const query = $browseSearchQuery.toLowerCase().trim();
+    const query = ui.browseSearchQuery.toLowerCase().trim();
     if (!query) return items;
     return items.filter((item) => filterFn(item, query));
   });
@@ -116,7 +116,7 @@
           d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
         />
       </svg>
-      <p>「{$browseSearchQuery}」に一致する{itemLabel}が見つかりません</p>
+      <p>「{ui.browseSearchQuery}」に一致する{itemLabel}が見つかりません</p>
     </div>
   {:else if filteredItems.length > 0}
     {#if displayMode === 'grid'}

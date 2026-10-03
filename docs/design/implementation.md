@@ -76,10 +76,18 @@ src-tauri/src/
 - UIローカル状態は`stores`に集約し、データ取得状態はQueryに分離する
 - 複数コンポーネントで使うSvelteアクション（`use:`）は`#lib/utils`に置く
 
+### 共有する状態（Runesのモジュール）
+
+- コンポーネントをまたいで共有する状態は`src/lib/stores/*.svelte.ts`に、`$state`のフィールドを持つクラスのインスタンスとして置く（例: `ui.svelte.ts`の`ui`、`error.svelte.ts`の`notifications`）。`svelte/store`の`writable`は新しく使わない（`equalizer.ts`・`player.ts`は移行中）
+- 読み書きはプロパティを直接使う（例: `ui.isSidebarOpen = false`）。`$`接頭辞や`get()`は不要で、コンポーネント外の`.ts`からも同じように読める
+- 配列・オブジェクトを丸ごと置き換える状態は`$state.raw`にし、中身を書き換えず代入で更新する（例: `notifications.items`、`ui.columnWidths`）
+- localStorageに保存する状態は、privateな`$state`とgetter/setterで実装し、setterで保存する（例: `ui.isRightSidebarPinned`）。保存値はモジュールの読み込み時に読み、localStorageが使えない環境でも例外にしない
+- 状態に付随する操作（追加・削除など）はクラスのメソッドにする（例: `notifications.add()`）
+
 ### SvelteKit 3
 
 - 設定は`vite.config.js`の`sveltekit({...})`に渡す（`svelte.config.js`は使えない）。`tsconfig.json`は`svelte-kit sync`が生成する`$app/tsconfig`を継承する
-- `src/lib`は`$lib`ではなく`#lib`（`package.json`の`imports`）で参照し、拡張子を付ける。`.ts`のモジュールは`.js`（例: `#lib/stores/ui.js`）、`index.ts`は`/index.js`（例: `#lib/components/ui/index.js`）、`.svelte`はそのまま
+- `src/lib`は`$lib`ではなく`#lib`（`package.json`の`imports`）で参照し、拡張子を付ける。`.ts`のモジュールは`.js`（例: `#lib/stores/player.js`、`.svelte.ts`は`#lib/stores/ui.svelte.js`）、`index.ts`は`/index.js`（例: `#lib/components/ui/index.js`）、`.svelte`はそのまま
 - ページの状態は`$app/state`の`page`を使う（`$app/stores`は削除された）
 - `resolve()`（`$app/paths`）に渡すパスは先頭に`/`を付けない（例: `resolve('library/songs')`）。先頭が`/`の文字列はルートIDとして扱われ、`(...)`を含むセグメントがルートグループとして消えるため、ジャンル名などを含むパスは必ずパスとして渡す
 - `goto()`はアプリのルートに一致しないURLで拒否（reject）する。保存したパスなど、存在しない可能性がある遷移先は`catch`で代わりの画面へ移動する
@@ -151,11 +159,12 @@ src-tauri/src/
 
 ### 状態管理の使い分け
 
-| 状態                           | 管理方式         |
-| ------------------------------ | ---------------- |
-| 再生状態・UI表示状態           | Svelte Stores    |
-| トラック/プレイリスト/検索結果 | TanStack Query   |
-| DB接続・現在トラックID         | Tauri `AppState` |
+| 状態                           | 管理方式                       |
+| ------------------------------ | ------------------------------ |
+| UI表示状態・トースト通知       | Runes（`*.svelte.ts`）         |
+| 再生状態・イコライザ           | Svelte Stores（Runesへ移行中） |
+| トラック/プレイリスト/検索結果 | TanStack Query                 |
+| DB接続・現在トラックID         | Tauri `AppState`               |
 
 ## 開発・品質コマンド
 

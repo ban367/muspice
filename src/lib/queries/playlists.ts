@@ -6,7 +6,7 @@ import {
 } from '@tanstack/svelte-query';
 import { commands } from '#lib/bindings.js';
 import type { Playlist } from '#lib/types/models.js';
-import { showSuccess } from '#lib/stores/error.js';
+import { showSuccess } from '#lib/stores/error.svelte.js';
 import { queryKeys } from './keys';
 import { withErrorToast } from './shared';
 

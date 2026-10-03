@@ -36,7 +36,7 @@ npm run tauri build           # 本番ビルド
 
 ## 設計方針
 
-- **状態管理**: Svelte Stores（UI状態）+ TanStack Query（データキャッシング）+ Tauri State（バックエンド永続化）
+- **状態管理**: Svelteの共有状態（UI状態。`src/lib/stores/*.svelte.ts`のRunesのモジュール）+ TanStack Query（データキャッシング）+ Tauri State（バックエンド永続化）
 - **DB**: SQLite + FTS5全文検索。スキーマは`tracks`, `playlists`, `playlist_tracks`, `play_history`, `tracks_fts`。SQLは`repository.rs`（トラック）と`playlist.rs`（プレイリスト）に集約し、コマンド層は`AppState::with_db`経由でアクセスする
 - **エラー**: Rust側は`AppResult<T>`（`AppError`）で`{code, message}`を返却（messageは日本語）。フロントは`handleError`でcodeベースに分類し一元管理。トースト通知
 - **型共有**: Rust⇔TSの型とコマンド呼び出しはtauri-spectaが`src/lib/bindings.ts`へ自動生成（`npm run tauri dev`または`cargo test export_typescript_bindings`）。手動で編集せず、Rust側を変更して再生成する。フロントは`commands.xxx()`経由で呼び出す

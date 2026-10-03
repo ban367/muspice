@@ -7,7 +7,7 @@
   import type { AlbumGroup } from '#lib/types/models.js';
   import { useAlbumsGroupedQuery } from '#lib/queries/tracks.js';
   import { playTrackFromQueue } from '#lib/stores/player.js';
-  import { gridCardSize } from '#lib/stores/ui.js';
+  import { ui } from '#lib/stores/ui.svelte.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import { formatDuration } from '#lib/utils/format.js';
   import LibraryGrid from './LibraryGrid.svelte';
@@ -35,7 +35,7 @@
   let libraryGrid: LibraryGrid<AlbumGroup>;
 
   // カードサイズの計算
-  const cardWidth = $derived($gridCardSize + 16);
+  const cardWidth = $derived(ui.gridCardSize + 16);
 
   // アルバムをクリック
   function handleAlbumClick(album: AlbumGroup) {
@@ -84,7 +84,7 @@
   emptyMessage="アルバムがありません"
   emptyHint="音楽をインポートしてアルバムを追加してください"
   filterFn={filterAlbum}
-  gridStyle="--card-width: {cardWidth}px; --art-size: {$gridCardSize}px;"
+  gridStyle="--card-width: {cardWidth}px; --art-size: {ui.gridCardSize}px;"
   gridClass="album-grid"
   groupType="album"
 >
@@ -110,7 +110,7 @@
       ondblclick={() => handleAlbumDoubleClick(album)}
       oncontextmenu={(e) => libraryGrid.handleContextMenu(e, album)}
     >
-      <div class="grid-card-art" style="width: {$gridCardSize}px; height: {$gridCardSize}px;">
+      <div class="grid-card-art" style="width: {ui.gridCardSize}px; height: {ui.gridCardSize}px;">
         <AlbumArt src={albumArtUrl(album.representativeTrackId)} alt={album.name} />
         <div class="play-overlay">
           <button

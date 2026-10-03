@@ -2,7 +2,7 @@
  * クエリ／ミューテーション共通のヘルパーとキャッシュ方針
  */
 
-import { handleError } from '#lib/stores/error.js';
+import { handleError } from '#lib/stores/error.svelte.js';
 
 const MINUTE = 60 * 1000;
 

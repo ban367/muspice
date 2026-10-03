@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { gridCardSize, MIN_CARD_SIZE, MAX_CARD_SIZE } from '#lib/stores/ui.js';
+  import { ui, MIN_CARD_SIZE, MAX_CARD_SIZE } from '#lib/stores/ui.svelte.js';
 
   // サイズを変更
   function handleSizeChange(event: Event) {
     const target = event.target as HTMLInputElement;
-    gridCardSize.set(Number(target.value));
+    ui.gridCardSize = Number(target.value);
   }
 </script>
 
@@ -26,7 +26,7 @@
     type="range"
     min={MIN_CARD_SIZE}
     max={MAX_CARD_SIZE}
-    value={$gridCardSize}
+    value={ui.gridCardSize}
     oninput={handleSizeChange}
     class="size-range"
   />

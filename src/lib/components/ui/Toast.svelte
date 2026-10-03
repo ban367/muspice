@@ -1,12 +1,6 @@
 <script lang="ts">
-  import { errorStore, type ErrorNotification } from '#lib/stores/error.js';
+  import { notifications, type ErrorNotification } from '#lib/stores/error.svelte.js';
   import { fly } from 'svelte/transition';
-
-  let notifications: ErrorNotification[] = [];
-
-  errorStore.subscribe((value) => {
-    notifications = value;
-  });
 
   function getTypeClass(type: ErrorNotification['type']): string {
     switch (type) {
@@ -35,12 +29,12 @@
   }
 
   function removeNotification(id: string) {
-    errorStore.removeError(id);
+    notifications.remove(id);
   }
 </script>
 
 <div class="fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-md">
-  {#each notifications as notification (notification.id)}
+  {#each notifications.items as notification (notification.id)}
     <div
       class="flex items-start gap-3 p-4 rounded-lg shadow-lg {getTypeClass(notification.type)}"
       transition:fly={{ x: 300, duration: 300 }}
