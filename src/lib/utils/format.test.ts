@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatDuration, formatFileSize, formatTotalDuration } from './format';
+import { formatDateTime, formatDuration, formatFileSize, formatTotalDuration } from './format';
 
 describe('formatDuration', () => {
   it('秒数を m:ss 形式にする', () => {
@@ -34,5 +34,18 @@ describe('formatFileSize', () => {
     expect(formatFileSize(1536)).toBe('1.5 KB');
     expect(formatFileSize(5 * 1024 * 1024)).toBe('5.0 MB');
     expect(formatFileSize(3 * 1024 * 1024 * 1024)).toBe('3.00 GB');
+  });
+});
+
+describe('formatDateTime', () => {
+  it('日時を年月日と時刻にする', () => {
+    // タイムゾーンに依存しないよう、ローカル時刻で作った日時を使う
+    const date = new Date(2026, 9, 3, 14, 5);
+    expect(formatDateTime(date.toISOString())).toBe('2026/10/03 14:05');
+  });
+
+  it('空・不正な値は -- にする', () => {
+    expect(formatDateTime(null)).toBe('--');
+    expect(formatDateTime('not a date')).toBe('--');
   });
 });

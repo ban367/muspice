@@ -52,11 +52,26 @@ pub async fn update_track_metadata_with_file(
         state.with_db(|db| crate::repository::find_file_path_by_track_id(db, &track_id))?;
 
     // ファイルのメタデータを更新（ファイルI/OのためDBロック外・ブロッキング処理用スレッドで実行）
+    // 書き込み後のサイズと更新日時も取得し、再スキャンで自分の書き込みを変更として検出しないようにする
     let file_metadata = metadata.clone();
-    run_blocking(move || update_file_metadata(Path::new(&file_path), &file_metadata)).await?;
+    let (file_size, file_modified_at) = run_blocking(move || {
+        let path = Path::new(&file_path);
+        update_file_metadata(path, &file_metadata)?;
+        Ok((
+            crate::library::get_file_size(path).ok(),
+            crate::library::get_file_modified_at(path),
+        ))
+    })
+    .await?;
 
     // データベースのメタデータを更新
-    state.with_db(|db| crate::repository::update_track_metadata(db, &track_id, &metadata))
+    state.with_db(|db| {
+        crate::repository::update_track_metadata(db, &track_id, &metadata)?;
+        if let Some(file_size) = file_size {
+            crate::repository::set_track_file_state(db, &track_id, file_size, file_modified_at)?;
+        }
+        Ok(())
+    })
 }
 
 /// 複数トラックのメタデータを一括更新（データベースのみ）

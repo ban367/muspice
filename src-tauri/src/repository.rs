@@ -618,12 +618,19 @@ pub fn update_track_numbers(
 }
 
 /// トラックを新規挿入
-pub fn insert_track(conn: &Connection, track: &Track) -> AppResult<()> {
+///
+/// `file_modified_at`はファイルの更新日時（UNIX時間の秒）。再スキャンで変更の検出に使う。
+pub fn insert_track(
+    conn: &Connection,
+    track: &Track,
+    file_modified_at: Option<i64>,
+) -> AppResult<()> {
     conn.execute(
         "INSERT INTO tracks (
             id, file_path, file_name, title, artist, album, genre, year,
-            track_number, disc_number, duration, file_size, format, bitrate, sample_rate, created_at, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+            track_number, disc_number, duration, file_size, format, bitrate, sample_rate, created_at, updated_at,
+            file_modified_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
         rusqlite::params![
             track.id,
             track.file_path,
@@ -642,21 +649,27 @@ pub fn insert_track(conn: &Connection, track: &Track) -> AppResult<()> {
             track.sample_rate,
             track.created_at,
             track.updated_at,
+            file_modified_at,
         ],
     )
     .map_err(|e| AppError::Database(format!("トラックの保存に失敗しました: {}", e)))?;
     Ok(())
 }
 
-/// file_pathをキーに既存トラックを更新（重複時の置き換え用）
+/// file_pathをキーに既存トラックを更新（重複時の置き換え・再スキャンで変更を読み直した時）
 ///
 /// 対象が存在しない場合はエラーを返す（更新したつもりで実際は無変更、を防ぐ）。
-pub fn update_track_by_file_path(conn: &Connection, track: &Track) -> AppResult<()> {
+/// お気に入り・レーティング・再生回数などの利用状況は変えない。
+pub fn update_track_by_file_path(
+    conn: &Connection,
+    track: &Track,
+    file_modified_at: Option<i64>,
+) -> AppResult<()> {
     let rows_affected = conn.execute(
         "UPDATE tracks SET
             file_name = ?2, title = ?3, artist = ?4, album = ?5, genre = ?6, year = ?7,
             track_number = ?8, disc_number = ?9, duration = ?10, file_size = ?11, format = ?12, bitrate = ?13, sample_rate = ?14,
-            updated_at = ?15
+            updated_at = ?15, file_modified_at = ?16
         WHERE file_path = ?1",
         rusqlite::params![
             track.file_path,
@@ -674,6 +687,7 @@ pub fn update_track_by_file_path(conn: &Connection, track: &Track) -> AppResult<
             track.bitrate,
             track.sample_rate,
             track.updated_at,
+            file_modified_at,
         ],
     )
     .map_err(|e| AppError::Database(format!("トラックの更新に失敗しました: {}", e)))?;
@@ -704,6 +718,99 @@ pub fn find_all_file_paths(conn: &Connection) -> AppResult<HashSet<String>> {
         .map_err(|e| AppError::Database(format!("結果の取得に失敗しました: {}", e)))?;
 
     Ok(paths)
+}
+
+/// 再スキャンで変更を検出するための、トラックのファイルの状態
+#[derive(Debug, Clone, PartialEq)]
+pub struct TrackFileState {
+    pub id: String,
+    pub file_path: String,
+    pub file_size: i64,
+    /// ファイルの更新日時（UNIX時間の秒）。記録前に登録したトラックはNone
+    pub file_modified_at: Option<i64>,
+}
+
+/// 指定した接頭辞（フォルダのパス＋区切り文字）で始まるパスのトラックを取得する
+///
+/// SQLiteの`LIKE`はASCIIの大文字・小文字を区別しないため、`substr`で完全一致を比較する。
+pub fn find_track_file_states_under(
+    conn: &Connection,
+    path_prefix: &str,
+) -> AppResult<Vec<TrackFileState>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, file_path, file_size, file_modified_at FROM tracks
+             WHERE substr(file_path, 1, length(?1)) = ?1",
+        )
+        .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
+
+    stmt.query_map([path_prefix], |row| {
+        Ok(TrackFileState {
+            id: row.get(0)?,
+            file_path: row.get(1)?,
+            file_size: row.get(2)?,
+            file_modified_at: row.get(3)?,
+        })
+    })
+    .map_err(|e| AppError::Database(format!("クエリの実行に失敗しました: {}", e)))?
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(|e| AppError::Database(format!("結果の取得に失敗しました: {}", e)))
+}
+
+/// 指定した接頭辞（フォルダのパス＋区切り文字）で始まるパスのトラック数
+pub fn count_tracks_under(conn: &Connection, path_prefix: &str) -> AppResult<u32> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM tracks WHERE substr(file_path, 1, length(?1)) = ?1",
+        [path_prefix],
+        |row| row.get(0),
+    )
+    .map_err(|e| AppError::Database(format!("トラック数の取得に失敗しました: {}", e)))
+}
+
+/// 全トラック数
+pub fn count_all_tracks(conn: &Connection) -> AppResult<u32> {
+    conn.query_row("SELECT COUNT(*) FROM tracks", [], |row| row.get(0))
+        .map_err(|e| AppError::Database(format!("トラック数の取得に失敗しました: {}", e)))
+}
+
+/// 指定した接頭辞（フォルダのパス＋区切り文字）で始まるパスのトラックを削除する
+///
+/// 削除した件数を返す。プレイリスト・再生履歴の関連レコードは外部キーのCASCADEで消える。
+pub fn delete_tracks_under(conn: &Connection, path_prefix: &str) -> AppResult<usize> {
+    conn.execute(
+        "DELETE FROM tracks WHERE substr(file_path, 1, length(?1)) = ?1",
+        [path_prefix],
+    )
+    .map_err(|e| AppError::Database(format!("トラックの削除に失敗しました: {}", e)))
+}
+
+/// ファイルのサイズと更新日時を記録する（アプリがファイルにタグを書き込んだ後）
+pub fn set_track_file_state(
+    conn: &Connection,
+    track_id: &str,
+    file_size: i64,
+    file_modified_at: Option<i64>,
+) -> AppResult<()> {
+    conn.execute(
+        "UPDATE tracks SET file_size = ?2, file_modified_at = ?3 WHERE id = ?1",
+        rusqlite::params![track_id, file_size, file_modified_at],
+    )
+    .map_err(|e| AppError::Database(format!("ファイルの状態の記録に失敗しました: {}", e)))?;
+    Ok(())
+}
+
+/// ファイルの更新日時を記録する（記録前に登録したトラックの補完用）
+pub fn set_track_file_modified_at(
+    conn: &Connection,
+    track_id: &str,
+    file_modified_at: i64,
+) -> AppResult<()> {
+    conn.execute(
+        "UPDATE tracks SET file_modified_at = ?2 WHERE id = ?1",
+        rusqlite::params![track_id, file_modified_at],
+    )
+    .map_err(|e| AppError::Database(format!("ファイルの更新日時の記録に失敗しました: {}", e)))?;
+    Ok(())
 }
 
 /// トラックを1件削除（削除された行数を返す）
@@ -1307,7 +1414,7 @@ mod tests {
         track.title = Some("新タイトル".to_string());
 
         // 既存パスなら更新される
-        update_track_by_file_path(&conn, &track).unwrap();
+        update_track_by_file_path(&conn, &track, None).unwrap();
         assert_eq!(
             find_track_by_id(&conn, "t1").unwrap().title,
             Some("新タイトル".to_string())
@@ -1315,7 +1422,7 @@ mod tests {
 
         // 存在しないパスならNotFound
         track.file_path = "/test/unknown.mp3".to_string();
-        let result = update_track_by_file_path(&conn, &track);
+        let result = update_track_by_file_path(&conn, &track, None);
         assert!(
             result
                 .unwrap_err()
@@ -1370,5 +1477,103 @@ mod tests {
                 .to_string()
                 .contains("トラックが見つかりません")
         );
+    }
+
+    /// 任意のパスでトラックを挿入する（フォルダ単位の操作のテスト用）
+    fn insert_track_at(conn: &Connection, id: &str, path: &str, modified_at: Option<i64>) {
+        conn.execute(
+            "INSERT INTO tracks (id, file_path, file_name, format, file_size, file_modified_at, created_at, updated_at)
+             VALUES (?1, ?2, 'f.mp3', 'mp3', 1000, ?3, datetime('now'), datetime('now'))",
+            rusqlite::params![id, path, modified_at],
+        )
+        .expect("テストトラック挿入に失敗");
+    }
+
+    #[test]
+    fn test_tracks_under_prefix_are_case_sensitive_and_exclude_siblings() {
+        let conn = setup_test_db();
+        insert_track_at(&conn, "a", "/music/a.mp3", Some(10));
+        insert_track_at(&conn, "b", "/music/sub/b.mp3", None);
+        insert_track_at(&conn, "c", "/music2/c.mp3", None);
+        insert_track_at(&conn, "d", "/Music/d.mp3", None);
+
+        let mut ids: Vec<String> = find_track_file_states_under(&conn, "/music/")
+            .unwrap()
+            .into_iter()
+            .map(|t| t.id)
+            .collect();
+        ids.sort();
+        assert_eq!(ids, ["a", "b"]);
+        assert_eq!(count_tracks_under(&conn, "/music/").unwrap(), 2);
+        assert_eq!(count_all_tracks(&conn).unwrap(), 4);
+
+        let state = find_track_file_states_under(&conn, "/music/")
+            .unwrap()
+            .into_iter()
+            .find(|t| t.id == "a")
+            .unwrap();
+        assert_eq!(state.file_size, 1000);
+        assert_eq!(state.file_modified_at, Some(10));
+    }
+
+    #[test]
+    fn test_delete_tracks_under_cascades_to_playlists() {
+        let conn = setup_test_db();
+        insert_track_at(&conn, "a", "/music/a.mp3", None);
+        insert_track_at(&conn, "c", "/other/c.mp3", None);
+        conn.execute(
+            "INSERT INTO playlists (id, name) VALUES ('p', 'プレイリスト')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO playlist_tracks (playlist_id, track_id, position) VALUES ('p', 'a', 0), ('p', 'c', 1)",
+            [],
+        )
+        .unwrap();
+
+        assert_eq!(delete_tracks_under(&conn, "/music/").unwrap(), 1);
+        assert_eq!(count_all_tracks(&conn).unwrap(), 1);
+        let remaining: i64 = conn
+            .query_row("SELECT COUNT(*) FROM playlist_tracks", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(remaining, 1);
+    }
+
+    #[test]
+    fn test_insert_and_update_record_file_modified_at() {
+        let conn = setup_test_db();
+        insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
+        let mut track = find_track_by_id(&conn, "t1").unwrap();
+
+        update_track_by_file_path(&conn, &track, Some(123)).unwrap();
+        let modified_at = |conn: &Connection| -> Option<i64> {
+            conn.query_row(
+                "SELECT file_modified_at FROM tracks WHERE id = 't1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(modified_at(&conn), Some(123));
+
+        set_track_file_modified_at(&conn, "t1", 456).unwrap();
+        assert_eq!(modified_at(&conn), Some(456));
+
+        set_track_file_state(&conn, "t1", 2048, Some(999)).unwrap();
+        assert_eq!(modified_at(&conn), Some(999));
+        assert_eq!(find_track_by_id(&conn, "t1").unwrap().file_size, 2048);
+
+        track.id = "t2".to_string();
+        track.file_path = "/test/t2.mp3".to_string();
+        insert_track(&conn, &track, Some(789)).unwrap();
+        let inserted: Option<i64> = conn
+            .query_row(
+                "SELECT file_modified_at FROM tracks WHERE id = 't2'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(inserted, Some(789));
     }
 }

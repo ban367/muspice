@@ -4,8 +4,8 @@ use super::run_blocking;
 use crate::error::{AppError, AppResult};
 use crate::events::ImportProgress;
 use crate::library::{
-    DuplicateAction, ImportResult, get_default_title, get_file_format, get_file_size,
-    scan_directory,
+    DuplicateAction, ImportResult, get_default_title, get_file_format, get_file_modified_at,
+    get_file_size, scan_directory,
 };
 use crate::metadata::extract_all_file_info;
 use crate::models::Track;
@@ -76,7 +76,8 @@ fn import_folder_blocking(
     // これにより大量インポート中も再生などの他操作がブロックされない。
     for chunk in audio_files.chunks(BATCH_SIZE) {
         // 1. ロック外: ファイルからトラック情報を抽出する
-        let mut pending: Vec<(Track, bool)> = Vec::new();
+        // （トラック, 登録済みか, ファイルの更新日時）
+        let mut pending: Vec<(Track, bool, Option<i64>)> = Vec::new();
 
         for file_path in chunk {
             let file_path_str = file_path
@@ -110,7 +111,7 @@ fn import_folder_blocking(
             }
 
             match create_track_from_file(file_path) {
-                Ok(track) => pending.push((track, is_duplicate)),
+                Ok(track) => pending.push((track, is_duplicate, get_file_modified_at(file_path))),
                 Err(e) => {
                     errors.push(format!("{}: {}", file_path_str, e));
                     error_count += 1;
@@ -128,13 +129,13 @@ fn import_folder_blocking(
                 AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
             })?;
 
-            for (track, is_duplicate) in &pending {
+            for (track, is_duplicate, modified_at) in &pending {
                 let result = if *is_duplicate {
                     // 既存のトラックを更新
-                    crate::repository::update_track_by_file_path(&tx, track)
+                    crate::repository::update_track_by_file_path(&tx, track, *modified_at)
                 } else {
                     // 新しいトラックを追加
-                    crate::repository::insert_track(&tx, track)
+                    crate::repository::insert_track(&tx, track, *modified_at)
                 };
 
                 match result {
@@ -164,6 +165,14 @@ fn import_folder_blocking(
         cache.clear();
     }
 
+    // インポートしたフォルダをライブラリフォルダとして記録する（再スキャンの対象になる）
+    // 記録に失敗してもインポート自体は成功しているため、結果は返す
+    if let Some(folder_path) = path.to_str()
+        && let Err(e) = state.with_db(|db| crate::library_folder::register_folder(db, folder_path))
+    {
+        log::error!("ライブラリフォルダの記録に失敗しました: {}", e);
+    }
+
     Ok(ImportResult {
         imported_count,
         skipped_count,
@@ -172,8 +181,8 @@ fn import_folder_blocking(
     })
 }
 
-/// ファイルからトラック情報を作成
-fn create_track_from_file(file_path: &Path) -> AppResult<Track> {
+/// ファイルからトラック情報を作成（再スキャンでも使う）
+pub(super) fn create_track_from_file(file_path: &Path) -> AppResult<Track> {
     let file_name = file_path
         .file_name()
         .and_then(|s| s.to_str())

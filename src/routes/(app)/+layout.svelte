@@ -11,6 +11,7 @@
   import AboutDialog from '#lib/components/AboutDialog.svelte';
   import SettingsSync from '#lib/components/SettingsSync.svelte';
   import { ui, saveLastPage } from '#lib/stores/ui.svelte.js';
+  import { invalidateAllTrackQueries } from '#lib/queries/tracks.js';
   import '../../app.css';
 
   // 起動時に「前回開いていた画面」を開けるよう、開いた画面を記録する
@@ -45,10 +46,16 @@
       ui.isAboutDialogOpen = true;
     });
 
+    // 設定ウィンドウでの再スキャン・ライブラリフォルダの削除で、ライブラリが変わった
+    const unlistenLibrary = events.libraryChanged.listen(() => {
+      invalidateAllTrackQueries(queryClient);
+    });
+
     return () => {
       unlistenImport.then((fn) => fn());
       unlistenSidebar.then((fn) => fn());
       unlistenAbout.then((fn) => fn());
+      unlistenLibrary.then((fn) => fn());
     };
   });
 

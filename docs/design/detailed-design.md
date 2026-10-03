@@ -56,23 +56,32 @@ export interface Playlist {
 - `DeleteResult`: `successCount`, `failedCount`, `failedTracks[]`
 - `DuplicateAction`: `Skip | Replace`
 
+### ライブラリフォルダ型
+
+- `LibraryFolder`: `id`, `path`, `trackCount`, `exists`（フォルダが今も見つかるか）, `addedAt`, `lastScannedAt`
+- `LibraryFolderList`: `folders[]`, `unregisteredTrackCount`（どのフォルダにも属さない曲数）
+- `RescanResult`: `addedCount`, `updatedCount`, `removedCount`, `errorCount`, `errors[]`, `removalSkipped`（音楽ファイルが見つからず、曲を外さなかった）
+
 ## データベース仕様（SQLite）
 
 ### テーブル
 
-| テーブル          | 用途               | 主なカラム                                                                                                                                                         |
-| ----------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `tracks`          | トラック本体       | `id`, `file_path`, `title`, `artist`, `album`, `genre`, `year`, `track_number`, `disc_number`, `duration`, `is_favorite`, `rating`, `play_count`, `last_played_at` |
-| `playlists`       | プレイリスト本体   | `id`, `name`, `description`, `created_at`, `updated_at`                                                                                                            |
-| `playlist_tracks` | プレイリスト内順序 | `playlist_id`, `track_id`, `position`, `added_at`                                                                                                                  |
-| `play_history`    | 再生履歴           | `id`, `track_id`, `played_at`                                                                                                                                      |
-| `tracks_fts`      | 全文検索（FTS5）   | `id`, `title`, `artist`, `album`, `genre`                                                                                                                          |
+| テーブル          | 用途               | 主なカラム                                                                                                                                                                                          |
+| ----------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tracks`          | トラック本体       | `id`, `file_path`, `title`, `artist`, `album`, `genre`, `year`, `track_number`, `disc_number`, `duration`, `file_size`, `file_modified_at`, `is_favorite`, `rating`, `play_count`, `last_played_at` |
+| `library_folders` | ライブラリフォルダ | `id`, `path`（UNIQUE）, `added_at`, `last_scanned_at`                                                                                                                                               |
+| `playlists`       | プレイリスト本体   | `id`, `name`, `description`, `created_at`, `updated_at`                                                                                                                                             |
+| `playlist_tracks` | プレイリスト内順序 | `playlist_id`, `track_id`, `position`, `added_at`                                                                                                                                                   |
+| `play_history`    | 再生履歴           | `id`, `track_id`, `played_at`                                                                                                                                                                       |
+| `tracks_fts`      | 全文検索（FTS5）   | `id`, `title`, `artist`, `album`, `genre`                                                                                                                                                           |
 
 ### インデックス/制約
 
 - `tracks(artist|album|genre|title)` にインデックス
 - `playlist_tracks(playlist_id)` にインデックス
 - `playlist_tracks`, `play_history` は `tracks` / `playlists` への外部キー（`ON DELETE CASCADE`）
+- `tracks.file_modified_at` はファイルの更新日時（UNIX時間の秒）。再スキャンで、サイズとあわせて変更の検出に使う。列を追加する前に登録したトラックはNULLで、再スキャンで（ファイルを読み直さずに）記録する
+- `library_folders` とトラックの対応は `tracks.file_path` の前方一致（フォルダのパス＋区切り文字）で判定する。`LIKE` はASCIIの大文字・小文字を区別しないため `substr` で比較する。フォルダ同士は入れ子にしない（中のフォルダはインポートしても登録せず、外のフォルダをインポートすると中のフォルダの記録をまとめる）
 - `tracks_fts` は `tracks` とINSERT/UPDATE/DELETEトリガーで同期
   - external contentテーブル（`content=tracks`）のため、UPDATE/DELETEは`'delete'`コマンドパターンで古いトークンを除去する
   - 旧トリガー（直接DELETE/UPDATE方式）によるインデックス破損対策として、`PRAGMA user_version < 1` の場合に起動時へ一度だけ`rebuild`を実行する
@@ -100,12 +109,22 @@ export interface Playlist {
 
 ### インポート・削除
 
-| コマンド                           | 引数                            | 戻り値                  | 備考                                                |
-| ---------------------------------- | ------------------------------- | ----------------------- | --------------------------------------------------- |
-| `import_folder`                    | `folderPath`, `duplicateAction` | `ImportResult`          | 50件/トランザクション、`ImportProgress`イベント送信 |
-| `delete_tracks_command`            | `trackIds: string[]`            | `number`                | DBからのみ削除                                      |
-| `delete_tracks_with_files_command` | `trackIds: string[]`            | `DeleteResult`          | DB+ファイル削除                                     |
-| `refresh_library_metadata`         | なし                            | `RefreshMetadataResult` | 全トラックのtrack/disc番号を再抽出                  |
+| コマンド                           | 引数                            | 戻り値                  | 備考                                                                                            |
+| ---------------------------------- | ------------------------------- | ----------------------- | ----------------------------------------------------------------------------------------------- |
+| `import_folder`                    | `folderPath`, `duplicateAction` | `ImportResult`          | 50件/トランザクション、`ImportProgress`イベント送信。フォルダをライブラリフォルダとして記録する |
+| `delete_tracks_command`            | `trackIds: string[]`            | `number`                | DBからのみ削除                                                                                  |
+| `delete_tracks_with_files_command` | `trackIds: string[]`            | `DeleteResult`          | DB+ファイル削除                                                                                 |
+| `refresh_library_metadata`         | なし                            | `RefreshMetadataResult` | 全トラックのtrack/disc番号を再抽出                                                              |
+
+### ライブラリフォルダ
+
+| コマンド                | 引数                       | 戻り値              | 備考                                                                                                                                                           |
+| ----------------------- | -------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `get_library_folders`   | なし                       | `LibraryFolderList` | パス順                                                                                                                                                         |
+| `rescan_library_folder` | `folderId`                 | `RescanResult`      | 追加・変更（サイズか更新日時が違う）のファイルを読み込み、見つからないファイルの曲を外す。フォルダが見つからない場合は`NOT_FOUND`。`LibraryScanProgress`を送る |
+| `remove_library_folder` | `folderId`, `removeTracks` | `number`            | 記録を削除する。`removeTracks`ならフォルダ内の曲もライブラリから外す（ファイルは消さない）。外した曲数を返す                                                   |
+
+再スキャン・削除でライブラリの曲が変わると`LibraryChanged`イベントを送る。
 
 ### 設定
 
@@ -126,21 +145,23 @@ export interface Playlist {
 
 `src-tauri/src/events.rs` で定義し、`bindings.ts` の `events` から型付きで購読する。イベント名は型名のケバブケース。
 
-| イベント           | ペイロード                        | 送信元                              |
-| ------------------ | --------------------------------- | ----------------------------------- |
-| `ImportProgress`   | `{ current, total, currentFile }` | `import_folder`（1ファイルごと）    |
-| `ShowAboutDialog`  | なし                              | メニュー「Muspice について」        |
-| `OpenImportDialog` | なし                              | メニュー「フォルダをインポート...」 |
-| `ToggleSidebar`    | なし                              | メニュー「サイドバーを表示/隠す」   |
-| `SettingsChanged`  | `Settings`                        | `save_settings`                     |
+| イベント              | ペイロード                        | 送信元                                               |
+| --------------------- | --------------------------------- | ---------------------------------------------------- |
+| `ImportProgress`      | `{ current, total, currentFile }` | `import_folder`（1ファイルごと）                     |
+| `LibraryScanProgress` | `{ current, total, currentFile }` | `rescan_library_folder`（読み込むファイルごと）      |
+| `LibraryChanged`      | なし                              | 再スキャン・ライブラリフォルダの削除で曲が変わった時 |
+| `ShowAboutDialog`     | なし                              | メニュー「Muspice について」                         |
+| `OpenImportDialog`    | なし                              | メニュー「フォルダをインポート...」                  |
+| `ToggleSidebar`       | なし                              | メニュー「サイドバーを表示/隠す」                    |
+| `SettingsChanged`     | `Settings`                        | `save_settings`                                      |
 
 ### メタデータ編集
 
-| コマンド                          | 引数                   | 戻り値 | 備考                   |
-| --------------------------------- | ---------------------- | ------ | ---------------------- |
-| `update_track_metadata`           | `trackId`, `metadata`  | `void` | DBのみ更新             |
-| `update_track_metadata_with_file` | `trackId`, `metadata`  | `void` | ファイルタグ+DB更新    |
-| `update_multiple_tracks_metadata` | `trackIds`, `metadata` | `void` | None以外の項目のみ更新 |
+| コマンド                          | 引数                   | 戻り値 | 備考                                                                                                |
+| --------------------------------- | ---------------------- | ------ | --------------------------------------------------------------------------------------------------- |
+| `update_track_metadata`           | `trackId`, `metadata`  | `void` | DBのみ更新                                                                                          |
+| `update_track_metadata_with_file` | `trackId`, `metadata`  | `void` | ファイルタグ+DB更新（書き込み後のファイルのサイズ・更新日時も記録し、再スキャンで変更とみなさない） |
+| `update_multiple_tracks_metadata` | `trackIds`, `metadata` | `void` | None以外の項目のみ更新                                                                              |
 
 ### プレイリスト
 

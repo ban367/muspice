@@ -106,6 +106,18 @@ pub fn get_file_size(file_path: &Path) -> AppResult<i64> {
     Ok(metadata.len() as i64)
 }
 
+/// ファイルの更新日時（UNIX時間の秒）を取得する。取得できない場合はNone
+///
+/// 再スキャンでファイルの変更を検出するために記録する。
+pub fn get_file_modified_at(file_path: &Path) -> Option<i64> {
+    let modified = fs::metadata(file_path).ok()?.modified().ok()?;
+    let seconds = modified
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs();
+    i64::try_from(seconds).ok()
+}
+
 /// ファイル形式を取得
 pub fn get_file_format(file_path: &Path) -> String {
     file_path
@@ -240,6 +252,20 @@ mod tests {
             get_default_title(Path::new("/path/to/my_song.flac")),
             "my_song"
         );
+    }
+
+    #[test]
+    fn test_get_file_modified_at() {
+        let dir = std::env::temp_dir().join(format!("muspice-test-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.mp3");
+        fs::write(&file, b"dummy").unwrap();
+
+        let modified = get_file_modified_at(&file).expect("更新日時を取得できること");
+        assert!(modified > 0);
+        assert_eq!(get_file_modified_at(&dir.join("missing.mp3")), None);
+
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

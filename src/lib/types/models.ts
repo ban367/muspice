@@ -16,10 +16,13 @@ export type {
   FilterOptions,
   GenreGroup,
   ImportResult,
+  LibraryFolder,
+  LibraryFolderList,
   Metadata,
   Playlist,
   PlaylistTrack,
   RefreshMetadataResult,
+  RescanResult,
   Settings,
   StartupPage,
   Track

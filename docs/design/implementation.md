@@ -38,6 +38,7 @@ src/
 src-tauri/src/
 ├── commands/
 │   ├── import.rs
+│   ├── library_folders.rs
 │   ├── metadata_cmd.rs
 │   ├── player.rs
 │   ├── playlist_cmd.rs
@@ -52,6 +53,7 @@ src-tauri/src/
 ├── events.rs
 ├── repository.rs
 ├── library.rs
+├── library_folder.rs
 ├── playlist.rs
 ├── metadata.rs
 ├── models.rs
@@ -138,7 +140,7 @@ src-tauri/src/
 - フロントエンドでは `handleError` を必ず経由し、codeでエラーを分類する（部分文字列マッチは行わない）
 - DBアクセスはコマンド層で `AppState::with_db` を経由し、ロック取得エラーの処理を一元化する
 - ファイルI/O・タグ解析・大量のDB書き込みなど重い同期処理は `commands::run_blocking` で実行する（asyncコマンド内で直接行うと非同期ランタイムのワーカーを占有する）。状態が必要な場合は `AppHandle` を受け取り、クロージャ内で `app.state::<AppState>()` から取得する
-- トラック関連のSQLは `repository.rs`、プレイリスト関連のSQLは `playlist.rs` に集約する（コマンド層に生SQLを書かない）
+- トラック関連のSQLは `repository.rs`、プレイリスト関連のSQLは `playlist.rs`、ライブラリフォルダの記録のSQLは `library_folder.rs` に集約する（コマンド層に生SQLを書かない）
 - ログは `log` クレートのマクロ（`log::info!` / `log::warn!` / `log::error!`）で出力する。`lib.rs` の `log_plugin()` が `tauri-plugin-log` を `log` のロガーとして登録しており、Tauriや依存クレートのログも同じ出力先に記録される
   - プラグインのJS API（`log:default` 等）はcapabilityに追加しない。WebViewからログを書き込ませない（ADR-005）
 

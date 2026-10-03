@@ -60,6 +60,24 @@ export function formatDate(dateString: string | null): string {
 }
 
 /**
+ * 日時をローカル形式でフォーマット（例: "2026/10/03 14:05"）
+ * @param dateString - ISO形式の日付文字列
+ * @returns フォーマットされた日時文字列（空・不正な値は"--"）
+ */
+export function formatDateTime(dateString: string | null): string {
+  if (!dateString) return '--';
+  const date = new Date(dateString);
+  if (isNaN(date.getTime())) return '--';
+  return date.toLocaleString('ja-JP', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+
+/**
  * 曲数をフォーマット
  * @param count - 曲数
  * @returns フォーマットされた文字列 (例: "12曲")

@@ -158,3 +158,47 @@ describe('インポート', () => {
     });
   });
 });
+
+describe('ライブラリフォルダ', () => {
+  it('インポートしたフォルダを登録し、入れ子のフォルダはまとめる', async () => {
+    await commands.importFolder('/Users/demo/Imports/A', 'Skip');
+    await commands.importFolder('/Users/demo/Imports/A/Live', 'Skip');
+    let paths = (await commands.getLibraryFolders()).folders.map((f) => f.path);
+    expect(paths).toContain('/Users/demo/Imports/A');
+    expect(paths).not.toContain('/Users/demo/Imports/A/Live');
+
+    await commands.importFolder('/Users/demo/Imports', 'Skip');
+    paths = (await commands.getLibraryFolders()).folders.map((f) => f.path);
+    expect(paths).toContain('/Users/demo/Imports');
+    expect(paths).not.toContain('/Users/demo/Imports/A');
+  });
+
+  it('トラック数を数え、どのフォルダにも属さない曲を区別する', async () => {
+    const before = await commands.getLibraryFolders();
+    const music = before.folders.find((f) => f.path === '/Users/demo/Music');
+    expect(music?.trackCount).toBeGreaterThan(0);
+    expect(before.unregisteredTrackCount).toBe(0);
+
+    await commands.removeLibraryFolder(music!.id, false);
+    const after = await commands.getLibraryFolders();
+    expect(after.unregisteredTrackCount).toBe(music!.trackCount);
+  });
+
+  it('フォルダ内の曲もライブラリから外すと、変更を通知する', async () => {
+    const { folders } = await commands.getLibraryFolders();
+    const music = folders.find((f) => f.path === '/Users/demo/Music')!;
+
+    await expect(commands.removeLibraryFolder(music.id, true)).resolves.toBe(music.trackCount);
+    expect(await commands.getAllTracks()).toHaveLength(0);
+    expect(events.map((e) => e.event)).toContain('library-changed');
+  });
+
+  it('見つからないフォルダの再スキャンはNOT_FOUNDエラーになる', async () => {
+    const { folders } = await commands.getLibraryFolders();
+    const missing = folders.find((f) => !f.exists)!;
+
+    await expect(commands.rescanLibraryFolder(missing.id)).rejects.toMatchObject({
+      code: 'NOT_FOUND'
+    });
+  });
+});
