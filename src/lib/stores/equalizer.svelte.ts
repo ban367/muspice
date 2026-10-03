@@ -1,8 +1,9 @@
-import { writable, get } from 'svelte/store';
-
 /**
- * イコライザの状態管理ストア
+ * イコライザ
  * Web Audio APIを使用して10バンドグラフィックイコライザを実装
+ *
+ * 設定（`equalizer`）はRunesの状態で、Web Audioのノードの管理（`initializeEqualizer`など）は
+ * 再生コントローラー（`./playback`）から呼ばれるモジュール関数として分けている。
  */
 
 // 10バンドの周波数定義
@@ -26,7 +27,6 @@ export const EQ_FREQUENCY_LABELS: Record<EQFrequency, string> = {
 // ゲインの範囲（dB）
 export const MIN_GAIN = -12;
 export const MAX_GAIN = 12;
-export const DEFAULT_GAIN = 0;
 
 // イコライザのバンド設定
 export type EQBands = Record<EQFrequency, number>;
@@ -157,8 +157,8 @@ export interface CustomPreset {
   bands: EQBands;
 }
 
-// イコライザの状態
-interface EqualizerState {
+// イコライザの設定（localStorageに保存する）
+interface EqualizerSettings {
   enabled: boolean;
   bands: EQBands;
   currentPreset: PresetName | null;
@@ -168,42 +168,38 @@ interface EqualizerState {
 // ストレージキー
 const STORAGE_KEY = 'muspice:equalizer';
 
-// デフォルト状態
-const DEFAULT_STATE: EqualizerState = {
+// デフォルト設定
+const DEFAULT_SETTINGS: EqualizerSettings = {
   enabled: false,
   bands: { ...DEFAULT_BANDS },
   currentPreset: 'flat',
   customPresets: []
 };
 
-// localStorageから状態を読み込み
-function loadState(): EqualizerState {
-  if (typeof window === 'undefined') return { ...DEFAULT_STATE };
-
+// localStorageから設定を読み込み
+function loadSettings(): EqualizerSettings {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
-      const parsed = JSON.parse(stored) as Partial<EqualizerState>;
+      const parsed = JSON.parse(stored) as Partial<EqualizerSettings>;
       return {
-        enabled: parsed.enabled ?? DEFAULT_STATE.enabled,
+        enabled: parsed.enabled ?? DEFAULT_SETTINGS.enabled,
         bands: parsed.bands ?? { ...DEFAULT_BANDS },
-        currentPreset: parsed.currentPreset ?? DEFAULT_STATE.currentPreset,
+        currentPreset: parsed.currentPreset ?? DEFAULT_SETTINGS.currentPreset,
         customPresets: parsed.customPresets ?? []
       };
     }
   } catch (error) {
-    // パースエラー時はデフォルト値を使用
+    // localStorageが使えない・パースエラー時はデフォルト値を使用
     console.warn('イコライザ設定の読み込みに失敗しました:', error);
   }
-  return { ...DEFAULT_STATE };
+  return { ...DEFAULT_SETTINGS };
 }
 
-// localStorageに状態を保存
-function saveState(state: EqualizerState): void {
-  if (typeof window === 'undefined') return;
-
+// localStorageに設定を保存
+function saveSettings(settings: EqualizerSettings): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
   } catch (error) {
     // 保存エラーをログに記録（プライベートブラウジングモードや容量制限など）
     console.warn('イコライザ設定の保存に失敗しました:', error);
@@ -215,137 +211,103 @@ export function isBuiltinPreset(name: string): name is BuiltinPresetName {
   return name in BUILTIN_PRESETS;
 }
 
-// イコライザストアを作成
-function createEqualizerStore() {
-  const initialState = loadState();
-  const { subscribe, update } = writable<EqualizerState>(initialState);
+/**
+ * イコライザの設定
+ *
+ * 読み取りはプロパティ（`equalizer.enabled`など）、変更はメソッドで行う。
+ * 変更はlocalStorageに保存し、Web Audioのノードが接続済みならゲインに反映する。
+ */
+class Equalizer {
+  #settings = $state.raw<EqualizerSettings>(loadSettings());
 
-  return {
-    subscribe,
+  /** イコライザの有効/無効 */
+  get enabled(): boolean {
+    return this.#settings.enabled;
+  }
 
-    // イコライザのON/OFF切り替え
-    toggle: () => {
-      update((state) => {
-        const newState = { ...state, enabled: !state.enabled };
-        saveState(newState);
-        applyEqualizerSettings(newState);
-        return newState;
-      });
-    },
+  /** 各バンドのゲイン（dB） */
+  get bands(): EQBands {
+    return this.#settings.bands;
+  }
 
-    // イコライザの有効/無効を設定
-    setEnabled: (enabled: boolean) => {
-      update((state) => {
-        const newState = { ...state, enabled };
-        saveState(newState);
-        applyEqualizerSettings(newState);
-        return newState;
-      });
-    },
+  /** 選択中のプリセット（スライダーを動かした後はnull = カスタム） */
+  get currentPreset(): PresetName | null {
+    return this.#settings.currentPreset;
+  }
 
-    // 特定のバンドのゲインを設定
-    setBandGain: (frequency: EQFrequency, gain: number) => {
-      update((state) => {
-        // ゲインを範囲内に制限
-        const clampedGain = Math.max(MIN_GAIN, Math.min(MAX_GAIN, gain));
-        const newBands = { ...state.bands, [frequency]: clampedGain };
-        const newState = { ...state, bands: newBands, currentPreset: null };
-        saveState(newState);
-        applyEqualizerSettings(newState);
-        return newState;
-      });
-    },
+  /** 保存済みのカスタムプリセット */
+  get customPresets(): CustomPreset[] {
+    return this.#settings.customPresets;
+  }
 
-    // プリセットを適用（ビルトインまたはカスタム）
-    applyPreset: (presetName: PresetName) => {
-      update((state) => {
-        let preset: EQBands | undefined;
+  // イコライザのON/OFF切り替え
+  toggle(): void {
+    this.setEnabled(!this.enabled);
+  }
 
-        // ビルトインプリセットをチェック
-        if (isBuiltinPreset(presetName)) {
-          preset = BUILTIN_PRESETS[presetName];
-        } else {
-          // カスタムプリセットを検索
-          const customPreset = state.customPresets.find((p) => p.name === presetName);
-          if (customPreset) {
-            preset = customPreset.bands;
-          }
-        }
+  // イコライザの有効/無効を設定
+  setEnabled(enabled: boolean): void {
+    this.#update({ enabled });
+  }
 
-        if (!preset) return state;
+  // 特定のバンドのゲインを設定
+  setBandGain(frequency: EQFrequency, gain: number): void {
+    // ゲインを範囲内に制限
+    const clampedGain = Math.max(MIN_GAIN, Math.min(MAX_GAIN, gain));
+    this.#update({ bands: { ...this.bands, [frequency]: clampedGain }, currentPreset: null });
+  }
 
-        const newState = {
-          ...state,
-          bands: { ...preset },
-          currentPreset: presetName
-        };
-        saveState(newState);
-        applyEqualizerSettings(newState);
-        return newState;
-      });
-    },
+  // プリセットを適用（ビルトインまたはカスタム）
+  applyPreset(presetName: PresetName): void {
+    const preset = isBuiltinPreset(presetName)
+      ? BUILTIN_PRESETS[presetName]
+      : this.customPresets.find((p) => p.name === presetName)?.bands;
+    if (!preset) return;
 
-    // カスタムプリセットを保存
-    saveCustomPreset: (name: string) => {
-      update((state) => {
-        // 既存のカスタムプリセットを更新するか、新しく追加
-        const existingIndex = state.customPresets.findIndex((p) => p.name === name);
-        const newPreset: CustomPreset = {
-          name,
-          bands: { ...state.bands }
-        };
+    this.#update({ bands: { ...preset }, currentPreset: presetName });
+  }
 
-        let newCustomPresets: CustomPreset[];
-        if (existingIndex >= 0) {
-          newCustomPresets = [...state.customPresets];
-          newCustomPresets[existingIndex] = newPreset;
-        } else {
-          newCustomPresets = [...state.customPresets, newPreset];
-        }
+  // カスタムプリセットを保存（同じ名前があれば上書き）
+  saveCustomPreset(name: string): void {
+    const newPreset: CustomPreset = { name, bands: { ...this.bands } };
+    const existingIndex = this.customPresets.findIndex((p) => p.name === name);
+    const customPresets =
+      existingIndex >= 0
+        ? this.customPresets.map((p, i) => (i === existingIndex ? newPreset : p))
+        : [...this.customPresets, newPreset];
 
-        const newState = {
-          ...state,
-          customPresets: newCustomPresets,
-          currentPreset: name
-        };
-        saveState(newState);
-        return newState;
-      });
-    },
+    // ゲインは変わらないためノードへの反映は不要
+    this.#update({ customPresets, currentPreset: name }, { apply: false });
+  }
 
-    // カスタムプリセットを削除
-    deleteCustomPreset: (name: string) => {
-      update((state) => {
-        const newCustomPresets = state.customPresets.filter((p) => p.name !== name);
-        const newState = {
-          ...state,
-          customPresets: newCustomPresets,
-          // 削除したプリセットが選択されていた場合はnullに
-          currentPreset: state.currentPreset === name ? null : state.currentPreset
-        };
-        saveState(newState);
-        return newState;
-      });
-    },
+  // カスタムプリセットを削除
+  deleteCustomPreset(name: string): void {
+    this.#update(
+      {
+        customPresets: this.customPresets.filter((p) => p.name !== name),
+        // 削除したプリセットが選択されていた場合はnullに
+        currentPreset: this.currentPreset === name ? null : this.currentPreset
+      },
+      { apply: false }
+    );
+  }
 
-    // リセット（フラットに戻す）
-    reset: () => {
-      update((state) => {
-        const newState = {
-          ...state,
-          bands: { ...DEFAULT_BANDS },
-          currentPreset: 'flat' as PresetName
-        };
-        saveState(newState);
-        applyEqualizerSettings(newState);
-        return newState;
-      });
+  // リセット（フラットに戻す）
+  reset(): void {
+    this.#update({ bands: { ...DEFAULT_BANDS }, currentPreset: 'flat' });
+  }
+
+  #update(changes: Partial<EqualizerSettings>, { apply = true } = {}): void {
+    this.#settings = { ...this.#settings, ...changes };
+    saveSettings(this.#settings);
+    if (apply) {
+      applyEqualizerSettings(this);
     }
-  };
+  }
 }
 
-// イコライザストアのエクスポート
-export const equalizer = createEqualizerStore();
+// イコライザのエクスポート
+export const equalizer = new Equalizer();
 
 // Web Audio API関連
 let audioContext: AudioContext | null = null;
@@ -392,23 +354,22 @@ export async function initializeEqualizer(audioElement: HTMLAudioElement): Promi
     isInitialized = true;
 
     // 保存されている設定を適用
-    const state = get(equalizer);
-    applyEqualizerSettings(state);
+    applyEqualizerSettings(equalizer);
   } catch (error) {
     console.error('イコライザの初期化に失敗しました:', error);
   }
 }
 
 /**
- * イコライザ設定を適用
+ * イコライザ設定をノードのゲインに反映する（ノードが未接続なら何もしない）
  */
-function applyEqualizerSettings(state: EqualizerState): void {
+function applyEqualizerSettings(settings: Pick<EqualizerSettings, 'enabled' | 'bands'>): void {
   if (!isInitialized || filterNodes.length === 0) return;
 
   EQ_FREQUENCIES.forEach((freq, index) => {
     if (filterNodes[index]) {
       // イコライザが無効の場合はゲインを0に設定
-      filterNodes[index].gain.value = state.enabled ? state.bands[freq] : 0;
+      filterNodes[index].gain.value = settings.enabled ? settings.bands[freq] : 0;
     }
   });
 }
@@ -454,7 +415,3 @@ export async function resumeAudioContext(): Promise<void> {
 export function isEqualizerInitialized(): boolean {
   return isInitialized;
 }
-
-// 後方互換性のためのエクスポート
-export const PRESETS = BUILTIN_PRESETS;
-export const PRESET_LABELS = BUILTIN_PRESET_LABELS;

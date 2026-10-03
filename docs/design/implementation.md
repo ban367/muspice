@@ -78,11 +78,11 @@ src-tauri/src/
 
 ### 共有する状態（Runesのモジュール）
 
-- コンポーネントをまたいで共有する状態は`src/lib/stores/*.svelte.ts`に、`$state`のフィールドを持つクラスのインスタンスとして置く（例: `ui.svelte.ts`の`ui`、`error.svelte.ts`の`notifications`）。`svelte/store`の`writable`は新しく使わない（`equalizer.ts`・`player.ts`は移行中）
+- コンポーネントをまたいで共有する状態は`src/lib/stores/*.svelte.ts`に、`$state`のフィールドを持つクラスのインスタンスとして置く（例: `ui.svelte.ts`の`ui`、`error.svelte.ts`の`notifications`、`equalizer.svelte.ts`の`equalizer`）。`svelte/store`の`writable`は新しく使わない（`player.ts`は移行中）
 - 読み書きはプロパティを直接使う（例: `ui.isSidebarOpen = false`）。`$`接頭辞や`get()`は不要で、コンポーネント外の`.ts`からも同じように読める
 - 配列・オブジェクトを丸ごと置き換える状態は`$state.raw`にし、中身を書き換えず代入で更新する（例: `notifications.items`、`ui.columnWidths`）
 - localStorageに保存する状態は、privateな`$state`とgetter/setterで実装し、setterで保存する（例: `ui.isRightSidebarPinned`）。保存値はモジュールの読み込み時に読み、localStorageが使えない環境でも例外にしない
-- 状態に付随する操作（追加・削除など）はクラスのメソッドにする（例: `notifications.add()`）
+- 状態に付随する操作（追加・削除など）はクラスのメソッドにする（例: `notifications.add()`）。保存や外部への反映（例: イコライザのゲインをWeb Audioのノードへ）が必要な状態は、getterだけを公開してメソッド経由で変更させる（例: `equalizer.setBandGain()`）
 
 ### SvelteKit 3
 
@@ -159,12 +159,12 @@ src-tauri/src/
 
 ### 状態管理の使い分け
 
-| 状態                           | 管理方式                       |
-| ------------------------------ | ------------------------------ |
-| UI表示状態・トースト通知       | Runes（`*.svelte.ts`）         |
-| 再生状態・イコライザ           | Svelte Stores（Runesへ移行中） |
-| トラック/プレイリスト/検索結果 | TanStack Query                 |
-| DB接続・現在トラックID         | Tauri `AppState`               |
+| 状態                                 | 管理方式                       |
+| ------------------------------------ | ------------------------------ |
+| UI表示状態・トースト通知・イコライザ | Runes（`*.svelte.ts`）         |
+| 再生状態                             | Svelte Stores（Runesへ移行中） |
+| トラック/プレイリスト/検索結果       | TanStack Query                 |
+| DB接続・現在トラックID               | Tauri `AppState`               |
 
 ## 開発・品質コマンド
 
