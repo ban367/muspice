@@ -4,7 +4,6 @@ mod db;
 mod error;
 mod events;
 mod library;
-mod logger;
 mod metadata;
 mod models;
 mod playlist;
@@ -86,6 +85,32 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         ])
 }
 
+/// ログファイル1つあたりの上限（超えたら日時付きの名前に変えて新しいファイルに切り替える）
+const LOG_MAX_FILE_SIZE: u128 = 5 * 1024 * 1024;
+/// 切り替えた古いログファイルを残す数
+const LOG_KEEP_ROTATED_FILES: usize = 4;
+
+/// ログプラグインを構築する
+///
+/// `log`クレートのロガーとして登録し、アプリ・Tauri・依存クレートのログを標準出力と
+/// OS標準のログフォルダ（例: macOSは`~/Library/Logs/<identifier>`）に出力する。
+/// プラグインのJS API（`log:default`）はcapabilityに追加せず、WebViewには公開しない（ADR-005）
+fn log_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+    use tauri_plugin_log::{RotationStrategy, Target, TargetKind, TimezoneStrategy};
+
+    tauri_plugin_log::Builder::new()
+        .level(log::LevelFilter::Info)
+        .targets([
+            Target::new(TargetKind::Stdout),
+            Target::new(TargetKind::LogDir { file_name: None }),
+        ])
+        .max_file_size(LOG_MAX_FILE_SIZE)
+        .rotation_strategy(RotationStrategy::KeepSome(LOG_KEEP_ROTATED_FILES))
+        // 既定はUTCのため、ログの時刻とファイル名をローカル時刻にする
+        .timezone_strategy(TimezoneStrategy::UseLocal)
+        .build()
+}
+
 /// TypeScriptエクスポート設定
 fn typescript_exporter() -> specta_typescript::Typescript {
     specta_typescript::Typescript::default()
@@ -114,6 +139,8 @@ pub fn run() {
     // Rust側のコマンドで行い、WebViewから任意のパスやURLを扱えないようにする
     // （tauri-plugin-openerはRust側の自由関数のみを使うためプラグイン登録しない）
     tauri::Builder::default()
+        // 他のプラグインの初期化中のログも記録できるよう、最初に登録する
+        .plugin(log_plugin())
         .plugin(tauri_plugin_dialog::init())
         // アルバムアートは`<img>`から`albumart://`で直接読み込む（IPCでbase64を渡さない）
         .register_asynchronous_uri_scheme_protocol(album_art::SCHEME, |ctx, request, responder| {
@@ -134,14 +161,7 @@ pub fn run() {
             std::fs::create_dir_all(&app_data_dir)
                 .expect("アプリケーションデータディレクトリの作成に失敗しました");
 
-            // ログディレクトリを設定
-            let log_dir = app_data_dir.join("logs");
-
-            // ロガーを初期化
-            logger::init_logger(log_dir, logger::LogLevel::Info)
-                .expect("ロガーの初期化に失敗しました");
-
-            logger::info("アプリケーションを起動しました");
+            log::info!("アプリケーションを起動しました");
 
             // データベースファイルのパスを設定
             let db_path: PathBuf = app_data_dir.join("muspice.db");
@@ -149,7 +169,7 @@ pub fn run() {
             // データベースを初期化
             let conn = db::init_db(db_path).expect("データベースの初期化に失敗しました");
 
-            logger::info("データベースを初期化しました");
+            log::info!("データベースを初期化しました");
 
             // アプリケーション状態を作成して管理
             let app_state = AppState::new(conn);
@@ -219,7 +239,7 @@ pub fn run() {
 
             app.set_menu(menu)?;
 
-            logger::info("メニューバーを初期化しました");
+            log::info!("メニューバーを初期化しました");
 
             Ok(())
         })
