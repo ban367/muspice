@@ -8,7 +8,12 @@
  * ハンドラ表の型は`bindings.ts`の`commands`から導出しているため、Rust側でコマンドが
  * 追加・変更されてバインディングが再生成されると、ここが型エラーになり追随が必要になる。
  */
-import type { commands } from '#lib/bindings.js';
+import {
+  DEFAULT_ACCENT_COLOR,
+  LIBRARY_SCAN_INTERVALS,
+  MAX_CROSSFADE_SECONDS,
+  type commands
+} from '#lib/bindings.js';
 import type {
   AlbumGroup,
   AppError,
@@ -201,7 +206,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     language: 'ja',
     startupPage: 'lastOpened',
     theme: 'dark',
-    accentColor: '#3b82f6',
+    accentColor: DEFAULT_ACCENT_COLOR,
     volumeNormalization: 'off',
     gaplessPlayback: true,
     crossfadeSeconds: 0,
@@ -597,11 +602,13 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       if (
         !Number.isInteger(next.crossfadeSeconds) ||
         next.crossfadeSeconds < 0 ||
-        next.crossfadeSeconds > 12
+        next.crossfadeSeconds > MAX_CROSSFADE_SECONDS
       ) {
-        fail('VALIDATION', 'クロスフェードは0〜12秒で指定してください');
+        fail('VALIDATION', `クロスフェードは0〜${MAX_CROSSFADE_SECONDS}秒で指定してください`);
       }
-      if (![0, 15, 30, 60, 360].includes(next.libraryScanIntervalMinutes)) {
+      if (
+        !(LIBRARY_SCAN_INTERVALS as readonly number[]).includes(next.libraryScanIntervalMinutes)
+      ) {
         fail('VALIDATION', '再スキャンの間隔が選べる値ではありません');
       }
       settings = { ...next };

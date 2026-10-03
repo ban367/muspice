@@ -201,11 +201,23 @@ export function createPlaybackController(
 
   /**
    * 読み込んだトラックの再生を始め、バックエンドへの通知と再生回数の記録を行う
+   *
+   * 待っている間（AudioContextの再開・再生の開始）に別の読み込み・切り替えが始まったら、
+   * 再生も記録もしない（古い曲を一瞬鳴らしたり、再生回数に数えたりしない）。
+   * @param generation 再生を始めた時点の`loadGeneration`
    * @param notify falseなら通知・記録をしない（同じ曲を繰り返す場合。従来の頭からの再生し直しと同じ）
    */
-  async function startPlayback(deck: Deck, track: Track, notify = true): Promise<void> {
+  async function startPlayback(
+    deck: Deck,
+    track: Track,
+    generation: number,
+    notify = true
+  ): Promise<void> {
+    const isCurrent = () => generation === loadGeneration && deck === active;
+
     // ユーザー操作の後にAudioContextを再開する（自動再生ポリシー対応）
     await resumeAudioContext();
+    if (!isCurrent()) return;
 
     try {
       await deck.audio.play();
@@ -213,7 +225,7 @@ export function createPlaybackController(
       if (isAbortError(error)) return;
       throw error;
     }
-    if (!notify) return;
+    if (!notify || !isCurrent()) return;
 
     // 現在再生中のトラックをバックエンドに通知し、再生回数を記録する
     await commands.setCurrentTrack(track.id);
@@ -241,7 +253,7 @@ export function createPlaybackController(
 
       deck.audio.src = convertFileSrc(filePath);
       deck.ready = true;
-      await startPlayback(deck, track);
+      await startPlayback(deck, track, generation);
     } catch (error) {
       reportPlaybackError(error);
     }
@@ -353,8 +365,9 @@ export function createPlaybackController(
     if (!isPreloadEnabled() || !isNextTrackReady(next)) return false;
 
     const repeating = next.id === player.currentTrack?.id;
-    // 切り替える前の（再生中の曲の長さで）秒数を決める
-    const fade = crossfadeSeconds(next);
+    // 切り替える前の（再生中の曲の長さで）秒数を決める。シークなどで切り替えが遅れた場合は、
+    // 前の曲の残りより長くフェードしない（前の曲が途中で切れ、次の曲が小さいまま始まるため）
+    const fade = Math.min(crossfadeSeconds(next), remainingSeconds() ?? 0);
     endCrossfade();
     const previous = swapDecks();
     // 再生中のトラックを進める（先読みしたデッキと同じトラックのため、読み込みは走らない）
@@ -366,7 +379,7 @@ export function createPlaybackController(
     } else {
       setDeckFade(active.index, 1);
     }
-    startPlayback(active, next, !repeating).catch(reportPlaybackError);
+    startPlayback(active, next, loadGeneration, !repeating).catch(reportPlaybackError);
     if (previous.audio.paused) {
       // 前の曲が鳴り終わっていれば（`ended`での切り替え）、すぐに次を用意する。
       // 1曲リピートではキューの状態が変わらず先読みの$effectが動かないため、ここで頭へ戻しておく
@@ -539,6 +552,15 @@ export function createPlaybackController(
       (deck) => {
         const message = mediaErrorMessage(deck.audio.error);
         if (message === null) return;
+        if (deck === fadingDeck) {
+          // クロスフェードで鳴らし終えようとしていた前の曲のエラー。前の曲を止め、
+          // 再生中の曲を通常の音量にする（再生中の曲には影響がないため、通知しない）
+          console.warn('クロスフェード中の前の曲の再生エラー:', deck.audio.error);
+          endCrossfade();
+          deck.track = null;
+          deck.ready = false;
+          return;
+        }
         if (deck !== active) {
           // 先読みの失敗は、曲の切り替えのときに通常の読み込みで再試行する（そこでエラーを通知する）
           console.warn('次のトラックの先読みに失敗しました:', deck.audio.error);
@@ -586,7 +608,7 @@ export function createPlaybackController(
           const previous = swapDecks();
           previous.audio.pause();
           setDeckFade(active.index, 1);
-          startPlayback(active, track).catch(reportPlaybackError);
+          startPlayback(active, track, loadGeneration).catch(reportPlaybackError);
           return;
         }
         void load(track);

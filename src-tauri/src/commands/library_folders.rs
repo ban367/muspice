@@ -82,33 +82,47 @@ pub async fn remove_library_folder(
 ) -> AppResult<u32> {
     validate_folder_id(&folder_id)?;
 
+    // 再スキャン（自動のものを含む）が終わるのを待ち、監視の更新もするため、ブロッキング処理用スレッドで行う
+    run_blocking(move || remove_folder_blocking(&folder_id, remove_tracks, &app_handle)).await
+}
+
+/// `remove_library_folder`の本体（同期処理）
+fn remove_folder_blocking(
+    folder_id: &str,
+    remove_tracks: bool,
+    app_handle: &AppHandle,
+) -> AppResult<u32> {
     let state = app_handle.state::<AppState>();
-    let removed = state.with_db(|db| {
-        let folder = find_folder(db, &folder_id)?;
-        let tx = db.transaction().map_err(|e| {
-            AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
-        })?;
+    let removed = {
+        // 同じフォルダの再スキャンの途中で消すと、再スキャンが曲を書き戻してしまうため、終わるまで待つ
+        let _scan = state.lock_library_scan();
+        state.with_db(|db| {
+            let folder = find_folder(db, folder_id)?;
+            let tx = db.transaction().map_err(|e| {
+                AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
+            })?;
 
-        let removed = if remove_tracks {
-            crate::repository::delete_tracks_under(&tx, &track_path_prefix(&folder.path))?
-        } else {
-            0
-        };
-        crate::library_folder::delete_folder(&tx, &folder.id)?;
+            let removed = if remove_tracks {
+                crate::repository::delete_tracks_under(&tx, &track_path_prefix(&folder.path))?
+            } else {
+                0
+            };
+            crate::library_folder::delete_folder(&tx, &folder.id)?;
 
-        tx.commit().map_err(|e| {
-            AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
-        })?;
-        to_count(removed)
-    })?;
+            tx.commit().map_err(|e| {
+                AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
+            })?;
+            to_count(removed)
+        })?
+    };
 
     // 削除したフォルダは監視しない
     app_handle
         .state::<LibrarySync>()
-        .refresh_watches(&app_handle);
+        .refresh_watches(app_handle);
 
     if removed > 0 {
-        notify_library_changed(&app_handle);
+        notify_library_changed(app_handle);
     }
     Ok(removed)
 }

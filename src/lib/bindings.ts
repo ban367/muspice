@@ -157,6 +157,13 @@ export const events = {
 	toggleSidebar: makeEvent<ToggleSidebar>("toggle-sidebar"),
 };
 
+/* Constants */
+export const DEFAULT_ACCENT_COLOR = "#3b82f6" as const;
+
+export const LIBRARY_SCAN_INTERVALS = [0,15,30,60,360] as const;
+
+export const MAX_CROSSFADE_SECONDS = 12 as const;
+
 /* Types */
 /**  アルバムグループ（アルバム表示用） */
 export type AlbumGroup = {

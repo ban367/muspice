@@ -44,14 +44,19 @@ function isLanguage(value: unknown): value is Language {
   return value === 'ja' || value === 'en';
 }
 
+/** 表示の言語を変える（`<html lang>`も合わせる） */
+function setLanguage(language: Language): void {
+  i18n.language = language;
+  document.documentElement.lang = language;
+}
+
 /**
- * 言語を切り替える（`<html lang>`も合わせる）
+ * 言語を切り替える
  *
  * 次の起動で設定を読み込む前に使えるよう、言語を保存しておく（`restoreLanguage`）。
  */
 export function applyLanguage(language: Language): void {
-  i18n.language = language;
-  document.documentElement.lang = language;
+  setLanguage(language);
   try {
     localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
   } catch {
@@ -68,7 +73,6 @@ export function restoreLanguage(): void {
     return;
   }
   if (isLanguage(language)) {
-    i18n.language = language;
-    document.documentElement.lang = language;
+    setLanguage(language);
   }
 }
