@@ -4,6 +4,7 @@ import {
   player,
   clearQueue,
   formatTime,
+  peekNextTrack,
   playNextTrack,
   playPreviousTrack,
   playShuffled,
@@ -99,6 +100,36 @@ describe('playNextTrack', () => {
 
   it('キューが空なら何もしない', () => {
     expect(playNextTrack()).toBe(false);
+  });
+});
+
+describe('peekNextTrack', () => {
+  it('playNextTrackで進む先のトラックを、状態を変えずに返す', () => {
+    const cases: Array<{
+      repeat: typeof player.repeatMode;
+      index: number;
+      expected: string | null;
+    }> = [
+      { repeat: 'off', index: 0, expected: 't2' },
+      { repeat: 'off', index: 3, expected: null },
+      { repeat: 'all', index: 3, expected: 't1' },
+      { repeat: 'one', index: 1, expected: 't2' }
+    ];
+    for (const { repeat, index, expected } of cases) {
+      player.repeatMode = repeat;
+      playTrackFromQueue(tracks, index);
+
+      expect(peekNextTrack()?.id ?? null).toBe(expected);
+      // 状態は変えない
+      expect(player.currentTrackIndex).toBe(index);
+
+      playNextTrack();
+      expect(player.currentTrack?.id).toBe(expected ?? tracks[index].id);
+    }
+  });
+
+  it('キューが空ならnullを返す', () => {
+    expect(peekNextTrack()).toBeNull();
   });
 });
 

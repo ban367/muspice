@@ -52,6 +52,8 @@ pub struct Settings {
     pub accent_color: String,
     /// 音量の正規化
     pub volume_normalization: VolumeNormalization,
+    /// ギャップレス再生（次の曲を先読みし、曲間に無音を入れずに続ける）
+    pub gapless_playback: bool,
 }
 
 impl Default for Settings {
@@ -60,6 +62,7 @@ impl Default for Settings {
             startup_page: StartupPage::default(),
             accent_color: DEFAULT_ACCENT_COLOR.to_string(),
             volume_normalization: VolumeNormalization::default(),
+            gapless_playback: true,
         }
     }
 }
@@ -190,6 +193,7 @@ mod tests {
             startup_page: StartupPage::Songs,
             accent_color: "#ff8800".to_string(),
             volume_normalization: VolumeNormalization::Album,
+            gapless_playback: false,
         };
 
         state.save(settings.clone()).unwrap();
@@ -209,6 +213,7 @@ mod tests {
         assert_eq!(settings.accent_color, DEFAULT_ACCENT_COLOR);
         // 項目を追加する前に保存したファイルでも、新しい項目は既定値になる
         assert_eq!(settings.volume_normalization, VolumeNormalization::Off);
+        assert!(settings.gapless_playback);
     }
 
     #[test]

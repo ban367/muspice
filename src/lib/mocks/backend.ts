@@ -200,7 +200,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   let settings: Settings = {
     startupPage: 'lastOpened',
     accentColor: '#3b82f6',
-    volumeNormalization: 'off'
+    volumeNormalization: 'off',
+    gaplessPlayback: true
   };
   // ライブラリフォルダ（existsは「フォルダが見つかるか」。外付けドライブが外れた状態を再現する）
   let libraryFolders: Omit<LibraryFolder, 'trackCount'>[] = [

@@ -370,6 +370,8 @@ export type Settings = {
 	accentColor: string,
 	/**  音量の正規化 */
 	volumeNormalization: VolumeNormalization,
+	/**  ギャップレス再生（次の曲を先読みし、曲間に無音を入れずに続ける） */
+	gaplessPlayback: boolean,
 };
 
 /**  設定が保存された（設定ウィンドウでの変更をメインウィンドウに反映する） */

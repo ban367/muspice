@@ -9,6 +9,11 @@
  * キュー操作は「再生中の曲をもう一度」の場合（1曲リピート、3秒以上再生中の「前へ」、
  * 1曲だけのキューの全曲リピート）に同じトラックを再設定するが、トラックIDが変わらないため
  * それだけでは再生し直されない。ここでその場合を検出して頭から再生し直す。
+ *
+ * ギャップレス再生のため、audio要素（デッキ）を2つ使う。再生中のデッキとは別のデッキに
+ * 次の曲（`peekNextTrack`）を先読みしておき、曲の終わりの直前に再生を始めて切り替える。
+ * 先読みした曲がキューの操作で変わった場合は読み込み直し、切り替えの時点で次の曲と
+ * 一致しない場合は、従来どおり曲の終わりで読み込んで再生する。
  */
 import { untrack } from 'svelte';
 import { convertFileSrc } from '@tauri-apps/api/core';
@@ -22,7 +27,13 @@ import {
   resumeAudioContext,
   setNormalizationGain
 } from './equalizer.svelte.js';
-import { player, playNextTrack, playPreviousTrack, resetPlayer } from './player.svelte.js';
+import {
+  peekNextTrack,
+  player,
+  playNextTrack,
+  playPreviousTrack,
+  resetPlayer
+} from './player.svelte.js';
 import type { Track, VolumeNormalization } from '#lib/types/models.js';
 import { normalizationGain } from '#lib/utils/normalization.js';
 
@@ -32,12 +43,34 @@ const MEDIA_ERR_NETWORK = 2;
 const MEDIA_ERR_DECODE = 3;
 const MEDIA_ERR_SRC_NOT_SUPPORTED = 4;
 
+/**
+ * 曲の終わりの何秒前から、次の曲へ切り替えるタイマーを用意するか
+ * （再生位置の通知（timeupdate）の間隔より長くする）
+ */
+const TRANSITION_WINDOW_SECONDS = 1;
+
+/**
+ * ギャップレス再生で、次の曲を曲の終わりの何秒前に再生し始めるか
+ *
+ * audio要素は再生を始めてから音が出るまでに少し遅れるため、その分だけ早める。
+ * 早すぎると曲の終わりと重なり、遅すぎると無音が入る。
+ */
+const GAPLESS_LEAD_SECONDS = 0.03;
+
+/** タイマーの誤差として許容する秒数（これより早く発火した場合は待ち直す） */
+const TIMER_TOLERANCE_SECONDS = 0.01;
+
 export interface PlaybackControllerOptions {
   /**
    * 音量の正規化の設定を返す（設定のクエリなど、リアクティブな値を読む）。
    * 値が変わると、再生中の曲の補正量も変わる。省略時は補正しない
    */
   normalizationMode?: () => VolumeNormalization;
+  /**
+   * ギャップレス再生（次の曲を先読みし、曲の終わりで切れ目なく続ける）が有効かを返す
+   * （リアクティブな値を読む）。省略時は無効
+   */
+  gapless?: () => boolean;
 }
 
 export interface PlaybackController {
@@ -81,25 +114,63 @@ function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError';
 }
 
+/** 再生に使うaudio要素（デッキ）と、読み込んだトラック */
+interface Deck {
+  /** デッキの番号（イコライザの経路で、音量の正規化をかける位置） */
+  readonly index: number;
+  readonly audio: HTMLAudioElement;
+  /** 読み込んだ（読み込み中の）トラック */
+  track: Track | null;
+  /** トラックのファイルを`src`に設定し終えたか */
+  ready: boolean;
+}
+
 /**
  * audio要素を制御する再生コントローラーを作成する
  *
  * 作成した時点から`player.currentTrack`を監視し、トラックが変わるたびに読み込んで再生する。
  * 監視は`$effect`のため、状態の変更から少し遅れて（マイクロタスクで）反映される。
  * 同じ同期処理の中でトラックが続けて変わった場合は、最後のトラックだけを読み込む。
+ *
+ * @param audios 再生に使う2つのaudio要素（デッキ）。ギャップレス再生が無効の間は1つ目だけを使う
  */
 export function createPlaybackController(
-  audio: HTMLAudioElement,
+  audios: readonly [HTMLAudioElement, HTMLAudioElement],
   options: PlaybackControllerOptions = {}
 ): PlaybackController {
-  /** 最後に読み込みを始めたトラックのID（同じトラックの再設定で読み込み直さないため） */
-  let loadedTrackId: string | null = null;
+  const decks: Deck[] = audios.map((audio, index) => {
+    // 先読みしたデッキへすぐに切り替えられるよう、ファイル全体を読み込ませる
+    audio.preload = 'auto';
+    return { index, audio, track: null, ready: false };
+  });
+  /** 再生中のトラック（`player.currentTrack`）を受け持つデッキ */
+  let active = decks[0];
+  /** 次のトラックを先読みしておくデッキ */
+  let standby = decks[1];
   let scrubbing = false;
+  /** 次の曲へ切り替えるタイマー */
+  let transitionTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 読み込みの世代（パスの取得中に別の読み込み・切り替えが始まったら、古い方を捨てる） */
+  let loadGeneration = 0;
+  /** 先読みの世代（同上） */
+  let preloadGeneration = 0;
+
+  const normalizationMode = () => options.normalizationMode?.() ?? 'off';
+  const isGaplessEnabled = () => options.gapless?.() ?? false;
+
+  /** 先読みしておくトラック（ギャップレス再生が無効、または次の曲がなければnull） */
+  const trackToPreload = () => (isGaplessEnabled() ? peekNextTrack() : null);
+
+  /** デッキの音量の正規化の倍率を、読み込んだトラックと設定から決める */
+  function applyNormalization(deck: Deck, mode = normalizationMode()): void {
+    const replayGain = deck.track?.replayGain;
+    setNormalizationGain(deck.index, replayGain ? normalizationGain(replayGain, mode) : 1);
+  }
 
   /** 再生を開始する（中断による拒否は無視し、それ以外はログに残す） */
   async function play(): Promise<void> {
     try {
-      await audio.play();
+      await active.audio.play();
     } catch (error) {
       if (!isAbortError(error)) {
         console.error('再生の開始に失敗しました:', error);
@@ -107,41 +178,198 @@ export function createPlaybackController(
     }
   }
 
-  /** トラックを読み込んで再生する */
+  /** トラックの再生の失敗を通知し、再生中の表示を解除する */
+  function reportPlaybackError(error: unknown): void {
+    handleError(error, 'トラックの再生に失敗しました');
+    player.isPlaying = false;
+  }
+
+  /**
+   * 読み込んだトラックの再生を始め、バックエンドへの通知と再生回数の記録を行う
+   * @param notify falseなら通知・記録をしない（同じ曲を繰り返す場合。従来の頭からの再生し直しと同じ）
+   */
+  async function startPlayback(deck: Deck, track: Track, notify = true): Promise<void> {
+    // ユーザー操作の後にAudioContextを再開する（自動再生ポリシー対応）
+    await resumeAudioContext();
+
+    try {
+      await deck.audio.play();
+    } catch (error) {
+      if (isAbortError(error)) return;
+      throw error;
+    }
+    if (!notify) return;
+
+    // 現在再生中のトラックをバックエンドに通知し、再生回数を記録する
+    await commands.setCurrentTrack(track.id);
+    void incrementPlayCount(track.id);
+  }
+
+  /** トラックを再生中のデッキに読み込んで再生する */
   async function load(track: Track): Promise<void> {
+    const deck = active;
+    const generation = ++loadGeneration;
+    cancelTransition();
     // 前のトラックは切り替えを始めた時点で止める
-    audio.pause();
+    deck.audio.pause();
+    deck.track = track;
+    deck.ready = false;
+    applyNormalization(deck);
 
     try {
       const filePath = await commands.getTrackFilePath(track.id);
 
       // パスの取得中に別のトラックへ切り替わっていたら何もしない
-      if (player.currentTrack?.id !== track.id) return;
+      if (generation !== loadGeneration) return;
 
-      audio.src = convertFileSrc(filePath);
-
-      // ユーザー操作の後にAudioContextを再開する（自動再生ポリシー対応）
-      await resumeAudioContext();
-
-      try {
-        await audio.play();
-      } catch (error) {
-        if (isAbortError(error)) return;
-        throw error;
-      }
-
-      // 現在再生中のトラックをバックエンドに通知し、再生回数を記録する
-      await commands.setCurrentTrack(track.id);
-      void incrementPlayCount(track.id);
+      deck.audio.src = convertFileSrc(filePath);
+      deck.ready = true;
+      await startPlayback(deck, track);
     } catch (error) {
-      handleError(error, 'トラックの再生に失敗しました');
-      player.isPlaying = false;
+      reportPlaybackError(error);
+    }
+  }
+
+  /**
+   * 次のトラックを、再生中ではない方のデッキに先読みする
+   *
+   * すでに同じトラックを読み込んでいれば何もしない。nullなら先読みを解除する。
+   */
+  async function preload(track: Track | null): Promise<void> {
+    const deck = standby;
+    // 切り替えの直後で前の曲の終わりがまだ鳴っている間は触らない（鳴り終わったら呼び直される）
+    if (!deck.audio.paused) return;
+
+    if (!track) {
+      unload(deck);
+      return;
+    }
+    if (deck.track?.id === track.id) {
+      // 前に再生した位置が残っていれば（1曲リピートなどで同じ曲を使い回す場合）頭へ戻しておく
+      if (deck.ready && deck.audio.currentTime !== 0) deck.audio.currentTime = 0;
+      return;
+    }
+
+    const generation = ++preloadGeneration;
+    deck.track = track;
+    deck.ready = false;
+    applyNormalization(deck);
+
+    try {
+      const filePath = await commands.getTrackFilePath(track.id);
+      if (generation !== preloadGeneration || deck !== standby) return;
+      deck.audio.src = convertFileSrc(filePath);
+      deck.ready = true;
+    } catch (error) {
+      // 先読みに失敗しても、曲の切り替えのときに通常の読み込みで再試行する（そこでエラーを通知する）
+      if (generation === preloadGeneration && deck === standby) deck.track = null;
+      console.warn('次のトラックの先読みに失敗しました:', error);
+    }
+  }
+
+  /** デッキの読み込みを解除する（ファイルを開いたままにしない） */
+  function unload(deck: Deck): void {
+    if (deck.track === null && !deck.ready) return;
+    preloadGeneration++;
+    deck.track = null;
+    deck.ready = false;
+    deck.audio.pause();
+    deck.audio.removeAttribute('src');
+    deck.audio.load();
+  }
+
+  /**
+   * 先読みしたデッキを再生中のデッキにする（再生はしない）
+   * @returns それまで再生中だったデッキ
+   */
+  function swapDecks(): Deck {
+    cancelTransition();
+    // 読み込み中のトラックがあれば捨てる
+    loadGeneration++;
+    const previous = active;
+    active = standby;
+    standby = previous;
+    if (active.audio.currentTime !== 0) active.audio.currentTime = 0;
+    player.currentTime = 0;
+    player.duration = Number.isFinite(active.audio.duration) ? active.audio.duration : 0;
+    return previous;
+  }
+
+  /** 先読みしたデッキが、次に再生するトラックを読み込み済みか */
+  function isNextTrackReady(next: Track | null): next is Track {
+    return next !== null && standby.ready && standby.track?.id === next.id;
+  }
+
+  /**
+   * 先読みした次の曲へ切り替える（ギャップレス再生）
+   *
+   * 前の曲はそのまま最後まで鳴らす（タイマーで少し早めに切り替えた場合の、曲の終わりを切らない）。
+   * @returns 切り替えたか（先読みが済んでいない・次の曲が変わった場合はfalse）
+   */
+  function startTransition(): boolean {
+    cancelTransition();
+    const next = peekNextTrack();
+    if (!isGaplessEnabled() || !isNextTrackReady(next)) return false;
+
+    const repeating = next.id === player.currentTrack?.id;
+    const previous = swapDecks();
+    // 再生中のトラックを進める（先読みしたデッキと同じトラックのため、読み込みは走らない）
+    playNextTrack();
+    startPlayback(active, next, !repeating).catch(reportPlaybackError);
+    if (previous.audio.paused) {
+      // 前の曲が鳴り終わっていれば（`ended`での切り替え）、すぐに次を用意する。
+      // 1曲リピートではキューの状態が変わらず先読みの$effectが動かないため、ここで頭へ戻しておく
+      void preload(trackToPreload());
+    }
+    return true;
+  }
+
+  /** 再生中の曲の残り秒数（長さが分からない場合はnull） */
+  function remainingSeconds(): number | null {
+    const { duration, currentTime } = active.audio;
+    return Number.isFinite(duration) && duration > 0 ? duration - currentTime : null;
+  }
+
+  /** 曲の終わりが近づいたら、次の曲へ切り替えるタイマーを用意する */
+  function scheduleTransition(): void {
+    if (transitionTimer !== null || active.audio.paused || !isGaplessEnabled()) return;
+    const remaining = remainingSeconds();
+    if (remaining === null || remaining > TRANSITION_WINDOW_SECONDS) return;
+    if (!isNextTrackReady(peekNextTrack())) return;
+    waitForTransition(remaining);
+  }
+
+  function waitForTransition(remaining: number): void {
+    transitionTimer = setTimeout(
+      onTransitionTimer,
+      Math.max(0, (remaining - GAPLESS_LEAD_SECONDS) * 1000)
+    );
+  }
+
+  function onTransitionTimer(): void {
+    transitionTimer = null;
+    if (active.audio.paused) return;
+    const remaining = remainingSeconds();
+    if (remaining === null) return;
+    // タイマーの誤差などでまだ早ければ待ち直す
+    if (remaining > GAPLESS_LEAD_SECONDS + TIMER_TOLERANCE_SECONDS) {
+      waitForTransition(remaining);
+      return;
+    }
+    startTransition();
+  }
+
+  function cancelTransition(): void {
+    if (transitionTimer !== null) {
+      clearTimeout(transitionTimer);
+      transitionTimer = null;
     }
   }
 
   /** 再生中のトラックを頭から再生し直す */
   function restart(): void {
-    audio.currentTime = 0;
+    cancelTransition();
+    active.audio.currentTime = 0;
     player.currentTime = 0;
     void play();
   }
@@ -163,28 +391,72 @@ export function createPlaybackController(
   }
 
   function seek(time: number): void {
+    const audio = active.audio;
     const max = Number.isFinite(audio.duration) ? audio.duration : time;
     const clamped = Math.max(0, Math.min(time, max));
+    // 切り替えのタイマーは、次の再生位置の通知で用意し直す
+    cancelTransition();
     audio.currentTime = clamped;
     player.currentTime = clamped;
   }
 
-  // ---------- audio要素のイベント ----------
+  /** 再生をすべて止める（キューが空になったとき） */
+  function stop(): void {
+    cancelTransition();
+    loadGeneration++;
+    active.track = null;
+    active.ready = false;
+    for (const deck of decks) {
+      deck.audio.pause();
+    }
+  }
 
-  const listeners: Array<[keyof HTMLMediaElementEventMap, () => void]> = [
-    ['play', () => (player.isPlaying = true)],
-    ['pause', () => (player.isPlaying = false)],
+  // ---------- audio要素のイベント ----------
+  // 2つのデッキのイベントを受け、再生中のデッキのものだけを再生状態に反映する
+
+  const handlers: Array<[keyof HTMLMediaElementEventMap, (deck: Deck) => void]> = [
     [
-      'timeupdate',
-      () => {
-        if (!scrubbing) player.currentTime = audio.currentTime;
+      'play',
+      (deck) => {
+        if (deck === active) player.isPlaying = true;
       }
     ],
-    ['loadedmetadata', () => (player.duration = audio.duration)],
+    [
+      'pause',
+      (deck) => {
+        if (deck === active) {
+          player.isPlaying = false;
+          cancelTransition();
+        } else {
+          // 前の曲が鳴り終わった（止められた）ので、次の曲を先読みできる
+          void preload(trackToPreload());
+        }
+      }
+    ],
+    [
+      'timeupdate',
+      (deck) => {
+        if (deck !== active) return;
+        if (!scrubbing) player.currentTime = deck.audio.currentTime;
+        scheduleTransition();
+      }
+    ],
+    [
+      'loadedmetadata',
+      (deck) => {
+        if (deck === active) player.duration = deck.audio.duration;
+      }
+    ],
     [
       'ended',
-      () => {
+      (deck) => {
+        if (deck !== active) {
+          void preload(trackToPreload());
+          return;
+        }
         player.currentTime = 0;
+        // 先読みが済んでいれば、そのデッキで続けて再生する
+        if (startTransition()) return;
         // 次がなければ（リピートなしでキューの最後）再生を終える
         if (!moveInQueue(playNextTrack)) {
           resetPlayer();
@@ -193,56 +465,86 @@ export function createPlaybackController(
     ],
     [
       'error',
-      () => {
-        const message = mediaErrorMessage(audio.error);
+      (deck) => {
+        const message = mediaErrorMessage(deck.audio.error);
         if (message === null) return;
+        if (deck !== active) {
+          // 先読みの失敗は、曲の切り替えのときに通常の読み込みで再試行する（そこでエラーを通知する）
+          console.warn('次のトラックの先読みに失敗しました:', deck.audio.error);
+          deck.track = null;
+          deck.ready = false;
+          return;
+        }
         console.error('オーディオの再生エラーが発生しました', {
-          error: audio.error,
-          src: audio.src
+          error: deck.audio.error,
+          src: deck.audio.src
         });
         handleError(message);
         player.isPlaying = false;
       }
     ]
   ];
-  for (const [type, listener] of listeners) {
-    audio.addEventListener(type, listener);
-  }
+  const listeners = decks.flatMap((deck) =>
+    handlers.map(([type, handler]) => {
+      const listener = () => handler(deck);
+      deck.audio.addEventListener(type, listener);
+      return { deck, type, listener };
+    })
+  );
 
   // ---------- 再生状態の監視 ----------
 
   // コンポーネントの外でも動かし、destroy()で止めるため$effect.rootで作る
   const stopEffects = $effect.root(() => {
+    // 再生するトラックの読み込み（先読みより先に処理するため、先に作る）
     $effect(() => {
       const track = player.currentTrack;
       // 読み込みの処理の中で読む状態（再生中かどうか等）には反応させない
       untrack(() => {
         if (!track) {
           // キューが空になったら再生を止める
-          loadedTrackId = null;
-          audio.pause();
+          stop();
           return;
         }
-        if (track.id === loadedTrackId) return;
-        loadedTrackId = track.id;
+        if (track.id === active.track?.id) return;
+
+        if (standby.ready && standby.track?.id === track.id) {
+          // 先読みした曲へ「次へ」などで移った場合は、読み込み直さずに切り替える
+          const previous = swapDecks();
+          previous.audio.pause();
+          startPlayback(active, track).catch(reportPlaybackError);
+          return;
+        }
         void load(track);
       });
     });
 
+    // 次の曲の先読み（キュー・リピート・シャッフル・設定の変更に追随する）
     $effect(() => {
-      audio.volume = player.volume;
+      const next = trackToPreload();
+      untrack(() => void preload(next));
     });
 
-    // 音量の正規化: 再生中の曲のReplayGainと設定から補正量を決める
     $effect(() => {
-      const replayGain = player.currentTrack?.replayGain;
-      const mode = options.normalizationMode?.() ?? 'off';
-      setNormalizationGain(replayGain ? normalizationGain(replayGain, mode) : 1);
+      const volume = player.volume;
+      for (const deck of decks) {
+        deck.audio.volume = volume;
+      }
+    });
+
+    // 音量の正規化: 設定が変わったら、各デッキのトラックの補正量を決め直す
+    $effect(() => {
+      const mode = normalizationMode();
+      untrack(() => {
+        for (const deck of decks) {
+          applyNormalization(deck, mode);
+        }
+      });
     });
   });
 
   if (!isEqualizerInitialized()) {
-    initializeEqualizer(audio).catch((error) => {
+    initializeEqualizer(audios).catch((error) => {
       console.error('イコライザの初期化に失敗しました:', error);
     });
   }
@@ -250,15 +552,15 @@ export function createPlaybackController(
   return {
     async togglePlayPause() {
       if (!player.currentTrack) return;
-      if (audio.paused) {
+      if (active.audio.paused) {
         await play();
       } else {
-        audio.pause();
+        active.audio.pause();
       }
     },
     seek,
     seekBy(delta) {
-      seek(audio.currentTime + delta);
+      seek(active.audio.currentTime + delta);
     },
     next() {
       moveInQueue(playNextTrack);
@@ -271,8 +573,11 @@ export function createPlaybackController(
     },
     destroy() {
       stopEffects();
-      for (const [type, listener] of listeners) {
-        audio.removeEventListener(type, listener);
+      cancelTransition();
+      loadGeneration++;
+      preloadGeneration++;
+      for (const { deck, type, listener } of listeners) {
+        deck.audio.removeEventListener(type, listener);
       }
       resetPlayer();
       cleanupEqualizer().catch((error) => {

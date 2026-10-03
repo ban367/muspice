@@ -238,7 +238,7 @@ describe('Web Audioへの反映', () => {
       await importFreshEqualizer();
     equalizer.applyPreset('bass_boost');
 
-    await initializeEqualizer({} as HTMLAudioElement);
+    await initializeEqualizer([{} as HTMLAudioElement]);
     expect(contexts).toHaveLength(1);
     const gains = () => contexts[0].filters.map((f) => f.gain.value);
     // 無効のままなので0dB
@@ -255,7 +255,7 @@ describe('Web Audioへの反映', () => {
 });
 
 describe('音量の正規化', () => {
-  it('接続前に設定した倍率も、接続時に反映する', async () => {
+  it('デッキごとに倍率を設定でき、接続前に設定した倍率も接続時に反映する', async () => {
     const contexts: FakeAudioContext[] = [];
     vi.stubGlobal(
       'AudioContext',
@@ -269,14 +269,16 @@ describe('音量の正規化', () => {
     const { initializeEqualizer, cleanupEqualizer, setNormalizationGain } =
       await importFreshEqualizer();
 
-    setNormalizationGain(0.5);
-    await initializeEqualizer({} as HTMLAudioElement);
-    // 最初に作るGainNodeが正規化用（2つ目は最終出力）
-    const [normalization] = contexts[0].gains;
-    expect(normalization.gain.value).toBe(0.5);
+    setNormalizationGain(1, 0.5);
+    await initializeEqualizer([{} as HTMLAudioElement, {} as HTMLAudioElement]);
+    // 最初に作るGainNodeが最終出力用で、続いてデッキごとの正規化用
+    const [, deck0, deck1] = contexts[0].gains;
+    expect(deck0.gain.value).toBe(1);
+    expect(deck1.gain.value).toBe(0.5);
 
-    setNormalizationGain(0.25);
-    expect(normalization.gain.value).toBe(0.25);
+    setNormalizationGain(0, 0.25);
+    expect(deck0.gain.value).toBe(0.25);
+    expect(deck1.gain.value).toBe(0.5);
 
     await cleanupEqualizer();
   });
