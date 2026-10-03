@@ -7,6 +7,7 @@ use crate::library::{
     DuplicateAction, ImportResult, get_default_title, get_file_format, get_file_modified_at,
     get_file_size, scan_directory,
 };
+use crate::library_sync::LibrarySync;
 use crate::metadata::extract_all_file_info;
 use crate::models::Track;
 use crate::state::AppState;
@@ -31,12 +32,21 @@ pub async fn import_folder(
     // スキャン・メタデータ抽出・バッチ書き込みはブロッキング処理用スレッドで行う
     run_blocking(move || {
         let state = app_handle.state::<AppState>();
-        import_folder_blocking(
-            Path::new(&folder_path),
-            duplicate_action,
-            state.inner(),
-            &app_handle,
-        )
+        let result = {
+            // 自動の再スキャンと同じファイルを同時に登録しないよう、終わるまで待ってから始める
+            let _scan = state.lock_library_scan();
+            import_folder_blocking(
+                Path::new(&folder_path),
+                duplicate_action,
+                state.inner(),
+                &app_handle,
+            )?
+        };
+        // 記録したフォルダを監視する（監視が有効な場合）
+        app_handle
+            .state::<LibrarySync>()
+            .refresh_watches(&app_handle);
+        Ok(result)
     })
     .await
 }

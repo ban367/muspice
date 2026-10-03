@@ -10,6 +10,15 @@
   // クロスフェードの最大の秒数（Rust側のMAX_CROSSFADE_SECONDSと同じ）
   const MAX_CROSSFADE_SECONDS = 12;
 
+  // ライブラリフォルダの定期的な再スキャンの間隔（分。Rust側のLIBRARY_SCAN_INTERVALSと同じ）
+  const scanIntervalOptions: { value: number; label: string }[] = [
+    { value: 0, label: 'しない' },
+    { value: 15, label: '15分ごと' },
+    { value: 30, label: '30分ごと' },
+    { value: 60, label: '1時間ごと' },
+    { value: 360, label: '6時間ごと' }
+  ];
+
   type SettingsSection = 'general' | 'playback' | 'library' | 'appearance';
 
   const sections = [
@@ -163,6 +172,42 @@
       {#if activeSection === 'library'}
         <!-- ライブラリフォルダの操作はすぐに反映する（下の「適用」の対象外） -->
         <LibraryFolderSettings />
+
+        {#if pending}
+          <section class="settings-section">
+            <h4 class="subsection-title">変更の自動反映</h4>
+
+            <div class="setting-item">
+              <label class="setting-checkbox-label">
+                <input
+                  type="checkbox"
+                  class="setting-checkbox"
+                  bind:checked={pending.watchLibraryFolders}
+                />
+                フォルダの変更を監視する
+              </label>
+              <p class="setting-description">
+                ライブラリフォルダでファイルが追加・削除・変更されたら、数秒後にライブラリへ反映します。外付けドライブやネットワーク上のフォルダでは、変更が通知されない場合があります
+              </p>
+            </div>
+
+            <div class="setting-item">
+              <label class="setting-label" for="scan-interval">定期的な再スキャン</label>
+              <select
+                id="scan-interval"
+                class="setting-select"
+                bind:value={pending.libraryScanIntervalMinutes}
+              >
+                {#each scanIntervalOptions as option (option.value)}
+                  <option value={option.value}>{option.label}</option>
+                {/each}
+              </select>
+              <p class="setting-description">
+                どちらかを有効にすると、アプリの起動時にも再スキャンします。フォルダが見つからない場合（外付けドライブが外れているなど）は、曲をライブラリから外さずに飛ばします
+              </p>
+            </div>
+          </section>
+        {/if}
       {:else if !pending}
         <p class="setting-description">
           {settingsQuery.isError ? '設定を読み込めませんでした' : '読み込み中...'}
@@ -327,6 +372,10 @@
 
   .section-title {
     @apply text-xl font-semibold mb-6 m-0;
+  }
+
+  .subsection-title {
+    @apply text-base font-semibold mt-8 mb-4;
   }
 
   .setting-item {

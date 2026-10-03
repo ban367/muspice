@@ -21,6 +21,9 @@ pub const DEFAULT_ACCENT_COLOR: &str = "#3b82f6";
 /// クロスフェードの最大の秒数
 pub const MAX_CROSSFADE_SECONDS: u8 = 12;
 
+/// ライブラリフォルダを定期的に再スキャンする間隔として選べる値（分。0は再スキャンしない）
+pub const LIBRARY_SCAN_INTERVALS: [u32; 5] = [0, 15, 30, 60, 360];
+
 /// 起動時に開く画面
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -59,6 +62,17 @@ pub struct Settings {
     pub gapless_playback: bool,
     /// クロスフェードの秒数（0でクロスフェードしない）
     pub crossfade_seconds: u8,
+    /// ライブラリフォルダを監視し、ファイルの変更を自動で反映する
+    pub watch_library_folders: bool,
+    /// ライブラリフォルダを定期的に再スキャンする間隔（分。0で再スキャンしない）
+    pub library_scan_interval_minutes: u32,
+}
+
+impl Settings {
+    /// ライブラリフォルダの変更を自動で反映するか（起動時の再スキャンもこれに従う）
+    pub fn auto_sync_enabled(&self) -> bool {
+        self.watch_library_folders || self.library_scan_interval_minutes > 0
+    }
 }
 
 impl Default for Settings {
@@ -69,6 +83,8 @@ impl Default for Settings {
             volume_normalization: VolumeNormalization::default(),
             gapless_playback: true,
             crossfade_seconds: 0,
+            watch_library_folders: false,
+            library_scan_interval_minutes: 0,
         }
     }
 }
@@ -89,6 +105,11 @@ pub fn validate_settings(settings: &Settings) -> AppResult<()> {
             "クロスフェードは0〜{}秒で指定してください",
             MAX_CROSSFADE_SECONDS
         )));
+    }
+    if !LIBRARY_SCAN_INTERVALS.contains(&settings.library_scan_interval_minutes) {
+        return Err(AppError::Validation(
+            "再スキャンの間隔が選べる値ではありません".to_string(),
+        ));
     }
     Ok(())
 }
@@ -207,6 +228,8 @@ mod tests {
             volume_normalization: VolumeNormalization::Album,
             gapless_playback: false,
             crossfade_seconds: 5,
+            watch_library_folders: true,
+            library_scan_interval_minutes: 60,
         };
 
         state.save(settings.clone()).unwrap();
@@ -228,6 +251,7 @@ mod tests {
         assert_eq!(settings.volume_normalization, VolumeNormalization::Off);
         assert!(settings.gapless_playback);
         assert_eq!(settings.crossfade_seconds, 0);
+        assert!(!settings.auto_sync_enabled());
     }
 
     #[test]
@@ -261,5 +285,37 @@ mod tests {
         };
         assert!(state.save(settings(MAX_CROSSFADE_SECONDS)).is_ok());
         assert!(state.save(settings(MAX_CROSSFADE_SECONDS + 1)).is_err());
+    }
+
+    #[test]
+    fn test_library_scan_interval_must_be_a_choice() {
+        let state = SettingsState::load(temp_settings_path("scan-interval"));
+        let settings = |library_scan_interval_minutes| Settings {
+            library_scan_interval_minutes,
+            ..Settings::default()
+        };
+        for minutes in LIBRARY_SCAN_INTERVALS {
+            assert!(
+                state.save(settings(minutes)).is_ok(),
+                "{}分は選べる",
+                minutes
+            );
+        }
+        assert!(state.save(settings(1)).is_err());
+    }
+
+    #[test]
+    fn test_auto_sync_enabled() {
+        let watch = Settings {
+            watch_library_folders: true,
+            ..Settings::default()
+        };
+        let interval = Settings {
+            library_scan_interval_minutes: 15,
+            ..Settings::default()
+        };
+        assert!(watch.auto_sync_enabled());
+        assert!(interval.auto_sync_enabled());
+        assert!(!Settings::default().auto_sync_enabled());
     }
 }

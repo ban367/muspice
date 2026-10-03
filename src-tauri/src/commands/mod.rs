@@ -20,6 +20,8 @@ pub use import::import_folder;
 
 // ライブラリフォルダ（インポートしたフォルダ）の一覧・削除・再スキャン
 pub use library_folders::{get_library_folders, remove_library_folder, rescan_library_folder};
+// 自動の再スキャン（`library_sync`）が使う
+pub(crate) use library_folders::rescan_folder;
 
 // トラック取得・検索・フィルタリング・グループ化・削除
 pub use tracks::{

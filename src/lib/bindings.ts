@@ -374,6 +374,10 @@ export type Settings = {
 	gaplessPlayback: boolean,
 	/**  クロスフェードの秒数（0でクロスフェードしない） */
 	crossfadeSeconds: number,
+	/**  ライブラリフォルダを監視し、ファイルの変更を自動で反映する */
+	watchLibraryFolders: boolean,
+	/**  ライブラリフォルダを定期的に再スキャンする間隔（分。0で再スキャンしない） */
+	libraryScanIntervalMinutes: number,
 };
 
 /**  設定が保存された（設定ウィンドウでの変更をメインウィンドウに反映する） */

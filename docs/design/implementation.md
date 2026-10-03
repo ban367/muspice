@@ -13,6 +13,7 @@
 | バックエンド     | Rust                            | edition 2024（stable）                             | コアロジック/DBアクセス                              |
 | DB               | SQLite + FTS5                   | rusqlite 0.40（bundled）                           | 全文検索・ローカル保存                               |
 | メタデータ       | lofty                           | 0.25                                               | タグ読み書き/アルバムアート抽出                      |
+| フォルダの監視   | notify-debouncer-mini（notify） | 0.7（notify 8）                                    | ライブラリフォルダの変更の自動反映                   |
 
 ## ディレクトリ構成
 
@@ -54,6 +55,7 @@ src-tauri/src/
 ├── repository.rs
 ├── library.rs
 ├── library_folder.rs
+├── library_sync.rs        # ライブラリフォルダの変更の自動反映（起動時・定期・監視）
 ├── playlist.rs
 ├── metadata.rs
 ├── models.rs

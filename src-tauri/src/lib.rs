@@ -5,6 +5,7 @@ mod error;
 mod events;
 mod library;
 mod library_folder;
+mod library_sync;
 mod metadata;
 mod models;
 mod playlist;
@@ -186,6 +187,11 @@ pub fn run() {
             app.manage(settings::SettingsState::load(
                 app_data_dir.join("settings.json"),
             ));
+
+            // ライブラリフォルダの変更の自動反映（設定に応じて、起動時の再スキャン・定期的な
+            // 再スキャン・フォルダの監視を別スレッドで始める）
+            app.manage(library_sync::LibrarySync::default());
+            library_sync::start(app.handle());
 
             // メニューバーを構築
             let app_menu = SubmenuBuilder::new(app, "Muspice")

@@ -9,6 +9,7 @@ use crate::library_folder::{
     DiskFile, LibraryFolder, LibraryFolderList, RescanPlan, RescanResult, find_all_folders,
     find_folder, plan_rescan, track_path_prefix,
 };
+use crate::library_sync::LibrarySync;
 use crate::models::Track;
 use crate::state::AppState;
 use crate::validation::validate_track_id;
@@ -101,6 +102,11 @@ pub async fn remove_library_folder(
         to_count(removed)
     })?;
 
+    // 削除したフォルダは監視しない
+    app_handle
+        .state::<LibrarySync>()
+        .refresh_watches(&app_handle);
+
     if removed > 0 {
         notify_library_changed(&app_handle);
     }
@@ -120,17 +126,22 @@ pub async fn rescan_library_folder(
 
     run_blocking(move || {
         let state = app_handle.state::<AppState>();
-        rescan_blocking(&folder_id, state.inner(), &app_handle)
+        rescan_folder(&folder_id, state.inner(), &app_handle, true)
     })
     .await
 }
 
-/// `rescan_library_folder`の本体（同期処理）
-fn rescan_blocking(
+/// ライブラリフォルダを再スキャンする（同期処理。`rescan_library_folder`と自動の再スキャンが使う）
+///
+/// 他のインポート・再スキャンが終わるまで待ってから始める。
+/// `report_progress`がtrueなら`LibraryScanProgress`を送る（設定ウィンドウの手動の再スキャン用）。
+pub(crate) fn rescan_folder(
     folder_id: &str,
     state: &AppState,
     app_handle: &AppHandle,
+    report_progress: bool,
 ) -> AppResult<RescanResult> {
+    let _scan = state.lock_library_scan();
     let folder = state.with_db(|db| find_folder(db, folder_id))?;
     let folder_path = Path::new(&folder.path);
     if !folder_path.is_dir() {
@@ -164,7 +175,8 @@ fn rescan_blocking(
     };
 
     // 2. 追加・変更のあったファイルを読み込み、バッチごとに書き込む
-    read_and_write_tracks(&plan, state, app_handle, &mut result)?;
+    let progress = report_progress.then_some(app_handle);
+    read_and_write_tracks(&plan, state, progress, &mut result)?;
 
     // 3. 更新日時の記録と、見つからなくなったトラックの削除
     let removed = state.with_db(|db| {
@@ -212,10 +224,11 @@ fn rescan_blocking(
 ///
 /// ファイルの読み込み（メタデータの抽出）はDBロックの外で行い、ロックはバッチ単位の
 /// 書き込みの間だけ保持する（インポートと同じ）。
+/// `progress`を渡すと、ファイルごとに`LibraryScanProgress`を送る。
 fn read_and_write_tracks(
     plan: &RescanPlan,
     state: &AppState,
-    app_handle: &AppHandle,
+    progress: Option<&AppHandle>,
     result: &mut RescanResult,
 ) -> AppResult<()> {
     // (ファイル, 新規か)
@@ -234,17 +247,19 @@ fn read_and_write_tracks(
         for (file, is_new) in chunk {
             let path = Path::new(&file.path);
             processed += 1;
-            let progress = LibraryScanProgress {
-                current: processed,
-                total,
-                current_file: path
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("不明なファイル")
-                    .to_string(),
-            };
-            if let Err(e) = progress.emit(app_handle) {
-                log::warn!("再スキャンの進捗イベントの送信に失敗しました: {}", e);
+            if let Some(app_handle) = progress {
+                let event = LibraryScanProgress {
+                    current: processed,
+                    total,
+                    current_file: path
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("不明なファイル")
+                        .to_string(),
+                };
+                if let Err(e) = event.emit(app_handle) {
+                    log::warn!("再スキャンの進捗イベントの送信に失敗しました: {}", e);
+                }
             }
 
             match create_track_from_file(path) {

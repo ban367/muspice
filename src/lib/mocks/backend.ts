@@ -202,7 +202,9 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     accentColor: '#3b82f6',
     volumeNormalization: 'off',
     gaplessPlayback: true,
-    crossfadeSeconds: 0
+    crossfadeSeconds: 0,
+    watchLibraryFolders: false,
+    libraryScanIntervalMinutes: 0
   };
   // ライブラリフォルダ（existsは「フォルダが見つかるか」。外付けドライブが外れた状態を再現する）
   let libraryFolders: Omit<LibraryFolder, 'trackCount'>[] = [
@@ -596,6 +598,9 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         next.crossfadeSeconds > 12
       ) {
         fail('VALIDATION', 'クロスフェードは0〜12秒で指定してください');
+      }
+      if (![0, 15, 30, 60, 360].includes(next.libraryScanIntervalMinutes)) {
+        fail('VALIDATION', '再スキャンの間隔が選べる値ではありません');
       }
       settings = { ...next };
       options.emit('settings-changed', settings);
