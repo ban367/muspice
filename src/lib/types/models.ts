@@ -20,5 +20,7 @@ export type {
   Playlist,
   PlaylistTrack,
   RefreshMetadataResult,
+  Settings,
+  StartupPage,
   Track
 } from '$lib/bindings';

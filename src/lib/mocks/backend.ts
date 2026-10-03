@@ -18,6 +18,7 @@ import type {
   ImportResult,
   Metadata,
   Playlist,
+  Settings,
   Track
 } from '$lib/types/models';
 import { ALBUMS_WITHOUT_ART, createFixturePlaylists, createFixtureTracks } from './fixtures';
@@ -195,6 +196,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   let tracks: Track[] = createFixtureTracks();
   let playlists: Playlist[] = createFixturePlaylists();
   let currentTrackId: string | null = null;
+  let settings: Settings = { startupPage: 'lastOpened', accentColor: '#3b82f6' };
 
   const now = () => new Date().toISOString();
   const newestFirst = (a: Track, b: Track) => compareAsc(b.createdAt, a.createdAt);
@@ -523,6 +525,15 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     showInFolder: (trackId) => {
       validateTrackId(trackId);
       console.info(`[mock] ファイルマネージャーで表示: ${findTrack(trackId).filePath}`);
+      return null;
+    },
+    getSettings: () => settings,
+    saveSettings: (next) => {
+      if (!/^#[0-9a-fA-F]{6}$/.test(next.accentColor)) {
+        fail('VALIDATION', 'アクセントカラーは#rrggbb形式で指定してください');
+      }
+      settings = { ...next };
+      options.emit('settings-changed', settings);
       return null;
     },
     openProjectPage: () => {

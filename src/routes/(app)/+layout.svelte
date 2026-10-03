@@ -2,20 +2,28 @@
   import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
   import { events } from '$lib/bindings';
   import { onMount } from 'svelte';
+  import { afterNavigate } from '$app/navigation';
   import { TextPromptDialog, Toast } from '$lib/components/ui';
   import Player from '$lib/components/Player.svelte';
   import Sidebar from '$lib/components/Sidebar.svelte';
   import RightSidebar from '$lib/components/RightSidebar.svelte';
   import ImportDialog from '$lib/components/ImportDialog.svelte';
   import AboutDialog from '$lib/components/AboutDialog.svelte';
+  import SettingsSync from '$lib/components/SettingsSync.svelte';
   import {
     isSidebarOpen,
     isImportDialogOpen,
     isAboutDialogOpen,
     isRightSidebarPinned,
-    isRightSidebarExpanded
+    isRightSidebarExpanded,
+    saveLastPage
   } from '$lib/stores/ui';
   import '../../app.css';
+
+  // 起動時に「前回開いていた画面」を開けるよう、開いた画面を記録する
+  afterNavigate(({ to }) => {
+    if (to) saveLastPage(to.url.pathname);
+  });
 
   // サイドバーの開閉を切り替え
   function toggleSidebar() {
@@ -75,6 +83,7 @@
 
 <QueryClientProvider client={queryClient}>
   <Toast />
+  <SettingsSync />
   <div class="app-container">
     <!-- モバイル用オーバーレイ -->
     {#if $isSidebarOpen}

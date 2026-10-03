@@ -6,6 +6,7 @@
 //! 新しいイベントを追加したら`lib.rs`の`collect_events!`にも登録すること
 //! （未登録のまま`emit`するとパニックする）。
 
+use crate::settings::Settings;
 use serde::Serialize;
 use specta::Type;
 use tauri_specta::Event;
@@ -33,3 +34,7 @@ pub struct OpenImportDialog;
 /// メニュー「サイドバーを表示/隠す」: サイドバーの表示を切り替える
 #[derive(Debug, Clone, Serialize, Type, Event)]
 pub struct ToggleSidebar;
+
+/// 設定が保存された（設定ウィンドウでの変更をメインウィンドウに反映する）
+#[derive(Debug, Clone, Serialize, Type, Event)]
+pub struct SettingsChanged(pub Settings);

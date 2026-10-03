@@ -29,7 +29,9 @@ graph TD
 
 ## フロントエンド構成
 
-- ルート: `src/routes/(app)` 配下にライブラリ・プレイリスト、`src/routes/settings` に設定画面
+- ルート: `src/routes/(app)` 配下にライブラリ・プレイリスト、`src/routes/settings` に設定画面（メニューから開く別ウィンドウ。独自のQueryClientを持つ）
+- 設定: Rust側（`settings.rs`）がアプリデータ配下の`settings.json`に保存する。設定ウィンドウで保存するとRustが`SettingsChanged`イベントを送り、メインウィンドウの`SettingsSync`がキャッシュとアクセントカラー（CSS変数`--color-primary`）を更新する
+- 起動時の画面: ルート（`/`）が設定に応じて、前回開いていた画面（`localStorage`に記録）か曲一覧へ移動する
 - UI部品: `src/lib/components` と `src/lib/components/ui`
 - 型: `src/lib/types/models.ts` をRustモデルと対応させる
 - データ取得: `src/lib/queries/*.ts` のクエリ・ミューテーションがコマンド呼び出し・キャッシュ無効化・エラー通知を担い、コンポーネントからは直接コマンドを呼ばない

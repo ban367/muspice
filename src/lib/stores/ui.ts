@@ -192,3 +192,36 @@ export function selectTracks(trackIds: string[]): void {
 export function isTrackSelected(trackId: string, selected: string[]): boolean {
   return selected.includes(trackId);
 }
+
+// ---------- 前回開いていた画面（起動時の復元に使う） ----------
+
+const LAST_PAGE_KEY = 'muspice:lastPage';
+
+/** 起動時に復元してよい画面（メインウィンドウのライブラリ・プレイリスト） */
+function isRestorablePage(path: string): boolean {
+  return path.startsWith('/library/') || path === '/playlists' || path.startsWith('/playlists/');
+}
+
+/**
+ * 前回開いていた画面のパスを返す（記録がない・復元できない画面の場合はnull）
+ */
+export function getLastPage(): string | null {
+  try {
+    const path = localStorage.getItem(LAST_PAGE_KEY);
+    return path !== null && isRestorablePage(path) ? path : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 開いている画面のパスを記録する（復元できない画面は記録しない）
+ */
+export function saveLastPage(path: string): void {
+  if (!isRestorablePage(path)) return;
+  try {
+    localStorage.setItem(LAST_PAGE_KEY, path);
+  } catch {
+    // 保存できなくても動作には影響しない
+  }
+}
