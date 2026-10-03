@@ -27,6 +27,15 @@ export interface Track {
   lastPlayedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  replayGain: ReplayGain;
+}
+
+// 音量の正規化に使うゲイン（タグにない項目はnull）
+export interface ReplayGain {
+  trackGain: number | null; // dB
+  trackPeak: number | null; // 1.0 = フルスケール
+  albumGain: number | null;
+  albumPeak: number | null;
 }
 
 export interface Metadata {
@@ -66,14 +75,14 @@ export interface Playlist {
 
 ### テーブル
 
-| テーブル          | 用途               | 主なカラム                                                                                                                                                                                          |
-| ----------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tracks`          | トラック本体       | `id`, `file_path`, `title`, `artist`, `album`, `genre`, `year`, `track_number`, `disc_number`, `duration`, `file_size`, `file_modified_at`, `is_favorite`, `rating`, `play_count`, `last_played_at` |
-| `library_folders` | ライブラリフォルダ | `id`, `path`（UNIQUE）, `added_at`, `last_scanned_at`                                                                                                                                               |
-| `playlists`       | プレイリスト本体   | `id`, `name`, `description`, `created_at`, `updated_at`                                                                                                                                             |
-| `playlist_tracks` | プレイリスト内順序 | `playlist_id`, `track_id`, `position`, `added_at`                                                                                                                                                   |
-| `play_history`    | 再生履歴           | `id`, `track_id`, `played_at`                                                                                                                                                                       |
-| `tracks_fts`      | 全文検索（FTS5）   | `id`, `title`, `artist`, `album`, `genre`                                                                                                                                                           |
+| テーブル          | 用途               | 主なカラム                                                                                                                                                                                                           |
+| ----------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tracks`          | トラック本体       | `id`, `file_path`, `title`, `artist`, `album`, `genre`, `year`, `track_number`, `disc_number`, `duration`, `file_size`, `file_modified_at`, `is_favorite`, `rating`, `play_count`, `last_played_at`, `replay_gain_*` |
+| `library_folders` | ライブラリフォルダ | `id`, `path`（UNIQUE）, `added_at`, `last_scanned_at`                                                                                                                                                                |
+| `playlists`       | プレイリスト本体   | `id`, `name`, `description`, `created_at`, `updated_at`                                                                                                                                                              |
+| `playlist_tracks` | プレイリスト内順序 | `playlist_id`, `track_id`, `position`, `added_at`                                                                                                                                                                    |
+| `play_history`    | 再生履歴           | `id`, `track_id`, `played_at`                                                                                                                                                                                        |
+| `tracks_fts`      | 全文検索（FTS5）   | `id`, `title`, `artist`, `album`, `genre`                                                                                                                                                                            |
 
 ### インデックス/制約
 
@@ -81,6 +90,7 @@ export interface Playlist {
 - `playlist_tracks(playlist_id)` にインデックス
 - `playlist_tracks`, `play_history` は `tracks` / `playlists` への外部キー（`ON DELETE CASCADE`）
 - `tracks.file_modified_at` はファイルの更新日時（UNIX時間の秒）。再スキャンで、サイズとあわせて変更の検出に使う。列を追加する前に登録したトラックはNULLで、再スキャンで（ファイルを読み直さずに）記録する
+- `tracks.replay_gain_track_gain` / `replay_gain_track_peak` / `replay_gain_album_gain` / `replay_gain_album_peak`（REAL）はファイルのタグから読んだReplayGain。`REPLAYGAIN_*`を優先し、ゲインがない場合はOpusの`R128_*_GAIN`（Q7.8形式、基準が-23 LUFSのため+5 dBしてReplayGainの基準にそろえる）を使う。範囲外（ゲインは±60 dB、ピークは0以下）は読まない。列を追加する前に登録したトラックはNULLで、`refresh_library_metadata`か再スキャン（ファイルが変わった場合）で読み込む
 - `library_folders` とトラックの対応は `tracks.file_path` の前方一致（フォルダのパス＋区切り文字）で判定する。`LIKE` はASCIIの大文字・小文字を区別しないため `substr` で比較する。フォルダ同士は入れ子にしない（中のフォルダはインポートしても登録せず、外のフォルダをインポートすると中のフォルダの記録をまとめる）
 - `tracks_fts` は `tracks` とINSERT/UPDATE/DELETEトリガーで同期
   - external contentテーブル（`content=tracks`）のため、UPDATE/DELETEは`'delete'`コマンドパターンで古いトークンを除去する
@@ -114,7 +124,7 @@ export interface Playlist {
 | `import_folder`                    | `folderPath`, `duplicateAction` | `ImportResult`          | 50件/トランザクション、`ImportProgress`イベント送信。フォルダをライブラリフォルダとして記録する |
 | `delete_tracks_command`            | `trackIds: string[]`            | `number`                | DBからのみ削除                                                                                  |
 | `delete_tracks_with_files_command` | `trackIds: string[]`            | `DeleteResult`          | DB+ファイル削除                                                                                 |
-| `refresh_library_metadata`         | なし                            | `RefreshMetadataResult` | 全トラックのtrack/disc番号を再抽出                                                              |
+| `refresh_library_metadata`         | なし                            | `RefreshMetadataResult` | 全トラックのtrack/disc番号とReplayGainを再抽出                                                  |
 
 ### ライブラリフォルダ
 
@@ -133,7 +143,7 @@ export interface Playlist {
 | `get_settings`  | なし                 | `Settings` | `settings.json`がない・壊れている場合は既定値                        |
 | `save_settings` | `settings: Settings` | `void`     | アクセントカラーは`#rrggbb`。保存後に`SettingsChanged`イベントを送る |
 
-`Settings`: `{ startupPage: 'lastOpened' \| 'songs', accentColor: string }`。既定値は`lastOpened`・`#3b82f6`。ファイルにない項目は既定値で補う（項目を追加しても古いファイルを読める）。
+`Settings`: `{ startupPage: 'lastOpened' \| 'songs', accentColor: string, volumeNormalization: 'off' \| 'track' \| 'album' }`。既定値は`lastOpened`・`#3b82f6`・`off`。ファイルにない項目は既定値で補う（項目を追加しても古いファイルを読める）。
 
 ### カスタムプロトコル
 

@@ -197,7 +197,11 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   let tracks: Track[] = createFixtureTracks();
   let playlists: Playlist[] = createFixturePlaylists();
   let currentTrackId: string | null = null;
-  let settings: Settings = { startupPage: 'lastOpened', accentColor: '#3b82f6' };
+  let settings: Settings = {
+    startupPage: 'lastOpened',
+    accentColor: '#3b82f6',
+    volumeNormalization: 'off'
+  };
   // ライブラリフォルダ（existsは「フォルダが見つかるか」。外付けドライブが外れた状態を再現する）
   let libraryFolders: Omit<LibraryFolder, 'trackCount'>[] = [
     {
@@ -333,7 +337,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
           playCount: 0,
           lastPlayedAt: null,
           createdAt: timestamp,
-          updatedAt: timestamp
+          updatedAt: timestamp,
+          replayGain: { trackGain: null, trackPeak: null, albumGain: null, albumPeak: null }
         });
       }
       importedCount++;

@@ -194,6 +194,7 @@ class FakeAudioContext {
   state = 'running';
   destination = {};
   filters: { gain: { value: number } }[] = [];
+  gains: { gain: { value: number } }[] = [];
 
   createMediaElementSource() {
     return { connect: vi.fn(), disconnect: vi.fn() };
@@ -213,7 +214,9 @@ class FakeAudioContext {
   }
 
   createGain() {
-    return { gain: { value: 1 }, connect: vi.fn(), disconnect: vi.fn() };
+    const gain = { gain: { value: 1 }, connect: vi.fn(), disconnect: vi.fn() };
+    this.gains.push(gain);
+    return gain;
   }
 
   async close() {}
@@ -246,6 +249,34 @@ describe('Web Audioへの反映', () => {
 
     equalizer.setBandGain(16000, 3);
     expect(gains().at(-1)).toBe(3);
+
+    await cleanupEqualizer();
+  });
+});
+
+describe('音量の正規化', () => {
+  it('接続前に設定した倍率も、接続時に反映する', async () => {
+    const contexts: FakeAudioContext[] = [];
+    vi.stubGlobal(
+      'AudioContext',
+      class extends FakeAudioContext {
+        constructor() {
+          super();
+          contexts.push(this);
+        }
+      }
+    );
+    const { initializeEqualizer, cleanupEqualizer, setNormalizationGain } =
+      await importFreshEqualizer();
+
+    setNormalizationGain(0.5);
+    await initializeEqualizer({} as HTMLAudioElement);
+    // 最初に作るGainNodeが正規化用（2つ目は最終出力）
+    const [normalization] = contexts[0].gains;
+    expect(normalization.gain.value).toBe(0.5);
+
+    setNormalizationGain(0.25);
+    expect(normalization.gain.value).toBe(0.25);
 
     await cleanupEqualizer();
   });

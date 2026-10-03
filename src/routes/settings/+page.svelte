@@ -1,17 +1,18 @@
 <script lang="ts">
   import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
   import { useSaveSettingsMutation, useSettingsQuery } from '#lib/queries/settings.js';
-  import type { Settings, StartupPage } from '#lib/types/models.js';
+  import type { Settings, StartupPage, VolumeNormalization } from '#lib/types/models.js';
   import { applyAccentColor } from '#lib/utils/theme.js';
   import LibraryFolderSettings from '#lib/components/LibraryFolderSettings.svelte';
 
   // 既定のアクセントカラー（Rust側のDEFAULT_ACCENT_COLORと同じ）
   const DEFAULT_ACCENT_COLOR = '#3b82f6';
 
-  type SettingsSection = 'general' | 'library' | 'appearance';
+  type SettingsSection = 'general' | 'playback' | 'library' | 'appearance';
 
   const sections = [
     { id: 'general' as const, label: '一般' },
+    { id: 'playback' as const, label: '再生' },
     { id: 'library' as const, label: 'ライブラリ' },
     { id: 'appearance' as const, label: '外観' }
   ];
@@ -19,6 +20,12 @@
   const startupPageOptions: { value: StartupPage; label: string }[] = [
     { value: 'lastOpened', label: '前回開いていた画面' },
     { value: 'songs', label: '曲一覧' }
+  ];
+
+  const volumeNormalizationOptions: { value: VolumeNormalization; label: string }[] = [
+    { value: 'off', label: 'オフ' },
+    { value: 'track', label: 'トラック単位' },
+    { value: 'album', label: 'アルバム単位' }
   ];
 
   let activeSection: SettingsSection = $state('general');
@@ -38,7 +45,8 @@
     pending !== null &&
       settingsQuery.data !== undefined &&
       (pending.startupPage !== settingsQuery.data.startupPage ||
-        pending.accentColor !== settingsQuery.data.accentColor)
+        pending.accentColor !== settingsQuery.data.accentColor ||
+        pending.volumeNormalization !== settingsQuery.data.volumeNormalization)
   );
 
   // 設定ウィンドウにも保存済みのアクセントカラーを反映する
@@ -92,6 +100,21 @@
                   stroke-linecap="round"
                   stroke-linejoin="round"
                   d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                />
+              </svg>
+            {:else if section.id === 'playback'}
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="icon"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M11 5L6 9H2v6h4l5 4V5zM15.54 8.46a5 5 0 010 7.07M19.07 4.93a10 10 0 010 14.14"
                 />
               </svg>
             {:else if section.id === 'library'}
@@ -153,6 +176,25 @@
                 <option value={option.value}>{option.label}</option>
               {/each}
             </select>
+          </div>
+        </section>
+      {:else if activeSection === 'playback'}
+        <section class="settings-section">
+          <h3 class="section-title">再生</h3>
+          <div class="setting-item">
+            <label class="setting-label" for="normalization">音量の正規化</label>
+            <select
+              id="normalization"
+              class="setting-select"
+              bind:value={pending.volumeNormalization}
+            >
+              {#each volumeNormalizationOptions as option (option.value)}
+                <option value={option.value}>{option.label}</option>
+              {/each}
+            </select>
+            <p class="setting-description">
+              曲ごとの音量の差を、ファイルのReplayGainのタグを使ってそろえます。アルバム単位では、アルバム内の曲の音量の差はそのまま残します。タグのない曲は補正しません（既存の曲のタグは「メタデータを更新」で読み込まれます）
+            </p>
           </div>
         </section>
       {:else}

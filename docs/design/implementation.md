@@ -111,6 +111,7 @@ src-tauri/src/
 - audio要素の操作・キュー遷移・リピート・再生回数の記録・イコライザの接続は`#lib/stores/playback.svelte`の`createPlaybackController(audio)`が担う。`Player.svelte`は表示と操作の受付だけを行い、コントローラーのメソッドを呼ぶ
 - 次・前のトラックの決定は`#lib/stores/player.svelte`のキュー操作（`playNextTrack`・`playPreviousTrack`）が担う。キュー操作の結果が再生中と同じトラックだった場合（1曲リピート、3秒以上再生中の「前へ」、1曲だけのキューの全曲リピート）はトラックIDが変わらず読み込みが走らないため、コントローラーが頭から再生し直す
 - 再生中かどうか（`isPlaying`）はaudio要素の`play`/`pause`イベントから更新する
+- 音量の正規化は、再生中のトラックの`replayGain`と設定の`volumeNormalization`から`#lib/utils/normalization`の`normalizationGain`で倍率を求め、イコライザの前段のGainNodeへ`setNormalizationGain`で反映する。コントローラーは設定を直接読まず、`createPlaybackController(audio, { normalizationMode })`の関数で受け取る（テストで差し替えるため）。audio要素の`volume`はユーザーの音量のまま変えない
 - アルバム・プレイリストなどの「シャッフル再生」は`playShuffled(tracks)`を使う（配列を`sort(() => Math.random() - 0.5)`などで独自に並べ替えない）。シャッフルモードを有効にし、元の順序を保持するため、解除すると元の順序に戻る
 
 ### ダイアログ

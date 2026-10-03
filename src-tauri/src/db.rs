@@ -70,6 +70,13 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // 追加前に登録したトラックはNULL（再スキャンで記録する）
     add_column_if_not_exists(conn, "tracks", "file_modified_at", "INTEGER")?;
 
+    // 音量の正規化に使うゲイン（dB）とピーク（ReplayGain / EBU R128のタグから読み取る）
+    // 追加前に登録したトラックは「メタデータを更新」か再スキャンで読み取る
+    add_column_if_not_exists(conn, "tracks", "replay_gain_track_gain", "REAL")?;
+    add_column_if_not_exists(conn, "tracks", "replay_gain_track_peak", "REAL")?;
+    add_column_if_not_exists(conn, "tracks", "replay_gain_album_gain", "REAL")?;
+    add_column_if_not_exists(conn, "tracks", "replay_gain_album_peak", "REAL")?;
+
     // 再生履歴テーブルの作成
     conn.execute(
         "CREATE TABLE IF NOT EXISTS play_history (

@@ -230,5 +230,6 @@ pub(super) fn create_track_from_file(file_path: &Path) -> AppResult<Track> {
         last_played_at: None,
         created_at: now.clone(),
         updated_at: now,
+        replay_gain: file_info.replay_gain,
     })
 }

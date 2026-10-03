@@ -101,6 +101,8 @@ export const commands = {
 	lastPlayedAt: string | null,
 	createdAt: string,
 	updatedAt: string,
+	/**  音量の正規化に使うゲイン（タグにない項目は値なし） */
+	replayGain: ReplayGain,
 } | null>("get_current_track"),
 	/**
 	 *  トラックのファイルをシステムのファイルマネージャーで表示
@@ -138,7 +140,8 @@ export const commands = {
 	deleteTracksWithFilesCommand: (trackIds: string[]) => __TAURI_INVOKE<DeleteResult>("delete_tracks_with_files_command", { trackIds }),
 	/**
 	 *  ライブラリ全体のメタデータを更新
-	 *  ファイルからtrack_numberとdisc_numberを再読み込み
+	 *  ファイルからtrack_number・disc_number・ReplayGainを再読み込み
+	 *  （タイトルなどはDBだけで編集できるため、ファイルの内容で上書きしない）
 	 */
 	refreshLibraryMetadata: () => __TAURI_INVOKE<RefreshMetadataResult>("refresh_library_metadata"),
 };
@@ -333,6 +336,18 @@ export type RefreshMetadataResult = {
 	errors: string[],
 };
 
+/**
+ *  音量の正規化に使うゲインとピーク（ReplayGainのタグ、またはEBU R128のタグから読み取る）
+ * 
+ *  ゲインはReplayGainの基準（-18 LUFS）に合わせたdB。ピークは最大振幅（1.0がフルスケール）。
+ */
+export type ReplayGain = {
+	trackGain: number | null,
+	trackPeak: number | null,
+	albumGain: number | null,
+	albumPeak: number | null,
+};
+
 /**  再スキャンの結果 */
 export type RescanResult = {
 	/**  新しく追加したトラック数 */
@@ -353,6 +368,8 @@ export type Settings = {
 	startupPage: StartupPage,
 	/**  アクセントカラー（`#rrggbb`） */
 	accentColor: string,
+	/**  音量の正規化 */
+	volumeNormalization: VolumeNormalization,
 };
 
 /**  設定が保存された（設定ウィンドウでの変更をメインウィンドウに反映する） */
@@ -394,7 +411,18 @@ export type Track = {
 	lastPlayedAt: string | null,
 	createdAt: string,
 	updatedAt: string,
+	/**  音量の正規化に使うゲイン（タグにない項目は値なし） */
+	replayGain: ReplayGain,
 };
+
+/**  音量の正規化（ReplayGain） */
+export type VolumeNormalization = 
+/**  補正しない */
+"off" | 
+/**  トラック単位のゲインで補正する（ない場合はアルバム単位） */
+"track" | 
+/**  アルバム単位のゲインで補正する（ない場合はトラック単位） */
+"album";
 
 /* Tauri Specta runtime */
 type EventEmit<T> = [T] extends [null] ? () => Promise<void> : (payload: T) => Promise<void>;

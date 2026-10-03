@@ -1,5 +1,5 @@
 use crate::error::{AppError, AppResult};
-use crate::models::Metadata;
+use crate::models::{Metadata, ReplayGain};
 use lofty::config::WriteOptions;
 use lofty::file::{AudioFile, TaggedFileExt};
 use lofty::picture::PictureType;
@@ -20,6 +20,60 @@ fn extract_year(tag: &Tag) -> Option<i32> {
         .filter(|y| YEAR_RANGE.contains(y))
 }
 
+/// ゲインとして受け付ける範囲（dB）。範囲外の値は壊れたタグとして無視する
+const GAIN_RANGE_DB: std::ops::RangeInclusive<f64> = -60.0..=60.0;
+
+/// EBU R128（-23 LUFS）とReplayGain（-18 LUFS）の基準の差（dB）
+const R128_TO_REPLAY_GAIN_DB: f64 = 5.0;
+
+/// ReplayGainのゲインの値（例: "-6.48 dB"、"+1.2 dB"）を解釈する
+fn parse_gain_db(value: &str) -> Option<f64> {
+    let number = value.trim();
+    let number = number
+        .strip_suffix("dB")
+        .or_else(|| number.strip_suffix("db"))
+        .or_else(|| number.strip_suffix("DB"))
+        .unwrap_or(number)
+        .trim();
+    let gain: f64 = number.parse().ok()?;
+    (gain.is_finite() && GAIN_RANGE_DB.contains(&gain)).then_some(gain)
+}
+
+/// ReplayGainのピークの値（例: "0.988769"）を解釈する
+fn parse_peak(value: &str) -> Option<f64> {
+    let peak: f64 = value.trim().parse().ok()?;
+    (peak.is_finite() && peak > 0.0).then_some(peak)
+}
+
+/// EBU R128のゲインの値（Q7.8の整数。例: "-1536" = -6 dB）を、ReplayGainの基準のdBに変換する
+fn parse_r128_gain(value: &str) -> Option<f64> {
+    let q78: i32 = value.trim().parse().ok()?;
+    let gain = f64::from(q78) / 256.0 + R128_TO_REPLAY_GAIN_DB;
+    GAIN_RANGE_DB.contains(&gain).then_some(gain)
+}
+
+/// タグから音量の正規化に使うゲインとピークを読み取る
+///
+/// ReplayGainのタグを優先し、ない場合はEBU R128のタグ（Opus・Vorbisコメント）を使う。
+/// R128にはピークがないため、ピークはReplayGainのタグからだけ読み取る。
+fn extract_replay_gain(tag: &Tag) -> ReplayGain {
+    let gain = |replay_gain_key: ItemKey, r128_key: ItemKey| {
+        tag.get_string(replay_gain_key)
+            .and_then(parse_gain_db)
+            .or_else(|| tag.get_string(r128_key).and_then(parse_r128_gain))
+    };
+    ReplayGain {
+        track_gain: gain(ItemKey::ReplayGainTrackGain, ItemKey::R128TrackGain),
+        track_peak: tag
+            .get_string(ItemKey::ReplayGainTrackPeak)
+            .and_then(parse_peak),
+        album_gain: gain(ItemKey::ReplayGainAlbumGain, ItemKey::R128AlbumGain),
+        album_peak: tag
+            .get_string(ItemKey::ReplayGainAlbumPeak)
+            .and_then(parse_peak),
+    }
+}
+
 /// 音楽ファイルに埋め込まれた画像（アルバムアート）
 #[derive(Debug, Clone)]
 pub struct EmbeddedPicture {
@@ -37,6 +91,7 @@ pub struct FileInfo {
     pub duration: Option<i32>,
     pub bitrate: Option<i32>,
     pub sample_rate: Option<i32>,
+    pub replay_gain: ReplayGain,
 }
 
 /// 音楽ファイルから全情報を一括抽出する
@@ -89,6 +144,8 @@ pub fn extract_all_file_info(file_path: &Path) -> AppResult<FileInfo> {
         }
     };
 
+    let replay_gain = tag.map(extract_replay_gain).unwrap_or_default();
+
     // オーディオプロパティ抽出
     let properties = tagged_file.properties();
     let duration = Some(properties.duration().as_secs() as i32);
@@ -100,63 +157,8 @@ pub fn extract_all_file_info(file_path: &Path) -> AppResult<FileInfo> {
         duration,
         bitrate,
         sample_rate,
+        replay_gain,
     })
-}
-
-/// 音楽ファイルからメタデータを抽出
-pub fn extract_metadata(file_path: &Path) -> AppResult<Metadata> {
-    let tagged_file = Probe::open(file_path)
-        .map_err(|e| AppError::Metadata(format!("ファイルのオープンに失敗しました: {}", e)))?
-        .read()
-        .map_err(|e| AppError::Metadata(format!("ファイルの読み取りに失敗しました: {}", e)))?;
-
-    let tag = tagged_file
-        .primary_tag()
-        .or_else(|| tagged_file.first_tag());
-
-    let metadata = if let Some(tag) = tag {
-        // ディスク番号を取得（ItemKey::DiscNumber を優先、tag.disk() をフォールバック）
-        let disc_number = tag
-            .get_string(lofty::tag::ItemKey::DiscNumber)
-            .and_then(|s| {
-                // "2/2" のような形式から先頭の数字を取得
-                s.split('/')
-                    .next()
-                    .and_then(|n| n.trim().parse::<i32>().ok())
-            })
-            .or_else(|| tag.disk().map(|d| d as i32));
-
-        Metadata {
-            title: tag.title().map(|s| s.to_string()),
-            artist: tag.artist().map(|s| s.to_string()),
-            album: tag.album().map(|s| s.to_string()),
-            genre: tag.genre().map(|s| s.to_string()),
-            year: extract_year(tag),
-            track_number: tag.track().map(|t| t as i32),
-            disc_number,
-            album_artist: tag
-                .get_string(lofty::tag::ItemKey::AlbumArtist)
-                .map(|s| s.to_string()),
-            composer: tag
-                .get_string(lofty::tag::ItemKey::Composer)
-                .map(|s| s.to_string()),
-        }
-    } else {
-        // タグが存在しない場合は空のメタデータを返す
-        Metadata {
-            title: None,
-            artist: None,
-            album: None,
-            genre: None,
-            year: None,
-            track_number: None,
-            disc_number: None,
-            album_artist: None,
-            composer: None,
-        }
-    };
-
-    Ok(metadata)
 }
 
 /// 音楽ファイルからアルバムアートを抽出
@@ -295,9 +297,63 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_extract_metadata_nonexistent_file() {
-        let result = extract_metadata(Path::new("nonexistent.mp3"));
+    fn test_extract_all_file_info_nonexistent_file() {
+        let result = extract_all_file_info(Path::new("nonexistent.mp3"));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_gain_db() {
+        assert_eq!(parse_gain_db("-6.48 dB"), Some(-6.48));
+        assert_eq!(parse_gain_db("+1.20 dB"), Some(1.2));
+        assert_eq!(parse_gain_db(" -3.5dB "), Some(-3.5));
+        assert_eq!(parse_gain_db("2"), Some(2.0));
+        // 壊れた値・ありえない値は無視する
+        assert_eq!(parse_gain_db("loud"), None);
+        assert_eq!(parse_gain_db("NaN dB"), None);
+        assert_eq!(parse_gain_db("-120 dB"), None);
+    }
+
+    #[test]
+    fn test_parse_peak() {
+        assert_eq!(parse_peak("0.988769"), Some(0.988769));
+        assert_eq!(parse_peak("1.2"), Some(1.2));
+        assert_eq!(parse_peak("0"), None);
+        assert_eq!(parse_peak("-1"), None);
+        assert_eq!(parse_peak("peak"), None);
+    }
+
+    #[test]
+    fn test_parse_r128_gain_converts_to_replay_gain_reference() {
+        // -6 dB（R128の基準） = -1 dB（ReplayGainの基準）
+        assert_eq!(parse_r128_gain("-1536"), Some(-1.0));
+        assert_eq!(parse_r128_gain("0"), Some(5.0));
+        assert_eq!(parse_r128_gain("-6.5"), None);
+    }
+
+    #[test]
+    fn test_extract_replay_gain_prefers_replay_gain_over_r128() {
+        use lofty::tag::{ItemValue, TagItem, TagType};
+
+        let mut tag = Tag::new(TagType::VorbisComments);
+        let mut set = |key: ItemKey, value: &str| {
+            tag.insert(TagItem::new(key, ItemValue::Text(value.to_string())));
+        };
+        set(ItemKey::ReplayGainTrackGain, "-7.00 dB");
+        set(ItemKey::ReplayGainTrackPeak, "0.95");
+        set(ItemKey::R128TrackGain, "-512");
+        set(ItemKey::R128AlbumGain, "-1024");
+
+        assert_eq!(
+            extract_replay_gain(&tag),
+            ReplayGain {
+                track_gain: Some(-7.0),
+                track_peak: Some(0.95),
+                // アルバムはReplayGainのタグがないため、R128から変換する（-4 + 5 = 1 dB）
+                album_gain: Some(1.0),
+                album_peak: None,
+            }
+        );
     }
 
     #[test]

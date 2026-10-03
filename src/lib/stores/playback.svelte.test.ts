@@ -1,6 +1,6 @@
 import { flushSync } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Track } from '#lib/types/models.js';
+import type { Track, VolumeNormalization } from '#lib/types/models.js';
 import { commands } from '#lib/bindings.js';
 import { incrementPlayCount } from '#lib/queries/tracks.js';
 import {
@@ -10,6 +10,7 @@ import {
 } from './playback.svelte.js';
 import { player, playTrackFromQueue, resetPlayer } from './player.svelte.js';
 import { notifications } from './error.svelte.js';
+import { setNormalizationGain } from './equalizer.svelte.js';
 
 vi.mock('#lib/bindings.js', () => ({
   commands: {
@@ -27,7 +28,8 @@ vi.mock('./equalizer.svelte.js', () => ({
   initializeEqualizer: vi.fn(async () => {}),
   cleanupEqualizer: vi.fn(async () => {}),
   resumeAudioContext: vi.fn(async () => {}),
-  isEqualizerInitialized: () => true
+  isEqualizerInitialized: () => true,
+  setNormalizationGain: vi.fn()
 }));
 
 /** テスト用のaudio要素（再生状態とイベントだけを再現する） */
@@ -309,5 +311,57 @@ describe('mediaErrorMessage', () => {
     expect(mediaErrorMessage({ code: 3 })).toContain('デコードエラー');
     expect(mediaErrorMessage({ code: 4 })).toContain('未対応のフォーマット');
     expect(mediaErrorMessage(null)).toBe('再生エラーが発生しました');
+  });
+});
+
+describe('音量の正規化', () => {
+  /** dBを倍率にする */
+  const fromDb = (db: number) => 10 ** (db / 20);
+
+  function taggedTrack(id: string, trackGain: number, albumGain: number): Track {
+    return {
+      id,
+      title: id,
+      replayGain: { trackGain, trackPeak: null, albumGain, albumPeak: null }
+    } as Track;
+  }
+
+  /** 最後に設定された補正の倍率 */
+  const lastGain = () => vi.mocked(setNormalizationGain).mock.calls.at(-1)?.[0];
+
+  it('再生中の曲と設定から補正量を決め、曲や設定が変わると追随する', () => {
+    // 既定のコントローラーの代わりに、設定を変えられるコントローラーを使う
+    controller.destroy();
+    let mode = $state<VolumeNormalization>('track');
+    controller = createPlaybackController(audio as unknown as HTMLAudioElement, {
+      normalizationMode: () => mode
+    });
+
+    playTrackFromQueue([taggedTrack('a', -6, -9), taggedTrack('b', -3, -9)], 0);
+    flushSync();
+    expect(lastGain()).toBeCloseTo(fromDb(-6));
+
+    mode = 'album';
+    flushSync();
+    expect(lastGain()).toBeCloseTo(fromDb(-9));
+
+    mode = 'track';
+    controller.next();
+    flushSync();
+    expect(lastGain()).toBeCloseTo(fromDb(-3));
+
+    mode = 'off';
+    flushSync();
+    expect(lastGain()).toBe(1);
+  });
+
+  it('設定を渡さない場合・曲がない場合は補正しない', () => {
+    playTrackFromQueue([taggedTrack('a', -6, -9)], 0);
+    flushSync();
+    expect(lastGain()).toBe(1);
+
+    resetPlayer();
+    flushSync();
+    expect(lastGain()).toBe(1);
   });
 });
