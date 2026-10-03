@@ -7,6 +7,21 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 export const commands = {
 	/**  フォルダから音楽ファイルをインポート（バッチ処理最適化版） */
 	importFolder: (folderPath: string, duplicateAction: DuplicateAction) => __TAURI_INVOKE<ImportResult>("import_folder", { folderPath, duplicateAction }),
+	/**  ライブラリフォルダの一覧を取得 */
+	getLibraryFolders: () => __TAURI_INVOKE<LibraryFolderList>("get_library_folders"),
+	/**
+	 *  ライブラリフォルダの記録を削除する
+	 * 
+	 *  `remove_tracks`がtrueなら、フォルダ内のトラックもライブラリから外す（ファイルは消さない）。
+	 *  外したトラック数を返す。
+	 */
+	removeLibraryFolder: (folderId: string, removeTracks: boolean) => __TAURI_INVOKE<number>("remove_library_folder", { folderId, removeTracks }),
+	/**
+	 *  ライブラリフォルダを再スキャンし、追加・削除・変更されたファイルをライブラリに反映する
+	 * 
+	 *  フォルダが見つからない場合はエラーにする（トラックは外さない）。
+	 */
+	rescanLibraryFolder: (folderId: string) => __TAURI_INVOKE<RescanResult>("rescan_library_folder", { folderId }),
 	/**  現在の設定を取得 */
 	getSettings: () => __TAURI_INVOKE<Settings>("get_settings"),
 	/**
@@ -131,6 +146,8 @@ export const commands = {
 /** Events */
 export const events = {
 	importProgress: makeEvent<ImportProgress>("import-progress"),
+	libraryChanged: makeEvent<LibraryChanged>("library-changed"),
+	libraryScanProgress: makeEvent<LibraryScanProgress>("library-scan-progress"),
 	openImportDialog: makeEvent<OpenImportDialog>("open-import-dialog"),
 	settingsChanged: makeEvent<SettingsChanged>("settings-changed"),
 	showAboutDialog: makeEvent<ShowAboutDialog>("show-about-dialog"),
@@ -236,6 +253,45 @@ export type ImportResult = {
 	errors: string[],
 };
 
+/**
+ *  再スキャン・ライブラリフォルダの削除で、ライブラリのトラックが変わった
+ * 
+ *  設定ウィンドウでの操作を、メインウィンドウの一覧（Queryのキャッシュ）に反映する。
+ */
+export type LibraryChanged = null;
+
+/**  ライブラリフォルダ（一覧表示用） */
+export type LibraryFolder = {
+	id: string,
+	path: string,
+	/**  フォルダ内のトラック数 */
+	trackCount: number,
+	/**  フォルダが今も存在するか（外付けドライブが外れている場合などはfalse） */
+	exists: boolean,
+	addedAt: string,
+	lastScannedAt: string | null,
+};
+
+/**  ライブラリフォルダの一覧 */
+export type LibraryFolderList = {
+	folders: LibraryFolder[],
+	/**
+	 *  どのライブラリフォルダにも属さないトラック数（フォルダの記録を始める前に
+	 *  インポートした曲など。同じフォルダをインポートし直すと登録される）
+	 */
+	unregisteredTrackCount: number,
+};
+
+/**  ライブラリフォルダの再スキャンの進捗 */
+export type LibraryScanProgress = {
+	/**  読み込み済みファイル数（追加・変更のあったファイルのみ数える） */
+	current: number,
+	/**  読み込むファイルの総数 */
+	total: number,
+	/**  現在処理中のファイル名 */
+	currentFile: string,
+};
+
 /**  メタデータのデータモデル */
 export type Metadata = {
 	title?: string | null,
@@ -275,6 +331,20 @@ export type RefreshMetadataResult = {
 	skippedCount: number,
 	errorCount: number,
 	errors: string[],
+};
+
+/**  再スキャンの結果 */
+export type RescanResult = {
+	/**  新しく追加したトラック数 */
+	addedCount: number,
+	/**  変更を読み直したトラック数 */
+	updatedCount: number,
+	/**  ファイルが見つからなくなり、ライブラリから外したトラック数 */
+	removedCount: number,
+	errorCount: number,
+	errors: string[],
+	/**  音楽ファイルが1件も見つからなかったため、ライブラリから外さなかった */
+	removalSkipped: boolean,
 };
 
 /**  アプリケーション設定 */

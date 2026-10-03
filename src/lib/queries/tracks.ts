@@ -56,9 +56,11 @@ export function invalidatePlayStatsQueries(queryClient: QueryClient) {
 }
 
 /**
- * 全トラック関連クエリを無効化（後方互換性のため残す）
+ * 全トラック関連クエリとプレイリストを無効化（トラックの削除時、他のウィンドウでライブラリが変わった時）
+ *
+ * トラックを削除するとプレイリストの中からも消えるため、プレイリストも無効化する。
  */
-function invalidateAllTrackQueries(queryClient: QueryClient) {
+export function invalidateAllTrackQueries(queryClient: QueryClient) {
   invalidateTrackListQueries(queryClient);
   queryClient.invalidateQueries({ queryKey: queryKeys.playlists });
 }

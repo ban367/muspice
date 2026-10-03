@@ -3,14 +3,16 @@
   import { useSaveSettingsMutation, useSettingsQuery } from '#lib/queries/settings.js';
   import type { Settings, StartupPage } from '#lib/types/models.js';
   import { applyAccentColor } from '#lib/utils/theme.js';
+  import LibraryFolderSettings from '#lib/components/LibraryFolderSettings.svelte';
 
   // 既定のアクセントカラー（Rust側のDEFAULT_ACCENT_COLORと同じ）
   const DEFAULT_ACCENT_COLOR = '#3b82f6';
 
-  type SettingsSection = 'general' | 'appearance';
+  type SettingsSection = 'general' | 'library' | 'appearance';
 
   const sections = [
     { id: 'general' as const, label: '一般' },
+    { id: 'library' as const, label: 'ライブラリ' },
     { id: 'appearance' as const, label: '外観' }
   ];
 
@@ -92,6 +94,21 @@
                   d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
                 />
               </svg>
+            {:else if section.id === 'library'}
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="icon"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"
+                />
+              </svg>
             {:else}
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -118,7 +135,10 @@
   <!-- メインコンテンツ -->
   <div class="settings-main">
     <div class="settings-content">
-      {#if !pending}
+      {#if activeSection === 'library'}
+        <!-- ライブラリフォルダの操作はすぐに反映する（下の「適用」の対象外） -->
+        <LibraryFolderSettings />
+      {:else if !pending}
         <p class="setting-description">
           {settingsQuery.isError ? '設定を読み込めませんでした' : '読み込み中...'}
         </p>

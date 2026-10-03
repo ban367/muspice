@@ -23,6 +23,24 @@ pub struct ImportProgress {
     pub current_file: String,
 }
 
+/// ライブラリフォルダの再スキャンの進捗
+#[derive(Debug, Clone, Serialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryScanProgress {
+    /// 読み込み済みファイル数（追加・変更のあったファイルのみ数える）
+    pub current: u32,
+    /// 読み込むファイルの総数
+    pub total: u32,
+    /// 現在処理中のファイル名
+    pub current_file: String,
+}
+
+/// 再スキャン・ライブラリフォルダの削除で、ライブラリのトラックが変わった
+///
+/// 設定ウィンドウでの操作を、メインウィンドウの一覧（Queryのキャッシュ）に反映する。
+#[derive(Debug, Clone, Serialize, Type, Event)]
+pub struct LibraryChanged;
+
 /// メニュー「Muspice について」: Aboutダイアログを表示する
 #[derive(Debug, Clone, Serialize, Type, Event)]
 pub struct ShowAboutDialog;

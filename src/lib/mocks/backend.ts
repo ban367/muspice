@@ -16,6 +16,7 @@ import type {
   DuplicateAction,
   GenreGroup,
   ImportResult,
+  LibraryFolder,
   Metadata,
   Playlist,
   Settings,
@@ -197,6 +198,23 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   let playlists: Playlist[] = createFixturePlaylists();
   let currentTrackId: string | null = null;
   let settings: Settings = { startupPage: 'lastOpened', accentColor: '#3b82f6' };
+  // ライブラリフォルダ（existsは「フォルダが見つかるか」。外付けドライブが外れた状態を再現する）
+  let libraryFolders: Omit<LibraryFolder, 'trackCount'>[] = [
+    {
+      id: crypto.randomUUID(),
+      path: '/Users/demo/Music',
+      exists: true,
+      addedAt: '2026-01-01T00:00:00.000Z',
+      lastScannedAt: '2026-01-01T00:00:00.000Z'
+    },
+    {
+      id: crypto.randomUUID(),
+      path: '/Volumes/External/Music',
+      exists: false,
+      addedAt: '2026-01-02T00:00:00.000Z',
+      lastScannedAt: null
+    }
+  ];
 
   const now = () => new Date().toISOString();
   const newestFirst = (a: Track, b: Track) => compareAsc(b.createdAt, a.createdAt);
@@ -321,7 +339,40 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       importedCount++;
     }
 
+    registerLibraryFolder(folder);
     return { importedCount, skippedCount, errorCount: 0, errors: [] };
+  }
+
+  // ---- ライブラリフォルダ（src-tauri/src/library_folder.rsに対応） ----
+
+  const isSameOrWithin = (path: string, folder: string) =>
+    path === folder || path.startsWith(`${folder}/`);
+  const tracksUnder = (folder: string) =>
+    tracks.filter((track) => track.filePath.startsWith(`${folder}/`));
+
+  /** インポートしたフォルダを記録する（フォルダ同士は入れ子にしない） */
+  function registerLibraryFolder(path: string): void {
+    const same = libraryFolders.find((folder) => folder.path === path);
+    if (same) {
+      same.lastScannedAt = now();
+      return;
+    }
+    if (libraryFolders.some((folder) => isSameOrWithin(path, folder.path))) return;
+    libraryFolders = libraryFolders.filter((folder) => !isSameOrWithin(folder.path, path));
+    libraryFolders.push({
+      id: crypto.randomUUID(),
+      path,
+      exists: true,
+      addedAt: now(),
+      lastScannedAt: now()
+    });
+  }
+
+  function findLibraryFolder(folderId: string) {
+    if (!UUID_PATTERN.test(folderId)) fail('VALIDATION', '不正なライブラリフォルダID形式です');
+    const folder = libraryFolders.find((f) => f.id === folderId);
+    if (!folder) fail('NOT_FOUND', 'ライブラリフォルダが見つかりません');
+    return folder;
   }
 
   const handlers: MockCommandHandlers = {
@@ -591,6 +642,41 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     deleteTracksWithFilesCommand: (trackIds) => {
       validateTrackIdsForDeletion(trackIds);
       return { successCount: removeTracks(trackIds), failedCount: 0, failedTracks: [] };
+    },
+    getLibraryFolders: () => {
+      const folders = [...libraryFolders]
+        .sort((a, b) => compareAsc(a.path, b.path))
+        .map((folder) => ({ ...folder, trackCount: tracksUnder(folder.path).length }));
+      const registered = folders.reduce((sum, folder) => sum + folder.trackCount, 0);
+      return { folders, unregisteredTrackCount: tracks.length - registered };
+    },
+    removeLibraryFolder: (folderId, removeTracksToo) => {
+      const folder = findLibraryFolder(folderId);
+      const removed = removeTracksToo
+        ? removeTracks(tracksUnder(folder.path).map((track) => track.id))
+        : 0;
+      libraryFolders = libraryFolders.filter((f) => f.id !== folderId);
+      if (removed > 0) options.emit('library-changed', null);
+      return removed;
+    },
+    // 実ファイルは存在しないため、見つかるフォルダは「変更なし」として扱う
+    rescanLibraryFolder: (folderId) => {
+      const folder = findLibraryFolder(folderId);
+      if (!folder.exists) {
+        fail(
+          'NOT_FOUND',
+          `フォルダが見つかりません: ${folder.path}（外付けドライブなどが接続されているか確認してください）`
+        );
+      }
+      folder.lastScannedAt = now();
+      return {
+        addedCount: 0,
+        updatedCount: 0,
+        removedCount: 0,
+        errorCount: 0,
+        errors: [],
+        removalSkipped: false
+      };
     },
     // 実ファイルを読み直す代わりに、全トラックを更新済みとして扱う
     refreshLibraryMetadata: () => ({

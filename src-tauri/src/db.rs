@@ -66,6 +66,10 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     add_column_if_not_exists(conn, "tracks", "track_number", "INTEGER")?;
     add_column_if_not_exists(conn, "tracks", "disc_number", "INTEGER")?;
 
+    // ファイルの更新日時（UNIX時間の秒）。ライブラリフォルダの再スキャンで変更を検出する
+    // 追加前に登録したトラックはNULL（再スキャンで記録する）
+    add_column_if_not_exists(conn, "tracks", "file_modified_at", "INTEGER")?;
+
     // 再生履歴テーブルの作成
     conn.execute(
         "CREATE TABLE IF NOT EXISTS play_history (
@@ -109,6 +113,18 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
             PRIMARY KEY (playlist_id, track_id),
             FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE,
             FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
+
+    // ライブラリフォルダ（インポートしたフォルダ。再スキャンの対象）
+    // トラックとの対応はfile_pathの前方一致で判定する（フォルダ同士は入れ子にしない）
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS library_folders (
+            id TEXT PRIMARY KEY,
+            path TEXT UNIQUE NOT NULL,
+            added_at TEXT DEFAULT (datetime('now')),
+            last_scanned_at TEXT
         )",
         [],
     )?;
@@ -285,6 +301,7 @@ mod tests {
         assert!(tables.contains(&"tracks".to_string()));
         assert!(tables.contains(&"playlists".to_string()));
         assert!(tables.contains(&"playlist_tracks".to_string()));
+        assert!(tables.contains(&"library_folders".to_string()));
 
         // テスト後にクリーンアップ
         drop(conn);

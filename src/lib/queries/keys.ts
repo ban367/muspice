@@ -45,5 +45,8 @@ export const queryKeys = {
   playlists: ['playlists'] as const,
 
   /** アプリケーション設定 */
-  settings: ['settings'] as const
+  settings: ['settings'] as const,
+
+  /** ライブラリフォルダ（インポートしたフォルダ） */
+  libraryFolders: ['libraryFolders'] as const
 } as const;
