@@ -4,10 +4,10 @@
 -->
 <script lang="ts">
   import Modal from './Modal.svelte';
-  import { textPromptRequest } from '#lib/utils/dialog.js';
+  import { textPrompt } from '#lib/utils/dialog.svelte.js';
 
   const id = $props.id();
-  const request = $derived($textPromptRequest);
+  const request = $derived(textPrompt.request);
 
   let value = $state('');
   let error = $state<string | null>(null);

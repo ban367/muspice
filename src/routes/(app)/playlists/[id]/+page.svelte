@@ -12,7 +12,7 @@
   import type { Playlist, Track } from '#lib/types/models.js';
   import { playTrackFromQueue } from '#lib/stores/player.svelte.js';
   import { formatDuration, formatTotalDuration } from '#lib/utils/format.js';
-  import { confirmDestructive } from '#lib/utils/dialog.js';
+  import { confirmDestructive } from '#lib/utils/dialog.svelte.js';
 
   // URLからプレイリストIDを取得
   const playlistId = $derived(page.params.id);

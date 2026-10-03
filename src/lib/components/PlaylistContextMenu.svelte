@@ -9,7 +9,7 @@
   import { useDeletePlaylistMutation, useRenamePlaylistMutation } from '#lib/queries/playlists.js';
   import { player, playTrackFromQueue, playShuffled } from '#lib/stores/player.svelte.js';
   import { useTracksQuery } from '#lib/queries/tracks.js';
-  import { confirmDestructive, promptText } from '#lib/utils/dialog.js';
+  import { confirmDestructive, promptText } from '#lib/utils/dialog.svelte.js';
   import { validatePlaylistName, toSafeString } from '#lib/utils/validation.js';
 
   // Props
