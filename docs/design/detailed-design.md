@@ -107,6 +107,15 @@ export interface Playlist {
 | `delete_tracks_with_files_command` | `trackIds: string[]`            | `DeleteResult`          | DB+ファイル削除                                     |
 | `refresh_library_metadata`         | なし                            | `RefreshMetadataResult` | 全トラックのtrack/disc番号を再抽出                  |
 
+### 設定
+
+| コマンド        | 引数                 | 戻り値     | 備考                                                                 |
+| --------------- | -------------------- | ---------- | -------------------------------------------------------------------- |
+| `get_settings`  | なし                 | `Settings` | `settings.json`がない・壊れている場合は既定値                        |
+| `save_settings` | `settings: Settings` | `void`     | アクセントカラーは`#rrggbb`。保存後に`SettingsChanged`イベントを送る |
+
+`Settings`: `{ startupPage: 'lastOpened' \| 'songs', accentColor: string }`。既定値は`lastOpened`・`#3b82f6`。ファイルにない項目は既定値で補う（項目を追加しても古いファイルを読める）。
+
 ### カスタムプロトコル
 
 | URL                                                                                | 応答                                                                                       | 備考                                                                                        |
@@ -123,6 +132,7 @@ export interface Playlist {
 | `ShowAboutDialog`  | なし                              | メニュー「Muspice について」        |
 | `OpenImportDialog` | なし                              | メニュー「フォルダをインポート...」 |
 | `ToggleSidebar`    | なし                              | メニュー「サイドバーを表示/隠す」   |
+| `SettingsChanged`  | `Settings`                        | `save_settings`                     |
 
 ### メタデータ編集
 

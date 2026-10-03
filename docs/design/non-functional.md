@@ -18,6 +18,7 @@
 - WebViewの権限は最小限（ADR-005）
   - ファイルの読み書き・削除・フォルダ表示はすべてRust側のコマンドで行い、WebViewからは任意のパスを扱えない（パスはトラックIDからDBで解決する）
   - capability（`src-tauri/capabilities/default.json`）は `core:default` と `dialog:allow-open` / `dialog:allow-message` のみ。fs / opener プラグインはWebViewに公開しない
+  - 設定ウィンドウ（`settings`）は別のcapability（`settings.json`）で `core:default` と `core:window:allow-close`（キャンセルボタンでウィンドウを閉じる）のみ
   - `assetProtocol.scope` は空にし、`get_track_file_path` が返すトラックファイルだけを実行時に許可する
 - CSPを明示（`tauri.conf.json`）
   - 画像は`img-src`で`data:`と`albumart`プロトコルのみ許可する。`albumart`はDBに登録済みのトラックのアートだけを配信し、任意のファイルは読めない
