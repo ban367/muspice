@@ -193,8 +193,15 @@ describe('バンド・プリセットの操作', () => {
 class FakeAudioContext {
   state = 'running';
   destination = {};
+  currentTime = 10;
   filters: { gain: { value: number } }[] = [];
-  gains: { gain: { value: number } }[] = [];
+  gains: {
+    gain: {
+      value: number;
+      cancelScheduledValues: ReturnType<typeof vi.fn>;
+      setValueCurveAtTime: ReturnType<typeof vi.fn>;
+    };
+  }[] = [];
 
   createMediaElementSource() {
     return { connect: vi.fn(), disconnect: vi.fn() };
@@ -214,7 +221,15 @@ class FakeAudioContext {
   }
 
   createGain() {
-    const gain = { gain: { value: 1 }, connect: vi.fn(), disconnect: vi.fn() };
+    const gain = {
+      gain: {
+        value: 1,
+        cancelScheduledValues: vi.fn(),
+        setValueCurveAtTime: vi.fn()
+      },
+      connect: vi.fn(),
+      disconnect: vi.fn()
+    };
     this.gains.push(gain);
     return gain;
   }
@@ -271,14 +286,57 @@ describe('音量の正規化', () => {
 
     setNormalizationGain(1, 0.5);
     await initializeEqualizer([{} as HTMLAudioElement, {} as HTMLAudioElement]);
-    // 最初に作るGainNodeが最終出力用で、続いてデッキごとの正規化用
-    const [, deck0, deck1] = contexts[0].gains;
+    // 最初に作るGainNodeが最終出力用で、続いてデッキごとに正規化用・フェード用
+    const [, deck0, , deck1] = contexts[0].gains;
     expect(deck0.gain.value).toBe(1);
     expect(deck1.gain.value).toBe(0.5);
 
     setNormalizationGain(0, 0.25);
     expect(deck0.gain.value).toBe(0.25);
     expect(deck1.gain.value).toBe(0.5);
+
+    await cleanupEqualizer();
+  });
+});
+
+describe('クロスフェード', () => {
+  it('デッキごとに等パワーの曲線でフェードさせ、取り消して音量を決められる', async () => {
+    const contexts: FakeAudioContext[] = [];
+    vi.stubGlobal(
+      'AudioContext',
+      class extends FakeAudioContext {
+        constructor() {
+          super();
+          contexts.push(this);
+        }
+      }
+    );
+    const { initializeEqualizer, cleanupEqualizer, fadeDeck, setDeckFade } =
+      await importFreshEqualizer();
+    await initializeEqualizer([{} as HTMLAudioElement, {} as HTMLAudioElement]);
+    const [, , fade0, , fade1] = contexts[0].gains;
+
+    fadeDeck(0, 'out', 5);
+    fadeDeck(1, 'in', 5);
+
+    const [outCurve, outStart, outSeconds] = fade0.gain.setValueCurveAtTime.mock.calls[0];
+    const [inCurve] = fade1.gain.setValueCurveAtTime.mock.calls[0];
+    expect(outStart).toBe(10);
+    expect(outSeconds).toBe(5);
+    expect(outCurve[0]).toBeCloseTo(1);
+    expect(outCurve.at(-1)).toBeCloseTo(0);
+    expect(inCurve[0]).toBeCloseTo(0);
+    expect(inCurve.at(-1)).toBeCloseTo(1);
+    // 重ねても合計の大きさ（2乗の和）が下がらない
+    for (let i = 0; i < inCurve.length; i++) {
+      expect(outCurve[i] ** 2 + inCurve[i] ** 2).toBeCloseTo(1);
+    }
+    // 途中のフェードを取り消してから始める
+    expect(fade0.gain.cancelScheduledValues).toHaveBeenCalledWith(0);
+
+    setDeckFade(1, 1);
+    expect(fade1.gain.cancelScheduledValues).toHaveBeenCalledTimes(2);
+    expect(fade1.gain.value).toBe(1);
 
     await cleanupEqualizer();
   });

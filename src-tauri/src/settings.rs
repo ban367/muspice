@@ -18,6 +18,9 @@ use std::sync::Mutex;
 /// 既定のアクセントカラー（`app.css`の`--color-primary`と同じ）
 pub const DEFAULT_ACCENT_COLOR: &str = "#3b82f6";
 
+/// クロスフェードの最大の秒数
+pub const MAX_CROSSFADE_SECONDS: u8 = 12;
+
 /// 起動時に開く画面
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -54,6 +57,8 @@ pub struct Settings {
     pub volume_normalization: VolumeNormalization,
     /// ギャップレス再生（次の曲を先読みし、曲間に無音を入れずに続ける）
     pub gapless_playback: bool,
+    /// クロスフェードの秒数（0でクロスフェードしない）
+    pub crossfade_seconds: u8,
 }
 
 impl Default for Settings {
@@ -63,6 +68,7 @@ impl Default for Settings {
             accent_color: DEFAULT_ACCENT_COLOR.to_string(),
             volume_normalization: VolumeNormalization::default(),
             gapless_playback: true,
+            crossfade_seconds: 0,
         }
     }
 }
@@ -77,6 +83,12 @@ pub fn validate_settings(settings: &Settings) -> AppResult<()> {
         return Err(AppError::Validation(
             "アクセントカラーは#rrggbb形式で指定してください".to_string(),
         ));
+    }
+    if settings.crossfade_seconds > MAX_CROSSFADE_SECONDS {
+        return Err(AppError::Validation(format!(
+            "クロスフェードは0〜{}秒で指定してください",
+            MAX_CROSSFADE_SECONDS
+        )));
     }
     Ok(())
 }
@@ -194,6 +206,7 @@ mod tests {
             accent_color: "#ff8800".to_string(),
             volume_normalization: VolumeNormalization::Album,
             gapless_playback: false,
+            crossfade_seconds: 5,
         };
 
         state.save(settings.clone()).unwrap();
@@ -214,6 +227,7 @@ mod tests {
         // 項目を追加する前に保存したファイルでも、新しい項目は既定値になる
         assert_eq!(settings.volume_normalization, VolumeNormalization::Off);
         assert!(settings.gapless_playback);
+        assert_eq!(settings.crossfade_seconds, 0);
     }
 
     #[test]
@@ -236,5 +250,16 @@ mod tests {
             };
             assert!(state.save(settings).is_err(), "{} は不正な色", color);
         }
+    }
+
+    #[test]
+    fn test_rejects_too_long_crossfade() {
+        let state = SettingsState::load(temp_settings_path("crossfade"));
+        let settings = |crossfade_seconds| Settings {
+            crossfade_seconds,
+            ..Settings::default()
+        };
+        assert!(state.save(settings(MAX_CROSSFADE_SECONDS)).is_ok());
+        assert!(state.save(settings(MAX_CROSSFADE_SECONDS + 1)).is_err());
     }
 }

@@ -7,6 +7,8 @@
 
   // 既定のアクセントカラー（Rust側のDEFAULT_ACCENT_COLORと同じ）
   const DEFAULT_ACCENT_COLOR = '#3b82f6';
+  // クロスフェードの最大の秒数（Rust側のMAX_CROSSFADE_SECONDSと同じ）
+  const MAX_CROSSFADE_SECONDS = 12;
 
   type SettingsSection = 'general' | 'playback' | 'library' | 'appearance';
 
@@ -210,6 +212,27 @@
               次の曲を先に読み込んでおき、曲と曲の間に無音を入れずに続けて再生します
             </p>
           </div>
+
+          <div class="setting-item">
+            <label class="setting-label" for="crossfade">クロスフェード</label>
+            <div class="setting-slider-row">
+              <input
+                type="range"
+                id="crossfade"
+                class="setting-slider"
+                min="0"
+                max={MAX_CROSSFADE_SECONDS}
+                step="1"
+                bind:value={pending.crossfadeSeconds}
+              />
+              <span class="setting-slider-value">
+                {pending.crossfadeSeconds === 0 ? 'オフ' : `${pending.crossfadeSeconds}秒`}
+              </span>
+            </div>
+            <p class="setting-description">
+              曲の終わりを設定した秒数でフェードアウトしながら、次の曲をフェードインします。短い曲では曲の長さの半分までにします。「次へ」などの操作で曲を変えたときと、1曲リピートではクロスフェードしません
+            </p>
+          </div>
         </section>
       {:else}
         <section class="settings-section">
@@ -333,6 +356,18 @@
 
   .setting-checkbox {
     @apply w-4 h-4 mr-2 accent-primary cursor-pointer;
+  }
+
+  .setting-slider-row {
+    @apply flex items-center gap-4;
+  }
+
+  .setting-slider {
+    @apply flex-1 max-w-xs h-2 accent-primary cursor-pointer;
+  }
+
+  .setting-slider-value {
+    @apply text-sm text-text-secondary w-12;
   }
 
   .setting-color-row {

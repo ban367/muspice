@@ -14,6 +14,9 @@
  * 次の曲（`peekNextTrack`）を先読みしておき、曲の終わりの直前に再生を始めて切り替える。
  * 先読みした曲がキューの操作で変わった場合は読み込み直し、切り替えの時点で次の曲と
  * 一致しない場合は、従来どおり曲の終わりで読み込んで再生する。
+ *
+ * クロスフェードも同じ仕組みで、曲の終わりの設定した秒数前に次の曲を再生し始め、
+ * 2つのデッキの音量を交差させる（Web Audioの経路のデッキごとのフェード）。
  */
 import { untrack } from 'svelte';
 import { convertFileSrc } from '@tauri-apps/api/core';
@@ -22,9 +25,11 @@ import { incrementPlayCount } from '#lib/queries/tracks.js';
 import { handleError } from './error.svelte.js';
 import {
   cleanupEqualizer,
+  fadeDeck,
   initializeEqualizer,
   isEqualizerInitialized,
   resumeAudioContext,
+  setDeckFade,
   setNormalizationGain
 } from './equalizer.svelte.js';
 import {
@@ -44,7 +49,7 @@ const MEDIA_ERR_DECODE = 3;
 const MEDIA_ERR_SRC_NOT_SUPPORTED = 4;
 
 /**
- * 曲の終わりの何秒前から、次の曲へ切り替えるタイマーを用意するか
+ * 切り替えを始める時点の何秒前から、次の曲へ切り替えるタイマーを用意するか
  * （再生位置の通知（timeupdate）の間隔より長くする）
  */
 const TRANSITION_WINDOW_SECONDS = 1;
@@ -71,6 +76,11 @@ export interface PlaybackControllerOptions {
    * （リアクティブな値を読む）。省略時は無効
    */
   gapless?: () => boolean;
+  /**
+   * クロスフェードの秒数を返す（リアクティブな値を読む）。0または省略時はクロスフェードしない。
+   * 1以上ならギャップレス再生の設定にかかわらず次の曲を先読みする
+   */
+  crossfadeSeconds?: () => number;
 }
 
 export interface PlaybackController {
@@ -154,12 +164,16 @@ export function createPlaybackController(
   let loadGeneration = 0;
   /** 先読みの世代（同上） */
   let preloadGeneration = 0;
+  /** クロスフェードでフェードアウト中の（前の曲の）デッキ */
+  let fadingDeck: Deck | null = null;
 
   const normalizationMode = () => options.normalizationMode?.() ?? 'off';
-  const isGaplessEnabled = () => options.gapless?.() ?? false;
+  const crossfadeSetting = () => options.crossfadeSeconds?.() ?? 0;
+  /** 次の曲を先読みするか（ギャップレス再生かクロスフェードが有効） */
+  const isPreloadEnabled = () => (options.gapless?.() ?? false) || crossfadeSetting() > 0;
 
-  /** 先読みしておくトラック（ギャップレス再生が無効、または次の曲がなければnull） */
-  const trackToPreload = () => (isGaplessEnabled() ? peekNextTrack() : null);
+  /** 先読みしておくトラック（先読みが無効、または次の曲がなければnull） */
+  const trackToPreload = () => (isPreloadEnabled() ? peekNextTrack() : null);
 
   /** デッキの音量の正規化の倍率を、読み込んだトラックと設定から決める */
   function applyNormalization(deck: Deck, mode = normalizationMode()): void {
@@ -210,8 +224,10 @@ export function createPlaybackController(
     const deck = active;
     const generation = ++loadGeneration;
     cancelTransition();
+    endCrossfade();
     // 前のトラックは切り替えを始めた時点で止める
     deck.audio.pause();
+    setDeckFade(deck.index, 1);
     deck.track = track;
     deck.ready = false;
     applyNormalization(deck);
@@ -301,20 +317,54 @@ export function createPlaybackController(
   }
 
   /**
-   * 先読みした次の曲へ切り替える（ギャップレス再生）
+   * 次の曲へのクロスフェードの秒数（クロスフェードしない場合は0）
    *
-   * 前の曲はそのまま最後まで鳴らす（タイマーで少し早めに切り替えた場合の、曲の終わりを切らない）。
+   * 同じ曲の繰り返し（1曲リピート）はクロスフェードせず、切れ目なく続ける。
+   * 短い曲では、どちらの曲も半分を超えて重ねない。
+   * フェードはWeb Audioの経路でかけるため、経路を作れていない場合はクロスフェードしない。
+   */
+  function crossfadeSeconds(next: Track): number {
+    const setting = crossfadeSetting();
+    if (setting <= 0 || next.id === player.currentTrack?.id || !isEqualizerInitialized()) {
+      return 0;
+    }
+    const halves = [active.audio.duration, standby.audio.duration]
+      .filter((duration) => Number.isFinite(duration) && duration > 0)
+      .map((duration) => duration / 2);
+    return Math.min(setting, ...halves);
+  }
+
+  /** 次の曲を、曲の終わりの何秒前に再生し始めるか */
+  function transitionLead(next: Track): number {
+    return Math.max(crossfadeSeconds(next), GAPLESS_LEAD_SECONDS);
+  }
+
+  /**
+   * 先読みした次の曲へ切り替える（ギャップレス再生・クロスフェード）
+   *
+   * 前の曲はそのまま最後まで鳴らす（ギャップレス再生では、少し早めに切り替えた分の曲の終わりを
+   * 切らない。クロスフェードでは、フェードアウトさせながら鳴らす）。
    * @returns 切り替えたか（先読みが済んでいない・次の曲が変わった場合はfalse）
    */
   function startTransition(): boolean {
     cancelTransition();
     const next = peekNextTrack();
-    if (!isGaplessEnabled() || !isNextTrackReady(next)) return false;
+    if (!isPreloadEnabled() || !isNextTrackReady(next)) return false;
 
     const repeating = next.id === player.currentTrack?.id;
+    // 切り替える前の（再生中の曲の長さで）秒数を決める
+    const fade = crossfadeSeconds(next);
+    endCrossfade();
     const previous = swapDecks();
     // 再生中のトラックを進める（先読みしたデッキと同じトラックのため、読み込みは走らない）
     playNextTrack();
+    if (fade > 0 && !previous.audio.paused) {
+      fadingDeck = previous;
+      fadeDeck(previous.index, 'out', fade);
+      fadeDeck(active.index, 'in', fade);
+    } else {
+      setDeckFade(active.index, 1);
+    }
     startPlayback(active, next, !repeating).catch(reportPlaybackError);
     if (previous.audio.paused) {
       // 前の曲が鳴り終わっていれば（`ended`での切り替え）、すぐに次を用意する。
@@ -332,28 +382,30 @@ export function createPlaybackController(
 
   /** 曲の終わりが近づいたら、次の曲へ切り替えるタイマーを用意する */
   function scheduleTransition(): void {
-    if (transitionTimer !== null || active.audio.paused || !isGaplessEnabled()) return;
+    if (transitionTimer !== null || active.audio.paused || !isPreloadEnabled()) return;
+    const next = peekNextTrack();
+    if (!isNextTrackReady(next)) return;
     const remaining = remainingSeconds();
-    if (remaining === null || remaining > TRANSITION_WINDOW_SECONDS) return;
-    if (!isNextTrackReady(peekNextTrack())) return;
-    waitForTransition(remaining);
+    const lead = transitionLead(next);
+    if (remaining === null || remaining > lead + TRANSITION_WINDOW_SECONDS) return;
+    waitForTransition(remaining - lead);
   }
 
-  function waitForTransition(remaining: number): void {
-    transitionTimer = setTimeout(
-      onTransitionTimer,
-      Math.max(0, (remaining - GAPLESS_LEAD_SECONDS) * 1000)
-    );
+  /** 指定した秒数後に、切り替えるかを確かめる */
+  function waitForTransition(seconds: number): void {
+    transitionTimer = setTimeout(onTransitionTimer, Math.max(0, seconds * 1000));
   }
 
   function onTransitionTimer(): void {
     transitionTimer = null;
     if (active.audio.paused) return;
+    const next = peekNextTrack();
     const remaining = remainingSeconds();
-    if (remaining === null) return;
-    // タイマーの誤差などでまだ早ければ待ち直す
-    if (remaining > GAPLESS_LEAD_SECONDS + TIMER_TOLERANCE_SECONDS) {
-      waitForTransition(remaining);
+    if (remaining === null || !isNextTrackReady(next)) return;
+    // タイマーの誤差などでまだ早ければ待ち直す（設定や曲の長さが変わった場合も、ここで決め直す）
+    const lead = transitionLead(next);
+    if (remaining > lead + TIMER_TOLERANCE_SECONDS) {
+      waitForTransition(remaining - lead);
       return;
     }
     startTransition();
@@ -366,9 +418,23 @@ export function createPlaybackController(
     }
   }
 
+  /**
+   * クロスフェード中なら終わらせる（前の曲を止め、再生中の曲を通常の音量にする）
+   *
+   * クロスフェードの途中で一時停止・シーク・曲の選択などの操作をした場合に呼ぶ。
+   */
+  function endCrossfade(): void {
+    if (fadingDeck === null) return;
+    const deck = fadingDeck;
+    fadingDeck = null;
+    if (deck !== active) deck.audio.pause();
+    setDeckFade(active.index, 1);
+  }
+
   /** 再生中のトラックを頭から再生し直す */
   function restart(): void {
     cancelTransition();
+    endCrossfade();
     active.audio.currentTime = 0;
     player.currentTime = 0;
     void play();
@@ -396,6 +462,7 @@ export function createPlaybackController(
     const clamped = Math.max(0, Math.min(time, max));
     // 切り替えのタイマーは、次の再生位置の通知で用意し直す
     cancelTransition();
+    endCrossfade();
     audio.currentTime = clamped;
     player.currentTime = clamped;
   }
@@ -403,6 +470,7 @@ export function createPlaybackController(
   /** 再生をすべて止める（キューが空になったとき） */
   function stop(): void {
     cancelTransition();
+    endCrossfade();
     loadGeneration++;
     active.track = null;
     active.ready = false;
@@ -429,6 +497,7 @@ export function createPlaybackController(
           cancelTransition();
         } else {
           // 前の曲が鳴り終わった（止められた）ので、次の曲を先読みできる
+          if (deck === fadingDeck) fadingDeck = null;
           void preload(trackToPreload());
         }
       }
@@ -451,6 +520,7 @@ export function createPlaybackController(
       'ended',
       (deck) => {
         if (deck !== active) {
+          if (deck === fadingDeck) fadingDeck = null;
           void preload(trackToPreload());
           return;
         }
@@ -510,8 +580,11 @@ export function createPlaybackController(
 
         if (standby.ready && standby.track?.id === track.id) {
           // 先読みした曲へ「次へ」などで移った場合は、読み込み直さずに切り替える
+          // （手動の操作ではクロスフェードしない）
+          endCrossfade();
           const previous = swapDecks();
           previous.audio.pause();
+          setDeckFade(active.index, 1);
           startPlayback(active, track).catch(reportPlaybackError);
           return;
         }
@@ -555,6 +628,8 @@ export function createPlaybackController(
       if (active.audio.paused) {
         await play();
       } else {
+        // クロスフェードの途中なら、前の曲は止めて再開しない
+        endCrossfade();
         active.audio.pause();
       }
     },
@@ -574,6 +649,7 @@ export function createPlaybackController(
     destroy() {
       stopEffects();
       cancelTransition();
+      fadingDeck = null;
       loadGeneration++;
       preloadGeneration++;
       for (const { deck, type, listener } of listeners) {

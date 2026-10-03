@@ -138,12 +138,12 @@ export interface Playlist {
 
 ### 設定
 
-| コマンド        | 引数                 | 戻り値     | 備考                                                                 |
-| --------------- | -------------------- | ---------- | -------------------------------------------------------------------- |
-| `get_settings`  | なし                 | `Settings` | `settings.json`がない・壊れている場合は既定値                        |
-| `save_settings` | `settings: Settings` | `void`     | アクセントカラーは`#rrggbb`。保存後に`SettingsChanged`イベントを送る |
+| コマンド        | 引数                 | 戻り値     | 備考                                                                                          |
+| --------------- | -------------------- | ---------- | --------------------------------------------------------------------------------------------- |
+| `get_settings`  | なし                 | `Settings` | `settings.json`がない・壊れている場合は既定値                                                 |
+| `save_settings` | `settings: Settings` | `void`     | アクセントカラーは`#rrggbb`、クロスフェードは0〜12秒。保存後に`SettingsChanged`イベントを送る |
 
-`Settings`: `{ startupPage: 'lastOpened' \| 'songs', accentColor: string, volumeNormalization: 'off' \| 'track' \| 'album', gaplessPlayback: boolean }`。既定値は`lastOpened`・`#3b82f6`・`off`・`true`。ファイルにない項目は既定値で補う（項目を追加しても古いファイルを読める）。
+`Settings`: `{ startupPage: 'lastOpened' \| 'songs', accentColor: string, volumeNormalization: 'off' \| 'track' \| 'album', gaplessPlayback: boolean, crossfadeSeconds: number }`。既定値は`lastOpened`・`#3b82f6`・`off`・`true`・`0`。`crossfadeSeconds`は0〜12（整数）で、範囲外は`VALIDATION_ERROR`。ファイルにない項目は既定値で補う（項目を追加しても古いファイルを読める）。
 
 ### カスタムプロトコル
 

@@ -201,7 +201,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     startupPage: 'lastOpened',
     accentColor: '#3b82f6',
     volumeNormalization: 'off',
-    gaplessPlayback: true
+    gaplessPlayback: true,
+    crossfadeSeconds: 0
   };
   // ライブラリフォルダ（existsは「フォルダが見つかるか」。外付けドライブが外れた状態を再現する）
   let libraryFolders: Omit<LibraryFolder, 'trackCount'>[] = [
@@ -588,6 +589,13 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     saveSettings: (next) => {
       if (!/^#[0-9a-fA-F]{6}$/.test(next.accentColor)) {
         fail('VALIDATION', 'アクセントカラーは#rrggbb形式で指定してください');
+      }
+      if (
+        !Number.isInteger(next.crossfadeSeconds) ||
+        next.crossfadeSeconds < 0 ||
+        next.crossfadeSeconds > 12
+      ) {
+        fail('VALIDATION', 'クロスフェードは0〜12秒で指定してください');
       }
       settings = { ...next };
       options.emit('settings-changed', settings);
