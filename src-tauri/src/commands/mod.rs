@@ -9,6 +9,7 @@ mod import;
 mod metadata_cmd;
 mod player;
 mod playlist_cmd;
+mod settings;
 mod stats;
 mod system;
 mod tracks;
@@ -43,6 +44,9 @@ pub use stats::{
     get_favorite_tracks, get_most_played_tracks, get_recently_played_tracks, increment_play_count,
     set_rating, toggle_favorite,
 };
+
+// 設定
+pub use settings::{get_settings, save_settings};
 
 // システム
 pub use system::{PROJECT_URL, open_project_page, show_in_folder};

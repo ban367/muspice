@@ -9,6 +9,7 @@ mod metadata;
 mod models;
 mod playlist;
 mod repository;
+mod settings;
 mod state;
 mod validation;
 
@@ -16,12 +17,12 @@ use commands::{
     add_track_to_playlist, create_playlist, delete_playlist, delete_tracks_command,
     delete_tracks_with_files_command, filter_tracks, get_albums_grouped, get_all_tracks,
     get_artists_grouped, get_current_track, get_favorite_tracks, get_genres_grouped,
-    get_most_played_tracks, get_playlists, get_recently_played_tracks, get_track_file_path,
-    get_unique_albums, get_unique_artists, get_unique_genres, import_folder, increment_play_count,
-    open_project_page, refresh_library_metadata, remove_track_from_playlist, rename_playlist,
-    reorder_playlist_tracks, search_tracks, set_current_track, set_rating, show_in_folder,
-    toggle_favorite, update_multiple_tracks_metadata, update_track_metadata,
-    update_track_metadata_with_file,
+    get_most_played_tracks, get_playlists, get_recently_played_tracks, get_settings,
+    get_track_file_path, get_unique_albums, get_unique_artists, get_unique_genres, import_folder,
+    increment_play_count, open_project_page, refresh_library_metadata, remove_track_from_playlist,
+    rename_playlist, reorder_playlist_tracks, save_settings, search_tracks, set_current_track,
+    set_rating, show_in_folder, toggle_favorite, update_multiple_tracks_metadata,
+    update_track_metadata, update_track_metadata_with_file,
 };
 use state::AppState;
 use std::path::PathBuf;
@@ -40,6 +41,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         .error_handling(tauri_specta::ErrorHandlingMode::Throw)
         .commands(tauri_specta::collect_commands![
             import_folder,
+            get_settings,
+            save_settings,
             get_all_tracks,
             search_tracks,
             filter_tracks,
@@ -78,7 +81,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::ImportProgress,
             events::ShowAboutDialog,
             events::OpenImportDialog,
-            events::ToggleSidebar
+            events::ToggleSidebar,
+            events::SettingsChanged
         ])
 }
 
@@ -150,6 +154,11 @@ pub fn run() {
             // アプリケーション状態を作成して管理
             let app_state = AppState::new(conn);
             app.manage(app_state);
+
+            // 設定を読み込む（ない・壊れている場合は既定値）
+            app.manage(settings::SettingsState::load(
+                app_data_dir.join("settings.json"),
+            ));
 
             // メニューバーを構築
             let app_menu = SubmenuBuilder::new(app, "Muspice")

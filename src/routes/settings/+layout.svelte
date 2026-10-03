@@ -1,11 +1,20 @@
 <script lang="ts">
+  import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
+  import { Toast } from '$lib/components/ui';
   import '../../app.css';
+
   let { children } = $props();
+
+  // 設定ウィンドウはメインウィンドウとは別のWebViewのため、独自のQueryClientを持つ
+  const queryClient = new QueryClient();
 </script>
 
-<div class="settings-layout">
-  {@render children()}
-</div>
+<QueryClientProvider client={queryClient}>
+  <Toast />
+  <div class="settings-layout">
+    {@render children()}
+  </div>
+</QueryClientProvider>
 
 <style>
   @reference "../../app.css";

@@ -42,5 +42,8 @@ export const queryKeys = {
   },
 
   /** プレイリスト一覧 */
-  playlists: ['playlists'] as const
+  playlists: ['playlists'] as const,
+
+  /** アプリケーション設定 */
+  settings: ['settings'] as const
 } as const;

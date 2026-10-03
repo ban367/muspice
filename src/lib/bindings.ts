@@ -7,6 +7,14 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 export const commands = {
 	/**  フォルダから音楽ファイルをインポート（バッチ処理最適化版） */
 	importFolder: (folderPath: string, duplicateAction: DuplicateAction) => __TAURI_INVOKE<ImportResult>("import_folder", { folderPath, duplicateAction }),
+	/**  現在の設定を取得 */
+	getSettings: () => __TAURI_INVOKE<Settings>("get_settings"),
+	/**
+	 *  設定を保存
+	 * 
+	 *  保存後に`SettingsChanged`イベントを送り、設定ウィンドウ以外（メインウィンドウ）にも反映させる。
+	 */
+	saveSettings: (settings: Settings) => __TAURI_INVOKE<null>("save_settings", { settings }),
 	/**  すべてのトラックを取得 */
 	getAllTracks: () => __TAURI_INVOKE<Track[]>("get_all_tracks"),
 	/**  トラックを検索（FTS5 + LIKEフォールバック） */
@@ -124,6 +132,7 @@ export const commands = {
 export const events = {
 	importProgress: makeEvent<ImportProgress>("import-progress"),
 	openImportDialog: makeEvent<OpenImportDialog>("open-import-dialog"),
+	settingsChanged: makeEvent<SettingsChanged>("settings-changed"),
 	showAboutDialog: makeEvent<ShowAboutDialog>("show-about-dialog"),
 	toggleSidebar: makeEvent<ToggleSidebar>("toggle-sidebar"),
 };
@@ -268,8 +277,26 @@ export type RefreshMetadataResult = {
 	errors: string[],
 };
 
+/**  アプリケーション設定 */
+export type Settings = {
+	/**  起動時に開く画面 */
+	startupPage: StartupPage,
+	/**  アクセントカラー（`#rrggbb`） */
+	accentColor: string,
+};
+
+/**  設定が保存された（設定ウィンドウでの変更をメインウィンドウに反映する） */
+export type SettingsChanged = Settings;
+
 /**  メニュー「Muspice について」: Aboutダイアログを表示する */
 export type ShowAboutDialog = null;
+
+/**  起動時に開く画面 */
+export type StartupPage = 
+/**  前回開いていた画面 */
+"lastOpened" | 
+/**  曲一覧 */
+"songs";
 
 /**  メニュー「サイドバーを表示/隠す」: サイドバーの表示を切り替える */
 export type ToggleSidebar = null;

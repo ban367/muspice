@@ -1,85 +1,62 @@
 <script lang="ts">
   import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
+  import { useSaveSettingsMutation, useSettingsQuery } from '$lib/queries/settings';
+  import type { Settings, StartupPage } from '$lib/types/models';
+  import { applyAccentColor } from '$lib/utils/theme';
 
-  // 設定セクションの型
-  type SettingsSection = 'general' | 'appearance' | 'playback' | 'library';
+  // 既定のアクセントカラー（Rust側のDEFAULT_ACCENT_COLORと同じ）
+  const DEFAULT_ACCENT_COLOR = '#3b82f6';
 
-  // 現在選択されているセクション
-  let activeSection: SettingsSection = $state('general');
+  type SettingsSection = 'general' | 'appearance';
 
-  // ダミー設定の型
-  interface Settings {
-    general: {
-      language: 'ja' | 'en';
-      startupBehavior: 'last' | 'home';
-    };
-    appearance: {
-      theme: 'dark' | 'light' | 'system';
-      accentColor: string;
-    };
-    playback: {
-      gapless: boolean;
-      crossfade: number;
-      normalize: boolean;
-    };
-    library: {
-      autoScanInterval: number;
-      watchFolders: string[];
-    };
-  }
-
-  // デフォルト設定
-  function getDefaultSettings(): Settings {
-    return {
-      general: {
-        language: 'ja',
-        startupBehavior: 'last'
-      },
-      appearance: {
-        theme: 'dark',
-        accentColor: '#3b82f6'
-      },
-      playback: {
-        gapless: true,
-        crossfade: 0,
-        normalize: false
-      },
-      library: {
-        autoScanInterval: 30,
-        watchFolders: []
-      }
-    };
-  }
-
-  // 現在保存されている設定（初期値）
-  let savedSettings: Settings = $state(getDefaultSettings());
-
-  // 編集中の設定（適用前の一時状態）
-  let pendingSettings: Settings = $state(getDefaultSettings());
-
-  // 変更があるかどうか
-  const hasChanges = $derived(JSON.stringify(savedSettings) !== JSON.stringify(pendingSettings));
-
-  // セクション定義
   const sections = [
-    { id: 'general' as const, label: '一般', icon: 'settings' },
-    { id: 'appearance' as const, label: '外観', icon: 'palette' },
-    { id: 'playback' as const, label: '再生', icon: 'play' },
-    { id: 'library' as const, label: 'ライブラリ', icon: 'library' }
+    { id: 'general' as const, label: '一般' },
+    { id: 'appearance' as const, label: '外観' }
   ];
 
-  // 適用ボタン
+  const startupPageOptions: { value: StartupPage; label: string }[] = [
+    { value: 'lastOpened', label: '前回開いていた画面' },
+    { value: 'songs', label: '曲一覧' }
+  ];
+
+  let activeSection: SettingsSection = $state('general');
+
+  const settingsQuery = useSettingsQuery();
+  const saveMutation = useSaveSettingsMutation();
+
+  // 編集中の設定（適用前）。保存済みの設定を読み込んだら初期値にする
+  let pending = $state<Settings | null>(null);
+  $effect.pre(() => {
+    if (settingsQuery.data && pending === null) {
+      pending = { ...settingsQuery.data };
+    }
+  });
+
+  const hasChanges = $derived(
+    pending !== null &&
+      settingsQuery.data !== undefined &&
+      (pending.startupPage !== settingsQuery.data.startupPage ||
+        pending.accentColor !== settingsQuery.data.accentColor)
+  );
+
+  // 設定ウィンドウにも保存済みのアクセントカラーを反映する
+  $effect(() => {
+    if (settingsQuery.data) {
+      applyAccentColor(settingsQuery.data.accentColor);
+    }
+  });
+
   async function applySettings() {
-    savedSettings = structuredClone(pendingSettings);
-    // TODO: 設定を永続化（Tauri invoke）
-    // await invoke('save_settings', { settings: savedSettings });
-    console.log('設定を適用しました:', savedSettings);
+    if (!pending) return;
+    try {
+      await saveMutation.mutateAsync({ ...pending });
+    } catch {
+      // 失敗はミューテーション内でトースト通知済み
+    }
   }
 
-  // キャンセルボタン
   async function cancel() {
-    const window = getCurrentWebviewWindow();
-    await window.close();
+    await getCurrentWebviewWindow().close();
   }
 </script>
 
@@ -95,7 +72,7 @@
             class:active={activeSection === section.id}
             onclick={() => (activeSection = section.id)}
           >
-            {#if section.icon === 'settings'}
+            {#if section.id === 'general'}
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 class="icon"
@@ -115,7 +92,7 @@
                   d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
                 />
               </svg>
-            {:else if section.icon === 'palette'}
+            {:else}
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 class="icon"
@@ -130,43 +107,8 @@
                   d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"
                 />
               </svg>
-            {:else if section.icon === 'play'}
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                class="icon"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"
-                />
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-            {:else if section.icon === 'library'}
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                class="icon"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  d="M8 14v3m4-3v3m4-3v3M3 21h18M3 10h18M3 7l9-4 9 4M4 10h16v11H4V10z"
-                />
-              </svg>
             {/if}
-            <span>{section.label}</span>
+            {section.label}
           </button>
         </li>
       {/each}
@@ -176,126 +118,46 @@
   <!-- メインコンテンツ -->
   <div class="settings-main">
     <div class="settings-content">
-      {#if activeSection === 'general'}
+      {#if !pending}
+        <p class="setting-description">
+          {settingsQuery.isError ? '設定を読み込めませんでした' : '読み込み中...'}
+        </p>
+      {:else if activeSection === 'general'}
         <section class="settings-section">
           <h3 class="section-title">一般</h3>
 
           <div class="setting-item">
-            <label class="setting-label" for="language">言語</label>
-            <select
-              id="language"
-              class="setting-select"
-              bind:value={pendingSettings.general.language}
-            >
-              <option value="ja">日本語</option>
-              <option value="en">English</option>
-            </select>
-          </div>
-
-          <div class="setting-item">
-            <label class="setting-label" for="startup">起動時の動作</label>
-            <select
-              id="startup"
-              class="setting-select"
-              bind:value={pendingSettings.general.startupBehavior}
-            >
-              <option value="last">前回の状態を復元</option>
-              <option value="home">ホームを表示</option>
+            <label class="setting-label" for="startup">起動時に開く画面</label>
+            <select id="startup" class="setting-select" bind:value={pending.startupPage}>
+              {#each startupPageOptions as option (option.value)}
+                <option value={option.value}>{option.label}</option>
+              {/each}
             </select>
           </div>
         </section>
-      {:else if activeSection === 'appearance'}
+      {:else}
         <section class="settings-section">
           <h3 class="section-title">外観</h3>
 
           <div class="setting-item">
-            <label class="setting-label" for="theme">テーマ</label>
-            <select id="theme" class="setting-select" bind:value={pendingSettings.appearance.theme}>
-              <option value="dark">ダーク</option>
-              <option value="light">ライト</option>
-              <option value="system">システム設定に従う</option>
-            </select>
-          </div>
-
-          <div class="setting-item">
             <label class="setting-label" for="accent">アクセントカラー</label>
-            <input
-              type="color"
-              id="accent"
-              class="setting-color"
-              bind:value={pendingSettings.appearance.accentColor}
-            />
-          </div>
-        </section>
-      {:else if activeSection === 'playback'}
-        <section class="settings-section">
-          <h3 class="section-title">再生</h3>
-
-          <div class="setting-item">
-            <label class="setting-label">
+            <div class="setting-color-row">
               <input
-                type="checkbox"
-                class="setting-checkbox"
-                bind:checked={pendingSettings.playback.gapless}
+                type="color"
+                id="accent"
+                class="setting-color"
+                bind:value={pending.accentColor}
               />
-              ギャップレス再生
-            </label>
-            <p class="setting-description">曲間の無音を除去して連続再生します</p>
-          </div>
-
-          <div class="setting-item">
-            <label class="setting-label" for="crossfade">クロスフェード</label>
-            <div class="setting-slider-container">
-              <input
-                type="range"
-                id="crossfade"
-                class="setting-slider"
-                min="0"
-                max="12"
-                step="1"
-                bind:value={pendingSettings.playback.crossfade}
-              />
-              <span class="setting-slider-value">{pendingSettings.playback.crossfade}秒</span>
+              <button
+                type="button"
+                class="setting-reset"
+                onclick={() => pending && (pending.accentColor = DEFAULT_ACCENT_COLOR)}
+                disabled={pending.accentColor === DEFAULT_ACCENT_COLOR}
+              >
+                既定に戻す
+              </button>
             </div>
-          </div>
-
-          <div class="setting-item">
-            <label class="setting-label">
-              <input
-                type="checkbox"
-                class="setting-checkbox"
-                bind:checked={pendingSettings.playback.normalize}
-              />
-              音量正規化（ReplayGain）
-            </label>
-            <p class="setting-description">曲ごとの音量差を軽減します</p>
-          </div>
-        </section>
-      {:else if activeSection === 'library'}
-        <section class="settings-section">
-          <h3 class="section-title">ライブラリ</h3>
-
-          <div class="setting-item">
-            <label class="setting-label" for="autoscan">自動スキャン間隔</label>
-            <select
-              id="autoscan"
-              class="setting-select"
-              bind:value={pendingSettings.library.autoScanInterval}
-            >
-              <option value={0}>無効</option>
-              <option value={15}>15分</option>
-              <option value={30}>30分</option>
-              <option value={60}>1時間</option>
-              <option value={360}>6時間</option>
-            </select>
-          </div>
-
-          <div class="setting-item">
-            <span class="setting-label">監視フォルダ</span>
-            <p class="setting-description">
-              現在の監視フォルダはありません。<br />
-              フォルダを追加するには「ファイル」メニューから「フォルダをインポート」を選択してください。
-            </p>
+            <p class="setting-description">ボタンや選択中の項目などの色に使われます</p>
           </div>
         </section>
       {/if}
@@ -304,7 +166,13 @@
     <!-- フッター -->
     <footer class="settings-footer">
       <button class="btn-secondary" onclick={cancel}>キャンセル</button>
-      <button class="btn-primary" onclick={applySettings} disabled={!hasChanges}> 適用 </button>
+      <button
+        class="btn-primary"
+        onclick={applySettings}
+        disabled={!hasChanges || saveMutation.isPending}
+      >
+        {saveMutation.isPending ? '保存中...' : '適用'}
+      </button>
     </footer>
   </div>
 </div>
@@ -383,24 +251,20 @@
     @apply outline-none border-primary;
   }
 
-  .setting-checkbox {
-    @apply w-4 h-4 mr-2 accent-primary;
+  .setting-color-row {
+    @apply flex items-center gap-3;
   }
 
   .setting-color {
     @apply w-12 h-8 p-0 border border-border rounded cursor-pointer;
   }
 
-  .setting-slider-container {
-    @apply flex items-center gap-4;
+  .setting-reset {
+    @apply text-xs text-text-secondary bg-transparent border-none cursor-pointer underline p-0;
   }
 
-  .setting-slider {
-    @apply flex-1 max-w-xs h-2 accent-primary cursor-pointer;
-  }
-
-  .setting-slider-value {
-    @apply text-sm text-text-secondary w-12;
+  .setting-reset:disabled {
+    @apply opacity-50 cursor-default no-underline;
   }
 
   .settings-footer {
