@@ -110,7 +110,12 @@ pub fn get_file_size(file_path: &Path) -> AppResult<i64> {
 ///
 /// 再スキャンでファイルの変更を検出するために記録する。
 pub fn get_file_modified_at(file_path: &Path) -> Option<i64> {
-    let modified = fs::metadata(file_path).ok()?.modified().ok()?;
+    modified_at_of(&fs::metadata(file_path).ok()?)
+}
+
+/// 取得済みのメタデータから、ファイルの更新日時（UNIX時間の秒）を取り出す
+pub fn modified_at_of(metadata: &fs::Metadata) -> Option<i64> {
+    let modified = metadata.modified().ok()?;
     let seconds = modified
         .duration_since(std::time::UNIX_EPOCH)
         .ok()?
@@ -131,7 +136,8 @@ pub fn get_file_format(file_path: &Path) -> String {
 ///
 /// u32に収まらない件数は現実的に発生しないが、`as`によるサイレントな
 /// 切り捨てを避けるため明示的に変換し、収まらない場合はエラーとする。
-fn to_count(value: usize) -> AppResult<u32> {
+/// 件数（usize）をフロントエンドへ返すu32へ変換する
+pub(crate) fn to_count(value: usize) -> AppResult<u32> {
     u32::try_from(value)
         .map_err(|_| AppError::Database(format!("件数が扱える範囲を超えました: {}", value)))
 }

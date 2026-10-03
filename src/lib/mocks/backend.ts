@@ -301,14 +301,14 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     duplicateAction: DuplicateAction
   ): Promise<ImportResult> {
     validateFilePath(folderPath);
-    const folder = folderPath.replace(/[\\/]+$/, '');
-    const album = folder.split(/[\\/]/).pop() || 'Imported';
+    const folder = normalizeFolderPath(folderPath);
+    const album = folder.split(/[\\/]/).filter(Boolean).pop() || 'Imported';
     let importedCount = 0;
     let skippedCount = 0;
 
     for (let index = 0; index < IMPORT_FILE_COUNT; index++) {
       const fileName = `Mock Track ${String(index + 1).padStart(2, '0')}.mp3`;
-      const filePath = `${folder}/${fileName}`;
+      const filePath = `${folderPrefix(folder)}${fileName}`;
       options.emit('import-progress', {
         current: index + 1,
         total: IMPORT_FILE_COUNT,
@@ -355,16 +355,25 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       importedCount++;
     }
 
+    // Rustと同じく、インポートの後にライブラリが変わったことを知らせる
     registerLibraryFolder(folder);
+    options.emit('library-changed', null);
     return { importedCount, skippedCount, errorCount: 0, errors: [] };
   }
 
   // ---- ライブラリフォルダ（src-tauri/src/library_folder.rsに対応） ----
 
+  /** フォルダのパスの末尾の区切り文字を除く（ルートは残す。Rustの`normalize_folder_path`と同じ） */
+  function normalizeFolderPath(path: string): string {
+    const trimmed = path.replace(/[\\/]+$/, '');
+    return trimmed === '' || trimmed.endsWith(':') ? path : trimmed;
+  }
+  /** フォルダ内のファイルのパスの接頭辞（Rustの`track_path_prefix`と同じ） */
+  const folderPrefix = (folder: string) => (/[\\/]$/.test(folder) ? folder : `${folder}/`);
   const isSameOrWithin = (path: string, folder: string) =>
-    path === folder || path.startsWith(`${folder}/`);
+    path === folder || path.startsWith(folderPrefix(folder));
   const tracksUnder = (folder: string) =>
-    tracks.filter((track) => track.filePath.startsWith(`${folder}/`));
+    tracks.filter((track) => track.filePath.startsWith(folderPrefix(folder)));
 
   /** インポートしたフォルダを記録する（フォルダ同士は入れ子にしない） */
   function registerLibraryFolder(path: string): void {

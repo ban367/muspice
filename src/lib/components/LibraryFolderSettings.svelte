@@ -7,6 +7,7 @@
 -->
 <script lang="ts">
   import { useQueryClient } from '@tanstack/svelte-query';
+  import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
   import { events } from '#lib/bindings.js';
   import { queryKeys } from '#lib/queries/keys.js';
   import {
@@ -43,13 +44,19 @@
     const unlistenProgress = events.libraryScanProgress.listen((event) => {
       scanProgress = event.payload;
     });
-    // 自動の再スキャンでライブラリが変わったら、曲数・最終スキャンの日時を読み直す
+    // インポート・自動の再スキャンでライブラリが変わったら、曲数・最終スキャンの日時を読み直す
     const unlistenChanged = events.libraryChanged.listen(() => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.libraryFolders });
+    });
+    // ウィンドウに戻ったら読み直す（外付けドライブの接続などを反映する。TanStack Queryの
+    // 再取得はページの表示状態だけを見ており、ウィンドウを切り替えても動かないため）
+    const unlistenFocus = getCurrentWebviewWindow().onFocusChanged(({ payload: focused }) => {
+      if (focused) void queryClient.invalidateQueries({ queryKey: queryKeys.libraryFolders });
     });
     return () => {
       unlistenProgress.then((fn) => fn());
       unlistenChanged.then((fn) => fn());
+      unlistenFocus.then((fn) => fn());
     };
   });
 
@@ -92,10 +99,12 @@
   async function confirmRemove() {
     if (!removingFolder) return;
     const folderId = removingFolder.id;
+    // 待っている間にチェックを変えられても、送った内容で通知する
+    const withTracks = removeTracks;
     try {
-      const removed = await removeMutation.mutateAsync({ folderId, removeTracks });
+      const removed = await removeMutation.mutateAsync({ folderId, removeTracks: withTracks });
       showSuccess(
-        removeTracks ? m.libraryFolders.removedWithTracks(removed) : m.libraryFolders.removed
+        withTracks ? m.libraryFolders.removedWithTracks(removed) : m.libraryFolders.removed
       );
       removingFolder = null;
     } catch {
@@ -207,7 +216,12 @@
   {#if removingFolder}
     <p class="mb-4 break-all">{m.libraryFolders.removeConfirm(removingFolder.path)}</p>
     <label class="flex items-start gap-2 text-sm cursor-pointer">
-      <input type="checkbox" class="checkbox checkbox-sm mt-0.5" bind:checked={removeTracks} />
+      <input
+        type="checkbox"
+        class="checkbox checkbox-sm mt-0.5"
+        bind:checked={removeTracks}
+        disabled={removeMutation.isPending}
+      />
       <span>
         {m.libraryFolders.removeTracks(removingFolder.trackCount)}
         <span class="block text-xs text-text-muted">

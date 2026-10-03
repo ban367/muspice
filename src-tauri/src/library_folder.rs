@@ -202,7 +202,8 @@ pub struct RescanPlan {
     pub to_add: Vec<DiskFile>,
     /// サイズか更新日時が変わったファイル（読み直す）
     pub to_update: Vec<DiskFile>,
-    /// 更新日時が未記録のトラック（読み直さず、日時だけ記録する）: (トラックID, 更新日時)
+    /// 更新日時が未記録か、夏時間の切り替えでずれたトラック（読み直さず、日時だけ記録する）:
+    /// (トラックID, 更新日時)
     pub to_record_modified_at: Vec<(String, i64)>,
     /// ファイルが見つからなくなったトラックのID
     pub to_remove: Vec<String>,
@@ -210,11 +211,27 @@ pub struct RescanPlan {
     pub removal_skipped: bool,
 }
 
+/// 夏時間の切り替えで、更新日時をローカル時刻で記録するファイルシステム（FAT32など）の
+/// 更新日時がずれる幅（秒）
+const DST_SHIFT_SECONDS: i64 = 3600;
+
+/// FAT系の更新日時の精度（2秒）を見込んだ許容差（秒）
+const MTIME_TOLERANCE_SECONDS: i64 = 2;
+
+/// 更新日時の違いが、夏時間の切り替えによるずれ（ちょうど1時間）か
+fn is_dst_shift(recorded: i64, current: i64) -> bool {
+    ((current - recorded).abs() - DST_SHIFT_SECONDS).abs() <= MTIME_TOLERANCE_SECONDS
+}
+
 /// ディスク上のファイルとライブラリのトラックを比べて、再スキャンで行う処理を決める
 ///
 /// 読み直すのはサイズか更新日時が変わったファイルだけにする（ファイルが変わっていない曲の、
 /// DBだけで編集したメタデータを上書きしないため）。サイズ・更新日時を取得できなかった
 /// ファイルは、変更なしとして扱う（ライブラリからも外さない）。
+///
+/// サイズが同じで更新日時がちょうど1時間ずれたファイルは、夏時間の切り替えによるずれ
+/// （外付けドライブのFAT32など）とみなし、読み直さずに日時だけ記録する（夏時間の切り替えの
+/// たびに、ドライブ上の全曲を読み直して編集を上書きしないため）。
 pub fn plan_rescan(disk_files: Vec<DiskFile>, tracks: Vec<TrackFileState>) -> RescanPlan {
     let mut plan = RescanPlan::default();
     let tracks_by_path: HashMap<&str, &TrackFileState> =
@@ -236,8 +253,11 @@ pub fn plan_rescan(disk_files: Vec<DiskFile>, tracks: Vec<TrackFileState>) -> Re
                 None => plan
                     .to_record_modified_at
                     .push((track.id.clone(), modified_at)),
-                Some(recorded) if recorded != modified_at => plan.to_update.push(file.clone()),
-                Some(_) => {}
+                Some(recorded) if recorded == modified_at => {}
+                Some(recorded) if is_dst_shift(recorded, modified_at) => plan
+                    .to_record_modified_at
+                    .push((track.id.clone(), modified_at)),
+                Some(_) => plan.to_update.push(file.clone()),
             }
         }
     }
@@ -397,6 +417,34 @@ mod tests {
         assert_eq!(plan.to_record_modified_at, [("legacy".to_string(), 50)]);
         assert_eq!(plan.to_remove, ["gone"]);
         assert!(!plan.removal_skipped);
+    }
+
+    #[test]
+    fn test_plan_rescan_treats_dst_shift_as_unchanged() {
+        let tracks = vec![
+            track("dst", "/m/dst.mp3", 100, Some(1_000_000)),
+            track("dst-fat", "/m/dst-fat.mp3", 100, Some(1_000_000)),
+            track("edited", "/m/edited.mp3", 100, Some(1_000_000)),
+        ];
+        let disk_files = vec![
+            // 夏時間の切り替えでちょうど1時間ずれた（FAT系の2秒の精度を含む）
+            disk("/m/dst.mp3", 100, 1_000_000 - 3600),
+            disk("/m/dst-fat.mp3", 100, 1_000_000 + 3602),
+            // 1時間と違うずれは、変更として読み直す
+            disk("/m/edited.mp3", 100, 1_000_000 + 3700),
+        ];
+
+        let plan = plan_rescan(disk_files, tracks);
+
+        assert_eq!(
+            plan.to_record_modified_at,
+            vec![
+                ("dst".to_string(), 1_000_000 - 3600),
+                ("dst-fat".to_string(), 1_000_000 + 3602)
+            ]
+        );
+        let updated: Vec<&str> = plan.to_update.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(updated, ["/m/edited.mp3"]);
     }
 
     #[test]

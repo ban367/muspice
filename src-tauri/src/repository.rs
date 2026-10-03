@@ -761,9 +761,23 @@ pub struct TrackFileState {
     pub file_modified_at: Option<i64>,
 }
 
-/// 指定した接頭辞（フォルダのパス＋区切り文字）で始まるパスのトラックを取得する
+/// 接頭辞で始まる文字列の範囲の上限（接頭辞の最後の文字を、次に大きい文字にしたもの）
 ///
-/// SQLiteの`LIKE`はASCIIの大文字・小文字を区別しないため、`substr`で完全一致を比較する。
+/// `file_path`は二分比較（BINARY）のため、接頭辞で始まるパスはちょうど`[接頭辞, 上限)`の
+/// 範囲になる。`LIKE`（ASCIIの大文字・小文字を区別しない）や`substr`（インデックスを使えない）の
+/// 代わりに、この範囲で`file_path`のインデックス（UNIQUE）を使って検索する。
+fn prefix_upper_bound(prefix: &str) -> String {
+    let mut chars: Vec<char> = prefix.chars().collect();
+    if let Some(last) = chars.pop() {
+        let next = (u32::from(last) + 1..=u32::from(char::MAX))
+            .find_map(char::from_u32)
+            .unwrap_or(char::MAX);
+        chars.push(next);
+    }
+    chars.into_iter().collect()
+}
+
+/// 指定した接頭辞（フォルダのパス＋区切り文字）で始まるパスのトラックを取得する
 pub fn find_track_file_states_under(
     conn: &Connection,
     path_prefix: &str,
@@ -771,11 +785,11 @@ pub fn find_track_file_states_under(
     let mut stmt = conn
         .prepare(
             "SELECT id, file_path, file_size, file_modified_at FROM tracks
-             WHERE substr(file_path, 1, length(?1)) = ?1",
+             WHERE file_path >= ?1 AND file_path < ?2",
         )
         .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
 
-    stmt.query_map([path_prefix], |row| {
+    stmt.query_map([path_prefix, &prefix_upper_bound(path_prefix)], |row| {
         Ok(TrackFileState {
             id: row.get(0)?,
             file_path: row.get(1)?,
@@ -791,8 +805,8 @@ pub fn find_track_file_states_under(
 /// 指定した接頭辞（フォルダのパス＋区切り文字）で始まるパスのトラック数
 pub fn count_tracks_under(conn: &Connection, path_prefix: &str) -> AppResult<u32> {
     conn.query_row(
-        "SELECT COUNT(*) FROM tracks WHERE substr(file_path, 1, length(?1)) = ?1",
-        [path_prefix],
+        "SELECT COUNT(*) FROM tracks WHERE file_path >= ?1 AND file_path < ?2",
+        [path_prefix, &prefix_upper_bound(path_prefix)],
         |row| row.get(0),
     )
     .map_err(|e| AppError::Database(format!("トラック数の取得に失敗しました: {}", e)))
@@ -809,8 +823,8 @@ pub fn count_all_tracks(conn: &Connection) -> AppResult<u32> {
 /// 削除した件数を返す。プレイリスト・再生履歴の関連レコードは外部キーのCASCADEで消える。
 pub fn delete_tracks_under(conn: &Connection, path_prefix: &str) -> AppResult<usize> {
     conn.execute(
-        "DELETE FROM tracks WHERE substr(file_path, 1, length(?1)) = ?1",
-        [path_prefix],
+        "DELETE FROM tracks WHERE file_path >= ?1 AND file_path < ?2",
+        [path_prefix, &prefix_upper_bound(path_prefix)],
     )
     .map_err(|e| AppError::Database(format!("トラックの削除に失敗しました: {}", e)))
 }
@@ -1540,6 +1554,10 @@ mod tests {
         insert_track_at(&conn, "b", "/music/sub/b.mp3", None);
         insert_track_at(&conn, "c", "/music2/c.mp3", None);
         insert_track_at(&conn, "d", "/Music/d.mp3", None);
+        insert_track_at(&conn, "e", "/music/日本語/e.mp3", None);
+        // 範囲の境界（区切り文字の前後の文字）
+        insert_track_at(&conn, "f", "/music0/f.mp3", None);
+        insert_track_at(&conn, "g", "/music.mp3", None);
 
         let mut ids: Vec<String> = find_track_file_states_under(&conn, "/music/")
             .unwrap()
@@ -1547,9 +1565,9 @@ mod tests {
             .map(|t| t.id)
             .collect();
         ids.sort();
-        assert_eq!(ids, ["a", "b"]);
-        assert_eq!(count_tracks_under(&conn, "/music/").unwrap(), 2);
-        assert_eq!(count_all_tracks(&conn).unwrap(), 4);
+        assert_eq!(ids, ["a", "b", "e"]);
+        assert_eq!(count_tracks_under(&conn, "/music/").unwrap(), 3);
+        assert_eq!(count_all_tracks(&conn).unwrap(), 7);
 
         let state = find_track_file_states_under(&conn, "/music/")
             .unwrap()
@@ -1558,6 +1576,27 @@ mod tests {
             .unwrap();
         assert_eq!(state.file_size, 1000);
         assert_eq!(state.file_modified_at, Some(10));
+    }
+
+    #[test]
+    fn test_prefix_upper_bound() {
+        assert_eq!(prefix_upper_bound("/music/"), "/music0");
+        assert_eq!(prefix_upper_bound("C:\\Music\\"), "C:\\Music]");
+        // ASCII以外の文字も、次のコードポイントの文字にする（U+697D → U+697E）
+        assert_eq!(prefix_upper_bound("/音楽"), "/音\u{697E}");
+    }
+
+    #[test]
+    fn test_tracks_under_prefix_use_file_path_index() {
+        let conn = setup_test_db();
+        let plan: String = conn
+            .query_row(
+                "EXPLAIN QUERY PLAN SELECT COUNT(*) FROM tracks WHERE file_path >= ?1 AND file_path < ?2",
+                ["/music/", "/music0"],
+                |row| row.get(3),
+            )
+            .unwrap();
+        assert!(plan.contains("INDEX"), "インデックスを使わない: {}", plan);
     }
 
     #[test]

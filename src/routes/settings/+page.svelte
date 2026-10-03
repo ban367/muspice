@@ -172,10 +172,13 @@
   <!-- メインコンテンツ -->
   <div class="settings-main">
     <div class="settings-content">
-      {#if activeSection === 'library'}
-        <!-- ライブラリフォルダの操作はすぐに反映する（下の「適用」の対象外） -->
+      <!-- ライブラリフォルダの操作はすぐに反映する（下の「適用」の対象外）。
+           再スキャンの途中で別のセクションへ移っても進捗を保つよう、常に置いて表示だけを切り替える -->
+      <div hidden={activeSection !== 'library'}>
         <LibraryFolderSettings />
+      </div>
 
+      {#if activeSection === 'library'}
         {#if pending}
           <section class="settings-section">
             <h4 class="subsection-title">{m.settings.autoSync}</h4>

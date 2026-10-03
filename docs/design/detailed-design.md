@@ -89,9 +89,9 @@ export interface Playlist {
 - `tracks(artist|album|genre|title)` にインデックス
 - `playlist_tracks(playlist_id)` にインデックス
 - `playlist_tracks`, `play_history` は `tracks` / `playlists` への外部キー（`ON DELETE CASCADE`）
-- `tracks.file_modified_at` はファイルの更新日時（UNIX時間の秒）。再スキャンで、サイズとあわせて変更の検出に使う。列を追加する前に登録したトラックはNULLで、再スキャンで（ファイルを読み直さずに）記録する
+- `tracks.file_modified_at` はファイルの更新日時（UNIX時間の秒）。再スキャンで、サイズとあわせて変更の検出に使う。列を追加する前に登録したトラックはNULLで、再スキャンで（ファイルを読み直さずに）記録する。サイズが同じで更新日時がちょうど1時間（±2秒）ずれた場合は、夏時間の切り替えによるずれ（更新日時をローカル時刻で記録するFAT32など）とみなし、読み直さずに日時だけ記録する
 - `tracks.replay_gain_track_gain` / `replay_gain_track_peak` / `replay_gain_album_gain` / `replay_gain_album_peak`（REAL）はファイルのタグから読んだReplayGain。`REPLAYGAIN_*`を優先し、ゲインがない場合はOpusの`R128_*_GAIN`（Q7.8形式、基準が-23 LUFSのため+5 dBしてReplayGainの基準にそろえる）を使う。範囲外（ゲインは±60 dB、ピークは0以下）は読まない。列を追加する前に登録したトラックはNULLで、`refresh_library_metadata`か再スキャン（ファイルが変わった場合）で読み込む
-- `library_folders` とトラックの対応は `tracks.file_path` の前方一致（フォルダのパス＋区切り文字）で判定する。`LIKE` はASCIIの大文字・小文字を区別しないため `substr` で比較する。フォルダ同士は入れ子にしない（中のフォルダはインポートしても登録せず、外のフォルダをインポートすると中のフォルダの記録をまとめる）
+- `library_folders` とトラックの対応は `tracks.file_path` の前方一致（フォルダのパス＋区切り文字）で判定する。`file_path >= 接頭辞 AND file_path < 上限`（接頭辞の最後の文字を次の文字にしたもの）の範囲で比較する（二分比較のため大文字・小文字を区別し、`file_path`のUNIQUEのインデックスを使える。`LIKE`はASCIIの大文字・小文字を区別しない）。フォルダ同士は入れ子にしない（中のフォルダはインポートしても登録せず、外のフォルダをインポートすると中のフォルダの記録をまとめる）
 - `tracks_fts` は `tracks` とINSERT/UPDATE/DELETEトリガーで同期
   - external contentテーブル（`content=tracks`）のため、UPDATE/DELETEは`'delete'`コマンドパターンで古いトークンを除去する
   - 旧トリガー（直接DELETE/UPDATE方式）によるインデックス破損対策として、`PRAGMA user_version < 1` の場合に起動時へ一度だけ`rebuild`を実行する
@@ -119,20 +119,20 @@ export interface Playlist {
 
 ### インポート・削除
 
-| コマンド                           | 引数                            | 戻り値                  | 備考                                                                                            |
-| ---------------------------------- | ------------------------------- | ----------------------- | ----------------------------------------------------------------------------------------------- |
-| `import_folder`                    | `folderPath`, `duplicateAction` | `ImportResult`          | 50件/トランザクション、`ImportProgress`イベント送信。フォルダをライブラリフォルダとして記録する |
-| `delete_tracks_command`            | `trackIds: string[]`            | `number`                | DBからのみ削除                                                                                  |
-| `delete_tracks_with_files_command` | `trackIds: string[]`            | `DeleteResult`          | DB+ファイル削除                                                                                 |
-| `refresh_library_metadata`         | なし                            | `RefreshMetadataResult` | 全トラックのtrack/disc番号とReplayGainを再抽出                                                  |
+| コマンド                           | 引数                            | 戻り値                  | 備考                                                                                                                                          |
+| ---------------------------------- | ------------------------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `import_folder`                    | `folderPath`, `duplicateAction` | `ImportResult`          | 50件/トランザクション、`ImportProgress`イベント送信。音楽ファイルが見つかったフォルダをライブラリフォルダとして記録し、`LibraryChanged`を送る |
+| `delete_tracks_command`            | `trackIds: string[]`            | `number`                | DBからのみ削除                                                                                                                                |
+| `delete_tracks_with_files_command` | `trackIds: string[]`            | `DeleteResult`          | DB+ファイル削除                                                                                                                               |
+| `refresh_library_metadata`         | なし                            | `RefreshMetadataResult` | 全トラックのtrack/disc番号とReplayGainを再抽出                                                                                                |
 
 ### ライブラリフォルダ
 
-| コマンド                | 引数                       | 戻り値              | 備考                                                                                                                                                           |
-| ----------------------- | -------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `get_library_folders`   | なし                       | `LibraryFolderList` | パス順                                                                                                                                                         |
-| `rescan_library_folder` | `folderId`                 | `RescanResult`      | 追加・変更（サイズか更新日時が違う）のファイルを読み込み、見つからないファイルの曲を外す。フォルダが見つからない場合は`NOT_FOUND`。`LibraryScanProgress`を送る |
-| `remove_library_folder` | `folderId`, `removeTracks` | `number`            | 記録を削除する。`removeTracks`ならフォルダ内の曲もライブラリから外す（ファイルは消さない）。外した曲数を返す                                                   |
+| コマンド                | 引数                       | 戻り値              | 備考                                                                                                                                                                                                                                     |
+| ----------------------- | -------------------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `get_library_folders`   | なし                       | `LibraryFolderList` | パス順                                                                                                                                                                                                                                   |
+| `rescan_library_folder` | `folderId`                 | `RescanResult`      | 追加・変更（サイズか更新日時が違う）のファイルを読み込み、見つからないファイルの曲を外す。フォルダが見つからない場合は`NOT_FOUND`。`LibraryScanProgress`を送る。途中で失敗した場合も、それまでに書き込んだ分は`LibraryChanged`で通知する |
+| `remove_library_folder` | `folderId`, `removeTracks` | `number`            | 記録を削除する。`removeTracks`ならフォルダ内の曲もライブラリから外す（ファイルは消さない）。外した曲数を返す                                                                                                                             |
 
 再スキャン・削除でライブラリの曲が変わると`LibraryChanged`イベントを送る。
 
@@ -166,15 +166,15 @@ export interface Playlist {
 
 `src-tauri/src/events.rs` で定義し、`bindings.ts` の `events` から型付きで購読する。イベント名は型名のケバブケース。
 
-| イベント              | ペイロード                        | 送信元                                                             |
-| --------------------- | --------------------------------- | ------------------------------------------------------------------ |
-| `ImportProgress`      | `{ current, total, currentFile }` | `import_folder`（1ファイルごと）                                   |
-| `LibraryScanProgress` | `{ current, total, currentFile }` | `rescan_library_folder`（読み込むファイルごと）                    |
-| `LibraryChanged`      | なし                              | 再スキャン（自動を含む）・ライブラリフォルダの削除で曲が変わった時 |
-| `ShowAboutDialog`     | なし                              | メニュー「Muspice について」                                       |
-| `OpenImportDialog`    | なし                              | メニュー「フォルダをインポート...」                                |
-| `ToggleSidebar`       | なし                              | メニュー「サイドバーを表示/隠す」                                  |
-| `SettingsChanged`     | `Settings`                        | `save_settings`                                                    |
+| イベント              | ペイロード                        | 送信元                                                                             |
+| --------------------- | --------------------------------- | ---------------------------------------------------------------------------------- |
+| `ImportProgress`      | `{ current, total, currentFile }` | `import_folder`（1ファイルごと）                                                   |
+| `LibraryScanProgress` | `{ current, total, currentFile }` | `rescan_library_folder`（読み込むファイルごと）                                    |
+| `LibraryChanged`      | なし                              | インポートの後、再スキャン（自動を含む）・ライブラリフォルダの削除で曲が変わった時 |
+| `ShowAboutDialog`     | なし                              | メニュー「Muspice について」                                                       |
+| `OpenImportDialog`    | なし                              | メニュー「フォルダをインポート...」                                                |
+| `ToggleSidebar`       | なし                              | メニュー「サイドバーを表示/隠す」                                                  |
+| `SettingsChanged`     | `Settings`                        | `save_settings`                                                                    |
 
 ### メタデータ編集
 

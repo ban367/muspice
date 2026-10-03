@@ -173,6 +173,21 @@ describe('ライブラリフォルダ', () => {
     expect(paths).not.toContain('/Users/demo/Imports/A');
   });
 
+  it('末尾の区切り文字を除いて登録し、ルートのフォルダもRustと同じ接頭辞で数える', async () => {
+    await commands.importFolder('/Users/demo/Imports/B/', 'Skip');
+    let folders = (await commands.getLibraryFolders()).folders;
+    const imported = folders.find((f) => f.path === '/Users/demo/Imports/B');
+    expect(imported?.trackCount).toBeGreaterThan(0);
+    // インポートしたら、設定ウィンドウの一覧も読み直せるよう変更を通知する
+    expect(events.map((e) => e.event)).toContain('library-changed');
+
+    await commands.importFolder('/', 'Skip');
+    folders = (await commands.getLibraryFolders()).folders;
+    // ルートは区切り文字を残し、すべての曲を含む
+    expect(folders.map((f) => f.path)).toEqual(['/']);
+    expect(folders[0].trackCount).toBe((await commands.getAllTracks()).length);
+  });
+
   it('トラック数を数え、どのフォルダにも属さない曲を区別する', async () => {
     const before = await commands.getLibraryFolders();
     const music = before.folders.find((f) => f.path === '/Users/demo/Music');
