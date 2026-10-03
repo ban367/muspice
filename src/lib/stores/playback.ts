@@ -20,7 +20,7 @@ import {
   initializeEqualizer,
   isEqualizerInitialized,
   resumeAudioContext
-} from './equalizer';
+} from './equalizer.svelte.js';
 import {
   currentTime,
   currentTrack,

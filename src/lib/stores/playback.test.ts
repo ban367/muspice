@@ -28,7 +28,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 vi.mock('#lib/queries/tracks.js', () => ({
   incrementPlayCount: vi.fn(async () => {})
 }));
-vi.mock('./equalizer', () => ({
+vi.mock('./equalizer.svelte.js', () => ({
   initializeEqualizer: vi.fn(async () => {}),
   cleanupEqualizer: vi.fn(async () => {}),
   resumeAudioContext: vi.fn(async () => {}),

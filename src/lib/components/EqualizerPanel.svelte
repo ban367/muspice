@@ -9,7 +9,7 @@
     isBuiltinPreset,
     type BuiltinPresetName,
     type EQFrequency
-  } from '#lib/stores/equalizer.js';
+  } from '#lib/stores/equalizer.svelte.js';
   import { confirmDestructive } from '#lib/utils/dialog.js';
 
   // ビルトインプリセットの選択肢
@@ -29,7 +29,7 @@
   let newPresetName = $state('');
 
   // カスタム状態かどうか（プリセットが選択されていない= スライダー操作された状態）
-  const isCustom = $derived($equalizer.currentPreset === null);
+  const isCustom = $derived(equalizer.currentPreset === null);
 
   // プリセット変更ハンドラー
   function handlePresetChange(event: Event) {
@@ -86,7 +86,7 @@
 
   // 現在選択されているプリセットの値（セレクト用）
   const currentSelectValue = $derived(
-    $equalizer.currentPreset === null ? '_custom_' : $equalizer.currentPreset
+    equalizer.currentPreset === null ? '_custom_' : equalizer.currentPreset
   );
 </script>
 
@@ -96,10 +96,10 @@
     <h3>イコライザ</h3>
     <button
       class="eq-toggle"
-      class:active={$equalizer.enabled}
+      class:active={equalizer.enabled}
       onclick={() => equalizer.toggle()}
-      title={$equalizer.enabled ? 'イコライザをオフ' : 'イコライザをオン'}
-      aria-label={$equalizer.enabled ? 'イコライザをオフ' : 'イコライザをオン'}
+      title={equalizer.enabled ? 'イコライザをオフ' : 'イコライザをオン'}
+      aria-label={equalizer.enabled ? 'イコライザをオフ' : 'イコライザをオン'}
     >
       <span class="toggle-track">
         <span class="toggle-thumb"></span>
@@ -113,7 +113,7 @@
       class="preset-select"
       value={currentSelectValue}
       onchange={handlePresetChange}
-      disabled={!$equalizer.enabled}
+      disabled={!equalizer.enabled}
     >
       <!-- カスタム状態を表示 -->
       {#if isCustom}
@@ -124,9 +124,9 @@
           <option value={preset}>{BUILTIN_PRESET_LABELS[preset]}</option>
         {/each}
       </optgroup>
-      {#if $equalizer.customPresets.length > 0}
+      {#if equalizer.customPresets.length > 0}
         <optgroup label="保存済み">
-          {#each $equalizer.customPresets as customPreset (customPreset.name)}
+          {#each equalizer.customPresets as customPreset (customPreset.name)}
             <option value={customPreset.name}>{customPreset.name}</option>
           {/each}
         </optgroup>
@@ -138,7 +138,7 @@
       class="icon-btn"
       class:highlight={isCustom}
       onclick={() => (showSaveDialog = !showSaveDialog)}
-      disabled={!$equalizer.enabled || !isCustom}
+      disabled={!equalizer.enabled || !isCustom}
       title={isCustom ? 'プリセットを保存' : 'プリセットを変更すると保存可能'}
       aria-label="プリセットを保存"
     >
@@ -161,7 +161,7 @@
     <button
       class="icon-btn"
       onclick={() => equalizer.reset()}
-      disabled={!$equalizer.enabled}
+      disabled={!equalizer.enabled}
       title="リセット"
       aria-label="イコライザをリセット"
     >
@@ -196,12 +196,12 @@
   {/if}
 
   <!-- 選択中のカスタムプリセット名と削除ボタン -->
-  {#if $equalizer.currentPreset && !isBuiltinPreset($equalizer.currentPreset)}
+  {#if equalizer.currentPreset && !isBuiltinPreset(equalizer.currentPreset)}
     <div class="custom-preset-info">
-      <span class="preset-name">📁 {$equalizer.currentPreset}</span>
+      <span class="preset-name">📁 {equalizer.currentPreset}</span>
       <button
         class="delete-preset-btn"
-        onclick={() => deletePreset($equalizer.currentPreset!)}
+        onclick={() => deletePreset(equalizer.currentPreset!)}
         title="プリセットを削除"
       >
         削除
@@ -210,7 +210,7 @@
   {/if}
 
   <!-- スライダーエリア -->
-  <div class="eq-sliders-wrapper" class:disabled={!$equalizer.enabled}>
+  <div class="eq-sliders-wrapper" class:disabled={!equalizer.enabled}>
     <!-- ゲインラベル（左側） -->
     <div class="gain-labels">
       <span>+{MAX_GAIN}</span>
@@ -226,10 +226,7 @@
           <div class="custom-slider">
             <div class="slider-track"></div>
             <div class="slider-center-line"></div>
-            <div
-              class="slider-thumb"
-              style="bottom: {gainToPercent($equalizer.bands[freq])}%"
-            ></div>
+            <div class="slider-thumb" style="bottom: {gainToPercent(equalizer.bands[freq])}%"></div>
           </div>
           <!-- ネイティブスライダー（透明）
                min/maxを反転して上に行くほど値が大きくなるようにする -->
@@ -238,11 +235,11 @@
             min={-MAX_GAIN}
             max={-MIN_GAIN}
             step="1"
-            value={gainToSliderValue($equalizer.bands[freq])}
+            value={gainToSliderValue(equalizer.bands[freq])}
             oninput={(e) => handleBandChange(freq, e)}
-            disabled={!$equalizer.enabled}
+            disabled={!equalizer.enabled}
             class="native-slider"
-            title="{EQ_FREQUENCY_LABELS[freq]}Hz: {formatGain($equalizer.bands[freq])}dB"
+            title="{EQ_FREQUENCY_LABELS[freq]}Hz: {formatGain(equalizer.bands[freq])}dB"
             aria-label="{EQ_FREQUENCY_LABELS[freq]}Hz"
           />
         </div>
@@ -258,10 +255,10 @@
         <span class="freq-label">{EQ_FREQUENCY_LABELS[freq]}</span>
         <span
           class="gain-value"
-          class:positive={$equalizer.bands[freq] > 0}
-          class:negative={$equalizer.bands[freq] < 0}
+          class:positive={equalizer.bands[freq] > 0}
+          class:negative={equalizer.bands[freq] < 0}
         >
-          {formatGain($equalizer.bands[freq])}
+          {formatGain(equalizer.bands[freq])}
         </span>
       </div>
     {/each}
