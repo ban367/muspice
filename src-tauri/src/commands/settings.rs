@@ -25,7 +25,7 @@ pub async fn save_settings(
 ) -> AppResult<()> {
     state.save(settings.clone())?;
     if let Err(e) = SettingsChanged(settings).emit(&app) {
-        crate::logger::warning(&format!("設定変更の通知に失敗しました: {}", e));
+        log::warn!("設定変更の通知に失敗しました: {}", e);
     }
     Ok(())
 }

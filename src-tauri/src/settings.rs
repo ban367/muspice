@@ -68,7 +68,7 @@ pub fn load_settings(path: &Path) -> Settings {
         Ok(json) => json,
         Err(e) if e.kind() == ErrorKind::NotFound => return Settings::default(),
         Err(e) => {
-            crate::logger::warning(&format!("設定ファイルを読み込めませんでした: {}", e));
+            log::warn!("設定ファイルを読み込めませんでした: {}", e);
             return Settings::default();
         }
     };
@@ -76,14 +76,11 @@ pub fn load_settings(path: &Path) -> Settings {
     match parse_with_defaults(&json) {
         Ok(settings) if validate_settings(&settings).is_ok() => settings,
         Ok(_) => {
-            crate::logger::warning("設定ファイルの値が不正なため既定値を使います");
+            log::warn!("設定ファイルの値が不正なため既定値を使います");
             Settings::default()
         }
         Err(e) => {
-            crate::logger::warning(&format!(
-                "設定ファイルを解析できないため既定値を使います: {}",
-                e
-            ));
+            log::warn!("設定ファイルを解析できないため既定値を使います: {}", e);
             Settings::default()
         }
     }

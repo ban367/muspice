@@ -13,7 +13,7 @@ Tauri 2 + SvelteKit で構築されたデスクトップ音楽管理アプリ。
 ## ディレクトリ構造
 
 - `src/` - SvelteKitフロントエンド（`routes/`, `lib/components/`, `lib/queries/`, `lib/stores/`, `lib/types/`, `lib/utils/`, `lib/mocks/`）
-- `src-tauri/` - Tauri + Rustバックエンド（`src/commands/`, `db.rs`, `repository.rs`, `models.rs`, `library.rs`, `metadata.rs`, `playlist.rs`, `validation.rs`, `logger.rs`, `state.rs` 等）
+- `src-tauri/` - Tauri + Rustバックエンド（`src/commands/`, `db.rs`, `repository.rs`, `models.rs`, `library.rs`, `metadata.rs`, `playlist.rs`, `validation.rs`, `settings.rs`, `state.rs` 等）
 - `static/` - 静的アセット
 - `docs/` - 詳細ドキュメント
 

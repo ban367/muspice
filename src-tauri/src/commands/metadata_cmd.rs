@@ -142,7 +142,7 @@ fn refresh_library_metadata_blocking(state: &AppState) -> AppResult<RefreshMetad
     let tracks = state.with_db(|db| crate::repository::find_all_track_file_paths(db))?;
 
     let total_tracks = tracks.len();
-    crate::logger::info(&format!("メタデータ更新を開始: {} トラック", total_tracks));
+    log::info!("メタデータ更新を開始: {} トラック", total_tracks);
 
     // バッチ処理で更新
     //
@@ -165,10 +165,12 @@ fn refresh_library_metadata_blocking(state: &AppState) -> AppResult<RefreshMetad
             match extract_metadata(path) {
                 Ok(metadata) => {
                     // ログ: 抽出されたトラック番号とディスク番号
-                    crate::logger::info(&format!(
+                    log::info!(
                         "メタデータ抽出: {} - track={:?}, disc={:?}",
-                        file_path, metadata.track_number, metadata.disc_number
-                    ));
+                        file_path,
+                        metadata.track_number,
+                        metadata.disc_number
+                    );
                     pending.push(PendingTrackNumbers {
                         track_id,
                         file_path,
@@ -212,16 +214,19 @@ fn refresh_library_metadata_blocking(state: &AppState) -> AppResult<RefreshMetad
         }
 
         let processed = batch_idx * BATCH_SIZE + chunk.len();
-        crate::logger::info(&format!(
+        log::info!(
             "メタデータ更新進行状況: {}/{} トラック処理完了",
-            processed, total_tracks
-        ));
+            processed,
+            total_tracks
+        );
     }
 
-    crate::logger::info(&format!(
+    log::info!(
         "メタデータ更新完了: 更新={}, スキップ={}, エラー={}",
-        updated_count, skipped_count, error_count
-    ));
+        updated_count,
+        skipped_count,
+        error_count
+    );
 
     Ok(RefreshMetadataResult {
         updated_count,
