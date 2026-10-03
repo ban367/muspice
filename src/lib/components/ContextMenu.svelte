@@ -6,8 +6,7 @@
 <script lang="ts">
   import type { Track } from '#lib/types/models.js';
   import { BaseContextMenu, PlaylistSubmenu } from '#lib/components/ui/index.js';
-  import { playSingleTrack, playQueue, currentTrackIndex } from '#lib/stores/player.js';
-  import { get } from 'svelte/store';
+  import { player, playSingleTrack } from '#lib/stores/player.svelte.js';
   import { useShowInFolderMutation } from '#lib/queries/tracks.js';
 
   // Props
@@ -68,12 +67,12 @@
       onPlayNext();
     } else {
       // デフォルト動作: キューの現在位置の次に挿入
-      const queue = get(playQueue);
-      const currentIndex = get(currentTrackIndex);
+      const queue = player.playQueue;
+      const currentIndex = player.currentTrackIndex;
 
       const newQueue = [...queue];
       newQueue.splice(currentIndex + 1, 0, ...selectedTracks);
-      playQueue.set(newQueue);
+      player.playQueue = newQueue;
     }
     onClose();
   }
@@ -85,8 +84,8 @@
     if (onAddToQueue) {
       onAddToQueue();
     } else {
-      const queue = get(playQueue);
-      playQueue.set([...queue, ...selectedTracks]);
+      const queue = player.playQueue;
+      player.playQueue = [...queue, ...selectedTracks];
     }
     onClose();
   }

@@ -10,7 +10,7 @@
   } from '#lib/queries/playlists.js';
   import { useTracksQuery } from '#lib/queries/tracks.js';
   import type { Playlist, Track } from '#lib/types/models.js';
-  import { playTrackFromQueue } from '#lib/stores/player.js';
+  import { playTrackFromQueue } from '#lib/stores/player.svelte.js';
   import { formatDuration, formatTotalDuration } from '#lib/utils/format.js';
   import { confirmDestructive } from '#lib/utils/dialog.js';
 

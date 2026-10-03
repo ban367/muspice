@@ -6,13 +6,7 @@
 <script lang="ts">
   import type { Track, AlbumGroup, ArtistGroup, GenreGroup } from '#lib/types/models.js';
   import { BaseContextMenu, PlaylistSubmenu } from '#lib/components/ui/index.js';
-  import {
-    playTrackFromQueue,
-    playQueue,
-    currentTrackIndex,
-    playShuffled
-  } from '#lib/stores/player.js';
-  import { get } from 'svelte/store';
+  import { player, playTrackFromQueue, playShuffled } from '#lib/stores/player.svelte.js';
 
   // グループタイプ
   type GroupType = 'album' | 'artist' | 'genre';
@@ -72,12 +66,12 @@
    * 次に再生（キューの先頭に追加）
    */
   function handlePlayNext() {
-    const queue = get(playQueue);
-    const currentIndex = get(currentTrackIndex);
+    const queue = player.playQueue;
+    const currentIndex = player.currentTrackIndex;
 
     const newQueue = [...queue];
     newQueue.splice(currentIndex + 1, 0, ...allTracks);
-    playQueue.set(newQueue);
+    player.playQueue = newQueue;
     onClose();
   }
 
@@ -85,8 +79,8 @@
    * キューに追加（キューの最後に追加）
    */
   function handleAddToQueue() {
-    const queue = get(playQueue);
-    playQueue.set([...queue, ...allTracks]);
+    const queue = player.playQueue;
+    player.playQueue = [...queue, ...allTracks];
     onClose();
   }
 </script>

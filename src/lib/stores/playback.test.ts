@@ -1,19 +1,14 @@
-import { get } from 'svelte/store';
+import { flushSync } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Track } from '#lib/types/models.js';
 import { commands } from '#lib/bindings.js';
 import { incrementPlayCount } from '#lib/queries/tracks.js';
-import { createPlaybackController, mediaErrorMessage, type PlaybackController } from './playback';
 import {
-  currentTime,
-  currentTrack,
-  isPlaying,
-  playTrackFromQueue,
-  repeatMode,
-  resetPlayer,
-  isShuffleEnabled,
-  volume
-} from './player';
+  createPlaybackController,
+  mediaErrorMessage,
+  type PlaybackController
+} from './playback.svelte.js';
+import { player, playTrackFromQueue, resetPlayer } from './player.svelte.js';
 import { notifications } from './error.svelte.js';
 
 vi.mock('#lib/bindings.js', () => ({
@@ -86,14 +81,16 @@ let controller: PlaybackController;
 
 beforeEach(() => {
   resetPlayer();
-  isShuffleEnabled.set(false);
-  repeatMode.set('off');
-  volume.set(1);
+  player.isShuffleEnabled = false;
+  player.repeatMode = 'off';
+  player.volume = 1;
   notifications.clear();
   vi.clearAllMocks();
   vi.spyOn(console, 'error').mockImplementation(() => {});
   audio = new FakeAudio();
   controller = createPlaybackController(audio as unknown as HTMLAudioElement);
+  // 状態の監視（$effect）はマイクロタスクで始まるため、ここで反映しておく
+  flushSync();
 });
 
 afterEach(() => {
@@ -108,7 +105,7 @@ describe('トラックの読み込み', () => {
 
     expect(audio.src).toBe(`asset://localhost/${encodeURIComponent('/music/t2.mp3')}`);
     expect(audio.paused).toBe(false);
-    expect(get(isPlaying)).toBe(true);
+    expect(player.isPlaying).toBe(true);
     expect(commands.setCurrentTrack).toHaveBeenCalledWith('t2');
     expect(incrementPlayCount).toHaveBeenCalledWith('t2');
   });
@@ -120,6 +117,8 @@ describe('トラックの読み込み', () => {
       .mockImplementationOnce(async () => '/music/t2.mp3');
 
     playTrackFromQueue(tracks, 0);
+    // 1曲目のパスを取得している間に、2曲目へ切り替える
+    flushSync();
     playTrackFromQueue(tracks, 1);
     await flush();
     resolveFirst('/music/t1.mp3');
@@ -128,6 +127,16 @@ describe('トラックの読み込み', () => {
     expect(audio.src).toContain('t2.mp3');
     expect(commands.setCurrentTrack).toHaveBeenCalledTimes(1);
     expect(commands.setCurrentTrack).toHaveBeenCalledWith('t2');
+  });
+
+  it('同じ処理の中で続けてトラックが変わった場合は、最後のトラックだけを読み込む', async () => {
+    playTrackFromQueue(tracks, 0);
+    playTrackFromQueue(tracks, 2);
+    await flush();
+
+    expect(commands.getTrackFilePath).toHaveBeenCalledTimes(1);
+    expect(commands.getTrackFilePath).toHaveBeenCalledWith('t3');
+    expect(audio.src).toContain('t3.mp3');
   });
 
   it('読み込みに失敗したらエラーを通知し、再生中の表示を解除する', async () => {
@@ -139,7 +148,7 @@ describe('トラックの読み込み', () => {
     playTrackFromQueue(tracks, 0);
     await flush();
 
-    expect(get(isPlaying)).toBe(false);
+    expect(player.isPlaying).toBe(false);
     expect(notifications.items.at(-1)?.message).toBe(
       'トラックの再生に失敗しました: 指定されたトラックが見つかりません'
     );
@@ -150,6 +159,7 @@ describe('トラックの読み込み', () => {
     await flush();
 
     resetPlayer();
+    flushSync();
 
     expect(audio.pause).toHaveBeenCalled();
     expect(audio.paused).toBe(true);
@@ -164,9 +174,9 @@ describe('前へ・次へ', () => {
 
     controller.previous();
 
-    expect(get(currentTrack)?.id).toBe('t2');
+    expect(player.currentTrack?.id).toBe('t2');
     expect(audio.currentTime).toBe(0);
-    expect(get(currentTime)).toBe(0);
+    expect(player.currentTime).toBe(0);
     expect(audio.paused).toBe(false);
   });
 
@@ -178,19 +188,19 @@ describe('前へ・次へ', () => {
     controller.previous();
     await flush();
 
-    expect(get(currentTrack)?.id).toBe('t1');
+    expect(player.currentTrack?.id).toBe('t1');
     expect(audio.src).toContain('t1.mp3');
   });
 
   it('1曲リピート中の「次へ」は同じトラックを頭から再生し直す', async () => {
-    repeatMode.set('one');
+    player.repeatMode = 'one';
     playTrackFromQueue(tracks, 0);
     await flush();
     audio.advanceTo(42);
 
     controller.next();
 
-    expect(get(currentTrack)?.id).toBe('t1');
+    expect(player.currentTrack?.id).toBe('t1');
     expect(audio.currentTime).toBe(0);
   });
 });
@@ -203,9 +213,9 @@ describe('トラックの終了', () => {
     audio.finish();
     await flush();
 
-    expect(get(currentTrack)?.id).toBe('t2');
+    expect(player.currentTrack?.id).toBe('t2');
     expect(audio.src).toContain('t2.mp3');
-    expect(get(isPlaying)).toBe(true);
+    expect(player.isPlaying).toBe(true);
   });
 
   it('リピートなしでキューの最後まで再生したら終了する', async () => {
@@ -214,32 +224,32 @@ describe('トラックの終了', () => {
 
     audio.finish();
 
-    expect(get(currentTrack)).toBeNull();
-    expect(get(isPlaying)).toBe(false);
+    expect(player.currentTrack).toBeNull();
+    expect(player.isPlaying).toBe(false);
   });
 
   it('1曲リピートでは同じトラックを頭から再生し直す', async () => {
-    repeatMode.set('one');
+    player.repeatMode = 'one';
     playTrackFromQueue(tracks, 0);
     await flush();
     audio.advanceTo(200);
 
     audio.finish();
 
-    expect(get(currentTrack)?.id).toBe('t1');
+    expect(player.currentTrack?.id).toBe('t1');
     expect(audio.currentTime).toBe(0);
     expect(audio.paused).toBe(false);
   });
 
   it('1曲だけのキューを全曲リピートしても止まらずに再生し直す', async () => {
-    repeatMode.set('all');
+    player.repeatMode = 'all';
     playTrackFromQueue([makeTrack('only')], 0);
     await flush();
     audio.advanceTo(200);
 
     audio.finish();
 
-    expect(get(currentTrack)?.id).toBe('only');
+    expect(player.currentTrack?.id).toBe('only');
     expect(audio.currentTime).toBe(0);
     expect(audio.paused).toBe(false);
   });
@@ -252,29 +262,41 @@ describe('再生位置と音量', () => {
 
     controller.seekBy(-1000);
     expect(audio.currentTime).toBe(0);
-    expect(get(currentTime)).toBe(0);
+    expect(player.currentTime).toBe(0);
   });
 
   it('シークバーをドラッグ中は再生位置の通知で表示を上書きしない', () => {
     controller.setScrubbing(true);
-    currentTime.set(50);
+    player.currentTime = 50;
     audio.advanceTo(10);
-    expect(get(currentTime)).toBe(50);
+    expect(player.currentTime).toBe(50);
 
     controller.setScrubbing(false);
     audio.advanceTo(11);
-    expect(get(currentTime)).toBe(11);
+    expect(player.currentTime).toBe(11);
   });
 
-  it('音量ストアの変更をaudio要素に反映する', () => {
-    volume.set(0.25);
+  it('音量の変更をaudio要素に反映する', () => {
+    player.volume = 0.25;
+    flushSync();
     expect(audio.volume).toBe(0.25);
   });
 
   it('破棄した後はaudio要素のイベントを処理しない', () => {
     controller.destroy();
     audio.advanceTo(30);
-    expect(get(currentTime)).toBe(0);
+    expect(player.currentTime).toBe(0);
+  });
+
+  it('破棄した後は再生状態の変化に反応しない', async () => {
+    controller.destroy();
+
+    playTrackFromQueue(tracks, 0);
+    player.volume = 0.5;
+    await flush();
+
+    expect(commands.getTrackFilePath).not.toHaveBeenCalled();
+    expect(audio.volume).toBe(1);
   });
 });
 

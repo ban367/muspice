@@ -6,7 +6,7 @@
 <script lang="ts">
   import type { GenreGroup } from '#lib/types/models.js';
   import { useGenresGroupedQuery } from '#lib/queries/tracks.js';
-  import { playTrackFromQueue } from '#lib/stores/player.js';
+  import { playTrackFromQueue } from '#lib/stores/player.svelte.js';
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
   import LibraryGrid from './LibraryGrid.svelte';

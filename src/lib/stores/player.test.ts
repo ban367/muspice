@@ -1,28 +1,18 @@
-import { get } from 'svelte/store';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Track } from '#lib/types/models.js';
 import {
+  player,
   clearQueue,
-  currentTime,
-  currentTrack,
-  currentTrackIndex,
   formatTime,
-  hasNextTrack,
-  hasPreviousTrack,
-  isShuffleEnabled,
-  originalQueue,
   playNextTrack,
   playPreviousTrack,
-  playQueue,
   playShuffled,
   playTrackFromQueue,
   removeFromQueue,
-  repeatMode,
   resetPlayer,
   toggleRepeat,
-  toggleShuffle,
-  upcomingTracks
-} from './player';
+  toggleShuffle
+} from './player.svelte.js';
 
 /** キュー操作の検証に必要なidだけを持つトラック */
 function makeTrack(id: string): Track {
@@ -35,8 +25,8 @@ const ids = (list: Track[]) => list.map((t) => t.id);
 beforeEach(() => {
   // ストアはモジュール単位のシングルトンのため、テストごとに初期化する
   resetPlayer();
-  isShuffleEnabled.set(false);
-  repeatMode.set('off');
+  player.isShuffleEnabled = false;
+  player.repeatMode = 'off';
 });
 
 afterEach(() => {
@@ -47,29 +37,29 @@ describe('playTrackFromQueue', () => {
   it('キューを設定し、指定位置のトラックを再生する', () => {
     playTrackFromQueue(tracks, 2);
 
-    expect(ids(get(playQueue))).toEqual(['t1', 't2', 't3', 't4']);
-    expect(get(currentTrackIndex)).toBe(2);
-    expect(get(currentTrack)?.id).toBe('t3');
+    expect(ids(player.playQueue)).toEqual(['t1', 't2', 't3', 't4']);
+    expect(player.currentTrackIndex).toBe(2);
+    expect(player.currentTrack?.id).toBe('t3');
   });
 
   it('範囲外のインデックスでは状態を変えない', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     playTrackFromQueue(tracks, 4);
 
-    expect(get(playQueue)).toEqual([]);
-    expect(get(currentTrack)).toBeNull();
+    expect(player.playQueue).toEqual([]);
+    expect(player.currentTrack).toBeNull();
   });
 
   it('シャッフル中は選択したトラックを先頭にし、残りを並べ替える', () => {
-    isShuffleEnabled.set(true);
+    player.isShuffleEnabled = true;
     playTrackFromQueue(tracks, 2);
 
-    const queue = ids(get(playQueue));
+    const queue = ids(player.playQueue);
     expect(queue[0]).toBe('t3');
     expect([...queue].sort()).toEqual(['t1', 't2', 't3', 't4']);
-    expect(get(currentTrackIndex)).toBe(0);
+    expect(player.currentTrackIndex).toBe(0);
     // シャッフル解除時に戻すため元の順序を保持する
-    expect(ids(get(originalQueue))).toEqual(['t1', 't2', 't3', 't4']);
+    expect(ids(player.originalQueue)).toEqual(['t1', 't2', 't3', 't4']);
   });
 });
 
@@ -78,33 +68,33 @@ describe('playNextTrack', () => {
     playTrackFromQueue(tracks, 0);
 
     expect(playNextTrack()).toBe(true);
-    expect(get(currentTrack)?.id).toBe('t2');
-    expect(get(currentTrackIndex)).toBe(1);
+    expect(player.currentTrack?.id).toBe('t2');
+    expect(player.currentTrackIndex).toBe(1);
   });
 
   it('リピートなしでは最後のトラックで止まる', () => {
     playTrackFromQueue(tracks, 3);
 
     expect(playNextTrack()).toBe(false);
-    expect(get(currentTrack)?.id).toBe('t4');
+    expect(player.currentTrack?.id).toBe('t4');
   });
 
   it('全曲リピートでは最後から先頭へ戻る', () => {
-    repeatMode.set('all');
+    player.repeatMode = 'all';
     playTrackFromQueue(tracks, 3);
 
     expect(playNextTrack()).toBe(true);
-    expect(get(currentTrack)?.id).toBe('t1');
-    expect(get(currentTrackIndex)).toBe(0);
+    expect(player.currentTrack?.id).toBe('t1');
+    expect(player.currentTrackIndex).toBe(0);
   });
 
   it('1曲リピートでは同じトラックを再生する', () => {
-    repeatMode.set('one');
+    player.repeatMode = 'one';
     playTrackFromQueue(tracks, 1);
 
     expect(playNextTrack()).toBe(true);
-    expect(get(currentTrack)?.id).toBe('t2');
-    expect(get(currentTrackIndex)).toBe(1);
+    expect(player.currentTrack?.id).toBe('t2');
+    expect(player.currentTrackIndex).toBe(1);
   });
 
   it('キューが空なら何もしない', () => {
@@ -117,32 +107,32 @@ describe('playPreviousTrack', () => {
     playTrackFromQueue(tracks, 2);
 
     expect(playPreviousTrack()).toBe(true);
-    expect(get(currentTrack)?.id).toBe('t2');
+    expect(player.currentTrack?.id).toBe('t2');
   });
 
   it('3秒を超えて再生している場合はトラックの先頭へ戻る', () => {
     playTrackFromQueue(tracks, 2);
-    currentTime.set(10);
+    player.currentTime = 10;
 
     expect(playPreviousTrack()).toBe(true);
-    expect(get(currentTime)).toBe(0);
-    expect(get(currentTrack)?.id).toBe('t3');
+    expect(player.currentTime).toBe(0);
+    expect(player.currentTrack?.id).toBe('t3');
   });
 
   it('リピートなしでは先頭のトラックで止まる', () => {
     playTrackFromQueue(tracks, 0);
 
     expect(playPreviousTrack()).toBe(false);
-    expect(get(currentTrack)?.id).toBe('t1');
+    expect(player.currentTrack?.id).toBe('t1');
   });
 
   it('全曲リピートでは先頭から最後へ移動する', () => {
-    repeatMode.set('all');
+    player.repeatMode = 'all';
     playTrackFromQueue(tracks, 0);
 
     expect(playPreviousTrack()).toBe(true);
-    expect(get(currentTrack)?.id).toBe('t4');
-    expect(get(currentTrackIndex)).toBe(3);
+    expect(player.currentTrack?.id).toBe('t4');
+    expect(player.currentTrackIndex).toBe(3);
   });
 });
 
@@ -151,24 +141,24 @@ describe('toggleShuffle', () => {
     playTrackFromQueue(tracks, 2);
     toggleShuffle();
 
-    const queue = ids(get(playQueue));
-    expect(get(isShuffleEnabled)).toBe(true);
+    const queue = ids(player.playQueue);
+    expect(player.isShuffleEnabled).toBe(true);
     expect(queue[0]).toBe('t3');
     expect([...queue].sort()).toEqual(['t1', 't2', 't3', 't4']);
-    expect(get(currentTrackIndex)).toBe(0);
+    expect(player.currentTrackIndex).toBe(0);
   });
 
   it('無効にすると元の順序に戻し、再生中トラックの位置を合わせる', () => {
     playTrackFromQueue(tracks, 2);
     toggleShuffle();
     playNextTrack();
-    const playing = get(currentTrack)?.id;
+    const playing = player.currentTrack?.id;
 
     toggleShuffle();
 
-    expect(get(isShuffleEnabled)).toBe(false);
-    expect(ids(get(playQueue))).toEqual(['t1', 't2', 't3', 't4']);
-    expect(get(playQueue)[get(currentTrackIndex)].id).toBe(playing);
+    expect(player.isShuffleEnabled).toBe(false);
+    expect(ids(player.playQueue)).toEqual(['t1', 't2', 't3', 't4']);
+    expect(player.playQueue[player.currentTrackIndex].id).toBe(playing);
   });
 });
 
@@ -178,40 +168,40 @@ describe('playShuffled', () => {
     vi.spyOn(Math, 'random').mockReturnValue(0.6);
     playShuffled(tracks);
 
-    const queue = ids(get(playQueue));
-    expect(get(isShuffleEnabled)).toBe(true);
-    expect(get(currentTrack)?.id).toBe('t3');
+    const queue = ids(player.playQueue);
+    expect(player.isShuffleEnabled).toBe(true);
+    expect(player.currentTrack?.id).toBe('t3');
     expect(queue[0]).toBe('t3');
     expect([...queue].sort()).toEqual(['t1', 't2', 't3', 't4']);
   });
 
   it('元の順序を保持し、シャッフルを解除すると戻る', () => {
     playShuffled(tracks);
-    const playing = get(currentTrack)?.id;
+    const playing = player.currentTrack?.id;
 
-    expect(ids(get(originalQueue))).toEqual(['t1', 't2', 't3', 't4']);
+    expect(ids(player.originalQueue)).toEqual(['t1', 't2', 't3', 't4']);
 
     toggleShuffle();
-    expect(get(isShuffleEnabled)).toBe(false);
-    expect(ids(get(playQueue))).toEqual(['t1', 't2', 't3', 't4']);
-    expect(get(playQueue)[get(currentTrackIndex)].id).toBe(playing);
+    expect(player.isShuffleEnabled).toBe(false);
+    expect(ids(player.playQueue)).toEqual(['t1', 't2', 't3', 't4']);
+    expect(player.playQueue[player.currentTrackIndex].id).toBe(playing);
   });
 
   it('空の一覧では何もしない', () => {
     playShuffled([]);
-    expect(get(isShuffleEnabled)).toBe(false);
-    expect(get(currentTrack)).toBeNull();
+    expect(player.isShuffleEnabled).toBe(false);
+    expect(player.currentTrack).toBeNull();
   });
 });
 
 describe('toggleRepeat', () => {
   it('off → all → one → off の順に切り替わる', () => {
     toggleRepeat();
-    expect(get(repeatMode)).toBe('all');
+    expect(player.repeatMode).toBe('all');
     toggleRepeat();
-    expect(get(repeatMode)).toBe('one');
+    expect(player.repeatMode).toBe('one');
     toggleRepeat();
-    expect(get(repeatMode)).toBe('off');
+    expect(player.repeatMode).toBe('off');
   });
 });
 
@@ -220,34 +210,34 @@ describe('removeFromQueue', () => {
     playTrackFromQueue(tracks, 2);
     removeFromQueue('t1');
 
-    expect(ids(get(playQueue))).toEqual(['t2', 't3', 't4']);
-    expect(ids(get(originalQueue))).toEqual(['t2', 't3', 't4']);
-    expect(get(currentTrackIndex)).toBe(1);
-    expect(get(currentTrack)?.id).toBe('t3');
+    expect(ids(player.playQueue)).toEqual(['t2', 't3', 't4']);
+    expect(ids(player.originalQueue)).toEqual(['t2', 't3', 't4']);
+    expect(player.currentTrackIndex).toBe(1);
+    expect(player.currentTrack?.id).toBe('t3');
   });
 
   it('再生中のトラックを削除すると同じ位置の次のトラックに移る', () => {
     playTrackFromQueue(tracks, 1);
     removeFromQueue('t2');
 
-    expect(get(currentTrack)?.id).toBe('t3');
-    expect(get(currentTrackIndex)).toBe(1);
+    expect(player.currentTrack?.id).toBe('t3');
+    expect(player.currentTrackIndex).toBe(1);
   });
 
   it('最後のトラックが再生中に削除されると新しい最後のトラックに移る', () => {
     playTrackFromQueue(tracks, 3);
     removeFromQueue('t4');
 
-    expect(get(currentTrack)?.id).toBe('t3');
-    expect(get(currentTrackIndex)).toBe(2);
+    expect(player.currentTrack?.id).toBe('t3');
+    expect(player.currentTrackIndex).toBe(2);
   });
 
   it('キューが空になるとプレイヤーをリセットする', () => {
     playTrackFromQueue([makeTrack('only')], 0);
     removeFromQueue('only');
 
-    expect(get(currentTrack)).toBeNull();
-    expect(get(currentTrackIndex)).toBe(-1);
+    expect(player.currentTrack).toBeNull();
+    expect(player.currentTrackIndex).toBe(-1);
   });
 });
 
@@ -256,33 +246,33 @@ describe('clearQueue', () => {
     playTrackFromQueue(tracks, 2);
     clearQueue();
 
-    expect(ids(get(playQueue))).toEqual(['t3']);
-    expect(get(currentTrackIndex)).toBe(0);
+    expect(ids(player.playQueue)).toEqual(['t3']);
+    expect(player.currentTrackIndex).toBe(0);
   });
 });
 
 describe('派生ストア', () => {
   it('hasNextTrack / hasPreviousTrack はリピートなしでは両端でfalseになる', () => {
     playTrackFromQueue(tracks, 0);
-    expect(get(hasPreviousTrack)).toBe(false);
-    expect(get(hasNextTrack)).toBe(true);
+    expect(player.hasPreviousTrack).toBe(false);
+    expect(player.hasNextTrack).toBe(true);
 
     playTrackFromQueue(tracks, 3);
-    expect(get(hasPreviousTrack)).toBe(true);
-    expect(get(hasNextTrack)).toBe(false);
+    expect(player.hasPreviousTrack).toBe(true);
+    expect(player.hasNextTrack).toBe(false);
   });
 
   it('リピート中はキューがあれば常に前後へ移動できる', () => {
-    repeatMode.set('all');
+    player.repeatMode = 'all';
     playTrackFromQueue(tracks, 3);
 
-    expect(get(hasNextTrack)).toBe(true);
-    expect(get(hasPreviousTrack)).toBe(true);
+    expect(player.hasNextTrack).toBe(true);
+    expect(player.hasPreviousTrack).toBe(true);
   });
 
   it('upcomingTracks は再生中より後ろのトラックを返す', () => {
     playTrackFromQueue(tracks, 1);
-    expect(ids(get(upcomingTracks))).toEqual(['t3', 't4']);
+    expect(ids(player.upcomingTracks)).toEqual(['t3', 't4']);
   });
 });
 

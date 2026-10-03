@@ -78,16 +78,18 @@ src-tauri/src/
 
 ### 共有する状態（Runesのモジュール）
 
-- コンポーネントをまたいで共有する状態は`src/lib/stores/*.svelte.ts`に、`$state`のフィールドを持つクラスのインスタンスとして置く（例: `ui.svelte.ts`の`ui`、`error.svelte.ts`の`notifications`、`equalizer.svelte.ts`の`equalizer`）。`svelte/store`の`writable`は新しく使わない（`player.ts`は移行中）
+- コンポーネントをまたいで共有する状態は`src/lib/stores/*.svelte.ts`に、`$state`のフィールドを持つクラスのインスタンスとして置く（例: `ui.svelte.ts`の`ui`、`error.svelte.ts`の`notifications`、`equalizer.svelte.ts`の`equalizer`、`player.svelte.ts`の`player`）。`svelte/store`の`writable`は新しく使わない（残っているのは`#lib/utils/dialog.ts`のテキスト入力の要求のみ）
 - 読み書きはプロパティを直接使う（例: `ui.isSidebarOpen = false`）。`$`接頭辞や`get()`は不要で、コンポーネント外の`.ts`からも同じように読める
 - 配列・オブジェクトを丸ごと置き換える状態は`$state.raw`にし、中身を書き換えず代入で更新する（例: `notifications.items`、`ui.columnWidths`）
 - localStorageに保存する状態は、privateな`$state`とgetter/setterで実装し、setterで保存する（例: `ui.isRightSidebarPinned`）。保存値はモジュールの読み込み時に読み、localStorageが使えない環境でも例外にしない
-- 状態に付随する操作（追加・削除など）はクラスのメソッドにする（例: `notifications.add()`）。保存や外部への反映（例: イコライザのゲインをWeb Audioのノードへ）が必要な状態は、getterだけを公開してメソッド経由で変更させる（例: `equalizer.setBandGain()`）
+- 値から計算できるものは`$derived`のフィールドにする（例: `player.progress`・`player.upcomingTracks`）
+- 状態に付随する操作（追加・削除など）はクラスのメソッドか、モジュールの関数にする（例: `notifications.add()`、キュー操作の`playTrackFromQueue()`）。保存や外部への反映（例: イコライザのゲインをWeb Audioのノードへ）が必要な状態は、getterだけを公開してメソッド経由で変更させる（例: `equalizer.setBandGain()`）
+- 状態の変化を受け取る処理は`$effect`で書く。コンポーネントの外（例: 再生コントローラー）では`$effect.root`で作り、破棄時に止める。`$effect`は変更の直後ではなくマイクロタスクで実行されるため、同期的な反映を前提にしない（テストでは`flushSync()`で反映させる）
 
 ### SvelteKit 3
 
 - 設定は`vite.config.js`の`sveltekit({...})`に渡す（`svelte.config.js`は使えない）。`tsconfig.json`は`svelte-kit sync`が生成する`$app/tsconfig`を継承する
-- `src/lib`は`$lib`ではなく`#lib`（`package.json`の`imports`）で参照し、拡張子を付ける。`.ts`のモジュールは`.js`（例: `#lib/stores/player.js`、`.svelte.ts`は`#lib/stores/ui.svelte.js`）、`index.ts`は`/index.js`（例: `#lib/components/ui/index.js`）、`.svelte`はそのまま
+- `src/lib`は`$lib`ではなく`#lib`（`package.json`の`imports`）で参照し、拡張子を付ける。`.ts`のモジュールは`.js`（例: `#lib/utils/format.js`、`.svelte.ts`は`#lib/stores/ui.svelte.js`）、`index.ts`は`/index.js`（例: `#lib/components/ui/index.js`）、`.svelte`はそのまま
 - ページの状態は`$app/state`の`page`を使う（`$app/stores`は削除された）
 - `resolve()`（`$app/paths`）に渡すパスは先頭に`/`を付けない（例: `resolve('library/songs')`）。先頭が`/`の文字列はルートIDとして扱われ、`(...)`を含むセグメントがルートグループとして消えるため、ジャンル名などを含むパスは必ずパスとして渡す
 - `goto()`はアプリのルートに一致しないURLで拒否（reject）する。保存したパスなど、存在しない可能性がある遷移先は`catch`で代わりの画面へ移動する
@@ -97,15 +99,15 @@ src-tauri/src/
 - コンポーネント・ページは `commands` を直接呼ばず、`#lib/queries` のクエリ・ミューテーションを経由する（ESLintの`no-restricted-imports`で禁止）。キャッシュの無効化（`onSuccess`）とエラーのトースト通知（`withErrorToast`）をここに集約するため
   - キャッシュに影響しない操作（例: ファイルの場所を開く）も、失敗を通知するためミューテーションとして定義する
   - 画面内にエラーを表示する場合は`String(error)`ではなく`toErrorMessage(error)`を使う（`AppError`はオブジェクトのため"[object Object]"になる）
-  - 再生制御（`getTrackFilePath`・`setCurrentTrack`）はクエリではなく`#lib/stores/playback`の再生コントローラーが呼ぶ
+  - 再生制御（`getTrackFilePath`・`setCurrentTrack`）はクエリではなく`#lib/stores/playback.svelte`の再生コントローラーが呼ぶ
 - アルバムアートは`#lib/utils/albumArt`の`albumArtUrl(trackId)`をそのまま`<img>`（`AlbumArt`コンポーネント）に渡す。画像データをフロントエンドで取得・保持しない。アートがない場合は読み込みエラーになり、`AlbumArt`がプレースホルダーを表示する
 - クエリキーは`src/lib/queries/keys.ts`の`queryKeys`に集約する。クエリ定義・無効化のどちらもここを参照し、`['tracks']`のようなマジック配列を直接書かない
 - 無効化はプレフィックス一致で波及するため、キーの階層がそのまま無効化の粒度になる（例: `queryKeys.tracks.all`の無効化は検索・フィルタ・お気に入りにも及ぶ）
 
 ### 再生制御
 
-- audio要素の操作・キュー遷移・リピート・再生回数の記録・イコライザの接続は`#lib/stores/playback`の`createPlaybackController(audio)`が担う。`Player.svelte`は表示と操作の受付だけを行い、コントローラーのメソッドを呼ぶ
-- 次・前のトラックの決定は`#lib/stores/player`のキュー操作（`playNextTrack`・`playPreviousTrack`）が担う。キュー操作の結果が再生中と同じトラックだった場合（1曲リピート、3秒以上再生中の「前へ」、1曲だけのキューの全曲リピート）はトラックIDが変わらず読み込みが走らないため、コントローラーが頭から再生し直す
+- audio要素の操作・キュー遷移・リピート・再生回数の記録・イコライザの接続は`#lib/stores/playback.svelte`の`createPlaybackController(audio)`が担う。`Player.svelte`は表示と操作の受付だけを行い、コントローラーのメソッドを呼ぶ
+- 次・前のトラックの決定は`#lib/stores/player.svelte`のキュー操作（`playNextTrack`・`playPreviousTrack`）が担う。キュー操作の結果が再生中と同じトラックだった場合（1曲リピート、3秒以上再生中の「前へ」、1曲だけのキューの全曲リピート）はトラックIDが変わらず読み込みが走らないため、コントローラーが頭から再生し直す
 - 再生中かどうか（`isPlaying`）はaudio要素の`play`/`pause`イベントから更新する
 - アルバム・プレイリストなどの「シャッフル再生」は`playShuffled(tracks)`を使う（配列を`sort(() => Math.random() - 0.5)`などで独自に並べ替えない）。シャッフルモードを有効にし、元の順序を保持するため、解除すると元の順序に戻る
 
@@ -159,12 +161,11 @@ src-tauri/src/
 
 ### 状態管理の使い分け
 
-| 状態                                 | 管理方式                       |
-| ------------------------------------ | ------------------------------ |
-| UI表示状態・トースト通知・イコライザ | Runes（`*.svelte.ts`）         |
-| 再生状態                             | Svelte Stores（Runesへ移行中） |
-| トラック/プレイリスト/検索結果       | TanStack Query                 |
-| DB接続・現在トラックID               | Tauri `AppState`               |
+| 状態                                           | 管理方式               |
+| ---------------------------------------------- | ---------------------- |
+| UI表示状態・トースト通知・イコライザ・再生状態 | Runes（`*.svelte.ts`） |
+| トラック/プレイリスト/検索結果                 | TanStack Query         |
+| DB接続・現在トラックID                         | Tauri `AppState`       |
 
 ## 開発・品質コマンド
 
@@ -186,7 +187,8 @@ cargo test --manifest-path src-tauri/Cargo.toml
 
 - Rustユニットテストを `cargo test` で実行
 - フロントエンドのロジック（ストア・ユーティリティ）は Vitest で単体テストする（`npm test`）
-  - テストは対象と同じディレクトリに `*.test.ts` として置き、Node環境で実行する
+  - テストは対象と同じディレクトリに `*.test.ts` として置き、Node環境で実行する。テスト内で`$state`・`$effect`などのRunesを使う場合は `*.svelte.test.ts` にする
+  - Svelteはアプリと同じクライアント向けにコンパイルする（`vitest.environment.ts`の環境と、Vitest実行時の`resolve.conditions: ['browser']`）。組み込みの`node`環境ではサーバー向けになり、`$effect`が実行されない
   - コンポーネント内の判定ロジックはテストしやすいよう `#lib/utils` の純粋関数へ切り出す（例: `selection.ts`）
 - 変更前後で最低限以下を確認する
   - 型チェック（`npm run check`）: 警告も失敗扱い。Tailwindの`@apply`/`@reference`をCSS言語サービスが解釈できず誤警告になるため、CSS診断は対象外（`--diagnostic-sources js,svelte`）

@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Track, AlbumGroup, ArtistGroup, GenreGroup } from '#lib/types/models.js';
-  import { playTrackFromQueue, currentTrack, playShuffled } from '#lib/stores/player.js';
+  import { player, playTrackFromQueue, playShuffled } from '#lib/stores/player.svelte.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import { formatDuration, formatTotalDuration } from '#lib/utils/format.js';
   import PlayingIndicator from './PlayingIndicator.svelte';
@@ -127,11 +127,11 @@
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
           class="track-row"
-          class:playing={$currentTrack?.id === track.id}
+          class:playing={player.currentTrack?.id === track.id}
           ondblclick={() => handleTrackDoubleClick(index)}
         >
           <span class="track-number">
-            {#if $currentTrack?.id === track.id}
+            {#if player.currentTrack?.id === track.id}
               <PlayingIndicator size="small" />
             {:else}
               {index + 1}
