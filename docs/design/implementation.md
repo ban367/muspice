@@ -108,10 +108,17 @@ src-tauri/src/
 
 ### 再生制御
 
-- audio要素の操作・キュー遷移・リピート・再生回数の記録・イコライザの接続は`#lib/stores/playback.svelte`の`createPlaybackController(audio)`が担う。`Player.svelte`は表示と操作の受付だけを行い、コントローラーのメソッドを呼ぶ
+- audio要素の操作・キュー遷移・リピート・再生回数の記録・イコライザの接続・ギャップレス再生は`#lib/stores/playback.svelte`の`createPlaybackController([audio, standbyAudio], options)`が担う。`Player.svelte`は表示と操作の受付だけを行い、コントローラーのメソッドを呼ぶ
 - 次・前のトラックの決定は`#lib/stores/player.svelte`のキュー操作（`playNextTrack`・`playPreviousTrack`）が担う。キュー操作の結果が再生中と同じトラックだった場合（1曲リピート、3秒以上再生中の「前へ」、1曲だけのキューの全曲リピート）はトラックIDが変わらず読み込みが走らないため、コントローラーが頭から再生し直す
 - 再生中かどうか（`isPlaying`）はaudio要素の`play`/`pause`イベントから更新する
-- 音量の正規化は、再生中のトラックの`replayGain`と設定の`volumeNormalization`から`#lib/utils/normalization`の`normalizationGain`で倍率を求め、イコライザの前段のGainNodeへ`setNormalizationGain`で反映する。コントローラーは設定を直接読まず、`createPlaybackController(audio, { normalizationMode })`の関数で受け取る（テストで差し替えるため）。audio要素の`volume`はユーザーの音量のまま変えない
+- ギャップレス再生では、audio要素（デッキ）を2つ使い、再生中のデッキ（`active`）と先読みのデッキ（`standby`）を切り替える
+  - 先読みするトラックは`#lib/stores/player.svelte`の`peekNextTrack()`（`playNextTrack`の進む先を、状態を変えずに返す）で決める。キュー・リピート・シャッフル・設定が変わると`$effect`で先読みし直す
+  - 曲の終わりの1秒前から、残り時間に合わせたタイマーで、終わりの少し前（`GAPLESS_LEAD_SECONDS`）に先読みしたデッキの再生を始め、`playNextTrack()`で再生中のトラックを進める。前の曲は止めずに最後まで鳴らし、鳴り終わってから空いたデッキに次の曲を先読みする
+  - タイマーに間に合わなかった場合（`ended`が先に来た場合）も、先読みが済んでいればそのデッキで続ける。先読みが済んでいない・次の曲と一致しない場合は、従来どおり読み込む
+  - 「次へ」などで先読みしたトラックへ移った場合も、読み込み直さずにそのデッキへ切り替える
+  - イベントは両方のデッキから受け、再生状態（`isPlaying`・再生位置・長さ）には再生中のデッキのものだけを反映する。先読みのエラーは表示せず、切り替えのときの通常の読み込みで改めて扱う
+  - 同じ曲を繰り返す切り替え（1曲リピート）は、従来の頭からの再生し直しと同じく、再生回数に数えない
+- 音量の正規化は、再生中のトラックの`replayGain`と設定の`volumeNormalization`から`#lib/utils/normalization`の`normalizationGain`で倍率を求め、イコライザの前段のGainNodeへ`setNormalizationGain`で反映する。コントローラーは設定を直接読まず、`options`の関数（`normalizationMode`・`gapless`）で受け取る（テストで差し替えるため）。補正はデッキごとにかけ、各デッキが読み込んだトラックの値を使う。audio要素の`volume`はユーザーの音量のまま変えない
 - アルバム・プレイリストなどの「シャッフル再生」は`playShuffled(tracks)`を使う（配列を`sort(() => Math.random() - 0.5)`などで独自に並べ替えない）。シャッフルモードを有効にし、元の順序を保持するため、解除すると元の順序に戻る
 
 ### ダイアログ

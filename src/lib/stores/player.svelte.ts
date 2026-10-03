@@ -204,39 +204,52 @@ export function playSingleTrack(track: Track): void {
 }
 
 /**
- * 次のトラックに進む
+ * 次へ進んだ場合のキュー内の位置（進めない場合は-1）
  */
-export function playNextTrack(): boolean {
+function nextTrackIndex(): number {
   const queue = player.playQueue;
   const currentIndex = player.currentTrackIndex;
-  const repeat = player.repeatMode;
 
   if (queue.length === 0) {
-    return false;
+    return -1;
   }
 
   // 1曲リピートの場合は同じトラックを再生
-  if (repeat === 'one') {
-    player.currentTrack = queue[currentIndex];
-    return true;
+  if (player.repeatMode === 'one') {
+    return currentIndex >= 0 && currentIndex < queue.length ? currentIndex : -1;
   }
 
   const nextIndex = currentIndex + 1;
-
   if (nextIndex < queue.length) {
-    player.currentTrackIndex = nextIndex;
-    player.currentTrack = queue[nextIndex];
-    return true;
+    return nextIndex;
   }
 
   // 全曲リピートの場合は最初に戻る
-  if (repeat === 'all') {
-    player.currentTrackIndex = 0;
-    player.currentTrack = queue[0];
-    return true;
-  }
+  return player.repeatMode === 'all' ? 0 : -1;
+}
 
-  return false;
+/**
+ * 次に再生するトラック（`playNextTrack`で進む先）を、状態を変えずに返す
+ *
+ * ギャップレス再生で次の曲を先読みするために使う。1曲リピートでは再生中のトラックを返す。
+ * @returns 次がない（リピートなしでキューの最後）場合はnull
+ */
+export function peekNextTrack(): Track | null {
+  const index = nextTrackIndex();
+  return index < 0 ? null : player.playQueue[index];
+}
+
+/**
+ * 次のトラックに進む
+ */
+export function playNextTrack(): boolean {
+  const index = nextTrackIndex();
+  if (index < 0) {
+    return false;
+  }
+  player.currentTrackIndex = index;
+  player.currentTrack = player.playQueue[index];
+  return true;
 }
 
 /**

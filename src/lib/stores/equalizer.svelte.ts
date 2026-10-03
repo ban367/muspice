@@ -310,36 +310,35 @@ class Equalizer {
 export const equalizer = new Equalizer();
 
 // Web Audio API関連
-// 音声の経路: audio要素 -> 音量の正規化 -> イコライザ（10バンド） -> 出力 -> スピーカー
+// 音声の経路: audio要素（デッキ） -> 音量の正規化 -> イコライザ（10バンド） -> 出力 -> スピーカー
+// ギャップレス再生のためaudio要素（デッキ）は複数あり、正規化はデッキごと、イコライザ以降は共通
 let audioContext: AudioContext | null = null;
-let sourceNode: MediaElementAudioSourceNode | null = null;
-let normalizationNode: GainNode | null = null;
+let sourceNodes: MediaElementAudioSourceNode[] = [];
+let normalizationNodes: GainNode[] = [];
 let filterNodes: BiquadFilterNode[] = [];
 let gainNode: GainNode | null = null;
 let isInitialized = false;
-/** 音量の正規化の倍率（ノードの接続前に設定された値も、接続時に反映する） */
-let normalizationGainValue = 1;
+/** デッキごとの音量の正規化の倍率（ノードの接続前に設定された値も、接続時に反映する） */
+const normalizationGainValues: number[] = [];
 
 /**
  * イコライザを初期化（Audio要素と接続）
+ *
+ * @param audioElements 再生に使うaudio要素（デッキ）。並び順がデッキの番号になる
  */
-export async function initializeEqualizer(audioElement: HTMLAudioElement): Promise<void> {
+export async function initializeEqualizer(
+  audioElements: readonly HTMLAudioElement[]
+): Promise<void> {
   if (isInitialized) return;
 
   try {
     // AudioContextを作成
-    audioContext = new AudioContext();
-
-    // Audio要素をソースノードとして接続
-    sourceNode = audioContext.createMediaElementSource(audioElement);
-
-    // 音量の正規化（ReplayGain）。イコライザの前で曲ごとの音量差をそろえる
-    normalizationNode = audioContext.createGain();
-    normalizationNode.gain.value = normalizationGainValue;
+    const context = new AudioContext();
+    audioContext = context;
 
     // 各周波数のBiquadFilterを作成
     filterNodes = EQ_FREQUENCIES.map((freq) => {
-      const filter = audioContext!.createBiquadFilter();
+      const filter = context.createBiquadFilter();
       filter.type = 'peaking';
       filter.frequency.value = freq;
       filter.Q.value = 1.4; // バンド幅を調整
@@ -348,17 +347,30 @@ export async function initializeEqualizer(audioElement: HTMLAudioElement): Promi
     });
 
     // ゲインノードを作成（最終出力用）
-    gainNode = audioContext.createGain();
+    gainNode = context.createGain();
     gainNode.gain.value = 1.0;
 
-    // ノードを直列接続: source -> normalization -> filter1 -> ... -> filter10 -> gain -> destination
-    sourceNode.connect(normalizationNode);
-    normalizationNode.connect(filterNodes[0]);
+    // イコライザ以降を直列接続: filter1 -> ... -> filter10 -> gain -> destination
+    // （audio要素をつなぐ前に出力までつなぎ、途中で失敗しても、つないだデッキの音が出るようにする）
     for (let i = 0; i < filterNodes.length - 1; i++) {
       filterNodes[i].connect(filterNodes[i + 1]);
     }
     filterNodes[filterNodes.length - 1].connect(gainNode);
-    gainNode.connect(audioContext.destination);
+    gainNode.connect(context.destination);
+
+    // デッキごとに: audio要素 -> 音量の正規化（ReplayGain） -> イコライザの先頭
+    // （曲ごとの音量差を、イコライザの前でそろえる）
+    sourceNodes = [];
+    normalizationNodes = [];
+    audioElements.forEach((audioElement, deck) => {
+      const source = context.createMediaElementSource(audioElement);
+      const normalization = context.createGain();
+      normalization.gain.value = normalizationGainValues[deck] ?? 1;
+      source.connect(normalization);
+      normalization.connect(filterNodes[0]);
+      sourceNodes.push(source);
+      normalizationNodes.push(normalization);
+    });
 
     isInitialized = true;
 
@@ -387,15 +399,11 @@ function applyEqualizerSettings(settings: Pick<EqualizerSettings, 'enabled' | 'b
  * イコライザをクリーンアップ
  */
 export async function cleanupEqualizer(): Promise<void> {
-  if (sourceNode) {
-    sourceNode.disconnect();
-    sourceNode = null;
-  }
+  sourceNodes.forEach((source) => source.disconnect());
+  sourceNodes = [];
 
-  if (normalizationNode) {
-    normalizationNode.disconnect();
-    normalizationNode = null;
-  }
+  normalizationNodes.forEach((normalization) => normalization.disconnect());
+  normalizationNodes = [];
 
   filterNodes.forEach((filter) => filter.disconnect());
   filterNodes = [];
@@ -414,14 +422,16 @@ export async function cleanupEqualizer(): Promise<void> {
 }
 
 /**
- * 音量の正規化の倍率を設定する（再生コントローラーが、曲や設定が変わるたびに呼ぶ）
+ * デッキの音量の正規化の倍率を設定する（再生コントローラーが、曲や設定が変わるたびに呼ぶ）
  *
  * ノードの接続前に呼ばれた場合は値を覚えておき、接続時に反映する。
+ * @param deck デッキの番号（`initializeEqualizer`に渡したaudio要素の位置）
  */
-export function setNormalizationGain(gain: number): void {
-  normalizationGainValue = gain;
-  if (normalizationNode) {
-    normalizationNode.gain.value = gain;
+export function setNormalizationGain(deck: number, gain: number): void {
+  normalizationGainValues[deck] = gain;
+  const node = normalizationNodes[deck];
+  if (node) {
+    node.gain.value = gain;
   }
 }
 

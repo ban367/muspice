@@ -16,7 +16,9 @@
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import MarqueeText from './MarqueeText.svelte';
 
+  // 再生に使う2つのaudio要素（ギャップレス再生で、次の曲をもう一方に先読みする）
   let audioElement = $state<HTMLAudioElement>();
+  let standbyAudioElement = $state<HTMLAudioElement>();
   let progressBar = $state<HTMLElement>();
   let volumeBar = $state<HTMLElement>();
   let isDraggingProgress = $state(false);
@@ -25,16 +27,17 @@
   // 再生の制御（読み込み・キュー遷移・リピート・イコライザ・音量の正規化）はコントローラーに委ねる
   let playback: PlaybackController | null = null;
 
-  // 音量の正規化の設定（設定ウィンドウで変えると`SettingsChanged`で更新され、再生中の曲にも反映される）
+  // 再生の設定（設定ウィンドウで変えると`SettingsChanged`で更新され、再生中の曲にも反映される）
   const settingsQuery = useSettingsQuery();
 
   $effect(() => {
-    if (!audioElement) return;
-    const audio = audioElement;
+    if (!audioElement || !standbyAudioElement) return;
+    const audios = [audioElement, standbyAudioElement] as const;
     // audio要素が変わったときだけ作り直す（作成中に読む再生状態には反応させない）
     const controller = untrack(() =>
-      createPlaybackController(audio, {
-        normalizationMode: () => settingsQuery.data?.volumeNormalization ?? 'off'
+      createPlaybackController(audios, {
+        normalizationMode: () => settingsQuery.data?.volumeNormalization ?? 'off',
+        gapless: () => settingsQuery.data?.gaplessPlayback ?? true
       })
     );
     playback = controller;
@@ -203,6 +206,7 @@
 
 <!-- 非表示のオーディオ要素（イベントはPlaybackControllerが購読する） -->
 <audio bind:this={audioElement} class="hidden"></audio>
+<audio bind:this={standbyAudioElement} class="hidden"></audio>
 
 <!-- プレイヤーUI -->
 <div class="player-container">

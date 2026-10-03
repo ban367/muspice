@@ -41,13 +41,13 @@
     }
   });
 
-  const hasChanges = $derived(
-    pending !== null &&
-      settingsQuery.data !== undefined &&
-      (pending.startupPage !== settingsQuery.data.startupPage ||
-        pending.accentColor !== settingsQuery.data.accentColor ||
-        pending.volumeNormalization !== settingsQuery.data.volumeNormalization)
-  );
+  const hasChanges = $derived.by(() => {
+    const saved = settingsQuery.data;
+    if (pending === null || saved === undefined) return false;
+    const current = pending;
+    // 項目はすべて値（文字列・数値・真偽値）のため、1つずつ比べる
+    return (Object.keys(saved) as (keyof Settings)[]).some((key) => current[key] !== saved[key]);
+  });
 
   // 設定ウィンドウにも保存済みのアクセントカラーを反映する
   $effect(() => {
@@ -196,6 +196,20 @@
               曲ごとの音量の差を、ファイルのReplayGainのタグを使ってそろえます。アルバム単位では、アルバム内の曲の音量の差はそのまま残します。タグのない曲は補正しません（既存の曲のタグは「メタデータを更新」で読み込まれます）
             </p>
           </div>
+
+          <div class="setting-item">
+            <label class="setting-checkbox-label">
+              <input
+                type="checkbox"
+                class="setting-checkbox"
+                bind:checked={pending.gaplessPlayback}
+              />
+              ギャップレス再生
+            </label>
+            <p class="setting-description">
+              次の曲を先に読み込んでおき、曲と曲の間に無音を入れずに続けて再生します
+            </p>
+          </div>
         </section>
       {:else}
         <section class="settings-section">
@@ -311,6 +325,14 @@
 
   .setting-select:focus {
     @apply outline-none border-primary;
+  }
+
+  .setting-checkbox-label {
+    @apply flex items-center text-sm font-medium text-text-primary cursor-pointer;
+  }
+
+  .setting-checkbox {
+    @apply w-4 h-4 mr-2 accent-primary cursor-pointer;
   }
 
   .setting-color-row {

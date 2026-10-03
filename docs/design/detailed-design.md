@@ -143,7 +143,7 @@ export interface Playlist {
 | `get_settings`  | なし                 | `Settings` | `settings.json`がない・壊れている場合は既定値                        |
 | `save_settings` | `settings: Settings` | `void`     | アクセントカラーは`#rrggbb`。保存後に`SettingsChanged`イベントを送る |
 
-`Settings`: `{ startupPage: 'lastOpened' \| 'songs', accentColor: string, volumeNormalization: 'off' \| 'track' \| 'album' }`。既定値は`lastOpened`・`#3b82f6`・`off`。ファイルにない項目は既定値で補う（項目を追加しても古いファイルを読める）。
+`Settings`: `{ startupPage: 'lastOpened' \| 'songs', accentColor: string, volumeNormalization: 'off' \| 'track' \| 'album', gaplessPlayback: boolean }`。既定値は`lastOpened`・`#3b82f6`・`off`・`true`。ファイルにない項目は既定値で補う（項目を追加しても古いファイルを読める）。
 
 ### カスタムプロトコル
 

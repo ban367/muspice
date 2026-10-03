@@ -37,7 +37,8 @@ graph TD
 - データ取得: `src/lib/queries/*.ts` のクエリ・ミューテーションがコマンド呼び出し・キャッシュ無効化・エラー通知を担い、コンポーネントからは直接コマンドを呼ばない
 - アルバムアート: `#lib/utils/albumArt` の `albumArtUrl(trackId)` が返す `albumart://` のURLを `<img>` に指定し、Rust側のカスタムプロトコルから直接読み込む（フロントエンドに画像データを保持しない）
 - 再生: `src/lib/stores/playback.svelte.ts` の再生コントローラーがaudio要素と再生状態（`player.svelte.ts` の `player`）を `$effect` で同期し、`Player.svelte` は表示と操作の受付に専念する
-- 音声の経路: audio要素 → 音量の正規化（GainNode、ReplayGainから求めた倍率） → イコライザ（10バンドのBiquadFilterNode） → 全体ゲイン → 出力。Web Audioのグラフは`equalizer.svelte.ts`が作る
+- 音声の経路: audio要素（デッキ。2つ） → デッキごとの音量の正規化（GainNode、ReplayGainから求めた倍率） → イコライザ（10バンドのBiquadFilterNode、共通） → 全体ゲイン → 出力。Web Audioのグラフは`equalizer.svelte.ts`が作る
+- ギャップレス再生: 再生コントローラーが、再生中ではない方のデッキに次の曲を先読みし、曲の終わりの直前に再生を始めて切り替える（`Player.svelte`がaudio要素を2つ置く）
 - ダイアログ: `src/lib/components/ui/Modal.svelte`（ネイティブの`<dialog>`）に統一。テキスト入力は`promptText()`の要求を、レイアウトに置いた`TextPromptDialog`が表示する
 - ブラウザ確認用モック: `npm run dev:mock` のときだけ `src/hooks.client.ts` が `src/lib/mocks` のインメモリバックエンドへIPCを差し替える（`implementation.md` 参照）
 
