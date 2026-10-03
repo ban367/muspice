@@ -10,6 +10,7 @@
     createPlaybackController,
     type PlaybackController
   } from '#lib/stores/playback.svelte.js';
+  import { useSettingsQuery } from '#lib/queries/settings.js';
   import { untrack } from 'svelte';
   import AlbumArt from './AlbumArt.svelte';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
@@ -21,14 +22,21 @@
   let isDraggingProgress = $state(false);
   let isDraggingVolume = $state(false);
 
-  // 再生の制御（読み込み・キュー遷移・リピート・イコライザ）はコントローラーに委ねる
+  // 再生の制御（読み込み・キュー遷移・リピート・イコライザ・音量の正規化）はコントローラーに委ねる
   let playback: PlaybackController | null = null;
+
+  // 音量の正規化の設定（設定ウィンドウで変えると`SettingsChanged`で更新され、再生中の曲にも反映される）
+  const settingsQuery = useSettingsQuery();
 
   $effect(() => {
     if (!audioElement) return;
     const audio = audioElement;
     // audio要素が変わったときだけ作り直す（作成中に読む再生状態には反応させない）
-    const controller = untrack(() => createPlaybackController(audio));
+    const controller = untrack(() =>
+      createPlaybackController(audio, {
+        normalizationMode: () => settingsQuery.data?.volumeNormalization ?? 'off'
+      })
+    );
     playback = controller;
     return () => {
       controller.destroy();

@@ -29,6 +29,19 @@ pub enum StartupPage {
     Songs,
 }
 
+/// 音量の正規化（ReplayGain）
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum VolumeNormalization {
+    /// 補正しない
+    #[default]
+    Off,
+    /// トラック単位のゲインで補正する（ない場合はアルバム単位）
+    Track,
+    /// アルバム単位のゲインで補正する（ない場合はトラック単位）
+    Album,
+}
+
 /// アプリケーション設定
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -37,6 +50,8 @@ pub struct Settings {
     pub startup_page: StartupPage,
     /// アクセントカラー（`#rrggbb`）
     pub accent_color: String,
+    /// 音量の正規化
+    pub volume_normalization: VolumeNormalization,
 }
 
 impl Default for Settings {
@@ -44,6 +59,7 @@ impl Default for Settings {
         Self {
             startup_page: StartupPage::default(),
             accent_color: DEFAULT_ACCENT_COLOR.to_string(),
+            volume_normalization: VolumeNormalization::default(),
         }
     }
 }
@@ -173,6 +189,7 @@ mod tests {
         let settings = Settings {
             startup_page: StartupPage::Songs,
             accent_color: "#ff8800".to_string(),
+            volume_normalization: VolumeNormalization::Album,
         };
 
         state.save(settings.clone()).unwrap();
@@ -190,6 +207,8 @@ mod tests {
         let settings = load_settings(&path);
         assert_eq!(settings.startup_page, StartupPage::Songs);
         assert_eq!(settings.accent_color, DEFAULT_ACCENT_COLOR);
+        // 項目を追加する前に保存したファイルでも、新しい項目は既定値になる
+        assert_eq!(settings.volume_normalization, VolumeNormalization::Off);
     }
 
     #[test]

@@ -22,8 +22,10 @@ export type {
   Playlist,
   PlaylistTrack,
   RefreshMetadataResult,
+  ReplayGain,
   RescanResult,
   Settings,
   StartupPage,
-  Track
+  Track,
+  VolumeNormalization
 } from '#lib/bindings.js';

@@ -113,7 +113,17 @@ function createTrack(seed: TrackSeed, index: number): Track {
     // 再生回数の多いトラックほど最近再生されたことにする
     lastPlayedAt: playCount > 0 ? toIso(BASE_TIME + (24 + playCount) * HOUR_MS) : null,
     createdAt,
-    updatedAt: createdAt
+    updatedAt: createdAt,
+    // 音量の正規化の確認用に、一部の曲にだけReplayGainのタグがあることにする
+    replayGain:
+      index % 3 === 2
+        ? { trackGain: null, trackPeak: null, albumGain: null, albumPeak: null }
+        : {
+            trackGain: -6 - (index % 5),
+            trackPeak: 0.95,
+            albumGain: -7,
+            albumPeak: 0.99
+          }
   };
 }
 

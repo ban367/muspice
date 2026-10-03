@@ -310,11 +310,15 @@ class Equalizer {
 export const equalizer = new Equalizer();
 
 // Web Audio API関連
+// 音声の経路: audio要素 -> 音量の正規化 -> イコライザ（10バンド） -> 出力 -> スピーカー
 let audioContext: AudioContext | null = null;
 let sourceNode: MediaElementAudioSourceNode | null = null;
+let normalizationNode: GainNode | null = null;
 let filterNodes: BiquadFilterNode[] = [];
 let gainNode: GainNode | null = null;
 let isInitialized = false;
+/** 音量の正規化の倍率（ノードの接続前に設定された値も、接続時に反映する） */
+let normalizationGainValue = 1;
 
 /**
  * イコライザを初期化（Audio要素と接続）
@@ -328,6 +332,10 @@ export async function initializeEqualizer(audioElement: HTMLAudioElement): Promi
 
     // Audio要素をソースノードとして接続
     sourceNode = audioContext.createMediaElementSource(audioElement);
+
+    // 音量の正規化（ReplayGain）。イコライザの前で曲ごとの音量差をそろえる
+    normalizationNode = audioContext.createGain();
+    normalizationNode.gain.value = normalizationGainValue;
 
     // 各周波数のBiquadFilterを作成
     filterNodes = EQ_FREQUENCIES.map((freq) => {
@@ -343,8 +351,9 @@ export async function initializeEqualizer(audioElement: HTMLAudioElement): Promi
     gainNode = audioContext.createGain();
     gainNode.gain.value = 1.0;
 
-    // ノードを直列接続: source -> filter1 -> filter2 -> ... -> filter10 -> gain -> destination
-    sourceNode.connect(filterNodes[0]);
+    // ノードを直列接続: source -> normalization -> filter1 -> ... -> filter10 -> gain -> destination
+    sourceNode.connect(normalizationNode);
+    normalizationNode.connect(filterNodes[0]);
     for (let i = 0; i < filterNodes.length - 1; i++) {
       filterNodes[i].connect(filterNodes[i + 1]);
     }
@@ -383,6 +392,11 @@ export async function cleanupEqualizer(): Promise<void> {
     sourceNode = null;
   }
 
+  if (normalizationNode) {
+    normalizationNode.disconnect();
+    normalizationNode = null;
+  }
+
   filterNodes.forEach((filter) => filter.disconnect());
   filterNodes = [];
 
@@ -397,6 +411,18 @@ export async function cleanupEqualizer(): Promise<void> {
   }
 
   isInitialized = false;
+}
+
+/**
+ * 音量の正規化の倍率を設定する（再生コントローラーが、曲や設定が変わるたびに呼ぶ）
+ *
+ * ノードの接続前に呼ばれた場合は値を覚えておき、接続時に反映する。
+ */
+export function setNormalizationGain(gain: number): void {
+  normalizationGainValue = gain;
+  if (normalizationNode) {
+    normalizationNode.gain.value = gain;
+  }
 }
 
 /**

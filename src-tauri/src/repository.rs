@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 
 use rusqlite::{Connection, Row};
 
-use crate::models::{AlbumGroup, ArtistGroup, GenreGroup, Metadata, Track};
+use crate::models::{AlbumGroup, ArtistGroup, GenreGroup, Metadata, ReplayGain, Track};
 
 /// クエリ結果の最大取得件数
 ///
@@ -16,13 +16,14 @@ use crate::models::{AlbumGroup, ArtistGroup, GenreGroup, Metadata, Track};
 /// 仮想スクロール（100曲以上のリスト）と組み合わせて使用する。
 const DEFAULT_QUERY_LIMIT: usize = 1000;
 
-/// SELECTで使用するトラックカラム列挙（21列）
+/// SELECTで使用するトラックカラム列挙（25列）
 ///
 /// is_favorite, rating, play_countはCOALESCEでNULL安全にしている。
 pub const TRACK_COLUMNS: &str = "id, file_path, file_name, title, artist, album, genre, year,
     track_number, disc_number, duration, file_size, format, bitrate, sample_rate,
     COALESCE(is_favorite, 0), COALESCE(rating, 0), COALESCE(play_count, 0), last_played_at,
-    created_at, updated_at";
+    created_at, updated_at,
+    replay_gain_track_gain, replay_gain_track_peak, replay_gain_album_gain, replay_gain_album_peak";
 
 /// SQLiteの行からTrack構造体にマッピングする
 ///
@@ -50,6 +51,12 @@ pub fn map_track_row(row: &Row) -> rusqlite::Result<Track> {
         last_played_at: row.get(18)?,
         created_at: row.get(19)?,
         updated_at: row.get(20)?,
+        replay_gain: ReplayGain {
+            track_gain: row.get(21)?,
+            track_peak: row.get(22)?,
+            album_gain: row.get(23)?,
+            album_peak: row.get(24)?,
+        },
     })
 }
 
@@ -589,7 +596,7 @@ pub fn find_all_track_file_paths(conn: &Connection) -> AppResult<Vec<(String, St
     Ok(paths)
 }
 
-/// トラック番号・ディスク番号を更新
+/// トラック番号・ディスク番号・ReplayGainを更新（「メタデータを更新」でファイルから読み直す項目）
 ///
 /// 対象トラックが存在しない場合はエラーを返す。
 pub fn update_track_numbers(
@@ -597,13 +604,26 @@ pub fn update_track_numbers(
     track_id: &str,
     track_number: Option<i32>,
     disc_number: Option<i32>,
+    replay_gain: &ReplayGain,
 ) -> AppResult<()> {
     let now = chrono::Utc::now().to_rfc3339();
 
     let rows_affected = conn
         .execute(
-            "UPDATE tracks SET track_number = ?1, disc_number = ?2, updated_at = ?3 WHERE id = ?4",
-            rusqlite::params![track_number, disc_number, now, track_id],
+            "UPDATE tracks SET track_number = ?1, disc_number = ?2, updated_at = ?3,
+                replay_gain_track_gain = ?5, replay_gain_track_peak = ?6,
+                replay_gain_album_gain = ?7, replay_gain_album_peak = ?8
+             WHERE id = ?4",
+            rusqlite::params![
+                track_number,
+                disc_number,
+                now,
+                track_id,
+                replay_gain.track_gain,
+                replay_gain.track_peak,
+                replay_gain.album_gain,
+                replay_gain.album_peak,
+            ],
         )
         .map_err(|e| AppError::Database(format!("トラック番号の更新に失敗しました: {}", e)))?;
 
@@ -629,8 +649,9 @@ pub fn insert_track(
         "INSERT INTO tracks (
             id, file_path, file_name, title, artist, album, genre, year,
             track_number, disc_number, duration, file_size, format, bitrate, sample_rate, created_at, updated_at,
-            file_modified_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+            file_modified_at,
+            replay_gain_track_gain, replay_gain_track_peak, replay_gain_album_gain, replay_gain_album_peak
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
         rusqlite::params![
             track.id,
             track.file_path,
@@ -650,6 +671,10 @@ pub fn insert_track(
             track.created_at,
             track.updated_at,
             file_modified_at,
+            track.replay_gain.track_gain,
+            track.replay_gain.track_peak,
+            track.replay_gain.album_gain,
+            track.replay_gain.album_peak,
         ],
     )
     .map_err(|e| AppError::Database(format!("トラックの保存に失敗しました: {}", e)))?;
@@ -669,7 +694,9 @@ pub fn update_track_by_file_path(
         "UPDATE tracks SET
             file_name = ?2, title = ?3, artist = ?4, album = ?5, genre = ?6, year = ?7,
             track_number = ?8, disc_number = ?9, duration = ?10, file_size = ?11, format = ?12, bitrate = ?13, sample_rate = ?14,
-            updated_at = ?15, file_modified_at = ?16
+            updated_at = ?15, file_modified_at = ?16,
+            replay_gain_track_gain = ?17, replay_gain_track_peak = ?18,
+            replay_gain_album_gain = ?19, replay_gain_album_peak = ?20
         WHERE file_path = ?1",
         rusqlite::params![
             track.file_path,
@@ -688,6 +715,10 @@ pub fn update_track_by_file_path(
             track.sample_rate,
             track.updated_at,
             file_modified_at,
+            track.replay_gain.track_gain,
+            track.replay_gain.track_peak,
+            track.replay_gain.album_gain,
+            track.replay_gain.album_peak,
         ],
     )
     .map_err(|e| AppError::Database(format!("トラックの更新に失敗しました: {}", e)))?;
@@ -1463,14 +1494,27 @@ mod tests {
         let conn = setup_test_db();
         insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
 
-        update_track_numbers(&conn, "t1", Some(3), Some(2)).unwrap();
+        let replay_gain = ReplayGain {
+            track_gain: Some(-6.5),
+            track_peak: Some(0.98),
+            album_gain: Some(-7.25),
+            album_peak: None,
+        };
+        update_track_numbers(&conn, "t1", Some(3), Some(2), &replay_gain).unwrap();
 
         let track = find_track_by_id(&conn, "t1").unwrap();
         assert_eq!(track.track_number, Some(3));
         assert_eq!(track.disc_number, Some(2));
+        assert_eq!(track.replay_gain, replay_gain);
 
         // 存在しないID → NotFound
-        let result = update_track_numbers(&conn, "nonexistent", Some(1), Some(1));
+        let result = update_track_numbers(
+            &conn,
+            "nonexistent",
+            Some(1),
+            Some(1),
+            &ReplayGain::default(),
+        );
         assert!(
             result
                 .unwrap_err()
@@ -1566,7 +1610,17 @@ mod tests {
 
         track.id = "t2".to_string();
         track.file_path = "/test/t2.mp3".to_string();
+        track.replay_gain = ReplayGain {
+            track_gain: Some(1.5),
+            track_peak: Some(0.5),
+            album_gain: None,
+            album_peak: Some(0.75),
+        };
         insert_track(&conn, &track, Some(789)).unwrap();
+        assert_eq!(
+            find_track_by_id(&conn, "t2").unwrap().replay_gain,
+            track.replay_gain
+        );
         let inserted: Option<i64> = conn
             .query_row(
                 "SELECT file_modified_at FROM tracks WHERE id = 't2'",

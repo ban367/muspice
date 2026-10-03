@@ -2,8 +2,8 @@
 
 use super::run_blocking;
 use crate::error::{AppError, AppResult};
-use crate::metadata::{extract_metadata, update_file_metadata, validate_metadata};
-use crate::models::Metadata;
+use crate::metadata::{extract_all_file_info, update_file_metadata, validate_metadata};
+use crate::models::{Metadata, ReplayGain};
 use crate::state::AppState;
 use crate::validation::{validate_string_length, validate_track_id};
 use chrono::Utc;
@@ -135,10 +135,12 @@ struct PendingTrackNumbers<'a> {
     file_path: &'a str,
     track_number: Option<i32>,
     disc_number: Option<i32>,
+    replay_gain: ReplayGain,
 }
 
 /// ライブラリ全体のメタデータを更新
-/// ファイルからtrack_numberとdisc_numberを再読み込み
+/// ファイルからtrack_number・disc_number・ReplayGainを再読み込み
+/// （タイトルなどはDBだけで編集できるため、ファイルの内容で上書きしない）
 #[tauri::command]
 #[specta::specta]
 pub async fn refresh_library_metadata(app: AppHandle) -> AppResult<RefreshMetadataResult> {
@@ -177,20 +179,21 @@ fn refresh_library_metadata_blocking(state: &AppState) -> AppResult<RefreshMetad
                 continue;
             }
 
-            match extract_metadata(path) {
-                Ok(metadata) => {
+            match extract_all_file_info(path) {
+                Ok(info) => {
                     // ログ: 抽出されたトラック番号とディスク番号
                     log::info!(
                         "メタデータ抽出: {} - track={:?}, disc={:?}",
                         file_path,
-                        metadata.track_number,
-                        metadata.disc_number
+                        info.metadata.track_number,
+                        info.metadata.disc_number
                     );
                     pending.push(PendingTrackNumbers {
                         track_id,
                         file_path,
-                        track_number: metadata.track_number,
-                        disc_number: metadata.disc_number,
+                        track_number: info.metadata.track_number,
+                        disc_number: info.metadata.disc_number,
+                        replay_gain: info.replay_gain,
                     });
                 }
                 Err(e) => {
@@ -213,6 +216,7 @@ fn refresh_library_metadata_blocking(state: &AppState) -> AppResult<RefreshMetad
                         item.track_id,
                         item.track_number,
                         item.disc_number,
+                        &item.replay_gain,
                     ) {
                         Ok(()) => updated_count += 1,
                         Err(e) => {

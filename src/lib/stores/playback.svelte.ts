@@ -19,16 +19,26 @@ import {
   cleanupEqualizer,
   initializeEqualizer,
   isEqualizerInitialized,
-  resumeAudioContext
+  resumeAudioContext,
+  setNormalizationGain
 } from './equalizer.svelte.js';
 import { player, playNextTrack, playPreviousTrack, resetPlayer } from './player.svelte.js';
-import type { Track } from '#lib/types/models.js';
+import type { Track, VolumeNormalization } from '#lib/types/models.js';
+import { normalizationGain } from '#lib/utils/normalization.js';
 
 /** `MediaError.code`の値（Node環境のテストでも参照できるよう定数で持つ） */
 const MEDIA_ERR_ABORTED = 1;
 const MEDIA_ERR_NETWORK = 2;
 const MEDIA_ERR_DECODE = 3;
 const MEDIA_ERR_SRC_NOT_SUPPORTED = 4;
+
+export interface PlaybackControllerOptions {
+  /**
+   * 音量の正規化の設定を返す（設定のクエリなど、リアクティブな値を読む）。
+   * 値が変わると、再生中の曲の補正量も変わる。省略時は補正しない
+   */
+  normalizationMode?: () => VolumeNormalization;
+}
 
 export interface PlaybackController {
   /** 再生/一時停止を切り替える */
@@ -78,7 +88,10 @@ function isAbortError(error: unknown): boolean {
  * 監視は`$effect`のため、状態の変更から少し遅れて（マイクロタスクで）反映される。
  * 同じ同期処理の中でトラックが続けて変わった場合は、最後のトラックだけを読み込む。
  */
-export function createPlaybackController(audio: HTMLAudioElement): PlaybackController {
+export function createPlaybackController(
+  audio: HTMLAudioElement,
+  options: PlaybackControllerOptions = {}
+): PlaybackController {
   /** 最後に読み込みを始めたトラックのID（同じトラックの再設定で読み込み直さないため） */
   let loadedTrackId: string | null = null;
   let scrubbing = false;
@@ -218,6 +231,13 @@ export function createPlaybackController(audio: HTMLAudioElement): PlaybackContr
 
     $effect(() => {
       audio.volume = player.volume;
+    });
+
+    // 音量の正規化: 再生中の曲のReplayGainと設定から補正量を決める
+    $effect(() => {
+      const replayGain = player.currentTrack?.replayGain;
+      const mode = options.normalizationMode?.() ?? 'off';
+      setNormalizationGain(replayGain ? normalizationGain(replayGain, mode) : 1);
     });
   });
 

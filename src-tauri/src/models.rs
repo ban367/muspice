@@ -27,6 +27,20 @@ pub struct Track {
     pub last_played_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    /// 音量の正規化に使うゲイン（タグにない項目は値なし）
+    pub replay_gain: ReplayGain,
+}
+
+/// 音量の正規化に使うゲインとピーク（ReplayGainのタグ、またはEBU R128のタグから読み取る）
+///
+/// ゲインはReplayGainの基準（-18 LUFS）に合わせたdB。ピークは最大振幅（1.0がフルスケール）。
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplayGain {
+    pub track_gain: Option<f64>,
+    pub track_peak: Option<f64>,
+    pub album_gain: Option<f64>,
+    pub album_peak: Option<f64>,
 }
 
 /// 再生履歴のデータモデル
