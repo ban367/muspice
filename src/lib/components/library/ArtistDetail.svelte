@@ -166,12 +166,12 @@
 
   .action-btn {
     @apply w-10 h-10 flex items-center justify-center border-none rounded-full cursor-pointer transition-all duration-150;
-    background: rgba(255, 255, 255, 0.1);
+    @apply bg-surface-active;
     color: var(--color-text-secondary);
   }
 
   .action-btn:hover {
-    background: rgba(255, 255, 255, 0.15);
+    @apply bg-surface-strong;
     @apply text-text-primary;
   }
 
@@ -250,7 +250,7 @@
   }
 
   .track-row.playing {
-    background: rgba(29, 185, 84, 0.15);
+    @apply bg-secondary/15;
   }
 
   .track-number {

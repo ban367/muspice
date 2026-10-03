@@ -142,6 +142,8 @@ src-tauri/src/
 
 - カスタムクラスを`@apply`で適用しない
 - コンポーネントの`<style>`先頭に、対象ファイルから`src/app.css`への相対パスで`@reference`を記述する
+- 色は`app.css`の変数（`bg-base-*`・`text-text-*`・`bg-surface-*`・`border-border`など）を使い、テーマで変わるべき色に`white`・`black`・`rgba(255, 255, 255, …)`などを直接書かない（ライトテーマで読めなくなるため）。アクセントカラーを薄くする場合は`bg-primary/15`か`color-mix(in oklab, var(--color-primary) 15%, transparent)`。オーバーレイ（`bg-black/50`）・影・色付きの面の上の白い文字は、どちらのテーマでも同じでよい
+- 配色はテーマ（`<html data-theme="dark|light">`）ごとに`app.css`の「配色（ダーク / ライト）」で定義する。`@theme`はユーティリティを作るための登録で、値はダークの配色。DaisyUI 5のテーマが同じ名前の変数を`@layer base`で定義して`@theme`より優先されるため、配色はレイヤーの外で定義し直している。色の変数を追加したら、`@theme`とライトの配色の両方に書く
 
 ### VS Codeワークスペース運用
 

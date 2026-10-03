@@ -152,7 +152,12 @@
   @reference "../../../app.css";
   .modal-header {
     @apply flex gap-6 p-6 relative;
-    background: linear-gradient(to bottom, rgba(59, 130, 246, 0.15), transparent);
+    /* アクセントカラーを薄くした色から透明へ */
+    background: linear-gradient(
+      to bottom,
+      color-mix(in oklab, var(--color-primary) 15%, transparent),
+      transparent
+    );
   }
 
   .header-art {
@@ -166,12 +171,11 @@
 
   .action-button {
     @apply flex items-center gap-2 py-2.5 px-5 border-none rounded-full text-sm font-medium cursor-pointer transition-all duration-150;
-    background: rgba(255, 255, 255, 0.1);
-    color: #fff;
+    @apply bg-surface-active text-text-primary;
   }
 
   .action-button:hover {
-    background: rgba(255, 255, 255, 0.15);
+    @apply bg-surface-strong;
   }
 
   .action-button.primary {
@@ -184,11 +188,11 @@
 
   .close-button {
     @apply absolute top-4 right-4 w-8 h-8 border-none rounded-full flex items-center justify-center cursor-pointer text-text-muted transition-all duration-150;
-    background: rgba(255, 255, 255, 0.1);
+    @apply bg-surface-active;
   }
 
   .close-button:hover {
-    background: rgba(255, 255, 255, 0.15);
+    @apply bg-surface-strong;
     @apply text-text-primary;
   }
 
@@ -206,7 +210,7 @@
   }
 
   .track-row.playing {
-    background: rgba(29, 185, 84, 0.15);
+    @apply bg-secondary/15;
   }
 
   .track-number {

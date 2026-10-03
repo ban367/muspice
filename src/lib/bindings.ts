@@ -366,6 +366,8 @@ export type RescanResult = {
 export type Settings = {
 	/**  起動時に開く画面 */
 	startupPage: StartupPage,
+	/**  画面の配色 */
+	theme: Theme,
 	/**  アクセントカラー（`#rrggbb`） */
 	accentColor: string,
 	/**  音量の正規化 */
@@ -392,6 +394,15 @@ export type StartupPage =
 "lastOpened" | 
 /**  曲一覧 */
 "songs";
+
+/**  画面の配色 */
+export type Theme = 
+/**  ダーク */
+"dark" | 
+/**  ライト */
+"light" | 
+/**  OSの設定に従う */
+"system";
 
 /**  メニュー「サイドバーを表示/隠す」: サイドバーの表示を切り替える */
 export type ToggleSidebar = null;

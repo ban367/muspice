@@ -515,9 +515,9 @@
     @apply p-1.5;
   }
 
-  /* 再生/一時停止ボタン */
+  /* 再生/一時停止ボタン（背景と反対の色: ダークでは白地に黒、ライトでは黒地に白） */
   .play-pause-button {
-    @apply bg-white text-black p-2.5 rounded-full cursor-pointer
+    @apply bg-text-primary text-base-100 p-2.5 rounded-full cursor-pointer
            flex items-center justify-center transition-transform duration-150 border-none;
   }
 

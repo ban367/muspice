@@ -464,10 +464,10 @@
   }
 
   .gain-value.positive {
-    @apply text-green-400;
+    @apply text-success;
   }
 
   .gain-value.negative {
-    @apply text-red-400;
+    @apply text-error;
   }
 </style>

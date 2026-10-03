@@ -12,7 +12,11 @@
   import SettingsSync from '#lib/components/SettingsSync.svelte';
   import { ui, saveLastPage } from '#lib/stores/ui.svelte.js';
   import { invalidateAllTrackQueries } from '#lib/queries/tracks.js';
+  import { restoreTheme } from '#lib/utils/theme.js';
   import '../../app.css';
+
+  // 設定を読み込むまでの間も、前回のテーマで表示する（読み込んだ後は`SettingsSync`が反映する）
+  restoreTheme();
 
   // 起動時に「前回開いていた画面」を開けるよう、開いた画面を記録する
   afterNavigate(({ to }) => {
@@ -171,7 +175,7 @@
   }
 
   .menu-button {
-    @apply flex items-center justify-center w-10 h-10 p-0 border-none bg-transparent text-white cursor-pointer rounded-md;
+    @apply flex items-center justify-center w-10 h-10 p-0 border-none bg-transparent text-text-primary cursor-pointer rounded-md;
   }
 
   .menu-button:hover {
@@ -183,7 +187,7 @@
   }
 
   .mobile-title {
-    @apply text-xl font-bold text-white;
+    @apply text-xl font-bold text-text-primary;
   }
 
   .main-content {

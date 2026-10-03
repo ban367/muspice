@@ -34,6 +34,6 @@
     align-items: center;
     justify-content: center;
     height: 100%;
-    color: #888;
+    color: var(--color-text-muted);
   }
 </style>

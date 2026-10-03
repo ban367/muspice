@@ -3,7 +3,9 @@
 
 /* ================================
    テーマ設定 (Tailwind v4 @theme)
-   ================================ */
+   ================================
+   色の値はダークの配色。ライトの配色と、DaisyUIのテーマに上書きされる色は、
+   下の「配色（ダーク / ライト）」で定義し直している */
 @theme {
   /* カラーパレット */
   --color-base-100: #0f0f1a;
@@ -39,8 +41,13 @@
   --color-surface: rgba(255, 255, 255, 0.03);
   --color-surface-hover: rgba(255, 255, 255, 0.08);
   --color-surface-active: rgba(255, 255, 255, 0.1);
+  --color-surface-strong: rgba(255, 255, 255, 0.15);
   --color-border: rgba(255, 255, 255, 0.1);
   --color-border-light: rgba(255, 255, 255, 0.15);
+
+  /* スクロールバー */
+  --color-scrollbar: rgba(255, 255, 255, 0.2);
+  --color-scrollbar-hover: rgba(255, 255, 255, 0.3);
 
   /* プログレスバー */
   --color-progress-bg: #404040;
@@ -71,6 +78,79 @@
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.3);
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.4);
   --shadow-xl: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+}
+
+/* ================================
+   配色（ダーク / ライト）
+   ================================
+   `<html data-theme="dark|light">`で切り替える（`#lib/utils/theme`の`applyTheme`が設定する。
+   DaisyUIのテーマも同じ属性で切り替わる）。属性がない間（起動直後）はダーク。
+
+   DaisyUI 5のテーマは、同じ名前の変数（--color-base-100・--color-primaryなど）を@layer baseで
+   定義し、@layer themeにある上の@themeより優先されてしまう。アプリの配色を使うため、ここ
+   （レイヤーの外。どのレイヤーよりも優先される）で定義し直す。
+   アクセントカラー（--color-primary）は、設定の値を`applyAccentColor`がstyle属性で上書きする */
+:root,
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  /* DaisyUIのテーマと名前が重なる色（値は上の@themeと同じ） */
+  --color-base-100: #0f0f1a;
+  --color-base-200: #1a1a2e;
+  --color-base-300: #1e1e2e;
+  --color-primary: #3b82f6;
+  --color-primary-content: #ffffff;
+  --color-secondary: #1db954;
+  --color-secondary-content: #000000;
+  --color-accent: #667eea;
+  --color-error: #ef4444;
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --color-base-100: #f6f6f9;
+  --color-base-200: #ececf2;
+  --color-base-300: #ffffff;
+  --color-base-400: #e3e3eb;
+
+  --color-primary: #3b82f6;
+  --color-primary-content: #ffffff;
+  --color-secondary: #1db954;
+  --color-secondary-focus: #18a148;
+  --color-secondary-content: #000000;
+  --color-accent: #667eea;
+
+  /* 白い背景で読めるよう、ダークより濃くする */
+  --color-text-primary: #16161f;
+  --color-text-secondary: #4a4a57;
+  --color-text-muted: #6b6b78;
+  --color-text-dimmed: #8c8c99;
+
+  --color-error: #ef4444;
+  --color-error-light: #dc2626;
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+
+  --color-surface: rgba(0, 0, 0, 0.03);
+  --color-surface-hover: rgba(0, 0, 0, 0.06);
+  --color-surface-active: rgba(0, 0, 0, 0.09);
+  --color-surface-strong: rgba(0, 0, 0, 0.12);
+  --color-border: rgba(0, 0, 0, 0.1);
+  --color-border-light: rgba(0, 0, 0, 0.15);
+
+  --color-scrollbar: rgba(0, 0, 0, 0.2);
+  --color-scrollbar-hover: rgba(0, 0, 0, 0.3);
+
+  --color-progress-bg: #d4d4dc;
+  --color-progress-fill: #16161f;
+
+  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+  --shadow-xl: 0 25px 50px -12px rgba(0, 0, 0, 0.2);
 }
 
 /* ================================
@@ -112,11 +192,11 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  @apply bg-white/20 rounded-full;
+  @apply bg-scrollbar rounded-full;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  @apply bg-white/30;
+  @apply bg-scrollbar-hover;
 }
 
 /* ================================
@@ -138,7 +218,7 @@ body {
 
 /* グラスモーフィズム */
 .glass {
-  @apply bg-white/5 backdrop-blur-md;
+  @apply bg-surface-hover backdrop-blur-md;
 }
 
 /* カードスタイル */
@@ -184,7 +264,7 @@ body {
 
 .progress-handle {
   @apply absolute top-1/2 -translate-x-1/2 -translate-y-1/2
-         w-3 h-3 bg-white rounded-full opacity-0 transition-opacity
+         w-3 h-3 bg-progress-fill rounded-full opacity-0 transition-opacity
          shadow-sm;
 }
 
@@ -213,7 +293,7 @@ body {
 
 /* ローディングスピナー */
 .spinner {
-  @apply w-8 h-8 rounded-full border-3 border-white/10 border-t-primary animate-spin;
+  @apply w-8 h-8 rounded-full border-3 border-border border-t-primary animate-spin;
 }
 
 /* 空状態 */
