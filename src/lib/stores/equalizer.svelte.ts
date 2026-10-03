@@ -310,11 +310,12 @@ class Equalizer {
 export const equalizer = new Equalizer();
 
 // Web Audio API関連
-// 音声の経路: audio要素（デッキ） -> 音量の正規化 -> イコライザ（10バンド） -> 出力 -> スピーカー
-// ギャップレス再生のためaudio要素（デッキ）は複数あり、正規化はデッキごと、イコライザ以降は共通
+// 音声の経路: audio要素（デッキ） -> 音量の正規化 -> フェード -> イコライザ（10バンド） -> 出力 -> スピーカー
+// ギャップレス再生のためaudio要素（デッキ）は複数あり、正規化・フェードはデッキごと、イコライザ以降は共通
 let audioContext: AudioContext | null = null;
 let sourceNodes: MediaElementAudioSourceNode[] = [];
 let normalizationNodes: GainNode[] = [];
+let fadeNodes: GainNode[] = [];
 let filterNodes: BiquadFilterNode[] = [];
 let gainNode: GainNode | null = null;
 let isInitialized = false;
@@ -358,18 +359,23 @@ export async function initializeEqualizer(
     filterNodes[filterNodes.length - 1].connect(gainNode);
     gainNode.connect(context.destination);
 
-    // デッキごとに: audio要素 -> 音量の正規化（ReplayGain） -> イコライザの先頭
+    // デッキごとに: audio要素 -> 音量の正規化（ReplayGain） -> フェード（クロスフェード） -> イコライザの先頭
     // （曲ごとの音量差を、イコライザの前でそろえる）
     sourceNodes = [];
     normalizationNodes = [];
+    fadeNodes = [];
     audioElements.forEach((audioElement, deck) => {
       const source = context.createMediaElementSource(audioElement);
       const normalization = context.createGain();
       normalization.gain.value = normalizationGainValues[deck] ?? 1;
+      const fade = context.createGain();
+      fade.gain.value = 1;
       source.connect(normalization);
-      normalization.connect(filterNodes[0]);
+      normalization.connect(fade);
+      fade.connect(filterNodes[0]);
       sourceNodes.push(source);
       normalizationNodes.push(normalization);
+      fadeNodes.push(fade);
     });
 
     isInitialized = true;
@@ -405,6 +411,9 @@ export async function cleanupEqualizer(): Promise<void> {
   normalizationNodes.forEach((normalization) => normalization.disconnect());
   normalizationNodes = [];
 
+  fadeNodes.forEach((fade) => fade.disconnect());
+  fadeNodes = [];
+
   filterNodes.forEach((filter) => filter.disconnect());
   filterNodes = [];
 
@@ -433,6 +442,49 @@ export function setNormalizationGain(deck: number, gain: number): void {
   if (node) {
     node.gain.value = gain;
   }
+}
+
+/** フェードの変化を表す点の数 */
+const FADE_CURVE_LENGTH = 64;
+
+/**
+ * フェードの音量の変化（等パワー）
+ *
+ * 2つの曲を重ねたときに、合計の大きさが途中で下がらないよう、フェードインはsin、
+ * フェードアウトはcosで変化させる（2乗の和が常に1になる）。
+ */
+function fadeCurve(direction: 'in' | 'out'): Float32Array {
+  const curve = new Float32Array(FADE_CURVE_LENGTH);
+  for (let i = 0; i < FADE_CURVE_LENGTH; i++) {
+    const angle = (i / (FADE_CURVE_LENGTH - 1)) * (Math.PI / 2);
+    curve[i] = direction === 'in' ? Math.sin(angle) : Math.cos(angle);
+  }
+  return curve;
+}
+
+/**
+ * デッキの音量を、今から指定した秒数でフェードさせる（クロスフェード）
+ *
+ * 経路が未接続の場合は何もしない（呼び出し側は`isEqualizerInitialized`で確かめてから使う）。
+ * @param deck デッキの番号（`initializeEqualizer`に渡したaudio要素の位置）
+ */
+export function fadeDeck(deck: number, direction: 'in' | 'out', seconds: number): void {
+  const node = fadeNodes[deck];
+  if (!node || !audioContext) return;
+  // 途中のフェードがあれば取り消してから始める（予定が重なるとエラーになるため）
+  node.gain.cancelScheduledValues(0);
+  node.gain.setValueCurveAtTime(fadeCurve(direction), audioContext.currentTime, seconds);
+}
+
+/**
+ * デッキのフェードを取り消し、音量を決める（1で通常の音量）
+ * @param deck デッキの番号（`initializeEqualizer`に渡したaudio要素の位置）
+ */
+export function setDeckFade(deck: number, value: number): void {
+  const node = fadeNodes[deck];
+  if (!node) return;
+  node.gain.cancelScheduledValues(0);
+  node.gain.value = value;
 }
 
 /**

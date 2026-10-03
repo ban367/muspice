@@ -37,7 +37,8 @@
     const controller = untrack(() =>
       createPlaybackController(audios, {
         normalizationMode: () => settingsQuery.data?.volumeNormalization ?? 'off',
-        gapless: () => settingsQuery.data?.gaplessPlayback ?? true
+        gapless: () => settingsQuery.data?.gaplessPlayback ?? true,
+        crossfadeSeconds: () => settingsQuery.data?.crossfadeSeconds ?? 0
       })
     );
     playback = controller;

@@ -17,7 +17,12 @@ import {
   toggleRepeat
 } from './player.svelte.js';
 import { notifications } from './error.svelte.js';
-import { setNormalizationGain } from './equalizer.svelte.js';
+import {
+  fadeDeck,
+  isEqualizerInitialized,
+  setDeckFade,
+  setNormalizationGain
+} from './equalizer.svelte.js';
 
 vi.mock('#lib/bindings.js', () => ({
   commands: {
@@ -35,8 +40,10 @@ vi.mock('./equalizer.svelte.js', () => ({
   initializeEqualizer: vi.fn(async () => {}),
   cleanupEqualizer: vi.fn(async () => {}),
   resumeAudioContext: vi.fn(async () => {}),
-  isEqualizerInitialized: () => true,
-  setNormalizationGain: vi.fn()
+  isEqualizerInitialized: vi.fn(() => true),
+  setNormalizationGain: vi.fn(),
+  fadeDeck: vi.fn(),
+  setDeckFade: vi.fn()
 }));
 
 /** テスト用のaudio要素（再生状態とイベントだけを再現する） */
@@ -112,6 +119,8 @@ beforeEach(() => {
   player.volume = 1;
   notifications.clear();
   vi.clearAllMocks();
+  // テストで変えた場合に備え、Web Audioの経路は作れている状態に戻す
+  vi.mocked(isEqualizerInitialized).mockReturnValue(true);
   vi.spyOn(console, 'error').mockImplementation(() => {});
   audio = new FakeAudio();
   standbyAudio = new FakeAudio();
@@ -614,5 +623,135 @@ describe('ギャップレス再生', () => {
     audio.finish();
     await flush();
     expect(audio.src).toContain('t2.mp3');
+  });
+});
+
+describe('クロスフェード', () => {
+  beforeEach(() => {
+    controller.destroy();
+    // ギャップレス再生が無効でも、クロスフェードのために先読みする
+    controller = createController({ crossfadeSeconds: () => 5 });
+    flushSync();
+  });
+
+  /** t1を再生し、クロスフェードを始める時点（終わりの5秒前）まで進める */
+  async function playUntilCrossfade() {
+    playTrackFromQueue(tracks, 0);
+    await flush();
+    expect(standbyAudio.src).toContain('t2.mp3');
+    vi.useFakeTimers();
+
+    audio.advanceTo(194);
+    audio.currentTime = 195;
+    await vi.advanceTimersByTimeAsync(1000);
+  }
+
+  it('設定した秒数前に次の曲を再生し始め、2つのデッキの音量を交差させる', async () => {
+    await playUntilCrossfade();
+
+    expect(player.currentTrack?.id).toBe('t2');
+    expect(standbyAudio.paused).toBe(false);
+    expect(fadeDeck).toHaveBeenCalledWith(0, 'out', 5);
+    expect(fadeDeck).toHaveBeenCalledWith(1, 'in', 5);
+    // 前の曲はフェードアウトしながら最後まで鳴らす
+    expect(audio.paused).toBe(false);
+
+    // 前の曲が鳴り終わったら、空いたデッキに次の曲を先読みする
+    audio.finish();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(audio.src).toContain('t3.mp3');
+  });
+
+  it('短い曲では、曲の長さの半分を超えて重ねない', async () => {
+    standbyAudio.duration = 6;
+    playTrackFromQueue(tracks, 0);
+    await flush();
+    vi.useFakeTimers();
+
+    audio.advanceTo(196.5);
+    audio.currentTime = 197;
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(fadeDeck).toHaveBeenCalledWith(1, 'in', 3);
+  });
+
+  it('クロスフェードの途中で一時停止すると、前の曲を止めて再生中の曲を通常の音量に戻す', async () => {
+    await playUntilCrossfade();
+    vi.mocked(setDeckFade).mockClear();
+
+    await controller.togglePlayPause();
+
+    expect(audio.paused).toBe(true);
+    expect(standbyAudio.paused).toBe(true);
+    expect(setDeckFade).toHaveBeenCalledWith(1, 1);
+    expect(player.currentTrack?.id).toBe('t2');
+
+    // 再開しても前の曲は鳴らさない
+    await controller.togglePlayPause();
+    expect(standbyAudio.paused).toBe(false);
+    expect(audio.paused).toBe(true);
+  });
+
+  it('クロスフェードの途中で別の曲を選ぶと、前の曲を止める', async () => {
+    await playUntilCrossfade();
+
+    playTrackFromQueue(tracks, 2);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(player.currentTrack?.id).toBe('t3');
+    expect(audio.paused).toBe(true);
+    expect(standbyAudio.src).toContain('t3.mp3');
+    expect(setDeckFade).toHaveBeenLastCalledWith(1, 1);
+  });
+
+  it('「次へ」の操作ではクロスフェードしない', async () => {
+    playTrackFromQueue(tracks, 0);
+    await flush();
+    audio.advanceTo(42);
+
+    controller.next();
+    await flush();
+
+    expect(player.currentTrack?.id).toBe('t2');
+    expect(fadeDeck).not.toHaveBeenCalled();
+    expect(setDeckFade).toHaveBeenLastCalledWith(1, 1);
+    expect(audio.paused).toBe(true);
+  });
+
+  it('1曲リピートではクロスフェードせず、切れ目なく繰り返す', async () => {
+    player.repeatMode = 'one';
+    playTrackFromQueue(tracks, 0);
+    await flush();
+    vi.useFakeTimers();
+
+    // クロスフェードの時点（5秒前）では切り替えない
+    audio.advanceTo(194);
+    audio.currentTime = 195;
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(standbyAudio.paused).toBe(true);
+
+    audio.advanceTo(199.5);
+    audio.currentTime = 199.99;
+    await vi.advanceTimersByTimeAsync(500);
+    expect(standbyAudio.paused).toBe(false);
+    expect(fadeDeck).not.toHaveBeenCalled();
+    expect(setDeckFade).toHaveBeenLastCalledWith(1, 1);
+  });
+
+  it('Web Audioの経路を作れていない場合は、クロスフェードせずに切り替える', async () => {
+    vi.mocked(isEqualizerInitialized).mockReturnValue(false);
+    playTrackFromQueue(tracks, 0);
+    await flush();
+    vi.useFakeTimers();
+
+    audio.advanceTo(194);
+    audio.currentTime = 195;
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(standbyAudio.paused).toBe(true);
+
+    audio.finish();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(standbyAudio.paused).toBe(false);
+    expect(fadeDeck).not.toHaveBeenCalled();
   });
 });

@@ -372,6 +372,8 @@ export type Settings = {
 	volumeNormalization: VolumeNormalization,
 	/**  ギャップレス再生（次の曲を先読みし、曲間に無音を入れずに続ける） */
 	gaplessPlayback: boolean,
+	/**  クロスフェードの秒数（0でクロスフェードしない） */
+	crossfadeSeconds: number,
 };
 
 /**  設定が保存された（設定ウィンドウでの変更をメインウィンドウに反映する） */
