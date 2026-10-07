@@ -6,6 +6,7 @@
   import { formatDuration } from '#lib/utils/format.js';
   import type { Track } from '#lib/types/models.js';
   import PlayingIndicator from './PlayingIndicator.svelte';
+  import RatingStars from './RatingStars.svelte';
   import MetadataEditor from '../MetadataEditor.svelte';
   import ContextMenu from '../ContextMenu.svelte';
   import DeleteTrackDialog from '../DeleteTrackDialog.svelte';
@@ -119,14 +120,6 @@
       return sortDirection === 'asc' ? comparison : -comparison;
     });
   });
-
-  /**
-   * レーティングを設定
-   */
-  async function handleSetRating(trackId: string, rating: number, event: MouseEvent) {
-    event.stopPropagation();
-    setRatingMutation.mutate({ trackId, rating });
-  }
 
   function toggleSort(field: SortField) {
     if (sortField === field) {
@@ -416,19 +409,11 @@
                   class="text-text-secondary text-sm"
                 />
                 <div class="col-rating flex items-center justify-center">
-                  <div class="rating-stars">
-                    {#each [1, 2, 3, 4, 5] as star (star)}
-                      <button
-                        class="star-btn"
-                        class:active={track.rating >= star}
-                        onclick={(e) =>
-                          handleSetRating(track.id, track.rating === star ? 0 : star, e)}
-                        title={m.library.stars(star)}
-                      >
-                        ★
-                      </button>
-                    {/each}
-                  </div>
+                  <RatingStars
+                    rating={track.rating}
+                    onChange={(rating) =>
+                      setRatingMutation.mutateAsync({ trackId: track.id, rating })}
+                  />
                 </div>
                 <div class="text-right text-text-muted text-sm">
                   {formatDuration(track.duration)}
@@ -606,22 +591,6 @@
   /* レーティング */
   .col-rating {
     @apply text-xs text-text-muted;
-  }
-
-  .rating-stars {
-    @apply flex gap-px;
-  }
-
-  .star-btn {
-    @apply bg-transparent border-none p-0 text-sm text-base-400 cursor-pointer transition-all leading-none;
-  }
-
-  .star-btn:hover {
-    @apply text-warning scale-125;
-  }
-
-  .star-btn.active {
-    @apply text-warning;
   }
 
   /* トラックカード */
