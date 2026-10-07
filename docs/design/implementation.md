@@ -14,6 +14,7 @@
 | DB               | SQLite + FTS5                   | rusqlite 0.40（bundled）                           | 全文検索・ローカル保存                               |
 | メタデータ       | lofty                           | 0.25                                               | タグ読み書き/アルバムアート抽出                      |
 | フォルダの監視   | notify-debouncer-mini（notify） | 0.7（notify 8）                                    | ライブラリフォルダの変更の自動反映                   |
+| ウィンドウの状態 | tauri-plugin-window-state       | 2.5.x                                              | メインウィンドウのサイズ・位置の記憶（Rust側のみ）   |
 
 ## ディレクトリ構成
 
