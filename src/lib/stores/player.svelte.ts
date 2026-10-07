@@ -253,6 +253,23 @@ export function playNextTrack(): boolean {
 }
 
 /**
+ * キュー内の位置を指定して、そのトラックから再生する
+ *
+ * キューの並びは変えず、再生位置だけを移す（指定した位置より前のトラックもキューに残る）。
+ * @param index - `player.playQueue`内の位置
+ * @returns 再生位置を移せたか（範囲外の場合はfalse）
+ */
+export function playQueueIndex(index: number): boolean {
+  const queue = player.playQueue;
+  if (!Number.isInteger(index) || index < 0 || index >= queue.length) {
+    return false;
+  }
+  player.currentTrackIndex = index;
+  player.currentTrack = queue[index];
+  return true;
+}
+
+/**
  * 前のトラックに戻る
  */
 export function playPreviousTrack(): boolean {

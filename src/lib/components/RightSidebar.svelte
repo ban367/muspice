@@ -1,7 +1,14 @@
 <script lang="ts">
   import { fly } from 'svelte/transition';
   import { ui, type RightSidebarPanel } from '#lib/stores/ui.svelte.js';
-  import { player, removeFromQueue, clearQueue } from '#lib/stores/player.svelte.js';
+  import {
+    player,
+    removeFromQueue,
+    clearQueue,
+    playQueueIndex
+  } from '#lib/stores/player.svelte.js';
+  import { albumArtUrl } from '#lib/utils/albumArt.js';
+  import AlbumArt from './AlbumArt.svelte';
   import MarqueeText from './MarqueeText.svelte';
   import EqualizerPanel from './EqualizerPanel.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
@@ -28,6 +35,19 @@
   // ピン状態をトグル
   function togglePin() {
     ui.isRightSidebarPinned = !ui.isRightSidebarPinned;
+  }
+
+  /**
+   * 「次に再生」の曲から再生する（キューの並びは変えない）
+   * @param upcomingIndex - 「次に再生」の一覧の中の位置
+   */
+  function playUpcoming(upcomingIndex: number) {
+    playQueueIndex(player.currentTrackIndex + 1 + upcomingIndex);
+  }
+
+  // 行の中のボタン（キューから削除）の操作では再生しない
+  function isRowButton(event: Event): boolean {
+    return event.target instanceof Element && event.target.closest('button') !== null;
   }
 </script>
 
@@ -144,15 +164,25 @@
       {#if player.currentTrack}
         <div class="now-playing">
           <div class="section-label">{m.rightSidebar.nowPlaying}</div>
-          <div class="track-info">
-            <MarqueeText
-              text={player.currentTrack.title || player.currentTrack.fileName}
-              class="track-title"
-            />
-            <MarqueeText
-              text={player.currentTrack.artist || m.common.unknownArtist}
-              class="track-artist"
-            />
+          <div class="now-playing-track">
+            <div class="queue-art">
+              <AlbumArt
+                src={albumArtUrl(player.currentTrack.id)}
+                alt={m.common.albumArt}
+                rounded="sm"
+                placeholderType="music"
+              />
+            </div>
+            <div class="track-details">
+              <MarqueeText
+                text={player.currentTrack.title || player.currentTrack.fileName}
+                class="track-title"
+              />
+              <MarqueeText
+                text={player.currentTrack.artist || m.common.unknownArtist}
+                class="track-artist"
+              />
+            </div>
           </div>
         </div>
       {/if}
@@ -163,8 +193,22 @@
           <div class="section-label">{m.rightSidebar.upNext(player.upcomingTracks.length)}</div>
           <div class="upcoming-list">
             {#each player.upcomingTracks as track, index (track.id)}
-              <div class="queue-track">
+              <div
+                class="queue-track"
+                ondblclick={(e) => !isRowButton(e) && playUpcoming(index)}
+                onkeydown={(e) => e.key === 'Enter' && !isRowButton(e) && playUpcoming(index)}
+                role="button"
+                tabindex="0"
+              >
                 <span class="track-number">{index + 1}</span>
+                <div class="queue-art">
+                  <AlbumArt
+                    src={albumArtUrl(track.id)}
+                    alt={m.common.albumArt}
+                    rounded="sm"
+                    placeholderType="music"
+                  />
+                </div>
                 <div class="track-details">
                   <MarqueeText text={track.title || track.fileName} class="track-title" />
                   <MarqueeText text={track.artist || m.common.unknownArtist} class="track-artist" />
@@ -266,8 +310,13 @@
     @apply text-[0.625rem] font-semibold uppercase text-text-muted mb-1.5;
   }
 
-  .track-info {
-    @apply flex flex-col gap-0.5;
+  .now-playing-track {
+    @apply flex items-center gap-2;
+  }
+
+  /* ジャケット画像（再生中・次に再生の各行） */
+  .queue-art {
+    @apply w-9 h-9 shrink-0 rounded-sm overflow-hidden;
   }
 
   :global(.track-title) {
@@ -292,7 +341,7 @@
   }
 
   .queue-track {
-    @apply flex items-center gap-2 p-2 rounded transition-colors duration-200;
+    @apply flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer select-none transition-colors duration-200;
   }
 
   .queue-track:hover {
@@ -300,7 +349,7 @@
   }
 
   .track-number {
-    @apply text-xs text-text-dimmed w-6 text-center shrink-0;
+    @apply text-xs text-text-dimmed w-5 text-center shrink-0;
   }
 
   .track-details {
