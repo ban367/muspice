@@ -53,12 +53,27 @@ export const commands = {
 	getArtistsGrouped: () => __TAURI_INVOKE<ArtistGroup[]>("get_artists_grouped"),
 	/**  ジャンル一覧（グループ化）を取得 */
 	getGenresGrouped: () => __TAURI_INVOKE<GenreGroup[]>("get_genres_grouped"),
-	/**  トラックのメタデータを更新（データベースのみ） */
+	/**
+	 *  トラックのメタデータを更新（ファイルのタグとデータベース）
+	 * 
+	 *  タイトル・アーティスト・アルバム・ジャンル・年は、値がなければタグからも取り除く。
+	 */
 	updateTrackMetadata: (trackId: string, metadata: Metadata) => __TAURI_INVOKE<null>("update_track_metadata", { trackId, metadata }),
-	/**  トラックのメタデータを更新（ファイルとデータベース両方） */
-	updateTrackMetadataWithFile: (trackId: string, metadata: Metadata) => __TAURI_INVOKE<null>("update_track_metadata_with_file", { trackId, metadata }),
-	/**  複数トラックのメタデータを一括更新（データベースのみ） */
-	updateMultipleTracksMetadata: (trackIds: string[], metadata: Metadata) => __TAURI_INVOKE<null>("update_multiple_tracks_metadata", { trackIds, metadata }),
+	/**
+	 *  複数トラックのメタデータを一括更新（ファイルのタグとデータベース）
+	 * 
+	 *  値がある項目だけを変える。ファイルへ書き込めなかったトラックは、データベースも変えずに
+	 *  結果の`errors`へ理由を入れ、残りのトラックの更新を続ける。
+	 */
+	updateMultipleTracksMetadata: (trackIds: string[], metadata: Metadata) => __TAURI_INVOKE<BulkUpdateResult>("update_multiple_tracks_metadata", { trackIds, metadata }),
+	/**
+	 *  アプリ内（データベース）だけにある編集内容・評価を、ファイルのタグへ書き出す
+	 * 
+	 *  ファイルと違う値だけを書き込み、その後ファイルを読み直してデータベースに反映する
+	 *  （終わると、データベースはファイルの内容と一致する）。メタデータの編集がファイルへ
+	 *  書き込まれなかった頃の内容を、ファイルへ移すために使う。
+	 */
+	writeLibraryMetadataToFiles: () => __TAURI_INVOKE<WriteMetadataResult>("write_library_metadata_to_files"),
 	/**  プレイリストを作成 */
 	createPlaylist: (name: string) => __TAURI_INVOKE<Playlist>("create_playlist", { name }),
 	/**  すべてのプレイリストを取得 */
@@ -123,7 +138,11 @@ export const commands = {
 	openProjectPage: () => __TAURI_INVOKE<null>("open_project_page"),
 	/**  お気に入りを切り替え */
 	toggleFavorite: (trackId: string) => __TAURI_INVOKE<boolean>("toggle_favorite", { trackId }),
-	/**  レーティングを設定 */
+	/**
+	 *  レーティングを設定（ファイルのタグへ書き込み、同じ値をデータベースに記録する）
+	 * 
+	 *  ファイルへ書き込めない場合はエラーにし、データベースも変えない。
+	 */
 	setRating: (trackId: string, rating: number) => __TAURI_INVOKE<null>("set_rating", { trackId, rating }),
 	/**  再生回数をインクリメント */
 	incrementPlayCount: (trackId: string) => __TAURI_INVOKE<number>("increment_play_count", { trackId }),
@@ -145,8 +164,9 @@ export const commands = {
 	deleteTracksWithFilesCommand: (trackIds: string[]) => __TAURI_INVOKE<DeleteResult>("delete_tracks_with_files_command", { trackIds }),
 	/**
 	 *  ライブラリ全体のメタデータを更新
-	 *  ファイルからtrack_number・disc_number・ReplayGainを再読み込み
-	 *  （タイトルなどはDBだけで編集できるため、ファイルの内容で上書きしない）
+	 * 
+	 *  全トラックのファイルを読み直し、タグの内容（タイトルなど・評価・トラック番号・
+	 *  ReplayGain）と長さなどをデータベースに反映する。お気に入り・再生回数は変えない。
 	 */
 	refreshLibraryMetadata: () => __TAURI_INVOKE<RefreshMetadataResult>("refresh_library_metadata"),
 };
@@ -209,6 +229,16 @@ export type ArtistGroup = {
 	totalDuration: number,
 	representativeTrackId: string,
 	albums: AlbumGroup[],
+};
+
+/**  一括編集の結果 */
+export type BulkUpdateResult = {
+	/**  ファイルとデータベースを更新できたトラック数 */
+	updatedCount: number,
+	/**  更新できなかったトラック数（ファイルが見つからない・書き込めないなど） */
+	failedCount: number,
+	/**  更新できなかったトラックの理由（ファイルごと） */
+	errors: string[],
 };
 
 /**  削除失敗の詳細 */
@@ -463,6 +493,20 @@ export type VolumeNormalization =
 "track" | 
 /**  アルバム単位のゲインで補正する（ない場合はトラック単位） */
 "album";
+
+/**  アプリ内の値をファイルへ書き出した結果 */
+export type WriteMetadataResult = {
+	/**  ファイルへ書き込んだトラック数 */
+	writtenCount: number,
+	/**  ファイルと同じ内容で、書き込まなかったトラック数 */
+	unchangedCount: number,
+	/**  ファイルが見つからず、飛ばしたトラック数 */
+	skippedCount: number,
+	/**  書き込めなかったトラック数 */
+	errorCount: number,
+	/**  書き込めなかったトラックの理由（ファイルごと） */
+	errors: string[],
+};
 
 /* Tauri Specta runtime */
 type EventEmit<T> = [T] extends [null] ? () => Promise<void> : (payload: T) => Promise<void>;

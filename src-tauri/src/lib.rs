@@ -25,7 +25,7 @@ use commands::{
     remove_library_folder, remove_track_from_playlist, rename_playlist, reorder_playlist_tracks,
     rescan_library_folder, save_settings, search_tracks, set_current_track, set_rating,
     show_in_folder, toggle_favorite, update_multiple_tracks_metadata, update_track_metadata,
-    update_track_metadata_with_file,
+    write_library_metadata_to_files,
 };
 use state::AppState;
 use std::path::PathBuf;
@@ -58,8 +58,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             get_artists_grouped,
             get_genres_grouped,
             update_track_metadata,
-            update_track_metadata_with_file,
             update_multiple_tracks_metadata,
+            write_library_metadata_to_files,
             create_playlist,
             get_playlists,
             delete_playlist,

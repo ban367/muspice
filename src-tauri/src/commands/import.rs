@@ -197,7 +197,9 @@ fn import_folder_blocking(
     })
 }
 
-/// ファイルからトラック情報を作成（再スキャンでも使う）
+/// ファイルからトラック情報を作成（再スキャン・「メタデータを更新」でも使う）
+///
+/// 評価はファイルのタグから読む。お気に入り・再生回数は初期値（更新時は使われない）。
 pub(super) fn create_track_from_file(file_path: &Path) -> AppResult<Track> {
     let file_name = file_path
         .file_name()
@@ -241,7 +243,7 @@ pub(super) fn create_track_from_file(file_path: &Path) -> AppResult<Track> {
         bitrate: file_info.bitrate,
         sample_rate: file_info.sample_rate,
         is_favorite: false,
-        rating: 0,
+        rating: file_info.rating,
         play_count: 0,
         last_played_at: None,
         created_at: now.clone(),

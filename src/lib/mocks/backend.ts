@@ -275,7 +275,10 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     return before - tracks.length;
   }
 
-  /** update_track_metadataと同様、title/artist/album/genre/yearを丸ごと置き換える */
+  /**
+   * update_track_metadataと同様、title/artist/album/genre/yearを丸ごと置き換える
+   * （実装はファイルのタグへ書き込むが、モックはライブラリの値だけを変える）
+   */
   function updateTrackMetadata(trackId: string, metadata: Metadata): null {
     validateTrackId(trackId);
     validateMetadataInput(metadata);
@@ -487,8 +490,6 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         .sort(byNameIgnoreCase);
     },
     updateTrackMetadata,
-    // ファイルへのタグ書き込みは行わず、DB相当の更新のみ行う
-    updateTrackMetadataWithFile: updateTrackMetadata,
     updateMultipleTracksMetadata: (trackIds, metadata) => {
       if (trackIds.length === 0) fail('VALIDATION', 'トラックIDが指定されていません');
       trackIds.forEach(validateTrackId);
@@ -510,7 +511,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         if (year != null) track.year = year;
         if (hasChanges) track.updatedAt = timestamp;
       }
-      return null;
+      // モックではファイルへの書き込みに失敗しない
+      return { updatedCount: targets.length, failedCount: 0, errors: [] };
     },
     createPlaylist: (name) => {
       validatePlaylistName(name);
@@ -721,7 +723,18 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       skippedCount: 0,
       errorCount: 0,
       errors: []
-    })
+    }),
+    // モックの値はすべて「ファイルと同じ」として扱う（書き込みは行わない）
+    writeLibraryMetadataToFiles: () => {
+      options.emit('library-changed', null);
+      return {
+        writtenCount: 0,
+        unchangedCount: tracks.length,
+        skippedCount: 0,
+        errorCount: 0,
+        errors: []
+      };
+    }
   };
 
   return {

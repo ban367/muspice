@@ -10,6 +10,7 @@ export type {
   AlbumGroup,
   AppError,
   ArtistGroup,
+  BulkUpdateResult,
   DeleteFailure,
   DeleteResult,
   DuplicateAction,
@@ -29,5 +30,6 @@ export type {
   StartupPage,
   Theme,
   Track,
-  VolumeNormalization
+  VolumeNormalization,
+  WriteMetadataResult
 } from '#lib/bindings.js';
