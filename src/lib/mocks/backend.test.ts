@@ -110,9 +110,16 @@ describe('トラック', () => {
 describe('プレイリスト', () => {
   it('追加・並び替え・削除でpositionを連番に保つ', async () => {
     const playlist = await commands.createPlaylist('テスト');
-    await commands.addTrackToPlaylist(playlist.id, mockTrackId(1));
-    await commands.addTrackToPlaylist(playlist.id, mockTrackId(2));
-    await commands.addTrackToPlaylist(playlist.id, mockTrackId(3));
+    const added = await commands.addTracksToPlaylist(playlist.id, [
+      mockTrackId(1),
+      mockTrackId(2),
+      mockTrackId(3)
+    ]);
+    expect(added).toBe(3);
+    // すでに入っている曲は飛ばし、追加した数だけを返す
+    expect(await commands.addTracksToPlaylist(playlist.id, [mockTrackId(2), mockTrackId(3)])).toBe(
+      0
+    );
     await commands.reorderPlaylistTracks(playlist.id, [
       mockTrackId(3),
       mockTrackId(1),

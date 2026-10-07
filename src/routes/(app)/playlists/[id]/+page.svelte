@@ -15,6 +15,7 @@
   import { formatDuration, formatTotalDuration } from '#lib/utils/format.js';
   import { confirmDestructive } from '#lib/utils/dialog.svelte.js';
   import { TrackSelection, handleTrackListKeydown } from '#lib/utils/trackSelection.svelte.js';
+  import { startTrackDrag } from '#lib/utils/trackDrag.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   // URLからプレイリストIDを取得
@@ -113,6 +114,18 @@
     } catch (error) {
       console.error('トラックの削除に失敗しました:', error);
     }
+  }
+
+  /**
+   * ドラッグ開始
+   *
+   * このプレイリストの中での並び替え（ドラッグした行だけ）と、サイドバーの別のプレイリストへの
+   * 追加（選択中の曲すべて）の両方に使う。
+   */
+  function handleDragStart(event: DragEvent, trackId: string) {
+    draggedTrackId = trackId;
+    const trackIds = selection.beginDrag(trackId);
+    startTrackDrag(event, trackIds, m.common.trackCount(trackIds.length), 'copyMove');
   }
 
   /**
@@ -327,9 +340,8 @@
                 class="track-row"
                 class:selected={selection.has(track.id)}
                 draggable="true"
-                ondragstart={() => {
-                  draggedTrackId = track.id;
-                }}
+                ondragstart={(e) => handleDragStart(e, track.id)}
+                ondragend={() => (draggedTrackId = null)}
                 ondragover={handleDragOver}
                 ondrop={(e) => handleDropOnTrack(e, track.id)}
                 onclick={(e) => handleTrackClick(track.id, e)}

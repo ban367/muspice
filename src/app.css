@@ -578,3 +578,23 @@ body {
 .message-success {
   @apply p-3 bg-secondary/20 text-secondary rounded-md text-sm;
 }
+
+/* ================================
+   トラックのドラッグ中に表示する画像（#lib/utils/trackDrag）
+   画面の外に置いて、ドラッグの画像として写し取らせる
+   ================================ */
+.drag-preview {
+  @apply absolute -left-[9999px] -top-[9999px] flex items-center gap-2 px-3 py-2 bg-primary text-white rounded-md text-sm font-medium shadow-lg;
+}
+
+.drag-preview-icon {
+  @apply w-5 h-5;
+}
+
+.drag-preview-icon svg {
+  @apply w-full h-full;
+}
+
+.drag-preview-count {
+  @apply whitespace-nowrap;
+}

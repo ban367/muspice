@@ -82,8 +82,13 @@ export const commands = {
 	deletePlaylist: (playlistId: string) => __TAURI_INVOKE<null>("delete_playlist", { playlistId }),
 	/**  プレイリストの名前を変更 */
 	renamePlaylist: (playlistId: string, name: string) => __TAURI_INVOKE<null>("rename_playlist", { playlistId, name }),
-	/**  プレイリストにトラックを追加 */
-	addTrackToPlaylist: (playlistId: string, trackId: string) => __TAURI_INVOKE<null>("add_track_to_playlist", { playlistId, trackId }),
+	/**
+	 *  プレイリストにトラックを追加（複数のトラックを、渡した順に追加する）
+	 * 
+	 *  すでに入っているトラックは飛ばし、追加したトラック数を返す。
+	 *  見つからないトラックがある場合は、1曲も追加しない。
+	 */
+	addTracksToPlaylist: (playlistId: string, trackIds: string[]) => __TAURI_INVOKE<number>("add_tracks_to_playlist", { playlistId, trackIds }),
 	/**  プレイリストからトラックを削除 */
 	removeTrackFromPlaylist: (playlistId: string, trackId: string) => __TAURI_INVOKE<null>("remove_track_from_playlist", { playlistId, trackId }),
 	/**  プレイリスト内のトラックを並び替え */

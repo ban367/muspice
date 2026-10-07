@@ -31,26 +31,37 @@ pub async fn get_playlists(state: State<'_, AppState>) -> AppResult<Vec<crate::m
     })
 }
 
-/// プレイリストにトラックを追加
+/// プレイリストにトラックを追加（複数のトラックを、渡した順に追加する）
+///
+/// すでに入っているトラックは飛ばし、追加したトラック数を返す。
+/// 見つからないトラックがある場合は、1曲も追加しない。
 #[tauri::command]
 #[specta::specta]
-pub async fn add_track_to_playlist(
+pub async fn add_tracks_to_playlist(
     playlist_id: String,
-    track_id: String,
+    track_ids: Vec<String>,
     state: State<'_, AppState>,
-) -> AppResult<()> {
+) -> AppResult<u32> {
     // IDをバリデーション
     validate_playlist_id(&playlist_id)?;
-    validate_track_id(&track_id)?;
+    if track_ids.is_empty() {
+        return Err(AppError::Validation(
+            "トラックIDが指定されていません".to_string(),
+        ));
+    }
+    for track_id in &track_ids {
+        validate_track_id(track_id)?;
+    }
 
-    state.with_db(|db| {
-        crate::playlist::add_track_to_playlist(db, &playlist_id, &track_id).map_err(|e| match e {
+    let added = state.with_db(|db| {
+        crate::playlist::add_tracks_to_playlist(db, &playlist_id, &track_ids).map_err(|e| match e {
             rusqlite::Error::QueryReturnedNoRows => {
                 AppError::NotFound("プレイリストまたはトラックが見つかりません".to_string())
             }
             _ => AppError::Database(format!("トラックの追加に失敗しました: {}", e)),
         })
-    })
+    })?;
+    crate::library::to_count(added)
 }
 
 /// プレイリストからトラックを削除

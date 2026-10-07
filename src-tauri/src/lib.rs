@@ -16,7 +16,7 @@ mod state;
 mod validation;
 
 use commands::{
-    add_track_to_playlist, create_playlist, delete_playlist, delete_tracks_command,
+    add_tracks_to_playlist, create_playlist, delete_playlist, delete_tracks_command,
     delete_tracks_with_files_command, filter_tracks, get_albums_grouped, get_all_tracks,
     get_artists_grouped, get_current_track, get_favorite_tracks, get_genres_grouped,
     get_library_folders, get_most_played_tracks, get_playlists, get_recently_played_tracks,
@@ -64,7 +64,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             get_playlists,
             delete_playlist,
             rename_playlist,
-            add_track_to_playlist,
+            add_tracks_to_playlist,
             remove_track_from_playlist,
             reorder_playlist_tracks,
             get_track_file_path,

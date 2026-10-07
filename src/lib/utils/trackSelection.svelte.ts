@@ -77,6 +77,19 @@ export class TrackSelection {
     }
   }
 
+  /**
+   * ドラッグを始める時に、運ぶトラックIDを返す（表示順）
+   *
+   * 選択中のトラックの上で始めた場合は選択中のトラックすべて、そうでない場合は
+   * そのトラックだけを選択して運ぶ。
+   */
+  beginDrag(trackId: string): string[] {
+    this.ensureSelected(trackId);
+    return this.#tracks()
+      .filter((track) => this.#ids.has(track.id))
+      .map((track) => track.id);
+  }
+
   /** 一覧のトラックをすべて選択する */
   selectAll(): void {
     this.#replace(this.#tracks().map((track) => track.id));

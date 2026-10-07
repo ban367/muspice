@@ -112,6 +112,26 @@ describe('TrackSelection（クリック・その他）', () => {
     expect([...selection.ids]).toEqual(['t4']);
   });
 
+  it('beginDragは、選択中のトラックから始めると選択中のすべてを表示順で返す', () => {
+    const selection = createSelection();
+    // 選んだ順は t4 → t2 → t3
+    selection.click('t4', plain);
+    selection.click('t2', { shiftKey: false, toggleKey: true });
+    selection.click('t3', { shiftKey: false, toggleKey: true });
+
+    expect(selection.beginDrag('t2')).toEqual(['t2', 't3', 't4']);
+    expect(selection.size).toBe(3);
+  });
+
+  it('beginDragは、選択中でないトラックから始めるとそのトラックだけを選択して返す', () => {
+    const selection = createSelection();
+    selection.click('t1', plain);
+    selection.click('t2', { shiftKey: false, toggleKey: true });
+
+    expect(selection.beginDrag('t5')).toEqual(['t5']);
+    expect([...selection.ids]).toEqual(['t5']);
+  });
+
   it('selectAllで一覧のすべてを選択し、clearで解除する', () => {
     const selection = createSelection();
     selection.click('t2', plain);

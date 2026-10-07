@@ -38,7 +38,7 @@ pub use metadata_cmd::{
 
 // プレイリスト管理
 pub use playlist_cmd::{
-    add_track_to_playlist, create_playlist, delete_playlist, get_playlists,
+    add_tracks_to_playlist, create_playlist, delete_playlist, get_playlists,
     remove_track_from_playlist, rename_playlist, reorder_playlist_tracks,
 };
 
