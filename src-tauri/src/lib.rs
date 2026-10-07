@@ -123,6 +123,27 @@ fn log_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
         .build()
 }
 
+/// ウィンドウの状態（サイズ・位置・最大化・フルスクリーン）を記憶するプラグインを構築する
+///
+/// 終了時にアプリの設定フォルダの`.window-state.json`へ保存し、次回の起動時に復元する
+/// （保存した位置のモニターが見つからない場合、位置はOSに任せる）。記憶がない初回は
+/// `tauri.conf.json`の大きさで開く。対象はメインウィンドウだけで、設定ウィンドウは毎回
+/// 同じ大きさで開く。
+/// プラグインのJS API（`window-state:default`）はcapabilityに追加せず、WebViewには公開しない（ADR-005）
+fn window_state_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+    use tauri_plugin_window_state::StateFlags;
+
+    tauri_plugin_window_state::Builder::new()
+        .with_state_flags(
+            StateFlags::SIZE
+                | StateFlags::POSITION
+                | StateFlags::MAXIMIZED
+                | StateFlags::FULLSCREEN,
+        )
+        .with_denylist(&[menu::SETTINGS_WINDOW])
+        .build()
+}
+
 /// TypeScriptエクスポート設定
 fn typescript_exporter() -> specta_typescript::Typescript {
     specta_typescript::Typescript::default()
@@ -153,6 +174,8 @@ pub fn run() {
     tauri::Builder::default()
         // 他のプラグインの初期化中のログも記録できるよう、最初に登録する
         .plugin(log_plugin())
+        // メインウィンドウを作る前に登録し、作った時点で前回の大きさ・位置に戻す
+        .plugin(window_state_plugin())
         .plugin(tauri_plugin_dialog::init())
         // アルバムアートは`<img>`から`albumart://`で直接読み込む（IPCでbase64を渡さない）
         .register_asynchronous_uri_scheme_protocol(album_art::SCHEME, |ctx, request, responder| {
