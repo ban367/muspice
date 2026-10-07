@@ -5,7 +5,7 @@ use lofty::file::{AudioFile, TaggedFileExt};
 use lofty::picture::PictureType;
 use lofty::probe::Probe;
 use lofty::tag::items::popularimeter::{Popularimeter, StarRating};
-use lofty::tag::{Accessor, ItemKey, Tag};
+use lofty::tag::{Accessor, ItemKey, Tag, TagType};
 use std::path::Path;
 
 /// アプリが扱う年の有効範囲
@@ -78,14 +78,61 @@ fn extract_replay_gain(tag: &Tag) -> ReplayGain {
 /// 評価として受け付ける範囲（0は評価なし）
 pub const RATING_RANGE: std::ops::RangeInclusive<i32> = 0..=5;
 
+/// Vorbisコメントの`RATING`の値の付け方
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum VorbisRatingScale {
+    /// 星の数をそのまま書く（1〜5）
+    Stars,
+    /// 20刻みで書く（20〜100。MusicBee・MediaMonkeyなど。こちらが多い）
+    Percent,
+}
+
+/// Vorbisコメントの`RATING`の値（数値だけの文字列）を、星の数と付け方に解釈する
+///
+/// - 1〜5: 星の数
+/// - 6〜100: 20刻み（半分の星は切り上げる。例: 90 → 5）
+/// - 0より大きく1未満の小数: 0〜1の割合（例: 0.8 → 4）
+///
+/// 0・範囲外・数値でない値はNone（評価なし）。
+fn parse_vorbis_rating(value: &str) -> Option<(i32, VorbisRatingScale)> {
+    let number: f64 = value.trim().parse().ok()?;
+    if !number.is_finite() || number <= 0.0 || number > 100.0 {
+        return None;
+    }
+    if number < 1.0 {
+        let stars = (number * 5.0).round().clamp(1.0, 5.0);
+        return Some((stars as i32, VorbisRatingScale::Percent));
+    }
+    if number <= 5.0 {
+        return Some((number.round() as i32, VorbisRatingScale::Stars));
+    }
+    let stars = (number / 20.0).ceil().clamp(1.0, 5.0);
+    Some((stars as i32, VorbisRatingScale::Percent))
+}
+
+/// Vorbisコメント（FLACなど）の、数値だけの`RATING`を読む
+///
+/// lofty（0.25）は、Vorbisコメントの`RATING`を汎用タグへ文字列のまま入れるだけで、
+/// `Tag::ratings()`では読めない（読めるのは`RATING:書き手`の形だけ）。多くのアプリは
+/// 書き手を付けない`RATING=80`の形で書くため、ここで解釈する。
+fn vorbis_plain_rating(tag: &Tag) -> Option<(i32, VorbisRatingScale)> {
+    if tag.tag_type() != TagType::VorbisComments {
+        return None;
+    }
+    tag.get_strings(ItemKey::Popularimeter)
+        .find_map(parse_vorbis_rating)
+}
+
 /// タグから評価（星の数。1〜5）を読み取る。評価のタグがない場合は0
 ///
 /// 評価の数値の付け方は書き込んだアプリごとに違うため、loftyが書き手（POPMのemailなど）に
 /// 応じて星の数へ直したものを使う。複数ある場合は最初の評価を使う。
+/// Vorbisコメントの数値だけの`RATING`は、`vorbis_plain_rating`で読む。
 fn extract_rating(tag: &Tag) -> i32 {
     tag.ratings()
         .next()
         .map(|popularimeter| popularimeter.rating as i32)
+        .or_else(|| vorbis_plain_rating(tag).map(|(stars, _)| stars))
         .unwrap_or(0)
 }
 
@@ -106,7 +153,25 @@ fn star_rating(rating: i32) -> Option<StarRating> {
 /// すでに評価がある場合は、その書き手と再生回数を引き継ぎ、星の数だけを変える
 /// （書き込んだアプリが、自分の付け方のまま読めるようにする）。ない場合は、対応するアプリが
 /// 多いMusicBeeの付け方で書く（ID3v2は1・64・128・196・255、それ以外は20刻み）。
+///
+/// Vorbisコメント（FLACなど）は、書き手を付けない`RATING`に数値だけを書く。
+/// lofty（0.25）は汎用タグの評価をVorbisコメントへ変換せずに書き出すため、loftyの形の
+/// まま入れると、他のアプリが読めない値（`RATING=MusicBee|4|0`）がファイルに書かれる。
 fn set_tag_rating(tag: &mut Tag, rating: i32) {
+    if tag.tag_type() == TagType::VorbisComments {
+        // すでに星の数（1〜5）で書かれている場合はその付け方を保ち、それ以外は20刻みで書く
+        let scale = vorbis_plain_rating(tag).map(|(_, scale)| scale);
+        tag.remove_key(ItemKey::Popularimeter);
+        if star_rating(rating).is_some() {
+            let value = match scale {
+                Some(VorbisRatingScale::Stars) => rating,
+                _ => rating * 20,
+            };
+            tag.insert_text(ItemKey::Popularimeter, value.to_string());
+        }
+        return;
+    }
+
     let existing = tag.ratings().next();
     tag.remove_key(ItemKey::Popularimeter);
 
@@ -481,8 +546,6 @@ mod tests {
 
     #[test]
     fn test_tag_rating_round_trip() {
-        use lofty::tag::TagType;
-
         for tag_type in [
             TagType::Id3v2,
             TagType::VorbisComments,
@@ -496,21 +559,19 @@ mod tests {
                 set_tag_rating(&mut tag, rating);
                 assert_eq!(extract_rating(&tag), rating);
                 // 書き直しても評価は1つだけ
-                assert_eq!(tag.ratings().count(), 1);
+                assert_eq!(tag.get_strings(ItemKey::Popularimeter).count(), 1);
             }
 
             // 0は評価のタグを取り除く
             set_tag_rating(&mut tag, 0);
             assert_eq!(extract_rating(&tag), 0);
-            assert_eq!(tag.ratings().count(), 0);
+            assert_eq!(tag.get_strings(ItemKey::Popularimeter).count(), 0);
         }
     }
 
     /// 他のアプリが書いた評価は、書き手と再生回数を引き継いで星の数だけを変える
     #[test]
     fn test_set_tag_rating_keeps_existing_writer_and_play_counter() {
-        use lofty::tag::TagType;
-
         let mut tag = Tag::new(TagType::Id3v2);
         tag.insert_text(
             ItemKey::Popularimeter,
@@ -526,9 +587,94 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_metadata_clears_missing_fields_only_when_asked() {
-        use lofty::tag::TagType;
+    fn test_parse_vorbis_rating() {
+        use VorbisRatingScale::{Percent, Stars};
 
+        // 20刻み（半分の星は切り上げる）
+        assert_eq!(parse_vorbis_rating("20"), Some((1, Percent)));
+        assert_eq!(parse_vorbis_rating("80"), Some((4, Percent)));
+        assert_eq!(parse_vorbis_rating("90"), Some((5, Percent)));
+        assert_eq!(parse_vorbis_rating("100"), Some((5, Percent)));
+        assert_eq!(parse_vorbis_rating("10"), Some((1, Percent)));
+        // 星の数
+        assert_eq!(parse_vorbis_rating("1"), Some((1, Stars)));
+        assert_eq!(parse_vorbis_rating(" 4 "), Some((4, Stars)));
+        assert_eq!(parse_vorbis_rating("5"), Some((5, Stars)));
+        // 0〜1の割合
+        assert_eq!(parse_vorbis_rating("0.8"), Some((4, Percent)));
+        assert_eq!(parse_vorbis_rating("0.1"), Some((1, Percent)));
+        // 評価なし・不正な値
+        assert_eq!(parse_vorbis_rating("0"), None);
+        assert_eq!(parse_vorbis_rating("101"), None);
+        assert_eq!(parse_vorbis_rating("-1"), None);
+        assert_eq!(parse_vorbis_rating("MusicBee|4|0"), None);
+        assert_eq!(parse_vorbis_rating(""), None);
+    }
+
+    /// Vorbisコメントには、他のアプリが読める数値だけの`RATING`を書く
+    #[test]
+    fn test_vorbis_rating_is_written_as_plain_number() {
+        use lofty::tag::TagExt;
+
+        let dump = |tag: &Tag| {
+            let mut bytes = Vec::new();
+            tag.dump_to(&mut bytes, WriteOptions::default()).unwrap();
+            String::from_utf8_lossy(&bytes).into_owned()
+        };
+
+        let mut tag = Tag::new(TagType::VorbisComments);
+        set_tag_rating(&mut tag, 4);
+        let written = dump(&tag);
+        assert!(written.contains("RATING=80"), "{written:?}");
+        assert!(!written.contains("MusicBee"), "{written:?}");
+        assert_eq!(extract_rating(&tag), 4);
+
+        // 評価を外すと、RATINGそのものがなくなる
+        set_tag_rating(&mut tag, 0);
+        assert!(!dump(&tag).contains("RATING"));
+    }
+
+    /// 他のアプリが書いた数値だけの`RATING`を読み、星の数で書かれていればその付け方を保つ
+    #[test]
+    fn test_vorbis_rating_reads_plain_values_and_keeps_star_scale() {
+        // 20刻み（MusicBeeなど）
+        let mut tag = Tag::new(TagType::VorbisComments);
+        tag.insert_text(ItemKey::Popularimeter, "60".to_string());
+        assert_eq!(extract_rating(&tag), 3);
+        set_tag_rating(&mut tag, 5);
+        assert_eq!(
+            tag.get_string(ItemKey::Popularimeter),
+            Some("100"),
+            "20刻みのまま書く"
+        );
+
+        // 星の数
+        let mut tag = Tag::new(TagType::VorbisComments);
+        tag.insert_text(ItemKey::Popularimeter, "4".to_string());
+        assert_eq!(extract_rating(&tag), 4);
+        set_tag_rating(&mut tag, 2);
+        assert_eq!(
+            tag.get_string(ItemKey::Popularimeter),
+            Some("2"),
+            "星の数のまま書く"
+        );
+        assert_eq!(extract_rating(&tag), 2);
+
+        // 以前のバージョンが書いたloftyの形も読め、書き直すと数値だけになる
+        let mut tag = Tag::new(TagType::VorbisComments);
+        tag.insert_text(ItemKey::Popularimeter, "MusicBee|3|0".to_string());
+        assert_eq!(extract_rating(&tag), 3);
+        set_tag_rating(&mut tag, 3);
+        assert_eq!(tag.get_string(ItemKey::Popularimeter), Some("60"));
+
+        // 数値だけの値の解釈は、Vorbisコメントだけに使う
+        let mut id3 = Tag::new(TagType::Id3v2);
+        id3.insert_text(ItemKey::Popularimeter, "80".to_string());
+        assert_eq!(extract_rating(&id3), 0);
+    }
+
+    #[test]
+    fn test_apply_metadata_clears_missing_fields_only_when_asked() {
         let mut tag = Tag::new(TagType::Id3v2);
         tag.set_title("Old Title".to_string());
         tag.set_artist("Old Artist".to_string());
