@@ -154,6 +154,12 @@ src-tauri/src/
 - グリッド表示（`LibraryGrid`: アルバム・アーティスト・ジャンル）は、現在位置の項目を枠で示し、Enterでクリックと同じ操作（`onOpen`）を行う
 - 修飾キーなしの矢印キーは一覧が使う。プレーヤーのショートカット（`Player.svelte`）はCmd/Ctrl+矢印（前へ・次へ・音量）とSpace（再生・一時停止）
 
+### ドラッグ&ドロップ
+
+- 曲の一覧からサイドバーのプレイリストへの追加は、HTML5のドラッグ&ドロップで行う。`#lib/utils/trackDrag`の`startTrackDrag`（`dragstart`）でトラックIDを専用の種類（`TRACK_DRAG_TYPE`）のデータとして運び、`isTrackDrag`（`dragover`）・`readDraggedTrackIds`（`drop`）で受け取る
+- 運ぶ曲は`TrackSelection.beginDrag(trackId)`で決める。選択中の曲の上で始めた場合は選択中の曲すべて（一覧の並び順）、そうでなければその曲だけ
+- Tauriのファイルドロップ（`tauri.conf.json`の`dragDropEnabled`）は無効にする。有効だとWebViewに`dragover`・`drop`が届かない（ADR-018）
+
 ### ダイアログ
 
 - モーダルは`#lib/components/ui`の`Modal`（ネイティブの`<dialog>`を`showModal()`で表示）を使い、背景のdivや`svelte-ignore`で独自に実装しない。Escキー・背面の操作の無効化（フォーカスの閉じ込め）・閉じた後のフォーカスの復帰はブラウザに任せる

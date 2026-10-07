@@ -6,6 +6,7 @@
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import { formatDuration, formatTotalDuration } from '#lib/utils/format.js';
   import { TrackSelection, handleTrackListKeydown } from '#lib/utils/trackSelection.svelte.js';
+  import { startTrackDrag } from '#lib/utils/trackDrag.js';
   import PlayingIndicator from './PlayingIndicator.svelte';
   import RatingStars from './RatingStars.svelte';
   import MarqueeText from '../MarqueeText.svelte';
@@ -67,6 +68,12 @@
       shiftKey: event.shiftKey,
       toggleKey: event.ctrlKey || event.metaKey
     });
+  }
+
+  // 選択中の曲の上で始めた場合は選択中の曲すべて、そうでなければその曲だけを運ぶ
+  function handleDragStart(event: DragEvent, trackId: string) {
+    const trackIds = selection.beginDrag(trackId);
+    startTrackDrag(event, trackIds, m.common.trackCount(trackIds.length));
   }
 
   /**
@@ -186,6 +193,8 @@
           class="track-row"
           class:selected={selection.has(track.id)}
           class:playing={player.currentTrack?.id === track.id}
+          draggable="true"
+          ondragstart={(e) => handleDragStart(e, track.id)}
           onclick={(e) => handleTrackClick(track.id, e)}
           ondblclick={() =>
             handleTrackDoubleClick(getGlobalTrackIndex(discIndex, trackIndexInDisc))}

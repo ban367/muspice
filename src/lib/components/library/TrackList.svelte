@@ -14,6 +14,7 @@
   import AlbumArt from '../AlbumArt.svelte';
   import { countGridColumns } from '#lib/utils/listNavigation.js';
   import { TrackSelection, handleTrackListKeydown } from '#lib/utils/trackSelection.svelte.js';
+  import { startTrackDrag } from '#lib/utils/trackDrag.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   // Props
@@ -241,43 +242,12 @@
   const cardWidth = $derived(artSize + 24);
 
   function handleDragStart(event: DragEvent, track: Track) {
-    if (!event.dataTransfer) return;
-
-    event.dataTransfer.effectAllowed = 'copy';
-
-    let trackIds: string[];
-    if (selection.has(track.id)) {
-      trackIds = Array.from(selection.ids);
-    } else {
-      trackIds = [track.id];
-    }
-
-    event.dataTransfer.setData('application/json', JSON.stringify(trackIds));
-    event.dataTransfer.setData('text/plain', trackIds[0]);
+    // 選択中の曲の上で始めた場合は選択中の曲すべて、そうでなければその曲だけを運ぶ
+    const trackIds = selection.beginDrag(track.id);
+    startTrackDrag(event, trackIds, m.common.trackCount(trackIds.length));
 
     isDragging = true;
     draggedTrackIds = trackIds;
-
-    const dragImage = document.createElement('div');
-    dragImage.className = 'drag-preview';
-    dragImage.innerHTML = `
-      <div class="drag-preview-icon">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
-        </svg>
-      </div>
-      <span class="drag-preview-count">${m.common.trackCount(trackIds.length)}</span>
-    `;
-    dragImage.style.position = 'absolute';
-    dragImage.style.left = '-9999px';
-    dragImage.style.top = '-9999px';
-    document.body.appendChild(dragImage);
-
-    event.dataTransfer.setDragImage(dragImage, 40, 25);
-
-    setTimeout(() => {
-      document.body.removeChild(dragImage);
-    }, 0);
   }
 
   function handleDragEnd() {
@@ -460,6 +430,7 @@
               style="width: {cardWidth}px;"
               draggable="true"
               ondragstart={(e) => handleDragStart(e, track)}
+              ondragend={handleDragEnd}
               onclick={(e) => handleTrackClick(track.id, e)}
               ondblclick={() => handleTrackDoubleClick(track)}
               oncontextmenu={(e) => handleContextMenu(e, track)}
@@ -642,22 +613,5 @@
 
   .track-card.playing {
     @apply border-secondary;
-  }
-
-  /* ドラッグプレビュー */
-  :global(.drag-preview) {
-    @apply flex items-center gap-2 px-3 py-2 bg-primary text-white rounded-md text-sm font-medium shadow-lg;
-  }
-
-  :global(.drag-preview-icon) {
-    @apply w-5 h-5;
-  }
-
-  :global(.drag-preview-icon svg) {
-    @apply w-full h-full;
-  }
-
-  :global(.drag-preview-count) {
-    @apply whitespace-nowrap;
   }
 </style>

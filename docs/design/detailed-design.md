@@ -198,9 +198,11 @@ export interface Playlist {
 | `get_playlists`              | なし                     | `Playlist[]` |
 | `rename_playlist`            | `playlistId`, `name`     | `void`       |
 | `delete_playlist`            | `playlistId`             | `void`       |
-| `add_track_to_playlist`      | `playlistId`, `trackId`  | `void`       |
+| `add_tracks_to_playlist`     | `playlistId`, `trackIds` | `number`     |
 | `remove_track_from_playlist` | `playlistId`, `trackId`  | `void`       |
 | `reorder_playlist_tracks`    | `playlistId`, `trackIds` | `void`       |
+
+`add_tracks_to_playlist`は、複数のトラックを渡した順に1つのトランザクションで追加する。すでに入っているトラックは飛ばし、追加したトラック数を返す。見つからないトラックがある場合は`NOT_FOUND`で、1曲も追加しない。
 
 ### 再生・統計・システム
 

@@ -88,36 +88,38 @@ export function useCreatePlaylistMutation() {
 
 /**
  * プレイリストにトラックを追加するミューテーション（Optimistic Update付き）
+ *
+ * 複数のトラックを、渡した順に1回で追加する。すでに入っているトラックは追加されない。
+ * 通知は追加した曲数で1回だけ出す。
  */
-export function useAddTrackToPlaylistMutation() {
+export function useAddTracksToPlaylistMutation() {
   const queryClient = useQueryClient();
 
   return createMutation(() => ({
-    mutationFn: ({ playlistId, trackId }: { playlistId: string; trackId: string }) =>
+    mutationFn: ({ playlistId, trackIds }: { playlistId: string; trackIds: string[] }) =>
       withErrorToast(m.operations.addTrackToPlaylist, () =>
-        commands.addTrackToPlaylist(playlistId, trackId)
+        commands.addTracksToPlaylist(playlistId, trackIds)
       ),
-    ...optimisticPlaylistUpdate<{ playlistId: string; trackId: string }>(
+    ...optimisticPlaylistUpdate<{ playlistId: string; trackIds: string[] }>(
       queryClient,
-      (playlists, { playlistId, trackId }) =>
-        playlists.map((pl) =>
-          pl.id === playlistId
-            ? {
-                ...pl,
-                tracks: [
-                  ...pl.tracks,
-                  {
-                    trackId,
-                    position: pl.tracks.length,
-                    addedAt: new Date().toISOString()
-                  }
-                ]
-              }
-            : pl
-        )
+      (playlists, { playlistId, trackIds }) =>
+        playlists.map((pl) => {
+          if (pl.id !== playlistId) return pl;
+
+          const existing = new Set(pl.tracks.map((entry) => entry.trackId));
+          const addedAt = new Date().toISOString();
+          const added = [...new Set(trackIds)]
+            .filter((trackId) => !existing.has(trackId))
+            .map((trackId, index) => ({ trackId, position: pl.tracks.length + index, addedAt }));
+          return { ...pl, tracks: [...pl.tracks, ...added] };
+        })
     ),
-    onSuccess: () => {
-      showSuccess(m.notices.trackAddedToPlaylist);
+    onSuccess: (addedCount) => {
+      showSuccess(
+        addedCount > 0
+          ? m.notices.tracksAddedToPlaylist(addedCount)
+          : m.notices.tracksAlreadyInPlaylist
+      );
     }
   }));
 }

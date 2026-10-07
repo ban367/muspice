@@ -106,7 +106,8 @@ export const en: Messages = {
 
   notices: {
     playlistCreated: 'Playlist created',
-    trackAddedToPlaylist: 'Added the track to the playlist',
+    tracksAddedToPlaylist: (count) => `Added ${plural(count, 'track', 'tracks')} to the playlist`,
+    tracksAlreadyInPlaylist: 'Already in the playlist',
     trackRemovedFromPlaylist: 'Removed the track from the playlist',
     tracksReordered: 'Reordered the tracks',
     playlistRenamed: 'Playlist renamed',

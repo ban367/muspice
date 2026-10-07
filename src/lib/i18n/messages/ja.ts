@@ -114,7 +114,8 @@ export const ja = {
   /** 操作の結果の通知 */
   notices: {
     playlistCreated: 'プレイリストを作成しました',
-    trackAddedToPlaylist: 'トラックをプレイリストに追加しました',
+    tracksAddedToPlaylist: (count: number) => `${count}曲をプレイリストに追加しました`,
+    tracksAlreadyInPlaylist: 'すでにプレイリストに入っています',
     trackRemovedFromPlaylist: 'トラックをプレイリストから削除しました',
     tracksReordered: 'トラックを並び替えました',
     playlistRenamed: 'プレイリスト名を変更しました',
