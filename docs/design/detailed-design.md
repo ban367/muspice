@@ -218,7 +218,7 @@ export interface Playlist {
 | `show_in_folder`             | `trackId`                 | `void`          |
 | `open_project_page`          | なし                      | `void`          |
 
-`set_rating`は、評価をファイルのタグへ書き込み、同じ値をDBに記録する（0は評価のタグを取り除く）。評価はloftyの`ItemKey::Popularimeter`（ID3v2 `POPM` / Vorbis `RATING` / MP4 `rate` / RIFF `IRTD`）で読み書きし、インポート・再スキャン・`refresh_library_metadata`でタグから読み込む。評価の数値の付け方は書き込んだアプリごとに違うため、すでに評価があるファイルではその書き手の付け方のまま星の数だけを変え、ない場合はMusicBeeの付け方（ID3v2は1・64・128・196・255、それ以外は20刻み）で書く。
+`set_rating`は、評価をファイルのタグへ書き込み、同じ値をDBに記録する（0は評価のタグを取り除く）。評価はloftyの`ItemKey::Popularimeter`（ID3v2 `POPM` / Vorbis `RATING` / MP4 `rate` / RIFF `IRTD`）で読み書きし、インポート・再スキャン・`refresh_library_metadata`でタグから読み込む。評価の数値の付け方は書き込んだアプリごとに違うため、すでに評価があるファイルではその書き手の付け方のまま星の数だけを変え、ない場合はMusicBeeの付け方（ID3v2は1・64・128・196・255、それ以外は20刻み）で書く。Vorbisコメント（FLAC）は、書き手を付けない`RATING`に数値だけを書く（`RATING=80`。すでに星の数の1〜5で書かれていればその付け方を保つ）。loftyの汎用タグは、Vorbisコメントの数値だけの`RATING`を評価として読まず、書き出す時も変換しないため、`metadata.rs`で読み書きする。
 
 `toggle_favorite`・`increment_play_count`（お気に入り・再生回数・再生履歴）とプレイリストは、タグでは持てないためDBだけに保存する。
 
