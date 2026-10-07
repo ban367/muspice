@@ -1,9 +1,11 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import type { AlbumGroup, Track } from '#lib/types/models.js';
   import { useSetRatingMutation } from '#lib/queries/tracks.js';
   import { player, playTrackFromQueue, playShuffled } from '#lib/stores/player.svelte.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import { formatDuration, formatTotalDuration } from '#lib/utils/format.js';
+  import { TrackSelection, handleTrackListKeydown } from '#lib/utils/trackSelection.svelte.js';
   import PlayingIndicator from './PlayingIndicator.svelte';
   import RatingStars from './RatingStars.svelte';
   import MarqueeText from '../MarqueeText.svelte';
@@ -45,6 +47,39 @@
       tracks: album.tracks.filter((t) => (t.discNumber ?? 1) === discNumber)
     }));
   });
+
+  // 表示順（ディスクごと）のトラック
+  const displayTracks = $derived(groupedTracks.flatMap((group) => group.tracks));
+
+  // トラックの選択（クリック・キーボード）
+  const selection = new TrackSelection(() => displayTracks);
+
+  // 別のアルバムに切り替わったら、選択を消す（データを取り直しただけでは消さない）
+  const albumName = $derived(album.name);
+  $effect(() => {
+    void albumName;
+    // 選択の中身には反応させない（選択を変えるたびに消えてしまう）
+    untrack(() => selection.reset());
+  });
+
+  function handleTrackClick(trackId: string, event: MouseEvent) {
+    selection.click(trackId, {
+      shiftKey: event.shiftKey,
+      toggleKey: event.ctrlKey || event.metaKey
+    });
+  }
+
+  /**
+   * 一覧のキーボード操作（矢印キーで選択を移す・Enterで再生する）
+   */
+  function handleListKeydown(event: KeyboardEvent) {
+    handleTrackListKeydown(event, selection, {
+      onActivate: (trackId) => {
+        const index = album.tracks.findIndex((track) => track.id === trackId);
+        if (index !== -1) handleTrackDoubleClick(index);
+      }
+    });
+  }
 
   // トラック番号を取得
   function formatTrackNumber(track: Track): string {
@@ -130,7 +165,14 @@
   </div>
 
   <!-- トラックリスト -->
-  <div class="track-list">
+  <div
+    class="track-list"
+    role="listbox"
+    aria-multiselectable="true"
+    aria-label={album.name}
+    tabindex="0"
+    onkeydown={handleListKeydown}
+  >
     {#each groupedTracks as discGroup, discIndex (discGroup.discNumber)}
       {#if hasMultipleDiscs()}
         <div class="disc-header">
@@ -138,12 +180,18 @@
         </div>
       {/if}
       {#each discGroup.tracks as track, trackIndexInDisc (track.id)}
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <!-- キー操作は一覧（listbox）で受けるため、行はフォーカスを受けない -->
+        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
         <div
           class="track-row"
+          class:selected={selection.has(track.id)}
           class:playing={player.currentTrack?.id === track.id}
+          onclick={(e) => handleTrackClick(track.id, e)}
           ondblclick={() =>
             handleTrackDoubleClick(getGlobalTrackIndex(discIndex, trackIndexInDisc))}
+          role="option"
+          aria-selected={selection.has(track.id)}
+          data-track-id={track.id}
         >
           <span class="track-number" class:playing={player.currentTrack?.id === track.id}>
             {#if player.currentTrack?.id === track.id}
@@ -248,8 +296,9 @@
     @apply w-5 h-5;
   }
 
+  /* 一覧はフォーカスを受けてキー操作を扱う（枠は出さず、選択中の行の色で示す） */
   .track-list {
-    @apply flex-1 overflow-y-auto px-4 pb-4;
+    @apply flex-1 overflow-y-auto px-4 pb-4 outline-none;
   }
 
   .disc-header {
@@ -262,12 +311,16 @@
   }
 
   .track-row {
-    @apply grid gap-3 py-1.5 px-3 items-center rounded-md cursor-pointer transition-colors duration-100;
+    @apply grid gap-3 py-1.5 px-3 items-center rounded-md cursor-pointer transition-colors duration-100 select-none;
     grid-template-columns: 2.5rem 1fr auto 4rem 2rem;
   }
 
   .track-row:hover {
     @apply bg-surface-hover;
+  }
+
+  .track-row.selected {
+    @apply bg-primary/20;
   }
 
   .track-row.playing {

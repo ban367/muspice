@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
@@ -13,6 +14,7 @@
   import { playTrackFromQueue } from '#lib/stores/player.svelte.js';
   import { formatDuration, formatTotalDuration } from '#lib/utils/format.js';
   import { confirmDestructive } from '#lib/utils/dialog.svelte.js';
+  import { TrackSelection, handleTrackListKeydown } from '#lib/utils/trackSelection.svelte.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   // URLからプレイリストIDを取得
@@ -39,6 +41,44 @@
    */
   function getTrackById(trackId: string): Track | undefined {
     return tracksQuery.data?.find((t: Track) => t.id === trackId);
+  }
+
+  // プレイリストのトラック（表示順。ライブラリにないトラックは除く）
+  const playlistTracks = $derived.by(() =>
+    selectedPlaylist
+      ? selectedPlaylist.tracks
+          .map((pt) => getTrackById(pt.trackId))
+          .filter((t): t is Track => t !== undefined)
+      : []
+  );
+
+  // トラックの選択（クリック・キーボード）
+  const selection = new TrackSelection(() => playlistTracks);
+
+  // 別のプレイリストを開いたら、選択を消す
+  $effect(() => {
+    void playlistId;
+    // 選択の中身には反応させない（選択を変えるたびに消えてしまう）
+    untrack(() => selection.reset());
+  });
+
+  function handleTrackClick(trackId: string, event: MouseEvent) {
+    selection.click(trackId, {
+      shiftKey: event.shiftKey,
+      toggleKey: event.ctrlKey || event.metaKey
+    });
+  }
+
+  /**
+   * 一覧のキーボード操作（矢印キーで選択を移す・Enterで再生する）
+   */
+  function handleListKeydown(event: KeyboardEvent) {
+    handleTrackListKeydown(event, selection, {
+      onActivate: (trackId) => {
+        const track = getTrackById(trackId);
+        if (track) handleTrackDoubleClick(track);
+      }
+    });
   }
 
   /**
@@ -269,55 +309,68 @@
           <div class="col-actions"></div>
         </div>
 
-        <!-- トラック一覧 -->
-        {#each selectedPlaylist.tracks as playlistTrack, index (playlistTrack.trackId)}
-          {@const track = getTrackById(playlistTrack.trackId)}
-          {#if track}
-            <div
-              class="track-row"
-              draggable="true"
-              ondragstart={() => {
-                draggedTrackId = track.id;
-              }}
-              ondragover={handleDragOver}
-              ondrop={(e) => handleDropOnTrack(e, track.id)}
-              ondblclick={() => handleTrackDoubleClick(track)}
-              role="button"
-              tabindex="0"
-              onkeydown={(e) => e.key === 'Enter' && handleTrackDoubleClick(track)}
-            >
-              <div class="col-number">{index + 1}</div>
-              <div class="col-title">
-                <span class="track-name">{track.title || track.fileName}</span>
-              </div>
-              <div class="col-artist">{track.artist || m.common.unknownArtist}</div>
-              <div class="col-album">{track.album || m.common.unknownAlbum}</div>
-              <div class="col-duration">{formatDuration(track.duration)}</div>
-              <div class="col-actions">
-                <button
-                  class="btn-remove-track"
-                  onclick={() => handleRemoveTrack(track.id)}
-                  title={m.playlists.removeFromPlaylist}
-                >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    class="icon-remove"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
+        <!-- トラック一覧（一覧がフォーカスを受けてキー操作を扱う） -->
+        <div
+          class="track-rows"
+          role="listbox"
+          aria-multiselectable="true"
+          aria-label={selectedPlaylist.name}
+          tabindex="0"
+          onkeydown={handleListKeydown}
+        >
+          {#each selectedPlaylist.tracks as playlistTrack, index (playlistTrack.trackId)}
+            {@const track = getTrackById(playlistTrack.trackId)}
+            {#if track}
+              <!-- キー操作は一覧（listbox）で受けるため、行はフォーカスを受けない -->
+              <!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
+              <div
+                class="track-row"
+                class:selected={selection.has(track.id)}
+                draggable="true"
+                ondragstart={() => {
+                  draggedTrackId = track.id;
+                }}
+                ondragover={handleDragOver}
+                ondrop={(e) => handleDropOnTrack(e, track.id)}
+                onclick={(e) => handleTrackClick(track.id, e)}
+                ondblclick={() => handleTrackDoubleClick(track)}
+                role="option"
+                aria-selected={selection.has(track.id)}
+                data-track-id={track.id}
+              >
+                <div class="col-number">{index + 1}</div>
+                <div class="col-title">
+                  <span class="track-name">{track.title || track.fileName}</span>
+                </div>
+                <div class="col-artist">{track.artist || m.common.unknownArtist}</div>
+                <div class="col-album">{track.album || m.common.unknownAlbum}</div>
+                <div class="col-duration">{formatDuration(track.duration)}</div>
+                <div class="col-actions">
+                  <button
+                    class="btn-remove-track"
+                    onclick={() => handleRemoveTrack(track.id)}
+                    title={m.playlists.removeFromPlaylist}
                   >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg>
-                </button>
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="icon-remove"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M6 18L18 6M6 6l12 12"
+                      />
+                    </svg>
+                  </button>
+                </div>
               </div>
-            </div>
-          {/if}
-        {/each}
+            {/if}
+          {/each}
+        </div>
       {/if}
     </div>
   {/if}
@@ -419,13 +472,22 @@
     grid-template-columns: 3rem 2fr 1.5fr 1.5fr 4rem 3rem;
   }
 
+  /* 枠は出さず、選択中の行の色で示す */
+  .track-rows {
+    @apply outline-none;
+  }
+
   .track-row {
-    @apply grid gap-4 px-4 py-3 items-center cursor-pointer rounded transition-colors;
+    @apply grid gap-4 px-4 py-3 items-center cursor-pointer rounded transition-colors select-none;
     grid-template-columns: 3rem 2fr 1.5fr 1.5fr 4rem 3rem;
   }
 
   .track-row:hover {
     @apply bg-surface-hover;
+  }
+
+  .track-row.selected {
+    @apply bg-primary/20;
   }
 
   .col-number {

@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { AlbumGroup } from '#lib/types/models.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
+  import { moveListSelection } from '#lib/utils/listNavigation.js';
   import MarqueeText from '../MarqueeText.svelte';
   import AlbumArt from '../AlbumArt.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
@@ -13,15 +14,31 @@
   }
 
   let { albums, selectedAlbum, onSelect }: Props = $props();
+
+  // ↑↓・Home・Endで、選択中のアルバムから前後のアルバムへ選択を移す
+  function handleKeydown(event: KeyboardEvent) {
+    const current = albums.findIndex((album) => album.name === selectedAlbum?.name);
+    const target = moveListSelection(event, current);
+    if (target !== null) onSelect(albums[target]);
+  }
 </script>
 
-<div class="album-list">
-  <!-- アルバムリスト -->
+<!-- Tabでは選択中のアルバムだけに止まり、一覧の中は矢印キーで移る -->
+<div
+  class="album-list"
+  role="listbox"
+  aria-label={m.library.albums}
+  tabindex="-1"
+  onkeydown={handleKeydown}
+>
   {#each albums as album (album.name)}
     <button
       class="album-item"
       class:active={selectedAlbum?.name === album.name}
       onclick={() => onSelect(album)}
+      role="option"
+      aria-selected={selectedAlbum?.name === album.name}
+      tabindex={selectedAlbum?.name === album.name ? 0 : -1}
     >
       <div class="album-art">
         <AlbumArt src={albumArtUrl(album.representativeTrackId)} alt={album.name} rounded="sm" />
@@ -38,11 +55,12 @@
   @reference "../../../app.css";
 
   .album-list {
-    @apply flex flex-col h-full overflow-y-auto py-1;
+    @apply flex flex-col h-full overflow-y-auto py-1 outline-none;
   }
 
+  /* 選択中の項目は背景の色で示すため、フォーカスの枠は出さない */
   .album-item {
-    @apply flex items-center gap-3 px-3 py-1.5 mx-2 border-none bg-transparent rounded-md cursor-pointer transition-colors duration-150 text-left;
+    @apply flex items-center gap-3 px-3 py-1.5 mx-2 border-none bg-transparent rounded-md cursor-pointer transition-colors duration-150 text-left outline-none;
   }
 
   .album-item:hover {

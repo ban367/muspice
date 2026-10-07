@@ -2,7 +2,7 @@
   @component LibraryGrid
   ライブラリビュー（アルバム、アーティスト、ジャンル）の共通グリッド/リストコンポーネント。
   ローディング/エラー/空/検索結果なし状態の表示、browseSearchQueryフィルタリング、
-  displayMode切替、コンテキストメニューを共通化する。
+  displayMode切替、コンテキストメニュー、キーボード操作（矢印キーでの移動）を共通化する。
 
   カードの見た目はSnippetでカスタマイズ可能。
 -->
@@ -10,6 +10,7 @@
   import type { Snippet } from 'svelte';
   import type { AlbumGroup, ArtistGroup, GenreGroup } from '#lib/types/models.js';
   import { ui } from '#lib/stores/ui.svelte.js';
+  import { countGridColumns, navigationTarget } from '#lib/utils/listNavigation.js';
   import GroupContextMenu from '../GroupContextMenu.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
@@ -43,6 +44,8 @@
     gridClass?: string;
     /** GroupContextMenuのtype */
     groupType: 'album' | 'artist' | 'genre';
+    /** キーボードで選んだ項目をEnterで開く時の操作（カード・行のクリックと同じ操作を渡す） */
+    onOpen?: (_item: T) => void;
     /** グリッド/リストの下に追加するコンテンツ（モーダル等） */
     footer?: Snippet;
   }
@@ -62,6 +65,7 @@
     gridStyle = '',
     gridClass = '',
     groupType,
+    onOpen,
     footer
   }: Props = $props();
 
@@ -71,6 +75,46 @@
     if (!query) return items;
     return items.filter((item) => filterFn(item, query));
   });
+
+  // キーボードで移動する時の現在位置（項目の名前。クリックした項目もここに入る）
+  let activeName = $state<string | null>(null);
+
+  /**
+   * 一覧のキーボード操作
+   *
+   * 矢印キー（グリッドでは上下左右、リストでは上下）・Home・Endで現在位置を移し、Enterで開く。
+   */
+  function handleKeydown(event: KeyboardEvent) {
+    if (event.defaultPrevented) return;
+    if (event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return;
+
+    const list = event.currentTarget;
+    if (!(list instanceof HTMLElement)) return;
+
+    if (event.key === 'Enter') {
+      // カードの中のボタン（再生）では、そのボタンの操作を優先する
+      if (event.target instanceof Element && event.target.closest('button, a')) return;
+      const item = filteredItems.find((candidate) => candidate.name === activeName);
+      if (item && onOpen) {
+        onOpen(item);
+        event.preventDefault();
+      }
+      return;
+    }
+
+    const current = filteredItems.findIndex((item) => item.name === activeName);
+    const columns =
+      displayMode === 'grid'
+        ? countGridColumns(list.children as HTMLCollectionOf<HTMLElement>)
+        : null;
+    const target = navigationTarget(event.key, current, filteredItems.length, columns);
+    if (target === null) return;
+
+    // 既定の動作（一覧のスクロール）の代わりに、移動先の項目を見える位置へ出す
+    event.preventDefault();
+    activeName = filteredItems[target].name;
+    list.children[target]?.scrollIntoView({ block: 'nearest' });
+  }
 
   // コンテキストメニュー
   let contextMenu = $state<{ x: number; y: number; item: T } | null>(null);
@@ -120,16 +164,48 @@
       <p>{m.library.noMatch(ui.browseSearchQuery, itemLabel)}</p>
     </div>
   {:else if filteredItems.length > 0}
+    <!-- 一覧がフォーカスを受けてキー操作を扱い、現在位置の項目を枠・背景で示す -->
     {#if displayMode === 'grid'}
-      <div class={gridClass} style={gridStyle}>
+      <div
+        class="item-grid {gridClass}"
+        style={gridStyle}
+        role="listbox"
+        aria-label={itemLabel}
+        tabindex="0"
+        onkeydown={handleKeydown}
+      >
         {#each filteredItems as item (item.name)}
-          {@render gridCard(item)}
+          <!-- svelte-ignore a11y_interactive_supports_focus -->
+          <div
+            class="grid-item"
+            class:active={item.name === activeName}
+            role="option"
+            aria-selected={item.name === activeName}
+            onpointerdown={() => (activeName = item.name)}
+          >
+            {@render gridCard(item)}
+          </div>
         {/each}
       </div>
     {:else}
-      <div class="item-list">
+      <div
+        class="item-list"
+        role="listbox"
+        aria-label={itemLabel}
+        tabindex="0"
+        onkeydown={handleKeydown}
+      >
         {#each filteredItems as item (item.name)}
-          {@render listRow(item)}
+          <!-- svelte-ignore a11y_interactive_supports_focus -->
+          <div
+            class="list-item"
+            class:active={item.name === activeName}
+            role="option"
+            aria-selected={item.name === activeName}
+            onpointerdown={() => (activeName = item.name)}
+          >
+            {@render listRow(item)}
+          </div>
         {/each}
       </div>
     {/if}
@@ -161,7 +237,29 @@
 <style>
   @reference "../../../app.css";
 
+  .item-grid {
+    @apply outline-none;
+  }
+
   .item-list {
-    @apply flex flex-col;
+    @apply flex flex-col outline-none;
+  }
+
+  /* キーボードで移動する時の現在位置 */
+  .grid-item {
+    @apply rounded-lg;
+  }
+
+  .grid-item.active {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+
+  .list-item {
+    @apply rounded-md;
+  }
+
+  .list-item.active {
+    @apply bg-surface-active;
   }
 </style>
