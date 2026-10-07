@@ -40,12 +40,12 @@ pub use tracks::{
 // メタデータ編集
 pub use metadata_cmd::{
     refresh_library_metadata, update_multiple_tracks_metadata, update_track_metadata,
-    update_track_metadata_with_file,
+    write_library_metadata_to_files,
 };
 
 // プレイリスト管理
 pub use playlist_cmd::{
-    add_track_to_playlist, create_playlist, delete_playlist, get_playlists,
+    add_tracks_to_playlist, create_playlist, delete_playlist, get_playlists,
     remove_track_from_playlist, rename_playlist, reorder_playlist_tracks,
 };
 

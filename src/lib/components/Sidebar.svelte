@@ -7,7 +7,7 @@
   import { open } from '@tauri-apps/plugin-dialog';
   import {
     usePlaylistsQuery,
-    useAddTrackToPlaylistMutation,
+    useAddTracksToPlaylistMutation,
     useCreatePlaylistMutation
   } from '#lib/queries/playlists.js';
   import { useRegisterSyncDeviceMutation, useSyncDevicesQuery } from '#lib/queries/devices.js';
@@ -17,6 +17,7 @@
   import { validatePlaylistName, toSafeString } from '#lib/utils/validation.js';
   import { promptText } from '#lib/utils/dialog.svelte.js';
   import { ui } from '#lib/stores/ui.svelte.js';
+  import { isTrackDrag, readDraggedTrackIds } from '#lib/utils/trackDrag.js';
   import { useGenresGroupedQuery } from '#lib/queries/tracks.js';
   import type { Playlist } from '#lib/types/models.js';
   import PlaylistContextMenu from './PlaylistContextMenu.svelte';
@@ -53,7 +54,7 @@
 
   // クエリとミューテーション
   const playlistsQuery = usePlaylistsQuery();
-  const addTrackMutation = useAddTrackToPlaylistMutation();
+  const addTracksMutation = useAddTracksToPlaylistMutation();
   const createPlaylistMutation = useCreatePlaylistMutation();
 
   // 転送先デバイス
@@ -148,6 +149,8 @@
    * プレイリストへのドラッグオーバー
    */
   function handleDragOver(event: DragEvent) {
+    // トラックのドラッグだけを受け付ける
+    if (!isTrackDrag(event)) return;
     event.preventDefault();
     if (event.dataTransfer) {
       event.dataTransfer.dropEffect = 'copy';
@@ -169,24 +172,10 @@
     event.preventDefault();
     (event.currentTarget as HTMLElement).classList.remove('playlist-drag-over');
 
-    const trackId = event.dataTransfer?.getData('text/plain');
-    const trackIdsJson = event.dataTransfer?.getData('application/json');
-
-    if (trackIdsJson) {
-      // 複数トラックの追加
-      try {
-        const trackIds = JSON.parse(trackIdsJson) as string[];
-        for (const id of trackIds) {
-          addTrackMutation.mutate({ playlistId, trackId: id });
-        }
-      } catch {
-        // JSON解析失敗時は単一トラックとして処理
-        if (trackId) {
-          addTrackMutation.mutate({ playlistId, trackId });
-        }
-      }
-    } else if (trackId) {
-      addTrackMutation.mutate({ playlistId, trackId });
+    // ドラッグした曲（選択していた曲すべて）を、一覧の並び順のまま1回で追加する
+    const trackIds = readDraggedTrackIds(event);
+    if (trackIds.length > 0) {
+      addTracksMutation.mutate({ playlistId, trackIds });
     }
   }
 

@@ -569,9 +569,9 @@ mod tests {
             self.state
                 .with_db(|db| {
                     let playlist = crate::playlist::create_playlist(db, name).unwrap();
-                    for track_id in track_ids {
-                        crate::playlist::add_track_to_playlist(db, &playlist.id, track_id).unwrap();
-                    }
+                    let track_ids: Vec<String> =
+                        track_ids.iter().map(|id| id.to_string()).collect();
+                    crate::playlist::add_tracks_to_playlist(db, &playlist.id, &track_ids).unwrap();
                     Ok(playlist.id)
                 })
                 .unwrap()

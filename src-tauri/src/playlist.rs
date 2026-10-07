@@ -82,7 +82,9 @@ pub fn get_all_playlists(conn: &Connection) -> Result<Vec<Playlist>> {
 }
 
 /// プレイリストにトラックを追加
-pub fn add_track_to_playlist(conn: &Connection, playlist_id: &str, track_id: &str) -> Result<()> {
+///
+/// 追加した場合はtrue、すでに入っていて何もしなかった場合はfalseを返す。
+fn add_track_to_playlist(conn: &Connection, playlist_id: &str, track_id: &str) -> Result<bool> {
     // プレイリストの存在確認
     let playlist_exists: bool = conn
         .prepare("SELECT 1 FROM playlists WHERE id = ?1")?
@@ -107,7 +109,7 @@ pub fn add_track_to_playlist(conn: &Connection, playlist_id: &str, track_id: &st
         .exists(rusqlite::params![playlist_id, track_id])?;
 
     if already_exists {
-        return Ok(()); // 既に存在する場合はスキップ
+        return Ok(false); // 既に存在する場合はスキップ
     }
 
     // 現在の最大position値を取得
@@ -135,7 +137,30 @@ pub fn add_track_to_playlist(conn: &Connection, playlist_id: &str, track_id: &st
         rusqlite::params![now, playlist_id],
     )?;
 
-    Ok(())
+    Ok(true)
+}
+
+/// プレイリストに複数のトラックを、渡した順に追加する
+///
+/// すでに入っているトラック（同じIDを2回渡した場合の2回目を含む）は飛ばす。
+/// 1つのトランザクションで行い、途中で失敗した場合は1曲も追加しない。
+/// 追加したトラック数を返す。
+pub fn add_tracks_to_playlist(
+    conn: &Connection,
+    playlist_id: &str,
+    track_ids: &[String],
+) -> Result<usize> {
+    let tx = conn.unchecked_transaction()?;
+
+    let mut added = 0;
+    for track_id in track_ids {
+        if add_track_to_playlist(&tx, playlist_id, track_id)? {
+            added += 1;
+        }
+    }
+
+    tx.commit()?;
+    Ok(added)
 }
 
 /// プレイリストからトラックを削除
@@ -416,11 +441,49 @@ mod tests {
         insert_test_track(&conn, "track1");
 
         let result = add_track_to_playlist(&conn, &playlist.id, "track1");
-        assert!(result.is_ok());
+        assert!(result.unwrap());
 
         let playlists = get_all_playlists(&conn).unwrap();
         assert_eq!(playlists[0].tracks.len(), 1);
         assert_eq!(playlists[0].tracks[0].track_id, "track1");
+    }
+
+    /// 渡した順に追加し、すでに入っているトラックは飛ばして、追加した数を返す
+    #[test]
+    fn test_add_tracks_to_playlist_keeps_order_and_skips_existing() {
+        let conn = setup_test_db();
+        let playlist = create_playlist(&conn, "Test Playlist").unwrap();
+        for id in ["track1", "track2", "track3", "track4"] {
+            insert_test_track(&conn, id);
+        }
+        add_track_to_playlist(&conn, &playlist.id, "track2").unwrap();
+
+        let ids = ["track3", "track2", "track1", "track3"].map(String::from);
+        let added = add_tracks_to_playlist(&conn, &playlist.id, &ids).unwrap();
+        assert_eq!(added, 2);
+
+        let playlists = get_all_playlists(&conn).unwrap();
+        let order: Vec<(&str, i32)> = playlists[0]
+            .tracks
+            .iter()
+            .map(|t| (t.track_id.as_str(), t.position))
+            .collect();
+        assert_eq!(order, [("track2", 0), ("track3", 1), ("track1", 2)]);
+    }
+
+    /// 途中のトラックが見つからない場合は、1曲も追加しない
+    #[test]
+    fn test_add_tracks_to_playlist_rolls_back_on_missing_track() {
+        let conn = setup_test_db();
+        let playlist = create_playlist(&conn, "Test Playlist").unwrap();
+        insert_test_track(&conn, "track1");
+
+        let ids = ["track1", "missing"].map(String::from);
+        let result = add_tracks_to_playlist(&conn, &playlist.id, &ids);
+        assert!(matches!(result, Err(rusqlite::Error::QueryReturnedNoRows)));
+
+        let playlists = get_all_playlists(&conn).unwrap();
+        assert!(playlists[0].tracks.is_empty());
     }
 
     #[test]

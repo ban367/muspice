@@ -1,14 +1,29 @@
 //! メタデータ編集関連コマンド
+//!
+//! メタデータ（タイトルなど）と評価は、音楽ファイルのタグを正とする。編集は常にファイルへ
+//! 書き込み、データベースには同じ値を記録する（一覧・検索のため）。ファイルへ書き込めない
+//! 場合はエラーにし、データベースも変えない。
 
+use super::import::create_track_from_file;
 use super::run_blocking;
 use crate::error::{AppError, AppResult};
-use crate::metadata::{extract_all_file_info, update_file_metadata, validate_metadata};
-use crate::models::{Metadata, ReplayGain};
+use crate::events::LibraryChanged;
+use crate::library::{get_default_title, to_count};
+use crate::metadata::{
+    FileInfo, extract_all_file_info, update_file_metadata, update_file_metadata_and_rating,
+    validate_metadata,
+};
+use crate::models::{Metadata, Track};
+use crate::repository::TrackTagValues;
 use crate::state::AppState;
 use crate::validation::{validate_string_length, validate_track_id};
 use chrono::Utc;
 use std::path::Path;
 use tauri::{AppHandle, Manager, State};
+use tauri_specta::Event;
+
+/// 1回のトランザクションで書き込むトラック数（インポートと同じ）
+const BATCH_SIZE: usize = 50;
 
 /// メタデータの内容と各フィールドの長さをまとめてバリデーション
 fn validate_metadata_input(metadata: &Metadata) -> AppResult<()> {
@@ -22,24 +37,22 @@ fn validate_metadata_input(metadata: &Metadata) -> AppResult<()> {
     Ok(())
 }
 
-/// トラックのメタデータを更新（データベースのみ）
+/// 書き込み後のファイルのサイズと更新日時を取得する
+///
+/// データベースに記録し、再スキャンで自分の書き込みを変更として検出しないようにする。
+fn file_state_of(path: &Path) -> (Option<i64>, Option<i64>) {
+    (
+        crate::library::get_file_size(path).ok(),
+        crate::library::get_file_modified_at(path),
+    )
+}
+
+/// トラックのメタデータを更新（ファイルのタグとデータベース）
+///
+/// タイトル・アーティスト・アルバム・ジャンル・年は、値がなければタグからも取り除く。
 #[tauri::command]
 #[specta::specta]
 pub async fn update_track_metadata(
-    track_id: String,
-    metadata: Metadata,
-    state: State<'_, AppState>,
-) -> AppResult<()> {
-    validate_track_id(&track_id)?;
-    validate_metadata_input(&metadata)?;
-
-    state.with_db(|db| crate::repository::update_track_metadata(db, &track_id, &metadata))
-}
-
-/// トラックのメタデータを更新（ファイルとデータベース両方）
-#[tauri::command]
-#[specta::specta]
-pub async fn update_track_metadata_with_file(
     track_id: String,
     metadata: Metadata,
     state: State<'_, AppState>,
@@ -52,15 +65,11 @@ pub async fn update_track_metadata_with_file(
         state.with_db(|db| crate::repository::find_file_path_by_track_id(db, &track_id))?;
 
     // ファイルのメタデータを更新（ファイルI/OのためDBロック外・ブロッキング処理用スレッドで実行）
-    // 書き込み後のサイズと更新日時も取得し、再スキャンで自分の書き込みを変更として検出しないようにする
     let file_metadata = metadata.clone();
     let (file_size, file_modified_at) = run_blocking(move || {
         let path = Path::new(&file_path);
-        update_file_metadata(path, &file_metadata)?;
-        Ok((
-            crate::library::get_file_size(path).ok(),
-            crate::library::get_file_modified_at(path),
-        ))
+        update_file_metadata(path, &file_metadata, true)?;
+        Ok(file_state_of(path))
     })
     .await?;
 
@@ -80,14 +89,29 @@ pub async fn update_track_metadata_with_file(
     })
 }
 
-/// 複数トラックのメタデータを一括更新（データベースのみ）
+/// 一括編集の結果
+#[derive(Debug, Clone, Default, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct BulkUpdateResult {
+    /// ファイルとデータベースを更新できたトラック数
+    pub updated_count: u32,
+    /// 更新できなかったトラック数（ファイルが見つからない・書き込めないなど）
+    pub failed_count: u32,
+    /// 更新できなかったトラックの理由（ファイルごと）
+    pub errors: Vec<String>,
+}
+
+/// 複数トラックのメタデータを一括更新（ファイルのタグとデータベース）
+///
+/// 値がある項目だけを変える。ファイルへ書き込めなかったトラックは、データベースも変えずに
+/// 結果の`errors`へ理由を入れ、残りのトラックの更新を続ける。
 #[tauri::command]
 #[specta::specta]
 pub async fn update_multiple_tracks_metadata(
     track_ids: Vec<String>,
     metadata: Metadata,
-    state: State<'_, AppState>,
-) -> AppResult<()> {
+    app: AppHandle,
+) -> AppResult<BulkUpdateResult> {
     if track_ids.is_empty() {
         return Err(AppError::Validation(
             "トラックIDが指定されていません".to_string(),
@@ -101,25 +125,77 @@ pub async fn update_multiple_tracks_metadata(
 
     validate_metadata_input(&metadata)?;
 
-    state.with_db(|db| {
-        let now = Utc::now().to_rfc3339();
+    // ファイルの書き込みとバッチ書き込みはブロッキング処理用スレッドで行う
+    run_blocking(move || {
+        update_multiple_blocking(app.state::<AppState>().inner(), &track_ids, &metadata)
+    })
+    .await
+}
 
-        // トランザクションを開始
-        let tx = db.transaction().map_err(|e| {
-            AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
-        })?;
+/// `update_multiple_tracks_metadata`の本体（同期処理）
+fn update_multiple_blocking(
+    state: &AppState,
+    track_ids: &[String],
+    metadata: &Metadata,
+) -> AppResult<BulkUpdateResult> {
+    let mut result = BulkUpdateResult::default();
 
-        for track_id in &track_ids {
-            crate::repository::update_track_metadata_partial(&tx, track_id, &metadata, &now)?;
+    for chunk in track_ids.chunks(BATCH_SIZE) {
+        // 1. ロック外: ファイルへ書き込む（書き込めたトラックだけをデータベースに反映する）
+        // （トラックID, ファイルのサイズ, ファイルの更新日時）
+        let mut written: Vec<(&String, Option<i64>, Option<i64>)> = Vec::new();
+
+        for track_id in chunk {
+            let file_path =
+                state.with_db(|db| crate::repository::find_file_path_by_track_id(db, track_id));
+            let outcome = file_path.and_then(|file_path| {
+                let path = Path::new(&file_path);
+                update_file_metadata(path, metadata, false)
+                    .map(|()| file_state_of(path))
+                    .map_err(|e| AppError::Metadata(format!("{}: {}", file_path, e)))
+            });
+            match outcome {
+                Ok((file_size, file_modified_at)) => {
+                    written.push((track_id, file_size, file_modified_at))
+                }
+                Err(e) => {
+                    result.errors.push(e.to_string());
+                    result.failed_count += 1;
+                }
+            }
         }
 
-        // トランザクションをコミット
-        tx.commit().map_err(|e| {
-            AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
-        })?;
+        if written.is_empty() {
+            continue;
+        }
 
-        Ok(())
-    })
+        // 2. ロック内: バッチをまとめて書き込む
+        state.with_db(|db| {
+            let now = Utc::now().to_rfc3339();
+            let tx = db.transaction().map_err(|e| {
+                AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
+            })?;
+
+            for (track_id, file_size, file_modified_at) in &written {
+                crate::repository::update_track_metadata_partial(&tx, track_id, metadata, &now)?;
+                if let Some(file_size) = file_size {
+                    crate::repository::set_track_file_state(
+                        &tx,
+                        track_id,
+                        *file_size,
+                        *file_modified_at,
+                    )?;
+                }
+            }
+
+            tx.commit().map_err(|e| {
+                AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
+            })
+        })?;
+        result.updated_count += to_count(written.len())?;
+    }
+
+    Ok(result)
 }
 
 /// メタデータ更新の結果
@@ -132,21 +208,10 @@ pub struct RefreshMetadataResult {
     pub errors: Vec<String>,
 }
 
-/// ファイルから抽出済みのトラック番号・ディスク番号
-///
-/// ロック外の抽出フェーズで用意し、ロック内の書き込みフェーズで消費する。
-/// 更新失敗時のエラーメッセージにファイルパスを含められるよう保持している。
-struct PendingTrackNumbers<'a> {
-    track_id: &'a str,
-    file_path: &'a str,
-    track_number: Option<i32>,
-    disc_number: Option<i32>,
-    replay_gain: ReplayGain,
-}
-
 /// ライブラリ全体のメタデータを更新
-/// ファイルからtrack_number・disc_number・ReplayGainを再読み込み
-/// （タイトルなどはDBだけで編集できるため、ファイルの内容で上書きしない）
+///
+/// 全トラックのファイルを読み直し、タグの内容（タイトルなど・評価・トラック番号・
+/// ReplayGain）と長さなどをデータベースに反映する。お気に入り・再生回数は変えない。
 #[tauri::command]
 #[specta::specta]
 pub async fn refresh_library_metadata(app: AppHandle) -> AppResult<RefreshMetadataResult> {
@@ -171,12 +236,12 @@ fn refresh_library_metadata_blocking(state: &AppState) -> AppResult<RefreshMetad
     //
     // ファイル読み取り（メタデータ抽出）はDBロックの外で行い、
     // ロックはバッチ単位の書き込みの間だけ保持する。
-    const BATCH_SIZE: usize = 50;
     for (batch_idx, chunk) in tracks.chunks(BATCH_SIZE).enumerate() {
-        // 1. ロック外: ファイルからメタデータを抽出する
-        let mut pending: Vec<PendingTrackNumbers<'_>> = Vec::new();
+        // 1. ロック外: ファイルからトラック情報を読み直す
+        // （トラック, ファイルの更新日時）
+        let mut pending: Vec<(Track, Option<i64>)> = Vec::new();
 
-        for (track_id, file_path) in chunk {
+        for (_, file_path) in chunk {
             let path = Path::new(file_path);
 
             // ファイルが存在しない場合はスキップ
@@ -185,23 +250,8 @@ fn refresh_library_metadata_blocking(state: &AppState) -> AppResult<RefreshMetad
                 continue;
             }
 
-            match extract_all_file_info(path) {
-                Ok(info) => {
-                    // ログ: 抽出されたトラック番号とディスク番号
-                    log::info!(
-                        "メタデータ抽出: {} - track={:?}, disc={:?}",
-                        file_path,
-                        info.metadata.track_number,
-                        info.metadata.disc_number
-                    );
-                    pending.push(PendingTrackNumbers {
-                        track_id,
-                        file_path,
-                        track_number: info.metadata.track_number,
-                        disc_number: info.metadata.disc_number,
-                        replay_gain: info.replay_gain,
-                    });
-                }
+            match create_track_from_file(path) {
+                Ok(track) => pending.push((track, crate::library::get_file_modified_at(path))),
                 Err(e) => {
                     errors.push(format!("{}: {}", file_path, e));
                     error_count += 1;
@@ -216,17 +266,11 @@ fn refresh_library_metadata_blocking(state: &AppState) -> AppResult<RefreshMetad
                     AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
                 })?;
 
-                for item in &pending {
-                    match crate::repository::update_track_numbers(
-                        &tx,
-                        item.track_id,
-                        item.track_number,
-                        item.disc_number,
-                        &item.replay_gain,
-                    ) {
+                for (track, modified_at) in &pending {
+                    match crate::repository::update_track_by_file_path(&tx, track, *modified_at) {
                         Ok(()) => updated_count += 1,
                         Err(e) => {
-                            errors.push(format!("{}: DB更新失敗 - {}", item.file_path, e));
+                            errors.push(format!("{}: DB更新失敗 - {}", track.file_path, e));
                             error_count += 1;
                         }
                     }
@@ -259,4 +303,258 @@ fn refresh_library_metadata_blocking(state: &AppState) -> AppResult<RefreshMetad
         error_count,
         errors,
     })
+}
+
+/// アプリ内の値をファイルへ書き出した結果
+#[derive(Debug, Clone, Default, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct WriteMetadataResult {
+    /// ファイルへ書き込んだトラック数
+    pub written_count: u32,
+    /// ファイルと同じ内容で、書き込まなかったトラック数
+    pub unchanged_count: u32,
+    /// ファイルが見つからず、飛ばしたトラック数
+    pub skipped_count: u32,
+    /// 書き込めなかったトラック数
+    pub error_count: u32,
+    /// 書き込めなかったトラックの理由（ファイルごと）
+    pub errors: Vec<String>,
+}
+
+/// ファイルのタグと違う、データベース上の値（ファイルへ書き出す項目）
+///
+/// 以前はファイルへ書き込まずにデータベースだけを編集できたため、その内容を取り出す。
+/// データベースに値がない項目（空にしたタイトル・評価なしなど）は書き出さない
+/// （ファイルにだけある値を消さないため）。
+/// @returns 書き出すメタデータと評価。違いがなければNone
+fn pending_file_changes(
+    values: &TrackTagValues,
+    file: &FileInfo,
+    default_title: &str,
+) -> Option<(Metadata, Option<i32>)> {
+    let changed = |db: &Option<String>, file: &Option<String>| match db {
+        Some(value) if file.as_ref() != Some(value) => Some(value.clone()),
+        _ => None,
+    };
+
+    // タグにタイトルがないファイルは、ファイル名をタイトルとして登録している。
+    // その既定のタイトルは、編集した内容ではないため書き出さない
+    let title = changed(&values.title, &file.metadata.title)
+        .filter(|title| file.metadata.title.is_some() || title != default_title);
+
+    let metadata = Metadata {
+        title,
+        artist: changed(&values.artist, &file.metadata.artist),
+        album: changed(&values.album, &file.metadata.album),
+        genre: changed(&values.genre, &file.metadata.genre),
+        year: values.year.filter(|year| file.metadata.year != Some(*year)),
+        track_number: None,
+        disc_number: None,
+        album_artist: None,
+        composer: None,
+    };
+    let rating = (values.rating > 0 && values.rating != file.rating).then_some(values.rating);
+
+    let has_changes = metadata.title.is_some()
+        || metadata.artist.is_some()
+        || metadata.album.is_some()
+        || metadata.genre.is_some()
+        || metadata.year.is_some()
+        || rating.is_some();
+    has_changes.then_some((metadata, rating))
+}
+
+/// アプリ内（データベース）だけにある編集内容・評価を、ファイルのタグへ書き出す
+///
+/// ファイルと違う値だけを書き込み、その後ファイルを読み直してデータベースに反映する
+/// （終わると、データベースはファイルの内容と一致する）。メタデータの編集がファイルへ
+/// 書き込まれなかった頃の内容を、ファイルへ移すために使う。
+#[tauri::command]
+#[specta::specta]
+pub async fn write_library_metadata_to_files(app: AppHandle) -> AppResult<WriteMetadataResult> {
+    run_blocking(move || {
+        let state = app.state::<AppState>();
+        let result = {
+            // 再スキャン・インポートと同じファイルを同時に読み書きしないよう、終わるまで待つ
+            let _scan = state.lock_library_scan();
+            write_library_metadata_blocking(state.inner())?
+        };
+        // 他のウィンドウの一覧にも反映させる
+        if let Err(e) = LibraryChanged.emit(&app) {
+            log::warn!("ライブラリの変更の通知に失敗しました: {}", e);
+        }
+        Ok(result)
+    })
+    .await
+}
+
+/// `write_library_metadata_to_files`の本体（同期処理）
+fn write_library_metadata_blocking(state: &AppState) -> AppResult<WriteMetadataResult> {
+    let mut result = WriteMetadataResult::default();
+    let tracks = state.with_db(|db| crate::repository::find_all_track_tag_values(db))?;
+    log::info!("メタデータの書き出しを開始: {} トラック", tracks.len());
+
+    for chunk in tracks.chunks(BATCH_SIZE) {
+        // 1. ロック外: ファイルと比べ、違う値を書き込んで読み直す
+        // （読み直したトラック, ファイルの更新日時）
+        let mut pending: Vec<(Track, Option<i64>)> = Vec::new();
+
+        for values in chunk {
+            let path = Path::new(&values.file_path);
+            if !path.exists() {
+                result.skipped_count += 1;
+                continue;
+            }
+
+            match write_track_to_file(values, path) {
+                Ok((track, written)) => {
+                    if written {
+                        result.written_count += 1;
+                    } else {
+                        result.unchanged_count += 1;
+                    }
+                    pending.push((track, crate::library::get_file_modified_at(path)));
+                }
+                Err(e) => {
+                    result.errors.push(format!("{}: {}", values.file_path, e));
+                    result.error_count += 1;
+                }
+            }
+        }
+
+        if pending.is_empty() {
+            continue;
+        }
+
+        // 2. ロック内: 読み直した内容をバッチでまとめて書き込む
+        state.with_db(|db| {
+            let tx = db.transaction().map_err(|e| {
+                AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
+            })?;
+            for (track, modified_at) in &pending {
+                crate::repository::update_track_by_file_path(&tx, track, *modified_at)?;
+            }
+            tx.commit().map_err(|e| {
+                AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
+            })
+        })?;
+    }
+
+    log::info!(
+        "メタデータの書き出し完了: 書き込み={}, 変更なし={}, スキップ={}, エラー={}",
+        result.written_count,
+        result.unchanged_count,
+        result.skipped_count,
+        result.error_count
+    );
+    Ok(result)
+}
+
+/// 1曲分: ファイルと違う値を書き込み、ファイルを読み直す
+///
+/// @returns （読み直したトラック, ファイルへ書き込んだか）
+fn write_track_to_file(values: &TrackTagValues, path: &Path) -> AppResult<(Track, bool)> {
+    let file = extract_all_file_info(path)?;
+    let changes = pending_file_changes(values, &file, &get_default_title(path));
+    let written = match &changes {
+        Some((metadata, rating)) => {
+            update_file_metadata_and_rating(path, metadata, *rating)?;
+            true
+        }
+        None => false,
+    };
+    Ok((create_track_from_file(path)?, written))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::ReplayGain;
+
+    fn db_values() -> TrackTagValues {
+        TrackTagValues {
+            id: "t1".to_string(),
+            file_path: "/music/song.mp3".to_string(),
+            title: Some("Title".to_string()),
+            artist: Some("Artist".to_string()),
+            album: None,
+            genre: None,
+            year: Some(2020),
+            rating: 4,
+        }
+    }
+
+    fn file_info(metadata: Metadata, rating: i32) -> FileInfo {
+        FileInfo {
+            metadata,
+            duration: None,
+            bitrate: None,
+            sample_rate: None,
+            replay_gain: ReplayGain::default(),
+            rating,
+        }
+    }
+
+    fn metadata(title: Option<&str>, artist: Option<&str>, album: Option<&str>) -> Metadata {
+        Metadata {
+            title: title.map(String::from),
+            artist: artist.map(String::from),
+            album: album.map(String::from),
+            genre: None,
+            year: Some(2020),
+            track_number: None,
+            disc_number: None,
+            album_artist: None,
+            composer: None,
+        }
+    }
+
+    #[test]
+    fn test_pending_file_changes_none_when_file_matches() {
+        let file = file_info(metadata(Some("Title"), Some("Artist"), None), 4);
+        assert!(pending_file_changes(&db_values(), &file, "song").is_none());
+    }
+
+    #[test]
+    fn test_pending_file_changes_picks_only_differing_values() {
+        let file = file_info(metadata(Some("Title"), Some("Old Artist"), None), 0);
+        let (metadata, rating) =
+            pending_file_changes(&db_values(), &file, "song").expect("違いがあること");
+
+        assert_eq!(metadata.title, None);
+        assert_eq!(metadata.artist.as_deref(), Some("Artist"));
+        assert_eq!(metadata.year, None);
+        assert_eq!(rating, Some(4));
+    }
+
+    /// データベースに値がない項目は、ファイルにだけ値があっても書き出さない（消さない）
+    #[test]
+    fn test_pending_file_changes_keeps_values_only_in_file() {
+        let values = TrackTagValues {
+            rating: 0,
+            ..db_values()
+        };
+        let file = file_info(metadata(Some("Title"), Some("Artist"), Some("Album")), 5);
+        assert!(pending_file_changes(&values, &file, "song").is_none());
+    }
+
+    /// タグにタイトルがないファイルの、ファイル名から付けた既定のタイトルは書き出さない
+    #[test]
+    fn test_pending_file_changes_skips_default_title() {
+        let values = TrackTagValues {
+            title: Some("song".to_string()),
+            rating: 0,
+            ..db_values()
+        };
+        let file = file_info(metadata(None, Some("Artist"), None), 0);
+        assert!(pending_file_changes(&values, &file, "song").is_none());
+
+        // 編集したタイトルは書き出す
+        let edited = TrackTagValues {
+            title: Some("Edited".to_string()),
+            ..values
+        };
+        let (metadata, _) = pending_file_changes(&edited, &file, "song").expect("違いがあること");
+        assert_eq!(metadata.title.as_deref(), Some("Edited"));
+    }
 }

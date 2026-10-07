@@ -1,6 +1,7 @@
 <script lang="ts">
   import CardSizeSlider from './CardSizeSlider.svelte';
   import { useRefreshLibraryMetadataMutation } from '#lib/queries/tracks.js';
+  import { confirmDestructive } from '#lib/utils/dialog.svelte.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   // Props
@@ -67,6 +68,8 @@
 
   async function handleRefreshMetadata() {
     if (refreshMutation.isPending) return;
+    // ファイルの内容でライブラリを置き換えるため、実行の前に確認する
+    if (!(await confirmDestructive(m.library.confirmRefreshMetadata))) return;
 
     try {
       const result = await refreshMutation.mutateAsync();

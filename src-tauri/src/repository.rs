@@ -596,45 +596,43 @@ pub fn find_all_track_file_paths(conn: &Connection) -> AppResult<Vec<(String, St
     Ok(paths)
 }
 
-/// トラック番号・ディスク番号・ReplayGainを更新（「メタデータを更新」でファイルから読み直す項目）
-///
-/// 対象トラックが存在しない場合はエラーを返す。
-pub fn update_track_numbers(
-    conn: &Connection,
-    track_id: &str,
-    track_number: Option<i32>,
-    disc_number: Option<i32>,
-    replay_gain: &ReplayGain,
-) -> AppResult<()> {
-    let now = chrono::Utc::now().to_rfc3339();
+/// ファイルのタグと比べるための、トラックのDB上の値（編集画面の項目と評価）
+#[derive(Debug, Clone, PartialEq)]
+pub struct TrackTagValues {
+    pub id: String,
+    pub file_path: String,
+    pub title: Option<String>,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub genre: Option<String>,
+    pub year: Option<i32>,
+    pub rating: i32,
+}
 
-    let rows_affected = conn
-        .execute(
-            "UPDATE tracks SET track_number = ?1, disc_number = ?2, updated_at = ?3,
-                replay_gain_track_gain = ?5, replay_gain_track_peak = ?6,
-                replay_gain_album_gain = ?7, replay_gain_album_peak = ?8
-             WHERE id = ?4",
-            rusqlite::params![
-                track_number,
-                disc_number,
-                now,
-                track_id,
-                replay_gain.track_gain,
-                replay_gain.track_peak,
-                replay_gain.album_gain,
-                replay_gain.album_peak,
-            ],
+/// 全トラックの、ファイルのタグと比べる値を取得する（件数の上限なし）
+pub fn find_all_track_tag_values(conn: &Connection) -> AppResult<Vec<TrackTagValues>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, file_path, title, artist, album, genre, year, COALESCE(rating, 0)
+             FROM tracks",
         )
-        .map_err(|e| AppError::Database(format!("トラック番号の更新に失敗しました: {}", e)))?;
+        .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
 
-    if rows_affected == 0 {
-        return Err(AppError::NotFound(format!(
-            "トラックが見つかりません: {}",
-            track_id
-        )));
-    }
-
-    Ok(())
+    stmt.query_map([], |row| {
+        Ok(TrackTagValues {
+            id: row.get(0)?,
+            file_path: row.get(1)?,
+            title: row.get(2)?,
+            artist: row.get(3)?,
+            album: row.get(4)?,
+            genre: row.get(5)?,
+            year: row.get(6)?,
+            rating: row.get(7)?,
+        })
+    })
+    .map_err(|e| AppError::Database(format!("クエリの実行に失敗しました: {}", e)))?
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(|e| AppError::Database(format!("結果の取得に失敗しました: {}", e)))
 }
 
 /// トラックを新規挿入
@@ -650,8 +648,9 @@ pub fn insert_track(
             id, file_path, file_name, title, artist, album, genre, year,
             track_number, disc_number, duration, file_size, format, bitrate, sample_rate, created_at, updated_at,
             file_modified_at,
-            replay_gain_track_gain, replay_gain_track_peak, replay_gain_album_gain, replay_gain_album_peak
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
+            replay_gain_track_gain, replay_gain_track_peak, replay_gain_album_gain, replay_gain_album_peak,
+            rating
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
         rusqlite::params![
             track.id,
             track.file_path,
@@ -675,16 +674,18 @@ pub fn insert_track(
             track.replay_gain.track_peak,
             track.replay_gain.album_gain,
             track.replay_gain.album_peak,
+            track.rating,
         ],
     )
     .map_err(|e| AppError::Database(format!("トラックの保存に失敗しました: {}", e)))?;
     Ok(())
 }
 
-/// file_pathをキーに既存トラックを更新（重複時の置き換え・再スキャンで変更を読み直した時）
+/// file_pathをキーに既存トラックを、ファイルから読んだ内容で更新する
+/// （重複時の置き換え・再スキャンで変更を読み直した時・「メタデータを更新」）
 ///
 /// 対象が存在しない場合はエラーを返す（更新したつもりで実際は無変更、を防ぐ）。
-/// お気に入り・レーティング・再生回数などの利用状況は変えない。
+/// 評価はファイルのタグの値にする。タグで持てないお気に入り・再生回数などは変えない。
 pub fn update_track_by_file_path(
     conn: &Connection,
     track: &Track,
@@ -696,7 +697,8 @@ pub fn update_track_by_file_path(
             track_number = ?8, disc_number = ?9, duration = ?10, file_size = ?11, format = ?12, bitrate = ?13, sample_rate = ?14,
             updated_at = ?15, file_modified_at = ?16,
             replay_gain_track_gain = ?17, replay_gain_track_peak = ?18,
-            replay_gain_album_gain = ?19, replay_gain_album_peak = ?20
+            replay_gain_album_gain = ?19, replay_gain_album_peak = ?20,
+            rating = ?21
         WHERE file_path = ?1",
         rusqlite::params![
             track.file_path,
@@ -719,6 +721,7 @@ pub fn update_track_by_file_path(
             track.replay_gain.track_peak,
             track.replay_gain.album_gain,
             track.replay_gain.album_peak,
+            track.rating,
         ],
     )
     .map_err(|e| AppError::Database(format!("トラックの更新に失敗しました: {}", e)))?;
@@ -939,15 +942,24 @@ pub fn toggle_track_favorite(conn: &Connection, track_id: &str) -> AppResult<boo
     Ok(new_value == 1)
 }
 
-/// レーティングを設定
+/// レーティングを設定（ファイルのタグへ書き込んだ後に、同じ値を記録する）
+///
+/// 対象トラックが存在しない場合はエラーを返す。
 pub fn set_track_rating(conn: &Connection, track_id: &str, rating: i32) -> AppResult<()> {
     let now = chrono::Utc::now().to_rfc3339();
 
-    conn.execute(
-        "UPDATE tracks SET rating = ?1, updated_at = ?2 WHERE id = ?3",
-        rusqlite::params![rating, now, track_id],
-    )
-    .map_err(|e| AppError::Database(format!("レーティングの更新に失敗しました: {}", e)))?;
+    let rows_affected = conn
+        .execute(
+            "UPDATE tracks SET rating = ?1, updated_at = ?2 WHERE id = ?3",
+            rusqlite::params![rating, now, track_id],
+        )
+        .map_err(|e| AppError::Database(format!("レーティングの更新に失敗しました: {}", e)))?;
+
+    if rows_affected == 0 {
+        return Err(AppError::NotFound(
+            "指定されたトラックが見つかりません".to_string(),
+        ));
+    }
 
     Ok(())
 }
@@ -1569,38 +1581,67 @@ mod tests {
         assert!(paths.contains(&("t2".to_string(), "/test/t2.mp3".to_string())));
     }
 
+    /// ファイルから読み直した内容での更新は、評価をファイルの値にし、
+    /// タグで持てないお気に入り・再生回数は変えない
     #[test]
-    fn test_update_track_numbers() {
+    fn test_update_track_by_file_path_takes_rating_from_file() {
+        let conn = setup_test_db();
+        insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
+        conn.execute(
+            "UPDATE tracks SET rating = 2, is_favorite = 1, play_count = 7 WHERE id = 't1'",
+            [],
+        )
+        .unwrap();
+
+        // ファイルから作ったトラック（評価はタグの値、お気に入り・再生回数は初期値）
+        let mut from_file = find_track_by_id(&conn, "t1").unwrap();
+        from_file.rating = 5;
+        from_file.is_favorite = false;
+        from_file.play_count = 0;
+        from_file.track_number = Some(3);
+        update_track_by_file_path(&conn, &from_file, None).unwrap();
+
+        let track = find_track_by_id(&conn, "t1").unwrap();
+        assert_eq!(track.rating, 5);
+        assert_eq!(track.track_number, Some(3));
+        assert!(track.is_favorite);
+        assert_eq!(track.play_count, 7);
+
+        // 新規の登録でも、ファイルの評価を記録する
+        from_file.id = "t2".to_string();
+        from_file.file_path = "/test/t2.mp3".to_string();
+        from_file.rating = 3;
+        insert_track(&conn, &from_file, None).unwrap();
+        assert_eq!(find_track_by_id(&conn, "t2").unwrap().rating, 3);
+    }
+
+    #[test]
+    fn test_set_track_rating() {
         let conn = setup_test_db();
         insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
 
-        let replay_gain = ReplayGain {
-            track_gain: Some(-6.5),
-            track_peak: Some(0.98),
-            album_gain: Some(-7.25),
-            album_peak: None,
-        };
-        update_track_numbers(&conn, "t1", Some(3), Some(2), &replay_gain).unwrap();
-
-        let track = find_track_by_id(&conn, "t1").unwrap();
-        assert_eq!(track.track_number, Some(3));
-        assert_eq!(track.disc_number, Some(2));
-        assert_eq!(track.replay_gain, replay_gain);
+        set_track_rating(&conn, "t1", 4).unwrap();
+        assert_eq!(find_track_by_id(&conn, "t1").unwrap().rating, 4);
 
         // 存在しないID → NotFound
-        let result = update_track_numbers(
-            &conn,
-            "nonexistent",
-            Some(1),
-            Some(1),
-            &ReplayGain::default(),
-        );
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("トラックが見つかりません")
-        );
+        assert!(matches!(
+            set_track_rating(&conn, "nonexistent", 3),
+            Err(AppError::NotFound(_))
+        ));
+    }
+
+    #[test]
+    fn test_find_all_track_tag_values() {
+        let conn = setup_test_db();
+        insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
+        set_track_rating(&conn, "t1", 3).unwrap();
+
+        let values = find_all_track_tag_values(&conn).unwrap();
+        assert_eq!(values.len(), 1);
+        assert_eq!(values[0].id, "t1");
+        assert_eq!(values[0].title.as_deref(), Some("曲A"));
+        assert_eq!(values[0].artist.as_deref(), Some("アーティストX"));
+        assert_eq!(values[0].rating, 3);
     }
 
     /// 任意のパスでトラックを挿入する（フォルダ単位の操作のテスト用）

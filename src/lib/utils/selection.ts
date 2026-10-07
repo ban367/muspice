@@ -4,6 +4,7 @@
  * トラック一覧の複数選択では、いずれの関数も引数のSetを変更せず、新しいSetを返す
  * （`$state`へ再代入して更新を伝える）。Setの挿入順は「最後に選択したトラック」の判定
  * （Shift+クリックの範囲選択の起点）に使う。
+ * 選択の状態とキーボードでの移動は`./trackSelection.svelte.ts`の`TrackSelection`が持つ。
  */
 
 /** クリック時の修飾キー */
@@ -12,18 +13,6 @@ export interface SelectionModifiers {
   shiftKey: boolean;
   /** Ctrlキー（Windows/Linux）またはCmdキー（macOS）（個別の追加・解除） */
   toggleKey: boolean;
-}
-
-/**
- * キーボード操作（Enter/Space）による選択の切り替え
- *
- * 選択中のトラックなら選択をすべて解除し、そうでなければそのトラックだけを選択する。
- */
-export function toggleKeyboardSelection(
-  current: ReadonlySet<string>,
-  trackId: string
-): Set<string> {
-  return current.has(trackId) ? new Set() : new Set([trackId]);
 }
 
 /**

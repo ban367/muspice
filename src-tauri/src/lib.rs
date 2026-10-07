@@ -20,7 +20,7 @@ mod state;
 mod validation;
 
 use commands::{
-    add_track_to_playlist, cancel_device_sync, create_playlist, delete_playlist,
+    add_tracks_to_playlist, cancel_device_sync, create_playlist, delete_playlist,
     delete_tracks_command, delete_tracks_with_files_command, filter_tracks, get_albums_grouped,
     get_all_tracks, get_artists_grouped, get_current_track, get_favorite_tracks,
     get_genres_grouped, get_library_folders, get_most_played_tracks, get_playlists,
@@ -31,7 +31,7 @@ use commands::{
     rename_playlist, reorder_playlist_tracks, rescan_library_folder, run_device_sync,
     save_settings, search_tracks, set_current_track, set_rating, show_in_folder, toggle_favorite,
     update_multiple_tracks_metadata, update_sync_device, update_track_metadata,
-    update_track_metadata_with_file,
+    write_library_metadata_to_files,
 };
 use state::AppState;
 use std::path::PathBuf;
@@ -72,13 +72,13 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             get_artists_grouped,
             get_genres_grouped,
             update_track_metadata,
-            update_track_metadata_with_file,
             update_multiple_tracks_metadata,
+            write_library_metadata_to_files,
             create_playlist,
             get_playlists,
             delete_playlist,
             rename_playlist,
-            add_track_to_playlist,
+            add_tracks_to_playlist,
             remove_track_from_playlist,
             reorder_playlist_tracks,
             get_track_file_path,
@@ -138,6 +138,27 @@ fn log_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
         .build()
 }
 
+/// ウィンドウの状態（サイズ・位置・最大化・フルスクリーン）を記憶するプラグインを構築する
+///
+/// 終了時にアプリの設定フォルダの`.window-state.json`へ保存し、次回の起動時に復元する
+/// （保存した位置のモニターが見つからない場合、位置はOSに任せる）。記憶がない初回は
+/// `tauri.conf.json`の大きさで開く。対象はメインウィンドウだけで、設定ウィンドウは毎回
+/// 同じ大きさで開く。
+/// プラグインのJS API（`window-state:default`）はcapabilityに追加せず、WebViewには公開しない（ADR-005）
+fn window_state_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+    use tauri_plugin_window_state::StateFlags;
+
+    tauri_plugin_window_state::Builder::new()
+        .with_state_flags(
+            StateFlags::SIZE
+                | StateFlags::POSITION
+                | StateFlags::MAXIMIZED
+                | StateFlags::FULLSCREEN,
+        )
+        .with_denylist(&[menu::SETTINGS_WINDOW])
+        .build()
+}
+
 /// TypeScriptエクスポート設定
 fn typescript_exporter() -> specta_typescript::Typescript {
     specta_typescript::Typescript::default()
@@ -168,6 +189,8 @@ pub fn run() {
     tauri::Builder::default()
         // 他のプラグインの初期化中のログも記録できるよう、最初に登録する
         .plugin(log_plugin())
+        // メインウィンドウを作る前に登録し、作った時点で前回の大きさ・位置に戻す
+        .plugin(window_state_plugin())
         .plugin(tauri_plugin_dialog::init())
         // アルバムアートは`<img>`から`albumart://`で直接読み込む（IPCでbase64を渡さない）
         .register_asynchronous_uri_scheme_protocol(album_art::SCHEME, |ctx, request, responder| {

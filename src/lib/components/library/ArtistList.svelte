@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { ArtistGroup } from '#lib/types/models.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
+  import { moveListSelection } from '#lib/utils/listNavigation.js';
+  import { m } from '#lib/i18n/i18n.svelte.js';
   import MarqueeText from '../MarqueeText.svelte';
   import AlbumArt from '../AlbumArt.svelte';
 
@@ -12,15 +14,31 @@
   }
 
   let { artists, selectedArtist, onSelect }: Props = $props();
+
+  // ↑↓・Home・Endで、選択中のアーティストから前後のアーティストへ選択を移す
+  function handleKeydown(event: KeyboardEvent) {
+    const current = artists.findIndex((artist) => artist.name === selectedArtist?.name);
+    const target = moveListSelection(event, current);
+    if (target !== null) onSelect(artists[target]);
+  }
 </script>
 
-<div class="artist-list">
-  <!-- アーティストリスト -->
+<!-- Tabでは選択中のアーティストだけに止まり、一覧の中は矢印キーで移る -->
+<div
+  class="artist-list"
+  role="listbox"
+  aria-label={m.library.artists}
+  tabindex="-1"
+  onkeydown={handleKeydown}
+>
   {#each artists as artist (artist.name)}
     <button
       class="artist-item"
       class:active={selectedArtist?.name === artist.name}
       onclick={() => onSelect(artist)}
+      role="option"
+      aria-selected={selectedArtist?.name === artist.name}
+      tabindex={selectedArtist?.name === artist.name ? 0 : -1}
     >
       <div class="artist-avatar">
         <AlbumArt
@@ -39,11 +57,11 @@
   @reference "../../../app.css";
 
   .artist-list {
-    @apply flex flex-col h-full overflow-y-auto py-1;
+    @apply flex flex-col h-full overflow-y-auto py-1 outline-none;
   }
 
   .artist-item {
-    @apply flex items-center gap-3 px-3 py-1.5 mx-2 border-none bg-transparent rounded-md cursor-pointer transition-colors duration-150 text-left;
+    @apply flex items-center gap-3 px-3 py-1.5 mx-2 border-none bg-transparent rounded-md cursor-pointer transition-colors duration-150 text-left outline-none;
   }
 
   .artist-item:hover {

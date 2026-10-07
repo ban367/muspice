@@ -135,7 +135,7 @@ export interface Playlist {
 | `import_folder`                    | `folderPath`, `duplicateAction` | `ImportResult`          | 50件/トランザクション、`ImportProgress`イベント送信。音楽ファイルが見つかったフォルダをライブラリフォルダとして記録し、`LibraryChanged`を送る |
 | `delete_tracks_command`            | `trackIds: string[]`            | `number`                | DBからのみ削除                                                                                                                                |
 | `delete_tracks_with_files_command` | `trackIds: string[]`            | `DeleteResult`          | DB+ファイル削除                                                                                                                               |
-| `refresh_library_metadata`         | なし                            | `RefreshMetadataResult` | 全トラックのtrack/disc番号とReplayGainを再抽出                                                                                                |
+| `refresh_library_metadata`         | なし                            | `RefreshMetadataResult` | 全トラックのファイルを読み直し、タグの内容（タイトルなど・評価・track/disc番号・ReplayGain）を反映する。お気に入り・再生回数は変えない        |
 
 ### ライブラリフォルダ
 
@@ -199,6 +199,7 @@ export interface Playlist {
 | 記録があるが、対象から外れた（トラックが削除された場合を含む） | `removeUnselected`なら削除、そうでなければ残す                     |
 
 - 元のファイルが変わったかは、コピーした時点のサイズ・更新日時（管理ファイルの記録）と、今のファイルを比べて判定する。デバイス側の更新日時は見ない。サイズが同じで更新日時がちょうど1時間（±2秒）ずれた場合は、夏時間の切り替えによるずれとみなす
+- タグ・評価の編集はファイルへ書き込まれるため（ADR-019）、編集した曲は「元のファイルが変わった」としてコピーし直す。デバイス上で名前を変えるのは、元のファイルが変わらずに配置だけが変わった場合に限られる
 - 削除・上書きするのは、管理ファイルに記録のあるファイルだけ。記録のないファイルがある場所は避ける（連番を付ける）
 - プレイリストのファイルは毎回書き直す。名前を変えたプレイリストは古いファイルを消す。対象から外れたプレイリストのファイルは、`removeUnselected`なら削除する
 
@@ -265,11 +266,17 @@ export interface Playlist {
 
 ### メタデータ編集
 
-| コマンド                          | 引数                   | 戻り値 | 備考                                                                                                |
-| --------------------------------- | ---------------------- | ------ | --------------------------------------------------------------------------------------------------- |
-| `update_track_metadata`           | `trackId`, `metadata`  | `void` | DBのみ更新                                                                                          |
-| `update_track_metadata_with_file` | `trackId`, `metadata`  | `void` | ファイルタグ+DB更新（書き込み後のファイルのサイズ・更新日時も記録し、再スキャンで変更とみなさない） |
-| `update_multiple_tracks_metadata` | `trackIds`, `metadata` | `void` | None以外の項目のみ更新                                                                              |
+メタデータ（タイトル・アーティスト・アルバム・ジャンル・年）と評価は、音楽ファイルのタグを正とする（ADR-019）。編集は常にファイルへ書き込み、DBには同じ値を記録する（一覧・検索のため）。ファイルへ書き込めない場合はエラーにし、DBも変えない。書き込み後のファイルのサイズ・更新日時も記録し、再スキャンで自分の書き込みを変更とみなさない。
+
+| コマンド                          | 引数                   | 戻り値                | 備考                                                                                                                                                 |
+| --------------------------------- | ---------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `update_track_metadata`           | `trackId`, `metadata`  | `void`                | ファイルのタグとDBを更新する。タイトル・アーティスト・アルバム・ジャンル・年は、値がなければタグからも取り除く                                       |
+| `update_multiple_tracks_metadata` | `trackIds`, `metadata` | `BulkUpdateResult`    | 値がある項目だけを、各トラックのファイルのタグとDBに反映する。書き込めなかったトラックはDBも変えず、理由を結果に入れて残りを続ける                   |
+| `write_library_metadata_to_files` | なし                   | `WriteMetadataResult` | DBだけにある編集内容・評価をファイルへ書き出し、ファイルを読み直してDBに反映する（以前のバージョンのデータの移行用）。終わると`LibraryChanged`を送る |
+
+- `BulkUpdateResult`: `updatedCount`, `failedCount`, `errors[]`
+- `WriteMetadataResult`: `writtenCount`, `unchangedCount`（ファイルと同じ）, `skippedCount`（ファイルが見つからない）, `errorCount`, `errors[]`
+- `write_library_metadata_to_files`は、DBの値がファイルと違う項目だけを書き込む。DBに値がない項目（評価なしを含む）と、タグにタイトルがないファイルの既定のタイトル（ファイル名）は書き出さない（ファイルにだけある値を消さないため）
 
 ### プレイリスト
 
@@ -279,9 +286,11 @@ export interface Playlist {
 | `get_playlists`              | なし                     | `Playlist[]` |
 | `rename_playlist`            | `playlistId`, `name`     | `void`       |
 | `delete_playlist`            | `playlistId`             | `void`       |
-| `add_track_to_playlist`      | `playlistId`, `trackId`  | `void`       |
+| `add_tracks_to_playlist`     | `playlistId`, `trackIds` | `number`     |
 | `remove_track_from_playlist` | `playlistId`, `trackId`  | `void`       |
 | `reorder_playlist_tracks`    | `playlistId`, `trackIds` | `void`       |
+
+`add_tracks_to_playlist`は、複数のトラックを渡した順に1つのトランザクションで追加する。すでに入っているトラックは飛ばし、追加したトラック数を返す。見つからないトラックがある場合は`NOT_FOUND`で、1曲も追加しない。
 
 ### 再生・統計・システム
 
@@ -298,6 +307,10 @@ export interface Playlist {
 | `get_recently_played_tracks` | `limit?`                  | `Track[]`       |
 | `show_in_folder`             | `trackId`                 | `void`          |
 | `open_project_page`          | なし                      | `void`          |
+
+`set_rating`は、評価をファイルのタグへ書き込み、同じ値をDBに記録する（0は評価のタグを取り除く）。評価はloftyの`ItemKey::Popularimeter`（ID3v2 `POPM` / Vorbis `RATING` / MP4 `rate` / RIFF `IRTD`）で読み書きし、インポート・再スキャン・`refresh_library_metadata`でタグから読み込む。評価の数値の付け方は書き込んだアプリごとに違うため、すでに評価があるファイルではその書き手の付け方のまま星の数だけを変え、ない場合はMusicBeeの付け方（ID3v2は1・64・128・196・255、それ以外は20刻み）で書く。Vorbisコメント（FLAC）は、書き手を付けない`RATING`に数値だけを書く（`RATING=80`。すでに星の数の1〜5で書かれていればその付け方を保つ）。loftyの汎用タグは、Vorbisコメントの数値だけの`RATING`を評価として読まず、書き出す時も変換しないため、`metadata.rs`で読み書きする。
+
+`toggle_favorite`・`increment_play_count`（お気に入り・再生回数・再生履歴）とプレイリストは、タグでは持てないためDBだけに保存する。
 
 ## バリデーション仕様
 
@@ -322,6 +335,7 @@ export interface Playlist {
 
 ## 実装上の注意
 
-- `update_track_metadata` は現在 `disc_number` を更新対象に含めない。`discNumber` の再同期は `refresh_library_metadata` で実施する
+- `update_track_metadata` は `track_number`・`disc_number` を変えない（編集画面に項目がない）。これらはファイルを読み直した時（再スキャン・`refresh_library_metadata`）に反映する
+- メタデータの編集・評価の変更では、DBはコマンドが書き込んだ項目だけを更新する（ファイル全体を読み直さない）。ファイルの内容をDBにそのまま反映するのは、インポート・再スキャン（変更のあったファイル）・`refresh_library_metadata`・`write_library_metadata_to_files`
 - 検索クエリは `sanitize_search_query` で危険文字を除去してから検索する
 - 大量更新系（インポート・一括編集）はトランザクションを使って部分失敗の影響を抑える

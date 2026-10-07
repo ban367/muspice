@@ -6,12 +6,15 @@
   import { formatDuration } from '#lib/utils/format.js';
   import type { Track } from '#lib/types/models.js';
   import PlayingIndicator from './PlayingIndicator.svelte';
+  import RatingStars from './RatingStars.svelte';
   import MetadataEditor from '../MetadataEditor.svelte';
   import ContextMenu from '../ContextMenu.svelte';
   import DeleteTrackDialog from '../DeleteTrackDialog.svelte';
   import MarqueeText from '../MarqueeText.svelte';
   import AlbumArt from '../AlbumArt.svelte';
-  import { computeClickSelection, toggleKeyboardSelection } from '#lib/utils/selection.js';
+  import { countGridColumns } from '#lib/utils/listNavigation.js';
+  import { TrackSelection, handleTrackListKeydown } from '#lib/utils/trackSelection.svelte.js';
+  import { startTrackDrag } from '#lib/utils/trackDrag.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   // Props
@@ -45,8 +48,8 @@
   // アルバムアートサイズ
   const artSize = $derived(ui.gridCardSize);
 
-  // トラック選択状態
-  let selectedTrackIds = $state<Set<string>>(new Set());
+  // トラックの選択（クリック・キーボード）
+  const selection = new TrackSelection(() => sortedTracks ?? []);
   let showMetadataEditor = $state(false);
   let showDeleteDialog = $state(false);
 
@@ -120,14 +123,6 @@
     });
   });
 
-  /**
-   * レーティングを設定
-   */
-  async function handleSetRating(trackId: string, rating: number, event: MouseEvent) {
-    event.stopPropagation();
-    setRatingMutation.mutate({ trackId, rating });
-  }
-
   function toggleSort(field: SortField) {
     if (sortField === field) {
       sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
@@ -144,29 +139,38 @@
 
   const selectedTracks = $derived.by(() => {
     if (!sortedTracks) return [];
-    return sortedTracks.filter((track) => selectedTrackIds.has(track.id));
+    return sortedTracks.filter((track) => selection.has(track.id));
   });
 
-  function toggleTrackSelection(trackId: string, event: MouseEvent | KeyboardEvent) {
-    event.stopPropagation();
-
-    if (event instanceof KeyboardEvent) {
-      selectedTrackIds = toggleKeyboardSelection(selectedTrackIds, trackId);
-      return;
-    }
-
-    selectedTrackIds = computeClickSelection(selectedTrackIds, sortedTracks, trackId, {
+  function handleTrackClick(trackId: string, event: MouseEvent) {
+    selection.click(trackId, {
       shiftKey: event.shiftKey,
       toggleKey: event.ctrlKey || event.metaKey
     });
   }
 
+  /**
+   * 一覧のキーボード操作（矢印キーで選択を移す・Enterで再生する）
+   */
+  function handleListKeydown(event: KeyboardEvent) {
+    handleTrackListKeydown(event, selection, {
+      columns: () =>
+        displayMode === 'grid' && event.currentTarget instanceof HTMLElement
+          ? countGridColumns(event.currentTarget.children as HTMLCollectionOf<HTMLElement>)
+          : null,
+      onActivate: (trackId) => {
+        const track = sortedTracks?.find((t) => t.id === trackId);
+        if (track) handleTrackDoubleClick(track);
+      }
+    });
+  }
+
   function clearSelection() {
-    selectedTrackIds = new Set();
+    selection.clear();
   }
 
   function openMetadataEditor() {
-    if (selectedTrackIds.size > 0) {
+    if (selection.size > 0) {
       showMetadataEditor = true;
     }
   }
@@ -191,9 +195,7 @@
   function handleContextMenu(event: MouseEvent, track: Track) {
     event.preventDefault();
 
-    if (!selectedTrackIds.has(track.id)) {
-      selectedTrackIds = new Set([track.id]);
-    }
+    selection.ensureSelected(track.id);
 
     contextMenu = {
       x: event.clientX,
@@ -224,7 +226,7 @@
    * 削除ダイアログを開く
    */
   function openDeleteDialog() {
-    if (selectedTrackIds.size > 0) {
+    if (selection.size > 0) {
       showDeleteDialog = true;
     }
   }
@@ -240,43 +242,12 @@
   const cardWidth = $derived(artSize + 24);
 
   function handleDragStart(event: DragEvent, track: Track) {
-    if (!event.dataTransfer) return;
-
-    event.dataTransfer.effectAllowed = 'copy';
-
-    let trackIds: string[];
-    if (selectedTrackIds.size > 0 && selectedTrackIds.has(track.id)) {
-      trackIds = Array.from(selectedTrackIds);
-    } else {
-      trackIds = [track.id];
-    }
-
-    event.dataTransfer.setData('application/json', JSON.stringify(trackIds));
-    event.dataTransfer.setData('text/plain', trackIds[0]);
+    // 選択中の曲の上で始めた場合は選択中の曲すべて、そうでなければその曲だけを運ぶ
+    const trackIds = selection.beginDrag(track.id);
+    startTrackDrag(event, trackIds, m.common.trackCount(trackIds.length));
 
     isDragging = true;
     draggedTrackIds = trackIds;
-
-    const dragImage = document.createElement('div');
-    dragImage.className = 'drag-preview';
-    dragImage.innerHTML = `
-      <div class="drag-preview-icon">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
-        </svg>
-      </div>
-      <span class="drag-preview-count">${m.common.trackCount(trackIds.length)}</span>
-    `;
-    dragImage.style.position = 'absolute';
-    dragImage.style.left = '-9999px';
-    dragImage.style.top = '-9999px';
-    document.body.appendChild(dragImage);
-
-    event.dataTransfer.setDragImage(dragImage, 40, 25);
-
-    setTimeout(() => {
-      document.body.removeChild(dragImage);
-    }, 0);
   }
 
   function handleDragEnd() {
@@ -378,23 +349,32 @@
               {getSortIcon('duration')}
             </button>
           </div>
-          <div class="flex flex-col">
+          <div
+            class="track-rows"
+            role="listbox"
+            aria-multiselectable="true"
+            aria-label={m.library.songs}
+            tabindex="0"
+            onkeydown={handleListKeydown}
+          >
             {#each sortedTracks as track (track.id)}
+              <!-- キー操作は一覧（listbox）で受けるため、行はフォーカスを受けない -->
+              <!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
               <div
                 class="track-row"
-                class:selected={selectedTrackIds.has(track.id)}
+                class:selected={selection.has(track.id)}
                 class:playing={player.currentTrack?.id === track.id}
                 class:dragging={isDragging && draggedTrackIds.includes(track.id)}
                 style="grid-template-columns: {gridTemplateColumns};"
                 draggable="true"
                 ondragstart={(e) => handleDragStart(e, track)}
                 ondragend={handleDragEnd}
-                onclick={(e) => toggleTrackSelection(track.id, e)}
+                onclick={(e) => handleTrackClick(track.id, e)}
                 ondblclick={() => handleTrackDoubleClick(track)}
                 oncontextmenu={(e) => handleContextMenu(e, track)}
-                onkeydown={(e) => e.key === 'Enter' && handleTrackDoubleClick(track)}
-                role="button"
-                tabindex="0"
+                role="option"
+                aria-selected={selection.has(track.id)}
+                data-track-id={track.id}
               >
                 <div class="col-number flex items-center justify-center">
                   {#if player.currentTrack?.id === track.id}
@@ -416,19 +396,11 @@
                   class="text-text-secondary text-sm"
                 />
                 <div class="col-rating flex items-center justify-center">
-                  <div class="rating-stars">
-                    {#each [1, 2, 3, 4, 5] as star (star)}
-                      <button
-                        class="star-btn"
-                        class:active={track.rating >= star}
-                        onclick={(e) =>
-                          handleSetRating(track.id, track.rating === star ? 0 : star, e)}
-                        title={m.library.stars(star)}
-                      >
-                        ★
-                      </button>
-                    {/each}
-                  </div>
+                  <RatingStars
+                    rating={track.rating}
+                    onChange={(rating) =>
+                      setRatingMutation.mutateAsync({ trackId: track.id, rating })}
+                  />
                 </div>
                 <div class="text-right text-text-muted text-sm">
                   {formatDuration(track.duration)}
@@ -440,23 +412,31 @@
       {:else}
         <!-- グリッド表示 -->
         <div
-          class="grid gap-3 justify-items-center"
+          class="track-grid grid gap-3 justify-items-center"
           style="grid-template-columns: repeat(auto-fill, minmax({cardWidth}px, 1fr));"
+          role="listbox"
+          aria-multiselectable="true"
+          aria-label={m.library.songs}
+          tabindex="0"
+          onkeydown={handleListKeydown}
         >
           {#each sortedTracks as track (track.id)}
+            <!-- キー操作は一覧（listbox）で受けるため、カードはフォーカスを受けない -->
+            <!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
             <div
               class="track-card"
-              class:selected={selectedTrackIds.has(track.id)}
+              class:selected={selection.has(track.id)}
               class:playing={player.currentTrack?.id === track.id}
               style="width: {cardWidth}px;"
               draggable="true"
               ondragstart={(e) => handleDragStart(e, track)}
-              onclick={(e) => toggleTrackSelection(track.id, e)}
+              ondragend={handleDragEnd}
+              onclick={(e) => handleTrackClick(track.id, e)}
               ondblclick={() => handleTrackDoubleClick(track)}
               oncontextmenu={(e) => handleContextMenu(e, track)}
-              onkeydown={(e) => e.key === 'Enter' && handleTrackDoubleClick(track)}
-              role="button"
-              tabindex="0"
+              role="option"
+              aria-selected={selection.has(track.id)}
+              data-track-id={track.id}
             >
               <div
                 class="relative shrink-0 rounded-md overflow-hidden bg-base-400 mb-2"
@@ -526,7 +506,7 @@
     y={contextMenu.y}
     track={contextMenu.track}
     tracks={sortedTracks || []}
-    {selectedTrackIds}
+    selectedTrackIds={selection.ids}
     onClose={closeContextMenu}
     onEditMetadata={openMetadataEditor}
     onPlayNext={handlePlayNext}
@@ -570,8 +550,18 @@
     @apply bg-transparent border-none text-text-muted cursor-pointer text-left text-xs font-semibold uppercase p-0 transition-colors hover:text-text-primary;
   }
 
+  /* 一覧はフォーカスを受けてキー操作を扱う（枠は出さず、選択中の行の色で示す） */
+  .track-rows {
+    @apply flex flex-col outline-none;
+  }
+
+  .track-grid {
+    @apply outline-none;
+  }
+
+  /* キーボードで移った行が、上に固定したヘッダーの下に隠れないようにする */
   .track-row {
-    @apply grid gap-3 px-4 py-1.5 items-center cursor-pointer rounded transition-colors;
+    @apply grid gap-3 px-4 py-1.5 items-center cursor-pointer rounded transition-colors select-none scroll-mt-8;
   }
 
   .track-row:hover {
@@ -608,22 +598,6 @@
     @apply text-xs text-text-muted;
   }
 
-  .rating-stars {
-    @apply flex gap-px;
-  }
-
-  .star-btn {
-    @apply bg-transparent border-none p-0 text-sm text-base-400 cursor-pointer transition-all leading-none;
-  }
-
-  .star-btn:hover {
-    @apply text-warning scale-125;
-  }
-
-  .star-btn.active {
-    @apply text-warning;
-  }
-
   /* トラックカード */
   .track-card {
     @apply p-3 bg-base-300 rounded-lg cursor-pointer transition-all border-2 border-transparent flex flex-col items-center;
@@ -639,22 +613,5 @@
 
   .track-card.playing {
     @apply border-secondary;
-  }
-
-  /* ドラッグプレビュー */
-  :global(.drag-preview) {
-    @apply flex items-center gap-2 px-3 py-2 bg-primary text-white rounded-md text-sm font-medium shadow-lg;
-  }
-
-  :global(.drag-preview-icon) {
-    @apply w-5 h-5;
-  }
-
-  :global(.drag-preview-icon svg) {
-    @apply w-full h-full;
-  }
-
-  :global(.drag-preview-count) {
-    @apply whitespace-nowrap;
   }
 </style>

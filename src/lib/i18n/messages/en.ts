@@ -87,6 +87,7 @@ export const en: Messages = {
     deleteTracks: 'Deleting tracks',
     deleteTracksAndFiles: 'Deleting tracks and files',
     refreshMetadata: 'Refreshing metadata',
+    writeMetadataToFiles: 'Writing metadata to files',
     showInFolder: 'Showing the file',
     fetchPlaylists: 'Loading playlists',
     createPlaylist: 'Creating the playlist',
@@ -111,7 +112,8 @@ export const en: Messages = {
 
   notices: {
     playlistCreated: 'Playlist created',
-    trackAddedToPlaylist: 'Added the track to the playlist',
+    tracksAddedToPlaylist: (count) => `Added ${plural(count, 'track', 'tracks')} to the playlist`,
+    tracksAlreadyInPlaylist: 'Already in the playlist',
     trackRemovedFromPlaylist: 'Removed the track from the playlist',
     tracksReordered: 'Reordered the tracks',
     playlistRenamed: 'Playlist renamed',
@@ -225,13 +227,28 @@ export const en: Messages = {
     editTitle: 'Edit Metadata',
     bulkEditTitle: (count) => `Edit ${plural(count, 'track', 'tracks')}`,
     bulkHint: 'Empty fields are left unchanged. Fill in only the fields you want to change.',
+    bulkPartiallyFailed: (updated, failed) =>
+      `Updated ${plural(updated, 'track', 'tracks')} (${failed} could not be written to the file)`,
+    bulkAllFailed: (reason) => `Could not write to the files: ${reason}`,
     unchanged: 'Unchanged',
     titlePlaceholder: 'Title',
     artistPlaceholder: 'Artist',
     albumPlaceholder: 'Album',
     genrePlaceholder: 'Genre',
     yearPlaceholder: 'e.g. 2023',
-    writeToFile: 'Also update the metadata in the file'
+    writesToFile: 'Changes are written to the tags of the music files'
+  },
+
+  metadataExport: {
+    title: 'Write app-only edits and ratings to files',
+    description:
+      'Writes the edits (title and so on) and ratings that earlier versions saved only in the app to the tags of the music files. Only tracks whose values differ from the file are rewritten, and the files are reread afterwards. Edits and ratings are now always written to the files, so this only needs to be done once',
+    write: 'Write to files',
+    writing: 'Writing...',
+    confirm:
+      'This writes the edits and ratings saved in the app to the tags of the music files. The files will be modified. Continue?',
+    result: (written, unchanged, skipped, errors) =>
+      `Finished writing (written: ${written}, unchanged: ${unchanged}, missing files: ${skipped}, errors: ${errors})`
   },
 
   contextMenu: {
@@ -313,6 +330,8 @@ export const en: Messages = {
     listView: 'List view',
     gridView: 'Grid view',
     refreshMetadata: 'Refresh metadata',
+    confirmRefreshMetadata:
+      'This rereads every file and updates the library with its tags (title, rating and so on). Edits and ratings that were saved only in the app and not written to the files are replaced by the contents of the files. Continue?',
     loadingItems: (item) => `Loading ${item.toLowerCase()}...`,
     loadItemsFailed: (item) => `Failed to load ${item.toLowerCase()}`,
     noMatch: (query, item) => `No ${item.toLowerCase()} match "${query}"`,

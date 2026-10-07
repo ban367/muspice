@@ -10,6 +10,7 @@ export type {
   AlbumGroup,
   AppError,
   ArtistGroup,
+  BulkUpdateResult,
   DeleteFailure,
   DeleteResult,
   DeviceSyncPlan,
@@ -34,5 +35,6 @@ export type {
   SyncDeviceConfig,
   Theme,
   Track,
-  VolumeNormalization
+  VolumeNormalization,
+  WriteMetadataResult
 } from '#lib/bindings.js';

@@ -340,7 +340,10 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     return before - tracks.length;
   }
 
-  /** update_track_metadataと同様、title/artist/album/genre/yearを丸ごと置き換える */
+  /**
+   * update_track_metadataと同様、title/artist/album/genre/yearを丸ごと置き換える
+   * （実装はファイルのタグへ書き込むが、モックはライブラリの値だけを変える）
+   */
   function updateTrackMetadata(trackId: string, metadata: Metadata): null {
     validateTrackId(trackId);
     validateMetadataInput(metadata);
@@ -704,8 +707,6 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         .sort(byNameIgnoreCase);
     },
     updateTrackMetadata,
-    // ファイルへのタグ書き込みは行わず、DB相当の更新のみ行う
-    updateTrackMetadataWithFile: updateTrackMetadata,
     updateMultipleTracksMetadata: (trackIds, metadata) => {
       if (trackIds.length === 0) fail('VALIDATION', 'トラックIDが指定されていません');
       trackIds.forEach(validateTrackId);
@@ -727,7 +728,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         if (year != null) track.year = year;
         if (hasChanges) track.updatedAt = timestamp;
       }
-      return null;
+      // モックではファイルへの書き込みに失敗しない
+      return { updatedCount: targets.length, failedCount: 0, errors: [] };
     },
     createPlaylist: (name) => {
       validatePlaylistName(name);
@@ -765,20 +767,28 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       playlist.updatedAt = now();
       return null;
     },
-    addTrackToPlaylist: (playlistId, trackId) => {
+    addTracksToPlaylist: (playlistId, trackIds) => {
       validatePlaylistId(playlistId);
-      validateTrackId(trackId);
+      if (trackIds.length === 0) {
+        fail('VALIDATION', 'トラックIDが指定されていません');
+      }
+      trackIds.forEach(validateTrackId);
       const playlist = playlists.find((p) => p.id === playlistId);
-      if (!playlist || !tracks.some((track) => track.id === trackId)) {
+      // 実装と同じく、見つからないトラックがあれば1曲も追加しない
+      if (!playlist || !trackIds.every((id) => tracks.some((track) => track.id === id))) {
         fail('NOT_FOUND', 'プレイリストまたはトラックが見つかりません');
       }
-      // 追加済みの場合は何もしない
-      if (playlist.tracks.some((entry) => entry.trackId === trackId)) return null;
       const timestamp = now();
-      const lastPosition = Math.max(-1, ...playlist.tracks.map((entry) => entry.position));
-      playlist.tracks.push({ trackId, position: lastPosition + 1, addedAt: timestamp });
-      playlist.updatedAt = timestamp;
-      return null;
+      let added = 0;
+      for (const trackId of trackIds) {
+        // 追加済みの場合は飛ばす
+        if (playlist.tracks.some((entry) => entry.trackId === trackId)) continue;
+        const lastPosition = Math.max(-1, ...playlist.tracks.map((entry) => entry.position));
+        playlist.tracks.push({ trackId, position: lastPosition + 1, addedAt: timestamp });
+        added++;
+      }
+      if (added > 0) playlist.updatedAt = timestamp;
+      return added;
     },
     removeTrackFromPlaylist: (playlistId, trackId) => {
       validatePlaylistId(playlistId);
@@ -939,6 +949,17 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       errorCount: 0,
       errors: []
     }),
+    // モックの値はすべて「ファイルと同じ」として扱う（書き込みは行わない）
+    writeLibraryMetadataToFiles: () => {
+      options.emit('library-changed', null);
+      return {
+        writtenCount: 0,
+        unchangedCount: tracks.length,
+        skippedCount: 0,
+        errorCount: 0,
+        errors: []
+      };
+    },
     getSyncDevices: () =>
       [...syncDevices]
         .sort(

@@ -14,6 +14,7 @@
 | DB               | SQLite + FTS5                   | rusqlite 0.40（bundled）                           | 全文検索・ローカル保存                               |
 | メタデータ       | lofty                           | 0.25                                               | タグ読み書き/アルバムアート抽出                      |
 | フォルダの監視   | notify-debouncer-mini（notify） | 0.7（notify 8）                                    | ライブラリフォルダの変更の自動反映                   |
+| ウィンドウの状態 | tauri-plugin-window-state       | 2.5.x                                              | メインウィンドウのサイズ・位置の記憶（Rust側のみ）   |
 | デバイスへの転送 | fs4 / unicode-normalization     | 1.1 / 0.1                                          | 転送先の空き容量の取得 / ファイル名のNFC正規化       |
 
 ## ディレクトリ構成
@@ -121,6 +122,7 @@ src-tauri/src/
 
 - audio要素の操作・キュー遷移・リピート・再生回数の記録・イコライザの接続・ギャップレス再生は`#lib/stores/playback.svelte`の`createPlaybackController([audio, standbyAudio], options)`が担う。`Player.svelte`は表示と操作の受付だけを行い、コントローラーのメソッドを呼ぶ
 - 次・前のトラックの決定は`#lib/stores/player.svelte`のキュー操作（`playNextTrack`・`playPreviousTrack`）が担う。キュー操作の結果が再生中と同じトラックだった場合（1曲リピート、3秒以上再生中の「前へ」、1曲だけのキューの全曲リピート）はトラックIDが変わらず読み込みが走らないため、コントローラーが頭から再生し直す
+- 再生キュー（右サイドバー）の曲をダブルクリックした時は、`playQueueIndex(index)`でキューの並びを変えずに再生位置だけを移す（指定した位置より前の曲もキューに残る）
 - 再生中かどうか（`isPlaying`）はaudio要素の`play`/`pause`イベントから更新する
 - ギャップレス再生では、audio要素（デッキ）を2つ使い、再生中のデッキ（`active`）と先読みのデッキ（`standby`）を切り替える
   - 先読みするトラックは`#lib/stores/player.svelte`の`peekNextTrack()`（`playNextTrack`の進む先を、状態を変えずに返す）で決める。キュー・リピート・シャッフル・設定が変わると`$effect`で先読みし直す
@@ -147,6 +149,23 @@ src-tauri/src/
 - 言語は設定の`language`。メインウィンドウは`SettingsSync`、設定ウィンドウは設定画面が`applyLanguage`で反映し、設定を読み込むまでの間は`restoreLanguage`で前回の言語を使う
 - エラー: `toErrorMessage`はcodeごとの汎用メッセージ（`m.errors.byCode`）を使う。日本語では、`NOT_FOUND`・`VALIDATION`はバックエンドの日本語のメッセージをそのまま表示し、英語では汎用メッセージにする（バックエンドのメッセージは日本語のため）
 - Rust側の文言はメニューバーと設定ウィンドウのタイトルだけ（`menu.rs`）。言語を変えて保存すると`save_settings`が作り直す
+
+### 一覧の選択とキーボード操作
+
+- 一覧では、矢印キーを押しても一覧をスクロールさせず、選択している項目から隣の項目へ選択を移す（移動先が画面の外なら、見える位置までスクロールする）。移動先の計算は`#lib/utils/listNavigation`の`navigationTarget`（リストは↑↓、グリッドは上下左右、Home・End）で行う
+- 曲の一覧（`TrackList`、アルバム・アーティストの詳細、グループのモーダル、プレイリストの詳細）は、一覧ごとに`#lib/utils/trackSelection.svelte`の`TrackSelection`を作り、行のクリックを`click()`へ、一覧の`onkeydown`を`handleTrackListKeydown`へ渡す
+  - 矢印キーで選択を移し、Shift+矢印で範囲選択、Cmd/Ctrl+Aですべて選択、Enterで再生する
+  - 一覧の要素を`role="listbox"`・`tabindex="0"`にしてフォーカスを受け、行は`role="option"`・`data-track-id`を付けてフォーカスを受けない（行をクリックすると一覧の要素にフォーカスが移り、行が消えてもキー操作を続けられる）
+  - 表示する一覧が別のものに変わった時（別のアルバムを選んだ等）は`reset()`で選択を消す
+- 1つだけ選択する一覧（2ペイン表示の左の`AlbumList`・`ArtistList`）は、`moveListSelection`で移動先を求めて選択し、その項目へフォーカスも移す（Tabでは選択中の項目だけに止まる）
+- グリッド表示（`LibraryGrid`: アルバム・アーティスト・ジャンル）は、現在位置の項目を枠で示し、Enterでクリックと同じ操作（`onOpen`）を行う
+- 修飾キーなしの矢印キーは一覧が使う。プレーヤーのショートカット（`Player.svelte`）はCmd/Ctrl+矢印（前へ・次へ・音量）とSpace（再生・一時停止）
+
+### ドラッグ&ドロップ
+
+- 曲の一覧からサイドバーのプレイリストへの追加は、HTML5のドラッグ&ドロップで行う。`#lib/utils/trackDrag`の`startTrackDrag`（`dragstart`）でトラックIDを専用の種類（`TRACK_DRAG_TYPE`）のデータとして運び、`isTrackDrag`（`dragover`）・`readDraggedTrackIds`（`drop`）で受け取る
+- 運ぶ曲は`TrackSelection.beginDrag(trackId)`で決める。選択中の曲の上で始めた場合は選択中の曲すべて（一覧の並び順）、そうでなければその曲だけ
+- Tauriのファイルドロップ（`tauri.conf.json`の`dragDropEnabled`）は無効にする。有効だとWebViewに`dragover`・`drop`が届かない（ADR-018）
 
 ### ダイアログ
 
@@ -229,7 +248,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 - フロントエンドのロジック（ストア・ユーティリティ）は Vitest で単体テストする（`npm test`）
   - テストは対象と同じディレクトリに `*.test.ts` として置き、Node環境で実行する。テスト内で`$state`・`$effect`などのRunesを使う場合は `*.svelte.test.ts` にする
   - Svelteはアプリと同じクライアント向けにコンパイルする（`vitest.environment.ts`の環境と、Vitest実行時の`resolve.conditions: ['browser']`）。組み込みの`node`環境ではサーバー向けになり、`$effect`が実行されない
-  - コンポーネント内の判定ロジックはテストしやすいよう `#lib/utils` の純粋関数へ切り出す（例: `selection.ts`）
+  - コンポーネント内の判定ロジックはテストしやすいよう `#lib/utils` の純粋関数へ切り出す（例: `selection.ts`、`listNavigation.ts`）
 - 変更前後で最低限以下を確認する
   - 型チェック（`npm run check`）: 警告も失敗扱い。Tailwindの`@apply`/`@reference`をCSS言語サービスが解釈できず誤警告になるため、CSS診断は対象外（`--diagnostic-sources js,svelte`）
   - Lint（`npm run lint`）: 警告も失敗扱い（`--max-warnings 0`）

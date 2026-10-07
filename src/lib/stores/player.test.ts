@@ -7,6 +7,7 @@ import {
   peekNextTrack,
   playNextTrack,
   playPreviousTrack,
+  playQueueIndex,
   playShuffled,
   playTrackFromQueue,
   removeFromQueue,
@@ -233,6 +234,50 @@ describe('toggleRepeat', () => {
     expect(player.repeatMode).toBe('one');
     toggleRepeat();
     expect(player.repeatMode).toBe('off');
+  });
+});
+
+describe('playQueueIndex', () => {
+  it('キューの並びを変えずに、指定した位置のトラックへ移る', () => {
+    playTrackFromQueue(tracks, 0);
+
+    expect(playQueueIndex(2)).toBe(true);
+
+    expect(ids(player.playQueue)).toEqual(['t1', 't2', 't3', 't4']);
+    expect(player.currentTrackIndex).toBe(2);
+    expect(player.currentTrack?.id).toBe('t3');
+    expect(ids(player.upcomingTracks)).toEqual(['t4']);
+  });
+
+  it('再生中より前の位置へも移れる', () => {
+    playTrackFromQueue(tracks, 3);
+
+    expect(playQueueIndex(1)).toBe(true);
+
+    expect(player.currentTrack?.id).toBe('t2');
+    expect(ids(player.upcomingTracks)).toEqual(['t3', 't4']);
+  });
+
+  it('シャッフル中は並べ替えた後のキューの位置で移る', () => {
+    player.isShuffleEnabled = true;
+    playTrackFromQueue(tracks, 0);
+    const queue = ids(player.playQueue);
+
+    expect(playQueueIndex(3)).toBe(true);
+
+    expect(ids(player.playQueue)).toEqual(queue);
+    expect(player.currentTrack?.id).toBe(queue[3]);
+  });
+
+  it('範囲外・整数でない位置では状態を変えない', () => {
+    playTrackFromQueue(tracks, 1);
+
+    expect(playQueueIndex(-1)).toBe(false);
+    expect(playQueueIndex(4)).toBe(false);
+    expect(playQueueIndex(1.5)).toBe(false);
+
+    expect(player.currentTrackIndex).toBe(1);
+    expect(player.currentTrack?.id).toBe('t2');
   });
 });
 

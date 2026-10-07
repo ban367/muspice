@@ -57,6 +57,19 @@ export function invalidatePlayStatsQueries(queryClient: QueryClient) {
 }
 
 /**
+ * 評価の変更に関連するクエリを無効化
+ *
+ * 評価は曲の一覧に加えて、アルバム・アーティスト・ジャンルの詳細の曲の一覧にも表示するため、
+ * グループ化したクエリも取り直す。
+ */
+export function invalidateRatingQueries(queryClient: QueryClient) {
+  invalidatePlayStatsQueries(queryClient);
+  queryClient.invalidateQueries({ queryKey: queryKeys.albums.grouped });
+  queryClient.invalidateQueries({ queryKey: queryKeys.artists.grouped });
+  queryClient.invalidateQueries({ queryKey: queryKeys.genres.grouped });
+}
+
+/**
  * 全トラック関連クエリとプレイリストを無効化（トラックの削除時、他のウィンドウでライブラリが変わった時）
  *
  * トラックを削除するとプレイリストの中からも消えるため、プレイリストも無効化する。
@@ -252,7 +265,7 @@ export function useSetRatingMutation() {
       await withErrorToast(m.operations.setRating, () => commands.setRating(trackId, rating));
     },
     onSuccess: () => {
-      invalidatePlayStatsQueries(queryClient);
+      invalidateRatingQueries(queryClient);
     }
   }));
 }
@@ -272,7 +285,10 @@ export async function incrementPlayCount(trackId: string): Promise<void> {
 // ========== メタデータ更新ミューテーション ==========
 
 /**
- * 単一トラックのメタデータを更新するミューテーション（DBのみ）
+ * 単一トラックのメタデータを更新するミューテーション
+ *
+ * 常にファイルのタグへ書き込み、同じ内容をDBに記録する。
+ * 失敗は編集画面の中に表示するため、トースト通知はしない。
  */
 export function useUpdateTrackMetadataMutation() {
   const queryClient = useQueryClient();
@@ -288,15 +304,17 @@ export function useUpdateTrackMetadataMutation() {
 }
 
 /**
- * 単一トラックのメタデータを更新するミューテーション（DB + ファイル）
+ * 複数トラックのメタデータを一括更新するミューテーション
+ *
+ * 値がある項目だけを、各トラックのファイルのタグへ書き込む。書き込めなかったトラックは
+ * 結果の`failedCount`・`errors`で返る（残りのトラックは更新される）。
  */
-export function useUpdateTrackMetadataWithFileMutation() {
+export function useUpdateMultipleTracksMutation() {
   const queryClient = useQueryClient();
 
   return createMutation(() => ({
-    mutationFn: async ({ trackId, metadata }: { trackId: string; metadata: Metadata }) => {
-      await commands.updateTrackMetadataWithFile(trackId, metadata);
-    },
+    mutationFn: ({ trackIds, metadata }: { trackIds: string[]; metadata: Metadata }) =>
+      commands.updateMultipleTracksMetadata(trackIds, metadata),
     onSuccess: () => {
       invalidateTrackMetadataQueries(queryClient);
     }
@@ -304,15 +322,18 @@ export function useUpdateTrackMetadataWithFileMutation() {
 }
 
 /**
- * 複数トラックのメタデータを一括更新するミューテーション
+ * アプリ内（DB）だけにある編集内容・評価を、ファイルのタグへ書き出すミューテーション
+ *
+ * 書き出した後、ファイルを読み直してDBに反映する（終わるとDBはファイルの内容と一致する）。
  */
-export function useUpdateMultipleTracksMutation() {
+export function useWriteLibraryMetadataToFilesMutation() {
   const queryClient = useQueryClient();
 
   return createMutation(() => ({
-    mutationFn: async ({ trackIds, metadata }: { trackIds: string[]; metadata: Metadata }) => {
-      await commands.updateMultipleTracksMetadata(trackIds, metadata);
-    },
+    mutationFn: () =>
+      withErrorToast(m.operations.writeMetadataToFiles, () =>
+        commands.writeLibraryMetadataToFiles()
+      ),
     onSuccess: () => {
       invalidateTrackMetadataQueries(queryClient);
     }
@@ -394,7 +415,7 @@ export function useImportFolderMutation() {
 }
 
 /**
- * ライブラリ全体のトラック番号・ディスク番号をファイルから再読み込みするミューテーション
+ * ライブラリ全体のメタデータ（タグの内容・評価）をファイルから読み直すミューテーション
  */
 export function useRefreshLibraryMetadataMutation() {
   const queryClient = useQueryClient();

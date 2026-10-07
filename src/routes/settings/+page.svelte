@@ -17,6 +17,7 @@
     MAX_CROSSFADE_SECONDS
   } from '#lib/bindings.js';
   import LibraryFolderSettings from '#lib/components/LibraryFolderSettings.svelte';
+  import MetadataExportSettings from '#lib/components/MetadataExportSettings.svelte';
 
   type SettingsSection = 'general' | 'playback' | 'library' | 'appearance';
 
@@ -176,6 +177,7 @@
            再スキャンの途中で別のセクションへ移っても進捗を保つよう、常に置いて表示だけを切り替える -->
       <div hidden={activeSection !== 'library'}>
         <LibraryFolderSettings />
+        <MetadataExportSettings />
       </div>
 
       {#if activeSection === 'library'}

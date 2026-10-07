@@ -5,7 +5,7 @@
 -->
 <script lang="ts">
   import type { Track, Playlist } from '#lib/types/models.js';
-  import { usePlaylistsQuery, useAddTrackToPlaylistMutation } from '#lib/queries/playlists.js';
+  import { usePlaylistsQuery, useAddTracksToPlaylistMutation } from '#lib/queries/playlists.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   // Props
@@ -18,7 +18,7 @@
 
   // クエリとミューテーション
   const playlistsQuery = usePlaylistsQuery();
-  const addTrackMutation = useAddTrackToPlaylistMutation();
+  const addTracksMutation = useAddTracksToPlaylistMutation();
 
   // サブメニュー表示状態
   let showSubmenu = $state(false);
@@ -26,13 +26,12 @@
   /**
    * プレイリストに追加
    */
-  async function handleAddToPlaylist(playlist: Playlist) {
-    for (const t of tracks) {
-      await addTrackMutation.mutateAsync({
-        playlistId: playlist.id,
-        trackId: t.id
-      });
-    }
+  function handleAddToPlaylist(playlist: Playlist) {
+    // メニューを閉じるとこのコンポーネントが破棄されるため、結果は待たない（失敗はトーストで通知される）
+    addTracksMutation.mutate({
+      playlistId: playlist.id,
+      trackIds: tracks.map((track) => track.id)
+    });
     onClose();
   }
 </script>

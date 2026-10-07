@@ -94,6 +94,7 @@ export const ja = {
     deleteTracks: 'トラックの削除',
     deleteTracksAndFiles: 'トラックとファイルの削除',
     refreshMetadata: 'メタデータの更新',
+    writeMetadataToFiles: 'メタデータの書き出し',
     showInFolder: 'ファイルの場所を開く',
     fetchPlaylists: 'プレイリスト一覧の取得',
     createPlaylist: 'プレイリストの作成',
@@ -119,7 +120,8 @@ export const ja = {
   /** 操作の結果の通知 */
   notices: {
     playlistCreated: 'プレイリストを作成しました',
-    trackAddedToPlaylist: 'トラックをプレイリストに追加しました',
+    tracksAddedToPlaylist: (count: number) => `${count}曲をプレイリストに追加しました`,
+    tracksAlreadyInPlaylist: 'すでにプレイリストに入っています',
     trackRemovedFromPlaylist: 'トラックをプレイリストから削除しました',
     tracksReordered: 'トラックを並び替えました',
     playlistRenamed: 'プレイリスト名を変更しました',
@@ -233,13 +235,28 @@ export const ja = {
     editTitle: 'メタデータを編集',
     bulkEditTitle: (count: number) => `${count}件のトラックを一括編集`,
     bulkHint: '空欄のフィールドは変更されません。変更したいフィールドのみ入力してください。',
+    bulkPartiallyFailed: (updated: number, failed: number) =>
+      `${updated}曲を更新しました（${failed}曲はファイルに書き込めませんでした）`,
+    bulkAllFailed: (reason: string) => `ファイルに書き込めませんでした: ${reason}`,
     unchanged: '変更しない',
     titlePlaceholder: 'タイトルを入力',
     artistPlaceholder: 'アーティストを入力',
     albumPlaceholder: 'アルバムを入力',
     genrePlaceholder: 'ジャンルを入力',
     yearPlaceholder: '例: 2023',
-    writeToFile: 'ファイル自体のメタデータも更新する'
+    writesToFile: '変更は音楽ファイルのタグに書き込まれます'
+  },
+
+  metadataExport: {
+    title: 'アプリ内の編集内容・評価の書き出し',
+    description:
+      '以前のバージョンでアプリ内だけに保存した編集内容（タイトルなど）と評価を、音楽ファイルのタグへ書き込みます。ファイルと違う値がある曲だけを書き換え、その後ファイルを読み直します。現在は、編集と評価は常にファイルへ書き込まれるため、この操作は一度だけ行えば十分です',
+    write: 'ファイルへ書き出す',
+    writing: '書き出し中...',
+    confirm:
+      'アプリ内の編集内容・評価を、音楽ファイルのタグへ書き込みます。ファイルが書き換わります。続けますか？',
+    result: (written: number, unchanged: number, skipped: number, errors: number) =>
+      `書き出し完了（書き込み: ${written}曲、変更なし: ${unchanged}曲、ファイルなし: ${skipped}曲、エラー: ${errors}曲）`
   },
 
   contextMenu: {
@@ -322,6 +339,8 @@ export const ja = {
     listView: 'リスト表示',
     gridView: 'グリッド表示',
     refreshMetadata: 'メタデータを更新',
+    confirmRefreshMetadata:
+      'すべての曲のファイルを読み直し、タグの内容（タイトル・評価など）をライブラリに反映します。ファイルへ書き出していないアプリ内の編集内容・評価は、ファイルの内容で置き換わります。続けますか？',
     loadingItems: (item: string) => `${item}を読み込み中...`,
     loadItemsFailed: (item: string) => `${item}の読み込みに失敗しました`,
     noMatch: (query: string, item: string) => `「${query}」に一致する${item}が見つかりません`,

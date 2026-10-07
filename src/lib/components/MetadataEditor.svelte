@@ -2,7 +2,6 @@
   import type { Track, Metadata } from '#lib/types/models.js';
   import {
     useUpdateTrackMetadataMutation,
-    useUpdateTrackMetadataWithFileMutation,
     useUpdateMultipleTracksMutation
   } from '#lib/queries/tracks.js';
   import {
@@ -11,7 +10,7 @@
     combineValidationResults,
     toSafeString
   } from '#lib/utils/validation.js';
-  import { toErrorMessage } from '#lib/stores/error.svelte.js';
+  import { showWarning, toErrorMessage } from '#lib/stores/error.svelte.js';
   import { Modal } from '#lib/components/ui/index.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
@@ -25,7 +24,6 @@
 
   // ミューテーション
   let updateMetadataMutation = $derived(useUpdateTrackMetadataMutation());
-  let updateMetadataWithFileMutation = $derived(useUpdateTrackMetadataWithFileMutation());
   let updateMultipleTracksMutation = $derived(useUpdateMultipleTracksMutation());
 
   // 単一トラック編集か複数トラック編集かを判定
@@ -47,9 +45,6 @@
   let error = $state<string | null>(null);
   let isLoading = $state(false);
   let validationError = $state<string | null>(null);
-
-  // ファイルも更新するかどうか
-  let updateFile = $state(true);
 
   /**
    * 初期値を設定（単一トラック編集の場合）
@@ -116,16 +111,10 @@
       }
 
       if (isSingleEdit) {
-        // 単一トラック編集
-        const trackId = tracks[0].id;
-
-        if (updateFile) {
-          await updateMetadataWithFileMutation.mutateAsync({ trackId, metadata });
-        } else {
-          await updateMetadataMutation.mutateAsync({ trackId, metadata });
-        }
+        // 単一トラック編集（ファイルのタグへ書き込む。空にした項目はタグからも取り除く）
+        await updateMetadataMutation.mutateAsync({ trackId: tracks[0].id, metadata });
       } else {
-        // 複数トラック編集（データベースのみ）
+        // 複数トラック編集（入力した項目だけを、各トラックのファイルのタグへ書き込む）
         const trackIds = tracks.map((t) => t.id);
 
         // 空でないフィールドのみを含むメタデータを作成
@@ -136,10 +125,21 @@
         if (genre) updateMetadata.genre = genre;
         if (year) updateMetadata.year = year;
 
-        await updateMultipleTracksMutation.mutateAsync({
+        const result = await updateMultipleTracksMutation.mutateAsync({
           trackIds,
           metadata: updateMetadata
         });
+
+        if (result.failedCount > 0) {
+          if (result.updatedCount === 0) {
+            // 1曲も更新できなかった場合は、画面を閉じずに理由を表示する
+            error = m.metadataEditor.bulkAllFailed(result.errors[0] ?? '');
+            return;
+          }
+          showWarning(
+            m.metadataEditor.bulkPartiallyFailed(result.updatedCount, result.failedCount)
+          );
+        }
       }
 
       // キャッシュ無効化はミューテーションのonSuccessで自動実行
@@ -262,14 +262,7 @@
       />
     </div>
 
-    {#if isSingleEdit}
-      <div class="form-group">
-        <label class="flex items-center gap-2 cursor-pointer">
-          <input type="checkbox" class="w-4 h-4" bind:checked={updateFile} disabled={isLoading} />
-          <span class="text-text-secondary">{m.metadataEditor.writeToFile}</span>
-        </label>
-      </div>
-    {/if}
+    <p class="text-xs text-text-muted mt-2 mb-0">{m.metadataEditor.writesToFile}</p>
 
     {#if validationError}
       <div class="message-error mt-4">{validationError}</div>

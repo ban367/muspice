@@ -1,18 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { computeClickSelection, resolveSelectedItem, toggleKeyboardSelection } from './selection';
+import { computeClickSelection, resolveSelectedItem } from './selection';
 
 const tracks = ['a', 'b', 'c', 'd', 'e'].map((id) => ({ id }));
 const noModifiers = { shiftKey: false, toggleKey: false };
-
-describe('toggleKeyboardSelection', () => {
-  it('未選択のトラックはそのトラックだけを選択する', () => {
-    expect([...toggleKeyboardSelection(new Set(['a', 'b']), 'c')]).toEqual(['c']);
-  });
-
-  it('選択中のトラックなら選択をすべて解除する', () => {
-    expect(toggleKeyboardSelection(new Set(['a', 'b']), 'a').size).toBe(0);
-  });
-});
 
 describe('computeClickSelection', () => {
   it('修飾キーなしではクリックしたトラックだけを選択する', () => {
