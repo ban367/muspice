@@ -1,9 +1,11 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import type { ArtistGroup, AlbumGroup } from '#lib/types/models.js';
   import { useSetRatingMutation } from '#lib/queries/tracks.js';
   import { player, playTrackFromQueue, playShuffled } from '#lib/stores/player.svelte.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import { formatDuration } from '#lib/utils/format.js';
+  import { TrackSelection, handleTrackListKeydown } from '#lib/utils/trackSelection.svelte.js';
   import PlayingIndicator from './PlayingIndicator.svelte';
   import RatingStars from './RatingStars.svelte';
   import MarqueeText from '../MarqueeText.svelte';
@@ -18,6 +20,44 @@
   let { artist }: Props = $props();
 
   const setRatingMutation = useSetRatingMutation();
+
+  // 表示順（アルバムごと）のトラック
+  const displayTracks = $derived(artist.albums.flatMap((album) => album.tracks));
+
+  // トラックの選択（クリック・キーボード。アルバムをまたいで選択できる）
+  const selection = new TrackSelection(() => displayTracks);
+
+  // 別のアーティストに切り替わったら、選択を消す（データを取り直しただけでは消さない）
+  const artistName = $derived(artist.name);
+  $effect(() => {
+    void artistName;
+    // 選択の中身には反応させない（選択を変えるたびに消えてしまう）
+    untrack(() => selection.reset());
+  });
+
+  function handleTrackClick(trackId: string, event: MouseEvent) {
+    selection.click(trackId, {
+      shiftKey: event.shiftKey,
+      toggleKey: event.ctrlKey || event.metaKey
+    });
+  }
+
+  /**
+   * 一覧のキーボード操作（矢印キーで選択を移す・Enterでそのアルバムの曲として再生する）
+   */
+  function handleListKeydown(event: KeyboardEvent) {
+    handleTrackListKeydown(event, selection, {
+      onActivate: (trackId) => {
+        for (const album of artist.albums) {
+          const index = album.tracks.findIndex((track) => track.id === trackId);
+          if (index !== -1) {
+            handleTrackDoubleClick(album, index);
+            return;
+          }
+        }
+      }
+    });
+  }
 
   // すべて再生
   function handlePlayAll() {
@@ -81,7 +121,14 @@
   </div>
 
   <!-- アルバム一覧 -->
-  <div class="albums-container">
+  <div
+    class="albums-container"
+    role="listbox"
+    aria-multiselectable="true"
+    aria-label={artist.name}
+    tabindex="0"
+    onkeydown={handleListKeydown}
+  >
     {#each artist.albums as album (album.name)}
       <div class="album-section">
         <!-- アルバムヘッダー -->
@@ -123,11 +170,17 @@
         <!-- トラックリスト -->
         <div class="track-list">
           {#each album.tracks as track, index (track.id)}
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <!-- キー操作は一覧（listbox）で受けるため、行はフォーカスを受けない -->
+            <!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
             <div
               class="track-row"
+              class:selected={selection.has(track.id)}
               class:playing={player.currentTrack?.id === track.id}
+              onclick={(e) => handleTrackClick(track.id, e)}
               ondblclick={() => handleTrackDoubleClick(album, index)}
+              role="option"
+              aria-selected={selection.has(track.id)}
+              data-track-id={track.id}
             >
               <span class="track-number" class:playing={player.currentTrack?.id === track.id}>
                 {#if player.currentTrack?.id === track.id}
@@ -201,8 +254,9 @@
     @apply w-5 h-5;
   }
 
+  /* 一覧はフォーカスを受けてキー操作を扱う（枠は出さず、選択中の行の色で示す） */
   .albums-container {
-    @apply flex-1 overflow-y-auto;
+    @apply flex-1 overflow-y-auto outline-none;
   }
 
   .album-section {
@@ -255,12 +309,16 @@
   }
 
   .track-row {
-    @apply grid gap-3 py-2 px-2 items-center rounded-md cursor-pointer transition-colors duration-100;
+    @apply grid gap-3 py-2 px-2 items-center rounded-md cursor-pointer transition-colors duration-100 select-none;
     grid-template-columns: 2rem 1fr auto 3rem 2rem;
   }
 
   .track-row:hover {
     @apply bg-surface-hover;
+  }
+
+  .track-row.selected {
+    @apply bg-primary/20;
   }
 
   .track-row.playing {

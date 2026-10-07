@@ -94,6 +94,7 @@
   gridStyle="--card-width: {cardWidth}px; --art-size: {ui.gridCardSize}px;"
   gridClass="album-grid"
   groupType="album"
+  onOpen={handleAlbumClick}
 >
   {#snippet emptyIcon()}
     <svg

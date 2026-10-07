@@ -88,6 +88,7 @@
   filterFn={filterGenre}
   gridClass="genre-grid"
   groupType="genre"
+  onOpen={handleGenreClick}
 >
   {#snippet emptyIcon()}
     <svg

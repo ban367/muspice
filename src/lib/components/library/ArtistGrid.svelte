@@ -86,6 +86,7 @@
   gridStyle="--card-width: {cardWidth}px; --art-size: {ui.gridCardSize}px;"
   gridClass="artist-grid"
   groupType="artist"
+  onOpen={handleArtistClick}
 >
   {#snippet emptyIcon()}
     <svg

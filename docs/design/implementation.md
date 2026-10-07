@@ -143,6 +143,17 @@ src-tauri/src/
 - エラー: `toErrorMessage`はcodeごとの汎用メッセージ（`m.errors.byCode`）を使う。日本語では、`NOT_FOUND`・`VALIDATION`はバックエンドの日本語のメッセージをそのまま表示し、英語では汎用メッセージにする（バックエンドのメッセージは日本語のため）
 - Rust側の文言はメニューバーと設定ウィンドウのタイトルだけ（`menu.rs`）。言語を変えて保存すると`save_settings`が作り直す
 
+### 一覧の選択とキーボード操作
+
+- 一覧では、矢印キーを押しても一覧をスクロールさせず、選択している項目から隣の項目へ選択を移す（移動先が画面の外なら、見える位置までスクロールする）。移動先の計算は`#lib/utils/listNavigation`の`navigationTarget`（リストは↑↓、グリッドは上下左右、Home・End）で行う
+- 曲の一覧（`TrackList`、アルバム・アーティストの詳細、グループのモーダル、プレイリストの詳細）は、一覧ごとに`#lib/utils/trackSelection.svelte`の`TrackSelection`を作り、行のクリックを`click()`へ、一覧の`onkeydown`を`handleTrackListKeydown`へ渡す
+  - 矢印キーで選択を移し、Shift+矢印で範囲選択、Cmd/Ctrl+Aですべて選択、Enterで再生する
+  - 一覧の要素を`role="listbox"`・`tabindex="0"`にしてフォーカスを受け、行は`role="option"`・`data-track-id`を付けてフォーカスを受けない（行をクリックすると一覧の要素にフォーカスが移り、行が消えてもキー操作を続けられる）
+  - 表示する一覧が別のものに変わった時（別のアルバムを選んだ等）は`reset()`で選択を消す
+- 1つだけ選択する一覧（2ペイン表示の左の`AlbumList`・`ArtistList`）は、`moveListSelection`で移動先を求めて選択し、その項目へフォーカスも移す（Tabでは選択中の項目だけに止まる）
+- グリッド表示（`LibraryGrid`: アルバム・アーティスト・ジャンル）は、現在位置の項目を枠で示し、Enterでクリックと同じ操作（`onOpen`）を行う
+- 修飾キーなしの矢印キーは一覧が使う。プレーヤーのショートカット（`Player.svelte`）はCmd/Ctrl+矢印（前へ・次へ・音量）とSpace（再生・一時停止）
+
 ### ダイアログ
 
 - モーダルは`#lib/components/ui`の`Modal`（ネイティブの`<dialog>`を`showModal()`で表示）を使い、背景のdivや`svelte-ignore`で独自に実装しない。Escキー・背面の操作の無効化（フォーカスの閉じ込め）・閉じた後のフォーカスの復帰はブラウザに任せる
@@ -224,7 +235,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 - フロントエンドのロジック（ストア・ユーティリティ）は Vitest で単体テストする（`npm test`）
   - テストは対象と同じディレクトリに `*.test.ts` として置き、Node環境で実行する。テスト内で`$state`・`$effect`などのRunesを使う場合は `*.svelte.test.ts` にする
   - Svelteはアプリと同じクライアント向けにコンパイルする（`vitest.environment.ts`の環境と、Vitest実行時の`resolve.conditions: ['browser']`）。組み込みの`node`環境ではサーバー向けになり、`$effect`が実行されない
-  - コンポーネント内の判定ロジックはテストしやすいよう `#lib/utils` の純粋関数へ切り出す（例: `selection.ts`）
+  - コンポーネント内の判定ロジックはテストしやすいよう `#lib/utils` の純粋関数へ切り出す（例: `selection.ts`、`listNavigation.ts`）
 - 変更前後で最低限以下を確認する
   - 型チェック（`npm run check`）: 警告も失敗扱い。Tailwindの`@apply`/`@reference`をCSS言語サービスが解釈できず誤警告になるため、CSS診断は対象外（`--diagnostic-sources js,svelte`）
   - Lint（`npm run lint`）: 警告も失敗扱い（`--max-warnings 0`）
