@@ -57,6 +57,19 @@ export function invalidatePlayStatsQueries(queryClient: QueryClient) {
 }
 
 /**
+ * 評価の変更に関連するクエリを無効化
+ *
+ * 評価は曲の一覧に加えて、アルバム・アーティスト・ジャンルの詳細の曲の一覧にも表示するため、
+ * グループ化したクエリも取り直す。
+ */
+export function invalidateRatingQueries(queryClient: QueryClient) {
+  invalidatePlayStatsQueries(queryClient);
+  queryClient.invalidateQueries({ queryKey: queryKeys.albums.grouped });
+  queryClient.invalidateQueries({ queryKey: queryKeys.artists.grouped });
+  queryClient.invalidateQueries({ queryKey: queryKeys.genres.grouped });
+}
+
+/**
  * 全トラック関連クエリとプレイリストを無効化（トラックの削除時、他のウィンドウでライブラリが変わった時）
  *
  * トラックを削除するとプレイリストの中からも消えるため、プレイリストも無効化する。
@@ -252,7 +265,7 @@ export function useSetRatingMutation() {
       await withErrorToast(m.operations.setRating, () => commands.setRating(trackId, rating));
     },
     onSuccess: () => {
-      invalidatePlayStatsQueries(queryClient);
+      invalidateRatingQueries(queryClient);
     }
   }));
 }

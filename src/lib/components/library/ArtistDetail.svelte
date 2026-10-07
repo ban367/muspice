@@ -1,9 +1,11 @@
 <script lang="ts">
   import type { ArtistGroup, AlbumGroup } from '#lib/types/models.js';
+  import { useSetRatingMutation } from '#lib/queries/tracks.js';
   import { player, playTrackFromQueue, playShuffled } from '#lib/stores/player.svelte.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import { formatDuration } from '#lib/utils/format.js';
   import PlayingIndicator from './PlayingIndicator.svelte';
+  import RatingStars from './RatingStars.svelte';
   import MarqueeText from '../MarqueeText.svelte';
   import AlbumArt from '../AlbumArt.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
@@ -14,6 +16,8 @@
   }
 
   let { artist }: Props = $props();
+
+  const setRatingMutation = useSetRatingMutation();
 
   // すべて再生
   function handlePlayAll() {
@@ -135,6 +139,10 @@
               <div class="track-info">
                 <MarqueeText text={track.title || track.fileName} class="track-title" />
               </div>
+              <RatingStars
+                rating={track.rating}
+                onChange={(rating) => setRatingMutation.mutateAsync({ trackId: track.id, rating })}
+              />
               <span class="track-duration">{formatDuration(track.duration)}</span>
               <button class="track-action-btn" title={m.common.more}>
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
@@ -248,7 +256,7 @@
 
   .track-row {
     @apply grid gap-3 py-2 px-2 items-center rounded-md cursor-pointer transition-colors duration-100;
-    grid-template-columns: 2rem 1fr 3rem 2rem;
+    grid-template-columns: 2rem 1fr auto 3rem 2rem;
   }
 
   .track-row:hover {

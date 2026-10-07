@@ -29,7 +29,13 @@
   const allArtists = $derived(artistsQuery.data ?? []);
 
   // 選択中のアーティスト（モーダル表示用）
-  let selectedArtist = $state<ArtistGroup | null>(null);
+  // 名前で持ち、取り直したデータから引く（評価の変更などがモーダルの中にも反映される）
+  let selectedArtistName = $state<string | null>(null);
+  const selectedArtist = $derived(
+    selectedArtistName === null
+      ? null
+      : (allArtists.find((artist) => artist.name === selectedArtistName) ?? null)
+  );
 
   // LibraryGridコンポーネントの参照
   let libraryGrid: LibraryGrid<ArtistGroup>;
@@ -39,7 +45,7 @@
 
   // アーティストをクリック
   function handleArtistClick(artist: ArtistGroup) {
-    selectedArtist = artist;
+    selectedArtistName = artist.name;
   }
 
   // アーティストをダブルクリック（すべて再生）
@@ -58,7 +64,7 @@
 
   // モーダルを閉じる
   function handleCloseDetail() {
-    selectedArtist = null;
+    selectedArtistName = null;
   }
 
   // 検索フィルター

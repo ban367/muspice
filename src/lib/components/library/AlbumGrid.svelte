@@ -30,7 +30,13 @@
   const allAlbums = $derived(albumsQuery.data ?? []);
 
   // 選択中のアルバム（モーダル表示用）
-  let selectedAlbum = $state<AlbumGroup | null>(null);
+  // 名前で持ち、取り直したデータから引く（評価の変更などがモーダルの中にも反映される）
+  let selectedAlbumName = $state<string | null>(null);
+  const selectedAlbum = $derived(
+    selectedAlbumName === null
+      ? null
+      : (allAlbums.find((album) => album.name === selectedAlbumName) ?? null)
+  );
 
   // LibraryGridコンポーネントの参照
   let libraryGrid: LibraryGrid<AlbumGroup>;
@@ -40,7 +46,7 @@
 
   // アルバムをクリック
   function handleAlbumClick(album: AlbumGroup) {
-    selectedAlbum = album;
+    selectedAlbumName = album.name;
   }
 
   // アルバムをダブルクリック（すべて再生）
@@ -58,7 +64,7 @@
 
   // モーダルを閉じる
   function handleCloseDetail() {
-    selectedAlbum = null;
+    selectedAlbumName = null;
   }
 
   // アルバムの総再生時間を計算
