@@ -114,6 +114,7 @@ src-tauri/src/
 
 - audio要素の操作・キュー遷移・リピート・再生回数の記録・イコライザの接続・ギャップレス再生は`#lib/stores/playback.svelte`の`createPlaybackController([audio, standbyAudio], options)`が担う。`Player.svelte`は表示と操作の受付だけを行い、コントローラーのメソッドを呼ぶ
 - 次・前のトラックの決定は`#lib/stores/player.svelte`のキュー操作（`playNextTrack`・`playPreviousTrack`）が担う。キュー操作の結果が再生中と同じトラックだった場合（1曲リピート、3秒以上再生中の「前へ」、1曲だけのキューの全曲リピート）はトラックIDが変わらず読み込みが走らないため、コントローラーが頭から再生し直す
+- 再生キュー（右サイドバー）の曲をダブルクリックした時は、`playQueueIndex(index)`でキューの並びを変えずに再生位置だけを移す（指定した位置より前の曲もキューに残る）
 - 再生中かどうか（`isPlaying`）はaudio要素の`play`/`pause`イベントから更新する
 - ギャップレス再生では、audio要素（デッキ）を2つ使い、再生中のデッキ（`active`）と先読みのデッキ（`standby`）を切り替える
   - 先読みするトラックは`#lib/stores/player.svelte`の`peekNextTrack()`（`playNextTrack`の進む先を、状態を変えずに返す）で決める。キュー・リピート・シャッフル・設定が変わると`$effect`で先読みし直す
