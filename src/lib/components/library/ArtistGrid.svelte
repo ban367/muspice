@@ -70,10 +70,8 @@
     selectedArtistName = null;
   }
 
-  // 検索フィルター
-  function filterArtist(artist: ArtistSummary, query: string): boolean {
-    return artist.name.toLowerCase().includes(query);
-  }
+  // 絞り込みの対象（アーティスト名）
+  const artistSearchFields = (artist: ArtistSummary) => [artist.name];
 </script>
 
 <LibraryGrid
@@ -85,7 +83,7 @@
   itemLabel={m.library.artists}
   emptyMessage={m.library.noArtists}
   emptyHint={m.library.noArtistsHint}
-  filterFn={filterArtist}
+  searchFields={artistSearchFields}
   minCardWidth={cardWidth}
   estimatedCardHeight={ui.gridCardSize + ESTIMATED_CARD_EXTRA_HEIGHT}
   estimatedRowHeight={ESTIMATED_LIST_ROW_HEIGHT}

@@ -11,10 +11,8 @@
   const artistsQuery = useArtistsQuery();
   const allArtists = $derived(artistsQuery.data ?? []);
 
-  // 検索フィルター
-  function filterArtist(artist: ArtistSummary, query: string): boolean {
-    return artist.name.toLowerCase().includes(query);
-  }
+  // 絞り込みの対象（アーティスト名）
+  const artistSearchFields = (artist: ArtistSummary) => [artist.name];
 </script>
 
 <LibraryBrowsePage
@@ -24,7 +22,7 @@
   searchPlaceholder={m.library.searchArtists}
   emptyPrompt={m.library.selectArtist}
   items={allArtists}
-  filterFn={filterArtist}
+  searchFields={artistSearchFields}
   getItemKey={(artist) => artist.name}
   listPaneWidth="16rem"
 >

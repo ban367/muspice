@@ -2,8 +2,8 @@
  * ブラウザモック用のインメモリバックエンド
  *
  * Rust側のコマンド（`src-tauri/src/commands/`）の振る舞いを、フィクスチャを使って
- * メモリ上で再現する。並び順・バリデーション・エラーコードは実装に合わせているが、
- * FTS5検索やファイルI/O（タグ書き込み・ファイル削除）は簡略化・省略している。
+ * メモリ上で再現する。並び順・バリデーション・エラーコード・検索の一致の仕方は実装に
+ * 合わせているが、ファイルI/O（タグ書き込み・ファイル削除）は簡略化・省略している。
  *
  * ハンドラ表の型は`bindings.ts`の`commands`から導出しているため、Rust側でコマンドが
  * 追加・変更されてバインディングが再生成されると、ここが型エラーになり追随が必要になる。
@@ -39,6 +39,7 @@ import {
   mockPlaylistId,
   mockTrackId
 } from './fixtures';
+import { matchesSearchTerms, searchTerms } from '#lib/utils/searchText.js';
 import { createAlbumArt } from './media';
 
 type Commands = typeof commands;
@@ -672,13 +673,15 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   const handlers: MockCommandHandlers = {
     importFolder,
     getAllTracks: () => tracksWhere(() => true),
+    // 実装と同じく、空白で区切った語をすべて含む曲を返す（途中の一致。大文字と小文字・
+    // 全角と半角・ひらがなとカタカナを同じとみなす）
     searchTracks: (query) => {
-      const keyword = sanitizeSearchQuery(query).toLowerCase();
-      if (!keyword) return [];
-      // FTS5の代わりに、LIKEフォールバックと同じ列を部分一致で検索する
+      const terms = searchTerms(sanitizeSearchQuery(query));
+      if (terms.length === 0) return [];
       return tracksWhere((track) =>
-        [track.title, track.artist, track.album, track.genre, track.albumArtist].some((value) =>
-          value?.toLowerCase().includes(keyword)
+        matchesSearchTerms(
+          [track.title, track.artist, track.album, track.genre, track.albumArtist],
+          terms
         )
       );
     },

@@ -16,6 +16,7 @@ mod metadata;
 mod models;
 mod playlist;
 mod repository;
+mod search_text;
 mod settings;
 mod state;
 mod track_relink;

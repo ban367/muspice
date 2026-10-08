@@ -14,6 +14,7 @@
   import { ui } from '#lib/stores/ui.svelte.js';
   import { createSearchDebounce } from '#lib/utils/debounce.js';
   import { resolveSelectedItem } from '#lib/utils/selection.js';
+  import { matchesSearchTerms, searchTerms } from '#lib/utils/searchText.js';
 
   // Props
   interface Props {
@@ -29,8 +30,8 @@
     initialDisplayMode?: 'grid' | 'list';
     /** ブラウズ対象のアイテム一覧（2ペイン表示に使用） */
     items?: T[];
-    /** 検索クエリ（小文字化・trim済み）によるフィルタ関数 */
-    filterFn?: (item: T, query: string) => boolean;
+    /** 絞り込みの対象にする項目（検索語を、このどれかに含むアイテムだけを表示する） */
+    searchFields?: (item: T) => (string | null)[];
     /**
      * 2ペイン表示で選択中のアイテムを識別するキー
      *
@@ -63,7 +64,7 @@
     searchPlaceholder,
     initialDisplayMode = 'list',
     items = [],
-    filterFn,
+    searchFields,
     getItemKey,
     count,
     emptyPrompt = '',
@@ -87,9 +88,9 @@
 
   // 検索でフィルタリングされたアイテム
   const filteredItems = $derived.by(() => {
-    const query = ui.browseSearchQuery.toLowerCase().trim();
-    if (!query || !filterFn) return items;
-    return items.filter((item) => filterFn(item, query));
+    const terms = searchTerms(ui.browseSearchQuery);
+    if (terms.length === 0 || !searchFields) return items;
+    return items.filter((item) => matchesSearchTerms(searchFields(item), terms));
   });
 
   // 選択中アイテムのキー（リストモード用）

@@ -28,7 +28,8 @@ tauri-plugin-window-state = "2"
 log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-rusqlite = { version = "0.40", features = ["bundled"] }
+# functions: 検索用の文字列の正規化を、SQLの関数としてトリガーから呼ぶ（search_text.rs）
+rusqlite = { version = "0.40", features = ["bundled", "functions"] }
 uuid = { version = "1.22", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 lofty = "0.25"
@@ -36,7 +37,7 @@ lofty = "0.25"
 notify-debouncer-mini = "0.7"
 # デバイスへの転送: 転送先の空き容量の取得
 fs4 = { version = "1", default-features = false, features = ["sync"] }
-# デバイスへの転送: デバイス上のファイル名をNFCにそろえる
+# デバイスへの転送: デバイス上のファイル名をNFCにそろえる。検索: 全角・半角などをそろえる（NFKC）
 unicode-normalization = "0.1"
 thiserror = "2"
 # Tauriが内部で使うtokioと同じもの（セマフォのためsync機能のみ追加）

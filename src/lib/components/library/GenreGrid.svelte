@@ -76,10 +76,8 @@
     handleGenreDoubleClick(genre);
   }
 
-  // 検索フィルター
-  function filterGenre(genre: GenreSummary, query: string): boolean {
-    return genre.name.toLowerCase().includes(query);
-  }
+  // 絞り込みの対象（ジャンル名）
+  const genreSearchFields = (genre: GenreSummary) => [genre.name];
 </script>
 
 <LibraryGrid
@@ -91,7 +89,7 @@
   itemLabel={m.library.genres}
   emptyMessage={m.library.noGenres}
   emptyHint={m.library.noGenresHint}
-  filterFn={filterGenre}
+  searchFields={genreSearchFields}
   minCardWidth={MIN_CARD_WIDTH}
   estimatedCardHeight={ESTIMATED_CARD_HEIGHT}
   estimatedRowHeight={ESTIMATED_LIST_ROW_HEIGHT}

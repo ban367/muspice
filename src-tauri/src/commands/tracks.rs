@@ -18,7 +18,7 @@ pub async fn get_all_tracks(state: State<'_, AppState>) -> AppResult<Vec<Track>>
     state.with_db(|db| crate::repository::find_all_tracks(db))
 }
 
-/// トラックを検索（FTS5 + LIKEフォールバック）
+/// トラックを検索（部分一致。大文字と小文字・全角と半角・ひらがなとカタカナを同じとみなす）
 #[tauri::command]
 #[specta::specta]
 pub async fn search_tracks(query: String, state: State<'_, AppState>) -> AppResult<Vec<Track>> {

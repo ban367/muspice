@@ -13,6 +13,7 @@
   import { VirtualList } from '#lib/components/ui/index.js';
   import { ui } from '#lib/stores/ui.svelte.js';
   import { navigationTarget } from '#lib/utils/listNavigation.js';
+  import { matchesSearchTerms, searchTerms } from '#lib/utils/searchText.js';
   import GroupContextMenu from '../GroupContextMenu.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
@@ -34,8 +35,8 @@
     emptyMessage: string;
     /** 空状態の補足メッセージ */
     emptyHint: string;
-    /** 検索フィルター関数 */
-    filterFn: (_item: T, _query: string) => boolean;
+    /** 絞り込みの対象にする項目（検索語を、このどれかに含む項目だけを表示する） */
+    searchFields: (_item: T) => (string | null)[];
     /** 項目を識別するキー（省略時は名前。同じ名前の項目がある一覧では渡す） */
     getKey?: (_item: T) => string;
     /** グリッドカードSnippet */
@@ -72,7 +73,7 @@
     emptyIcon,
     emptyMessage,
     emptyHint,
-    filterFn,
+    searchFields,
     getKey = (item) => item.name,
     gridCard,
     listRow,
@@ -85,11 +86,12 @@
     footer
   }: Props = $props();
 
-  // 検索でフィルタリングされたアイテム
+  // 検索でフィルタリングされたアイテム（曲の検索と同じく、大文字と小文字・全角と半角・
+  // ひらがなとカタカナの違いを同じとみなす）
   const filteredItems = $derived.by(() => {
-    const query = ui.browseSearchQuery.toLowerCase().trim();
-    if (!query) return items;
-    return items.filter((item) => filterFn(item, query));
+    const terms = searchTerms(ui.browseSearchQuery);
+    if (terms.length === 0) return items;
+    return items.filter((item) => matchesSearchTerms(searchFields(item), terms));
   });
 
   // グリッド表示のカードの間隔（px）
