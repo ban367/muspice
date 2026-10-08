@@ -91,7 +91,7 @@ export interface Playlist {
 | `playlists`             | プレイリスト本体               | `id`, `name`, `description`, `created_at`, `updated_at`                                                                                                                                                                                                                    |
 | `playlist_tracks`       | プレイリスト内順序             | `playlist_id`, `track_id`, `position`, `added_at`                                                                                                                                                                                                                          |
 | `play_history`          | 再生履歴                       | `id`, `track_id`, `played_at`                                                                                                                                                                                                                                              |
-| `tracks_fts`            | 全文検索（FTS5）               | `id`, `title`, `artist`, `album`, `genre`, `album_artist`                                                                                                                                                                                                                  |
+| `tracks_fts`            | 全文検索（FTS5・trigram）      | `text`（タイトル・アーティスト・アルバム・ジャンル・アルバムアーティストを、検索用に正規化してつないだ文字列）。`rowid`は`tracks`と同じ                                                                                                                                    |
 | `sync_devices`          | 転送先デバイス                 | `id`, `name`, `path`, `sync_all`, `remove_unselected`, `created_at`, `last_synced_at`                                                                                                                                                                                      |
 | `sync_device_playlists` | デバイスに同期するプレイリスト | `device_id`, `playlist_id`                                                                                                                                                                                                                                                 |
 
@@ -108,9 +108,10 @@ export interface Playlist {
 - `tracks.missing_since` は、再スキャンでファイルが見つからなくなった日時（見つかる間はNULL）。見つからない曲はライブラリから外さず、`Track.isMissing`で区別する（ADR-023）。対応付けの候補として取得するため、NULLでない行だけのインデックス（`idx_tracks_missing`）を持つ
 - `tracks.album_artist` はファイルのタグから読んだアルバムアーティスト（空の値はNULL）。アルバム・アーティストの一覧は`COALESCE(album_artist, artist)`（アルバムアーティスト。なければ曲のアーティスト）でまとめる（ADR-022）。アーティストの詳細の絞り込み用に、同じ式のインデックス（`idx_tracks_album_artist`）を持つ
 - `tracks.album_artist_read` は、アルバムアーティストをファイルから読んだか（0/1）。インポート・再スキャン・`refresh_library_metadata`でファイルを読んだトラックは1にする。列を追加する前に登録したトラックは0で、起動時にバックグラウンドで読み込む（後述の「既存のトラックのアルバムアーティストの読み込み」）
-- `tracks_fts` は `tracks` とINSERT/UPDATE/DELETEトリガーで同期
-  - external contentテーブル（`content=tracks`）のため、UPDATE/DELETEは`'delete'`コマンドパターンで古いトークンを除去する
-  - 表の定義の版を`PRAGMA user_version`に記録する（`db.rs`の`FTS_SCHEMA_VERSION`。現在は2）。古い版の表は、起動時に削除して`tracks`から作り直す（1: 旧トリガー（直接DELETE/UPDATE方式）で壊れた可能性のあるインデックスを作り直した。2: 検索の対象にアルバムアーティストを加えた）
+- `tracks_fts` は `tracks` とINSERT/UPDATE/DELETEトリガーで同期する。UPDATEは、検索の対象の列（`title`・`artist`・`album`・`genre`・`album_artist`）を変えた時だけ同期する（再生回数・評価などの更新では索引を更新しない）
+  - トークナイザーはtrigram（3文字の並びを索引にする）。語の途中の一致（区切りのない日本語を含む）を探せる
+  - 入れる文字列は、SQLの関数`search_text(...)`で作る（`search_text.rs`が接続に登録する。NFKC → 小文字 → カタカナをひらがなに、の順で正規化し、項目を改行でつなぐ）。トリガーがこの関数を使うため、アプリの外（`sqlite3`コマンドなど）から`tracks`の対象の列を書き換えると、関数がないエラーになる
+  - 表の定義の版を`PRAGMA user_version`に記録する（`db.rs`の`FTS_SCHEMA_VERSION`。現在は3）。古い版の表は、起動時に削除して`tracks`から作り直す（1: 旧トリガー（直接DELETE/UPDATE方式）で壊れた可能性のあるインデックスを作り直した。2: 検索の対象にアルバムアーティストを加えた。3: トークナイザーをtrigramにし、検索用に正規化した文字列を入れるようにした）
 
 ### 一覧の取得
 
@@ -118,7 +119,14 @@ export interface Playlist {
 - アルバム・アーティスト・ジャンルは、一覧（名前・曲数・合計の長さ・代表の曲）と曲を分けて返す。一覧は曲を含まず、曲はそのアルバムなどの分だけを取得する
 - アルバムは「アルバムアーティスト（なければ曲のアーティスト）＋アルバム名」でまとめる。同じ名前でもアーティストが違うアルバムは別のアルバムになり、アルバムアーティストが同じ曲は、曲ごとのアーティストが違っても1つのアルバムになる（コンピレーション・フィーチャリング）。アーティストの一覧も、アルバムアーティスト（なければ曲のアーティスト）でまとめる（ADR-022）
 - アルバムの中の曲の並びは、ディスク番号（ない場合は1） → トラック番号 → タイトルの順（`ALBUM_TRACK_ORDER`）
-- 検索は FTS5 優先、失敗時に `LIKE` へフォールバック
+
+### 検索
+
+- 検索語を空白（全角を含む）で区切り、すべての語を、タイトル・アーティスト・アルバム・ジャンル・アルバムアーティストのどこかに含む曲を返す（語の途中の一致を含む。1つの語が項目をまたぐ一致は含めない）
+- 大文字と小文字・全角と半角・ひらがなとカタカナの違いは同じとみなす（索引に入れる文字列と検索語を、同じ規則で正規化する。表示するタグの内容は変えない）
+- すべての語が3文字以上なら、全文検索の索引（`tracks_fts MATCH`。語ごとのフレーズをANDでつなぐ）で探す。3文字未満の語がある場合は、trigramの索引では探せないため、`tracks_fts`の文字列を`LIKE`で走査する（ADR-003）
+- 検索語の記号（`%`・`_`・二重引用符・`AND`などの演算子）は、文字として探す
+- フロントの一覧の絞り込み（アルバム・アーティスト・ジャンル）とモックの検索は、`#lib/utils/searchText`で同じ規則にする
 
 ## Tauriコマンド仕様
 
@@ -129,7 +137,7 @@ export interface Playlist {
 | コマンド                           | 引数                                      | 戻り値            | 備考                                                                                                                                                       |
 | ---------------------------------- | ----------------------------------------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `get_all_tracks`                   | なし                                      | `Track[]`         | 全曲。作成日時降順                                                                                                                                         |
-| `search_tracks`                    | `query: string`                           | `Track[]`         | sanitize後にFTS5検索（タイトル・アーティスト・アルバム・ジャンル・アルバムアーティスト）                                                                   |
+| `search_tracks`                    | `query: string`                           | `Track[]`         | 部分一致の検索（「検索」を参照）。作成日時降順                                                                                                             |
 | `filter_tracks`                    | `filters: { artist?, album?, genre? }`    | `Track[]`         | 完全一致フィルタ。作成日時降順                                                                                                                             |
 | `get_unique_artists/albums/genres` | なし                                      | `string[]`        | フィルタ候補用                                                                                                                                             |
 | `get_albums`                       | なし                                      | `AlbumSummary[]`  | アルバムの一覧（名前順）。`artist`は、アルバムをまとめたアーティスト（アルバムアーティスト。なければ曲のアーティスト）。代表の曲は、アルバムの最初の曲     |

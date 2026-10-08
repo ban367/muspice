@@ -63,6 +63,7 @@ src-tauri/src/
 ├── error.rs
 ├── events.rs
 ├── repository.rs
+├── search_text.rs         # 検索用の文字列の正規化（全文検索の表のトリガーが使うSQLの関数）
 ├── library.rs
 ├── library_folder.rs
 ├── library_sync.rs        # ライブラリフォルダの変更の自動反映（起動時・定期・監視）
