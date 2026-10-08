@@ -29,6 +29,7 @@ export interface Track {
   createdAt: string;
   updatedAt: string;
   replayGain: ReplayGain;
+  isMissing: boolean; // ファイルが見つからない曲（再スキャンで見つからなくなり、利用者が外すまで残す）
 }
 
 // 音量の正規化に使うゲイン（タグにない項目はnull）
@@ -62,15 +63,15 @@ export interface Playlist {
 
 ### インポート/削除結果型
 
-- `ImportResult`: `importedCount`, `skippedCount`, `errorCount`, `errors[]`
+- `ImportResult`: `importedCount`, `skippedCount`, `relinkedCount`（見つからない曲を、移動・改名された先のファイルに結び付けた数）, `errorCount`, `errors[]`
 - `DeleteResult`: `successCount`, `failedCount`, `failedTracks[]`
 - `DuplicateAction`: `Skip | Replace`
 
 ### ライブラリフォルダ型
 
 - `LibraryFolder`: `id`, `path`, `trackCount`, `exists`（フォルダが今も見つかるか）, `addedAt`, `lastScannedAt`
-- `LibraryFolderList`: `folders[]`, `unregisteredTrackCount`（どのフォルダにも属さない曲数）
-- `RescanResult`: `addedCount`, `updatedCount`, `removedCount`, `errorCount`, `errors[]`, `removalSkipped`（音楽ファイルが見つからず、曲を外さなかった）
+- `LibraryFolderList`: `folders[]`, `unregisteredTrackCount`（どのフォルダにも属さない曲数）, `missingTrackCount`（見つからない曲の数）
+- `RescanResult`: `addedCount`, `updatedCount`, `relinkedCount`（移動・改名されたファイルに結び付けた曲数）, `missingCount`（見つからない曲にした曲数）, `restoredCount`（ファイルが同じ場所に戻り、見つかる曲に戻した曲数）, `errorCount`, `errors[]`, `missingSkipped`（音楽ファイルが1件も見つからず、見つからない曲にしなかった）
 
 ### 転送先デバイス型
 
@@ -83,16 +84,16 @@ export interface Playlist {
 
 ### テーブル
 
-| テーブル                | 用途                           | 主なカラム                                                                                                                                                                                                                                                |
-| ----------------------- | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tracks`                | トラック本体                   | `id`, `file_path`, `title`, `artist`, `album`, `album_artist`, `album_artist_read`, `genre`, `year`, `track_number`, `disc_number`, `duration`, `file_size`, `file_modified_at`, `is_favorite`, `rating`, `play_count`, `last_played_at`, `replay_gain_*` |
-| `library_folders`       | ライブラリフォルダ             | `id`, `path`（UNIQUE）, `added_at`, `last_scanned_at`                                                                                                                                                                                                     |
-| `playlists`             | プレイリスト本体               | `id`, `name`, `description`, `created_at`, `updated_at`                                                                                                                                                                                                   |
-| `playlist_tracks`       | プレイリスト内順序             | `playlist_id`, `track_id`, `position`, `added_at`                                                                                                                                                                                                         |
-| `play_history`          | 再生履歴                       | `id`, `track_id`, `played_at`                                                                                                                                                                                                                             |
-| `tracks_fts`            | 全文検索（FTS5）               | `id`, `title`, `artist`, `album`, `genre`, `album_artist`                                                                                                                                                                                                 |
-| `sync_devices`          | 転送先デバイス                 | `id`, `name`, `path`, `sync_all`, `remove_unselected`, `created_at`, `last_synced_at`                                                                                                                                                                     |
-| `sync_device_playlists` | デバイスに同期するプレイリスト | `device_id`, `playlist_id`                                                                                                                                                                                                                                |
+| テーブル                | 用途                           | 主なカラム                                                                                                                                                                                                                                                                 |
+| ----------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tracks`                | トラック本体                   | `id`, `file_path`, `title`, `artist`, `album`, `album_artist`, `album_artist_read`, `genre`, `year`, `track_number`, `disc_number`, `duration`, `file_size`, `file_modified_at`, `missing_since`, `is_favorite`, `rating`, `play_count`, `last_played_at`, `replay_gain_*` |
+| `library_folders`       | ライブラリフォルダ             | `id`, `path`（UNIQUE）, `added_at`, `last_scanned_at`                                                                                                                                                                                                                      |
+| `playlists`             | プレイリスト本体               | `id`, `name`, `description`, `created_at`, `updated_at`                                                                                                                                                                                                                    |
+| `playlist_tracks`       | プレイリスト内順序             | `playlist_id`, `track_id`, `position`, `added_at`                                                                                                                                                                                                                          |
+| `play_history`          | 再生履歴                       | `id`, `track_id`, `played_at`                                                                                                                                                                                                                                              |
+| `tracks_fts`            | 全文検索（FTS5）               | `id`, `title`, `artist`, `album`, `genre`, `album_artist`                                                                                                                                                                                                                  |
+| `sync_devices`          | 転送先デバイス                 | `id`, `name`, `path`, `sync_all`, `remove_unselected`, `created_at`, `last_synced_at`                                                                                                                                                                                      |
+| `sync_device_playlists` | デバイスに同期するプレイリスト | `device_id`, `playlist_id`                                                                                                                                                                                                                                                 |
 
 ### インデックス/制約
 
@@ -104,6 +105,7 @@ export interface Playlist {
 - `library_folders` とトラックの対応は `tracks.file_path` の前方一致（フォルダのパス＋区切り文字）で判定する。`file_path >= 接頭辞 AND file_path < 上限`（接頭辞の最後の文字を次の文字にしたもの）の範囲で比較する（二分比較のため大文字・小文字を区別し、`file_path`のUNIQUEのインデックスを使える。`LIKE`はASCIIの大文字・小文字を区別しない）。フォルダ同士は入れ子にしない（中のフォルダはインポートしても登録せず、外のフォルダをインポートすると中のフォルダの記録をまとめる）
 - `sync_device_playlists` は `sync_devices` / `playlists` への外部キー（`ON DELETE CASCADE`）。取得するときも `playlists` と結合し、削除済みのプレイリストを含めない
 - `sync_devices.id` はデバイス側の管理ファイル（後述）の `deviceId` と同じ値。デバイスにコピーしたファイルの一覧はDBに持たず、管理ファイルに記録する
+- `tracks.missing_since` は、再スキャンでファイルが見つからなくなった日時（見つかる間はNULL）。見つからない曲はライブラリから外さず、`Track.isMissing`で区別する（ADR-023）。対応付けの候補として取得するため、NULLでない行だけのインデックス（`idx_tracks_missing`）を持つ
 - `tracks.album_artist` はファイルのタグから読んだアルバムアーティスト（空の値はNULL）。アルバム・アーティストの一覧は`COALESCE(album_artist, artist)`（アルバムアーティスト。なければ曲のアーティスト）でまとめる（ADR-022）。アーティストの詳細の絞り込み用に、同じ式のインデックス（`idx_tracks_album_artist`）を持つ
 - `tracks.album_artist_read` は、アルバムアーティストをファイルから読んだか（0/1）。インポート・再スキャン・`refresh_library_metadata`でファイルを読んだトラックは1にする。列を追加する前に登録したトラックは0で、起動時にバックグラウンドで読み込む（後述の「既存のトラックのアルバムアーティストの読み込み」）
 - `tracks_fts` は `tracks` とINSERT/UPDATE/DELETEトリガーで同期
@@ -152,22 +154,34 @@ export interface Playlist {
 
 ### インポート・削除
 
-| コマンド                           | 引数                            | 戻り値                  | 備考                                                                                                                                          |
-| ---------------------------------- | ------------------------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `import_folder`                    | `folderPath`, `duplicateAction` | `ImportResult`          | 50件/トランザクション、`ImportProgress`イベント送信。音楽ファイルが見つかったフォルダをライブラリフォルダとして記録し、`LibraryChanged`を送る |
-| `delete_tracks_command`            | `trackIds: string[]`            | `number`                | DBからのみ削除                                                                                                                                |
-| `delete_tracks_with_files_command` | `trackIds: string[]`            | `DeleteResult`          | DB+ファイル削除                                                                                                                               |
-| `refresh_library_metadata`         | なし                            | `RefreshMetadataResult` | 全トラックのファイルを読み直し、タグの内容（タイトルなど・評価・track/disc番号・ReplayGain）を反映する。お気に入り・再生回数は変えない        |
+| コマンド                           | 引数                            | 戻り値                  | 備考                                                                                                                                                                                                                                                                                                                                                             |
+| ---------------------------------- | ------------------------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `import_folder`                    | `folderPath`, `duplicateAction` | `ImportResult`          | 50件/トランザクション、`ImportProgress`イベント送信。音楽ファイルが見つかったフォルダをライブラリフォルダとして記録し、`LibraryChanged`を送る。新しいファイルが見つからない曲の移動・改名の先と判定できた場合は、新しい曲として登録せず、その曲に結び付ける（`relinkedCount`）。登録済みのファイルが見つかった場合は、見つからない曲にしていても見つかる曲に戻す |
+| `delete_tracks_command`            | `trackIds: string[]`            | `number`                | DBからのみ削除                                                                                                                                                                                                                                                                                                                                                   |
+| `delete_tracks_with_files_command` | `trackIds: string[]`            | `DeleteResult`          | DB+ファイル削除                                                                                                                                                                                                                                                                                                                                                  |
+| `refresh_library_metadata`         | なし                            | `RefreshMetadataResult` | 全トラックのファイルを読み直し、タグの内容（タイトルなど・評価・track/disc番号・ReplayGain）を反映する。お気に入り・再生回数は変えない                                                                                                                                                                                                                           |
 
 ### ライブラリフォルダ
 
-| コマンド                | 引数                       | 戻り値              | 備考                                                                                                                                                                                                                                     |
-| ----------------------- | -------------------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `get_library_folders`   | なし                       | `LibraryFolderList` | パス順                                                                                                                                                                                                                                   |
-| `rescan_library_folder` | `folderId`                 | `RescanResult`      | 追加・変更（サイズか更新日時が違う）のファイルを読み込み、見つからないファイルの曲を外す。フォルダが見つからない場合は`NOT_FOUND`。`LibraryScanProgress`を送る。途中で失敗した場合も、それまでに書き込んだ分は`LibraryChanged`で通知する |
-| `remove_library_folder` | `folderId`, `removeTracks` | `number`            | 記録を削除する。`removeTracks`ならフォルダ内の曲もライブラリから外す（ファイルは消さない）。外した曲数を返す                                                                                                                             |
+| コマンド                | 引数                       | 戻り値              | 備考                                                                                                                                                                                                                                                                                                                                                           |
+| ----------------------- | -------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `get_library_folders`   | なし                       | `LibraryFolderList` | パス順                                                                                                                                                                                                                                                                                                                                                         |
+| `rescan_library_folder` | `folderId`                 | `RescanResult`      | 追加・変更（サイズか更新日時が違う）のファイルを読み込み、ファイルが見つからない曲を「見つからない曲」にする（外さない）。新しいファイルが見つからない曲の移動・改名の先と判定できた場合は、その曲に結び付ける。フォルダが見つからない場合は`NOT_FOUND`。`LibraryScanProgress`を送る。途中で失敗した場合も、それまでに書き込んだ分は`LibraryChanged`で通知する |
+| `remove_library_folder` | `folderId`, `removeTracks` | `number`            | 記録を削除する。`removeTracks`ならフォルダ内の曲もライブラリから外す（ファイルは消さない）。外した曲数を返す                                                                                                                                                                                                                                                   |
+| `remove_missing_tracks` | なし                       | `number`            | 見つからない曲を、すべてライブラリから外す（ファイルには触れない）。外した曲数を返す                                                                                                                                                                                                                                                                           |
 
 再スキャン・削除でライブラリの曲が変わると`LibraryChanged`イベントを送る。
+
+#### 見つからない曲と、移動・改名されたファイルの対応付け（`track_relink.rs`）
+
+再スキャンでファイルが見つからなくなった曲は、ライブラリから外さず「見つからない曲」（`missing_since`）として残す。お気に入り・再生回数・再生履歴・プレイリストへの登録は、そのまま残る（ADR-023）。
+
+- 再スキャンの順序: （1）見つからなくなった曲を見つからない曲にし、ファイルが同じ場所に戻った曲を見つかる曲に戻す → （2）ライブラリにないファイルを読み込み、見つからない曲（ほかのライブラリフォルダの分・以前の再スキャンの分を含む）のどれかと同じ曲なら、新しい曲として登録せず、その曲のパスを付け替える（IDは変えない） → （3）スキャン日時を記録する
+- 同じ曲とみなす条件: ファイルサイズが同じで、さらに「更新日時が同じ」か「タグの内容（タイトル・アーティスト・アルバム・トラック番号・ディスク番号）と長さが同じ」。候補が複数ある場合はファイル名が同じものに絞り、それでも1つに決まらなければ対応付けない（新しい曲として登録し、見つからない曲は残す）
+- 結び付けた曲は、パス・ファイル名・ファイルの更新日時だけを変える（同じファイルのため、タグの内容は読み直さない）
+- フォルダ自体が見つからない場合（`NOT_FOUND`）と、音楽ファイルが1件も見つからない場合（`missingSkipped`）は、見つからない曲にもしない（外付けドライブが外れている場合などに、全曲を見つからない曲にしないため）
+- 見つからない曲は一覧に残り（薄く表示する）、アルバム・アーティスト・ジャンルの曲数にも含める。再生キューには入れない（選んで再生しようとした場合は通知する）
+- 見つからない曲を外すのは利用者の操作にする: 曲ごとの「ライブラリから削除」か、設定の「ライブラリ」の「見つからない曲を外す」（`remove_missing_tracks`）
 
 #### 変更の自動反映（`library_sync.rs`）
 
