@@ -5,11 +5,12 @@
   import { resolve } from '$app/paths';
   import {
     usePlaylistsQuery,
+    usePlaylistTracksQuery,
     useDeletePlaylistMutation,
     useRemoveTrackFromPlaylistMutation,
     useReorderPlaylistTracksMutation
   } from '#lib/queries/playlists.js';
-  import { useTracksQuery } from '#lib/queries/tracks.js';
+  import { VirtualList } from '#lib/components/ui/index.js';
   import type { Playlist, Track } from '#lib/types/models.js';
   import { playTrackFromQueue } from '#lib/stores/player.svelte.js';
   import { formatDuration, formatTotalDuration } from '#lib/utils/format.js';
@@ -21,9 +22,11 @@
   // URLからプレイリストIDを取得
   const playlistId = $derived(page.params.id);
 
+  // 行の高さの見積もり（描画した後は、VirtualListが実測した高さを使う）
+  const ESTIMATED_ROW_HEIGHT = 52;
+
   // クエリとミューテーション
   const playlistsQuery = usePlaylistsQuery();
-  const tracksQuery = useTracksQuery();
   const deletePlaylistMutation = useDeletePlaylistMutation();
   const removeTrackMutation = useRemoveTrackFromPlaylistMutation();
   const reorderTracksMutation = useReorderPlaylistTracksMutation();
@@ -34,24 +37,31 @@
     return playlistsQuery.data.find((p: Playlist) => p.id === playlistId) || null;
   });
 
+  // プレイリストの曲の情報（見つかったプレイリストの分だけを取得する）
+  const selectedPlaylistId = $derived(selectedPlaylist?.id ?? null);
+  const tracksQuery = $derived(
+    selectedPlaylistId === null ? null : usePlaylistTracksQuery(selectedPlaylistId)
+  );
+  const trackById = $derived(
+    new Map((tracksQuery?.data ?? []).map((track: Track) => [track.id, track]))
+  );
+
   // ドラッグ中のトラックID
   let draggedTrackId = $state<string | null>(null);
 
-  /**
-   * トラックIDからトラック情報を取得
-   */
-  function getTrackById(trackId: string): Track | undefined {
-    return tracksQuery.data?.find((t: Track) => t.id === trackId);
-  }
-
-  // プレイリストのトラック（表示順。ライブラリにないトラックは除く）
+  // プレイリストのトラック（表示順）
+  // 並びはプレイリストの一覧から取る（曲の削除を、曲の情報の取り直しを待たずに反映する）。
+  // 情報をまだ取得していないトラック・ライブラリにないトラックは除く
   const playlistTracks = $derived.by(() =>
     selectedPlaylist
       ? selectedPlaylist.tracks
-          .map((pt) => getTrackById(pt.trackId))
+          .map((pt) => trackById.get(pt.trackId))
           .filter((t): t is Track => t !== undefined)
       : []
   );
+
+  // 見えている行だけを描画する一覧
+  let virtualList = $state<VirtualList<Track>>();
 
   // トラックの選択（クリック・キーボード）
   const selection = new TrackSelection(() => playlistTracks);
@@ -74,11 +84,11 @@
    * 一覧のキーボード操作（矢印キーで選択を移す・Enterで再生する）
    */
   function handleListKeydown(event: KeyboardEvent) {
+    const indexOf = (trackId: string) => playlistTracks.findIndex((t) => t.id === trackId);
     handleTrackListKeydown(event, selection, {
-      onActivate: (trackId) => {
-        const track = getTrackById(trackId);
-        if (track) handleTrackDoubleClick(track);
-      }
+      onActivate: (trackId) => playFromIndex(indexOf(trackId)),
+      // 移動先の行は描画されていないことがあるため、一覧の中の位置でスクロールする
+      scrollTo: (trackId) => virtualList?.scrollToIndex(indexOf(trackId))
     });
   }
 
@@ -176,32 +186,19 @@
   }
 
   /**
-   * トラックをダブルクリックで再生
+   * プレイリストの中の位置を指定して、その曲からプレイリストを再生
    */
-  function handleTrackDoubleClick(track: Track) {
-    if (!selectedPlaylist) return;
-
-    // プレイリストのトラックリストから再生キューを作成
-    const playlistTracks = selectedPlaylist.tracks
-      .map((pt) => getTrackById(pt.trackId))
-      .filter((t): t is Track => t !== undefined);
-
-    const trackIndex = playlistTracks.findIndex((t) => t.id === track.id);
-    if (trackIndex !== -1) {
-      playTrackFromQueue(playlistTracks, trackIndex);
-    }
+  function playFromIndex(index: number) {
+    if (index < 0 || index >= playlistTracks.length) return;
+    playTrackFromQueue(playlistTracks, index);
   }
 
   /**
    * プレイリストの合計時間を計算
    */
-  const totalDuration = $derived.by(() => {
-    if (!selectedPlaylist) return 0;
-    return selectedPlaylist.tracks.reduce((total, pt) => {
-      const track = getTrackById(pt.trackId);
-      return total + (track?.duration || 0);
-    }, 0);
-  });
+  const totalDuration = $derived(
+    playlistTracks.reduce((total, track) => total + (track.duration || 0), 0)
+  );
 </script>
 
 <div class="playlist-detail-page">
@@ -246,17 +243,8 @@
       <div class="playlist-actions">
         <button
           class="btn-play-all"
-          onclick={() => {
-            if (selectedPlaylist && selectedPlaylist.tracks.length > 0) {
-              const playlistTracks = selectedPlaylist.tracks
-                .map((pt) => getTrackById(pt.trackId))
-                .filter((t): t is Track => t !== undefined);
-              if (playlistTracks.length > 0) {
-                playTrackFromQueue(playlistTracks, 0);
-              }
-            }
-          }}
-          disabled={selectedPlaylist.tracks.length === 0}
+          onclick={() => playFromIndex(0)}
+          disabled={playlistTracks.length === 0}
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -312,77 +300,79 @@
           <p class="hint">{m.playlists.noTracksHint}</p>
         </div>
       {:else}
-        <!-- テーブルヘッダー -->
-        <div class="track-header">
-          <div class="col-number">#</div>
-          <div class="col-title">{m.fields.title}</div>
-          <div class="col-artist">{m.fields.artist}</div>
-          <div class="col-album">{m.fields.album}</div>
-          <div class="col-duration">{m.fields.duration}</div>
-          <div class="col-actions"></div>
-        </div>
-
-        <!-- トラック一覧（一覧がフォーカスを受けてキー操作を扱う） -->
-        <div
-          class="track-rows"
+        <!-- トラック一覧（一覧がフォーカスを受けてキー操作を扱う。枠は出さず、選択中の行の色で示す） -->
+        <VirtualList
+          bind:this={virtualList}
+          items={playlistTracks}
+          getKey={(track) => track.id}
+          estimatedRowHeight={ESTIMATED_ROW_HEIGHT}
+          class="outline-none"
           role="listbox"
           aria-multiselectable="true"
           aria-label={selectedPlaylist.name}
-          tabindex="0"
+          tabindex={0}
           onkeydown={handleListKeydown}
         >
-          {#each selectedPlaylist.tracks as playlistTrack, index (playlistTrack.trackId)}
-            {@const track = getTrackById(playlistTrack.trackId)}
-            {#if track}
-              <!-- キー操作は一覧（listbox）で受けるため、行はフォーカスを受けない -->
-              <!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
-              <div
-                class="track-row"
-                class:selected={selection.has(track.id)}
-                draggable="true"
-                ondragstart={(e) => handleDragStart(e, track.id)}
-                ondragend={() => (draggedTrackId = null)}
-                ondragover={handleDragOver}
-                ondrop={(e) => handleDropOnTrack(e, track.id)}
-                onclick={(e) => handleTrackClick(track.id, e)}
-                ondblclick={() => handleTrackDoubleClick(track)}
-                role="option"
-                aria-selected={selection.has(track.id)}
-                data-track-id={track.id}
-              >
-                <div class="col-number">{index + 1}</div>
-                <div class="col-title">
-                  <span class="track-name">{track.title || track.fileName}</span>
-                </div>
-                <div class="col-artist">{track.artist || m.common.unknownArtist}</div>
-                <div class="col-album">{track.album || m.common.unknownAlbum}</div>
-                <div class="col-duration">{formatDuration(track.duration)}</div>
-                <div class="col-actions">
-                  <button
-                    class="btn-remove-track"
-                    onclick={() => handleRemoveTrack(track.id)}
-                    title={m.playlists.removeFromPlaylist}
-                  >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      class="icon-remove"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M6 18L18 6M6 6l12 12"
-                      />
-                    </svg>
-                  </button>
-                </div>
+          {#snippet header()}
+            <div class="track-header">
+              <div class="col-number">#</div>
+              <div class="col-title">{m.fields.title}</div>
+              <div class="col-artist">{m.fields.artist}</div>
+              <div class="col-album">{m.fields.album}</div>
+              <div class="col-duration">{m.fields.duration}</div>
+              <div class="col-actions"></div>
+            </div>
+          {/snippet}
+
+          {#snippet row(track, index)}
+            <!-- キー操作は一覧（listbox）で受けるため、行はフォーカスを受けない -->
+            <!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
+            <div
+              class="track-row"
+              class:selected={selection.has(track.id)}
+              draggable="true"
+              ondragstart={(e) => handleDragStart(e, track.id)}
+              ondragend={() => (draggedTrackId = null)}
+              ondragover={handleDragOver}
+              ondrop={(e) => handleDropOnTrack(e, track.id)}
+              onclick={(e) => handleTrackClick(track.id, e)}
+              ondblclick={() => playFromIndex(index)}
+              role="option"
+              aria-selected={selection.has(track.id)}
+              data-track-id={track.id}
+            >
+              <div class="col-number">{index + 1}</div>
+              <div class="col-title">
+                <span class="track-name">{track.title || track.fileName}</span>
               </div>
-            {/if}
-          {/each}
-        </div>
+              <div class="col-artist">{track.artist || m.common.unknownArtist}</div>
+              <div class="col-album">{track.album || m.common.unknownAlbum}</div>
+              <div class="col-duration">{formatDuration(track.duration)}</div>
+              <div class="col-actions">
+                <button
+                  class="btn-remove-track"
+                  onclick={() => handleRemoveTrack(track.id)}
+                  title={m.playlists.removeFromPlaylist}
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    class="icon-remove"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M6 18L18 6M6 6l12 12"
+                    />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          {/snippet}
+        </VirtualList>
       {/if}
     </div>
   {/if}
@@ -474,19 +464,15 @@
     @apply w-5 h-5;
   }
 
-  /* トラックリスト */
+  /* トラックリスト（スクロールはVirtualListが行う） */
   .track-list {
-    @apply flex-1 overflow-y-auto;
+    @apply flex-1 min-h-0;
   }
 
+  /* 列の見出し（VirtualListが一覧の上に固定して表示する） */
   .track-header {
-    @apply grid gap-4 px-4 py-3 text-xs font-semibold uppercase text-text-muted border-b border-border;
+    @apply grid gap-4 px-4 py-3 text-xs font-semibold uppercase text-text-muted border-b border-border bg-base-100;
     grid-template-columns: 3rem 2fr 1.5fr 1.5fr 4rem 3rem;
-  }
-
-  /* 枠は出さず、選択中の行の色で示す */
-  .track-rows {
-    @apply outline-none;
   }
 
   .track-row {

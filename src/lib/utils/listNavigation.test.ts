@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { countGridColumns, navigationTarget } from './listNavigation.js';
+import { listSelectionTarget, navigationTarget } from './listNavigation.js';
 
 describe('navigationTarget（リスト）', () => {
   it('↑↓で前後の項目へ移る', () => {
@@ -69,15 +69,45 @@ describe('navigationTarget（グリッド）', () => {
   });
 });
 
-describe('countGridColumns', () => {
-  const item = (offsetTop: number) => ({ offsetTop }) as HTMLElement;
+describe('listSelectionTarget', () => {
+  function keyEvent(key: string, init: Partial<KeyboardEvent> = {}) {
+    const event = {
+      key,
+      defaultPrevented: false,
+      altKey: false,
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      preventDefault() {
+        event.defaultPrevented = true;
+      },
+      ...init
+    };
+    return event as unknown as KeyboardEvent;
+  }
 
-  it('1行目にある要素の数を返す', () => {
-    expect(countGridColumns([item(0), item(0), item(0), item(120), item(120)])).toBe(3);
+  it('↑↓・Home・Endで移動先を返し、既定の動作を止める', () => {
+    const down = keyEvent('ArrowDown');
+    expect(listSelectionTarget(down, 1, 5)).toBe(2);
+    expect(down.defaultPrevented).toBe(true);
+    expect(listSelectionTarget(keyEvent('ArrowUp'), 1, 5)).toBe(0);
+    expect(listSelectionTarget(keyEvent('End'), 1, 5)).toBe(4);
+    expect(listSelectionTarget(keyEvent('Home'), 3, 5)).toBe(0);
   });
 
-  it('1行だけ・要素なしの場合', () => {
-    expect(countGridColumns([item(0), item(0)])).toBe(2);
-    expect(countGridColumns([])).toBe(1);
+  it('扱わないキー・修飾キーを押している場合は何もしない', () => {
+    const enter = keyEvent('Enter');
+    expect(listSelectionTarget(enter, 1, 5)).toBeNull();
+    expect(enter.defaultPrevented).toBe(false);
+
+    const withShift = keyEvent('ArrowDown', { shiftKey: true });
+    expect(listSelectionTarget(withShift, 1, 5)).toBeNull();
+    expect(withShift.defaultPrevented).toBe(false);
+    expect(listSelectionTarget(keyEvent('ArrowDown', { metaKey: true }), 1, 5)).toBeNull();
+  });
+
+  it('すでに処理されたイベント・項目がない一覧では何もしない', () => {
+    expect(listSelectionTarget(keyEvent('ArrowDown', { defaultPrevented: true }), 1, 5)).toBeNull();
+    expect(listSelectionTarget(keyEvent('ArrowDown'), -1, 0)).toBeNull();
   });
 });

@@ -68,43 +68,26 @@ export function navigationTarget(
 }
 
 /**
- * グリッドに並んだ要素の列数を数える（1行目にある要素の数）
- * @param items - 表示順の要素
- */
-export function countGridColumns(items: ArrayLike<HTMLElement>): number {
-  if (items.length === 0) return 1;
-  const firstRowTop = items[0].offsetTop;
-  let columns = 0;
-  while (columns < items.length && items[columns].offsetTop === firstRowTop) {
-    columns++;
-  }
-  return Math.max(1, columns);
-}
-
-/**
  * 1つだけ選択する一覧（2ペイン表示の左のアルバム・アーティストの一覧など）のキーボード操作
  *
- * 一覧の要素の`onkeydown`から呼ぶ。項目の要素は、一覧の要素の子として表示順に並べておく。
- * 移動先の項目へフォーカスも移す（見える位置へのスクロールを兼ねる。フォーカスを前の項目に
- * 残すと、EnterやSpaceが前の項目に効いてしまう）。
+ * 一覧の要素の`onkeydown`から呼ぶ。修飾キーを押している場合・扱わないキーの場合は何もしない。
+ * 移動先を扱う場合は、既定の動作（一覧のスクロール）を止める。
  * @param event - キーイベント
  * @param current - 選択中の項目の位置（選択がない場合は-1）
- * @returns 移動先の位置（呼び出し側でその項目を選択する）。扱わないキーの場合はnull
+ * @param count - 項目の数
+ * @returns 移動先の位置（呼び出し側でその項目を選択し、見える位置へ出す）。扱わないキーの場合はnull
  */
-export function moveListSelection(event: KeyboardEvent, current: number): number | null {
+export function listSelectionTarget(
+  event: KeyboardEvent,
+  current: number,
+  count: number
+): number | null {
   if (event.defaultPrevented) return null;
   if (event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return null;
 
-  const list = event.currentTarget;
-  if (!(list instanceof HTMLElement)) return null;
-
-  const target = navigationTarget(event.key, current, list.children.length);
+  const target = navigationTarget(event.key, current, count);
   if (target === null) return null;
 
   event.preventDefault();
-  const item = list.children[target];
-  if (item instanceof HTMLElement) {
-    item.focus();
-  }
   return target;
 }

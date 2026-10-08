@@ -4,17 +4,19 @@
 //! 全てのデータベース読み取り操作はこのモジュールを経由する。
 
 use crate::error::{AppError, AppResult};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use rusqlite::{Connection, Row};
 
-use crate::models::{AlbumGroup, ArtistGroup, GenreGroup, Metadata, ReplayGain, Track};
+use crate::models::{
+    AlbumGroup, AlbumSummary, ArtistSummary, GenreSummary, Metadata, ReplayGain, Track,
+};
 
-/// クエリ結果の最大取得件数
-///
-/// パフォーマンスとメモリ使用量のバランスを考慮した設計上の制限。
-/// 仮想スクロール（100曲以上のリスト）と組み合わせて使用する。
-const DEFAULT_QUERY_LIMIT: usize = 1000;
+/// アルバムの中の曲の並び（ディスク番号 → トラック番号 → タイトル）
+const ALBUM_TRACK_ORDER: &str = "COALESCE(disc_number, 1), track_number, title";
+
+/// アーティストの詳細で、アルバムのない曲をまとめるアルバムの名前
+const UNKNOWN_ALBUM: &str = "不明なアルバム";
 
 /// SELECTで使用するトラックカラム列挙（25列）
 ///
@@ -60,23 +62,15 @@ pub fn map_track_row(row: &Row) -> rusqlite::Result<Track> {
     })
 }
 
-/// 全トラックを取得（作成日時の降順、最大1000件）
+/// 全トラックを取得（作成日時の降順）
+///
+/// 件数の上限はない（一覧は、フロントが見えている行だけを描画する）。
 pub fn find_all_tracks(conn: &Connection) -> AppResult<Vec<Track>> {
     let sql = format!(
-        "SELECT {} FROM tracks ORDER BY created_at DESC LIMIT {}",
-        TRACK_COLUMNS, DEFAULT_QUERY_LIMIT
+        "SELECT {} FROM tracks ORDER BY created_at DESC",
+        TRACK_COLUMNS
     );
-    let mut stmt = conn
-        .prepare(&sql)
-        .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
-
-    let tracks = stmt
-        .query_map([], map_track_row)
-        .map_err(|e| AppError::Database(format!("クエリの実行に失敗しました: {}", e)))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| AppError::Database(format!("結果の取得に失敗しました: {}", e)))?;
-
-    Ok(tracks)
+    query_tracks(conn, &sql, &[])
 }
 
 /// IDでトラックを1件取得
@@ -134,8 +128,8 @@ fn search_tracks_fts(conn: &Connection, query: &str) -> AppResult<Vec<Track>> {
          WHERE id IN (
              SELECT id FROM tracks_fts WHERE tracks_fts MATCH ?1
          )
-         ORDER BY created_at DESC LIMIT {}",
-        TRACK_COLUMNS, DEFAULT_QUERY_LIMIT
+         ORDER BY created_at DESC",
+        TRACK_COLUMNS
     );
 
     let mut stmt = conn
@@ -169,8 +163,8 @@ fn search_tracks_like(conn: &Connection, query: &str) -> AppResult<Vec<Track>> {
         "SELECT {} FROM tracks
          WHERE title LIKE ?1 ESCAPE '\\' OR artist LIKE ?1 ESCAPE '\\'
             OR album LIKE ?1 ESCAPE '\\' OR genre LIKE ?1 ESCAPE '\\'
-         ORDER BY created_at DESC LIMIT {}",
-        TRACK_COLUMNS, DEFAULT_QUERY_LIMIT
+         ORDER BY created_at DESC",
+        TRACK_COLUMNS
     );
 
     let mut stmt = conn
@@ -217,10 +211,7 @@ pub fn find_tracks_by_filter(conn: &Connection, filters: &FilterOptions) -> AppR
         params.push(genre.clone());
     }
 
-    sql.push_str(&format!(
-        " ORDER BY created_at DESC LIMIT {}",
-        DEFAULT_QUERY_LIMIT
-    ));
+    sql.push_str(" ORDER BY created_at DESC");
 
     let mut stmt = conn
         .prepare(&sql)
@@ -266,8 +257,8 @@ pub fn try_find_file_path_by_track_id(
 /// お気に入りトラックを取得
 pub fn find_favorite_tracks(conn: &Connection) -> AppResult<Vec<Track>> {
     let sql = format!(
-        "SELECT {} FROM tracks WHERE is_favorite = 1 ORDER BY updated_at DESC LIMIT {}",
-        TRACK_COLUMNS, DEFAULT_QUERY_LIMIT
+        "SELECT {} FROM tracks WHERE is_favorite = 1 ORDER BY updated_at DESC",
+        TRACK_COLUMNS
     );
     query_tracks(conn, &sql, &[])
 }
@@ -291,171 +282,228 @@ pub fn find_recently_played_tracks(conn: &Connection, limit: i32) -> AppResult<V
 }
 
 /// 共通のトラッククエリ実行ヘルパー
-fn query_tracks(
+pub(crate) fn query_tracks(
     conn: &Connection,
     sql: &str,
     params: &[&dyn rusqlite::ToSql],
 ) -> AppResult<Vec<Track>> {
+    query_rows(conn, sql, params, map_track_row)
+}
+
+/// 一覧の集計に使う行を読む（列は呼び出し側のSQLで決める）
+fn query_rows<T>(
+    conn: &Connection,
+    sql: &str,
+    params: &[&dyn rusqlite::ToSql],
+    map_row: impl FnMut(&Row) -> rusqlite::Result<T>,
+) -> AppResult<Vec<T>> {
     let mut stmt = conn
         .prepare(sql)
         .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
 
-    let tracks = stmt
-        .query_map(params, map_track_row)
+    let rows = stmt
+        .query_map(params, map_row)
         .map_err(|e| AppError::Database(format!("クエリの実行に失敗しました: {}", e)))?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| AppError::Database(format!("結果の取得に失敗しました: {}", e)))?;
 
-    Ok(tracks)
+    Ok(rows)
 }
 
-/// アルバム別にグループ化されたトラックを取得
-pub fn find_albums_grouped(conn: &Connection) -> AppResult<Vec<AlbumGroup>> {
+/// アルバムの一覧を取得（アルバム名の順。曲は含めない）
+///
+/// アーティストと代表の曲は、アルバムの最初の曲（`ALBUM_TRACK_ORDER`の順）のもの。
+pub fn find_album_summaries(conn: &Connection) -> AppResult<Vec<AlbumSummary>> {
     let sql = format!(
-        "SELECT {} FROM tracks WHERE album IS NOT NULL ORDER BY album, track_number, title",
-        TRACK_COLUMNS
+        "SELECT album, artist, id, duration FROM tracks WHERE album IS NOT NULL
+         ORDER BY album, {ALBUM_TRACK_ORDER}"
     );
-    let tracks = query_tracks(conn, &sql, &[])?;
+    let rows = query_rows(conn, &sql, &[], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, Option<String>>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, Option<i32>>(3)?,
+        ))
+    })?;
 
-    // アルバムごとにグループ化
-    let mut album_map: HashMap<String, Vec<Track>> = HashMap::new();
-    for track in tracks {
-        if let Some(ref album) = track.album {
-            album_map.entry(album.clone()).or_default().push(track);
+    // 同じアルバムの曲は続けて並ぶため、前の行と比べてまとめる
+    let mut albums: Vec<AlbumSummary> = Vec::new();
+    for (album, artist, id, duration) in rows {
+        match albums.last_mut() {
+            Some(last) if last.name == album => {
+                last.track_count += 1;
+                last.total_duration += duration.unwrap_or(0);
+            }
+            _ => albums.push(AlbumSummary {
+                name: album,
+                artist,
+                track_count: 1,
+                total_duration: duration.unwrap_or(0),
+                representative_track_id: id,
+            }),
         }
     }
-
-    let mut albums: Vec<AlbumGroup> = album_map
-        .into_iter()
-        .map(|(album_name, tracks)| {
-            let artist = tracks.first().and_then(|t| t.artist.clone());
-            let total_duration = tracks.iter().filter_map(|t| t.duration).sum();
-            let representative_track_id = tracks.first().map(|t| t.id.clone()).unwrap_or_default();
-            let track_count = tracks.len() as i32;
-
-            AlbumGroup {
-                name: album_name,
-                artist,
-                track_count,
-                total_duration,
-                representative_track_id,
-                tracks,
-            }
-        })
-        .collect();
 
     albums.sort_by_cached_key(|a| a.name.to_lowercase());
     Ok(albums)
 }
 
-/// アーティスト別にグループ化されたトラックを取得
-pub fn find_artists_grouped(conn: &Connection) -> AppResult<Vec<ArtistGroup>> {
+/// アルバムの曲を取得（`ALBUM_TRACK_ORDER`の順）
+pub fn find_album_tracks(conn: &Connection, album: &str) -> AppResult<Vec<Track>> {
     let sql = format!(
-        "SELECT {} FROM tracks WHERE artist IS NOT NULL ORDER BY artist, album, track_number, title",
+        "SELECT {} FROM tracks WHERE album = ?1 ORDER BY {ALBUM_TRACK_ORDER}",
         TRACK_COLUMNS
     );
-    let tracks = query_tracks(conn, &sql, &[])?;
+    query_tracks(conn, &sql, &[&album])
+}
 
-    // アーティスト → アルバム → トラックのネスト構造を構築
-    let mut artist_map: HashMap<String, HashMap<String, Vec<Track>>> = HashMap::new();
-    for track in tracks {
-        if let Some(ref artist) = track.artist {
-            let album_name = track
-                .album
-                .clone()
-                .unwrap_or_else(|| "不明なアルバム".to_string());
-            artist_map
-                .entry(artist.clone())
-                .or_default()
-                .entry(album_name)
-                .or_default()
-                .push(track);
+/// アーティストの一覧を取得（アーティスト名の順。アルバムと曲は含めない）
+///
+/// 代表の曲は、詳細で最初に表示するアルバム（名前の順で最初）の最初の曲。
+pub fn find_artist_summaries(conn: &Connection) -> AppResult<Vec<ArtistSummary>> {
+    let sql = format!(
+        "SELECT artist, COALESCE(album, ?1) AS album_name, id, duration FROM tracks
+         WHERE artist IS NOT NULL
+         ORDER BY artist, album_name, {ALBUM_TRACK_ORDER}"
+    );
+    let rows = query_rows(conn, &sql, &[&UNKNOWN_ALBUM], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, Option<i32>>(3)?,
+        ))
+    })?;
+
+    // 同じアーティスト・同じアルバムの曲は続けて並ぶため、前の行と比べてまとめる
+    let mut artists: Vec<ArtistSummary> = Vec::new();
+    let mut current_album: Option<String> = None;
+    // 代表の曲を選んだアルバムの名前（小文字。詳細のアルバムの並びと同じ比較にする）
+    let mut representative_album: Option<String> = None;
+    for (artist, album, id, duration) in rows {
+        if artists.last().is_none_or(|last| last.name != artist) {
+            artists.push(ArtistSummary {
+                name: artist,
+                album_count: 0,
+                track_count: 0,
+                total_duration: 0,
+                representative_track_id: String::new(),
+            });
+            current_album = None;
+            representative_album = None;
+        }
+        let Some(summary) = artists.last_mut() else {
+            continue;
+        };
+
+        summary.track_count += 1;
+        summary.total_duration += duration.unwrap_or(0);
+        if current_album.as_deref() != Some(album.as_str()) {
+            summary.album_count += 1;
+            let album_key = album.to_lowercase();
+            if representative_album
+                .as_ref()
+                .is_none_or(|best| album_key < *best)
+            {
+                summary.representative_track_id = id;
+                representative_album = Some(album_key);
+            }
+            current_album = Some(album);
         }
     }
-
-    let mut artists: Vec<ArtistGroup> = artist_map
-        .into_iter()
-        .map(|(artist_name, album_map)| {
-            let mut all_albums: Vec<AlbumGroup> = Vec::new();
-            let mut total_track_count: i32 = 0;
-            let mut total_duration: i32 = 0;
-            let mut first_track_id = String::new();
-
-            for (album_name, tracks) in album_map {
-                let album_track_count = tracks.len() as i32;
-                let album_duration: i32 = tracks.iter().filter_map(|t| t.duration).sum();
-                let album_representative_id =
-                    tracks.first().map(|t| t.id.clone()).unwrap_or_default();
-
-                if first_track_id.is_empty() {
-                    first_track_id = album_representative_id.clone();
-                }
-
-                total_track_count += album_track_count;
-                total_duration += album_duration;
-
-                all_albums.push(AlbumGroup {
-                    name: album_name,
-                    artist: Some(artist_name.clone()),
-                    track_count: album_track_count,
-                    total_duration: album_duration,
-                    representative_track_id: album_representative_id,
-                    tracks,
-                });
-            }
-
-            all_albums.sort_by_cached_key(|a| a.name.to_lowercase());
-
-            ArtistGroup {
-                name: artist_name,
-                album_count: all_albums.len() as i32,
-                track_count: total_track_count,
-                total_duration,
-                representative_track_id: first_track_id,
-                albums: all_albums,
-            }
-        })
-        .collect();
 
     artists.sort_by_cached_key(|a| a.name.to_lowercase());
     Ok(artists)
 }
 
-/// ジャンル別にグループ化されたトラックを取得
-pub fn find_genres_grouped(conn: &Connection) -> AppResult<Vec<GenreGroup>> {
+/// アーティストのアルバムと曲を取得（アルバム名の順。曲は`ALBUM_TRACK_ORDER`の順）
+///
+/// アルバムのない曲は、`UNKNOWN_ALBUM`という名前のアルバムにまとめる。
+pub fn find_artist_albums(conn: &Connection, artist: &str) -> AppResult<Vec<AlbumGroup>> {
     let sql = format!(
-        "SELECT {} FROM tracks WHERE genre IS NOT NULL ORDER BY genre, artist, album, track_number, title",
+        "SELECT {} FROM tracks WHERE artist = ?1
+         ORDER BY COALESCE(album, ?2), {ALBUM_TRACK_ORDER}",
         TRACK_COLUMNS
     );
-    let tracks = query_tracks(conn, &sql, &[])?;
+    let tracks = query_tracks(conn, &sql, &[&artist, &UNKNOWN_ALBUM])?;
 
-    // ジャンルごとにグループ化
-    let mut genre_map: HashMap<String, Vec<Track>> = HashMap::new();
+    // 同じアルバムの曲は続けて並ぶため、前の行と比べてまとめる
+    let mut albums: Vec<AlbumGroup> = Vec::new();
     for track in tracks {
-        if let Some(ref genre) = track.genre {
-            genre_map.entry(genre.clone()).or_default().push(track);
+        let album_name = track.album.as_deref().unwrap_or(UNKNOWN_ALBUM);
+        match albums.last_mut() {
+            Some(last) if last.name == album_name => {
+                last.track_count += 1;
+                last.total_duration += track.duration.unwrap_or(0);
+                last.tracks.push(track);
+            }
+            _ => albums.push(AlbumGroup {
+                name: album_name.to_string(),
+                artist: Some(artist.to_string()),
+                track_count: 1,
+                total_duration: track.duration.unwrap_or(0),
+                representative_track_id: track.id.clone(),
+                tracks: vec![track],
+            }),
         }
     }
 
-    let mut genres: Vec<GenreGroup> = genre_map
-        .into_iter()
-        .map(|(genre_name, tracks)| {
-            let total_duration = tracks.iter().filter_map(|t| t.duration).sum();
-            let representative_track_id = tracks.first().map(|t| t.id.clone()).unwrap_or_default();
-            let track_count = tracks.len() as i32;
+    albums.sort_by_cached_key(|a| a.name.to_lowercase());
+    Ok(albums)
+}
 
-            GenreGroup {
-                name: genre_name,
-                track_count,
-                total_duration,
-                representative_track_id,
-                tracks,
+/// ジャンルの曲の並び（アーティスト → アルバム → アルバムの中の並び）
+fn genre_track_order() -> String {
+    format!("artist, album, {ALBUM_TRACK_ORDER}")
+}
+
+/// ジャンルの一覧を取得（ジャンル名の順。曲は含めない）
+///
+/// 代表の曲は、ジャンルの最初の曲（`find_genre_tracks`の順）。
+pub fn find_genre_summaries(conn: &Connection) -> AppResult<Vec<GenreSummary>> {
+    let sql = format!(
+        "SELECT genre, id, duration FROM tracks WHERE genre IS NOT NULL
+         ORDER BY genre, {}",
+        genre_track_order()
+    );
+    let rows = query_rows(conn, &sql, &[], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, Option<i32>>(2)?,
+        ))
+    })?;
+
+    // 同じジャンルの曲は続けて並ぶため、前の行と比べてまとめる
+    let mut genres: Vec<GenreSummary> = Vec::new();
+    for (genre, id, duration) in rows {
+        match genres.last_mut() {
+            Some(last) if last.name == genre => {
+                last.track_count += 1;
+                last.total_duration += duration.unwrap_or(0);
             }
-        })
-        .collect();
+            _ => genres.push(GenreSummary {
+                name: genre,
+                track_count: 1,
+                total_duration: duration.unwrap_or(0),
+                representative_track_id: id,
+            }),
+        }
+    }
 
     genres.sort_by_cached_key(|a| a.name.to_lowercase());
     Ok(genres)
+}
+
+/// ジャンルの曲を取得（アーティスト → アルバム → アルバムの中の並び）
+pub fn find_genre_tracks(conn: &Connection, genre: &str) -> AppResult<Vec<Track>> {
+    let sql = format!(
+        "SELECT {} FROM tracks WHERE genre = ?1 ORDER BY {}",
+        TRACK_COLUMNS,
+        genre_track_order()
+    );
+    query_tracks(conn, &sql, &[&genre])
 }
 
 /// トラックのメタデータ（title/artist/album/genre/year）を更新
@@ -1349,51 +1397,227 @@ mod tests {
         assert_eq!(tracks[0].play_count, 10);
     }
 
-    #[test]
-    fn test_find_albums_grouped() {
-        let conn = setup_test_db();
-        insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
-        insert_test_track(&conn, "t2", "曲B", "アーティストX", "アルバム1", "ロック");
-        insert_test_track(&conn, "t3", "曲C", "アーティストY", "アルバム2", "ポップ");
+    /// 一覧の集計のテスト用に、ディスク番号・トラック番号・長さを設定する
+    fn set_track_position(
+        conn: &Connection,
+        id: &str,
+        disc_number: Option<i32>,
+        track_number: Option<i32>,
+        duration: Option<i32>,
+    ) {
+        conn.execute(
+            "UPDATE tracks SET disc_number = ?2, track_number = ?3, duration = ?4 WHERE id = ?1",
+            rusqlite::params![id, disc_number, track_number, duration],
+        )
+        .unwrap();
+    }
 
-        let albums = find_albums_grouped(&conn).unwrap();
-        assert_eq!(albums.len(), 2);
-
-        // アルバム名でソートされているはず
-        let album1 = albums.iter().find(|a| a.name == "アルバム1").unwrap();
-        assert_eq!(album1.track_count, 2);
-
-        let album2 = albums.iter().find(|a| a.name == "アルバム2").unwrap();
-        assert_eq!(album2.track_count, 1);
+    fn track_ids(tracks: &[Track]) -> Vec<&str> {
+        tracks.iter().map(|t| t.id.as_str()).collect()
     }
 
     #[test]
-    fn test_find_artists_grouped() {
+    fn test_find_all_tracks_has_no_limit() {
+        let conn = setup_test_db();
+        conn.execute_batch("BEGIN").unwrap();
+        for i in 0..1500 {
+            insert_test_track(
+                &conn,
+                &format!("t{i}"),
+                "曲",
+                "アーティスト",
+                "アルバム",
+                "ロック",
+            );
+        }
+        conn.execute_batch("COMMIT").unwrap();
+
+        assert_eq!(find_all_tracks(&conn).unwrap().len(), 1500);
+        assert_eq!(search_tracks_like(&conn, "曲").unwrap().len(), 1500);
+        assert_eq!(search_tracks_by_query(&conn, "曲").unwrap().len(), 1500);
+        let filters = FilterOptions {
+            artist: None,
+            album: None,
+            genre: Some("ロック".to_string()),
+        };
+        assert_eq!(find_tracks_by_filter(&conn, &filters).unwrap().len(), 1500);
+
+        conn.execute("UPDATE tracks SET is_favorite = 1", [])
+            .unwrap();
+        assert_eq!(find_favorite_tracks(&conn).unwrap().len(), 1500);
+    }
+
+    #[test]
+    fn test_find_album_summaries() {
+        let conn = setup_test_db();
+        insert_test_track(&conn, "t1", "曲A", "アーティストX", "beta", "ロック");
+        insert_test_track(&conn, "t2", "曲B", "アーティストY", "beta", "ロック");
+        insert_test_track(&conn, "t3", "曲C", "アーティストY", "Alpha", "ポップ");
+        set_track_position(&conn, "t1", Some(1), Some(2), Some(100));
+        set_track_position(&conn, "t2", Some(1), Some(1), Some(50));
+        set_track_position(&conn, "t3", None, None, None);
+        // アルバムのない曲は一覧に含めない
+        conn.execute(
+            "INSERT INTO tracks (id, file_path, file_name, format, file_size) VALUES ('t4', '/test/t4.mp3', 't4.mp3', 'mp3', 1)",
+            [],
+        )
+        .unwrap();
+
+        let albums = find_album_summaries(&conn).unwrap();
+
+        // 大文字・小文字を区別しない名前の順
+        assert_eq!(
+            albums,
+            [
+                AlbumSummary {
+                    name: "Alpha".to_string(),
+                    artist: Some("アーティストY".to_string()),
+                    track_count: 1,
+                    total_duration: 0,
+                    representative_track_id: "t3".to_string(),
+                },
+                // アーティストと代表の曲は、アルバムの最初の曲のもの
+                AlbumSummary {
+                    name: "beta".to_string(),
+                    artist: Some("アーティストY".to_string()),
+                    track_count: 2,
+                    total_duration: 150,
+                    representative_track_id: "t2".to_string(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn test_find_album_tracks_orders_by_disc_and_track_number() {
         let conn = setup_test_db();
         insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
+        insert_test_track(&conn, "t2", "曲B", "アーティストX", "アルバム1", "ロック");
+        insert_test_track(&conn, "t3", "曲C", "アーティストX", "アルバム1", "ロック");
+        insert_test_track(&conn, "t4", "曲D", "アーティストX", "アルバム2", "ロック");
+        set_track_position(&conn, "t1", Some(2), Some(1), None);
+        set_track_position(&conn, "t2", Some(1), Some(2), None);
+        // ディスク番号のない曲は、ディスク1として並べる
+        set_track_position(&conn, "t3", None, Some(1), None);
+
+        let tracks = find_album_tracks(&conn, "アルバム1").unwrap();
+
+        assert_eq!(track_ids(&tracks), ["t3", "t2", "t1"]);
+        assert!(find_album_tracks(&conn, "ないアルバム").unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_find_artist_summaries() {
+        let conn = setup_test_db();
+        insert_test_track(&conn, "t1", "曲A", "アーティストX", "beta", "ロック");
+        insert_test_track(&conn, "t2", "曲B", "アーティストX", "Alpha", "ロック");
+        insert_test_track(&conn, "t3", "曲C", "アーティストX", "Alpha", "ロック");
+        insert_test_track(&conn, "t4", "曲D", "アーティストY", "beta", "ポップ");
+        set_track_position(&conn, "t1", None, Some(1), Some(10));
+        set_track_position(&conn, "t2", None, Some(2), Some(20));
+        set_track_position(&conn, "t3", None, Some(1), Some(30));
+        // アルバムのない曲は、1つのアルバムとして数える
+        conn.execute(
+            "INSERT INTO tracks (id, file_path, file_name, artist, format, file_size) VALUES ('t5', '/test/t5.mp3', 't5.mp3', 'アーティストX', 'mp3', 1)",
+            [],
+        )
+        .unwrap();
+
+        let artists = find_artist_summaries(&conn).unwrap();
+
+        assert_eq!(
+            artists,
+            [
+                // 代表の曲は、名前の順で最初のアルバム（Alpha）の最初の曲
+                ArtistSummary {
+                    name: "アーティストX".to_string(),
+                    album_count: 3,
+                    track_count: 4,
+                    total_duration: 60,
+                    representative_track_id: "t3".to_string(),
+                },
+                ArtistSummary {
+                    name: "アーティストY".to_string(),
+                    album_count: 1,
+                    track_count: 1,
+                    total_duration: 0,
+                    representative_track_id: "t4".to_string(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn test_find_artist_albums() {
+        let conn = setup_test_db();
+        insert_test_track(&conn, "t1", "曲A", "アーティストX", "beta", "ロック");
+        insert_test_track(&conn, "t2", "曲B", "アーティストX", "Alpha", "ロック");
+        insert_test_track(&conn, "t3", "曲C", "アーティストX", "Alpha", "ロック");
+        insert_test_track(&conn, "t4", "曲D", "アーティストY", "Alpha", "ポップ");
+        set_track_position(&conn, "t2", None, Some(2), Some(20));
+        set_track_position(&conn, "t3", None, Some(1), Some(30));
+        conn.execute(
+            "INSERT INTO tracks (id, file_path, file_name, artist, format, file_size) VALUES ('t5', '/test/t5.mp3', 't5.mp3', 'アーティストX', 'mp3', 1)",
+            [],
+        )
+        .unwrap();
+
+        let albums = find_artist_albums(&conn, "アーティストX").unwrap();
+
+        let names: Vec<&str> = albums.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(names, ["Alpha", "beta", UNKNOWN_ALBUM]);
+        assert_eq!(track_ids(&albums[0].tracks), ["t3", "t2"]);
+        assert_eq!(albums[0].track_count, 2);
+        assert_eq!(albums[0].total_duration, 50);
+        assert_eq!(albums[0].representative_track_id, "t3");
+        assert_eq!(albums[0].artist.as_deref(), Some("アーティストX"));
+        assert_eq!(track_ids(&albums[2].tracks), ["t5"]);
+
+        // 一覧の件数・代表の曲と一致する
+        let summary = &find_artist_summaries(&conn).unwrap()[0];
+        assert_eq!(summary.album_count as usize, albums.len());
+        assert_eq!(
+            summary.representative_track_id,
+            albums[0].representative_track_id
+        );
+        assert!(find_artist_albums(&conn, "いない").unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_find_genre_summaries_and_tracks() {
+        let conn = setup_test_db();
+        insert_test_track(&conn, "t1", "曲A", "アーティストY", "アルバム1", "ロック");
         insert_test_track(&conn, "t2", "曲B", "アーティストX", "アルバム2", "ロック");
-        insert_test_track(&conn, "t3", "曲C", "アーティストY", "アルバム1", "ポップ");
+        insert_test_track(&conn, "t3", "曲C", "アーティストX", "アルバム1", "ロック");
+        insert_test_track(&conn, "t4", "曲D", "アーティストY", "アルバム2", "ポップ");
+        set_track_position(&conn, "t1", None, None, Some(10));
+        set_track_position(&conn, "t2", None, None, Some(20));
+        set_track_position(&conn, "t3", None, None, Some(30));
 
-        let artists = find_artists_grouped(&conn).unwrap();
-        assert_eq!(artists.len(), 2);
+        let genres = find_genre_summaries(&conn).unwrap();
 
-        let artist_x = artists.iter().find(|a| a.name == "アーティストX").unwrap();
-        assert_eq!(artist_x.track_count, 2);
-        assert_eq!(artist_x.album_count, 2);
-    }
+        assert_eq!(
+            genres,
+            [
+                GenreSummary {
+                    name: "ポップ".to_string(),
+                    track_count: 1,
+                    total_duration: 0,
+                    representative_track_id: "t4".to_string(),
+                },
+                // 代表の曲は、アーティスト → アルバムの順で最初の曲
+                GenreSummary {
+                    name: "ロック".to_string(),
+                    track_count: 3,
+                    total_duration: 60,
+                    representative_track_id: "t3".to_string(),
+                },
+            ]
+        );
 
-    #[test]
-    fn test_find_genres_grouped() {
-        let conn = setup_test_db();
-        insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
-        insert_test_track(&conn, "t2", "曲B", "アーティストX", "アルバム1", "ロック");
-        insert_test_track(&conn, "t3", "曲C", "アーティストY", "アルバム2", "ポップ");
-
-        let genres = find_genres_grouped(&conn).unwrap();
-        assert_eq!(genres.len(), 2);
-
-        let rock = genres.iter().find(|g| g.name == "ロック").unwrap();
-        assert_eq!(rock.track_count, 2);
+        let tracks = find_genre_tracks(&conn, "ロック").unwrap();
+        assert_eq!(track_ids(&tracks), ["t3", "t2", "t1"]);
+        assert!(find_genre_tracks(&conn, "ないジャンル").unwrap().is_empty());
     }
 
     #[test]

@@ -101,35 +101,44 @@ pub struct Metadata {
     pub composer: Option<String>,
 }
 
-/// アルバムグループ（アルバム表示用）
-#[derive(Debug, Serialize, Deserialize, Clone, specta::Type)]
+/// アルバムの一覧の1件（曲は含めない。曲は`get_album_tracks`で取得する）
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase")]
-pub struct AlbumGroup {
+pub struct AlbumSummary {
     pub name: String,
     pub artist: Option<String>,
     pub track_count: i32,
     pub total_duration: i32,
     pub representative_track_id: String,
-    pub tracks: Vec<Track>,
 }
 
-/// アーティストグループ（アーティスト表示用）
-#[derive(Debug, Serialize, Deserialize, Clone, specta::Type)]
+/// アーティストの一覧の1件（アルバムと曲は含めない。`get_artist_albums`で取得する）
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase")]
-pub struct ArtistGroup {
+pub struct ArtistSummary {
     pub name: String,
     pub album_count: i32,
     pub track_count: i32,
     pub total_duration: i32,
     pub representative_track_id: String,
-    pub albums: Vec<AlbumGroup>,
 }
 
-/// ジャンルグループ（ジャンル表示用）
+/// ジャンルの一覧の1件（曲は含めない。曲は`get_genre_tracks`で取得する）
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct GenreSummary {
+    pub name: String,
+    pub track_count: i32,
+    pub total_duration: i32,
+    pub representative_track_id: String,
+}
+
+/// アルバムとその曲（アーティストの詳細で、アルバムごとに曲を表示するために使う）
 #[derive(Debug, Serialize, Deserialize, Clone, specta::Type)]
 #[serde(rename_all = "camelCase")]
-pub struct GenreGroup {
+pub struct AlbumGroup {
     pub name: String,
+    pub artist: Option<String>,
     pub track_count: i32,
     pub total_duration: i32,
     pub representative_track_id: String,

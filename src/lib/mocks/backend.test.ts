@@ -56,6 +56,28 @@ describe('コマンドの対応付け', () => {
   });
 });
 
+describe('大量のトラック', () => {
+  it('extraTrackCountで指定した数のトラックを、フィクスチャに加えて上限なく返す', async () => {
+    const fixtureCount = (await commands.getAllTracks()).length;
+    const backend = createMockBackend({ emit: () => {}, extraTrackCount: 2500 });
+    mockIPC((cmd, payload) => backend.invoke(cmd, payload as Record<string, unknown>));
+
+    const tracks = await commands.getAllTracks();
+    expect(tracks).toHaveLength(fixtureCount + 2500);
+    expect(new Set(tracks.map((track) => track.id)).size).toBe(tracks.length);
+    // 一覧の先頭には、フィクスチャが並ぶ
+    expect(tracks.slice(0, fixtureCount).some((track) => track.title?.startsWith('Bulk'))).toBe(
+      false
+    );
+    expect(tracks[fixtureCount].title).toBe('Bulk Track 000001');
+
+    const albums = await commands.getAlbums();
+    expect(albums.reduce((total, album) => total + album.trackCount, 0)).toBe(
+      tracks.filter((track) => track.album !== null).length
+    );
+  });
+});
+
 describe('エラー', () => {
   it('Rust側と同じ{ code, message }形式でrejectする', async () => {
     await expect(commands.setRating(mockTrackId(1), 6)).rejects.toEqual({
@@ -87,14 +109,48 @@ describe('トラック', () => {
     expect(await commands.searchTracks(' ;" ')).toEqual([]);
   });
 
-  it('アーティスト別グループでは、アルバム未設定のトラックを「不明なアルバム」にまとめる', async () => {
-    const artists = await commands.getArtistsGrouped();
-    const voltage = artists.find((artist) => artist.name === 'The Voltage');
+  it('アルバムの一覧は曲を持たず、曲数・長さ・代表の曲がアルバムの曲と一致する', async () => {
+    const albums = await commands.getAlbums();
+    const names = albums.map((album) => album.name);
 
-    expect(voltage?.albums.map((album) => album.name)).toContain('不明なアルバム');
-    expect(voltage?.trackCount).toBe(
-      voltage?.albums.reduce((total, album) => total + album.trackCount, 0)
-    );
+    expect(names).toEqual([...names].sort((a, b) => (a.toLowerCase() < b.toLowerCase() ? -1 : 1)));
+    for (const album of albums) {
+      const tracks = await commands.getAlbumTracks(album.name);
+      expect(album.trackCount).toBe(tracks.length);
+      expect(album.totalDuration).toBe(tracks.reduce((sum, t) => sum + (t.duration ?? 0), 0));
+      expect(album.representativeTrackId).toBe(tracks[0].id);
+      expect(album.artist).toBe(tracks[0].artist);
+      expect('tracks' in album).toBe(false);
+    }
+  });
+
+  it('アルバムの曲はトラック番号の順に返し、見つからないアルバムは空配列を返す', async () => {
+    const numbers = (await commands.getAlbumTracks('Blue Horizon')).map((t) => t.trackNumber);
+
+    expect(numbers).toEqual([1, 2, 3, 4]);
+    expect(await commands.getAlbumTracks('ないアルバム')).toEqual([]);
+  });
+
+  it('アーティストのアルバムでは、アルバム未設定のトラックを「不明なアルバム」にまとめる', async () => {
+    const artist = (await commands.getArtists()).find((a) => a.name === 'The Voltage');
+    const albums = await commands.getArtistAlbums('The Voltage');
+
+    expect(albums.map((album) => album.name)).toContain('不明なアルバム');
+    expect(artist?.albumCount).toBe(albums.length);
+    expect(artist?.trackCount).toBe(albums.reduce((total, album) => total + album.trackCount, 0));
+    expect(artist?.representativeTrackId).toBe(albums[0].representativeTrackId);
+  });
+
+  it('ジャンルの一覧は、曲数と代表の曲がジャンルの曲と一致する', async () => {
+    const genres = await commands.getGenres();
+
+    expect(genres.length).toBeGreaterThan(0);
+    for (const genre of genres) {
+      const tracks = await commands.getGenreTracks(genre.name);
+      expect(genre.trackCount).toBe(tracks.length);
+      expect(genre.representativeTrackId).toBe(tracks[0].id);
+      expect(tracks.every((track) => track.genre === genre.name)).toBe(true);
+    }
   });
 
   it('一括編集は指定したフィールドだけを更新する', async () => {
@@ -132,6 +188,22 @@ describe('プレイリスト', () => {
       [mockTrackId(3), 0],
       [mockTrackId(2), 1]
     ]);
+  });
+
+  it('プレイリストの曲を、プレイリストの中の並び順で返す', async () => {
+    const tracks = await commands.getPlaylistTracks(mockPlaylistId(1));
+    expect(tracks.map((track) => track.id)).toEqual([7, 8, 1, 10, 12].map(mockTrackId));
+    expect(tracks[0].title).toBe('夜明けのシグナル');
+
+    await commands.reorderPlaylistTracks(mockPlaylistId(1), [12, 7, 8, 1, 10].map(mockTrackId));
+    const reordered = await commands.getPlaylistTracks(mockPlaylistId(1));
+    expect(reordered.map((track) => track.id)).toEqual([12, 7, 8, 1, 10].map(mockTrackId));
+
+    // 見つからないプレイリストは空配列（不正なIDはVALIDATION）
+    expect(await commands.getPlaylistTracks(mockPlaylistId(999))).toEqual([]);
+    await expect(commands.getPlaylistTracks('invalid')).rejects.toMatchObject({
+      code: 'VALIDATION'
+    });
   });
 
   it('トラックを削除するとプレイリストからも取り除かれる', async () => {

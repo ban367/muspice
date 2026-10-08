@@ -1,7 +1,11 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import type { Track, AlbumGroup, ArtistGroup, GenreGroup } from '#lib/types/models.js';
-  import { useSetRatingMutation } from '#lib/queries/tracks.js';
+  import type { AlbumSummary, ArtistSummary, GenreSummary } from '#lib/types/models.js';
+  import {
+    useGroupTracksQuery,
+    useSetRatingMutation,
+    type GroupType
+  } from '#lib/queries/tracks.js';
   import { player, playTrackFromQueue, playShuffled } from '#lib/stores/player.svelte.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import { formatDuration, formatTotalDuration } from '#lib/utils/format.js';
@@ -14,8 +18,8 @@
 
   // Props
   interface Props {
-    group: AlbumGroup | ArtistGroup | GenreGroup | null;
-    type: 'album' | 'artist' | 'genre';
+    group: AlbumSummary | ArtistSummary | GenreSummary | null;
+    type: GroupType;
     onClose: () => void;
   }
 
@@ -23,23 +27,15 @@
 
   const setRatingMutation = useSetRatingMutation();
 
-  // グループからトラックリストを取得
-  const tracks = $derived.by((): Track[] => {
-    if (!group) return [];
-    if ('tracks' in group) {
-      return group.tracks;
-    }
-    if ('albums' in group) {
-      return group.albums.flatMap((album) => album.tracks);
-    }
-    return [];
-  });
+  // 開いているグループの曲（一覧の項目は曲を持たないため、開いた時に取得する）
+  const groupName = $derived(group?.name ?? null);
+  const tracksQuery = $derived(groupName === null ? null : useGroupTracksQuery(type, groupName));
+  const tracks = $derived(tracksQuery?.data ?? []);
 
   // トラックの選択（クリック・キーボード）
   const selection = new TrackSelection(() => tracks);
 
   // 別のグループを開いたら（閉じた時も）、選択を消す（データを取り直しただけでは消さない）
-  const groupName = $derived(group?.name ?? null);
   $effect(() => {
     void groupName;
     // 選択の中身には反応させない（選択を変えるたびに消えてしまう）

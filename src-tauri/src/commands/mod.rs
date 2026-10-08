@@ -30,11 +30,11 @@ pub use devices::{
     relink_sync_device, remove_sync_device, run_device_sync, update_sync_device,
 };
 
-// トラック取得・検索・フィルタリング・グループ化・削除
+// トラック取得・検索・フィルタリング・一覧（アルバム・アーティスト・ジャンル）・削除
 pub use tracks::{
-    delete_tracks_command, delete_tracks_with_files_command, filter_tracks, get_albums_grouped,
-    get_all_tracks, get_artists_grouped, get_genres_grouped, get_unique_albums, get_unique_artists,
-    get_unique_genres, search_tracks,
+    delete_tracks_command, delete_tracks_with_files_command, filter_tracks, get_album_tracks,
+    get_albums, get_all_tracks, get_artist_albums, get_artists, get_genre_tracks, get_genres,
+    get_unique_albums, get_unique_artists, get_unique_genres, search_tracks,
 };
 
 // メタデータ編集
@@ -45,7 +45,7 @@ pub use metadata_cmd::{
 
 // プレイリスト管理
 pub use playlist_cmd::{
-    add_tracks_to_playlist, create_playlist, delete_playlist, get_playlists,
+    add_tracks_to_playlist, create_playlist, delete_playlist, get_playlist_tracks, get_playlists,
     remove_track_from_playlist, rename_playlist, reorder_playlist_tracks,
 };
 

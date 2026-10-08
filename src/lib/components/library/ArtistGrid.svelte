@@ -4,11 +4,12 @@
   LibraryGridを使用して共通ロジックを委譲し、アーティスト固有の表示をSnippetで実装。
 -->
 <script lang="ts">
-  import type { ArtistGroup } from '#lib/types/models.js';
-  import { useArtistsGroupedQuery } from '#lib/queries/tracks.js';
-  import { playTrackFromQueue } from '#lib/stores/player.svelte.js';
+  import { useQueryClient } from '@tanstack/svelte-query';
+  import type { ArtistSummary } from '#lib/types/models.js';
+  import { useArtistsQuery } from '#lib/queries/tracks.js';
   import { ui } from '#lib/stores/ui.svelte.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
+  import { playGroup } from '#lib/utils/groupPlayback.js';
   import LibraryGrid from './LibraryGrid.svelte';
   import GroupDetail from './GroupDetail.svelte';
   import MarqueeText from '../MarqueeText.svelte';
@@ -23,13 +24,14 @@
   let { displayMode = 'grid' }: Props = $props();
 
   // クエリ
-  const artistsQuery = useArtistsGroupedQuery();
+  const queryClient = useQueryClient();
+  const artistsQuery = useArtistsQuery();
   const isLoading = $derived(artistsQuery.isLoading);
   const isError = $derived(artistsQuery.isError);
   const allArtists = $derived(artistsQuery.data ?? []);
 
   // 選択中のアーティスト（モーダル表示用）
-  // 名前で持ち、取り直したデータから引く（評価の変更などがモーダルの中にも反映される）
+  // 名前で持ち、取り直したデータから引く（曲数などの変更がモーダルの中にも反映される）
   let selectedArtistName = $state<string | null>(null);
   const selectedArtist = $derived(
     selectedArtistName === null
@@ -38,26 +40,27 @@
   );
 
   // LibraryGridコンポーネントの参照
-  let libraryGrid: LibraryGrid<ArtistGroup>;
+  let libraryGrid: LibraryGrid<ArtistSummary>;
 
   // カードサイズの計算
   const cardWidth = $derived(ui.gridCardSize + 16);
+  // カードの、アーティストの画像を除いた高さの見積もり（描画した後は、実測した高さを使う）
+  const ESTIMATED_CARD_EXTRA_HEIGHT = 72;
+  // リスト表示の行の高さの見積もり
+  const ESTIMATED_LIST_ROW_HEIGHT = 68;
 
   // アーティストをクリック
-  function handleArtistClick(artist: ArtistGroup) {
+  function handleArtistClick(artist: ArtistSummary) {
     selectedArtistName = artist.name;
   }
 
   // アーティストをダブルクリック（すべて再生）
-  function handleArtistDoubleClick(artist: ArtistGroup) {
-    const allTracks = artist.albums.flatMap((album) => album.tracks);
-    if (allTracks.length > 0) {
-      playTrackFromQueue(allTracks, 0);
-    }
+  function handleArtistDoubleClick(artist: ArtistSummary) {
+    void playGroup(queryClient, 'artist', artist.name);
   }
 
   // 再生ボタンクリック
-  function handlePlayClick(event: MouseEvent, artist: ArtistGroup) {
+  function handlePlayClick(event: MouseEvent, artist: ArtistSummary) {
     event.stopPropagation();
     handleArtistDoubleClick(artist);
   }
@@ -68,7 +71,7 @@
   }
 
   // 検索フィルター
-  function filterArtist(artist: ArtistGroup, query: string): boolean {
+  function filterArtist(artist: ArtistSummary, query: string): boolean {
     return artist.name.toLowerCase().includes(query);
   }
 </script>
@@ -83,8 +86,9 @@
   emptyMessage={m.library.noArtists}
   emptyHint={m.library.noArtistsHint}
   filterFn={filterArtist}
-  gridStyle="--card-width: {cardWidth}px; --art-size: {ui.gridCardSize}px;"
-  gridClass="artist-grid"
+  minCardWidth={cardWidth}
+  estimatedCardHeight={ui.gridCardSize + ESTIMATED_CARD_EXTRA_HEIGHT}
+  estimatedRowHeight={ESTIMATED_LIST_ROW_HEIGHT}
   groupType="artist"
   onOpen={handleArtistClick}
 >
@@ -183,12 +187,6 @@
 
 <style>
   @reference "../../../app.css";
-  :global(.artist-grid) {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(var(--card-width), 1fr));
-    gap: 0.75rem;
-  }
-
   .artist-card {
     @apply flex flex-col items-center;
   }

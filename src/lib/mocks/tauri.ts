@@ -8,6 +8,9 @@
  *
  * ネイティブメニューは存在しないため、メニュー由来のイベントは開発者ツールから
  * `window.__MUSPICE_MOCK__.emit('toggle-sidebar')`のように発火させる。
+ *
+ * 数万曲のライブラリでの動作は、URLに`?mockTracks=50000`を付けて開くと確認できる
+ * （フィクスチャに加えて、指定した数のトラックを生成する）。
  */
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
 import { createMockBackend } from './backend';
@@ -15,6 +18,9 @@ import { createToneWav } from './media';
 
 /** アートがないトラックに返すURL（読み込みエラーになり、実アプリの404と同じ扱いになる） */
 const MISSING_ALBUM_ART_URL = 'data:image/png;base64,';
+
+/** `mockTracks`で生成できるトラックの数の上限 */
+const MAX_EXTRA_TRACKS = 200_000;
 
 /** フォルダ選択ダイアログで選ばれたことにするパス（`setFolderResult`で切り替える） */
 const MOCK_IMPORT_FOLDER = '/Users/demo/Music/Mock Import';
@@ -65,6 +71,18 @@ function answerMessageDialog(buttons: unknown, confirmed: boolean): string {
   return 'Ok';
 }
 
+/**
+ * URLの`mockTracks`で指定された、追加で生成するトラックの数を返す
+ *
+ * 数万曲のライブラリでの動作を確認する時に、`/library/songs?mockTracks=50000`のように開く。
+ */
+function requestedExtraTrackCount(): number {
+  const requested = Number(new URLSearchParams(window.location.search).get('mockTracks'));
+  return Number.isFinite(requested)
+    ? Math.min(Math.max(0, Math.floor(requested)), MAX_EXTRA_TRACKS)
+    : 0;
+}
+
 export function setupTauriMock(): void {
   // イベントの購読はここで管理する。公式のshouldMockEventsはunlisten時に
   // 購読を解除しないため、解除済みのコールバックへ送信して警告が出てしまう
@@ -78,7 +96,7 @@ export function setupTauriMock(): void {
     }
   }
 
-  const backend = createMockBackend({ emit });
+  const backend = createMockBackend({ emit, extraTrackCount: requestedExtraTrackCount() });
 
   mockWindows('main');
   mockIPC((cmd, payload) => {

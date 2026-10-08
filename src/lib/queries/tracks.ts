@@ -6,6 +6,7 @@ import {
 } from '@tanstack/svelte-query';
 import { commands } from '#lib/bindings.js';
 import type {
+  AlbumGroup,
   Track,
   Metadata,
   DeleteResult,
@@ -15,6 +16,7 @@ import type {
 import { handleError, showSuccess, showWarning } from '#lib/stores/error.svelte.js';
 import { queryKeys } from './keys';
 import { CACHE_POLICY, withErrorToast } from './shared';
+import { patchTrackInCache } from './trackCache';
 import { m } from '#lib/i18n/i18n.svelte.js';
 
 // 呼び出し側の利便性のため、このモジュールからも型を再エクスポートする
@@ -23,50 +25,18 @@ export type { DeleteResult, FilterOptions };
 // ========== Query Invalidation ヘルパー ==========
 
 /**
- * トラック一覧と関連グループクエリを無効化（トラック削除・インポート時）
+ * 曲の一覧と、アルバム・アーティスト・ジャンルの一覧を無効化（インポート・メタデータ編集時）
+ *
+ * `queryKeys.tracks.all`をプレフィックスに持つ全クエリ（全曲の一覧・検索・フィルタ・
+ * アルバムやプレイリストの曲など）を無効化する。
  */
 export function invalidateTrackListQueries(queryClient: QueryClient) {
   queryClient.invalidateQueries({ queryKey: queryKeys.tracks.all });
-  queryClient.invalidateQueries({ queryKey: queryKeys.albums.grouped });
-  queryClient.invalidateQueries({ queryKey: queryKeys.artists.grouped });
-  queryClient.invalidateQueries({ queryKey: queryKeys.genres.grouped });
+  queryClient.invalidateQueries({ queryKey: queryKeys.albums.list });
+  queryClient.invalidateQueries({ queryKey: queryKeys.artists.list });
+  queryClient.invalidateQueries({ queryKey: queryKeys.genres.list });
   queryClient.invalidateQueries({ queryKey: queryKeys.unique.all });
-  // プレイリストは除外（トラック削除でプレイリスト自体は変わらない）
-}
-
-/**
- * メタデータ変更に関連するクエリを無効化（メタデータ編集時）
- */
-export function invalidateTrackMetadataQueries(queryClient: QueryClient) {
-  queryClient.invalidateQueries({ queryKey: queryKeys.tracks.all });
-  queryClient.invalidateQueries({ queryKey: queryKeys.albums.grouped });
-  queryClient.invalidateQueries({ queryKey: queryKeys.artists.grouped });
-  queryClient.invalidateQueries({ queryKey: queryKeys.genres.grouped });
-  queryClient.invalidateQueries({ queryKey: queryKeys.unique.all });
-}
-
-/**
- * 再生統計関連のクエリを無効化（お気に入り・レーティング・再生回数変更時）
- *
- * queryKeys.tracks.allをプレフィックスに持つ全クエリ（一覧、検索、フィルタ、
- * お気に入り等）を無効化する。
- * exact: trueを使用しないことで、検索/フィルタ結果でもisFavorite/rating表示が更新される。
- */
-export function invalidatePlayStatsQueries(queryClient: QueryClient) {
-  queryClient.invalidateQueries({ queryKey: queryKeys.tracks.all });
-}
-
-/**
- * 評価の変更に関連するクエリを無効化
- *
- * 評価は曲の一覧に加えて、アルバム・アーティスト・ジャンルの詳細の曲の一覧にも表示するため、
- * グループ化したクエリも取り直す。
- */
-export function invalidateRatingQueries(queryClient: QueryClient) {
-  invalidatePlayStatsQueries(queryClient);
-  queryClient.invalidateQueries({ queryKey: queryKeys.albums.grouped });
-  queryClient.invalidateQueries({ queryKey: queryKeys.artists.grouped });
-  queryClient.invalidateQueries({ queryKey: queryKeys.genres.grouped });
+  // プレイリストは除外（プレイリストに入っている曲のIDは変わらない）
 }
 
 /**
@@ -82,11 +52,14 @@ export function invalidateAllTrackQueries(queryClient: QueryClient) {
 // ========== 読み取りクエリ ==========
 
 /**
- * トラック一覧を取得するクエリ（パフォーマンス最適化版）
+ * 全曲の一覧を取得するクエリ
+ *
+ * 件数の上限はなく、ライブラリの全曲を1回で取得する（一覧は見えている行だけを描画する）。
+ * 評価・お気に入りの変更では取り直さず、キャッシュの該当曲を書き換える（`./trackCache.ts`）。
  */
 export function useTracksQuery() {
   return createQuery(() => ({
-    queryKey: queryKeys.tracks.all,
+    queryKey: queryKeys.tracks.list,
     queryFn: () => withErrorToast(m.operations.fetchTracks, () => commands.getAllTracks()),
     ...CACHE_POLICY.library,
     refetchOnWindowFocus: false, // ウィンドウフォーカス時の自動再取得を無効化
@@ -201,39 +174,122 @@ export function useRecentlyPlayedTracksQuery(limit: number = 50) {
   }));
 }
 
-// ========== グループ化データ取得クエリ ==========
+// ========== アルバム・アーティスト・ジャンルの一覧と、その曲 ==========
+//
+// 一覧（名前・曲数・代表の曲）と曲を分けて取得する。曲は、詳細を開いた時・再生する時に
+// そのアルバムなどの分だけを取得する。
+
+/** アルバム・アーティスト・ジャンルのどれかを指す種類 */
+export type GroupType = 'album' | 'artist' | 'genre';
+
+function albumTracksOptions(album: string) {
+  return {
+    queryKey: queryKeys.tracks.album(album),
+    queryFn: () => withErrorToast(m.operations.fetchTracks, () => commands.getAlbumTracks(album)),
+    ...CACHE_POLICY.detail
+  };
+}
+
+function artistAlbumsOptions(artist: string) {
+  return {
+    queryKey: queryKeys.tracks.artistAlbums(artist),
+    queryFn: () => withErrorToast(m.operations.fetchAlbums, () => commands.getArtistAlbums(artist)),
+    ...CACHE_POLICY.detail
+  };
+}
+
+function genreTracksOptions(genre: string) {
+  return {
+    queryKey: queryKeys.tracks.genre(genre),
+    queryFn: () => withErrorToast(m.operations.fetchTracks, () => commands.getGenreTracks(genre)),
+    ...CACHE_POLICY.detail
+  };
+}
+
+/** アルバムごとの曲を、表示順の1つの一覧にする */
+export function flattenAlbumTracks(albums: AlbumGroup[]): Track[] {
+  return albums.flatMap((album) => album.tracks);
+}
 
 /**
- * アルバムごとにグループ化されたトラックを取得
+ * アルバムの一覧を取得（曲は含まない）
  */
-export function useAlbumsGroupedQuery() {
+export function useAlbumsQuery() {
   return createQuery(() => ({
-    queryKey: queryKeys.albums.grouped,
-    queryFn: () => withErrorToast(m.operations.fetchAlbums, () => commands.getAlbumsGrouped()),
+    queryKey: queryKeys.albums.list,
+    queryFn: () => withErrorToast(m.operations.fetchAlbums, () => commands.getAlbums()),
     ...CACHE_POLICY.library
   }));
 }
 
 /**
- * アーティストごとにグループ化されたトラックを取得
+ * アルバムの曲を取得（ディスク番号・トラック番号の順）
  */
-export function useArtistsGroupedQuery() {
+export function useAlbumTracksQuery(album: string) {
+  return createQuery(() => albumTracksOptions(album));
+}
+
+/**
+ * アーティストの一覧を取得（アルバムと曲は含まない）
+ */
+export function useArtistsQuery() {
   return createQuery(() => ({
-    queryKey: queryKeys.artists.grouped,
-    queryFn: () => withErrorToast(m.operations.fetchArtists, () => commands.getArtistsGrouped()),
+    queryKey: queryKeys.artists.list,
+    queryFn: () => withErrorToast(m.operations.fetchArtists, () => commands.getArtists()),
     ...CACHE_POLICY.library
   }));
 }
 
 /**
- * ジャンルごとにグループ化されたトラックを取得
+ * アーティストのアルバムと曲を取得
  */
-export function useGenresGroupedQuery() {
+export function useArtistAlbumsQuery(artist: string) {
+  return createQuery(() => artistAlbumsOptions(artist));
+}
+
+/**
+ * ジャンルの一覧を取得（曲は含まない）
+ */
+export function useGenresQuery() {
   return createQuery(() => ({
-    queryKey: queryKeys.genres.grouped,
-    queryFn: () => withErrorToast(m.operations.fetchGenres, () => commands.getGenresGrouped()),
+    queryKey: queryKeys.genres.list,
+    queryFn: () => withErrorToast(m.operations.fetchGenres, () => commands.getGenres()),
     ...CACHE_POLICY.library
   }));
+}
+
+/**
+ * アルバム・アーティスト・ジャンルの曲を、表示順の1つの一覧で取得するクエリ
+ *
+ * アーティストは、アルバムごとの曲（`useArtistAlbumsQuery`と同じキャッシュ）を1つの一覧にする。
+ */
+export function useGroupTracksQuery(type: GroupType, name: string) {
+  switch (type) {
+    case 'album':
+      return createQuery(() => albumTracksOptions(name));
+    case 'artist':
+      return createQuery(() => ({ ...artistAlbumsOptions(name), select: flattenAlbumTracks }));
+    case 'genre':
+      return createQuery(() => genreTracksOptions(name));
+  }
+}
+
+/**
+ * アルバム・アーティスト・ジャンルの曲を取得する（再生などの操作で使う。キャッシュがあれば使う）
+ */
+export async function fetchGroupTracks(
+  queryClient: QueryClient,
+  type: GroupType,
+  name: string
+): Promise<Track[]> {
+  switch (type) {
+    case 'album':
+      return queryClient.fetchQuery(albumTracksOptions(name));
+    case 'artist':
+      return flattenAlbumTracks(await queryClient.fetchQuery(artistAlbumsOptions(name)));
+    case 'genre':
+      return queryClient.fetchQuery(genreTracksOptions(name));
+  }
 }
 
 // ========== 再生統計ミューテーション ==========
@@ -248,14 +304,18 @@ export function useToggleFavoriteMutation() {
     mutationFn: async (trackId: string) => {
       return withErrorToast(m.operations.toggleFavorite, () => commands.toggleFavorite(trackId));
     },
-    onSuccess: () => {
-      invalidatePlayStatsQueries(queryClient);
+    onSuccess: (isFavorite, trackId) => {
+      patchTrackInCache(queryClient, trackId, { isFavorite });
+      // お気に入りの一覧は、入っている曲が変わるため取り直す
+      queryClient.invalidateQueries({ queryKey: queryKeys.tracks.favorites });
     }
   }));
 }
 
 /**
  * レーティングを設定するミューテーション
+ *
+ * 成功したら、キャッシュにあるその曲の評価を書き換える（曲の一覧は取り直さない）。
  */
 export function useSetRatingMutation() {
   const queryClient = useQueryClient();
@@ -264,8 +324,8 @@ export function useSetRatingMutation() {
     mutationFn: async ({ trackId, rating }: { trackId: string; rating: number }) => {
       await withErrorToast(m.operations.setRating, () => commands.setRating(trackId, rating));
     },
-    onSuccess: () => {
-      invalidateRatingQueries(queryClient);
+    onSuccess: (_result, { trackId, rating }) => {
+      patchTrackInCache(queryClient, trackId, { rating });
     }
   }));
 }
@@ -298,7 +358,7 @@ export function useUpdateTrackMetadataMutation() {
       await commands.updateTrackMetadata(trackId, metadata);
     },
     onSuccess: () => {
-      invalidateTrackMetadataQueries(queryClient);
+      invalidateTrackListQueries(queryClient);
     }
   }));
 }
@@ -316,7 +376,7 @@ export function useUpdateMultipleTracksMutation() {
     mutationFn: ({ trackIds, metadata }: { trackIds: string[]; metadata: Metadata }) =>
       commands.updateMultipleTracksMetadata(trackIds, metadata),
     onSuccess: () => {
-      invalidateTrackMetadataQueries(queryClient);
+      invalidateTrackListQueries(queryClient);
     }
   }));
 }
@@ -335,7 +395,7 @@ export function useWriteLibraryMetadataToFilesMutation() {
         commands.writeLibraryMetadataToFiles()
       ),
     onSuccess: () => {
-      invalidateTrackMetadataQueries(queryClient);
+      invalidateTrackListQueries(queryClient);
     }
   }));
 }
@@ -424,7 +484,7 @@ export function useRefreshLibraryMetadataMutation() {
     mutationFn: () =>
       withErrorToast(m.operations.refreshMetadata, () => commands.refreshLibraryMetadata()),
     onSuccess: () => {
-      invalidateTrackMetadataQueries(queryClient);
+      invalidateTrackListQueries(queryClient);
     }
   }));
 }

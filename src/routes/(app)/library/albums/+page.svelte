@@ -1,18 +1,18 @@
 <script lang="ts">
-  import type { AlbumGroup } from '#lib/types/models.js';
+  import type { AlbumSummary } from '#lib/types/models.js';
   import AlbumGrid from '#lib/components/library/AlbumGrid.svelte';
   import AlbumList from '#lib/components/library/AlbumList.svelte';
   import AlbumDetail from '#lib/components/library/AlbumDetail.svelte';
   import LibraryBrowsePage from '#lib/components/library/LibraryBrowsePage.svelte';
-  import { useAlbumsGroupedQuery } from '#lib/queries/tracks.js';
+  import { useAlbumsQuery } from '#lib/queries/tracks.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   // クエリ
-  const albumsQuery = useAlbumsGroupedQuery();
+  const albumsQuery = useAlbumsQuery();
   const allAlbums = $derived(albumsQuery.data ?? []);
 
   // 検索フィルター
-  function filterAlbum(album: AlbumGroup, query: string): boolean {
+  function filterAlbum(album: AlbumSummary, query: string): boolean {
     return (
       album.name.toLowerCase().includes(query) ||
       (album.artist != null && album.artist.toLowerCase().includes(query))

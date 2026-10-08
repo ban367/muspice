@@ -16,12 +16,13 @@ import {
 } from '#lib/bindings.js';
 import type {
   AlbumGroup,
+  AlbumSummary,
   AppError,
-  ArtistGroup,
+  ArtistSummary,
   DeviceSyncPlan,
   DeviceSyncResult,
   DuplicateAction,
-  GenreGroup,
+  GenreSummary,
   ImportResult,
   LibraryFolder,
   Metadata,
@@ -32,6 +33,7 @@ import type {
 } from '#lib/types/models.js';
 import {
   ALBUMS_WITHOUT_ART,
+  createBulkTracks,
   createFixturePlaylists,
   createFixtureTracks,
   mockPlaylistId,
@@ -55,6 +57,8 @@ export interface MockBackendOptions {
   emit: (event: string, payload: unknown) => void;
   /** インポート進捗を目視できるようにするための待機。テストでは即時解決に差し替える */
   sleep?: (ms: number) => Promise<void>;
+  /** フィクスチャに加えて生成するトラックの数（数万曲のライブラリでの動作確認用） */
+  extraTrackCount?: number;
 }
 
 export interface MockBackend {
@@ -198,23 +202,37 @@ function groupBy<T>(items: T[], key: (item: T) => string): Map<string, T[]> {
   const groups = new Map<string, T[]>();
   for (const item of items) {
     const name = key(item);
-    groups.set(name, [...(groups.get(name) ?? []), item]);
+    const group = groups.get(name);
+    if (group) {
+      group.push(item);
+    } else {
+      groups.set(name, [item]);
+    }
   }
   return groups;
 }
+
+/** アーティストの詳細で、アルバムのない曲をまとめるアルバムの名前（Rustの`UNKNOWN_ALBUM`と同じ） */
+const UNKNOWN_ALBUM = '不明なアルバム';
+
+/** アルバムの中の曲の並び（ディスク番号 → トラック番号 → タイトル。Rustの`ALBUM_TRACK_ORDER`と同じ） */
+const albumTrackOrder: ((track: Track) => SortKey)[] = [
+  (t) => t.discNumber ?? 1,
+  (t) => t.trackNumber,
+  (t) => t.title
+];
 
 function sumDuration(tracks: Track[]): number {
   return tracks.reduce((total, track) => total + (track.duration ?? 0), 0);
 }
 
-function toAlbumGroup(name: string, artist: string | null, tracks: Track[]): AlbumGroup {
+function toAlbumSummary(name: string, artist: string | null, tracks: Track[]): AlbumSummary {
   return {
     name,
     artist,
     trackCount: tracks.length,
     totalDuration: sumDuration(tracks),
-    representativeTrackId: tracks[0]?.id ?? '',
-    tracks
+    representativeTrackId: tracks[0]?.id ?? ''
   };
 }
 
@@ -222,7 +240,10 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   const sleep =
     options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
 
-  let tracks: Track[] = createFixtureTracks();
+  let tracks: Track[] = [
+    ...createFixtureTracks(),
+    ...createBulkTracks(options.extraTrackCount ?? 0)
+  ];
   let playlists: Playlist[] = createFixturePlaylists();
   let currentTrackId: string | null = null;
   let settings: Settings = {
@@ -308,6 +329,34 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     if (!track) fail('NOT_FOUND', 'トラックが見つかりません');
     return track;
   }
+
+  /** トラックを、値のある項目ごとにまとめる（項目がnullのトラックは含めない） */
+  const tracksBy = (key: 'artist' | 'genre') =>
+    groupBy(
+      tracks.filter((track) => track[key] !== null),
+      (track) => track[key] ?? ''
+    );
+
+  /** アーティストの曲を、アルバムごとにまとめる（アルバム名の順。アルバムのない曲は`UNKNOWN_ALBUM`にまとめる） */
+  function toArtistAlbums(artist: string, items: Track[]): AlbumGroup[] {
+    const sorted = [...items].sort(orderBy((t) => t.album ?? UNKNOWN_ALBUM, ...albumTrackOrder));
+    return [...groupBy(sorted, (track) => track.album ?? UNKNOWN_ALBUM)]
+      .map(([name, albumTracks]) => ({
+        ...toAlbumSummary(name, artist, albumTracks),
+        tracks: albumTracks
+      }))
+      .sort(byNameIgnoreCase);
+  }
+
+  /** ジャンルの曲を並べる（アーティスト → アルバム → アルバムの中の並び） */
+  const sortGenreTracks = (items: Track[]) =>
+    [...items].sort(
+      orderBy(
+        (t) => t.artist,
+        (t) => t.album,
+        ...albumTrackOrder
+      )
+    );
 
   function findPlaylist(id: string): Playlist {
     const playlist = playlists.find((p) => p.id === id);
@@ -643,69 +692,45 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     getUniqueArtists: () => uniqueValues('artist'),
     getUniqueAlbums: () => uniqueValues('album'),
     getUniqueGenres: () => uniqueValues('genre'),
-    getAlbumsGrouped: () => {
+    getAlbums: () => {
       const sorted = tracks
         .filter((track) => track.album !== null)
-        .sort(
-          orderBy(
-            (t) => t.album,
-            (t) => t.trackNumber,
-            (t) => t.title
-          )
-        );
+        .sort(orderBy((t) => t.album, ...albumTrackOrder));
       return [...groupBy(sorted, (track) => track.album ?? '')]
-        .map(([name, items]) => toAlbumGroup(name, items[0].artist, items))
+        .map(([name, items]) => toAlbumSummary(name, items[0].artist, items))
         .sort(byNameIgnoreCase);
     },
-    getArtistsGrouped: () => {
-      const sorted = tracks
-        .filter((track) => track.artist !== null)
-        .sort(
-          orderBy(
-            (t) => t.artist,
-            (t) => t.album,
-            (t) => t.trackNumber,
-            (t) => t.title
-          )
-        );
-      return [...groupBy(sorted, (track) => track.artist ?? '')]
-        .map(([name, items]): ArtistGroup => {
-          const albums = [...groupBy(items, (track) => track.album ?? '不明なアルバム')]
-            .map(([album, albumTracks]) => toAlbumGroup(album, name, albumTracks))
-            .sort(byNameIgnoreCase);
+    getAlbumTracks: (album) =>
+      tracks.filter((track) => track.album === album).sort(orderBy(...albumTrackOrder)),
+    getArtists: () =>
+      [...tracksBy('artist')]
+        .map(([name, items]): ArtistSummary => {
+          const albums = toArtistAlbums(name, items);
           return {
             name,
             albumCount: albums.length,
             trackCount: items.length,
             totalDuration: sumDuration(items),
-            representativeTrackId: albums[0]?.representativeTrackId ?? '',
-            albums
+            // 詳細で最初に表示するアルバムの最初の曲
+            representativeTrackId: albums[0]?.representativeTrackId ?? ''
           };
         })
-        .sort(byNameIgnoreCase);
-    },
-    getGenresGrouped: () => {
-      const sorted = tracks
-        .filter((track) => track.genre !== null)
-        .sort(
-          orderBy(
-            (t) => t.genre,
-            (t) => t.artist,
-            (t) => t.album,
-            (t) => t.trackNumber,
-            (t) => t.title
-          )
-        );
-      return [...groupBy(sorted, (track) => track.genre ?? '')]
-        .map(([name, items]): GenreGroup => ({
+        .sort(byNameIgnoreCase),
+    getArtistAlbums: (artist) =>
+      toArtistAlbums(
+        artist,
+        tracks.filter((track) => track.artist === artist)
+      ),
+    getGenres: () =>
+      [...tracksBy('genre')]
+        .map(([name, items]): GenreSummary => ({
           name,
           trackCount: items.length,
           totalDuration: sumDuration(items),
-          representativeTrackId: items[0].id,
-          tracks: items
+          representativeTrackId: sortGenreTracks(items)[0]?.id ?? ''
         }))
-        .sort(byNameIgnoreCase);
-    },
+        .sort(byNameIgnoreCase),
+    getGenreTracks: (genre) => sortGenreTracks(tracks.filter((track) => track.genre === genre)),
     updateTrackMetadata,
     updateMultipleTracksMetadata: (trackIds, metadata) => {
       if (trackIds.length === 0) fail('VALIDATION', 'トラックIDが指定されていません');
@@ -752,6 +777,17 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
           ...playlist,
           tracks: [...playlist.tracks].sort((a, b) => a.position - b.position)
         })),
+    // 実装と同じく、見つからないプレイリストは空の一覧を返す
+    getPlaylistTracks: (playlistId) => {
+      validatePlaylistId(playlistId);
+      const playlist = playlists.find((p) => p.id === playlistId);
+      if (!playlist) return [];
+      const byId = new Map(tracks.map((track) => [track.id, track]));
+      return [...playlist.tracks]
+        .sort((a, b) => a.position - b.position)
+        .map((entry) => byId.get(entry.trackId))
+        .filter((track): track is Track => track !== undefined);
+    },
     deletePlaylist: (playlistId) => {
       validatePlaylistId(playlistId);
       findPlaylist(playlistId);

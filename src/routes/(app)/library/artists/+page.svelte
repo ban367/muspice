@@ -1,18 +1,18 @@
 <script lang="ts">
-  import type { ArtistGroup } from '#lib/types/models.js';
+  import type { ArtistSummary } from '#lib/types/models.js';
   import ArtistGrid from '#lib/components/library/ArtistGrid.svelte';
   import ArtistList from '#lib/components/library/ArtistList.svelte';
   import ArtistDetail from '#lib/components/library/ArtistDetail.svelte';
   import LibraryBrowsePage from '#lib/components/library/LibraryBrowsePage.svelte';
-  import { useArtistsGroupedQuery } from '#lib/queries/tracks.js';
+  import { useArtistsQuery } from '#lib/queries/tracks.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   // クエリ
-  const artistsQuery = useArtistsGroupedQuery();
+  const artistsQuery = useArtistsQuery();
   const allArtists = $derived(artistsQuery.data ?? []);
 
   // 検索フィルター
-  function filterArtist(artist: ArtistGroup, query: string): boolean {
+  function filterArtist(artist: ArtistSummary, query: string): boolean {
     return artist.name.toLowerCase().includes(query);
   }
 </script>

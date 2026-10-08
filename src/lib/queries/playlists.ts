@@ -8,8 +8,16 @@ import { commands } from '#lib/bindings.js';
 import type { Playlist } from '#lib/types/models.js';
 import { showSuccess } from '#lib/stores/error.svelte.js';
 import { queryKeys } from './keys';
-import { withErrorToast } from './shared';
+import { CACHE_POLICY, withErrorToast } from './shared';
 import { m } from '#lib/i18n/i18n.svelte.js';
+
+/**
+ * プレイリストの一覧と、プレイリストの曲を無効化（プレイリストの内容を変えた時）
+ */
+function invalidatePlaylistQueries(queryClient: QueryClient) {
+  queryClient.invalidateQueries({ queryKey: queryKeys.playlists });
+  queryClient.invalidateQueries({ queryKey: queryKeys.tracks.playlists });
+}
 
 /** ロールバック用に直前のプレイリスト一覧を保持するコンテキスト */
 interface PlaylistSnapshot {
@@ -54,7 +62,7 @@ function optimisticPlaylistUpdate<TVariables>(
     },
     // 成功・エラーに関わらず最終的にサーバーデータで同期
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.playlists });
+      invalidatePlaylistQueries(queryClient);
     }
   };
 }
@@ -66,6 +74,20 @@ export function usePlaylistsQuery() {
   return createQuery(() => ({
     queryKey: queryKeys.playlists,
     queryFn: () => withErrorToast(m.operations.fetchPlaylists, () => commands.getPlaylists())
+  }));
+}
+
+/**
+ * プレイリストの曲を取得するクエリ（プレイリストの中の並び順）
+ *
+ * 曲の情報は全曲の一覧からではなく、プレイリストごとにバックエンドから取得する。
+ */
+export function usePlaylistTracksQuery(playlistId: string) {
+  return createQuery(() => ({
+    queryKey: queryKeys.tracks.playlist(playlistId),
+    queryFn: () =>
+      withErrorToast(m.operations.fetchTracks, () => commands.getPlaylistTracks(playlistId)),
+    ...CACHE_POLICY.detail
   }));
 }
 
@@ -162,8 +184,8 @@ export function useReorderPlaylistTracksMutation() {
         commands.reorderPlaylistTracks(playlistId, trackIds)
       ),
     onSuccess: () => {
-      // プレイリスト一覧を再取得
-      queryClient.invalidateQueries({ queryKey: queryKeys.playlists });
+      // プレイリスト一覧と、プレイリストの曲を再取得
+      invalidatePlaylistQueries(queryClient);
       showSuccess(m.notices.tracksReordered);
     }
   }));

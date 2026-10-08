@@ -190,8 +190,9 @@
     @apply flex flex-col h-full;
   }
 
+  /* スクロールは中の一覧（VirtualList）が行う */
   .grid-container {
-    @apply flex-1 overflow-auto;
+    @apply flex-1 min-h-0 overflow-hidden;
   }
 
   .list-layout {

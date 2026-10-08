@@ -3,14 +3,16 @@
   ライブラリビュー（アルバム、アーティスト、ジャンル）の共通グリッド/リストコンポーネント。
   ローディング/エラー/空/検索結果なし状態の表示、browseSearchQueryフィルタリング、
   displayMode切替、コンテキストメニュー、キーボード操作（矢印キーでの移動）を共通化する。
+  一覧は、見えている項目だけを描画する（VirtualList）。
 
   カードの見た目はSnippetでカスタマイズ可能。
 -->
-<script lang="ts" generics="T extends AlbumGroup | ArtistGroup | GenreGroup">
+<script lang="ts" generics="T extends AlbumSummary | ArtistSummary | GenreSummary">
   import type { Snippet } from 'svelte';
-  import type { AlbumGroup, ArtistGroup, GenreGroup } from '#lib/types/models.js';
+  import type { AlbumSummary, ArtistSummary, GenreSummary } from '#lib/types/models.js';
+  import { VirtualList } from '#lib/components/ui/index.js';
   import { ui } from '#lib/stores/ui.svelte.js';
-  import { countGridColumns, navigationTarget } from '#lib/utils/listNavigation.js';
+  import { navigationTarget } from '#lib/utils/listNavigation.js';
   import GroupContextMenu from '../GroupContextMenu.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
@@ -38,10 +40,19 @@
     gridCard: Snippet<[T]>;
     /** リスト行Snippet */
     listRow: Snippet<[T]>;
-    /** グリッドのCSSスタイル（CSS変数等） */
-    gridStyle?: string;
-    /** グリッドのCSSクラス */
-    gridClass?: string;
+    /** グリッド表示のカードの最小の幅（px）。幅に入るだけ列を並べる */
+    minCardWidth: number;
+    /** グリッド表示のカードの高さの見積もり（px）。描画した後は実測した高さを使う */
+    estimatedCardHeight: number;
+    /** リスト表示の行の高さの見積もり（px）。描画した後は実測した高さを使う */
+    estimatedRowHeight: number;
+    /**
+     * 見えている項目だけを描画するか
+     *
+     * 項目の高さがそろわない一覧（名前の長さで高さが変わるジャンルのカード）では、
+     * 位置を正しく求められないため、falseにしてすべて描画する。
+     */
+    virtualized?: boolean;
     /** GroupContextMenuのtype */
     groupType: 'album' | 'artist' | 'genre';
     /** キーボードで選んだ項目をEnterで開く時の操作（カード・行のクリックと同じ操作を渡す） */
@@ -62,8 +73,10 @@
     filterFn,
     gridCard,
     listRow,
-    gridStyle = '',
-    gridClass = '',
+    minCardWidth,
+    estimatedCardHeight,
+    estimatedRowHeight,
+    virtualized = true,
     groupType,
     onOpen,
     footer
@@ -75,6 +88,14 @@
     if (!query) return items;
     return items.filter((item) => filterFn(item, query));
   });
+
+  // グリッド表示のカードの間隔（px）
+  const GRID_GAP = 12;
+  // グリッド表示で、見えている範囲の前後に余分に描画する行の数（1行に何枚も並ぶため、少なくする）
+  const GRID_OVERSCAN_ROWS = 2;
+
+  // 見えている項目だけを描画する一覧（グリッド表示・リスト表示のどちらか）
+  let virtualList = $state<VirtualList<T>>();
 
   // キーボードで移動する時の現在位置（項目の名前。クリックした項目もここに入る）
   let activeName = $state<string | null>(null);
@@ -88,9 +109,6 @@
     if (event.defaultPrevented) return;
     if (event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return;
 
-    const list = event.currentTarget;
-    if (!(list instanceof HTMLElement)) return;
-
     if (event.key === 'Enter') {
       // カードの中のボタン（再生）では、そのボタンの操作を優先する
       if (event.target instanceof Element && event.target.closest('button, a')) return;
@@ -103,17 +121,14 @@
     }
 
     const current = filteredItems.findIndex((item) => item.name === activeName);
-    const columns =
-      displayMode === 'grid'
-        ? countGridColumns(list.children as HTMLCollectionOf<HTMLElement>)
-        : null;
+    const columns = displayMode === 'grid' ? (virtualList?.getColumns() ?? 1) : null;
     const target = navigationTarget(event.key, current, filteredItems.length, columns);
     if (target === null) return;
 
     // 既定の動作（一覧のスクロール）の代わりに、移動先の項目を見える位置へ出す
     event.preventDefault();
     activeName = filteredItems[target].name;
-    list.children[target]?.scrollIntoView({ block: 'nearest' });
+    virtualList?.scrollToIndex(target);
   }
 
   // コンテキストメニュー
@@ -135,7 +150,7 @@
   }
 </script>
 
-<div class="p-2 min-h-[200px]">
+<div class="h-full min-h-[200px]">
   {#if isLoading}
     <div class="state-container">
       <div class="spinner"></div>
@@ -166,15 +181,22 @@
   {:else if filteredItems.length > 0}
     <!-- 一覧がフォーカスを受けてキー操作を扱い、現在位置の項目を枠・背景で示す -->
     {#if displayMode === 'grid'}
-      <div
-        class="item-grid {gridClass}"
-        style={gridStyle}
+      <VirtualList
+        bind:this={virtualList}
+        items={filteredItems}
+        getKey={(item) => item.name}
+        estimatedRowHeight={estimatedCardHeight}
+        minColumnWidth={minCardWidth}
+        gap={GRID_GAP}
+        overscan={virtualized ? GRID_OVERSCAN_ROWS : Infinity}
+        scrollerClass="p-2"
+        class="outline-none"
         role="listbox"
         aria-label={itemLabel}
-        tabindex="0"
+        tabindex={0}
         onkeydown={handleKeydown}
       >
-        {#each filteredItems as item (item.name)}
+        {#snippet row(item)}
           <!-- svelte-ignore a11y_interactive_supports_focus -->
           <div
             class="grid-item"
@@ -185,17 +207,23 @@
           >
             {@render gridCard(item)}
           </div>
-        {/each}
-      </div>
+        {/snippet}
+      </VirtualList>
     {:else}
-      <div
-        class="item-list"
+      <VirtualList
+        bind:this={virtualList}
+        items={filteredItems}
+        getKey={(item) => item.name}
+        {estimatedRowHeight}
+        overscan={virtualized ? undefined : Infinity}
+        scrollerClass="p-2"
+        class="outline-none"
         role="listbox"
         aria-label={itemLabel}
-        tabindex="0"
+        tabindex={0}
         onkeydown={handleKeydown}
       >
-        {#each filteredItems as item (item.name)}
+        {#snippet row(item)}
           <!-- svelte-ignore a11y_interactive_supports_focus -->
           <div
             class="list-item"
@@ -206,8 +234,8 @@
           >
             {@render listRow(item)}
           </div>
-        {/each}
-      </div>
+        {/snippet}
+      </VirtualList>
     {/if}
   {:else}
     <div class="state-container">
@@ -236,14 +264,6 @@
 
 <style>
   @reference "../../../app.css";
-
-  .item-grid {
-    @apply outline-none;
-  }
-
-  .item-list {
-    @apply flex flex-col outline-none;
-  }
 
   /* キーボードで移動する時の現在位置 */
   .grid-item {
