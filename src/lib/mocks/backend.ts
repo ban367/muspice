@@ -18,6 +18,8 @@ import type {
   AlbumGroup,
   AppError,
   ArtistGroup,
+  DeviceSyncPlan,
+  DeviceSyncResult,
   DuplicateAction,
   GenreGroup,
   ImportResult,
@@ -25,9 +27,16 @@ import type {
   Metadata,
   Playlist,
   Settings,
+  SyncDevice,
   Track
 } from '#lib/types/models.js';
-import { ALBUMS_WITHOUT_ART, createFixturePlaylists, createFixtureTracks } from './fixtures';
+import {
+  ALBUMS_WITHOUT_ART,
+  createFixturePlaylists,
+  createFixtureTracks,
+  mockPlaylistId,
+  mockTrackId
+} from './fixtures';
 import { createAlbumArt } from './media';
 
 type Commands = typeof commands;
@@ -60,6 +69,20 @@ const IMPORT_FILE_COUNT = 6;
 /** インポートの1ファイルあたりの処理時間（進捗表示の確認用） */
 const IMPORT_STEP_MS = 150;
 const DEFAULT_STATS_LIMIT = 50;
+/** デバイスへの同期の1曲あたりの処理時間（進捗表示の確認用） */
+const SYNC_STEP_MS = 300;
+/** 空き容量の判定で残しておく容量（Rustの`SPACE_MARGIN_BYTES`と同じ） */
+const SYNC_SPACE_MARGIN_BYTES = 1024 * 1024;
+const GIB = 1024 ** 3;
+
+/** 転送先デバイス（一覧表示用の値のうち、容量は状態から計算する） */
+interface MockSyncDevice extends Omit<SyncDevice, 'freeBytes' | 'totalBytes'> {
+  /** デバイスの全体の容量と、Muspiceがコピーした曲以外が使っている容量 */
+  totalBytes: number;
+  otherUsedBytes: number;
+  /** デバイスにコピー済みの曲（トラックID → サイズ） */
+  copied: Map<string, number>;
+}
 
 /** IPCのコマンド名（`get_all_tracks`）を`commands`のキー（`getAllTracks`）へ変換する */
 export function toCommandName(cmd: string): string {
@@ -231,6 +254,48 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     }
   ];
 
+  // 転送先デバイス（connectedは「接続されているか」。外れた状態も再現する）
+  const copiedTracks = (indexes: number[]) =>
+    new Map(
+      indexes.map((index) => {
+        const track = tracks.find((t) => t.id === mockTrackId(index));
+        return [mockTrackId(index), track?.fileSize ?? 0] as const;
+      })
+    );
+  let syncDevices: MockSyncDevice[] = [
+    {
+      id: crypto.randomUUID(),
+      name: 'SDカード',
+      path: '/Volumes/SDCARD/Music',
+      syncAll: false,
+      playlistIds: [mockPlaylistId(1)],
+      removeUnselected: true,
+      connected: true,
+      createdAt: '2026-01-03T00:00:00.000Z',
+      lastSyncedAt: '2026-01-04T00:00:00.000Z',
+      totalBytes: 32 * GIB,
+      otherUsedBytes: 20 * GIB,
+      // プレイリストの5曲のうち2曲と、プレイリストから外した1曲がコピー済み
+      copied: copiedTracks([7, 8, 2])
+    },
+    {
+      id: crypto.randomUUID(),
+      name: 'Walkman',
+      path: '/Volumes/WALKMAN/MUSIC',
+      syncAll: true,
+      playlistIds: [],
+      removeUnselected: true,
+      connected: false,
+      createdAt: '2026-01-02T00:00:00.000Z',
+      lastSyncedAt: null,
+      totalBytes: 16 * GIB,
+      otherUsedBytes: 0,
+      copied: new Map()
+    }
+  ];
+  let isSyncRunning = false;
+  let isSyncCancelled = false;
+
   const now = () => new Date().toISOString();
   const newestFirst = (a: Track, b: Track) => compareAsc(b.createdAt, a.createdAt);
   const tracksWhere = (predicate: (track: Track) => boolean) =>
@@ -401,6 +466,158 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     const folder = libraryFolders.find((f) => f.id === folderId);
     if (!folder) fail('NOT_FOUND', 'ライブラリフォルダが見つかりません');
     return folder;
+  }
+
+  // ---- 転送先デバイス（src-tauri/src/device.rs・commands/devices.rsに対応） ----
+  //
+  // 実ファイルは存在しないため、デバイス上の曲は「コピー済みのトラックIDの集合」で表す
+  // （配置の決定・リネーム・プレイリストのファイルの書き出しは再現しない）。
+
+  function findSyncDevice(deviceId: string): MockSyncDevice {
+    if (!UUID_PATTERN.test(deviceId)) fail('VALIDATION', '不正なデバイスID形式です');
+    const device = syncDevices.find((d) => d.id === deviceId);
+    if (!device) fail('NOT_FOUND', 'デバイスが見つかりません');
+    return device;
+  }
+
+  /** デバイス名をバリデーションし、前後の空白を除いた名前を返す */
+  function validateDeviceName(name: string): string {
+    const trimmed = name.trim();
+    if (!trimmed) fail('VALIDATION', 'デバイス名を入力してください');
+    if (byteLength(trimmed) > 100) fail('VALIDATION', 'デバイス名は100文字以内で入力してください');
+    if (/\p{Cc}/u.test(trimmed)) fail('VALIDATION', 'デバイス名に使用できない文字が含まれています');
+    return trimmed;
+  }
+
+  /** 転送先にするフォルダを検証する（ライブラリフォルダと重なるフォルダは使えない） */
+  function validateDeviceFolder(folderPath: string): string {
+    validateFilePath(folderPath);
+    const path = normalizeFolderPath(folderPath);
+    const overlaps = libraryFolders.some(
+      (folder) => isSameOrWithin(path, folder.path) || isSameOrWithin(folder.path, path)
+    );
+    if (overlaps) fail('VALIDATION', 'ライブラリフォルダと重なるフォルダは、転送先にできません');
+    return path;
+  }
+
+  /** デバイスに同期するプレイリスト（削除済みのプレイリストは含めない） */
+  const devicePlaylists = (device: MockSyncDevice) =>
+    playlists.filter((playlist) => device.playlistIds.includes(playlist.id));
+
+  const usedBytes = (device: MockSyncDevice) =>
+    device.otherUsedBytes + [...device.copied.values()].reduce((sum, size) => sum + size, 0);
+
+  function toSyncDevice(device: MockSyncDevice): SyncDevice {
+    return {
+      id: device.id,
+      name: device.name,
+      path: device.path,
+      syncAll: device.syncAll,
+      playlistIds: devicePlaylists(device).map((playlist) => playlist.id),
+      removeUnselected: device.removeUnselected,
+      connected: device.connected,
+      freeBytes: device.connected ? device.totalBytes - usedBytes(device) : null,
+      totalBytes: device.connected ? device.totalBytes : null,
+      createdAt: device.createdAt,
+      lastSyncedAt: device.lastSyncedAt
+    };
+  }
+
+  /** デバイスに同期する曲（全曲か、選んだプレイリストの曲） */
+  function tracksToSync(device: MockSyncDevice): Track[] {
+    if (device.syncAll) return tracks;
+    const ids = new Set(
+      devicePlaylists(device).flatMap((playlist) => playlist.tracks.map((t) => t.trackId))
+    );
+    return tracks.filter((track) => ids.has(track.id));
+  }
+
+  /** 同期でコピー・削除する曲を決める */
+  function planSync(device: MockSyncDevice) {
+    if (!device.connected) {
+      fail(
+        'NOT_FOUND',
+        `デバイスが接続されていません: ${device.path}（接続されているか確認してください）`
+      );
+    }
+    const selected = tracksToSync(device);
+    const selectedIds = new Set(selected.map((track) => track.id));
+    const toCopy = selected.filter((track) => !device.copied.has(track.id));
+    const stale = [...device.copied.keys()].filter((id) => !selectedIds.has(id));
+    const toDelete = device.removeUnselected ? stale : [];
+
+    const copyBytes = toCopy.reduce((sum, track) => sum + track.fileSize, 0);
+    const deleteBytes = toDelete.reduce((sum, id) => sum + (device.copied.get(id) ?? 0), 0);
+    const freeBytes = device.totalBytes - usedBytes(device);
+    const requiredBytes = Math.max(copyBytes - deleteBytes, 0);
+    const summary: DeviceSyncPlan = {
+      copyCount: toCopy.length,
+      copyBytes,
+      deleteCount: toDelete.length,
+      deleteBytes,
+      renameCount: 0,
+      unchangedCount: device.copied.size - toDelete.length,
+      playlistCount: devicePlaylists(device).length,
+      missingSourceCount: 0,
+      freeBytes,
+      requiredBytes,
+      hasEnoughSpace: requiredBytes === 0 || requiredBytes + SYNC_SPACE_MARGIN_BYTES <= freeBytes
+    };
+    return { toCopy, toDelete, summary };
+  }
+
+  /** デバイスへ同期する（1曲ずつ進捗を送り、中止の要求があれば次の曲の前で止める） */
+  async function runDeviceSync(deviceId: string): Promise<DeviceSyncResult> {
+    const device = findSyncDevice(deviceId);
+    if (isSyncRunning) fail('LOCK', '他のデバイスへの同期が実行中です');
+    const { toCopy, toDelete, summary } = planSync(device);
+    if (!device.syncAll && devicePlaylists(device).length === 0) {
+      fail('VALIDATION', '同期する対象（全曲またはプレイリスト）を選択してください');
+    }
+    if (!summary.hasEnoughSpace) fail('VALIDATION', 'デバイスの空き容量が足りません');
+
+    isSyncRunning = true;
+    isSyncCancelled = false;
+    try {
+      for (const id of toDelete) device.copied.delete(id);
+
+      let copiedCount = 0;
+      let bytesDone = 0;
+      const progress = (current: number, currentFile: string) =>
+        options.emit('device-sync-progress', {
+          deviceId,
+          current,
+          total: toCopy.length,
+          bytesDone,
+          bytesTotal: summary.copyBytes,
+          currentFile
+        });
+      for (const [index, track] of toCopy.entries()) {
+        if (isSyncCancelled) break;
+        progress(index, track.fileName);
+        await sleep(SYNC_STEP_MS);
+        device.copied.set(track.id, track.fileSize);
+        bytesDone += track.fileSize;
+        copiedCount++;
+      }
+
+      const cancelled = isSyncCancelled;
+      if (!cancelled) {
+        progress(toCopy.length, '');
+        device.lastSyncedAt = now();
+      }
+      return {
+        copiedCount,
+        deletedCount: toDelete.length,
+        renamedCount: 0,
+        playlistCount: cancelled ? 0 : summary.playlistCount,
+        errorCount: 0,
+        errors: [],
+        cancelled
+      };
+    } finally {
+      isSyncRunning = false;
+    }
   }
 
   const handlers: MockCommandHandlers = {
@@ -742,6 +959,63 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         errorCount: 0,
         errors: []
       };
+    },
+    getSyncDevices: () =>
+      [...syncDevices]
+        .sort(
+          orderBy(
+            (d) => d.name,
+            (d) => d.createdAt
+          )
+        )
+        .map(toSyncDevice),
+    // 管理ファイルは存在しないため、選んだフォルダは常に新しいデバイスとして登録する
+    registerSyncDevice: (folderPath, name) => {
+      const trimmedName = validateDeviceName(name);
+      const device: MockSyncDevice = {
+        id: crypto.randomUUID(),
+        name: trimmedName,
+        path: validateDeviceFolder(folderPath),
+        syncAll: false,
+        playlistIds: [],
+        removeUnselected: true,
+        connected: true,
+        createdAt: now(),
+        lastSyncedAt: null,
+        totalBytes: 64 * GIB,
+        otherUsedBytes: 0,
+        copied: new Map()
+      };
+      syncDevices.push(device);
+      return toSyncDevice(device);
+    },
+    updateSyncDevice: (deviceId, config) => {
+      const device = findSyncDevice(deviceId);
+      config.playlistIds.forEach(validatePlaylistId);
+      device.name = validateDeviceName(config.name);
+      device.syncAll = config.syncAll;
+      // 実装と同じく、見つからないプレイリストは無視する
+      device.playlistIds = config.playlistIds.filter((id) => playlists.some((p) => p.id === id));
+      device.removeUnselected = config.removeUnselected;
+      return toSyncDevice(device);
+    },
+    // 選んだフォルダにデバイスがあることにして、接続された状態にする
+    relinkSyncDevice: (deviceId, folderPath) => {
+      const device = findSyncDevice(deviceId);
+      device.path = validateDeviceFolder(folderPath);
+      device.connected = true;
+      return toSyncDevice(device);
+    },
+    removeSyncDevice: (deviceId) => {
+      const device = findSyncDevice(deviceId);
+      syncDevices = syncDevices.filter((d) => d !== device);
+      return null;
+    },
+    planDeviceSync: (deviceId) => planSync(findSyncDevice(deviceId)).summary,
+    runDeviceSync,
+    cancelDeviceSync: () => {
+      if (isSyncRunning) isSyncCancelled = true;
+      return null;
     }
   };
 

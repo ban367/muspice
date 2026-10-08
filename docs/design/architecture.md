@@ -29,7 +29,7 @@ graph TD
 
 ## フロントエンド構成
 
-- ルート: `src/routes/(app)` 配下にライブラリ・プレイリスト、`src/routes/settings` に設定画面（メニューから開く別ウィンドウ。独自のQueryClientを持つ）
+- ルート: `src/routes/(app)` 配下にライブラリ・プレイリスト・転送先デバイス（`devices/[id]`）、`src/routes/settings` に設定画面（メニューから開く別ウィンドウ。独自のQueryClientを持つ）
 - 設定: Rust側（`settings.rs`）がアプリデータ配下の`settings.json`に保存する。設定ウィンドウで保存するとRustが`SettingsChanged`イベントを送り、メインウィンドウの`SettingsSync`がキャッシュ・テーマ・アクセントカラー（CSS変数`--color-primary`）を更新する
 - ウィンドウの状態: メインウィンドウのサイズ・位置・最大化・フルスクリーンは、`tauri-plugin-window-state`が終了時にアプリの設定フォルダの`.window-state.json`へ保存し、次回の起動時に復元する（`lib.rs`の`window_state_plugin()`）。記憶がない初回は`tauri.conf.json`の大きさ（1280×800）で開く。設定ウィンドウは対象外で、毎回同じ大きさで開く
 - 多言語化: 画面の文言は`src/lib/i18n/messages`（日本語・英語）に定義し、`#lib/i18n/i18n.svelte`の`m`から読む。言語は`$state`のため、切り替えるとコンポーネントを作り直さずに文言が変わる（再生は止まらない）。メニューバーと設定ウィンドウのタイトルはRust側（`menu.rs`）が言語に合わせて作り直す
@@ -53,6 +53,7 @@ graph TD
 - アルバムアートの配信: `album_art.rs` が `albumart` カスタムプロトコルを処理する。トラックIDからDB上のファイルを引いて埋め込み画像をバイト列のまま返し、抽出結果（アートがないことを含む）は容量上限付きのLRUキャッシュ（64MiB）に保持する。WebViewには`no-store`でキャッシュさせず、インポート後はキャッシュを消去する
 - 重い同期処理（インポート、メタデータ再読込、ファイルへのタグ書き込み、アルバムアート抽出、ファイル削除）は `run_blocking`（`spawn_blocking`）でブロッキング処理用スレッドへ逃がし、非同期ランタイムのワーカーを占有しない。アルバムアート抽出はセマフォで同時実行数を4に制限する
 - バックエンド→フロントエンドの通知は `events.rs` の型付きイベント（tauri-specta）で行い、フロントは `bindings.ts` の `events.xxx.listen()` で受け取る
+- デバイスへの転送: `device.rs`（デバイスの記録）・`device_manifest.rs`（デバイス側の管理ファイル）・`device_sync.rs`（配置と差分の計算。ファイルシステムに触れない）・`device_transfer.rs`（削除・リネーム・コピー・プレイリストの書き出し）に分ける。同時に実行する同期は1つ（`DeviceSyncState`）で、DBロックは曲・プレイリストの読み出しの間だけ持つ（コピー中は持たない）
 - コマンド登録: `tauri::generate_handler!` でインポート/検索/編集/再生/統計/システム操作を公開
 - DB初期化: `db.rs` のマイグレーションでテーブル・インデックス・FTS5・トリガーを作成
 
@@ -85,6 +86,33 @@ sequenceDiagram
    - 見つからなくなったファイルの曲はライブラリから外す。ただしフォルダ自体が見つからない、または音楽ファイルが1件も見つからない場合は外さない
 3. 読み込みはインポートと同じく、DBロックの外でメタデータを抽出し、50件単位で書き込む（`LibraryScanProgress`イベントで進捗を送る）
 4. 曲が変わったら`LibraryChanged`イベントを送り、メインウィンドウ（`(app)/+layout.svelte`）がトラック一覧とプレイリストのキャッシュを無効化する
+
+### デバイスへの転送
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Frontend
+    participant Cmd as plan_device_sync / run_device_sync
+    participant DB as SQLite
+    participant Device as デバイスのフォルダ
+
+    User->>Frontend: 同期する内容を選び「同期」
+    Frontend->>Cmd: plan_device_sync
+    Cmd->>DB: デバイス・全トラック・プレイリストを取得
+    Cmd->>Device: 管理ファイルを読む（接続の確認）
+    Cmd-->>Frontend: DeviceSyncPlan（件数・必要な容量）
+    User->>Frontend: 確認して開始
+    Frontend->>Cmd: run_device_sync
+    Cmd->>Device: 削除 → リネーム → コピー → プレイリスト → 管理ファイル
+    Cmd-->>Frontend: DeviceSyncProgressイベント
+    Cmd-->>Frontend: DeviceSyncResult
+```
+
+1. サイドバーの「デバイス」でフォルダを選んで登録する（`register_sync_device`）。フォルダに管理ファイル（`.muspice/manifest.json`）を書く
+2. デバイスのページ（`(app)/devices/[id]`）で同期する内容（全曲・プレイリスト）を選ぶ。変更はすぐに保存する（`update_sync_device`）。接続の状態は、ページを開いている間は5秒ごとに、それ以外はウィンドウに戻ったときに読み直す
+3. 「同期」で差分を調べて（`plan_device_sync`）確認のダイアログ（`DeviceSyncDialog`）に表示し、確認の後に同期する（`run_device_sync`）
+4. 差分は、同期する曲・プレイリストと管理ファイルを比べて決める（`device_sync::plan_sync`）。詳細は`detailed-design.md`
 
 ### 検索
 

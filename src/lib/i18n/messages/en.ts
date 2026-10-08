@@ -101,7 +101,13 @@ export const en: Messages = {
     openProjectPage: 'Opening the page',
     fetchLibraryFolders: 'Loading library folders',
     rescanLibraryFolder: 'Rescanning',
-    removeLibraryFolder: 'Removing the library folder'
+    removeLibraryFolder: 'Removing the library folder',
+    fetchDevices: 'Loading devices',
+    registerDevice: 'Adding the device',
+    updateDevice: 'Changing the device settings',
+    relinkDevice: 'Changing the destination',
+    removeDevice: 'Removing the device',
+    cancelDeviceSync: 'Stopping the sync'
   },
 
   notices: {
@@ -180,7 +186,10 @@ export const en: Messages = {
     newPlaylist: 'New Playlist',
     playlistName: 'Playlist name',
     create: 'Create',
-    openMenu: 'Open menu'
+    openMenu: 'Open menu',
+    devices: 'Devices',
+    addDevice: 'Add Device',
+    noDevices: 'No devices'
   },
 
   rightSidebar: {
@@ -447,5 +456,79 @@ export const en: Messages = {
     added: (count) => `${count} added`,
     updated: (count) => `${count} updated`,
     removedTracks: (count) => `${count} removed`
+  },
+
+  devices: {
+    selectFolderTitle: 'Select the destination folder',
+    selectFolderFailed: 'Failed to select a folder',
+    addTitle: 'Add Device',
+    nameLabel: 'Device name',
+    add: 'Add',
+    nameTooLong: 'The device name is too long',
+    added: (name) => `Added the device "${name}"`,
+    notFound: 'Device not found',
+    notFoundHint: 'The selected device does not exist or may have been removed',
+    connected: 'Connected',
+    disconnected: 'Not connected',
+    disconnectedHint:
+      'The destination folder was not found. Connect the device. If the folder has moved, choose it again with "Change Destination".',
+    freeSpace: (free, total) => `${free} free of ${total}`,
+    lastSynced: (at) => `Last sync: ${at}`,
+    neverSynced: 'Not synced yet',
+    sync: 'Sync',
+    rename: 'Rename',
+    renameTitle: 'Rename Device',
+    renameConfirm: 'Rename',
+    relink: 'Change Destination',
+    relinked: 'Changed the destination',
+    remove: 'Remove Device',
+    confirmRemove: (name) =>
+      `Remove the device "${name}"?\nThe tracks on the device are not deleted.`,
+    removed: 'Removed the device',
+    sourceTitle: 'What to sync',
+    layoutHint: 'Tracks are copied into "Artist/Album/Title" folders',
+    syncAll: 'All tracks in the library',
+    playlists: 'Playlists',
+    playlistsHint:
+      'The selected playlists are also written as .m3u8 files that the device can open. Unless "All tracks in the library" is selected, only the tracks in the selected playlists are copied.',
+    noPlaylists: 'No playlists',
+    removeUnselected: 'Delete tracks that are no longer selected from the device',
+    removeUnselectedHint:
+      'Only tracks copied by Muspice are deleted. Files you put on the device yourself are not deleted.',
+    noSource: 'Select what to sync',
+
+    syncDialog: {
+      title: (name) => `Sync to "${name}"`,
+      planning: 'Checking the differences...',
+      planFailed: (message) => `Could not check the differences: ${message}`,
+      copy: 'Copy',
+      delete: 'Delete',
+      rename: 'Rename',
+      unchanged: 'Unchanged',
+      playlists: 'Playlists',
+      countAndSize: (count, size) => `${plural(count, 'track', 'tracks')} (${size})`,
+      freeSpace: 'Free space',
+      upToDate: 'The tracks on the device are up to date',
+      missingSources: (count) =>
+        `The files of ${plural(count, 'track', 'tracks')} were not found (they cannot be copied; tracks already copied stay on the device)`,
+      notEnoughSpace: (size) => `Not enough free space on the device (${size} more needed)`,
+      start: 'Start Sync',
+      preparing: 'Preparing...',
+      copying: (current, total) => `Copying... (${current}/${total})`,
+      finishing: 'Finishing...',
+      stop: 'Stop',
+      stopping: 'Stopping...',
+      failed: (message) => `Sync failed: ${message}`,
+      completed: 'Sync completed',
+      cancelled: 'Sync stopped',
+      cancelledHint:
+        'The tracks already copied stay on the device. Sync again to continue from where it stopped.',
+      copied: 'Copied:',
+      deleted: 'Deleted:',
+      renamed: 'Renamed:',
+      playlistsWritten: 'Playlists:',
+      errors: 'Errors:',
+      errorDetails: 'Error details:'
+    }
   }
 };

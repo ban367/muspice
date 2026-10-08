@@ -48,5 +48,8 @@ export const queryKeys = {
   settings: ['settings'] as const,
 
   /** ライブラリフォルダ（インポートしたフォルダ） */
-  libraryFolders: ['libraryFolders'] as const
+  libraryFolders: ['libraryFolders'] as const,
+
+  /** 転送先デバイス（SDカードなどのフォルダ） */
+  syncDevices: ['syncDevices'] as const
 } as const;

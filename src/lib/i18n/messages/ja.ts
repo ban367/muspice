@@ -108,7 +108,13 @@ export const ja = {
     openProjectPage: 'ページを開く',
     fetchLibraryFolders: 'ライブラリフォルダの取得',
     rescanLibraryFolder: '再スキャン',
-    removeLibraryFolder: 'ライブラリフォルダの削除'
+    removeLibraryFolder: 'ライブラリフォルダの削除',
+    fetchDevices: 'デバイスの取得',
+    registerDevice: 'デバイスの追加',
+    updateDevice: 'デバイスの設定の変更',
+    relinkDevice: '転送先の変更',
+    removeDevice: 'デバイスの登録の解除',
+    cancelDeviceSync: '同期の中止'
   },
 
   /** 操作の結果の通知 */
@@ -188,7 +194,10 @@ export const ja = {
     newPlaylist: '新規プレイリスト',
     playlistName: 'プレイリスト名',
     create: '作成',
-    openMenu: 'メニューを開く'
+    openMenu: 'メニューを開く',
+    devices: 'デバイス',
+    addDevice: 'デバイスを追加',
+    noDevices: 'デバイスがありません'
   },
 
   rightSidebar: {
@@ -455,6 +464,80 @@ export const ja = {
     added: (count: number) => `追加 ${count}曲`,
     updated: (count: number) => `更新 ${count}曲`,
     removedTracks: (count: number) => `削除 ${count}曲`
+  },
+
+  devices: {
+    selectFolderTitle: '転送先のフォルダを選択',
+    selectFolderFailed: 'フォルダの選択に失敗しました',
+    addTitle: 'デバイスを追加',
+    nameLabel: 'デバイス名',
+    add: '追加',
+    nameTooLong: 'デバイス名が長すぎます',
+    added: (name: string) => `デバイス「${name}」を追加しました`,
+    notFound: 'デバイスが見つかりません',
+    notFoundHint: '選択されたデバイスは存在しないか、登録を解除された可能性があります',
+    connected: '接続中',
+    disconnected: '未接続',
+    disconnectedHint:
+      '転送先のフォルダが見つかりません。デバイスを接続してください。フォルダの場所が変わった場合は「転送先を変更」で選び直せます',
+    freeSpace: (free: string, total: string) => `空き ${free} / ${total}`,
+    lastSynced: (at: string) => `最終同期: ${at}`,
+    neverSynced: 'まだ同期していません',
+    sync: '同期',
+    rename: '名前を変更',
+    renameTitle: 'デバイス名を変更',
+    renameConfirm: '変更',
+    relink: '転送先を変更',
+    relinked: '転送先を変更しました',
+    remove: '登録を解除',
+    confirmRemove: (name: string) =>
+      `デバイス「${name}」の登録を解除しますか？\nデバイス上の曲は削除されません。`,
+    removed: 'デバイスの登録を解除しました',
+    sourceTitle: '同期する内容',
+    layoutHint: '曲は「アーティスト/アルバム/曲名」のフォルダに分けてコピーします',
+    syncAll: 'ライブラリの全曲',
+    playlists: 'プレイリスト',
+    playlistsHint:
+      '選んだプレイリストは、デバイスで開ける.m3u8ファイルとしても書き出します。「ライブラリの全曲」を選ばない場合は、選んだプレイリストの曲だけをコピーします',
+    noPlaylists: 'プレイリストがありません',
+    removeUnselected: '同期する内容から外れた曲を、デバイスから削除する',
+    removeUnselectedHint:
+      '削除するのはMuspiceがコピーした曲だけです。自分でデバイスに置いたファイルは削除しません',
+    noSource: '同期する内容を選択してください',
+
+    syncDialog: {
+      title: (name: string) => `「${name}」へ同期`,
+      planning: '差分を確認しています...',
+      planFailed: (message: string) => `差分を確認できませんでした: ${message}`,
+      copy: 'コピー',
+      delete: '削除',
+      rename: '名前の変更',
+      unchanged: '変更なし',
+      playlists: 'プレイリスト',
+      /** 曲数とサイズ（例: 12曲（345.6 MB）） */
+      countAndSize: (count: number, size: string) => `${count}曲（${size}）`,
+      freeSpace: '空き容量',
+      upToDate: 'デバイスの曲は最新です',
+      missingSources: (count: number) =>
+        `元のファイルが見つからない曲が${count}曲あります（コピーできません。コピー済みの曲はデバイスに残します）`,
+      notEnoughSpace: (size: string) => `デバイスの空き容量が足りません（あと${size}必要です）`,
+      start: '同期を開始',
+      preparing: '準備しています...',
+      copying: (current: number, total: number) => `コピー中... (${current}/${total})`,
+      finishing: '仕上げています...',
+      stop: '中止',
+      stopping: '中止しています...',
+      failed: (message: string) => `同期に失敗しました: ${message}`,
+      completed: '同期が完了しました',
+      cancelled: '同期を中止しました',
+      cancelledHint: 'コピー済みの曲はデバイスに残ります。もう一度同期すると、続きからコピーします',
+      copied: 'コピー:',
+      deleted: '削除:',
+      renamed: '名前の変更:',
+      playlistsWritten: 'プレイリスト:',
+      errors: 'エラー:',
+      errorDetails: 'エラー詳細:'
+    }
   }
 };
 

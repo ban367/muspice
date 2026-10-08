@@ -1,6 +1,10 @@
 mod album_art;
 mod commands;
 mod db;
+mod device;
+mod device_manifest;
+mod device_sync;
+mod device_transfer;
 mod error;
 mod events;
 mod library;
@@ -16,15 +20,17 @@ mod state;
 mod validation;
 
 use commands::{
-    add_tracks_to_playlist, create_playlist, delete_playlist, delete_tracks_command,
-    delete_tracks_with_files_command, filter_tracks, get_albums_grouped, get_all_tracks,
-    get_artists_grouped, get_current_track, get_favorite_tracks, get_genres_grouped,
-    get_library_folders, get_most_played_tracks, get_playlists, get_recently_played_tracks,
-    get_settings, get_track_file_path, get_unique_albums, get_unique_artists, get_unique_genres,
-    import_folder, increment_play_count, open_project_page, refresh_library_metadata,
-    remove_library_folder, remove_track_from_playlist, rename_playlist, reorder_playlist_tracks,
-    rescan_library_folder, save_settings, search_tracks, set_current_track, set_rating,
-    show_in_folder, toggle_favorite, update_multiple_tracks_metadata, update_track_metadata,
+    add_tracks_to_playlist, cancel_device_sync, create_playlist, delete_playlist,
+    delete_tracks_command, delete_tracks_with_files_command, filter_tracks, get_albums_grouped,
+    get_all_tracks, get_artists_grouped, get_current_track, get_favorite_tracks,
+    get_genres_grouped, get_library_folders, get_most_played_tracks, get_playlists,
+    get_recently_played_tracks, get_settings, get_sync_devices, get_track_file_path,
+    get_unique_albums, get_unique_artists, get_unique_genres, import_folder, increment_play_count,
+    open_project_page, plan_device_sync, refresh_library_metadata, register_sync_device,
+    relink_sync_device, remove_library_folder, remove_sync_device, remove_track_from_playlist,
+    rename_playlist, reorder_playlist_tracks, rescan_library_folder, run_device_sync,
+    save_settings, search_tracks, set_current_track, set_rating, show_in_folder, toggle_favorite,
+    update_multiple_tracks_metadata, update_sync_device, update_track_metadata,
     write_library_metadata_to_files,
 };
 use state::AppState;
@@ -46,6 +52,14 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             get_library_folders,
             remove_library_folder,
             rescan_library_folder,
+            get_sync_devices,
+            register_sync_device,
+            update_sync_device,
+            relink_sync_device,
+            remove_sync_device,
+            plan_device_sync,
+            run_device_sync,
+            cancel_device_sync,
             get_settings,
             save_settings,
             get_all_tracks,
@@ -85,6 +99,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         .events(tauri_specta::collect_events![
             events::ImportProgress,
             events::LibraryScanProgress,
+            events::DeviceSyncProgress,
             events::LibraryChanged,
             events::ShowAboutDialog,
             events::OpenImportDialog,
@@ -219,6 +234,9 @@ pub fn run() {
             // 再スキャン・フォルダの監視を別スレッドで始める）
             app.manage(library_sync::LibrarySync::default());
             library_sync::start(app.handle());
+
+            // デバイスへの同期の実行状態（同時に実行する同期は1つだけ）
+            app.manage(device::DeviceSyncState::default());
 
             // メニューバーを構築（設定の言語に合わせる。言語を変えると`save_settings`が作り直す）
             let menu = menu::build_menu(app.handle(), menu::current_language(app.handle()))?;

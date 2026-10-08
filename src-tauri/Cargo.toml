@@ -34,6 +34,10 @@ chrono = { version = "0.4", features = ["serde"] }
 lofty = "0.25"
 # ライブラリフォルダの監視（変更の通知を短時間まとめる）
 notify-debouncer-mini = "0.7"
+# デバイスへの転送: 転送先の空き容量の取得
+fs4 = { version = "1", default-features = false, features = ["sync"] }
+# デバイスへの転送: デバイス上のファイル名をNFCにそろえる
+unicode-normalization = "0.1"
 thiserror = "2"
 # Tauriが内部で使うtokioと同じもの（セマフォのためsync機能のみ追加）
 tokio = { version = "1", features = ["sync"] }

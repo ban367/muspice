@@ -1,7 +1,7 @@
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { commands } from '#lib/bindings.js';
-import { createMockBackend, toCommandName } from './backend';
+import { createMockBackend, toCommandName, type MockBackend } from './backend';
 import { mockPlaylistId, mockTrackId } from './fixtures';
 
 /** バックエンドから送信されたイベント */
@@ -220,6 +220,168 @@ describe('ライブラリフォルダ', () => {
     const missing = folders.find((f) => !f.exists)!;
 
     await expect(commands.rescanLibraryFolder(missing.id)).rejects.toMatchObject({
+      code: 'NOT_FOUND'
+    });
+  });
+});
+
+describe('転送先デバイス', () => {
+  /** 接続されているデバイス（プレイリスト「ドライブ用」を同期する） */
+  async function connectedDevice() {
+    return (await commands.getSyncDevices()).find((d) => d.connected)!;
+  }
+
+  it('名前順に返し、接続されていないデバイスは容量を返さない', async () => {
+    const devices = await commands.getSyncDevices();
+    expect(devices.map((d) => d.name)).toEqual(['SDカード', 'Walkman']);
+
+    const [connected, disconnected] = devices;
+    expect(connected.freeBytes).toBeGreaterThan(0);
+    expect(connected.totalBytes).toBeGreaterThan(connected.freeBytes!);
+    expect(disconnected).toMatchObject({ connected: false, freeBytes: null, totalBytes: null });
+  });
+
+  it('フォルダを登録し、ライブラリフォルダと重なるフォルダは拒否する', async () => {
+    const device = await commands.registerSyncDevice('/Volumes/NEW_SD/', '  新しいSD ');
+    expect(device).toMatchObject({
+      name: '新しいSD',
+      path: '/Volumes/NEW_SD',
+      connected: true,
+      syncAll: false,
+      playlistIds: [],
+      removeUnselected: true
+    });
+    expect((await commands.getSyncDevices()).map((d) => d.id)).toContain(device.id);
+
+    await expect(commands.registerSyncDevice('/Users/demo/Music/Sub', 'SD')).rejects.toMatchObject({
+      code: 'VALIDATION'
+    });
+    await expect(commands.registerSyncDevice('/Users', 'SD')).rejects.toMatchObject({
+      code: 'VALIDATION'
+    });
+    await expect(commands.registerSyncDevice('/Volumes/OTHER', '   ')).rejects.toMatchObject({
+      code: 'VALIDATION'
+    });
+  });
+
+  it('設定を更新し、見つからないプレイリストは無視する', async () => {
+    const device = await connectedDevice();
+    const updated = await commands.updateSyncDevice(device.id, {
+      name: '車',
+      syncAll: true,
+      playlistIds: [mockPlaylistId(2), mockPlaylistId(99)],
+      removeUnselected: false
+    });
+
+    expect(updated).toMatchObject({
+      name: '車',
+      syncAll: true,
+      playlistIds: [mockPlaylistId(2)],
+      removeUnselected: false
+    });
+  });
+
+  it('差分を調べる（コピー済みの曲はコピーせず、対象から外れた曲は削除する）', async () => {
+    const device = await connectedDevice();
+    const plan = await commands.planDeviceSync(device.id);
+
+    // プレイリストの5曲のうち2曲がコピー済みで、対象から外れた1曲がデバイスにある
+    expect(plan).toMatchObject({
+      copyCount: 3,
+      deleteCount: 1,
+      unchangedCount: 2,
+      playlistCount: 1,
+      hasEnoughSpace: true
+    });
+    expect(plan.requiredBytes).toBe(plan.copyBytes - plan.deleteBytes);
+
+    // 削除しない設定では、対象から外れた曲を残す
+    await commands.updateSyncDevice(device.id, { ...device, removeUnselected: false });
+    expect(await commands.planDeviceSync(device.id)).toMatchObject({
+      deleteCount: 0,
+      unchangedCount: 3
+    });
+  });
+
+  it('同期すると進捗を送り、次の差分はなくなる', async () => {
+    const device = await connectedDevice();
+    const result = await commands.runDeviceSync(device.id);
+
+    expect(result).toMatchObject({
+      copiedCount: 3,
+      deletedCount: 1,
+      playlistCount: 1,
+      errorCount: 0,
+      cancelled: false
+    });
+    const progress = events.filter((e) => e.event === 'device-sync-progress');
+    expect(progress.map((e) => (e.payload as { current: number }).current)).toEqual([0, 1, 2, 3]);
+    expect(progress[0].payload).toMatchObject({ deviceId: device.id, total: 3, bytesDone: 0 });
+
+    expect(await commands.planDeviceSync(device.id)).toMatchObject({
+      copyCount: 0,
+      deleteCount: 0,
+      unchangedCount: 5
+    });
+    const synced = await connectedDevice();
+    expect(synced.lastSyncedAt).not.toBe(device.lastSyncedAt);
+    expect(synced.freeBytes).toBeLessThan(device.freeBytes!);
+  });
+
+  it('全曲を同期する', async () => {
+    const device = await connectedDevice();
+    await commands.updateSyncDevice(device.id, { ...device, syncAll: true });
+
+    const total = (await commands.getAllTracks()).length;
+    // コピー済みの3曲はすべて対象に含まれる
+    expect(await commands.planDeviceSync(device.id)).toMatchObject({
+      copyCount: total - 3,
+      deleteCount: 0
+    });
+  });
+
+  it('同期を中止すると、次の曲の前で止まる', async () => {
+    // 1曲目のコピー中に中止を要求する
+    const backend: MockBackend = createMockBackend({
+      emit: () => {},
+      sleep: async () => {
+        await backend.invoke('cancel_device_sync');
+      }
+    });
+    mockIPC((cmd, payload) => backend.invoke(cmd, payload as Record<string, unknown>));
+    const device = await connectedDevice();
+
+    const result = await commands.runDeviceSync(device.id);
+
+    expect(result).toMatchObject({ copiedCount: 1, cancelled: true, playlistCount: 0 });
+    expect((await connectedDevice()).lastSyncedAt).toBe(device.lastSyncedAt);
+    // 続きから同期できる
+    expect(await commands.planDeviceSync(device.id)).toMatchObject({ copyCount: 2 });
+  });
+
+  it('同期する対象がない・接続されていないデバイスは同期できない', async () => {
+    const device = await connectedDevice();
+    await commands.updateSyncDevice(device.id, { ...device, playlistIds: [] });
+    await expect(commands.runDeviceSync(device.id)).rejects.toMatchObject({ code: 'VALIDATION' });
+
+    const disconnected = (await commands.getSyncDevices()).find((d) => !d.connected)!;
+    await expect(commands.planDeviceSync(disconnected.id)).rejects.toMatchObject({
+      code: 'NOT_FOUND'
+    });
+    await expect(commands.runDeviceSync(disconnected.id)).rejects.toMatchObject({
+      code: 'NOT_FOUND'
+    });
+  });
+
+  it('転送先を変えると接続され、登録を解除すると一覧から消える', async () => {
+    const disconnected = (await commands.getSyncDevices()).find((d) => !d.connected)!;
+
+    const relinked = await commands.relinkSyncDevice(disconnected.id, '/Volumes/WALKMAN 1/MUSIC');
+    expect(relinked).toMatchObject({ connected: true, path: '/Volumes/WALKMAN 1/MUSIC' });
+
+    await commands.removeSyncDevice(disconnected.id);
+    expect((await commands.getSyncDevices()).map((d) => d.id)).not.toContain(disconnected.id);
+    await expect(commands.planDeviceSync(disconnected.id)).rejects.toMatchObject({
       code: 'NOT_FOUND'
     });
   });

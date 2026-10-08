@@ -1,11 +1,19 @@
 <script lang="ts">
+  import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
   import { page } from '$app/state';
+  import { useQueryClient } from '@tanstack/svelte-query';
+  import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
+  import { open } from '@tauri-apps/plugin-dialog';
   import {
     usePlaylistsQuery,
     useAddTracksToPlaylistMutation,
     useCreatePlaylistMutation
   } from '#lib/queries/playlists.js';
+  import { useRegisterSyncDeviceMutation, useSyncDevicesQuery } from '#lib/queries/devices.js';
+  import { queryKeys } from '#lib/queries/keys.js';
+  import { handleError, showSuccess } from '#lib/stores/error.svelte.js';
+  import { isDeviceNameTooLong, suggestDeviceName } from '#lib/utils/devices.js';
   import { validatePlaylistName, toSafeString } from '#lib/utils/validation.js';
   import { promptText } from '#lib/utils/dialog.svelte.js';
   import { ui } from '#lib/stores/ui.svelte.js';
@@ -48,6 +56,57 @@
   const playlistsQuery = usePlaylistsQuery();
   const addTracksMutation = useAddTracksToPlaylistMutation();
   const createPlaylistMutation = useCreatePlaylistMutation();
+
+  // 転送先デバイス
+  const devicesQuery = useSyncDevicesQuery();
+  const registerDeviceMutation = useRegisterSyncDeviceMutation();
+  const queryClient = useQueryClient();
+
+  // ウィンドウに戻ったら、デバイスの接続の状態を読み直す（デバイスの抜き差しを反映する。
+  // TanStack Queryの再取得はページの表示状態だけを見ており、ウィンドウを切り替えても動かないため）
+  $effect(() => {
+    const unlistenFocus = getCurrentWebviewWindow().onFocusChanged(({ payload: focused }) => {
+      if (focused) void queryClient.invalidateQueries({ queryKey: queryKeys.syncDevices });
+    });
+    return () => {
+      unlistenFocus.then((fn) => fn());
+    };
+  });
+
+  /**
+   * 転送先デバイスを追加（フォルダを選び、名前を付けて登録する）
+   */
+  async function handleAddDevice() {
+    let selected: string | string[] | null;
+    try {
+      selected = await open({
+        directory: true,
+        multiple: false,
+        title: m.devices.selectFolderTitle
+      });
+    } catch (error) {
+      handleError(error, m.devices.selectFolderFailed);
+      return;
+    }
+    if (typeof selected !== 'string') return;
+
+    const name = await promptText({
+      title: m.devices.addTitle,
+      label: m.devices.nameLabel,
+      defaultValue: suggestDeviceName(selected),
+      confirmLabel: m.devices.add,
+      validate: (value) => (isDeviceNameTooLong(value) ? m.devices.nameTooLong : null)
+    });
+    if (name === null) return;
+
+    try {
+      const device = await registerDeviceMutation.mutateAsync({ folderPath: selected, name });
+      showSuccess(m.devices.added(device.name));
+      goto(resolve(`devices/${device.id}`));
+    } catch {
+      // 失敗はミューテーション内でトースト通知済み
+    }
+  }
 
   // コンテキストメニュー
   let contextMenu = $state<{ x: number; y: number; playlist: Playlist } | null>(null);
@@ -330,6 +389,74 @@
     </ul>
   </div>
 
+  <!-- デバイスセクション -->
+  <div class="mb-6">
+    <div class="flex items-center justify-between mb-2 px-2">
+      <h2 class="text-xs font-semibold uppercase tracking-wider text-text-muted m-0">
+        {m.sidebar.devices}
+      </h2>
+      <button class="btn-icon w-6 h-6 p-0" title={m.sidebar.addDevice} onclick={handleAddDevice}>
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          class="w-4 h-4"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M12 4v16m8-8H4"
+          />
+        </svg>
+      </button>
+    </div>
+
+    <ul class="list-none m-0 p-0">
+      {#if devicesQuery.isLoading}
+        <li class="px-3 py-2 text-sm text-text-dimmed">{m.common.loading}</li>
+      {:else if devicesQuery.isError}
+        <li class="px-3 py-2 text-sm text-error-light">{m.common.errorOccurred}</li>
+      {:else if devicesQuery.data}
+        {#each devicesQuery.data as device (device.id)}
+          <li>
+            <a
+              href={resolve(`devices/${device.id}`)}
+              class="nav-item-base"
+              class:active={currentPath === `/devices/${device.id}`}
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="w-5 h-5 shrink-0"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M7 3h7l4 4v13a1 1 0 01-1 1H7a1 1 0 01-1-1V4a1 1 0 011-1z"
+                />
+                <path stroke-linecap="round" d="M9.5 6.5v3M12 6.5v3M14.5 8.5v1" />
+              </svg>
+              <MarqueeText text={device.name} class="flex-1" />
+              <span
+                class="device-status"
+                class:connected={device.connected}
+                title={device.connected ? m.devices.connected : m.devices.disconnected}
+              ></span>
+            </a>
+          </li>
+        {/each}
+        {#if devicesQuery.data.length === 0}
+          <li class="px-3 py-2 text-sm text-text-dimmed">{m.sidebar.noDevices}</li>
+        {/if}
+      {/if}
+    </ul>
+  </div>
+
   <!-- プレイリストセクション -->
   <div class="flex-1 flex flex-col min-h-0 mb-6">
     <div class="flex items-center justify-between mb-2 px-2">
@@ -452,5 +579,14 @@
 
   .genre-count {
     @apply text-xs text-text-dimmed shrink-0 ml-2;
+  }
+
+  /* デバイスの接続の状態（接続中は緑） */
+  .device-status {
+    @apply w-2 h-2 shrink-0 ml-2 rounded-full bg-text-dimmed;
+  }
+
+  .device-status.connected {
+    @apply bg-success;
   }
 </style>

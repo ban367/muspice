@@ -754,6 +754,49 @@ pub fn find_all_file_paths(conn: &Connection) -> AppResult<HashSet<String>> {
     Ok(paths)
 }
 
+/// デバイスへの転送に使うトラックの情報（ファイルのパスと、デバイス上の配置に使うタグ）
+#[derive(Debug, Clone, PartialEq)]
+pub struct TransferTrack {
+    pub id: String,
+    pub file_path: String,
+    pub title: Option<String>,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub track_number: Option<i32>,
+    pub disc_number: Option<i32>,
+    pub duration: Option<i32>,
+}
+
+/// デバイスへの転送用に、全トラックを取得する（件数の上限なし）
+///
+/// 一覧表示用の`find_all_tracks`は1000件で打ち切るため、転送には使えない。
+/// アルバムの曲順に並べる（この順にコピーする。フォルダに書き込んだ順に再生する機器があるため）。
+pub fn find_transfer_tracks(conn: &Connection) -> AppResult<Vec<TransferTrack>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, file_path, title, artist, album, track_number, disc_number, duration
+             FROM tracks
+             ORDER BY artist, album, disc_number, track_number, title, id",
+        )
+        .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
+
+    stmt.query_map([], |row| {
+        Ok(TransferTrack {
+            id: row.get(0)?,
+            file_path: row.get(1)?,
+            title: row.get(2)?,
+            artist: row.get(3)?,
+            album: row.get(4)?,
+            track_number: row.get(5)?,
+            disc_number: row.get(6)?,
+            duration: row.get(7)?,
+        })
+    })
+    .map_err(|e| AppError::Database(format!("クエリの実行に失敗しました: {}", e)))?
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(|e| AppError::Database(format!("結果の取得に失敗しました: {}", e)))
+}
+
 /// 再スキャンで変更を検出するための、トラックのファイルの状態
 #[derive(Debug, Clone, PartialEq)]
 pub struct TrackFileState {
@@ -1031,6 +1074,29 @@ mod tests {
         let conn = setup_test_db();
         let tracks = find_all_tracks(&conn).unwrap();
         assert!(tracks.is_empty());
+    }
+
+    #[test]
+    fn test_find_transfer_tracks_orders_by_album_and_track_number() {
+        let conn = setup_test_db();
+        insert_test_track(&conn, "t1", "曲2", "B", "アルバム", "ロック");
+        insert_test_track(&conn, "t2", "曲1", "B", "アルバム", "ロック");
+        insert_test_track(&conn, "t3", "曲", "A", "アルバム", "ロック");
+        conn.execute("UPDATE tracks SET track_number = 2 WHERE id = 't1'", [])
+            .unwrap();
+        conn.execute(
+            "UPDATE tracks SET track_number = 1, duration = 200 WHERE id = 't2'",
+            [],
+        )
+        .unwrap();
+
+        let tracks = find_transfer_tracks(&conn).unwrap();
+
+        let ids: Vec<&str> = tracks.iter().map(|t| t.id.as_str()).collect();
+        assert_eq!(ids, ["t3", "t2", "t1"]);
+        assert_eq!(tracks[1].file_path, "/test/t2.mp3");
+        assert_eq!(tracks[1].track_number, Some(1));
+        assert_eq!(tracks[1].duration, Some(200));
     }
 
     #[test]
