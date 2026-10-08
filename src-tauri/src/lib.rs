@@ -1,4 +1,5 @@
 mod album_art;
+mod album_artist_backfill;
 mod commands;
 mod db;
 mod device;
@@ -238,6 +239,10 @@ pub fn run() {
             // 再スキャン・フォルダの監視を別スレッドで始める）
             app.manage(library_sync::LibrarySync::default());
             library_sync::start(app.handle());
+
+            // アルバムアーティストの列を追加する前に登録したトラックがあれば、別スレッドで
+            // ファイルのタグから読み込む（対象がなければ何もしない）
+            album_artist_backfill::start(app.handle());
 
             // デバイスへの同期の実行状態（同時に実行する同期は1つだけ）
             app.manage(device::DeviceSyncState::default());

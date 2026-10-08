@@ -24,7 +24,8 @@
 
   // アルバムの曲（ディスク番号・トラック番号の順。表示・再生・選択はこの順で行う）
   const albumName = $derived(album.name);
-  const tracksQuery = $derived(useAlbumTracksQuery(albumName));
+  const albumArtist = $derived(album.artist);
+  const tracksQuery = $derived(useAlbumTracksQuery(albumName, albumArtist));
   const tracks = $derived(tracksQuery.data ?? []);
 
   // マルチディスクアルバムかどうか
@@ -50,6 +51,7 @@
   // 別のアルバムに切り替わったら、選択を消す（データを取り直しただけでは消さない）
   $effect(() => {
     void albumName;
+    void albumArtist;
     // 選択の中身には反応させない（選択を変えるたびに消えてしまう）
     untrack(() => selection.reset());
   });
@@ -201,9 +203,10 @@
           </span>
           <div class="track-info">
             <MarqueeText text={track.title || track.fileName} class="track-title" />
-            <span class="track-artist"
-              >{track.artist || album.artist || m.common.unknownArtist}</span
-            >
+            <!-- 曲のアーティストは、アルバムのアーティストと違う場合だけ表示する（コンピレーションなど） -->
+            {#if track.artist && track.artist !== album.artist}
+              <span class="track-artist">{track.artist}</span>
+            {/if}
           </div>
           <RatingStars
             rating={track.rating}

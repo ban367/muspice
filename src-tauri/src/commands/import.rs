@@ -233,6 +233,7 @@ pub(super) fn create_track_from_file(file_path: &Path) -> AppResult<Track> {
         title,
         artist: file_info.metadata.artist,
         album: file_info.metadata.album,
+        album_artist: file_info.metadata.album_artist,
         genre: file_info.metadata.genre,
         year: file_info.metadata.year,
         track_number: file_info.metadata.track_number,

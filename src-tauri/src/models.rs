@@ -10,6 +10,8 @@ pub struct Track {
     pub title: Option<String>,
     pub artist: Option<String>,
     pub album: Option<String>,
+    /// アルバムアーティスト（タグにない曲は値なし。一覧では、ない場合に`artist`でまとめる）
+    pub album_artist: Option<String>,
     pub genre: Option<String>,
     pub year: Option<i32>,
     pub track_number: Option<i32>,
@@ -102,10 +104,13 @@ pub struct Metadata {
 }
 
 /// アルバムの一覧の1件（曲は含めない。曲は`get_album_tracks`で取得する）
+///
+/// アルバムは「アルバムアーティスト（なければ曲のアーティスト）＋アルバム名」でまとめる。
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AlbumSummary {
     pub name: String,
+    /// アルバムをまとめたアーティスト（アルバムアーティスト。なければ曲のアーティスト）
     pub artist: Option<String>,
     pub track_count: i32,
     pub total_duration: i32,
@@ -113,6 +118,8 @@ pub struct AlbumSummary {
 }
 
 /// アーティストの一覧の1件（アルバムと曲は含めない。`get_artist_albums`で取得する）
+///
+/// アーティストは、アルバムアーティスト（なければ曲のアーティスト）でまとめる。
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ArtistSummary {

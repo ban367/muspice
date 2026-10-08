@@ -36,6 +36,8 @@
     emptyHint: string;
     /** 検索フィルター関数 */
     filterFn: (_item: T, _query: string) => boolean;
+    /** 項目を識別するキー（省略時は名前。同じ名前の項目がある一覧では渡す） */
+    getKey?: (_item: T) => string;
     /** グリッドカードSnippet */
     gridCard: Snippet<[T]>;
     /** リスト行Snippet */
@@ -71,6 +73,7 @@
     emptyMessage,
     emptyHint,
     filterFn,
+    getKey = (item) => item.name,
     gridCard,
     listRow,
     minCardWidth,
@@ -97,8 +100,8 @@
   // 見えている項目だけを描画する一覧（グリッド表示・リスト表示のどちらか）
   let virtualList = $state<VirtualList<T>>();
 
-  // キーボードで移動する時の現在位置（項目の名前。クリックした項目もここに入る）
-  let activeName = $state<string | null>(null);
+  // キーボードで移動する時の現在位置（項目のキー。クリックした項目もここに入る）
+  let activeKey = $state<string | null>(null);
 
   /**
    * 一覧のキーボード操作
@@ -112,7 +115,7 @@
     if (event.key === 'Enter') {
       // カードの中のボタン（再生）では、そのボタンの操作を優先する
       if (event.target instanceof Element && event.target.closest('button, a')) return;
-      const item = filteredItems.find((candidate) => candidate.name === activeName);
+      const item = filteredItems.find((candidate) => getKey(candidate) === activeKey);
       if (item && onOpen) {
         onOpen(item);
         event.preventDefault();
@@ -120,14 +123,14 @@
       return;
     }
 
-    const current = filteredItems.findIndex((item) => item.name === activeName);
+    const current = filteredItems.findIndex((item) => getKey(item) === activeKey);
     const columns = displayMode === 'grid' ? (virtualList?.getColumns() ?? 1) : null;
     const target = navigationTarget(event.key, current, filteredItems.length, columns);
     if (target === null) return;
 
     // 既定の動作（一覧のスクロール）の代わりに、移動先の項目を見える位置へ出す
     event.preventDefault();
-    activeName = filteredItems[target].name;
+    activeKey = getKey(filteredItems[target]);
     virtualList?.scrollToIndex(target);
   }
 
@@ -184,7 +187,7 @@
       <VirtualList
         bind:this={virtualList}
         items={filteredItems}
-        getKey={(item) => item.name}
+        {getKey}
         estimatedRowHeight={estimatedCardHeight}
         minColumnWidth={minCardWidth}
         gap={GRID_GAP}
@@ -200,10 +203,10 @@
           <!-- svelte-ignore a11y_interactive_supports_focus -->
           <div
             class="grid-item"
-            class:active={item.name === activeName}
+            class:active={getKey(item) === activeKey}
             role="option"
-            aria-selected={item.name === activeName}
-            onpointerdown={() => (activeName = item.name)}
+            aria-selected={getKey(item) === activeKey}
+            onpointerdown={() => (activeKey = getKey(item))}
           >
             {@render gridCard(item)}
           </div>
@@ -213,7 +216,7 @@
       <VirtualList
         bind:this={virtualList}
         items={filteredItems}
-        getKey={(item) => item.name}
+        {getKey}
         {estimatedRowHeight}
         overscan={virtualized ? undefined : Infinity}
         scrollerClass="p-2"
@@ -227,10 +230,10 @@
           <!-- svelte-ignore a11y_interactive_supports_focus -->
           <div
             class="list-item"
-            class:active={item.name === activeName}
+            class:active={getKey(item) === activeKey}
             role="option"
-            aria-selected={item.name === activeName}
-            onpointerdown={() => (activeName = item.name)}
+            aria-selected={getKey(item) === activeKey}
+            onpointerdown={() => (activeKey = getKey(item))}
           >
             {@render listRow(item)}
           </div>

@@ -115,20 +115,64 @@ describe('トラック', () => {
 
     expect(names).toEqual([...names].sort((a, b) => (a.toLowerCase() < b.toLowerCase() ? -1 : 1)));
     for (const album of albums) {
-      const tracks = await commands.getAlbumTracks(album.name);
+      const tracks = await commands.getAlbumTracks(album.name, album.artist);
       expect(album.trackCount).toBe(tracks.length);
       expect(album.totalDuration).toBe(tracks.reduce((sum, t) => sum + (t.duration ?? 0), 0));
       expect(album.representativeTrackId).toBe(tracks[0].id);
-      expect(album.artist).toBe(tracks[0].artist);
+      // アルバムのアーティストは、アルバムアーティスト（なければ曲のアーティスト）
+      expect(tracks.every((t) => (t.albumArtist ?? t.artist) === album.artist)).toBe(true);
       expect('tracks' in album).toBe(false);
     }
+    // すべてのアルバムの曲を合わせると、アルバムのある曲の数になる
+    const albumTrackCount = (await commands.getAllTracks()).filter((t) => t.album !== null).length;
+    expect(albums.reduce((total, album) => total + album.trackCount, 0)).toBe(albumTrackCount);
   });
 
   it('アルバムの曲はトラック番号の順に返し、見つからないアルバムは空配列を返す', async () => {
-    const numbers = (await commands.getAlbumTracks('Blue Horizon')).map((t) => t.trackNumber);
+    const numbers = (await commands.getAlbumTracks('Blue Horizon', 'Aoi Sora')).map(
+      (t) => t.trackNumber
+    );
 
     expect(numbers).toEqual([1, 2, 3, 4]);
-    expect(await commands.getAlbumTracks('ないアルバム')).toEqual([]);
+    expect(await commands.getAlbumTracks('ないアルバム', 'Aoi Sora')).toEqual([]);
+    expect(await commands.getAlbumTracks('Blue Horizon', '別のアーティスト')).toEqual([]);
+  });
+
+  it('アルバムは「アルバムアーティスト（なければ曲のアーティスト）＋アルバム名」でまとめる', async () => {
+    const albums = await commands.getAlbums();
+    const find = (name: string) => albums.filter((album) => album.name === name);
+
+    // コンピレーションは、曲ごとのアーティストが違っても1つのアルバム
+    expect(find('City Nights Collection')).toMatchObject([
+      { artist: 'Various Artists', trackCount: 3 }
+    ]);
+    // フィーチャリングの曲は、アルバムアーティストのアルバムに入る
+    expect(find('Field Notes')).toMatchObject([{ artist: 'Aoi Sora', trackCount: 3 }]);
+    // 別のアーティストの同じ名前のアルバムは、別のアルバム
+    expect(find('Sketches').map((album) => album.artist)).toEqual(['Kenji Mori', 'The Voltage']);
+
+    const compilation = await commands.getAlbumTracks('City Nights Collection', 'Various Artists');
+    expect(compilation.map((t) => t.artist)).toEqual(['ネオン通り', 'Aoi Sora', 'Mika Hayashi']);
+  });
+
+  it('アーティストはアルバムアーティストでまとめ、コンピレーションの参加アーティストごとに分けない', async () => {
+    const artists = await commands.getArtists();
+    const names = artists.map((artist) => artist.name);
+
+    expect(names).toContain('Various Artists');
+    expect(names).not.toContain('Aoi Sora feat. Mika Hayashi');
+
+    // 曲ごとのアーティストが違う曲も、アルバムアーティストのアルバムに入る
+    const aoi = await commands.getArtistAlbums('Aoi Sora');
+    const fieldNotes = aoi.find((album) => album.name === 'Field Notes');
+    expect(fieldNotes?.tracks.map((t) => t.artist)).toEqual([
+      'Aoi Sora',
+      'Aoi Sora',
+      'Aoi Sora feat. Mika Hayashi'
+    ]);
+    // コンピレーションの曲は、参加アーティストのアルバムには入らない
+    expect(aoi.map((album) => album.name)).not.toContain('City Nights Collection');
+    expect(await commands.searchTracks('various artists')).toHaveLength(3);
   });
 
   it('アーティストのアルバムでは、アルバム未設定のトラックを「不明なアルバム」にまとめる', async () => {
