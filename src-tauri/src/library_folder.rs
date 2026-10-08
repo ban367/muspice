@@ -7,9 +7,10 @@
 //!   （トラックにフォルダのIDは持たせない）
 //! - フォルダ同士は入れ子にしない。登録済みのフォルダの中をインポートしても新しく登録せず、
 //!   登録済みのフォルダを含むフォルダをインポートした場合は、中のフォルダの記録をまとめる
-//! - 再スキャンで、ファイルが見つからなくなったトラックはライブラリから外す。ただし
-//!   フォルダ自体が見つからない、または音楽ファイルが1件も見つからない場合は外さない
-//!   （外付けドライブが外れている場合などに、ライブラリを誤って空にしないため）
+//! - 再スキャンで、ファイルが見つからなくなったトラックは外さず、「見つからない曲」として残す
+//!   （移動・改名されたファイルが見つかれば、同じ曲として結び付ける。`track_relink`）。
+//!   ただしフォルダ自体が見つからない、または音楽ファイルが1件も見つからない場合は、
+//!   見つからない曲にもしない（外付けドライブが外れている場合などに、全曲を見つからない曲にしないため）
 
 use crate::error::{AppError, AppResult};
 use crate::repository::TrackFileState;
@@ -43,6 +44,8 @@ pub struct LibraryFolderList {
     /// どのライブラリフォルダにも属さないトラック数（フォルダの記録を始める前に
     /// インポートした曲など。同じフォルダをインポートし直すと登録される）
     pub unregistered_track_count: u32,
+    /// 見つからない曲の数（ファイルが見つからなくなり、利用者が外すまで残しているトラック）
+    pub missing_track_count: u32,
 }
 
 /// 再スキャンの結果
@@ -53,12 +56,16 @@ pub struct RescanResult {
     pub added_count: u32,
     /// 変更を読み直したトラック数
     pub updated_count: u32,
-    /// ファイルが見つからなくなり、ライブラリから外したトラック数
-    pub removed_count: u32,
+    /// 移動・改名されたファイルに結び付けたトラック数（見つからない曲を、同じ曲として引き継いだ）
+    pub relinked_count: u32,
+    /// ファイルが見つからなくなり、見つからない曲にしたトラック数（ライブラリからは外さない）
+    pub missing_count: u32,
+    /// ファイルが同じ場所に戻り、見つかる曲に戻したトラック数
+    pub restored_count: u32,
     pub error_count: u32,
     pub errors: Vec<String>,
-    /// 音楽ファイルが1件も見つからなかったため、ライブラリから外さなかった
-    pub removal_skipped: bool,
+    /// 音楽ファイルが1件も見つからなかったため、見つからない曲にしなかった
+    pub missing_skipped: bool,
 }
 
 /// 記録しているライブラリフォルダ（DBの行）
@@ -205,10 +212,12 @@ pub struct RescanPlan {
     /// 更新日時が未記録か、夏時間の切り替えでずれたトラック（読み直さず、日時だけ記録する）:
     /// (トラックID, 更新日時)
     pub to_record_modified_at: Vec<(String, i64)>,
-    /// ファイルが見つからなくなったトラックのID
-    pub to_remove: Vec<String>,
-    /// 音楽ファイルが1件も見つからなかったため、ライブラリから外さなかった
-    pub removal_skipped: bool,
+    /// ファイルが見つからなくなったトラックのID（見つからない曲にする）
+    pub to_mark_missing: Vec<String>,
+    /// 見つからない曲にしていたが、ファイルが同じ場所に戻ったトラックのID
+    pub to_restore: Vec<String>,
+    /// 音楽ファイルが1件も見つからなかったため、見つからない曲にしなかった
+    pub missing_skipped: bool,
 }
 
 /// 夏時間の切り替えで、更新日時をローカル時刻で記録するファイルシステム（FAT32など）の
@@ -232,6 +241,10 @@ pub(crate) fn is_dst_shift(recorded: i64, current: i64) -> bool {
 /// サイズが同じで更新日時がちょうど1時間ずれたファイルは、夏時間の切り替えによるずれ
 /// （外付けドライブのFAT32など）とみなし、読み直さずに日時だけ記録する（夏時間の切り替えの
 /// たびに、ドライブ上の全曲を読み直して編集を上書きしないため）。
+///
+/// ファイルが見つからないトラックは、見つからない曲にする（外さない）。ライブラリにないファイル
+/// （`to_add`）が、見つからない曲の移動・改名の先かどうかは、ファイルを読んだ後に判定する
+/// （`track_relink`）。
 pub fn plan_rescan(disk_files: Vec<DiskFile>, tracks: Vec<TrackFileState>) -> RescanPlan {
     let mut plan = RescanPlan::default();
     let tracks_by_path: HashMap<&str, &TrackFileState> =
@@ -243,6 +256,9 @@ pub fn plan_rescan(disk_files: Vec<DiskFile>, tracks: Vec<TrackFileState>) -> Re
             plan.to_add.push(file.clone());
             continue;
         };
+        if track.is_missing {
+            plan.to_restore.push(track.id.clone());
+        }
         let (Some(size), Some(modified_at)) = (file.size, file.modified_at) else {
             continue;
         };
@@ -262,15 +278,16 @@ pub fn plan_rescan(disk_files: Vec<DiskFile>, tracks: Vec<TrackFileState>) -> Re
         }
     }
 
+    // すでに見つからない曲にしているトラックは、そのままにする
     let missing: Vec<String> = tracks
         .iter()
-        .filter(|t| !disk_paths.contains(t.file_path.as_str()))
+        .filter(|t| !t.is_missing && !disk_paths.contains(t.file_path.as_str()))
         .map(|t| t.id.clone())
         .collect();
     if disk_files.is_empty() && !missing.is_empty() {
-        plan.removal_skipped = true;
+        plan.missing_skipped = true;
     } else {
-        plan.to_remove = missing;
+        plan.to_mark_missing = missing;
     }
 
     plan
@@ -308,6 +325,15 @@ mod tests {
             file_path: path.to_string(),
             file_size: size,
             file_modified_at: modified_at,
+            is_missing: false,
+        }
+    }
+
+    /// 前の再スキャンで見つからない曲にしたトラック
+    fn missing_track(id: &str, path: &str, size: i64, modified_at: Option<i64>) -> TrackFileState {
+        TrackFileState {
+            is_missing: true,
+            ..track(id, path, size, modified_at)
         }
     }
 
@@ -415,8 +441,35 @@ mod tests {
         assert_eq!(paths(&plan.to_update), ["/m/resized.mp3", "/m/touched.mp3"]);
         // 更新日時が未記録のトラックは、サイズが同じなら読み直さずに日時だけ記録する
         assert_eq!(plan.to_record_modified_at, [("legacy".to_string(), 50)]);
-        assert_eq!(plan.to_remove, ["gone"]);
-        assert!(!plan.removal_skipped);
+        assert_eq!(plan.to_mark_missing, ["gone"]);
+        assert!(plan.to_restore.is_empty());
+        assert!(!plan.missing_skipped);
+    }
+
+    #[test]
+    fn test_plan_rescan_restores_and_keeps_missing_tracks() {
+        let plan = plan_rescan(
+            vec![
+                disk("/m/back.mp3", 100, 10),
+                disk("/m/back-changed.mp3", 201, 20),
+                disk("/m/other.mp3", 300, 30),
+            ],
+            vec![
+                // ファイルが同じ場所に戻った
+                missing_track("back", "/m/back.mp3", 100, Some(10)),
+                // 戻ったファイルの内容が変わっている場合は、読み直す
+                missing_track("back-changed", "/m/back-changed.mp3", 200, Some(20)),
+                // 見つからないままのトラックは、もう一度見つからない曲にはしない
+                missing_track("still-gone", "/m/still-gone.mp3", 400, Some(40)),
+                track("other", "/m/other.mp3", 300, Some(30)),
+            ],
+        );
+
+        assert_eq!(plan.to_restore, ["back", "back-changed"]);
+        assert_eq!(plan.to_update.len(), 1);
+        assert_eq!(plan.to_update[0].path, "/m/back-changed.mp3");
+        assert!(plan.to_mark_missing.is_empty());
+        assert!(plan.to_add.is_empty());
     }
 
     #[test]
@@ -459,14 +512,18 @@ mod tests {
 
     #[test]
     fn test_plan_rescan_keeps_tracks_when_no_files_found() {
-        // 外付けドライブの空のマウントポイントなどで、ライブラリを空にしない
+        // 外付けドライブの空のマウントポイントなどで、全曲を見つからない曲にしない
         let plan = plan_rescan(vec![], vec![track("a", "/m/a.mp3", 100, Some(1))]);
-        assert!(plan.to_remove.is_empty());
-        assert!(plan.removal_skipped);
+        assert!(plan.to_mark_missing.is_empty());
+        assert!(plan.missing_skipped);
 
-        // ライブラリにも曲がなければ、外すものがないだけ
+        // ライブラリにも曲がなければ、何もしないだけ
         let plan = plan_rescan(vec![], vec![]);
-        assert!(!plan.removal_skipped);
+        assert!(!plan.missing_skipped);
+
+        // すでに見つからない曲だけの場合も、何もしない
+        let plan = plan_rescan(vec![], vec![missing_track("a", "/m/a.mp3", 100, Some(1))]);
+        assert_eq!(plan, RescanPlan::default());
     }
 
     #[test]

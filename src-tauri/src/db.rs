@@ -97,6 +97,11 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         "INTEGER NOT NULL DEFAULT 0",
     )?;
 
+    // ファイルが見つからなくなった日時（見つかる間はNULL）。再スキャンでファイルが見つからなく
+    // なったトラックはすぐには外さず、「見つからない曲」として残す。移動・改名されたファイルが
+    // 見つかれば同じ曲として結び付け、外すのは利用者の操作にする（`track_relink`）
+    add_column_if_not_exists(conn, "tracks", "missing_since", "TEXT")?;
+
     // 再生履歴テーブルの作成
     conn.execute(
         "CREATE TABLE IF NOT EXISTS play_history (
@@ -201,6 +206,13 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
 
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_tracks_title ON tracks(title)",
+        [],
+    )?;
+
+    // 見つからない曲（移動・改名されたファイルの対応付けの候補）の取得用
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tracks_missing ON tracks(missing_since)
+         WHERE missing_since IS NOT NULL",
         [],
     )?;
 

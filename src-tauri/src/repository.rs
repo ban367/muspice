@@ -11,6 +11,7 @@ use rusqlite::{Connection, Row};
 use crate::models::{
     AlbumGroup, AlbumSummary, ArtistSummary, GenreSummary, Metadata, ReplayGain, Track,
 };
+use crate::track_relink::MissingTrack;
 
 /// アルバムの中の曲の並び（ディスク番号 → トラック番号 → タイトル）
 const ALBUM_TRACK_ORDER: &str = "COALESCE(disc_number, 1), track_number, title";
@@ -23,7 +24,7 @@ const UNKNOWN_ALBUM: &str = "不明なアルバム";
 /// `db.rs`のインデックス（`idx_tracks_album_artist`）と同じ式にする。
 const ALBUM_ARTIST: &str = "COALESCE(album_artist, artist)";
 
-/// SELECTで使用するトラックカラム列挙（26列）
+/// SELECTで使用するトラックカラム列挙（27列）
 ///
 /// is_favorite, rating, play_countはCOALESCEでNULL安全にしている。
 pub const TRACK_COLUMNS: &str = "id, file_path, file_name, title, artist, album, genre, year,
@@ -31,7 +32,7 @@ pub const TRACK_COLUMNS: &str = "id, file_path, file_name, title, artist, album,
     COALESCE(is_favorite, 0), COALESCE(rating, 0), COALESCE(play_count, 0), last_played_at,
     created_at, updated_at,
     replay_gain_track_gain, replay_gain_track_peak, replay_gain_album_gain, replay_gain_album_peak,
-    album_artist";
+    album_artist, missing_since IS NOT NULL";
 
 /// SQLiteの行からTrack構造体にマッピングする
 ///
@@ -66,6 +67,7 @@ pub fn map_track_row(row: &Row) -> rusqlite::Result<Track> {
             album_gain: row.get(23)?,
             album_peak: row.get(24)?,
         },
+        is_missing: row.get(26)?,
     })
 }
 
@@ -769,6 +771,7 @@ pub fn insert_track(
 /// （重複時の置き換え・再スキャンで変更を読み直した時・「メタデータを更新」）
 ///
 /// 対象が存在しない場合はエラーを返す（更新したつもりで実際は無変更、を防ぐ）。
+/// ファイルを読めたため、見つからない曲にしていた場合は元に戻す。
 /// 評価はファイルのタグの値にする。タグで持てないお気に入り・再生回数などは変えない。
 pub fn update_track_by_file_path(
     conn: &Connection,
@@ -782,7 +785,8 @@ pub fn update_track_by_file_path(
             updated_at = ?15, file_modified_at = ?16,
             replay_gain_track_gain = ?17, replay_gain_track_peak = ?18,
             replay_gain_album_gain = ?19, replay_gain_album_peak = ?20,
-            rating = ?21, album_artist = ?22, album_artist_read = 1
+            rating = ?21, album_artist = ?22, album_artist_read = 1,
+            missing_since = NULL
         WHERE file_path = ?1",
         rusqlite::params![
             track.file_path,
@@ -940,6 +944,8 @@ pub struct TrackFileState {
     pub file_size: i64,
     /// ファイルの更新日時（UNIX時間の秒）。記録前に登録したトラックはNone
     pub file_modified_at: Option<i64>,
+    /// 前の再スキャンでファイルが見つからず、見つからない曲にしているか
+    pub is_missing: bool,
 }
 
 /// 接頭辞で始まる文字列の範囲の上限（接頭辞の最後の文字を、次に大きい文字にしたもの）
@@ -965,7 +971,8 @@ pub fn find_track_file_states_under(
 ) -> AppResult<Vec<TrackFileState>> {
     let mut stmt = conn
         .prepare(
-            "SELECT id, file_path, file_size, file_modified_at FROM tracks
+            "SELECT id, file_path, file_size, file_modified_at, missing_since IS NOT NULL
+             FROM tracks
              WHERE file_path >= ?1 AND file_path < ?2",
         )
         .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
@@ -976,11 +983,114 @@ pub fn find_track_file_states_under(
             file_path: row.get(1)?,
             file_size: row.get(2)?,
             file_modified_at: row.get(3)?,
+            is_missing: row.get(4)?,
         })
     })
     .map_err(|e| AppError::Database(format!("クエリの実行に失敗しました: {}", e)))?
     .collect::<Result<Vec<_>, _>>()
     .map_err(|e| AppError::Database(format!("結果の取得に失敗しました: {}", e)))
+}
+
+/// ファイルが見つからなくなったトラックを、見つからない曲にする（すでに見つからない曲なら何もしない）
+///
+/// トラックは外さない（お気に入り・再生回数・プレイリストへの登録を残す）。
+pub fn mark_track_missing(conn: &Connection, track_id: &str, now: &str) -> AppResult<usize> {
+    conn.execute(
+        "UPDATE tracks SET missing_since = ?2 WHERE id = ?1 AND missing_since IS NULL",
+        rusqlite::params![track_id, now],
+    )
+    .map_err(|e| AppError::Database(format!("トラックの状態の記録に失敗しました: {}", e)))
+}
+
+/// ファイルが同じ場所に戻ったトラックを、見つかる曲に戻す
+pub fn restore_missing_track(conn: &Connection, track_id: &str) -> AppResult<usize> {
+    conn.execute(
+        "UPDATE tracks SET missing_since = NULL WHERE id = ?1 AND missing_since IS NOT NULL",
+        [track_id],
+    )
+    .map_err(|e| AppError::Database(format!("トラックの状態の記録に失敗しました: {}", e)))
+}
+
+/// ファイルが見つかったパスのトラックを、見つかる曲に戻す（インポートで登録済みのファイルを見つけた時）
+pub fn restore_missing_track_by_file_path(conn: &Connection, file_path: &str) -> AppResult<usize> {
+    conn.execute(
+        "UPDATE tracks SET missing_since = NULL
+         WHERE file_path = ?1 AND missing_since IS NOT NULL",
+        [file_path],
+    )
+    .map_err(|e| AppError::Database(format!("トラックの状態の記録に失敗しました: {}", e)))
+}
+
+/// 見つからない曲をすべて取得する（移動・改名されたファイルの対応付けの候補）
+pub fn find_missing_tracks(conn: &Connection) -> AppResult<Vec<MissingTrack>> {
+    query_rows(
+        conn,
+        "SELECT id, file_name, file_size, file_modified_at, title, artist, album,
+                track_number, disc_number, duration
+         FROM tracks WHERE missing_since IS NOT NULL",
+        &[],
+        |row| {
+            Ok(MissingTrack {
+                id: row.get(0)?,
+                file_name: row.get(1)?,
+                file_size: row.get(2)?,
+                file_modified_at: row.get(3)?,
+                title: row.get(4)?,
+                artist: row.get(5)?,
+                album: row.get(6)?,
+                track_number: row.get(7)?,
+                disc_number: row.get(8)?,
+                duration: row.get(9)?,
+            })
+        },
+    )
+}
+
+/// 見つからない曲を、移動・改名された先のファイルに結び付ける
+///
+/// パスとファイルの更新日時だけを変え、見つかる曲に戻す。トラックのID・お気に入り・再生回数・
+/// プレイリストへの登録などは変えない（同じファイルのため、タグの内容も読み直さない）。
+pub fn relink_track(
+    conn: &Connection,
+    track_id: &str,
+    file_path: &str,
+    file_name: &str,
+    file_modified_at: Option<i64>,
+) -> AppResult<()> {
+    let rows_affected = conn
+        .execute(
+            "UPDATE tracks SET file_path = ?2, file_name = ?3, file_modified_at = ?4,
+                 missing_since = NULL
+             WHERE id = ?1",
+            rusqlite::params![track_id, file_path, file_name, file_modified_at],
+        )
+        .map_err(|e| AppError::Database(format!("トラックのパスの更新に失敗しました: {}", e)))?;
+
+    if rows_affected == 0 {
+        return Err(AppError::NotFound(format!(
+            "結び付けるトラックが見つかりません: {}",
+            track_id
+        )));
+    }
+    Ok(())
+}
+
+/// 見つからない曲の数
+pub fn count_missing_tracks(conn: &Connection) -> AppResult<u32> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM tracks WHERE missing_since IS NOT NULL",
+        [],
+        |row| row.get(0),
+    )
+    .map_err(|e| AppError::Database(format!("トラック数の取得に失敗しました: {}", e)))
+}
+
+/// 見つからない曲をすべてライブラリから外す（外した件数を返す）
+///
+/// プレイリスト・再生履歴の関連レコードは外部キーのCASCADEで消える。
+pub fn delete_missing_tracks(conn: &Connection) -> AppResult<usize> {
+    conn.execute("DELETE FROM tracks WHERE missing_since IS NOT NULL", [])
+        .map_err(|e| AppError::Database(format!("トラックの削除に失敗しました: {}", e)))
 }
 
 /// 指定した接頭辞（フォルダのパス＋区切り文字）で始まるパスのトラック数
@@ -1774,6 +1884,7 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".to_string(),
             updated_at: "2026-01-01T00:00:00Z".to_string(),
             replay_gain: ReplayGain::default(),
+            is_missing: false,
         };
         insert_track(&conn, &track, None).unwrap();
 
@@ -1844,6 +1955,143 @@ mod tests {
                 .as_deref(),
             Some("Various Artists")
         );
+    }
+
+    #[test]
+    fn test_missing_tracks_are_kept_and_can_be_restored() {
+        let conn = setup_test_db();
+        insert_test_track(&conn, "t1", "曲1", "アーティスト", "アルバム", "ロック");
+        insert_test_track(&conn, "t2", "曲2", "アーティスト", "アルバム", "ロック");
+        conn.execute("UPDATE tracks SET play_count = 7 WHERE id = 't1'", [])
+            .unwrap();
+
+        assert_eq!(
+            mark_track_missing(&conn, "t1", "2026-01-02T00:00:00Z").unwrap(),
+            1
+        );
+        // すでに見つからない曲なら、日時を上書きしない
+        assert_eq!(
+            mark_track_missing(&conn, "t1", "2026-01-03T00:00:00Z").unwrap(),
+            0
+        );
+
+        // 見つからない曲は外さず、一覧にも残す
+        let tracks = find_all_tracks(&conn).unwrap();
+        assert_eq!(tracks.len(), 2);
+        let t1 = tracks.iter().find(|t| t.id == "t1").unwrap();
+        assert!(t1.is_missing);
+        assert_eq!(t1.play_count, 7);
+        assert!(!tracks.iter().find(|t| t.id == "t2").unwrap().is_missing);
+        assert_eq!(count_missing_tracks(&conn).unwrap(), 1);
+        let states = find_track_file_states_under(&conn, "/test/").unwrap();
+        assert!(states.iter().find(|t| t.id == "t1").unwrap().is_missing);
+
+        let missing = find_missing_tracks(&conn).unwrap();
+        assert_eq!(missing.len(), 1);
+        assert_eq!(missing[0].id, "t1");
+        assert_eq!(missing[0].file_name, "t1.mp3");
+        assert_eq!(missing[0].title.as_deref(), Some("曲1"));
+
+        // ファイルが同じ場所に戻った
+        assert_eq!(restore_missing_track(&conn, "t1").unwrap(), 1);
+        assert_eq!(restore_missing_track(&conn, "t1").unwrap(), 0);
+        assert!(!find_track_by_id(&conn, "t1").unwrap().is_missing);
+
+        // インポートで登録済みのファイルを見つけた
+        mark_track_missing(&conn, "t2", "2026-01-02T00:00:00Z").unwrap();
+        assert_eq!(
+            restore_missing_track_by_file_path(&conn, "/test/t2.mp3").unwrap(),
+            1
+        );
+        assert_eq!(count_missing_tracks(&conn).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_relink_track_keeps_id_stats_and_playlists() {
+        let conn = setup_test_db();
+        insert_test_track(&conn, "t1", "曲1", "アーティスト", "アルバム", "ロック");
+        conn.execute(
+            "UPDATE tracks SET play_count = 7, is_favorite = 1, rating = 4 WHERE id = 't1'",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO playlists (id, name) VALUES ('p1', 'プレイリスト')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO playlist_tracks (playlist_id, track_id, position) VALUES ('p1', 't1', 0)",
+            [],
+        )
+        .unwrap();
+        mark_track_missing(&conn, "t1", "2026-01-02T00:00:00Z").unwrap();
+
+        relink_track(
+            &conn,
+            "t1",
+            "/test/moved/renamed.mp3",
+            "renamed.mp3",
+            Some(99),
+        )
+        .unwrap();
+
+        let track = find_track_by_id(&conn, "t1").unwrap();
+        assert_eq!(track.file_path, "/test/moved/renamed.mp3");
+        assert_eq!(track.file_name, "renamed.mp3");
+        assert!(!track.is_missing);
+        // お気に入り・再生回数・評価・タグの内容は変えない
+        assert_eq!(track.play_count, 7);
+        assert!(track.is_favorite);
+        assert_eq!(track.rating, 4);
+        assert_eq!(track.title.as_deref(), Some("曲1"));
+        // プレイリストへの登録も残る
+        let in_playlist: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM playlist_tracks WHERE track_id = 't1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(in_playlist, 1);
+        let states = find_track_file_states_under(&conn, "/test/").unwrap();
+        assert_eq!(states[0].file_modified_at, Some(99));
+
+        assert!(matches!(
+            relink_track(&conn, "missing", "/test/x.mp3", "x.mp3", None),
+            Err(AppError::NotFound(_))
+        ));
+    }
+
+    #[test]
+    fn test_delete_missing_tracks_removes_only_missing_tracks() {
+        let conn = setup_test_db();
+        insert_test_track(&conn, "t1", "曲1", "アーティスト", "アルバム", "ロック");
+        insert_test_track(&conn, "t2", "曲2", "アーティスト", "アルバム", "ロック");
+        insert_test_track(&conn, "t3", "曲3", "アーティスト", "アルバム", "ロック");
+        mark_track_missing(&conn, "t1", "2026-01-02T00:00:00Z").unwrap();
+        mark_track_missing(&conn, "t3", "2026-01-02T00:00:00Z").unwrap();
+
+        assert_eq!(delete_missing_tracks(&conn).unwrap(), 2);
+
+        assert_eq!(track_ids(&find_all_tracks(&conn).unwrap()), ["t2"]);
+        assert_eq!(delete_missing_tracks(&conn).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_update_track_by_file_path_restores_missing_track() {
+        let conn = setup_test_db();
+        insert_test_track(&conn, "t1", "曲1", "アーティスト", "アルバム", "ロック");
+        mark_track_missing(&conn, "t1", "2026-01-02T00:00:00Z").unwrap();
+        let mut track = find_track_by_id(&conn, "t1").unwrap();
+        track.title = Some("読み直したタイトル".to_string());
+
+        // ファイルを読み直せたトラックは、見つかる曲に戻す
+        update_track_by_file_path(&conn, &track, Some(1)).unwrap();
+
+        let updated = find_track_by_id(&conn, "t1").unwrap();
+        assert!(!updated.is_missing);
+        assert_eq!(updated.title.as_deref(), Some("読み直したタイトル"));
     }
 
     #[test]

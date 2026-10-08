@@ -1,4 +1,6 @@
 import type { Track } from '#lib/types/models.js';
+import { m } from '#lib/i18n/i18n.svelte.js';
+import { showWarning } from './error.svelte.js';
 
 /**
  * 再生状態
@@ -151,15 +153,32 @@ export function toggleRepeat(): void {
   player.repeatMode = modes[nextIndex];
 }
 
+/** ファイルが見つかるトラックだけを返す（見つからない曲は再生できないため、キューに入れない） */
+function playableTracks(tracks: readonly Track[]): Track[] {
+  return tracks.filter((track) => !track.isMissing);
+}
+
 /**
  * 再生キューを設定してトラックを再生
+ *
+ * ファイルが見つからない曲はキューに入れない。選んだ曲のファイルが見つからない場合は、
+ * 再生せずに通知する。
+ * @param allTracks - キューにするトラック（表示順）
+ * @param selectedIndex - その中の、再生するトラックの位置
  */
-export function playTrackFromQueue(tracks: Track[], index: number): void {
-  if (index < 0 || index >= tracks.length) {
-    console.error('無効なトラックインデックス:', index);
+export function playTrackFromQueue(allTracks: Track[], selectedIndex: number): void {
+  if (selectedIndex < 0 || selectedIndex >= allTracks.length) {
+    console.error('無効なトラックインデックス:', selectedIndex);
+    return;
+  }
+  const selected = allTracks[selectedIndex];
+  if (selected.isMissing) {
+    showWarning(m.notices.trackFileMissing);
     return;
   }
 
+  const tracks = playableTracks(allTracks);
+  const index = tracks.indexOf(selected);
   const shuffle = player.isShuffleEnabled;
 
   if (shuffle) {
@@ -187,7 +206,8 @@ export function playTrackFromQueue(tracks: Track[], index: number): void {
  * シャッフルモードを有効にして、ランダムに選んだトラックから再生する（残りはFisher-Yatesで
  * 並べ替えるため、並び全体が均等にランダムになる）。元の順序は保持し、シャッフルを解除すると戻る。
  */
-export function playShuffled(tracks: Track[]): void {
+export function playShuffled(allTracks: Track[]): void {
+  const tracks = playableTracks(allTracks);
   if (tracks.length === 0) return;
   player.isShuffleEnabled = true;
   playTrackFromQueue(tracks, Math.floor(Math.random() * tracks.length));
@@ -195,8 +215,14 @@ export function playShuffled(tracks: Track[]): void {
 
 /**
  * 単一のトラックを再生（キューをクリア）
+ *
+ * ファイルが見つからない曲は、再生せずに通知する。
  */
 export function playSingleTrack(track: Track): void {
+  if (track.isMissing) {
+    showWarning(m.notices.trackFileMissing);
+    return;
+  }
   player.originalQueue = [track];
   player.playQueue = [track];
   player.currentTrackIndex = 0;
@@ -314,20 +340,24 @@ export function playPreviousTrack(): boolean {
 }
 
 /**
- * キューの最後にトラックを追加
+ * キューの最後にトラックを追加（ファイルが見つからない曲は入れない）
  */
 export function addToQueue(tracks: readonly Track[]): void {
-  player.playQueue = [...player.playQueue, ...tracks];
+  player.playQueue = [...player.playQueue, ...playableTracks(tracks)];
 }
 
 /**
- * 再生中のトラックの次にトラックを追加
+ * 再生中のトラックの次にトラックを追加（ファイルが見つからない曲は入れない）
  */
 export function addNextInQueue(tracks: readonly Track[]): void {
   const queue = player.playQueue;
   const position = player.currentTrackIndex + 1;
   // 件数が多い場合があるため、引数の数に上限のあるspliceへ展開せずに組み立てる
-  player.playQueue = [...queue.slice(0, position), ...tracks, ...queue.slice(position)];
+  player.playQueue = [
+    ...queue.slice(0, position),
+    ...playableTracks(tracks),
+    ...queue.slice(position)
+  ];
 }
 
 /**
