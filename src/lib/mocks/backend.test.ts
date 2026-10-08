@@ -282,6 +282,36 @@ describe('インポート', () => {
   });
 });
 
+describe('見つからない曲', () => {
+  it('ライブラリに残し、一覧・アルバムの曲数にも含める', async () => {
+    const tracks = await commands.getAllTracks();
+    const missing = tracks.filter((track) => track.isMissing);
+
+    expect(missing.map((track) => track.title)).toEqual(['Lost Tape']);
+    expect((await commands.getLibraryFolders()).missingTrackCount).toBe(1);
+    const sketches = (await commands.getAlbums()).find(
+      (album) => album.name === 'Sketches' && album.artist === 'Kenji Mori'
+    );
+    expect(sketches?.trackCount).toBe(3);
+  });
+
+  it('まとめて外すと、外した数を返してライブラリの変更を通知する', async () => {
+    const before = (await commands.getAllTracks()).length;
+
+    expect(await commands.removeMissingTracks()).toBe(1);
+
+    const tracks = await commands.getAllTracks();
+    expect(tracks).toHaveLength(before - 1);
+    expect(tracks.some((track) => track.isMissing)).toBe(false);
+    expect((await commands.getLibraryFolders()).missingTrackCount).toBe(0);
+    expect(events).toContainEqual({ event: 'library-changed', payload: null });
+    // 外す曲がなければ、何もしない
+    events.length = 0;
+    expect(await commands.removeMissingTracks()).toBe(0);
+    expect(events).toEqual([]);
+  });
+});
+
 describe('ライブラリフォルダ', () => {
   it('インポートしたフォルダを登録し、入れ子のフォルダはまとめる', async () => {
     await commands.importFolder('/Users/demo/Imports/A', 'Skip');

@@ -3,7 +3,7 @@
  *
  * 一覧・グループ表示・プレースホルダ表示などを一通り確認できるよう、
  * 複数アルバムを持つアーティスト・アルバム未設定・メタデータなし・長いタイトル・
- * コンピレーション（アルバムアーティスト）・同じ名前のアルバム等を含める。
+ * コンピレーション（アルバムアーティスト）・同じ名前のアルバム・ファイルが見つからない曲等を含める。
  * IDと日時は固定値にし、リロードごとに同じ状態から確認できるようにする。
  */
 import type { Playlist, Track } from '#lib/types/models.js';
@@ -30,6 +30,8 @@ interface TrackSeed {
   album: string | null;
   /** アルバムアーティストのタグ（ない曲は、曲のアーティストでまとめられる） */
   albumArtist?: string;
+  /** ファイルが見つからない曲（薄い表示・再生できない曲の確認用） */
+  isMissing?: boolean;
   genre: string | null;
   year: number | null;
   trackNumber: number | null;
@@ -79,7 +81,9 @@ const TRACK_SEEDS: TrackSeed[] = [
   // フィーチャリング（アルバムアーティストは主のアーティスト）
   { title: 'Two Voices', artist: 'Aoi Sora feat. Mika Hayashi', album: 'Field Notes', albumArtist: 'Aoi Sora', genre: 'J-Pop', year: 2024, trackNumber: 3, duration: 232, format: 'flac' },
   // 別のアーティストの、同じ名前のアルバム
-  { title: 'Rough Draft', artist: 'The Voltage', album: 'Sketches', genre: 'Electronic', year: 2022, trackNumber: 1, duration: 174 }
+  { title: 'Rough Draft', artist: 'The Voltage', album: 'Sketches', genre: 'Electronic', year: 2022, trackNumber: 1, duration: 174 },
+  // ファイルが見つからない曲（再スキャンで見つからなくなり、ライブラリに残している）
+  { title: 'Lost Tape', artist: 'Kenji Mori', album: 'Sketches', genre: null, year: 2025, trackNumber: 3, duration: 201, isMissing: true }
 ];
 
 const BITRATE_BY_FORMAT = { mp3: 320, flac: 1411, m4a: 256 } as const;
@@ -135,7 +139,8 @@ function createTrack(seed: TrackSeed, index: number): Track {
             trackPeak: 0.95,
             albumGain: -7,
             albumPeak: 0.99
-          }
+          },
+    isMissing: seed.isMissing ?? false
   };
 }
 
@@ -189,7 +194,8 @@ export function createBulkTracks(count: number): Track[] {
       lastPlayedAt: null,
       createdAt,
       updatedAt: createdAt,
-      replayGain: { trackGain: null, trackPeak: null, albumGain: null, albumPeak: null }
+      replayGain: { trackGain: null, trackPeak: null, albumGain: null, albumPeak: null },
+      isMissing: false
     };
   });
 }

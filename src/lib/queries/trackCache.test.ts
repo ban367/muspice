@@ -28,7 +28,8 @@ function track(id: string, rating = 0): Track {
     lastPlayedAt: null,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
-    replayGain: { trackGain: null, trackPeak: null, albumGain: null, albumPeak: null }
+    replayGain: { trackGain: null, trackPeak: null, albumGain: null, albumPeak: null },
+    isMissing: false
   };
 }
 

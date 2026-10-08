@@ -59,3 +59,18 @@ export function useRemoveLibraryFolderMutation() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.libraryFolders })
   }));
 }
+
+/**
+ * 見つからない曲（ファイルが見つからなくなったトラック）を、すべてライブラリから外すミューテーション
+ *
+ * 外した曲数を返す。メインウィンドウの一覧は、Rustが送る`LibraryChanged`イベントで更新される。
+ */
+export function useRemoveMissingTracksMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: () =>
+      withErrorToast(m.operations.removeMissingTracks, () => commands.removeMissingTracks()),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.libraryFolders })
+  }));
+}

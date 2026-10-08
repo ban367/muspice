@@ -21,6 +21,7 @@ export const ja = {
     unknownArtist: '不明なアーティスト',
     unknownAlbum: '不明なアルバム',
     unknownGenre: 'ジャンル不明',
+    fileMissing: 'ファイルが見つかりません',
     more: 'その他',
     play: '再生',
     playAll: 'すべて再生',
@@ -109,6 +110,7 @@ export const ja = {
     fetchLibraryFolders: 'ライブラリフォルダの取得',
     rescanLibraryFolder: '再スキャン',
     removeLibraryFolder: 'ライブラリフォルダの削除',
+    removeMissingTracks: '見つからない曲の削除',
     fetchDevices: 'デバイスの取得',
     registerDevice: 'デバイスの追加',
     updateDevice: 'デバイスの設定の変更',
@@ -119,6 +121,7 @@ export const ja = {
 
   /** 操作の結果の通知 */
   notices: {
+    trackFileMissing: 'ファイルが見つからないため、再生できません',
     playlistCreated: 'プレイリストを作成しました',
     tracksAddedToPlaylist: (count: number) => `${count}曲をプレイリストに追加しました`,
     tracksAlreadyInPlaylist: 'すでにプレイリストに入っています',
@@ -304,6 +307,7 @@ export const ja = {
     completed: 'インポート完了',
     imported: 'インポート成功:',
     skipped: 'スキップ:',
+    relinked: '移動したファイルの引き継ぎ:',
     errors: 'エラー:',
     errorDetails: 'エラー詳細:',
     importingShort: 'インポート中...',
@@ -455,15 +459,26 @@ export const ja = {
     removedWithTracks: (count: number) =>
       `ライブラリフォルダを削除し、${count}曲をライブラリから外しました`,
     readErrors: (count: number) => `${count}件のファイルを読み込めませんでした`,
-    removalSkipped: (path: string) =>
-      `音楽ファイルが見つからないため、ライブラリから曲を外しませんでした: ${path}`,
+    missingSkipped: (path: string) =>
+      `音楽ファイルが1件も見つからないため、曲の状態は変えませんでした: ${path}`,
+    missingTracks: (count: number) =>
+      `ファイルが見つからない曲が${count}曲あります。移動・改名したファイルは、再スキャン（または移動先のフォルダのインポート）で見つかると、同じ曲として引き継がれます（お気に入り・再生回数・プレイリストを保ちます）。`,
+    removeMissing: '見つからない曲を外す',
+    removeMissingTitle: '見つからない曲の削除',
+    removeMissingConfirm: (count: number) =>
+      `ファイルが見つからない${count}曲を、ライブラリから外しますか？`,
+    removeMissingHint:
+      '外した曲はプレイリストからも消え、お気に入り・再生回数も失われます。ファイルを移動・改名しただけの場合は、外さずに再スキャンしてください',
+    missingRemoved: (count: number) => `見つからない曲を${count}曲、ライブラリから外しました`,
     rescanned: (changes: string[]) =>
       changes.length > 0
         ? `再スキャンしました（${changes.join('・')}）`
         : '再スキャンしました（変更はありませんでした）',
     added: (count: number) => `追加 ${count}曲`,
     updated: (count: number) => `更新 ${count}曲`,
-    removedTracks: (count: number) => `削除 ${count}曲`
+    relinked: (count: number) => `移動 ${count}曲`,
+    markedMissing: (count: number) => `見つからない ${count}曲`,
+    restored: (count: number) => `見つかった ${count}曲`
   },
 
   devices: {

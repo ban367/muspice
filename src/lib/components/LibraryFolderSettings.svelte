@@ -1,6 +1,7 @@
 <!--
   @component LibraryFolderSettings
-  設定ウィンドウの「ライブラリ」: インポートしたフォルダ（ライブラリフォルダ）の一覧・再スキャン・削除。
+  設定ウィンドウの「ライブラリ」: インポートしたフォルダ（ライブラリフォルダ）の一覧・再スキャン・削除と、
+  見つからない曲（ファイルが見つからなくなったトラック）の削除。
   操作はすぐに反映する（設定の「適用」は不要）。ライブラリが変わると、Rustが送る
   `LibraryChanged`イベントでメインウィンドウの一覧が更新される。自動の再スキャン
   （起動時・定期・フォルダの監視）でライブラリが変わった場合も、同じイベントで曲数などを読み直す。
@@ -13,6 +14,7 @@
   import {
     useLibraryFoldersQuery,
     useRemoveLibraryFolderMutation,
+    useRemoveMissingTracksMutation,
     useRescanLibraryFolderMutation
   } from '#lib/queries/libraryFolders.js';
   import { showSuccess, showWarning } from '#lib/stores/error.svelte.js';
@@ -25,6 +27,7 @@
   const foldersQuery = useLibraryFoldersQuery();
   const rescanMutation = useRescanLibraryFolderMutation();
   const removeMutation = useRemoveLibraryFolderMutation();
+  const removeMissingMutation = useRemoveMissingTracksMutation();
 
   /** 再スキャン中のフォルダ（複数の場合は順番に処理する） */
   let scanningFolderId = $state<string | null>(null);
@@ -34,6 +37,10 @@
   /** 削除の確認中のフォルダ */
   let removingFolder = $state<LibraryFolder | null>(null);
   let removeTracks = $state(false);
+
+  /** 見つからない曲の削除を確認中か */
+  let isConfirmingRemoveMissing = $state(false);
+  const missingTrackCount = $derived(foldersQuery.data?.missingTrackCount ?? 0);
 
   const folders = $derived(foldersQuery.data?.folders ?? []);
   const scannableFolders = $derived(folders.filter((folder) => folder.exists));
@@ -81,8 +88,23 @@
     if (totals.errorCount > 0) {
       showWarning(m.libraryFolders.readErrors(totals.errorCount));
     }
-    for (const path of totals.removalSkippedPaths) {
-      showWarning(m.libraryFolders.removalSkipped(path));
+    for (const path of totals.missingSkippedPaths) {
+      showWarning(m.libraryFolders.missingSkipped(path));
+    }
+  }
+
+  function closeRemoveMissingDialog() {
+    if (removeMissingMutation.isPending) return;
+    isConfirmingRemoveMissing = false;
+  }
+
+  async function confirmRemoveMissing() {
+    try {
+      const removed = await removeMissingMutation.mutateAsync();
+      showSuccess(m.libraryFolders.missingRemoved(removed));
+      isConfirmingRemoveMissing = false;
+    } catch {
+      // 失敗はミューテーション内でトースト通知済み
     }
   }
 
@@ -204,7 +226,54 @@
       {m.libraryFolders.unregistered(foldersQuery.data.unregisteredTrackCount)}
     </p>
   {/if}
+
+  {#if missingTrackCount > 0}
+    <div class="missing-tracks">
+      <p class="setting-description">
+        {m.libraryFolders.missingTracks(missingTrackCount)}
+      </p>
+      <button
+        type="button"
+        class="btn-secondary text-xs shrink-0"
+        onclick={() => (isConfirmingRemoveMissing = true)}
+        disabled={isScanning}
+      >
+        {m.libraryFolders.removeMissing}
+      </button>
+    </div>
+  {/if}
 </section>
+
+<Modal
+  open={isConfirmingRemoveMissing}
+  onClose={closeRemoveMissingDialog}
+  title={m.libraryFolders.removeMissingTitle}
+  dismissible={!removeMissingMutation.isPending}
+  class="max-w-md"
+>
+  <p class="mb-2">{m.libraryFolders.removeMissingConfirm(missingTrackCount)}</p>
+  <p class="text-xs text-text-muted">{m.libraryFolders.removeMissingHint}</p>
+
+  {#snippet footer()}
+    <button
+      type="button"
+      class="btn-secondary"
+      onclick={closeRemoveMissingDialog}
+      disabled={removeMissingMutation.isPending}
+      data-autofocus
+    >
+      {m.common.cancel}
+    </button>
+    <button
+      type="button"
+      class="btn-danger"
+      onclick={confirmRemoveMissing}
+      disabled={removeMissingMutation.isPending}
+    >
+      {m.common.delete}
+    </button>
+  {/snippet}
+</Modal>
 
 <Modal
   open={removingFolder !== null}
@@ -257,6 +326,10 @@
 
   .settings-section {
     @apply max-w-xl;
+  }
+
+  .missing-tracks {
+    @apply flex items-start justify-between gap-4 mt-3;
   }
 
   .section-title {

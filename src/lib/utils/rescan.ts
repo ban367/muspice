@@ -8,10 +8,15 @@ import type { RescanResult } from '#lib/types/models.js';
 export interface RescanTotals {
   addedCount: number;
   updatedCount: number;
-  removedCount: number;
+  /** 移動・改名されたファイルに結び付けたトラック数 */
+  relinkedCount: number;
+  /** ファイルが見つからなくなり、見つからない曲にしたトラック数 */
+  missingCount: number;
+  /** ファイルが同じ場所に戻り、見つかる曲に戻したトラック数 */
+  restoredCount: number;
   errorCount: number;
-  /** 音楽ファイルが見つからず、ライブラリから曲を外さなかったフォルダのパス */
-  removalSkippedPaths: string[];
+  /** 音楽ファイルが1件も見つからず、見つからない曲にしなかったフォルダのパス */
+  missingSkippedPaths: string[];
 }
 
 /** フォルダごとの再スキャン結果を合計する */
@@ -19,16 +24,20 @@ export function sumRescanResults(results: { path: string; result: RescanResult }
   const totals: RescanTotals = {
     addedCount: 0,
     updatedCount: 0,
-    removedCount: 0,
+    relinkedCount: 0,
+    missingCount: 0,
+    restoredCount: 0,
     errorCount: 0,
-    removalSkippedPaths: []
+    missingSkippedPaths: []
   };
   for (const { path, result } of results) {
     totals.addedCount += result.addedCount;
     totals.updatedCount += result.updatedCount;
-    totals.removedCount += result.removedCount;
+    totals.relinkedCount += result.relinkedCount;
+    totals.missingCount += result.missingCount;
+    totals.restoredCount += result.restoredCount;
     totals.errorCount += result.errorCount;
-    if (result.removalSkipped) totals.removalSkippedPaths.push(path);
+    if (result.missingSkipped) totals.missingSkippedPaths.push(path);
   }
   return totals;
 }
@@ -39,7 +48,9 @@ export function describeRescan(totals: RescanTotals): string {
   const changes = [
     totals.addedCount > 0 ? messages.added(totals.addedCount) : null,
     totals.updatedCount > 0 ? messages.updated(totals.updatedCount) : null,
-    totals.removedCount > 0 ? messages.removedTracks(totals.removedCount) : null
+    totals.relinkedCount > 0 ? messages.relinked(totals.relinkedCount) : null,
+    totals.restoredCount > 0 ? messages.restored(totals.restoredCount) : null,
+    totals.missingCount > 0 ? messages.markedMissing(totals.missingCount) : null
   ].filter((change) => change !== null);
   return messages.rescanned(changes);
 }

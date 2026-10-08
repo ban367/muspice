@@ -31,6 +31,8 @@ pub struct Track {
     pub updated_at: String,
     /// 音量の正規化に使うゲイン（タグにない項目は値なし）
     pub replay_gain: ReplayGain,
+    /// ファイルが見つからない（再スキャンで見つからなくなった曲。利用者が外すまで残す）
+    pub is_missing: bool,
 }
 
 /// 音量の正規化に使うゲインとピーク（ReplayGainのタグ、またはEBU R128のタグから読み取る）

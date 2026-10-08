@@ -19,8 +19,10 @@ mod tracks;
 // インポート関連
 pub use import::import_folder;
 
-// ライブラリフォルダ（インポートしたフォルダ）の一覧・削除・再スキャン
-pub use library_folders::{get_library_folders, remove_library_folder, rescan_library_folder};
+// ライブラリフォルダ（インポートしたフォルダ）の一覧・削除・再スキャンと、見つからない曲の削除
+pub use library_folders::{
+    get_library_folders, remove_library_folder, remove_missing_tracks, rescan_library_folder,
+};
 // 自動の再スキャン（`library_sync`）が使う
 pub(crate) use library_folders::rescan_folder;
 

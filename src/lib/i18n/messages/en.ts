@@ -23,6 +23,7 @@ export const en: Messages = {
     unknownArtist: 'Unknown Artist',
     unknownAlbum: 'Unknown Album',
     unknownGenre: 'Unknown Genre',
+    fileMissing: 'File not found',
     more: 'More',
     play: 'Play',
     playAll: 'Play All',
@@ -102,6 +103,7 @@ export const en: Messages = {
     fetchLibraryFolders: 'Loading library folders',
     rescanLibraryFolder: 'Rescanning',
     removeLibraryFolder: 'Removing the library folder',
+    removeMissingTracks: 'Removing missing tracks',
     fetchDevices: 'Loading devices',
     registerDevice: 'Adding the device',
     updateDevice: 'Changing the device settings',
@@ -111,6 +113,7 @@ export const en: Messages = {
   },
 
   notices: {
+    trackFileMissing: 'This track cannot be played because its file was not found',
     playlistCreated: 'Playlist created',
     tracksAddedToPlaylist: (count) => `Added ${plural(count, 'track', 'tracks')} to the playlist`,
     tracksAlreadyInPlaylist: 'Already in the playlist',
@@ -295,6 +298,7 @@ export const en: Messages = {
     completed: 'Import Complete',
     imported: 'Imported:',
     skipped: 'Skipped:',
+    relinked: 'Relinked moved files:',
     errors: 'Errors:',
     errorDetails: 'Error details:',
     importingShort: 'Importing...',
@@ -449,13 +453,25 @@ export const en: Messages = {
     removedWithTracks: (count) =>
       `Removed the library folder and ${plural(count, 'track', 'tracks')} from the library`,
     readErrors: (count) => `Could not read ${plural(count, 'file', 'files')}`,
-    removalSkipped: (path) =>
-      `No music files were found, so no tracks were removed from the library: ${path}`,
+    missingSkipped: (path) =>
+      `No music files were found, so the tracks were left as they are: ${path}`,
+    missingTracks: (count) =>
+      `The ${plural(count, 'file of a track was', 'files of tracks were')} not found. When a moved or renamed file is found by a rescan (or by importing the folder it was moved to), it is kept as the same track (favorites, play counts and playlists are preserved).`,
+    removeMissing: 'Remove Missing Tracks',
+    removeMissingTitle: 'Remove Missing Tracks',
+    removeMissingConfirm: (count) =>
+      `Remove the ${plural(count, 'track', 'tracks')} whose files were not found from the library?`,
+    removeMissingHint:
+      'The removed tracks are also removed from playlists, and their favorites and play counts are lost. If you only moved or renamed the files, rescan instead of removing.',
+    missingRemoved: (count) =>
+      `Removed ${plural(count, 'missing track', 'missing tracks')} from the library`,
     rescanned: (changes) =>
       changes.length > 0 ? `Rescanned (${changes.join(', ')})` : 'Rescanned (no changes)',
     added: (count) => `${count} added`,
     updated: (count) => `${count} updated`,
-    removedTracks: (count) => `${count} removed`
+    relinked: (count) => `${count} moved`,
+    markedMissing: (count) => `${count} missing`,
+    restored: (count) => `${count} found again`
   },
 
   devices: {

@@ -11,6 +11,7 @@ use crate::library_sync::LibrarySync;
 use crate::metadata::extract_all_file_info;
 use crate::models::Track;
 use crate::state::AppState;
+use crate::track_relink::MissingTrackIndex;
 use crate::validation::validate_file_path;
 use chrono::Utc;
 use std::path::Path;
@@ -67,6 +68,7 @@ fn import_folder_blocking(
 
     let mut imported_count = 0;
     let mut skipped_count = 0;
+    let mut relinked_count = 0;
     let mut error_count = 0;
     let mut errors = Vec::new();
 
@@ -81,7 +83,14 @@ fn import_folder_blocking(
     //
     // 処理済みのパスも随時追加していくため、同一インポート内で同じパスが
     // 複数回現れた場合も2回目以降は重複として扱われる（file_pathはUNIQUE）。
-    let mut known_paths = state.with_db(|db| crate::repository::find_all_file_paths(db))?;
+    // 見つからない曲は、新しいファイルの対応付けの候補にする（ライブラリフォルダの外へ移動した
+    // ファイルをインポートした場合などに、新しい曲として登録せず、同じ曲として引き継ぐ）
+    let (mut known_paths, mut missing_tracks) = state.with_db(|db| {
+        Ok((
+            crate::repository::find_all_file_paths(db)?,
+            MissingTrackIndex::new(crate::repository::find_missing_tracks(db)?),
+        ))
+    })?;
 
     // バッチ処理でインポート
     //
@@ -90,8 +99,10 @@ fn import_folder_blocking(
     // これにより大量インポート中も再生などの他操作がブロックされない。
     for chunk in audio_files.chunks(BATCH_SIZE) {
         // 1. ロック外: ファイルからトラック情報を抽出する
-        // （トラック, 登録済みか, ファイルの更新日時）
-        let mut pending: Vec<(Track, bool, Option<i64>)> = Vec::new();
+        // （トラック, 書き込み方, ファイルの更新日時）
+        let mut pending: Vec<(Track, ImportAction, Option<i64>)> = Vec::new();
+        // スキップした登録済みのファイルのパス（見つからない曲にしていた場合は、見つかる曲に戻す）
+        let mut found_paths: Vec<String> = Vec::new();
 
         for file_path in chunk {
             let file_path_str = file_path
@@ -121,11 +132,22 @@ fn import_folder_blocking(
             let is_duplicate = !known_paths.insert(file_path_str.to_string());
             if is_duplicate && matches!(duplicate_action, DuplicateAction::Skip) {
                 skipped_count += 1;
+                found_paths.push(file_path_str.to_string());
                 continue;
             }
 
             match create_track_from_file(file_path) {
-                Ok(track) => pending.push((track, is_duplicate, get_file_modified_at(file_path))),
+                Ok(track) => {
+                    let modified_at = get_file_modified_at(file_path);
+                    let action = if is_duplicate {
+                        ImportAction::Replace
+                    } else if let Some(moved) = missing_tracks.take_match(&track, modified_at) {
+                        ImportAction::Relink(moved.id)
+                    } else {
+                        ImportAction::Insert
+                    };
+                    pending.push((track, action, modified_at));
+                }
                 Err(e) => {
                     errors.push(format!("{}: {}", file_path_str, e));
                     error_count += 1;
@@ -133,7 +155,7 @@ fn import_folder_blocking(
             }
         }
 
-        if pending.is_empty() {
+        if pending.is_empty() && found_paths.is_empty() {
             continue;
         }
 
@@ -143,18 +165,34 @@ fn import_folder_blocking(
                 AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
             })?;
 
-            for (track, is_duplicate, modified_at) in &pending {
-                let result = if *is_duplicate {
+            for path in &found_paths {
+                crate::repository::restore_missing_track_by_file_path(&tx, path)?;
+            }
+
+            for (track, action, modified_at) in &pending {
+                let result = match action {
                     // 既存のトラックを更新
-                    crate::repository::update_track_by_file_path(&tx, track, *modified_at)
-                } else {
+                    ImportAction::Replace => {
+                        crate::repository::update_track_by_file_path(&tx, track, *modified_at)
+                    }
                     // 新しいトラックを追加
-                    crate::repository::insert_track(&tx, track, *modified_at)
+                    ImportAction::Insert => {
+                        crate::repository::insert_track(&tx, track, *modified_at)
+                    }
+                    // 見つからない曲を、このファイルに結び付ける
+                    ImportAction::Relink(track_id) => crate::repository::relink_track(
+                        &tx,
+                        track_id,
+                        &track.file_path,
+                        &track.file_name,
+                        *modified_at,
+                    ),
                 };
 
-                match result {
-                    Ok(()) => imported_count += 1,
-                    Err(e) => {
+                match (result, action) {
+                    (Ok(()), ImportAction::Relink(_)) => relinked_count += 1,
+                    (Ok(()), _) => imported_count += 1,
+                    (Err(e), _) => {
                         errors.push(format!("{}: {}", track.file_path, e));
                         error_count += 1;
                     }
@@ -192,9 +230,20 @@ fn import_folder_blocking(
     Ok(ImportResult {
         imported_count,
         skipped_count,
+        relinked_count,
         error_count,
         errors,
     })
+}
+
+/// 読み込んだファイルの書き込み方
+enum ImportAction {
+    /// 新しいトラックとして追加する
+    Insert,
+    /// 登録済みの同じパスのトラックを、読み直した内容で置き換える
+    Replace,
+    /// 見つからない曲（このID）を、移動・改名の先のこのファイルに結び付ける
+    Relink(String),
 }
 
 /// ファイルからトラック情報を作成（再スキャン・「メタデータを更新」でも使う）
@@ -250,5 +299,6 @@ pub(super) fn create_track_from_file(file_path: &Path) -> AppResult<Track> {
         created_at: now.clone(),
         updated_at: now,
         replay_gain: file_info.replay_gain,
+        is_missing: false,
     })
 }
