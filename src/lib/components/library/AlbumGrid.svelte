@@ -72,13 +72,8 @@
     selectedAlbumKey = null;
   }
 
-  // 検索フィルター
-  function filterAlbum(album: AlbumSummary, query: string): boolean {
-    return (
-      album.name.toLowerCase().includes(query) ||
-      (album.artist != null && album.artist.toLowerCase().includes(query))
-    );
-  }
+  // 絞り込みの対象（アルバム名・アーティスト）
+  const albumSearchFields = (album: AlbumSummary) => [album.name, album.artist];
 </script>
 
 <LibraryGrid
@@ -90,7 +85,7 @@
   itemLabel={m.library.albums}
   emptyMessage={m.library.noAlbums}
   emptyHint={m.library.noAlbumsHint}
-  filterFn={filterAlbum}
+  searchFields={albumSearchFields}
   getKey={albumKey}
   minCardWidth={cardWidth}
   estimatedCardHeight={ui.gridCardSize + ESTIMATED_CARD_EXTRA_HEIGHT}

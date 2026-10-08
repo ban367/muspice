@@ -35,12 +35,26 @@ fn add_column_if_not_exists(
 ///
 /// - 1: 旧トリガー（直接DELETE/UPDATE方式）で壊れた可能性のあるインデックスを作り直した
 /// - 2: 検索の対象にアルバムアーティストを加えた
+/// - 3: 途中の一致を探せるよう、トークナイザーをtrigramにした。検索用に正規化した文字列
+///   （`search_text`）を1つの列に入れ、表が内容を持つようにした（external contentをやめた）
 ///
 /// 表の列・トークナイザーを変える時は値を上げる（古い版の表は、起動時に作り直す）。
-const FTS_SCHEMA_VERSION: i32 = 2;
+const FTS_SCHEMA_VERSION: i32 = 3;
+
+/// 全文検索の表に入れる文字列（タイトル・アーティスト・アルバム・ジャンル・アルバムアーティストを
+/// 検索用に正規化してつなぐ）を求めるSQLの式。`prefix`は`new.`など
+fn fts_text_expr(prefix: &str) -> String {
+    format!(
+        "{}({prefix}title, {prefix}artist, {prefix}album, {prefix}genre, {prefix}album_artist)",
+        crate::search_text::SQL_FUNCTION
+    )
+}
 
 /// データベースマイグレーションを実行
 pub fn run_migrations(conn: &Connection) -> Result<()> {
+    // 全文検索の表を同期するトリガーが使う関数を登録する（`tracks`に書き込む前に必要）
+    crate::search_text::register(conn)?;
+
     // tracksテーブルの作成
     conn.execute(
         "CREATE TABLE IF NOT EXISTS tracks (
@@ -228,8 +242,8 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         [],
     )?;
 
-    // 全文検索の表の列を変えた場合は、表を作り直す（user_versionで実行済みを管理）
-    // external contentテーブルのため、下の「既存データを同期」で`tracks`から作り直せる
+    // 全文検索の表の定義を変えた場合は、表を作り直す（user_versionで実行済みを管理）
+    // 表の内容は、下の「既存データを同期」で`tracks`から作り直せる
     let user_version: i32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
     if user_version < FTS_SCHEMA_VERSION {
         conn.execute_batch("DROP TABLE IF EXISTS tracks_fts")?;
@@ -246,56 +260,45 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         .unwrap_or(false);
 
     if !fts_exists {
+        // trigram: 3文字の並びを索引にし、語の途中の一致（区切りのない日本語を含む）を探せる。
+        // rowidは`tracks`のrowidと同じにする
         conn.execute(
-            "CREATE VIRTUAL TABLE tracks_fts USING fts5(
-                id UNINDEXED,
-                title,
-                artist,
-                album,
-                genre,
-                album_artist,
-                content=tracks,
-                content_rowid=rowid
-            )",
+            "CREATE VIRTUAL TABLE tracks_fts USING fts5(text, tokenize = 'trigram')",
             [],
         )?;
 
         // 既存データをFTSテーブルに同期
         conn.execute(
-            "INSERT INTO tracks_fts(rowid, id, title, artist, album, genre, album_artist)
-             SELECT rowid, id, title, artist, album, genre, album_artist FROM tracks",
+            &format!(
+                "INSERT INTO tracks_fts(rowid, text) SELECT rowid, {} FROM tracks",
+                fts_text_expr("")
+            ),
             [],
         )?;
     }
 
     // 同期トリガーを作成（定義変更を反映できるよう毎回作り直す・冪等）
     //
-    // external contentテーブル（content=tracks）ではFTSインデックスの直接
-    // DELETE/UPDATEは正しく動作しないため、公式ドキュメントの'delete'コマンド
-    // パターンで古いトークンを除去してから新しい値を挿入する。
-    // https://www.sqlite.org/fts5.html#external_content_tables
-    conn.execute_batch(
+    // 検索の対象の列を変えた時だけ索引を更新する（再生回数・評価などの更新では更新しない）。
+    conn.execute_batch(&format!(
         "DROP TRIGGER IF EXISTS tracks_ai;
          DROP TRIGGER IF EXISTS tracks_ad;
          DROP TRIGGER IF EXISTS tracks_au;
 
          CREATE TRIGGER tracks_ai AFTER INSERT ON tracks BEGIN
-             INSERT INTO tracks_fts(rowid, id, title, artist, album, genre, album_artist)
-             VALUES (new.rowid, new.id, new.title, new.artist, new.album, new.genre, new.album_artist);
+             INSERT INTO tracks_fts(rowid, text) VALUES (new.rowid, {new_text});
          END;
 
          CREATE TRIGGER tracks_ad AFTER DELETE ON tracks BEGIN
-             INSERT INTO tracks_fts(tracks_fts, rowid, id, title, artist, album, genre, album_artist)
-             VALUES ('delete', old.rowid, old.id, old.title, old.artist, old.album, old.genre, old.album_artist);
+             DELETE FROM tracks_fts WHERE rowid = old.rowid;
          END;
 
-         CREATE TRIGGER tracks_au AFTER UPDATE ON tracks BEGIN
-             INSERT INTO tracks_fts(tracks_fts, rowid, id, title, artist, album, genre, album_artist)
-             VALUES ('delete', old.rowid, old.id, old.title, old.artist, old.album, old.genre, old.album_artist);
-             INSERT INTO tracks_fts(rowid, id, title, artist, album, genre, album_artist)
-             VALUES (new.rowid, new.id, new.title, new.artist, new.album, new.genre, new.album_artist);
+         CREATE TRIGGER tracks_au AFTER UPDATE OF title, artist, album, genre, album_artist
+         ON tracks BEGIN
+             UPDATE tracks_fts SET text = {new_text} WHERE rowid = old.rowid;
          END;",
-    )?;
+        new_text = fts_text_expr("new.")
+    ))?;
 
     if user_version < FTS_SCHEMA_VERSION {
         conn.execute_batch(&format!("PRAGMA user_version = {FTS_SCHEMA_VERSION}"))?;
