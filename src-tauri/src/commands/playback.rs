@@ -1,4 +1,4 @@
-//! 再生エンジン（`playback`）のコマンド
+//! 再生エンジン（`playback`）と、OSのNow Playing（`media_controls`）のコマンド
 //!
 //! 再生キューはフロントエンドが持ち、ここでは「この曲を再生する」「続けてこの曲を再生する」を
 //! エンジンへ伝える。ファイルのパスはWebViewから受け取らず、トラックIDからDBで解決する。
@@ -6,6 +6,7 @@
 
 use super::run_blocking;
 use crate::error::{AppError, AppResult};
+use crate::media_controls::{MediaControls, NowPlayingUpdate};
 use crate::playback::{OutputDevice, PlayRequest, PlaybackEngine, PlaybackTrackInfo};
 use crate::state::AppState;
 use crate::validation::validate_track_id;
@@ -130,4 +131,20 @@ pub async fn playback_set_equalizer(
 #[specta::specta]
 pub async fn get_output_devices() -> AppResult<Vec<OutputDevice>> {
     run_blocking(crate::playback::list_output_devices).await
+}
+
+/// プレーヤーバーの状態（曲・再生中かどうか・再生位置）を、OSへ伝える（nullは、再生している曲がない）
+///
+/// OSのNow Playing（macOSのコントロールセンターなど）に表示され、メディアキーの操作が
+/// このアプリへ届くようになる。対応していないOSでは何もしない。
+/// フロントエンドは、前の呼び出しの結果を待ってから次を呼ぶ（順番が入れ替わらないようにする）。
+#[tauri::command]
+#[specta::specta]
+pub async fn set_now_playing(update: Option<NowPlayingUpdate>, app: AppHandle) -> AppResult<()> {
+    // 曲の情報をDBから読み、曲が変わったときはアルバムアートをファイルから読む
+    run_blocking(move || {
+        app.state::<MediaControls>()
+            .set(&app.state::<AppState>(), update)
+    })
+    .await
 }

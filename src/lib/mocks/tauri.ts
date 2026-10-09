@@ -8,7 +8,9 @@
  * 起動時の復元を確認できるよう`sessionStorage`に保存し、タブを閉じるまで残る）。
  *
  * ネイティブメニューは存在しないため、メニュー由来のイベントは開発者ツールから
- * `window.__MUSPICE_MOCK__.emit('toggle-sidebar')`のように発火させる。
+ * `window.__MUSPICE_MOCK__.emit('toggle-sidebar')`のように発火させる。「再生」メニューと
+ * OSのメディアキーの操作は、`emit('playback-control', { type: 'next' })`のように発火させる。
+ * OSのNow Playingの表示もないため、フロントエンドが伝えた内容は`nowPlaying()`で確認する。
  *
  * 数万曲のライブラリでの動作は、URLに`?mockTracks=50000`を付けて開くと確認できる
  * （フィクスチャに加えて、指定した数のトラックを生成する）。
@@ -17,6 +19,7 @@
  * 曲の切り替わりだけが、時計に合わせて進む。
  */
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
+import type { NowPlayingUpdate } from '#lib/types/models.js';
 import { createMockBackend } from './backend';
 
 /** アートがないトラックに返すURL（読み込みエラーになり、実アプリの404と同じ扱いになる） */
@@ -41,6 +44,8 @@ interface MuspiceMockHandle {
    * ライブラリの外のパス（例: `/Volumes/NEW_SD`）にする。
    */
   setFolderResult(path: string | null): void;
+  /** OSのNow Playingへ伝えたことになっている内容（何も再生していなければnull） */
+  nowPlaying(): NowPlayingUpdate | null;
 }
 
 /** モックで使う`__TAURI_INTERNALS__`の一部（公開型がないため最小限を定義する） */
@@ -157,7 +162,8 @@ export function setupTauriMock(): void {
     },
     setFolderResult: (path) => {
       folderResult = path;
-    }
+    },
+    nowPlaying: () => backend.nowPlaying()
   };
 
   console.info('[mock] Tauri IPCをモックしています（npm run dev:mock）');

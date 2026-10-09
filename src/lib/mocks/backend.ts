@@ -26,6 +26,7 @@ import type {
   ImportResult,
   LibraryFolder,
   Metadata,
+  NowPlayingUpdate,
   Playlist,
   Settings,
   SyncDevice,
@@ -71,6 +72,12 @@ export interface MockBackendOptions {
 export interface MockBackend {
   /** IPCのコマンド名（snake_case）と引数オブジェクトでコマンドを実行する */
   invoke(cmd: string, args?: Record<string, unknown>): Promise<unknown>;
+  /**
+   * OSのNow Playingへ伝えたことになっている内容（`setNowPlaying`で最後に受け取ったもの）
+   *
+   * ブラウザにはOSの表示がないため、フロントエンドが伝えた内容をここで確認する。
+   */
+  nowPlaying(): NowPlayingUpdate | null;
   /** `albumart`プロトコルの代わりに、トラックのアルバムアートをdata URLで返す（アートがなければnull） */
   albumArtUrl(trackId: string): string | null;
 }
@@ -280,6 +287,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   ];
   let playlists: Playlist[] = createFixturePlaylists();
   let currentTrackId: string | null = null;
+  let nowPlaying: NowPlayingUpdate | null = null;
   // 前回の再生状態（保存先に壊れた内容があれば使わない）
   let playbackState: StoredPlaybackState = EMPTY_PLAYBACK_STATE;
   try {
@@ -1001,6 +1009,18 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       return null;
     },
     getOutputDevices: () => MOCK_OUTPUT_DEVICES,
+    setNowPlaying: (update) => {
+      if (update) {
+        validateTrackId(update.trackId);
+        // ライブラリにない曲は、前の曲の情報を残さない
+        if (!tracks.some((track) => track.id === update.trackId)) {
+          nowPlaying = null;
+          fail('NOT_FOUND', '指定されたトラックが見つかりません');
+        }
+      }
+      nowPlaying = update;
+      return null;
+    },
     showInFolder: (trackId) => {
       validateTrackId(trackId);
       console.info(`[mock] ファイルマネージャーで表示: ${findTrack(trackId).filePath}`);
@@ -1229,6 +1249,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       const album = tracks.find((t) => t.id === trackId)?.album ?? null;
       if (album === null || ALBUMS_WITHOUT_ART.has(album)) return null;
       return createAlbumArt(album);
-    }
+    },
+    nowPlaying: () => structuredClone(nowPlaying)
   };
 }

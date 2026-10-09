@@ -240,6 +240,23 @@ export const commands = {
 	/**  出力デバイスの一覧を取得する */
 	getOutputDevices: () => __TAURI_INVOKE<OutputDevice[]>("get_output_devices"),
 	/**
+	 *  プレーヤーバーの状態（曲・再生中かどうか・再生位置）を、OSへ伝える（nullは、再生している曲がない）
+	 * 
+	 *  OSのNow Playing（macOSのコントロールセンターなど）に表示され、メディアキーの操作が
+	 *  このアプリへ届くようになる。対応していないOSでは何もしない。
+	 *  フロントエンドは、前の呼び出しの結果を待ってから次を呼ぶ（順番が入れ替わらないようにする）。
+	 */
+	setNowPlaying: (update: {
+	/**  再生中（一時停止中）の曲 */
+	trackId: string,
+	/**  再生中か（falseは一時停止中） */
+	playing: boolean,
+	/**  再生位置（曲の頭からの秒数） */
+	position: number | null,
+	/**  曲の長さ（秒。再生エンジンがファイルから読んだ値。分からなければnullで、ライブラリの値を使う） */
+	duration: number | null,
+} | null) => __TAURI_INVOKE<null>("set_now_playing", { update }),
+	/**
 	 *  トラックのファイルをシステムのファイルマネージャーで表示
 	 * 
 	 *  WebViewから任意のパスを指定できないよう、トラックIDからDB上のパスを解決する。
@@ -293,6 +310,7 @@ export const events = {
 	libraryChanged: makeEvent<LibraryChanged>("library-changed"),
 	libraryScanProgress: makeEvent<LibraryScanProgress>("library-scan-progress"),
 	openImportDialog: makeEvent<OpenImportDialog>("open-import-dialog"),
+	playbackControl: makeEvent<PlaybackControl>("playback-control"),
 	playbackEvent: makeEvent<PlaybackEvent>("playback-event"),
 	settingsChanged: makeEvent<SettingsChanged>("settings-changed"),
 	showAboutDialog: makeEvent<ShowAboutDialog>("show-about-dialog"),
@@ -547,6 +565,18 @@ export type Metadata = {
 	composer?: string | null,
 };
 
+/**  フロントエンドから届く、プレーヤーバーの状態 */
+export type NowPlayingUpdate = {
+	/**  再生中（一時停止中）の曲 */
+	trackId: string,
+	/**  再生中か（falseは一時停止中） */
+	playing: boolean,
+	/**  再生位置（曲の頭からの秒数） */
+	position: number | null,
+	/**  曲の長さ（秒。再生エンジンがファイルから読んだ値。分からなければnullで、ライブラリの値を使う） */
+	duration: number | null,
+};
+
 /**  メニュー「フォルダをインポート...」: インポートダイアログを開く */
 export type OpenImportDialog = null;
 
@@ -559,6 +589,36 @@ export type OutputDevice = {
 	/**  OSの既定の出力デバイスか */
 	isDefault: boolean,
 };
+
+/**
+ *  再生の操作の要求（メニューバーの「再生」メニューと、OSのメディアキー・コントロールセンターなどから）
+ * 
+ *  再生キューと再生の制御はフロントエンドが持つため、操作はフロントエンド（`Player.svelte`）が
+ *  行う。ウィンドウの中のキー操作と同じ動きになる。
+ */
+export type PlaybackControl = 
+/**  再生と一時停止を切り替える */
+{ type: "toggle" } | 
+/**  再生する（再生中なら何もしない） */
+{ type: "play" } | 
+/**  一時停止する（一時停止中なら何もしない） */
+{ type: "pause" } | 
+/**  次の曲へ進む */
+{ type: "next" } | 
+/**  前の曲へ戻る（3秒以上再生していれば、再生中の曲の頭へ） */
+{ type: "previous" } | 
+/**  再生中の曲の、指定した位置へ移動する */
+{ type: "seek"; 
+/**  曲の頭からの秒数 */
+position: number | null } | 
+/**  音量を1段階上げる・下げる */
+{ type: "volumeUp" } | { type: "volumeDown" } | 
+/**  ミュートを切り替える */
+{ type: "toggleMute" } | 
+/**  シャッフルを切り替える */
+{ type: "toggleShuffle" } | 
+/**  リピートを切り替える（オフ → 全曲 → 1曲） */
+{ type: "toggleRepeat" };
 
 /**  保存する再生状態のうち、キュー以外の値 */
 export type PlaybackCursor = {
