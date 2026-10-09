@@ -149,5 +149,5 @@ sequenceDiagram
 ### メタデータ編集
 
 1. 入力値バリデーション（ID形式、文字数、年・トラック番号）
-2. `update_track_metadata`（1曲）または`update_multiple_tracks_metadata`（一括）で、ファイルのタグへ書き込み、同じ内容をDBに記録する（ADR-019）。評価（`set_rating`）も同じ
+2. `update_track_metadata`（1曲）・`update_multiple_tracks_metadata`（一括）・`apply_metadata_changes`（タグの一括ツール。曲ごとに違う値）で、ファイルのタグへ書き込み、同じ内容をDBに記録する（ADR-019）。評価（`set_rating`）も同じ
 3. 成功後に関連クエリをinvalidateして一覧表示を同期（評価は、キャッシュにあるその曲の値を書き換える）
