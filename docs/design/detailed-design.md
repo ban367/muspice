@@ -280,10 +280,10 @@ export interface Playlist {
 
 ### 設定
 
-| コマンド        | 引数                 | 戻り値     | 備考                                                                                                                                                                                                                |
-| --------------- | -------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `get_settings`  | なし                 | `Settings` | `settings.json`がない・壊れている場合は既定値                                                                                                                                                                       |
-| `save_settings` | `settings: Settings` | `void`     | アクセントカラーは`#rrggbb`、クロスフェードは0〜12秒、再スキャンの間隔は選択肢の値。保存後に`SettingsChanged`イベントを送り、ライブラリフォルダの自動反映と、ネイティブの再生エンジンの出力デバイスに設定を反映する |
+| コマンド        | 引数                 | 戻り値     | 備考                                                                                                                                                                                                                                                |
+| --------------- | -------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `get_settings`  | なし                 | `Settings` | `settings.json`がない・壊れている場合は既定値                                                                                                                                                                                                       |
+| `save_settings` | `settings: Settings` | `void`     | アクセントカラーは`#rrggbb`、クロスフェードは0〜12秒、再スキャンの間隔は選択肢の値。保存後に`SettingsChanged`イベントを送り、ライブラリフォルダの自動反映と、ネイティブの再生エンジン（出力デバイス・音量の正規化・クロスフェード）に設定を反映する |
 
 `Settings`: `{ language: 'ja' \| 'en', startupPage: 'lastOpened' \| 'songs', theme: 'dark' \| 'light' \| 'system', accentColor: string, volumeNormalization: 'off' \| 'track' \| 'album', gaplessPlayback: boolean, crossfadeSeconds: number, playbackEngine: 'webView' \| 'native', outputDeviceId: string \| null, watchLibraryFolders: boolean, libraryScanIntervalMinutes: number }`。既定値は`ja`・`lastOpened`・`dark`・`#3b82f6`・`off`・`true`・`0`・`webView`・`null`・`false`・`0`。`crossfadeSeconds`は0〜12（整数）、`libraryScanIntervalMinutes`は0（しない）・15・30・60・360のいずれか、`outputDeviceId`は`get_output_devices`が返すID（`null`はOSの既定のデバイス。空文字・512バイトを超える値は不可）で、それ以外は`VALIDATION_ERROR`。`outputDeviceId`はネイティブの再生エンジンだけが使い、そのデバイスが接続されていない間は既定のデバイスで再生する（設定は変えない）。ファイルにない項目は既定値で補う（項目を追加しても古いファイルを読める）。
 
@@ -362,16 +362,17 @@ export interface Playlist {
 
 設定の`playbackEngine`が`native`の時に、フロントの再生コントローラー（`nativePlayback.svelte.ts`）が使う（ADR-025）。再生キューはフロントが持ち、エンジンへは「再生する曲」と「続けて再生する曲」だけを伝える。
 
-| コマンド              | 引数                               | 戻り値              | 備考                                                                                                                                                                   |
-| --------------------- | ---------------------------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `playback_play`       | `trackId`, `token`                 | `PlaybackTrackInfo` | トラックを頭から再生する（再生中の曲は止める）。ファイルを開けない・デコードできない・出力を開けない場合はエラー（再生は止まる）。`{ duration: number \| null }`を返す |
-| `playback_set_next`   | `trackId: string \| null`, `token` | `void`              | 再生中の曲に続けて再生するトラックを用意する（`null`で取り消す）。用意に失敗した場合はエラーを返すだけで、再生は続く                                                   |
-| `playback_pause`      | なし                               | `void`              | 一時停止（少し後に出力を止める）                                                                                                                                       |
-| `playback_resume`     | なし                               | `void`              | 再開                                                                                                                                                                   |
-| `playback_seek`       | `position`（秒）                   | `void`              | 鳴っている曲の中で移動する。曲の長さを超える位置は曲の終わりになる。負の値・数値でない値は`VALIDATION`                                                                 |
-| `playback_set_volume` | `volume`（0.0〜1.0）               | `void`              | 範囲外の値は丸める                                                                                                                                                     |
-| `playback_stop`       | なし                               | `void`              | 再生を止め、再生中の曲・続けて再生する曲を手放す                                                                                                                       |
-| `get_output_devices`  | なし                               | `OutputDevice[]`    | `{ id, name, isDefault }`。`id`は接続し直しても変わらない                                                                                                              |
+| コマンド                 | 引数                               | 戻り値              | 備考                                                                                                                                                                   |
+| ------------------------ | ---------------------------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `playback_play`          | `trackId`, `token`                 | `PlaybackTrackInfo` | トラックを頭から再生する（再生中の曲は止める）。ファイルを開けない・デコードできない・出力を開けない場合はエラー（再生は止まる）。`{ duration: number \| null }`を返す |
+| `playback_set_next`      | `trackId: string \| null`, `token` | `void`              | 再生中の曲に続けて再生するトラックを用意する（`null`で取り消す）。用意に失敗した場合はエラーを返すだけで、再生は続く                                                   |
+| `playback_pause`         | なし                               | `void`              | 一時停止（少し後に出力を止める）                                                                                                                                       |
+| `playback_resume`        | なし                               | `void`              | 再開                                                                                                                                                                   |
+| `playback_seek`          | `position`（秒）                   | `void`              | 鳴っている曲の中で移動する。曲の長さを超える位置は曲の終わりになる。負の値・数値でない値は`VALIDATION`                                                                 |
+| `playback_set_volume`    | `volume`（0.0〜1.0）               | `void`              | 範囲外の値は丸める                                                                                                                                                     |
+| `playback_stop`          | なし                               | `void`              | 再生を止め、再生中の曲・続けて再生する曲を手放す                                                                                                                       |
+| `playback_set_equalizer` | `enabled`, `gains: number[]`       | `void`              | イコライザの設定を変える（すぐに効く）。`gains`はバンドごとのゲイン（dB。31Hz〜16kHzの10個。-12〜12に収める）。10個でなければ`VALIDATION`                              |
+| `get_output_devices`     | なし                               | `OutputDevice[]`    | `{ id, name, isDefault }`。`id`は接続し直しても変わらない                                                                                                              |
 
 - `token`は、フロントが再生する曲ごとに振る、増えていく番号。エンジンは、その曲についての通知に同じ番号を付ける。より大きい番号の`playback_play`を受け取った後に届いた、小さい番号の`playback_play`はエラーにし（コマンドは別々のスレッドから届くため、続けて出した要求が逆の順で届くことがある）、`playback_set_next`は無視する
 - `PlaybackEvent`（`type`で見分ける）
@@ -382,6 +383,9 @@ export interface Playlist {
 - 再生位置は、出力のコールバックが取り出したフレーム数から求める（鳴っている位置。リングバッファにたまっている約0.5秒分だけ、デコードしている位置より手前になる）
 - 曲の頭と終わりの余分（エンコーダーの遅延・パディング）は取り除く。MP3（LAMEのタグ）・Ogg Vorbis・Opus・M4AのAAC（`iTunSMPB`か編集リストがある場合）が対象で、ADTSのAAC・MP2はファイルに情報がないため取り除けない
 - 再生回数の記録（`increment_play_count`）と再生中のトラックの通知（`set_current_track`）は、audio要素での再生と同じくフロントが行う（1曲リピートでの繰り返しは数えない）
+- 音量の正規化: `playback_play` / `playback_set_next`の時に、Rust側がトラックのReplayGain（DB）と設定の`volumeNormalization`から倍率を決める（計算は`normalizationGain`と同じ）。設定を変えると、再生中の曲・続けて再生する曲の倍率も決め直す
+- クロスフェード: 設定の`crossfadeSeconds`が1以上で、続けて再生する曲（`playback_set_next`）があれば、エンジンが前の曲の終わりと重ねる。重ねる長さは、設定の秒数を上限に、どちらの曲も長さの半分まで、かつ前の曲の残りまで。同じ曲の繰り返し（同じファイル）と、長さの分からない曲からは、重ねずに切れ目なく続ける。`advanced`は、重なりが鳴り始めた時点で届く
+- イコライザとリミッターは、出力の直前にかける（ADR-026）。イコライザの設定は、エンジンを使う再生コントローラーが、起動時と変更のたびに`playback_set_equalizer`で送る。リミッターは常に有効で、設定はない
 
 ## バリデーション仕様
 
