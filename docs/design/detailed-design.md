@@ -24,8 +24,9 @@ export interface Track {
   sampleRate: number | null;
   isFavorite: boolean;
   rating: number;
-  playCount: number;
-  lastPlayedAt: string | null;
+  playCount: number; // 曲の半分か4分を聴いた回数
+  skipCount: number; // 再生回数に数える前に、別の曲へ移った回数
+  lastPlayedAt: string | null; // 最後に再生回数に数えた日時
   createdAt: string;
   updatedAt: string;
   replayGain: ReplayGain;
@@ -84,16 +85,16 @@ export interface Playlist {
 
 ### テーブル
 
-| テーブル                | 用途                           | 主なカラム                                                                                                                                                                                                                                                                 |
-| ----------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tracks`                | トラック本体                   | `id`, `file_path`, `title`, `artist`, `album`, `album_artist`, `album_artist_read`, `genre`, `year`, `track_number`, `disc_number`, `duration`, `file_size`, `file_modified_at`, `missing_since`, `is_favorite`, `rating`, `play_count`, `last_played_at`, `replay_gain_*` |
-| `library_folders`       | ライブラリフォルダ             | `id`, `path`（UNIQUE）, `added_at`, `last_scanned_at`                                                                                                                                                                                                                      |
-| `playlists`             | プレイリスト本体               | `id`, `name`, `description`, `created_at`, `updated_at`                                                                                                                                                                                                                    |
-| `playlist_tracks`       | プレイリスト内順序             | `playlist_id`, `track_id`, `position`, `added_at`                                                                                                                                                                                                                          |
-| `play_history`          | 再生履歴                       | `id`, `track_id`, `played_at`                                                                                                                                                                                                                                              |
-| `tracks_fts`            | 全文検索（FTS5・trigram）      | `text`（タイトル・アーティスト・アルバム・ジャンル・アルバムアーティストを、検索用に正規化してつないだ文字列）。`rowid`は`tracks`と同じ                                                                                                                                    |
-| `sync_devices`          | 転送先デバイス                 | `id`, `name`, `path`, `sync_all`, `remove_unselected`, `created_at`, `last_synced_at`                                                                                                                                                                                      |
-| `sync_device_playlists` | デバイスに同期するプレイリスト | `device_id`, `playlist_id`                                                                                                                                                                                                                                                 |
+| テーブル                | 用途                           | 主なカラム                                                                                                                                                                                                                                                                               |
+| ----------------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tracks`                | トラック本体                   | `id`, `file_path`, `title`, `artist`, `album`, `album_artist`, `album_artist_read`, `genre`, `year`, `track_number`, `disc_number`, `duration`, `file_size`, `file_modified_at`, `missing_since`, `is_favorite`, `rating`, `play_count`, `skip_count`, `last_played_at`, `replay_gain_*` |
+| `library_folders`       | ライブラリフォルダ             | `id`, `path`（UNIQUE）, `added_at`, `last_scanned_at`                                                                                                                                                                                                                                    |
+| `playlists`             | プレイリスト本体               | `id`, `name`, `description`, `created_at`, `updated_at`                                                                                                                                                                                                                                  |
+| `playlist_tracks`       | プレイリスト内順序             | `playlist_id`, `track_id`, `position`, `added_at`                                                                                                                                                                                                                                        |
+| `play_history`          | 再生履歴                       | `id`, `track_id`, `played_at`                                                                                                                                                                                                                                                            |
+| `tracks_fts`            | 全文検索（FTS5・trigram）      | `text`（タイトル・アーティスト・アルバム・ジャンル・アルバムアーティストを、検索用に正規化してつないだ文字列）。`rowid`は`tracks`と同じ                                                                                                                                                  |
+| `sync_devices`          | 転送先デバイス                 | `id`, `name`, `path`, `sync_all`, `remove_unselected`, `created_at`, `last_synced_at`                                                                                                                                                                                                    |
+| `sync_device_playlists` | デバイスに同期するプレイリスト | `device_id`, `playlist_id`                                                                                                                                                                                                                                                               |
 
 ### インデックス/制約
 
@@ -341,24 +342,34 @@ export interface Playlist {
 
 ### 再生・統計・システム
 
-| コマンド                     | 引数                                                     | 戻り値                  |
-| ---------------------------- | -------------------------------------------------------- | ----------------------- |
-| `set_current_track`          | `trackId: string \| null`                                | `void`                  |
-| `get_current_track`          | なし                                                     | `Track \| null`         |
-| `save_playback_state`        | `cursor: PlaybackCursor`, `queue: PlaybackQueue \| null` | `void`                  |
-| `get_playback_state`         | なし                                                     | `RestoredPlaybackState` |
-| `toggle_favorite`            | `trackId`                                                | `boolean`               |
-| `set_rating`                 | `trackId`, `rating`                                      | `void`                  |
-| `increment_play_count`       | `trackId`                                                | `number`                |
-| `get_favorite_tracks`        | なし                                                     | `Track[]`               |
-| `get_most_played_tracks`     | `limit?`                                                 | `Track[]`               |
-| `get_recently_played_tracks` | `limit?`                                                 | `Track[]`               |
-| `show_in_folder`             | `trackId`                                                | `void`                  |
-| `open_project_page`          | なし                                                     | `void`                  |
+| コマンド                 | 引数                                                     | 戻り値                  |
+| ------------------------ | -------------------------------------------------------- | ----------------------- |
+| `set_current_track`      | `trackId: string \| null`                                | `void`                  |
+| `get_current_track`      | なし                                                     | `Track \| null`         |
+| `save_playback_state`    | `cursor: PlaybackCursor`, `queue: PlaybackQueue \| null` | `void`                  |
+| `get_playback_state`     | なし                                                     | `RestoredPlaybackState` |
+| `toggle_favorite`        | `trackId`                                                | `boolean`               |
+| `set_rating`             | `trackId`, `rating`                                      | `void`                  |
+| `increment_play_count`   | `trackId`                                                | `number`                |
+| `increment_skip_count`   | `trackId`                                                | `number`                |
+| `get_favorite_tracks`    | なし                                                     | `Track[]`               |
+| `get_most_played_tracks` | `limit?`                                                 | `Track[]`               |
+| `get_play_history`       | なし                                                     | `PlayHistoryEntry[]`    |
+| `show_in_folder`         | `trackId`                                                | `void`                  |
+| `open_project_page`      | なし                                                     | `void`                  |
 
 `set_rating`は、評価をファイルのタグへ書き込み、同じ値をDBに記録する（0は評価のタグを取り除く）。評価はloftyの`ItemKey::Popularimeter`（ID3v2 `POPM` / Vorbis `RATING` / MP4 `rate` / RIFF `IRTD`）で読み書きし、インポート・再スキャン・`refresh_library_metadata`でタグから読み込む。評価の数値の付け方は書き込んだアプリごとに違うため、すでに評価があるファイルではその書き手の付け方のまま星の数だけを変え、ない場合はMusicBeeの付け方（ID3v2は1・64・128・196・255、それ以外は20刻み）で書く。Vorbisコメント（FLAC）は、書き手を付けない`RATING`に数値だけを書く（`RATING=80`。すでに星の数の1〜5で書かれていればその付け方を保つ）。loftyの汎用タグは、Vorbisコメントの数値だけの`RATING`を評価として読まず、書き出す時も変換しないため、`metadata.rs`で読み書きする。
 
 `toggle_favorite`・`increment_play_count`（お気に入り・再生回数・再生履歴）とプレイリストは、タグでは持てないためDBだけに保存する。
+
+再生回数・スキップ回数・再生履歴（ADR-030）:
+
+- `increment_play_count`は、再生回数を1増やし、最後に再生した日時を更新して、再生履歴（`play_history`）に1件加える（新しい再生回数を返す）。`increment_skip_count`は、スキップ回数を1増やす（新しいスキップ回数を返す。更新日時・再生履歴は変えない）
+- どちらも、いつ呼ぶかはフロントの再生コントローラーが決める（`playTracker.ts`）
+  - 再生回数: 実際に鳴らした時間の合計が、曲の長さの半分か4分（短いほう）に届いた時。シークで飛ばした分は含めない。曲の長さが分からなければ、4分か曲の終わり。同じ曲を頭から再生し直した場合（1曲リピートの繰り返し・「前へ」での頭出し）は、聴いた時間を数え直す
+  - スキップ回数: 再生回数に数える前に、別の曲を再生し始めた時。鳴らした時間が2秒に満たない曲・最後まで再生された曲・停止・再生の失敗では数えない
+- `get_play_history`は、再生履歴を新しい順に返す（件数の上限はない。同じ曲が何度も出る）。`PlayHistoryEntry`: `{ id: number, trackId: string, playedAt: string }`（`playedAt`はRFC 3339のUTC）。曲の情報は含めず、フロントが全曲の一覧（`get_all_tracks`のキャッシュ）からトラックIDで引く。ライブラリから外した曲の履歴は、外部キーで消える
+- `get_most_played_tracks`は、再生回数の多い順（同じ回数なら、最近再生した曲が先）に返す（`limit`の既定は50）
 
 再生状態の保存と復元（ADR-028）:
 
@@ -390,7 +401,7 @@ export interface Playlist {
   - `{ type: 'failed', token, error }`: 再生を続けられなくなった（ファイルを読めない・出力デバイスを使えない）。再生は止まっている
 - 再生位置は、出力のコールバックが取り出したフレーム数から求める（鳴っている位置。リングバッファにたまっている約0.5秒分だけ、デコードしている位置より手前になる）
 - 曲の頭と終わりの余分（エンコーダーの遅延・パディング）は取り除く。MP3（LAMEのタグ）・Ogg Vorbis・Opus・M4AのAAC（`iTunSMPB`か編集リストがある場合）が対象で、ADTSのAAC・MP2はファイルに情報がないため取り除けない
-- 再生回数の記録（`increment_play_count`）と再生中のトラックの通知（`set_current_track`）は、フロントが行う（1曲リピートでの繰り返しは数えない）
+- 再生回数・スキップ回数の記録（`increment_play_count`・`increment_skip_count`）と再生中のトラックの通知（`set_current_track`）は、フロントが行う（数える条件は、上の「再生回数・スキップ回数・再生履歴」）
 - 音量の正規化: `playback_play` / `playback_set_next`の時に、Rust側がトラックのReplayGain（DB）と設定の`volumeNormalization`から倍率を決める（計算は`playback/normalization.rs`。ADR-012）。設定を変えると、再生中の曲・続けて再生する曲の倍率も決め直す
 - クロスフェード: 設定の`crossfadeSeconds`が1以上で、続けて再生する曲（`playback_set_next`）があれば、エンジンが前の曲の終わりと重ねる。重ねる長さは、設定の秒数を上限に、どちらの曲も長さの半分まで、かつ前の曲の残りまで。同じ曲の繰り返し（同じファイル）と、長さの分からない曲からは、重ねずに切れ目なく続ける。`advanced`は、重なりが鳴り始めた時点で届く
 - イコライザとリミッターは、出力の直前にかける（ADR-026）。イコライザの設定は、エンジンを使う再生コントローラーが、起動時と変更のたびに`playback_set_equalizer`で送る。リミッターは常に有効で、設定はない

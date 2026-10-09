@@ -39,6 +39,7 @@ graph TD
 - 型: `src/lib/types/models.ts` をRustモデルと対応させる
 - データ取得: `src/lib/queries/*.ts` のクエリ・ミューテーションがコマンド呼び出し・キャッシュ無効化・エラー通知を担い、コンポーネントからは直接コマンドを呼ばない
 - 曲の一覧: 全曲の一覧は件数の上限なく1回で取得してキャッシュし、並び替え・選択・再生キューの作成はフロントで行う。アルバム・アーティストはアルバムアーティスト（なければ曲のアーティスト）でまとめる（ADR-022）。アルバム・アーティスト・ジャンルは一覧（曲数・代表の曲）だけを取得し、曲は詳細を開いた時・再生する時にその分だけ取得する。プレイリストの曲も、プレイリストごとに取得する（ADR-021）
+- 再生履歴: 再生した日時とトラックIDの一覧（`get_play_history`）を、全曲の一覧のキャッシュと突き合わせて、日付ごとに表示する（`PlayHistoryList.svelte`。同じ曲が何度も出るため、行は履歴の1件ごとに見分ける。ADR-030）
 - 長い一覧の描画: `src/lib/components/ui/VirtualList.svelte` が、見えている行（とその前後の少しの行）だけを描画する（`implementation.md` 参照）
 - アルバムアート: `#lib/utils/albumArt` の `albumArtUrl(trackId)` が返す `albumart://` のURLを `<img>` に指定し、Rust側のカスタムプロトコルから直接読み込む（フロントエンドに画像データを保持しない）
 - 再生: 再生コントローラー（`src/lib/stores/playback.svelte.ts`）が、再生状態（`player.svelte.ts` の `player`）を `$effect` で監視してRust側の再生エンジン（`src-tauri/src/playback/`）をコマンドで操作し、エンジンからの通知（`PlaybackEvent`。再生位置・曲の切り替わり・終了）を再生状態へ反映する。`Player.svelte` は表示と操作の受付に専念する
@@ -46,6 +47,7 @@ graph TD
   - イコライザ・音量の正規化・クロスフェードは、エンジンの中でかける（ADR-026）。イコライザの設定はフロントエンドが保存し（`equalizer.svelte.ts`。localStorage）、再生コントローラーがエンジンへ送る
   - WebViewは音声ファイルを読まない（audio要素・Web Audioは使わない。ADR-027）
   - 再生状態の保存と復元: 音量・シャッフル・リピート・再生キュー・再生していた曲を、Rust側（`playback_state.rs`）がアプリデータ配下の`playback-state.json`に保存する。再生コントローラーが、起動時に復元し（再生は始めない）、その後の変更をまとめて保存する（`playbackState.svelte.ts`。ADR-028）
+  - 再生回数・スキップ回数（ADR-030）: 再生コントローラーが、実際に鳴らした時間を数え（`playTracker.ts`）、曲の半分か4分を聴いた時に再生回数（と再生履歴）へ、数える前に別の曲へ移った時にスキップ回数へ記録する
   - OSのメディアキー・Now Playing（ADR-029）: 再生コントローラーが、プレーヤーバーと同じ内容（曲・再生中かどうか・再生位置）を`set_now_playing`でRust側へ伝える（`nowPlaying.ts`が、伝え直すかどうかを決める）。OSからの操作と、メニューバーの「再生」メニューは、`PlaybackControl`イベントで届き、`Player.svelte`がウィンドウの中のキー操作と同じ処理を行う
 - ダイアログ: `src/lib/components/ui/Modal.svelte`（ネイティブの`<dialog>`）に統一。テキスト入力は`promptText()`の要求を、レイアウトに置いた`TextPromptDialog`が表示する
 - ブラウザ確認用モック: `npm run dev:mock` のときだけ `src/hooks.client.ts` が `src/lib/mocks` のインメモリバックエンドへIPCを差し替える（`implementation.md` 参照）
