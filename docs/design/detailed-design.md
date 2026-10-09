@@ -85,16 +85,16 @@ export interface Playlist {
 
 ### テーブル
 
-| テーブル                | 用途                           | 主なカラム                                                                                                                                                                                                                                                                               |
-| ----------------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tracks`                | トラック本体                   | `id`, `file_path`, `title`, `artist`, `album`, `album_artist`, `album_artist_read`, `genre`, `year`, `track_number`, `disc_number`, `duration`, `file_size`, `file_modified_at`, `missing_since`, `is_favorite`, `rating`, `play_count`, `skip_count`, `last_played_at`, `replay_gain_*` |
-| `library_folders`       | ライブラリフォルダ             | `id`, `path`（UNIQUE）, `added_at`, `last_scanned_at`                                                                                                                                                                                                                                    |
-| `playlists`             | プレイリスト本体               | `id`, `name`, `description`, `created_at`, `updated_at`                                                                                                                                                                                                                                  |
-| `playlist_tracks`       | プレイリスト内順序             | `playlist_id`, `track_id`, `position`, `added_at`                                                                                                                                                                                                                                        |
-| `play_history`          | 再生履歴                       | `id`, `track_id`, `played_at`                                                                                                                                                                                                                                                            |
-| `tracks_fts`            | 全文検索（FTS5・trigram）      | `text`（タイトル・アーティスト・アルバム・ジャンル・アルバムアーティストを、検索用に正規化してつないだ文字列）。`rowid`は`tracks`と同じ                                                                                                                                                  |
-| `sync_devices`          | 転送先デバイス                 | `id`, `name`, `path`, `sync_all`, `remove_unselected`, `created_at`, `last_synced_at`                                                                                                                                                                                                    |
-| `sync_device_playlists` | デバイスに同期するプレイリスト | `device_id`, `playlist_id`                                                                                                                                                                                                                                                               |
+| テーブル                | 用途                           | 主なカラム                                                                                                                                                                                                                                                                                               |
+| ----------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tracks`                | トラック本体                   | `id`, `file_path`, `title`, `artist`, `album`, `album_artist`, `album_artist_read`, `genre`, `year`, `track_number`, `disc_number`, `duration`, `file_size`, `file_modified_at`, `missing_since`, `is_favorite`, `favorited_at`, `rating`, `play_count`, `skip_count`, `last_played_at`, `replay_gain_*` |
+| `library_folders`       | ライブラリフォルダ             | `id`, `path`（UNIQUE）, `added_at`, `last_scanned_at`                                                                                                                                                                                                                                                    |
+| `playlists`             | プレイリスト本体               | `id`, `name`, `description`, `created_at`, `updated_at`                                                                                                                                                                                                                                                  |
+| `playlist_tracks`       | プレイリスト内順序             | `playlist_id`, `track_id`, `position`, `added_at`                                                                                                                                                                                                                                                        |
+| `play_history`          | 再生履歴                       | `id`, `track_id`, `played_at`                                                                                                                                                                                                                                                                            |
+| `tracks_fts`            | 全文検索（FTS5・trigram）      | `text`（タイトル・アーティスト・アルバム・ジャンル・アルバムアーティストを、検索用に正規化してつないだ文字列）。`rowid`は`tracks`と同じ                                                                                                                                                                  |
+| `sync_devices`          | 転送先デバイス                 | `id`, `name`, `path`, `sync_all`, `remove_unselected`, `created_at`, `last_synced_at`                                                                                                                                                                                                                    |
+| `sync_device_playlists` | デバイスに同期するプレイリスト | `device_id`, `playlist_id`                                                                                                                                                                                                                                                                               |
 
 ### インデックス/制約
 
@@ -348,7 +348,7 @@ export interface Playlist {
 | `get_current_track`      | なし                                                     | `Track \| null`         |
 | `save_playback_state`    | `cursor: PlaybackCursor`, `queue: PlaybackQueue \| null` | `void`                  |
 | `get_playback_state`     | なし                                                     | `RestoredPlaybackState` |
-| `toggle_favorite`        | `trackId`                                                | `boolean`               |
+| `set_favorite`           | `trackIds: string[]`, `favorite: boolean`                | `void`                  |
 | `set_rating`             | `trackId`, `rating`                                      | `void`                  |
 | `increment_play_count`   | `trackId`                                                | `number`                |
 | `increment_skip_count`   | `trackId`                                                | `number`                |
@@ -360,7 +360,12 @@ export interface Playlist {
 
 `set_rating`は、評価をファイルのタグへ書き込み、同じ値をDBに記録する（0は評価のタグを取り除く）。評価はloftyの`ItemKey::Popularimeter`（ID3v2 `POPM` / Vorbis `RATING` / MP4 `rate` / RIFF `IRTD`）で読み書きし、インポート・再スキャン・`refresh_library_metadata`でタグから読み込む。評価の数値の付け方は書き込んだアプリごとに違うため、すでに評価があるファイルではその書き手の付け方のまま星の数だけを変え、ない場合はMusicBeeの付け方（ID3v2は1・64・128・196・255、それ以外は20刻み）で書く。Vorbisコメント（FLAC）は、書き手を付けない`RATING`に数値だけを書く（`RATING=80`。すでに星の数の1〜5で書かれていればその付け方を保つ）。loftyの汎用タグは、Vorbisコメントの数値だけの`RATING`を評価として読まず、書き出す時も変換しないため、`metadata.rs`で読み書きする。
 
-`toggle_favorite`・`increment_play_count`（お気に入り・再生回数・再生履歴）とプレイリストは、タグでは持てないためDBだけに保存する。
+`set_favorite`・`increment_play_count`（お気に入り・再生回数・再生履歴）とプレイリストは、タグでは持てないためDBだけに保存する。
+
+お気に入り（ADR-031）:
+
+- `set_favorite`は、渡したトラックをまとめてお気に入りにする（`favorite: true`）・お気に入りから外す（`false`）。お気に入りにした日時（`favorited_at`）も記録し、すでにお気に入りの曲は元の日時のままにする。更新日時（`updated_at`）は変えない。見つからないトラックがある場合は`NOT_FOUND`で、1曲も変えない
+- `get_favorite_tracks`は、お気に入りの曲を、最近お気に入りにした順に返す（件数の上限はない。まとめてお気に入りにした曲は、アルバム・ディスク番号・トラック番号の順）
 
 再生回数・スキップ回数・再生履歴（ADR-030）:
 
