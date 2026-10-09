@@ -13,6 +13,7 @@
   import { startTrackDrag } from '#lib/utils/trackDrag.js';
   import PlayingIndicator from './PlayingIndicator.svelte';
   import RatingStars from './RatingStars.svelte';
+  import FavoriteButton from './FavoriteButton.svelte';
   import MarqueeText from '../MarqueeText.svelte';
   import AlbumArt from '../AlbumArt.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
@@ -214,10 +215,14 @@
                   <span class="track-artist">{track.artist}</span>
                 {/if}
               </div>
-              <RatingStars
-                rating={track.rating}
-                onChange={(rating) => setRatingMutation.mutateAsync({ trackId: track.id, rating })}
-              />
+              <div class="flex items-center gap-2">
+                <FavoriteButton trackId={track.id} isFavorite={track.isFavorite} />
+                <RatingStars
+                  rating={track.rating}
+                  onChange={(rating) =>
+                    setRatingMutation.mutateAsync({ trackId: track.id, rating })}
+                />
+              </div>
               <span class="track-duration">{formatDuration(track.duration)}</span>
               <button class="track-action-btn" title={m.common.more}>
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">

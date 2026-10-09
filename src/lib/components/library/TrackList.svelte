@@ -12,6 +12,7 @@
   import type { Track } from '#lib/types/models.js';
   import PlayingIndicator from './PlayingIndicator.svelte';
   import RatingStars from './RatingStars.svelte';
+  import FavoriteButton from './FavoriteButton.svelte';
   import MetadataEditor from '../MetadataEditor.svelte';
   import ContextMenu from '../ContextMenu.svelte';
   import DeleteTrackDialog from '../DeleteTrackDialog.svelte';
@@ -37,8 +38,12 @@
     emptyMessage?: string;
     emptyHint?: string;
     displayMode?: 'grid' | 'list';
-    /** 最初の並び順（省略時は、追加した日時の新しい順） */
-    defaultSort?: { field: TrackSortField; direction: SortDirection };
+    /**
+     * 最初の並び順（省略時は、追加した日時の新しい順）
+     *
+     * nullなら、渡した順のまま並べる（見出しをクリックすると、その項目で並べ替える）。
+     */
+    defaultSort?: { field: TrackSortField; direction: SortDirection } | null;
     /** リスト表示に、再生回数の列を出すか */
     showPlayCount?: boolean;
   }
@@ -67,9 +72,9 @@
 
   // 最初の並び順だけを受け取る（その後は、見出しのクリックで変える）
   // svelte-ignore state_referenced_locally
-  let sortField = $state<TrackSortField>(defaultSort.field);
+  let sortField = $state<TrackSortField | null>(defaultSort?.field ?? null);
   // svelte-ignore state_referenced_locally
-  let sortDirection = $state<SortDirection>(defaultSort.direction);
+  let sortDirection = $state<SortDirection>(defaultSort?.direction ?? 'asc');
 
   // アルバムアートサイズ
   const artSize = $derived(ui.gridCardSize);
@@ -94,12 +99,15 @@
   let resizeStartX = $state(0);
   let resizeStartWidth = $state(0);
 
+  // お気に入りのハートの列の幅（px）
+  const FAVORITE_COLUMN_WIDTH = 20;
   // 再生回数の列の幅（px）
   const PLAY_COUNT_COLUMN_WIDTH = 72;
 
   // グリッドテンプレート列を計算
   const gridTemplateColumns = $derived(
-    `${ui.columnWidths.number}px ${ui.columnWidths.title}px ${ui.columnWidths.artist}px ${ui.columnWidths.rating}px ` +
+    `${ui.columnWidths.number}px ${ui.columnWidths.title}px ${ui.columnWidths.artist}px ` +
+      `${FAVORITE_COLUMN_WIDTH}px ${ui.columnWidths.rating}px ` +
       (showPlayCount ? `${PLAY_COUNT_COLUMN_WIDTH}px ` : '') +
       `${ui.columnWidths.duration}px`
   );
@@ -109,7 +117,9 @@
 
   // ソートされたトラック
   const sortTracks = createTrackSorter();
-  const sortedTracks = $derived(tracks ? sortTracks(tracks, sortField, sortDirection) : null);
+  const sortedTracks = $derived(
+    tracks && sortField ? sortTracks(tracks, sortField, sortDirection) : tracks
+  );
 
   function toggleSort(field: TrackSortField) {
     if (sortField === field) {
@@ -320,6 +330,8 @@
                   aria-orientation="vertical"
                 ></div>
               </div>
+              <!-- お気に入りのハートの列（見出しは出さない） -->
+              <div></div>
               <div class="resizable-header">
                 <div class="col-rating">{m.fields.rating}</div>
                 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -383,6 +395,7 @@
                   : track.artist || m.common.unknownArtist}
                 class="text-text-secondary text-sm"
               />
+              <FavoriteButton trackId={track.id} isFavorite={track.isFavorite} />
               <div class="col-rating flex items-center justify-center">
                 <RatingStars
                   rating={track.rating}

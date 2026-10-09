@@ -1,13 +1,13 @@
 <!--
   @component ContextMenu
   トラック用コンテキストメニュー。
-  再生、キュー操作、プレイリスト追加、メタデータ編集、削除などのアクションを提供する。
+  再生、キュー操作、プレイリスト追加、お気に入りの切り替え、メタデータ編集、削除などのアクションを提供する。
 -->
 <script lang="ts">
   import type { Track } from '#lib/types/models.js';
   import { BaseContextMenu, PlaylistSubmenu } from '#lib/components/ui/index.js';
   import { addNextInQueue, addToQueue, playSingleTrack } from '#lib/stores/player.svelte.js';
-  import { useShowInFolderMutation } from '#lib/queries/tracks.js';
+  import { useSetFavoriteMutation, useShowInFolderMutation } from '#lib/queries/tracks.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   // Props
@@ -38,6 +38,7 @@
   }: Props = $props();
 
   const showInFolderMutation = useShowInFolderMutation();
+  const setFavoriteMutation = useSetFavoriteMutation();
 
   // 選択されたトラックの数
   const selectedCount = $derived(selectedTrackIds.size > 0 ? selectedTrackIds.size : 1);
@@ -82,6 +83,20 @@
     } else {
       addToQueue(selectedTracks);
     }
+    onClose();
+  }
+
+  // 選択した曲がすべてお気に入りなら「外す」、そうでなければ「追加」（まだの曲をまとめて追加する）
+  const allFavorite = $derived(selectedTracks.every((selected) => selected.isFavorite));
+
+  /**
+   * 選択した曲をまとめてお気に入りにする・お気に入りから外す（失敗はミューテーション内でトースト通知する）
+   */
+  function handleToggleFavorite() {
+    setFavoriteMutation.mutate({
+      trackIds: selectedTracks.map((selected) => selected.id),
+      favorite: !allFavorite
+    });
     onClose();
   }
 
@@ -171,6 +186,24 @@
   <div class="menu-divider"></div>
 
   <PlaylistSubmenu tracks={selectedTracks} {onClose} />
+
+  <button class="menu-item" onclick={handleToggleFavorite} role="menuitem">
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      class="menu-icon"
+      fill={allFavorite ? 'currentColor' : 'none'}
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+    >
+      <path
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="2"
+        d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"
+      />
+    </svg>
+    <span>{allFavorite ? m.common.removeFromFavorites : m.common.addToFavorites}</span>
+  </button>
 
   <div class="menu-divider"></div>
 

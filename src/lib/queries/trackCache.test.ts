@@ -2,7 +2,12 @@ import { QueryClient } from '@tanstack/svelte-query';
 import { describe, expect, it } from 'vitest';
 import type { AlbumGroup, Track } from '#lib/types/models.js';
 import { queryKeys } from './keys';
-import { patchTrackData, patchTrackInCache } from './trackCache';
+import {
+  patchTrackData,
+  patchTrackInCache,
+  patchTracksData,
+  patchTracksInCache
+} from './trackCache';
 
 function track(id: string, rating = 0): Track {
   return {
@@ -77,6 +82,51 @@ describe('patchTrackData', () => {
     expect(patchTrackData(albums, 'z', { rating: 5 })).toBe(albums);
     expect(patchTrackData(empty, 'z', { rating: 5 })).toBe(empty);
     expect(patchTrackData(undefined, 'z', { rating: 5 })).toBeUndefined();
+  });
+});
+
+describe('patchTracksData', () => {
+  it('複数の曲をまとめて書き換える（ほかの曲は同じ参照のまま）', () => {
+    const tracks = [track('a'), track('b'), track('c')];
+
+    const patched = patchTracksData(tracks, new Set(['a', 'c', 'z']), { isFavorite: true });
+
+    expect(patched.map((t) => t.isFavorite)).toEqual([true, false, true]);
+    expect(patched[1]).toBe(tracks[1]);
+    expect(tracks[0].isFavorite).toBe(false);
+  });
+
+  it('アルバムごとの曲も、まとめて書き換える', () => {
+    const albums = [album('X', [track('a')]), album('Y', [track('b'), track('c')])];
+
+    const patched = patchTracksData(albums, new Set(['a', 'c']), { isFavorite: true });
+
+    expect(patched[0].tracks[0].isFavorite).toBe(true);
+    expect(patched[1].tracks.map((t) => t.isFavorite)).toEqual([false, true]);
+  });
+
+  it('対象の曲を含まない・対象がない場合は、同じ参照のまま返す', () => {
+    const tracks = [track('a')];
+
+    expect(patchTracksData(tracks, new Set(['z']), { isFavorite: true })).toBe(tracks);
+    expect(patchTracksData(tracks, new Set<string>(), { isFavorite: true })).toBe(tracks);
+  });
+});
+
+describe('patchTracksInCache', () => {
+  it('曲を返すすべてのクエリのキャッシュの、複数の曲を書き換える', () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(queryKeys.tracks.list, [track('a'), track('b'), track('c')]);
+    queryClient.setQueryData(queryKeys.tracks.album('X', 'A'), [track('c')]);
+
+    patchTracksInCache(queryClient, ['a', 'c'], { isFavorite: true });
+
+    expect(
+      queryClient.getQueryData<Track[]>(queryKeys.tracks.list)?.map((t) => t.isFavorite)
+    ).toEqual([true, false, true]);
+    expect(
+      queryClient.getQueryData<Track[]>(queryKeys.tracks.album('X', 'A'))?.[0].isFavorite
+    ).toBe(true);
   });
 });
 
