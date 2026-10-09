@@ -46,13 +46,14 @@ graph TD
   - イコライザ・音量の正規化・クロスフェードは、エンジンの中でかける（ADR-026）。イコライザの設定はフロントエンドが保存し（`equalizer.svelte.ts`。localStorage）、再生コントローラーがエンジンへ送る
   - WebViewは音声ファイルを読まない（audio要素・Web Audioは使わない。ADR-027）
   - 再生状態の保存と復元: 音量・シャッフル・リピート・再生キュー・再生していた曲を、Rust側（`playback_state.rs`）がアプリデータ配下の`playback-state.json`に保存する。再生コントローラーが、起動時に復元し（再生は始めない）、その後の変更をまとめて保存する（`playbackState.svelte.ts`。ADR-028）
+  - OSのメディアキー・Now Playing（ADR-029）: 再生コントローラーが、プレーヤーバーと同じ内容（曲・再生中かどうか・再生位置）を`set_now_playing`でRust側へ伝える（`nowPlaying.ts`が、伝え直すかどうかを決める）。OSからの操作と、メニューバーの「再生」メニューは、`PlaybackControl`イベントで届き、`Player.svelte`がウィンドウの中のキー操作と同じ処理を行う
 - ダイアログ: `src/lib/components/ui/Modal.svelte`（ネイティブの`<dialog>`）に統一。テキスト入力は`promptText()`の要求を、レイアウトに置いた`TextPromptDialog`が表示する
 - ブラウザ確認用モック: `npm run dev:mock` のときだけ `src/hooks.client.ts` が `src/lib/mocks` のインメモリバックエンドへIPCを差し替える（`implementation.md` 参照）
 
 ## バックエンド構成
 
 - エントリーポイント: `src-tauri/src/lib.rs`
-- アプリ状態: `AppState { db: Mutex<Connection>, current_track_id: Mutex<Option<String>>, album_art_limiter: Semaphore, album_art_cache: Mutex<AlbumArtCache>, library_scan_lock: Mutex<()> }`。ほかに設定（`SettingsState`）・前回の再生状態（`PlaybackStateStore`）・再生エンジン（`PlaybackEngine`）・ライブラリフォルダの自動反映（`LibrarySync`）を管理する
+- アプリ状態: `AppState { db: Mutex<Connection>, current_track_id: Mutex<Option<String>>, album_art_limiter: Semaphore, album_art_cache: Mutex<AlbumArtCache>, library_scan_lock: Mutex<()> }`。ほかに設定（`SettingsState`）・前回の再生状態（`PlaybackStateStore`）・再生エンジン（`PlaybackEngine`）・OSのメディアキー / Now Playing（`MediaControls`）・ライブラリフォルダの自動反映（`LibrarySync`）を管理する
 - 既存のトラックのアルバムアーティストの読み込み: `album_artist_backfill.rs` が、アルバムアーティストの列を追加する前に登録したトラックの分を、起動時に別スレッドでファイルのタグから読み込む（対象がなければ何もしない。ADR-022）
 - ライブラリフォルダの自動反映: `library_sync.rs` が、設定に応じて起動時・定期（専用スレッド）・フォルダの監視（`notify-debouncer-mini`）で再スキャンする。インポート・再スキャン・ライブラリフォルダの削除は`library_scan_lock`で1つずつ行い、ロックの順序は「スキャン → DB」
 - アルバムアートの配信: `album_art.rs` が `albumart` カスタムプロトコルを処理する。トラックIDからDB上のファイルを引いて埋め込み画像をバイト列のまま返し、抽出結果（アートがないことを含む）は容量上限付きのLRUキャッシュ（64MiB）に保持する。WebViewには`no-store`でキャッシュさせず、インポート後はキャッシュを消去する
@@ -60,6 +61,8 @@ graph TD
 - バックエンド→フロントエンドの通知は `events.rs` の型付きイベント（tauri-specta）で行い、フロントは `bindings.ts` の `events.xxx.listen()` で受け取る
 - デバイスへの転送: `device.rs`（デバイスの記録）・`device_manifest.rs`（デバイス側の管理ファイル）・`device_sync.rs`（配置と差分の計算。ファイルシステムに触れない）・`device_transfer.rs`（削除・リネーム・コピー・プレイリストの書き出し）に分ける。同時に実行する同期は1つ（`DeviceSyncState`）で、DBロックは曲・プレイリストの読み出しの間だけ持つ（コピー中は持たない）
 - 再生エンジン: `playback/`。エンジンのスレッド（`engine.rs`）がコマンドを順に処理しながら、デコード（`decoder.rs`。`symphonia`とlibopus） → 出力の形式への変換（`convert.rs`。ステレオ・出力デバイスのサンプルレート。`rubato`） → 音量の正規化（`normalization.rs`。曲ごとの倍率） → クロスフェード（2曲を重ねる） → リングバッファへの書き込みを行う。出力のコールバック（`render.rs`。`cpal`が呼ぶOSの音声のスレッド）は、リングバッファから取り出して、イコライザ → 音量・一時停止 → リミッター（`effects.rs`）の順にかけるだけで、ロック・メモリの確保・ファイルの読み取りをしない。出力は最初に再生する時に開き、再生していない間は止める（ADR-025・ADR-026）
+- OSのメディアキー・Now Playing: `media_controls/`。`set_now_playing`で届いた曲のIDから、曲の情報とアルバムアート（`album_art.rs`のキャッシュ）を読んでOSへ渡し、OSからの操作を`PlaybackControl`イベントでフロントエンドへ送る。macOSだけに対応し（`macos.rs`。MediaPlayerフレームワーク）、ほかのOSでは何もしない。MediaPlayerのオブジェクトはメインスレッドだけで扱う（ADR-029）
+- メニューバー: `menu.rs`（設定の言語に合わせる）。「再生」メニューの項目は、`PlaybackControl`イベントを送る（キーは割り当てない）
 - コマンド登録: `tauri::generate_handler!` でインポート/検索/編集/再生/統計/システム操作を公開
 - DB初期化: `db.rs` のマイグレーションでテーブル・インデックス・FTS5・トリガーを作成
 

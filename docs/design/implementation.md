@@ -17,6 +17,7 @@
 | ウィンドウの状態 | tauri-plugin-window-state        | 2.5.x                                              | メインウィンドウのサイズ・位置の記憶（Rust側のみ）                                                                                                |
 | デバイスへの転送 | fs4 / unicode-normalization      | 1.1 / 0.1                                          | 転送先の空き容量の取得 / ファイル名のNFC正規化                                                                                                    |
 | 再生エンジン     | symphonia / cpal / rubato / rtrb | 0.6 / 0.18 / 5 / 0.4                               | デコード / 出力 / サンプルレートの変換 / リングバッファ。Opusは`symphonia-adapter-libopus` 0.3（libopusを同梱。ビルドにCコンパイラとcmakeが要る） |
+| メディアキー     | objc2-media-player（objc2）      | 0.3（objc2 0.6）                                   | macOSのNow Playing・リモートコマンド（MediaPlayerフレームワーク）。macOSだけの依存で、Tauriが使っているobjc2系のクレートとそろえる                |
 
 ## ディレクトリ構成
 
@@ -69,7 +70,10 @@ src-tauri/src/
 ├── library.rs
 ├── library_folder.rs
 ├── library_sync.rs        # ライブラリフォルダの変更の自動反映（起動時・定期・監視）
-├── menu.rs                # メニューバーと設定ウィンドウのタイトル（言語に合わせる）
+├── media_controls/        # OSのメディアキー・Now Playing（ADR-029）
+│   ├── mod.rs             # OSへ渡す内容の組み立て（曲の情報・アルバムアート）
+│   └── macos.rs           # macOSのMediaPlayerフレームワークの呼び出し（macOSだけでコンパイルする）
+├── menu.rs                # メニューバー（「再生」メニューを含む）と設定ウィンドウのタイトル（言語に合わせる）
 ├── playback/              # 再生エンジン（ADR-025・ADR-026）
 │   ├── engine.rs          # エンジン本体（コマンドの処理・曲の切り替え・再生位置の通知）
 │   ├── decoder.rs         # ファイルのデコード（symphonia + libopus）
@@ -141,6 +145,8 @@ src-tauri/src/
   - 復元（`restorePlaybackState`）は、音量・シャッフル・リピートと、キュー・再生していた曲を`player`へ戻す。再生コントローラーは`player.currentTrack`の変化で再生を始めるため、戻す直前に「この曲は再生を始めない」と記録する（復元した曲は、再生ボタンで頭から再生する）
   - 保存（`watchPlaybackState`）は、復元が済んでから始める（先に始めると、復元する前の空の状態で上書きする）。変更から0.3秒待ってまとめて送り、キューは、キューの配列が置き換わった時だけ送る
   - エンジンが曲を持っていない間（復元した直後・再生に失敗した後）は、シークしても位置を動かさない（再生ボタンで頭から再生するため）
+- OSのNow Playingへの通知は`#lib/stores/nowPlaying`が担い、再生コントローラーが`player`の状態を渡す（ADR-029）。再生位置は0.25秒ごとに変わるが、伝え直すのは、曲・再生中かどうかが変わったときと、位置がOSの計算と1秒以上ずれたときだけ
+- メニューバーの「再生」メニューと、OSのメディアキーなどからの操作（`PlaybackControl`イベント）は、`Player.svelte`が受け取り、ウィンドウの中のキー操作と同じ処理を行う
 - 再生キュー（右サイドバー）の曲をダブルクリックした時は、`playQueueIndex(index)`でキューの並びを変えずに再生位置だけを移す（指定した位置より前の曲もキューに残る）
 - 再生中かどうか（`isPlaying`）は、エンジンのコマンドの結果（再生を始めた・一時停止した）と通知（失敗）から更新する。再生位置（`currentTime`）は、エンジンの`position`の通知で更新する
 - エンジンへ渡す番号（トークン）は、再生する曲・続けて再生する曲ごとに増やす。通知（`PlaybackEvent`）は番号で見分け、前の曲についての通知は捨てる
@@ -304,6 +310,8 @@ Tauriのウィンドウ（macOSではWKWebView）はブラウザ自動化ツー�
   - `tauri.ts`: event・dialog・windowプラグインと`convertFileSrc`の差し替え
 - ネイティブメニューのイベントや確認ダイアログの回答は、開発者ツールから`window.__MUSPICE_MOCK__`で操作する
   - `window.__MUSPICE_MOCK__.emit('open-import-dialog')`（`toggle-sidebar` / `show-about-dialog`も同様）
+  - `window.__MUSPICE_MOCK__.emit('playback-control', { type: 'next' })`で、「再生」メニュー・OSのメディアキーの操作を再現する
+  - `window.__MUSPICE_MOCK__.nowPlaying()`で、OSのNow Playingへ伝えた内容を確認する（ブラウザにはOSの表示がないため）
   - `window.__MUSPICE_MOCK__.setConfirmResult(false)`で、以降の確認ダイアログを「キャンセル」にする
   - `window.__MUSPICE_MOCK__.setFolderResult('/Volumes/NEW_SD')`で、以降のフォルダ選択ダイアログで選ばれるパスを変える。既定のパスはライブラリフォルダの中のため、転送先デバイスの追加を確認するときはライブラリの外のパスにする
 - 音は鳴らない（再生位置と曲の切り替わりだけが進む）。音の確認は、実アプリで行う
