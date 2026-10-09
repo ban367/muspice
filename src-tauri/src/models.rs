@@ -25,7 +25,11 @@ pub struct Track {
     pub sample_rate: Option<i32>,
     pub is_favorite: bool,
     pub rating: i32,
+    /// 再生回数（曲の半分か4分を聴いた回数）
     pub play_count: i32,
+    /// スキップ回数（再生回数に数える前に、別の曲へ移った回数）
+    pub skip_count: i32,
+    /// 最後に再生回数に数えた日時
     pub last_played_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
@@ -33,6 +37,20 @@ pub struct Track {
     pub replay_gain: ReplayGain,
     /// ファイルが見つからない（再スキャンで見つからなくなった曲。利用者が外すまで残す）
     pub is_missing: bool,
+}
+
+/// 再生履歴の1件（再生回数に数えた再生）
+///
+/// 曲の情報は持たない（フロントエンドが、全曲の一覧のキャッシュからトラックIDで引く）。
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PlayHistoryEntry {
+    /// 履歴のID（同じ曲が何度も出るため、行の識別に使う）
+    #[specta(type = specta_typescript::Number)]
+    pub id: i64,
+    pub track_id: String,
+    /// 再生回数に数えた日時（RFC 3339。UTC）
+    pub played_at: String,
 }
 
 /// 音量の正規化に使うゲインとピーク（ReplayGainのタグ、またはEBU R128のタグから読み取る）

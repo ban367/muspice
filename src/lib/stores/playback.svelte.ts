@@ -3,8 +3,9 @@
  *
  * Rust側の再生エンジン（`src-tauri/src/playback/`）をコマンドで操作し、エンジンからの通知
  * （`PlaybackEvent`）を再生状態（`./player.svelte.ts`）へ反映する。キューの遷移・再生回数の
- * 記録・イコライザの設定の送信・再生状態の復元と保存（`./playbackState.svelte.ts`）・OSのNow Playing
- * への通知（`./nowPlaying.ts`）もまとめて扱う。
+ * 記録（数えるかどうかは`./playTracker.ts`が聴いた時間で決める）・イコライザの設定の送信・
+ * 再生状態の復元と保存（`./playbackState.svelte.ts`）・OSのNow Playingへの通知（`./nowPlaying.ts`）も
+ * まとめて扱う。
  * Playerコンポーネントは表示と操作の受付だけを行い、再生の制御はここに委ねる。
  *
  * 再生キューはフロントエンド（`./player.svelte.ts`）が持つ。エンジンへは「再生する曲」と
@@ -30,10 +31,12 @@
  */
 import { untrack } from 'svelte';
 import { commands, events, type PlaybackEvent } from '#lib/bindings.js';
-import { incrementPlayCount } from '#lib/queries/tracks.js';
+import type { QueryClient } from '@tanstack/svelte-query';
+import { recordPlay, recordSkip } from '#lib/queries/tracks.js';
 import { EQ_FREQUENCIES, equalizer } from './equalizer.svelte.js';
 import { handleError } from './error.svelte.js';
 import { createNowPlayingReporter } from './nowPlaying.js';
+import { createPlayTracker } from './playTracker.js';
 import { restorePlaybackState, watchPlaybackState } from './playbackState.svelte.js';
 import {
   peekNextTrack,
@@ -60,6 +63,11 @@ export interface PlaybackControllerOptions {
    * （重ねる処理は、エンジンが設定を読んで行う）
    */
   crossfadeSeconds?: () => number;
+  /**
+   * 再生回数・スキップ回数を記録した時に、キャッシュ（曲の一覧・再生履歴）へ反映する先。
+   * 省略時は、記録だけを行う
+   */
+  queryClient?: QueryClient;
 }
 
 export interface PlaybackController {
@@ -102,8 +110,11 @@ export function createPlaybackController(
   let loaded = false;
   /** `playbackPlay`の結果を待っている数（待っている間は、再生/一時停止の操作を受けない） */
   let starting = 0;
-  /** 再生回数を記録した曲（同じ曲の再生し直しでは、もう一度記録しない） */
-  let countedTrackId: string | null = null;
+  /** 再生回数・スキップ回数に数えるかどうかの判定（聴いた時間で決める。`./playTracker.ts`） */
+  const tracker = createPlayTracker({
+    onPlayed: (trackId) => void recordPlay(trackId, options.queryClient),
+    onSkipped: (trackId) => void recordSkip(trackId, options.queryClient)
+  });
   /** 続けて再生する曲として、エンジンに伝えた曲 */
   let queuedNext: { token: number; trackId: string } | null = null;
   let scrubbing = false;
@@ -123,6 +134,7 @@ export function createPlaybackController(
   function reportPlaybackError(error: unknown): void {
     handleError(error, m.errors.playbackFailed);
     player.isPlaying = false;
+    tracker.reset();
   }
 
   /** エンジンのコマンドを呼ぶ（結果を待たない操作用。失敗はログに残す） */
@@ -132,9 +144,10 @@ export function createPlaybackController(
 
   /**
    * トラックを頭から再生する
-   * @param countPlay falseなら、バックエンドへの通知と再生回数の記録をしない（同じ曲の再生し直し）
+   *
+   * 前の曲を再生回数に数える前に別の曲へ移ってきた場合は、前の曲がスキップに数えられる。
    */
-  async function start(track: Track, countPlay = true): Promise<void> {
+  async function start(track: Track): Promise<void> {
     const token = ++lastToken;
     currentToken = token;
     engineTrackId = track.id;
@@ -144,6 +157,7 @@ export function createPlaybackController(
     player.currentTime = 0;
     // 曲の長さは、再生エンジンがファイルから読むまで、ライブラリの値を出しておく
     player.duration = track.duration ?? 0;
+    tracker.begin(track.id, player.duration);
     starting++;
 
     try {
@@ -153,22 +167,16 @@ export function createPlaybackController(
 
       loaded = true;
       player.duration = info.duration ?? track.duration ?? 0;
+      tracker.setDuration(player.duration);
       player.isPlaying = true;
       syncNext();
-      if (countPlay) await notifyStarted(track);
+      await commands.setCurrentTrack(track.id);
     } catch (error) {
       if (token !== currentToken || destroyed) return;
       reportPlaybackError(error);
     } finally {
       starting--;
     }
-  }
-
-  /** 現在再生中のトラックをバックエンドに通知し、再生回数を記録する */
-  async function notifyStarted(track: Track): Promise<void> {
-    countedTrackId = track.id;
-    await commands.setCurrentTrack(track.id);
-    void incrementPlayCount(track.id);
   }
 
   /**
@@ -196,11 +204,13 @@ export function createPlaybackController(
     const track = player.currentTrack;
     if (!track) return;
     if (!loaded) {
-      void start(track, false);
+      void start(track);
       return;
     }
     cancelPendingSeek();
     player.currentTime = 0;
+    // 頭から再生し直すため、聴いた時間を数え直す
+    tracker.begin(track.id, player.duration);
     send(() => commands.playbackSeek(0), 'シーク');
     if (!player.isPlaying) {
       player.isPlaying = true;
@@ -226,6 +236,7 @@ export function createPlaybackController(
 
   /** 曲が終わった後、キューの次の曲へ進む（次がなければ再生を終える） */
   function advanceQueueAfterEnd(): void {
+    tracker.finish();
     loaded = false;
     queuedNext = null;
     player.currentTime = 0;
@@ -245,6 +256,8 @@ export function createPlaybackController(
     }
 
     const repeating = queued.trackId === player.currentTrack?.id;
+    // 前の曲は最後まで再生された
+    tracker.finish();
     currentToken = token;
     // 先に記録しておき、下の`playNextTrack`による`player.currentTrack`の変更で再生し直さない
     engineTrackId = queued.trackId;
@@ -254,10 +267,12 @@ export function createPlaybackController(
     const track = player.currentTrack;
     player.currentTime = 0;
     player.duration = duration ?? track?.duration ?? 0;
+    // 同じ曲の繰り返し（1曲リピート）も、聴いた時間を数え直す
+    if (track) tracker.begin(track.id, player.duration);
     syncNext();
-    // 同じ曲の繰り返し（1曲リピート）では、通知・記録をしない（頭からの再生し直しと同じ）
+    // 同じ曲の繰り返しでは、再生中の曲は変わらないため通知しない
     if (track && !repeating) {
-      notifyStarted(track).catch((error) => console.error('再生の通知に失敗しました:', error));
+      send(() => commands.setCurrentTrack(track.id), '再生中の曲の通知');
     }
   }
 
@@ -265,8 +280,9 @@ export function createPlaybackController(
     if (destroyed) return;
     switch (event.type) {
       case 'position':
-        if (event.token === currentToken && !scrubbing && event.position !== null) {
-          player.currentTime = event.position;
+        if (event.token === currentToken && event.position !== null) {
+          tracker.progress(event.position);
+          if (!scrubbing) player.currentTime = event.position;
         }
         break;
       case 'advanced':
@@ -332,6 +348,7 @@ export function createPlaybackController(
     engineTrackId = null;
     queuedNext = null;
     loaded = false;
+    tracker.reset();
     cancelPendingSeek();
     send(() => commands.playbackStop(), '再生の停止');
   }
@@ -425,8 +442,8 @@ export function createPlaybackController(
       const track = player.currentTrack;
       if (!track || starting > 0) return;
       if (!loaded) {
-        // 再生に失敗した後など: 頭から再生し直す
-        await start(track, countedTrackId !== track.id);
+        // 起動して復元した曲・再生に失敗した後など: 頭から再生する
+        await start(track);
         return;
       }
       try {
@@ -463,6 +480,7 @@ export function createPlaybackController(
       cancelPendingSeek();
       void listening.then((unlisten) => unlisten()).catch(() => {});
       currentToken = null;
+      tracker.reset();
       send(() => commands.playbackStop(), '再生の停止');
       nowPlaying.update(null);
       resetPlayer();
