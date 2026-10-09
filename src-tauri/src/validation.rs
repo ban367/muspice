@@ -129,15 +129,15 @@ pub fn validate_string_length(
     field_name: &str,
     max_length: usize,
 ) -> AppResult<()> {
-    if let Some(s) = value
-        && s.len() > max_length
-    {
-        return Err(AppError::Validation(format!(
-            "{}は{}文字以内で入力してください（現在: {}文字）",
-            field_name,
-            max_length,
-            s.len()
-        )));
+    // 文字数で数える（バイト数で数えると、日本語は3分の1の長さで上限に達してしまう）
+    if let Some(s) = value {
+        let length = s.chars().count();
+        if length > max_length {
+            return Err(AppError::Validation(format!(
+                "{}は{}文字以内で入力してください（現在: {}文字）",
+                field_name, max_length, length
+            )));
+        }
     }
     Ok(())
 }
@@ -213,5 +213,8 @@ mod tests {
         assert!(validate_string_length(&Some("short".to_string()), "field", 10).is_ok());
         assert!(validate_string_length(&Some("very long string".to_string()), "field", 5).is_err());
         assert!(validate_string_length(&None, "field", 10).is_ok());
+        // 文字数で数える（日本語は1文字が3バイト）
+        assert!(validate_string_length(&Some("あいうえお".to_string()), "field", 5).is_ok());
+        assert!(validate_string_length(&Some("あいうえおか".to_string()), "field", 5).is_err());
     }
 }
