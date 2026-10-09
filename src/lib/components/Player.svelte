@@ -11,6 +11,7 @@
     type PlaybackController
   } from '#lib/stores/playback.svelte.js';
   import { useSettingsQuery } from '#lib/queries/settings.js';
+  import { events, type PlaybackControl } from '#lib/bindings.js';
   import { onMount } from 'svelte';
   import AlbumArt from './AlbumArt.svelte';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
@@ -35,7 +36,15 @@
       crossfadeSeconds: () => settingsQuery.data?.crossfadeSeconds ?? 0
     });
     playback = controller;
+
+    // メニューバーの「再生」メニューと、OSのメディアキー・コントロールセンターなどからの操作
+    const listening = events.playbackControl.listen((event) =>
+      handlePlaybackControl(event.payload)
+    );
+    listening.catch((error) => console.error('再生の操作を購読できません:', error));
+
     return () => {
+      void listening.then((unlisten) => unlisten()).catch(() => {});
       controller.destroy();
       playback = null;
     };
@@ -94,6 +103,16 @@
     isDraggingVolume = false;
   }
 
+  /** キー操作・メニューで、音量を1段階変える大きさ */
+  const VOLUME_STEP = 0.1;
+
+  /**
+   * 音量を、今の値から変える（0〜1に収める）
+   */
+  function changeVolume(delta: number) {
+    player.volume = Math.max(0, Math.min(1, player.volume + delta));
+  }
+
   // ミュート解除時に戻す音量
   let previousVolume = 1;
 
@@ -120,6 +139,48 @@
         return 'M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z';
       case 'one':
         return 'M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4zM12 12v4h-1v-3h-1v-1h2z';
+    }
+  }
+
+  /**
+   * メニューバーの「再生」メニューと、OSのメディアキー・コントロールセンターなどからの操作を行う
+   * （ウィンドウの中のキー操作と同じ動き）
+   */
+  function handlePlaybackControl(control: PlaybackControl) {
+    switch (control.type) {
+      case 'toggle':
+        void playback?.togglePlayPause();
+        break;
+      case 'play':
+        if (!player.isPlaying) void playback?.togglePlayPause();
+        break;
+      case 'pause':
+        if (player.isPlaying) void playback?.togglePlayPause();
+        break;
+      case 'next':
+        playback?.next();
+        break;
+      case 'previous':
+        playback?.previous();
+        break;
+      case 'seek':
+        if (control.position !== null) playback?.seek(control.position);
+        break;
+      case 'volumeUp':
+        changeVolume(VOLUME_STEP);
+        break;
+      case 'volumeDown':
+        changeVolume(-VOLUME_STEP);
+        break;
+      case 'toggleMute':
+        toggleMute();
+        break;
+      case 'toggleShuffle':
+        toggleShuffle();
+        break;
+      case 'toggleRepeat':
+        toggleRepeat();
+        break;
     }
   }
 
@@ -155,13 +216,13 @@
       case 'ArrowUp':
         if (withModifier) {
           event.preventDefault();
-          player.volume = Math.min(1, player.volume + 0.1);
+          changeVolume(VOLUME_STEP);
         }
         break;
       case 'ArrowDown':
         if (withModifier) {
           event.preventDefault();
-          player.volume = Math.max(0, player.volume - 0.1);
+          changeVolume(-VOLUME_STEP);
         }
         break;
       case 'KeyM':
@@ -421,9 +482,9 @@
           onclick={(e) => setVolumeAt(e.clientX)}
           onkeydown={(e) => {
             if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
-              player.volume = Math.max(0, player.volume - 0.1);
+              changeVolume(-VOLUME_STEP);
             } else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
-              player.volume = Math.min(1, player.volume + 0.1);
+              changeVolume(VOLUME_STEP);
             }
           }}
           onmousedown={startDraggingVolume}

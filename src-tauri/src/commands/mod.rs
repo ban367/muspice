@@ -55,10 +55,10 @@ pub use playlist_cmd::{
 // 再生中のトラックの記録と、再生状態の保存・復元
 pub use player::{get_current_track, get_playback_state, save_playback_state, set_current_track};
 
-// 再生エンジン
+// 再生エンジンと、OSのNow Playing
 pub use playback::{
     get_output_devices, playback_pause, playback_play, playback_resume, playback_seek,
-    playback_set_equalizer, playback_set_next, playback_set_volume, playback_stop,
+    playback_set_equalizer, playback_set_next, playback_set_volume, playback_stop, set_now_playing,
 };
 
 // 統計（お気に入り・レーティング・再生回数）
