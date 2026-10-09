@@ -4,7 +4,10 @@
 //! lib.rsのuse文を変更不要にするため、全コマンドをここから公開する。
 
 use crate::error::{AppError, AppResult};
+use tauri::{AppHandle, Manager};
+use tauri_plugin_dialog::{DialogExt, FileDialogBuilder};
 
+mod album_art;
 mod devices;
 mod import;
 mod library_folders;
@@ -48,6 +51,9 @@ pub use metadata_cmd::{
     update_track_metadata, write_library_metadata_to_files,
 };
 
+// アルバムアートの編集（埋め込み・取り除き）と、情報の取得
+pub use album_art::{get_album_art_info, remove_album_art, set_album_art};
+
 // プレイリスト管理
 pub use playlist_cmd::{
     add_tracks_to_playlist, create_playlist, delete_playlist, get_playlist_tracks, get_playlists,
@@ -80,6 +86,17 @@ pub use settings::{get_settings, save_settings};
 
 // システム
 pub use system::{PROJECT_URL, open_project_page, show_in_folder};
+
+/// ファイルを選ぶダイアログ（メインウィンドウがあれば、その上に出す）
+///
+/// 読み書きするファイルはRust側のダイアログで選び、WebViewからはパスを受け取らない（ADR-005）。
+fn file_dialog(app: &AppHandle) -> FileDialogBuilder<tauri::Wry> {
+    let dialog = app.dialog().file();
+    match app.get_webview_window("main") {
+        Some(window) => dialog.set_parent(&window),
+        None => dialog,
+    }
+}
 
 /// 重い同期処理をブロッキング処理用のスレッドで実行する
 ///

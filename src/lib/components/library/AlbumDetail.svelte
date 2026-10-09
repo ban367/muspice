@@ -4,6 +4,7 @@
   import { useAlbumTracksQuery, useSetRatingMutation } from '#lib/queries/tracks.js';
   import { player, playTrackFromQueue, playShuffled } from '#lib/stores/player.svelte.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
+  import { albumArtDialog } from '#lib/stores/albumArt.svelte.js';
   import { formatDuration, formatTotalDuration } from '#lib/utils/format.js';
   import { TrackSelection, handleTrackListKeydown } from '#lib/utils/trackSelection.svelte.js';
   import { startTrackDrag } from '#lib/utils/trackDrag.js';
@@ -117,9 +118,16 @@
 <div class="album-detail">
   <!-- ヘッダー -->
   <div class="detail-header">
-    <div class="album-art">
+    <button
+      type="button"
+      class="album-art"
+      title={m.albumArtDialog.open}
+      aria-label={m.albumArtDialog.open}
+      onclick={() => albumArtDialog.open(tracks)}
+      disabled={tracks.length === 0}
+    >
       <AlbumArt src={albumArtUrl(album.representativeTrackId)} alt={album.name} rounded="lg" />
-    </div>
+    </button>
     <div class="album-info">
       <h1 class="album-name">{album.name}</h1>
       <p class="album-artist">{album.artist || m.common.unknownArtist}</p>
@@ -250,8 +258,16 @@
   }
 
   .album-art {
-    @apply w-48 h-48 rounded-lg overflow-hidden shrink-0;
+    @apply w-48 h-48 rounded-lg overflow-hidden shrink-0 p-0 border-none bg-transparent cursor-pointer transition-opacity;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  }
+
+  .album-art:hover:not(:disabled) {
+    @apply opacity-85;
+  }
+
+  .album-art:disabled {
+    @apply cursor-default;
   }
 
   .album-info {

@@ -3,7 +3,7 @@
 //! 読み書きするファイルは、Rust側で開くダイアログで選ぶ。WebViewからはパスを受け取らないため、
 //! WebViewの権限（ファイルを保存するダイアログなど）を増やさずに済む（ADR-005・ADR-032）。
 
-use super::run_blocking;
+use super::{file_dialog, run_blocking};
 use crate::error::{AppError, AppResult};
 use crate::m3u;
 use crate::models::{M3uExportResult, M3uImportResult};
@@ -12,7 +12,6 @@ use crate::state::AppState;
 use crate::validation::validate_playlist_id;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
-use tauri_plugin_dialog::{DialogExt, FileDialogBuilder};
 
 /// ダイアログの文言（設定の言語に合わせる）
 struct Labels {
@@ -35,15 +34,6 @@ impl Labels {
                 filter: "Playlists",
             },
         }
-    }
-}
-
-/// ファイルを選ぶダイアログ（メインウィンドウがあれば、その上に出す）
-fn file_dialog(app: &AppHandle) -> FileDialogBuilder<tauri::Wry> {
-    let dialog = app.dialog().file();
-    match app.get_webview_window("main") {
-        Some(window) => dialog.set_parent(&window),
-        None => dialog,
     }
 }
 

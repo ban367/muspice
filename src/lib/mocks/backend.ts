@@ -15,10 +15,12 @@ import {
   type commands
 } from '#lib/bindings.js';
 import type {
+  AlbumArtInfo,
   AlbumGroup,
   AlbumSummary,
   AppError,
   ArtistSummary,
+  BulkUpdateResult,
   DeviceSyncPlan,
   DeviceSyncResult,
   DuplicateAction,
@@ -35,6 +37,7 @@ import type {
 } from '#lib/types/models.js';
 import {
   ALBUMS_WITHOUT_ART,
+  ALBUMS_WITH_FOLDER_ART,
   createBulkTracks,
   createFixturePlayHistory,
   createFixturePlaylists,
@@ -74,6 +77,9 @@ export interface MockBackendOptions {
 /** M3Uの読み込みで、選んだことにするファイル */
 export type MockM3uImportMode = 'partial' | 'clean' | 'cancel';
 
+/** アルバムアートの埋め込み（`setAlbumArt`）で、選んだことにする画像 */
+export type MockAlbumArtPickMode = 'pick' | 'cancel' | 'tooLarge';
+
 export interface MockBackend {
   /** IPCのコマンド名（snake_case）と引数オブジェクトでコマンドを実行する */
   invoke(cmd: string, args?: Record<string, unknown>): Promise<unknown>;
@@ -91,6 +97,14 @@ export interface MockBackend {
    * - `cancel`: ファイルを選ばなかった
    */
   setM3uImportMode(mode: MockM3uImportMode): void;
+  /**
+   * アルバムアートの埋め込み（`setAlbumArt`）で、選んだことにする画像を切り替える
+   *
+   * - `pick`（既定）: 埋め込める画像（選ぶたびに、違う色の画像になる）
+   * - `cancel`: 画像を選ばなかった
+   * - `tooLarge`: 大きすぎる画像
+   */
+  setAlbumArtPickMode(mode: MockAlbumArtPickMode): void;
   /** `albumart`プロトコルの代わりに、トラックのアルバムアートをdata URLで返す（アートがなければnull） */
   albumArtUrl(trackId: string): string | null;
 }
@@ -325,6 +339,10 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   // ファイルのタグだけにある項目（作曲者・コメント・歌詞など。トラックID → 値）
   const fileOnlyTags = new Map<string, Metadata>();
   let m3uImportMode: MockM3uImportMode = 'partial';
+  // アプリで書き換えたアルバムアート（トラックID → 埋め込んだ画像の番号。nullは取り除いた）
+  const embeddedArt = new Map<string, number | null>();
+  let albumArtPickMode: MockAlbumArtPickMode = 'pick';
+  let pickedArtCount = 0;
   // 前回の再生状態（保存先に壊れた内容があれば使わない）
   let playbackState: StoredPlaybackState = EMPTY_PLAYBACK_STATE;
   try {
@@ -517,6 +535,86 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   }
 
   /** 曲のタグ（編集画面で扱うすべての項目）。モックでは、曲の情報と、編集で入れた値から作る */
+  /**
+   * トラックのアルバムアート（画像のdata URLと、その情報。アートがなければ両方null）
+   *
+   * 埋め込みの画像を優先し、なければフォルダの画像を使う。
+   */
+  function albumArtOf(track: Track): { url: string | null; info: AlbumArtInfo | null } {
+    const none = { url: null, info: null };
+    const embedded = (seed: string, mimeType: string, size: number, side: number) => ({
+      url: createAlbumArt(seed),
+      info: {
+        source: 'embedded' as const,
+        fileName: null,
+        mimeType,
+        size,
+        width: side,
+        height: side
+      }
+    });
+
+    const picked = embeddedArt.get(track.id);
+    if (typeof picked === 'number') {
+      return embedded(`picked-${picked}`, 'image/png', 512_000 + picked * 1_000, 1200);
+    }
+    const album = track.album;
+    if (album !== null && ALBUMS_WITH_FOLDER_ART.has(album)) {
+      return {
+        url: createAlbumArt(`folder-${album}`),
+        info: {
+          source: 'folder',
+          fileName: 'cover.jpg',
+          mimeType: 'image/jpeg',
+          size: 214_530,
+          width: 1000,
+          height: 1000
+        }
+      };
+    }
+    // 取り除いた曲・アルバムのない曲・アートのないアルバムの曲
+    if (picked === null || album === null || ALBUMS_WITHOUT_ART.has(album)) return none;
+    return embedded(album, 'image/jpeg', 84_213, 600);
+  }
+
+  /** 埋め込みの画像のサイズ（埋め込みの画像がなければ0） */
+  function embeddedArtSize(track: Track): number {
+    const info = albumArtOf(track).info;
+    return info?.source === 'embedded' ? info.size : 0;
+  }
+
+  function validateAlbumArtTargets(trackIds: string[]): void {
+    if (trackIds.length === 0) fail('VALIDATION', 'トラックIDが指定されていません');
+    trackIds.forEach(validateTrackId);
+  }
+
+  /**
+   * 各トラックのアルバムアートを書き換える（`write`は、書き換えたかを返す）
+   *
+   * ファイルが見つからない・ライブラリにないトラックは、書き込めなかった曲として数える。
+   */
+  function writeAlbumArt(trackIds: string[], write: (track: Track) => boolean): BulkUpdateResult {
+    const result: BulkUpdateResult = { updatedCount: 0, failedCount: 0, errors: [] };
+    for (const trackId of trackIds) {
+      const track = tracks.find((t) => t.id === trackId);
+      if (!track || track.isMissing) {
+        result.failedCount++;
+        result.errors.push(
+          track
+            ? `${track.filePath}: ファイルのオープンに失敗しました: No such file`
+            : `トラックが見つかりません: ${trackId}`
+        );
+        continue;
+      }
+      const sizeBefore = embeddedArtSize(track);
+      if (!write(track)) continue;
+      // 画像の分だけ、ファイルのサイズが変わる
+      track.fileSize += embeddedArtSize(track) - sizeBefore;
+      result.updatedCount++;
+    }
+    return result;
+  }
+
   function getTrackTags(trackId: string): Metadata {
     validateTrackId(trackId);
     const track = findTrack(trackId);
@@ -914,6 +1012,32 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       }
       // モックではファイルへの書き込みに失敗しない
       return { updatedCount: targets.length, failedCount: 0, errors: [] };
+    },
+    getAlbumArtInfo: (trackId) => {
+      validateTrackId(trackId);
+      const track = tracks.find((t) => t.id === trackId);
+      if (!track) fail('NOT_FOUND', `トラックが見つかりません: ${trackId}`);
+      return albumArtOf(track).info;
+    },
+    setAlbumArt: (trackIds) => {
+      // 画像を選ぶダイアログ（Rust側が開く）の代わりに、決まった画像を選んだことにする
+      validateAlbumArtTargets(trackIds);
+      if (albumArtPickMode === 'cancel') return null;
+      if (albumArtPickMode === 'tooLarge') fail('VALIDATION', '画像が大きすぎます（10MBまで）');
+      const picture = ++pickedArtCount;
+      return writeAlbumArt(trackIds, (track) => {
+        embeddedArt.set(track.id, picture);
+        return true;
+      });
+    },
+    removeAlbumArt: (trackIds) => {
+      validateAlbumArtTargets(trackIds);
+      return writeAlbumArt(trackIds, (track) => {
+        // 埋め込みの画像がない曲は、書き換えない
+        if (albumArtOf(track).info?.source !== 'embedded') return false;
+        embeddedArt.set(track.id, null);
+        return true;
+      });
     },
     createPlaylist: (name) => {
       validatePlaylistName(name);
@@ -1449,13 +1573,15 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       return structuredClone(result ?? null);
     },
     albumArtUrl(trackId) {
-      const album = tracks.find((t) => t.id === trackId)?.album ?? null;
-      if (album === null || ALBUMS_WITHOUT_ART.has(album)) return null;
-      return createAlbumArt(album);
+      const track = tracks.find((t) => t.id === trackId);
+      return track ? albumArtOf(track).url : null;
     },
     nowPlaying: () => structuredClone(nowPlaying),
     setM3uImportMode: (mode) => {
       m3uImportMode = mode;
+    },
+    setAlbumArtPickMode: (mode) => {
+      albumArtPickMode = mode;
     }
   };
 }

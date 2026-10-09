@@ -458,6 +458,108 @@ describe('プレイリスト', () => {
   });
 });
 
+describe('アルバムアート', () => {
+  /** アルバムの曲（ファイルが見つからない曲を除く） */
+  async function albumTracks(album: string) {
+    const tracks = await commands.getAllTracks();
+    return tracks.filter((track) => track.album === album && !track.isMissing);
+  }
+
+  it('埋め込みの画像・フォルダの画像・アートなしを、情報とURLで返す', async () => {
+    const [embedded] = await albumTracks('Blue Horizon');
+    const [folder] = await albumTracks('Midnight Circuit');
+    const [none] = await albumTracks('Quiet Rooms');
+
+    expect(await commands.getAlbumArtInfo(embedded.id)).toMatchObject({
+      source: 'embedded',
+      fileName: null,
+      mimeType: 'image/jpeg'
+    });
+    expect(await commands.getAlbumArtInfo(folder.id)).toMatchObject({
+      source: 'folder',
+      fileName: 'cover.jpg'
+    });
+    expect(await commands.getAlbumArtInfo(none.id)).toBeNull();
+    expect(backend.albumArtUrl(embedded.id)).toMatch(/^data:image/);
+    expect(backend.albumArtUrl(folder.id)).toMatch(/^data:image/);
+    expect(backend.albumArtUrl(none.id)).toBeNull();
+    await expect(commands.getAlbumArtInfo(mockTrackId(9999))).rejects.toMatchObject({
+      code: 'NOT_FOUND'
+    });
+  });
+
+  it('画像を埋め込むと、埋め込みの画像が優先され、ファイルのサイズが増える', async () => {
+    const tracks = await albumTracks('Midnight Circuit');
+    const ids = tracks.map((track) => track.id);
+    const urlBefore = backend.albumArtUrl(ids[0]);
+
+    const result = await commands.setAlbumArt(ids);
+
+    expect(result).toEqual({ updatedCount: ids.length, failedCount: 0, errors: [] });
+    const info = await commands.getAlbumArtInfo(ids[0]);
+    expect(info).toMatchObject({ source: 'embedded', fileName: null, mimeType: 'image/png' });
+    expect(backend.albumArtUrl(ids[0])).not.toBe(urlBefore);
+    // 同じ画像を選んだ曲は、同じ画像になる
+    expect(backend.albumArtUrl(ids[1])).toBe(backend.albumArtUrl(ids[0]));
+    const after = await albumTracks('Midnight Circuit');
+    expect(after[0].fileSize).toBe(tracks[0].fileSize + info!.size);
+
+    // 選び直すと、別の画像に置き換わる
+    const urlFirst = backend.albumArtUrl(ids[0]);
+    await commands.setAlbumArt([ids[0]]);
+    expect(backend.albumArtUrl(ids[0])).not.toBe(urlFirst);
+    expect(backend.albumArtUrl(ids[1])).toBe(urlFirst);
+  });
+
+  it('埋め込みの画像を取り除くと、フォルダの画像に戻る（なければアートなし）', async () => {
+    const [folder] = await albumTracks('Midnight Circuit');
+    const [embedded] = await albumTracks('Blue Horizon');
+    const folderUrl = backend.albumArtUrl(folder.id);
+    await commands.setAlbumArt([folder.id]);
+
+    const result = await commands.removeAlbumArt([folder.id, embedded.id]);
+
+    expect(result).toEqual({ updatedCount: 2, failedCount: 0, errors: [] });
+    expect(backend.albumArtUrl(folder.id)).toBe(folderUrl);
+    expect(await commands.getAlbumArtInfo(embedded.id)).toBeNull();
+    expect(backend.albumArtUrl(embedded.id)).toBeNull();
+    const [after] = await albumTracks('Midnight Circuit');
+    expect(after.fileSize).toBe(folder.fileSize);
+
+    // 埋め込みの画像がない曲は書き換えず、件数にも数えない
+    expect(await commands.removeAlbumArt([folder.id, embedded.id])).toEqual({
+      updatedCount: 0,
+      failedCount: 0,
+      errors: []
+    });
+  });
+
+  it('ファイルが見つからない曲は、書き込めなかった曲として返す', async () => {
+    const tracks = await commands.getAllTracks();
+    const missing = tracks.find((track) => track.isMissing)!;
+    const [present] = await albumTracks('Blue Horizon');
+
+    const result = await commands.setAlbumArt([missing.id, present.id]);
+
+    expect(result).toMatchObject({ updatedCount: 1, failedCount: 1 });
+    expect(result!.errors[0]).toContain(missing.filePath);
+  });
+
+  it('選んだことにする画像を切り替えられる', async () => {
+    const [track] = await albumTracks('Blue Horizon');
+    const url = backend.albumArtUrl(track.id);
+
+    backend.setAlbumArtPickMode('cancel');
+    expect(await commands.setAlbumArt([track.id])).toBeNull();
+    backend.setAlbumArtPickMode('tooLarge');
+    await expect(commands.setAlbumArt([track.id])).rejects.toMatchObject({ code: 'VALIDATION' });
+
+    expect(backend.albumArtUrl(track.id)).toBe(url);
+    await expect(commands.setAlbumArt([])).rejects.toMatchObject({ code: 'VALIDATION' });
+    await expect(commands.removeAlbumArt([])).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+});
+
 describe('M3Uの読み込み・書き出し', () => {
   it('読み込むとプレイリストを作り、対応が付かなかった行を返す', async () => {
     const before = await commands.getPlaylists();
