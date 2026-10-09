@@ -45,13 +45,14 @@ graph TD
   - 再生キュー（次の曲の決定・シャッフル・リピート）は、フロントエンド（`player.svelte.ts`）が持つ。エンジンへは「再生する曲」と「続けて再生する曲」だけを伝える（ADR-025）
   - イコライザ・音量の正規化・クロスフェードは、エンジンの中でかける（ADR-026）。イコライザの設定はフロントエンドが保存し（`equalizer.svelte.ts`。localStorage）、再生コントローラーがエンジンへ送る
   - WebViewは音声ファイルを読まない（audio要素・Web Audioは使わない。ADR-027）
+  - 再生状態の保存と復元: 音量・シャッフル・リピート・再生キュー・再生していた曲を、Rust側（`playback_state.rs`）がアプリデータ配下の`playback-state.json`に保存する。再生コントローラーが、起動時に復元し（再生は始めない）、その後の変更をまとめて保存する（`playbackState.svelte.ts`。ADR-028）
 - ダイアログ: `src/lib/components/ui/Modal.svelte`（ネイティブの`<dialog>`）に統一。テキスト入力は`promptText()`の要求を、レイアウトに置いた`TextPromptDialog`が表示する
 - ブラウザ確認用モック: `npm run dev:mock` のときだけ `src/hooks.client.ts` が `src/lib/mocks` のインメモリバックエンドへIPCを差し替える（`implementation.md` 参照）
 
 ## バックエンド構成
 
 - エントリーポイント: `src-tauri/src/lib.rs`
-- アプリ状態: `AppState { db: Mutex<Connection>, current_track_id: Mutex<Option<String>>, album_art_limiter: Semaphore, album_art_cache: Mutex<AlbumArtCache>, library_scan_lock: Mutex<()> }`。ほかに設定（`SettingsState`）とライブラリフォルダの自動反映（`LibrarySync`）を管理する
+- アプリ状態: `AppState { db: Mutex<Connection>, current_track_id: Mutex<Option<String>>, album_art_limiter: Semaphore, album_art_cache: Mutex<AlbumArtCache>, library_scan_lock: Mutex<()> }`。ほかに設定（`SettingsState`）・前回の再生状態（`PlaybackStateStore`）・再生エンジン（`PlaybackEngine`）・ライブラリフォルダの自動反映（`LibrarySync`）を管理する
 - 既存のトラックのアルバムアーティストの読み込み: `album_artist_backfill.rs` が、アルバムアーティストの列を追加する前に登録したトラックの分を、起動時に別スレッドでファイルのタグから読み込む（対象がなければ何もしない。ADR-022）
 - ライブラリフォルダの自動反映: `library_sync.rs` が、設定に応じて起動時・定期（専用スレッド）・フォルダの監視（`notify-debouncer-mini`）で再スキャンする。インポート・再スキャン・ライブラリフォルダの削除は`library_scan_lock`で1つずつ行い、ロックの順序は「スキャン → DB」
 - アルバムアートの配信: `album_art.rs` が `albumart` カスタムプロトコルを処理する。トラックIDからDB上のファイルを引いて埋め込み画像をバイト列のまま返し、抽出結果（アートがないことを含む）は容量上限付きのLRUキャッシュ（64MiB）に保持する。WebViewには`no-store`でキャッシュさせず、インポート後はキャッシュを消去する
