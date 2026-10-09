@@ -46,6 +46,7 @@ src/
 
 src-tauri/src/
 ├── commands/
+│   ├── album_art.rs       # アルバムアートの埋め込み・取り除き・情報の取得（ADR-035）
 │   ├── devices.rs         # 転送先デバイスの登録・設定・同期
 │   ├── import.rs
 │   ├── library_folders.rs
@@ -58,7 +59,7 @@ src-tauri/src/
 │   ├── system.rs
 │   └── tracks.rs
 ├── lib.rs
-├── album_art.rs
+├── album_art.rs           # アルバムアートの配信（albumartプロトコル）・フォルダの画像の検索・キャッシュ
 ├── album_artist_backfill.rs # 既存のトラックのアルバムアーティストの読み込み（起動時）
 ├── db.rs
 ├── device.rs              # 転送先デバイスの記録（SQL）と同期の実行状態
@@ -139,6 +140,8 @@ src-tauri/src/
   - 再生制御（再生エンジンのコマンド・`setCurrentTrack`）はクエリではなく`#lib/stores/playback.svelte`の再生コントローラーが呼ぶ
   - 複数のクエリの状態（読み込み中・エラー）を合わせる時は、`#lib/queries/shared`の`combineQueryStates`を使う。TanStack Queryは、読んだことのあるプロパティが変わった時だけ通知するため、`a.isLoading || b.isLoading`のような短絡評価では、読まなかった側が先に終わった時の通知を取りこぼす（読み込み中の表示のまま止まる）
 - アルバムアートは`#lib/utils/albumArt`の`albumArtUrl(trackId)`をそのまま`<img>`（`AlbumArt`コンポーネント）に渡す。画像データをフロントエンドで取得・保持しない。アートがない場合は読み込みエラーになり、`AlbumArt`がプレースホルダーを表示する
+  - `albumArtUrl`は、アプリで画像を書き換えた曲の版（`#lib/stores/albumArt.svelte`）を読んでURLに付ける。版の変更に追随させるため、テンプレートか`$derived`の中で呼ぶ（値を変数に取っておくと、書き換えた後も古い画像のままになる）
+  - アルバムアートの画面は、`albumArtDialog.open(tracks)`で開く（`(app)/+layout.svelte`が1つだけ表示する。開く側にダイアログを置かない）
 - メタデータの編集画面（`MetadataEditor`）は、入力欄の値と`Metadata`の変換・検証を`#lib/utils/metadataForm`に分けている（1曲の編集はすべての項目を渡し、一括編集は入力した項目だけを渡す）。1曲の編集は、開いた時に`useTrackTagsQuery`でファイルのタグを読み、読めるまで・読めない場合は保存できない（ADR-034）
 - お気に入りのハートは`FavoriteButton`（`#lib/components/library`）を使う。曲のIDと今の状態を渡すと、押した時に`useSetFavoriteMutation`で切り替え、キャッシュにあるその曲を書き換える（`patchTracksInCache`。複数の曲をまとめて書き換えられる）
   - 再生キューの曲（`player.currentTrack`）は、キューに入れた時点の内容のまま。プレーヤーのハートは、お気に入りの一覧（`useFavoriteTracksQuery`）から状態を調べる
@@ -323,6 +326,7 @@ Tauriのウィンドウ（macOSではWKWebView）はブラウザ自動化ツー�
   - `window.__MUSPICE_MOCK__.emit('playback-control', { type: 'next' })`で、「再生」メニュー・OSのメディアキーの操作を再現する
   - `window.__MUSPICE_MOCK__.nowPlaying()`で、OSのNow Playingへ伝えた内容を確認する（ブラウザにはOSの表示がないため）
   - `window.__MUSPICE_MOCK__.setM3uImportMode('clean')`で、M3Uの読み込みで選んだことにするファイルを切り替える（`partial`: 対応が付かない行がある（既定）・`clean`: すべて対応が付く・`cancel`: 選ばなかった）。ファイルを選ぶダイアログはRust側が開くため、モックは決まった結果を返す
+  - `window.__MUSPICE_MOCK__.setAlbumArtPickMode('cancel')`で、アルバムアートの埋め込みで選んだことにする画像を切り替える（`pick`: 埋め込める画像（既定。選ぶたびに違う色の画像になる）・`cancel`: 選ばなかった・`tooLarge`: 大きすぎる画像）。フィクスチャでは、「Midnight Circuit」がフォルダの画像（`cover.jpg`）、「Quiet Rooms」がアートなし、ほかは埋め込みの画像
   - `window.__MUSPICE_MOCK__.setConfirmResult(false)`で、以降の確認ダイアログを「キャンセル」にする
   - `window.__MUSPICE_MOCK__.setFolderResult('/Volumes/NEW_SD')`で、以降のフォルダ選択ダイアログで選ばれるパスを変える。既定のパスはライブラリフォルダの中のため、転送先デバイスの追加を確認するときはライブラリの外のパスにする
 - 音は鳴らない（再生位置と曲の切り替わりだけが進む）。音の確認は、実アプリで行う
