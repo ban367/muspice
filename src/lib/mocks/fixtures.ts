@@ -2,7 +2,8 @@
  * ブラウザモック用のフィクスチャデータ
  *
  * 一覧・グループ表示・プレースホルダ表示などを一通り確認できるよう、
- * 複数アルバムを持つアーティスト・アルバム未設定・メタデータなし・長いタイトル等を含める。
+ * 複数アルバムを持つアーティスト・アルバム未設定・メタデータなし・長いタイトル・
+ * コンピレーション（アルバムアーティスト）・同じ名前のアルバム等を含める。
  * IDと日時は固定値にし、リロードごとに同じ状態から確認できるようにする。
  */
 import type { Playlist, Track } from '#lib/types/models.js';
@@ -27,6 +28,8 @@ interface TrackSeed {
   title: string | null;
   artist: string | null;
   album: string | null;
+  /** アルバムアーティストのタグ（ない曲は、曲のアーティストでまとめられる） */
+  albumArtist?: string;
   genre: string | null;
   year: number | null;
   trackNumber: number | null;
@@ -68,7 +71,15 @@ const TRACK_SEEDS: TrackSeed[] = [
   // 長いタイトル（プレイヤーのマーキー表示の確認用）
   { title: 'A Remarkably Long Song Title That Should Scroll Smoothly Across The Player Bar', artist: 'The Long Names Orchestra', album: 'Extended Play', genre: 'Classical', year: 2020, trackNumber: 1, duration: 524, rating: 2 },
   // メタデータなし（ファイル名で表示される）
-  { title: null, artist: null, album: null, genre: null, year: null, trackNumber: null, duration: 61 }
+  { title: null, artist: null, album: null, genre: null, year: null, trackNumber: null, duration: 61 },
+  // コンピレーション（曲ごとのアーティストが違い、アルバムアーティストでまとめる）
+  { title: 'Harbor Lights', artist: 'ネオン通り', album: 'City Nights Collection', albumArtist: 'Various Artists', genre: 'City Pop', year: 2022, trackNumber: 1, duration: 248 },
+  { title: 'Afterglow', artist: 'Aoi Sora', album: 'City Nights Collection', albumArtist: 'Various Artists', genre: 'City Pop', year: 2022, trackNumber: 2, duration: 221 },
+  { title: 'Last Train', artist: 'Mika Hayashi', album: 'City Nights Collection', albumArtist: 'Various Artists', genre: 'City Pop', year: 2022, trackNumber: 3, duration: 305 },
+  // フィーチャリング（アルバムアーティストは主のアーティスト）
+  { title: 'Two Voices', artist: 'Aoi Sora feat. Mika Hayashi', album: 'Field Notes', albumArtist: 'Aoi Sora', genre: 'J-Pop', year: 2024, trackNumber: 3, duration: 232, format: 'flac' },
+  // 別のアーティストの、同じ名前のアルバム
+  { title: 'Rough Draft', artist: 'The Voltage', album: 'Sketches', genre: 'Electronic', year: 2022, trackNumber: 1, duration: 174 }
 ];
 
 const BITRATE_BY_FORMAT = { mp3: 320, flac: 1411, m4a: 256 } as const;
@@ -98,6 +109,7 @@ function createTrack(seed: TrackSeed, index: number): Track {
     title: seed.title,
     artist: seed.artist,
     album: seed.album,
+    albumArtist: seed.albumArtist ?? null,
     genre: seed.genre,
     year: seed.year,
     trackNumber: seed.trackNumber,
@@ -161,6 +173,7 @@ export function createBulkTracks(count: number): Track[] {
       title,
       artist,
       album,
+      albumArtist: null,
       genre: genres[albumIndex % genres.length],
       year: 1980 + (albumIndex % 45),
       trackNumber,

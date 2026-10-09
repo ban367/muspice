@@ -5,6 +5,7 @@
   import AlbumDetail from '#lib/components/library/AlbumDetail.svelte';
   import LibraryBrowsePage from '#lib/components/library/LibraryBrowsePage.svelte';
   import { useAlbumsQuery } from '#lib/queries/tracks.js';
+  import { albumKey } from '#lib/utils/albumKey.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   // クエリ
@@ -28,7 +29,7 @@
   emptyPrompt={m.library.selectAlbum}
   items={allAlbums}
   filterFn={filterAlbum}
-  getItemKey={(album) => album.name}
+  getItemKey={albumKey}
 >
   {#snippet emptyIcon()}
     <svg

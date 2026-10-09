@@ -12,6 +12,7 @@ function track(id: string, rating = 0): Track {
     title: id,
     artist: null,
     album: null,
+    albumArtist: null,
     genre: null,
     year: null,
     trackNumber: null,
@@ -81,7 +82,7 @@ describe('patchTrackInCache', () => {
   it('曲を返すすべてのクエリのキャッシュを書き換え、ほかのクエリは変えない', () => {
     const queryClient = new QueryClient();
     queryClient.setQueryData(queryKeys.tracks.list, [track('a'), track('b')]);
-    queryClient.setQueryData(queryKeys.tracks.album('X'), [track('b')]);
+    queryClient.setQueryData(queryKeys.tracks.album('X', 'A'), [track('b')]);
     queryClient.setQueryData(queryKeys.tracks.artistAlbums('Z'), [album('X', [track('b')])]);
     queryClient.setQueryData(queryKeys.tracks.playlist('p1'), [track('a')]);
     const albumList = [{ name: 'X', trackCount: 1 }];
@@ -90,7 +91,7 @@ describe('patchTrackInCache', () => {
     patchTrackInCache(queryClient, 'b', { rating: 4 });
 
     expect(queryClient.getQueryData<Track[]>(queryKeys.tracks.list)?.[1].rating).toBe(4);
-    expect(queryClient.getQueryData<Track[]>(queryKeys.tracks.album('X'))?.[0].rating).toBe(4);
+    expect(queryClient.getQueryData<Track[]>(queryKeys.tracks.album('X', 'A'))?.[0].rating).toBe(4);
     expect(
       queryClient.getQueryData<AlbumGroup[]>(queryKeys.tracks.artistAlbums('Z'))?.[0].tracks[0]
         .rating

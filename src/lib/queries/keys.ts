@@ -26,7 +26,7 @@ export const queryKeys = {
     favorites: ['tracks', 'favorites'] as const,
     mostPlayed: (limit: number) => ['tracks', 'mostPlayed', limit] as const,
     recentlyPlayed: (limit: number) => ['tracks', 'recentlyPlayed', limit] as const,
-    album: (album: string) => ['tracks', 'album', album] as const,
+    album: (album: string, artist: string | null) => ['tracks', 'album', album, artist] as const,
     artistAlbums: (artist: string) => ['tracks', 'artistAlbums', artist] as const,
     genre: (genre: string) => ['tracks', 'genre', genre] as const,
     playlists: ['tracks', 'playlist'] as const,

@@ -207,6 +207,10 @@
               </span>
               <div class="track-info">
                 <MarqueeText text={track.title || track.fileName} class="track-title" />
+                <!-- 曲のアーティストは、このアーティストと違う場合だけ表示する（フィーチャリングなど） -->
+                {#if track.artist && track.artist !== artist.name}
+                  <span class="track-artist">{track.artist}</span>
+                {/if}
               </div>
               <RatingStars
                 rating={track.rating}
@@ -363,6 +367,10 @@
 
   .track-row.playing :global(.track-title) {
     @apply text-secondary;
+  }
+
+  .track-artist {
+    @apply text-xs text-text-dimmed truncate;
   }
 
   .track-duration {

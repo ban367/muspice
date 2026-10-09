@@ -9,6 +9,7 @@
   import { useAlbumsQuery } from '#lib/queries/tracks.js';
   import { ui } from '#lib/stores/ui.svelte.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
+  import { albumKey } from '#lib/utils/albumKey.js';
   import { formatDuration } from '#lib/utils/format.js';
   import { playGroup } from '#lib/utils/groupPlayback.js';
   import LibraryGrid from './LibraryGrid.svelte';
@@ -32,12 +33,12 @@
   const allAlbums = $derived(albumsQuery.data ?? []);
 
   // 選択中のアルバム（モーダル表示用）
-  // 名前で持ち、取り直したデータから引く（曲数などの変更がモーダルの中にも反映される）
-  let selectedAlbumName = $state<string | null>(null);
+  // キーで持ち、取り直したデータから引く（曲数などの変更がモーダルの中にも反映される）
+  let selectedAlbumKey = $state<string | null>(null);
   const selectedAlbum = $derived(
-    selectedAlbumName === null
+    selectedAlbumKey === null
       ? null
-      : (allAlbums.find((album) => album.name === selectedAlbumName) ?? null)
+      : (allAlbums.find((album) => albumKey(album) === selectedAlbumKey) ?? null)
   );
 
   // LibraryGridコンポーネントの参照
@@ -52,12 +53,12 @@
 
   // アルバムをクリック
   function handleAlbumClick(album: AlbumSummary) {
-    selectedAlbumName = album.name;
+    selectedAlbumKey = albumKey(album);
   }
 
   // アルバムをダブルクリック（すべて再生）
   function handleAlbumDoubleClick(album: AlbumSummary) {
-    void playGroup(queryClient, 'album', album.name);
+    void playGroup(queryClient, 'album', album.name, album.artist);
   }
 
   // 再生ボタンクリック
@@ -68,7 +69,7 @@
 
   // モーダルを閉じる
   function handleCloseDetail() {
-    selectedAlbumName = null;
+    selectedAlbumKey = null;
   }
 
   // 検索フィルター
@@ -90,6 +91,7 @@
   emptyMessage={m.library.noAlbums}
   emptyHint={m.library.noAlbumsHint}
   filterFn={filterAlbum}
+  getKey={albumKey}
   minCardWidth={cardWidth}
   estimatedCardHeight={ui.gridCardSize + ESTIMATED_CARD_EXTRA_HEIGHT}
   estimatedRowHeight={ESTIMATED_LIST_ROW_HEIGHT}

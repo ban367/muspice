@@ -29,7 +29,13 @@
 
   // 開いているグループの曲（一覧の項目は曲を持たないため、開いた時に取得する）
   const groupName = $derived(group?.name ?? null);
-  const tracksQuery = $derived(groupName === null ? null : useGroupTracksQuery(type, groupName));
+  // グループのアーティスト（アルバムはアルバムをまとめたアーティスト、アーティストはその名前）
+  const groupArtist = $derived(
+    group === null ? null : 'artist' in group ? group.artist : type === 'artist' ? group.name : null
+  );
+  const tracksQuery = $derived(
+    groupName === null ? null : useGroupTracksQuery(type, groupName, groupArtist)
+  );
   const tracks = $derived(tracksQuery?.data ?? []);
 
   // トラックの選択（クリック・キーボード）
@@ -38,6 +44,7 @@
   // 別のグループを開いたら（閉じた時も）、選択を消す（データを取り直しただけでは消さない）
   $effect(() => {
     void groupName;
+    void groupArtist;
     // 選択の中身には反応させない（選択を変えるたびに消えてしまう）
     untrack(() => selection.reset());
   });
@@ -188,7 +195,10 @@
           </span>
           <div class="track-info">
             <span class="track-title">{track.title || track.fileName}</span>
-            <span class="track-artist">{track.artist || m.common.unknownArtist}</span>
+            <!-- 曲のアーティストは、グループのアーティストと違う場合だけ表示する -->
+            {#if track.artist && track.artist !== groupArtist}
+              <span class="track-artist">{track.artist}</span>
+            {/if}
           </div>
           <RatingStars
             rating={track.rating}

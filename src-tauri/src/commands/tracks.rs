@@ -70,10 +70,16 @@ pub async fn get_albums(state: State<'_, AppState>) -> AppResult<Vec<AlbumSummar
 }
 
 /// アルバムの曲を取得
+///
+/// `artist`は、アルバムをまとめたアーティスト（`AlbumSummary`の`artist`）。
 #[tauri::command]
 #[specta::specta]
-pub async fn get_album_tracks(album: String, state: State<'_, AppState>) -> AppResult<Vec<Track>> {
-    state.with_db(|db| crate::repository::find_album_tracks(db, &album))
+pub async fn get_album_tracks(
+    album: String,
+    artist: Option<String>,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<Track>> {
+    state.with_db(|db| crate::repository::find_album_tracks(db, &album, artist.as_deref()))
 }
 
 /// アーティストの一覧を取得（アルバムと曲は含めない）

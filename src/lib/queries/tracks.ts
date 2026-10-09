@@ -182,10 +182,11 @@ export function useRecentlyPlayedTracksQuery(limit: number = 50) {
 /** アルバム・アーティスト・ジャンルのどれかを指す種類 */
 export type GroupType = 'album' | 'artist' | 'genre';
 
-function albumTracksOptions(album: string) {
+function albumTracksOptions(album: string, artist: string | null) {
   return {
-    queryKey: queryKeys.tracks.album(album),
-    queryFn: () => withErrorToast(m.operations.fetchTracks, () => commands.getAlbumTracks(album)),
+    queryKey: queryKeys.tracks.album(album, artist),
+    queryFn: () =>
+      withErrorToast(m.operations.fetchTracks, () => commands.getAlbumTracks(album, artist)),
     ...CACHE_POLICY.detail
   };
 }
@@ -224,9 +225,11 @@ export function useAlbumsQuery() {
 
 /**
  * アルバムの曲を取得（ディスク番号・トラック番号の順）
+ * @param album - アルバム名
+ * @param artist - アルバムをまとめたアーティスト（`AlbumSummary`の`artist`）
  */
-export function useAlbumTracksQuery(album: string) {
-  return createQuery(() => albumTracksOptions(album));
+export function useAlbumTracksQuery(album: string, artist: string | null) {
+  return createQuery(() => albumTracksOptions(album, artist));
 }
 
 /**
@@ -262,11 +265,18 @@ export function useGenresQuery() {
  * アルバム・アーティスト・ジャンルの曲を、表示順の1つの一覧で取得するクエリ
  *
  * アーティストは、アルバムごとの曲（`useArtistAlbumsQuery`と同じキャッシュ）を1つの一覧にする。
+ * @param type - 種類
+ * @param name - アルバム・アーティスト・ジャンルの名前
+ * @param albumArtist - アルバムの場合の、アルバムをまとめたアーティスト（`AlbumSummary`の`artist`）
  */
-export function useGroupTracksQuery(type: GroupType, name: string) {
+export function useGroupTracksQuery(
+  type: GroupType,
+  name: string,
+  albumArtist: string | null = null
+) {
   switch (type) {
     case 'album':
-      return createQuery(() => albumTracksOptions(name));
+      return createQuery(() => albumTracksOptions(name, albumArtist));
     case 'artist':
       return createQuery(() => ({ ...artistAlbumsOptions(name), select: flattenAlbumTracks }));
     case 'genre':
@@ -280,11 +290,12 @@ export function useGroupTracksQuery(type: GroupType, name: string) {
 export async function fetchGroupTracks(
   queryClient: QueryClient,
   type: GroupType,
-  name: string
+  name: string,
+  albumArtist: string | null = null
 ): Promise<Track[]> {
   switch (type) {
     case 'album':
-      return queryClient.fetchQuery(albumTracksOptions(name));
+      return queryClient.fetchQuery(albumTracksOptions(name, albumArtist));
     case 'artist':
       return flattenAlbumTracks(await queryClient.fetchQuery(artistAlbumsOptions(name)));
     case 'genre':
