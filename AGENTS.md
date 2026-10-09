@@ -13,7 +13,7 @@ Tauri 2 + SvelteKit で構築されたデスクトップ音楽管理アプリ。
 ## ディレクトリ構造
 
 - `src/` - SvelteKitフロントエンド（`routes/`, `lib/components/`, `lib/queries/`, `lib/stores/`, `lib/types/`, `lib/utils/`, `lib/i18n/`, `lib/mocks/`）
-- `src-tauri/` - Tauri + Rustバックエンド（`src/commands/`, `db.rs`, `repository.rs`, `models.rs`, `library.rs`, `library_folder.rs`, `metadata.rs`, `playlist.rs`, `playback/`（再生エンジン）, `validation.rs`, `settings.rs`, `state.rs`, `menu.rs` 等）
+- `src-tauri/` - Tauri + Rustバックエンド（`src/commands/`, `db.rs`, `repository.rs`, `models.rs`, `library.rs`, `library_folder.rs`, `metadata.rs`, `playlist.rs`, `playback/`（再生エンジン）, `media_controls/`（OSのメディアキー・Now Playing）, `validation.rs`, `settings.rs`, `state.rs`, `menu.rs` 等）
 - `static/` - 静的アセット
 - `docs/` - 詳細ドキュメント
 
@@ -39,7 +39,7 @@ npm run tauri build           # 本番ビルド
 - **状態管理**: Svelteの共有状態（UI状態。`src/lib/stores/*.svelte.ts`のRunesのモジュール）+ TanStack Query（データキャッシング）+ Tauri State（バックエンド永続化）
 - **DB**: SQLite + FTS5全文検索。スキーマは`tracks`, `playlists`, `playlist_tracks`, `play_history`, `library_folders`, `sync_devices`, `sync_device_playlists`, `tracks_fts`。SQLは`repository.rs`（トラック）・`playlist.rs`（プレイリスト）・`library_folder.rs`（ライブラリフォルダ）・`device.rs`（転送先デバイス）に集約し、コマンド層は`AppState::with_db`経由でアクセスする
 - **エラー**: Rust側は`AppResult<T>`（`AppError`）で`{code, message}`を返却（messageは日本語）。フロントは`handleError`でcodeベースに分類し一元管理。トースト通知
-- **再生**: 再生はRust側の再生エンジン（`src-tauri/src/playback/`。symphonia + cpal）で行う。フロントは再生キューを持ち、再生コントローラー（`src/lib/stores/playback.svelte.ts`）がコマンドでエンジンを操作して、通知（`PlaybackEvent`）を再生状態へ反映する。WebViewは音声ファイルを読まない（audio要素・Web Audioは使わない）
+- **再生**: 再生はRust側の再生エンジン（`src-tauri/src/playback/`。symphonia + cpal）で行う。フロントは再生キューを持ち、再生コントローラー（`src/lib/stores/playback.svelte.ts`）がコマンドでエンジンを操作して、通知（`PlaybackEvent`）を再生状態へ反映する。WebViewは音声ファイルを読まない（audio要素・Web Audioは使わない）。OSのメディアキー・Now Playing（macOSのみ）は`src-tauri/src/media_controls/`がOSのAPIを直接呼び、OSからの操作とメニューバーの「再生」メニューは`PlaybackControl`イベントでフロントへ届く
 - **型共有**: Rust⇔TSの型とコマンド呼び出しはtauri-spectaが`src/lib/bindings.ts`へ自動生成（`npm run tauri dev`または`cargo test export_typescript_bindings`）。手動で編集せず、Rust側を変更して再生成する。フロントは`commands.xxx()`経由で呼び出す
 - **命名**: Svelte=PascalCase、TypeScript=camelCase、Rust=snake_case。型=PascalCase、定数=UPPER_SNAKE_CASE
 - **Svelte 5**: Runes構文（`$props()`, `$state()`, `$derived()`, `$effect()`）を使用
