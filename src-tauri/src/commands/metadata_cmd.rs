@@ -26,6 +26,12 @@ use tauri_specta::Event;
 const BATCH_SIZE: usize = 50;
 
 /// メタデータの内容と各フィールドの長さをまとめてバリデーション
+/// コメントの長さの上限（文字数）
+const MAX_COMMENT_LENGTH: usize = 2_000;
+
+/// 歌詞の長さの上限（文字数）
+const MAX_LYRICS_LENGTH: usize = 50_000;
+
 fn validate_metadata_input(metadata: &Metadata) -> AppResult<()> {
     validate_metadata(metadata)?;
     validate_string_length(&metadata.title, "タイトル", 255)?;
@@ -34,7 +40,25 @@ fn validate_metadata_input(metadata: &Metadata) -> AppResult<()> {
     validate_string_length(&metadata.genre, "ジャンル", 100)?;
     validate_string_length(&metadata.album_artist, "アルバムアーティスト", 255)?;
     validate_string_length(&metadata.composer, "作曲者", 255)?;
+    validate_string_length(&metadata.grouping, "グループ", 255)?;
+    validate_string_length(&metadata.comment, "コメント", MAX_COMMENT_LENGTH)?;
+    validate_string_length(&metadata.lyrics, "歌詞", MAX_LYRICS_LENGTH)?;
     Ok(())
+}
+
+/// トラックのタグ（編集画面で扱うすべての項目）を、ファイルから読む
+///
+/// 作曲者・コメント・歌詞などはデータベースに保存していないため、編集画面を開く時に呼ぶ。
+/// ファイルが見つからない・読めない場合はエラー（その曲は、タグを書き込むこともできない）。
+#[tauri::command]
+#[specta::specta]
+pub async fn get_track_tags(track_id: String, state: State<'_, AppState>) -> AppResult<Metadata> {
+    validate_track_id(&track_id)?;
+
+    let file_path =
+        state.with_db(|db| crate::repository::find_file_path_by_track_id(db, &track_id))?;
+
+    run_blocking(move || crate::metadata::read_file_tags(Path::new(&file_path))).await
 }
 
 /// 書き込み後のファイルのサイズと更新日時を取得する
@@ -49,7 +73,7 @@ fn file_state_of(path: &Path) -> (Option<i64>, Option<i64>) {
 
 /// トラックのメタデータを更新（ファイルのタグとデータベース）
 ///
-/// タイトル・アーティスト・アルバム・ジャンル・年は、値がなければタグからも取り除く。
+/// 編集画面のすべての項目を反映する。値のない項目は、タグからも取り除く。
 #[tauri::command]
 #[specta::specta]
 pub async fn update_track_metadata(
@@ -352,6 +376,7 @@ fn pending_file_changes(
         disc_number: None,
         album_artist: None,
         composer: None,
+        ..Default::default()
     };
     let rating = (values.rating > 0 && values.rating != file.rating).then_some(values.rating);
 
@@ -506,6 +531,7 @@ mod tests {
             disc_number: None,
             album_artist: None,
             composer: None,
+            ..Default::default()
         }
     }
 

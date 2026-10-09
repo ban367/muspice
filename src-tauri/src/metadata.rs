@@ -11,6 +11,12 @@ use std::path::Path;
 /// アプリが扱う年の有効範囲
 const YEAR_RANGE: std::ops::RangeInclusive<i32> = 1000..=9999;
 
+/// トラック番号・ディスク番号と、その総数の有効範囲
+const NUMBER_RANGE: std::ops::RangeInclusive<i32> = 1..=999;
+
+/// BPMの有効範囲
+const BPM_RANGE: std::ops::RangeInclusive<i32> = 1..=999;
+
 /// タグから年を取得する
 ///
 /// lofty 0.24 の `Timestamp` は年が未設定・不正なタグでも `year = 0` を返すことがあるため、
@@ -222,6 +228,89 @@ fn set_tag_rating(tag: &mut Tag, rating: i32) {
     tag.insert_text(ItemKey::Popularimeter, popularimeter.to_string());
 }
 
+/// タグから、空でない文字列の値を取得する（空白だけの値は、タグがないものとして扱う）
+fn extract_text(tag: &Tag, key: ItemKey) -> Option<String> {
+    tag.get_string(key)
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_string)
+}
+
+/// タグからディスク番号を取得する（`1/2`のように総数と一緒に書かれている場合は、番号だけ）
+fn extract_disc_number(tag: &Tag) -> Option<i32> {
+    tag.get_string(ItemKey::DiscNumber)
+        .and_then(|s| {
+            s.split('/')
+                .next()
+                .and_then(|n| n.trim().parse::<i32>().ok())
+        })
+        .or_else(|| tag.disk().map(|d| d as i32))
+}
+
+/// タグから、ライブラリ（データベース）に登録する項目を取り出す
+///
+/// インポート・再スキャンで全ファイルについて読むため、編集画面だけで使う項目（歌詞など）は
+/// 取り出さない。
+fn library_metadata(tag: &Tag) -> Metadata {
+    Metadata {
+        title: tag.title().map(|s| s.to_string()),
+        artist: tag.artist().map(|s| s.to_string()),
+        album: tag.album().map(|s| s.to_string()),
+        genre: tag.genre().map(|s| s.to_string()),
+        year: extract_year(tag),
+        track_number: tag.track().map(|t| t as i32),
+        disc_number: extract_disc_number(tag),
+        album_artist: extract_album_artist(tag),
+        composer: tag.get_string(ItemKey::Composer).map(|s| s.to_string()),
+        ..Default::default()
+    }
+}
+
+/// タグから、編集画面で扱うすべての項目を取り出す
+fn editor_metadata(tag: &Tag) -> Metadata {
+    // BPMは、タグの種類によって整数の項目（ID3v2の`TBPM`・MP4の`tmpo`）か、小数もありうる
+    // 項目（Vorbisコメントの`BPM`）に入っている。どちらも整数に丸めて扱う
+    let bpm = tag
+        .get_string(ItemKey::IntegerBpm)
+        .or_else(|| tag.get_string(ItemKey::Bpm))
+        .and_then(|value| value.trim().parse::<f64>().ok())
+        .map(|bpm| bpm.round() as i32)
+        .filter(|bpm| BPM_RANGE.contains(bpm));
+    let compilation = tag
+        .get_string(ItemKey::FlagCompilation)
+        .map(|value| matches!(value.trim(), "1" | "true" | "TRUE" | "True"))
+        .filter(|&compilation| compilation);
+
+    Metadata {
+        track_total: tag.track_total().map(|t| t as i32),
+        disc_total: tag.disk_total().map(|t| t as i32),
+        grouping: extract_text(tag, ItemKey::ContentGroup),
+        bpm,
+        compilation,
+        comment: tag
+            .comment()
+            .map(|s| s.to_string())
+            .filter(|s| !s.trim().is_empty()),
+        // 歌詞は、時刻のないもの（ID3v2の`USLT`など）を優先して読む
+        lyrics: extract_text(tag, ItemKey::UnsyncLyrics)
+            .or_else(|| extract_text(tag, ItemKey::Lyrics)),
+        ..library_metadata(tag)
+    }
+}
+
+/// 音楽ファイルのタグから、編集画面で扱うすべての項目を読む（タグがない項目は値なし）
+///
+/// 作曲者・コメント・歌詞などは、データベースに保存していないため、編集画面を開く時に
+/// ファイルから読む。長さ・ビットレートなどは読まない。
+pub fn read_file_tags(file_path: &Path) -> AppResult<Metadata> {
+    let tagged_file = read_tagged_file(file_path, ParseOptions::new().read_properties(false))?;
+
+    Ok(tagged_file
+        .primary_tag()
+        .or_else(|| tagged_file.first_tag())
+        .map(editor_metadata)
+        .unwrap_or_default())
+}
+
 /// 音楽ファイルに埋め込まれた画像（アルバムアート）
 #[derive(Debug, Clone)]
 pub struct EmbeddedPicture {
@@ -254,40 +343,7 @@ pub fn extract_all_file_info(file_path: &Path) -> AppResult<FileInfo> {
         .primary_tag()
         .or_else(|| tagged_file.first_tag());
 
-    let metadata = if let Some(tag) = tag {
-        let disc_number = tag
-            .get_string(ItemKey::DiscNumber)
-            .and_then(|s| {
-                s.split('/')
-                    .next()
-                    .and_then(|n| n.trim().parse::<i32>().ok())
-            })
-            .or_else(|| tag.disk().map(|d| d as i32));
-
-        Metadata {
-            title: tag.title().map(|s| s.to_string()),
-            artist: tag.artist().map(|s| s.to_string()),
-            album: tag.album().map(|s| s.to_string()),
-            genre: tag.genre().map(|s| s.to_string()),
-            year: extract_year(tag),
-            track_number: tag.track().map(|t| t as i32),
-            disc_number,
-            album_artist: extract_album_artist(tag),
-            composer: tag.get_string(ItemKey::Composer).map(|s| s.to_string()),
-        }
-    } else {
-        Metadata {
-            title: None,
-            artist: None,
-            album: None,
-            genre: None,
-            year: None,
-            track_number: None,
-            disc_number: None,
-            album_artist: None,
-            composer: None,
-        }
-    };
+    let metadata = tag.map(library_metadata).unwrap_or_default();
 
     let replay_gain = tag.map(extract_replay_gain).unwrap_or_default();
     let rating = tag.map(extract_rating).unwrap_or(0);
@@ -355,12 +411,28 @@ pub fn validate_metadata(metadata: &Metadata) -> AppResult<()> {
         ));
     }
 
-    // トラック番号のバリデーション
-    if let Some(track_number) = metadata.track_number
-        && !(1..=999).contains(&track_number)
+    // トラック番号・ディスク番号と、その総数のバリデーション
+    for (value, name) in [
+        (metadata.track_number, "トラック番号"),
+        (metadata.track_total, "トラックの総数"),
+        (metadata.disc_number, "ディスク番号"),
+        (metadata.disc_total, "ディスクの総数"),
+    ] {
+        if let Some(value) = value
+            && !NUMBER_RANGE.contains(&value)
+        {
+            return Err(AppError::Validation(format!(
+                "{}は1から999の範囲で指定してください",
+                name
+            )));
+        }
+    }
+
+    if let Some(bpm) = metadata.bpm
+        && !BPM_RANGE.contains(&bpm)
     {
         return Err(AppError::Validation(
-            "トラック番号は1から999の範囲で指定してください".to_string(),
+            "BPMは1から999の範囲で指定してください".to_string(),
         ));
     }
 
@@ -405,11 +477,22 @@ fn modify_file_tag(file_path: &Path, modify: impl FnOnce(&mut Tag)) -> AppResult
     Ok(())
 }
 
+/// タグの文字列の項目を書き換える（値がなければ、`clear_missing`の時だけ取り除く）
+fn apply_text(tag: &mut Tag, key: ItemKey, value: &Option<String>, clear_missing: bool) {
+    match value {
+        Some(value) => {
+            tag.insert_text(key, value.clone());
+        }
+        None if clear_missing => tag.remove_key(key),
+        None => {}
+    }
+}
+
 /// タグにメタデータを反映する
 ///
-/// 値がある項目はその値にする。`clear_missing`がtrueなら、編集画面の項目
-/// （タイトル・アーティスト・アルバム・ジャンル・年）のうち値がないものをタグから取り除く
-/// （1曲の編集で、欄を空にして保存した場合）。falseなら、値がない項目は変えない（一括編集）。
+/// 値がある項目はその値にする。`clear_missing`がtrueなら、値がない項目をタグから取り除く
+/// （1曲の編集で、欄を空にして保存した場合。編集画面は、すべての項目の値を渡す）。
+/// falseなら、値がない項目は変えない（一括編集・データベースの内容の書き出し）。
 fn apply_metadata(tag: &mut Tag, metadata: &Metadata, clear_missing: bool) {
     match &metadata.title {
         Some(title) => tag.set_title(title.clone()),
@@ -447,16 +530,81 @@ fn apply_metadata(tag: &mut Tag, metadata: &Metadata, clear_missing: bool) {
         None => {}
     }
 
-    if let Some(track_number) = metadata.track_number {
-        tag.set_track(track_number as u32);
+    match metadata.track_number {
+        Some(track_number) => tag.set_track(track_number as u32),
+        None if clear_missing => tag.remove_track(),
+        None => {}
     }
 
-    if let Some(album_artist) = &metadata.album_artist {
-        tag.insert_text(ItemKey::AlbumArtist, album_artist.clone());
+    match metadata.track_total {
+        Some(track_total) => tag.set_track_total(track_total as u32),
+        None if clear_missing => tag.remove_track_total(),
+        None => {}
     }
 
-    if let Some(composer) = &metadata.composer {
-        tag.insert_text(ItemKey::Composer, composer.clone());
+    match metadata.disc_number {
+        Some(disc_number) => tag.set_disk(disc_number as u32),
+        None if clear_missing => tag.remove_disk(),
+        None => {}
+    }
+
+    match metadata.disc_total {
+        Some(disc_total) => tag.set_disk_total(disc_total as u32),
+        None if clear_missing => tag.remove_disk_total(),
+        None => {}
+    }
+
+    apply_text(
+        tag,
+        ItemKey::AlbumArtist,
+        &metadata.album_artist,
+        clear_missing,
+    );
+    apply_text(tag, ItemKey::Composer, &metadata.composer, clear_missing);
+    apply_text(
+        tag,
+        ItemKey::ContentGroup,
+        &metadata.grouping,
+        clear_missing,
+    );
+
+    match &metadata.comment {
+        Some(comment) => tag.set_comment(comment.clone()),
+        None if clear_missing => tag.remove_comment(),
+        None => {}
+    }
+
+    // BPM: タグの種類によって、整数の項目（ID3v2・MP4）か、もう一方の項目（Vorbisコメント）に書く
+    if metadata.bpm.is_some() || clear_missing {
+        tag.remove_key(ItemKey::IntegerBpm);
+        tag.remove_key(ItemKey::Bpm);
+    }
+    if let Some(bpm) = metadata.bpm
+        && !tag.insert_text(ItemKey::IntegerBpm, bpm.to_string())
+    {
+        tag.insert_text(ItemKey::Bpm, bpm.to_string());
+    }
+
+    // コンピレーション: 印を付ける時だけ値を書き、外す時は項目ごと取り除く
+    match metadata.compilation {
+        Some(true) => {
+            tag.insert_text(ItemKey::FlagCompilation, "1".to_string());
+        }
+        Some(false) => tag.remove_key(ItemKey::FlagCompilation),
+        None if clear_missing => tag.remove_key(ItemKey::FlagCompilation),
+        None => {}
+    }
+
+    // 歌詞: 時刻のない歌詞として書く。ID3v2は`USLT`（`UnsyncLyrics`）だけを持てるため、
+    // 歌詞の項目（Vorbisコメントの`LYRICS`・MP4の`©lyr`）に書けない場合はそちらへ書く
+    if metadata.lyrics.is_some() || clear_missing {
+        tag.remove_key(ItemKey::Lyrics);
+        tag.remove_key(ItemKey::UnsyncLyrics);
+    }
+    if let Some(lyrics) = &metadata.lyrics
+        && !tag.insert_text(ItemKey::Lyrics, lyrics.clone())
+    {
+        tag.insert_text(ItemKey::UnsyncLyrics, lyrics.clone());
     }
 }
 
@@ -724,6 +872,7 @@ mod tests {
             disc_number: None,
             album_artist: None,
             composer: None,
+            ..Default::default()
         };
 
         // 一括編集: 値がない項目は変えない
@@ -737,6 +886,126 @@ mod tests {
         assert_eq!(tag.title().as_deref(), Some("New Title"));
         assert_eq!(tag.artist(), None);
         assert_eq!(tag.genre(), None);
+    }
+
+    /// 編集画面のすべての項目に値を入れたメタデータ
+    fn full_metadata() -> Metadata {
+        Metadata {
+            title: Some("タイトル".to_string()),
+            artist: Some("アーティスト".to_string()),
+            album: Some("アルバム".to_string()),
+            genre: Some("Jazz".to_string()),
+            year: Some(2021),
+            track_number: Some(3),
+            disc_number: Some(1),
+            album_artist: Some("アルバムアーティスト".to_string()),
+            composer: Some("作曲者".to_string()),
+            track_total: Some(12),
+            disc_total: Some(2),
+            grouping: Some("グループ".to_string()),
+            bpm: Some(128),
+            compilation: Some(true),
+            comment: Some("コメント\n2行目".to_string()),
+            lyrics: Some("歌詞の1行目\n歌詞の2行目".to_string()),
+        }
+    }
+
+    /// 読み書きを確かめる形式（タグの種類が違うもの）のファイルを、一時フォルダに用意する
+    ///
+    /// WAV（ID3v2）は生成し、MP3（ID3v2）・M4A（MP4）・Ogg Vorbis / Opus（Vorbisコメント）は、
+    /// 再生エンジンのテスト用のファイルを写す。
+    fn tag_test_files(dir: &Path) -> Vec<std::path::PathBuf> {
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/playback");
+        let mut files = vec![dir.join("generated.wav")];
+        write_test_wav(&files[0]);
+        for name in ["lame.mp3", "apple_aac.m4a", "vorbis.ogg", "opus.opus"] {
+            let file = dir.join(name);
+            std::fs::copy(fixtures.join(name), &file).unwrap();
+            files.push(file);
+        }
+        files
+    }
+
+    /// 編集画面のすべての項目を書き込み、読み直して同じ値を取得できる（タグの種類ごと）
+    #[test]
+    fn test_every_editor_field_round_trips_in_every_tag_type() {
+        let dir = std::env::temp_dir().join(format!("muspice-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        for file in tag_test_files(&dir) {
+            let name = file.file_name().unwrap().to_string_lossy().into_owned();
+            let metadata = full_metadata();
+
+            update_file_metadata(&file, &metadata, true).unwrap();
+            assert_eq!(read_file_tags(&file).unwrap(), metadata, "{name}");
+            // 取り込みで読む項目（一覧に使う項目）も、同じ値になる
+            let library = extract_all_file_info(&file).unwrap().metadata;
+            assert_eq!(library.track_number, Some(3), "{name}");
+            assert_eq!(library.disc_number, Some(1), "{name}");
+            assert_eq!(
+                library.album_artist.as_deref(),
+                Some("アルバムアーティスト"),
+                "{name}"
+            );
+
+            // 一括編集: 値のある項目だけを変える
+            let partial = Metadata {
+                composer: Some("別の作曲者".to_string()),
+                compilation: Some(false),
+                ..Default::default()
+            };
+            update_file_metadata(&file, &partial, false).unwrap();
+            let expected = Metadata {
+                composer: Some("別の作曲者".to_string()),
+                compilation: None,
+                ..metadata.clone()
+            };
+            assert_eq!(read_file_tags(&file).unwrap(), expected, "{name}");
+
+            // 1曲の編集: 空にした項目は、タグから取り除く
+            let cleared = Metadata {
+                title: Some("タイトルだけ".to_string()),
+                ..Default::default()
+            };
+            update_file_metadata(&file, &cleared, true).unwrap();
+            assert_eq!(read_file_tags(&file).unwrap(), cleared, "{name}");
+        }
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn test_read_file_tags_of_a_file_without_tags_or_missing() {
+        let dir = std::env::temp_dir().join(format!("muspice-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.wav");
+        write_test_wav(&file);
+
+        assert_eq!(read_file_tags(&file).unwrap(), Metadata::default());
+        assert!(read_file_tags(&dir.join("missing.wav")).is_err());
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// 実際のファイルへすべての項目を書き込み、ほかのツール（ffprobeなど）で読めるか確かめる
+    /// （手動で実行する）
+    ///
+    /// `TAG_TEST_DIR=<音楽ファイルを置いたフォルダ> cargo test write_tags_to_real_files -- --ignored`
+    #[test]
+    #[ignore = "実際のファイルが必要（TAG_TEST_DIRで指定する。ファイルを書き換える）"]
+    fn write_tags_to_real_files() {
+        let dir = std::env::var("TAG_TEST_DIR").expect("TAG_TEST_DIRを指定する");
+        let metadata = full_metadata();
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let file = entry.unwrap().path();
+            if !file.is_file() {
+                continue;
+            }
+            update_file_metadata(&file, &metadata, true).unwrap();
+            let read = read_file_tags(&file).unwrap();
+            println!("{}: {}", file.display(), read == metadata);
+            assert_eq!(read, metadata, "{}", file.display());
+        }
     }
 
     /// 最小のWAVファイル（無音）を作る
@@ -831,6 +1100,7 @@ mod tests {
             disc_number: None,
             album_artist: None,
             composer: None,
+            ..Default::default()
         };
         update_file_metadata(&file, &metadata, true).unwrap();
         update_file_rating(&file, 4).unwrap();
@@ -883,6 +1153,7 @@ mod tests {
             disc_number: Some(1),
             album_artist: None,
             composer: None,
+            ..Default::default()
         };
 
         assert!(validate_metadata(&metadata).is_ok());
@@ -900,9 +1171,42 @@ mod tests {
             disc_number: None,
             album_artist: None,
             composer: None,
+            ..Default::default()
         };
 
         assert!(validate_metadata(&metadata).is_err());
+    }
+
+    #[test]
+    fn test_validate_metadata_checks_numbers_and_bpm() {
+        assert!(validate_metadata(&full_metadata()).is_ok());
+        for invalid in [
+            Metadata {
+                track_total: Some(0),
+                ..Default::default()
+            },
+            Metadata {
+                disc_number: Some(1000),
+                ..Default::default()
+            },
+            Metadata {
+                disc_total: Some(-1),
+                ..Default::default()
+            },
+            Metadata {
+                bpm: Some(0),
+                ..Default::default()
+            },
+            Metadata {
+                bpm: Some(1000),
+                ..Default::default()
+            },
+        ] {
+            assert!(
+                matches!(validate_metadata(&invalid), Err(AppError::Validation(_))),
+                "{invalid:?}"
+            );
+        }
     }
 
     #[test]
@@ -917,6 +1221,7 @@ mod tests {
             disc_number: None,
             album_artist: None,
             composer: None,
+            ..Default::default()
         };
 
         assert!(validate_metadata(&metadata).is_err());

@@ -48,7 +48,18 @@ export const en: Messages = {
     year: 'Year',
     duration: 'Time',
     rating: 'Rating',
-    playCount: 'Plays'
+    playCount: 'Plays',
+    albumArtist: 'Album Artist',
+    composer: 'Composer',
+    grouping: 'Grouping',
+    comment: 'Comment',
+    lyrics: 'Lyrics',
+    trackNumber: 'Track number',
+    trackTotal: 'Track total',
+    discNumber: 'Disc number',
+    discTotal: 'Disc total',
+    bpm: 'BPM',
+    compilation: 'Compilation'
   },
 
   format: {
@@ -149,6 +160,8 @@ export const en: Messages = {
     trackNumberOutOfRange: 'Enter a track number between 1 and 999',
     tooLong: (field, maxLength, length) =>
       `${field} must be ${maxLength} characters or fewer (currently ${length})`,
+    numberOutOfRange: (field, min, max) =>
+      `${field} must be a whole number between ${min} and ${max}`,
     playlistNameRequired: 'Enter a playlist name',
     playlistNameTooLong: 'The playlist name must be 100 characters or fewer',
     playlistNameInvalid: 'The playlist name contains characters that cannot be used',
@@ -238,7 +251,8 @@ export const en: Messages = {
   metadataEditor: {
     editTitle: 'Edit Metadata',
     bulkEditTitle: (count) => `Edit ${plural(count, 'track', 'tracks')}`,
-    bulkHint: 'Empty fields are left unchanged. Fill in only the fields you want to change.',
+    bulkHint:
+      'Empty fields are left unchanged. Fill in only the fields you want to change. The title, track number and lyrics are edited one track at a time.',
     bulkPartiallyFailed: (updated, failed) =>
       `Updated ${plural(updated, 'track', 'tracks')} (${failed} could not be written to the file)`,
     bulkAllFailed: (reason) => `Could not write to the files: ${reason}`,
@@ -248,7 +262,39 @@ export const en: Messages = {
     albumPlaceholder: 'Album',
     genrePlaceholder: 'Genre',
     yearPlaceholder: 'e.g. 2023',
-    writesToFile: 'Changes are written to the tags of the music files'
+    writesToFile: 'Changes are written to the tags of the music files',
+    /** タブ */
+    tabs: { tags: 'Tags', lyrics: 'Lyrics', file: 'File Info' },
+    track: 'Track',
+    disc: 'Disc',
+    /** トラック番号・ディスク番号の、番号と総数の間の文字（例: 3 / 12） */
+    of: 'of',
+    compilationHint: 'An album collecting tracks by several artists',
+    compilationOn: 'Set',
+    compilationOff: 'Clear',
+    lyricsPlaceholder: 'Enter the lyrics (embedded in the file)',
+    loadingTags: 'Reading the tags of the file...',
+    tagsUnavailable: (reason) =>
+      `The tags of the file cannot be read, so it cannot be edited: ${reason}`,
+    /** ファイル情報 */
+    file: {
+      fileName: 'File name',
+      location: 'Location',
+      format: 'Format',
+      bitrate: 'Bit rate',
+      sampleRate: 'Sample rate',
+      duration: 'Length',
+      size: 'Size',
+      addedAt: 'Date added',
+      lastPlayedAt: 'Last played',
+      playCount: 'Plays',
+      skipCount: 'Skips',
+      never: 'Never played',
+      kbps: (value) => `${value} kbps`,
+      hz: (value) => `${value.toLocaleString()} Hz`,
+      times: (count) => `${count}`,
+      missing: 'The file is missing'
+    }
   },
 
   metadataExport: {

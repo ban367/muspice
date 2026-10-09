@@ -116,9 +116,16 @@ export const commands = {
 	/**  ジャンルの曲を取得 */
 	getGenreTracks: (genre: string) => __TAURI_INVOKE<Track[]>("get_genre_tracks", { genre }),
 	/**
+	 *  トラックのタグ（編集画面で扱うすべての項目）を、ファイルから読む
+	 * 
+	 *  作曲者・コメント・歌詞などはデータベースに保存していないため、編集画面を開く時に呼ぶ。
+	 *  ファイルが見つからない・読めない場合はエラー（その曲は、タグを書き込むこともできない）。
+	 */
+	getTrackTags: (trackId: string) => __TAURI_INVOKE<Metadata>("get_track_tags", { trackId }),
+	/**
 	 *  トラックのメタデータを更新（ファイルのタグとデータベース）
 	 * 
-	 *  タイトル・アーティスト・アルバム・ジャンル・年は、値がなければタグからも取り除く。
+	 *  編集画面のすべての項目を反映する。値のない項目は、タグからも取り除く。
 	 */
 	updateTrackMetadata: (trackId: string, metadata: Metadata) => __TAURI_INVOKE<null>("update_track_metadata", { trackId, metadata }),
 	/**
@@ -668,7 +675,17 @@ export type M3uImportResult = {
 	error: string | null,
 };
 
-/**  メタデータのデータモデル */
+/**
+ *  曲のタグ（編集画面で扱う項目）
+ * 
+ *  読み出し（`get_track_tags`）では、ファイルのタグの内容を表す（タグにない項目は値なし）。
+ *  書き込み（`update_track_metadata`・`update_multiple_tracks_metadata`）では、値のない項目の
+ *  扱いがコマンドによって違う（1曲の編集はタグから取り除き、一括編集は変えない）。
+ * 
+ *  データベースに保存するのは、一覧・検索に使う項目（タイトル・アーティスト・アルバム・
+ *  アルバムアーティスト・ジャンル・年・トラック番号・ディスク番号）だけで、そのほかは
+ *  ファイルのタグだけにある。
+ */
 export type Metadata = {
 	title?: string | null,
 	artist?: string | null,
@@ -679,6 +696,18 @@ export type Metadata = {
 	discNumber?: number | null,
 	albumArtist?: string | null,
 	composer?: string | null,
+	/**  アルバムのトラックの総数 */
+	trackTotal?: number | null,
+	/**  アルバムのディスクの総数 */
+	discTotal?: number | null,
+	/**  グループ（作品のまとまりなど） */
+	grouping?: string | null,
+	bpm?: number | null,
+	/**  コンピレーション（複数のアーティストの曲を集めたアルバム）の印 */
+	compilation?: boolean | null,
+	comment?: string | null,
+	/**  歌詞（時刻のないテキスト） */
+	lyrics?: string | null,
 };
 
 /**  フロントエンドから届く、プレーヤーバーの状態 */
