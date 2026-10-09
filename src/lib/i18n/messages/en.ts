@@ -60,7 +60,9 @@ export const en: Messages = {
       LOCK: 'Another operation is in progress. Please wait a moment and try again.',
       DATABASE: 'A database error occurred. Please try again.',
       IO: 'A file error occurred. Please check the file.',
-      METADATA: 'Failed to process the metadata. The file may be corrupted.'
+      METADATA: 'Failed to process the metadata. The file may be corrupted.',
+      PLAYBACK:
+        'This file could not be played. The format may be unsupported, the file may be corrupted, or the output device may be unavailable.'
     },
     unknown: 'An error occurred',
     withContext: (context, message) => `${context}: ${message}`,
@@ -98,6 +100,7 @@ export const en: Messages = {
     renamePlaylist: 'Renaming the playlist',
     deletePlaylist: 'Deleting the playlist',
     loadSettings: 'Loading settings',
+    loadOutputDevices: 'Loading output devices',
     saveSettings: 'Saving settings',
     openProjectPage: 'Opening the page',
     fetchLibraryFolders: 'Loading library folders',
@@ -401,6 +404,15 @@ export const en: Messages = {
     crossfadeSeconds: (seconds) => `${seconds} s`,
     crossfadeHint:
       'Fades out the end of a track over the set time while fading in the next one. Short tracks are crossfaded for at most half of their length. Tracks changed with "Next" and the like, and repeat one, are not crossfaded.',
+    playbackEngine: 'Playback engine',
+    playbackEngines: { webView: 'Standard', native: 'Native (experimental)' },
+    playbackEngineHint:
+      'The native engine lets you choose the output device. The equalizer, volume normalization and crossfade do not work with it yet. Switching stops playback and clears the queue.',
+    outputDevice: 'Output device',
+    outputDeviceDefault: 'System default',
+    outputDeviceDisconnected: 'Disconnected device',
+    outputDeviceHint:
+      'The output used when the playback engine is "Native". While the selected device is disconnected, the system default device is used.',
     autoSync: 'Automatic updates',
     watchFolders: 'Watch folders for changes',
     watchFoldersHint:
