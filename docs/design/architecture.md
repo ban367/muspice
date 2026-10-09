@@ -63,6 +63,7 @@ graph TD
 - バックエンド→フロントエンドの通知は `events.rs` の型付きイベント（tauri-specta）で行い、フロントは `bindings.ts` の `events.xxx.listen()` で受け取る
 - デバイスへの転送: `device.rs`（デバイスの記録）・`device_manifest.rs`（デバイス側の管理ファイル）・`device_sync.rs`（配置と差分の計算。ファイルシステムに触れない）・`device_transfer.rs`（削除・リネーム・コピー・プレイリストの書き出し）に分ける。同時に実行する同期は1つ（`DeviceSyncState`）で、DBロックは曲・プレイリストの読み出しの間だけ持つ（コピー中は持たない）
 - 再生エンジン: `playback/`。エンジンのスレッド（`engine.rs`）がコマンドを順に処理しながら、デコード（`decoder.rs`。`symphonia`とlibopus） → 出力の形式への変換（`convert.rs`。ステレオ・出力デバイスのサンプルレート。`rubato`） → 音量の正規化（`normalization.rs`。曲ごとの倍率） → クロスフェード（2曲を重ねる） → リングバッファへの書き込みを行う。出力のコールバック（`render.rs`。`cpal`が呼ぶOSの音声のスレッド）は、リングバッファから取り出して、イコライザ → 音量・一時停止 → リミッター（`effects.rs`）の順にかけるだけで、ロック・メモリの確保・ファイルの読み取りをしない。出力は最初に再生する時に開き、再生していない間は止める（ADR-025・ADR-026）
+- プレイリストのM3U: `m3u.rs`が、読み込み（文字コードの判定・曲の場所とライブラリの曲の対応付け）と書き出し（拡張M3U）を担う。ファイルの選択は、コマンド（`commands/m3u.rs`）がRust側でダイアログを開いて行い、WebViewからパスを受け取らない（ADR-032）
 - OSのメディアキー・Now Playing: `media_controls/`。`set_now_playing`で届いた曲のIDから、曲の情報とアルバムアート（`album_art.rs`のキャッシュ）を読んでOSへ渡し、OSからの操作を`PlaybackControl`イベントでフロントエンドへ送る。macOSだけに対応し（`macos.rs`。MediaPlayerフレームワーク）、ほかのOSでは何もしない。MediaPlayerのオブジェクトはメインスレッドだけで扱う（ADR-029）
 - メニューバー: `menu.rs`（設定の言語に合わせる）。「再生」メニューの項目は、`PlaybackControl`イベントを送る（キーは割り当てない）
 - コマンド登録: `tauri::generate_handler!` でインポート/検索/編集/再生/統計/システム操作を公開
