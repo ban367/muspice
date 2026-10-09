@@ -458,6 +458,70 @@ describe('プレイリスト', () => {
   });
 });
 
+describe('並び順に使う値（ソート用のタグ）', () => {
+  it('曲・アルバム・アーティストが、読みを持つ', async () => {
+    const tracks = await commands.getAllTracks();
+    const track = tracks.find((t) => t.title === '港の灯り')!;
+    expect(track.sortTags).toEqual({
+      title: 'みなとのあかり',
+      artist: 'ねおんどおり',
+      album: 'よあけのしぐなる',
+      albumArtist: null
+    });
+
+    const albums = await commands.getAlbums();
+    expect(albums.find((album) => album.name === '夜明けのシグナル')?.sortName).toBe(
+      'よあけのしぐなる'
+    );
+    expect(albums.find((album) => album.name === 'Blue Horizon')?.sortName).toBeNull();
+    const artists = await commands.getArtists();
+    expect(artists.find((artist) => artist.name === 'ネオン通り')?.sortName).toBe('ねおんどおり');
+    const [group] = await commands.getArtistAlbums('ネオン通り');
+    expect(group.sortName).toBe('よあけのしぐなる');
+  });
+
+  it('1曲の編集で読みを置き換え、ファイルのタグとして読める', async () => {
+    const track = (await commands.getAllTracks()).find((t) => t.title === '港の灯り')!;
+    const tags = await commands.getTrackTags(track.id);
+    expect(tags).toMatchObject({ titleSort: 'みなとのあかり', artistSort: 'ねおんどおり' });
+    expect(tags.albumArtistSort).toBeUndefined();
+
+    await commands.updateTrackMetadata(track.id, {
+      ...tags,
+      artistSort: 'ネオンドオリ',
+      albumSort: null,
+      albumArtistSort: 'ねおん'
+    });
+
+    const updated = (await commands.getAllTracks()).find((t) => t.id === track.id)!;
+    expect(updated.sortTags).toEqual({
+      title: 'みなとのあかり',
+      artist: 'ネオンドオリ',
+      album: null,
+      albumArtist: 'ねおん'
+    });
+    expect(await commands.getTrackTags(track.id)).toMatchObject({
+      artistSort: 'ネオンドオリ',
+      albumArtistSort: 'ねおん'
+    });
+  });
+
+  it('一括編集は、入力した読みだけを変える', async () => {
+    const tracks = (await commands.getAllTracks()).filter((t) => t.artist === 'ネオン通り');
+    const ids = tracks.map((t) => t.id);
+
+    await commands.updateMultipleTracksMetadata(ids, { artistSort: 'ネオンどおり' });
+
+    const updated = (await commands.getAllTracks()).filter((t) => ids.includes(t.id));
+    expect(updated.every((t) => t.sortTags.artist === 'ネオンどおり')).toBe(true);
+    // ほかの読みは変えない
+    expect(updated.find((t) => t.title === '港の灯り')?.sortTags.title).toBe('みなとのあかり');
+    await expect(
+      commands.updateMultipleTracksMetadata(ids, { artistSort: 'あ'.repeat(256) })
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+});
+
 describe('アルバムアート', () => {
   /** アルバムの曲（ファイルが見つからない曲を除く） */
   async function albumTracks(album: string) {

@@ -263,6 +263,7 @@ pub(super) fn create_track_from_file(file_path: &Path) -> AppResult<Track> {
 
     // 1回のファイルオープンで全情報を一括抽出
     let file_info = extract_all_file_info(file_path)?;
+    let sort_tags = file_info.metadata.sort_tags();
 
     // タイトルがない場合はファイル名をデフォルトとして使用
     let title = file_info
@@ -300,6 +301,7 @@ pub(super) fn create_track_from_file(file_path: &Path) -> AppResult<Track> {
         created_at: now.clone(),
         updated_at: now,
         replay_gain: file_info.replay_gain,
+        sort_tags,
         is_missing: false,
     })
 }

@@ -38,6 +38,10 @@ interface TrackSeed {
   albumArtist?: string;
   /** ファイルが見つからない曲（薄い表示・再生できない曲の確認用） */
   isMissing?: boolean;
+  /** 並び順に使う値（読み仮名。ソート用のタグ） */
+  titleSort?: string;
+  artistSort?: string;
+  albumSort?: string;
   genre: string | null;
   year: number | null;
   trackNumber: number | null;
@@ -54,16 +58,16 @@ interface TrackSeed {
 // prettier-ignore
 const TRACK_SEEDS: TrackSeed[] = [
   // 複数アルバムを持つアーティスト
-  { title: '青い地平線', artist: 'Aoi Sora', album: 'Blue Horizon', genre: 'J-Pop', year: 2021, trackNumber: 1, duration: 214, isFavorite: true, rating: 5, playCount: 42 },
+  { title: '青い地平線', titleSort: 'あおいちへいせん', artist: 'Aoi Sora', album: 'Blue Horizon', genre: 'J-Pop', year: 2021, trackNumber: 1, duration: 214, isFavorite: true, rating: 5, playCount: 42 },
   { title: 'Paper Planes', artist: 'Aoi Sora', album: 'Blue Horizon', genre: 'J-Pop', year: 2021, trackNumber: 2, duration: 198, rating: 4, playCount: 18 },
-  { title: '雨上がりのメロディ', artist: 'Aoi Sora', album: 'Blue Horizon', genre: 'J-Pop', year: 2021, trackNumber: 3, duration: 245, playCount: 7 },
+  { title: '雨上がりのメロディ', titleSort: 'あめあがりのめろでぃ', artist: 'Aoi Sora', album: 'Blue Horizon', genre: 'J-Pop', year: 2021, trackNumber: 3, duration: 245, playCount: 7 },
   { title: 'Summer Letter', artist: 'Aoi Sora', album: 'Blue Horizon', genre: 'J-Pop', year: 2021, trackNumber: 4, duration: 231 },
   { title: 'Morning Walk', artist: 'Aoi Sora', album: 'Field Notes', genre: 'J-Pop', year: 2024, trackNumber: 1, duration: 187, format: 'flac', rating: 3, playCount: 3 },
-  { title: '観察日記', artist: 'Aoi Sora', album: 'Field Notes', genre: 'J-Pop', year: 2024, trackNumber: 2, duration: 263, format: 'flac' },
+  { title: '観察日記', titleSort: 'かんさつにっき', artist: 'Aoi Sora', album: 'Field Notes', genre: 'J-Pop', year: 2024, trackNumber: 2, duration: 263, format: 'flac' },
   // 日本語アーティスト・アルバム
-  { title: '夜明けのシグナル', artist: 'ネオン通り', album: '夜明けのシグナル', genre: 'City Pop', year: 2019, trackNumber: 1, duration: 276, isFavorite: true, rating: 5, playCount: 31 },
-  { title: 'ミッドナイト・ドライブ', artist: 'ネオン通り', album: '夜明けのシグナル', genre: 'City Pop', year: 2019, trackNumber: 2, duration: 302, isFavorite: true, playCount: 25 },
-  { title: '港の灯り', artist: 'ネオン通り', album: '夜明けのシグナル', genre: 'City Pop', year: 2019, trackNumber: 3, duration: 254, playCount: 2 },
+  { title: '夜明けのシグナル', titleSort: 'よあけのしぐなる', artist: 'ネオン通り', artistSort: 'ねおんどおり', album: '夜明けのシグナル', albumSort: 'よあけのしぐなる', genre: 'City Pop', year: 2019, trackNumber: 1, duration: 276, isFavorite: true, rating: 5, playCount: 31 },
+  { title: 'ミッドナイト・ドライブ', titleSort: 'みっどないとどらいぶ', artist: 'ネオン通り', artistSort: 'ねおんどおり', album: '夜明けのシグナル', albumSort: 'よあけのしぐなる', genre: 'City Pop', year: 2019, trackNumber: 2, duration: 302, isFavorite: true, playCount: 25 },
+  { title: '港の灯り', titleSort: 'みなとのあかり', artist: 'ネオン通り', artistSort: 'ねおんどおり', album: '夜明けのシグナル', albumSort: 'よあけのしぐなる', genre: 'City Pop', year: 2019, trackNumber: 3, duration: 254, playCount: 2 },
   // エレクトロニック
   { title: 'Overclock', artist: 'The Voltage', album: 'Midnight Circuit', genre: 'Electronic', year: 2023, trackNumber: 1, duration: 341, format: 'm4a', rating: 4, playCount: 12 },
   { title: 'Signal Lost', artist: 'The Voltage', album: 'Midnight Circuit', genre: 'Electronic', year: 2023, trackNumber: 2, duration: 289, format: 'm4a' },
@@ -148,6 +152,12 @@ function createTrack(seed: TrackSeed, index: number): Track {
             albumGain: -7,
             albumPeak: 0.99
           },
+    sortTags: {
+      title: seed.titleSort ?? null,
+      artist: seed.artistSort ?? null,
+      album: seed.albumSort ?? null,
+      albumArtist: null
+    },
     isMissing: seed.isMissing ?? false
   };
 }
@@ -204,6 +214,7 @@ export function createBulkTracks(count: number): Track[] {
       createdAt,
       updatedAt: createdAt,
       replayGain: { trackGain: null, trackPeak: null, albumGain: null, albumPeak: null },
+      sortTags: { title: null, artist: null, album: null, albumArtist: null },
       isMissing: false
     };
   });

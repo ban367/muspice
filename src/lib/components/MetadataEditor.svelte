@@ -2,10 +2,12 @@
   @component MetadataEditor
   曲のタグの編集画面。
 
-  - 1曲の編集: 「タグ」「歌詞」「ファイル情報」のタブ。開いた時にファイルからタグを読み
+  - 1曲の編集: 「タグ」「並び順」「歌詞」「ファイル情報」のタブ。開いた時にファイルからタグを読み
     （作曲者・コメント・歌詞などは、データベースに保存していないため）、保存するとすべての項目を
     ファイルへ書き込む（空にした項目は、タグから取り除く）
-  - 一括編集: 入力した項目だけを、選んだ曲のファイルへ書き込む（タイトル・トラック番号・歌詞は扱わない）
+  - 一括編集: 入力した項目だけを、選んだ曲のファイルへ書き込む（タイトルとその読み・トラック番号・
+    歌詞は扱わない）
+  - 「並び順」は、並び順に使う読み（ソート用のタグ）。空の項目は、表示用の名前で並べる
 
   入力欄の値と`Metadata`の変換・検証は`#lib/utils/metadataForm`が行う。
 -->
@@ -57,8 +59,8 @@
     ? m.metadataEditor.editTitle
     : m.metadataEditor.bulkEditTitle(tracks.length);
 
-  type Tab = 'tags' | 'lyrics' | 'file';
-  const tabs: Tab[] = ['tags', 'lyrics', 'file'];
+  type Tab = 'tags' | 'sort' | 'lyrics' | 'file';
+  const tabs: Tab[] = ['tags', 'sort', 'lyrics', 'file'];
   let activeTab = $state<Tab>('tags');
 
   // 1曲の編集では、ファイルからタグを読む（読めるまで・読めない場合は、保存できない）
@@ -92,6 +94,10 @@
     grouping: m.fields.grouping,
     comment: m.fields.comment,
     lyrics: m.fields.lyrics,
+    titleSort: m.fields.titleSort,
+    artistSort: m.fields.artistSort,
+    albumArtistSort: m.fields.albumArtistSort,
+    albumSort: m.fields.albumSort,
     year: m.fields.year,
     trackNumber: m.fields.trackNumber,
     trackTotal: m.fields.trackTotal,
@@ -219,6 +225,16 @@
   </div>
 {/snippet}
 
+<!-- 並び順に使う読みの入力欄（空の時は、並びに使われる表示用の名前を薄く出す） -->
+{#snippet sortFields()}
+  {#if isSingleEdit}
+    {@render textField('titleSort', form.title, null)}
+  {/if}
+  {@render textField('artistSort', placeholder(form.artist), null)}
+  {@render textField('albumArtistSort', placeholder(form.albumArtist), null)}
+  {@render textField('albumSort', placeholder(form.album), null)}
+{/snippet}
+
 <Modal open {onClose} title={dialogTitle} dismissible={!isSaving} class="max-w-2xl">
   {#if isSingleEdit}
     <div class="tab-list" role="tablist">
@@ -343,6 +359,20 @@
       {/if}
     </div>
 
+    <!-- 並び順（1曲の編集はタブ、一括編集はタグの下） -->
+    {#if isSingleEdit}
+      <div hidden={activeTab !== 'sort'}>
+        <p class="text-sm text-text-muted mt-0 mb-4">{m.metadataEditor.sortHint}</p>
+        {@render sortFields()}
+      </div>
+    {:else}
+      <fieldset class="sort-section">
+        <legend>{m.metadataEditor.sortHeading}</legend>
+        <p class="text-xs text-text-muted mt-0 mb-3">{m.metadataEditor.sortHint}</p>
+        {@render sortFields()}
+      </fieldset>
+    {/if}
+
     <!-- 歌詞（1曲の編集だけ） -->
     {#if isSingleEdit}
       <div hidden={activeTab !== 'lyrics'}>
@@ -457,6 +487,15 @@
   .lyrics-input {
     @apply font-mono text-sm leading-relaxed;
     resize: vertical;
+  }
+
+  /* 一括編集の、並び順の項目のまとまり */
+  .sort-section {
+    @apply mt-4 mb-0 mx-0 px-4 pt-2 pb-0 border border-border rounded;
+  }
+
+  .sort-section legend {
+    @apply px-2 text-sm font-semibold text-text-secondary;
   }
 
   .file-info {

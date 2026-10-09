@@ -28,6 +28,7 @@ function track(id: string, overrides: Partial<Track> = {}): Track {
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
     replayGain: { trackGain: null, trackPeak: null, albumGain: null, albumPeak: null },
+    sortTags: { title: null, artist: null, album: null, albumArtist: null },
     isMissing: false,
     ...overrides
   };
@@ -47,6 +48,38 @@ describe('createTrackSorter（並び替え）', () => {
 
     expect(ids(sortTracks(tracks, 'title', 'asc'))).toEqual(['b', 'c', 'a']);
     expect(ids(sortTracks(tracks, 'title', 'desc'))).toEqual(['a', 'c', 'b']);
+  });
+
+  it('並び順に使う値（読み）がある曲は、その値で並べる', () => {
+    const sortTags = { title: null, artist: null, album: null, albumArtist: null };
+    const tracks = [
+      // 読みがなければ「中」「椎」の順だが、読みでは しいな < なかじま
+      track('a', { title: '長い夜', artist: '中島みゆき', album: '歌集' }),
+      track('b', {
+        title: '幸福論',
+        artist: '椎名林檎',
+        album: '無罪モラトリアム',
+        sortTags: { ...sortTags, title: 'こうふくろん', artist: 'シイナリンゴ', album: 'むざい' }
+      }),
+      track('c', {
+        title: '糸',
+        artist: '中島みゆき',
+        album: 'EAST ASIA',
+        sortTags: { ...sortTags, title: 'いと', artist: 'なかじまみゆき' }
+      })
+    ];
+    tracks[0].sortTags = {
+      ...sortTags,
+      title: 'ながいよる',
+      artist: 'なかじまみゆき',
+      album: 'かしゅう'
+    };
+
+    expect(ids(sortTracks(tracks, 'title', 'asc'))).toEqual(['c', 'b', 'a']);
+    // ひらがなとカタカナは区別しない。同じ読みの曲は、元の順を保つ
+    expect(ids(sortTracks(tracks, 'artist', 'asc'))).toEqual(['b', 'a', 'c']);
+    // 読みのないアルバム（EAST ASIA）は、名前で並べる
+    expect(ids(sortTracks(tracks, 'album', 'asc'))).toEqual(['c', 'a', 'b']);
   });
 
   it('アーティスト・アルバムがない曲は、空の文字列として先頭に並べる', () => {

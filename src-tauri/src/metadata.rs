@@ -1,5 +1,5 @@
 use crate::error::{AppError, AppResult};
-use crate::models::{Metadata, ReplayGain};
+use crate::models::{Metadata, ReplayGain, SortTags};
 use lofty::config::{ParseOptions, WriteOptions};
 use lofty::file::{AudioFile, TaggedFile, TaggedFileExt};
 use lofty::picture::{MimeType, Picture, PictureInformation, PictureType};
@@ -49,17 +49,33 @@ fn read_tagged_file(file_path: &Path, options: ParseOptions) -> AppResult<Tagged
         .map_err(|e| AppError::Metadata(format!("ファイルの読み取りに失敗しました: {}", e)))
 }
 
-/// 音楽ファイルのタグから、アルバムアーティストだけを読む（タグにない場合はNone）
+/// 列を追加する前に登録したトラックについて、後からファイルのタグを読む項目
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct BackfillTags {
+    /// アルバムアーティスト（タグにない場合はNone）
+    pub album_artist: Option<String>,
+    /// 並び順に使う値（ソート用のタグ）
+    pub sort_tags: SortTags,
+}
+
+/// 音楽ファイルのタグから、アルバムアーティストとソート用のタグだけを読む
 ///
-/// アルバムアーティストの列を追加する前に登録したトラックの読み込みに使う。
+/// それらの列を追加する前に登録したトラックの読み込み（`tag_backfill`）に使う。
 /// 長さ・ビットレートなどは読まない（全ファイルを読むため、1ファイルあたりの時間を抑える）。
-pub fn read_album_artist(file_path: &Path) -> AppResult<Option<String>> {
+pub fn read_backfill_tags(file_path: &Path) -> AppResult<BackfillTags> {
     let tagged_file = read_tagged_file(file_path, ParseOptions::new().read_properties(false))?;
 
     Ok(tagged_file
         .primary_tag()
         .or_else(|| tagged_file.first_tag())
-        .and_then(extract_album_artist))
+        .map(|tag| {
+            let metadata = library_metadata(tag);
+            BackfillTags {
+                sort_tags: metadata.sort_tags(),
+                album_artist: metadata.album_artist,
+            }
+        })
+        .unwrap_or_default())
 }
 
 /// ゲインとして受け付ける範囲（dB）。範囲外の値は壊れたタグとして無視する
@@ -235,6 +251,17 @@ fn extract_text(tag: &Tag, key: ItemKey) -> Option<String> {
         .map(str::to_string)
 }
 
+/// タグから、並び順に使う値（ソート用のタグ）を取得する（前後の空白は除く。空の値はタグがないものとして扱う）
+///
+/// ID3v2は`TSOT`・`TSOP`・`TSOA`・`TSO2`、Vorbisコメントは`TITLESORT`・`ARTISTSORT`・`ALBUMSORT`・
+/// `ALBUMARTISTSORT`、MP4は`sonm`・`soar`・`soal`・`soaa`。
+fn extract_sort_text(tag: &Tag, key: ItemKey) -> Option<String> {
+    tag.get_string(key)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
 /// タグからディスク番号を取得する（`1/2`のように総数と一緒に書かれている場合は、番号だけ）
 fn extract_disc_number(tag: &Tag) -> Option<i32> {
     tag.get_string(ItemKey::DiscNumber)
@@ -261,6 +288,10 @@ fn library_metadata(tag: &Tag) -> Metadata {
         disc_number: extract_disc_number(tag),
         album_artist: extract_album_artist(tag),
         composer: tag.get_string(ItemKey::Composer).map(|s| s.to_string()),
+        title_sort: extract_sort_text(tag, ItemKey::TrackTitleSortOrder),
+        artist_sort: extract_sort_text(tag, ItemKey::TrackArtistSortOrder),
+        album_sort: extract_sort_text(tag, ItemKey::AlbumTitleSortOrder),
+        album_artist_sort: extract_sort_text(tag, ItemKey::AlbumArtistSortOrder),
         ..Default::default()
     }
 }
@@ -656,6 +687,14 @@ fn apply_metadata(tag: &mut Tag, metadata: &Metadata, clear_missing: bool) {
         &metadata.grouping,
         clear_missing,
     );
+    for (key, value) in [
+        (ItemKey::TrackTitleSortOrder, &metadata.title_sort),
+        (ItemKey::TrackArtistSortOrder, &metadata.artist_sort),
+        (ItemKey::AlbumTitleSortOrder, &metadata.album_sort),
+        (ItemKey::AlbumArtistSortOrder, &metadata.album_artist_sort),
+    ] {
+        apply_text(tag, key, value, clear_missing);
+    }
 
     match &metadata.comment {
         Some(comment) => tag.set_comment(comment.clone()),
@@ -1052,6 +1091,10 @@ mod tests {
             compilation: Some(true),
             comment: Some("コメント\n2行目".to_string()),
             lyrics: Some("歌詞の1行目\n歌詞の2行目".to_string()),
+            title_sort: Some("たいとる".to_string()),
+            artist_sort: Some("あーてぃすと".to_string()),
+            album_sort: Some("あるばむ".to_string()),
+            album_artist_sort: Some("あるばむあーてぃすと".to_string()),
         }
     }
 
@@ -1090,6 +1133,21 @@ mod tests {
             assert_eq!(
                 library.album_artist.as_deref(),
                 Some("アルバムアーティスト"),
+                "{name}"
+            );
+            assert_eq!(library.sort_tags(), metadata.sort_tags(), "{name}");
+            // 列を追加する前に登録したトラックの読み込みでも、同じ値を読む
+            assert_eq!(
+                read_backfill_tags(&file).unwrap(),
+                BackfillTags {
+                    album_artist: Some("アルバムアーティスト".to_string()),
+                    sort_tags: SortTags {
+                        title: Some("たいとる".to_string()),
+                        artist: Some("あーてぃすと".to_string()),
+                        album: Some("あるばむ".to_string()),
+                        album_artist: Some("あるばむあーてぃすと".to_string()),
+                    },
+                },
                 "{name}"
             );
 
@@ -1365,7 +1423,7 @@ mod tests {
 
         let info = extract_all_file_info(&file).unwrap();
         assert_eq!(info.sample_rate, Some(8000));
-        assert_eq!(read_album_artist(&file).unwrap(), None);
+        assert_eq!(read_backfill_tags(&file).unwrap(), BackfillTags::default());
 
         update_file_rating(&file, 5).unwrap();
         assert_eq!(extract_all_file_info(&file).unwrap().rating, 5);

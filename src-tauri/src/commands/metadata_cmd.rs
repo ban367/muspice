@@ -43,6 +43,14 @@ fn validate_metadata_input(metadata: &Metadata) -> AppResult<()> {
     validate_string_length(&metadata.grouping, "グループ", 255)?;
     validate_string_length(&metadata.comment, "コメント", MAX_COMMENT_LENGTH)?;
     validate_string_length(&metadata.lyrics, "歌詞", MAX_LYRICS_LENGTH)?;
+    for (value, name) in [
+        (&metadata.title_sort, "タイトルの読み"),
+        (&metadata.artist_sort, "アーティストの読み"),
+        (&metadata.album_sort, "アルバムの読み"),
+        (&metadata.album_artist_sort, "アルバムアーティストの読み"),
+    ] {
+        validate_string_length(value, name, 255)?;
+    }
     Ok(())
 }
 

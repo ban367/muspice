@@ -59,7 +59,11 @@ export const en: Messages = {
     discNumber: 'Disc number',
     discTotal: 'Disc total',
     bpm: 'BPM',
-    compilation: 'Compilation'
+    compilation: 'Compilation',
+    titleSort: 'Sort Title',
+    artistSort: 'Sort Artist',
+    albumArtistSort: 'Sort Album Artist',
+    albumSort: 'Sort Album'
   },
 
   format: {
@@ -253,7 +257,7 @@ export const en: Messages = {
     editTitle: 'Edit Metadata',
     bulkEditTitle: (count) => `Edit ${plural(count, 'track', 'tracks')}`,
     bulkHint:
-      'Empty fields are left unchanged. Fill in only the fields you want to change. The title, track number and lyrics are edited one track at a time.',
+      'Empty fields are left unchanged. Fill in only the fields you want to change. The title (and its sort name), track number and lyrics are edited one track at a time.',
     bulkPartiallyFailed: (updated, failed) =>
       `Updated ${plural(updated, 'track', 'tracks')} (${failed} could not be written to the file)`,
     bulkAllFailed: (reason) => `Could not write to the files: ${reason}`,
@@ -265,7 +269,10 @@ export const en: Messages = {
     yearPlaceholder: 'e.g. 2023',
     writesToFile: 'Changes are written to the tags of the music files',
     /** タブ */
-    tabs: { tags: 'Tags', lyrics: 'Lyrics', file: 'File Info' },
+    tabs: { tags: 'Tags', sort: 'Sorting', lyrics: 'Lyrics', file: 'File Info' },
+    sortHint:
+      'Enter the names used for ordering (for example, a phonetic reading). Empty fields are ordered by the displayed name.',
+    sortHeading: 'Sorting',
     track: 'Track',
     disc: 'Disc',
     /** トラック番号・ディスク番号の、番号と総数の間の文字（例: 3 / 12） */

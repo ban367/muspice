@@ -17,6 +17,7 @@ import { handleError, showSuccess, showWarning } from '#lib/stores/error.svelte.
 import { queryKeys } from './keys';
 import { CACHE_POLICY, withErrorToast } from './shared';
 import { patchTrackInCache, patchTracksInCache } from './trackCache';
+import { sortByName, sortTracksByArtistAndAlbum } from '#lib/utils/nameSort.js';
 import { m } from '#lib/i18n/i18n.svelte.js';
 
 // 呼び出し側の利便性のため、このモジュールからも型を再エクスポートする
@@ -177,6 +178,9 @@ export function usePlayHistoryQuery() {
 //
 // 一覧（名前・曲数・代表の曲）と曲を分けて取得する。曲は、詳細を開いた時・再生する時に
 // そのアルバムなどの分だけを取得する。
+//
+// 名前の順の並びは、取得した後にここで並べ直す（`#lib/utils/nameSort`。並び順に使う値
+// （読み仮名など）があればその値で、言語に合わせた比較で並べる。ADR-036）。
 
 /** アルバム・アーティスト・ジャンルのどれかを指す種類 */
 export type GroupType = 'album' | 'artist' | 'genre';
@@ -193,7 +197,10 @@ function albumTracksOptions(album: string, artist: string | null) {
 function artistAlbumsOptions(artist: string) {
   return {
     queryKey: queryKeys.tracks.artistAlbums(artist),
-    queryFn: () => withErrorToast(m.operations.fetchAlbums, () => commands.getArtistAlbums(artist)),
+    queryFn: () =>
+      withErrorToast(m.operations.fetchAlbums, async () =>
+        sortByName(await commands.getArtistAlbums(artist))
+      ),
     ...CACHE_POLICY.detail
   };
 }
@@ -201,7 +208,10 @@ function artistAlbumsOptions(artist: string) {
 function genreTracksOptions(genre: string) {
   return {
     queryKey: queryKeys.tracks.genre(genre),
-    queryFn: () => withErrorToast(m.operations.fetchTracks, () => commands.getGenreTracks(genre)),
+    queryFn: () =>
+      withErrorToast(m.operations.fetchTracks, async () =>
+        sortTracksByArtistAndAlbum(await commands.getGenreTracks(genre))
+      ),
     ...CACHE_POLICY.detail
   };
 }
@@ -217,7 +227,8 @@ export function flattenAlbumTracks(albums: AlbumGroup[]): Track[] {
 export function useAlbumsQuery() {
   return createQuery(() => ({
     queryKey: queryKeys.albums.list,
-    queryFn: () => withErrorToast(m.operations.fetchAlbums, () => commands.getAlbums()),
+    queryFn: () =>
+      withErrorToast(m.operations.fetchAlbums, async () => sortByName(await commands.getAlbums())),
     ...CACHE_POLICY.library
   }));
 }
@@ -237,7 +248,10 @@ export function useAlbumTracksQuery(album: string, artist: string | null) {
 export function useArtistsQuery() {
   return createQuery(() => ({
     queryKey: queryKeys.artists.list,
-    queryFn: () => withErrorToast(m.operations.fetchArtists, () => commands.getArtists()),
+    queryFn: () =>
+      withErrorToast(m.operations.fetchArtists, async () =>
+        sortByName(await commands.getArtists())
+      ),
     ...CACHE_POLICY.library
   }));
 }
@@ -255,7 +269,8 @@ export function useArtistAlbumsQuery(artist: string) {
 export function useGenresQuery() {
   return createQuery(() => ({
     queryKey: queryKeys.genres.list,
-    queryFn: () => withErrorToast(m.operations.fetchGenres, () => commands.getGenres()),
+    queryFn: () =>
+      withErrorToast(m.operations.fetchGenres, async () => sortByName(await commands.getGenres())),
     ...CACHE_POLICY.library
   }));
 }

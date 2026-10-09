@@ -33,7 +33,11 @@ const tags: Metadata = {
   discNumber: 1,
   discTotal: 2,
   bpm: 128,
-  compilation: true
+  compilation: true,
+  titleSort: 'たいとる',
+  artistSort: 'あーてぃすと',
+  albumArtistSort: 'あるばむあーてぃすと',
+  albumSort: 'あるばむ'
 };
 
 describe('formFromTags', () => {
@@ -92,12 +96,16 @@ describe('metadataFromForm', () => {
       trackNumber: '1',
       lyrics: '歌詞',
       albumArtist: 'Various Artists',
-      discNumber: '2'
+      discNumber: '2',
+      // 読みは、タイトルの読みだけが1曲ごとの項目
+      titleSort: 'おなじたいとる',
+      artistSort: ' しいなりんご '
     };
 
     expect(metadataFromForm(form, 'bulk')).toEqual({
       albumArtist: 'Various Artists',
-      discNumber: 2
+      discNumber: 2,
+      artistSort: 'しいなりんご'
     });
     expect(metadataFromForm(emptyForm(), 'bulk')).toEqual({});
   });
