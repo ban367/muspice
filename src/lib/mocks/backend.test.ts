@@ -581,6 +581,13 @@ describe('ネイティブの再生エンジン', () => {
     await expect(commands.playbackSetVolume(Number.NaN)).rejects.toMatchObject({
       code: 'VALIDATION'
     });
+    // イコライザのゲインは、バンドの数（10個）で渡す
+    await expect(commands.playbackSetEqualizer(true, [0, 0, 0])).rejects.toMatchObject({
+      code: 'VALIDATION'
+    });
+    await expect(
+      commands.playbackSetEqualizer(true, [0, 0, 0, 0, 0, 6, 0, 0, 0, 0])
+    ).resolves.toBeNull();
   });
 
   it('出力デバイスの一覧を返し、既定のデバイスは1つだけ', async () => {

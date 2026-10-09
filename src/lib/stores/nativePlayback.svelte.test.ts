@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlaybackEvent, Track } from '#lib/types/models.js';
 import { commands } from '#lib/bindings.js';
 import { incrementPlayCount } from '#lib/queries/tracks.js';
+import { equalizer } from './equalizer.svelte.js';
 import { createNativePlaybackController } from './nativePlayback.svelte.js';
 import type { PlaybackController } from './playback.svelte.js';
 import {
@@ -25,6 +26,7 @@ vi.mock('#lib/bindings.js', () => ({
     playbackResume: vi.fn(async () => null),
     playbackSeek: vi.fn(async () => null),
     playbackSetVolume: vi.fn(async () => null),
+    playbackSetEqualizer: vi.fn(async () => null),
     playbackStop: vi.fn(async () => null),
     setCurrentTrack: vi.fn(async () => null)
   },
@@ -68,6 +70,7 @@ function lastNext(): [string | null, number] {
 
 let controller: PlaybackController;
 let gapless: boolean;
+let crossfadeSeconds: number;
 
 beforeEach(() => {
   resetPlayer();
@@ -78,8 +81,16 @@ beforeEach(() => {
   listeners.clear();
   vi.clearAllMocks();
   vi.spyOn(console, 'error').mockImplementation(() => {});
+  // テスト環境にはlocalStorageがないため、イコライザの設定の保存は警告になる
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  equalizer.reset();
+  equalizer.setEnabled(false);
   gapless = false;
-  controller = createNativePlaybackController({ gapless: () => gapless });
+  crossfadeSeconds = 0;
+  controller = createNativePlaybackController({
+    gapless: () => gapless,
+    crossfadeSeconds: () => crossfadeSeconds
+  });
   // 状態の監視（$effect）はマイクロタスクで始まるため、ここで反映しておく
   flushSync();
 });
@@ -299,6 +310,21 @@ describe('ギャップレス再生', () => {
     expect(commands.playbackSetNext).not.toHaveBeenCalled();
   });
 
+  it('クロスフェードが有効なら、ギャップレス再生が無効でも次の曲を伝える', async () => {
+    gapless = false;
+    crossfadeSeconds = 5;
+
+    playTrackFromQueue(tracks, 0);
+    await flush();
+
+    // 重ねる処理はエンジンが行う。重なりが鳴り始めた時点の通知で、キューを進める
+    expect(lastNext()[0]).toBe('t2');
+    emit({ type: 'advanced', token: lastNext()[1], duration: 240 });
+    await flush();
+    expect(player.currentTrack?.id).toBe('t2');
+    expect(commands.playbackPlay).toHaveBeenCalledTimes(1);
+  });
+
   it('キューの次の曲が変わったら伝え直し、次の曲がなくなったら取り消す', async () => {
     playTrackFromQueue(tracks, 0);
     await flush();
@@ -376,7 +402,6 @@ describe('ギャップレス再生', () => {
   });
 
   it('次の曲の準備に失敗しても、曲の終わりで通常の手順で再生する', async () => {
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.mocked(commands.playbackSetNext).mockRejectedValueOnce({
       code: 'NOT_FOUND',
       message: 'ファイルが見つかりません'
@@ -389,6 +414,42 @@ describe('ギャップレス再生', () => {
     await flush();
 
     expect(commands.playbackPlay).toHaveBeenLastCalledWith('t2', expect.any(Number));
+  });
+});
+
+describe('イコライザ', () => {
+  it('保存してある設定をエンジンへ送り、変更のたびに送り直す', () => {
+    // 作成した時点で送る（無効・すべて0dB）
+    expect(commands.playbackSetEqualizer).toHaveBeenLastCalledWith(
+      false,
+      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    );
+
+    equalizer.setEnabled(true);
+    equalizer.setBandGain(1000, 6);
+    flushSync();
+    expect(commands.playbackSetEqualizer).toHaveBeenLastCalledWith(
+      true,
+      [0, 0, 0, 0, 0, 6, 0, 0, 0, 0]
+    );
+
+    // プリセットは、31Hzから16kHzの順に送る
+    equalizer.applyPreset('bass_boost');
+    flushSync();
+    expect(commands.playbackSetEqualizer).toHaveBeenLastCalledWith(
+      true,
+      [8, 6, 4, 2, 0, 0, 0, 0, 0, 0]
+    );
+  });
+
+  it('破棄した後は、変更を送らない', () => {
+    controller.destroy();
+    vi.clearAllMocks();
+
+    equalizer.setBandGain(31, -3);
+    flushSync();
+
+    expect(commands.playbackSetEqualizer).not.toHaveBeenCalled();
   });
 });
 

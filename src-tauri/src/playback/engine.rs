@@ -16,13 +16,21 @@
 //! リングバッファには約0.5秒分の音声がたまっているため、「デコードしている位置」と
 //! 「鳴っている位置」はずれる。鳴っている位置は、出力のコールバックが取り出したフレーム数
 //! （`RenderShared::frames_read`）と、曲ごとの書き始めの位置（`Segment`）から求める。
+//!
+//! 音量の正規化（曲ごとの倍率）とクロスフェード（前の曲の終わりと次の曲の頭を重ねる）は、
+//! リングバッファへ書く前にここでかける。イコライザとリミッターは、出力のコールバックでかける
+//! （`effects`）。
 
 use super::convert::{Converter, OUTPUT_CHANNELS};
 use super::decoder::TrackDecoder;
+use super::effects::{EQ_BANDS, EffectParams};
+use super::normalization::normalization_gain;
 use super::output::{CpalBackend, OutputBackend, OutputEvent, OutputHandle};
 use super::render::{RenderShared, Renderer};
 use crate::error::{AppError, AppResult};
 use crate::events::PlaybackEvent;
+use crate::models::ReplayGain;
+use crate::settings::{MAX_CROSSFADE_SECONDS, Settings, VolumeNormalization};
 use serde::Serialize;
 use specta::Type;
 use std::collections::VecDeque;
@@ -52,6 +60,30 @@ const OUTPUT_STOP_DELAY: Duration = Duration::from_millis(200);
 /// 何も再生しなくなってから、出力を閉じるまでの時間（すぐ次の曲を再生する場合に、開き直さない）
 const OUTPUT_CLOSE_DELAY: Duration = Duration::from_secs(3);
 
+/// これより短い時間しか残っていなければ、クロスフェードせずに切れ目なく続ける（秒）
+const MIN_CROSSFADE_SECONDS: f64 = 0.05;
+
+/// 設定のうち、再生エンジンが使うもの
+#[derive(Debug, Clone, PartialEq)]
+pub struct PlaybackOptions {
+    /// 出力デバイスのID（Noneは、OSの既定のデバイス）
+    pub output_device_id: Option<String>,
+    /// 音量の正規化
+    pub normalization: VolumeNormalization,
+    /// クロスフェードの秒数（0でクロスフェードしない）
+    pub crossfade_seconds: u8,
+}
+
+impl From<&Settings> for PlaybackOptions {
+    fn from(settings: &Settings) -> Self {
+        Self {
+            output_device_id: settings.output_device_id.clone(),
+            normalization: settings.volume_normalization,
+            crossfade_seconds: settings.crossfade_seconds,
+        }
+    }
+}
+
 /// 再生する曲
 #[derive(Debug, Clone)]
 pub struct PlayRequest {
@@ -62,6 +94,8 @@ pub struct PlayRequest {
     pub token: u32,
     /// 音声ファイルのパス
     pub path: PathBuf,
+    /// 音量の正規化に使うゲインとピーク（タグから読んだもの）
+    pub replay_gain: ReplayGain,
 }
 
 /// 再生を始めた曲の情報
@@ -88,6 +122,8 @@ enum Command {
     SetVolume(f32),
     Stop,
     SetOutputDevice(Option<String>),
+    SetNormalization(VolumeNormalization),
+    SetCrossfade(u8),
     /// 出力からの通知（`generation`は、通知した出力を開いたときの番号）
     Output {
         generation: u64,
@@ -99,37 +135,38 @@ enum Command {
 /// 再生エンジン（エンジンのスレッドへコマンドを送る窓口）
 pub struct PlaybackEngine {
     commands: Sender<Command>,
+    /// イコライザの設定（出力のコールバックが直接読む）
+    effects: Arc<EffectParams>,
 }
 
 impl PlaybackEngine {
     /// エンジンのスレッドを始める（出力は、最初に再生するときに開く）
     ///
-    /// - `output_device_id`: 出力デバイスのID（Noneは、OSの既定のデバイス）
+    /// - `options`: 設定のうち、再生エンジンが使うもの
     /// - `emit`: エンジンからの通知（再生位置・曲の切り替わりなど）を受け取る
-    pub fn start(
-        output_device_id: Option<String>,
-        emit: impl Fn(PlaybackEvent) + Send + 'static,
-    ) -> Self {
-        Self::start_with_backend(Box::new(CpalBackend), output_device_id, Box::new(emit))
+    pub fn start(options: PlaybackOptions, emit: impl Fn(PlaybackEvent) + Send + 'static) -> Self {
+        Self::start_with_backend(Box::new(CpalBackend), options, Box::new(emit))
     }
 
     fn start_with_backend(
         backend: Box<dyn OutputBackend>,
-        output_device_id: Option<String>,
+        options: PlaybackOptions,
         emit: Box<dyn Fn(PlaybackEvent) + Send>,
     ) -> Self {
         let (commands, receiver) = mpsc::channel();
+        let effects = Arc::new(EffectParams::default());
         let engine_commands = commands.clone();
+        let engine_effects = effects.clone();
         let spawned = thread::Builder::new()
             .name("playback-engine".to_string())
             .spawn(move || {
-                Engine::new(backend, output_device_id, emit, engine_commands).run(receiver)
+                Engine::new(backend, options, engine_effects, emit, engine_commands).run(receiver)
             });
         if let Err(e) = spawned {
             // スレッドがなければコマンドは届かず、各操作が「停止しています」のエラーを返す
             log::error!("再生エンジンのスレッドを開始できません: {}", e);
         }
-        Self { commands }
+        Self { commands, effects }
     }
 
     /// 曲を頭から再生する（再生中の曲は止める）
@@ -166,8 +203,24 @@ impl PlaybackEngine {
     }
 
     /// 出力デバイスを変える（Noneは、OSの既定のデバイス）。再生中なら、同じ位置から続ける
+    #[cfg(test)]
     pub fn set_output_device(&self, device_id: Option<String>) -> AppResult<()> {
         self.send(Command::SetOutputDevice(device_id))
+    }
+
+    /// 設定の変更を反映する（出力デバイス・音量の正規化・クロスフェード）
+    ///
+    /// 出力デバイスが変わっていれば、再生中の曲を同じ位置から続ける。音量の正規化は、
+    /// 再生中の曲にもすぐに（バッファにたまっている分の後から）効く。
+    pub fn apply_options(&self, options: PlaybackOptions) -> AppResult<()> {
+        self.send(Command::SetOutputDevice(options.output_device_id))?;
+        self.send(Command::SetNormalization(options.normalization))?;
+        self.send(Command::SetCrossfade(options.crossfade_seconds))
+    }
+
+    /// イコライザの設定を変える（`gains`は、バンドごとのゲイン（dB）。すぐに効く）
+    pub fn set_equalizer(&self, enabled: bool, gains: &[f32; EQ_BANDS]) {
+        self.effects.set_equalizer(enabled, gains);
     }
 
     fn send(&self, command: Command) -> AppResult<()> {
@@ -200,6 +253,39 @@ struct Deck {
     token: u32,
     path: PathBuf,
     decoder: TrackDecoder,
+    replay_gain: ReplayGain,
+    /// 音量の正規化の倍率（設定と`replay_gain`から決まる）
+    gain: f32,
+    /// 最後に書いた音声にかけた倍率（`gain`が変わった直後は、ここから滑らかに変える）
+    applied_gain: f32,
+}
+
+/// クロスフェードの途中の状態
+///
+/// `current`（前の曲）の残りと、`incoming`（次の曲）の頭を、それぞれデコードして重ねる。
+/// 前の曲が終わったら、`incoming`が`current`になる。
+struct Fade {
+    incoming: Deck,
+    /// 次の曲の変換器（前の曲の変換器は、`Engine::converter`のまま使う）
+    converter: Converter,
+    /// 変換済みで、まだ重ねていない音声
+    outgoing_samples: Vec<f32>,
+    incoming_samples: Vec<f32>,
+    outgoing_finished: bool,
+    incoming_finished: bool,
+    /// 重ね終えたフレーム数と、重ねる長さ（フレーム）
+    mixed_frames: u64,
+    total_frames: u64,
+}
+
+/// 重ね始めてから`frame`フレーム目の、前の曲・次の曲にかける音量（等パワー）
+///
+/// 2つの曲を重ねたときに合計の大きさが途中で下がらないよう、前の曲はcos、次の曲はsinで
+/// 変える（2乗の和が常に1になる）。`total_frames`は、重ねる長さ。
+fn crossfade_gains(frame: u64, total_frames: u64) -> (f32, f32) {
+    let progress = (frame as f32 + 0.5) / total_frames as f32;
+    let angle = progress.min(1.0) * std::f32::consts::FRAC_PI_2;
+    (angle.cos(), angle.sin())
 }
 
 /// リングバッファへ書いた音声のうち、1つの曲の範囲
@@ -207,6 +293,7 @@ struct Deck {
 struct Segment {
     token: u32,
     path: PathBuf,
+    replay_gain: ReplayGain,
     /// この曲の音声を書き始めた位置（リングバッファへ書いたフレーム数の合計）
     start_frame: u64,
     /// 書き始めた位置の、曲の中での位置（秒。シークした場合は0以外）
@@ -260,6 +347,9 @@ struct Engine {
     decode_finished: bool,
     /// 続けて再生する曲（デコーダーを開いて、頭から読める状態で待つ）
     next: Option<Deck>,
+    /// クロスフェードの途中なら、その状態
+    fade: Option<Fade>,
+    /// `current`の変換器
     converter: Option<Converter>,
     /// 変換した音声のうち、リングバッファへまだ書いていない分（`pending_offset`から後ろ）
     pending: Vec<f32>,
@@ -273,12 +363,18 @@ struct Engine {
     idle_since: Option<Instant>,
     /// これまでに受け取った再生の要求のうち、最も新しいものの番号
     latest_play_token: Option<u32>,
+    /// イコライザの設定（開いた出力の`Renderer`へ渡す）
+    effects: Arc<EffectParams>,
+    normalization: VolumeNormalization,
+    /// クロスフェードの秒数（0でクロスフェードしない）
+    crossfade_seconds: f64,
 }
 
 impl Engine {
     fn new(
         backend: Box<dyn OutputBackend>,
-        device_id: Option<String>,
+        options: PlaybackOptions,
+        effects: Arc<EffectParams>,
         emit: Box<dyn Fn(PlaybackEvent) + Send>,
         commands: Sender<Command>,
     ) -> Self {
@@ -286,7 +382,11 @@ impl Engine {
             backend,
             emit,
             commands,
-            device_id,
+            device_id: options.output_device_id,
+            effects,
+            normalization: options.normalization,
+            crossfade_seconds: f64::from(options.crossfade_seconds.min(MAX_CROSSFADE_SECONDS)),
+            fade: None,
             volume: 1.0,
             paused: false,
             output: None,
@@ -397,6 +497,21 @@ impl Engine {
                     self.reopen_output();
                 }
             }
+            Command::SetNormalization(mode) => {
+                self.normalization = mode;
+                // 開いている曲の倍率を決め直す（次に書く音声から、滑らかに変わる）
+                let decks = [
+                    self.current.as_mut(),
+                    self.next.as_mut(),
+                    self.fade.as_mut().map(|fade| &mut fade.incoming),
+                ];
+                for deck in decks.into_iter().flatten() {
+                    deck.gain = normalization_gain(&deck.replay_gain, mode);
+                }
+            }
+            Command::SetCrossfade(seconds) => {
+                self.crossfade_seconds = f64::from(seconds.min(MAX_CROSSFADE_SECONDS));
+            }
             Command::Output { generation, event } => {
                 if generation == self.output_generation {
                     match event {
@@ -437,31 +552,23 @@ impl Engine {
             Some(deck) => deck.decoder,
             None => TrackDecoder::open(&request.path)?,
         };
+        let deck = Deck::new(request, decoder, self.normalization);
         if self.output.is_none() {
             self.open_output()?;
         }
         let output = self.output.as_ref().ok_or_else(output_closed)?;
         let converter = Converter::new(
-            decoder.sample_rate(),
-            decoder.channels(),
+            deck.decoder.sample_rate(),
+            deck.decoder.channels(),
             output.sample_rate,
         )?;
         let info = PlaybackTrackInfo {
-            duration: decoder.duration_seconds(),
+            duration: deck.decoder.duration_seconds(),
         };
 
-        self.segments.push_back(Segment {
-            token: request.token,
-            path: request.path.clone(),
-            start_frame: output.pushed_frames,
-            base_seconds: 0.0,
-            duration: info.duration,
-        });
-        self.current = Some(Deck {
-            token: request.token,
-            path: request.path,
-            decoder,
-        });
+        self.segments
+            .push_back(deck.segment(output.pushed_frames, 0.0));
+        self.current = Some(deck);
         self.converter = Some(converter);
         self.set_paused(false);
         self.idle_since = None;
@@ -494,11 +601,8 @@ impl Engine {
             return Ok(());
         }
         self.next = None;
-        let deck = Deck {
-            token: request.token,
-            decoder: TrackDecoder::open(&request.path)?,
-            path: request.path,
-        };
+        let decoder = TrackDecoder::open(&request.path)?;
+        let deck = Deck::new(request, decoder, self.normalization);
         if self.decode_finished {
             // 再生中の曲のデコードは終わっている（鳴り終わるのを待っている）ため、すぐに続ける
             self.start_next(deck);
@@ -515,6 +619,7 @@ impl Engine {
         }
         self.current = None;
         self.next = None;
+        self.fade = None;
         self.converter = None;
         self.decode_finished = false;
         self.pending.clear();
@@ -573,11 +678,36 @@ impl Engine {
             if self.decode_finished {
                 return;
             }
+            if self.fade.is_some() {
+                if let Err(e) = self.pump_fade() {
+                    self.fail(e);
+                    return;
+                }
+                continue;
+            }
+            // クロスフェードを始める位置に来ていれば始め、手前なら、その位置でかたまりを区切る
+            let limit = match self.crossfade_plan() {
+                Some((seconds, 0)) => {
+                    self.begin_fade(seconds);
+                    continue;
+                }
+                Some((_, frames_until_start)) => Some(frames_until_start),
+                None => None,
+            };
             let (Some(deck), Some(converter)) = (&mut self.current, &mut self.converter) else {
                 return;
             };
-            let result = match deck.decoder.next_chunk() {
-                Ok(Some(samples)) => converter.process(samples, &mut self.pending),
+            let result = match deck.decoder.next_chunk_limited(limit) {
+                Ok(Some(samples)) => {
+                    let start = self.pending.len();
+                    let result = converter.process(samples, &mut self.pending);
+                    apply_gain(
+                        &mut self.pending[start..],
+                        &mut deck.applied_gain,
+                        deck.gain,
+                    );
+                    result
+                }
                 Ok(None) => {
                     self.finish_current_decode();
                     Ok(())
@@ -589,6 +719,158 @@ impl Engine {
                 return;
             }
         }
+    }
+
+    // ---------- クロスフェード ----------
+
+    /// 次の曲へクロスフェードする場合に、重ねる長さ（秒）と、始めるまでに書く前の曲のフレーム数
+    /// （前の曲のサンプルレートでの数。0なら、今から始める）を返す
+    ///
+    /// 重ねる長さは、設定の秒数を上限に、どちらの曲も長さの半分まで、かつ前の曲の残りまで。
+    /// 同じ曲の繰り返し（1曲リピート）と、長さの分からない曲は、クロスフェードせずに切れ目なく続ける。
+    fn crossfade_plan(&self) -> Option<(f64, u64)> {
+        if self.crossfade_seconds <= 0.0 {
+            return None;
+        }
+        let (current, next) = (self.current.as_ref()?, self.next.as_ref()?);
+        if current.path == next.path {
+            return None;
+        }
+        let duration = current.decoder.duration_seconds()?;
+        let remaining = current.decoder.remaining_seconds()?;
+        let mut length = self.crossfade_seconds.min(duration / 2.0);
+        if let Some(next_duration) = next.decoder.duration_seconds() {
+            length = length.min(next_duration / 2.0);
+        }
+        if remaining <= MIN_CROSSFADE_SECONDS {
+            // 続けて再生する曲が届くのが遅かった（残りがほとんどない）: 切れ目なく続ける
+            return None;
+        }
+        let frames_until_start =
+            ((remaining - length).max(0.0) * f64::from(current.decoder.sample_rate())).round();
+        Some((remaining.min(length), frames_until_start as u64))
+    }
+
+    /// 続けて再生する曲を、前の曲の残り（`seconds`秒）に重ねて書き始める
+    fn begin_fade(&mut self, seconds: f64) {
+        let Some(output_rate) = self.output.as_ref().map(|output| output.sample_rate) else {
+            return;
+        };
+        let Some(incoming) = self.next.take() else {
+            return;
+        };
+        let converter = match Converter::new(
+            incoming.decoder.sample_rate(),
+            incoming.decoder.channels(),
+            output_rate,
+        ) {
+            Ok(converter) => converter,
+            Err(e) => {
+                // 続けて再生できない曲: 続きがないものとして再生中の曲を終える
+                // （フロントエンドが次の曲を通常の手順で再生し、そこでエラーを通知する）
+                log::warn!("続けて再生する曲を準備できません: {}", e);
+                return;
+            }
+        };
+        // 重なりの始まりが、次の曲の始まり（ここが鳴った時点で、曲が切り替わったと通知する）
+        let start_frame = self.write_position();
+        self.segments.push_back(incoming.segment(start_frame, 0.0));
+        self.fade = Some(Fade {
+            incoming,
+            converter,
+            outgoing_samples: Vec::new(),
+            incoming_samples: Vec::new(),
+            outgoing_finished: false,
+            incoming_finished: false,
+            mixed_frames: 0,
+            total_frames: ((seconds * f64::from(output_rate)).round() as u64).max(1),
+        });
+    }
+
+    /// クロスフェードの続きを書く: 前の曲の残りと次の曲の頭をデコードし、重ねて`pending`へ足す
+    fn pump_fade(&mut self) -> AppResult<()> {
+        let (Some(fade), Some(outgoing), Some(converter)) =
+            (&mut self.fade, &mut self.current, &mut self.converter)
+        else {
+            return Ok(());
+        };
+
+        // 短い方の音声を、1かたまり分デコードする
+        if !fade.outgoing_finished && fade.outgoing_samples.len() <= fade.incoming_samples.len() {
+            let start = fade.outgoing_samples.len();
+            match outgoing.decoder.next_chunk()? {
+                Some(samples) => converter.process(samples, &mut fade.outgoing_samples)?,
+                None => {
+                    converter.flush(&mut fade.outgoing_samples)?;
+                    fade.outgoing_finished = true;
+                }
+            }
+            apply_gain(
+                &mut fade.outgoing_samples[start..],
+                &mut outgoing.applied_gain,
+                outgoing.gain,
+            );
+        } else if !fade.incoming_finished {
+            let start = fade.incoming_samples.len();
+            match fade.incoming.decoder.next_chunk()? {
+                Some(samples) => fade
+                    .converter
+                    .process(samples, &mut fade.incoming_samples)?,
+                None => fade.incoming_finished = true,
+            }
+            let incoming = &mut fade.incoming;
+            apply_gain(
+                &mut fade.incoming_samples[start..],
+                &mut incoming.applied_gain,
+                incoming.gain,
+            );
+        }
+        if fade.incoming_finished && fade.incoming_samples.len() < fade.outgoing_samples.len() {
+            // 次の曲が重なりの途中で終わった（ごく短い曲）: 残りは無音として重ねる
+            fade.incoming_samples
+                .resize(fade.outgoing_samples.len(), 0.0);
+        }
+
+        // 両方にある分を重ねる
+        let samples = fade.outgoing_samples.len().min(fade.incoming_samples.len());
+        let frames = samples / OUTPUT_CHANNELS;
+        for frame in 0..frames {
+            let (fade_out, fade_in) =
+                crossfade_gains(fade.mixed_frames + frame as u64, fade.total_frames);
+            for channel in 0..OUTPUT_CHANNELS {
+                let index = frame * OUTPUT_CHANNELS + channel;
+                self.pending.push(
+                    fade.outgoing_samples[index] * fade_out
+                        + fade.incoming_samples[index] * fade_in,
+                );
+            }
+        }
+        fade.outgoing_samples.drain(..frames * OUTPUT_CHANNELS);
+        fade.incoming_samples.drain(..frames * OUTPUT_CHANNELS);
+        fade.mixed_frames += frames as u64;
+
+        if fade.outgoing_finished && fade.outgoing_samples.is_empty() {
+            // 前の曲が終わった: 次の曲を、通常の再生へ切り替える
+            let Some(mut fade) = self.fade.take() else {
+                return Ok(());
+            };
+            // 先にデコードしてあった分。前の曲が予定より早く終わった場合は、残りのフェードインをかける
+            let (mixed_frames, total_frames) = (fade.mixed_frames, fade.total_frames);
+            for (frame, samples) in fade
+                .incoming_samples
+                .as_chunks_mut::<OUTPUT_CHANNELS>()
+                .0
+                .iter_mut()
+                .enumerate()
+            {
+                let (_, fade_in) = crossfade_gains(mixed_frames + frame as u64, total_frames);
+                samples.iter_mut().for_each(|sample| *sample *= fade_in);
+            }
+            self.pending.extend_from_slice(&fade.incoming_samples);
+            self.current = Some(fade.incoming);
+            self.converter = Some(fade.converter);
+        }
+        Ok(())
     }
 
     /// デコードが出力に間に合わず、音が途切れていたらログに残す
@@ -668,13 +950,7 @@ impl Engine {
             }
         }
         let start_frame = self.write_position();
-        self.segments.push_back(Segment {
-            token: deck.token,
-            path: deck.path.clone(),
-            start_frame,
-            base_seconds: 0.0,
-            duration: deck.decoder.duration_seconds(),
-        });
+        self.segments.push_back(deck.segment(start_frame, 0.0));
         self.current = Some(deck);
         self.decode_finished = false;
         self.end_frame = None;
@@ -690,7 +966,20 @@ impl Engine {
         self.pending.clear();
         self.pending_offset = 0;
 
-        if self.segments.len() > 1 {
+        if let Some(mut fade) = self.fade.take() {
+            if self.segments.len() > 1 {
+                // 重なりは、まだ鳴り始めていない。鳴っている（前の）曲の中で移動し、
+                // 重ね始めていた曲は、続けて再生する曲として頭から用意し直す
+                if self.next.is_none() && fade.incoming.decoder.seek(0.0).is_ok() {
+                    self.next = Some(fade.incoming);
+                }
+            } else {
+                // 重なりが鳴っている: 鳴っている曲は次の曲に切り替わっているため、
+                // 前の曲を止めて、次の曲の中で移動する
+                self.current = Some(fade.incoming);
+                self.converter = Some(fade.converter);
+            }
+        } else if self.segments.len() > 1 {
             // 鳴っている曲のデコードは終わり、続きの曲を書き始めていた。鳴っている曲を開き直し、
             // 書き始めていた曲は、続けて再生する曲として頭から用意し直す
             if let Some(mut upcoming) = self.current.take()
@@ -699,11 +988,13 @@ impl Engine {
             {
                 self.next = Some(upcoming);
             }
-            self.current = Some(Deck {
+            let request = PlayRequest {
                 token: front.token,
                 path: front.path.clone(),
-                decoder: TrackDecoder::open(&front.path)?,
-            });
+                replay_gain: front.replay_gain.clone(),
+            };
+            let decoder = TrackDecoder::open(&front.path)?;
+            self.current = Some(Deck::new(request, decoder, self.normalization));
         }
         let deck = self.current.as_mut().ok_or_else(output_closed)?;
         let position = deck.decoder.seek(seconds)?;
@@ -714,6 +1005,9 @@ impl Engine {
             }
             _ => self.converter = Some(Converter::new(rate, channels, output.sample_rate)?),
         }
+
+        // シークの後は、倍率を途中から滑らかに変える必要がない
+        deck.applied_gain = deck.gain;
 
         self.segments.clear();
         self.segments.push_back(Segment {
@@ -792,6 +1086,7 @@ impl Engine {
         let generation = self.output_generation;
         let commands = self.commands.clone();
         let (volume, paused) = (self.volume, self.paused);
+        let effects = self.effects.clone();
 
         let mut link = None;
         let handle = self.backend.open(
@@ -801,7 +1096,7 @@ impl Engine {
                 let (producer, consumer) = rtrb::RingBuffer::new(frames * OUTPUT_CHANNELS);
                 let shared = RenderShared::new(volume, paused);
                 link = Some((producer, shared.clone(), sample_rate));
-                Renderer::new(consumer, shared, sample_rate)
+                Renderer::new(consumer, shared, sample_rate).with_effects(effects.clone())
             },
             Box::new(move |event| {
                 let _ = commands.send(Command::Output { generation, event });
@@ -891,13 +1186,70 @@ fn superseded() -> AppError {
     AppError::Playback("新しい再生の要求があったため、取り消しました".to_string())
 }
 
+impl Deck {
+    /// デコーダーを開いた曲から、デッキを作る（`normalization`は、音量の正規化の設定）
+    fn new(
+        request: PlayRequest,
+        decoder: TrackDecoder,
+        normalization: VolumeNormalization,
+    ) -> Self {
+        let gain = normalization_gain(&request.replay_gain, normalization);
+        Self {
+            token: request.token,
+            path: request.path,
+            decoder,
+            replay_gain: request.replay_gain,
+            gain,
+            applied_gain: gain,
+        }
+    }
+
+    /// この曲の音声を`start_frame`から書き始める時の、書いた範囲の記録
+    fn segment(&self, start_frame: u64, base_seconds: f64) -> Segment {
+        Segment {
+            token: self.token,
+            path: self.path.clone(),
+            replay_gain: self.replay_gain.clone(),
+            start_frame,
+            base_seconds,
+            duration: self.decoder.duration_seconds(),
+        }
+    }
+}
+
+/// サンプル（ステレオのインターリーブ）に、音量の正規化の倍率をかける
+///
+/// 倍率が変わった直後（設定を変えた時）は、このかたまりの中で前の倍率から滑らかに変える。
+fn apply_gain(samples: &mut [f32], applied: &mut f32, target: f32) {
+    if samples.is_empty() {
+        return;
+    }
+    let from = std::mem::replace(applied, target);
+    if from == target {
+        if target != 1.0 {
+            samples.iter_mut().for_each(|sample| *sample *= target);
+        }
+        return;
+    }
+    let frames = samples.len() / OUTPUT_CHANNELS;
+    for (index, frame) in samples
+        .as_chunks_mut::<OUTPUT_CHANNELS>()
+        .0
+        .iter_mut()
+        .enumerate()
+    {
+        let gain = from + (target - from) * (index + 1) as f32 / frames as f32;
+        frame.iter_mut().for_each(|sample| *sample *= gain);
+    }
+}
+
 fn output_closed() -> AppError {
     AppError::Playback("音声の出力を準備できません".to_string())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::super::decoder::tests::{temp_dir, wav_sample, write_wav};
+    use super::super::decoder::tests::{temp_dir, wav_sample, write_wav, write_wav_samples};
     use super::*;
     use std::sync::Mutex;
 
@@ -916,6 +1268,9 @@ mod tests {
         sample_rate: u32,
         /// 次に出力を動かすときに失敗させる
         fail_next_start: bool,
+        /// イコライザとリミッターをつないだままにする（既定では外す。リミッターは音声を
+        /// 先読みの時間だけ遅らせるため、取り出した音声の位置を確かめにくい）
+        keep_effects: bool,
     }
 
     struct FakeBackend(Arc<Mutex<FakeOutput>>);
@@ -928,7 +1283,12 @@ mod tests {
             on_event: Box<dyn FnMut(OutputEvent) + Send>,
         ) -> AppResult<Box<dyn OutputHandle>> {
             let mut output = self.0.lock().unwrap();
-            output.renderer = Some(make_renderer(output.sample_rate));
+            let renderer = make_renderer(output.sample_rate);
+            output.renderer = Some(if output.keep_effects {
+                renderer
+            } else {
+                renderer.without_effects()
+            });
             output.on_event = Some(on_event);
             output.running = false;
             output.opened += 1;
@@ -955,17 +1315,40 @@ mod tests {
         }
     }
 
+    /// 既定の設定（既定の出力デバイス・音量の正規化なし・クロスフェードなし）
+    fn options() -> PlaybackOptions {
+        PlaybackOptions {
+            output_device_id: None,
+            normalization: VolumeNormalization::Off,
+            crossfade_seconds: 0,
+        }
+    }
+
+    fn request(token: u32, path: &Path) -> PlayRequest {
+        PlayRequest {
+            token,
+            path: path.to_path_buf(),
+            replay_gain: ReplayGain::default(),
+        }
+    }
+
     /// エンジンをスレッドなしで動かす（コマンドの処理と定期的な処理を、テストから順に呼ぶ）
     struct Harness {
         engine: Engine,
         output: Arc<Mutex<FakeOutput>>,
         events: Arc<Mutex<Vec<PlaybackEvent>>>,
         commands: Receiver<Command>,
+        /// イコライザの設定（`PlaybackEngine::set_equalizer`が書くもの）
+        effects: Arc<EffectParams>,
         dir: PathBuf,
     }
 
     impl Harness {
         fn new() -> Self {
+            Self::with_options(options())
+        }
+
+        fn with_options(options: PlaybackOptions) -> Self {
             let output = Arc::new(Mutex::new(FakeOutput {
                 sample_rate: RATE,
                 ..FakeOutput::default()
@@ -973,9 +1356,11 @@ mod tests {
             let events = Arc::new(Mutex::new(Vec::new()));
             let (sender, commands) = mpsc::channel();
             let sink = events.clone();
+            let effects = Arc::new(EffectParams::default());
             let engine = Engine::new(
                 Box::new(FakeBackend(output.clone())),
-                None,
+                options,
+                effects.clone(),
                 Box::new(move |event| sink.lock().unwrap().push(event)),
                 sender,
             );
@@ -984,6 +1369,7 @@ mod tests {
                 output,
                 events,
                 commands,
+                effects,
                 dir: temp_dir("engine"),
             }
         }
@@ -1000,19 +1386,13 @@ mod tests {
         }
 
         fn play(&mut self, token: u32, path: &Path) -> AppResult<PlaybackTrackInfo> {
-            let result = self.engine.play(PlayRequest {
-                token,
-                path: path.to_path_buf(),
-            });
+            let result = self.engine.play(request(token, path));
             self.engine.tick();
             result
         }
 
         fn set_next(&mut self, token: u32, path: &Path) -> AppResult<()> {
-            let result = self.engine.set_next(Some(PlayRequest {
-                token,
-                path: path.to_path_buf(),
-            }));
+            let result = self.engine.set_next(Some(request(token, path)));
             self.engine.tick();
             result
         }
@@ -1601,7 +1981,7 @@ mod tests {
         let (events, received) = mpsc::channel();
         let engine = PlaybackEngine::start_with_backend(
             Box::new(FakeBackend(output.clone())),
-            None,
+            options(),
             Box::new(move |event| {
                 let _ = events.send(event);
             }),
@@ -1610,7 +1990,7 @@ mod tests {
         let path = dir.join("a.wav");
         write_wav(&path, RATE, 1, 800);
 
-        let info = engine.play(PlayRequest { token: 5, path }).unwrap();
+        let info = engine.play(request(5, &path)).unwrap();
         assert_eq!(info.duration, Some(0.1));
         engine.set_volume(0.8).unwrap();
 
@@ -1639,6 +2019,402 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    // ---------- 音量の正規化 ----------
+
+    /// トラックのゲインだけを持つReplayGain
+    fn track_gain(db: f64) -> ReplayGain {
+        ReplayGain {
+            track_gain: Some(db),
+            ..ReplayGain::default()
+        }
+    }
+
+    fn from_db(db: f64) -> f32 {
+        10f64.powf(db / 20.0) as f32
+    }
+
+    #[test]
+    fn test_normalization_scales_each_track_by_its_gain() {
+        let mut harness = Harness::with_options(PlaybackOptions {
+            normalization: VolumeNormalization::Track,
+            ..options()
+        });
+        let first = harness.track("a.wav", 2_000);
+        let second = harness.track("b.wav", 2_000);
+        harness
+            .engine
+            .play(PlayRequest {
+                replay_gain: track_gain(-6.0),
+                ..request(1, &first)
+            })
+            .unwrap();
+        harness
+            .engine
+            .set_next(Some(PlayRequest {
+                replay_gain: track_gain(-12.0),
+                ..request(2, &second)
+            }))
+            .unwrap();
+
+        let played = harness.render(4_000);
+
+        // 曲ごとの倍率がかかり、曲の切れ目で切り替わる
+        assert!((played[1_500] - expected(1_500) * from_db(-6.0)).abs() < 1e-4);
+        assert!((played[1_999] - expected(1_999) * from_db(-6.0)).abs() < 1e-4);
+        assert!((played[2_500] - expected(500) * from_db(-12.0)).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_normalization_mode_change_applies_to_the_playing_track() {
+        let mut harness = Harness::new();
+        let path = harness.track("a.wav", 16_000);
+        harness
+            .engine
+            .play(PlayRequest {
+                replay_gain: track_gain(-6.0),
+                ..request(1, &path)
+            })
+            .unwrap();
+        // オフの間は、そのままの音量
+        let played = harness.render(1_000);
+        assert_sample(&played, 999, 999);
+
+        harness.send(Command::SetNormalization(VolumeNormalization::Track));
+        // バッファにたまっていた分（0.5秒）の後から、新しい倍率になる（途中は滑らかに変わる）
+        let played = harness.render(9_000);
+        assert_sample(&played, 1_000, 2_000);
+        let scaled = played[8_999] / expected(9_999);
+        assert!((scaled - from_db(-6.0)).abs() < 1e-3, "{scaled}");
+        let changing: Vec<f32> = (4_000..8_000)
+            .map(|index| played[index] / expected(1_000 + index as u32))
+            .collect();
+        assert!(changing.windows(2).all(|pair| pair[1] <= pair[0] + 1e-4));
+        assert!(
+            changing
+                .windows(2)
+                .all(|pair| (pair[0] - pair[1]).abs() < 0.01)
+        );
+
+        // シークの後は、すぐに新しい倍率で鳴る
+        harness.send(Command::SetNormalization(VolumeNormalization::Off));
+        harness.send(Command::Seek(0.5));
+        let played = harness.render(500);
+        assert_sample(&played, 400, 4_400);
+    }
+
+    // ---------- クロスフェード ----------
+
+    /// クロスフェードの秒数を指定したハーネス
+    fn crossfading(seconds: u8) -> Harness {
+        Harness::with_options(PlaybackOptions {
+            crossfade_seconds: seconds,
+            ..options()
+        })
+    }
+
+    #[test]
+    fn test_crossfade_overlaps_the_end_and_the_start_with_equal_power() {
+        let mut harness = crossfading(1);
+        let first = harness.track("a.wav", 16_000); // 2秒
+        let second = harness.track("b.wav", 24_000); // 3秒
+        harness.play(1, &first).unwrap();
+        harness.set_next(2, &second).unwrap();
+
+        // 1曲目の終わりの1秒（8,000フレーム）前までは、1曲目だけ
+        let played = harness.render(7_990);
+        assert_sample(&played, 7_989, 7_989);
+        assert!(harness.take_transitions().is_empty());
+
+        // 重なりが鳴り始めた時点で、曲が切り替わったと通知する
+        let mut played = [played, harness.render(20)].concat();
+        assert_eq!(
+            harness.take_transitions(),
+            vec![PlaybackEvent::Advanced {
+                token: 2,
+                duration: Some(3.0)
+            }]
+        );
+        played.extend(harness.render(40_000));
+
+        // 重なった分（1秒）だけ、全体が短くなる
+        assert_eq!(played.len(), 16_000 + 24_000 - 8_000);
+        // 重なりの間は、1曲目をcos・2曲目をsinの音量で足したもの
+        for index in [0usize, 1, 2_000, 4_000, 7_999] {
+            let (fade_out, fade_in) = crossfade_gains(index as u64, 8_000);
+            let wanted =
+                expected(8_000 + index as u32) * fade_out + expected(index as u32) * fade_in;
+            assert!(
+                (played[8_000 + index] - wanted).abs() < 1e-4,
+                "{index}: {} vs {wanted}",
+                played[8_000 + index]
+            );
+        }
+        // 真ん中では、どちらも同じ音量（約0.707）
+        let (fade_out, fade_in) = crossfade_gains(4_000, 8_000);
+        assert!((fade_out - fade_in).abs() < 1e-3 && (fade_out - 0.707).abs() < 1e-3);
+        // 重なりの後は、2曲目だけ
+        assert_sample(&played, 16_000, 8_000);
+        assert_sample(&played, 31_999, 23_999);
+        assert_eq!(
+            harness.take_transitions(),
+            vec![PlaybackEvent::Ended { token: 2 }]
+        );
+    }
+
+    #[test]
+    fn test_crossfade_is_limited_to_half_of_each_track() {
+        // 設定は5秒だが、2曲目が0.5秒しかないため、重ねるのは0.25秒（2,000フレーム）まで
+        let mut harness = crossfading(5);
+        let first = harness.track("a.wav", 16_000);
+        let second = harness.track("b.wav", 4_000);
+        harness.play(1, &first).unwrap();
+        harness.set_next(2, &second).unwrap();
+
+        let played = harness.render(40_000);
+
+        assert_eq!(played.len(), 16_000 + 4_000 - 2_000);
+        assert_sample(&played, 13_999, 13_999);
+        assert_sample(&played, 16_000, 2_000);
+    }
+
+    #[test]
+    fn test_crossfade_between_different_sample_rates() {
+        let mut harness = crossfading(1);
+        let first = harness.track("a.wav", 16_000);
+        // 出力の2倍のサンプルレート・2秒
+        let second = harness.track_with_rate("b.wav", RATE * 2, 32_000);
+        harness.play(1, &first).unwrap();
+        harness.set_next(2, &second).unwrap();
+
+        let played = harness.render(60_000);
+
+        // 2曲目は出力のレート（16,000フレーム）になり、1秒重なる
+        assert_eq!(played.len(), 16_000 + 16_000 - 8_000);
+        assert_eq!(
+            harness.take_transitions(),
+            vec![
+                PlaybackEvent::Advanced {
+                    token: 2,
+                    duration: Some(2.0)
+                },
+                PlaybackEvent::Ended { token: 2 }
+            ]
+        );
+    }
+
+    #[test]
+    fn test_repeating_the_same_track_joins_without_crossfade() {
+        let mut harness = crossfading(1);
+        let path = harness.track("a.wav", 16_000);
+        harness.play(1, &path).unwrap();
+        // 1曲リピート: 同じ曲を続けて再生する
+        harness.set_next(2, &path).unwrap();
+
+        let played = harness.render(40_000);
+
+        assert_eq!(played.len(), 32_000);
+        assert_sample(&played, 15_999, 15_999);
+        assert_sample(&played, 16_000, 0);
+    }
+
+    #[test]
+    fn test_crossfade_uses_the_remaining_time_when_the_next_track_arrives_late() {
+        let mut harness = crossfading(1);
+        let first = harness.track("a.wav", 16_000);
+        let second = harness.track("b.wav", 24_000);
+        harness.play(1, &first).unwrap();
+        // 残りが0.5秒を切ってから、続けて再生する曲が届く
+        // （デコードは、鳴っている位置より0.5秒（バッファの分）先まで進んでいる）
+        let mut played = harness.render(9_000);
+        harness.set_next(2, &second).unwrap();
+        played.extend(harness.render(40_000));
+
+        let overlap = 16_000 + 24_000 - played.len();
+        assert!((2_000..=3_100).contains(&overlap), "{overlap}");
+        // 重なりの前後は、それぞれの曲だけ
+        assert_sample(&played, 16_000 - overlap - 1, 16_000 - overlap as u32 - 1);
+        assert_sample(&played, 16_000, overlap as u32);
+    }
+
+    #[test]
+    fn test_seek_during_the_crossfade_continues_in_the_new_track() {
+        let mut harness = crossfading(1);
+        let first = harness.track("a.wav", 16_000);
+        let second = harness.track("b.wav", 24_000);
+        harness.play(1, &first).unwrap();
+        harness.set_next(2, &second).unwrap();
+        // 重なりの途中まで鳴らす（鳴っている曲は、2曲目に切り替わっている）
+        harness.render(10_000);
+        assert_eq!(harness.take_transitions().len(), 1);
+
+        harness.send(Command::Seek(1.0));
+        let played = harness.render(1_000);
+
+        // 1曲目は止まり、2曲目だけが通常の音量で鳴る
+        assert_sample(&played, 500, 8_500);
+        assert!((harness.position() - 1.125).abs() < 1e-9);
+        assert_eq!(harness.render(40_000).len(), 24_000 - 9_000);
+        assert_eq!(
+            harness.take_transitions(),
+            vec![PlaybackEvent::Ended { token: 2 }]
+        );
+    }
+
+    #[test]
+    fn test_seek_before_the_crossfade_is_heard_stays_in_the_playing_track() {
+        let mut harness = crossfading(1);
+        let first = harness.track("a.wav", 16_000);
+        let second = harness.track("b.wav", 24_000);
+        harness.play(1, &first).unwrap();
+        harness.set_next(2, &second).unwrap();
+        // 重なりの直前まで鳴らす（重なりの頭は、もうバッファに書かれている）
+        harness.render(7_500);
+        assert!(harness.engine.fade.is_some());
+
+        // 鳴っているのは1曲目のため、シークは1曲目の中で行う
+        harness.send(Command::Seek(0.25));
+        let played = harness.render(1_000);
+        assert_sample(&played, 500, 2_500);
+        assert!(harness.take_transitions().is_empty());
+
+        // その後、あらためて2曲目へクロスフェードする
+        let rest = harness.render(40_000);
+        assert_eq!(rest.len(), 16_000 - 3_000 + 24_000 - 8_000);
+        assert_eq!(
+            harness.take_transitions(),
+            vec![
+                PlaybackEvent::Advanced {
+                    token: 2,
+                    duration: Some(3.0)
+                },
+                PlaybackEvent::Ended { token: 2 }
+            ]
+        );
+    }
+
+    #[test]
+    fn test_play_during_the_crossfade_switches_immediately() {
+        let mut harness = crossfading(1);
+        let first = harness.track("a.wav", 16_000);
+        let second = harness.track("b.wav", 24_000);
+        let third = harness.track("c.wav", 8_000);
+        harness.play(1, &first).unwrap();
+        harness.set_next(2, &second).unwrap();
+        harness.render(10_000);
+        harness.take_events();
+
+        // 手動で曲を選んだ時は、クロスフェードせずにすぐ切り替える
+        harness.play(3, &third).unwrap();
+        let played = harness.render(1_000);
+
+        assert_sample(&played, 500, 500);
+        assert!(harness.engine.fade.is_none());
+        assert!(harness.take_transitions().is_empty());
+    }
+
+    #[test]
+    fn test_crossfade_setting_can_be_changed_while_playing() {
+        let mut harness = Harness::new();
+        let first = harness.track("a.wav", 16_000);
+        let second = harness.track("b.wav", 24_000);
+        harness.play(1, &first).unwrap();
+        harness.set_next(2, &second).unwrap();
+        harness.render(1_000);
+
+        // 範囲外の値は、上限（12秒）に丸める。重ねるのは、曲の長さの半分（1秒）まで
+        harness.send(Command::SetCrossfade(200));
+        assert_eq!(harness.engine.crossfade_seconds, 12.0);
+
+        assert_eq!(harness.render(50_000).len(), 39_000 - 8_000);
+    }
+
+    // ---------- イコライザ・リミッター ----------
+
+    #[test]
+    fn test_output_is_limited_when_the_gain_boosts_past_full_scale() {
+        let mut harness = Harness::with_options(PlaybackOptions {
+            normalization: VolumeNormalization::Track,
+            ..options()
+        });
+        harness.output.lock().unwrap().keep_effects = true;
+        let path = harness.track("a.wav", 16_000);
+        // ピークの情報がなく、+12dB（約4倍）上げる曲: そのままでは最大を大きく超える
+        harness
+            .engine
+            .play(PlayRequest {
+                replay_gain: track_gain(12.0),
+                ..request(1, &path)
+            })
+            .unwrap();
+
+        let mut output = harness.output.lock().unwrap();
+        let mut buffer = vec![0.0f32; 4_000 * 2];
+        output.renderer.as_mut().unwrap().render(&mut buffer, 2);
+
+        // 元の音（最大0.12）が4倍になり、最大を超える分はリミッターが抑える
+        let peak = buffer
+            .iter()
+            .fold(0.0f32, |peak, sample| peak.max(sample.abs()));
+        assert!(peak > 0.4 && peak <= 1.0, "{peak}");
+    }
+
+    #[test]
+    fn test_equalizer_settings_reach_the_output() {
+        let mut harness = Harness::new();
+        harness.output.lock().unwrap().keep_effects = true;
+        // 1kHzの正弦波（出力と同じサンプルレートでは、8フレームで1周期）
+        let path = harness.dir.join("sine.wav");
+        let sine: Vec<i16> = (0..32_000)
+            .map(|frame| {
+                let phase = 2.0 * std::f64::consts::PI * f64::from(frame) / 8.0;
+                (phase.sin() * 8_000.0) as i16
+            })
+            .collect();
+        write_wav_samples(&path, RATE, 1, &sine);
+        harness.play(1, &path).unwrap();
+        let effects = harness.effects.clone();
+
+        // 取り出した音声の大きさ（2乗の平均）
+        let mut power = |frames: usize| {
+            let played = harness.render(frames);
+            assert_eq!(played.len(), frames);
+            played.iter().map(|sample| sample * sample).sum::<f32>() / frames as f32
+        };
+        // 音量が上がりきるまで流してから測る
+        power(400);
+        let flat = power(1_600);
+
+        // 1kHzのバンドを-12dBにすると、大きさ（2乗）は約1/16になる
+        let mut gains = [0.0; EQ_BANDS];
+        gains[5] = -12.0;
+        effects.set_equalizer(true, &gains);
+        // ゲインが目標に届くまで（0.1秒）流してから測る
+        power(1_600);
+        let cut = power(1_600);
+
+        let ratio = cut / flat;
+        assert!((0.055..0.07).contains(&ratio), "{ratio}");
+    }
+
+    #[test]
+    fn test_options_are_taken_from_the_settings() {
+        let settings = Settings {
+            output_device_id: Some("usb-dac".to_string()),
+            volume_normalization: VolumeNormalization::Album,
+            crossfade_seconds: 7,
+            ..Settings::default()
+        };
+
+        assert_eq!(
+            PlaybackOptions::from(&settings),
+            PlaybackOptions {
+                output_device_id: Some("usb-dac".to_string()),
+                normalization: VolumeNormalization::Album,
+                crossfade_seconds: 7,
+            }
+        );
+    }
+
     /// 実際の出力デバイスで再生する（手動の確認用。音量を0にするため、音は出ない）
     ///
     /// ```text
@@ -1649,6 +2425,7 @@ mod tests {
     /// 出力デバイスの切り替え（`PLAYBACK_TEST_DEVICE`にデバイスのIDを指定した場合）を行い、
     /// 通知の内容と、かかった時間（実時間で再生されたか）を表示する。
     /// `PLAYBACK_TEST_PLAIN=1`を指定すると、途中の操作をせずに最後まで再生する（長時間の再生の確認用）。
+    /// `PLAYBACK_TEST_CROSSFADE`に、クロスフェードの秒数を指定できる。
     #[test]
     #[ignore]
     fn real_output_plays_files_in_real_time() {
@@ -1676,27 +2453,24 @@ mod tests {
         );
 
         let (events, received) = mpsc::channel();
-        let engine = PlaybackEngine::start(None, move |event| {
+        let options = PlaybackOptions {
+            crossfade_seconds: std::env::var("PLAYBACK_TEST_CROSSFADE")
+                .map_or(0, |seconds| seconds.parse().unwrap()),
+            ..options()
+        };
+        let engine = PlaybackEngine::start(options, move |event| {
             let _ = events.send(event);
         });
         engine.set_volume(0.0).unwrap();
 
         let started = Instant::now();
         let elapsed = || format!("{:7.3}s", started.elapsed().as_secs_f64());
-        let info = engine
-            .play(PlayRequest {
-                token: 0,
-                path: files[0].clone(),
-            })
-            .unwrap();
+        let info = engine.play(request(0, &files[0])).unwrap();
         println!("{} play 0: {:?}", elapsed(), info);
         let mut next = 1;
         let mut queue_next = |engine: &PlaybackEngine| {
             if let Some(path) = files.get(next) {
-                let result = engine.set_next(Some(PlayRequest {
-                    token: next as u32,
-                    path: path.clone(),
-                }));
+                let result = engine.set_next(Some(request(next as u32, path)));
                 println!("{} set_next {next}: {:?}", elapsed(), result);
                 next += 1;
             }

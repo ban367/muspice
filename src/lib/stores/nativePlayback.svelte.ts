@@ -9,19 +9,23 @@
  * 「再生する曲」と「続けて再生する曲」（`peekNextTrack`）だけを伝える。
  *
  * - 再生するトラック（`player.currentTrack`）が変わったら、`playbackPlay`で再生する
- * - ギャップレス再生が有効なら、次の曲を`playbackSetNext`で伝えておく。エンジンは、再生中の曲の
- *   終わりから切れ目なく続けて再生し、切り替わった時点で`advanced`を送る。ここでキューを進める
+ * - ギャップレス再生かクロスフェードが有効なら、次の曲を`playbackSetNext`で伝えておく。エンジンは、
+ *   再生中の曲の終わりから切れ目なく（クロスフェードでは、終わりと重ねて）続けて再生し、
+ *   鳴っている曲が切り替わった時点で`advanced`を送る。ここでキューを進める
  * - 続けて再生する曲を伝えていなければ、曲の終わりで`ended`が届く。ここでキューを進め、次の曲を
  *   `playbackPlay`で再生する
  *
  * エンジンへ渡す番号（トークン）は、再生する曲ごとに振る。イベントにはその番号が付いて返るため、
  * 曲を切り替えた後に届いた前の曲のイベントを見分けて捨てられる。
  *
- * イコライザ・音量の正規化・クロスフェードは、まだエンジンにないため効かない（#193で移す）。
+ * 音量の正規化とクロスフェードは、エンジンが設定を読んでかける（どの曲を重ねるか・重ねる長さも
+ * エンジンが決める）。イコライザの設定はフロントエンドが保存しているため（`./equalizer.svelte.ts`）、
+ * ここからエンジンへ送る。
  */
 import { untrack } from 'svelte';
 import { commands, events, type PlaybackEvent } from '#lib/bindings.js';
 import { incrementPlayCount } from '#lib/queries/tracks.js';
+import { EQ_FREQUENCIES, equalizer } from './equalizer.svelte.js';
 import { handleError } from './error.svelte.js';
 import type { PlaybackController } from './playback.svelte.js';
 import {
@@ -43,6 +47,12 @@ export interface NativePlaybackOptions {
    * （リアクティブな値を読む）。省略時は無効
    */
   gapless?: () => boolean;
+  /**
+   * クロスフェードの秒数を返す（リアクティブな値を読む）。0または省略時はクロスフェードしない。
+   * 1以上ならギャップレス再生の設定にかかわらず、次の曲を先にエンジンへ伝える
+   * （重ねる処理は、エンジンが設定を読んで行う）
+   */
+  crossfadeSeconds?: () => number;
 }
 
 /**
@@ -77,7 +87,9 @@ export function createNativePlaybackController(
   let seekTimer: ReturnType<typeof setTimeout> | null = null;
   let destroyed = false;
 
-  const isGapless = () => options.gapless?.() ?? false;
+  /** 次の曲を、先にエンジンへ伝えるか（ギャップレス再生かクロスフェードが有効） */
+  const isPreloadEnabled = () =>
+    (options.gapless?.() ?? false) || (options.crossfadeSeconds?.() ?? 0) > 0;
 
   /** 再生の失敗を通知し、再生中の表示を解除する */
   function reportPlaybackError(error: unknown): void {
@@ -136,7 +148,7 @@ export function createNativePlaybackController(
    */
   function syncNext(): void {
     if (!loaded) return;
-    const next = isGapless() ? peekNextTrack() : null;
+    const next = isPreloadEnabled() ? peekNextTrack() : null;
     if ((next?.id ?? null) === (queuedNext?.trackId ?? null)) return;
 
     const token = ++lastToken;
@@ -319,13 +331,21 @@ export function createNativePlaybackController(
     $effect(() => {
       // 変更を検知するために、どちらも読む（何を伝えるかは`syncNext`が決める）
       peekNextTrack();
-      isGapless();
+      isPreloadEnabled();
       untrack(syncNext);
     });
 
     $effect(() => {
       const volume = player.volume;
       send(() => commands.playbackSetVolume(volume), '音量の設定');
+    });
+
+    // イコライザ: 保存してある設定をエンジンへ送り、変更のたびに送り直す
+    $effect(() => {
+      const enabled = equalizer.enabled;
+      const bands = equalizer.bands;
+      const gains = EQ_FREQUENCIES.map((frequency) => bands[frequency]);
+      send(() => commands.playbackSetEqualizer(enabled, gains), 'イコライザの設定');
     });
   });
 

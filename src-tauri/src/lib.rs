@@ -31,13 +31,13 @@ use commands::{
     get_output_devices, get_playlist_tracks, get_playlists, get_recently_played_tracks,
     get_settings, get_sync_devices, get_track_file_path, get_unique_albums, get_unique_artists,
     get_unique_genres, import_folder, increment_play_count, open_project_page, plan_device_sync,
-    playback_pause, playback_play, playback_resume, playback_seek, playback_set_next,
-    playback_set_volume, playback_stop, refresh_library_metadata, register_sync_device,
-    relink_sync_device, remove_library_folder, remove_missing_tracks, remove_sync_device,
-    remove_track_from_playlist, rename_playlist, reorder_playlist_tracks, rescan_library_folder,
-    run_device_sync, save_settings, search_tracks, set_current_track, set_rating, show_in_folder,
-    toggle_favorite, update_multiple_tracks_metadata, update_sync_device, update_track_metadata,
-    write_library_metadata_to_files,
+    playback_pause, playback_play, playback_resume, playback_seek, playback_set_equalizer,
+    playback_set_next, playback_set_volume, playback_stop, refresh_library_metadata,
+    register_sync_device, relink_sync_device, remove_library_folder, remove_missing_tracks,
+    remove_sync_device, remove_track_from_playlist, rename_playlist, reorder_playlist_tracks,
+    rescan_library_folder, run_device_sync, save_settings, search_tracks, set_current_track,
+    set_rating, show_in_folder, toggle_favorite, update_multiple_tracks_metadata,
+    update_sync_device, update_track_metadata, write_library_metadata_to_files,
 };
 use state::AppState;
 use std::path::PathBuf;
@@ -101,6 +101,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             playback_resume,
             playback_seek,
             playback_set_volume,
+            playback_set_equalizer,
             playback_stop,
             get_output_devices,
             show_in_folder,
@@ -252,16 +253,14 @@ pub fn run() {
 
             // 設定を読み込む（ない・壊れている場合は既定値）
             let settings_state = settings::SettingsState::load(app_data_dir.join("settings.json"));
-            let output_device_id = settings_state
-                .get()
-                .ok()
-                .and_then(|settings| settings.output_device_id);
+            let playback_options =
+                playback::PlaybackOptions::from(&settings_state.get().unwrap_or_default());
             app.manage(settings_state);
 
             // ネイティブの再生エンジン（スレッドを始めるだけで、出力は最初に再生するときに開く）
             let playback_events = app.handle().clone();
             app.manage(playback::PlaybackEngine::start(
-                output_device_id,
+                playback_options,
                 move |event| {
                     if let Err(e) = event.emit(&playback_events) {
                         log::warn!("再生エンジンの通知を送れません: {}", e);
