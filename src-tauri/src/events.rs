@@ -77,7 +77,7 @@ pub struct ToggleSidebar;
 #[derive(Debug, Clone, Serialize, Type, Event)]
 pub struct SettingsChanged(pub Settings);
 
-/// ネイティブの再生エンジン（`playback`）からの通知
+/// 再生エンジン（`playback`）からの通知
 ///
 /// `token`は、フロントエンドが再生する曲ごとに振った番号（`playback_play` / `playback_set_next`で
 /// 渡したもの）。曲を切り替えた後に届いた、前の曲の通知を見分けるために使う。

@@ -75,17 +75,6 @@ pub enum VolumeNormalization {
     Album,
 }
 
-/// 再生に使うエンジン
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub enum PlaybackEngineKind {
-    /// WebViewのaudio要素（これまでの再生）
-    #[default]
-    WebView,
-    /// ネイティブの再生エンジン（`playback`。出力デバイスを選べる）
-    Native,
-}
-
 /// アプリケーション設定
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -104,9 +93,7 @@ pub struct Settings {
     pub gapless_playback: bool,
     /// クロスフェードの秒数（0でクロスフェードしない）
     pub crossfade_seconds: u8,
-    /// 再生に使うエンジン
-    pub playback_engine: PlaybackEngineKind,
-    /// 出力デバイスのID（ネイティブの再生エンジンだけが使う。nullはOSの既定のデバイス）
+    /// 出力デバイスのID（nullはOSの既定のデバイス）
     pub output_device_id: Option<String>,
     /// ライブラリフォルダを監視し、ファイルの変更を自動で反映する
     pub watch_library_folders: bool,
@@ -131,7 +118,6 @@ impl Default for Settings {
             volume_normalization: VolumeNormalization::default(),
             gapless_playback: true,
             crossfade_seconds: 0,
-            playback_engine: PlaybackEngineKind::default(),
             output_device_id: None,
             watch_library_folders: false,
             library_scan_interval_minutes: 0,
@@ -289,7 +275,6 @@ mod tests {
             volume_normalization: VolumeNormalization::Album,
             gapless_playback: false,
             crossfade_seconds: 5,
-            playback_engine: PlaybackEngineKind::Native,
             output_device_id: Some("coreaudio:BuiltInSpeakerDevice".to_string()),
             watch_library_folders: true,
             library_scan_interval_minutes: 60,
@@ -316,9 +301,23 @@ mod tests {
         assert_eq!(settings.volume_normalization, VolumeNormalization::Off);
         assert!(settings.gapless_playback);
         assert_eq!(settings.crossfade_seconds, 0);
-        assert_eq!(settings.playback_engine, PlaybackEngineKind::WebView);
         assert_eq!(settings.output_device_id, None);
         assert!(!settings.auto_sync_enabled());
+    }
+
+    #[test]
+    fn test_removed_fields_in_the_file_are_ignored() {
+        // 以前のバージョンが保存した、今はない項目（再生エンジンの切り替え）があっても読める
+        let path = temp_settings_path("removed-field");
+        fs::write(
+            &path,
+            r#"{ "playbackEngine": "webView", "crossfadeSeconds": 3 }"#,
+        )
+        .unwrap();
+
+        let settings = load_settings(&path);
+        assert_eq!(settings.crossfade_seconds, 3);
+        assert_eq!(settings.output_device_id, None);
     }
 
     #[test]

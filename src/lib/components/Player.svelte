@@ -10,55 +10,30 @@
     createPlaybackController,
     type PlaybackController
   } from '#lib/stores/playback.svelte.js';
-  import { createNativePlaybackController } from '#lib/stores/nativePlayback.svelte.js';
   import { useSettingsQuery } from '#lib/queries/settings.js';
-  import { untrack } from 'svelte';
+  import { onMount } from 'svelte';
   import AlbumArt from './AlbumArt.svelte';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import MarqueeText from './MarqueeText.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
-  // 再生に使う2つのaudio要素（ギャップレス再生で、次の曲をもう一方に先読みする）
-  let audioElement = $state<HTMLAudioElement>();
-  let standbyAudioElement = $state<HTMLAudioElement>();
   let progressBar = $state<HTMLElement>();
   let volumeBar = $state<HTMLElement>();
   let isDraggingProgress = $state(false);
   let isDraggingVolume = $state(false);
 
-  // 再生の制御（読み込み・キュー遷移・リピート・イコライザ・音量の正規化）はコントローラーに委ねる
+  // 再生の制御（エンジンの操作・キュー遷移・リピート・イコライザの設定の送信）はコントローラーに委ねる
   let playback: PlaybackController | null = null;
 
-  // 再生の設定（設定ウィンドウで変えると`SettingsChanged`で更新され、再生中の曲にも反映される）
+  // 再生の設定（設定ウィンドウで変えると`SettingsChanged`で更新される。音量の正規化・クロスフェード・
+  // 出力デバイスは、保存した時点でRust側が再生エンジンへ伝える）
   const settingsQuery = useSettingsQuery();
 
-  // 再生に使うエンジン。設定を読み込むまでは決めない（読み込めなかった場合は、audio要素で再生する）
-  const playbackEngine = $derived(
-    settingsQuery.data?.playbackEngine ?? (settingsQuery.isPending ? undefined : 'webView')
-  );
-
-  $effect(() => {
-    const engine = playbackEngine;
-    if (engine === undefined) return;
-    const gapless = () => settingsQuery.data?.gaplessPlayback ?? true;
-    const crossfadeSeconds = () => settingsQuery.data?.crossfadeSeconds ?? 0;
-
-    // audio要素・再生エンジンの設定が変わったときだけ作り直す（作成中に読む再生状態には
-    // 反応させない）。作り直すと、再生は止まりキューは空になる
-    let controller: PlaybackController;
-    if (engine === 'native') {
-      controller = untrack(() => createNativePlaybackController({ gapless, crossfadeSeconds }));
-    } else {
-      if (!audioElement || !standbyAudioElement) return;
-      const audios = [audioElement, standbyAudioElement] as const;
-      controller = untrack(() =>
-        createPlaybackController(audios, {
-          normalizationMode: () => settingsQuery.data?.volumeNormalization ?? 'off',
-          gapless,
-          crossfadeSeconds
-        })
-      );
-    }
+  onMount(() => {
+    const controller = createPlaybackController({
+      gapless: () => settingsQuery.data?.gaplessPlayback ?? true,
+      crossfadeSeconds: () => settingsQuery.data?.crossfadeSeconds ?? 0
+    });
     playback = controller;
     return () => {
       controller.destroy();
@@ -222,16 +197,6 @@
   }}
   onkeydown={handleGlobalKeydown}
 />
-
-<!--
-  非表示のオーディオ要素（イベントはPlaybackControllerが購読する）。
-  ネイティブの再生エンジンでは使わない。一度Web Audioの経路（イコライザ）につないだaudio要素は
-  別の経路につなぎ直せないため、audio要素での再生に戻したときは新しい要素を作る
--->
-{#if playbackEngine === 'webView'}
-  <audio bind:this={audioElement} class="hidden"></audio>
-  <audio bind:this={standbyAudioElement} class="hidden"></audio>
-{/if}
 
 <!-- プレイヤーUI -->
 <div class="player-container">

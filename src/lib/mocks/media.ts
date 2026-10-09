@@ -1,5 +1,5 @@
 /**
- * ブラウザモック用のメディア生成（アルバムアート・音声）
+ * ブラウザモック用のメディア生成（アルバムアート）
  *
  * 実ファイルを用意せずに済むよう、文字列から決定的に生成する。
  */
@@ -33,53 +33,4 @@ export function createAlbumArt(albumName: string): string {
     '<circle cx="60" cy="60" r="6" fill="rgba(255,255,255,0.6)"/>' +
     '</svg>';
   return `data:image/svg+xml;base64,${btoa(svg)}`;
-}
-
-const SAMPLE_RATE = 8000;
-/** モック音声の長さ（秒）。トラックの`duration`とは一致しない */
-export const MOCK_AUDIO_SECONDS = 20;
-const NOTE_SECONDS = 0.5;
-const BASE_FREQUENCIES_HZ = [220, 246.94, 277.18, 329.63, 369.99, 440];
-/** 根音・長3度・完全5度・オクターブのアルペジオ */
-const ARPEGGIO_RATIOS = [1, 1.25, 1.5, 2];
-
-/**
- * シード文字列ごとに音程の異なるアルペジオのWAV（16bit PCM・モノラル）を生成する
- *
- * 各音の始まりと終わりで振幅を0にし、音の切り替わりでノイズが出ないようにする。
- */
-export function createToneWav(seed: string): ArrayBuffer {
-  const baseFrequency = BASE_FREQUENCIES_HZ[hashString(seed) % BASE_FREQUENCIES_HZ.length];
-  const sampleCount = SAMPLE_RATE * MOCK_AUDIO_SECONDS;
-  const dataSize = sampleCount * 2;
-  const buffer = new ArrayBuffer(44 + dataSize);
-  const view = new DataView(buffer);
-  const writeAscii = (offset: number, text: string) => {
-    for (let i = 0; i < text.length; i++) view.setUint8(offset + i, text.charCodeAt(i));
-  };
-
-  writeAscii(0, 'RIFF');
-  view.setUint32(4, 36 + dataSize, true);
-  writeAscii(8, 'WAVE');
-  writeAscii(12, 'fmt ');
-  view.setUint32(16, 16, true); // fmtチャンクのサイズ
-  view.setUint16(20, 1, true); // リニアPCM
-  view.setUint16(22, 1, true); // モノラル
-  view.setUint32(24, SAMPLE_RATE, true);
-  view.setUint32(28, SAMPLE_RATE * 2, true); // バイトレート
-  view.setUint16(32, 2, true); // ブロックサイズ
-  view.setUint16(34, 16, true); // ビット深度
-  writeAscii(36, 'data');
-  view.setUint32(40, dataSize, true);
-
-  for (let i = 0; i < sampleCount; i++) {
-    const time = i / SAMPLE_RATE;
-    const note = Math.floor(time / NOTE_SECONDS);
-    const envelope = Math.sin((Math.PI * (time % NOTE_SECONDS)) / NOTE_SECONDS);
-    const frequency = baseFrequency * ARPEGGIO_RATIOS[note % ARPEGGIO_RATIOS.length];
-    const sample = Math.sin(2 * Math.PI * frequency * time) * envelope * 0.15;
-    view.setInt16(44 + i * 2, Math.round(sample * 0x7fff), true);
-  }
-
-  return buffer;
 }

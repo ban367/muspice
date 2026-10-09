@@ -61,8 +61,6 @@ export interface MockBackendOptions {
   sleep?: (ms: number) => Promise<void>;
   /** フィクスチャに加えて生成するトラックの数（数万曲のライブラリでの動作確認用） */
   extraTrackCount?: number;
-  /** 設定の「再生エンジン」の初期値（ネイティブの再生エンジンでの動作確認用）。既定は`webView` */
-  playbackEngine?: Settings['playbackEngine'];
 }
 
 export interface MockBackend {
@@ -263,7 +261,6 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     volumeNormalization: 'off',
     gaplessPlayback: true,
     crossfadeSeconds: 0,
-    playbackEngine: options.playbackEngine ?? 'webView',
     outputDeviceId: null,
     watchLibraryFolders: false,
     libraryScanIntervalMinutes: 0
@@ -341,7 +338,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     return track;
   }
 
-  // ネイティブの再生エンジン（音は鳴らさず、再生位置と曲の切り替わりを時計に合わせて進める）
+  // 再生エンジン（音は鳴らさず、再生位置と曲の切り替わりを時計に合わせて進める）
   const playbackEngine = createMockPlaybackEngine({
     emit: (event) => options.emit('playback-event', event),
     crossfadeSeconds: () => settings.crossfadeSeconds,
@@ -876,10 +873,6 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       });
       playlist.updatedAt = now();
       return null;
-    },
-    getTrackFilePath: (trackId) => {
-      validateTrackId(trackId);
-      return findTrack(trackId).filePath;
     },
     setCurrentTrack: (trackId) => {
       currentTrackId = trackId;

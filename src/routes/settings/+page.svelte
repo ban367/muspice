@@ -7,7 +7,6 @@
   } from '#lib/queries/settings.js';
   import type {
     Language,
-    PlaybackEngineKind,
     Settings,
     StartupPage,
     Theme,
@@ -31,7 +30,6 @@
   const startupPages: StartupPage[] = ['lastOpened', 'songs'];
   const themes: Theme[] = ['dark', 'light', 'system'];
   const volumeNormalizations: VolumeNormalization[] = ['off', 'track', 'album'];
-  const playbackEngines: PlaybackEngineKind[] = ['webView', 'native'];
 
   // 言語の名前は、その言語で表示する（どの言語を表示中でも選べるように）
   const languages: { value: Language; label: string }[] = [
@@ -52,10 +50,8 @@
     }
   });
 
-  // 出力デバイスの一覧（ネイティブの再生エンジンを選んで、再生の設定を開いている間だけ取得する）
-  const outputDevicesQuery = useOutputDevicesQuery(
-    () => activeSection === 'playback' && pending?.playbackEngine === 'native'
-  );
+  // 出力デバイスの一覧（再生の設定を開いている間だけ取得する）
+  const outputDevicesQuery = useOutputDevicesQuery(() => activeSection === 'playback');
   // 選んであるデバイスが一覧にない（接続されていない）場合も、選択肢として残す
   const isSelectedDeviceMissing = $derived(
     pending !== null &&
@@ -318,25 +314,8 @@
           </div>
 
           <div class="setting-item">
-            <label class="setting-label" for="playback-engine">{m.settings.playbackEngine}</label>
-            <select id="playback-engine" class="setting-select" bind:value={pending.playbackEngine}>
-              {#each playbackEngines as engine (engine)}
-                <option value={engine}>{m.settings.playbackEngines[engine]}</option>
-              {/each}
-            </select>
-            <p class="setting-description">
-              {m.settings.playbackEngineHint}
-            </p>
-          </div>
-
-          <div class="setting-item">
             <label class="setting-label" for="output-device">{m.settings.outputDevice}</label>
-            <select
-              id="output-device"
-              class="setting-select"
-              disabled={pending.playbackEngine !== 'native'}
-              bind:value={pending.outputDeviceId}
-            >
+            <select id="output-device" class="setting-select" bind:value={pending.outputDeviceId}>
               <option value={null}>{m.settings.outputDeviceDefault}</option>
               {#if isSelectedDeviceMissing}
                 <option value={pending.outputDeviceId}>

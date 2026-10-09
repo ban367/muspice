@@ -5,9 +5,9 @@ use std::path::{Path, PathBuf};
 
 /// サポートされている音楽ファイル形式（拡張子）
 ///
-/// 一般的な音楽プレーヤーが扱う形式のうち、再生（WebView）とタグの読み書き（lofty）の両方が
+/// 一般的な音楽プレーヤーが扱う形式のうち、再生（再生エンジン）とタグの読み書き（lofty）の両方が
 /// できる形式に限る。追加する時は、実ファイルで両方を確かめる（調査の結果は
-/// `docs/design/decisions.md`のADR-024）。
+/// `docs/design/decisions.md`のADR-024・ADR-025）。
 /// m4aは、AACとALACのどちらも扱える。aacはADTS形式のAAC。oggは、中がVorbisでもOpusでも扱える。
 const SUPPORTED_EXTENSIONS: &[&str] = &[
     "mp3", "flac", "wav", "m4a", "aac", "mp2", "aiff", "aif", "ogg", "opus",

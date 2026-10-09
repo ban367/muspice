@@ -1,14 +1,10 @@
 import { flushSync } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Track, VolumeNormalization } from '#lib/types/models.js';
+import type { PlaybackEvent, Track } from '#lib/types/models.js';
 import { commands } from '#lib/bindings.js';
 import { incrementPlayCount } from '#lib/queries/tracks.js';
-import {
-  createPlaybackController,
-  mediaErrorMessage,
-  type PlaybackController,
-  type PlaybackControllerOptions
-} from './playback.svelte.js';
+import { equalizer } from './equalizer.svelte.js';
+import { createPlaybackController, type PlaybackController } from './playback.svelte.js';
 import {
   player,
   playTrackFromQueue,
@@ -17,101 +13,63 @@ import {
   toggleRepeat
 } from './player.svelte.js';
 import { notifications } from './error.svelte.js';
-import {
-  fadeDeck,
-  isEqualizerInitialized,
-  resumeAudioContext,
-  setDeckFade,
-  setNormalizationGain
-} from './equalizer.svelte.js';
+
+/** エンジンからの通知を受け取るリスナー（`events.playbackEvent.listen`で登録されたもの） */
+const listeners = vi.hoisted(() => new Set<(event: { payload: unknown }) => void>());
 
 vi.mock('#lib/bindings.js', () => ({
   commands: {
-    getTrackFilePath: vi.fn(async (trackId: string) => `/music/${trackId}.mp3`),
+    playbackPlay: vi.fn(async () => ({ duration: 200 })),
+    playbackSetNext: vi.fn(async () => null),
+    playbackPause: vi.fn(async () => null),
+    playbackResume: vi.fn(async () => null),
+    playbackSeek: vi.fn(async () => null),
+    playbackSetVolume: vi.fn(async () => null),
+    playbackSetEqualizer: vi.fn(async () => null),
+    playbackStop: vi.fn(async () => null),
     setCurrentTrack: vi.fn(async () => null)
+  },
+  events: {
+    playbackEvent: {
+      listen: vi.fn(async (listener: (event: { payload: unknown }) => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      })
+    }
   }
-}));
-vi.mock('@tauri-apps/api/core', () => ({
-  convertFileSrc: (path: string) => `asset://localhost/${encodeURIComponent(path)}`
 }));
 vi.mock('#lib/queries/tracks.js', () => ({
   incrementPlayCount: vi.fn(async () => {})
 }));
-vi.mock('./equalizer.svelte.js', () => ({
-  initializeEqualizer: vi.fn(async () => {}),
-  cleanupEqualizer: vi.fn(async () => {}),
-  resumeAudioContext: vi.fn(async () => {}),
-  isEqualizerInitialized: vi.fn(() => true),
-  setNormalizationGain: vi.fn(),
-  fadeDeck: vi.fn(),
-  setDeckFade: vi.fn()
-}));
-
-/** テスト用のaudio要素（再生状態とイベントだけを再現する） */
-class FakeAudio extends EventTarget {
-  src = '';
-  preload = '';
-  currentTime = 0;
-  duration = 200;
-  volume = 1;
-  paused = true;
-  error: { code: number } | null = null;
-
-  play = vi.fn(async () => {
-    if (this.paused) {
-      this.paused = false;
-      this.dispatchEvent(new Event('play'));
-    }
-  });
-
-  pause = vi.fn(() => {
-    if (!this.paused) {
-      this.paused = true;
-      this.dispatchEvent(new Event('pause'));
-    }
-  });
-
-  /** 読み込みを解除する（`removeAttribute('src')`と`load()`の組み合わせだけを再現する） */
-  removeAttribute = vi.fn((name: string) => {
-    if (name === 'src') this.src = '';
-  });
-  load = vi.fn();
-
-  /** 再生位置を進めてtimeupdateを発火する */
-  advanceTo(time: number) {
-    this.currentTime = time;
-    this.dispatchEvent(new Event('timeupdate'));
-  }
-
-  /** 最後まで再生し終えたことにする */
-  finish() {
-    this.paused = true;
-    this.dispatchEvent(new Event('pause'));
-    this.dispatchEvent(new Event('ended'));
-  }
-}
 
 function makeTrack(id: string): Track {
-  return { id, title: id } as Track;
+  return { id, title: id, duration: 180 } as Track;
 }
 
 const tracks = ['t1', 't2', 't3'].map(makeTrack);
 
-/** 非同期の読み込み（パス取得→再生→通知）が終わるのを待つ */
+/** 非同期の処理（コマンドの結果待ち→通知）が終わるのを待つ */
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-/** 1つ目のデッキ（ギャップレス再生が無効の間は、こちらだけを使う） */
-let audio: FakeAudio;
-/** 2つ目のデッキ（次の曲の先読みに使う） */
-let standbyAudio: FakeAudio;
-let controller: PlaybackController;
-
-function createController(options: PlaybackControllerOptions = {}): PlaybackController {
-  return createPlaybackController(
-    [audio, standbyAudio] as unknown as [HTMLAudioElement, HTMLAudioElement],
-    options
-  );
+/** エンジンからの通知を届ける */
+function emit(event: PlaybackEvent): void {
+  for (const listener of [...listeners]) listener({ payload: event });
+  flushSync();
 }
+
+/** 直近の`playbackPlay`に渡した番号（その曲についての通知に付ける） */
+function lastPlayToken(): number {
+  return vi.mocked(commands.playbackPlay).mock.lastCall![1];
+}
+
+/** 直近の`playbackSetNext`に渡した、トラックIDと番号 */
+function lastNext(): [string | null, number] {
+  return vi.mocked(commands.playbackSetNext).mock.lastCall!;
+}
+
+let controller: PlaybackController;
+let gapless: boolean;
+let crossfadeSeconds: number;
 
 beforeEach(() => {
   resetPlayer();
@@ -119,13 +77,19 @@ beforeEach(() => {
   player.repeatMode = 'off';
   player.volume = 1;
   notifications.clear();
+  listeners.clear();
   vi.clearAllMocks();
-  // テストで変えた場合に備え、Web Audioの経路は作れている状態に戻す
-  vi.mocked(isEqualizerInitialized).mockReturnValue(true);
   vi.spyOn(console, 'error').mockImplementation(() => {});
-  audio = new FakeAudio();
-  standbyAudio = new FakeAudio();
-  controller = createController();
+  // テスト環境にはlocalStorageがないため、イコライザの設定の保存は警告になる
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  equalizer.reset();
+  equalizer.setEnabled(false);
+  gapless = false;
+  crossfadeSeconds = 0;
+  controller = createPlaybackController({
+    gapless: () => gapless,
+    crossfadeSeconds: () => crossfadeSeconds
+  });
   // 状態の監視（$effect）はマイクロタスクで始まるため、ここで反映しておく
   flushSync();
 });
@@ -136,687 +100,457 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('トラックの読み込み', () => {
-  it('再生するトラックが決まると読み込んで再生し、バックエンドへ通知する', async () => {
+describe('トラックの再生', () => {
+  it('再生するトラックが決まるとエンジンで再生し、バックエンドへ通知する', async () => {
     playTrackFromQueue(tracks, 1);
     await flush();
 
-    expect(audio.src).toBe(`asset://localhost/${encodeURIComponent('/music/t2.mp3')}`);
-    expect(audio.paused).toBe(false);
+    expect(commands.playbackPlay).toHaveBeenCalledWith('t2', expect.any(Number));
     expect(player.isPlaying).toBe(true);
+    expect(player.duration).toBe(200);
     expect(commands.setCurrentTrack).toHaveBeenCalledWith('t2');
     expect(incrementPlayCount).toHaveBeenCalledWith('t2');
   });
 
-  it('パスの取得中に別のトラックへ切り替わったら、古いトラックは読み込まない', async () => {
-    let resolveFirst: (path: string) => void = () => {};
-    vi.mocked(commands.getTrackFilePath)
-      .mockImplementationOnce(() => new Promise((resolve) => (resolveFirst = resolve)))
-      .mockImplementationOnce(async () => '/music/t2.mp3');
-
-    playTrackFromQueue(tracks, 0);
-    // 1曲目のパスを取得している間に、2曲目へ切り替える
-    flushSync();
-    playTrackFromQueue(tracks, 1);
-    await flush();
-    resolveFirst('/music/t1.mp3');
-    await flush();
-
-    expect(audio.src).toContain('t2.mp3');
-    expect(commands.setCurrentTrack).toHaveBeenCalledTimes(1);
-    expect(commands.setCurrentTrack).toHaveBeenCalledWith('t2');
-  });
-
-  it('AudioContextの再開を待つ間に別のトラックへ切り替わったら、古いトラックを再生も記録もしない', async () => {
-    let resumeFirst: () => void = () => {};
-    vi.mocked(resumeAudioContext).mockImplementationOnce(
-      () => new Promise<void>((resolve) => (resumeFirst = resolve))
-    );
+  it('エンジンが曲の長さを返さない場合は、トラックの長さを使う', async () => {
+    vi.mocked(commands.playbackPlay).mockResolvedValueOnce({ duration: null });
 
     playTrackFromQueue(tracks, 0);
     await flush();
-    // t1はAudioContextの再開を待っている
-    expect(audio.play).not.toHaveBeenCalled();
 
-    playTrackFromQueue(tracks, 1);
-    await flush();
-    expect(commands.setCurrentTrack).toHaveBeenCalledWith('t2');
-
-    resumeFirst();
-    await flush();
-    expect(commands.setCurrentTrack).toHaveBeenCalledTimes(1);
-    expect(incrementPlayCount).not.toHaveBeenCalledWith('t1');
-    expect(audio.src).toContain('t2.mp3');
+    expect(player.duration).toBe(180);
   });
 
-  it('同じ処理の中で続けてトラックが変わった場合は、最後のトラックだけを読み込む', async () => {
-    playTrackFromQueue(tracks, 0);
-    playTrackFromQueue(tracks, 2);
-    await flush();
-
-    expect(commands.getTrackFilePath).toHaveBeenCalledTimes(1);
-    expect(commands.getTrackFilePath).toHaveBeenCalledWith('t3');
-    expect(audio.src).toContain('t3.mp3');
-  });
-
-  it('読み込みに失敗したらエラーを通知し、再生中の表示を解除する', async () => {
-    vi.mocked(commands.getTrackFilePath).mockRejectedValueOnce({
-      code: 'NOT_FOUND',
-      message: '指定されたトラックが見つかりません'
+  it('再生に失敗したら通知し、再生中の表示にしない', async () => {
+    vi.mocked(commands.playbackPlay).mockRejectedValueOnce({
+      code: 'PLAYBACK',
+      message: '対応していない形式のファイルです'
     });
 
     playTrackFromQueue(tracks, 0);
     await flush();
 
     expect(player.isPlaying).toBe(false);
-    expect(notifications.items.at(-1)?.message).toBe(
-      'トラックの再生に失敗しました: 指定されたトラックが見つかりません'
+    expect(notifications.items).toHaveLength(1);
+    expect(notifications.items[0].message).toContain('トラックの再生に失敗しました');
+    expect(incrementPlayCount).not.toHaveBeenCalled();
+
+    // 再生ボタンで、頭から再生し直す
+    await controller.togglePlayPause();
+    expect(commands.playbackPlay).toHaveBeenCalledTimes(2);
+    expect(player.isPlaying).toBe(true);
+    expect(incrementPlayCount).toHaveBeenCalledWith('t1');
+  });
+
+  it('続けてトラックを変えた場合は、最後のトラックの結果だけを反映する', async () => {
+    let resolveFirst: (info: { duration: number }) => void = () => {};
+    vi.mocked(commands.playbackPlay).mockImplementationOnce(
+      () => new Promise((resolve) => (resolveFirst = resolve))
     );
+
+    playTrackFromQueue(tracks, 0);
+    flushSync();
+    playTrackFromQueue(tracks, 2);
+    await flush();
+    resolveFirst({ duration: 999 });
+    await flush();
+
+    // エンジンは番号の大きい要求を新しい要求として扱う
+    const [first, second] = vi.mocked(commands.playbackPlay).mock.calls;
+    expect([first[0], second[0]]).toEqual(['t1', 't3']);
+    expect(second[1]).toBeGreaterThan(first[1]);
+    expect(player.duration).toBe(200);
+    expect(incrementPlayCount).toHaveBeenCalledTimes(1);
+    expect(incrementPlayCount).toHaveBeenCalledWith('t3');
+  });
+
+  it('再生中と同じトラックを選び直しても、再生し直さない', async () => {
+    playTrackFromQueue(tracks, 0);
+    await flush();
+
+    playTrackFromQueue([...tracks], 0);
+    await flush();
+
+    expect(commands.playbackPlay).toHaveBeenCalledTimes(1);
   });
 
   it('キューが空になったら再生を止める', async () => {
-    playTrackFromQueue(tracks, 0);
+    playTrackFromQueue([tracks[0]], 0);
     await flush();
 
-    resetPlayer();
+    removeFromQueue('t1');
     flushSync();
 
-    expect(audio.pause).toHaveBeenCalled();
-    expect(audio.paused).toBe(true);
+    expect(commands.playbackStop).toHaveBeenCalledTimes(1);
+    expect(player.currentTrack).toBeNull();
+  });
+
+  it('音量をエンジンに伝える', () => {
+    expect(commands.playbackSetVolume).toHaveBeenLastCalledWith(1);
+
+    player.volume = 0.3;
+    flushSync();
+
+    expect(commands.playbackSetVolume).toHaveBeenLastCalledWith(0.3);
   });
 });
 
-describe('前へ・次へ', () => {
-  it('3秒を超えて再生しているときの「前へ」は、再生中のトラックを頭から再生し直す', async () => {
-    playTrackFromQueue(tracks, 1);
-    await flush();
-    audio.advanceTo(10);
-
-    controller.previous();
-
-    expect(player.currentTrack?.id).toBe('t2');
-    expect(audio.currentTime).toBe(0);
-    expect(player.currentTime).toBe(0);
-    expect(audio.paused).toBe(false);
-  });
-
-  it('再生開始から3秒以内の「前へ」は前のトラックへ移る', async () => {
-    playTrackFromQueue(tracks, 1);
-    await flush();
-    audio.advanceTo(2);
-
-    controller.previous();
-    await flush();
-
-    expect(player.currentTrack?.id).toBe('t1');
-    expect(audio.src).toContain('t1.mp3');
-  });
-
-  it('1曲リピート中の「次へ」は同じトラックを頭から再生し直す', async () => {
-    player.repeatMode = 'one';
+describe('エンジンからの通知', () => {
+  it('再生位置を反映する（前の曲の通知・ドラッグ中の通知は無視する）', async () => {
     playTrackFromQueue(tracks, 0);
     await flush();
-    audio.advanceTo(42);
+    const token = lastPlayToken();
 
-    controller.next();
+    emit({ type: 'position', token, position: 12.5 });
+    expect(player.currentTime).toBe(12.5);
 
-    expect(player.currentTrack?.id).toBe('t1');
-    expect(audio.currentTime).toBe(0);
+    emit({ type: 'position', token: token - 1, position: 99 });
+    expect(player.currentTime).toBe(12.5);
+
+    controller.setScrubbing(true);
+    emit({ type: 'position', token, position: 13 });
+    expect(player.currentTime).toBe(12.5);
   });
-});
 
-describe('トラックの終了', () => {
-  it('次のトラックがあれば続けて再生する', async () => {
+  it('曲が終わったら、キューの次の曲を再生する', async () => {
     playTrackFromQueue(tracks, 0);
     await flush();
 
-    audio.finish();
+    emit({ type: 'ended', token: lastPlayToken() });
     await flush();
 
     expect(player.currentTrack?.id).toBe('t2');
-    expect(audio.src).toContain('t2.mp3');
-    expect(player.isPlaying).toBe(true);
+    expect(commands.playbackPlay).toHaveBeenLastCalledWith('t2', expect.any(Number));
+    expect(incrementPlayCount).toHaveBeenLastCalledWith('t2');
   });
 
-  it('リピートなしでキューの最後まで再生したら終了する', async () => {
+  it('キューの最後の曲が終わったら、再生を終える', async () => {
     playTrackFromQueue(tracks, 2);
     await flush();
 
-    audio.finish();
+    emit({ type: 'ended', token: lastPlayToken() });
+    await flush();
 
     expect(player.currentTrack).toBeNull();
+    expect(player.playQueue).toEqual([]);
+    expect(commands.playbackStop).toHaveBeenCalledTimes(1);
+  });
+
+  it('1曲リピートでは、曲が終わったら同じ曲を頭から再生し直す（再生回数は記録しない）', async () => {
+    playTrackFromQueue(tracks, 0);
+    await flush();
+    toggleRepeat();
+    toggleRepeat(); // 1曲リピート
+
+    emit({ type: 'ended', token: lastPlayToken() });
+    await flush();
+
+    expect(commands.playbackPlay).toHaveBeenCalledTimes(2);
+    expect(commands.playbackPlay).toHaveBeenLastCalledWith('t1', expect.any(Number));
+    expect(incrementPlayCount).toHaveBeenCalledTimes(1);
+    expect(player.isPlaying).toBe(true);
+  });
+
+  it('前の曲についての終了の通知は無視する', async () => {
+    playTrackFromQueue(tracks, 0);
+    await flush();
+    const firstToken = lastPlayToken();
+    playTrackFromQueue(tracks, 2);
+    await flush();
+
+    emit({ type: 'ended', token: firstToken });
+    await flush();
+
+    expect(player.currentTrack?.id).toBe('t3');
+    expect(commands.playbackPlay).toHaveBeenCalledTimes(2);
+  });
+
+  it('再生を続けられなくなったら通知し、再生ボタンで再生し直せる', async () => {
+    playTrackFromQueue(tracks, 0);
+    await flush();
+
+    emit({
+      type: 'failed',
+      token: lastPlayToken(),
+      error: { code: 'PLAYBACK', message: 'ファイルを読み取れません' }
+    });
+
     expect(player.isPlaying).toBe(false);
-  });
-
-  it('1曲リピートでは同じトラックを頭から再生し直す', async () => {
-    player.repeatMode = 'one';
-    playTrackFromQueue(tracks, 0);
-    await flush();
-    audio.advanceTo(200);
-
-    audio.finish();
-
     expect(player.currentTrack?.id).toBe('t1');
-    expect(audio.currentTime).toBe(0);
-    expect(audio.paused).toBe(false);
-  });
+    expect(notifications.items).toHaveLength(1);
 
-  it('1曲だけのキューを全曲リピートしても止まらずに再生し直す', async () => {
-    player.repeatMode = 'all';
-    playTrackFromQueue([makeTrack('only')], 0);
-    await flush();
-    audio.advanceTo(200);
-
-    audio.finish();
-
-    expect(player.currentTrack?.id).toBe('only');
-    expect(audio.currentTime).toBe(0);
-    expect(audio.paused).toBe(false);
-  });
-});
-
-describe('再生位置と音量', () => {
-  it('シーク位置は0から曲の長さの範囲に収める', () => {
-    controller.seek(500);
-    expect(audio.currentTime).toBe(200);
-
-    controller.seekBy(-1000);
-    expect(audio.currentTime).toBe(0);
-    expect(player.currentTime).toBe(0);
-  });
-
-  it('シークバーをドラッグ中は再生位置の通知で表示を上書きしない', () => {
-    controller.setScrubbing(true);
-    player.currentTime = 50;
-    audio.advanceTo(10);
-    expect(player.currentTime).toBe(50);
-
-    controller.setScrubbing(false);
-    audio.advanceTo(11);
-    expect(player.currentTime).toBe(11);
-  });
-
-  it('音量の変更をaudio要素に反映する', () => {
-    player.volume = 0.25;
-    flushSync();
-    expect(audio.volume).toBe(0.25);
-  });
-
-  it('破棄した後はaudio要素のイベントを処理しない', () => {
-    controller.destroy();
-    audio.advanceTo(30);
-    expect(player.currentTime).toBe(0);
-  });
-
-  it('破棄すると再生を止め、読み込んだファイルを手放す', async () => {
-    playTrackFromQueue(tracks, 0);
-    await flush();
-    expect(audio.paused).toBe(false);
-
-    controller.destroy();
-
-    // 再生エンジンを切り替えた後に、audio要素の音が鳴り続けない
-    expect(audio.paused).toBe(true);
-    expect(audio.src).toBe('');
-    expect(player.currentTrack).toBeNull();
-  });
-
-  it('破棄した後は再生状態の変化に反応しない', async () => {
-    controller.destroy();
-
-    playTrackFromQueue(tracks, 0);
-    player.volume = 0.5;
-    await flush();
-
-    expect(commands.getTrackFilePath).not.toHaveBeenCalled();
-    expect(audio.volume).toBe(1);
-  });
-});
-
-describe('mediaErrorMessage', () => {
-  it('再生の中断は表示しない', () => {
-    expect(mediaErrorMessage({ code: 1 })).toBeNull();
-  });
-
-  it('エラーコードごとのメッセージを返す', () => {
-    expect(mediaErrorMessage({ code: 3 })).toContain('デコードエラー');
-    expect(mediaErrorMessage({ code: 4 })).toContain('未対応のフォーマット');
-    expect(mediaErrorMessage(null)).toBe('再生エラーが発生しました');
-  });
-});
-
-describe('音量の正規化', () => {
-  /** dBを倍率にする */
-  const fromDb = (db: number) => 10 ** (db / 20);
-
-  function taggedTrack(id: string, trackGain: number, albumGain: number): Track {
-    return {
-      id,
-      title: id,
-      replayGain: { trackGain, trackPeak: null, albumGain, albumPeak: null }
-    } as Track;
-  }
-
-  /** デッキに最後に設定された補正の倍率 */
-  const lastGain = (deck: number) =>
-    vi
-      .mocked(setNormalizationGain)
-      .mock.calls.filter(([index]) => index === deck)
-      .at(-1)?.[1];
-
-  it('再生中の曲と設定から補正量を決め、曲や設定が変わると追随する', () => {
-    // 既定のコントローラーの代わりに、設定を変えられるコントローラーを使う
-    controller.destroy();
-    let mode = $state<VolumeNormalization>('track');
-    controller = createController({ normalizationMode: () => mode });
-
-    playTrackFromQueue([taggedTrack('a', -6, -9), taggedTrack('b', -3, -9)], 0);
-    flushSync();
-    expect(lastGain(0)).toBeCloseTo(fromDb(-6));
-
-    mode = 'album';
-    flushSync();
-    expect(lastGain(0)).toBeCloseTo(fromDb(-9));
-
-    mode = 'track';
-    controller.next();
-    flushSync();
-    expect(lastGain(0)).toBeCloseTo(fromDb(-3));
-
-    mode = 'off';
-    flushSync();
-    expect(lastGain(0)).toBe(1);
-  });
-
-  it('設定を渡さない場合・曲がない場合は補正しない', () => {
-    playTrackFromQueue([taggedTrack('a', -6, -9)], 0);
-    flushSync();
-    expect(lastGain(0)).toBe(1);
-
-    resetPlayer();
-    flushSync();
-    expect(lastGain(0)).toBe(1);
-  });
-
-  it('先読みした曲の補正量は、先読みしたデッキに設定する', async () => {
-    controller.destroy();
-    controller = createController({ normalizationMode: () => 'track', gapless: () => true });
-
-    playTrackFromQueue([taggedTrack('a', -6, -9), taggedTrack('b', -3, -9)], 0);
-    await flush();
-
-    expect(lastGain(0)).toBeCloseTo(fromDb(-6));
-    expect(lastGain(1)).toBeCloseTo(fromDb(-3));
+    await controller.togglePlayPause();
+    expect(commands.playbackPlay).toHaveBeenCalledTimes(2);
+    // 同じ曲の再生し直しのため、再生回数はもう一度記録しない
+    expect(incrementPlayCount).toHaveBeenCalledTimes(1);
   });
 });
 
 describe('ギャップレス再生', () => {
   beforeEach(() => {
-    controller.destroy();
-    controller = createController({ gapless: () => true });
-    flushSync();
+    gapless = true;
   });
 
-  /** パスを取得したトラックのID */
-  const requestedPaths = () => vi.mocked(commands.getTrackFilePath).mock.calls.map(([id]) => id);
-
-  it('再生中に次の曲をもう一方のデッキへ先読みする（再生はしない）', async () => {
+  it('再生を始めたら、次の曲をエンジンに伝える', async () => {
     playTrackFromQueue(tracks, 0);
     await flush();
 
-    expect(audio.src).toContain('t1.mp3');
-    expect(standbyAudio.src).toContain('t2.mp3');
-    expect(standbyAudio.preload).toBe('auto');
-    expect(standbyAudio.paused).toBe(true);
-    expect(commands.setCurrentTrack).toHaveBeenCalledTimes(1);
+    expect(commands.playbackSetNext).toHaveBeenCalledTimes(1);
+    expect(lastNext()[0]).toBe('t2');
+    expect(lastNext()[1]).toBeGreaterThan(lastPlayToken());
   });
 
-  it('曲が終わると、先読みしたデッキで読み込み直さずに続けて再生する', async () => {
+  it('無効の間は、次の曲を伝えない', async () => {
+    gapless = false;
+
     playTrackFromQueue(tracks, 0);
     await flush();
 
-    audio.finish();
+    expect(commands.playbackSetNext).not.toHaveBeenCalled();
+  });
+
+  it('クロスフェードが有効なら、ギャップレス再生が無効でも次の曲を伝える', async () => {
+    gapless = false;
+    crossfadeSeconds = 5;
+
+    playTrackFromQueue(tracks, 0);
     await flush();
 
+    // 重ねる処理はエンジンが行う。重なりが鳴り始めた時点の通知で、キューを進める
+    expect(lastNext()[0]).toBe('t2');
+    emit({ type: 'advanced', token: lastNext()[1], duration: 240 });
+    await flush();
     expect(player.currentTrack?.id).toBe('t2');
-    expect(standbyAudio.paused).toBe(false);
-    expect(player.isPlaying).toBe(true);
-    expect(commands.setCurrentTrack).toHaveBeenLastCalledWith('t2');
-    expect(incrementPlayCount).toHaveBeenLastCalledWith('t2');
-    // t2は読み込み直さず、空いたデッキに次のt3を先読みする
-    expect(requestedPaths()).toEqual(['t1', 't2', 't3']);
-    expect(audio.src).toContain('t3.mp3');
-    expect(audio.paused).toBe(true);
+    expect(commands.playbackPlay).toHaveBeenCalledTimes(1);
   });
 
-  it('曲の終わりの直前に次の曲を再生し始め、前の曲は最後まで鳴らす', async () => {
+  it('キューの次の曲が変わったら伝え直し、次の曲がなくなったら取り消す', async () => {
     playTrackFromQueue(tracks, 0);
     await flush();
-    vi.useFakeTimers();
-
-    audio.advanceTo(199.5);
-    expect(standbyAudio.paused).toBe(true);
-    audio.pause.mockClear();
-
-    // タイマーが発火するまでに再生が進む
-    audio.currentTime = 199.98;
-    await vi.advanceTimersByTimeAsync(500);
-
-    expect(standbyAudio.paused).toBe(false);
-    expect(player.currentTrack?.id).toBe('t2');
-    expect(player.currentTime).toBe(0);
-    // 前の曲は止めない
-    expect(audio.pause).not.toHaveBeenCalled();
-    expect(audio.paused).toBe(false);
-
-    // 前の曲の再生位置の通知は、表示に反映しない
-    audio.advanceTo(199.99);
-    expect(player.currentTime).toBe(0);
-
-    // 前の曲が鳴り終わってから、次の曲を先読みする
-    expect(audio.src).toContain('t1.mp3');
-    audio.finish();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(audio.src).toContain('t3.mp3');
-    expect(player.currentTrack?.id).toBe('t2');
-  });
-
-  it('タイマーが早く発火しても、曲の終わりの直前まで待ち直す', async () => {
-    playTrackFromQueue(tracks, 0);
-    await flush();
-    vi.useFakeTimers();
-
-    audio.advanceTo(199.5);
-    // 再生が遅れていて、まだ0.3秒残っている
-    audio.currentTime = 199.7;
-    await vi.advanceTimersByTimeAsync(500);
-    expect(standbyAudio.paused).toBe(true);
-
-    audio.currentTime = 199.99;
-    await vi.advanceTimersByTimeAsync(300);
-    expect(standbyAudio.paused).toBe(false);
-  });
-
-  it('一時停止・シークしたら、用意した切り替えを取りやめる', async () => {
-    playTrackFromQueue(tracks, 0);
-    await flush();
-    vi.useFakeTimers();
-
-    audio.advanceTo(199.5);
-    await controller.togglePlayPause();
-    audio.currentTime = 199.99;
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(standbyAudio.paused).toBe(true);
-    expect(player.currentTrack?.id).toBe('t1');
-
-    await controller.togglePlayPause();
-    audio.advanceTo(199.5);
-    controller.seek(10);
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(standbyAudio.paused).toBe(true);
-  });
-
-  it('「次へ」で先読みした曲へ移るときは、読み込み直さずに切り替える', async () => {
-    playTrackFromQueue(tracks, 0);
-    await flush();
-    audio.advanceTo(42);
-
-    controller.next();
-    await flush();
-
-    expect(player.currentTrack?.id).toBe('t2');
-    expect(standbyAudio.paused).toBe(false);
-    expect(standbyAudio.currentTime).toBe(0);
-    expect(audio.paused).toBe(true);
-    expect(requestedPaths()).toEqual(['t1', 't2', 't3']);
-  });
-
-  it('キューの操作で次の曲が変わったら、先読みし直す', async () => {
-    playTrackFromQueue(tracks, 0);
-    await flush();
-    expect(standbyAudio.src).toContain('t2.mp3');
 
     removeFromQueue('t2');
-    await flush();
-    expect(standbyAudio.src).toContain('t3.mp3');
+    flushSync();
+    expect(lastNext()[0]).toBe('t3');
 
-    // 1曲リピートでは再生中の曲を先読みする
-    toggleRepeat(); // all
-    toggleRepeat(); // one
-    await flush();
-    expect(standbyAudio.src).toContain('t1.mp3');
+    removeFromQueue('t3');
+    flushSync();
+    expect(lastNext()[0]).toBeNull();
+    expect(commands.playbackSetNext).toHaveBeenCalledTimes(3);
 
-    vi.mocked(incrementPlayCount).mockClear();
-    audio.advanceTo(200);
-    audio.finish();
-    await flush();
-    expect(player.currentTrack?.id).toBe('t1');
-    expect(standbyAudio.paused).toBe(false);
-    // 同じ曲の繰り返しは、従来（頭からの再生し直し）と同じく再生回数に数えない
-    expect(incrementPlayCount).not.toHaveBeenCalled();
-    // 鳴り終わったデッキは、次の繰り返しに備えて頭へ戻しておく
-    expect(audio.currentTime).toBe(0);
+    // 次の曲が変わらない変更では、伝え直さない
+    player.volume = 0.5;
+    flushSync();
+    expect(commands.playbackSetNext).toHaveBeenCalledTimes(3);
   });
 
-  it('次の曲がなければ先読みを解除する', async () => {
-    playTrackFromQueue(tracks, 1);
-    await flush();
-    expect(standbyAudio.src).toContain('t3.mp3');
-
-    controller.next();
-    await flush();
-    // t3を再生中で、次はない
-    expect(player.currentTrack?.id).toBe('t3');
-    expect(audio.removeAttribute).toHaveBeenCalledWith('src');
-    expect(audio.load).toHaveBeenCalled();
-  });
-
-  it('先読みに失敗したら、曲の終わりで通常どおり読み込む', async () => {
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-    vi.mocked(commands.getTrackFilePath)
-      .mockImplementationOnce(async () => '/music/t1.mp3')
-      .mockRejectedValueOnce(new Error('先読みの失敗'));
-
+  it('エンジンが次の曲へ切り替わったら、再生し直さずにキューを進める', async () => {
     playTrackFromQueue(tracks, 0);
     await flush();
-    expect(standbyAudio.src).toBe('');
+    const [, nextToken] = lastNext();
 
-    audio.finish();
+    emit({ type: 'advanced', token: nextToken, duration: 240 });
     await flush();
+
     expect(player.currentTrack?.id).toBe('t2');
-    expect(audio.src).toContain('t2.mp3');
-    expect(audio.paused).toBe(false);
+    expect(player.currentTime).toBe(0);
+    expect(player.duration).toBe(240);
+    expect(player.isPlaying).toBe(true);
+    expect(commands.playbackPlay).toHaveBeenCalledTimes(1);
+    expect(commands.setCurrentTrack).toHaveBeenLastCalledWith('t2');
+    expect(incrementPlayCount).toHaveBeenLastCalledWith('t2');
+    // その次の曲を伝える
+    expect(lastNext()[0]).toBe('t3');
+
+    // 切り替わった後の曲の通知を受け付ける
+    emit({ type: 'position', token: nextToken, position: 3 });
+    expect(player.currentTime).toBe(3);
   });
 
-  it('先読みしたファイルを再生できない場合は、エラーを表示せずに通常の読み込みへ戻す', async () => {
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  it('1曲リピートでは同じ曲へ切り替わり、再生回数は記録しない', async () => {
     playTrackFromQueue(tracks, 0);
     await flush();
+    toggleRepeat();
+    toggleRepeat(); // 1曲リピート
+    flushSync();
+    expect(lastNext()[0]).toBe('t1');
 
-    standbyAudio.error = { code: 4 };
-    standbyAudio.dispatchEvent(new Event('error'));
+    emit({ type: 'advanced', token: lastNext()[1], duration: 200 });
+    await flush();
+
+    expect(player.currentTrack?.id).toBe('t1');
+    expect(commands.playbackPlay).toHaveBeenCalledTimes(1);
+    expect(incrementPlayCount).toHaveBeenCalledTimes(1);
+    // 次も同じ曲を伝える（番号は新しくする）
+    expect(lastNext()[0]).toBe('t1');
+    expect(commands.playbackSetNext).toHaveBeenCalledTimes(3);
+  });
+
+  it('伝えた後でキューが変わり、エンジンが古い曲へ切り替わった場合は、キューの次の曲を再生する', async () => {
+    playTrackFromQueue(tracks, 0);
+    await flush();
+    const [, staleToken] = lastNext();
+    // 次の曲（t2）を伝えた後でキューから外したが、エンジンはすでにt2を続けて再生し始めていた
+    removeFromQueue('t2');
+    flushSync();
+
+    emit({ type: 'advanced', token: staleToken, duration: 200 });
+    await flush();
+
+    expect(player.currentTrack?.id).toBe('t3');
+    expect(commands.playbackPlay).toHaveBeenLastCalledWith('t3', expect.any(Number));
+  });
+
+  it('次の曲の準備に失敗しても、曲の終わりで通常の手順で再生する', async () => {
+    vi.mocked(commands.playbackSetNext).mockRejectedValueOnce({
+      code: 'NOT_FOUND',
+      message: 'ファイルが見つかりません'
+    });
+    playTrackFromQueue(tracks, 0);
+    await flush();
     expect(notifications.items).toHaveLength(0);
 
-    audio.finish();
+    emit({ type: 'ended', token: lastPlayToken() });
     await flush();
-    expect(audio.src).toContain('t2.mp3');
-  });
 
-  it('ギャップレス再生を無効にすると先読みを解除し、曲の終わりで読み込む', async () => {
-    controller.destroy();
-    let gapless = $state(true);
-    controller = createController({ gapless: () => gapless });
-
-    playTrackFromQueue(tracks, 0);
-    await flush();
-    expect(standbyAudio.src).toContain('t2.mp3');
-
-    gapless = false;
-    flushSync();
-    expect(standbyAudio.src).toBe('');
-    expect(standbyAudio.load).toHaveBeenCalled();
-
-    audio.finish();
-    await flush();
-    expect(audio.src).toContain('t2.mp3');
+    expect(commands.playbackPlay).toHaveBeenLastCalledWith('t2', expect.any(Number));
   });
 });
 
-describe('クロスフェード', () => {
-  beforeEach(() => {
-    controller.destroy();
-    // ギャップレス再生が無効でも、クロスフェードのために先読みする
-    controller = createController({ crossfadeSeconds: () => 5 });
+describe('イコライザ', () => {
+  it('保存してある設定をエンジンへ送り、変更のたびに送り直す', () => {
+    // 作成した時点で送る（無効・すべて0dB）
+    expect(commands.playbackSetEqualizer).toHaveBeenLastCalledWith(
+      false,
+      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    );
+
+    equalizer.setEnabled(true);
+    equalizer.setBandGain(1000, 6);
     flushSync();
+    expect(commands.playbackSetEqualizer).toHaveBeenLastCalledWith(
+      true,
+      [0, 0, 0, 0, 0, 6, 0, 0, 0, 0]
+    );
+
+    // プリセットは、31Hzから16kHzの順に送る
+    equalizer.applyPreset('bass_boost');
+    flushSync();
+    expect(commands.playbackSetEqualizer).toHaveBeenLastCalledWith(
+      true,
+      [8, 6, 4, 2, 0, 0, 0, 0, 0, 0]
+    );
   });
 
-  /** t1を再生し、クロスフェードを始める時点（終わりの5秒前）まで進める */
-  async function playUntilCrossfade() {
-    playTrackFromQueue(tracks, 0);
+  it('破棄した後は、変更を送らない', () => {
+    controller.destroy();
+    vi.clearAllMocks();
+
+    equalizer.setBandGain(31, -3);
+    flushSync();
+
+    expect(commands.playbackSetEqualizer).not.toHaveBeenCalled();
+  });
+});
+
+describe('操作', () => {
+  beforeEach(async () => {
+    playTrackFromQueue(tracks, 1);
     await flush();
-    expect(standbyAudio.src).toContain('t2.mp3');
-    vi.useFakeTimers();
-
-    audio.advanceTo(194);
-    audio.currentTime = 195;
-    await vi.advanceTimersByTimeAsync(1000);
-  }
-
-  it('設定した秒数前に次の曲を再生し始め、2つのデッキの音量を交差させる', async () => {
-    await playUntilCrossfade();
-
-    expect(player.currentTrack?.id).toBe('t2');
-    expect(standbyAudio.paused).toBe(false);
-    expect(fadeDeck).toHaveBeenCalledWith(0, 'out', 5);
-    expect(fadeDeck).toHaveBeenCalledWith(1, 'in', 5);
-    // 前の曲はフェードアウトしながら最後まで鳴らす
-    expect(audio.paused).toBe(false);
-
-    // 前の曲が鳴り終わったら、空いたデッキに次の曲を先読みする
-    audio.finish();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(audio.src).toContain('t3.mp3');
   });
 
-  it('シークなどで切り替えが遅れた場合は、前の曲の残りより長くフェードしない', async () => {
-    playTrackFromQueue(tracks, 0);
-    await flush();
-    vi.useFakeTimers();
+  it('再生/一時停止を切り替える', async () => {
+    await controller.togglePlayPause();
+    expect(commands.playbackPause).toHaveBeenCalledTimes(1);
+    expect(player.isPlaying).toBe(false);
 
-    // 終わりの2秒前へシークした（設定は5秒）
-    controller.seek(198);
-    audio.advanceTo(198);
-    await vi.advanceTimersByTimeAsync(0);
-
-    expect(player.currentTrack?.id).toBe('t2');
-    expect(fadeDeck).toHaveBeenCalledWith(0, 'out', 2);
-    expect(fadeDeck).toHaveBeenCalledWith(1, 'in', 2);
+    await controller.togglePlayPause();
+    expect(commands.playbackResume).toHaveBeenCalledTimes(1);
+    expect(player.isPlaying).toBe(true);
   });
 
-  it('フェードアウト中の前の曲がエラーになったら、前の曲を止めて再生中の曲を通常の音量にする', async () => {
-    await playUntilCrossfade();
-    vi.mocked(setDeckFade).mockClear();
-
-    audio.error = { code: 3 };
-    audio.dispatchEvent(new Event('error'));
-
-    expect(audio.paused).toBe(true);
-    expect(setDeckFade).toHaveBeenCalledWith(1, 1);
-    expect(standbyAudio.paused).toBe(false);
-    // 再生中の曲には影響がないため、エラーは表示しない
-    expect(notifications.items).toHaveLength(0);
-  });
-
-  it('短い曲では、曲の長さの半分を超えて重ねない', async () => {
-    standbyAudio.duration = 6;
-    playTrackFromQueue(tracks, 0);
-    await flush();
-    vi.useFakeTimers();
-
-    audio.advanceTo(196.5);
-    audio.currentTime = 197;
-    await vi.advanceTimersByTimeAsync(500);
-
-    expect(fadeDeck).toHaveBeenCalledWith(1, 'in', 3);
-  });
-
-  it('クロスフェードの途中で一時停止すると、前の曲を止めて再生中の曲を通常の音量に戻す', async () => {
-    await playUntilCrossfade();
-    vi.mocked(setDeckFade).mockClear();
+  it('トラックがなければ、再生/一時停止は何もしない', async () => {
+    resetPlayer();
+    flushSync();
+    vi.clearAllMocks();
 
     await controller.togglePlayPause();
 
-    expect(audio.paused).toBe(true);
-    expect(standbyAudio.paused).toBe(true);
-    expect(setDeckFade).toHaveBeenCalledWith(1, 1);
-    expect(player.currentTrack?.id).toBe('t2');
-
-    // 再開しても前の曲は鳴らさない
-    await controller.togglePlayPause();
-    expect(standbyAudio.paused).toBe(false);
-    expect(audio.paused).toBe(true);
+    expect(commands.playbackPlay).not.toHaveBeenCalled();
+    expect(commands.playbackResume).not.toHaveBeenCalled();
   });
 
-  it('クロスフェードの途中で別の曲を選ぶと、前の曲を止める', async () => {
-    await playUntilCrossfade();
+  it('曲の長さの範囲でシークする', () => {
+    controller.seek(50);
+    expect(commands.playbackSeek).toHaveBeenLastCalledWith(50);
+    expect(player.currentTime).toBe(50);
 
-    playTrackFromQueue(tracks, 2);
-    await vi.advanceTimersByTimeAsync(0);
+    controller.seek(999);
+    expect(commands.playbackSeek).toHaveBeenLastCalledWith(200);
 
-    expect(player.currentTrack?.id).toBe('t3');
-    expect(audio.paused).toBe(true);
-    expect(standbyAudio.src).toContain('t3.mp3');
-    expect(setDeckFade).toHaveBeenLastCalledWith(1, 1);
+    controller.seekBy(-500);
+    expect(commands.playbackSeek).toHaveBeenLastCalledWith(0);
   });
 
-  it('「次へ」の操作ではクロスフェードしない', async () => {
-    playTrackFromQueue(tracks, 0);
-    await flush();
-    audio.advanceTo(42);
+  it('シークバーのドラッグ中は、間隔を空けて最後の位置だけをエンジンへ送る', () => {
+    vi.useFakeTimers();
+    controller.setScrubbing(true);
 
+    controller.seek(10);
+    controller.seek(20);
+    controller.seek(30);
+    // 表示はすぐに追従する
+    expect(player.currentTime).toBe(30);
+    expect(commands.playbackSeek).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(100);
+    expect(commands.playbackSeek).toHaveBeenCalledTimes(1);
+    expect(commands.playbackSeek).toHaveBeenLastCalledWith(30);
+
+    // ドラッグを終えたら、残りをすぐに送る
+    controller.seek(40);
+    controller.setScrubbing(false);
+    expect(commands.playbackSeek).toHaveBeenCalledTimes(2);
+    expect(commands.playbackSeek).toHaveBeenLastCalledWith(40);
+
+    vi.advanceTimersByTime(1000);
+    expect(commands.playbackSeek).toHaveBeenCalledTimes(2);
+  });
+
+  it('次へ・前へでキューを移動する', async () => {
     controller.next();
     await flush();
+    expect(commands.playbackPlay).toHaveBeenLastCalledWith('t3', expect.any(Number));
+
+    controller.previous();
+    await flush();
+    expect(commands.playbackPlay).toHaveBeenLastCalledWith('t2', expect.any(Number));
+  });
+
+  it('3秒以上再生している場合の「前へ」は、再生中のトラックの頭へ戻る', async () => {
+    emit({ type: 'position', token: lastPlayToken(), position: 30 });
+    await controller.togglePlayPause(); // 一時停止中でも、頭から再生を始める
+
+    controller.previous();
 
     expect(player.currentTrack?.id).toBe('t2');
-    expect(fadeDeck).not.toHaveBeenCalled();
-    expect(setDeckFade).toHaveBeenLastCalledWith(1, 1);
-    expect(audio.paused).toBe(true);
+    expect(commands.playbackPlay).toHaveBeenCalledTimes(1);
+    expect(commands.playbackSeek).toHaveBeenLastCalledWith(0);
+    expect(commands.playbackResume).toHaveBeenCalledTimes(1);
+    expect(player.currentTime).toBe(0);
+    expect(player.isPlaying).toBe(true);
   });
 
-  it('1曲リピートではクロスフェードせず、切れ目なく繰り返す', async () => {
-    player.repeatMode = 'one';
-    playTrackFromQueue(tracks, 0);
+  it('破棄すると再生を止め、通知の購読を解除して、再生状態をリセットする', async () => {
+    controller.destroy();
     await flush();
-    vi.useFakeTimers();
 
-    // クロスフェードの時点（5秒前）では切り替えない
-    audio.advanceTo(194);
-    audio.currentTime = 195;
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(standbyAudio.paused).toBe(true);
+    expect(commands.playbackStop).toHaveBeenCalled();
+    expect(listeners.size).toBe(0);
+    expect(player.currentTrack).toBeNull();
 
-    audio.advanceTo(199.5);
-    audio.currentTime = 199.99;
-    await vi.advanceTimersByTimeAsync(500);
-    expect(standbyAudio.paused).toBe(false);
-    expect(fadeDeck).not.toHaveBeenCalled();
-    expect(setDeckFade).toHaveBeenLastCalledWith(1, 1);
-  });
-
-  it('Web Audioの経路を作れていない場合は、クロスフェードせずに切り替える', async () => {
-    vi.mocked(isEqualizerInitialized).mockReturnValue(false);
-    playTrackFromQueue(tracks, 0);
-    await flush();
-    vi.useFakeTimers();
-
-    audio.advanceTo(194);
-    audio.currentTime = 195;
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(standbyAudio.paused).toBe(true);
-
-    audio.finish();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(standbyAudio.paused).toBe(false);
-    expect(fadeDeck).not.toHaveBeenCalled();
+    // 破棄した後に届いた通知は無視する
+    player.currentTime = 0;
+    emit({ type: 'position', token: lastPlayToken(), position: 5 });
+    expect(player.currentTime).toBe(0);
   });
 });
