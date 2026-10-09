@@ -118,6 +118,7 @@ export const ja = {
     importM3u: 'プレイリストの読み込み',
     importLibraryXml: 'ライブラリのXMLの取り込み',
     exportM3u: 'プレイリストの書き出し',
+    fetchAlbumArtInfo: 'アルバムアートの情報の取得',
     loadSettings: '設定の読み込み',
     loadOutputDevices: '出力デバイスの一覧の取得',
     saveSettings: '設定の保存',
@@ -317,6 +318,35 @@ export const ja = {
       `書き出し完了（書き込み: ${written}曲、変更なし: ${unchanged}曲、ファイルなし: ${skipped}曲、エラー: ${errors}曲）`
   },
 
+  albumArtDialog: {
+    title: 'アルバムアート',
+    /** アルバムの絵をクリックして開く操作の名前 */
+    open: 'アルバムアートを変更',
+    target: (count: number) => `${count}曲が対象`,
+    /** 複数の曲を選んだ時の、表示している画像の説明 */
+    previewOf: (title: string) => `表示しているのは「${title}」の画像です`,
+    embedded: 'ファイルに埋め込まれた画像',
+    folder: (fileName: string) => `フォルダの画像（${fileName}）`,
+    none: '画像はありません',
+    dimensions: (width: number, height: number) => `${width} × ${height}`,
+    folderHint:
+      'フォルダの画像は、埋め込みの画像がない曲に表示されます。画像を埋め込むと、そちらが優先されます。',
+    choose: '画像を選んで埋め込む...',
+    remove: '埋め込みの画像を取り除く',
+    writesToFile: '画像（JPEG・PNG、10MBまで）は、縮小せずにそのまま音楽ファイルへ埋め込まれます。',
+    confirmRemove: (count: number) =>
+      `${count}曲のファイルから、埋め込みの画像をすべて取り除きます。元に戻せません。`,
+    confirmRemoveAction: '取り除く',
+    working: 'ファイルに書き込み中...',
+    missingExcluded: (count: number) => `ファイルが見つからない${count}曲は、対象になりません`,
+    allMissing: 'ファイルが見つからないため、変更できません',
+    embeddedResult: (count: number) => `${count}曲に画像を埋め込みました`,
+    removedResult: (count: number) => `${count}曲から画像を取り除きました`,
+    nothingToRemove: '埋め込みの画像がある曲はありませんでした',
+    partiallyFailed: (failed: number) => `${failed}曲はファイルに書き込めませんでした`,
+    allFailed: (reason: string) => `ファイルに書き込めませんでした: ${reason}`
+  },
+
   libraryXmlImport: {
     title: 'ほかのプレーヤーからの取り込み',
     description:
@@ -341,6 +371,7 @@ export const ja = {
   contextMenu: {
     selectedCount: (count: number) => `${count}曲を選択中`,
     editMetadata: 'メタデータを編集',
+    albumArt: 'アルバムアート...',
     showInFolder: 'ファイルの場所を開く',
     deleteEllipsis: '削除...',
     addToPlaylist: 'プレイリストに追加',

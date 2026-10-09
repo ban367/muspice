@@ -150,6 +150,19 @@ impl MediaControls {
         Ok(())
     }
 
+    /// OSへ渡している画像が、これらの曲のものなら捨てる（アルバムアートを書き換えた場合）
+    ///
+    /// 次に状態を伝える時（再生・一時停止・シークなど）に、画像を読み直す。
+    pub fn forget_artwork(&self, track_ids: &[String]) {
+        let mut artwork = self.lock_artwork();
+        if artwork
+            .as_ref()
+            .is_some_and(|cached| track_ids.contains(&cached.track_id))
+        {
+            *artwork = None;
+        }
+    }
+
     /// 再生している曲がないことを、OSへ伝える
     fn clear(&self) {
         let mut artwork = self.lock_artwork();

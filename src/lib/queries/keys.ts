@@ -63,6 +63,12 @@ export const queryKeys = {
     track: (trackId: string) => ['trackTags', trackId] as const
   },
 
+  /** 曲のアルバムアートの情報（どこの画像か・種類・大きさ。ファイルから読む） */
+  albumArtInfo: {
+    all: ['albumArtInfo'] as const,
+    track: (trackId: string) => ['albumArtInfo', trackId] as const
+  },
+
   /** プレイリスト一覧 */
   playlists: ['playlists'] as const,
 

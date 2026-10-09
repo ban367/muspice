@@ -1,7 +1,8 @@
 <!--
   @component GroupContextMenu
   アルバム/アーティスト/ジャンルグループ用コンテキストメニュー。
-  すべて再生、シャッフル再生、キュー操作、プレイリスト追加のアクションを提供する。
+  すべて再生、シャッフル再生、キュー操作、プレイリスト追加のアクションを提供する
+  （アルバムでは、アルバムアートの変更も）。
   一覧の項目は曲を持たないため、メニューを開いた時にそのグループの曲を取得する。
 -->
 <script lang="ts">
@@ -14,6 +15,7 @@
     playTrackFromQueue,
     playShuffled
   } from '#lib/stores/player.svelte.js';
+  import { albumArtDialog } from '#lib/stores/albumArt.svelte.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   type Group = AlbumSummary | ArtistSummary | GenreSummary;
@@ -80,6 +82,14 @@
    */
   function handleAddToQueue() {
     addToQueue(allTracks);
+    onClose();
+  }
+
+  /**
+   * アルバムの全曲のアルバムアートの画面を開く
+   */
+  function handleAlbumArt() {
+    albumArtDialog.open(allTracks);
     onClose();
   }
 </script>
@@ -160,6 +170,28 @@
   <div class="menu-divider"></div>
 
   <PlaylistSubmenu tracks={allTracks} {onClose} />
+
+  {#if type === 'album'}
+    <div class="menu-divider"></div>
+
+    <button class="menu-item" onclick={handleAlbumArt} role="menuitem" disabled={isEmpty}>
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="menu-icon"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+        />
+      </svg>
+      <span>{m.contextMenu.albumArt}</span>
+    </button>
+  {/if}
 </BaseContextMenu>
 
 <style>

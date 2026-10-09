@@ -15,6 +15,12 @@ const HOUR_MS = 60 * 60 * 1000;
 /** アルバムアートを持たないアルバム（プレースホルダ表示の確認用） */
 export const ALBUMS_WITHOUT_ART: ReadonlySet<string> = new Set(['Quiet Rooms']);
 
+/**
+ * 埋め込みの画像がなく、フォルダの画像（`cover.jpg`）を表示するアルバム
+ * （アルバムアートの画面の確認用）
+ */
+export const ALBUMS_WITH_FOLDER_ART: ReadonlySet<string> = new Set(['Midnight Circuit']);
+
 /** モック用のUUID形式ID（バックエンドの`validate_track_id`を通る形式） */
 export function mockTrackId(index: number): string {
   return `a1000000-0000-4000-8000-${index.toString(16).padStart(12, '0')}`;

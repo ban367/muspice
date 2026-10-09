@@ -70,6 +70,32 @@ pub struct M3uExportResult {
     pub track_count: u32,
 }
 
+/// 表示しているアルバムアートが、どこの画像か
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub enum AlbumArtSource {
+    /// 音楽ファイルに埋め込まれた画像
+    Embedded,
+    /// 音楽ファイルと同じフォルダの画像（`cover.jpg`など）
+    Folder,
+}
+
+/// トラックのアルバムアートの情報（アルバムアートの画面に出す）
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AlbumArtInfo {
+    pub source: AlbumArtSource,
+    /// フォルダの画像のファイル名（埋め込みの画像ではNone）
+    pub file_name: Option<String>,
+    /// MIMEタイプ（image/jpeg, image/png など）
+    pub mime_type: String,
+    /// 画像データのサイズ（バイト）
+    pub size: u32,
+    /// 幅・高さ（ピクセル。読めない場合はNone）
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+}
+
 /// ライブラリのXML（iTunes形式）を取り込んだ結果
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase")]

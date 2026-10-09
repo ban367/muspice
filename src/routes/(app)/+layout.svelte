@@ -9,8 +9,10 @@
   import RightSidebar from '#lib/components/RightSidebar.svelte';
   import ImportDialog from '#lib/components/ImportDialog.svelte';
   import AboutDialog from '#lib/components/AboutDialog.svelte';
+  import AlbumArtDialog from '#lib/components/AlbumArtDialog.svelte';
   import SettingsSync from '#lib/components/SettingsSync.svelte';
   import { ui, saveLastPage } from '#lib/stores/ui.svelte.js';
+  import { albumArtDialog } from '#lib/stores/albumArt.svelte.js';
   import { invalidateAllTrackQueries } from '#lib/queries/tracks.js';
   import { restoreTheme } from '#lib/utils/theme.js';
   import { restoreLanguage } from '#lib/i18n/i18n.svelte.js';
@@ -143,6 +145,13 @@
 
   <!-- Aboutダイアログ -->
   <AboutDialog />
+
+  <!-- アルバムアートの画面（メニューなどから開く。開くたびに作り直す） -->
+  {#if albumArtDialog.tracks}
+    {#key albumArtDialog.tracks}
+      <AlbumArtDialog tracks={albumArtDialog.tracks} onClose={() => albumArtDialog.close()} />
+    {/key}
+  {/if}
 
   <!-- テキスト入力ダイアログ（promptText()で表示） -->
   <TextPromptDialog />

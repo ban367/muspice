@@ -64,7 +64,7 @@ pub async fn get_track_tags(track_id: String, state: State<'_, AppState>) -> App
 /// 書き込み後のファイルのサイズと更新日時を取得する
 ///
 /// データベースに記録し、再スキャンで自分の書き込みを変更として検出しないようにする。
-fn file_state_of(path: &Path) -> (Option<i64>, Option<i64>) {
+pub(super) fn file_state_of(path: &Path) -> (Option<i64>, Option<i64>) {
     (
         crate::library::get_file_size(path).ok(),
         crate::library::get_file_modified_at(path),

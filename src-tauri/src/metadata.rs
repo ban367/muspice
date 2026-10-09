@@ -2,7 +2,7 @@ use crate::error::{AppError, AppResult};
 use crate::models::{Metadata, ReplayGain};
 use lofty::config::{ParseOptions, WriteOptions};
 use lofty::file::{AudioFile, TaggedFile, TaggedFileExt};
-use lofty::picture::PictureType;
+use lofty::picture::{MimeType, Picture, PictureInformation, PictureType};
 use lofty::probe::Probe;
 use lofty::tag::items::popularimeter::{Popularimeter, StarRating};
 use lofty::tag::{Accessor, ItemKey, Tag, TagType};
@@ -364,40 +364,129 @@ pub fn extract_all_file_info(file_path: &Path) -> AppResult<FileInfo> {
     })
 }
 
+/// 埋め込める画像・フォルダの画像として読む画像のサイズの上限
+pub const MAX_ALBUM_ART_BYTES: u64 = 10 * 1024 * 1024;
+
+/// 画像データの先頭から、画像の種類（MIMEタイプ）を判定する（JPEG・PNGだけを扱う）
+///
+/// 拡張子ではなく中身で判定する（拡張子と中身が違うファイルを、誤った種類で埋め込まないため）。
+pub fn sniff_image_mime_type(data: &[u8]) -> Option<&'static str> {
+    const PNG_SIGNATURE: &[u8] = &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+    if data.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        Some("image/jpeg")
+    } else if data.starts_with(PNG_SIGNATURE) {
+        Some("image/png")
+    } else {
+        None
+    }
+}
+
+/// 画像の幅と高さ（ピクセル）を読む（JPEG・PNG。読めない場合はNone）
+pub fn image_dimensions(data: &[u8]) -> Option<(u32, u32)> {
+    let information = match sniff_image_mime_type(data)? {
+        "image/png" => PictureInformation::from_png(data).ok()?,
+        _ => PictureInformation::from_jpeg(data).ok()?,
+    };
+    (information.width > 0 && information.height > 0)
+        .then_some((information.width, information.height))
+}
+
+/// アルバムアートとして表示する画像の位置（フロントカバー。なければ最初の画像）
+fn displayed_picture_index(pictures: &[Picture]) -> Option<usize> {
+    pictures
+        .iter()
+        .position(|p| p.pic_type() == PictureType::CoverFront)
+        .or(if pictures.is_empty() { None } else { Some(0) })
+}
+
 /// 音楽ファイルからアルバムアートを抽出
 pub fn extract_album_art(file_path: &Path) -> AppResult<Option<EmbeddedPicture>> {
-    let tagged_file = read_tagged_file(file_path, ParseOptions::new())?;
+    let tagged_file = read_tagged_file(file_path, ParseOptions::new().read_properties(false))?;
 
     let tag = tagged_file
         .primary_tag()
         .or_else(|| tagged_file.first_tag());
 
-    if let Some(tag) = tag {
-        // フロントカバーを優先的に探す
+    Ok(tag.and_then(|tag| {
         let pictures = tag.pictures();
-
-        // フロントカバーを探す
-        let front_cover = pictures
-            .iter()
-            .find(|p| p.pic_type() == PictureType::CoverFront);
-
-        // フロントカバーがなければ最初の画像を使用
-        let picture = front_cover.or_else(|| pictures.first());
-
-        if let Some(pic) = picture {
-            let mime_type = pic
+        let picture = &pictures[displayed_picture_index(pictures)?];
+        Some(EmbeddedPicture {
+            data: picture.data().to_vec(),
+            mime_type: picture
                 .mime_type()
                 .map(|m| m.to_string())
-                .unwrap_or_else(|| "image/jpeg".to_string());
+                .unwrap_or_else(|| "image/jpeg".to_string()),
+        })
+    }))
+}
 
-            return Ok(Some(EmbeddedPicture {
-                data: pic.data().to_vec(),
-                mime_type,
-            }));
+/// 画像を、アルバムアートとして音楽ファイルに埋め込む
+///
+/// 表示している画像（フロントカバー。なければ最初の画像）を置き換える。裏ジャケットなどの
+/// ほかの画像は残す。画像は、JPEG・PNGで、`MAX_ALBUM_ART_BYTES`以下であること。
+pub fn set_file_album_art(file_path: &Path, picture: &EmbeddedPicture) -> AppResult<()> {
+    let mime_type = validate_album_art(&picture.data)?;
+
+    modify_file_tag(file_path, |tag| {
+        let new_picture = Picture::unchecked(picture.data.clone())
+            .pic_type(PictureType::CoverFront)
+            .mime_type(mime_type)
+            .build();
+        match displayed_picture_index(tag.pictures()) {
+            Some(index) => tag.set_picture(index, new_picture),
+            None => tag.push_picture(new_picture),
+        }
+    })
+}
+
+/// 埋め込む画像を検証し、タグに書く画像の種類を返す
+fn validate_album_art(data: &[u8]) -> AppResult<MimeType> {
+    if data.len() as u64 > MAX_ALBUM_ART_BYTES {
+        return Err(AppError::Validation(format!(
+            "画像が大きすぎます（{}MBまで）",
+            MAX_ALBUM_ART_BYTES / (1024 * 1024)
+        )));
+    }
+    match sniff_image_mime_type(data) {
+        Some("image/png") => Ok(MimeType::Png),
+        Some(_) => Ok(MimeType::Jpeg),
+        None => Err(AppError::Validation(
+            "JPEGまたはPNGの画像を選んでください".to_string(),
+        )),
+    }
+}
+
+/// 音楽ファイルから、埋め込みの画像をすべて取り除く
+///
+/// 表示している画像だけを取り除くと、残った画像（裏ジャケットなど）がアルバムアートとして
+/// 表示されるため、すべてのタグのすべての画像を取り除く。
+///
+/// @returns 画像を取り除いたか（埋め込みの画像がないファイルは書き換えず、falseを返す）
+pub fn remove_file_album_art(file_path: &Path) -> AppResult<bool> {
+    let mut tagged_file = read_tagged_file(file_path, ParseOptions::new())?;
+
+    let tag_types: Vec<TagType> = tagged_file
+        .tags()
+        .iter()
+        .filter(|tag| !tag.pictures().is_empty())
+        .map(|tag| tag.tag_type())
+        .collect();
+    if tag_types.is_empty() {
+        return Ok(false);
+    }
+
+    for tag_type in tag_types {
+        if let Some(tag) = tagged_file.tag_mut(tag_type) {
+            while !tag.pictures().is_empty() {
+                tag.remove_picture(0);
+            }
         }
     }
 
-    Ok(None)
+    tagged_file
+        .save_to_path(file_path, WriteOptions::default())
+        .map_err(|e| AppError::Metadata(format!("メタデータの保存に失敗しました: {}", e)))?;
+    Ok(true)
 }
 
 /// メタデータをバリデーション
@@ -662,8 +751,64 @@ pub fn validate_rating(rating: i32) -> AppResult<()> {
     Ok(())
 }
 
+/// テスト用の小さな画像・音楽ファイル（アルバムアートのテストで共有する）
+#[cfg(test)]
+pub(crate) mod test_images {
+    use std::path::Path;
+
+    /// 幅と高さだけを持つPNG（ヘッダーのみ。表示はできない）
+    pub fn png(width: u32, height: u32) -> Vec<u8> {
+        let mut bytes = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+        bytes.extend_from_slice(&13u32.to_be_bytes());
+        bytes.extend_from_slice(b"IHDR");
+        bytes.extend_from_slice(&width.to_be_bytes());
+        bytes.extend_from_slice(&height.to_be_bytes());
+        // ビット深度8・RGB・圧縮/フィルター/インターレースなし + CRC（検証されない）
+        bytes.extend_from_slice(&[8, 2, 0, 0, 0, 0, 0, 0, 0]);
+        bytes
+    }
+
+    /// 幅と高さだけを持つJPEG（ヘッダーのみ。表示はできない）
+    pub fn jpeg(width: u16, height: u16) -> Vec<u8> {
+        // SOI + APP0（JFIF）
+        let mut bytes = vec![0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10];
+        bytes.extend_from_slice(b"JFIF\0");
+        bytes.extend_from_slice(&[1, 1, 0, 0, 1, 0, 1, 0, 0]);
+        // SOF0（精度8ビット・高さ・幅・3成分）
+        bytes.extend_from_slice(&[0xFF, 0xC0, 0x00, 0x11, 8]);
+        bytes.extend_from_slice(&height.to_be_bytes());
+        bytes.extend_from_slice(&width.to_be_bytes());
+        bytes.extend_from_slice(&[3, 1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1]);
+        // EOI
+        bytes.extend_from_slice(&[0xFF, 0xD9]);
+        bytes
+    }
+
+    /// 最小のWAVファイル（無音・タグなし）を作る
+    pub fn write_wav(path: &Path) {
+        let samples: u32 = 16;
+        let data_len = samples * 2;
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"RIFF");
+        bytes.extend_from_slice(&(36 + data_len).to_le_bytes());
+        bytes.extend_from_slice(b"WAVEfmt ");
+        bytes.extend_from_slice(&16u32.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes()); // PCM
+        bytes.extend_from_slice(&1u16.to_le_bytes()); // モノラル
+        bytes.extend_from_slice(&8000u32.to_le_bytes());
+        bytes.extend_from_slice(&16000u32.to_le_bytes());
+        bytes.extend_from_slice(&2u16.to_le_bytes());
+        bytes.extend_from_slice(&16u16.to_le_bytes());
+        bytes.extend_from_slice(b"data");
+        bytes.extend_from_slice(&data_len.to_le_bytes());
+        bytes.extend(std::iter::repeat_n(0u8, data_len as usize));
+        std::fs::write(path, bytes).unwrap();
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::test_images::{jpeg, png};
     use super::*;
 
     #[test]
@@ -974,6 +1119,133 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    fn embedded(data: Vec<u8>, mime_type: &str) -> EmbeddedPicture {
+        EmbeddedPicture {
+            data,
+            mime_type: mime_type.to_string(),
+        }
+    }
+
+    #[test]
+    fn test_sniff_image_mime_type_and_dimensions() {
+        assert_eq!(sniff_image_mime_type(&jpeg(4, 3)), Some("image/jpeg"));
+        assert_eq!(sniff_image_mime_type(&png(4, 3)), Some("image/png"));
+        assert_eq!(sniff_image_mime_type(b"GIF89a"), None);
+        assert_eq!(sniff_image_mime_type(b""), None);
+
+        assert_eq!(image_dimensions(&jpeg(1200, 900)), Some((1200, 900)));
+        assert_eq!(image_dimensions(&png(500, 700)), Some((500, 700)));
+        // 途中で切れた画像・画像ではないデータは、大きさを読めない
+        assert_eq!(image_dimensions(&jpeg(1200, 900)[..8]), None);
+        assert_eq!(image_dimensions(&png(500, 700)[..12]), None);
+        assert_eq!(image_dimensions(b"not an image"), None);
+    }
+
+    /// 画像を埋め込み・置き換え・取り除きでき、ほかのタグは変わらない（タグの種類ごと）
+    #[test]
+    fn test_album_art_round_trips_in_every_tag_type() {
+        let dir = std::env::temp_dir().join(format!("muspice-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        for file in tag_test_files(&dir) {
+            let name = file.file_name().unwrap().to_string_lossy().into_owned();
+            let metadata = full_metadata();
+            update_file_metadata(&file, &metadata, true).unwrap();
+            assert!(extract_album_art(&file).unwrap().is_none(), "{name}");
+            // 埋め込みの画像がないファイルは、書き換えない
+            assert!(!remove_file_album_art(&file).unwrap(), "{name}");
+
+            // 埋め込む
+            set_file_album_art(&file, &embedded(jpeg(600, 600), "image/jpeg")).unwrap();
+            let art = extract_album_art(&file).unwrap().unwrap();
+            assert_eq!(art.data, jpeg(600, 600), "{name}");
+            assert_eq!(art.mime_type, "image/jpeg", "{name}");
+
+            // 置き換える（画像は増えない。種類は中身で決める）
+            set_file_album_art(&file, &embedded(png(800, 800), "image/jpeg")).unwrap();
+            let art = extract_album_art(&file).unwrap().unwrap();
+            assert_eq!(art.data, png(800, 800), "{name}");
+            assert_eq!(art.mime_type, "image/png", "{name}");
+            let tagged = read_tagged_file(&file, ParseOptions::new()).unwrap();
+            assert_eq!(tagged.primary_tag().unwrap().pictures().len(), 1, "{name}");
+
+            // ほかのタグは変わらない
+            assert_eq!(read_file_tags(&file).unwrap(), metadata, "{name}");
+
+            // 取り除く
+            assert!(remove_file_album_art(&file).unwrap(), "{name}");
+            assert!(extract_album_art(&file).unwrap().is_none(), "{name}");
+            assert_eq!(read_file_tags(&file).unwrap(), metadata, "{name}");
+        }
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// 埋め込む時は表示している画像（フロントカバー）だけを置き換え、取り除く時はすべて取り除く
+    #[test]
+    fn test_album_art_replaces_front_cover_and_removes_all_pictures() {
+        let dir = std::env::temp_dir().join(format!("muspice-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.wav");
+        write_test_wav(&file);
+
+        // 裏ジャケット・フロントカバーの順に入っているファイル
+        modify_file_tag(&file, |tag| {
+            for (pic_type, data) in [
+                (PictureType::CoverBack, jpeg(10, 10)),
+                (PictureType::CoverFront, jpeg(20, 20)),
+            ] {
+                tag.push_picture(
+                    Picture::unchecked(data)
+                        .pic_type(pic_type)
+                        .mime_type(MimeType::Jpeg)
+                        .build(),
+                );
+            }
+        })
+        .unwrap();
+        assert_eq!(
+            extract_album_art(&file).unwrap().unwrap().data,
+            jpeg(20, 20)
+        );
+
+        set_file_album_art(&file, &embedded(png(30, 30), "image/png")).unwrap();
+        assert_eq!(extract_album_art(&file).unwrap().unwrap().data, png(30, 30));
+        let tagged = read_tagged_file(&file, ParseOptions::new()).unwrap();
+        let pictures = tagged.primary_tag().unwrap().pictures();
+        assert_eq!(pictures.len(), 2);
+        assert_eq!(pictures[0].pic_type(), PictureType::CoverBack);
+        assert_eq!(pictures[0].data(), jpeg(10, 10));
+
+        assert!(remove_file_album_art(&file).unwrap());
+        let tagged = read_tagged_file(&file, ParseOptions::new()).unwrap();
+        assert!(tagged.tags().iter().all(|tag| tag.pictures().is_empty()));
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn test_set_file_album_art_rejects_unusable_images() {
+        let dir = std::env::temp_dir().join(format!("muspice-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.wav");
+        write_test_wav(&file);
+        let before = std::fs::read(&file).unwrap();
+
+        // JPEGでもPNGでもないデータ
+        let error = set_file_album_art(&file, &embedded(b"GIF89a....".to_vec(), "image/gif"));
+        assert!(matches!(error, Err(AppError::Validation(_))));
+        // 大きすぎる画像
+        let mut huge = jpeg(10, 10);
+        huge.resize(MAX_ALBUM_ART_BYTES as usize + 1, 0);
+        let error = set_file_album_art(&file, &embedded(huge, "image/jpeg"));
+        assert!(matches!(error, Err(AppError::Validation(_))));
+
+        // ファイルは書き換えない
+        assert_eq!(std::fs::read(&file).unwrap(), before);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     #[test]
     fn test_read_file_tags_of_a_file_without_tags_or_missing() {
         let dir = std::env::temp_dir().join(format!("muspice-test-{}", uuid::Uuid::new_v4()));
@@ -1008,25 +1280,48 @@ mod tests {
         }
     }
 
+    /// 実際のファイルへ画像を埋め込み・取り除き、ほかのツール（ffprobeなど）で読めるか確かめる
+    /// （手動で実行する）
+    ///
+    /// `TAG_TEST_DIR=<音楽ファイルを置いたフォルダ> ART_TEST_IMAGE=<画像> ART_TEST_STEP=<embed|remove>
+    /// cargo test write_album_art_to_real_files -- --ignored`
+    #[test]
+    #[ignore = "実際のファイルが必要（TAG_TEST_DIRで指定する。ファイルを書き換える）"]
+    fn write_album_art_to_real_files() {
+        let dir = std::env::var("TAG_TEST_DIR").expect("TAG_TEST_DIRを指定する");
+        let step = std::env::var("ART_TEST_STEP").unwrap_or_else(|_| "embed".to_string());
+        let image = (step == "embed").then(|| {
+            let path = std::env::var("ART_TEST_IMAGE").expect("ART_TEST_IMAGEを指定する");
+            let data = std::fs::read(path).unwrap();
+            let mime_type = sniff_image_mime_type(&data).expect("JPEGかPNGを指定する");
+            embedded(data, mime_type)
+        });
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let file = entry.unwrap().path();
+            if !file.is_file() {
+                continue;
+            }
+            let before = read_file_tags(&file).unwrap();
+            match &image {
+                Some(image) => {
+                    set_file_album_art(&file, image).unwrap();
+                    let art = extract_album_art(&file).unwrap().unwrap();
+                    assert_eq!(art.data, image.data, "{}", file.display());
+                    assert_eq!(art.mime_type, image.mime_type, "{}", file.display());
+                }
+                None => {
+                    remove_file_album_art(&file).unwrap();
+                    assert!(extract_album_art(&file).unwrap().is_none());
+                }
+            }
+            assert_eq!(read_file_tags(&file).unwrap(), before, "{}", file.display());
+            println!("{}: {step}", file.display());
+        }
+    }
+
     /// 最小のWAVファイル（無音）を作る
     fn write_test_wav(path: &Path) {
-        let samples: u32 = 16;
-        let data_len = samples * 2;
-        let mut bytes = Vec::new();
-        bytes.extend_from_slice(b"RIFF");
-        bytes.extend_from_slice(&(36 + data_len).to_le_bytes());
-        bytes.extend_from_slice(b"WAVEfmt ");
-        bytes.extend_from_slice(&16u32.to_le_bytes());
-        bytes.extend_from_slice(&1u16.to_le_bytes()); // PCM
-        bytes.extend_from_slice(&1u16.to_le_bytes()); // モノラル
-        bytes.extend_from_slice(&8000u32.to_le_bytes());
-        bytes.extend_from_slice(&16000u32.to_le_bytes());
-        bytes.extend_from_slice(&2u16.to_le_bytes());
-        bytes.extend_from_slice(&16u16.to_le_bytes());
-        bytes.extend_from_slice(b"data");
-        bytes.extend_from_slice(&data_len.to_le_bytes());
-        bytes.extend(std::iter::repeat_n(0u8, data_len as usize));
-        std::fs::write(path, bytes).unwrap();
+        super::test_images::write_wav(path);
     }
 
     /// その形式の既定のタグがなく、別の種類のタグだけがあるファイルに評価を書いても、
