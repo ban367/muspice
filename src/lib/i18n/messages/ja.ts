@@ -59,7 +59,11 @@ export const ja = {
     discNumber: 'ディスク番号',
     discTotal: 'ディスクの総数',
     bpm: 'BPM',
-    compilation: 'コンピレーション'
+    compilation: 'コンピレーション',
+    titleSort: 'タイトルの読み',
+    artistSort: 'アーティストの読み',
+    albumArtistSort: 'アルバムアーティストの読み',
+    albumSort: 'アルバムの読み'
   },
 
   format: {
@@ -262,7 +266,7 @@ export const ja = {
     editTitle: 'メタデータを編集',
     bulkEditTitle: (count: number) => `${count}件のトラックを一括編集`,
     bulkHint:
-      '空欄のフィールドは変更されません。変更したいフィールドのみ入力してください。タイトル・トラック番号・歌詞は、1曲ずつ編集します。',
+      '空欄のフィールドは変更されません。変更したいフィールドのみ入力してください。タイトル（とその読み）・トラック番号・歌詞は、1曲ずつ編集します。',
     bulkPartiallyFailed: (updated: number, failed: number) =>
       `${updated}曲を更新しました（${failed}曲はファイルに書き込めませんでした）`,
     bulkAllFailed: (reason: string) => `ファイルに書き込めませんでした: ${reason}`,
@@ -274,7 +278,12 @@ export const ja = {
     yearPlaceholder: '例: 2023',
     writesToFile: '変更は音楽ファイルのタグに書き込まれます',
     /** タブ */
-    tabs: { tags: 'タグ', lyrics: '歌詞', file: 'ファイル情報' },
+    tabs: { tags: 'タグ', sort: '並び順', lyrics: '歌詞', file: 'ファイル情報' },
+    /** 並び順に使う値（読み）の説明 */
+    sortHint:
+      '並び順に使う読み（ひらがな・カタカナなど）を入力します。空の項目は、表示用の名前で並べます。',
+    /** 一括編集での、並び順の項目の見出し */
+    sortHeading: '並び順（読み）',
     track: 'トラック',
     disc: 'ディスク',
     /** トラック番号・ディスク番号の、番号と総数の間の文字（例: 3 / 12） */

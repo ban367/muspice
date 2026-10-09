@@ -10,7 +10,7 @@ use rusqlite::{Connection, Row};
 
 use crate::models::{
     AlbumGroup, AlbumSummary, ArtistSummary, GenreSummary, Metadata, PlayHistoryEntry, ReplayGain,
-    Track,
+    SortTags, Track,
 };
 use crate::track_relink::MissingTrack;
 
@@ -25,7 +25,25 @@ const UNKNOWN_ALBUM: &str = "不明なアルバム";
 /// `db.rs`のインデックス（`idx_tracks_album_artist`）と同じ式にする。
 const ALBUM_ARTIST: &str = "COALESCE(album_artist, artist)";
 
-/// SELECTで使用するトラックカラム列挙（27列）
+/// まとめたアーティスト（`ALBUM_ARTIST`）の、並び順に使う値
+///
+/// アルバムアーティストでまとめた曲は、アルバムアーティストの読み（なければ、同じ名前の
+/// 曲のアーティストの読み）。曲のアーティストでまとめた曲は、曲のアーティストの読み。
+const ALBUM_ARTIST_SORT: &str = "CASE
+        WHEN album_artist IS NULL THEN artist_sort
+        ELSE COALESCE(album_artist_sort, CASE WHEN artist = album_artist THEN artist_sort END)
+    END";
+
+/// 一覧を並べる時に比べる文字列（並び順に使う値。なければ名前）
+///
+/// 大文字と小文字・全角と半角・ひらがなとカタカナの違いを無視する。画面に出す一覧は、
+/// フロントエンドが言語に合わせた比較（`Intl.Collator`）で並べ直す（ADR-036）。ここでの並びは、
+/// 代表の曲を選ぶ時と、フロントエンドを通さない利用のためのもの。
+fn sort_key(sort_name: Option<&str>, name: &str) -> String {
+    crate::search_text::normalize(sort_name.unwrap_or(name))
+}
+
+/// SELECTで使用するトラックカラム列挙
 ///
 /// is_favorite, rating, play_countはCOALESCEでNULL安全にしている。
 pub const TRACK_COLUMNS: &str = "id, file_path, file_name, title, artist, album, genre, year,
@@ -33,7 +51,8 @@ pub const TRACK_COLUMNS: &str = "id, file_path, file_name, title, artist, album,
     COALESCE(is_favorite, 0), COALESCE(rating, 0), COALESCE(play_count, 0), last_played_at,
     created_at, updated_at,
     replay_gain_track_gain, replay_gain_track_peak, replay_gain_album_gain, replay_gain_album_peak,
-    album_artist, missing_since IS NOT NULL, COALESCE(skip_count, 0)";
+    album_artist, missing_since IS NOT NULL, COALESCE(skip_count, 0),
+    title_sort, artist_sort, album_sort, album_artist_sort";
 
 /// SQLiteの行からTrack構造体にマッピングする
 ///
@@ -68,6 +87,12 @@ pub fn map_track_row(row: &Row) -> rusqlite::Result<Track> {
             track_peak: row.get(22)?,
             album_gain: row.get(23)?,
             album_peak: row.get(24)?,
+        },
+        sort_tags: SortTags {
+            title: row.get(28)?,
+            artist: row.get(29)?,
+            album: row.get(30)?,
+            album_artist: row.get(31)?,
         },
         is_missing: row.get(26)?,
     })
@@ -423,7 +448,7 @@ fn query_rows<T>(
 /// 代表の曲は、アルバムの最初の曲（`ALBUM_TRACK_ORDER`の順）。
 pub fn find_album_summaries(conn: &Connection) -> AppResult<Vec<AlbumSummary>> {
     let sql = format!(
-        "SELECT album, {ALBUM_ARTIST} AS group_artist, id, duration FROM tracks
+        "SELECT album, {ALBUM_ARTIST} AS group_artist, id, duration, album_sort FROM tracks
          WHERE album IS NOT NULL
          ORDER BY album, group_artist, {ALBUM_TRACK_ORDER}"
     );
@@ -433,19 +458,25 @@ pub fn find_album_summaries(conn: &Connection) -> AppResult<Vec<AlbumSummary>> {
             row.get::<_, Option<String>>(1)?,
             row.get::<_, String>(2)?,
             row.get::<_, Option<i32>>(3)?,
+            row.get::<_, Option<String>>(4)?,
         ))
     })?;
 
     // 同じアルバムの曲は続けて並ぶため、前の行と比べてまとめる
     let mut albums: Vec<AlbumSummary> = Vec::new();
-    for (album, artist, id, duration) in rows {
+    for (album, artist, id, duration, album_sort) in rows {
         match albums.last_mut() {
             Some(last) if last.name == album && last.artist == artist => {
                 last.track_count += 1;
                 last.total_duration += duration.unwrap_or(0);
+                // 並び順に使う値は、アルバムの曲のうち最初に見つかったものを使う
+                if last.sort_name.is_none() {
+                    last.sort_name = album_sort;
+                }
             }
             _ => albums.push(AlbumSummary {
                 name: album,
+                sort_name: album_sort,
                 artist,
                 track_count: 1,
                 total_duration: duration.unwrap_or(0),
@@ -454,8 +485,8 @@ pub fn find_album_summaries(conn: &Connection) -> AppResult<Vec<AlbumSummary>> {
         }
     }
 
-    // 同じ名前のアルバムは、アーティスト名の順（上のSQLの順）のまま並べる
-    albums.sort_by_cached_key(|a| a.name.to_lowercase());
+    // 同じ並びのアルバムは、アーティスト名の順（上のSQLの順）のまま並べる
+    albums.sort_by_cached_key(|a| sort_key(a.sort_name.as_deref(), &a.name));
     Ok(albums)
 }
 
@@ -483,7 +514,8 @@ pub fn find_album_tracks(
 /// 代表の曲は、詳細で最初に表示するアルバム（名前の順で最初）の最初の曲。
 pub fn find_artist_summaries(conn: &Connection) -> AppResult<Vec<ArtistSummary>> {
     let sql = format!(
-        "SELECT {ALBUM_ARTIST} AS group_artist, COALESCE(album, ?1) AS album_name, id, duration
+        "SELECT {ALBUM_ARTIST} AS group_artist, COALESCE(album, ?1) AS album_name, id, duration,
+                {ALBUM_ARTIST_SORT}, album_sort
          FROM tracks
          WHERE {ALBUM_ARTIST} IS NOT NULL
          ORDER BY group_artist, album_name, {ALBUM_TRACK_ORDER}"
@@ -494,18 +526,21 @@ pub fn find_artist_summaries(conn: &Connection) -> AppResult<Vec<ArtistSummary>>
             row.get::<_, String>(1)?,
             row.get::<_, String>(2)?,
             row.get::<_, Option<i32>>(3)?,
+            row.get::<_, Option<String>>(4)?,
+            row.get::<_, Option<String>>(5)?,
         ))
     })?;
 
     // 同じアーティスト・同じアルバムの曲は続けて並ぶため、前の行と比べてまとめる
     let mut artists: Vec<ArtistSummary> = Vec::new();
     let mut current_album: Option<String> = None;
-    // 代表の曲を選んだアルバムの名前（小文字。詳細のアルバムの並びと同じ比較にする）
+    // 代表の曲を選んだアルバムの並び（詳細のアルバムの並びと同じ比較にする）
     let mut representative_album: Option<String> = None;
-    for (artist, album, id, duration) in rows {
+    for (artist, album, id, duration, artist_sort, album_sort) in rows {
         if artists.last().is_none_or(|last| last.name != artist) {
             artists.push(ArtistSummary {
                 name: artist,
+                sort_name: None,
                 album_count: 0,
                 track_count: 0,
                 total_duration: 0,
@@ -520,9 +555,13 @@ pub fn find_artist_summaries(conn: &Connection) -> AppResult<Vec<ArtistSummary>>
 
         summary.track_count += 1;
         summary.total_duration += duration.unwrap_or(0);
+        // 並び順に使う値は、アーティストの曲のうち最初に見つかったものを使う
+        if summary.sort_name.is_none() {
+            summary.sort_name = artist_sort;
+        }
         if current_album.as_deref() != Some(album.as_str()) {
             summary.album_count += 1;
-            let album_key = album.to_lowercase();
+            let album_key = sort_key(album_sort.as_deref(), &album);
             if representative_album
                 .as_ref()
                 .is_none_or(|best| album_key < *best)
@@ -534,7 +573,7 @@ pub fn find_artist_summaries(conn: &Connection) -> AppResult<Vec<ArtistSummary>>
         }
     }
 
-    artists.sort_by_cached_key(|a| a.name.to_lowercase());
+    artists.sort_by_cached_key(|a| sort_key(a.sort_name.as_deref(), &a.name));
     Ok(artists)
 }
 
@@ -559,10 +598,14 @@ pub fn find_artist_albums(conn: &Connection, artist: &str) -> AppResult<Vec<Albu
             Some(last) if last.name == album_name => {
                 last.track_count += 1;
                 last.total_duration += track.duration.unwrap_or(0);
+                if last.sort_name.is_none() {
+                    last.sort_name = track.sort_tags.album.clone();
+                }
                 last.tracks.push(track);
             }
             _ => albums.push(AlbumGroup {
                 name: album_name.to_string(),
+                sort_name: track.sort_tags.album.clone(),
                 artist: Some(artist.to_string()),
                 track_count: 1,
                 total_duration: track.duration.unwrap_or(0),
@@ -572,7 +615,7 @@ pub fn find_artist_albums(conn: &Connection, artist: &str) -> AppResult<Vec<Albu
         }
     }
 
-    albums.sort_by_cached_key(|a| a.name.to_lowercase());
+    albums.sort_by_cached_key(|a| sort_key(a.sort_name.as_deref(), &a.name));
     Ok(albums)
 }
 
@@ -651,8 +694,12 @@ pub fn update_track_metadata(
                 album_artist = ?6,
                 track_number = ?7,
                 disc_number = ?8,
-                updated_at = ?9
-             WHERE id = ?10",
+                title_sort = ?9,
+                artist_sort = ?10,
+                album_sort = ?11,
+                album_artist_sort = ?12,
+                updated_at = ?13
+             WHERE id = ?14",
             rusqlite::params![
                 metadata.title,
                 metadata.artist,
@@ -662,6 +709,10 @@ pub fn update_track_metadata(
                 metadata.album_artist,
                 metadata.track_number,
                 metadata.disc_number,
+                metadata.title_sort,
+                metadata.artist_sort,
+                metadata.album_sort,
+                metadata.album_artist_sort,
                 now,
                 track_id,
             ],
@@ -738,6 +789,18 @@ pub fn update_track_metadata_partial(
     if metadata.disc_number.is_some() {
         update_parts.push("disc_number = ?");
         params.push(Box::new(metadata.disc_number));
+    }
+
+    for (column, value) in [
+        ("title_sort = ?", &metadata.title_sort),
+        ("artist_sort = ?", &metadata.artist_sort),
+        ("album_sort = ?", &metadata.album_sort),
+        ("album_artist_sort = ?", &metadata.album_artist_sort),
+    ] {
+        if value.is_some() {
+            update_parts.push(column);
+            params.push(Box::new(value.clone()));
+        }
     }
 
     if update_parts.is_empty() {
@@ -842,8 +905,10 @@ pub fn insert_track(
             track_number, disc_number, duration, file_size, format, bitrate, sample_rate, created_at, updated_at,
             file_modified_at,
             replay_gain_track_gain, replay_gain_track_peak, replay_gain_album_gain, replay_gain_album_peak,
-            rating, album_artist, album_artist_read
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, 1)",
+            rating, album_artist, album_artist_read,
+            title_sort, artist_sort, album_sort, album_artist_sort, sort_tags_read
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, 1,
+                  ?25, ?26, ?27, ?28, 1)",
         rusqlite::params![
             track.id,
             track.file_path,
@@ -869,6 +934,10 @@ pub fn insert_track(
             track.replay_gain.album_peak,
             track.rating,
             track.album_artist,
+            track.sort_tags.title,
+            track.sort_tags.artist,
+            track.sort_tags.album,
+            track.sort_tags.album_artist,
         ],
     )
     .map_err(|e| AppError::Database(format!("トラックの保存に失敗しました: {}", e)))?;
@@ -894,6 +963,8 @@ pub fn update_track_by_file_path(
             replay_gain_track_gain = ?17, replay_gain_track_peak = ?18,
             replay_gain_album_gain = ?19, replay_gain_album_peak = ?20,
             rating = ?21, album_artist = ?22, album_artist_read = 1,
+            title_sort = ?23, artist_sort = ?24, album_sort = ?25, album_artist_sort = ?26,
+            sort_tags_read = 1,
             missing_since = NULL
         WHERE file_path = ?1",
         rusqlite::params![
@@ -919,6 +990,10 @@ pub fn update_track_by_file_path(
             track.replay_gain.album_peak,
             track.rating,
             track.album_artist,
+            track.sort_tags.title,
+            track.sort_tags.artist,
+            track.sort_tags.album,
+            track.sort_tags.album_artist,
         ],
     )
     .map_err(|e| AppError::Database(format!("トラックの更新に失敗しました: {}", e)))?;
@@ -933,35 +1008,41 @@ pub fn update_track_by_file_path(
     Ok(())
 }
 
-/// アルバムアーティストをまだファイルから読んでいないトラック
+/// 後から追加した項目（アルバムアーティスト・ソート用のタグ）を、まだファイルから読んでいないトラック
 #[derive(Debug, PartialEq)]
-pub struct UnreadAlbumArtistTrack {
+pub struct UnreadTagsTrack {
     /// `tracks`のrowid（続きから取得するために使う）
     pub rowid: i64,
     pub id: String,
     pub file_path: String,
+    /// アルバムアーティストを読んでいない
+    pub needs_album_artist: bool,
+    /// ソート用のタグを読んでいない
+    pub needs_sort_tags: bool,
 }
 
-/// アルバムアーティストをまだファイルから読んでいないトラックを、rowidの順に取得する
+/// 後から追加した項目をまだファイルから読んでいないトラックを、rowidの順に取得する
 ///
 /// `after_rowid`より後のトラックを、`limit`件まで返す（読めなかったトラックは未読のまま残るため、
 /// 件数ではなくrowidで続きを指定する）。
-pub fn find_tracks_with_unread_album_artist(
+pub fn find_tracks_with_unread_tags(
     conn: &Connection,
     after_rowid: i64,
     limit: u32,
-) -> AppResult<Vec<UnreadAlbumArtistTrack>> {
+) -> AppResult<Vec<UnreadTagsTrack>> {
     query_rows(
         conn,
-        "SELECT rowid, id, file_path FROM tracks
-         WHERE album_artist_read = 0 AND rowid > ?1
+        "SELECT rowid, id, file_path, album_artist_read = 0, sort_tags_read = 0 FROM tracks
+         WHERE (album_artist_read = 0 OR sort_tags_read = 0) AND rowid > ?1
          ORDER BY rowid LIMIT ?2",
         &[&after_rowid, &limit],
         |row| {
-            Ok(UnreadAlbumArtistTrack {
+            Ok(UnreadTagsTrack {
                 rowid: row.get(0)?,
                 id: row.get(1)?,
                 file_path: row.get(2)?,
+                needs_album_artist: row.get(3)?,
+                needs_sort_tags: row.get(4)?,
             })
         },
     )
@@ -980,6 +1061,30 @@ pub fn set_track_album_artist(
         rusqlite::params![track_id, album_artist],
     )
     .map_err(|e| AppError::Database(format!("アルバムアーティストの記録に失敗しました: {}", e)))?;
+    Ok(())
+}
+
+/// ファイルから読んだソート用のタグを記録し、読み込み済みにする
+///
+/// ほかの項目（更新日時を含む）は変えない。
+pub fn set_track_sort_tags(
+    conn: &Connection,
+    track_id: &str,
+    sort_tags: &SortTags,
+) -> AppResult<()> {
+    conn.execute(
+        "UPDATE tracks SET title_sort = ?2, artist_sort = ?3, album_sort = ?4,
+                           album_artist_sort = ?5, sort_tags_read = 1
+         WHERE id = ?1",
+        rusqlite::params![
+            track_id,
+            sort_tags.title,
+            sort_tags.artist,
+            sort_tags.album,
+            sort_tags.album_artist
+        ],
+    )
+    .map_err(|e| AppError::Database(format!("ソート用のタグの記録に失敗しました: {}", e)))?;
     Ok(())
 }
 
@@ -2237,6 +2342,7 @@ mod tests {
             [
                 AlbumSummary {
                     name: "Alpha".to_string(),
+                    sort_name: None,
                     artist: Some("アーティストY".to_string()),
                     track_count: 1,
                     total_duration: 0,
@@ -2245,6 +2351,7 @@ mod tests {
                 // 代表の曲は、アルバムの最初の曲（トラック番号の順）
                 AlbumSummary {
                     name: "beta".to_string(),
+                    sort_name: None,
                     artist: Some("アーティストY".to_string()),
                     track_count: 2,
                     total_duration: 150,
@@ -2287,6 +2394,199 @@ mod tests {
             rusqlite::params![id, album_artist],
         )
         .unwrap();
+    }
+
+    /// 並び順に使う値（ソート用のタグ）を、テストのトラックに入れる（値のない項目はNone）
+    fn set_sort_tags(
+        conn: &Connection,
+        id: &str,
+        artist_sort: Option<&str>,
+        album_sort: Option<&str>,
+        album_artist_sort: Option<&str>,
+    ) {
+        conn.execute(
+            "UPDATE tracks SET artist_sort = ?2, album_sort = ?3, album_artist_sort = ?4
+             WHERE id = ?1",
+            rusqlite::params![id, artist_sort, album_sort, album_artist_sort],
+        )
+        .unwrap();
+    }
+
+    /// アーティストの一覧は、読み（ソート用のタグ）があれば読みの順に並べる
+    #[test]
+    fn test_artist_summaries_are_ordered_by_sort_tags() {
+        let conn = setup_test_db();
+        // 文字コードの順では 中 < 椎 だが、読みの順では しいな < なかじま
+        insert_test_track(&conn, "n1", "曲", "中島みゆき", "アルバムN", "ポップ");
+        set_sort_tags(&conn, "n1", Some("なかじまみゆき"), None, None);
+        insert_test_track(&conn, "s1", "曲", "椎名林檎", "アルバムS", "ポップ");
+        set_sort_tags(&conn, "s1", Some("シイナリンゴ"), None, None);
+        // 読みのないアーティストは、名前で並べる
+        insert_test_track(&conn, "a1", "曲", "aiko", "アルバムA", "ポップ");
+        insert_test_track(&conn, "z1", "曲", "ZARD", "アルバムZ", "ポップ");
+
+        let artists = find_artist_summaries(&conn).unwrap();
+
+        let names: Vec<(&str, Option<&str>)> = artists
+            .iter()
+            .map(|a| (a.name.as_str(), a.sort_name.as_deref()))
+            .collect();
+        // ひらがなとカタカナ・大文字と小文字は区別しない
+        assert_eq!(
+            names,
+            [
+                ("aiko", None),
+                ("ZARD", None),
+                ("椎名林檎", Some("シイナリンゴ")),
+                ("中島みゆき", Some("なかじまみゆき")),
+            ]
+        );
+    }
+
+    /// まとめたアーティストの読みは、アルバムアーティストの読み（なければ、同じ名前の曲のアーティストの読み）
+    #[test]
+    fn test_artist_sort_name_follows_the_grouping_artist() {
+        let conn = setup_test_db();
+        // アルバムアーティストでまとめた曲: 曲のアーティストの読みは使わない
+        insert_test_track(&conn, "c1", "曲1", "椎名林檎", "Compilation", "ポップ");
+        set_album_artist(&conn, "c1", "Various Artists");
+        set_sort_tags(&conn, "c1", Some("しいなりんご"), None, None);
+        // アルバムアーティストの読みがある
+        insert_test_track(&conn, "t1", "曲", "東京事変", "教育", "ロック");
+        set_album_artist(&conn, "t1", "東京事変");
+        set_sort_tags(
+            &conn,
+            "t1",
+            Some("曲のアーティストの読み"),
+            None,
+            Some("とうきょうじへん"),
+        );
+        // アルバムアーティストの読みがなく、曲のアーティストが同じ名前
+        insert_test_track(&conn, "u1", "曲", "宇多田ヒカル", "First Love", "ポップ");
+        set_album_artist(&conn, "u1", "宇多田ヒカル");
+        set_sort_tags(&conn, "u1", Some("うただひかる"), None, None);
+        // 読みは、アーティストの曲のうち最初に見つかったものを使う
+        insert_test_track(&conn, "k1", "曲1", "中島みゆき", "アルバムK", "ポップ");
+        insert_test_track(&conn, "k2", "曲2", "中島みゆき", "アルバムK", "ポップ");
+        set_sort_tags(&conn, "k2", Some("なかじまみゆき"), None, None);
+
+        let artists = find_artist_summaries(&conn).unwrap();
+
+        let names: Vec<(&str, Option<&str>)> = artists
+            .iter()
+            .map(|a| (a.name.as_str(), a.sort_name.as_deref()))
+            .collect();
+        assert_eq!(
+            names,
+            [
+                ("Various Artists", None),
+                ("宇多田ヒカル", Some("うただひかる")),
+                ("東京事変", Some("とうきょうじへん")),
+                ("中島みゆき", Some("なかじまみゆき")),
+            ]
+        );
+    }
+
+    /// アルバムの一覧・アーティストのアルバムは、読み（ソート用のタグ）があれば読みの順に並べる
+    #[test]
+    fn test_albums_are_ordered_by_sort_tags() {
+        let conn = setup_test_db();
+        // 文字コードの順では 加 < 無 < 勝 ではない（勝 < 加 < 無）が、読みの順では かるき < しょうそ < むざい
+        insert_test_track(&conn, "m1", "曲1", "椎名林檎", "無罪モラトリアム", "ロック");
+        insert_test_track(&conn, "m2", "曲2", "椎名林檎", "無罪モラトリアム", "ロック");
+        // 読みは、アルバムの曲のうち最初に見つかったものを使う
+        set_sort_tags(&conn, "m2", None, Some("むざいもらとりあむ"), None);
+        insert_test_track(&conn, "s1", "曲", "椎名林檎", "勝訴ストリップ", "ロック");
+        set_sort_tags(&conn, "s1", None, Some("しょうそすとりっぷ"), None);
+        insert_test_track(
+            &conn,
+            "k1",
+            "曲",
+            "椎名林檎",
+            "加爾基 精液 栗ノ花",
+            "ロック",
+        );
+        set_sort_tags(&conn, "k1", None, Some("カルキ ザーメン クリノハナ"), None);
+        // 読みのないアルバムは、名前で並べる
+        insert_test_track(&conn, "b1", "曲", "椎名林檎", "Best", "ロック");
+
+        let expected = [
+            ("Best", None),
+            ("加爾基 精液 栗ノ花", Some("カルキ ザーメン クリノハナ")),
+            ("勝訴ストリップ", Some("しょうそすとりっぷ")),
+            ("無罪モラトリアム", Some("むざいもらとりあむ")),
+        ];
+
+        let albums = find_album_summaries(&conn).unwrap();
+        let names: Vec<(&str, Option<&str>)> = albums
+            .iter()
+            .map(|a| (a.name.as_str(), a.sort_name.as_deref()))
+            .collect();
+        assert_eq!(names, expected);
+
+        let groups = find_artist_albums(&conn, "椎名林檎").unwrap();
+        let names: Vec<(&str, Option<&str>)> = groups
+            .iter()
+            .map(|a| (a.name.as_str(), a.sort_name.as_deref()))
+            .collect();
+        assert_eq!(names, expected);
+
+        // アーティストの代表の曲は、読みの順で最初のアルバムの最初の曲
+        let artists = find_artist_summaries(&conn).unwrap();
+        assert_eq!(artists[0].representative_track_id, "b1");
+        conn.execute("DELETE FROM tracks WHERE id = 'b1'", [])
+            .unwrap();
+        let artists = find_artist_summaries(&conn).unwrap();
+        assert_eq!(artists[0].representative_track_id, "k1");
+    }
+
+    /// 編集で、並び順に使う値を保存する（1曲の編集はすべて置き換え、一括編集は値のある項目だけ）
+    #[test]
+    fn test_metadata_updates_store_sort_tags() {
+        let conn = setup_test_db();
+        insert_test_track(&conn, "t1", "曲", "椎名林檎", "アルバム", "ロック");
+
+        let metadata = Metadata {
+            title: Some("曲".to_string()),
+            artist: Some("椎名林檎".to_string()),
+            title_sort: Some("きょく".to_string()),
+            artist_sort: Some("しいなりんご".to_string()),
+            album_sort: Some("あるばむ".to_string()),
+            album_artist_sort: Some("しいなりんご".to_string()),
+            ..Default::default()
+        };
+        update_track_metadata(&conn, "t1", &metadata).unwrap();
+        assert_eq!(
+            find_track_by_id(&conn, "t1").unwrap().sort_tags,
+            metadata.sort_tags()
+        );
+
+        // 一括編集: 値のある項目だけを変える
+        let partial = Metadata {
+            artist_sort: Some("シイナリンゴ".to_string()),
+            ..Default::default()
+        };
+        update_track_metadata_partial(&conn, "t1", &partial, "2026-01-01T00:00:00+00:00").unwrap();
+        let track = find_track_by_id(&conn, "t1").unwrap();
+        assert_eq!(
+            track.sort_tags,
+            SortTags {
+                artist: Some("シイナリンゴ".to_string()),
+                ..metadata.sort_tags()
+            }
+        );
+        assert_eq!(track.updated_at, "2026-01-01T00:00:00+00:00");
+
+        // 1曲の編集: 値のない項目は空にする
+        let cleared = Metadata {
+            title: Some("曲".to_string()),
+            ..Default::default()
+        };
+        update_track_metadata(&conn, "t1", &cleared).unwrap();
+        assert_eq!(
+            find_track_by_id(&conn, "t1").unwrap().sort_tags,
+            SortTags::default()
+        );
     }
 
     #[test]
@@ -2454,23 +2754,37 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".to_string(),
             updated_at: "2026-01-01T00:00:00Z".to_string(),
             replay_gain: ReplayGain::default(),
+            sort_tags: Default::default(),
             is_missing: false,
+        };
+        track.sort_tags = SortTags {
+            title: Some("きょく".to_string()),
+            artist: Some("あーてぃすとえー".to_string()),
+            album: Some("あるばむ".to_string()),
+            album_artist: Some("ゔぁりあす".to_string()),
         };
         insert_track(&conn, &track, None).unwrap();
 
         let saved = find_track_by_id(&conn, "t1").unwrap();
         assert_eq!(saved.album_artist.as_deref(), Some("Various Artists"));
+        assert_eq!(saved.sort_tags, track.sort_tags);
         // ファイルから読んで登録したトラックは、読み込み済みにする
         assert!(
-            find_tracks_with_unread_album_artist(&conn, 0, 10)
+            find_tracks_with_unread_tags(&conn, 0, 10)
                 .unwrap()
                 .is_empty()
         );
 
         // ファイルを読み直した時は、タグの内容にする（タグがなくなった場合は消す）
         track.album_artist = None;
+        track.sort_tags = SortTags {
+            artist: Some("よみなおしたよみ".to_string()),
+            ..Default::default()
+        };
         update_track_by_file_path(&conn, &track, None).unwrap();
-        assert_eq!(find_track_by_id(&conn, "t1").unwrap().album_artist, None);
+        let updated = find_track_by_id(&conn, "t1").unwrap();
+        assert_eq!(updated.album_artist, None);
+        assert_eq!(updated.sort_tags, track.sort_tags);
     }
 
     #[test]
@@ -2680,28 +2994,40 @@ mod tests {
     }
 
     #[test]
-    fn test_find_tracks_with_unread_album_artist_pages_by_rowid() {
+    fn test_find_tracks_with_unread_tags_pages_by_rowid() {
         let conn = setup_test_db();
         // 列を追加する前に登録したトラック（`insert_test_track`は読み込み済みにしない）
         for id in ["t1", "t2", "t3"] {
             insert_test_track(&conn, id, "曲", "アーティスト", "アルバム", "ロック");
         }
 
-        let first = find_tracks_with_unread_album_artist(&conn, 0, 2).unwrap();
+        let first = find_tracks_with_unread_tags(&conn, 0, 2).unwrap();
         assert_eq!(
             first.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(),
             ["t1", "t2"]
         );
         assert_eq!(first[0].file_path, "/test/t1.mp3");
+        assert!(first[0].needs_album_artist && first[0].needs_sort_tags);
 
+        // 片方だけを読んだトラックは、残りが未読のまま含まれる
         set_track_album_artist(&conn, "t1", Some("Various Artists")).unwrap();
-        let rest = find_tracks_with_unread_album_artist(&conn, first[1].rowid, 2).unwrap();
+        let partly = find_tracks_with_unread_tags(&conn, 0, 1).unwrap();
+        assert_eq!(partly[0].id, "t1");
+        assert!(!partly[0].needs_album_artist && partly[0].needs_sort_tags);
+
+        let sort_tags = SortTags {
+            artist: Some("よみ".to_string()),
+            ..Default::default()
+        };
+        set_track_sort_tags(&conn, "t1", &sort_tags).unwrap();
+        assert_eq!(find_track_by_id(&conn, "t1").unwrap().sort_tags, sort_tags);
+        let rest = find_tracks_with_unread_tags(&conn, first[1].rowid, 2).unwrap();
         assert_eq!(
             rest.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(),
             ["t3"]
         );
         // 読み込み済みのトラックは、最初から取得し直しても含まれない
-        let again = find_tracks_with_unread_album_artist(&conn, 0, 10).unwrap();
+        let again = find_tracks_with_unread_tags(&conn, 0, 10).unwrap();
         assert_eq!(
             again.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(),
             ["t2", "t3"]
@@ -2740,6 +3066,7 @@ mod tests {
                 // 代表の曲は、名前の順で最初のアルバム（Alpha）の最初の曲
                 ArtistSummary {
                     name: "アーティストX".to_string(),
+                    sort_name: None,
                     album_count: 3,
                     track_count: 4,
                     total_duration: 60,
@@ -2747,6 +3074,7 @@ mod tests {
                 },
                 ArtistSummary {
                     name: "アーティストY".to_string(),
+                    sort_name: None,
                     album_count: 1,
                     track_count: 1,
                     total_duration: 0,

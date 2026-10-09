@@ -41,6 +41,7 @@ export type {
   ReplayGain,
   RescanResult,
   Settings,
+  SortTags,
   StartupPage,
   SyncDevice,
   SyncDeviceConfig,

@@ -107,11 +107,25 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // 「アルバムアーティスト（なければアーティスト）」でまとめる
     add_column_if_not_exists(conn, "tracks", "album_artist", "TEXT")?;
     // アルバムアーティストをファイルから読んだか。列を追加する前に登録したトラックは0で、
-    // 起動時にバックグラウンドで読み込む（`album_artist_backfill`）
+    // 起動時にバックグラウンドで読み込む（`tag_backfill`）
     add_column_if_not_exists(
         conn,
         "tracks",
         "album_artist_read",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+
+    // 並び順に使う値（ソート用のタグ。読み仮名など）。値のない項目は、表示用の値で並べる
+    add_column_if_not_exists(conn, "tracks", "title_sort", "TEXT")?;
+    add_column_if_not_exists(conn, "tracks", "artist_sort", "TEXT")?;
+    add_column_if_not_exists(conn, "tracks", "album_sort", "TEXT")?;
+    add_column_if_not_exists(conn, "tracks", "album_artist_sort", "TEXT")?;
+    // ソート用のタグをファイルから読んだか。列を追加する前に登録したトラックは0で、
+    // 起動時にバックグラウンドで読み込む（`tag_backfill`）
+    add_column_if_not_exists(
+        conn,
+        "tracks",
+        "sort_tags_read",
         "INTEGER NOT NULL DEFAULT 0",
     )?;
 
@@ -410,6 +424,16 @@ mod tests {
             )
             .expect("FTS検索に失敗")
         };
+
+        // 既存のトラックは、ソート用のタグも未読の状態になる
+        let (artist_sort, sort_tags_read): (Option<String>, bool) = conn
+            .query_row(
+                "SELECT artist_sort, sort_tags_read FROM tracks WHERE id = 't1'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("ソート用のタグの列の取得に失敗");
+        assert_eq!((artist_sort, sort_tags_read), (None, false));
 
         // 既存のトラックは、アルバムアーティストが未読の状態になる。これまでの項目は検索できる
         let (album_artist, read): (Option<String>, bool) = conn

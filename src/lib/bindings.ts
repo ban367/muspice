@@ -281,6 +281,8 @@ export const commands = {
 	updatedAt: string,
 	/**  音量の正規化に使うゲイン（タグにない項目は値なし） */
 	replayGain: ReplayGain,
+	/**  並び順に使う値（読みなど。タグにない項目は値なし） */
+	sortTags: SortTags,
 	/**  ファイルが見つからない（再スキャンで見つからなくなった曲。利用者が外すまで残す） */
 	isMissing: boolean,
 } | null>("get_current_track"),
@@ -463,6 +465,8 @@ export type AlbumArtSource =
 /**  アルバムとその曲（アーティストの詳細で、アルバムごとに曲を表示するために使う） */
 export type AlbumGroup = {
 	name: string,
+	/**  並び順に使う値（`AlbumSummary::sort_name`と同じ） */
+	sortName: string | null,
 	artist: string | null,
 	trackCount: number,
 	totalDuration: number,
@@ -477,6 +481,8 @@ export type AlbumGroup = {
  */
 export type AlbumSummary = {
 	name: string,
+	/**  並び順に使う値（アルバムの曲のソート用のタグ。なければ値なしで、`name`で並べる） */
+	sortName: string | null,
 	/**  アルバムをまとめたアーティスト（アルバムアーティスト。なければ曲のアーティスト） */
 	artist: string | null,
 	trackCount: number,
@@ -514,6 +520,8 @@ export type AppError =
  */
 export type ArtistSummary = {
 	name: string,
+	/**  並び順に使う値（アーティストの曲のソート用のタグ。なければ値なしで、`name`で並べる） */
+	sortName: string | null,
 	albumCount: number,
 	trackCount: number,
 	totalDuration: number,
@@ -767,6 +775,11 @@ export type Metadata = {
 	comment?: string | null,
 	/**  歌詞（時刻のないテキスト） */
 	lyrics?: string | null,
+	/**  並び順に使う値（読みなど。`SortTags`を参照） */
+	titleSort?: string | null,
+	artistSort?: string | null,
+	albumSort?: string | null,
+	albumArtistSort?: string | null,
 };
 
 /**  フロントエンドから届く、プレーヤーバーの状態 */
@@ -989,6 +1002,19 @@ export type SettingsChanged = Settings;
 /**  メニュー「Muspice について」: Aboutダイアログを表示する */
 export type ShowAboutDialog = null;
 
+/**
+ *  並び順に使う値（ソート用のタグ。`TITLESORT`・`ARTISTSORT`・`ALBUMSORT`・`ALBUMARTISTSORT`）
+ * 
+ *  漢字の名前を読みの順に並べるための読み仮名などが入る。値のない項目は、表示用の値
+ *  （タイトル・アーティストなど）で並べる。
+ */
+export type SortTags = {
+	title: string | null,
+	artist: string | null,
+	album: string | null,
+	albumArtist: string | null,
+};
+
 /**  起動時に開く画面 */
 export type StartupPage = 
 /**  前回開いていた画面 */
@@ -1068,6 +1094,8 @@ export type Track = {
 	updatedAt: string,
 	/**  音量の正規化に使うゲイン（タグにない項目は値なし） */
 	replayGain: ReplayGain,
+	/**  並び順に使う値（読みなど。タグにない項目は値なし） */
+	sortTags: SortTags,
 	/**  ファイルが見つからない（再スキャンで見つからなくなった曲。利用者が外すまで残す） */
 	isMissing: boolean,
 };

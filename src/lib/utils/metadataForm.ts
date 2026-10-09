@@ -6,7 +6,8 @@
  * 入力中に示す目的で検証する。
  *
  * - 1曲の編集: すべての項目の値を渡す。空にした項目は、ファイルのタグから取り除かれる
- * - 一括編集: 入力した項目だけを渡す（空の項目は変えない）。タイトル・トラック番号・歌詞は扱わない
+ * - 一括編集: 入力した項目だけを渡す（空の項目は変えない）。タイトル（とその読み）・トラック番号・
+ *   歌詞は扱わない
  */
 import type { Metadata } from '#lib/types/models.js';
 import { m } from '#lib/i18n/i18n.svelte.js';
@@ -21,7 +22,12 @@ export const TEXT_FIELDS = [
   'genre',
   'grouping',
   'comment',
-  'lyrics'
+  'lyrics',
+  // 並び順に使う値（読み仮名など。ソート用のタグ）
+  'titleSort',
+  'artistSort',
+  'albumArtistSort',
+  'albumSort'
 ] as const;
 export type TextField = (typeof TEXT_FIELDS)[number];
 
@@ -53,7 +59,11 @@ export const TEXT_LIMITS: Record<TextField, number> = {
   genre: 100,
   grouping: 255,
   comment: 2000,
-  lyrics: 50000
+  lyrics: 50000,
+  titleSort: 255,
+  artistSort: 255,
+  albumArtistSort: 255,
+  albumSort: 255
 };
 
 /** 数値の項目の範囲（Rustの`validate_metadata`と同じ） */
@@ -69,6 +79,7 @@ export const NUMBER_RANGES: Record<NumberField, readonly [number, number]> = {
 /** 一括編集で扱わない項目（曲ごとに違う値になる項目） */
 const SINGLE_ONLY_FIELDS: ReadonlySet<TextField | NumberField> = new Set([
   'title',
+  'titleSort',
   'trackNumber',
   'lyrics'
 ]);

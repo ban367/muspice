@@ -35,6 +35,7 @@ function track(id: string, rating = 0): Track {
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
     replayGain: { trackGain: null, trackPeak: null, albumGain: null, albumPeak: null },
+    sortTags: { title: null, artist: null, album: null, albumArtist: null },
     isMissing: false
   };
 }
@@ -42,6 +43,7 @@ function track(id: string, rating = 0): Track {
 function album(name: string, tracks: Track[]): AlbumGroup {
   return {
     name,
+    sortName: null,
     artist: null,
     trackCount: tracks.length,
     totalDuration: 0,

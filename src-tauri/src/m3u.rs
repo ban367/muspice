@@ -642,6 +642,7 @@ mod tests {
             created_at: String::new(),
             updated_at: String::new(),
             replay_gain: ReplayGain::default(),
+            sort_tags: Default::default(),
             is_missing: false,
         }
     }
