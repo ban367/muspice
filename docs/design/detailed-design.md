@@ -327,18 +327,31 @@ export interface Playlist {
 
 ### プレイリスト
 
-| コマンド                     | 引数                     | 戻り値       |
-| ---------------------------- | ------------------------ | ------------ |
-| `create_playlist`            | `name`                   | `Playlist`   |
-| `get_playlists`              | なし                     | `Playlist[]` |
-| `get_playlist_tracks`        | `playlistId`             | `Track[]`    |
-| `rename_playlist`            | `playlistId`, `name`     | `void`       |
-| `delete_playlist`            | `playlistId`             | `void`       |
-| `add_tracks_to_playlist`     | `playlistId`, `trackIds` | `number`     |
-| `remove_track_from_playlist` | `playlistId`, `trackId`  | `void`       |
-| `reorder_playlist_tracks`    | `playlistId`, `trackIds` | `void`       |
+| コマンド                     | 引数                          | 戻り値                    |
+| ---------------------------- | ----------------------------- | ------------------------- |
+| `create_playlist`            | `name`                        | `Playlist`                |
+| `get_playlists`              | なし                          | `Playlist[]`              |
+| `get_playlist_tracks`        | `playlistId`                  | `Track[]`                 |
+| `rename_playlist`            | `playlistId`, `name`          | `void`                    |
+| `delete_playlist`            | `playlistId`                  | `void`                    |
+| `add_tracks_to_playlist`     | `playlistId`, `trackIds`      | `number`                  |
+| `remove_track_from_playlist` | `playlistId`, `trackId`       | `void`                    |
+| `reorder_playlist_tracks`    | `playlistId`, `trackIds`      | `void`                    |
+| `import_m3u_playlists`       | なし                          | `M3uImportResult[]`       |
+| `export_playlist_m3u`        | `playlistId`, `relativePaths` | `M3uExportResult \| null` |
 
 `add_tracks_to_playlist`は、複数のトラックを渡した順に1つのトランザクションで追加する。すでに入っているトラックは飛ばし、追加したトラック数を返す。見つからないトラックがある場合は`NOT_FOUND`で、1曲も追加しない。
+
+M3Uの読み込み・書き出し（ADR-032）:
+
+- `import_m3u_playlists`は、Rust側でファイルを選ぶダイアログ（`.m3u`・`.m3u8`。複数選べる）を開き、選んだファイルごとにプレイリストを作る。選ばなかった場合は空の配列を返す
+  - `M3uImportResult`: `{ fileName, playlistId: string \| null, playlistName: string \| null, addedCount, duplicateCount, unmatchedCount, unmatched: string[], error: string \| null }`
+  - 文字コードは自動で判定する（BOM → UTF-8 → Shift_JIS）。`#`で始まる行と空行は読み飛ばす
+  - 曲の場所は、ライブラリの曲のパスと突き合わせる。そのまま一致する曲がなければ、ファイル名が同じ曲のうち、上のフォルダの名前がいちばん長く一致する曲（同じ長さで複数あれば、対応を付けない）
+  - プレイリストの名前は、ファイル名（拡張子を除く。使えない文字は`_`）。同じ名前があれば`名前 (2)`のように番号を付ける
+  - 対応する曲が1つもない場合・ファイルを読めない場合（`error`）は、プレイリストを作らない（`playlistId`は`null`）。同じ曲の2回目以降は入れず、`duplicateCount`に数える。`unmatched`は、対応が付かなかった行の先頭200件
+- `export_playlist_m3u`は、Rust側で保存先を選ぶダイアログを開き、プレイリストをUTF-8の拡張M3U（`#EXTINF`付き・改行はCRLF）で書き出す。`relativePaths`が`true`なら、曲の場所を書き出し先のフォルダからの相対パスで書く（共通するフォルダがない曲は絶対パス）。拡張子がM3Uでなければ`.m3u8`を付ける。保存先を選ばなかった場合は`null`を返す
+  - `M3uExportResult`: `{ fileName, trackCount }`
 
 ### 再生・統計・システム
 
