@@ -317,6 +317,61 @@ export const en: Messages = {
       `Finished writing (written: ${written}, unchanged: ${unchanged}, missing files: ${skipped}, errors: ${errors})`
   },
 
+  tagTools: {
+    title: (count) => `Tag Tools (${plural(count, 'track', 'tracks')})`,
+    tabs: { fileName: 'From File Name', renumber: 'Renumber', replace: 'Find & Replace' },
+    pattern: 'Pattern',
+    patternPreset: 'Examples',
+    patternHint:
+      'Fields: %title% %artist% %album% %albumartist% %genre% %year% %track% %disc% (use %dummy% to skip a part). Separate with "/" to use parent folder names.',
+    renumberHint: 'Renumbers the tracks in the order of the list.',
+    startNumber: 'Start at',
+    setTotal: 'Also write the track total',
+    targetFields: 'Fields',
+    search: 'Find',
+    replaceWith: 'Replace with',
+    matchCase: 'Match case',
+    useRegex: 'Regular expression',
+    caseConversion: 'Letter case',
+    caseOptions: {
+      none: 'Keep',
+      upper: 'UPPERCASE',
+      lower: 'lowercase',
+      title: 'Capitalize Each Word'
+    },
+    trim: 'Trim leading and trailing spaces',
+    preview: 'Changes',
+    summary: (tracks, fields) =>
+      `${plural(tracks, 'track', 'tracks')}, ${plural(fields, 'change', 'changes')}`,
+    noChanges: 'No changes',
+    unmatched: (count) =>
+      `${plural(count, 'track does', 'tracks do')} not match the pattern and will be left unchanged`,
+    moreChanges: (count) => `and ${plural(count, 'more track', 'more tracks')}`,
+    columnTrack: 'Track',
+    columnField: 'Field',
+    columnBefore: 'Before',
+    columnAfter: 'After',
+    empty: '(none)',
+    unknown: '—',
+    apply: 'Apply',
+    applying: 'Writing...',
+    applied: (count) => `Updated the tags of ${plural(count, 'track', 'tracks')}`,
+    partiallyFailed: (updated, failed) =>
+      `Updated ${plural(updated, 'track', 'tracks')} (${plural(failed, 'file', 'files')} could not be written)`,
+    allFailed: (reason) => `Could not write to the files: ${reason}`,
+    errors: {
+      emptyPattern: 'Enter a pattern',
+      noPlaceholder: 'Add a field such as %title% to the pattern',
+      unknownPlaceholder: (name) => `Unknown field: ${name}`,
+      duplicatePlaceholder: (name) => `A field can be used only once: ${name}`,
+      adjacentPlaceholders: (name) => `Put a separator before ${name}`,
+      invalidRegex: 'The regular expression is not valid',
+      numberOutOfRange: 'Track numbers must be between 1 and 999',
+      noFields: 'Choose at least one field',
+      tooLong: 'A value would be too long after the change'
+    }
+  },
+
   albumArtDialog: {
     title: 'Album Art',
     open: 'Change album art',
@@ -372,6 +427,7 @@ export const en: Messages = {
     selectedCount: (count) => `${plural(count, 'track', 'tracks')} selected`,
     editMetadata: 'Edit Metadata',
     albumArt: 'Album Art...',
+    tagTools: 'Tag Tools...',
     showInFolder: 'Show in Folder',
     deleteEllipsis: 'Delete...',
     addToPlaylist: 'Add to Playlist',

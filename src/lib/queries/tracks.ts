@@ -11,7 +11,8 @@ import type {
   Metadata,
   DeleteResult,
   DuplicateAction,
-  FilterOptions
+  FilterOptions,
+  TrackMetadataChange
 } from '#lib/types/models.js';
 import { handleError, showSuccess, showWarning } from '#lib/stores/error.svelte.js';
 import { queryKeys } from './keys';
@@ -447,6 +448,25 @@ export function useUpdateMultipleTracksMutation() {
     mutationFn: ({ trackIds, metadata }: { trackIds: string[]; metadata: Metadata }) =>
       commands.updateMultipleTracksMetadata(trackIds, metadata),
     onSuccess: () => {
+      invalidateTrackListQueries(queryClient);
+      queryClient.removeQueries({ queryKey: queryKeys.trackTags.all });
+    }
+  }));
+}
+
+/**
+ * 曲ごとに違う値で、メタデータをまとめて更新するミューテーション（タグの一括ツール）
+ *
+ * 確認した変更（`#lib/utils/tagTools`の`toMetadataChanges`）を、各トラックのファイルのタグへ
+ * 書き込む。書き込めなかったトラックは結果の`failedCount`・`errors`で返る（残りは更新される）。
+ */
+export function useApplyMetadataChangesMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: (changes: TrackMetadataChange[]) => commands.applyMetadataChanges(changes),
+    onSuccess: (result) => {
+      if (result.updatedCount === 0) return;
       invalidateTrackListQueries(queryClient);
       queryClient.removeQueries({ queryKey: queryKeys.trackTags.all });
     }

@@ -43,6 +43,11 @@ fn sort_key(sort_name: Option<&str>, name: &str) -> String {
     crate::search_text::normalize(sort_name.unwrap_or(name))
 }
 
+/// 編集で渡された文字列の値を、保存する値にする（空の値は、項目を空にする指定のためNULL）
+fn stored_text(value: &Option<String>) -> Option<&str> {
+    value.as_deref().filter(|value| !value.is_empty())
+}
+
 /// SELECTで使用するトラックカラム列挙
 ///
 /// is_favorite, rating, play_countはCOALESCEでNULL安全にしている。
@@ -701,18 +706,18 @@ pub fn update_track_metadata(
                 updated_at = ?13
              WHERE id = ?14",
             rusqlite::params![
-                metadata.title,
-                metadata.artist,
-                metadata.album,
-                metadata.genre,
+                stored_text(&metadata.title),
+                stored_text(&metadata.artist),
+                stored_text(&metadata.album),
+                stored_text(&metadata.genre),
                 metadata.year,
-                metadata.album_artist,
+                stored_text(&metadata.album_artist),
                 metadata.track_number,
                 metadata.disc_number,
-                metadata.title_sort,
-                metadata.artist_sort,
-                metadata.album_sort,
-                metadata.album_artist_sort,
+                stored_text(&metadata.title_sort),
+                stored_text(&metadata.artist_sort),
+                stored_text(&metadata.album_sort),
+                stored_text(&metadata.album_artist_sort),
                 now,
                 track_id,
             ],
@@ -740,6 +745,7 @@ pub fn track_exists(conn: &Connection, track_id: &str) -> AppResult<bool> {
 
 /// トラックのメタデータを部分更新（Someのフィールドのみ・一括編集用）
 ///
+/// 文字列の項目は、空の値を渡すと項目を空にする（タグの一括ツールで、置換の結果が空になった場合）。
 /// 対象トラックが存在しない場合はエラーを返す。
 /// 更新するフィールドがない場合は何もしない。
 pub fn update_track_metadata_partial(
@@ -751,47 +757,13 @@ pub fn update_track_metadata_partial(
     let mut update_parts = Vec::new();
     let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
-    if metadata.title.is_some() {
-        update_parts.push("title = ?");
-        params.push(Box::new(metadata.title.clone()));
-    }
-
-    if metadata.artist.is_some() {
-        update_parts.push("artist = ?");
-        params.push(Box::new(metadata.artist.clone()));
-    }
-
-    if metadata.album.is_some() {
-        update_parts.push("album = ?");
-        params.push(Box::new(metadata.album.clone()));
-    }
-
-    if metadata.genre.is_some() {
-        update_parts.push("genre = ?");
-        params.push(Box::new(metadata.genre.clone()));
-    }
-
-    if metadata.year.is_some() {
-        update_parts.push("year = ?");
-        params.push(Box::new(metadata.year));
-    }
-
-    if metadata.album_artist.is_some() {
-        update_parts.push("album_artist = ?");
-        params.push(Box::new(metadata.album_artist.clone()));
-    }
-
-    if metadata.track_number.is_some() {
-        update_parts.push("track_number = ?");
-        params.push(Box::new(metadata.track_number));
-    }
-
-    if metadata.disc_number.is_some() {
-        update_parts.push("disc_number = ?");
-        params.push(Box::new(metadata.disc_number));
-    }
-
+    // 文字列の項目: 値のある項目だけを変える（空の値は、項目を空にする）
     for (column, value) in [
+        ("title = ?", &metadata.title),
+        ("artist = ?", &metadata.artist),
+        ("album = ?", &metadata.album),
+        ("genre = ?", &metadata.genre),
+        ("album_artist = ?", &metadata.album_artist),
         ("title_sort = ?", &metadata.title_sort),
         ("artist_sort = ?", &metadata.artist_sort),
         ("album_sort = ?", &metadata.album_sort),
@@ -799,7 +771,18 @@ pub fn update_track_metadata_partial(
     ] {
         if value.is_some() {
             update_parts.push(column);
-            params.push(Box::new(value.clone()));
+            params.push(Box::new(stored_text(value).map(str::to_string)));
+        }
+    }
+
+    for (column, value) in [
+        ("year = ?", metadata.year),
+        ("track_number = ?", metadata.track_number),
+        ("disc_number = ?", metadata.disc_number),
+    ] {
+        if value.is_some() {
+            update_parts.push(column);
+            params.push(Box::new(value));
         }
     }
 
@@ -3250,6 +3233,30 @@ mod tests {
         assert_eq!(track.album, Some("アルバム1".to_string()));
         assert_eq!(track.genre, Some("ロック".to_string()));
         assert_eq!(track.updated_at, "2026-01-01T00:00:00+00:00");
+    }
+
+    /// 文字列の項目に空の値を渡すと、その項目を空（NULL）にする
+    #[test]
+    fn test_update_track_metadata_partial_clears_fields_with_empty_values() {
+        let conn = setup_test_db();
+        insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
+        set_album_artist(&conn, "t1", "Various Artists");
+
+        let metadata = Metadata {
+            genre: Some(String::new()),
+            album_artist: Some(String::new()),
+            ..empty_metadata()
+        };
+        update_track_metadata_partial(&conn, "t1", &metadata, "2026-01-01T00:00:00+00:00").unwrap();
+
+        let track = find_track_by_id(&conn, "t1").unwrap();
+        assert_eq!(track.genre, None);
+        assert_eq!(track.album_artist, None);
+        // 渡していない項目は変えない
+        assert_eq!(track.title, Some("曲A".to_string()));
+        assert_eq!(track.album, Some("アルバム1".to_string()));
+        // 空にしたジャンルは、ジャンルの一覧から消える
+        assert!(find_genre_summaries(&conn).unwrap().is_empty());
     }
 
     #[test]

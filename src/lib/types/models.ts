@@ -47,6 +47,7 @@ export type {
   SyncDeviceConfig,
   Theme,
   Track,
+  TrackMetadataChange,
   VolumeNormalization,
   WriteMetadataResult
 } from '#lib/bindings.js';

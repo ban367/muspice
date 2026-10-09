@@ -327,6 +327,65 @@ export const ja = {
       `書き出し完了（書き込み: ${written}曲、変更なし: ${unchanged}曲、ファイルなし: ${skipped}曲、エラー: ${errors}曲）`
   },
 
+  tagTools: {
+    title: (count: number) => `タグの一括ツール（${count}曲）`,
+    tabs: { fileName: 'ファイル名から', renumber: '連番', replace: '検索と置換' },
+    /** ファイル名から */
+    pattern: '書式',
+    patternPreset: '書式の例',
+    patternHint:
+      '使える項目: %title% %artist% %album% %albumartist% %genre% %year% %track% %disc%（読み飛ばす部分は %dummy%）。「/」で区切ると、上のフォルダの名前も使えます。',
+    /** 連番 */
+    renumberHint: '一覧の順に、トラック番号を振り直します。',
+    startNumber: '最初の番号',
+    setTotal: 'トラックの総数も書き込む',
+    /** 検索と置換 */
+    targetFields: '対象の項目',
+    search: '検索する文字列',
+    replaceWith: '置き換える文字列',
+    matchCase: '大文字と小文字を区別する',
+    useRegex: '正規表現',
+    caseConversion: '大文字・小文字',
+    caseOptions: {
+      none: '変えない',
+      upper: 'すべて大文字',
+      lower: 'すべて小文字',
+      title: '単語の先頭を大文字'
+    },
+    trim: '前後の空白を除く',
+    /** 変更の一覧 */
+    preview: '変更の一覧',
+    summary: (tracks: number, fields: number) => `${tracks}曲・${fields}件の変更`,
+    noChanges: '変更はありません',
+    unmatched: (count: number) => `書式に合わない${count}曲は、変更しません`,
+    moreChanges: (count: number) => `ほか${count}曲`,
+    columnTrack: '曲',
+    columnField: '項目',
+    columnBefore: '前',
+    columnAfter: '後',
+    /** 値がない・取り除くことを表す */
+    empty: '（なし）',
+    unknown: '—',
+    apply: '適用',
+    applying: '書き込み中...',
+    applied: (count: number) => `${count}曲のタグを書き換えました`,
+    partiallyFailed: (updated: number, failed: number) =>
+      `${updated}曲を書き換えました（${failed}曲はファイルに書き込めませんでした）`,
+    allFailed: (reason: string) => `ファイルに書き込めませんでした: ${reason}`,
+    errors: {
+      emptyPattern: '書式を入力してください',
+      noPlaceholder: '書式に、項目（%title% など）を入れてください',
+      unknownPlaceholder: (name: string) => `使えない項目です: ${name}`,
+      duplicatePlaceholder: (name: string) => `同じ項目は1回だけ使えます: ${name}`,
+      adjacentPlaceholders: (name: string) =>
+        `項目の間に、区切りの文字を入れてください: ${name} の前`,
+      invalidRegex: '正規表現が正しくありません',
+      numberOutOfRange: 'トラック番号は1から999の範囲にしてください',
+      noFields: '対象の項目を選んでください',
+      tooLong: '変更の後の値が長すぎます'
+    }
+  },
+
   albumArtDialog: {
     title: 'アルバムアート',
     /** アルバムの絵をクリックして開く操作の名前 */
@@ -381,6 +440,7 @@ export const ja = {
     selectedCount: (count: number) => `${count}曲を選択中`,
     editMetadata: 'メタデータを編集',
     albumArt: 'アルバムアート...',
+    tagTools: 'タグの一括ツール...',
     showInFolder: 'ファイルの場所を開く',
     deleteEllipsis: '削除...',
     addToPlaylist: 'プレイリストに追加',

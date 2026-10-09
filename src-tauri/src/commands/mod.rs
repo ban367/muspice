@@ -47,8 +47,8 @@ pub use tracks::{
 
 // メタデータ編集
 pub use metadata_cmd::{
-    get_track_tags, refresh_library_metadata, update_multiple_tracks_metadata,
-    update_track_metadata, write_library_metadata_to_files,
+    apply_metadata_changes, get_track_tags, refresh_library_metadata,
+    update_multiple_tracks_metadata, update_track_metadata, write_library_metadata_to_files,
 };
 
 // アルバムアートの編集（埋め込み・取り除き）と、情報の取得
