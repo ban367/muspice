@@ -41,6 +41,8 @@ export interface ReplayGain {
   albumPeak: number | null;
 }
 
+// 曲のタグ（編集画面で扱う項目）。DBに保存するのは、title・artist・album・albumArtist・genre・
+// year・trackNumber・discNumberだけで、そのほかはファイルのタグだけにある
 export interface Metadata {
   title?: string;
   artist?: string;
@@ -48,8 +50,16 @@ export interface Metadata {
   genre?: string;
   year?: number;
   trackNumber?: number;
+  discNumber?: number;
   albumArtist?: string;
   composer?: string;
+  trackTotal?: number; // アルバムのトラックの総数
+  discTotal?: number; // アルバムのディスクの総数
+  grouping?: string;
+  bpm?: number;
+  compilation?: boolean;
+  comment?: string;
+  lyrics?: string; // 時刻のないテキスト
 }
 
 export interface Playlist {
@@ -313,14 +323,18 @@ export interface Playlist {
 
 ### メタデータ編集
 
-メタデータ（タイトル・アーティスト・アルバム・ジャンル・年）と評価は、音楽ファイルのタグを正とする（ADR-019）。編集は常にファイルへ書き込み、DBには同じ値を記録する（一覧・検索のため）。ファイルへ書き込めない場合はエラーにし、DBも変えない。書き込み後のファイルのサイズ・更新日時も記録し、再スキャンで自分の書き込みを変更とみなさない。
+メタデータ（タイトル・アーティスト・アルバムなど、編集画面の項目）と評価は、音楽ファイルのタグを正とする（ADR-019）。編集は常にファイルへ書き込み、DBには同じ値を記録する（一覧・検索のため）。ファイルへ書き込めない場合はエラーにし、DBも変えない。書き込み後のファイルのサイズ・更新日時も記録し、再スキャンで自分の書き込みを変更とみなさない。
 
 | コマンド                          | 引数                   | 戻り値                | 備考                                                                                                                                                 |
 | --------------------------------- | ---------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `update_track_metadata`           | `trackId`, `metadata`  | `void`                | ファイルのタグとDBを更新する。タイトル・アーティスト・アルバム・ジャンル・年は、値がなければタグからも取り除く                                       |
+| `get_track_tags`                  | `trackId`              | `Metadata`            | 編集画面で扱うすべての項目を、ファイルのタグから読む（タグにない項目は含めない）。ファイルが見つからない・読めない場合はエラー                       |
+| `update_track_metadata`           | `trackId`, `metadata`  | `void`                | ファイルのタグとDBを更新する。編集画面のすべての項目を反映し、値のない項目はタグからも取り除く                                                       |
 | `update_multiple_tracks_metadata` | `trackIds`, `metadata` | `BulkUpdateResult`    | 値がある項目だけを、各トラックのファイルのタグとDBに反映する。書き込めなかったトラックはDBも変えず、理由を結果に入れて残りを続ける                   |
 | `write_library_metadata_to_files` | なし                   | `WriteMetadataResult` | DBだけにある編集内容・評価をファイルへ書き出し、ファイルを読み直してDBに反映する（以前のバージョンのデータの移行用）。終わると`LibraryChanged`を送る |
 
+- 編集画面の項目のうち、DBに保存するのは一覧・検索に使う項目（タイトル・アーティスト・アルバム・アルバムアーティスト・ジャンル・年・トラック番号・ディスク番号）だけ。作曲者・トラック / ディスクの総数・BPM・グループ・コメント・コンピレーションの印・歌詞は、ファイルのタグだけにあり、編集画面を開く時に`get_track_tags`で読む（ADR-034）
+- `update_track_metadata`（1曲の編集）は、渡した`Metadata`でタグの項目をすべて置き換える。`update_multiple_tracks_metadata`（一括編集）は、値のある項目だけを変える（`compilation: false`は、印を取り除く）
+- タグの書き方: BPMは、ID3v2の`TBPM`・MP4の`tmpo`・Vorbisコメントの`BPM`。歌詞は、ID3v2の`USLT`・Vorbisコメントの`LYRICS`・MP4の`©lyr`（読む時は、Vorbisコメントの`UNSYNCEDLYRICS`も読む）。グループは、ID3v2の`TIT1`・MP4の`©grp`・Vorbisコメントの`GROUPING`
 - `BulkUpdateResult`: `updatedCount`, `failedCount`, `errors[]`
 - `WriteMetadataResult`: `writtenCount`, `unchangedCount`（ファイルと同じ）, `skippedCount`（ファイルが見つからない）, `errorCount`, `errors[]`
 - `write_library_metadata_to_files`は、DBの値がファイルと違う項目だけを書き込む。DBに値がない項目（評価なしを含む）と、タグにタイトルがないファイルの既定のタイトル（ファイル名）は書き出さない（ファイルにだけある値を消さないため）
@@ -473,17 +487,17 @@ OSのメディアキー・コントロールセンター・イヤホンのボタ
 
 ## バリデーション仕様
 
-| 対象                       | ルール                                                      |
-| -------------------------- | ----------------------------------------------------------- |
-| `track_id` / `playlist_id` | UUID形式（36文字、ハイフン区切り、16進数）                  |
-| `device_id`                | UUID形式（同上）                                            |
-| デバイス名                 | 必須（前後の空白を除く）、100バイト以内、制御文字禁止       |
-| `playlist_name`            | 必須、100文字以内、危険文字禁止（`<>:"/\\\|?*`）            |
-| ファイルパス               | 空/Null文字禁止、`..`による親ディレクトリ遡り禁止、長さ制限 |
-| `Metadata.year`            | 1000〜9999                                                  |
-| `Metadata.trackNumber`     | 1〜999                                                      |
-| 文字列長                   | title/artist/album: 255、genre: 100                         |
-| `rating`                   | 0〜5                                                        |
+| 対象                                 | ルール                                                                                          |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| `track_id` / `playlist_id`           | UUID形式（36文字、ハイフン区切り、16進数）                                                      |
+| `device_id`                          | UUID形式（同上）                                                                                |
+| デバイス名                           | 必須（前後の空白を除く）、100バイト以内、制御文字禁止                                           |
+| `playlist_name`                      | 必須、100文字以内、危険文字禁止（`<>:"/\\\|?*`）                                                |
+| ファイルパス                         | 空/Null文字禁止、`..`による親ディレクトリ遡り禁止、長さ制限                                     |
+| `Metadata.year`                      | 1000〜9999                                                                                      |
+| トラック / ディスクの番号と総数・BPM | 1〜999                                                                                          |
+| 文字列長（文字数）                   | title/artist/album/albumArtist/composer/grouping: 255、genre: 100、comment: 2000、lyrics: 50000 |
+| `rating`                             | 0〜5                                                                                            |
 
 ## エラーハンドリング
 
@@ -494,8 +508,6 @@ OSのメディアキー・コントロールセンター・イヤホンのボタ
 
 ## 実装上の注意
 
-- `update_track_metadata`・`update_multiple_tracks_metadata` は、`albumArtist`が指定された場合だけアルバムアーティストを変える（編集画面に項目がなく、ファイルのタグも指定された場合だけ書き込む）
-- `update_track_metadata` は `track_number`・`disc_number` を変えない（編集画面に項目がない）。これらはファイルを読み直した時（再スキャン・`refresh_library_metadata`）に反映する
 - メタデータの編集・評価の変更では、DBはコマンドが書き込んだ項目だけを更新する（ファイル全体を読み直さない）。ファイルの内容をDBにそのまま反映するのは、インポート・再スキャン（変更のあったファイル）・`refresh_library_metadata`・`write_library_metadata_to_files`
 - 検索クエリは `sanitize_search_query` で危険文字を除去してから検索する
 - 大量更新系（インポート・一括編集）はトランザクションを使って部分失敗の影響を抑える
