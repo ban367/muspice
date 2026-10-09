@@ -161,6 +161,24 @@ fn percent_decode(value: &str) -> String {
     String::from_utf8_lossy(&decoded).into_owned()
 }
 
+/// 曲の場所を、表示用の文字列にする（`file://`のURLは、パスへ戻す）
+pub fn display_location(location: &str) -> String {
+    let is_file_url = location
+        .get(..7)
+        .is_some_and(|scheme| scheme.eq_ignore_ascii_case("file://"));
+    if !is_file_url {
+        return location.to_string();
+    }
+    let rest = &location[7..];
+    let rest = rest.strip_prefix("localhost").unwrap_or(rest);
+    let decoded = percent_decode(rest);
+    // `/C:/Music/…`は、先頭の`/`を除く
+    match decoded.strip_prefix('/') {
+        Some(windows) if windows.split('/').next().is_some_and(is_drive) => windows.to_string(),
+        _ => decoded,
+    }
+}
+
 /// `C:`のような、Windowsのドライブの指定か
 fn is_drive(part: &str) -> bool {
     let bytes = part.as_bytes();
@@ -172,16 +190,13 @@ fn is_drive(part: &str) -> bool {
 /// - `base`: M3Uのファイルがあるフォルダ（相対パスの基準）
 fn parse_location(line: &str, base: &Path) -> Location {
     // file://のURLは、パスへ戻す（`file:///C:/Music/a.mp3`・`file://localhost/Users/…`）
-    let lower = line.to_ascii_lowercase();
+    let is_file_url = line
+        .get(..7)
+        .is_some_and(|scheme| scheme.eq_ignore_ascii_case("file://"));
     let decoded;
-    let path = if let Some(rest) = lower.strip_prefix("file://").map(|_| &line[7..]) {
-        let rest = rest.strip_prefix("localhost").unwrap_or(rest);
-        decoded = percent_decode(rest);
-        // `/C:/Music/…`は、Windowsのパスとして扱う
-        match decoded.strip_prefix('/') {
-            Some(windows) if windows.split('/').next().is_some_and(is_drive) => windows,
-            _ => decoded.as_str(),
-        }
+    let path = if is_file_url {
+        decoded = display_location(line);
+        decoded.as_str()
     } else if line.split_once("://").is_some_and(|(scheme, _)| {
         !scheme.is_empty()
             && scheme
@@ -303,7 +318,14 @@ pub fn playlist_name_from_file(path: &Path) -> String {
         .file_stem()
         .map(|stem| stem.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let name: String = stem
+    sanitize_playlist_name(&stem)
+}
+
+/// プレイリスト名に使えない文字（`validate_playlist_name`）を`_`にする
+///
+/// 名前が空になる場合は`Playlist`にする。
+pub fn sanitize_playlist_name(name: &str) -> String {
+    let name: String = name
         .nfc()
         .map(|c| match c {
             '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_',

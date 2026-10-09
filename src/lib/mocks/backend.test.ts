@@ -420,6 +420,41 @@ describe('M3Uの読み込み・書き出し', () => {
   });
 });
 
+describe('ライブラリのXMLの取り込み', () => {
+  it('再生回数を多い方にし、プレイリストを作って、ライブラリの変更を通知する', async () => {
+    const before = await commands.getAllTracks();
+    const playlistsBefore = await commands.getPlaylists();
+
+    const result = (await commands.importLibraryXml(true))!;
+
+    expect(result.matchedCount).toBeGreaterThan(0);
+    expect(result.updatedCount).toBeGreaterThan(0);
+    expect(result.unmatchedCount).toBe(result.unmatched.length);
+    expect(result.playlistCount).toBe(1);
+    const after = await commands.getAllTracks();
+    for (const track of after) {
+      const previous = before.find((candidate) => candidate.id === track.id)!;
+      expect(track.playCount).toBeGreaterThanOrEqual(previous.playCount);
+      expect(track.createdAt <= previous.createdAt).toBe(true);
+    }
+    expect(await commands.getPlaylists()).toHaveLength(playlistsBefore.length + 1);
+    expect(events.some((event) => event.event === 'library-changed')).toBe(true);
+  });
+
+  it('もう一度取り込んでも値は変わらず、プレイリストを取り込まない指定もできる', async () => {
+    await commands.importLibraryXml(false);
+    const playlists = await commands.getPlaylists();
+    const tracks = await commands.getAllTracks();
+
+    const again = (await commands.importLibraryXml(false))!;
+
+    expect(again.updatedCount).toBe(0);
+    expect(again.playlistCount).toBe(0);
+    expect(await commands.getAllTracks()).toEqual(tracks);
+    expect(await commands.getPlaylists()).toEqual(playlists);
+  });
+});
+
 describe('インポート', () => {
   it('進捗イベントを送信し、同じフォルダの再インポートは重複としてスキップする', async () => {
     const first = await commands.importFolder('/Users/demo/Music/New', 'Skip');

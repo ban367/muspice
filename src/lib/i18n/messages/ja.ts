@@ -105,6 +105,7 @@ export const ja = {
     renamePlaylist: 'プレイリスト名の変更',
     deletePlaylist: 'プレイリストの削除',
     importM3u: 'プレイリストの読み込み',
+    importLibraryXml: 'ライブラリのXMLの取り込み',
     exportM3u: 'プレイリストの書き出し',
     loadSettings: '設定の読み込み',
     loadOutputDevices: '出力デバイスの一覧の取得',
@@ -269,6 +270,27 @@ export const ja = {
       'アプリ内の編集内容・評価を、音楽ファイルのタグへ書き込みます。ファイルが書き換わります。続けますか？',
     result: (written: number, unchanged: number, skipped: number, errors: number) =>
       `書き出し完了（書き込み: ${written}曲、変更なし: ${unchanged}曲、ファイルなし: ${skipped}曲、エラー: ${errors}曲）`
+  },
+
+  libraryXmlImport: {
+    title: 'ほかのプレーヤーからの取り込み',
+    description:
+      'MusicBee・iTunes / ミュージックが書き出すライブラリのXML（iTunes形式）から、ファイルのタグには入っていない再生回数・最後に再生した日時・追加した日時・お気に入りを取り込みます。曲は、ファイル名とその上のフォルダの名前で対応を付けるため、先に曲をライブラリへ取り込んでおいてください',
+    rules:
+      '再生回数・スキップ回数は多い方、最後に再生した日時は新しい方、追加した日時は古い方にします（何度取り込んでも、増え続けません）',
+    musicBeeHint:
+      'MusicBeeでは、設定の「ライブラリ」にある、ライブラリをiTunes形式のXMLで書き出す項目を有効にすると、ライブラリのファイルと同じフォルダにXMLが作られます',
+    includePlaylists: 'プレイリストも取り込む（同じ名前があれば、番号を付けた名前で作ります）',
+    choose: 'XMLを選んで取り込む...',
+    importing: '取り込み中...',
+    result: (updated: number, matched: number, total: number) =>
+      `取り込み完了: ${total}曲のうち${matched}曲がライブラリの曲と対応し、${updated}曲の値を更新しました`,
+    playlists: (created: number, skipped: number) =>
+      skipped > 0
+        ? `プレイリスト: ${created}件を作成（曲が入らない${skipped}件は作成していません）`
+        : `プレイリスト: ${created}件を作成`,
+    unmatched: (count: number) => `ライブラリの曲と対応が付かなかった曲: ${count}曲`,
+    unmatchedMore: (count: number) => `ほか${count}曲`
   },
 
   contextMenu: {

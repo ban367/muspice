@@ -177,6 +177,32 @@ export const commands = {
 	/**  書き出した曲数 */
 	trackCount: number,
 } | null>("export_playlist_m3u", { playlistId, relativePaths }),
+	/**
+	 *  ライブラリのXML（iTunes形式）を選んで取り込む
+	 * 
+	 *  曲は、XMLの場所とライブラリの曲のパスで突き合わせる（M3Uの読み込みと同じ）。対応が付いた曲の
+	 *  再生回数・スキップ回数は多い方、最後に再生した日時は新しい方、追加した日時は古い方にする。
+	 *  XMLでお気に入りの曲は、お気に入りにする。`include_playlists`がtrueなら、プレイリストも作る
+	 *  （同じ名前があれば、番号を付けた名前にする）。ファイルを選ばなかった場合はnullを返す。
+	 */
+	importLibraryXml: (includePlaylists: boolean) => __TAURI_INVOKE<{
+	/**  取り込んだファイルの名前 */
+	fileName: string,
+	/**  XMLの中の曲数（ファイルの場所がある曲） */
+	trackCount: number,
+	/**  ライブラリの曲と対応が付いた曲数 */
+	matchedCount: number,
+	/**  再生回数などの値が変わった曲数 */
+	updatedCount: number,
+	/**  ライブラリの曲と対応が付かなかった曲数 */
+	unmatchedCount: number,
+	/**  対応が付かなかった曲の場所（多い場合は先頭の一部だけ） */
+	unmatched: string[],
+	/**  作ったプレイリストの数 */
+	playlistCount: number,
+	/**  対応する曲が1つもなく、作らなかったプレイリストの数 */
+	skippedPlaylistCount: number,
+} | null>("import_library_xml", { includePlaylists }),
 	/**  現在再生中のトラックIDを設定 */
 	setCurrentTrack: (trackId: string | null) => __TAURI_INVOKE<null>("set_current_track", { trackId }),
 	/**  現在再生中のトラック情報を取得 */
@@ -593,6 +619,26 @@ export type LibraryScanProgress = {
 	total: number,
 	/**  現在処理中のファイル名 */
 	currentFile: string,
+};
+
+/**  ライブラリのXML（iTunes形式）を取り込んだ結果 */
+export type LibraryXmlImportResult = {
+	/**  取り込んだファイルの名前 */
+	fileName: string,
+	/**  XMLの中の曲数（ファイルの場所がある曲） */
+	trackCount: number,
+	/**  ライブラリの曲と対応が付いた曲数 */
+	matchedCount: number,
+	/**  再生回数などの値が変わった曲数 */
+	updatedCount: number,
+	/**  ライブラリの曲と対応が付かなかった曲数 */
+	unmatchedCount: number,
+	/**  対応が付かなかった曲の場所（多い場合は先頭の一部だけ） */
+	unmatched: string[],
+	/**  作ったプレイリストの数 */
+	playlistCount: number,
+	/**  対応する曲が1つもなく、作らなかったプレイリストの数 */
+	skippedPlaylistCount: number,
 };
 
 /**  プレイリストをM3U8へ書き出した結果 */
