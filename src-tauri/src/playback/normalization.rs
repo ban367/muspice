@@ -1,7 +1,7 @@
 //! 音量の正規化（ReplayGain）の補正量の計算
 //!
-//! audio要素での再生で使っているフロントエンドの`normalizationGain`
-//! （`src/lib/utils/normalization.ts`）と同じ計算をする。
+//! タグから読んだゲインとピーク（`ReplayGain`）と、設定（トラック単位 / アルバム単位）から、
+//! 曲にかける倍率を決める（考え方は`docs/design/decisions.md`のADR-012）。
 
 use crate::models::ReplayGain;
 use crate::settings::VolumeNormalization;

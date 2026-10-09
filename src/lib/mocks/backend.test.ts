@@ -548,7 +548,7 @@ describe('転送先デバイス', () => {
   });
 });
 
-describe('ネイティブの再生エンジン', () => {
+describe('再生エンジン', () => {
   afterEach(() => {
     vi.useRealTimers();
   });
@@ -597,20 +597,13 @@ describe('ネイティブの再生エンジン', () => {
     expect(devices.filter((device) => device.isDefault)).toHaveLength(1);
   });
 
-  it('再生エンジンと出力デバイスの設定を保存する', async () => {
+  it('出力デバイスの設定を保存する', async () => {
     const settings = await commands.getSettings();
-    expect(settings).toMatchObject({ playbackEngine: 'webView', outputDeviceId: null });
+    expect(settings.outputDeviceId).toBeNull();
 
     const [, device] = await commands.getOutputDevices();
-    await commands.saveSettings({
-      ...settings,
-      playbackEngine: 'native',
-      outputDeviceId: device.id
-    });
-    expect(await commands.getSettings()).toMatchObject({
-      playbackEngine: 'native',
-      outputDeviceId: device.id
-    });
+    await commands.saveSettings({ ...settings, outputDeviceId: device.id });
+    expect((await commands.getSettings()).outputDeviceId).toBe(device.id);
 
     await expect(commands.saveSettings({ ...settings, outputDeviceId: '' })).rejects.toMatchObject({
       code: 'VALIDATION'

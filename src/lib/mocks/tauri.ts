@@ -12,12 +12,11 @@
  * 数万曲のライブラリでの動作は、URLに`?mockTracks=50000`を付けて開くと確認できる
  * （フィクスチャに加えて、指定した数のトラックを生成する）。
  *
- * ネイティブの再生エンジンでの動作は、URLに`?mockEngine=native`を付けて開くと確認できる
- * （設定の「再生エンジン」をネイティブにした状態で始まる。音は鳴らず、再生位置だけが進む）。
+ * 音は鳴らない。再生エンジンのコマンドと通知は`playbackEngine.ts`が再現し、再生位置と
+ * 曲の切り替わりだけが、時計に合わせて進む。
  */
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
 import { createMockBackend } from './backend';
-import { createToneWav } from './media';
 
 /** アートがないトラックに返すURL（読み込みエラーになり、実アプリの404と同じ扱いになる） */
 const MISSING_ALBUM_ART_URL = 'data:image/png;base64,';
@@ -86,12 +85,6 @@ function requestedExtraTrackCount(): number {
     : 0;
 }
 
-/** URLの`mockEngine`パラメータで指定された、再生エンジンの設定の初期値 */
-function requestedPlaybackEngine(): 'native' | undefined {
-  const requested = new URLSearchParams(window.location.search).get('mockEngine');
-  return requested === 'native' ? 'native' : undefined;
-}
-
 export function setupTauriMock(): void {
   // イベントの購読はここで管理する。公式のshouldMockEventsはunlisten時に
   // 購読を解除しないため、解除済みのコールバックへ送信して警告が出てしまう
@@ -105,11 +98,7 @@ export function setupTauriMock(): void {
     }
   }
 
-  const backend = createMockBackend({
-    emit,
-    extraTrackCount: requestedExtraTrackCount(),
-    playbackEngine: requestedPlaybackEngine()
-  });
+  const backend = createMockBackend({ emit, extraTrackCount: requestedExtraTrackCount() });
 
   mockWindows('main');
   mockIPC((cmd, payload) => {
@@ -150,20 +139,10 @@ export function setupTauriMock(): void {
     return backend.invoke(cmd, args);
   });
 
-  // 実ファイルの代わりに、パスごとに音程の異なる短いトーンを再生する
   // アルバムアート（albumartプロトコル）はモックバックエンドが生成した画像を返す
-  const audioUrls = new Map<string, string>();
-  tauriInternals().convertFileSrc = (filePath, protocol = 'asset') => {
-    if (protocol === 'albumart') {
-      return backend.albumArtUrl(filePath) ?? MISSING_ALBUM_ART_URL;
-    }
-    let url = audioUrls.get(filePath);
-    if (!url) {
-      url = URL.createObjectURL(new Blob([createToneWav(filePath)], { type: 'audio/wav' }));
-      audioUrls.set(filePath, url);
-    }
-    return url;
-  };
+  // （アプリが`convertFileSrc`で作るURLは、アルバムアートだけ）
+  tauriInternals().convertFileSrc = (trackId) =>
+    backend.albumArtUrl(trackId) ?? MISSING_ALBUM_ART_URL;
 
   window.__MUSPICE_MOCK__ = {
     emit,

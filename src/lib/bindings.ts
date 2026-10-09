@@ -157,14 +157,6 @@ export const commands = {
 	removeTrackFromPlaylist: (playlistId: string, trackId: string) => __TAURI_INVOKE<null>("remove_track_from_playlist", { playlistId, trackId }),
 	/**  プレイリスト内のトラックを並び替え */
 	reorderPlaylistTracks: (playlistId: string, trackIds: string[]) => __TAURI_INVOKE<null>("reorder_playlist_tracks", { playlistId, trackIds }),
-	/**
-	 *  トラックのファイルパスを取得
-	 * 
-	 *  asset protocolの静的スコープは空にしてあるため、ここで返すファイルだけを
-	 *  その都度スコープへ追加する。これによりWebViewから`convertFileSrc`で読めるのは
-	 *  ライブラリに登録済みのトラックに限られる。
-	 */
-	getTrackFilePath: (trackId: string) => __TAURI_INVOKE<string>("get_track_file_path", { trackId }),
 	/**  現在再生中のトラックIDを設定 */
 	setCurrentTrack: (trackId: string | null) => __TAURI_INVOKE<null>("set_current_track", { trackId }),
 	/**  現在再生中のトラック情報を取得 */
@@ -550,15 +542,8 @@ export type OutputDevice = {
 	isDefault: boolean,
 };
 
-/**  再生に使うエンジン */
-export type PlaybackEngineKind = 
-/**  WebViewのaudio要素（これまでの再生） */
-"webView" | 
-/**  ネイティブの再生エンジン（`playback`。出力デバイスを選べる） */
-"native";
-
 /**
- *  ネイティブの再生エンジン（`playback`）からの通知
+ *  再生エンジン（`playback`）からの通知
  * 
  *  `token`は、フロントエンドが再生する曲ごとに振った番号（`playback_play` / `playback_set_next`で
  *  渡したもの）。曲を切り替えた後に届いた、前の曲の通知を見分けるために使う。
@@ -654,9 +639,7 @@ export type Settings = {
 	gaplessPlayback: boolean,
 	/**  クロスフェードの秒数（0でクロスフェードしない） */
 	crossfadeSeconds: number,
-	/**  再生に使うエンジン */
-	playbackEngine: PlaybackEngineKind,
-	/**  出力デバイスのID（ネイティブの再生エンジンだけが使う。nullはOSの既定のデバイス） */
+	/**  出力デバイスのID（nullはOSの既定のデバイス） */
 	outputDeviceId: string | null,
 	/**  ライブラリフォルダを監視し、ファイルの変更を自動で反映する */
 	watchLibraryFolders: boolean,

@@ -26,7 +26,6 @@ export type {
   LibraryFolderList,
   Metadata,
   OutputDevice,
-  PlaybackEngineKind,
   PlaybackEvent,
   Playlist,
   PlaylistTrack,
