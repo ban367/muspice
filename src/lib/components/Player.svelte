@@ -12,11 +12,13 @@
   } from '#lib/stores/playback.svelte.js';
   import { useQueryClient } from '@tanstack/svelte-query';
   import { useSettingsQuery } from '#lib/queries/settings.js';
+  import { useFavoriteTracksQuery } from '#lib/queries/tracks.js';
   import { events, type PlaybackControl } from '#lib/bindings.js';
   import { onMount } from 'svelte';
   import AlbumArt from './AlbumArt.svelte';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import MarqueeText from './MarqueeText.svelte';
+  import FavoriteButton from './library/FavoriteButton.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   let progressBar = $state<HTMLElement>();
@@ -56,6 +58,11 @@
 
   // 再生中トラックのアルバムアート
   const currentArtUrl = $derived(albumArtUrl(player.currentTrack?.id));
+
+  // 再生中の曲がお気に入りかどうか。再生キューの曲は、キューに入れた時点の内容のため、
+  // お気に入りの一覧（変更のたびに取り直される）から調べる
+  const favoritesQuery = useFavoriteTracksQuery();
+  const favoriteIds = $derived(new Set((favoritesQuery.data ?? []).map((track) => track.id)));
 
   /**
    * バー上のマウス位置を0〜1の割合に変換
@@ -281,6 +288,11 @@
           class="text-xs text-text-secondary"
         />
       </div>
+      <FavoriteButton
+        trackId={player.currentTrack.id}
+        isFavorite={favoriteIds.has(player.currentTrack.id)}
+        size="medium"
+      />
     </div>
 
     <!-- 再生コントロール -->

@@ -16,7 +16,7 @@ import type {
 import { handleError, showSuccess, showWarning } from '#lib/stores/error.svelte.js';
 import { queryKeys } from './keys';
 import { CACHE_POLICY, withErrorToast } from './shared';
-import { patchTrackInCache } from './trackCache';
+import { patchTrackInCache, patchTracksInCache } from './trackCache';
 import { m } from '#lib/i18n/i18n.svelte.js';
 
 // 呼び出し側の利便性のため、このモジュールからも型を再エクスポートする
@@ -138,7 +138,7 @@ export function useUniqueGenresQuery() {
 }
 
 /**
- * お気に入りトラック一覧を取得するクエリ
+ * お気に入りトラック一覧を取得するクエリ（最近お気に入りにした順）
  */
 export function useFavoriteTracksQuery() {
   return createQuery(() => ({
@@ -305,18 +305,22 @@ export async function fetchGroupTracks(
 // ========== 再生統計ミューテーション ==========
 
 /**
- * お気に入りをトグルするミューテーション
+ * 曲をお気に入りにする・お気に入りから外すミューテーション（複数の曲をまとめて指定できる）
+ *
+ * 成功したら、キャッシュにあるその曲のお気に入りの状態を書き換える（曲の一覧は取り直さない）。
  */
-export function useToggleFavoriteMutation() {
+export function useSetFavoriteMutation() {
   const queryClient = useQueryClient();
 
   return createMutation(() => ({
-    mutationFn: async (trackId: string) => {
-      return withErrorToast(m.operations.toggleFavorite, () => commands.toggleFavorite(trackId));
+    mutationFn: async ({ trackIds, favorite }: { trackIds: string[]; favorite: boolean }) => {
+      await withErrorToast(m.operations.setFavorite, () =>
+        commands.setFavorite(trackIds, favorite)
+      );
     },
-    onSuccess: (isFavorite, trackId) => {
-      patchTrackInCache(queryClient, trackId, { isFavorite });
-      // お気に入りの一覧は、入っている曲が変わるため取り直す
+    onSuccess: (_result, { trackIds, favorite }) => {
+      patchTracksInCache(queryClient, trackIds, { isFavorite: favorite });
+      // お気に入りの一覧は、入っている曲と並びが変わるため取り直す
       queryClient.invalidateQueries({ queryKey: queryKeys.tracks.favorites });
     }
   }));

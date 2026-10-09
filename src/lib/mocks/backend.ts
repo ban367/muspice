@@ -288,6 +288,10 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     ...createBulkTracks(options.extraTrackCount ?? 0)
   ];
   let playlists: Playlist[] = createFixturePlaylists();
+  // お気に入りにした日時（フィクスチャのお気に入りは、曲を追加した日時にする）
+  const favoritedAt = new Map(
+    tracks.filter((track) => track.isFavorite).map((track) => [track.id, track.createdAt])
+  );
   // 再生履歴（新しい順）
   let playHistory: PlayHistoryEntry[] = createFixturePlayHistory(tracks, Date.now());
   let currentTrackId: string | null = null;
@@ -1061,12 +1065,21 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       console.info('[mock] プロジェクトのページを開く操作は無視しました');
       return null;
     },
-    toggleFavorite: (trackId) => {
-      validateTrackId(trackId);
-      const track = findTrack(trackId);
-      track.isFavorite = !track.isFavorite;
-      track.updatedAt = now();
-      return track.isFavorite;
+    setFavorite: (trackIds, favorite) => {
+      trackIds.forEach(validateTrackId);
+      // 見つからないトラックがあれば、1曲も変えない
+      const targets = [...new Set(trackIds)].map(findTrack);
+      const timestamp = now();
+      for (const track of targets) {
+        if (favorite) {
+          // すでにお気に入りの曲は、お気に入りにした日時を変えない
+          if (!track.isFavorite || !favoritedAt.has(track.id)) favoritedAt.set(track.id, timestamp);
+        } else {
+          favoritedAt.delete(track.id);
+        }
+        track.isFavorite = favorite;
+      }
+      return null;
     },
     setRating: (trackId, rating) => {
       validateTrackId(trackId);
@@ -1101,7 +1114,13 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     getFavoriteTracks: () =>
       tracks
         .filter((track) => track.isFavorite)
-        .sort((a, b) => compareAsc(b.updatedAt, a.updatedAt)),
+        // 最近お気に入りにした順（まとめてお気に入りにした曲は、アルバムの中の順）
+        .sort(
+          (a, b) =>
+            compareAsc(favoritedAt.get(b.id) ?? null, favoritedAt.get(a.id) ?? null) ||
+            compareAsc(a.album, b.album) ||
+            (a.trackNumber ?? 0) - (b.trackNumber ?? 0)
+        ),
     getMostPlayedTracks: (limit) =>
       tracks
         .filter((track) => track.playCount > 0)

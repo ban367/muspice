@@ -272,8 +272,13 @@ export const commands = {
 	 *  WebViewから任意のURLを開けないよう、開く先は固定のURLに限る。
 	 */
 	openProjectPage: () => __TAURI_INVOKE<null>("open_project_page"),
-	/**  お気に入りを切り替え */
-	toggleFavorite: (trackId: string) => __TAURI_INVOKE<boolean>("toggle_favorite", { trackId }),
+	/**
+	 *  トラックをお気に入りにする・お気に入りから外す（複数のトラックをまとめて指定できる）
+	 * 
+	 *  お気に入りはタグに持てないため、データベースだけに保存する。
+	 *  見つからないトラックがある場合は`NOT_FOUND`で、1曲も変えない。
+	 */
+	setFavorite: (trackIds: string[], favorite: boolean) => __TAURI_INVOKE<null>("set_favorite", { trackIds, favorite }),
 	/**
 	 *  レーティングを設定（ファイルのタグへ書き込み、同じ値をデータベースに記録する）
 	 * 
@@ -292,7 +297,7 @@ export const commands = {
 	 *  いつ数えるか（再生回数に数える前に、別の曲へ移った時）は、フロントエンドの再生コントローラーが決める。
 	 */
 	incrementSkipCount: (trackId: string) => __TAURI_INVOKE<number>("increment_skip_count", { trackId }),
-	/**  お気に入りトラック一覧を取得 */
+	/**  お気に入りトラック一覧を取得（最近お気に入りにした順。件数の上限はない） */
 	getFavoriteTracks: () => __TAURI_INVOKE<Track[]>("get_favorite_tracks"),
 	/**  最も再生されたトラック一覧を取得 */
 	getMostPlayedTracks: (limit: number | null) => __TAURI_INVOKE<Track[]>("get_most_played_tracks", { limit }),

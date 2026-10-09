@@ -85,10 +85,10 @@ describe('エラー', () => {
       code: 'VALIDATION',
       message: 'レーティングは0から5の間で指定してください'
     });
-    await expect(commands.toggleFavorite('invalid')).rejects.toMatchObject({
+    await expect(commands.setFavorite(['invalid'], true)).rejects.toMatchObject({
       code: 'VALIDATION'
     });
-    await expect(commands.toggleFavorite(mockTrackId(999))).rejects.toMatchObject({
+    await expect(commands.setFavorite([mockTrackId(999)], true)).rejects.toMatchObject({
       code: 'NOT_FOUND'
     });
   });
@@ -220,6 +220,50 @@ describe('トラック', () => {
     const tracks = (await commands.getAllTracks()).filter((track) => ids.includes(track.id));
     expect(tracks.map((track) => track.genre)).toEqual(['Rock', 'Rock']);
     expect(tracks.every((track) => track.artist === 'Aoi Sora')).toBe(true);
+  });
+});
+
+describe('お気に入り', () => {
+  const isFavorite = async (trackId: string) =>
+    (await commands.getAllTracks()).find((track) => track.id === trackId)!.isFavorite;
+
+  it('複数の曲をまとめてお気に入りにし、最近お気に入りにした曲を先に返す', async () => {
+    const before = await commands.getFavoriteTracks();
+    const targets = (await commands.getAllTracks())
+      .filter((track) => !track.isFavorite)
+      .slice(0, 2)
+      .map((track) => track.id);
+
+    await commands.setFavorite(targets, true);
+
+    const favorites = await commands.getFavoriteTracks();
+    expect(favorites).toHaveLength(before.length + 2);
+    expect(
+      favorites
+        .slice(0, 2)
+        .map((track) => track.id)
+        .sort()
+    ).toEqual([...targets].sort());
+    expect(favorites.every((track) => track.isFavorite)).toBe(true);
+  });
+
+  it('お気に入りから外す', async () => {
+    const [first, second] = await commands.getFavoriteTracks();
+
+    await commands.setFavorite([first.id], false);
+
+    expect(await isFavorite(first.id)).toBe(false);
+    expect(await isFavorite(second.id)).toBe(true);
+    expect((await commands.getFavoriteTracks()).some((track) => track.id === first.id)).toBe(false);
+  });
+
+  it('見つからない曲があれば、1曲も変えない', async () => {
+    const target = (await commands.getAllTracks()).find((track) => !track.isFavorite)!.id;
+
+    await expect(commands.setFavorite([target, mockTrackId(999)], true)).rejects.toMatchObject({
+      code: 'NOT_FOUND'
+    });
+    expect(await isFavorite(target)).toBe(false);
   });
 });
 

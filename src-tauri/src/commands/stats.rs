@@ -9,13 +9,22 @@ use crate::validation::validate_track_id;
 use std::path::Path;
 use tauri::State;
 
-/// お気に入りを切り替え
+/// トラックをお気に入りにする・お気に入りから外す（複数のトラックをまとめて指定できる）
+///
+/// お気に入りはタグに持てないため、データベースだけに保存する。
+/// 見つからないトラックがある場合は`NOT_FOUND`で、1曲も変えない。
 #[tauri::command]
 #[specta::specta]
-pub async fn toggle_favorite(track_id: String, state: State<'_, AppState>) -> AppResult<bool> {
-    validate_track_id(&track_id)?;
+pub async fn set_favorite(
+    track_ids: Vec<String>,
+    favorite: bool,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    for track_id in &track_ids {
+        validate_track_id(track_id)?;
+    }
 
-    state.with_db(|db| crate::repository::toggle_track_favorite(db, &track_id))
+    state.with_db(|db| crate::repository::set_tracks_favorite(db, &track_ids, favorite))
 }
 
 /// レーティングを設定（ファイルのタグへ書き込み、同じ値をデータベースに記録する）
@@ -82,7 +91,7 @@ pub async fn increment_skip_count(track_id: String, state: State<'_, AppState>) 
     state.with_db(|db| crate::repository::increment_track_skip_count(db, &track_id))
 }
 
-/// お気に入りトラック一覧を取得
+/// お気に入りトラック一覧を取得（最近お気に入りにした順。件数の上限はない）
 #[tauri::command]
 #[specta::specta]
 pub async fn get_favorite_tracks(state: State<'_, AppState>) -> AppResult<Vec<Track>> {

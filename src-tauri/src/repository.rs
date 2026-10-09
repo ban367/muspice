@@ -266,7 +266,8 @@ pub fn try_find_file_path_by_track_id(
 /// お気に入りトラックを取得
 pub fn find_favorite_tracks(conn: &Connection) -> AppResult<Vec<Track>> {
     let sql = format!(
-        "SELECT {} FROM tracks WHERE is_favorite = 1 ORDER BY updated_at DESC",
+        "SELECT {} FROM tracks WHERE COALESCE(is_favorite, 0) != 0
+         ORDER BY favorited_at DESC, album, {ALBUM_TRACK_ORDER}",
         TRACK_COLUMNS
     );
     query_tracks(conn, &sql, &[])
@@ -1175,34 +1176,56 @@ pub fn delete_track(conn: &Connection, track_id: &str) -> AppResult<usize> {
         .map_err(|e| AppError::Database(format!("トラックの削除に失敗しました: {}", e)))
 }
 
-/// お気に入り状態をトグルし、新しい状態を返す
-pub fn toggle_track_favorite(conn: &Connection, track_id: &str) -> AppResult<bool> {
+/// トラックをお気に入りにする・お気に入りから外す（複数のトラックをまとめて）
+///
+/// お気に入りにした日時も記録する（すでにお気に入りの曲は、元の日時のまま）。再生統計と同じく
+/// タグには書かず、`updated_at`も変えない。
+/// 見つからないトラックがある場合は`NotFound`で、1曲も変えない。
+pub fn set_tracks_favorite(
+    conn: &mut Connection,
+    track_ids: &[String],
+    favorite: bool,
+) -> AppResult<()> {
+    // 同じIDが2回渡されても、1曲として数える
+    let mut unique_ids: Vec<&str> = track_ids.iter().map(String::as_str).collect();
+    unique_ids.sort_unstable();
+    unique_ids.dedup();
+
     let now = chrono::Utc::now().to_rfc3339();
+    let favorite_value = i32::from(favorite);
 
-    // 反転と読み出しを1文で行う
-    // SELECTしてからUPDATEすると、その間に別の更新が入った場合に
-    // 古い値を元にした反転結果で上書きしてしまう
-    //
-    // is_favoriteに値域制約はないため、0以外はすべて「お気に入り」とみなして
-    // 0を返すCASEにしている（1 - is_favorite だと異常値から負値が生じる）
-    let new_value: i32 = conn
-        .query_row(
-            "UPDATE tracks
-             SET is_favorite = CASE WHEN COALESCE(is_favorite, 0) = 0 THEN 1 ELSE 0 END,
-                 updated_at = ?1
-             WHERE id = ?2
-             RETURNING is_favorite",
-            rusqlite::params![now, track_id],
-            |row| row.get(0),
-        )
-        .map_err(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => {
-                AppError::NotFound("トラックが見つかりません".to_string())
-            }
-            _ => AppError::Database(format!("お気に入りの更新に失敗しました: {}", e)),
-        })?;
+    let tx = conn
+        .transaction()
+        .map_err(|e| AppError::Database(format!("トランザクションの開始に失敗しました: {}", e)))?;
 
-    Ok(new_value == 1)
+    let mut updated = 0;
+    for chunk in unique_ids.chunks(TRACKS_BY_ID_CHUNK) {
+        let placeholders = vec!["?"; chunk.len()].join(", ");
+        // is_favoriteに値域制約はないため、0以外はすべて「お気に入り」とみなす
+        let sql = format!(
+            "UPDATE tracks SET
+                favorited_at = CASE
+                    WHEN ?1 = 0 THEN NULL
+                    WHEN COALESCE(is_favorite, 0) != 0 AND favorited_at IS NOT NULL THEN favorited_at
+                    ELSE ?2
+                END,
+                is_favorite = ?1
+             WHERE id IN ({placeholders})"
+        );
+        let mut params: Vec<&dyn rusqlite::ToSql> = vec![&favorite_value, &now];
+        params.extend(chunk.iter().map(|id| id as &dyn rusqlite::ToSql));
+        updated += tx
+            .execute(&sql, params.as_slice())
+            .map_err(|e| AppError::Database(format!("お気に入りの更新に失敗しました: {}", e)))?;
+    }
+
+    if updated != unique_ids.len() {
+        // コミットせずに返すため、ここまでの変更は取り消される
+        return Err(AppError::NotFound("トラックが見つかりません".to_string()));
+    }
+
+    tx.commit()
+        .map_err(|e| AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e)))
 }
 
 /// レーティングを設定（ファイルのタグへ書き込んだ後に、同じ値を記録する）
@@ -1782,57 +1805,117 @@ mod tests {
     }
 
     #[test]
-    fn test_find_favorite_tracks() {
-        let conn = setup_test_db();
+    fn test_find_favorite_tracks_newest_first() {
+        let mut conn = setup_test_db();
         insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
         insert_test_track(&conn, "t2", "曲B", "アーティストY", "アルバム2", "ポップ");
+        insert_test_track(&conn, "t3", "曲C", "アーティストZ", "アルバム3", "ジャズ");
+        assert!(find_favorite_tracks(&conn).unwrap().is_empty());
 
-        // t1をお気に入りに設定
-        conn.execute("UPDATE tracks SET is_favorite = 1 WHERE id = 't1'", [])
-            .unwrap();
+        set_tracks_favorite(&mut conn, &["t1".to_string()], true).unwrap();
+        // 後からお気に入りにした曲を先にする
+        conn.execute(
+            "UPDATE tracks SET favorited_at = '2026-01-01T00:00:00+00:00' WHERE id = 't1'",
+            [],
+        )
+        .unwrap();
+        set_tracks_favorite(&mut conn, &["t3".to_string()], true).unwrap();
 
         let tracks = find_favorite_tracks(&conn).unwrap();
-        assert_eq!(tracks.len(), 1);
-        assert_eq!(tracks[0].id, "t1");
-        assert!(tracks[0].is_favorite);
+        assert_eq!(track_ids(&tracks), vec!["t3", "t1"]);
+        assert!(tracks.iter().all(|track| track.is_favorite));
     }
 
     #[test]
-    fn test_toggle_track_favorite() {
-        let conn = setup_test_db();
-        insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
+    fn test_find_favorite_tracks_keeps_album_order_for_tracks_favorited_together() {
+        let mut conn = setup_test_db();
+        for (id, title) in [("t1", "曲C"), ("t2", "曲A"), ("t3", "曲B")] {
+            insert_test_track(&conn, id, title, "アーティストX", "アルバム1", "ロック");
+        }
+        set_track_position(&conn, "t1", Some(1), Some(3), None);
+        set_track_position(&conn, "t2", Some(1), Some(1), None);
+        set_track_position(&conn, "t3", Some(1), Some(2), None);
 
-        // 未設定 → お気に入り
-        assert!(toggle_track_favorite(&conn, "t1").unwrap());
-        assert!(find_track_by_id(&conn, "t1").unwrap().is_favorite);
+        // アルバムをまとめてお気に入りにした場合は、アルバムの中の順に並べる
+        let ids: Vec<String> = ["t1", "t2", "t3"].iter().map(|id| id.to_string()).collect();
+        set_tracks_favorite(&mut conn, &ids, true).unwrap();
 
-        // お気に入り → 解除
-        assert!(!toggle_track_favorite(&conn, "t1").unwrap());
-        assert!(!find_track_by_id(&conn, "t1").unwrap().is_favorite);
-
-        // 存在しないトラックはNotFound
-        let result = toggle_track_favorite(&conn, "nonexistent");
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("トラックが見つかりません")
-        );
+        let tracks = find_favorite_tracks(&conn).unwrap();
+        assert_eq!(track_ids(&tracks), vec!["t2", "t3", "t1"]);
     }
 
-    /// is_favoriteに0/1以外が入っていても、負値を作らず0（解除）に倒す
+    #[test]
+    fn test_set_tracks_favorite() {
+        let mut conn = setup_test_db();
+        insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
+        insert_test_track(&conn, "t2", "曲B", "アーティストY", "アルバム2", "ポップ");
+        let before = find_track_by_id(&conn, "t1").unwrap();
+        let favorited_at = |conn: &Connection, id: &str| -> Option<String> {
+            conn.query_row(
+                "SELECT favorited_at FROM tracks WHERE id = ?1",
+                [id],
+                |row| row.get(0),
+            )
+            .unwrap()
+        };
+
+        // 同じIDを2回渡しても、1曲として扱う
+        let ids = vec!["t1".to_string(), "t2".to_string(), "t1".to_string()];
+        set_tracks_favorite(&mut conn, &ids, true).unwrap();
+        let track = find_track_by_id(&conn, "t1").unwrap();
+        assert!(track.is_favorite);
+        assert!(find_track_by_id(&conn, "t2").unwrap().is_favorite);
+        // タグに書かない項目のため、更新日時は変えない
+        assert_eq!(track.updated_at, before.updated_at);
+
+        // すでにお気に入りの曲は、お気に入りにした日時を変えない
+        conn.execute(
+            "UPDATE tracks SET favorited_at = '2026-01-01T00:00:00+00:00' WHERE id = 't1'",
+            [],
+        )
+        .unwrap();
+        set_tracks_favorite(&mut conn, &ids, true).unwrap();
+        assert_eq!(
+            favorited_at(&conn, "t1").as_deref(),
+            Some("2026-01-01T00:00:00+00:00")
+        );
+
+        // 外すと、お気に入りにした日時も消す
+        set_tracks_favorite(&mut conn, &["t1".to_string()], false).unwrap();
+        assert!(!find_track_by_id(&conn, "t1").unwrap().is_favorite);
+        assert_eq!(favorited_at(&conn, "t1"), None);
+        assert!(find_track_by_id(&conn, "t2").unwrap().is_favorite);
+
+        // 何も渡さなければ、何もしない
+        set_tracks_favorite(&mut conn, &[], true).unwrap();
+    }
+
+    #[test]
+    fn test_set_tracks_favorite_changes_nothing_when_a_track_is_missing() {
+        let mut conn = setup_test_db();
+        insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
+
+        let ids = vec!["t1".to_string(), "nonexistent".to_string()];
+        let result = set_tracks_favorite(&mut conn, &ids, true);
+
+        assert!(matches!(result, Err(AppError::NotFound(_))));
+        assert!(!find_track_by_id(&conn, "t1").unwrap().is_favorite);
+    }
+
+    /// is_favoriteに0/1以外が入っていても、お気に入りとして扱う
     ///
     /// カラムに値域制約がないため、外部要因で異常値が入り得る前提で検証する。
     #[test]
-    fn test_toggle_track_favorite_with_unexpected_value() {
-        let conn = setup_test_db();
+    fn test_favorite_with_unexpected_value() {
+        let mut conn = setup_test_db();
         insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
         conn.execute("UPDATE tracks SET is_favorite = 2 WHERE id = 't1'", [])
             .unwrap();
 
-        // 0以外はお気に入り扱いのため、トグルすると解除される
-        assert!(!toggle_track_favorite(&conn, "t1").unwrap());
+        assert!(find_track_by_id(&conn, "t1").unwrap().is_favorite);
+        assert_eq!(find_favorite_tracks(&conn).unwrap().len(), 1);
 
+        set_tracks_favorite(&mut conn, &["t1".to_string()], false).unwrap();
         let stored: i32 = conn
             .query_row(
                 "SELECT is_favorite FROM tracks WHERE id = 't1'",

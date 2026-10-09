@@ -38,7 +38,7 @@ use commands::{
     register_sync_device, relink_sync_device, remove_library_folder, remove_missing_tracks,
     remove_sync_device, remove_track_from_playlist, rename_playlist, reorder_playlist_tracks,
     rescan_library_folder, run_device_sync, save_playback_state, save_settings, search_tracks,
-    set_current_track, set_now_playing, set_rating, show_in_folder, toggle_favorite,
+    set_current_track, set_favorite, set_now_playing, set_rating, show_in_folder,
     update_multiple_tracks_metadata, update_sync_device, update_track_metadata,
     write_library_metadata_to_files,
 };
@@ -111,7 +111,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             set_now_playing,
             show_in_folder,
             open_project_page,
-            toggle_favorite,
+            set_favorite,
             set_rating,
             increment_play_count,
             increment_skip_count,
