@@ -30,7 +30,16 @@ export interface Track {
   createdAt: string;
   updatedAt: string;
   replayGain: ReplayGain;
+  sortTags: SortTags;
   isMissing: boolean; // ファイルが見つからない曲（再スキャンで見つからなくなり、利用者が外すまで残す）
+}
+
+// 並び順に使う値（ソート用のタグ。読み仮名など）。値のない項目はnullで、表示用の値で並べる
+export interface SortTags {
+  title: string | null;
+  artist: string | null;
+  album: string | null;
+  albumArtist: string | null;
 }
 
 // 音量の正規化に使うゲイン（タグにない項目はnull）
@@ -42,7 +51,7 @@ export interface ReplayGain {
 }
 
 // 曲のタグ（編集画面で扱う項目）。DBに保存するのは、title・artist・album・albumArtist・genre・
-// year・trackNumber・discNumberだけで、そのほかはファイルのタグだけにある
+// year・trackNumber・discNumberと、並び順に使う値（〜Sort）だけで、そのほかはファイルのタグだけにある
 export interface Metadata {
   title?: string;
   artist?: string;
@@ -60,6 +69,10 @@ export interface Metadata {
   compilation?: boolean;
   comment?: string;
   lyrics?: string; // 時刻のないテキスト
+  titleSort?: string; // 並び順に使う値（読み仮名など）
+  artistSort?: string;
+  albumSort?: string;
+  albumArtistSort?: string;
 }
 
 export interface Playlist {
@@ -95,16 +108,16 @@ export interface Playlist {
 
 ### テーブル
 
-| テーブル                | 用途                           | 主なカラム                                                                                                                                                                                                                                                                                               |
-| ----------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tracks`                | トラック本体                   | `id`, `file_path`, `title`, `artist`, `album`, `album_artist`, `album_artist_read`, `genre`, `year`, `track_number`, `disc_number`, `duration`, `file_size`, `file_modified_at`, `missing_since`, `is_favorite`, `favorited_at`, `rating`, `play_count`, `skip_count`, `last_played_at`, `replay_gain_*` |
-| `library_folders`       | ライブラリフォルダ             | `id`, `path`（UNIQUE）, `added_at`, `last_scanned_at`                                                                                                                                                                                                                                                    |
-| `playlists`             | プレイリスト本体               | `id`, `name`, `description`, `created_at`, `updated_at`                                                                                                                                                                                                                                                  |
-| `playlist_tracks`       | プレイリスト内順序             | `playlist_id`, `track_id`, `position`, `added_at`                                                                                                                                                                                                                                                        |
-| `play_history`          | 再生履歴                       | `id`, `track_id`, `played_at`                                                                                                                                                                                                                                                                            |
-| `tracks_fts`            | 全文検索（FTS5・trigram）      | `text`（タイトル・アーティスト・アルバム・ジャンル・アルバムアーティストを、検索用に正規化してつないだ文字列）。`rowid`は`tracks`と同じ                                                                                                                                                                  |
-| `sync_devices`          | 転送先デバイス                 | `id`, `name`, `path`, `sync_all`, `remove_unselected`, `created_at`, `last_synced_at`                                                                                                                                                                                                                    |
-| `sync_device_playlists` | デバイスに同期するプレイリスト | `device_id`, `playlist_id`                                                                                                                                                                                                                                                                               |
+| テーブル                | 用途                           | 主なカラム                                                                                                                                                                                                                                                                                                                                                                                 |
+| ----------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `tracks`                | トラック本体                   | `id`, `file_path`, `title`, `artist`, `album`, `album_artist`, `album_artist_read`, `title_sort`, `artist_sort`, `album_sort`, `album_artist_sort`, `sort_tags_read`, `genre`, `year`, `track_number`, `disc_number`, `duration`, `file_size`, `file_modified_at`, `missing_since`, `is_favorite`, `favorited_at`, `rating`, `play_count`, `skip_count`, `last_played_at`, `replay_gain_*` |
+| `library_folders`       | ライブラリフォルダ             | `id`, `path`（UNIQUE）, `added_at`, `last_scanned_at`                                                                                                                                                                                                                                                                                                                                      |
+| `playlists`             | プレイリスト本体               | `id`, `name`, `description`, `created_at`, `updated_at`                                                                                                                                                                                                                                                                                                                                    |
+| `playlist_tracks`       | プレイリスト内順序             | `playlist_id`, `track_id`, `position`, `added_at`                                                                                                                                                                                                                                                                                                                                          |
+| `play_history`          | 再生履歴                       | `id`, `track_id`, `played_at`                                                                                                                                                                                                                                                                                                                                                              |
+| `tracks_fts`            | 全文検索（FTS5・trigram）      | `text`（タイトル・アーティスト・アルバム・ジャンル・アルバムアーティストを、検索用に正規化してつないだ文字列）。`rowid`は`tracks`と同じ                                                                                                                                                                                                                                                    |
+| `sync_devices`          | 転送先デバイス                 | `id`, `name`, `path`, `sync_all`, `remove_unselected`, `created_at`, `last_synced_at`                                                                                                                                                                                                                                                                                                      |
+| `sync_device_playlists` | デバイスに同期するプレイリスト | `device_id`, `playlist_id`                                                                                                                                                                                                                                                                                                                                                                 |
 
 ### インデックス/制約
 
@@ -118,7 +131,9 @@ export interface Playlist {
 - `sync_devices.id` はデバイス側の管理ファイル（後述）の `deviceId` と同じ値。デバイスにコピーしたファイルの一覧はDBに持たず、管理ファイルに記録する
 - `tracks.missing_since` は、再スキャンでファイルが見つからなくなった日時（見つかる間はNULL）。見つからない曲はライブラリから外さず、`Track.isMissing`で区別する（ADR-023）。対応付けの候補として取得するため、NULLでない行だけのインデックス（`idx_tracks_missing`）を持つ
 - `tracks.album_artist` はファイルのタグから読んだアルバムアーティスト（空の値はNULL）。アルバム・アーティストの一覧は`COALESCE(album_artist, artist)`（アルバムアーティスト。なければ曲のアーティスト）でまとめる（ADR-022）。アーティストの詳細の絞り込み用に、同じ式のインデックス（`idx_tracks_album_artist`）を持つ
-- `tracks.album_artist_read` は、アルバムアーティストをファイルから読んだか（0/1）。インポート・再スキャン・`refresh_library_metadata`でファイルを読んだトラックは1にする。列を追加する前に登録したトラックは0で、起動時にバックグラウンドで読み込む（後述の「既存のトラックのアルバムアーティストの読み込み」）
+- `tracks.album_artist_read` は、アルバムアーティストをファイルから読んだか（0/1）。インポート・再スキャン・`refresh_library_metadata`でファイルを読んだトラックは1にする。列を追加する前に登録したトラックは0で、起動時にバックグラウンドで読み込む（後述の「既存のトラックの、後から追加した項目の読み込み」）
+- `tracks.title_sort` / `artist_sort` / `album_sort` / `album_artist_sort` は、ファイルのタグから読んだ、並び順に使う値（ソート用のタグ。読み仮名など。前後の空白を除き、空の値はNULL）。ID3v2は`TSOT`・`TSOP`・`TSOA`・`TSO2`、Vorbisコメントは`TITLESORT`・`ARTISTSORT`・`ALBUMSORT`・`ALBUMARTISTSORT`、MP4は`sonm`・`soar`・`soal`・`soaa`（ADR-036）
+- `tracks.sort_tags_read` は、ソート用のタグをファイルから読んだか（0/1）。扱いは`album_artist_read`と同じ
 - `tracks_fts` は `tracks` とINSERT/UPDATE/DELETEトリガーで同期する。UPDATEは、検索の対象の列（`title`・`artist`・`album`・`genre`・`album_artist`）を変えた時だけ同期する（再生回数・評価などの更新では索引を更新しない）
   - トークナイザーはtrigram（3文字の並びを索引にする）。語の途中の一致（区切りのない日本語を含む）を探せる
   - 入れる文字列は、SQLの関数`search_text(...)`で作る（`search_text.rs`が接続に登録する。NFKC → 小文字 → カタカナをひらがなに、の順で正規化し、項目を改行でつなぐ）。トリガーがこの関数を使うため、アプリの外（`sqlite3`コマンドなど）から`tracks`の対象の列を書き換えると、関数がないエラーになる
@@ -130,6 +145,10 @@ export interface Playlist {
 - アルバム・アーティスト・ジャンルは、一覧（名前・曲数・合計の長さ・代表の曲）と曲を分けて返す。一覧は曲を含まず、曲はそのアルバムなどの分だけを取得する
 - アルバムは「アルバムアーティスト（なければ曲のアーティスト）＋アルバム名」でまとめる。同じ名前でもアーティストが違うアルバムは別のアルバムになり、アルバムアーティストが同じ曲は、曲ごとのアーティストが違っても1つのアルバムになる（コンピレーション・フィーチャリング）。アーティストの一覧も、アルバムアーティスト（なければ曲のアーティスト）でまとめる（ADR-022）
 - アルバムの中の曲の並びは、ディスク番号（ない場合は1） → トラック番号 → タイトルの順（`ALBUM_TRACK_ORDER`）
+- 名前の順の並び（アルバム・アーティスト・ジャンルの一覧、アーティストのアルバム、ジャンルの曲、曲の一覧のタイトル・アーティスト・アルバムでの並び替え）は、並び順に使う値（ソート用のタグ）があればその値で、なければ表示用の名前で並べる（ADR-036）
+  - 比較は、フロントエンドが言語に合わせて行う（`#lib/utils/nameSort`の`Intl.Collator('ja')`。五十音順。ひらがなとカタカナ・大文字と小文字・全角と半角の違いは、ほかが同じ時の順にだけ使う）。先頭の冠詞（The など）は無視しない
+  - 一覧（`AlbumSummary`・`ArtistSummary`・`AlbumGroup`）は、並び順に使う値を`sortName`で返す。アルバムは、アルバムの曲の`album_sort`のうち最初に見つかったもの。アーティストは、まとめたアーティストの読み（アルバムアーティストでまとめた曲は`album_artist_sort`、なければ曲のアーティストが同じ名前の時の`artist_sort`。曲のアーティストでまとめた曲は`artist_sort`）のうち最初に見つかったもの
+  - コマンドが返す一覧の順は、Rust側で正規化（NFKC → 小文字 → カタカナをひらがなに）した値の文字コード順（代表の曲を選ぶ時の順でもある）。画面に出す順は、フロントエンドが上の比較で並べ直したもの
 
 ### 検索
 
@@ -145,31 +164,31 @@ export interface Playlist {
 
 ### ライブラリ取得・検索
 
-| コマンド                           | 引数                                      | 戻り値            | 備考                                                                                                                                                       |
-| ---------------------------------- | ----------------------------------------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `get_all_tracks`                   | なし                                      | `Track[]`         | 全曲。作成日時降順                                                                                                                                         |
-| `search_tracks`                    | `query: string`                           | `Track[]`         | 部分一致の検索（「検索」を参照）。作成日時降順                                                                                                             |
-| `filter_tracks`                    | `filters: { artist?, album?, genre? }`    | `Track[]`         | 完全一致フィルタ。作成日時降順                                                                                                                             |
-| `get_unique_artists/albums/genres` | なし                                      | `string[]`        | フィルタ候補用                                                                                                                                             |
-| `get_albums`                       | なし                                      | `AlbumSummary[]`  | アルバムの一覧（名前順）。`artist`は、アルバムをまとめたアーティスト（アルバムアーティスト。なければ曲のアーティスト）。代表の曲は、アルバムの最初の曲     |
-| `get_album_tracks`                 | `album: string`, `artist: string \| null` | `Track[]`         | アルバムの曲（ディスク番号 → トラック番号 → タイトル）。`artist`には`AlbumSummary`の`artist`を渡す                                                         |
-| `get_artists`                      | なし                                      | `ArtistSummary[]` | アーティストの一覧（アルバムアーティストでまとめる。名前順）。代表の曲は、名前順で最初のアルバムの最初の曲                                                 |
-| `get_artist_albums`                | `artist: string`                          | `AlbumGroup[]`    | アルバムアーティストが一致する曲を、アルバムごとに返す（アルバム名順。曲ごとのアーティストが違う曲も含む）。アルバムのない曲は「不明なアルバム」にまとめる |
-| `get_genres`                       | なし                                      | `GenreSummary[]`  | ジャンルの一覧（名前順）。代表の曲は、ジャンルの最初の曲                                                                                                   |
-| `get_genre_tracks`                 | `genre: string`                           | `Track[]`         | ジャンルの曲（アルバムをまとめるアーティスト → アルバム → アルバムの中の並び）                                                                             |
+| コマンド                           | 引数                                      | 戻り値            | 備考                                                                                                                                                                           |
+| ---------------------------------- | ----------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `get_all_tracks`                   | なし                                      | `Track[]`         | 全曲。作成日時降順                                                                                                                                                             |
+| `search_tracks`                    | `query: string`                           | `Track[]`         | 部分一致の検索（「検索」を参照）。作成日時降順                                                                                                                                 |
+| `filter_tracks`                    | `filters: { artist?, album?, genre? }`    | `Track[]`         | 完全一致フィルタ。作成日時降順                                                                                                                                                 |
+| `get_unique_artists/albums/genres` | なし                                      | `string[]`        | フィルタ候補用                                                                                                                                                                 |
+| `get_albums`                       | なし                                      | `AlbumSummary[]`  | アルバムの一覧（名前の順。「一覧の取得」を参照）。`artist`は、アルバムをまとめたアーティスト（アルバムアーティスト。なければ曲のアーティスト）。代表の曲は、アルバムの最初の曲 |
+| `get_album_tracks`                 | `album: string`, `artist: string \| null` | `Track[]`         | アルバムの曲（ディスク番号 → トラック番号 → タイトル）。`artist`には`AlbumSummary`の`artist`を渡す                                                                             |
+| `get_artists`                      | なし                                      | `ArtistSummary[]` | アーティストの一覧（アルバムアーティストでまとめる。名前の順）。代表の曲は、名前の順で最初のアルバムの最初の曲                                                                 |
+| `get_artist_albums`                | `artist: string`                          | `AlbumGroup[]`    | アルバムアーティストが一致する曲を、アルバムごとに返す（アルバム名順。曲ごとのアーティストが違う曲も含む）。アルバムのない曲は「不明なアルバム」にまとめる                     |
+| `get_genres`                       | なし                                      | `GenreSummary[]`  | ジャンルの一覧（名前順）。代表の曲は、ジャンルの最初の曲                                                                                                                       |
+| `get_genre_tracks`                 | `genre: string`                           | `Track[]`         | ジャンルの曲（アルバムをまとめるアーティスト → アルバム → アルバムの中の並び）                                                                                                 |
 
-一覧（`AlbumSummary`・`ArtistSummary`・`GenreSummary`）は`name`・`trackCount`・`totalDuration`・`representativeTrackId`（アルバムアートの取得に使う）を持ち、曲は含まない（アルバムは`artist`、アーティストは`albumCount`も持つ）。見つからないアルバムなどの曲は、空の一覧を返す。
+一覧（`AlbumSummary`・`ArtistSummary`・`GenreSummary`）は`name`・`trackCount`・`totalDuration`・`representativeTrackId`（アルバムアートの取得に使う）を持ち、曲は含まない（アルバムは`artist`と`sortName`、アーティストは`albumCount`と`sortName`も持つ）。見つからないアルバムなどの曲は、空の一覧を返す。
 
 アルバムは名前だけでは決まらないため、フロントは`name`と`artist`の組（`#lib/utils/albumKey`の`albumKey`）で識別する。
 
-#### 既存のトラックのアルバムアーティストの読み込み（`album_artist_backfill.rs`）
+#### 既存のトラックの、後から追加した項目の読み込み（`tag_backfill.rs`）
 
-アルバムアーティストの列を追加する前に登録したトラック（`album_artist_read = 0`）は、アルバムアーティストが空で、コンピレーションが曲のアーティストごとの別のアルバムに分かれて見える。起動の5秒後に、別スレッドでファイルのタグから読み込む。
+アルバムアーティスト・ソート用のタグの列を追加する前に登録したトラック（`album_artist_read = 0`・`sort_tags_read = 0`）は、それらの値が空で、コンピレーションが曲のアーティストごとの別のアルバムに分かれて見え、読みの順に並ばない。起動の5秒後に、別スレッドでファイルのタグから読み込む（1回のファイルの読み取りで、未読の項目をまとめて読む）。
 
-- 読み込むのはアルバムアーティストだけで、ほかの項目と`updated_at`は変えない（`refresh_library_metadata`と違い、以前のバージョンでDBだけに保存した編集内容を失わない）
-- 200曲ずつ、ファイルの読み取りはDBロックの外で行い、1つのトランザクションで記録する。読み込んだトラックは`album_artist_read`を1にするため、対象がなくなれば次回以降の起動では何もしない
+- 読み込むのは未読の項目だけで、ほかの項目と`updated_at`は変えない（`refresh_library_metadata`と違い、以前のバージョンでDBだけに保存した編集内容を失わない）
+- 200曲ずつ、ファイルの読み取りはDBロックの外で行い、1つのトランザクションで記録する。読み込んだトラックは`album_artist_read`・`sort_tags_read`を1にするため、対象がなくなれば次回以降の起動では何もしない
 - ファイルを読めなかったトラック（外付けドライブが外れているなど）は未読のまま残し、次回の起動で読み直す。途中でアプリを終了した場合も、次回の起動で続きから読み込む
-- アルバムアーティストのあるトラックが1曲でもあれば、終わった時に`LibraryChanged`を送る（一覧のまとめ方が変わるため）
+- 未読だった項目にタグのあるトラックが1曲でもあれば、終わった時に`LibraryChanged`を送る（一覧のまとめ方・並びが変わるため）
 
 ### インポート・削除
 
@@ -332,7 +351,7 @@ export interface Playlist {
 | `update_multiple_tracks_metadata` | `trackIds`, `metadata` | `BulkUpdateResult`    | 値がある項目だけを、各トラックのファイルのタグとDBに反映する。書き込めなかったトラックはDBも変えず、理由を結果に入れて残りを続ける                   |
 | `write_library_metadata_to_files` | なし                   | `WriteMetadataResult` | DBだけにある編集内容・評価をファイルへ書き出し、ファイルを読み直してDBに反映する（以前のバージョンのデータの移行用）。終わると`LibraryChanged`を送る |
 
-- 編集画面の項目のうち、DBに保存するのは一覧・検索に使う項目（タイトル・アーティスト・アルバム・アルバムアーティスト・ジャンル・年・トラック番号・ディスク番号）だけ。作曲者・トラック / ディスクの総数・BPM・グループ・コメント・コンピレーションの印・歌詞は、ファイルのタグだけにあり、編集画面を開く時に`get_track_tags`で読む（ADR-034）
+- 編集画面の項目のうち、DBに保存するのは一覧・検索・並び替えに使う項目（タイトル・アーティスト・アルバム・アルバムアーティスト・ジャンル・年・トラック番号・ディスク番号と、それぞれの読み（並び順に使う値））だけ。作曲者・トラック / ディスクの総数・BPM・グループ・コメント・コンピレーションの印・歌詞は、ファイルのタグだけにあり、編集画面を開く時に`get_track_tags`で読む（ADR-034）
 - `update_track_metadata`（1曲の編集）は、渡した`Metadata`でタグの項目をすべて置き換える。`update_multiple_tracks_metadata`（一括編集）は、値のある項目だけを変える（`compilation: false`は、印を取り除く）
 - タグの書き方: BPMは、ID3v2の`TBPM`・MP4の`tmpo`・Vorbisコメントの`BPM`。歌詞は、ID3v2の`USLT`・Vorbisコメントの`LYRICS`・MP4の`©lyr`（読む時は、Vorbisコメントの`UNSYNCEDLYRICS`も読む）。グループは、ID3v2の`TIT1`・MP4の`©grp`・Vorbisコメントの`GROUPING`
 - `BulkUpdateResult`: `updatedCount`, `failedCount`, `errors[]`
