@@ -1,4 +1,6 @@
-use crate::models::{Playlist, PlaylistTrack};
+use crate::error::AppResult;
+use crate::models::{Playlist, PlaylistTrack, Track};
+use crate::repository::{TRACK_COLUMNS, query_tracks};
 use chrono::Utc;
 use rusqlite::{Connection, Result};
 use std::collections::HashMap;
@@ -79,6 +81,20 @@ pub fn get_all_playlists(conn: &Connection) -> Result<Vec<Playlist>> {
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(playlists)
+}
+
+/// プレイリストの曲を取得（プレイリストの中の並び順）
+///
+/// プレイリストが見つからない場合は、空の一覧を返す。
+pub fn get_playlist_tracks(conn: &Connection, playlist_id: &str) -> AppResult<Vec<Track>> {
+    let sql = format!(
+        "SELECT {} FROM tracks
+         JOIN playlist_tracks ON playlist_tracks.track_id = tracks.id
+         WHERE playlist_tracks.playlist_id = ?1
+         ORDER BY playlist_tracks.position",
+        TRACK_COLUMNS
+    );
+    query_tracks(conn, &sql, &[&playlist_id])
 }
 
 /// プレイリストにトラックを追加
@@ -530,5 +546,46 @@ mod tests {
         assert_eq!(playlists[0].tracks[0].track_id, "track3");
         assert_eq!(playlists[0].tracks[1].track_id, "track1");
         assert_eq!(playlists[0].tracks[2].track_id, "track2");
+    }
+
+    /// プレイリストの曲を、曲の情報とあわせて並び順どおりに取得できること
+    #[test]
+    fn test_get_playlist_tracks_returns_tracks_in_playlist_order() {
+        // 曲の全項目を読むため、実際のスキーマを使う
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::run_migrations(&conn).unwrap();
+        let playlist = create_playlist(&conn, "Test Playlist").unwrap();
+        let other = create_playlist(&conn, "Other Playlist").unwrap();
+        for id in ["track1", "track2", "track3"] {
+            conn.execute(
+                "INSERT INTO tracks (id, file_path, file_name, title, file_size, format)
+                 VALUES (?1, ?2, ?3, ?1, 0, 'mp3')",
+                rusqlite::params![id, format!("/test/{id}.mp3"), format!("{id}.mp3")],
+            )
+            .unwrap();
+        }
+        add_tracks_to_playlist(
+            &conn,
+            &playlist.id,
+            &["track1".to_string(), "track2".to_string()],
+        )
+        .unwrap();
+        add_tracks_to_playlist(&conn, &other.id, &["track3".to_string()]).unwrap();
+        reorder_playlist_tracks(
+            &conn,
+            &playlist.id,
+            &["track2".to_string(), "track1".to_string()],
+        )
+        .unwrap();
+
+        let tracks = get_playlist_tracks(&conn, &playlist.id).unwrap();
+
+        let ids: Vec<&str> = tracks.iter().map(|t| t.id.as_str()).collect();
+        assert_eq!(ids, ["track2", "track1"]);
+        assert_eq!(tracks[0].title.as_deref(), Some("track2"));
+        assert_eq!(tracks[0].file_path, "/test/track2.mp3");
+
+        // 見つからないプレイリストは、空の一覧
+        assert!(get_playlist_tracks(&conn, "missing").unwrap().is_empty());
     }
 }

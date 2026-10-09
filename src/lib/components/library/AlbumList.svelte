@@ -1,37 +1,59 @@
 <script lang="ts">
-  import type { AlbumGroup } from '#lib/types/models.js';
+  import { tick } from 'svelte';
+  import type { AlbumSummary } from '#lib/types/models.js';
+  import { VirtualList } from '#lib/components/ui/index.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
-  import { moveListSelection } from '#lib/utils/listNavigation.js';
+  import { listSelectionTarget } from '#lib/utils/listNavigation.js';
   import MarqueeText from '../MarqueeText.svelte';
   import AlbumArt from '../AlbumArt.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   // Props
   interface Props {
-    albums: AlbumGroup[];
-    selectedAlbum: AlbumGroup | null;
-    onSelect: (album: AlbumGroup) => void;
+    albums: AlbumSummary[];
+    selectedAlbum: AlbumSummary | null;
+    onSelect: (album: AlbumSummary) => void;
   }
 
   let { albums, selectedAlbum, onSelect }: Props = $props();
 
+  // 行の高さの見積もり（描画した後は、VirtualListが実測した高さを使う）
+  const ESTIMATED_ROW_HEIGHT = 52;
+
+  // 見えている行だけを描画する一覧
+  let virtualList = $state<VirtualList<AlbumSummary>>();
+
   // ↑↓・Home・Endで、選択中のアルバムから前後のアルバムへ選択を移す
-  function handleKeydown(event: KeyboardEvent) {
+  async function handleKeydown(event: KeyboardEvent) {
+    const list = event.currentTarget;
     const current = albums.findIndex((album) => album.name === selectedAlbum?.name);
-    const target = moveListSelection(event, current);
-    if (target !== null) onSelect(albums[target]);
+    const target = listSelectionTarget(event, current, albums.length);
+    if (target === null) return;
+
+    onSelect(albums[target]);
+    virtualList?.scrollToIndex(target);
+    // 移動先の項目へフォーカスも移す（前の項目に残すと、EnterやSpaceが前の項目に効いてしまう）
+    await tick();
+    if (list instanceof HTMLElement) {
+      list.querySelector<HTMLElement>('[aria-selected="true"]')?.focus();
+    }
   }
 </script>
 
 <!-- Tabでは選択中のアルバムだけに止まり、一覧の中は矢印キーで移る -->
-<div
-  class="album-list"
+<VirtualList
+  bind:this={virtualList}
+  items={albums}
+  getKey={(album) => album.name}
+  estimatedRowHeight={ESTIMATED_ROW_HEIGHT}
+  scrollerClass="py-1"
+  class="outline-none"
   role="listbox"
   aria-label={m.library.albums}
-  tabindex="-1"
+  tabindex={-1}
   onkeydown={handleKeydown}
 >
-  {#each albums as album (album.name)}
+  {#snippet row(album)}
     <button
       class="album-item"
       class:active={selectedAlbum?.name === album.name}
@@ -48,15 +70,11 @@
         <span class="album-artist">{album.artist || m.common.unknownArtist}</span>
       </div>
     </button>
-  {/each}
-</div>
+  {/snippet}
+</VirtualList>
 
 <style>
   @reference "../../../app.css";
-
-  .album-list {
-    @apply flex flex-col h-full overflow-y-auto py-1 outline-none;
-  }
 
   /* 選択中の項目は背景の色で示すため、フォーカスの枠は出さない */
   .album-item {

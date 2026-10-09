@@ -107,9 +107,11 @@ export interface Playlist {
   - external contentテーブル（`content=tracks`）のため、UPDATE/DELETEは`'delete'`コマンドパターンで古いトークンを除去する
   - 旧トリガー（直接DELETE/UPDATE方式）によるインデックス破損対策として、`PRAGMA user_version < 1` の場合に起動時へ一度だけ`rebuild`を実行する
 
-### クエリ制限
+### 一覧の取得
 
-- 一覧/検索の既定上限: 1000件（`DEFAULT_QUERY_LIMIT`）
+- 一覧・検索・フィルタ・お気に入りに件数の上限はない。全曲の一覧（`get_all_tracks`）はライブラリの全曲を1回で返し、フロントは見えている行だけを描画する（ADR-021）
+- アルバム・アーティスト・ジャンルは、一覧（名前・曲数・合計の長さ・代表の曲）と曲を分けて返す。一覧は曲を含まず、曲はそのアルバムなどの分だけを取得する
+- アルバムの中の曲の並びは、ディスク番号（ない場合は1） → トラック番号 → タイトルの順（`ALBUM_TRACK_ORDER`）
 - 検索は FTS5 優先、失敗時に `LIKE` へフォールバック
 
 ## Tauriコマンド仕様
@@ -118,15 +120,20 @@ export interface Playlist {
 
 ### ライブラリ取得・検索
 
-| コマンド                           | 引数                                   | 戻り値          | 備考                     |
-| ---------------------------------- | -------------------------------------- | --------------- | ------------------------ |
-| `get_all_tracks`                   | なし                                   | `Track[]`       | 作成日時降順、最大1000件 |
-| `search_tracks`                    | `query: string`                        | `Track[]`       | sanitize後にFTS5検索     |
-| `filter_tracks`                    | `filters: { artist?, album?, genre? }` | `Track[]`       | 完全一致フィルタ         |
-| `get_unique_artists/albums/genres` | なし                                   | `string[]`      | フィルタ候補用           |
-| `get_albums_grouped`               | なし                                   | `AlbumGroup[]`  | アルバム表示用           |
-| `get_artists_grouped`              | なし                                   | `ArtistGroup[]` | アーティスト表示用       |
-| `get_genres_grouped`               | なし                                   | `GenreGroup[]`  | ジャンル表示用           |
+| コマンド                           | 引数                                   | 戻り値            | 備考                                                                                       |
+| ---------------------------------- | -------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------ |
+| `get_all_tracks`                   | なし                                   | `Track[]`         | 全曲。作成日時降順                                                                         |
+| `search_tracks`                    | `query: string`                        | `Track[]`         | sanitize後にFTS5検索                                                                       |
+| `filter_tracks`                    | `filters: { artist?, album?, genre? }` | `Track[]`         | 完全一致フィルタ。作成日時降順                                                             |
+| `get_unique_artists/albums/genres` | なし                                   | `string[]`        | フィルタ候補用                                                                             |
+| `get_albums`                       | なし                                   | `AlbumSummary[]`  | アルバムの一覧（名前順）。アーティストと代表の曲は、アルバムの最初の曲のもの               |
+| `get_album_tracks`                 | `album: string`                        | `Track[]`         | アルバムの曲（ディスク番号 → トラック番号 → タイトル）                                     |
+| `get_artists`                      | なし                                   | `ArtistSummary[]` | アーティストの一覧（名前順）。代表の曲は、名前順で最初のアルバムの最初の曲                 |
+| `get_artist_albums`                | `artist: string`                       | `AlbumGroup[]`    | アーティストのアルバムと曲（アルバム名順）。アルバムのない曲は「不明なアルバム」にまとめる |
+| `get_genres`                       | なし                                   | `GenreSummary[]`  | ジャンルの一覧（名前順）。代表の曲は、ジャンルの最初の曲                                   |
+| `get_genre_tracks`                 | `genre: string`                        | `Track[]`         | ジャンルの曲（アーティスト → アルバム → アルバムの中の並び）                               |
+
+一覧（`AlbumSummary`・`ArtistSummary`・`GenreSummary`）は`name`・`trackCount`・`totalDuration`・`representativeTrackId`（アルバムアートの取得に使う）を持ち、曲は含まない（アルバムは`artist`、アーティストは`albumCount`も持つ）。見つからないアルバムなどの曲は、空の一覧を返す。
 
 ### インポート・削除
 
@@ -284,6 +291,7 @@ export interface Playlist {
 | ---------------------------- | ------------------------ | ------------ |
 | `create_playlist`            | `name`                   | `Playlist`   |
 | `get_playlists`              | なし                     | `Playlist[]` |
+| `get_playlist_tracks`        | `playlistId`             | `Track[]`    |
 | `rename_playlist`            | `playlistId`, `name`     | `void`       |
 | `delete_playlist`            | `playlistId`             | `void`       |
 | `add_tracks_to_playlist`     | `playlistId`, `trackIds` | `number`     |
@@ -331,7 +339,7 @@ export interface Playlist {
 - Rustコマンドは `AppResult<T>` を返し、エラーは `{ code, message }`（messageはユーザー向けの日本語）
 - DBロック/クエリエラーは文脈付きメッセージに変換
 - フロントエンドは `handleError` を通して統一表示する。表示の文言はcodeごとの汎用メッセージ（`LOCK`・`DATABASE`・`IO`・`METADATA`）か、日本語の`NOT_FOUND`・`VALIDATION`ではバックエンドのメッセージ。英語ではすべてcodeごとの汎用メッセージにする
-- ミューテーション成功時はTanStack Queryのinvalidateで整合性を回復
+- ミューテーション成功時はTanStack Queryのinvalidateで整合性を回復する。評価・お気に入りのように1曲の一部だけが変わる操作は、全曲の一覧を取り直さず、キャッシュの該当曲を書き換える（`queries/trackCache.ts`）
 
 ## 実装上の注意
 

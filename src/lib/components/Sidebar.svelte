@@ -18,7 +18,7 @@
   import { promptText } from '#lib/utils/dialog.svelte.js';
   import { ui } from '#lib/stores/ui.svelte.js';
   import { isTrackDrag, readDraggedTrackIds } from '#lib/utils/trackDrag.js';
-  import { useGenresGroupedQuery } from '#lib/queries/tracks.js';
+  import { useGenresQuery } from '#lib/queries/tracks.js';
   import type { Playlist } from '#lib/types/models.js';
   import PlaylistContextMenu from './PlaylistContextMenu.svelte';
   import MarqueeText from './MarqueeText.svelte';
@@ -43,7 +43,7 @@
   }
 
   // ジャンルクエリ
-  const genresQuery = useGenresGroupedQuery();
+  const genresQuery = useGenresQuery();
   const genres = $derived(genresQuery.data ?? []);
 
   // ジャンルが展開されているか

@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Track } from '#lib/types/models.js';
 import {
   player,
+  addNextInQueue,
+  addToQueue,
   clearQueue,
   formatTime,
   peekNextTrack,
@@ -278,6 +280,43 @@ describe('playQueueIndex', () => {
 
     expect(player.currentTrackIndex).toBe(1);
     expect(player.currentTrack?.id).toBe('t2');
+  });
+});
+
+describe('addToQueue / addNextInQueue', () => {
+  it('addToQueueはキューの最後に追加する', () => {
+    playTrackFromQueue(tracks, 1);
+    addToQueue([makeTrack('x'), makeTrack('y')]);
+
+    expect(ids(player.playQueue)).toEqual(['t1', 't2', 't3', 't4', 'x', 'y']);
+    expect(player.currentTrackIndex).toBe(1);
+  });
+
+  it('addNextInQueueは再生中のトラックの次に、渡した順で追加する', () => {
+    playTrackFromQueue(tracks, 1);
+    addNextInQueue([makeTrack('x'), makeTrack('y')]);
+
+    expect(ids(player.playQueue)).toEqual(['t1', 't2', 'x', 'y', 't3', 't4']);
+    expect(player.currentTrackIndex).toBe(1);
+    expect(player.currentTrack?.id).toBe('t2');
+  });
+
+  it('再生していない場合、addNextInQueueはキューの先頭に追加する', () => {
+    addNextInQueue([makeTrack('x')]);
+
+    expect(ids(player.playQueue)).toEqual(['x']);
+  });
+
+  it('数万曲をまとめて追加できる', () => {
+    playTrackFromQueue(tracks, 0);
+    const many = Array.from({ length: 200_000 }, (_, i) => makeTrack(`m${i}`));
+
+    addNextInQueue(many);
+    addToQueue(many);
+
+    expect(player.playQueue).toHaveLength(400_004);
+    expect(player.playQueue[1].id).toBe('m0');
+    expect(player.playQueue[200_001].id).toBe('t2');
   });
 });
 

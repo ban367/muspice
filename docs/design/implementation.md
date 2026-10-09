@@ -157,7 +157,8 @@ src-tauri/src/
   - 矢印キーで選択を移し、Shift+矢印で範囲選択、Cmd/Ctrl+Aですべて選択、Enterで再生する
   - 一覧の要素を`role="listbox"`・`tabindex="0"`にしてフォーカスを受け、行は`role="option"`・`data-track-id`を付けてフォーカスを受けない（行をクリックすると一覧の要素にフォーカスが移り、行が消えてもキー操作を続けられる）
   - 表示する一覧が別のものに変わった時（別のアルバムを選んだ等）は`reset()`で選択を消す
-- 1つだけ選択する一覧（2ペイン表示の左の`AlbumList`・`ArtistList`）は、`moveListSelection`で移動先を求めて選択し、その項目へフォーカスも移す（Tabでは選択中の項目だけに止まる）
+  - 仮想スクロールの一覧では、移動先の行の要素がないことがあるため、`handleTrackListKeydown`の`scrollTo`に`VirtualList`の`scrollToIndex`を渡す（渡さない場合は、`data-track-id`の付いた行の要素を探してスクロールする）
+- 1つだけ選択する一覧（2ペイン表示の左の`AlbumList`・`ArtistList`）は、`listSelectionTarget`で移動先を求めて選択し、その項目へフォーカスも移す（Tabでは選択中の項目だけに止まる）
 - グリッド表示（`LibraryGrid`: アルバム・アーティスト・ジャンル）は、現在位置の項目を枠で示し、Enterでクリックと同じ操作（`onOpen`）を行う
 - 修飾キーなしの矢印キーは一覧が使う。プレーヤーのショートカット（`Player.svelte`）はCmd/Ctrl+矢印（前へ・次へ・音量）とSpace（再生・一時停止）
 
@@ -256,6 +257,20 @@ cargo test --manifest-path src-tauri/Cargo.toml
   - Rust静的検査（`cargo clippy ... -D warnings`）
   - Rustテスト（`cargo test`）
 
+### 長い一覧の描画（仮想スクロール）
+
+- 件数が多くなる一覧は、`#lib/components/ui`の`VirtualList`で描画する（曲の一覧`TrackList`、プレイリストの詳細、再生キュー、`AlbumList`・`ArtistList`、`LibraryGrid`）。見えている行とその前後の少しの行だけを描画するため、数万件でもDOMの要素は数十個に収まる
+- `VirtualList`がスクロールする領域になる（親で高さを決める）。列の見出しは`header`に渡すと上に固定される。`role`・`tabindex`・`onkeydown`などは、項目を並べる要素に渡される
+- 行の高さはすべて同じとして扱う。高さは決め打ちにせず、描画した行を実測する（`estimatedRowHeight`は最初の描画だけに使う）。`minColumnWidth`を渡すとグリッドになり、幅に入るだけ列を並べる
+  - 高さがそろわない項目（名前の長さで高さが変わるジャンルのカード）は位置を正しく求められないため、すべて描画する（`LibraryGrid`の`virtualized={false}`）
+- `row`は、項目ごとに要素を1つだけ描画する（描画した行の数を、要素の数から数えるため）
+- 表示範囲・列数・スクロール先の計算は`#lib/utils/virtualList`の純粋関数（`computeVirtualRange`など）で行う
+- 描画されていない行があるため、行の要素を探す処理（`querySelector`・`scrollIntoView`）には頼らない。位置は一覧の中の順番（index）で扱い、スクロールは`scrollToIndex`、グリッドの列数は`getColumns`を使う
+- 一覧の全件を対象にする処理（並び替え・選択・行ごとの判定）は、数万件でも重くならないようにする
+  - 並び替えは`#lib/utils/trackSort`の`createTrackSorter`を使う（評価の変更などで一覧が作り直されても、並び替えに使う値が同じなら比較をやり直さない）
+  - 行の中で`indexOf`・`includes`のような全件の走査をしない（行の位置は`row`が受け取るindexを使う）
+  - 再生キューへの追加は`player.svelte.ts`の`addToQueue`・`addNextInQueue`を使う（`splice(...tracks)`のような引数への展開は、件数が多いと失敗する）
+
 ## ブラウザでの動作確認（IPCモック）
 
 Tauriのウィンドウ（macOSではWKWebView）はブラウザ自動化ツールから操作できないため、Claude Code等でのUI確認はTauri IPCをモックしたブラウザで行う（判断の経緯は`decisions.md`のADR-006）。
@@ -271,6 +286,7 @@ Tauriのウィンドウ（macOSではWKWebView）はブラウザ自動化ツー�
   - `window.__MUSPICE_MOCK__.emit('open-import-dialog')`（`toggle-sidebar` / `show-about-dialog`も同様）
   - `window.__MUSPICE_MOCK__.setConfirmResult(false)`で、以降の確認ダイアログを「キャンセル」にする
   - `window.__MUSPICE_MOCK__.setFolderResult('/Volumes/NEW_SD')`で、以降のフォルダ選択ダイアログで選ばれるパスを変える。既定のパスはライブラリフォルダの中のため、転送先デバイスの追加を確認するときはライブラリの外のパスにする
+- 数万曲のライブラリでの動作は、URLに`?mockTracks=50000`を付けて開くと確認できる（例: `/library/songs?mockTracks=50000`。フィクスチャに加えて、指定した数のトラックを生成する。アプリ内の移動では状態が保たれ、再読み込みすると付けたURLで開き直すまで元の件数に戻る）
 - デバイスへの転送は、デバイス上の曲を「コピー済みのトラックの集合」で再現する（配置の決定・リネーム・プレイリストのファイルは再現しない）
 - 確認できないもの: Rust側の処理（SQLite・FTS5・ファイルI/O・タグ読み書き）、実ファイルの再生、CSP・capabilityによる制約。これらは`cargo test`と`npm run tauri dev`で確認する
 

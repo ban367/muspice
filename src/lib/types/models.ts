@@ -8,8 +8,9 @@
  */
 export type {
   AlbumGroup,
+  AlbumSummary,
   AppError,
-  ArtistGroup,
+  ArtistSummary,
   BulkUpdateResult,
   DeleteFailure,
   DeleteResult,
@@ -18,7 +19,7 @@ export type {
   DeviceSyncResult,
   DuplicateAction,
   FilterOptions,
-  GenreGroup,
+  GenreSummary,
   ImportResult,
   Language,
   LibraryFolder,

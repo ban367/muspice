@@ -1,6 +1,11 @@
 <script lang="ts">
   import { useSetRatingMutation } from '#lib/queries/tracks.js';
-  import { player, playTrackFromQueue } from '#lib/stores/player.svelte.js';
+  import {
+    addNextInQueue,
+    addToQueue,
+    player,
+    playTrackFromQueue
+  } from '#lib/stores/player.svelte.js';
   import { ui, type ColumnWidths } from '#lib/stores/ui.svelte.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import { formatDuration } from '#lib/utils/format.js';
@@ -12,9 +17,14 @@
   import DeleteTrackDialog from '../DeleteTrackDialog.svelte';
   import MarqueeText from '../MarqueeText.svelte';
   import AlbumArt from '../AlbumArt.svelte';
-  import { countGridColumns } from '#lib/utils/listNavigation.js';
+  import { VirtualList } from '#lib/components/ui/index.js';
   import { TrackSelection, handleTrackListKeydown } from '#lib/utils/trackSelection.svelte.js';
   import { startTrackDrag } from '#lib/utils/trackDrag.js';
+  import {
+    createTrackSorter,
+    type SortDirection,
+    type TrackSortField
+  } from '#lib/utils/trackSort.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   // Props
@@ -40,13 +50,23 @@
     displayMode = 'list'
   }: Props = $props();
 
-  type SortField = 'title' | 'artist' | 'album' | 'duration' | 'createdAt';
-  type SortDirection = 'asc' | 'desc';
-  let sortField = $state<SortField>('createdAt');
+  // 行の高さの見積もり（描画した後は、VirtualListが実測した高さを使う）
+  const ESTIMATED_LIST_ROW_HEIGHT = 36;
+  // グリッド表示のカードの、アルバムアートを除いた高さの見積もり
+  const ESTIMATED_CARD_EXTRA_HEIGHT = 76;
+  // グリッド表示のカードの間隔（px）
+  const GRID_GAP = 12;
+  // グリッド表示で、見えている範囲の前後に余分に描画する行の数（1行に何枚も並ぶため、少なくする）
+  const GRID_OVERSCAN_ROWS = 2;
+
+  let sortField = $state<TrackSortField>('createdAt');
   let sortDirection = $state<SortDirection>('desc');
 
   // アルバムアートサイズ
   const artSize = $derived(ui.gridCardSize);
+
+  // 見えている行だけを描画する一覧（リスト表示・グリッド表示のどちらか）
+  let virtualList = $state<VirtualList<Track>>();
 
   // トラックの選択（クリック・キーボード）
   const selection = new TrackSelection(() => sortedTracks ?? []);
@@ -56,9 +76,8 @@
   // コンテキストメニュー状態
   let contextMenu = $state<{ x: number; y: number; track: Track } | null>(null);
 
-  // ドラッグ状態
+  // ドラッグ状態（運んでいるのは選択中の曲）
   let isDragging = $state(false);
-  let draggedTrackIds = $state<string[]>([]);
 
   // 列リサイズ状態
   let isResizing = $state(false);
@@ -75,55 +94,10 @@
   let setRatingMutation = $derived(useSetRatingMutation());
 
   // ソートされたトラック
-  const sortedTracks = $derived.by(() => {
-    if (!tracks) return null;
+  const sortTracks = createTrackSorter();
+  const sortedTracks = $derived(tracks ? sortTracks(tracks, sortField, sortDirection) : null);
 
-    return [...tracks].sort((a, b) => {
-      let aVal: string | number | null;
-      let bVal: string | number | null;
-
-      switch (sortField) {
-        case 'title':
-          aVal = a.title || a.fileName;
-          bVal = b.title || b.fileName;
-          break;
-        case 'artist':
-          aVal = a.artist || '';
-          bVal = b.artist || '';
-          break;
-        case 'album':
-          aVal = a.album || '';
-          bVal = b.album || '';
-          break;
-        case 'duration':
-          aVal = a.duration || 0;
-          bVal = b.duration || 0;
-          break;
-        case 'createdAt':
-          aVal = a.createdAt;
-          bVal = b.createdAt;
-          break;
-        default:
-          return 0;
-      }
-
-      if (aVal === null) aVal = '';
-      if (bVal === null) bVal = '';
-
-      const comparison =
-        typeof aVal === 'string' && typeof bVal === 'string'
-          ? aVal.localeCompare(bVal, 'ja')
-          : aVal < bVal
-            ? -1
-            : aVal > bVal
-              ? 1
-              : 0;
-
-      return sortDirection === 'asc' ? comparison : -comparison;
-    });
-  });
-
-  function toggleSort(field: SortField) {
+  function toggleSort(field: TrackSortField) {
     if (sortField === field) {
       sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
     } else {
@@ -132,7 +106,7 @@
     }
   }
 
-  function getSortIcon(field: SortField): string {
+  function getSortIcon(field: TrackSortField): string {
     if (sortField !== field) return '';
     return sortDirection === 'asc' ? '↑' : '↓';
   }
@@ -153,15 +127,12 @@
    * 一覧のキーボード操作（矢印キーで選択を移す・Enterで再生する）
    */
   function handleListKeydown(event: KeyboardEvent) {
+    const indexOf = (trackId: string) => sortedTracks?.findIndex((t) => t.id === trackId) ?? -1;
     handleTrackListKeydown(event, selection, {
-      columns: () =>
-        displayMode === 'grid' && event.currentTarget instanceof HTMLElement
-          ? countGridColumns(event.currentTarget.children as HTMLCollectionOf<HTMLElement>)
-          : null,
-      onActivate: (trackId) => {
-        const track = sortedTracks?.find((t) => t.id === trackId);
-        if (track) handleTrackDoubleClick(track);
-      }
+      columns: () => (displayMode === 'grid' ? (virtualList?.getColumns() ?? null) : null),
+      onActivate: (trackId) => playFromIndex(indexOf(trackId)),
+      // 移動先の行は描画されていないことがあるため、一覧の中の位置でスクロールする
+      scrollTo: (trackId) => virtualList?.scrollToIndex(indexOf(trackId))
     });
   }
 
@@ -183,13 +154,10 @@
     clearSelection();
   }
 
-  function handleTrackDoubleClick(track: Track) {
-    if (!sortedTracks) return;
-
-    const trackIndex = sortedTracks.findIndex((t) => t.id === track.id);
-    if (trackIndex !== -1) {
-      playTrackFromQueue(sortedTracks, trackIndex);
-    }
+  /** 一覧の中の位置を指定して、その曲から一覧を再生する */
+  function playFromIndex(index: number) {
+    if (!sortedTracks || index < 0 || index >= sortedTracks.length) return;
+    playTrackFromQueue(sortedTracks, index);
   }
 
   function handleContextMenu(event: MouseEvent, track: Track) {
@@ -209,17 +177,11 @@
   }
 
   function handlePlayNext() {
-    const queue = player.playQueue;
-    const currentIndex = player.currentTrackIndex;
-
-    const newQueue = [...queue];
-    newQueue.splice(currentIndex + 1, 0, ...selectedTracks);
-    player.playQueue = newQueue;
+    addNextInQueue(selectedTracks);
   }
 
   function handleAddToQueue() {
-    const queue = player.playQueue;
-    player.playQueue = [...queue, ...selectedTracks];
+    addToQueue(selectedTracks);
   }
 
   /**
@@ -247,12 +209,10 @@
     startTrackDrag(event, trackIds, m.common.trackCount(trackIds.length));
 
     isDragging = true;
-    draggedTrackIds = trackIds;
   }
 
   function handleDragEnd() {
     isDragging = false;
-    draggedTrackIds = [];
   }
 
   // 列リサイズ開始
@@ -291,7 +251,7 @@
 
 <div class="flex flex-col h-full">
   <!-- コンテンツ -->
-  <div class="flex-1 overflow-y-auto">
+  <div class="flex-1 min-h-0">
     {#if isLoading}
       <div class="empty-state">
         <div class="spinner"></div>
@@ -304,123 +264,134 @@
       </div>
     {:else if sortedTracks && sortedTracks.length > 0}
       {#if displayMode === 'list'}
-        <!-- リスト表示 -->
-        <div class="track-table">
-          <div class="table-header" style="grid-template-columns: {gridTemplateColumns};">
-            <div class="col-number">#</div>
-            <div class="resizable-header">
-              <button class="sortable" onclick={() => toggleSort('title')}>
-                {m.fields.title}
-                {getSortIcon('title')}
-              </button>
-              <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-              <div
-                class="resize-handle"
-                onmousedown={(e) => handleResizeStart(e, 'title')}
-                role="separator"
-                aria-orientation="vertical"
-              ></div>
-            </div>
-            <div class="resizable-header">
-              <button class="sortable" onclick={() => toggleSort('artist')}>
-                {m.fields.artist}
-                {getSortIcon('artist')}
-              </button>
-              <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-              <div
-                class="resize-handle"
-                onmousedown={(e) => handleResizeStart(e, 'artist')}
-                role="separator"
-                aria-orientation="vertical"
-              ></div>
-            </div>
-            <div class="resizable-header">
-              <div class="col-rating">{m.fields.rating}</div>
-              <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-              <div
-                class="resize-handle"
-                onmousedown={(e) => handleResizeStart(e, 'rating')}
-                role="separator"
-                aria-orientation="vertical"
-              ></div>
-            </div>
-            <button class="sortable text-right" onclick={() => toggleSort('duration')}>
-              {m.fields.duration}
-              {getSortIcon('duration')}
-            </button>
-          </div>
-          <div
-            class="track-rows"
-            role="listbox"
-            aria-multiselectable="true"
-            aria-label={m.library.songs}
-            tabindex="0"
-            onkeydown={handleListKeydown}
-          >
-            {#each sortedTracks as track (track.id)}
-              <!-- キー操作は一覧（listbox）で受けるため、行はフォーカスを受けない -->
-              <!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
-              <div
-                class="track-row"
-                class:selected={selection.has(track.id)}
-                class:playing={player.currentTrack?.id === track.id}
-                class:dragging={isDragging && draggedTrackIds.includes(track.id)}
-                style="grid-template-columns: {gridTemplateColumns};"
-                draggable="true"
-                ondragstart={(e) => handleDragStart(e, track)}
-                ondragend={handleDragEnd}
-                onclick={(e) => handleTrackClick(track.id, e)}
-                ondblclick={() => handleTrackDoubleClick(track)}
-                oncontextmenu={(e) => handleContextMenu(e, track)}
-                role="option"
-                aria-selected={selection.has(track.id)}
-                data-track-id={track.id}
-              >
-                <div class="col-number flex items-center justify-center">
-                  {#if player.currentTrack?.id === track.id}
-                    <PlayingIndicator size="small" />
-                  {:else}
-                    <span class="track-index">
-                      {sortedTracks.indexOf(track) + 1}
-                    </span>
-                  {/if}
-                </div>
-                <MarqueeText
-                  text={searchTerm ? track.title || track.fileName : track.title || track.fileName}
-                  class="text-text-primary"
-                />
-                <MarqueeText
-                  text={searchTerm
-                    ? track.artist || m.common.unknownArtist
-                    : track.artist || m.common.unknownArtist}
-                  class="text-text-secondary text-sm"
-                />
-                <div class="col-rating flex items-center justify-center">
-                  <RatingStars
-                    rating={track.rating}
-                    onChange={(rating) =>
-                      setRatingMutation.mutateAsync({ trackId: track.id, rating })}
-                  />
-                </div>
-                <div class="text-right text-text-muted text-sm">
-                  {formatDuration(track.duration)}
-                </div>
-              </div>
-            {/each}
-          </div>
-        </div>
-      {:else}
-        <!-- グリッド表示 -->
-        <div
-          class="track-grid grid gap-3 justify-items-center"
-          style="grid-template-columns: repeat(auto-fill, minmax({cardWidth}px, 1fr));"
+        <!-- リスト表示（一覧がフォーカスを受けてキー操作を扱う。枠は出さず、選択中の行の色で示す） -->
+        <VirtualList
+          bind:this={virtualList}
+          items={sortedTracks}
+          getKey={(track) => track.id}
+          estimatedRowHeight={ESTIMATED_LIST_ROW_HEIGHT}
+          class="outline-none"
           role="listbox"
           aria-multiselectable="true"
           aria-label={m.library.songs}
-          tabindex="0"
+          tabindex={0}
           onkeydown={handleListKeydown}
         >
-          {#each sortedTracks as track (track.id)}
+          {#snippet header()}
+            <div class="table-header" style="grid-template-columns: {gridTemplateColumns};">
+              <div class="col-number">#</div>
+              <div class="resizable-header">
+                <button class="sortable" onclick={() => toggleSort('title')}>
+                  {m.fields.title}
+                  {getSortIcon('title')}
+                </button>
+                <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+                <div
+                  class="resize-handle"
+                  onmousedown={(e) => handleResizeStart(e, 'title')}
+                  role="separator"
+                  aria-orientation="vertical"
+                ></div>
+              </div>
+              <div class="resizable-header">
+                <button class="sortable" onclick={() => toggleSort('artist')}>
+                  {m.fields.artist}
+                  {getSortIcon('artist')}
+                </button>
+                <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+                <div
+                  class="resize-handle"
+                  onmousedown={(e) => handleResizeStart(e, 'artist')}
+                  role="separator"
+                  aria-orientation="vertical"
+                ></div>
+              </div>
+              <div class="resizable-header">
+                <div class="col-rating">{m.fields.rating}</div>
+                <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+                <div
+                  class="resize-handle"
+                  onmousedown={(e) => handleResizeStart(e, 'rating')}
+                  role="separator"
+                  aria-orientation="vertical"
+                ></div>
+              </div>
+              <button class="sortable text-right" onclick={() => toggleSort('duration')}>
+                {m.fields.duration}
+                {getSortIcon('duration')}
+              </button>
+            </div>
+          {/snippet}
+
+          {#snippet row(track, index)}
+            <!-- キー操作は一覧（listbox）で受けるため、行はフォーカスを受けない -->
+            <!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
+            <div
+              class="track-row"
+              class:selected={selection.has(track.id)}
+              class:playing={player.currentTrack?.id === track.id}
+              class:dragging={isDragging && selection.has(track.id)}
+              style="grid-template-columns: {gridTemplateColumns};"
+              draggable="true"
+              ondragstart={(e) => handleDragStart(e, track)}
+              ondragend={handleDragEnd}
+              onclick={(e) => handleTrackClick(track.id, e)}
+              ondblclick={() => playFromIndex(index)}
+              oncontextmenu={(e) => handleContextMenu(e, track)}
+              role="option"
+              aria-selected={selection.has(track.id)}
+              data-track-id={track.id}
+            >
+              <div class="col-number flex items-center justify-center">
+                {#if player.currentTrack?.id === track.id}
+                  <PlayingIndicator size="small" />
+                {:else}
+                  <span class="track-index">
+                    {index + 1}
+                  </span>
+                {/if}
+              </div>
+              <MarqueeText
+                text={searchTerm ? track.title || track.fileName : track.title || track.fileName}
+                class="text-text-primary"
+              />
+              <MarqueeText
+                text={searchTerm
+                  ? track.artist || m.common.unknownArtist
+                  : track.artist || m.common.unknownArtist}
+                class="text-text-secondary text-sm"
+              />
+              <div class="col-rating flex items-center justify-center">
+                <RatingStars
+                  rating={track.rating}
+                  onChange={(rating) =>
+                    setRatingMutation.mutateAsync({ trackId: track.id, rating })}
+                />
+              </div>
+              <div class="text-right text-text-muted text-sm">
+                {formatDuration(track.duration)}
+              </div>
+            </div>
+          {/snippet}
+        </VirtualList>
+      {:else}
+        <!-- グリッド表示 -->
+        <VirtualList
+          bind:this={virtualList}
+          items={sortedTracks}
+          getKey={(track) => track.id}
+          estimatedRowHeight={artSize + ESTIMATED_CARD_EXTRA_HEIGHT}
+          minColumnWidth={cardWidth}
+          gap={GRID_GAP}
+          overscan={GRID_OVERSCAN_ROWS}
+          class="outline-none justify-items-center"
+          role="listbox"
+          aria-multiselectable="true"
+          aria-label={m.library.songs}
+          tabindex={0}
+          onkeydown={handleListKeydown}
+        >
+          {#snippet row(track, index)}
             <!-- キー操作は一覧（listbox）で受けるため、カードはフォーカスを受けない -->
             <!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
             <div
@@ -432,7 +403,7 @@
               ondragstart={(e) => handleDragStart(e, track)}
               ondragend={handleDragEnd}
               onclick={(e) => handleTrackClick(track.id, e)}
-              ondblclick={() => handleTrackDoubleClick(track)}
+              ondblclick={() => playFromIndex(index)}
               oncontextmenu={(e) => handleContextMenu(e, track)}
               role="option"
               aria-selected={selection.has(track.id)}
@@ -464,8 +435,8 @@
                 />
               </div>
             </div>
-          {/each}
-        </div>
+          {/snippet}
+        </VirtualList>
       {/if}
     {:else}
       <div class="empty-state">
@@ -524,13 +495,9 @@
 
 <style>
   @reference "../../../app.css";
-  /* トラックテーブル */
-  .track-table {
-    @apply flex flex-col;
-  }
-
+  /* 列の見出し（VirtualListが一覧の上に固定して表示する） */
   .table-header {
-    @apply grid gap-3 px-4 py-1.5 text-xs font-semibold uppercase text-text-muted border-b border-border sticky top-0 bg-base-100 z-10;
+    @apply grid gap-3 px-4 py-1.5 text-xs font-semibold uppercase text-text-muted border-b border-border bg-base-100;
   }
 
   .resizable-header {
@@ -550,18 +517,8 @@
     @apply bg-transparent border-none text-text-muted cursor-pointer text-left text-xs font-semibold uppercase p-0 transition-colors hover:text-text-primary;
   }
 
-  /* 一覧はフォーカスを受けてキー操作を扱う（枠は出さず、選択中の行の色で示す） */
-  .track-rows {
-    @apply flex flex-col outline-none;
-  }
-
-  .track-grid {
-    @apply outline-none;
-  }
-
-  /* キーボードで移った行が、上に固定したヘッダーの下に隠れないようにする */
   .track-row {
-    @apply grid gap-3 px-4 py-1.5 items-center cursor-pointer rounded transition-colors select-none scroll-mt-8;
+    @apply grid gap-3 px-4 py-1.5 items-center cursor-pointer rounded transition-colors select-none;
   }
 
   .track-row:hover {

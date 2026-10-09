@@ -4,9 +4,10 @@
   LibraryGridを使用して共通ロジックを委譲し、ジャンル固有の表示（カラーグラデーション）をSnippetで実装。
 -->
 <script lang="ts">
-  import type { GenreGroup } from '#lib/types/models.js';
-  import { useGenresGroupedQuery } from '#lib/queries/tracks.js';
-  import { playTrackFromQueue } from '#lib/stores/player.svelte.js';
+  import { useQueryClient } from '@tanstack/svelte-query';
+  import type { GenreSummary } from '#lib/types/models.js';
+  import { useGenresQuery } from '#lib/queries/tracks.js';
+  import { playGroup } from '#lib/utils/groupPlayback.js';
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
   import LibraryGrid from './LibraryGrid.svelte';
@@ -21,13 +22,20 @@
   let { displayMode = 'grid' }: Props = $props();
 
   // クエリ
-  const genresQuery = useGenresGroupedQuery();
+  const queryClient = useQueryClient();
+  const genresQuery = useGenresQuery();
   const isLoading = $derived(genresQuery.isLoading);
   const isError = $derived(genresQuery.isError);
   const allGenres = $derived(genresQuery.data ?? []);
 
   // LibraryGridコンポーネントの参照
-  let libraryGrid: LibraryGrid<GenreGroup>;
+  let libraryGrid: LibraryGrid<GenreSummary>;
+
+  // カードの最小の幅（px）
+  const MIN_CARD_WIDTH = 160;
+  // カード・リスト表示の行の高さの見積もり（名前が長いカードは高くなるため、すべて描画する）
+  const ESTIMATED_CARD_HEIGHT = 100;
+  const ESTIMATED_LIST_ROW_HEIGHT = 52;
 
   // ジャンルごとの色を生成
   const genreColors = [
@@ -48,30 +56,28 @@
   }
 
   // ジャンルのインデックスを取得（フィルタリング後でもオリジナルの色を維持するため）
-  function getGenreIndex(genre: GenreGroup): number {
+  function getGenreIndex(genre: GenreSummary): number {
     return allGenres.findIndex((g) => g.name === genre.name);
   }
 
   // ジャンルをクリック（詳細ページに遷移）
-  function handleGenreClick(genre: GenreGroup) {
+  function handleGenreClick(genre: GenreSummary) {
     goto(resolve(`library/genres/${encodeURIComponent(genre.name)}`));
   }
 
   // ジャンルをダブルクリック（すべて再生）
-  function handleGenreDoubleClick(genre: GenreGroup) {
-    if (genre.tracks.length > 0) {
-      playTrackFromQueue(genre.tracks, 0);
-    }
+  function handleGenreDoubleClick(genre: GenreSummary) {
+    void playGroup(queryClient, 'genre', genre.name);
   }
 
   // 再生ボタンクリック
-  function handlePlayClick(event: MouseEvent, genre: GenreGroup) {
+  function handlePlayClick(event: MouseEvent, genre: GenreSummary) {
     event.stopPropagation();
     handleGenreDoubleClick(genre);
   }
 
   // 検索フィルター
-  function filterGenre(genre: GenreGroup, query: string): boolean {
+  function filterGenre(genre: GenreSummary, query: string): boolean {
     return genre.name.toLowerCase().includes(query);
   }
 </script>
@@ -86,7 +92,10 @@
   emptyMessage={m.library.noGenres}
   emptyHint={m.library.noGenresHint}
   filterFn={filterGenre}
-  gridClass="genre-grid"
+  minCardWidth={MIN_CARD_WIDTH}
+  estimatedCardHeight={ESTIMATED_CARD_HEIGHT}
+  estimatedRowHeight={ESTIMATED_LIST_ROW_HEIGHT}
+  virtualized={false}
   groupType="genre"
   onOpen={handleGenreClick}
 >
@@ -163,12 +172,6 @@
 
 <style>
   @reference "../../../app.css";
-  :global(.genre-grid) {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-    gap: 0.75rem;
-  }
-
   .genre-card {
     @apply relative rounded-lg p-4 cursor-pointer transition-all duration-200 min-h-[100px] flex items-end overflow-hidden;
   }

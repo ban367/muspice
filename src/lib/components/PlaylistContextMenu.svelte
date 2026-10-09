@@ -6,9 +6,17 @@
 <script lang="ts">
   import type { Playlist } from '#lib/types/models.js';
   import { BaseContextMenu } from '#lib/components/ui/index.js';
-  import { useDeletePlaylistMutation, useRenamePlaylistMutation } from '#lib/queries/playlists.js';
-  import { player, playTrackFromQueue, playShuffled } from '#lib/stores/player.svelte.js';
-  import { useTracksQuery } from '#lib/queries/tracks.js';
+  import {
+    useDeletePlaylistMutation,
+    usePlaylistTracksQuery,
+    useRenamePlaylistMutation
+  } from '#lib/queries/playlists.js';
+  import {
+    addNextInQueue,
+    addToQueue,
+    playTrackFromQueue,
+    playShuffled
+  } from '#lib/stores/player.svelte.js';
   import { confirmDestructive, promptText } from '#lib/utils/dialog.svelte.js';
   import { validatePlaylistName, toSafeString } from '#lib/utils/validation.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
@@ -27,15 +35,11 @@
   const deletePlaylistMutation = useDeletePlaylistMutation();
   const renamePlaylistMutation = useRenamePlaylistMutation();
 
-  // トラッククエリ（プレイリスト内のトラック情報取得用）
-  const tracksQuery = useTracksQuery();
-
-  // プレイリスト内のトラック
-  const playlistTracks = $derived.by(() => {
-    if (!tracksQuery.data) return [];
-    const trackIds = new Set(playlist.tracks.map((t) => t.trackId));
-    return tracksQuery.data.filter((t) => trackIds.has(t.id));
-  });
+  // プレイリスト内のトラック（プレイリストの中の並び順。メニューを開いた時に取得する。
+  // 取得するまでは空で、その間、再生・キューの操作は選べない）
+  const playlistId = $derived(playlist.id);
+  const tracksQuery = $derived(usePlaylistTracksQuery(playlistId));
+  const playlistTracks = $derived(tracksQuery.data ?? []);
 
   /**
    * プレイリストを再生
@@ -59,8 +63,7 @@
    * キューに追加
    */
   function handleAddToQueue() {
-    const queue = player.playQueue;
-    player.playQueue = [...queue, ...playlistTracks];
+    addToQueue(playlistTracks);
     onClose();
   }
 
@@ -68,12 +71,7 @@
    * 次に再生
    */
   function handlePlayNext() {
-    const queue = player.playQueue;
-    const currentIndex = player.currentTrackIndex;
-
-    const newQueue = [...queue];
-    newQueue.splice(currentIndex + 1, 0, ...playlistTracks);
-    player.playQueue = newQueue;
+    addNextInQueue(playlistTracks);
     onClose();
   }
 

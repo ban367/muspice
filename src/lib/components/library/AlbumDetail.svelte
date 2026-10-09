@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import type { AlbumGroup, Track } from '#lib/types/models.js';
-  import { useSetRatingMutation } from '#lib/queries/tracks.js';
+  import type { AlbumSummary, Track } from '#lib/types/models.js';
+  import { useAlbumTracksQuery, useSetRatingMutation } from '#lib/queries/tracks.js';
   import { player, playTrackFromQueue, playShuffled } from '#lib/stores/player.svelte.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import { formatDuration, formatTotalDuration } from '#lib/utils/format.js';
@@ -15,48 +15,39 @@
 
   // Props
   interface Props {
-    album: AlbumGroup;
+    album: AlbumSummary;
   }
 
   let { album }: Props = $props();
 
   const setRatingMutation = useSetRatingMutation();
 
-  // 総再生時間
-  const totalDuration = $derived(
-    album.tracks.reduce((sum, track) => sum + (track.duration || 0), 0)
-  );
+  // アルバムの曲（ディスク番号・トラック番号の順。表示・再生・選択はこの順で行う）
+  const albumName = $derived(album.name);
+  const tracksQuery = $derived(useAlbumTracksQuery(albumName));
+  const tracks = $derived(tracksQuery.data ?? []);
 
   // マルチディスクアルバムかどうか
-  const hasMultipleDiscs = $derived(() => {
-    const discNumbers = new Set(album.tracks.map((t) => t.discNumber ?? 1));
-    return discNumbers.size > 1;
-  });
+  const hasMultipleDiscs = $derived(new Set(tracks.map((t) => t.discNumber ?? 1)).size > 1);
 
   // ディスクごとにグループ化されたトラック
   const groupedTracks = $derived.by(() => {
-    if (!hasMultipleDiscs()) {
-      return [{ discNumber: 1, tracks: album.tracks }];
+    if (!hasMultipleDiscs) {
+      return [{ discNumber: 1, tracks }];
     }
 
-    const discNumbers = [...new Set(album.tracks.map((t) => t.discNumber ?? 1))].sort(
-      (a, b) => a - b
-    );
+    const discNumbers = [...new Set(tracks.map((t) => t.discNumber ?? 1))].sort((a, b) => a - b);
 
     return discNumbers.map((discNumber) => ({
       discNumber,
-      tracks: album.tracks.filter((t) => (t.discNumber ?? 1) === discNumber)
+      tracks: tracks.filter((t) => (t.discNumber ?? 1) === discNumber)
     }));
   });
 
-  // 表示順（ディスクごと）のトラック
-  const displayTracks = $derived(groupedTracks.flatMap((group) => group.tracks));
-
   // トラックの選択（クリック・キーボード）
-  const selection = new TrackSelection(() => displayTracks);
+  const selection = new TrackSelection(() => tracks);
 
   // 別のアルバムに切り替わったら、選択を消す（データを取り直しただけでは消さない）
-  const albumName = $derived(album.name);
   $effect(() => {
     void albumName;
     // 選択の中身には反応させない（選択を変えるたびに消えてしまう）
@@ -82,7 +73,7 @@
   function handleListKeydown(event: KeyboardEvent) {
     handleTrackListKeydown(event, selection, {
       onActivate: (trackId) => {
-        const index = album.tracks.findIndex((track) => track.id === trackId);
+        const index = tracks.findIndex((track) => track.id === trackId);
         if (index !== -1) handleTrackDoubleClick(index);
       }
     });
@@ -95,19 +86,19 @@
 
   // すべて再生
   function handlePlayAll() {
-    if (album.tracks.length > 0) {
-      playTrackFromQueue(album.tracks, 0);
+    if (tracks.length > 0) {
+      playTrackFromQueue(tracks, 0);
     }
   }
 
   // シャッフル再生
   function handleShufflePlay() {
-    playShuffled(album.tracks);
+    playShuffled(tracks);
   }
 
   // トラックをダブルクリックで再生
   function handleTrackDoubleClick(index: number) {
-    playTrackFromQueue(album.tracks, index);
+    playTrackFromQueue(tracks, index);
   }
 
   // グループ内のトラックインデックスを取得（全体のインデックス用）
@@ -130,12 +121,11 @@
       <h1 class="album-name">{album.name}</h1>
       <p class="album-artist">{album.artist || m.common.unknownArtist}</p>
       <p class="album-meta">
-        {album.tracks[0]?.genre || ''}{album.tracks[0]?.genre && album.tracks[0]?.year
-          ? ' · '
-          : ''}{album.tracks[0]?.year || ''}
+        {tracks[0]?.genre || ''}{tracks[0]?.genre && tracks[0]?.year ? ' · ' : ''}{tracks[0]
+          ?.year || ''}
       </p>
       <p class="album-stats">
-        {m.common.trackCountAndDuration(album.trackCount, formatTotalDuration(totalDuration))}
+        {m.common.trackCountAndDuration(album.trackCount, formatTotalDuration(album.totalDuration))}
       </p>
       <div class="header-actions">
         <button class="action-btn play" onclick={handlePlayAll} title={m.common.playAll}>
@@ -181,7 +171,7 @@
     onkeydown={handleListKeydown}
   >
     {#each groupedTracks as discGroup, discIndex (discGroup.discNumber)}
-      {#if hasMultipleDiscs()}
+      {#if hasMultipleDiscs}
         <div class="disc-header">
           <span class="disc-label">Disc {discGroup.discNumber}</span>
         </div>

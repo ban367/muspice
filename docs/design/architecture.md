@@ -38,6 +38,8 @@ graph TD
 - UI部品: `src/lib/components` と `src/lib/components/ui`
 - 型: `src/lib/types/models.ts` をRustモデルと対応させる
 - データ取得: `src/lib/queries/*.ts` のクエリ・ミューテーションがコマンド呼び出し・キャッシュ無効化・エラー通知を担い、コンポーネントからは直接コマンドを呼ばない
+- 曲の一覧: 全曲の一覧は件数の上限なく1回で取得してキャッシュし、並び替え・選択・再生キューの作成はフロントで行う。アルバム・アーティスト・ジャンルは一覧（曲数・代表の曲）だけを取得し、曲は詳細を開いた時・再生する時にその分だけ取得する。プレイリストの曲も、プレイリストごとに取得する（ADR-021）
+- 長い一覧の描画: `src/lib/components/ui/VirtualList.svelte` が、見えている行（とその前後の少しの行）だけを描画する（`implementation.md` 参照）
 - アルバムアート: `#lib/utils/albumArt` の `albumArtUrl(trackId)` が返す `albumart://` のURLを `<img>` に指定し、Rust側のカスタムプロトコルから直接読み込む（フロントエンドに画像データを保持しない）
 - 再生: `src/lib/stores/playback.svelte.ts` の再生コントローラーがaudio要素と再生状態（`player.svelte.ts` の `player`）を `$effect` で同期し、`Player.svelte` は表示と操作の受付に専念する
 - 音声の経路: audio要素（デッキ。2つ） → デッキごとの音量の正規化（GainNode、ReplayGainから求めた倍率） → デッキごとのフェード（GainNode、クロスフェード） → イコライザ（10バンドのBiquadFilterNode、共通） → 全体ゲイン → 出力。Web Audioのグラフは`equalizer.svelte.ts`が作る
@@ -125,4 +127,4 @@ sequenceDiagram
 
 1. 入力値バリデーション（ID形式、文字数、年・トラック番号）
 2. `update_track_metadata`（1曲）または`update_multiple_tracks_metadata`（一括）で、ファイルのタグへ書き込み、同じ内容をDBに記録する（ADR-019）。評価（`set_rating`）も同じ
-3. 成功後に関連クエリをinvalidateして一覧表示を同期
+3. 成功後に関連クエリをinvalidateして一覧表示を同期（評価は、キャッシュにあるその曲の値を書き換える）

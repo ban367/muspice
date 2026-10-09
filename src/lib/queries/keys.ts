@@ -5,32 +5,43 @@
  * 無効化はプレフィックス一致で動作するため、階層構造がそのまま
  * 「どこまでまとめて無効化されるか」を表す。
  *
- * 例: `queryKeys.tracks.all`（`['tracks']`）の無効化は、検索・フィルタ・
- * お気に入りなど`['tracks', ...]`で始まる全クエリに波及する。
+ * 例: `queryKeys.tracks.all`（`['tracks']`）の無効化は、全曲の一覧・検索・フィルタ・
+ * アルバムやプレイリストの曲など`['tracks', ...]`で始まる全クエリに波及する。
  */
 
 import type { FilterOptions } from '#lib/types/models.js';
 
 export const queryKeys = {
-  /** トラック関連（一覧・検索・フィルタ・再生統計） */
+  /**
+   * 曲を返すクエリ（全曲の一覧・検索・フィルタ・再生統計・アルバムなどの曲）
+   *
+   * 曲そのものを返すクエリはすべてここに置く（評価などの変更を、`['tracks']`以下の
+   * キャッシュの書き換えでまとめて反映するため。`./trackCache.ts`）。
+   */
   tracks: {
     all: ['tracks'] as const,
+    list: ['tracks', 'list'] as const,
     search: (term: string) => ['tracks', 'search', term] as const,
     filter: (filters: FilterOptions) => ['tracks', 'filter', filters] as const,
     favorites: ['tracks', 'favorites'] as const,
     mostPlayed: (limit: number) => ['tracks', 'mostPlayed', limit] as const,
-    recentlyPlayed: (limit: number) => ['tracks', 'recentlyPlayed', limit] as const
+    recentlyPlayed: (limit: number) => ['tracks', 'recentlyPlayed', limit] as const,
+    album: (album: string) => ['tracks', 'album', album] as const,
+    artistAlbums: (artist: string) => ['tracks', 'artistAlbums', artist] as const,
+    genre: (genre: string) => ['tracks', 'genre', genre] as const,
+    playlists: ['tracks', 'playlist'] as const,
+    playlist: (playlistId: string) => ['tracks', 'playlist', playlistId] as const
   },
 
-  /** グループ化された一覧 */
+  /** アルバム・アーティスト・ジャンルの一覧（名前・曲数・代表の曲。曲は含まない） */
   albums: {
-    grouped: ['albums', 'grouped'] as const
+    list: ['albums', 'list'] as const
   },
   artists: {
-    grouped: ['artists', 'grouped'] as const
+    list: ['artists', 'list'] as const
   },
   genres: {
-    grouped: ['genres', 'grouped'] as const
+    list: ['genres', 'list'] as const
   },
 
   /** ユニーク値一覧（フィルタの選択肢） */

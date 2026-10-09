@@ -93,12 +93,18 @@ export const commands = {
 	getUniqueAlbums: () => __TAURI_INVOKE<string[]>("get_unique_albums"),
 	/**  ユニークなジャンル一覧を取得 */
 	getUniqueGenres: () => __TAURI_INVOKE<string[]>("get_unique_genres"),
-	/**  アルバム一覧（グループ化）を取得 */
-	getAlbumsGrouped: () => __TAURI_INVOKE<AlbumGroup[]>("get_albums_grouped"),
-	/**  アーティスト一覧（グループ化）を取得 */
-	getArtistsGrouped: () => __TAURI_INVOKE<ArtistGroup[]>("get_artists_grouped"),
-	/**  ジャンル一覧（グループ化）を取得 */
-	getGenresGrouped: () => __TAURI_INVOKE<GenreGroup[]>("get_genres_grouped"),
+	/**  アルバムの一覧を取得（曲は含めない） */
+	getAlbums: () => __TAURI_INVOKE<AlbumSummary[]>("get_albums"),
+	/**  アルバムの曲を取得 */
+	getAlbumTracks: (album: string) => __TAURI_INVOKE<Track[]>("get_album_tracks", { album }),
+	/**  アーティストの一覧を取得（アルバムと曲は含めない） */
+	getArtists: () => __TAURI_INVOKE<ArtistSummary[]>("get_artists"),
+	/**  アーティストのアルバムと曲を取得 */
+	getArtistAlbums: (artist: string) => __TAURI_INVOKE<AlbumGroup[]>("get_artist_albums", { artist }),
+	/**  ジャンルの一覧を取得（曲は含めない） */
+	getGenres: () => __TAURI_INVOKE<GenreSummary[]>("get_genres"),
+	/**  ジャンルの曲を取得 */
+	getGenreTracks: (genre: string) => __TAURI_INVOKE<Track[]>("get_genre_tracks", { genre }),
 	/**
 	 *  トラックのメタデータを更新（ファイルのタグとデータベース）
 	 * 
@@ -124,6 +130,8 @@ export const commands = {
 	createPlaylist: (name: string) => __TAURI_INVOKE<Playlist>("create_playlist", { name }),
 	/**  すべてのプレイリストを取得 */
 	getPlaylists: () => __TAURI_INVOKE<Playlist[]>("get_playlists"),
+	/**  プレイリストの曲を取得（プレイリストの中の並び順） */
+	getPlaylistTracks: (playlistId: string) => __TAURI_INVOKE<Track[]>("get_playlist_tracks", { playlistId }),
 	/**  プレイリストを削除 */
 	deletePlaylist: (playlistId: string) => __TAURI_INVOKE<null>("delete_playlist", { playlistId }),
 	/**  プレイリストの名前を変更 */
@@ -242,7 +250,7 @@ export const LIBRARY_SCAN_INTERVALS = [0,15,30,60,360] as const;
 export const MAX_CROSSFADE_SECONDS = 12 as const;
 
 /* Types */
-/**  アルバムグループ（アルバム表示用） */
+/**  アルバムとその曲（アーティストの詳細で、アルバムごとに曲を表示するために使う） */
 export type AlbumGroup = {
 	name: string,
 	artist: string | null,
@@ -250,6 +258,15 @@ export type AlbumGroup = {
 	totalDuration: number,
 	representativeTrackId: string,
 	tracks: Track[],
+};
+
+/**  アルバムの一覧の1件（曲は含めない。曲は`get_album_tracks`で取得する） */
+export type AlbumSummary = {
+	name: string,
+	artist: string | null,
+	trackCount: number,
+	totalDuration: number,
+	representativeTrackId: string,
 };
 
 /**
@@ -273,14 +290,13 @@ export type AppError =
 /**  メタデータの抽出・書き込みエラー */
 { code: "METADATA"; message: string };
 
-/**  アーティストグループ（アーティスト表示用） */
-export type ArtistGroup = {
+/**  アーティストの一覧の1件（アルバムと曲は含めない。`get_artist_albums`で取得する） */
+export type ArtistSummary = {
 	name: string,
 	albumCount: number,
 	trackCount: number,
 	totalDuration: number,
 	representativeTrackId: string,
-	albums: AlbumGroup[],
 };
 
 /**  一括編集の結果 */
@@ -374,13 +390,12 @@ export type FilterOptions = {
 	genre?: string | null,
 };
 
-/**  ジャンルグループ（ジャンル表示用） */
-export type GenreGroup = {
+/**  ジャンルの一覧の1件（曲は含めない。曲は`get_genre_tracks`で取得する） */
+export type GenreSummary = {
 	name: string,
 	trackCount: number,
 	totalDuration: number,
 	representativeTrackId: string,
-	tracks: Track[],
 };
 
 /**  インポートの進捗 */

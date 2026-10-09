@@ -4,12 +4,13 @@
   LibraryGridを使用して共通ロジックを委譲し、アルバム固有の表示をSnippetで実装。
 -->
 <script lang="ts">
-  import type { AlbumGroup } from '#lib/types/models.js';
-  import { useAlbumsGroupedQuery } from '#lib/queries/tracks.js';
-  import { playTrackFromQueue } from '#lib/stores/player.svelte.js';
+  import { useQueryClient } from '@tanstack/svelte-query';
+  import type { AlbumSummary } from '#lib/types/models.js';
+  import { useAlbumsQuery } from '#lib/queries/tracks.js';
   import { ui } from '#lib/stores/ui.svelte.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import { formatDuration } from '#lib/utils/format.js';
+  import { playGroup } from '#lib/utils/groupPlayback.js';
   import LibraryGrid from './LibraryGrid.svelte';
   import GroupDetail from './GroupDetail.svelte';
   import MarqueeText from '../MarqueeText.svelte';
@@ -24,13 +25,14 @@
   let { displayMode = 'grid' }: Props = $props();
 
   // クエリ
-  const albumsQuery = useAlbumsGroupedQuery();
+  const queryClient = useQueryClient();
+  const albumsQuery = useAlbumsQuery();
   const isLoading = $derived(albumsQuery.isLoading);
   const isError = $derived(albumsQuery.isError);
   const allAlbums = $derived(albumsQuery.data ?? []);
 
   // 選択中のアルバム（モーダル表示用）
-  // 名前で持ち、取り直したデータから引く（評価の変更などがモーダルの中にも反映される）
+  // 名前で持ち、取り直したデータから引く（曲数などの変更がモーダルの中にも反映される）
   let selectedAlbumName = $state<string | null>(null);
   const selectedAlbum = $derived(
     selectedAlbumName === null
@@ -39,25 +41,27 @@
   );
 
   // LibraryGridコンポーネントの参照
-  let libraryGrid: LibraryGrid<AlbumGroup>;
+  let libraryGrid: LibraryGrid<AlbumSummary>;
 
   // カードサイズの計算
   const cardWidth = $derived(ui.gridCardSize + 16);
+  // カードの、アルバムアートを除いた高さの見積もり（描画した後は、実測した高さを使う）
+  const ESTIMATED_CARD_EXTRA_HEIGHT = 74;
+  // リスト表示の行の高さの見積もり
+  const ESTIMATED_LIST_ROW_HEIGHT = 68;
 
   // アルバムをクリック
-  function handleAlbumClick(album: AlbumGroup) {
+  function handleAlbumClick(album: AlbumSummary) {
     selectedAlbumName = album.name;
   }
 
   // アルバムをダブルクリック（すべて再生）
-  function handleAlbumDoubleClick(album: AlbumGroup) {
-    if (album.tracks.length > 0) {
-      playTrackFromQueue(album.tracks, 0);
-    }
+  function handleAlbumDoubleClick(album: AlbumSummary) {
+    void playGroup(queryClient, 'album', album.name);
   }
 
   // 再生ボタンクリック
-  function handlePlayClick(event: MouseEvent, album: AlbumGroup) {
+  function handlePlayClick(event: MouseEvent, album: AlbumSummary) {
     event.stopPropagation();
     handleAlbumDoubleClick(album);
   }
@@ -67,13 +71,8 @@
     selectedAlbumName = null;
   }
 
-  // アルバムの総再生時間を計算
-  function getTotalDuration(album: AlbumGroup): number {
-    return album.tracks.reduce((sum, track) => sum + (track.duration || 0), 0);
-  }
-
   // 検索フィルター
-  function filterAlbum(album: AlbumGroup, query: string): boolean {
+  function filterAlbum(album: AlbumSummary, query: string): boolean {
     return (
       album.name.toLowerCase().includes(query) ||
       (album.artist != null && album.artist.toLowerCase().includes(query))
@@ -91,8 +90,9 @@
   emptyMessage={m.library.noAlbums}
   emptyHint={m.library.noAlbumsHint}
   filterFn={filterAlbum}
-  gridStyle="--card-width: {cardWidth}px; --art-size: {ui.gridCardSize}px;"
-  gridClass="album-grid"
+  minCardWidth={cardWidth}
+  estimatedCardHeight={ui.gridCardSize + ESTIMATED_CARD_EXTRA_HEIGHT}
+  estimatedRowHeight={ESTIMATED_LIST_ROW_HEIGHT}
   groupType="album"
   onOpen={handleAlbumClick}
 >
@@ -165,7 +165,7 @@
         <span>{m.common.trackCount(album.trackCount)}</span>
       </div>
       <div class="list-duration">
-        {formatDuration(getTotalDuration(album))}
+        {formatDuration(album.totalDuration)}
       </div>
       <button
         class="list-play-btn"
@@ -186,10 +186,6 @@
 
 <style>
   @reference "../../../app.css";
-  :global(.album-grid) {
-    @apply grid grid-cols-[repeat(auto-fill,minmax(var(--card-width),1fr))] gap-3;
-  }
-
   .list-row {
     @apply grid gap-3 px-3 py-2.5 items-center rounded-md cursor-pointer transition-colors duration-100
            grid-cols-[3rem_1fr_5rem_4rem_2.5rem];

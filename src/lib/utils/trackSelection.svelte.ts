@@ -148,6 +148,13 @@ export interface TrackListKeyOptions {
   columns?: () => number | null;
   /** Enterで行う操作（現在位置のトラックを再生する、など） */
   onActivate?: (trackId: string) => void;
+  /**
+   * 移動先のトラックを見える位置までスクロールする
+   *
+   * 省略すると、`data-track-id`の付いた行の要素を探してスクロールする。見えている行だけを
+   * 描画する一覧（仮想スクロール）では、移動先の行の要素がないことがあるため、これを渡す。
+   */
+  scrollTo?: (trackId: string) => void;
 }
 
 /**
@@ -157,7 +164,7 @@ export interface TrackListKeyOptions {
  * - Cmd/Ctrl+A: すべて選択する
  * - Enter: `onActivate`を呼ぶ
  *
- * 行の要素には`data-track-id`でトラックIDを付けておく。
+ * 行の要素には`data-track-id`でトラックIDを付けておく（`scrollTo`を渡す場合は不要）。
  */
 export function handleTrackListKeydown(
   event: KeyboardEvent,
@@ -193,7 +200,9 @@ export function handleTrackListKeydown(
 
   // 既定の動作（一覧のスクロール）の代わりに、移動先の行を見える位置へ出す
   event.preventDefault();
-  if (event.currentTarget instanceof Element) {
+  if (options.scrollTo) {
+    options.scrollTo(trackId);
+  } else if (event.currentTarget instanceof Element) {
     event.currentTarget
       .querySelector(`[data-track-id="${CSS.escape(trackId)}"]`)
       ?.scrollIntoView({ block: 'nearest' });

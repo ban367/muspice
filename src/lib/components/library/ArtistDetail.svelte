@@ -1,7 +1,11 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import type { ArtistGroup, AlbumGroup } from '#lib/types/models.js';
-  import { useSetRatingMutation } from '#lib/queries/tracks.js';
+  import type { ArtistSummary, AlbumGroup } from '#lib/types/models.js';
+  import {
+    flattenAlbumTracks,
+    useArtistAlbumsQuery,
+    useSetRatingMutation
+  } from '#lib/queries/tracks.js';
   import { player, playTrackFromQueue, playShuffled } from '#lib/stores/player.svelte.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import { formatDuration } from '#lib/utils/format.js';
@@ -15,21 +19,25 @@
 
   // Props
   interface Props {
-    artist: ArtistGroup;
+    artist: ArtistSummary;
   }
 
   let { artist }: Props = $props();
 
   const setRatingMutation = useSetRatingMutation();
 
+  // アーティストのアルバムと曲
+  const artistName = $derived(artist.name);
+  const albumsQuery = $derived(useArtistAlbumsQuery(artistName));
+  const albums = $derived(albumsQuery.data ?? []);
+
   // 表示順（アルバムごと）のトラック
-  const displayTracks = $derived(artist.albums.flatMap((album) => album.tracks));
+  const displayTracks = $derived(flattenAlbumTracks(albums));
 
   // トラックの選択（クリック・キーボード。アルバムをまたいで選択できる）
   const selection = new TrackSelection(() => displayTracks);
 
   // 別のアーティストに切り替わったら、選択を消す（データを取り直しただけでは消さない）
-  const artistName = $derived(artist.name);
   $effect(() => {
     void artistName;
     // 選択の中身には反応させない（選択を変えるたびに消えてしまう）
@@ -55,7 +63,7 @@
   function handleListKeydown(event: KeyboardEvent) {
     handleTrackListKeydown(event, selection, {
       onActivate: (trackId) => {
-        for (const album of artist.albums) {
+        for (const album of albums) {
           const index = album.tracks.findIndex((track) => track.id === trackId);
           if (index !== -1) {
             handleTrackDoubleClick(album, index);
@@ -68,15 +76,14 @@
 
   // すべて再生
   function handlePlayAll() {
-    const allTracks = artist.albums.flatMap((album) => album.tracks);
-    if (allTracks.length > 0) {
-      playTrackFromQueue(allTracks, 0);
+    if (displayTracks.length > 0) {
+      playTrackFromQueue(displayTracks, 0);
     }
   }
 
   // シャッフル再生
   function handleShufflePlay() {
-    playShuffled(artist.albums.flatMap((album) => album.tracks));
+    playShuffled(displayTracks);
   }
 
   // トラックをダブルクリックで再生
@@ -136,7 +143,7 @@
     tabindex="0"
     onkeydown={handleListKeydown}
   >
-    {#each artist.albums as album (album.name)}
+    {#each albums as album (album.name)}
       <div class="album-section">
         <!-- アルバムヘッダー -->
         <div class="album-header">

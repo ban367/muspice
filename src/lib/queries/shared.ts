@@ -13,8 +13,10 @@ const MINUTE = 60 * 1000;
  * 個々のクエリで数値を書かず、ここの方針を選んで適用する。
  */
 export const CACHE_POLICY = {
-  /** ライブラリ本体（一覧・グループ化・ユニーク値）: 変更はインポート/編集時のみ */
+  /** ライブラリ本体（全曲の一覧・アルバムなどの一覧・ユニーク値）: 変更はインポート/編集時のみ */
   library: { staleTime: 10 * MINUTE, gcTime: 30 * MINUTE },
+  /** 開いたアルバム・アーティスト・ジャンル・プレイリストの曲: 開くたびに増えるため、閉じたら早めに手放す */
+  detail: { staleTime: 10 * MINUTE, gcTime: 5 * MINUTE },
   /** 検索・フィルタ結果: 入力ごとに増えるため保持は短め */
   search: { staleTime: 5 * MINUTE, gcTime: 15 * MINUTE },
   /** 再生統計（お気に入り・よく再生する） */

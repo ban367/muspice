@@ -45,7 +45,7 @@ npm run tauri build           # 本番ビルド
 - **TailwindCSS**: カスタムクラスを`@apply`で使わない。スタイルブロック先頭に`@reference`を追加
 - **セキュリティ**: WebViewの権限（capability・assetProtocolスコープ）は最小限にし、ファイルアクセスはRust側のコマンドで行う。WebViewから任意のパスを受け取らずトラックID等で解決する。ローカルデータのみ。外部通信なし
 - **動作確認**: Claude CodeでのUI確認は`npm run dev:mock`（`.claude/launch.json`の`web-mock`）でTauri IPCをモックしたブラウザを使う。Rustのコマンドを変更したら`src/lib/mocks/backend.ts`も追随させる（詳細は`docs/design/implementation.md`）
-- **パフォーマンス**: バッチインポート（50件/TX）、FTS5検索、DBインデックス、クエリ制限（1000件）、デバウンス（300ms）、仮想スクロール
+- **パフォーマンス**: バッチインポート（50件/TX）、FTS5検索、DBインデックス、デバウンス（300ms）。一覧は件数の上限なく全件を取得し、`VirtualList`で見えている行だけを描画する（仮想スクロール。詳細は`docs/design/implementation.md`）
 
 ## ドキュメント参照ルール
 

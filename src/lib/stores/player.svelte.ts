@@ -314,6 +314,23 @@ export function playPreviousTrack(): boolean {
 }
 
 /**
+ * キューの最後にトラックを追加
+ */
+export function addToQueue(tracks: readonly Track[]): void {
+  player.playQueue = [...player.playQueue, ...tracks];
+}
+
+/**
+ * 再生中のトラックの次にトラックを追加
+ */
+export function addNextInQueue(tracks: readonly Track[]): void {
+  const queue = player.playQueue;
+  const position = player.currentTrackIndex + 1;
+  // 件数が多い場合があるため、引数の数に上限のあるspliceへ展開せずに組み立てる
+  player.playQueue = [...queue.slice(0, position), ...tracks, ...queue.slice(position)];
+}
+
+/**
  * キューから特定のトラックを削除
  */
 export function removeFromQueue(trackId: string): void {

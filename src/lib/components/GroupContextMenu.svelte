@@ -2,16 +2,21 @@
   @component GroupContextMenu
   アルバム/アーティスト/ジャンルグループ用コンテキストメニュー。
   すべて再生、シャッフル再生、キュー操作、プレイリスト追加のアクションを提供する。
+  一覧の項目は曲を持たないため、メニューを開いた時にそのグループの曲を取得する。
 -->
 <script lang="ts">
-  import type { Track, AlbumGroup, ArtistGroup, GenreGroup } from '#lib/types/models.js';
+  import type { AlbumSummary, ArtistSummary, GenreSummary } from '#lib/types/models.js';
   import { BaseContextMenu, PlaylistSubmenu } from '#lib/components/ui/index.js';
-  import { player, playTrackFromQueue, playShuffled } from '#lib/stores/player.svelte.js';
+  import { useGroupTracksQuery, type GroupType } from '#lib/queries/tracks.js';
+  import {
+    addNextInQueue,
+    addToQueue,
+    playTrackFromQueue,
+    playShuffled
+  } from '#lib/stores/player.svelte.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
-  // グループタイプ
-  type GroupType = 'album' | 'artist' | 'genre';
-  type Group = AlbumGroup | ArtistGroup | GenreGroup;
+  type Group = AlbumSummary | ArtistSummary | GenreSummary;
 
   // Props
   interface Props {
@@ -24,14 +29,11 @@
 
   let { x, y, group, type, onClose }: Props = $props();
 
-  // グループ内のすべてのトラック
-  const allTracks = $derived.by((): Track[] => {
-    if (type === 'artist') {
-      return (group as ArtistGroup).albums.flatMap((album) => album.tracks);
-    } else {
-      return (group as AlbumGroup | GenreGroup).tracks;
-    }
-  });
+  // グループ内のすべてのトラック（取得するまでは空。その間、操作は選べない）
+  const groupName = $derived(group.name);
+  const tracksQuery = $derived(useGroupTracksQuery(type, groupName));
+  const allTracks = $derived(tracksQuery.data ?? []);
+  const isEmpty = $derived(allTracks.length === 0);
 
   // タイプに応じたラベル
   const typeLabel = $derived.by(() => {
@@ -67,12 +69,7 @@
    * 次に再生（キューの先頭に追加）
    */
   function handlePlayNext() {
-    const queue = player.playQueue;
-    const currentIndex = player.currentTrackIndex;
-
-    const newQueue = [...queue];
-    newQueue.splice(currentIndex + 1, 0, ...allTracks);
-    player.playQueue = newQueue;
+    addNextInQueue(allTracks);
     onClose();
   }
 
@@ -80,18 +77,17 @@
    * キューに追加（キューの最後に追加）
    */
   function handleAddToQueue() {
-    const queue = player.playQueue;
-    player.playQueue = [...queue, ...allTracks];
+    addToQueue(allTracks);
     onClose();
   }
 </script>
 
 <BaseContextMenu {x} {y} {onClose}>
   <div class="menu-header">{group.name}</div>
-  <div class="menu-subheader">{m.common.trackCount(allTracks.length)}</div>
+  <div class="menu-subheader">{m.common.trackCount(group.trackCount)}</div>
   <div class="menu-divider"></div>
 
-  <button class="menu-item" onclick={handlePlayAll} role="menuitem">
+  <button class="menu-item" onclick={handlePlayAll} role="menuitem" disabled={isEmpty}>
     <svg
       xmlns="http://www.w3.org/2000/svg"
       class="menu-icon"
@@ -103,7 +99,7 @@
     <span>{m.contextMenu.playGroup(typeLabel)}</span>
   </button>
 
-  <button class="menu-item" onclick={handleShufflePlay} role="menuitem">
+  <button class="menu-item" onclick={handleShufflePlay} role="menuitem" disabled={isEmpty}>
     <svg
       xmlns="http://www.w3.org/2000/svg"
       class="menu-icon"
@@ -123,7 +119,7 @@
 
   <div class="menu-divider"></div>
 
-  <button class="menu-item" onclick={handlePlayNext} role="menuitem">
+  <button class="menu-item" onclick={handlePlayNext} role="menuitem" disabled={isEmpty}>
     <svg
       xmlns="http://www.w3.org/2000/svg"
       class="menu-icon"
@@ -141,7 +137,7 @@
     <span>{m.common.playNext}</span>
   </button>
 
-  <button class="menu-item" onclick={handleAddToQueue} role="menuitem">
+  <button class="menu-item" onclick={handleAddToQueue} role="menuitem" disabled={isEmpty}>
     <svg
       xmlns="http://www.w3.org/2000/svg"
       class="menu-icon"
@@ -182,8 +178,12 @@
     @apply flex items-center gap-3 w-full py-2 px-4 bg-transparent border-none text-text-secondary text-sm text-left cursor-pointer transition-colors duration-150;
   }
 
-  .menu-item:hover {
+  .menu-item:hover:not(:disabled) {
     @apply bg-surface-active;
+  }
+
+  .menu-item:disabled {
+    @apply opacity-50 cursor-not-allowed;
   }
 
   .menu-icon {

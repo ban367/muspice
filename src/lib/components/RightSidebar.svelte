@@ -8,10 +8,14 @@
     playQueueIndex
   } from '#lib/stores/player.svelte.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
+  import { VirtualList } from '#lib/components/ui/index.js';
   import AlbumArt from './AlbumArt.svelte';
   import MarqueeText from './MarqueeText.svelte';
   import EqualizerPanel from './EqualizerPanel.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
+
+  // 「次に再生」の行の高さの見積もり（描画した後は、VirtualListが実測した高さを使う）
+  const ESTIMATED_QUEUE_ROW_HEIGHT = 50;
 
   // パネルを開く/切り替え
   function openPanel(panel: RightSidebarPanel) {
@@ -191,37 +195,48 @@
       <div class="upcoming-section">
         {#if player.upcomingTracks.length > 0}
           <div class="section-label">{m.rightSidebar.upNext(player.upcomingTracks.length)}</div>
+          <!-- 一覧の曲をすべてキューに入れた場合は数万曲になるため、見えている行だけを描画する -->
           <div class="upcoming-list">
-            {#each player.upcomingTracks as track, index (track.id)}
-              <div
-                class="queue-track"
-                ondblclick={(e) => !isRowButton(e) && playUpcoming(index)}
-                onkeydown={(e) => e.key === 'Enter' && !isRowButton(e) && playUpcoming(index)}
-                role="button"
-                tabindex="0"
-              >
-                <span class="track-number">{index + 1}</span>
-                <div class="queue-art">
-                  <AlbumArt
-                    src={albumArtUrl(track.id)}
-                    alt={m.common.albumArt}
-                    rounded="sm"
-                    placeholderType="music"
-                  />
-                </div>
-                <div class="track-details">
-                  <MarqueeText text={track.title || track.fileName} class="track-title" />
-                  <MarqueeText text={track.artist || m.common.unknownArtist} class="track-artist" />
-                </div>
-                <button
-                  class="remove-btn"
-                  onclick={() => removeFromQueue(track.id)}
-                  title={m.rightSidebar.removeFromQueue}
+            <VirtualList
+              items={player.upcomingTracks}
+              getKey={(track) => track.id}
+              estimatedRowHeight={ESTIMATED_QUEUE_ROW_HEIGHT}
+              scrollerClass="px-2 pb-2"
+            >
+              {#snippet row(track, index)}
+                <div
+                  class="queue-track"
+                  ondblclick={(e) => !isRowButton(e) && playUpcoming(index)}
+                  onkeydown={(e) => e.key === 'Enter' && !isRowButton(e) && playUpcoming(index)}
+                  role="button"
+                  tabindex="0"
                 >
-                  ✕
-                </button>
-              </div>
-            {/each}
+                  <span class="track-number">{index + 1}</span>
+                  <div class="queue-art">
+                    <AlbumArt
+                      src={albumArtUrl(track.id)}
+                      alt={m.common.albumArt}
+                      rounded="sm"
+                      placeholderType="music"
+                    />
+                  </div>
+                  <div class="track-details">
+                    <MarqueeText text={track.title || track.fileName} class="track-title" />
+                    <MarqueeText
+                      text={track.artist || m.common.unknownArtist}
+                      class="track-artist"
+                    />
+                  </div>
+                  <button
+                    class="remove-btn"
+                    onclick={() => removeFromQueue(track.id)}
+                    title={m.rightSidebar.removeFromQueue}
+                  >
+                    ✕
+                  </button>
+                </div>
+              {/snippet}
+            </VirtualList>
           </div>
         {:else if player.currentTrack}
           <div class="empty-queue">{m.rightSidebar.noUpcoming}</div>
@@ -336,8 +351,9 @@
     @apply pt-3 pb-1.5 px-4;
   }
 
+  /* スクロールはVirtualListが行う */
   .upcoming-list {
-    @apply flex-1 overflow-y-auto px-2 pb-2;
+    @apply flex-1 min-h-0;
   }
 
   .queue-track {

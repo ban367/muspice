@@ -31,6 +31,18 @@ pub async fn get_playlists(state: State<'_, AppState>) -> AppResult<Vec<crate::m
     })
 }
 
+/// プレイリストの曲を取得（プレイリストの中の並び順）
+#[tauri::command]
+#[specta::specta]
+pub async fn get_playlist_tracks(
+    playlist_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<crate::models::Track>> {
+    validate_playlist_id(&playlist_id)?;
+
+    state.with_db(|db| crate::playlist::get_playlist_tracks(db, &playlist_id))
+}
+
 /// プレイリストにトラックを追加（複数のトラックを、渡した順に追加する）
 ///
 /// すでに入っているトラックは飛ばし、追加したトラック数を返す。

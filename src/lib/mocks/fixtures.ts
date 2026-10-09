@@ -131,6 +131,56 @@ export function createFixtureTracks(): Track[] {
   return TRACK_SEEDS.map(createTrack);
 }
 
+/** 生成するトラックのIDの開始位置（フィクスチャのIDと重ならないようにする） */
+const BULK_TRACK_ID_OFFSET = 100_000;
+const MINUTE_MS = 60 * 1000;
+
+/**
+ * 数万曲のライブラリでの動作確認用に、トラックをまとめて生成する
+ *
+ * アーティスト・アルバム・ジャンルは決まった数を繰り返し使う（1アルバム12曲）。
+ * 追加日時はフィクスチャより古くし、一覧の先頭にはフィクスチャが並ぶようにする。
+ */
+export function createBulkTracks(count: number): Track[] {
+  const genres = ['Rock', 'Pop', 'Jazz', 'Classical', 'Electronic', 'Hip Hop', 'Folk', 'Ambient'];
+
+  return Array.from({ length: Math.max(0, count) }, (_, index): Track => {
+    const albumIndex = Math.floor(index / 12);
+    const artist = `Bulk Artist ${String(albumIndex % 1500).padStart(4, '0')}`;
+    const album = `Bulk Album ${String(albumIndex).padStart(5, '0')}`;
+    const trackNumber = (index % 12) + 1;
+    const title = `Bulk Track ${String(index + 1).padStart(6, '0')}`;
+    const fileName = `${String(trackNumber).padStart(2, '0')} ${title}.mp3`;
+    const duration = 120 + (index % 240);
+    const createdAt = toIso(BASE_TIME - (index + 1) * MINUTE_MS);
+
+    return {
+      id: mockTrackId(BULK_TRACK_ID_OFFSET + index),
+      filePath: `/Users/demo/Music/${artist}/${album}/${fileName}`,
+      fileName,
+      title,
+      artist,
+      album,
+      genre: genres[albumIndex % genres.length],
+      year: 1980 + (albumIndex % 45),
+      trackNumber,
+      discNumber: 1,
+      duration,
+      fileSize: Math.round((duration * BITRATE_BY_FORMAT.mp3 * 1000) / 8),
+      format: 'mp3',
+      bitrate: BITRATE_BY_FORMAT.mp3,
+      sampleRate: 44100,
+      isFavorite: false,
+      rating: index % 6,
+      playCount: 0,
+      lastPlayedAt: null,
+      createdAt,
+      updatedAt: createdAt,
+      replayGain: { trackGain: null, trackPeak: null, albumGain: null, albumPeak: null }
+    };
+  });
+}
+
 export function createFixturePlaylists(): Playlist[] {
   const playlist = (index: number, name: string, trackIndexes: number[]): Playlist => {
     const createdAt = toIso(BASE_TIME + (48 + index) * HOUR_MS);
