@@ -201,8 +201,21 @@ impl TrackDecoder {
             .map(|frames| frames as f64 / f64::from(self.sample_rate))
     }
 
+    /// まだ返していない音声の長さ（秒。曲の長さが分からなければNone）
+    pub fn remaining_seconds(&self) -> Option<f64> {
+        self.total_frames
+            .map(|frames| frames.saturating_sub(self.position) as f64 / f64::from(self.sample_rate))
+    }
+
     /// 次のかたまり（インターリーブのサンプル）を返す。曲の終わりではNone
     pub fn next_chunk(&mut self) -> AppResult<Option<&[f32]>> {
+        self.next_chunk_limited(None)
+    }
+
+    /// 次のかたまりを、多くても`limit`フレームまで返す（残りは、次に呼んだ時に返す）
+    ///
+    /// 曲の中の決まった位置（クロスフェードを始める位置）で、かたまりを区切るために使う。
+    pub fn next_chunk_limited(&mut self, limit: Option<u64>) -> AppResult<Option<&[f32]>> {
         loop {
             if self.finished || (self.pending.is_empty() && self.decode_packet()?.is_none()) {
                 return Ok(None);
@@ -228,6 +241,15 @@ impl TrackDecoder {
                     return Ok(None);
                 }
                 range.end = range.end.min(range.start + remaining as usize);
+            }
+
+            // 上限を超える分は、次に返す
+            if let Some(limit) = limit
+                && range.len() as u64 > limit.max(1)
+            {
+                let split = range.start + limit.max(1) as usize;
+                self.pending = split..range.end;
+                range.end = split;
             }
 
             self.position += range.len() as u64;
@@ -411,7 +433,7 @@ pub(crate) mod tests {
     }
 
     /// サンプル（インターリーブ）を、WAV（16bit）として書く
-    fn write_wav_samples(path: &Path, sample_rate: u32, channels: u16, samples: &[i16]) {
+    pub(crate) fn write_wav_samples(path: &Path, sample_rate: u32, channels: u16, samples: &[i16]) {
         let data_len = samples.len() as u32 * 2;
         let mut bytes = Vec::with_capacity(44 + data_len as usize);
         bytes.extend_from_slice(b"RIFF");
@@ -480,6 +502,26 @@ pub(crate) mod tests {
         }
         // 終わりの後は、何度呼んでもNone
         assert!(decoder.next_chunk().unwrap().is_none());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn test_limited_chunks_split_at_the_given_frame() {
+        let dir = temp_dir("limit");
+        let path = dir.join("a.wav");
+        write_wav(&path, 44_100, 2, 10_000);
+        let mut decoder = TrackDecoder::open(&path).unwrap();
+
+        // 上限までで区切り、残りは次に返す（合わせると、区切らない場合と同じ）
+        let first = decoder.next_chunk_limited(Some(100)).unwrap().unwrap();
+        assert_eq!(first.len(), 100 * 2);
+        assert!((first[99 * 2] - expected(99, 0)).abs() < 1e-4);
+        assert!((decoder.remaining_seconds().unwrap() - 9_900.0 / 44_100.0).abs() < 1e-9);
+
+        let rest = read_all(&mut decoder);
+        assert_eq!(rest.len(), 9_900 * 2);
+        assert!((rest[0] - expected(100, 0)).abs() < 1e-4);
+        assert_eq!(decoder.remaining_seconds(), Some(0.0));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

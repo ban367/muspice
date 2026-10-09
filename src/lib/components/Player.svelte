@@ -41,12 +41,13 @@
     const engine = playbackEngine;
     if (engine === undefined) return;
     const gapless = () => settingsQuery.data?.gaplessPlayback ?? true;
+    const crossfadeSeconds = () => settingsQuery.data?.crossfadeSeconds ?? 0;
 
     // audio要素・再生エンジンの設定が変わったときだけ作り直す（作成中に読む再生状態には
     // 反応させない）。作り直すと、再生は止まりキューは空になる
     let controller: PlaybackController;
     if (engine === 'native') {
-      controller = untrack(() => createNativePlaybackController({ gapless }));
+      controller = untrack(() => createNativePlaybackController({ gapless, crossfadeSeconds }));
     } else {
       if (!audioElement || !standbyAudioElement) return;
       const audios = [audioElement, standbyAudioElement] as const;
@@ -54,7 +55,7 @@
         createPlaybackController(audios, {
           normalizationMode: () => settingsQuery.data?.volumeNormalization ?? 'off',
           gapless,
-          crossfadeSeconds: () => settingsQuery.data?.crossfadeSeconds ?? 0
+          crossfadeSeconds
         })
       );
     }

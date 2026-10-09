@@ -10,8 +10,11 @@
 //! - シーク・曲の切り替えでは、エンジンが「この位置より前は捨てる」（`discard_until`）を書き、
 //!   ここでバッファにたまっている古い音声を読み捨てる
 //! - 取り出したフレーム数（`frames_read`）から、エンジンが再生位置と曲の切り替わりを求める
+//! - 取り出した音声に、イコライザ → 音量・一時停止 → リミッターの順でかけて出す（`effects`）。
+//!   リミッターを最後に置くのは、音量を下げていて最大を超えない時に、余計に抑えないため
 
 use super::convert::OUTPUT_CHANNELS;
+use super::effects::{EffectParams, Equalizer, Limiter};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
@@ -77,6 +80,18 @@ pub struct Renderer {
     gain: f32,
     /// 1フレームあたりの音量の変化の上限
     gain_step: f32,
+    sample_rate: u32,
+    /// 取り出した音声（ステレオ）を加工するための作業用のバッファ
+    stereo: Vec<f32>,
+    /// イコライザとリミッター（`with_effects`でつなぐ）
+    effects: Option<Effects>,
+}
+
+/// 出力の直前にかける加工
+struct Effects {
+    params: Arc<EffectParams>,
+    equalizer: Equalizer,
+    limiter: Limiter,
 }
 
 impl Renderer {
@@ -87,7 +102,28 @@ impl Renderer {
             frames_read: 0,
             gain: 0.0,
             gain_step: 1.0 / (GAIN_RAMP_SECONDS * sample_rate as f32),
+            sample_rate,
+            stereo: Vec::new(),
+            effects: None,
         }
+    }
+
+    /// イコライザとリミッターをつなぐ（設定は`params`から読む）
+    pub fn with_effects(mut self, params: Arc<EffectParams>) -> Self {
+        self.effects = Some(Effects {
+            params,
+            equalizer: Equalizer::new(self.sample_rate),
+            limiter: Limiter::new(self.sample_rate),
+        });
+        self
+    }
+
+    /// イコライザとリミッターを外す（テストで、取り出した音声をそのままの位置で確かめるため。
+    /// リミッターは、音声を先読みの時間だけ遅らせる）
+    #[cfg(test)]
+    pub fn without_effects(mut self) -> Self {
+        self.effects = None;
+        self
     }
 
     /// 取り出したフレーム数の合計
@@ -110,49 +146,69 @@ impl Renderer {
         };
 
         let frames = out.len().checked_div(channels).unwrap_or(0);
-        // 一時停止して音量が0まで下がりきったら、バッファから取り出さない（再開したら続きから鳴る）
-        let wanted = if paused && self.gain <= 0.0 {
-            0
+        // 一時停止中は、音量が0まで下がりきる分だけを取り出す（再開したら続きから鳴る）
+        let wanted = if paused {
+            // 丸めの誤差で残ったごく小さい音量は、下がりきったものとして扱う
+            let remaining = (self.gain / self.gain_step - 1e-3).ceil().max(0.0) as usize;
+            if remaining == 0 {
+                self.gain = 0.0;
+            }
+            remaining.min(frames)
         } else {
             frames
         };
         let available = self.consumer.slots() / OUTPUT_CHANNELS;
         let take = wanted.min(available);
 
-        let mut written = 0;
+        // 取り出した音声をステレオのまま作業用のバッファへ移す（足りない分は無音。確保は最初だけ）
+        self.stereo.resize(frames * OUTPUT_CHANNELS, 0.0);
+        let (audio, silence) = self.stereo.split_at_mut(take * OUTPUT_CHANNELS);
+        silence.fill(0.0);
         if take > 0
             && let Ok(chunk) = self.consumer.read_chunk(take * OUTPUT_CHANNELS)
         {
             let (first, second) = chunk.as_slices();
-            // リングの折り返しは、偶数個（フレームの境界）で分かれる（容量が偶数のため）
-            let frames = first
-                .as_chunks::<OUTPUT_CHANNELS>()
-                .0
-                .iter()
-                .chain(second.as_chunks::<OUTPUT_CHANNELS>().0);
-            for frame in frames {
-                self.gain = if self.gain < target {
-                    (self.gain + self.gain_step).min(target)
-                } else {
-                    (self.gain - self.gain_step).max(target)
-                };
-                write_frame(
-                    &mut out[written * channels..(written + 1) * channels],
-                    frame[0] * self.gain,
-                    frame[1] * self.gain,
-                );
-                written += 1;
-                // 一時停止で音量が0まで下がりきったら、そこで取り出すのをやめる
-                if paused && self.gain <= 0.0 {
-                    break;
-                }
-            }
-            chunk.commit(written * OUTPUT_CHANNELS);
-            self.frames_read += written as u64;
+            audio[..first.len()].copy_from_slice(first);
+            audio[first.len()..].copy_from_slice(second);
+            chunk.commit_all();
+            self.frames_read += take as u64;
         }
-        // 足りない分は無音
-        out[written * channels..].fill(0.0);
-        if !paused && written < frames {
+
+        if let Some(effects) = &mut self.effects {
+            effects.equalizer.process(&mut self.stereo, &effects.params);
+        }
+
+        // 音量・一時停止（目標の値へ、少しずつ近づける）
+        for frame in self.stereo[..take * OUTPUT_CHANNELS]
+            .as_chunks_mut::<OUTPUT_CHANNELS>()
+            .0
+        {
+            self.gain = if self.gain < target {
+                (self.gain + self.gain_step).min(target)
+            } else {
+                (self.gain - self.gain_step).max(target)
+            };
+            frame[0] *= self.gain;
+            frame[1] *= self.gain;
+        }
+        // 音声の後ろ（足りなかった分）は、イコライザの響きが残っていても出さない
+        self.stereo[take * OUTPUT_CHANNELS..].fill(0.0);
+
+        if let Some(effects) = &mut self.effects {
+            effects.limiter.process(&mut self.stereo);
+        }
+
+        for (frame, out) in self
+            .stereo
+            .as_chunks::<OUTPUT_CHANNELS>()
+            .0
+            .iter()
+            .zip(out.chunks_exact_mut(channels.max(1)))
+        {
+            write_frame(out, frame[0], frame[1]);
+        }
+
+        if !paused && take < frames {
             // 音声が途切れた後は、音量を0から上げ直す（急に鳴り始めるノイズを防ぐ）
             self.gain = 0.0;
             self.shared.underruns.fetch_add(1, Ordering::Relaxed);
@@ -177,8 +233,12 @@ impl Renderer {
             chunk.commit_all();
             self.frames_read += frames;
         }
-        // 続きではない音声へ切り替わるため、音量を0から上げ直す
+        // 続きではない音声へ切り替わるため、音量を0から上げ直し、加工の中に残っている前の音声を消す
         self.gain = 0.0;
+        if let Some(effects) = &mut self.effects {
+            effects.equalizer.reset();
+            effects.limiter.reset();
+        }
     }
 }
 
@@ -327,5 +387,45 @@ mod tests {
         let mut quad = [9.0f32; 8];
         renderer.render(&mut quad, 4);
         assert_eq!(quad, [1.0, -1.0, 0.0, 0.0, 1.0, -1.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn test_effects_equalize_and_limit_the_output() {
+        let (mut producer, renderer, _shared) = setup(4_096);
+        let params = Arc::new(EffectParams::default());
+        let mut renderer = renderer.with_effects(params.clone());
+        // 最大の2倍の音声
+        push(&mut producer, [2.0; 2_000]);
+
+        let mut out = [0.0f32; 2_000];
+        renderer.render(&mut out, 2);
+
+        // リミッターが最大に収める（音量が上がりきった後の値は、上限の近く）
+        assert!(out.iter().all(|sample| sample.abs() <= 1.0));
+        assert!(out[1_998] > 0.9);
+
+        // イコライザの設定は、次に取り出す時から効く（1kHzのバンドは、直流にはほぼ効かない）
+        let mut gains = [0.0; 10];
+        gains[5] = -12.0;
+        params.set_equalizer(true, &gains);
+        renderer.render(&mut out, 2);
+        assert!(out[1_998] > 0.9);
+    }
+
+    #[test]
+    fn test_effects_delay_quiet_audio_without_changing_it() {
+        let (mut producer, renderer, shared) = setup(256);
+        let mut renderer = renderer.with_effects(Arc::new(EffectParams::default()));
+        push(&mut producer, [0.5; 100]);
+
+        let mut out = [0.0f32; 200];
+        renderer.render(&mut out, 2);
+
+        // 位置（取り出したフレーム数）は遅れを含まない
+        assert_eq!(shared.frames_read(), 100);
+        // 音声は、リミッターの先読み（5ms = 5フレーム）だけ遅れて、同じ値で出る
+        assert_eq!(&out[..10], &[0.0; 10]);
+        assert_eq!((out[60], out[61]), (0.5, -0.5));
+        assert_eq!((out[198], out[199]), (0.5, -0.5));
     }
 }

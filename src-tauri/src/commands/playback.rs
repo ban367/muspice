@@ -12,13 +12,14 @@ use crate::validation::validate_track_id;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager, State};
 
-/// トラックIDから、再生するファイルを決める
+/// トラックIDから、再生するファイルと、音量の正規化に使う値を決める
 fn play_request(state: &AppState, track_id: &str, token: u32) -> AppResult<PlayRequest> {
     validate_track_id(track_id)?;
-    let path = state.with_db(|db| crate::repository::find_file_path_by_track_id(db, track_id))?;
+    let track = state.with_db(|db| crate::repository::find_track_by_id(db, track_id))?;
     Ok(PlayRequest {
         token,
-        path: PathBuf::from(path),
+        path: PathBuf::from(track.file_path),
+        replay_gain: track.replay_gain,
     })
 }
 
@@ -101,6 +102,27 @@ pub async fn playback_set_volume(volume: f32, engine: State<'_, PlaybackEngine>)
 #[specta::specta]
 pub async fn playback_stop(engine: State<'_, PlaybackEngine>) -> AppResult<()> {
     engine.stop()
+}
+
+/// イコライザの設定を変える（再生中の音にすぐに効く）
+///
+/// `gains`は、バンドごとのゲイン（dB。31Hz〜16kHzの10個。範囲外の値は-12〜12に収める）。
+/// 設定はフロントエンドが保存しており（`equalizer.svelte.ts`）、起動時と変更のたびに送る。
+#[tauri::command]
+#[specta::specta]
+pub async fn playback_set_equalizer(
+    enabled: bool,
+    gains: Vec<f32>,
+    engine: State<'_, PlaybackEngine>,
+) -> AppResult<()> {
+    let gains: [f32; crate::playback::EQ_BANDS] = gains.try_into().map_err(|_| {
+        AppError::Validation(format!(
+            "イコライザのゲインは{}個で指定してください",
+            crate::playback::EQ_BANDS
+        ))
+    })?;
+    engine.set_equalizer(enabled, &gains);
+    Ok(())
 }
 
 /// 出力デバイスの一覧を取得する

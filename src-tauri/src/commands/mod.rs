@@ -58,7 +58,7 @@ pub use player::{get_current_track, get_track_file_path, set_current_track};
 // ネイティブの再生エンジン
 pub use playback::{
     get_output_devices, playback_pause, playback_play, playback_resume, playback_seek,
-    playback_set_next, playback_set_volume, playback_stop,
+    playback_set_equalizer, playback_set_next, playback_set_volume, playback_stop,
 };
 
 // 統計（お気に入り・レーティング・再生回数）

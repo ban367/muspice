@@ -218,6 +218,13 @@ export const commands = {
 	playbackSeek: (position: number | null) => __TAURI_INVOKE<null>("playback_seek", { position }),
 	/**  音量（0.0〜1.0）を設定する */
 	playbackSetVolume: (volume: number | null) => __TAURI_INVOKE<null>("playback_set_volume", { volume }),
+	/**
+	 *  イコライザの設定を変える（再生中の音にすぐに効く）
+	 * 
+	 *  `gains`は、バンドごとのゲイン（dB。31Hz〜16kHzの10個。範囲外の値は-12〜12に収める）。
+	 *  設定はフロントエンドが保存しており（`equalizer.svelte.ts`）、起動時と変更のたびに送る。
+	 */
+	playbackSetEqualizer: (enabled: boolean, gains: (number | null)[]) => __TAURI_INVOKE<null>("playback_set_equalizer", { enabled, gains }),
 	/**  再生を止める（再生中の曲・続けて再生する曲を手放す） */
 	playbackStop: () => __TAURI_INVOKE<null>("playback_stop"),
 	/**  出力デバイスの一覧を取得する */

@@ -3,7 +3,7 @@
 use crate::error::AppResult;
 use crate::events::SettingsChanged;
 use crate::library_sync::LibrarySync;
-use crate::playback::PlaybackEngine;
+use crate::playback::{PlaybackEngine, PlaybackOptions};
 use crate::settings::{Settings, SettingsState};
 use tauri::{AppHandle, Manager, State};
 use tauri_specta::Event;
@@ -32,9 +32,10 @@ pub async fn save_settings(
     if settings.language != previous_language {
         crate::menu::apply_language(&app, settings.language);
     }
-    // 出力デバイスの選択を再生エンジンへ伝える（変わっていれば、再生中の曲を同じ位置から続ける）
-    if let Err(e) = engine.set_output_device(settings.output_device_id.clone()) {
-        log::warn!("出力デバイスの変更を再生エンジンへ伝えられません: {}", e);
+    // 再生エンジンが使う設定（出力デバイス・音量の正規化・クロスフェード）を伝える
+    // （出力デバイスが変わっていれば、再生中の曲を同じ位置から続ける）
+    if let Err(e) = engine.apply_options(PlaybackOptions::from(&settings)) {
+        log::warn!("設定の変更を再生エンジンへ伝えられません: {}", e);
     }
     if let Err(e) = SettingsChanged(settings.clone()).emit(&app) {
         log::warn!("設定変更の通知に失敗しました: {}", e);

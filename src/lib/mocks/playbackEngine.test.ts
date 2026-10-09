@@ -6,6 +6,7 @@ const durations: Record<string, number | null> = { a: 10, b: 20, endless: null }
 
 let events: PlaybackEvent[];
 let engine: MockPlaybackEngine;
+let crossfadeSeconds: number;
 
 /** 再生位置の通知を除いたイベント */
 function transitions(): PlaybackEvent[] {
@@ -20,8 +21,10 @@ function lastPosition(): number | null | undefined {
 beforeEach(() => {
   vi.useFakeTimers();
   events = [];
+  crossfadeSeconds = 0;
   engine = createMockPlaybackEngine({
     emit: (event) => events.push(event),
+    crossfadeSeconds: () => crossfadeSeconds,
     durationOf: (trackId) => {
       if (!(trackId in durations)) throw { code: 'NOT_FOUND', message: 'トラックが見つかりません' };
       return durations[trackId];
@@ -145,5 +148,35 @@ describe('createMockPlaybackEngine', () => {
     const count = events.length;
     vi.advanceTimersByTime(5000);
     expect(events).toHaveLength(count);
+  });
+
+  it('クロスフェードでは、重なりの始まりで次の曲へ切り替わる', () => {
+    crossfadeSeconds = 3;
+    engine.play('a', 1); // 10秒
+    engine.setNext('b', 2); // 20秒
+
+    vi.advanceTimersByTime(6750);
+    expect(transitions()).toEqual([]);
+
+    // 終わりの3秒前（7秒）で切り替わる
+    vi.advanceTimersByTime(500);
+    expect(transitions()).toEqual([{ type: 'advanced', token: 2, duration: 20 }]);
+    expect(lastPosition()).toBe(0.25);
+  });
+
+  it('クロスフェードは曲の長さの半分までで、同じ曲の繰り返しではしない', () => {
+    crossfadeSeconds = 12;
+    engine.play('a', 1); // 10秒 → 重ねるのは5秒まで
+    engine.setNext('b', 2);
+    vi.advanceTimersByTime(5000);
+    expect(transitions()).toEqual([{ type: 'advanced', token: 2, duration: 20 }]);
+
+    // 1曲リピート: 同じ曲は、終わりで切れ目なく続ける
+    engine.play('a', 3);
+    engine.setNext('a', 4);
+    vi.advanceTimersByTime(9750);
+    expect(transitions().at(-1)).toEqual({ type: 'advanced', token: 2, duration: 20 });
+    vi.advanceTimersByTime(250);
+    expect(transitions().at(-1)).toEqual({ type: 'advanced', token: 4, duration: 10 });
   });
 });

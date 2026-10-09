@@ -77,6 +77,8 @@ const IMPORT_FILE_COUNT = 6;
 /** インポートの1ファイルあたりの処理時間（進捗表示の確認用） */
 const IMPORT_STEP_MS = 150;
 const DEFAULT_STATS_LIMIT = 50;
+/** イコライザのバンドの数（Rustの`EQ_BANDS`と同じ） */
+const EQ_BAND_COUNT = 10;
 /** デバイスへの同期の1曲あたりの処理時間（進捗表示の確認用） */
 const SYNC_STEP_MS = 300;
 /** 空き容量の判定で残しておく容量（Rustの`SPACE_MARGIN_BYTES`と同じ） */
@@ -342,6 +344,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   // ネイティブの再生エンジン（音は鳴らさず、再生位置と曲の切り替わりを時計に合わせて進める）
   const playbackEngine = createMockPlaybackEngine({
     emit: (event) => options.emit('playback-event', event),
+    crossfadeSeconds: () => settings.crossfadeSeconds,
     durationOf: (trackId) => {
       validateTrackId(trackId);
       const track = findTrack(trackId);
@@ -906,6 +909,12 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     playbackSetVolume: (volume) => {
       if (volume === null || !Number.isFinite(volume)) {
         fail('VALIDATION', '音量が正しくありません');
+      }
+      return null;
+    },
+    playbackSetEqualizer: (_enabled, gains) => {
+      if (gains.length !== EQ_BAND_COUNT) {
+        fail('VALIDATION', `イコライザのゲインは${EQ_BAND_COUNT}個で指定してください`);
       }
       return null;
     },
