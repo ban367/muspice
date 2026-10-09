@@ -11,6 +11,9 @@
  *
  * 数万曲のライブラリでの動作は、URLに`?mockTracks=50000`を付けて開くと確認できる
  * （フィクスチャに加えて、指定した数のトラックを生成する）。
+ *
+ * ネイティブの再生エンジンでの動作は、URLに`?mockEngine=native`を付けて開くと確認できる
+ * （設定の「再生エンジン」をネイティブにした状態で始まる。音は鳴らず、再生位置だけが進む）。
  */
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
 import { createMockBackend } from './backend';
@@ -83,6 +86,12 @@ function requestedExtraTrackCount(): number {
     : 0;
 }
 
+/** URLの`mockEngine`パラメータで指定された、再生エンジンの設定の初期値 */
+function requestedPlaybackEngine(): 'native' | undefined {
+  const requested = new URLSearchParams(window.location.search).get('mockEngine');
+  return requested === 'native' ? 'native' : undefined;
+}
+
 export function setupTauriMock(): void {
   // イベントの購読はここで管理する。公式のshouldMockEventsはunlisten時に
   // 購読を解除しないため、解除済みのコールバックへ送信して警告が出てしまう
@@ -96,7 +105,11 @@ export function setupTauriMock(): void {
     }
   }
 
-  const backend = createMockBackend({ emit, extraTrackCount: requestedExtraTrackCount() });
+  const backend = createMockBackend({
+    emit,
+    extraTrackCount: requestedExtraTrackCount(),
+    playbackEngine: requestedPlaybackEngine()
+  });
 
   mockWindows('main');
   mockIPC((cmd, payload) => {

@@ -65,7 +65,10 @@ export const ja = {
       LOCK: '処理が競合しています。しばらく待ってからもう一度お試しください。',
       DATABASE: 'データベースの操作中にエラーが発生しました。もう一度お試しください。',
       IO: 'ファイル操作中にエラーが発生しました。ファイルの状態を確認してください。',
-      METADATA: 'メタデータの処理中にエラーが発生しました。ファイルが破損している可能性があります。'
+      METADATA:
+        'メタデータの処理中にエラーが発生しました。ファイルが破損している可能性があります。',
+      PLAYBACK:
+        'ファイルを再生できません。対応していない形式か、ファイルが破損している、または出力デバイスを使用できない可能性があります。'
     } as Partial<Record<AppError['code'], string>>,
     unknown: 'エラーが発生しました',
     /** エラーの通知（例: トラックの削除: ファイルが見つかりません） */
@@ -105,6 +108,7 @@ export const ja = {
     renamePlaylist: 'プレイリスト名の変更',
     deletePlaylist: 'プレイリストの削除',
     loadSettings: '設定の読み込み',
+    loadOutputDevices: '出力デバイスの一覧の取得',
     saveSettings: '設定の保存',
     openProjectPage: 'ページを開く',
     fetchLibraryFolders: 'ライブラリフォルダの取得',
@@ -409,6 +413,16 @@ export const ja = {
     crossfadeSeconds: (seconds: number) => `${seconds}秒`,
     crossfadeHint:
       '曲の終わりを設定した秒数でフェードアウトしながら、次の曲をフェードインします。短い曲では曲の長さの半分までにします。「次へ」などの操作で曲を変えたときと、1曲リピートではクロスフェードしません',
+    playbackEngine: '再生エンジン',
+    playbackEngines: { webView: '標準', native: 'ネイティブ（試験的）' },
+    playbackEngineHint:
+      'ネイティブでは、出力デバイスを選べます。イコライザ・音量の正規化・クロスフェードは、まだ効きません。切り替えると再生は止まり、再生キューは空になります',
+    outputDevice: '出力デバイス',
+    outputDeviceDefault: 'システムの既定',
+    /** 選んであるデバイスが一覧にない（接続されていない）場合の表示 */
+    outputDeviceDisconnected: '接続されていないデバイス',
+    outputDeviceHint:
+      '再生エンジンが「ネイティブ」のときに使う出力先です。選んだデバイスが接続されていない間は、システムの既定のデバイスで再生します',
     autoSync: '変更の自動反映',
     watchFolders: 'フォルダの変更を監視する',
     watchFoldersHint:

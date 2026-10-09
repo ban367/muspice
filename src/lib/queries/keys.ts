@@ -57,6 +57,7 @@ export const queryKeys = {
 
   /** アプリケーション設定 */
   settings: ['settings'] as const,
+  outputDevices: ['outputDevices'] as const,
 
   /** ライブラリフォルダ（インポートしたフォルダ） */
   libraryFolders: ['libraryFolders'] as const,

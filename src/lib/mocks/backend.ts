@@ -41,6 +41,7 @@ import {
 } from './fixtures';
 import { matchesSearchTerms, searchTerms } from '#lib/utils/searchText.js';
 import { createAlbumArt } from './media';
+import { createMockPlaybackEngine, MOCK_OUTPUT_DEVICES } from './playbackEngine';
 
 type Commands = typeof commands;
 type CommandName = keyof Commands;
@@ -60,6 +61,8 @@ export interface MockBackendOptions {
   sleep?: (ms: number) => Promise<void>;
   /** フィクスチャに加えて生成するトラックの数（数万曲のライブラリでの動作確認用） */
   extraTrackCount?: number;
+  /** 設定の「再生エンジン」の初期値（ネイティブの再生エンジンでの動作確認用）。既定は`webView` */
+  playbackEngine?: Settings['playbackEngine'];
 }
 
 export interface MockBackend {
@@ -258,6 +261,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     volumeNormalization: 'off',
     gaplessPlayback: true,
     crossfadeSeconds: 0,
+    playbackEngine: options.playbackEngine ?? 'webView',
+    outputDeviceId: null,
     watchLibraryFolders: false,
     libraryScanIntervalMinutes: 0
   };
@@ -333,6 +338,17 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     if (!track) fail('NOT_FOUND', 'トラックが見つかりません');
     return track;
   }
+
+  // ネイティブの再生エンジン（音は鳴らさず、再生位置と曲の切り替わりを時計に合わせて進める）
+  const playbackEngine = createMockPlaybackEngine({
+    emit: (event) => options.emit('playback-event', event),
+    durationOf: (trackId) => {
+      validateTrackId(trackId);
+      const track = findTrack(trackId);
+      if (track.isMissing) fail('NOT_FOUND', `ファイルが見つかりません: ${track.filePath}`);
+      return track.duration;
+    }
+  });
 
   /** トラックを、値のある項目ごとにまとめる（値がnullのトラックは含めない） */
   const tracksBy = (value: (track: Track) => string | null) =>
@@ -867,6 +883,37 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       return null;
     },
     getCurrentTrack: () => tracks.find((track) => track.id === currentTrackId) ?? null,
+    playbackPlay: (trackId, token) => playbackEngine.play(trackId, token),
+    playbackSetNext: (trackId, token) => {
+      playbackEngine.setNext(trackId, token);
+      return null;
+    },
+    playbackPause: () => {
+      playbackEngine.pause();
+      return null;
+    },
+    playbackResume: () => {
+      playbackEngine.resume();
+      return null;
+    },
+    playbackSeek: (position) => {
+      if (position === null || !Number.isFinite(position) || position < 0) {
+        fail('VALIDATION', '再生位置が正しくありません');
+      }
+      playbackEngine.seek(position);
+      return null;
+    },
+    playbackSetVolume: (volume) => {
+      if (volume === null || !Number.isFinite(volume)) {
+        fail('VALIDATION', '音量が正しくありません');
+      }
+      return null;
+    },
+    playbackStop: () => {
+      playbackEngine.stop();
+      return null;
+    },
+    getOutputDevices: () => MOCK_OUTPUT_DEVICES,
     showInFolder: (trackId) => {
       validateTrackId(trackId);
       console.info(`[mock] ファイルマネージャーで表示: ${findTrack(trackId).filePath}`);
@@ -883,6 +930,9 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         next.crossfadeSeconds > MAX_CROSSFADE_SECONDS
       ) {
         fail('VALIDATION', `クロスフェードは0〜${MAX_CROSSFADE_SECONDS}秒で指定してください`);
+      }
+      if (next.outputDeviceId !== null && next.outputDeviceId.length === 0) {
+        fail('VALIDATION', '出力デバイスの指定が正しくありません');
       }
       if (
         !(LIBRARY_SCAN_INTERVALS as readonly number[]).includes(next.libraryScanIntervalMinutes)

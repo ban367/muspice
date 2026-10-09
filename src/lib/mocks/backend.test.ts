@@ -547,3 +547,66 @@ describe('転送先デバイス', () => {
     });
   });
 });
+
+describe('ネイティブの再生エンジン', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('再生すると曲の長さを返し、再生位置と曲の終わりを通知する', async () => {
+    vi.useFakeTimers();
+    const track = (await commands.getAllTracks()).find((t) => !t.isMissing && t.duration)!;
+
+    await expect(commands.playbackPlay(track.id, 1)).resolves.toEqual({
+      duration: track.duration
+    });
+    await commands.playbackSeek(track.duration! - 1);
+    vi.advanceTimersByTime(1500);
+
+    const payloads = events.filter((e) => e.event === 'playback-event').map((e) => e.payload);
+    expect(payloads[0]).toEqual({ type: 'position', token: 1, position: track.duration! - 1 });
+    expect(payloads.at(-1)).toEqual({ type: 'ended', token: 1 });
+  });
+
+  it('見つからない曲・不正な値はエラーになる', async () => {
+    const missing = (await commands.getAllTracks()).find((t) => t.isMissing)!;
+
+    await expect(commands.playbackPlay(missing.id, 1)).rejects.toMatchObject({
+      code: 'NOT_FOUND'
+    });
+    await expect(commands.playbackPlay('not-a-uuid', 2)).rejects.toMatchObject({
+      code: 'VALIDATION'
+    });
+    await expect(commands.playbackSeek(-1)).rejects.toMatchObject({ code: 'VALIDATION' });
+    await expect(commands.playbackSetVolume(Number.NaN)).rejects.toMatchObject({
+      code: 'VALIDATION'
+    });
+  });
+
+  it('出力デバイスの一覧を返し、既定のデバイスは1つだけ', async () => {
+    const devices = await commands.getOutputDevices();
+
+    expect(devices.length).toBeGreaterThan(1);
+    expect(devices.filter((device) => device.isDefault)).toHaveLength(1);
+  });
+
+  it('再生エンジンと出力デバイスの設定を保存する', async () => {
+    const settings = await commands.getSettings();
+    expect(settings).toMatchObject({ playbackEngine: 'webView', outputDeviceId: null });
+
+    const [, device] = await commands.getOutputDevices();
+    await commands.saveSettings({
+      ...settings,
+      playbackEngine: 'native',
+      outputDeviceId: device.id
+    });
+    expect(await commands.getSettings()).toMatchObject({
+      playbackEngine: 'native',
+      outputDeviceId: device.id
+    });
+
+    await expect(commands.saveSettings({ ...settings, outputDeviceId: '' })).rejects.toMatchObject({
+      code: 'VALIDATION'
+    });
+  });
+});

@@ -28,6 +28,24 @@ export function useSettingsQuery() {
 }
 
 /**
+ * 出力デバイスの一覧を取得するクエリ（ネイティブの再生エンジンの出力先の選択肢）
+ *
+ * デバイスはつないだり外したりで変わるため、キャッシュを使い回さず、表示するたび・
+ * ウィンドウに戻るたびに取得し直す。
+ * @param enabled 一覧を表示しているかを返す（リアクティブな値を読む）
+ */
+export function useOutputDevicesQuery(enabled: () => boolean) {
+  return createQuery(() => ({
+    queryKey: queryKeys.outputDevices,
+    queryFn: () =>
+      withErrorToast(m.operations.loadOutputDevices, () => commands.getOutputDevices()),
+    enabled: enabled(),
+    staleTime: 0,
+    refetchOnWindowFocus: true
+  }));
+}
+
+/**
  * 設定を保存するミューテーション
  */
 export function useSaveSettingsMutation() {

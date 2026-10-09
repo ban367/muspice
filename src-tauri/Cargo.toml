@@ -33,6 +33,29 @@ rusqlite = { version = "0.40", features = ["bundled", "functions"] }
 uuid = { version = "1.22", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 lofty = "0.25"
+# ネイティブの再生エンジン（playback/）: デコード。取り込める形式のコーデックとコンテナだけを有効にする
+symphonia = { version = "0.6", default-features = false, features = [
+    "opt-simd",
+    "aac",
+    "adpcm",
+    "alac",
+    "flac",
+    "mpa",
+    "pcm",
+    "vorbis",
+    "aiff",
+    "isomp4",
+    "ogg",
+    "wav",
+] }
+# symphoniaにないOpusのデコーダー（libopusを同梱してビルドする。ビルドにCコンパイラとcmakeが要る）
+symphonia-adapter-libopus = "0.3"
+# 再生エンジン: 音声の出力（macOSはCoreAudio、LinuxはALSA）
+cpal = "0.18"
+# 再生エンジン: 出力デバイスのサンプルレートへの変換
+rubato = "5"
+# 再生エンジン: デコードのスレッドから出力のコールバックへ音声を渡すリングバッファ（ロックなし）
+rtrb = "0.4"
 # ライブラリフォルダの監視（変更の通知を短時間まとめる）
 notify-debouncer-mini = "0.7"
 # デバイスへの転送: 転送先の空き容量の取得

@@ -24,6 +24,9 @@ pub const MAX_CROSSFADE_SECONDS: u8 = 12;
 /// ライブラリフォルダを定期的に再スキャンする間隔として選べる値（分。0は再スキャンしない）
 pub const LIBRARY_SCAN_INTERVALS: [u32; 5] = [0, 15, 30, 60, 360];
 
+/// 出力デバイスのIDとして受け入れる長さの上限（OSが返すIDをそのまま保存するため、形式は決めない）
+const MAX_OUTPUT_DEVICE_ID_LENGTH: usize = 512;
+
 /// 起動時に開く画面
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -72,6 +75,17 @@ pub enum VolumeNormalization {
     Album,
 }
 
+/// 再生に使うエンジン
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum PlaybackEngineKind {
+    /// WebViewのaudio要素（これまでの再生）
+    #[default]
+    WebView,
+    /// ネイティブの再生エンジン（`playback`。出力デバイスを選べる）
+    Native,
+}
+
 /// アプリケーション設定
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -90,6 +104,10 @@ pub struct Settings {
     pub gapless_playback: bool,
     /// クロスフェードの秒数（0でクロスフェードしない）
     pub crossfade_seconds: u8,
+    /// 再生に使うエンジン
+    pub playback_engine: PlaybackEngineKind,
+    /// 出力デバイスのID（ネイティブの再生エンジンだけが使う。nullはOSの既定のデバイス）
+    pub output_device_id: Option<String>,
     /// ライブラリフォルダを監視し、ファイルの変更を自動で反映する
     pub watch_library_folders: bool,
     /// ライブラリフォルダを定期的に再スキャンする間隔（分。0で再スキャンしない）
@@ -113,6 +131,8 @@ impl Default for Settings {
             volume_normalization: VolumeNormalization::default(),
             gapless_playback: true,
             crossfade_seconds: 0,
+            playback_engine: PlaybackEngineKind::default(),
+            output_device_id: None,
             watch_library_folders: false,
             library_scan_interval_minutes: 0,
         }
@@ -135,6 +155,15 @@ pub fn validate_settings(settings: &Settings) -> AppResult<()> {
             "クロスフェードは0〜{}秒で指定してください",
             MAX_CROSSFADE_SECONDS
         )));
+    }
+    if settings
+        .output_device_id
+        .as_ref()
+        .is_some_and(|id| id.is_empty() || id.len() > MAX_OUTPUT_DEVICE_ID_LENGTH)
+    {
+        return Err(AppError::Validation(
+            "出力デバイスの指定が正しくありません".to_string(),
+        ));
     }
     if !LIBRARY_SCAN_INTERVALS.contains(&settings.library_scan_interval_minutes) {
         return Err(AppError::Validation(
@@ -260,6 +289,8 @@ mod tests {
             volume_normalization: VolumeNormalization::Album,
             gapless_playback: false,
             crossfade_seconds: 5,
+            playback_engine: PlaybackEngineKind::Native,
+            output_device_id: Some("coreaudio:BuiltInSpeakerDevice".to_string()),
             watch_library_folders: true,
             library_scan_interval_minutes: 60,
         };
@@ -285,7 +316,20 @@ mod tests {
         assert_eq!(settings.volume_normalization, VolumeNormalization::Off);
         assert!(settings.gapless_playback);
         assert_eq!(settings.crossfade_seconds, 0);
+        assert_eq!(settings.playback_engine, PlaybackEngineKind::WebView);
+        assert_eq!(settings.output_device_id, None);
         assert!(!settings.auto_sync_enabled());
+    }
+
+    #[test]
+    fn test_rejects_invalid_output_device_id() {
+        let invalid = |id: String| Settings {
+            output_device_id: Some(id),
+            ..Settings::default()
+        };
+        assert!(validate_settings(&invalid(String::new())).is_err());
+        assert!(validate_settings(&invalid("x".repeat(MAX_OUTPUT_DEVICE_ID_LENGTH + 1))).is_err());
+        assert!(validate_settings(&invalid("coreaudio:AppleUSBAudioEngine:1".to_string())).is_ok());
     }
 
     #[test]

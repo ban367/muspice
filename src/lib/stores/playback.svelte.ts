@@ -97,7 +97,7 @@ export interface PlaybackController {
   previous(): void;
   /** シークバーをドラッグ中は、再生位置の通知でドラッグ位置を上書きしないようにする */
   setScrubbing(scrubbing: boolean): void;
-  /** イベント購読とイコライザを解放し、再生状態をリセットする */
+  /** 再生を止め、イベント購読とイコライザを解放し、再生状態をリセットする */
   destroy(): void;
 }
 
@@ -677,6 +677,11 @@ export function createPlaybackController(
       preloadGeneration++;
       for (const { deck, type, listener } of listeners) {
         deck.audio.removeEventListener(type, listener);
+      }
+      // 再生を止めてファイルを手放す（再生エンジンの切り替えでは、audio要素がDOMから外れても
+      // 再生中の音は鳴り続けるため）
+      for (const deck of decks) {
+        unload(deck);
       }
       resetPlayer();
       cleanupEqualizer().catch((error) => {

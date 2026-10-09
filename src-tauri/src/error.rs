@@ -12,7 +12,7 @@ use thiserror::Error;
 /// serdeのadjacently tagged表現により `{ "code": "LOCK", "message": "..." }`
 /// 形式でシリアライズされる。specta::Typeによりコードのリテラル型union
 /// としてTypeScriptへエクスポートされる。
-#[derive(Debug, Error, Serialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Error, Serialize, specta::Type)]
 #[serde(tag = "code", content = "message", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum AppError {
     /// ロック取得の失敗（DBロック・ステートロック）
@@ -33,6 +33,9 @@ pub enum AppError {
     /// メタデータの抽出・書き込みエラー
     #[error("{0}")]
     Metadata(String),
+    /// 再生エンジンのエラー（デコードできない・出力デバイスを使えない）
+    #[error("{0}")]
+    Playback(String),
 }
 
 /// アプリケーション共通のResult型

@@ -348,6 +348,19 @@ describe('再生位置と音量', () => {
     expect(player.currentTime).toBe(0);
   });
 
+  it('破棄すると再生を止め、読み込んだファイルを手放す', async () => {
+    playTrackFromQueue(tracks, 0);
+    await flush();
+    expect(audio.paused).toBe(false);
+
+    controller.destroy();
+
+    // 再生エンジンを切り替えた後に、audio要素の音が鳴り続けない
+    expect(audio.paused).toBe(true);
+    expect(audio.src).toBe('');
+    expect(player.currentTrack).toBeNull();
+  });
+
   it('破棄した後は再生状態の変化に反応しない', async () => {
     controller.destroy();
 
