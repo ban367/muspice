@@ -4,7 +4,7 @@
 //! 全てのデータベース読み取り操作はこのモジュールを経由する。
 
 use crate::error::{AppError, AppResult};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use rusqlite::{Connection, Row};
 
@@ -207,6 +207,32 @@ pub fn find_tracks_by_filter(conn: &Connection, filters: &FilterOptions) -> AppR
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| AppError::Database(format!("結果の取得に失敗しました: {}", e)))?;
 
+    Ok(tracks)
+}
+
+/// 1回のクエリで指定するトラックIDの数（SQLiteの変数の数の上限より十分に小さくする）
+const TRACKS_BY_ID_CHUNK: usize = 500;
+
+/// トラックIDの一覧から、トラックをまとめて取得する（見つからないIDは、結果に含めない）
+///
+/// 再生キューの復元など、多くのIDを1曲ずつ引くと遅い場合に使う。
+pub fn find_tracks_by_ids(
+    conn: &Connection,
+    track_ids: &[String],
+) -> AppResult<HashMap<String, Track>> {
+    let mut tracks = HashMap::with_capacity(track_ids.len());
+    for chunk in track_ids.chunks(TRACKS_BY_ID_CHUNK) {
+        let placeholders = vec!["?"; chunk.len()].join(", ");
+        let sql = format!(
+            "SELECT {} FROM tracks WHERE id IN ({})",
+            TRACK_COLUMNS, placeholders
+        );
+        let params: Vec<&dyn rusqlite::ToSql> =
+            chunk.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
+        for track in query_tracks(conn, &sql, &params)? {
+            tracks.insert(track.id.clone(), track);
+        }
+    }
     Ok(tracks)
 }
 
@@ -1333,6 +1359,25 @@ mod tests {
         let track = find_track_by_id(&conn, "t1").unwrap();
         assert_eq!(track.id, "t1");
         assert_eq!(track.title, Some("曲A".to_string()));
+    }
+
+    #[test]
+    fn test_find_tracks_by_ids_returns_existing_tracks() {
+        let conn = setup_test_db();
+        // 1回のクエリの上限（500件）を超える数でも、まとめて取得できる
+        let ids: Vec<String> = (0..1_200).map(|i| format!("track-{i}")).collect();
+        for id in &ids {
+            insert_test_track(&conn, id, "曲", "アーティスト", "アルバム", "ジャンル");
+        }
+        let mut requested = ids.clone();
+        requested.push("missing".to_string());
+
+        let tracks = find_tracks_by_ids(&conn, &requested).unwrap();
+
+        assert_eq!(tracks.len(), 1_200);
+        assert_eq!(tracks["track-1199"].file_name, "track-1199.mp3");
+        assert!(!tracks.contains_key("missing"));
+        assert!(find_tracks_by_ids(&conn, &[]).unwrap().is_empty());
     }
 
     #[test]

@@ -4,7 +4,8 @@
  * `@tauri-apps/api/mocks`で`window.__TAURI_INTERNALS__`を差し替え、
  * アプリのコマンドはインメモリバックエンドへ、プラグイン（event・dialog・window）は
  * ブラウザ内で完結する簡易実装へ振り分ける。状態はメモリ上にのみ保持し、
- * リロードするとフィクスチャの初期状態に戻る。
+ * リロードするとフィクスチャの初期状態に戻る（再生状態（音量・再生キューなど）だけは、
+ * 起動時の復元を確認できるよう`sessionStorage`に保存し、タブを閉じるまで残る）。
  *
  * ネイティブメニューは存在しないため、メニュー由来のイベントは開発者ツールから
  * `window.__MUSPICE_MOCK__.emit('toggle-sidebar')`のように発火させる。
@@ -98,7 +99,12 @@ export function setupTauriMock(): void {
     }
   }
 
-  const backend = createMockBackend({ emit, extraTrackCount: requestedExtraTrackCount() });
+  const backend = createMockBackend({
+    emit,
+    extraTrackCount: requestedExtraTrackCount(),
+    // 再生状態は、再読み込みの後の復元を確認できるよう、タブを閉じるまで保持する
+    storage: sessionStorage
+  });
 
   mockWindows('main');
   mockIPC((cmd, payload) => {

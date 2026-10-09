@@ -610,3 +610,76 @@ describe('再生エンジン', () => {
     });
   });
 });
+
+describe('再生状態の保存と復元', () => {
+  const cursor = { volume: 0.4, shuffle: false, repeat: 'all' as const, currentIndex: 1 };
+
+  it('保存していなければ、何も再生していない状態を返す', async () => {
+    expect(await commands.getPlaybackState()).toEqual({
+      volume: 1,
+      shuffle: false,
+      repeat: 'off',
+      queue: [],
+      originalTrackIds: null,
+      currentIndex: null
+    });
+  });
+
+  it('保存したキューを曲の情報にして返し、キューを渡さない保存ではキューを保つ', async () => {
+    const trackIds = [mockTrackId(3), mockTrackId(1), mockTrackId(2)];
+    await commands.savePlaybackState(cursor, { trackIds, originalTrackIds: null });
+    await commands.savePlaybackState({ ...cursor, currentIndex: 2, volume: 7 }, null);
+
+    const state = await commands.getPlaybackState();
+
+    expect(state.queue.map((track) => track.id)).toEqual(trackIds);
+    expect(state.currentIndex).toBe(2);
+    // 範囲外の音量は丸める
+    expect(state.volume).toBe(1);
+    expect(state.repeat).toBe('all');
+  });
+
+  it('ライブラリからなくなった曲・見つからない曲を除き、再生していた曲の位置を合わせる', async () => {
+    const missing = (await commands.getAllTracks()).find((t) => t.isMissing)!;
+    const trackIds = [mockTrackId(1), missing.id, mockTrackId(2), mockTrackId(3)];
+    await commands.savePlaybackState(
+      { ...cursor, shuffle: true, currentIndex: 2 },
+      { trackIds, originalTrackIds: [...trackIds].reverse() }
+    );
+    await commands.deleteTracksCommand([mockTrackId(1)]);
+
+    const state = await commands.getPlaybackState();
+
+    expect(state.queue.map((track) => track.id)).toEqual([mockTrackId(2), mockTrackId(3)]);
+    expect(state.originalTrackIds).toEqual([mockTrackId(3), mockTrackId(2)]);
+    expect(state.currentIndex).toBe(0);
+  });
+
+  it('保存先を渡すと、作り直した後も復元できる', async () => {
+    const items = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => items.get(key) ?? null,
+      setItem: (key: string, value: string) => void items.set(key, value)
+    };
+    const first = createMockBackend({ emit: () => {}, storage });
+    await first.invoke('save_playback_state', {
+      cursor,
+      queue: { trackIds: [mockTrackId(1), mockTrackId(2)], originalTrackIds: null }
+    });
+
+    const second = createMockBackend({ emit: () => {}, storage });
+    const state = (await second.invoke('get_playback_state')) as Awaited<
+      ReturnType<typeof commands.getPlaybackState>
+    >;
+
+    expect(state.queue.map((track) => track.id)).toEqual([mockTrackId(1), mockTrackId(2)]);
+    expect(state.currentIndex).toBe(1);
+    expect(state.volume).toBe(0.4);
+  });
+
+  it('トラックIDの形式でない値は保存しない', async () => {
+    await expect(
+      commands.savePlaybackState(cursor, { trackIds: ['x'], originalTrackIds: null })
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+});

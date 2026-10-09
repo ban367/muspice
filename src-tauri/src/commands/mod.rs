@@ -52,8 +52,8 @@ pub use playlist_cmd::{
     remove_track_from_playlist, rename_playlist, reorder_playlist_tracks,
 };
 
-// 再生中のトラックの記録
-pub use player::{get_current_track, set_current_track};
+// 再生中のトラックの記録と、再生状態の保存・復元
+pub use player::{get_current_track, get_playback_state, save_playback_state, set_current_track};
 
 // 再生エンジン
 pub use playback::{

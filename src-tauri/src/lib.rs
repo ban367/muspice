@@ -15,6 +15,7 @@ mod menu;
 mod metadata;
 mod models;
 mod playback;
+mod playback_state;
 mod playlist;
 mod repository;
 mod search_text;
@@ -28,15 +29,16 @@ use commands::{
     delete_tracks_command, delete_tracks_with_files_command, filter_tracks, get_album_tracks,
     get_albums, get_all_tracks, get_artist_albums, get_artists, get_current_track,
     get_favorite_tracks, get_genre_tracks, get_genres, get_library_folders, get_most_played_tracks,
-    get_output_devices, get_playlist_tracks, get_playlists, get_recently_played_tracks,
-    get_settings, get_sync_devices, get_unique_albums, get_unique_artists, get_unique_genres,
-    import_folder, increment_play_count, open_project_page, plan_device_sync, playback_pause,
-    playback_play, playback_resume, playback_seek, playback_set_equalizer, playback_set_next,
-    playback_set_volume, playback_stop, refresh_library_metadata, register_sync_device,
-    relink_sync_device, remove_library_folder, remove_missing_tracks, remove_sync_device,
-    remove_track_from_playlist, rename_playlist, reorder_playlist_tracks, rescan_library_folder,
-    run_device_sync, save_settings, search_tracks, set_current_track, set_rating, show_in_folder,
-    toggle_favorite, update_multiple_tracks_metadata, update_sync_device, update_track_metadata,
+    get_output_devices, get_playback_state, get_playlist_tracks, get_playlists,
+    get_recently_played_tracks, get_settings, get_sync_devices, get_unique_albums,
+    get_unique_artists, get_unique_genres, import_folder, increment_play_count, open_project_page,
+    plan_device_sync, playback_pause, playback_play, playback_resume, playback_seek,
+    playback_set_equalizer, playback_set_next, playback_set_volume, playback_stop,
+    refresh_library_metadata, register_sync_device, relink_sync_device, remove_library_folder,
+    remove_missing_tracks, remove_sync_device, remove_track_from_playlist, rename_playlist,
+    reorder_playlist_tracks, rescan_library_folder, run_device_sync, save_playback_state,
+    save_settings, search_tracks, set_current_track, set_rating, show_in_folder, toggle_favorite,
+    update_multiple_tracks_metadata, update_sync_device, update_track_metadata,
     write_library_metadata_to_files,
 };
 use state::AppState;
@@ -94,6 +96,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             reorder_playlist_tracks,
             set_current_track,
             get_current_track,
+            save_playback_state,
+            get_playback_state,
             playback_play,
             playback_set_next,
             playback_pause,
@@ -255,6 +259,11 @@ pub fn run() {
             let playback_options =
                 playback::PlaybackOptions::from(&settings_state.get().unwrap_or_default());
             app.manage(settings_state);
+
+            // 前回の再生状態（音量・再生キューなど）を読み込む（ない・壊れている場合は空）
+            app.manage(playback_state::PlaybackStateStore::load(
+                app_data_dir.join("playback-state.json"),
+            ));
 
             // 再生エンジン（スレッドを始めるだけで、出力は最初に再生するときに開く）
             let playback_events = app.handle().clone();
