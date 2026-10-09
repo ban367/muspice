@@ -11,6 +11,7 @@ mod events;
 mod library;
 mod library_folder;
 mod library_sync;
+mod library_xml;
 mod m3u;
 mod media_controls;
 mod menu;
@@ -33,7 +34,7 @@ use commands::{
     get_current_track, get_favorite_tracks, get_genre_tracks, get_genres, get_library_folders,
     get_most_played_tracks, get_output_devices, get_play_history, get_playback_state,
     get_playlist_tracks, get_playlists, get_settings, get_sync_devices, get_unique_albums,
-    get_unique_artists, get_unique_genres, import_folder, import_m3u_playlists,
+    get_unique_artists, get_unique_genres, import_folder, import_library_xml, import_m3u_playlists,
     increment_play_count, increment_skip_count, open_project_page, plan_device_sync,
     playback_pause, playback_play, playback_resume, playback_seek, playback_set_equalizer,
     playback_set_next, playback_set_volume, playback_stop, refresh_library_metadata,
@@ -99,6 +100,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             reorder_playlist_tracks,
             import_m3u_playlists,
             export_playlist_m3u,
+            import_library_xml,
             set_current_track,
             get_current_track,
             save_playback_state,

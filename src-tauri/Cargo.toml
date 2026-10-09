@@ -64,6 +64,8 @@ fs4 = { version = "1", default-features = false, features = ["sync"] }
 unicode-normalization = "0.1"
 # M3Uの読み込み: UTF-8以外（Shift_JIS・UTF-16）で書かれたファイルの文字コードの変換
 encoding_rs = "0.8"
+# ライブラリのXML（iTunes形式のプロパティリスト）の読み込み。Tauriが使っているものと同じ
+plist = "1"
 thiserror = "2"
 # Tauriが内部で使うtokioと同じもの（セマフォのためsync機能のみ追加）
 tokio = { version = "1", features = ["sync"] }

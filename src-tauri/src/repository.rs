@@ -321,6 +321,71 @@ pub fn find_track_paths(conn: &Connection) -> AppResult<Vec<(String, String)>> {
         .map_err(|e| AppError::Database(format!("トラックの読み取りに失敗しました: {}", e)))
 }
 
+/// すべてのトラックの、ライブラリのXMLから取り込む項目（再生回数・日時など）の今の値を取得する
+pub fn find_track_stats(
+    conn: &Connection,
+) -> AppResult<HashMap<String, crate::library_xml::TrackStats>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, COALESCE(play_count, 0), COALESCE(skip_count, 0), last_played_at,
+                    created_at, COALESCE(is_favorite, 0)
+             FROM tracks",
+        )
+        .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
+    stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            crate::library_xml::TrackStats {
+                play_count: row.get(1)?,
+                skip_count: row.get(2)?,
+                last_played_at: row.get(3)?,
+                created_at: row.get(4)?,
+                is_favorite: row.get::<_, i32>(5)? != 0,
+            },
+        ))
+    })
+    .map_err(|e| AppError::Database(format!("トラックの取得に失敗しました: {}", e)))?
+    .collect::<rusqlite::Result<HashMap<_, _>>>()
+    .map_err(|e| AppError::Database(format!("トラックの読み取りに失敗しました: {}", e)))
+}
+
+/// トラックの、ライブラリのXMLから取り込む項目を書き換える
+///
+/// お気に入りにする場合は、お気に入りにした日時も記録する（すでにお気に入りなら、元の日時のまま）。
+/// 再生統計と同じく、`updated_at`は変えない。
+pub fn update_track_stats(
+    conn: &Connection,
+    track_id: &str,
+    stats: &crate::library_xml::TrackStats,
+) -> AppResult<()> {
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "UPDATE tracks SET
+            play_count = ?2,
+            skip_count = ?3,
+            last_played_at = ?4,
+            created_at = ?5,
+            favorited_at = CASE
+                WHEN ?6 = 0 THEN favorited_at
+                WHEN COALESCE(is_favorite, 0) != 0 AND favorited_at IS NOT NULL THEN favorited_at
+                ELSE ?7
+            END,
+            is_favorite = CASE WHEN ?6 = 0 THEN is_favorite ELSE 1 END
+         WHERE id = ?1",
+        rusqlite::params![
+            track_id,
+            stats.play_count,
+            stats.skip_count,
+            stats.last_played_at,
+            stats.created_at,
+            i32::from(stats.is_favorite),
+            now
+        ],
+    )
+    .map_err(|e| AppError::Database(format!("再生統計の更新に失敗しました: {}", e)))?;
+    Ok(())
+}
+
 /// 共通のトラッククエリ実行ヘルパー
 pub(crate) fn query_tracks(
     conn: &Connection,

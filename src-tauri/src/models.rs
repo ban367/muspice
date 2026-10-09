@@ -70,6 +70,28 @@ pub struct M3uExportResult {
     pub track_count: u32,
 }
 
+/// ライブラリのXML（iTunes形式）を取り込んだ結果
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryXmlImportResult {
+    /// 取り込んだファイルの名前
+    pub file_name: String,
+    /// XMLの中の曲数（ファイルの場所がある曲）
+    pub track_count: u32,
+    /// ライブラリの曲と対応が付いた曲数
+    pub matched_count: u32,
+    /// 再生回数などの値が変わった曲数
+    pub updated_count: u32,
+    /// ライブラリの曲と対応が付かなかった曲数
+    pub unmatched_count: u32,
+    /// 対応が付かなかった曲の場所（多い場合は先頭の一部だけ）
+    pub unmatched: Vec<String>,
+    /// 作ったプレイリストの数
+    pub playlist_count: u32,
+    /// 対応する曲が1つもなく、作らなかったプレイリストの数
+    pub skipped_playlist_count: u32,
+}
+
 /// 再生履歴の1件（再生回数に数えた再生）
 ///
 /// 曲の情報は持たない（フロントエンドが、全曲の一覧のキャッシュからトラックIDで引く）。
