@@ -61,10 +61,10 @@ pub use playback::{
     playback_set_equalizer, playback_set_next, playback_set_volume, playback_stop, set_now_playing,
 };
 
-// 統計（お気に入り・レーティング・再生回数）
+// 統計（お気に入り・レーティング・再生回数・スキップ回数・再生履歴）
 pub use stats::{
-    get_favorite_tracks, get_most_played_tracks, get_recently_played_tracks, increment_play_count,
-    set_rating, toggle_favorite,
+    get_favorite_tracks, get_most_played_tracks, get_play_history, increment_play_count,
+    increment_skip_count, set_rating, toggle_favorite,
 };
 
 // 設定

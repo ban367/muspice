@@ -40,6 +40,8 @@
       {error}
       emptyMessage={m.library.noMostPlayed}
       emptyHint={m.library.noMostPlayedHint}
+      defaultSort={{ field: 'playCount', direction: 'desc' }}
+      showPlayCount
     />
   </div>
 </div>

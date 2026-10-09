@@ -180,7 +180,11 @@ export const commands = {
 	sampleRate: number | null,
 	isFavorite: boolean,
 	rating: number,
+	/**  再生回数（曲の半分か4分を聴いた回数） */
 	playCount: number,
+	/**  スキップ回数（再生回数に数える前に、別の曲へ移った回数） */
+	skipCount: number,
+	/**  最後に再生回数に数えた日時 */
 	lastPlayedAt: string | null,
 	createdAt: string,
 	updatedAt: string,
@@ -276,14 +280,28 @@ export const commands = {
 	 *  ファイルへ書き込めない場合はエラーにし、データベースも変えない。
 	 */
 	setRating: (trackId: string, rating: number) => __TAURI_INVOKE<null>("set_rating", { trackId, rating }),
-	/**  再生回数をインクリメント */
+	/**
+	 *  再生回数をインクリメントし、再生履歴に追加する（新しい再生回数を返す）
+	 * 
+	 *  いつ数えるか（曲の半分か4分を聴いた時）は、フロントエンドの再生コントローラーが決める。
+	 */
 	incrementPlayCount: (trackId: string) => __TAURI_INVOKE<number>("increment_play_count", { trackId }),
+	/**
+	 *  スキップ回数をインクリメントする（新しいスキップ回数を返す）
+	 * 
+	 *  いつ数えるか（再生回数に数える前に、別の曲へ移った時）は、フロントエンドの再生コントローラーが決める。
+	 */
+	incrementSkipCount: (trackId: string) => __TAURI_INVOKE<number>("increment_skip_count", { trackId }),
 	/**  お気に入りトラック一覧を取得 */
 	getFavoriteTracks: () => __TAURI_INVOKE<Track[]>("get_favorite_tracks"),
 	/**  最も再生されたトラック一覧を取得 */
 	getMostPlayedTracks: (limit: number | null) => __TAURI_INVOKE<Track[]>("get_most_played_tracks", { limit }),
-	/**  最近再生されたトラック一覧を取得 */
-	getRecentlyPlayedTracks: (limit: number | null) => __TAURI_INVOKE<Track[]>("get_recently_played_tracks", { limit }),
+	/**
+	 *  再生履歴を取得（新しい順。同じ曲が何度も出る。件数の上限はない）
+	 * 
+	 *  曲の情報は含めない（フロントエンドが、全曲の一覧からトラックIDで引く）。
+	 */
+	getPlayHistory: () => __TAURI_INVOKE<PlayHistoryEntry[]>("get_play_history"),
 	/**
 	 *  トラックをライブラリから削除（データベースのみ）
 	 *  ファイルは削除せず、データベースからのみ削除
@@ -591,6 +609,19 @@ export type OutputDevice = {
 };
 
 /**
+ *  再生履歴の1件（再生回数に数えた再生）
+ * 
+ *  曲の情報は持たない（フロントエンドが、全曲の一覧のキャッシュからトラックIDで引く）。
+ */
+export type PlayHistoryEntry = {
+	/**  履歴のID（同じ曲が何度も出るため、行の識別に使う） */
+	id: number,
+	trackId: string,
+	/**  再生回数に数えた日時（RFC 3339。UTC） */
+	playedAt: string,
+};
+
+/**
  *  再生の操作の要求（メニューバーの「再生」メニューと、OSのメディアキー・コントロールセンターなどから）
  * 
  *  再生キューと再生の制御はフロントエンドが持つため、操作はフロントエンド（`Player.svelte`）が
@@ -841,7 +872,11 @@ export type Track = {
 	sampleRate: number | null,
 	isFavorite: boolean,
 	rating: number,
+	/**  再生回数（曲の半分か4分を聴いた回数） */
 	playCount: number,
+	/**  スキップ回数（再生回数に数える前に、別の曲へ移った回数） */
+	skipCount: number,
+	/**  最後に再生回数に数えた日時 */
 	lastPlayedAt: string | null,
 	createdAt: string,
 	updatedAt: string,

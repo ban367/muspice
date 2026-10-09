@@ -3,7 +3,7 @@
 use super::run_blocking;
 use crate::error::{AppError, AppResult};
 use crate::metadata::{update_file_rating, validate_rating};
-use crate::models::Track;
+use crate::models::{PlayHistoryEntry, Track};
 use crate::state::AppState;
 use crate::validation::validate_track_id;
 use std::path::Path;
@@ -60,13 +60,26 @@ pub async fn set_rating(
     })
 }
 
-/// 再生回数をインクリメント
+/// 再生回数をインクリメントし、再生履歴に追加する（新しい再生回数を返す）
+///
+/// いつ数えるか（曲の半分か4分を聴いた時）は、フロントエンドの再生コントローラーが決める。
 #[tauri::command]
 #[specta::specta]
 pub async fn increment_play_count(track_id: String, state: State<'_, AppState>) -> AppResult<i32> {
     validate_track_id(&track_id)?;
 
     state.with_db(|db| crate::repository::increment_track_play_count(db, &track_id))
+}
+
+/// スキップ回数をインクリメントする（新しいスキップ回数を返す）
+///
+/// いつ数えるか（再生回数に数える前に、別の曲へ移った時）は、フロントエンドの再生コントローラーが決める。
+#[tauri::command]
+#[specta::specta]
+pub async fn increment_skip_count(track_id: String, state: State<'_, AppState>) -> AppResult<i32> {
+    validate_track_id(&track_id)?;
+
+    state.with_db(|db| crate::repository::increment_track_skip_count(db, &track_id))
 }
 
 /// お気に入りトラック一覧を取得
@@ -87,13 +100,11 @@ pub async fn get_most_played_tracks(
     state.with_db(|db| crate::repository::find_most_played_tracks(db, limit))
 }
 
-/// 最近再生されたトラック一覧を取得
+/// 再生履歴を取得（新しい順。同じ曲が何度も出る。件数の上限はない）
+///
+/// 曲の情報は含めない（フロントエンドが、全曲の一覧からトラックIDで引く）。
 #[tauri::command]
 #[specta::specta]
-pub async fn get_recently_played_tracks(
-    limit: Option<i32>,
-    state: State<'_, AppState>,
-) -> AppResult<Vec<Track>> {
-    let limit = limit.unwrap_or(50);
-    state.with_db(|db| crate::repository::find_recently_played_tracks(db, limit))
+pub async fn get_play_history(state: State<'_, AppState>) -> AppResult<Vec<PlayHistoryEntry>> {
+    state.with_db(|db| crate::repository::find_play_history(db))
 }

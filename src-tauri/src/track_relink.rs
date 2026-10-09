@@ -138,6 +138,7 @@ mod tests {
             is_favorite: false,
             rating: 0,
             play_count: 0,
+            skip_count: 0,
             last_played_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             updated_at: "2026-01-01T00:00:00Z".to_string(),

@@ -27,6 +27,7 @@ import type {
   LibraryFolder,
   Metadata,
   NowPlayingUpdate,
+  PlayHistoryEntry,
   Playlist,
   Settings,
   SyncDevice,
@@ -35,6 +36,7 @@ import type {
 import {
   ALBUMS_WITHOUT_ART,
   createBulkTracks,
+  createFixturePlayHistory,
   createFixturePlaylists,
   createFixtureTracks,
   mockPlaylistId,
@@ -286,6 +288,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     ...createBulkTracks(options.extraTrackCount ?? 0)
   ];
   let playlists: Playlist[] = createFixturePlaylists();
+  // 再生履歴（新しい順）
+  let playHistory: PlayHistoryEntry[] = createFixturePlayHistory(tracks, Date.now());
   let currentTrackId: string | null = null;
   let nowPlaying: NowPlayingUpdate | null = null;
   // 前回の再生状態（保存先に壊れた内容があれば使わない）
@@ -439,6 +443,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     const targets = new Set(trackIds);
     const before = tracks.length;
     tracks = tracks.filter((track) => !targets.has(track.id));
+    // ライブラリから外した曲の再生履歴は消える（DBの外部キーと同じ）
+    playHistory = playHistory.filter((entry) => !targets.has(entry.trackId));
     // playlist_tracksのON DELETE CASCADEに相当（実装と同じくpositionは詰めない）
     for (const playlist of playlists) {
       playlist.tracks = playlist.tracks.filter((entry) => !targets.has(entry.trackId));
@@ -521,6 +527,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
           isFavorite: false,
           rating: 0,
           playCount: 0,
+          skipCount: 0,
           lastPlayedAt: null,
           createdAt: timestamp,
           updatedAt: timestamp,
@@ -1081,7 +1088,15 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       track.playCount += 1;
       track.lastPlayedAt = timestamp;
       track.updatedAt = timestamp;
+      const lastId = playHistory.reduce((max, entry) => Math.max(max, entry.id), 0);
+      playHistory = [{ id: lastId + 1, trackId, playedAt: timestamp }, ...playHistory];
       return track.playCount;
+    },
+    incrementSkipCount: (trackId) => {
+      validateTrackId(trackId);
+      const track = findTrack(trackId);
+      track.skipCount += 1;
+      return track.skipCount;
     },
     getFavoriteTracks: () =>
       tracks
@@ -1090,13 +1105,10 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     getMostPlayedTracks: (limit) =>
       tracks
         .filter((track) => track.playCount > 0)
-        .sort((a, b) => b.playCount - a.playCount)
+        // 同じ回数なら、最近再生した曲を先にする
+        .sort((a, b) => b.playCount - a.playCount || compareAsc(b.lastPlayedAt, a.lastPlayedAt))
         .slice(0, limit ?? DEFAULT_STATS_LIMIT),
-    getRecentlyPlayedTracks: (limit) =>
-      tracks
-        .filter((track) => track.lastPlayedAt !== null)
-        .sort((a, b) => compareAsc(b.lastPlayedAt, a.lastPlayedAt))
-        .slice(0, limit ?? DEFAULT_STATS_LIMIT),
+    getPlayHistory: () => playHistory,
     deleteTracksCommand: (trackIds) => {
       validateTrackIdsForDeletion(trackIds);
       return removeTracks(trackIds);

@@ -1,9 +1,10 @@
 import { flushSync } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlaybackEvent, Track } from '#lib/types/models.js';
+import type { QueryClient } from '@tanstack/svelte-query';
 import type { RestoredPlaybackState } from '#lib/bindings.js';
 import { commands } from '#lib/bindings.js';
-import { incrementPlayCount } from '#lib/queries/tracks.js';
+import { recordPlay, recordSkip } from '#lib/queries/tracks.js';
 import { equalizer } from './equalizer.svelte.js';
 import { createPlaybackController, type PlaybackController } from './playback.svelte.js';
 import {
@@ -51,7 +52,8 @@ vi.mock('#lib/bindings.js', () => ({
   }
 }));
 vi.mock('#lib/queries/tracks.js', () => ({
-  incrementPlayCount: vi.fn(async () => {})
+  recordPlay: vi.fn(async () => {}),
+  recordSkip: vi.fn(async () => {})
 }));
 
 function makeTrack(id: string): Track {
@@ -149,7 +151,8 @@ describe('トラックの再生', () => {
     expect(player.isPlaying).toBe(true);
     expect(player.duration).toBe(200);
     expect(commands.setCurrentTrack).toHaveBeenCalledWith('t2');
-    expect(incrementPlayCount).toHaveBeenCalledWith('t2');
+    // 再生を始めただけでは、再生回数に数えない
+    expect(recordPlay).not.toHaveBeenCalled();
   });
 
   it('エンジンが曲の長さを返さない場合は、トラックの長さを使う', async () => {
@@ -173,13 +176,11 @@ describe('トラックの再生', () => {
     expect(player.isPlaying).toBe(false);
     expect(notifications.items).toHaveLength(1);
     expect(notifications.items[0].message).toContain('トラックの再生に失敗しました');
-    expect(incrementPlayCount).not.toHaveBeenCalled();
 
     // 再生ボタンで、頭から再生し直す
     await controller.togglePlayPause();
     expect(commands.playbackPlay).toHaveBeenCalledTimes(2);
     expect(player.isPlaying).toBe(true);
-    expect(incrementPlayCount).toHaveBeenCalledWith('t1');
   });
 
   it('続けてトラックを変えた場合は、最後のトラックの結果だけを反映する', async () => {
@@ -200,8 +201,8 @@ describe('トラックの再生', () => {
     expect([first[0], second[0]]).toEqual(['t1', 't3']);
     expect(second[1]).toBeGreaterThan(first[1]);
     expect(player.duration).toBe(200);
-    expect(incrementPlayCount).toHaveBeenCalledTimes(1);
-    expect(incrementPlayCount).toHaveBeenCalledWith('t3');
+    expect(commands.setCurrentTrack).toHaveBeenCalledTimes(1);
+    expect(commands.setCurrentTrack).toHaveBeenCalledWith('t3');
   });
 
   it('再生中と同じトラックを選び直しても、再生し直さない', async () => {
@@ -261,7 +262,7 @@ describe('エンジンからの通知', () => {
 
     expect(player.currentTrack?.id).toBe('t2');
     expect(commands.playbackPlay).toHaveBeenLastCalledWith('t2', expect.any(Number));
-    expect(incrementPlayCount).toHaveBeenLastCalledWith('t2');
+    expect(commands.setCurrentTrack).toHaveBeenLastCalledWith('t2');
   });
 
   it('キューの最後の曲が終わったら、再生を終える', async () => {
@@ -276,7 +277,7 @@ describe('エンジンからの通知', () => {
     expect(commands.playbackStop).toHaveBeenCalledTimes(1);
   });
 
-  it('1曲リピートでは、曲が終わったら同じ曲を頭から再生し直す（再生回数は記録しない）', async () => {
+  it('1曲リピートでは、曲が終わったら同じ曲を頭から再生し直す', async () => {
     playTrackFromQueue(tracks, 0);
     await flush();
     toggleRepeat();
@@ -287,7 +288,6 @@ describe('エンジンからの通知', () => {
 
     expect(commands.playbackPlay).toHaveBeenCalledTimes(2);
     expect(commands.playbackPlay).toHaveBeenLastCalledWith('t1', expect.any(Number));
-    expect(incrementPlayCount).toHaveBeenCalledTimes(1);
     expect(player.isPlaying).toBe(true);
   });
 
@@ -321,8 +321,174 @@ describe('エンジンからの通知', () => {
 
     await controller.togglePlayPause();
     expect(commands.playbackPlay).toHaveBeenCalledTimes(2);
-    // 同じ曲の再生し直しのため、再生回数はもう一度記録しない
-    expect(incrementPlayCount).toHaveBeenCalledTimes(1);
+    expect(player.isPlaying).toBe(true);
+  });
+});
+
+describe('再生回数とスキップ回数', () => {
+  /** 再生位置の通知（0.25秒ごと）を、`from`秒から`to`秒まで届ける */
+  function listen(token: number, from: number, to: number): void {
+    for (let position = from; position <= to + 1e-9; position += 0.25) {
+      for (const listener of [...listeners]) {
+        listener({ payload: { type: 'position', token, position } });
+      }
+    }
+    flushSync();
+  }
+
+  it('曲の半分を聴いた時に、再生回数に数える', async () => {
+    playTrackFromQueue(tracks, 0);
+    await flush();
+
+    // エンジンが返した曲の長さ（200秒）の半分
+    listen(lastPlayToken(), 0, 99.75);
+    expect(recordPlay).not.toHaveBeenCalled();
+
+    listen(lastPlayToken(), 100, 150);
+    expect(recordPlay).toHaveBeenCalledTimes(1);
+    expect(recordPlay).toHaveBeenCalledWith('t1', undefined);
+    expect(recordSkip).not.toHaveBeenCalled();
+  });
+
+  it('シークで飛ばした分は、聴いた時間に含めない', async () => {
+    playTrackFromQueue(tracks, 0);
+    await flush();
+    const token = lastPlayToken();
+
+    listen(token, 0, 20);
+    controller.seek(180);
+    listen(token, 180, 200);
+    emit({ type: 'ended', token });
+    await flush();
+
+    expect(recordPlay).not.toHaveBeenCalled();
+    // 最後まで再生したため、スキップにも数えない
+    expect(recordSkip).not.toHaveBeenCalled();
+  });
+
+  it('数える前に「次へ」で移ったら、スキップに数える', async () => {
+    playTrackFromQueue(tracks, 0);
+    await flush();
+    listen(lastPlayToken(), 0, 30);
+
+    controller.next();
+    await flush();
+
+    expect(recordSkip).toHaveBeenCalledTimes(1);
+    expect(recordSkip).toHaveBeenCalledWith('t1', undefined);
+    expect(recordPlay).not.toHaveBeenCalled();
+  });
+
+  it('再生して2秒に満たない曲・数えた後の曲は、スキップに数えない', async () => {
+    playTrackFromQueue(tracks, 0);
+    await flush();
+    listen(lastPlayToken(), 0, 1.5);
+    controller.next();
+    await flush();
+    expect(recordSkip).not.toHaveBeenCalled();
+
+    listen(lastPlayToken(), 0, 120);
+    expect(recordPlay).toHaveBeenCalledWith('t2', undefined);
+    controller.next();
+    await flush();
+    expect(recordSkip).not.toHaveBeenCalled();
+  });
+
+  it('曲が終わって次の曲へ進んでも、スキップに数えない', async () => {
+    gapless = true;
+    flushSync();
+    playTrackFromQueue(tracks, 0);
+    await flush();
+    const token = lastPlayToken();
+    // 終わりの近くへシークして、聴いた時間が足りないまま次の曲へ切り替わった
+    listen(token, 0, 10);
+    controller.seek(195);
+    listen(token, 195, 200);
+
+    emit({ type: 'advanced', token: lastNext()[1], duration: 200 });
+    await flush();
+
+    expect(player.currentTrack?.id).toBe('t2');
+    expect(recordSkip).not.toHaveBeenCalled();
+    expect(recordPlay).not.toHaveBeenCalled();
+  });
+
+  it('1曲リピートの繰り返しも、半分を聴くたびに数える', async () => {
+    gapless = true;
+    flushSync();
+    playTrackFromQueue(tracks, 0);
+    await flush();
+    toggleRepeat();
+    toggleRepeat(); // 1曲リピート
+    flushSync();
+
+    listen(lastPlayToken(), 0, 200);
+    expect(recordPlay).toHaveBeenCalledTimes(1);
+
+    const [, nextToken] = lastNext();
+    emit({ type: 'advanced', token: nextToken, duration: 200 });
+    await flush();
+    listen(nextToken, 0, 99);
+    expect(recordPlay).toHaveBeenCalledTimes(1);
+
+    listen(nextToken, 99.25, 110);
+    expect(recordPlay).toHaveBeenCalledTimes(2);
+    expect(recordSkip).not.toHaveBeenCalled();
+  });
+
+  it('「前へ」での頭出しは、聴いた時間を数え直す（スキップには数えない）', async () => {
+    playTrackFromQueue(tracks, 0);
+    await flush();
+    const token = lastPlayToken();
+    listen(token, 0, 60);
+
+    // 3秒以上再生しているため、同じ曲の頭へ戻る
+    controller.previous();
+    flushSync();
+    expect(commands.playbackSeek).toHaveBeenLastCalledWith(0);
+    listen(token, 0, 60);
+    // 戻る前の60秒は含めない
+    expect(recordPlay).not.toHaveBeenCalled();
+
+    listen(token, 60.25, 100);
+    expect(recordPlay).toHaveBeenCalledTimes(1);
+    expect(recordSkip).not.toHaveBeenCalled();
+  });
+
+  it('再生を続けられなくなった曲・止めた曲は、スキップに数えない', async () => {
+    playTrackFromQueue(tracks, 0);
+    await flush();
+    listen(lastPlayToken(), 0, 30);
+    emit({
+      type: 'failed',
+      token: lastPlayToken(),
+      error: { code: 'PLAYBACK', message: 'ファイルを読み取れません' }
+    });
+
+    playTrackFromQueue(tracks, 1);
+    await flush();
+    listen(lastPlayToken(), 0, 30);
+    resetPlayer();
+    flushSync();
+    playTrackFromQueue(tracks, 2);
+    await flush();
+
+    expect(recordSkip).not.toHaveBeenCalled();
+  });
+
+  it('記録した時に反映するキャッシュを渡す', async () => {
+    const queryClient = {} as QueryClient;
+    controller.destroy();
+    resetPlayer();
+    controller = createPlaybackController({ queryClient });
+    flushSync();
+    await flush();
+
+    playTrackFromQueue(tracks, 0);
+    await flush();
+    listen(lastPlayToken(), 0, 100);
+
+    expect(recordPlay).toHaveBeenCalledWith('t1', queryClient);
   });
 });
 
@@ -397,7 +563,6 @@ describe('ギャップレス再生', () => {
     expect(player.isPlaying).toBe(true);
     expect(commands.playbackPlay).toHaveBeenCalledTimes(1);
     expect(commands.setCurrentTrack).toHaveBeenLastCalledWith('t2');
-    expect(incrementPlayCount).toHaveBeenLastCalledWith('t2');
     // その次の曲を伝える
     expect(lastNext()[0]).toBe('t3');
 
@@ -406,7 +571,7 @@ describe('ギャップレス再生', () => {
     expect(player.currentTime).toBe(3);
   });
 
-  it('1曲リピートでは同じ曲へ切り替わり、再生回数は記録しない', async () => {
+  it('1曲リピートでは、同じ曲へ切り替わる', async () => {
     playTrackFromQueue(tracks, 0);
     await flush();
     toggleRepeat();
@@ -419,7 +584,8 @@ describe('ギャップレス再生', () => {
 
     expect(player.currentTrack?.id).toBe('t1');
     expect(commands.playbackPlay).toHaveBeenCalledTimes(1);
-    expect(incrementPlayCount).toHaveBeenCalledTimes(1);
+    // 再生中の曲は変わらないため、もう一度は通知しない
+    expect(commands.setCurrentTrack).toHaveBeenCalledTimes(1);
     // 次も同じ曲を伝える（番号は新しくする）
     expect(lastNext()[0]).toBe('t1');
     expect(commands.playbackSetNext).toHaveBeenCalledTimes(3);
@@ -695,7 +861,7 @@ describe('再生状態の復元', () => {
     expect(commands.playbackSetNext).not.toHaveBeenCalled();
   });
 
-  it('復元した曲は、再生ボタンで頭から再生する（再生回数も記録する）', async () => {
+  it('復元した曲は、再生ボタンで頭から再生する', async () => {
     vi.mocked(commands.getPlaybackState).mockResolvedValueOnce(
       savedState({ queue: tracks, currentIndex: 1 })
     );
@@ -710,7 +876,7 @@ describe('再生状態の復元', () => {
 
     expect(commands.playbackPlay).toHaveBeenCalledWith('t2', expect.any(Number));
     expect(player.isPlaying).toBe(true);
-    expect(incrementPlayCount).toHaveBeenCalledWith('t2');
+    expect(commands.setCurrentTrack).toHaveBeenCalledWith('t2');
   });
 
   it('復元した後の「次へ」は、キューの次の曲を再生する', async () => {

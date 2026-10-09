@@ -9,7 +9,8 @@ use std::collections::{HashMap, HashSet};
 use rusqlite::{Connection, Row};
 
 use crate::models::{
-    AlbumGroup, AlbumSummary, ArtistSummary, GenreSummary, Metadata, ReplayGain, Track,
+    AlbumGroup, AlbumSummary, ArtistSummary, GenreSummary, Metadata, PlayHistoryEntry, ReplayGain,
+    Track,
 };
 use crate::track_relink::MissingTrack;
 
@@ -32,7 +33,7 @@ pub const TRACK_COLUMNS: &str = "id, file_path, file_name, title, artist, album,
     COALESCE(is_favorite, 0), COALESCE(rating, 0), COALESCE(play_count, 0), last_played_at,
     created_at, updated_at,
     replay_gain_track_gain, replay_gain_track_peak, replay_gain_album_gain, replay_gain_album_peak,
-    album_artist, missing_since IS NOT NULL";
+    album_artist, missing_since IS NOT NULL, COALESCE(skip_count, 0)";
 
 /// SQLiteの行からTrack構造体にマッピングする
 ///
@@ -58,6 +59,7 @@ pub fn map_track_row(row: &Row) -> rusqlite::Result<Track> {
         is_favorite: row.get::<_, i32>(15)? != 0,
         rating: row.get(16)?,
         play_count: row.get(17)?,
+        skip_count: row.get(27)?,
         last_played_at: row.get(18)?,
         created_at: row.get(19)?,
         updated_at: row.get(20)?,
@@ -270,22 +272,41 @@ pub fn find_favorite_tracks(conn: &Connection) -> AppResult<Vec<Track>> {
     query_tracks(conn, &sql, &[])
 }
 
-/// 最も再生されたトラックを取得
+/// 最も再生されたトラックを取得（再生回数の多い順。同じ回数なら、最近再生した曲を先にする）
 pub fn find_most_played_tracks(conn: &Connection, limit: i32) -> AppResult<Vec<Track>> {
     let sql = format!(
-        "SELECT {} FROM tracks WHERE play_count > 0 ORDER BY play_count DESC LIMIT ?1",
+        "SELECT {} FROM tracks WHERE play_count > 0
+         ORDER BY play_count DESC, last_played_at DESC LIMIT ?1",
         TRACK_COLUMNS
     );
     query_tracks(conn, &sql, &[&limit])
 }
 
-/// 最近再生されたトラックを取得
-pub fn find_recently_played_tracks(conn: &Connection, limit: i32) -> AppResult<Vec<Track>> {
-    let sql = format!(
-        "SELECT {} FROM tracks WHERE last_played_at IS NOT NULL ORDER BY last_played_at DESC LIMIT ?1",
-        TRACK_COLUMNS
-    );
-    query_tracks(conn, &sql, &[&limit])
+/// 再生履歴を取得（新しい順。同じ曲が何度も出る）
+///
+/// 件数の上限はない（履歴は消さずに残し、一覧は、フロントが見えている行だけを描画する）。
+/// 曲の情報は含めない（1件あたりを小さくし、曲はフロントが全曲の一覧から引く）。
+pub fn find_play_history(conn: &Connection) -> AppResult<Vec<PlayHistoryEntry>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, track_id, played_at FROM play_history
+             ORDER BY played_at DESC, id DESC",
+        )
+        .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
+
+    let entries = stmt
+        .query_map([], |row| {
+            Ok(PlayHistoryEntry {
+                id: row.get(0)?,
+                track_id: row.get(1)?,
+                played_at: row.get(2)?,
+            })
+        })
+        .map_err(|e| AppError::Database(format!("再生履歴の取得に失敗しました: {}", e)))?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|e| AppError::Database(format!("再生履歴の読み取りに失敗しました: {}", e)))?;
+
+    Ok(entries)
 }
 
 /// 共通のトラッククエリ実行ヘルパー
@@ -1239,6 +1260,25 @@ pub fn increment_track_play_count(conn: &Connection, track_id: &str) -> AppResul
     Ok(new_count)
 }
 
+/// スキップ回数をインクリメントし、新しいスキップ回数を返す
+///
+/// 再生統計だけの変更のため、`updated_at`は変えない。
+pub fn increment_track_skip_count(conn: &Connection, track_id: &str) -> AppResult<i32> {
+    conn.query_row(
+        "UPDATE tracks SET skip_count = COALESCE(skip_count, 0) + 1
+         WHERE id = ?1
+         RETURNING skip_count",
+        [track_id],
+        |row| row.get(0),
+    )
+    .map_err(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => {
+            AppError::NotFound("トラックが見つかりません".to_string())
+        }
+        _ => AppError::Database(format!("スキップ回数の更新に失敗しました: {}", e)),
+    })
+}
+
 /// ユニークなアーティスト一覧を取得
 pub fn find_unique_artists(conn: &Connection) -> AppResult<Vec<String>> {
     find_unique_values(conn, "artist")
@@ -1837,6 +1877,84 @@ mod tests {
     }
 
     #[test]
+    fn test_increment_track_skip_count() {
+        let conn = setup_test_db();
+        insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
+        let before = find_track_by_id(&conn, "t1").unwrap();
+        assert_eq!(before.skip_count, 0);
+
+        // 戻り値は更新後のスキップ回数
+        assert_eq!(increment_track_skip_count(&conn, "t1").unwrap(), 1);
+        assert_eq!(increment_track_skip_count(&conn, "t1").unwrap(), 2);
+
+        // 再生回数・最後に再生した日時・再生履歴・更新日時は変えない
+        let track = find_track_by_id(&conn, "t1").unwrap();
+        assert_eq!(track.skip_count, 2);
+        assert_eq!(track.play_count, 0);
+        assert!(track.last_played_at.is_none());
+        assert_eq!(track.updated_at, before.updated_at);
+        assert!(find_play_history(&conn).unwrap().is_empty());
+
+        let result = increment_track_skip_count(&conn, "nonexistent");
+        assert!(matches!(result, Err(AppError::NotFound(_))));
+    }
+
+    #[test]
+    fn test_find_play_history_returns_every_play_newest_first() {
+        let conn = setup_test_db();
+        insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
+        insert_test_track(&conn, "t2", "曲B", "アーティストY", "アルバム2", "ポップ");
+        assert!(find_play_history(&conn).unwrap().is_empty());
+
+        for (track_id, played_at) in [
+            ("t1", "2026-10-01T10:00:00+00:00"),
+            ("t2", "2026-10-02T09:00:00+00:00"),
+            ("t1", "2026-10-02T09:05:00+00:00"),
+            // 同じ日時なら、後から記録したほうを先にする
+            ("t2", "2026-10-02T09:05:00+00:00"),
+        ] {
+            conn.execute(
+                "INSERT INTO play_history (track_id, played_at) VALUES (?1, ?2)",
+                [track_id, played_at],
+            )
+            .unwrap();
+        }
+
+        let history = find_play_history(&conn).unwrap();
+        let plays: Vec<(&str, &str)> = history
+            .iter()
+            .map(|entry| (entry.track_id.as_str(), &entry.played_at[..16]))
+            .collect();
+        assert_eq!(
+            plays,
+            vec![
+                ("t2", "2026-10-02T09:05"),
+                ("t1", "2026-10-02T09:05"),
+                ("t2", "2026-10-02T09:00"),
+                ("t1", "2026-10-01T10:00"),
+            ]
+        );
+        // 行を見分けるIDは、すべて違う
+        let mut ids: Vec<i64> = history.iter().map(|entry| entry.id).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), 4);
+
+        // 再生回数に数えると、履歴の先頭に加わる
+        increment_track_play_count(&conn, "t1").unwrap();
+        let history = find_play_history(&conn).unwrap();
+        assert_eq!(history.len(), 5);
+        assert_eq!(history[0].track_id, "t1");
+
+        // ライブラリから外した曲の履歴は消える
+        conn.execute("DELETE FROM tracks WHERE id = 't1'", [])
+            .unwrap();
+        let history = find_play_history(&conn).unwrap();
+        assert!(history.iter().all(|entry| entry.track_id == "t2"));
+        assert_eq!(history.len(), 2);
+    }
+
+    #[test]
     fn test_find_most_played_tracks() {
         let conn = setup_test_db();
         insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
@@ -1852,6 +1970,21 @@ mod tests {
         // play_countの降順
         assert_eq!(tracks[0].id, "t1");
         assert_eq!(tracks[0].play_count, 10);
+
+        // 同じ回数なら、最近再生した曲を先にする
+        insert_test_track(&conn, "t3", "曲C", "アーティストZ", "アルバム3", "ジャズ");
+        conn.execute(
+            "UPDATE tracks SET play_count = 5, last_played_at = '2026-10-02T00:00:00+00:00' WHERE id = 't3'",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "UPDATE tracks SET last_played_at = '2026-10-01T00:00:00+00:00' WHERE id = 't2'",
+            [],
+        )
+        .unwrap();
+        let tracks = find_most_played_tracks(&conn, 10).unwrap();
+        assert_eq!(track_ids(&tracks), vec!["t1", "t3", "t2"]);
     }
 
     /// 一覧の集計のテスト用に、ディスク番号・トラック番号・長さを設定する
@@ -2144,6 +2277,7 @@ mod tests {
             is_favorite: false,
             rating: 0,
             play_count: 0,
+            skip_count: 0,
             last_played_at: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             updated_at: "2026-01-01T00:00:00Z".to_string(),

@@ -161,15 +161,14 @@ export function useMostPlayedTracksQuery(limit: number = 50) {
 }
 
 /**
- * 最近再生したトラック一覧を取得するクエリ
+ * 再生履歴を取得するクエリ（新しい順。同じ曲が何度も出る）
+ *
+ * 再生した日時とトラックIDだけを返す。曲そのものは、全曲の一覧（`useTracksQuery`）から引く。
  */
-export function useRecentlyPlayedTracksQuery(limit: number = 50) {
+export function usePlayHistoryQuery() {
   return createQuery(() => ({
-    queryKey: queryKeys.tracks.recentlyPlayed(limit),
-    queryFn: () =>
-      withErrorToast(m.operations.fetchRecentlyPlayed, () =>
-        commands.getRecentlyPlayedTracks(limit)
-      ),
+    queryKey: queryKeys.playHistory,
+    queryFn: () => withErrorToast(m.operations.fetchPlayHistory, () => commands.getPlayHistory()),
     ...CACHE_POLICY.volatile
   }));
 }
@@ -342,14 +341,38 @@ export function useSetRatingMutation() {
 }
 
 /**
- * 再生回数をインクリメントする関数（fire-and-forget、UIブロック不要）
+ * 再生回数に数える（再生コントローラーが、曲の半分か4分を聴いた時に呼ぶ）
+ *
+ * 再生を止めないよう、失敗は通知しない。`queryClient`を渡すと、キャッシュにあるその曲の
+ * 再生回数を書き換え、再生履歴と「よく再生する曲」を取り直す。
  */
-export async function incrementPlayCount(trackId: string): Promise<void> {
+export async function recordPlay(trackId: string, queryClient?: QueryClient): Promise<void> {
   try {
-    await commands.incrementPlayCount(trackId);
+    const playCount = await commands.incrementPlayCount(trackId);
+    if (!queryClient) return;
+    patchTrackInCache(queryClient, trackId, {
+      playCount,
+      lastPlayedAt: new Date().toISOString()
+    });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.playHistory });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.tracks.mostPlayedAll });
   } catch (error) {
-    // 再生回数の更新エラーは静かに処理
-    console.debug('再生回数更新エラー:', error);
+    console.debug('再生回数の記録に失敗しました:', error);
+  }
+}
+
+/**
+ * スキップ回数に数える（再生コントローラーが、再生回数に数える前に別の曲へ移った時に呼ぶ）
+ *
+ * 再生を止めないよう、失敗は通知しない。`queryClient`を渡すと、キャッシュにあるその曲の
+ * スキップ回数を書き換える。
+ */
+export async function recordSkip(trackId: string, queryClient?: QueryClient): Promise<void> {
+  try {
+    const skipCount = await commands.incrementSkipCount(trackId);
+    if (queryClient) patchTrackInCache(queryClient, trackId, { skipCount });
+  } catch (error) {
+    console.debug('スキップ回数の記録に失敗しました:', error);
   }
 }
 

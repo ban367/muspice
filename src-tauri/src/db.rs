@@ -83,6 +83,8 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     add_column_if_not_exists(conn, "tracks", "rating", "INTEGER DEFAULT 0")?;
     add_column_if_not_exists(conn, "tracks", "play_count", "INTEGER DEFAULT 0")?;
     add_column_if_not_exists(conn, "tracks", "last_played_at", "TEXT")?;
+    // スキップ回数（再生回数に数える前に、別の曲へ移った回数）
+    add_column_if_not_exists(conn, "tracks", "skip_count", "INTEGER DEFAULT 0")?;
 
     // トラック番号/ディスク番号のカラムを追加
     add_column_if_not_exists(conn, "tracks", "track_number", "INTEGER")?;

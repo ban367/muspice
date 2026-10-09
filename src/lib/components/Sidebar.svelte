@@ -342,9 +342,9 @@
     <ul class="list-none m-0 p-0">
       <li>
         <a
-          href={resolve('library/recent')}
+          href={resolve('library/history')}
           class="nav-item-base"
-          class:active={currentPath === '/library/recent'}
+          class:active={currentPath === '/library/history'}
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -360,7 +360,7 @@
               d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
             />
           </svg>
-          <span>{m.sidebar.recentlyPlayed}</span>
+          <span>{m.sidebar.playHistory}</span>
         </a>
       </li>
       <li>

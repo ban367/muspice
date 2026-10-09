@@ -10,6 +10,7 @@
     createPlaybackController,
     type PlaybackController
   } from '#lib/stores/playback.svelte.js';
+  import { useQueryClient } from '@tanstack/svelte-query';
   import { useSettingsQuery } from '#lib/queries/settings.js';
   import { events, type PlaybackControl } from '#lib/bindings.js';
   import { onMount } from 'svelte';
@@ -29,11 +30,14 @@
   // 再生の設定（設定ウィンドウで変えると`SettingsChanged`で更新される。音量の正規化・クロスフェード・
   // 出力デバイスは、保存した時点でRust側が再生エンジンへ伝える）
   const settingsQuery = useSettingsQuery();
+  // 再生回数・スキップ回数を記録した時に、曲の一覧・再生履歴のキャッシュへ反映する
+  const queryClient = useQueryClient();
 
   onMount(() => {
     const controller = createPlaybackController({
       gapless: () => settingsQuery.data?.gaplessPlayback ?? true,
-      crossfadeSeconds: () => settingsQuery.data?.crossfadeSeconds ?? 0
+      crossfadeSeconds: () => settingsQuery.data?.crossfadeSeconds ?? 0,
+      queryClient
     });
     playback = controller;
 

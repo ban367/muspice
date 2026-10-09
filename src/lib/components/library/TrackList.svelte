@@ -37,6 +37,10 @@
     emptyMessage?: string;
     emptyHint?: string;
     displayMode?: 'grid' | 'list';
+    /** 最初の並び順（省略時は、追加した日時の新しい順） */
+    defaultSort?: { field: TrackSortField; direction: SortDirection };
+    /** リスト表示に、再生回数の列を出すか */
+    showPlayCount?: boolean;
   }
 
   let {
@@ -47,7 +51,9 @@
     searchTerm = '',
     emptyMessage,
     emptyHint,
-    displayMode = 'list'
+    displayMode = 'list',
+    defaultSort = { field: 'createdAt', direction: 'desc' },
+    showPlayCount = false
   }: Props = $props();
 
   // 行の高さの見積もり（描画した後は、VirtualListが実測した高さを使う）
@@ -59,8 +65,11 @@
   // グリッド表示で、見えている範囲の前後に余分に描画する行の数（1行に何枚も並ぶため、少なくする）
   const GRID_OVERSCAN_ROWS = 2;
 
-  let sortField = $state<TrackSortField>('createdAt');
-  let sortDirection = $state<SortDirection>('desc');
+  // 最初の並び順だけを受け取る（その後は、見出しのクリックで変える）
+  // svelte-ignore state_referenced_locally
+  let sortField = $state<TrackSortField>(defaultSort.field);
+  // svelte-ignore state_referenced_locally
+  let sortDirection = $state<SortDirection>(defaultSort.direction);
 
   // アルバムアートサイズ
   const artSize = $derived(ui.gridCardSize);
@@ -85,9 +94,14 @@
   let resizeStartX = $state(0);
   let resizeStartWidth = $state(0);
 
+  // 再生回数の列の幅（px）
+  const PLAY_COUNT_COLUMN_WIDTH = 72;
+
   // グリッドテンプレート列を計算
   const gridTemplateColumns = $derived(
-    `${ui.columnWidths.number}px ${ui.columnWidths.title}px ${ui.columnWidths.artist}px ${ui.columnWidths.rating}px ${ui.columnWidths.duration}px`
+    `${ui.columnWidths.number}px ${ui.columnWidths.title}px ${ui.columnWidths.artist}px ${ui.columnWidths.rating}px ` +
+      (showPlayCount ? `${PLAY_COUNT_COLUMN_WIDTH}px ` : '') +
+      `${ui.columnWidths.duration}px`
   );
 
   // レーティングミューテーション
@@ -316,6 +330,12 @@
                   aria-orientation="vertical"
                 ></div>
               </div>
+              {#if showPlayCount}
+                <button class="sortable text-right" onclick={() => toggleSort('playCount')}>
+                  {m.fields.playCount}
+                  {getSortIcon('playCount')}
+                </button>
+              {/if}
               <button class="sortable text-right" onclick={() => toggleSort('duration')}>
                 {m.fields.duration}
                 {getSortIcon('duration')}
@@ -370,6 +390,11 @@
                     setRatingMutation.mutateAsync({ trackId: track.id, rating })}
                 />
               </div>
+              {#if showPlayCount}
+                <div class="text-right text-text-muted text-sm tabular-nums">
+                  {track.playCount}
+                </div>
+              {/if}
               <div class="text-right text-text-muted text-sm">
                 {formatDuration(track.duration)}
               </div>

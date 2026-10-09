@@ -3,7 +3,7 @@
  */
 import type { Track } from '#lib/types/models.js';
 
-export type TrackSortField = 'title' | 'artist' | 'album' | 'duration' | 'createdAt';
+export type TrackSortField = 'title' | 'artist' | 'album' | 'duration' | 'createdAt' | 'playCount';
 export type SortDirection = 'asc' | 'desc';
 
 type SortKey = string | number;
@@ -23,6 +23,8 @@ function sortKey(track: Track, field: TrackSortField): SortKey {
       return track.duration || 0;
     case 'createdAt':
       return track.createdAt;
+    case 'playCount':
+      return track.playCount;
   }
 }
 

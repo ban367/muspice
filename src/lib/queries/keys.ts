@@ -24,8 +24,8 @@ export const queryKeys = {
     search: (term: string) => ['tracks', 'search', term] as const,
     filter: (filters: FilterOptions) => ['tracks', 'filter', filters] as const,
     favorites: ['tracks', 'favorites'] as const,
+    mostPlayedAll: ['tracks', 'mostPlayed'] as const,
     mostPlayed: (limit: number) => ['tracks', 'mostPlayed', limit] as const,
-    recentlyPlayed: (limit: number) => ['tracks', 'recentlyPlayed', limit] as const,
     album: (album: string, artist: string | null) => ['tracks', 'album', album, artist] as const,
     artistAlbums: (artist: string) => ['tracks', 'artistAlbums', artist] as const,
     genre: (genre: string) => ['tracks', 'genre', genre] as const,
@@ -51,6 +51,11 @@ export const queryKeys = {
     albums: ['unique', 'albums'] as const,
     genres: ['unique', 'genres'] as const
   },
+
+  /**
+   * 再生履歴（再生した日時とトラックIDの一覧。曲そのものは含まず、全曲の一覧から引く）
+   */
+  playHistory: ['playHistory'] as const,
 
   /** プレイリスト一覧 */
   playlists: ['playlists'] as const,

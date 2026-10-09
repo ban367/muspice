@@ -83,3 +83,22 @@ export function formatDateTime(dateString: string | null): string {
 export function formatTrackCount(count: number): string {
   return m.common.trackCount(count);
 }
+
+/**
+ * 時刻を「時:分」でフォーマット（表示の言語と、表示している環境のタイムゾーンに合わせる）
+ */
+export function formatTime(date: Date): string {
+  return date.toLocaleTimeString(i18n.locale, { hour: '2-digit', minute: '2-digit' });
+}
+
+/**
+ * 日付を、曜日付きでフォーマット（例: 2026年10月7日(水)）
+ */
+export function formatDateWithWeekday(date: Date): string {
+  return date.toLocaleDateString(i18n.locale, {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    weekday: 'short'
+  });
+}
