@@ -340,22 +340,30 @@ export interface Playlist {
 
 ### 再生・統計・システム
 
-| コマンド                     | 引数                      | 戻り値          |
-| ---------------------------- | ------------------------- | --------------- |
-| `set_current_track`          | `trackId: string \| null` | `void`          |
-| `get_current_track`          | なし                      | `Track \| null` |
-| `toggle_favorite`            | `trackId`                 | `boolean`       |
-| `set_rating`                 | `trackId`, `rating`       | `void`          |
-| `increment_play_count`       | `trackId`                 | `number`        |
-| `get_favorite_tracks`        | なし                      | `Track[]`       |
-| `get_most_played_tracks`     | `limit?`                  | `Track[]`       |
-| `get_recently_played_tracks` | `limit?`                  | `Track[]`       |
-| `show_in_folder`             | `trackId`                 | `void`          |
-| `open_project_page`          | なし                      | `void`          |
+| コマンド                     | 引数                                                     | 戻り値                  |
+| ---------------------------- | -------------------------------------------------------- | ----------------------- |
+| `set_current_track`          | `trackId: string \| null`                                | `void`                  |
+| `get_current_track`          | なし                                                     | `Track \| null`         |
+| `save_playback_state`        | `cursor: PlaybackCursor`, `queue: PlaybackQueue \| null` | `void`                  |
+| `get_playback_state`         | なし                                                     | `RestoredPlaybackState` |
+| `toggle_favorite`            | `trackId`                                                | `boolean`               |
+| `set_rating`                 | `trackId`, `rating`                                      | `void`                  |
+| `increment_play_count`       | `trackId`                                                | `number`                |
+| `get_favorite_tracks`        | なし                                                     | `Track[]`               |
+| `get_most_played_tracks`     | `limit?`                                                 | `Track[]`               |
+| `get_recently_played_tracks` | `limit?`                                                 | `Track[]`               |
+| `show_in_folder`             | `trackId`                                                | `void`                  |
+| `open_project_page`          | なし                                                     | `void`                  |
 
 `set_rating`は、評価をファイルのタグへ書き込み、同じ値をDBに記録する（0は評価のタグを取り除く）。評価はloftyの`ItemKey::Popularimeter`（ID3v2 `POPM` / Vorbis `RATING` / MP4 `rate` / RIFF `IRTD`）で読み書きし、インポート・再スキャン・`refresh_library_metadata`でタグから読み込む。評価の数値の付け方は書き込んだアプリごとに違うため、すでに評価があるファイルではその書き手の付け方のまま星の数だけを変え、ない場合はMusicBeeの付け方（ID3v2は1・64・128・196・255、それ以外は20刻み）で書く。Vorbisコメント（FLAC）は、書き手を付けない`RATING`に数値だけを書く（`RATING=80`。すでに星の数の1〜5で書かれていればその付け方を保つ）。loftyの汎用タグは、Vorbisコメントの数値だけの`RATING`を評価として読まず、書き出す時も変換しないため、`metadata.rs`で読み書きする。
 
 `toggle_favorite`・`increment_play_count`（お気に入り・再生回数・再生履歴）とプレイリストは、タグでは持てないためDBだけに保存する。
+
+再生状態の保存と復元（ADR-028）:
+
+- `save_playback_state`は、再生状態をアプリデータ配下の`playback-state.json`に保存する。`PlaybackCursor`: `{ volume: number, shuffle: boolean, repeat: 'off' \| 'all' \| 'one', currentIndex: number \| null }`（音量は0〜1に収める。`currentIndex`は、キューの中の再生していた曲の位置。キューの範囲を外れていれば`null`として保存する）。`PlaybackQueue`: `{ trackIds: string[], originalTrackIds: string[] \| null }`（再生する順と、シャッフル中だけ、シャッフルする前の順）。`queue`が`null`なら、保存してあるキューを変えない。トラックIDの形式でない値・50万曲を超えるキューは`VALIDATION`
+- `get_playback_state`は、保存してある再生状態を今のライブラリに合わせて返す。`RestoredPlaybackState`: `{ volume, shuffle, repeat, queue: Track[], originalTrackIds: string[] \| null, currentIndex: number \| null }`。ライブラリからなくなった曲・ファイルが見つからない曲は`queue`・`originalTrackIds`から除き、`currentIndex`は除いた後の位置にする（再生していた曲がなくなっていれば、その次に残っている曲。なければ`null`）。ファイルがない・壊れている場合は、何も再生していない状態（音量1・キューは空）を返す
+- 再生位置は保存しない。フロントは、起動時に復元して（再生は始めない）、再生ボタンで復元した曲を頭から再生する
 
 ### 再生エンジン
 
