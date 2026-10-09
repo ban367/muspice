@@ -280,12 +280,12 @@ export interface Playlist {
 
 ### 設定
 
-| コマンド        | 引数                 | 戻り値     | 備考                                                                                                                                                                                                                                                |
-| --------------- | -------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `get_settings`  | なし                 | `Settings` | `settings.json`がない・壊れている場合は既定値                                                                                                                                                                                                       |
-| `save_settings` | `settings: Settings` | `void`     | アクセントカラーは`#rrggbb`、クロスフェードは0〜12秒、再スキャンの間隔は選択肢の値。保存後に`SettingsChanged`イベントを送り、ライブラリフォルダの自動反映と、ネイティブの再生エンジン（出力デバイス・音量の正規化・クロスフェード）に設定を反映する |
+| コマンド        | 引数                 | 戻り値     | 備考                                                                                                                                                                                                                                    |
+| --------------- | -------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `get_settings`  | なし                 | `Settings` | `settings.json`がない・壊れている場合は既定値                                                                                                                                                                                           |
+| `save_settings` | `settings: Settings` | `void`     | アクセントカラーは`#rrggbb`、クロスフェードは0〜12秒、再スキャンの間隔は選択肢の値。保存後に`SettingsChanged`イベントを送り、ライブラリフォルダの自動反映と、再生エンジン（出力デバイス・音量の正規化・クロスフェード）に設定を反映する |
 
-`Settings`: `{ language: 'ja' \| 'en', startupPage: 'lastOpened' \| 'songs', theme: 'dark' \| 'light' \| 'system', accentColor: string, volumeNormalization: 'off' \| 'track' \| 'album', gaplessPlayback: boolean, crossfadeSeconds: number, playbackEngine: 'webView' \| 'native', outputDeviceId: string \| null, watchLibraryFolders: boolean, libraryScanIntervalMinutes: number }`。既定値は`ja`・`lastOpened`・`dark`・`#3b82f6`・`off`・`true`・`0`・`webView`・`null`・`false`・`0`。`crossfadeSeconds`は0〜12（整数）、`libraryScanIntervalMinutes`は0（しない）・15・30・60・360のいずれか、`outputDeviceId`は`get_output_devices`が返すID（`null`はOSの既定のデバイス。空文字・512バイトを超える値は不可）で、それ以外は`VALIDATION_ERROR`。`outputDeviceId`はネイティブの再生エンジンだけが使い、そのデバイスが接続されていない間は既定のデバイスで再生する（設定は変えない）。ファイルにない項目は既定値で補う（項目を追加しても古いファイルを読める）。
+`Settings`: `{ language: 'ja' \| 'en', startupPage: 'lastOpened' \| 'songs', theme: 'dark' \| 'light' \| 'system', accentColor: string, volumeNormalization: 'off' \| 'track' \| 'album', gaplessPlayback: boolean, crossfadeSeconds: number, outputDeviceId: string \| null, watchLibraryFolders: boolean, libraryScanIntervalMinutes: number }`。既定値は`ja`・`lastOpened`・`dark`・`#3b82f6`・`off`・`true`・`0`・`null`・`false`・`0`。`crossfadeSeconds`は0〜12（整数）、`libraryScanIntervalMinutes`は0（しない）・15・30・60・360のいずれか、`outputDeviceId`は`get_output_devices`が返すID（`null`はOSの既定のデバイス。空文字・512バイトを超える値は不可）で、それ以外は`VALIDATION_ERROR`。`outputDeviceId`のデバイスが接続されていない間は、既定のデバイスで再生する（設定は変えない）。以前のバージョンが保存した、今はない項目（`playbackEngine`）は無視する。ファイルにない項目は既定値で補う（項目を追加しても古いファイルを読める）。
 
 ### カスタムプロトコル
 
@@ -307,7 +307,7 @@ export interface Playlist {
 | `OpenImportDialog`    | なし                                                               | メニュー「フォルダをインポート...」                                                |
 | `ToggleSidebar`       | なし                                                               | メニュー「サイドバーを表示/隠す」                                                  |
 | `SettingsChanged`     | `Settings`                                                         | `save_settings`                                                                    |
-| `PlaybackEvent`       | 下の「ネイティブの再生エンジン」を参照                             | ネイティブの再生エンジン（再生位置・曲の切り替わり・終了・失敗）                   |
+| `PlaybackEvent`       | 下の「再生エンジン」を参照                                         | 再生エンジン（再生位置・曲の切り替わり・終了・失敗）                               |
 
 ### メタデータ編集
 
@@ -342,7 +342,6 @@ export interface Playlist {
 
 | コマンド                     | 引数                      | 戻り値          |
 | ---------------------------- | ------------------------- | --------------- |
-| `get_track_file_path`        | `trackId`                 | `string`        |
 | `set_current_track`          | `trackId: string \| null` | `void`          |
 | `get_current_track`          | なし                      | `Track \| null` |
 | `toggle_favorite`            | `trackId`                 | `boolean`       |
@@ -358,9 +357,9 @@ export interface Playlist {
 
 `toggle_favorite`・`increment_play_count`（お気に入り・再生回数・再生履歴）とプレイリストは、タグでは持てないためDBだけに保存する。
 
-### ネイティブの再生エンジン
+### 再生エンジン
 
-設定の`playbackEngine`が`native`の時に、フロントの再生コントローラー（`nativePlayback.svelte.ts`）が使う（ADR-025）。再生キューはフロントが持ち、エンジンへは「再生する曲」と「続けて再生する曲」だけを伝える。
+フロントの再生コントローラー（`playback.svelte.ts`）が使う（ADR-025）。再生キューはフロントが持ち、エンジンへは「再生する曲」と「続けて再生する曲」だけを伝える。
 
 | コマンド                 | 引数                               | 戻り値              | 備考                                                                                                                                                                   |
 | ------------------------ | ---------------------------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -382,8 +381,8 @@ export interface Playlist {
   - `{ type: 'failed', token, error }`: 再生を続けられなくなった（ファイルを読めない・出力デバイスを使えない）。再生は止まっている
 - 再生位置は、出力のコールバックが取り出したフレーム数から求める（鳴っている位置。リングバッファにたまっている約0.5秒分だけ、デコードしている位置より手前になる）
 - 曲の頭と終わりの余分（エンコーダーの遅延・パディング）は取り除く。MP3（LAMEのタグ）・Ogg Vorbis・Opus・M4AのAAC（`iTunSMPB`か編集リストがある場合）が対象で、ADTSのAAC・MP2はファイルに情報がないため取り除けない
-- 再生回数の記録（`increment_play_count`）と再生中のトラックの通知（`set_current_track`）は、audio要素での再生と同じくフロントが行う（1曲リピートでの繰り返しは数えない）
-- 音量の正規化: `playback_play` / `playback_set_next`の時に、Rust側がトラックのReplayGain（DB）と設定の`volumeNormalization`から倍率を決める（計算は`normalizationGain`と同じ）。設定を変えると、再生中の曲・続けて再生する曲の倍率も決め直す
+- 再生回数の記録（`increment_play_count`）と再生中のトラックの通知（`set_current_track`）は、フロントが行う（1曲リピートでの繰り返しは数えない）
+- 音量の正規化: `playback_play` / `playback_set_next`の時に、Rust側がトラックのReplayGain（DB）と設定の`volumeNormalization`から倍率を決める（計算は`playback/normalization.rs`。ADR-012）。設定を変えると、再生中の曲・続けて再生する曲の倍率も決め直す
 - クロスフェード: 設定の`crossfadeSeconds`が1以上で、続けて再生する曲（`playback_set_next`）があれば、エンジンが前の曲の終わりと重ねる。重ねる長さは、設定の秒数を上限に、どちらの曲も長さの半分まで、かつ前の曲の残りまで。同じ曲の繰り返し（同じファイル）と、長さの分からない曲からは、重ねずに切れ目なく続ける。`advanced`は、重なりが鳴り始めた時点で届く
 - イコライザとリミッターは、出力の直前にかける（ADR-026）。イコライザの設定は、エンジンを使う再生コントローラーが、起動時と変更のたびに`playback_set_equalizer`で送る。リミッターは常に有効で、設定はない
 

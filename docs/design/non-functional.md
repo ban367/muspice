@@ -34,7 +34,7 @@
   - ファイルの読み書き・削除・フォルダ表示はすべてRust側のコマンドで行い、WebViewからは任意のパスを扱えない（パスはトラックIDからDBで解決する）
   - capability（`src-tauri/capabilities/default.json`）は `core:default` と `dialog:allow-open` / `dialog:allow-message` のみ。fs / opener / window-state プラグインはWebViewに公開しない
   - 設定ウィンドウ（`settings`）は別のcapability（`settings.json`）で `core:default` と `core:window:allow-close`（キャンセルボタンでウィンドウを閉じる）のみ
-  - `assetProtocol.scope` は空にし、`get_track_file_path` が返すトラックファイルだけを実行時に許可する
+  - assetプロトコルは無効にしている。WebViewは音声ファイルを読まず、再生はRust側の再生エンジンが行う（ADR-027）。CSPでも、音声・動画の読み込み先（`media-src`）を許可していない
 - デバイスへの転送（ADR-020）
   - WebViewからフォルダのパスを受け取るのは、デバイスの登録と転送先の変更だけ（フォルダ選択ダイアログの結果。`import_folder`と同じ扱い）。同期などの操作はデバイスのIDで行う
   - デバイス上で削除・上書きするのは、管理ファイルに記録のあるファイルだけ。管理ファイルは外部メディア上にあり書き換えられている可能性があるため、記録されたパスがデバイスのフォルダの外を指さないことを、読み込み時（`..`・絶対パスなどの拒否）と実行時（親フォルダのシンボリックリンクを解決して確認）に検証する

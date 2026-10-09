@@ -41,12 +41,10 @@ graph TD
 - 曲の一覧: 全曲の一覧は件数の上限なく1回で取得してキャッシュし、並び替え・選択・再生キューの作成はフロントで行う。アルバム・アーティストはアルバムアーティスト（なければ曲のアーティスト）でまとめる（ADR-022）。アルバム・アーティスト・ジャンルは一覧（曲数・代表の曲）だけを取得し、曲は詳細を開いた時・再生する時にその分だけ取得する。プレイリストの曲も、プレイリストごとに取得する（ADR-021）
 - 長い一覧の描画: `src/lib/components/ui/VirtualList.svelte` が、見えている行（とその前後の少しの行）だけを描画する（`implementation.md` 参照）
 - アルバムアート: `#lib/utils/albumArt` の `albumArtUrl(trackId)` が返す `albumart://` のURLを `<img>` に指定し、Rust側のカスタムプロトコルから直接読み込む（フロントエンドに画像データを保持しない）
-- 再生: 再生コントローラーが再生状態（`player.svelte.ts` の `player`）を `$effect` で監視して再生を制御し、`Player.svelte` は表示と操作の受付に専念する。再生コントローラーは2つあり、設定の「再生エンジン」で切り替える（同じ操作`PlaybackController`を持つ。ADR-025）
-  - audio要素での再生（既定）: `src/lib/stores/playback.svelte.ts`。下の「音声の経路」「ギャップレス再生・クロスフェード」は、こちらの説明
-  - ネイティブの再生エンジンでの再生: `src/lib/stores/nativePlayback.svelte.ts`。Rust側のエンジン（`src-tauri/src/playback/`）をコマンドで操作し、`PlaybackEvent`で再生位置・曲の切り替わり・終了を受け取る。出力デバイスを選べる。イコライザ・音量の正規化・クロスフェードは、エンジンの中でかける（ADR-026）。イコライザの設定は、この再生コントローラーが`equalizer.svelte.ts`から読んでエンジンへ送る
-  - 再生キュー（次の曲の決定・シャッフル・リピート）は、どちらの場合もフロントエンド（`player.svelte.ts`）が持つ
-- 音声の経路: audio要素（デッキ。2つ） → デッキごとの音量の正規化（GainNode、ReplayGainから求めた倍率） → デッキごとのフェード（GainNode、クロスフェード） → イコライザ（10バンドのBiquadFilterNode、共通） → 全体ゲイン → 出力。Web Audioのグラフは`equalizer.svelte.ts`が作る
-- ギャップレス再生・クロスフェード: 再生コントローラーが、再生中ではない方のデッキに次の曲を先読みし、曲の終わりの直前（クロスフェードでは設定した秒数前）に再生を始めて切り替える（`Player.svelte`がaudio要素を2つ置く）
+- 再生: 再生コントローラー（`src/lib/stores/playback.svelte.ts`）が、再生状態（`player.svelte.ts` の `player`）を `$effect` で監視してRust側の再生エンジン（`src-tauri/src/playback/`）をコマンドで操作し、エンジンからの通知（`PlaybackEvent`。再生位置・曲の切り替わり・終了）を再生状態へ反映する。`Player.svelte` は表示と操作の受付に専念する
+  - 再生キュー（次の曲の決定・シャッフル・リピート）は、フロントエンド（`player.svelte.ts`）が持つ。エンジンへは「再生する曲」と「続けて再生する曲」だけを伝える（ADR-025）
+  - イコライザ・音量の正規化・クロスフェードは、エンジンの中でかける（ADR-026）。イコライザの設定はフロントエンドが保存し（`equalizer.svelte.ts`。localStorage）、再生コントローラーがエンジンへ送る
+  - WebViewは音声ファイルを読まない（audio要素・Web Audioは使わない。ADR-027）
 - ダイアログ: `src/lib/components/ui/Modal.svelte`（ネイティブの`<dialog>`）に統一。テキスト入力は`promptText()`の要求を、レイアウトに置いた`TextPromptDialog`が表示する
 - ブラウザ確認用モック: `npm run dev:mock` のときだけ `src/hooks.client.ts` が `src/lib/mocks` のインメモリバックエンドへIPCを差し替える（`implementation.md` 参照）
 
@@ -60,7 +58,7 @@ graph TD
 - 重い同期処理（インポート、メタデータ再読込、ファイルへのタグ書き込み、アルバムアート抽出、ファイル削除）は `run_blocking`（`spawn_blocking`）でブロッキング処理用スレッドへ逃がし、非同期ランタイムのワーカーを占有しない。アルバムアート抽出はセマフォで同時実行数を4に制限する
 - バックエンド→フロントエンドの通知は `events.rs` の型付きイベント（tauri-specta）で行い、フロントは `bindings.ts` の `events.xxx.listen()` で受け取る
 - デバイスへの転送: `device.rs`（デバイスの記録）・`device_manifest.rs`（デバイス側の管理ファイル）・`device_sync.rs`（配置と差分の計算。ファイルシステムに触れない）・`device_transfer.rs`（削除・リネーム・コピー・プレイリストの書き出し）に分ける。同時に実行する同期は1つ（`DeviceSyncState`）で、DBロックは曲・プレイリストの読み出しの間だけ持つ（コピー中は持たない）
-- ネイティブの再生エンジン: `playback/`。エンジンのスレッド（`engine.rs`）がコマンドを順に処理しながら、デコード（`decoder.rs`。`symphonia`とlibopus） → 出力の形式への変換（`convert.rs`。ステレオ・出力デバイスのサンプルレート。`rubato`） → 音量の正規化（`normalization.rs`。曲ごとの倍率） → クロスフェード（2曲を重ねる） → リングバッファへの書き込みを行う。出力のコールバック（`render.rs`。`cpal`が呼ぶOSの音声のスレッド）は、リングバッファから取り出して、イコライザ → 音量・一時停止 → リミッター（`effects.rs`）の順にかけるだけで、ロック・メモリの確保・ファイルの読み取りをしない。出力は最初に再生する時に開き、再生していない間は止める（ADR-025・ADR-026）
+- 再生エンジン: `playback/`。エンジンのスレッド（`engine.rs`）がコマンドを順に処理しながら、デコード（`decoder.rs`。`symphonia`とlibopus） → 出力の形式への変換（`convert.rs`。ステレオ・出力デバイスのサンプルレート。`rubato`） → 音量の正規化（`normalization.rs`。曲ごとの倍率） → クロスフェード（2曲を重ねる） → リングバッファへの書き込みを行う。出力のコールバック（`render.rs`。`cpal`が呼ぶOSの音声のスレッド）は、リングバッファから取り出して、イコライザ → 音量・一時停止 → リミッター（`effects.rs`）の順にかけるだけで、ロック・メモリの確保・ファイルの読み取りをしない。出力は最初に再生する時に開き、再生していない間は止める（ADR-025・ADR-026）
 - コマンド登録: `tauri::generate_handler!` でインポート/検索/編集/再生/統計/システム操作を公開
 - DB初期化: `db.rs` のマイグレーションでテーブル・インデックス・FTS5・トリガーを作成
 
@@ -122,7 +120,7 @@ sequenceDiagram
 3. 「同期」で差分を調べて（`plan_device_sync`）確認のダイアログ（`DeviceSyncDialog`）に表示し、確認の後に同期する（`run_device_sync`）
 4. 差分は、同期する曲・プレイリストと管理ファイルを比べて決める（`device_sync::plan_sync`）。詳細は`detailed-design.md`
 
-### 再生（ネイティブの再生エンジン）
+### 再生
 
 1. 再生するトラック（`player.currentTrack`）が変わると、再生コントローラーが`playback_play(trackId, token)`を呼ぶ。Rust側はトラックIDからファイルを解決し（パスはWebViewから受け取らない）、エンジンがファイルを開いて再生を始め、曲の長さを返す
 2. ギャップレス再生が有効なら、キューの次の曲を`playback_set_next`で伝えておく（キュー・リピート・シャッフルが変わるたびに伝え直す）
