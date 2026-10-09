@@ -17,6 +17,7 @@
 | ウィンドウの状態 | tauri-plugin-window-state        | 2.5.x                                              | メインウィンドウのサイズ・位置の記憶（Rust側のみ）                                                                                                |
 | デバイスへの転送 | fs4 / unicode-normalization      | 1.1 / 0.1                                          | 転送先の空き容量の取得 / ファイル名のNFC正規化                                                                                                    |
 | M3Uの読み込み    | encoding_rs                      | 0.8                                                | UTF-8以外（Shift_JIS・UTF-16）で書かれたM3Uの文字コードの変換                                                                                     |
+| ライブラリのXML  | plist                            | 1.10                                               | iTunes形式のライブラリXML（プロパティリスト）の読み込み。Tauriが使っているものと同じ                                                              |
 | 再生エンジン     | symphonia / cpal / rubato / rtrb | 0.6 / 0.18 / 5 / 0.4                               | デコード / 出力 / サンプルレートの変換 / リングバッファ。Opusは`symphonia-adapter-libopus` 0.3（libopusを同梱。ビルドにCコンパイラとcmakeが要る） |
 | メディアキー     | objc2-media-player（objc2）      | 0.3（objc2 0.6）                                   | macOSのNow Playing・リモートコマンド（MediaPlayerフレームワーク）。macOSだけの依存で、Tauriが使っているobjc2系のクレートとそろえる                |
 
@@ -71,6 +72,7 @@ src-tauri/src/
 ├── library.rs
 ├── library_folder.rs
 ├── library_sync.rs        # ライブラリフォルダの変更の自動反映（起動時・定期・監視）
+├── library_xml.rs         # iTunes形式のライブラリXMLの読み込み（ほかのプレーヤーの再生回数・追加日・プレイリスト。ADR-033）
 ├── m3u.rs                 # プレイリストのM3Uの読み込み（文字コードの判定・曲の対応付け）と書き出し（ADR-032）
 ├── media_controls/        # OSのメディアキー・Now Playing（ADR-029）
 │   ├── mod.rs             # OSへ渡す内容の組み立て（曲の情報・アルバムアート）
