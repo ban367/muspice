@@ -11,6 +11,7 @@ mod events;
 mod library;
 mod library_folder;
 mod library_sync;
+mod m3u;
 mod media_controls;
 mod menu;
 mod metadata;
@@ -27,12 +28,13 @@ mod validation;
 
 use commands::{
     add_tracks_to_playlist, cancel_device_sync, create_playlist, delete_playlist,
-    delete_tracks_command, delete_tracks_with_files_command, filter_tracks, get_album_tracks,
-    get_albums, get_all_tracks, get_artist_albums, get_artists, get_current_track,
-    get_favorite_tracks, get_genre_tracks, get_genres, get_library_folders, get_most_played_tracks,
-    get_output_devices, get_play_history, get_playback_state, get_playlist_tracks, get_playlists,
-    get_settings, get_sync_devices, get_unique_albums, get_unique_artists, get_unique_genres,
-    import_folder, increment_play_count, increment_skip_count, open_project_page, plan_device_sync,
+    delete_tracks_command, delete_tracks_with_files_command, export_playlist_m3u, filter_tracks,
+    get_album_tracks, get_albums, get_all_tracks, get_artist_albums, get_artists,
+    get_current_track, get_favorite_tracks, get_genre_tracks, get_genres, get_library_folders,
+    get_most_played_tracks, get_output_devices, get_play_history, get_playback_state,
+    get_playlist_tracks, get_playlists, get_settings, get_sync_devices, get_unique_albums,
+    get_unique_artists, get_unique_genres, import_folder, import_m3u_playlists,
+    increment_play_count, increment_skip_count, open_project_page, plan_device_sync,
     playback_pause, playback_play, playback_resume, playback_seek, playback_set_equalizer,
     playback_set_next, playback_set_volume, playback_stop, refresh_library_metadata,
     register_sync_device, relink_sync_device, remove_library_folder, remove_missing_tracks,
@@ -95,6 +97,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             add_tracks_to_playlist,
             remove_track_from_playlist,
             reorder_playlist_tracks,
+            import_m3u_playlists,
+            export_playlist_m3u,
             set_current_track,
             get_current_track,
             save_playback_state,

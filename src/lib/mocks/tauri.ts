@@ -20,7 +20,7 @@
  */
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
 import type { NowPlayingUpdate } from '#lib/types/models.js';
-import { createMockBackend } from './backend';
+import { createMockBackend, type MockM3uImportMode } from './backend';
 
 /** アートがないトラックに返すURL（読み込みエラーになり、実アプリの404と同じ扱いになる） */
 const MISSING_ALBUM_ART_URL = 'data:image/png;base64,';
@@ -46,6 +46,11 @@ interface MuspiceMockHandle {
   setFolderResult(path: string | null): void;
   /** OSのNow Playingへ伝えたことになっている内容（何も再生していなければnull） */
   nowPlaying(): NowPlayingUpdate | null;
+  /**
+   * M3Uの読み込みで、選んだことにするファイルを切り替える
+   * （`partial`: 対応が付かない行がある（既定）・`clean`: すべて対応が付く・`cancel`: 選ばなかった）
+   */
+  setM3uImportMode(mode: MockM3uImportMode): void;
 }
 
 /** モックで使う`__TAURI_INTERNALS__`の一部（公開型がないため最小限を定義する） */
@@ -163,7 +168,8 @@ export function setupTauriMock(): void {
     setFolderResult: (path) => {
       folderResult = path;
     },
-    nowPlaying: () => backend.nowPlaying()
+    nowPlaying: () => backend.nowPlaying(),
+    setM3uImportMode: (mode) => backend.setM3uImportMode(mode)
   };
 
   console.info('[mock] Tauri IPCをモックしています（npm run dev:mock）');

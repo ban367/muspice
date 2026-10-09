@@ -1,7 +1,7 @@
 <!--
   @component PlaylistContextMenu
   プレイリスト用コンテキストメニュー。
-  再生、シャッフル再生、キュー操作、名前変更、削除のアクションを提供する。
+  再生、シャッフル再生、キュー操作、名前変更、M3U8への書き出し、削除のアクションを提供する。
 -->
 <script lang="ts">
   import type { Playlist } from '#lib/types/models.js';
@@ -27,9 +27,11 @@
     y: number;
     playlist: Playlist;
     onClose: () => void;
+    /** 「M3U8で書き出す」を選んだ時に呼ぶ（省略すると、項目を出さない） */
+    onExport?: (playlist: Playlist) => void;
   }
 
-  let { x, y, playlist, onClose }: Props = $props();
+  let { x, y, playlist, onClose, onExport }: Props = $props();
 
   // ミューテーション
   const deletePlaylistMutation = useDeletePlaylistMutation();
@@ -93,6 +95,14 @@
     if (newName !== null && newName !== name) {
       renamePlaylistMutation.mutate({ playlistId: id, name: toSafeString(newName, 100) });
     }
+  }
+
+  /**
+   * プレイリストをM3U8へ書き出す（書き方を選ぶダイアログは、呼び出し側が表示する）
+   */
+  function handleExport() {
+    onExport?.(playlist);
+    onClose();
   }
 
   /**
@@ -221,6 +231,26 @@
     </svg>
     <span>{m.contextMenu.rename}</span>
   </button>
+
+  {#if onExport}
+    <button class="menu-item" onclick={handleExport} role="menuitem">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="menu-icon"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
+        />
+      </svg>
+      <span>{m.playlists.exportM3u}</span>
+    </button>
+  {/if}
 
   <button class="menu-item menu-item-danger" onclick={handleDelete} role="menuitem">
     <svg

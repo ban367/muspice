@@ -71,6 +71,9 @@ export interface MockBackendOptions {
   storage?: Pick<Storage, 'getItem' | 'setItem'>;
 }
 
+/** M3Uの読み込みで、選んだことにするファイル */
+export type MockM3uImportMode = 'partial' | 'clean' | 'cancel';
+
 export interface MockBackend {
   /** IPCのコマンド名（snake_case）と引数オブジェクトでコマンドを実行する */
   invoke(cmd: string, args?: Record<string, unknown>): Promise<unknown>;
@@ -80,6 +83,14 @@ export interface MockBackend {
    * ブラウザにはOSの表示がないため、フロントエンドが伝えた内容をここで確認する。
    */
   nowPlaying(): NowPlayingUpdate | null;
+  /**
+   * M3Uの読み込み（`importM3uPlaylists`）で、選んだことにするファイルを切り替える
+   *
+   * - `partial`（既定）: 対応が付かない行・重複のある1つのファイル
+   * - `clean`: すべての行に対応する曲がある1つのファイル
+   * - `cancel`: ファイルを選ばなかった
+   */
+  setM3uImportMode(mode: MockM3uImportMode): void;
   /** `albumart`プロトコルの代わりに、トラックのアルバムアートをdata URLで返す（アートがなければnull） */
   albumArtUrl(trackId: string): string | null;
 }
@@ -296,6 +307,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   let playHistory: PlayHistoryEntry[] = createFixturePlayHistory(tracks, Date.now());
   let currentTrackId: string | null = null;
   let nowPlaying: NowPlayingUpdate | null = null;
+  let m3uImportMode: MockM3uImportMode = 'partial';
   // 前回の再生状態（保存先に壊れた内容があれば使わない）
   let playbackState: StoredPlaybackState = EMPTY_PLAYBACK_STATE;
   try {
@@ -928,6 +940,50 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       playlist.updatedAt = now();
       return null;
     },
+    importM3uPlaylists: () => {
+      // ファイルを選ぶダイアログ（Rust側が開く）の代わりに、選んだことにするファイルの結果を返す
+      if (m3uImportMode === 'cancel') return [];
+      const clean = m3uImportMode === 'clean';
+      const baseName = clean ? 'ドライブ（MusicBee）' : '通勤（MusicBee）';
+      let name = baseName;
+      for (let number = 2; playlists.some((playlist) => playlist.name === name); number++) {
+        name = `${baseName} (${number})`;
+      }
+      const trackIds = tracks
+        .filter((track) => !track.isMissing)
+        .slice(0, clean ? 4 : 6)
+        .map((track) => track.id);
+      const timestamp = now();
+      const playlist: Playlist = {
+        id: crypto.randomUUID(),
+        name,
+        description: null,
+        tracks: trackIds.map((trackId, position) => ({ trackId, position, addedAt: timestamp })),
+        createdAt: timestamp,
+        updatedAt: timestamp
+      };
+      playlists.push(playlist);
+      return [
+        {
+          fileName: `${baseName}.${clean ? 'm3u8' : 'm3u'}`,
+          playlistId: playlist.id,
+          playlistName: name,
+          addedCount: trackIds.length,
+          duplicateCount: clean ? 0 : 1,
+          unmatchedCount: clean ? 0 : 2,
+          unmatched: clean
+            ? []
+            : ['C:\\Music\\Unknown Artist\\99 Missing.mp3', 'http://example.com/radio.m3u'],
+          error: null
+        }
+      ];
+    },
+    exportPlaylistM3u: (playlistId) => {
+      validatePlaylistId(playlistId);
+      const playlist = findPlaylist(playlistId);
+      // 保存先を選ぶダイアログ（Rust側が開く）の代わりに、プレイリスト名のファイルへ書いたことにする
+      return { fileName: `${playlist.name}.m3u8`, trackCount: playlist.tracks.length };
+    },
     setCurrentTrack: (trackId) => {
       currentTrackId = trackId;
       return null;
@@ -1281,6 +1337,9 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       if (album === null || ALBUMS_WITHOUT_ART.has(album)) return null;
       return createAlbumArt(album);
     },
-    nowPlaying: () => structuredClone(nowPlaying)
+    nowPlaying: () => structuredClone(nowPlaying),
+    setM3uImportMode: (mode) => {
+      m3uImportMode = mode;
+    }
   };
 }

@@ -377,6 +377,49 @@ describe('プレイリスト', () => {
   });
 });
 
+describe('M3Uの読み込み・書き出し', () => {
+  it('読み込むとプレイリストを作り、対応が付かなかった行を返す', async () => {
+    const before = await commands.getPlaylists();
+
+    const [result] = await commands.importM3uPlaylists();
+
+    const playlists = await commands.getPlaylists();
+    expect(playlists).toHaveLength(before.length + 1);
+    const created = playlists.find((playlist) => playlist.id === result.playlistId)!;
+    expect(created.name).toBe(result.playlistName);
+    expect(created.tracks).toHaveLength(result.addedCount);
+    expect(result.unmatchedCount).toBe(result.unmatched.length);
+    expect(result.unmatchedCount).toBeGreaterThan(0);
+    expect(result.error).toBeNull();
+  });
+
+  it('同じ名前のプレイリストがあれば、番号を付けた名前で作る', async () => {
+    const [first] = await commands.importM3uPlaylists();
+    const [second] = await commands.importM3uPlaylists();
+
+    expect(second.playlistName).toBe(`${first.playlistName} (2)`);
+    expect(second.playlistId).not.toBe(first.playlistId);
+  });
+
+  it('選んだことにするファイルを切り替えられる', async () => {
+    backend.setM3uImportMode('clean');
+    const [clean] = await commands.importM3uPlaylists();
+    expect(clean).toMatchObject({ unmatchedCount: 0, duplicateCount: 0, unmatched: [] });
+
+    backend.setM3uImportMode('cancel');
+    expect(await commands.importM3uPlaylists()).toEqual([]);
+  });
+
+  it('書き出すと、プレイリスト名のファイル名と曲数を返す', async () => {
+    const result = await commands.exportPlaylistM3u(mockPlaylistId(1), true);
+
+    expect(result).toEqual({ fileName: 'ドライブ用.m3u8', trackCount: 5 });
+    await expect(commands.exportPlaylistM3u(mockPlaylistId(99), false)).rejects.toMatchObject({
+      code: 'NOT_FOUND'
+    });
+  });
+});
+
 describe('インポート', () => {
   it('進捗イベントを送信し、同じフォルダの再インポートは重複としてスキップする', async () => {
     const first = await commands.importFolder('/Users/demo/Music/New', 'Skip');

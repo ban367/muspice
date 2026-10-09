@@ -157,6 +157,26 @@ export const commands = {
 	removeTrackFromPlaylist: (playlistId: string, trackId: string) => __TAURI_INVOKE<null>("remove_track_from_playlist", { playlistId, trackId }),
 	/**  プレイリスト内のトラックを並び替え */
 	reorderPlaylistTracks: (playlistId: string, trackIds: string[]) => __TAURI_INVOKE<null>("reorder_playlist_tracks", { playlistId, trackIds }),
+	/**
+	 *  M3U（M3U8）のファイルを選んで読み込み、ファイルごとにプレイリストを作る
+	 * 
+	 *  曲の場所は、ライブラリの曲のパスと突き合わせる（別のOSで書き出したパスは、ファイル名と
+	 *  上のフォルダの一致で対応を付ける）。同じ名前のプレイリストがあれば、番号を付けた名前で作る。
+	 *  ファイルを選ばなかった場合は、空の一覧を返す。
+	 */
+	importM3uPlaylists: () => __TAURI_INVOKE<M3uImportResult[]>("import_m3u_playlists"),
+	/**
+	 *  プレイリストを、保存先を選んでM3U8（UTF-8の拡張M3U）へ書き出す
+	 * 
+	 *  `relative_paths`がtrueなら、曲の場所を書き出し先のフォルダからの相対パスで書く（falseは絶対パス）。
+	 *  保存先を選ばなかった場合はnullを返す。
+	 */
+	exportPlaylistM3u: (playlistId: string, relativePaths: boolean) => __TAURI_INVOKE<{
+	/**  書き出したファイルの名前 */
+	fileName: string,
+	/**  書き出した曲数 */
+	trackCount: number,
+} | null>("export_playlist_m3u", { playlistId, relativePaths }),
 	/**  現在再生中のトラックIDを設定 */
 	setCurrentTrack: (trackId: string | null) => __TAURI_INVOKE<null>("set_current_track", { trackId }),
 	/**  現在再生中のトラック情報を取得 */
@@ -573,6 +593,33 @@ export type LibraryScanProgress = {
 	total: number,
 	/**  現在処理中のファイル名 */
 	currentFile: string,
+};
+
+/**  プレイリストをM3U8へ書き出した結果 */
+export type M3uExportResult = {
+	/**  書き出したファイルの名前 */
+	fileName: string,
+	/**  書き出した曲数 */
+	trackCount: number,
+};
+
+/**  M3Uのファイル1つを読み込んだ結果 */
+export type M3uImportResult = {
+	/**  読み込んだファイルの名前 */
+	fileName: string,
+	/**  作ったプレイリストのIDと名前（対応する曲が1つもない・読めなかった場合は作らず、null） */
+	playlistId: string | null,
+	playlistName: string | null,
+	/**  プレイリストに入れた曲数 */
+	addedCount: number,
+	/**  同じ曲が2回以上書かれていて、飛ばした数（プレイリストには、同じ曲を1回だけ入れる） */
+	duplicateCount: number,
+	/**  ライブラリの曲と対応が付かなかった行の数 */
+	unmatchedCount: number,
+	/**  対応が付かなかった行（M3Uに書かれていたまま。多い場合は先頭の一部だけ） */
+	unmatched: string[],
+	/**  ファイルを読めなかった場合のエラー */
+	error: string | null,
 };
 
 /**  メタデータのデータモデル */

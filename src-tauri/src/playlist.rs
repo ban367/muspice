@@ -26,6 +26,58 @@ pub fn create_playlist(conn: &Connection, name: &str) -> Result<Playlist> {
     })
 }
 
+/// プレイリストの名前を取得する（プレイリストがなければ`QueryReturnedNoRows`）
+pub fn get_playlist_name(conn: &Connection, playlist_id: &str) -> Result<String> {
+    conn.query_row(
+        "SELECT name FROM playlists WHERE id = ?1",
+        [playlist_id],
+        |row| row.get(0),
+    )
+}
+
+/// 曲を入れた状態で、プレイリストを作る（M3Uの読み込み用）
+///
+/// 同じ名前のプレイリストがある場合は、番号を付けた名前にする（`m3u::unique_playlist_name`）。
+/// 1つのトランザクションで行い、途中で失敗した場合は何も作らない。
+/// `track_ids`には、同じトラックを2回含めない。
+pub fn create_playlist_with_tracks(
+    conn: &mut Connection,
+    name: &str,
+    track_ids: &[String],
+) -> Result<Playlist> {
+    let tx = conn.transaction()?;
+
+    let existing: Vec<String> = tx
+        .prepare("SELECT name FROM playlists")?
+        .query_map([], |row| row.get(0))?
+        .collect::<Result<_>>()?;
+    let name = crate::m3u::unique_playlist_name(name, &existing);
+
+    let mut playlist = create_playlist(&tx, &name)?;
+    {
+        let mut insert = tx.prepare(
+            "INSERT INTO playlist_tracks (playlist_id, track_id, position, added_at)
+             VALUES (?1, ?2, ?3, ?4)",
+        )?;
+        for (position, track_id) in track_ids.iter().enumerate() {
+            insert.execute(rusqlite::params![
+                playlist.id,
+                track_id,
+                position as i32,
+                playlist.created_at
+            ])?;
+            playlist.tracks.push(PlaylistTrack {
+                track_id: track_id.clone(),
+                position: position as i32,
+                added_at: playlist.created_at.clone(),
+            });
+        }
+    }
+
+    tx.commit()?;
+    Ok(playlist)
+}
+
 /// すべてのプレイリストを取得
 ///
 /// プレイリストごとにトラックを問い合わせるとN+1クエリになるため、
