@@ -1,7 +1,7 @@
 use crate::error::{AppError, AppResult};
 use crate::models::{Metadata, ReplayGain};
 use lofty::config::{ParseOptions, WriteOptions};
-use lofty::file::{AudioFile, TaggedFileExt};
+use lofty::file::{AudioFile, TaggedFile, TaggedFileExt};
 use lofty::picture::PictureType;
 use lofty::probe::Probe;
 use lofty::tag::items::popularimeter::{Popularimeter, StarRating};
@@ -29,16 +29,26 @@ fn extract_album_artist(tag: &Tag) -> Option<String> {
         .map(str::to_string)
 }
 
+/// 音楽ファイルを読み込む
+///
+/// 形式は中身から判定し、判定できない場合は拡張子から決める（拡張子と中身が違うファイル、
+/// たとえば`.ogg`の中がOpusのファイルも読めるようにする）。
+fn read_tagged_file(file_path: &Path, options: ParseOptions) -> AppResult<TaggedFile> {
+    Probe::open(file_path)
+        .map_err(|e| AppError::Metadata(format!("ファイルのオープンに失敗しました: {}", e)))?
+        .options(options)
+        .guess_file_type()
+        .map_err(|e| AppError::Metadata(format!("ファイルの読み取りに失敗しました: {}", e)))?
+        .read()
+        .map_err(|e| AppError::Metadata(format!("ファイルの読み取りに失敗しました: {}", e)))
+}
+
 /// 音楽ファイルのタグから、アルバムアーティストだけを読む（タグにない場合はNone）
 ///
 /// アルバムアーティストの列を追加する前に登録したトラックの読み込みに使う。
 /// 長さ・ビットレートなどは読まない（全ファイルを読むため、1ファイルあたりの時間を抑える）。
 pub fn read_album_artist(file_path: &Path) -> AppResult<Option<String>> {
-    let tagged_file = Probe::open(file_path)
-        .map_err(|e| AppError::Metadata(format!("ファイルのオープンに失敗しました: {}", e)))?
-        .options(ParseOptions::new().read_properties(false))
-        .read()
-        .map_err(|e| AppError::Metadata(format!("ファイルの読み取りに失敗しました: {}", e)))?;
+    let tagged_file = read_tagged_file(file_path, ParseOptions::new().read_properties(false))?;
 
     Ok(tagged_file
         .primary_tag()
@@ -237,10 +247,7 @@ pub struct FileInfo {
 /// 音楽ファイルから全情報（タグ・長さ・ビットレート・サンプルレート・ReplayGain・評価）を
 /// 1回のファイルオープンでまとめて抽出する
 pub fn extract_all_file_info(file_path: &Path) -> AppResult<FileInfo> {
-    let tagged_file = Probe::open(file_path)
-        .map_err(|e| AppError::Metadata(format!("ファイルのオープンに失敗しました: {}", e)))?
-        .read()
-        .map_err(|e| AppError::Metadata(format!("ファイルの読み取りに失敗しました: {}", e)))?;
+    let tagged_file = read_tagged_file(file_path, ParseOptions::new())?;
 
     // メタデータ抽出
     let tag = tagged_file
@@ -303,10 +310,7 @@ pub fn extract_all_file_info(file_path: &Path) -> AppResult<FileInfo> {
 
 /// 音楽ファイルからアルバムアートを抽出
 pub fn extract_album_art(file_path: &Path) -> AppResult<Option<EmbeddedPicture>> {
-    let tagged_file = Probe::open(file_path)
-        .map_err(|e| AppError::Metadata(format!("ファイルのオープンに失敗しました: {}", e)))?
-        .read()
-        .map_err(|e| AppError::Metadata(format!("ファイルの読み取りに失敗しました: {}", e)))?;
+    let tagged_file = read_tagged_file(file_path, ParseOptions::new())?;
 
     let tag = tagged_file
         .primary_tag()
@@ -368,18 +372,23 @@ pub fn validate_metadata(metadata: &Metadata) -> AppResult<()> {
 /// タグがないファイルには、その形式の既定のタグを作る。
 fn modify_file_tag(file_path: &Path, modify: impl FnOnce(&mut Tag)) -> AppResult<()> {
     // ファイルを読み込み
-    let mut tagged_file = Probe::open(file_path)
-        .map_err(|e| AppError::Metadata(format!("ファイルのオープンに失敗しました: {}", e)))?
-        .read()
-        .map_err(|e| AppError::Metadata(format!("ファイルの読み取りに失敗しました: {}", e)))?;
+    let mut tagged_file = read_tagged_file(file_path, ParseOptions::new())?;
 
     // プライマリタグを取得または作成
     let tag = match tagged_file.primary_tag_mut() {
         Some(tag) => tag,
         None => {
-            // タグが存在しない場合は新規作成
+            // その形式の既定のタグがない場合は新規作成する。別の種類のタグだけがある場合
+            // （WAVのRIFF INFO、AIFFのテキストチャンクなど）は、その内容を引き継ぐ
+            // （読み取りでは既定のタグを優先するため、引き継がないと、評価だけを書いた後に
+            // タイトル・アーティストなどが読めなくなる）
             let tag_type = tagged_file.primary_tag_type();
-            tagged_file.insert_tag(Tag::new(tag_type));
+            let mut tag = tagged_file
+                .first_tag()
+                .cloned()
+                .unwrap_or_else(|| Tag::new(tag_type));
+            tag.re_map(tag_type);
+            tagged_file.insert_tag(tag);
             tagged_file
                 .primary_tag_mut()
                 .ok_or_else(|| AppError::Metadata("タグの作成に失敗しました".to_string()))?
@@ -749,6 +758,55 @@ mod tests {
         bytes.extend_from_slice(&data_len.to_le_bytes());
         bytes.extend(std::iter::repeat_n(0u8, data_len as usize));
         std::fs::write(path, bytes).unwrap();
+    }
+
+    /// その形式の既定のタグがなく、別の種類のタグだけがあるファイルに評価を書いても、
+    /// 元のタグの内容を読める（WAVのRIFF INFOだけを持つファイル。ffmpegなどが書く形）
+    #[test]
+    fn test_rating_write_keeps_fields_of_other_tag_type() {
+        use lofty::tag::TagExt;
+
+        let dir = std::env::temp_dir().join(format!("muspice-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.wav");
+        write_test_wav(&file);
+        let mut info_tag = Tag::new(TagType::RiffInfo);
+        info_tag.set_title("Info Title".to_string());
+        info_tag.set_artist("Info Artist".to_string());
+        info_tag
+            .save_to_path(&file, WriteOptions::default())
+            .unwrap();
+        let before = extract_all_file_info(&file).unwrap();
+        assert_eq!(before.metadata.title.as_deref(), Some("Info Title"));
+
+        update_file_rating(&file, 3).unwrap();
+
+        // 評価は既定のタグ（ID3v2）に書く。既定のタグが優先して読まれても、元の内容が残る
+        let after = extract_all_file_info(&file).unwrap();
+        assert_eq!(after.rating, 3);
+        assert_eq!(after.metadata.title.as_deref(), Some("Info Title"));
+        assert_eq!(after.metadata.artist.as_deref(), Some("Info Artist"));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 拡張子と中身が違うファイルも、中身から形式を判定して読み書きできる
+    #[test]
+    fn test_file_type_is_detected_from_content() {
+        let dir = std::env::temp_dir().join(format!("muspice-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // 中身はWAVで、拡張子がflacのファイル
+        let file = dir.join("a.flac");
+        write_test_wav(&file);
+
+        let info = extract_all_file_info(&file).unwrap();
+        assert_eq!(info.sample_rate, Some(8000));
+        assert_eq!(read_album_artist(&file).unwrap(), None);
+
+        update_file_rating(&file, 5).unwrap();
+        assert_eq!(extract_all_file_info(&file).unwrap().rating, 5);
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// ファイルへ書き込んだメタデータと評価を、読み直して取得できる
