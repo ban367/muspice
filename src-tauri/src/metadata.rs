@@ -597,14 +597,34 @@ fn modify_file_tag(file_path: &Path, modify: impl FnOnce(&mut Tag)) -> AppResult
     Ok(())
 }
 
-/// タグの文字列の項目を書き換える（値がなければ、`clear_missing`の時だけ取り除く）
+/// 文字列の項目の書き換え方
+enum TextChange<'a> {
+    Set(&'a str),
+    Remove,
+    Keep,
+}
+
+/// 文字列の項目を、どう書き換えるかを決める
+///
+/// 値があればその値にする。空の値は、項目を取り除く指定として扱う（タグの一括ツールで、
+/// 置換の結果が空になった場合）。値がなければ、`clear_missing`の時だけ取り除く。
+fn text_change(value: &Option<String>, clear_missing: bool) -> TextChange<'_> {
+    match value.as_deref() {
+        Some(value) if !value.is_empty() => TextChange::Set(value),
+        Some(_) => TextChange::Remove,
+        None if clear_missing => TextChange::Remove,
+        None => TextChange::Keep,
+    }
+}
+
+/// タグの文字列の項目を書き換える（`text_change`を参照）
 fn apply_text(tag: &mut Tag, key: ItemKey, value: &Option<String>, clear_missing: bool) {
-    match value {
-        Some(value) => {
-            tag.insert_text(key, value.clone());
+    match text_change(value, clear_missing) {
+        TextChange::Set(value) => {
+            tag.insert_text(key, value.to_string());
         }
-        None if clear_missing => tag.remove_key(key),
-        None => {}
+        TextChange::Remove => tag.remove_key(key),
+        TextChange::Keep => {}
     }
 }
 
@@ -613,29 +633,31 @@ fn apply_text(tag: &mut Tag, key: ItemKey, value: &Option<String>, clear_missing
 /// 値がある項目はその値にする。`clear_missing`がtrueなら、値がない項目をタグから取り除く
 /// （1曲の編集で、欄を空にして保存した場合。編集画面は、すべての項目の値を渡す）。
 /// falseなら、値がない項目は変えない（一括編集・データベースの内容の書き出し）。
+/// 文字列の項目（コメント・歌詞を除く）は、空の値を「取り除く」指定として扱う
+/// （タグの一括ツールで、置換の結果が空になった場合。`text_change`を参照）。
 fn apply_metadata(tag: &mut Tag, metadata: &Metadata, clear_missing: bool) {
-    match &metadata.title {
-        Some(title) => tag.set_title(title.clone()),
-        None if clear_missing => tag.remove_title(),
-        None => {}
+    match text_change(&metadata.title, clear_missing) {
+        TextChange::Set(title) => tag.set_title(title.to_string()),
+        TextChange::Remove => tag.remove_title(),
+        TextChange::Keep => {}
     }
 
-    match &metadata.artist {
-        Some(artist) => tag.set_artist(artist.clone()),
-        None if clear_missing => tag.remove_artist(),
-        None => {}
+    match text_change(&metadata.artist, clear_missing) {
+        TextChange::Set(artist) => tag.set_artist(artist.to_string()),
+        TextChange::Remove => tag.remove_artist(),
+        TextChange::Keep => {}
     }
 
-    match &metadata.album {
-        Some(album) => tag.set_album(album.clone()),
-        None if clear_missing => tag.remove_album(),
-        None => {}
+    match text_change(&metadata.album, clear_missing) {
+        TextChange::Set(album) => tag.set_album(album.to_string()),
+        TextChange::Remove => tag.remove_album(),
+        TextChange::Keep => {}
     }
 
-    match &metadata.genre {
-        Some(genre) => tag.set_genre(genre.clone()),
-        None if clear_missing => tag.remove_genre(),
-        None => {}
+    match text_change(&metadata.genre, clear_missing) {
+        TextChange::Set(genre) => tag.set_genre(genre.to_string()),
+        TextChange::Remove => tag.remove_genre(),
+        TextChange::Keep => {}
     }
 
     match metadata.year {
@@ -1162,6 +1184,22 @@ mod tests {
                 composer: Some("別の作曲者".to_string()),
                 compilation: None,
                 ..metadata.clone()
+            };
+            assert_eq!(read_file_tags(&file).unwrap(), expected, "{name}");
+
+            // 空の値は、その項目だけをタグから取り除く（タグの一括ツールで、置換の結果が空になった場合）
+            let removal = Metadata {
+                genre: Some(String::new()),
+                album_artist: Some(String::new()),
+                artist_sort: Some(String::new()),
+                ..Default::default()
+            };
+            update_file_metadata(&file, &removal, false).unwrap();
+            let expected = Metadata {
+                genre: None,
+                album_artist: None,
+                artist_sort: None,
+                ..expected
             };
             assert_eq!(read_file_tags(&file).unwrap(), expected, "{name}");
 

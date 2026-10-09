@@ -1,8 +1,8 @@
 <!--
   @component ContextMenu
   トラック用コンテキストメニュー。
-  再生、キュー操作、プレイリスト追加、お気に入りの切り替え、メタデータ編集、アルバムアートの変更、
-  削除などのアクションを提供する。
+  再生、キュー操作、プレイリスト追加、お気に入りの切り替え、メタデータ編集、タグの一括ツール、
+  アルバムアートの変更、削除などのアクションを提供する。
 -->
 <script lang="ts">
   import type { Track } from '#lib/types/models.js';
@@ -10,6 +10,7 @@
   import { addNextInQueue, addToQueue, playSingleTrack } from '#lib/stores/player.svelte.js';
   import { useSetFavoriteMutation, useShowInFolderMutation } from '#lib/queries/tracks.js';
   import { albumArtDialog } from '#lib/stores/albumArt.svelte.js';
+  import { tagToolsDialog } from '#lib/stores/tagTools.svelte.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   // Props
@@ -109,6 +110,14 @@
     if (onEditMetadata) {
       onEditMetadata();
     }
+    onClose();
+  }
+
+  /**
+   * 選択した曲（一覧の順）の、タグの一括ツールを開く
+   */
+  function handleTagTools() {
+    tagToolsDialog.open(selectedTracks);
     onClose();
   }
 
@@ -237,6 +246,24 @@
       <span class="menu-shortcut">Ctrl+I</span>
     </button>
   {/if}
+
+  <button class="menu-item" onclick={handleTagTools} role="menuitem">
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      class="menu-icon"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+    >
+      <path
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="2"
+        d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"
+      />
+    </svg>
+    <span>{m.contextMenu.tagTools}</span>
+  </button>
 
   <button class="menu-item" onclick={handleAlbumArt} role="menuitem">
     <svg
