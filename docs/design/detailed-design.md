@@ -353,6 +353,21 @@ M3Uの読み込み・書き出し（ADR-032）:
 - `export_playlist_m3u`は、Rust側で保存先を選ぶダイアログを開き、プレイリストをUTF-8の拡張M3U（`#EXTINF`付き・改行はCRLF）で書き出す。`relativePaths`が`true`なら、曲の場所を書き出し先のフォルダからの相対パスで書く（共通するフォルダがない曲は絶対パス）。拡張子がM3Uでなければ`.m3u8`を付ける。保存先を選ばなかった場合は`null`を返す
   - `M3uExportResult`: `{ fileName, trackCount }`
 
+### ほかのプレーヤーからの取り込み
+
+| コマンド             | 引数               | 戻り値                           |
+| -------------------- | ------------------ | -------------------------------- |
+| `import_library_xml` | `includePlaylists` | `LibraryXmlImportResult \| null` |
+
+iTunes形式のライブラリXML（MusicBee・iTunes / ミュージックが書き出す）から、ファイルのタグに入っていない値を取り込む（ADR-033）。
+
+- Rust側でファイルを選ぶダイアログ（`.xml`）を開く。選ばなかった場合は`null`を返す。取り込んだ後、`LibraryChanged`を送る
+- `LibraryXmlImportResult`: `{ fileName, trackCount, matchedCount, updatedCount, unmatchedCount, unmatched: string[], playlistCount, skippedPlaylistCount }`（`trackCount`は、XMLの中の、ファイルの場所がある曲数。`unmatched`は、対応が付かなかった曲の場所の先頭200件）
+- 曲は、XMLの`Location`とライブラリの曲のパスを、M3Uの読み込みと同じ方法で突き合わせる
+- 対応が付いた曲は、再生回数（`Play Count`）・スキップ回数（`Skip Count`）を多い方、最後に再生した日時（`Play Date UTC`）を新しい方、追加した日時（`Date Added` → `created_at`）を古い方にする。`Loved`・`Favorited`が真の曲は、お気に入りにする。更新日時（`updated_at`）・再生履歴は変えない
+- `includePlaylists`が`true`なら、XMLのプレイリストごとにプレイリストを作る（対応が付いた曲だけを、XMLの順で。同じ名前があれば番号を付ける）。対応する曲が1つもないプレイリストは作らず、`skippedPlaylistCount`に数える。ライブラリ全体（`Master`）・決まったプレイリスト（`Distinguished Kind`）・フォルダ（`Folder`）は対象にしない
+- プロパティリストとして読めないファイル・曲が1つもないファイルは`VALIDATION`
+
 ### 再生・統計・システム
 
 | コマンド                 | 引数                                                     | 戻り値                  |
