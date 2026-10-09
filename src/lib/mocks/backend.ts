@@ -61,6 +61,11 @@ export interface MockBackendOptions {
   sleep?: (ms: number) => Promise<void>;
   /** フィクスチャに加えて生成するトラックの数（数万曲のライブラリでの動作確認用） */
   extraTrackCount?: number;
+  /**
+   * 再生状態（音量・再生キューなど）の保存先。渡すと、再読み込みの後も復元できる
+   * （ブラウザでは`sessionStorage`を渡す。省略時は、メモリ上にだけ持つ）
+   */
+  storage?: Pick<Storage, 'getItem' | 'setItem'>;
 }
 
 export interface MockBackend {
@@ -91,6 +96,28 @@ interface MockSyncDevice extends Omit<SyncDevice, 'freeBytes' | 'totalBytes'> {
   /** デバイスにコピー済みの曲（トラックID → サイズ） */
   copied: Map<string, number>;
 }
+
+/** 再生状態を保存するキー（`storage`を渡した場合） */
+const PLAYBACK_STATE_KEY = 'muspice-mock:playback-state';
+
+/** 保存する再生状態（Rustの`playback_state.rs`の`StoredState`と同じ内容） */
+interface StoredPlaybackState {
+  volume: number;
+  shuffle: boolean;
+  repeat: 'off' | 'all' | 'one';
+  currentIndex: number | null;
+  trackIds: string[];
+  originalTrackIds: string[] | null;
+}
+
+const EMPTY_PLAYBACK_STATE: StoredPlaybackState = {
+  volume: 1,
+  shuffle: false,
+  repeat: 'off',
+  currentIndex: null,
+  trackIds: [],
+  originalTrackIds: null
+};
 
 /** IPCのコマンド名（`get_all_tracks`）を`commands`のキー（`getAllTracks`）へ変換する */
 export function toCommandName(cmd: string): string {
@@ -253,6 +280,14 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   ];
   let playlists: Playlist[] = createFixturePlaylists();
   let currentTrackId: string | null = null;
+  // 前回の再生状態（保存先に壊れた内容があれば使わない）
+  let playbackState: StoredPlaybackState = EMPTY_PLAYBACK_STATE;
+  try {
+    const stored = options.storage?.getItem(PLAYBACK_STATE_KEY);
+    if (stored) playbackState = { ...EMPTY_PLAYBACK_STATE, ...JSON.parse(stored) };
+  } catch {
+    playbackState = EMPTY_PLAYBACK_STATE;
+  }
   let settings: Settings = {
     language: 'ja',
     startupPage: 'lastOpened',
@@ -879,6 +914,56 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       return null;
     },
     getCurrentTrack: () => tracks.find((track) => track.id === currentTrackId) ?? null,
+    savePlaybackState: (cursor, queue) => {
+      if (queue) {
+        [...queue.trackIds, ...(queue.originalTrackIds ?? [])].forEach(validateTrackId);
+      }
+      const trackIds = queue?.trackIds ?? playbackState.trackIds;
+      const volume = cursor.volume;
+      playbackState = {
+        volume: volume !== null && Number.isFinite(volume) ? Math.max(0, Math.min(volume, 1)) : 1,
+        shuffle: cursor.shuffle,
+        repeat: cursor.repeat,
+        // キューの外を指す位置は「何も再生していない」にする
+        currentIndex:
+          cursor.currentIndex !== null && cursor.currentIndex < trackIds.length
+            ? cursor.currentIndex
+            : null,
+        trackIds,
+        originalTrackIds: queue ? queue.originalTrackIds : playbackState.originalTrackIds
+      };
+      options.storage?.setItem(PLAYBACK_STATE_KEY, JSON.stringify(playbackState));
+      return null;
+    },
+    getPlaybackState: () => {
+      // 再生できる曲（ライブラリにあり、ファイルが見つかる曲）だけを残す
+      const playable = new Map(
+        tracks.filter((track) => !track.isMissing).map((track) => [track.id, track])
+      );
+      const queue: Track[] = [];
+      let currentIndex: number | null = null;
+      playbackState.trackIds.forEach((id, index) => {
+        const track = playable.get(id);
+        if (!track) return;
+        // 再生していた曲（なくなっていれば、その次に残っている曲）の、除いた後の位置
+        if (
+          currentIndex === null &&
+          playbackState.currentIndex !== null &&
+          index >= playbackState.currentIndex
+        ) {
+          currentIndex = queue.length;
+        }
+        queue.push(track);
+      });
+      return {
+        volume: playbackState.volume,
+        shuffle: playbackState.shuffle,
+        repeat: playbackState.repeat,
+        queue,
+        originalTrackIds: playbackState.originalTrackIds?.filter((id) => playable.has(id)) ?? null,
+        currentIndex
+      };
+    },
     playbackPlay: (trackId, token) => playbackEngine.play(trackId, token),
     playbackSetNext: (trackId, token) => {
       playbackEngine.setNext(trackId, token);

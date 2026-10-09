@@ -14,6 +14,7 @@ import {
   playTrackFromQueue,
   removeFromQueue,
   resetPlayer,
+  restoreQueue,
   toggleRepeat,
   toggleShuffle
 } from './player.svelte.js';
@@ -388,6 +389,42 @@ describe('removeFromQueue', () => {
 
     expect(player.currentTrack).toBeNull();
     expect(player.currentTrackIndex).toBe(-1);
+  });
+});
+
+describe('restoreQueue', () => {
+  it('キューと再生していたトラックを、再生していない状態で戻す', () => {
+    const queue = [tracks[2], tracks[0], tracks[1]];
+    const withDuration = { ...tracks[0], duration: 200 } as Track;
+    queue[1] = withDuration;
+
+    restoreQueue(queue, [withDuration, tracks[1], tracks[2]], 1);
+
+    expect(ids(player.playQueue)).toEqual(['t3', 't1', 't2']);
+    expect(ids(player.originalQueue)).toEqual(['t1', 't2', 't3']);
+    expect(player.currentTrackIndex).toBe(1);
+    expect(player.currentTrack).toBe(withDuration);
+    expect(player.duration).toBe(200);
+    expect(player.currentTime).toBe(0);
+    expect(player.isPlaying).toBe(false);
+  });
+
+  it('範囲外の位置では何も戻さない', () => {
+    restoreQueue(tracks, tracks, 9);
+
+    expect(player.playQueue).toEqual([]);
+    expect(player.currentTrack).toBeNull();
+  });
+
+  it('シャッフルしていたキューは、解除すると元の順に戻る', () => {
+    player.isShuffleEnabled = true;
+    restoreQueue([tracks[2], tracks[0], tracks[1]], [tracks[0], tracks[1], tracks[2]], 0);
+
+    toggleShuffle();
+
+    expect(ids(player.playQueue)).toEqual(['t1', 't2', 't3']);
+    expect(player.currentTrackIndex).toBe(2);
+    expect(player.currentTrack?.id).toBe('t3');
   });
 });
 
