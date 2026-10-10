@@ -100,6 +100,18 @@ export interface PlaybackController {
   destroy(): void;
 }
 
+/** いま動いている再生コントローラー（プレーヤーが作る。なければnull） */
+let activeController: PlaybackController | null = null;
+
+/**
+ * 再生位置を、指定した位置（秒）へ移す（プレーヤーの外の部品から呼ぶ。歌詞の行のクリックなど）
+ *
+ * 再生コントローラーがない・エンジンが曲を持っていない間は、何もしない。
+ */
+export function seekPlayback(time: number): void {
+  activeController?.seek(time);
+}
+
 /**
  * エンジンへ渡す番号。コントローラーを作り直しても重ならないよう、モジュールで数える
  * （エンジンは、番号の大きい要求を新しい要求として扱う）
@@ -565,7 +577,7 @@ export function createPlaybackController(
     });
   });
 
-  return {
+  const controller: PlaybackController = {
     async togglePlayPause() {
       const track = player.currentTrack;
       if (!track || starting > 0) return;
@@ -621,6 +633,9 @@ export function createPlaybackController(
       send(() => commands.playbackStop(), '再生の停止');
       nowPlaying.update(null);
       resetPlayer();
+      if (activeController === controller) activeController = null;
     }
   };
+  activeController = controller;
+  return controller;
 }

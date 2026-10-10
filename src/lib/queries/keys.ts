@@ -63,6 +63,12 @@ export const queryKeys = {
     track: (trackId: string) => ['trackTags', trackId] as const
   },
 
+  /** 曲の歌詞（同じ名前の`.lrc`ファイルか、埋め込みの歌詞。ファイルから読む） */
+  trackLyrics: {
+    all: ['trackLyrics'] as const,
+    track: (trackId: string) => ['trackLyrics', trackId] as const
+  },
+
   /** 曲のアルバムアートの情報（どこの画像か・種類・大きさ。ファイルから読む） */
   albumArtInfo: {
     all: ['albumArtInfo'] as const,

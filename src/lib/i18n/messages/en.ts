@@ -295,6 +295,18 @@ export const en: Messages = {
     save: 'Save'
   },
 
+  nowPlaying: {
+    title: 'Now Playing',
+    open: 'Open Now Playing (album art and lyrics)',
+    close: 'Close Now Playing (Esc)',
+    upNext: 'Up Next',
+    lyrics: 'Lyrics',
+    noLyrics: 'No lyrics',
+    noLyricsHint:
+      'Add lyrics in the tag editor, or put a .lrc file with the same name as the track in the same folder.',
+    lyricsFailed: (message) => `Could not load the lyrics: ${message}`
+  },
+
   playbackAids: {
     title: 'Stop Timing, Sleep Timer and Auto DJ',
     stopAfterCurrent: 'Stop after the current track',

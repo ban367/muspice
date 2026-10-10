@@ -304,6 +304,19 @@ export const ja = {
     save: '保存'
   },
 
+  /** Now Playingの画面（再生中の曲と歌詞） */
+  nowPlaying: {
+    title: 'Now Playing',
+    open: 'Now Playingを開く（アルバムアートと歌詞）',
+    close: 'Now Playingを閉じる (Esc)',
+    upNext: '次に再生',
+    lyrics: '歌詞',
+    noLyrics: '歌詞がありません',
+    noLyricsHint:
+      '曲の編集画面で歌詞を入れるか、曲と同じ名前の .lrc ファイルを同じフォルダに置くと表示されます。',
+    lyricsFailed: (message: string) => `歌詞を読み込めませんでした: ${message}`
+  },
+
   /** 再生の補助（プレーヤーのメニュー） */
   playbackAids: {
     title: '停止のタイミング・スリープタイマー・Auto DJ',

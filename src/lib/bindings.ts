@@ -123,6 +123,16 @@ export const commands = {
 	 */
 	getTrackTags: (trackId: string) => __TAURI_INVOKE<Metadata>("get_track_tags", { trackId }),
 	/**
+	 *  曲の歌詞を取得（曲と同じ名前の`.lrc`ファイルを優先し、なければ埋め込みの歌詞。どちらもなければnull）
+	 * 
+	 *  時刻付きの歌詞は、LRC形式の文字列のまま返す（解釈はフロントエンドが行う）。
+	 */
+	getTrackLyrics: (trackId: string) => __TAURI_INVOKE<{
+	/**  歌詞（時刻付きの場合は、LRC形式のまま） */
+	text: string,
+	source: LyricsSource,
+} | null>("get_track_lyrics", { trackId }),
+	/**
 	 *  トラックのメタデータを更新（ファイルのタグとデータベース）
 	 * 
 	 *  編集画面のすべての項目を反映する。値のない項目は、タグからも取り除く。
@@ -787,6 +797,13 @@ export type LibraryXmlImportResult = {
 	skippedPlaylistCount: number,
 };
 
+/**  歌詞の出どころ */
+export type LyricsSource = 
+/**  曲と同じフォルダの`.lrc`ファイル */
+"lrcFile" | 
+/**  曲のファイルのタグ */
+"embedded";
+
 /**  プレイリストをM3U8へ書き出した結果 */
 export type M3uExportResult = {
 	/**  書き出したファイルの名前 */
@@ -1260,6 +1277,13 @@ export type Track = {
 	sortTags: SortTags,
 	/**  ファイルが見つからない（再スキャンで見つからなくなった曲。利用者が外すまで残す） */
 	isMissing: boolean,
+};
+
+/**  曲の歌詞 */
+export type TrackLyrics = {
+	/**  歌詞（時刻付きの場合は、LRC形式のまま） */
+	text: string,
+	source: LyricsSource,
 };
 
 /**  曲ごとのメタデータの変更（タグの一括ツール） */
