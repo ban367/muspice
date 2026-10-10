@@ -28,6 +28,12 @@
  * 音量の正規化とクロスフェードは、エンジンが設定を読んでかける（どの曲を重ねるか・重ねる長さも
  * エンジンが決める）。イコライザの設定はフロントエンドが保存しているため（`./equalizer.svelte.ts`）、
  * ここからエンジンへ送る。
+ *
+ * 再生の補助（`./playbackAids.svelte.ts`）もここで扱う。
+ * - 「この曲が終わったら停止」が有効な間は、次の曲をエンジンへ伝えない。曲の終わり（`ended`）で、
+ *   キューを次の曲へ進めるが、再生は始めない
+ * - スリープタイマーは、時間が来たら、音量を少しずつ下げてから一時停止する（音量の設定は変えない）。
+ *   「曲の終わりまで再生してから止める」場合は、時間が来た時点で「この曲が終わったら停止」にする
  */
 import { untrack } from 'svelte';
 import { commands, events, type PlaybackEvent } from '#lib/bindings.js';
@@ -37,6 +43,7 @@ import { EQ_FREQUENCIES, equalizer } from './equalizer.svelte.js';
 import { handleError } from './error.svelte.js';
 import { createNowPlayingReporter } from './nowPlaying.js';
 import { createPlayTracker } from './playTracker.js';
+import { playbackAids, SLEEP_FADE_SECONDS } from './playbackAids.svelte.js';
 import { restorePlaybackState, watchPlaybackState } from './playbackState.svelte.js';
 import {
   peekNextTrack,
@@ -50,6 +57,12 @@ import { m } from '#lib/i18n/i18n.svelte.js';
 
 /** シークバーをドラッグしている間に、エンジンへシークを送る間隔（ms） */
 const SCRUB_SEEK_INTERVAL_MS = 80;
+
+/** スリープタイマーの時間が来たかを確かめる間隔（ms。再生位置の通知でも確かめる） */
+const SLEEP_CHECK_INTERVAL_MS = 1000;
+
+/** スリープタイマーで音量を下げていく間、エンジンへ音量を送る間隔（ms） */
+const SLEEP_FADE_STEP_MS = 200;
 
 export interface PlaybackControllerOptions {
   /**
@@ -125,6 +138,8 @@ export function createPlaybackController(
   /** 再生状態の保存をやめる関数（復元が済んでから保存を始める） */
   let stopSaving: (() => void) | null = null;
   const nowPlaying = createNowPlayingReporter((update) => commands.setNowPlaying(update));
+  /** スリープタイマーで音量を下げている間、音量をエンジンへ送るタイマー（下げていなければnull） */
+  let fadeTimer: ReturnType<typeof setInterval> | null = null;
 
   /** 次の曲を、先にエンジンへ伝えるか（ギャップレス再生かクロスフェードが有効） */
   const isPreloadEnabled = () =>
@@ -186,7 +201,8 @@ export function createPlaybackController(
    */
   function syncNext(): void {
     if (!loaded) return;
-    const next = isPreloadEnabled() ? peekNextTrack() : null;
+    // 「この曲が終わったら停止」の間は、次の曲を伝えない（曲の終わりで`ended`を受け取って止める）
+    const next = isPreloadEnabled() && !playbackAids.stopAfterCurrent ? peekNextTrack() : null;
     if ((next?.id ?? null) === (queuedNext?.trackId ?? null)) return;
 
     const token = ++lastToken;
@@ -240,9 +256,104 @@ export function createPlaybackController(
     loaded = false;
     queuedNext = null;
     player.currentTime = 0;
+    if (playbackAids.stopAfterCurrent) {
+      stopAfterTrackEnd();
+      return;
+    }
     if (!moveInQueue(playNextTrack)) {
       resetPlayer();
     }
+  }
+
+  /**
+   * 「この曲が終わったら停止」: キューを次の曲へ進めるが、再生は始めない
+   *
+   * 止めた後は、指示を解除する。次の曲がある場合は、再生ボタンでその曲を頭から再生できる。
+   * 次の曲がない場合は、通常の終わり方と同じにする。
+   */
+  function stopAfterTrackEnd(): void {
+    playbackAids.stopAfterCurrent = false;
+    cancelFade();
+    player.isPlaying = false;
+    // 伝えた後で指示が有効になり、エンジンがもう次の曲へ進んでいた場合に備えて、止めておく
+    send(() => commands.playbackStop(), '再生の停止');
+
+    const next = peekNextTrack();
+    if (!next) {
+      resetPlayer();
+      return;
+    }
+    if (next.id !== player.currentTrack?.id) {
+      // 下の`playNextTrack`による`player.currentTrack`の変更で、再生を始めないようにする
+      engineTrackId = next.id;
+      playNextTrack();
+      player.duration = next.duration ?? 0;
+      send(() => commands.setCurrentTrack(next.id), '再生中の曲の通知');
+    }
+  }
+
+  // ---------- スリープタイマー ----------
+
+  /** スリープタイマーの時間が来ていたら、再生を止める手順を始める */
+  function checkSleepTimer(): void {
+    const timer = playbackAids.sleepTimer;
+    if (timer === null || fadeTimer !== null || Date.now() < timer.endsAt) return;
+
+    // 再生していなければ、止めるものがない
+    if (!loaded || !player.isPlaying) {
+      playbackAids.cancelSleepTimer();
+      return;
+    }
+    if (timer.waitForTrackEnd) {
+      playbackAids.cancelSleepTimer();
+      playbackAids.stopAfterCurrent = true;
+      return;
+    }
+    startFade();
+  }
+
+  /** 音量を少しずつ下げ、下げ切ったら一時停止する（音量の設定`player.volume`は変えない） */
+  function startFade(): void {
+    playbackAids.isFadingOut = true;
+    const startedAt = Date.now();
+    const step = () => {
+      const progress = (Date.now() - startedAt) / (SLEEP_FADE_SECONDS * 1000);
+      if (progress < 1) {
+        send(() => commands.playbackSetVolume(player.volume * (1 - progress)), '音量の設定');
+      } else {
+        finishFade();
+      }
+    };
+    fadeTimer = setInterval(step, SLEEP_FADE_STEP_MS);
+    step();
+  }
+
+  /** 音量を下げ切った: 一時停止して、スリープタイマーを終える */
+  function finishFade(): void {
+    const wasPlaying = loaded && player.isPlaying;
+    if (!wasPlaying) {
+      cancelFade();
+      playbackAids.cancelSleepTimer();
+      return;
+    }
+    player.isPlaying = false;
+    // 一時停止してから、音量を設定の値に戻す（戻してから止めると、止まる直前に音が大きくなる）
+    commands
+      .playbackPause()
+      .catch((error) => console.error('一時停止に失敗しました:', error))
+      .finally(() => {
+        cancelFade();
+        playbackAids.cancelSleepTimer();
+      });
+  }
+
+  /** 音量を下げるのをやめ、音量を設定の値に戻す（下げていなければ、何もしない） */
+  function cancelFade(): void {
+    if (fadeTimer === null) return;
+    clearInterval(fadeTimer);
+    fadeTimer = null;
+    playbackAids.isFadingOut = false;
+    send(() => commands.playbackSetVolume(player.volume), '音量の設定');
   }
 
   /** エンジンが、続けて再生する曲へ切れ目なく切り替わった */
@@ -284,6 +395,8 @@ export function createPlaybackController(
           tracker.progress(event.position);
           if (!scrubbing) player.currentTime = event.position;
         }
+        // ウィンドウが隠れている間はタイマーが間引かれるため、通知が届くたびにも確かめる
+        checkSleepTimer();
         break;
       case 'advanced':
         onAdvanced(event.token, event.duration);
@@ -400,17 +513,32 @@ export function createPlaybackController(
       });
     });
 
-    // 続けて再生する曲（キュー・リピート・シャッフル・設定の変更に追随する）
+    // 続けて再生する曲（キュー・リピート・シャッフル・設定・「この曲が終わったら停止」の変更に追随する）
     $effect(() => {
-      // 変更を検知するために、どちらも読む（何を伝えるかは`syncNext`が決める）
+      // 変更を検知するために、どれも読む（何を伝えるかは`syncNext`が決める）
       peekNextTrack();
       isPreloadEnabled();
+      void playbackAids.stopAfterCurrent;
       untrack(syncNext);
     });
 
     $effect(() => {
       const volume = player.volume;
+      // スリープタイマーで音量を下げている間は、下げる処理が次の間隔で送る
+      if (fadeTimer !== null) return;
       send(() => commands.playbackSetVolume(volume), '音量の設定');
+    });
+
+    // スリープタイマー: 設定している間、時間が来たかを定期的に確かめる
+    $effect(() => {
+      if (playbackAids.sleepTimer === null) return;
+      const timer = setInterval(checkSleepTimer, SLEEP_CHECK_INTERVAL_MS);
+      return () => clearInterval(timer);
+    });
+
+    // スリープタイマーの解除（音量を下げている途中で解除されたら、音量を戻して再生を続ける）
+    $effect(() => {
+      if (!playbackAids.isFadingOut) untrack(cancelFade);
     });
 
     // イコライザ: 保存してある設定をエンジンへ送り、変更のたびに送り直す
@@ -450,6 +578,12 @@ export function createPlaybackController(
         if (player.isPlaying) {
           player.isPlaying = false;
           await commands.playbackPause();
+          // スリープタイマーで音量を下げている途中に自分で止めた場合は、タイマーを終える
+          // （一時停止した後で、音量を設定の値に戻す）
+          if (fadeTimer !== null) {
+            cancelFade();
+            playbackAids.cancelSleepTimer();
+          }
         } else {
           player.isPlaying = true;
           await commands.playbackResume();
@@ -478,6 +612,9 @@ export function createPlaybackController(
       stopSaving?.();
       stopEffects();
       cancelPendingSeek();
+      if (fadeTimer !== null) clearInterval(fadeTimer);
+      fadeTimer = null;
+      playbackAids.reset();
       void listening.then((unlisten) => unlisten()).catch(() => {});
       currentToken = null;
       tracker.reset();

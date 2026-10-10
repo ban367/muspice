@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
   import {
     useOutputDevicesQuery,
@@ -63,6 +64,18 @@
     if (settingsQuery.data && pending === null) {
       pending = { ...settingsQuery.data };
     }
+  });
+
+  // Auto DJは、メインウィンドウのプレーヤーのメニューで変える（この画面には項目がない）。
+  // この画面を開いている間に変えられた値を、編集中の設定へ取り込む（適用で元に戻さないため）
+  $effect(() => {
+    const saved = settingsQuery.data;
+    if (!saved) return;
+    untrack(() => {
+      if (pending === null) return;
+      pending.autoDj = saved.autoDj;
+      pending.autoDjPlaylistId = saved.autoDjPlaylistId;
+    });
   });
 
   // 出力デバイスの一覧（再生の設定を開いている間だけ取得する）

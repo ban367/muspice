@@ -7,6 +7,7 @@ import { commands } from '#lib/bindings.js';
 import { recordPlay, recordSkip } from '#lib/queries/tracks.js';
 import { equalizer } from './equalizer.svelte.js';
 import { createPlaybackController, type PlaybackController } from './playback.svelte.js';
+import { playbackAids, SLEEP_FADE_SECONDS } from './playbackAids.svelte.js';
 import {
   player,
   playTrackFromQueue,
@@ -113,6 +114,7 @@ async function recreateController(): Promise<void> {
 
 beforeEach(async () => {
   resetPlayer();
+  playbackAids.reset();
   player.isShuffleEnabled = false;
   player.repeatMode = 'off';
   player.volume = 1;
@@ -619,6 +621,236 @@ describe('ギャップレス再生', () => {
     await flush();
 
     expect(commands.playbackPlay).toHaveBeenLastCalledWith('t2', expect.any(Number));
+  });
+});
+
+describe('この曲が終わったら停止', () => {
+  it('曲が終わったら、次の曲へ進めるが再生は始めず、指示を解除する', async () => {
+    playTrackFromQueue(tracks, 0);
+    await flush();
+    playbackAids.stopAfterCurrent = true;
+    flushSync();
+
+    emit({ type: 'ended', token: lastPlayToken() });
+    await flush();
+
+    expect(player.currentTrack?.id).toBe('t2');
+    expect(player.currentTrackIndex).toBe(1);
+    expect(player.isPlaying).toBe(false);
+    expect(player.currentTime).toBe(0);
+    expect(commands.playbackPlay).toHaveBeenCalledTimes(1);
+    expect(commands.setCurrentTrack).toHaveBeenLastCalledWith('t2');
+    expect(playbackAids.stopAfterCurrent).toBe(false);
+
+    // 再生ボタンで、次の曲を頭から再生する
+    await controller.togglePlayPause();
+    expect(commands.playbackPlay).toHaveBeenLastCalledWith('t2', expect.any(Number));
+    expect(player.isPlaying).toBe(true);
+  });
+
+  it('有効な間は、ギャップレス再生でも次の曲をエンジンに伝えない', async () => {
+    gapless = true;
+    playTrackFromQueue(tracks, 0);
+    await flush();
+    expect(lastNext()[0]).toBe('t2');
+
+    playbackAids.stopAfterCurrent = true;
+    flushSync();
+    expect(lastNext()[0]).toBeNull();
+
+    // 解除したら、伝え直す
+    playbackAids.stopAfterCurrent = false;
+    flushSync();
+    expect(lastNext()[0]).toBe('t2');
+  });
+
+  it('伝えた後で有効になり、エンジンが次の曲へ進んでいた場合も、止める', async () => {
+    gapless = true;
+    playTrackFromQueue(tracks, 0);
+    await flush();
+    const [, nextToken] = lastNext();
+    // 取り消しがエンジンに届く前に、次の曲へ切り替わった
+    playbackAids.stopAfterCurrent = true;
+    flushSync();
+
+    emit({ type: 'advanced', token: nextToken, duration: 200 });
+    await flush();
+
+    expect(player.currentTrack?.id).toBe('t2');
+    expect(player.isPlaying).toBe(false);
+    expect(commands.playbackStop).toHaveBeenCalled();
+    expect(commands.playbackPlay).toHaveBeenCalledTimes(1);
+  });
+
+  it('キューの最後の曲では、通常の終わり方と同じにする', async () => {
+    playTrackFromQueue(tracks, 2);
+    await flush();
+    playbackAids.stopAfterCurrent = true;
+    flushSync();
+
+    emit({ type: 'ended', token: lastPlayToken() });
+    await flush();
+
+    expect(player.currentTrack).toBeNull();
+    expect(player.playQueue).toEqual([]);
+    expect(playbackAids.stopAfterCurrent).toBe(false);
+  });
+
+  it('1曲リピートでも止める（同じ曲のまま、再生し直さない）', async () => {
+    toggleRepeat();
+    toggleRepeat();
+    expect(player.repeatMode).toBe('one');
+    playTrackFromQueue(tracks, 0);
+    await flush();
+    playbackAids.stopAfterCurrent = true;
+    flushSync();
+
+    emit({ type: 'ended', token: lastPlayToken() });
+    await flush();
+
+    expect(player.currentTrack?.id).toBe('t1');
+    expect(player.isPlaying).toBe(false);
+    expect(commands.playbackPlay).toHaveBeenCalledTimes(1);
+    expect(commands.playbackSeek).not.toHaveBeenCalled();
+  });
+});
+
+describe('スリープタイマー', () => {
+  /** エンジンへ送った音量（送った順） */
+  const sentVolumes = (): number[] =>
+    vi.mocked(commands.playbackSetVolume).mock.calls.map(([volume]) => volume as number);
+
+  beforeEach(async () => {
+    // `flush`（setTimeout）は実際のタイマーのまま、時刻と定期的な確認だけを進められるようにする
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
+    player.volume = 0.8;
+    playTrackFromQueue(tracks, 0);
+    await flush();
+    vi.mocked(commands.playbackSetVolume).mockClear();
+  });
+
+  it('時間が来たら、音量を少しずつ下げてから一時停止し、音量を設定の値に戻す', async () => {
+    playbackAids.startSleepTimer(1, false);
+    flushSync();
+
+    vi.advanceTimersByTime(59_000);
+    expect(playbackAids.isFadingOut).toBe(false);
+    expect(commands.playbackSetVolume).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(2_000);
+    expect(playbackAids.isFadingOut).toBe(true);
+    expect(player.isPlaying).toBe(true);
+
+    vi.advanceTimersByTime((SLEEP_FADE_SECONDS / 2) * 1000);
+    const fading = sentVolumes();
+    expect(fading.length).toBeGreaterThan(5);
+    // 設定の音量から、だんだん下がる
+    expect(fading[0]).toBeLessThanOrEqual(0.8);
+    expect(fading.at(-1)).toBeLessThan(0.5);
+    expect([...fading].sort((a, b) => b - a)).toEqual(fading);
+    expect(commands.playbackPause).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(SLEEP_FADE_SECONDS * 1000);
+    await flush();
+
+    expect(commands.playbackPause).toHaveBeenCalledTimes(1);
+    expect(player.isPlaying).toBe(false);
+    // 音量の設定は変えず、エンジンの音量は設定の値に戻す
+    expect(player.volume).toBe(0.8);
+    expect(sentVolumes().at(-1)).toBe(0.8);
+    expect(playbackAids.sleepTimer).toBeNull();
+    expect(playbackAids.isFadingOut).toBe(false);
+
+    // 止めた後は、何も送らない
+    const count = sentVolumes().length;
+    vi.advanceTimersByTime(60_000);
+    expect(sentVolumes()).toHaveLength(count);
+  });
+
+  it('「曲の終わりまで再生する」場合は、時間が来たら「この曲が終わったら停止」にする', async () => {
+    playbackAids.startSleepTimer(1, true);
+    flushSync();
+
+    vi.advanceTimersByTime(61_000);
+    flushSync();
+
+    expect(playbackAids.stopAfterCurrent).toBe(true);
+    expect(playbackAids.sleepTimer).toBeNull();
+    expect(commands.playbackPause).not.toHaveBeenCalled();
+    expect(commands.playbackSetVolume).not.toHaveBeenCalled();
+
+    emit({ type: 'ended', token: lastPlayToken() });
+    await flush();
+    expect(player.currentTrack?.id).toBe('t2');
+    expect(player.isPlaying).toBe(false);
+  });
+
+  it('音量を下げている途中で解除したら、音量を戻して再生を続ける', () => {
+    playbackAids.startSleepTimer(1, false);
+    flushSync();
+    vi.advanceTimersByTime(63_000);
+    expect(playbackAids.isFadingOut).toBe(true);
+
+    playbackAids.cancelSleepTimer();
+    flushSync();
+    expect(sentVolumes().at(-1)).toBe(0.8);
+
+    const count = sentVolumes().length;
+    vi.advanceTimersByTime(60_000);
+    expect(sentVolumes()).toHaveLength(count);
+    expect(commands.playbackPause).not.toHaveBeenCalled();
+    expect(player.isPlaying).toBe(true);
+  });
+
+  it('音量を下げている途中で自分で一時停止したら、音量を戻してタイマーを終える', async () => {
+    playbackAids.startSleepTimer(1, false);
+    flushSync();
+    vi.advanceTimersByTime(63_000);
+
+    await controller.togglePlayPause();
+
+    expect(commands.playbackPause).toHaveBeenCalledTimes(1);
+    expect(sentVolumes().at(-1)).toBe(0.8);
+    expect(playbackAids.sleepTimer).toBeNull();
+    expect(playbackAids.isFadingOut).toBe(false);
+  });
+
+  it('時間が来た時に再生していなければ、何もせずに解除する', async () => {
+    await controller.togglePlayPause();
+    playbackAids.startSleepTimer(1, false);
+    flushSync();
+
+    vi.advanceTimersByTime(61_000);
+
+    expect(playbackAids.sleepTimer).toBeNull();
+    expect(playbackAids.isFadingOut).toBe(false);
+    expect(commands.playbackPause).toHaveBeenCalledTimes(1);
+    expect(commands.playbackSetVolume).not.toHaveBeenCalled();
+  });
+
+  it('再生位置の通知でも、時間が来たかを確かめる', () => {
+    playbackAids.startSleepTimer(1, false);
+    flushSync();
+    // 定期的な確認が動かないまま（ウィンドウが隠れている間など）、時間だけが過ぎた
+    vi.setSystemTime(Date.now() + 61_000);
+    expect(playbackAids.isFadingOut).toBe(false);
+
+    emit({ type: 'position', token: lastPlayToken(), position: 61 });
+
+    expect(playbackAids.isFadingOut).toBe(true);
+  });
+
+  it('設定し直すと、時間を数え直す', () => {
+    playbackAids.startSleepTimer(1, false);
+    flushSync();
+    vi.advanceTimersByTime(50_000);
+    playbackAids.startSleepTimer(1, false);
+    flushSync();
+
+    vi.advanceTimersByTime(50_000);
+    expect(playbackAids.isFadingOut).toBe(false);
+    vi.advanceTimersByTime(11_000);
+    expect(playbackAids.isFadingOut).toBe(true);
   });
 });
 

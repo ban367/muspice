@@ -12,6 +12,8 @@
   } from '#lib/stores/playback.svelte.js';
   import { useQueryClient } from '@tanstack/svelte-query';
   import { useSettingsQuery } from '#lib/queries/settings.js';
+  import { watchAutoDj } from '#lib/stores/autoDj.svelte.js';
+  import PlaybackAidsMenu from './PlaybackAidsMenu.svelte';
   import { useFavoriteTracksQuery } from '#lib/queries/tracks.js';
   import { events, type PlaybackControl } from '#lib/bindings.js';
   import { onMount, tick } from 'svelte';
@@ -46,6 +48,12 @@
       queryClient
     });
     playback = controller;
+    // Auto DJ（再生キューの最後の曲になったら、曲を足す）
+    const stopAutoDj = watchAutoDj({
+      enabled: () => settingsQuery.data?.autoDj ?? false,
+      playlistId: () => settingsQuery.data?.autoDjPlaylistId ?? null,
+      queryClient
+    });
 
     // メニューバーの「再生」メニューと、OSのメディアキー・コントロールセンターなどからの操作
     const listening = events.playbackControl.listen((event) =>
@@ -55,6 +63,7 @@
 
     return () => {
       void listening.then((unlisten) => unlisten()).catch(() => {});
+      stopAutoDj();
       controller.destroy();
       playback = null;
     };
@@ -475,6 +484,7 @@
 
     <!-- 右側コントロール -->
     <div class="flex items-center justify-end gap-3">
+      <PlaybackAidsMenu />
       <div class="flex items-center gap-2">
         <button
           class="control-button small"
