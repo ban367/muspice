@@ -2,24 +2,25 @@
 
 ## 技術スタック
 
-| 層               | 技術                             | バージョン（2026-10-03時点）                       | 備考                                                                                                                                              |
-| ---------------- | -------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| フロントエンド   | SvelteKit + Svelte + TypeScript  | `@sveltejs/kit` 3.0.x / `svelte` 5.57.x / TS 6.0.x | SPA構成（adapter-static）                                                                                                                         |
-| ビルド           | Vite                             | 8.3.x                                              | Tailwindは`@tailwindcss/vite`経由（PostCSS設定なし）                                                                                              |
-| テスト           | Vitest                           | 5.0.x                                              | ストア・ユーティリティの単体テスト                                                                                                                |
-| UIスタイル       | TailwindCSS + DaisyUI            | Tailwind 4.3.x / DaisyUI 5.7.x                     | `@apply`運用に制限あり                                                                                                                            |
-| データ取得       | TanStack Query（Svelte）         | 6.3.x                                              | Queryキャッシュ/再取得制御                                                                                                                        |
-| デスクトップ基盤 | Tauri + tauri-specta             | 2.12.x / 2.0.0-rc.25                               | 型付きコマンド呼び出しを自動生成                                                                                                                  |
-| バックエンド     | Rust                             | edition 2024（stable）                             | コアロジック/DBアクセス                                                                                                                           |
-| DB               | SQLite + FTS5                    | rusqlite 0.40（bundled）                           | 全文検索・ローカル保存                                                                                                                            |
-| メタデータ       | lofty                            | 0.25                                               | タグ読み書き/アルバムアート抽出                                                                                                                   |
-| フォルダの監視   | notify-debouncer-mini（notify）  | 0.7（notify 8）                                    | ライブラリフォルダの変更の自動反映                                                                                                                |
-| ウィンドウの状態 | tauri-plugin-window-state        | 2.5.x                                              | メインウィンドウのサイズ・位置の記憶（Rust側のみ）                                                                                                |
-| デバイスへの転送 | fs4 / unicode-normalization      | 1.1 / 0.1                                          | 転送先の空き容量の取得 / ファイル名のNFC正規化                                                                                                    |
-| M3Uの読み込み    | encoding_rs                      | 0.8                                                | UTF-8以外（Shift_JIS・UTF-16）で書かれたM3Uの文字コードの変換                                                                                     |
-| ライブラリのXML  | plist                            | 1.10                                               | iTunes形式のライブラリXML（プロパティリスト）の読み込み。Tauriが使っているものと同じ                                                              |
-| 再生エンジン     | symphonia / cpal / rubato / rtrb | 0.6 / 0.18 / 5 / 0.4                               | デコード / 出力 / サンプルレートの変換 / リングバッファ。Opusは`symphonia-adapter-libopus` 0.3（libopusを同梱。ビルドにCコンパイラとcmakeが要る） |
-| メディアキー     | objc2-media-player（objc2）      | 0.3（objc2 0.6）                                   | macOSのNow Playing・リモートコマンド（MediaPlayerフレームワーク）。macOSだけの依存で、Tauriが使っているobjc2系のクレートとそろえる                |
+| 層                     | 技術                                                                            | バージョン（2026-10-03時点）                       | 備考                                                                                                                                              |
+| ---------------------- | ------------------------------------------------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| フロントエンド         | SvelteKit + Svelte + TypeScript                                                 | `@sveltejs/kit` 3.0.x / `svelte` 5.57.x / TS 6.0.x | SPA構成（adapter-static）                                                                                                                         |
+| ビルド                 | Vite                                                                            | 8.3.x                                              | Tailwindは`@tailwindcss/vite`経由（PostCSS設定なし）                                                                                              |
+| テスト                 | Vitest                                                                          | 5.0.x                                              | ストア・ユーティリティの単体テスト                                                                                                                |
+| UIスタイル             | TailwindCSS + DaisyUI                                                           | Tailwind 4.3.x / DaisyUI 5.7.x                     | `@apply`運用に制限あり                                                                                                                            |
+| データ取得             | TanStack Query（Svelte）                                                        | 6.3.x                                              | Queryキャッシュ/再取得制御                                                                                                                        |
+| デスクトップ基盤       | Tauri + tauri-specta                                                            | 2.12.x / 2.0.0-rc.25                               | 型付きコマンド呼び出しを自動生成                                                                                                                  |
+| バックエンド           | Rust                                                                            | edition 2024（stable）                             | コアロジック/DBアクセス                                                                                                                           |
+| DB                     | SQLite + FTS5                                                                   | rusqlite 0.40（bundled）                           | 全文検索・ローカル保存                                                                                                                            |
+| メタデータ             | lofty                                                                           | 0.25                                               | タグ読み書き/アルバムアート抽出                                                                                                                   |
+| フォルダの監視         | notify-debouncer-mini（notify）                                                 | 0.7（notify 8）                                    | ライブラリフォルダの変更の自動反映                                                                                                                |
+| ウィンドウの状態       | tauri-plugin-window-state                                                       | 2.5.x                                              | メインウィンドウのサイズ・位置の記憶（Rust側のみ）                                                                                                |
+| 常駐・ホットキー・通知 | tauri（`tray-icon`） / tauri-plugin-global-shortcut / tauri-plugin-notification | 2 / 2.4.x / 2.5.x                                  | メニューバー（トレイ）のアイコン / グローバルホットキー / 曲が変わった時の通知（どれもRust側のみ。ADR-046）                                       |
+| デバイスへの転送       | fs4 / unicode-normalization                                                     | 1.1 / 0.1                                          | 転送先の空き容量の取得 / ファイル名のNFC正規化                                                                                                    |
+| M3Uの読み込み          | encoding_rs                                                                     | 0.8                                                | UTF-8以外（Shift_JIS・UTF-16）で書かれたM3Uの文字コードの変換                                                                                     |
+| ライブラリのXML        | plist                                                                           | 1.10                                               | iTunes形式のライブラリXML（プロパティリスト）の読み込み。Tauriが使っているものと同じ                                                              |
+| 再生エンジン           | symphonia / cpal / rubato / rtrb                                                | 0.6 / 0.18 / 5 / 0.4                               | デコード / 出力 / サンプルレートの変換 / リングバッファ。Opusは`symphonia-adapter-libopus` 0.3（libopusを同梱。ビルドにCコンパイラとcmakeが要る） |
+| メディアキー           | objc2-media-player（objc2）                                                     | 0.3（objc2 0.6）                                   | macOSのNow Playing・リモートコマンド（MediaPlayerフレームワーク）。macOSだけの依存で、Tauriが使っているobjc2系のクレートとそろえる                |
 
 ## ディレクトリ構成
 
@@ -78,6 +79,7 @@ src-tauri/src/
 ├── media_controls/        # OSのメディアキー・Now Playing（ADR-029）
 │   ├── mod.rs             # OSへ渡す内容の組み立て（曲の情報・アルバムアート）
 │   └── macos.rs           # macOSのMediaPlayerフレームワークの呼び出し（macOSだけでコンパイルする）
+├── global_shortcuts.rs    # グローバルホットキーの登録と、押された時の操作の送信（ADR-046）
 ├── menu.rs                # メニューバー（「再生」メニューを含む）と設定ウィンドウのタイトル（言語に合わせる）
 ├── playback/              # 再生エンジン（ADR-025・ADR-026）
 │   ├── engine.rs          # エンジン本体（コマンドの処理・曲の切り替え・再生位置の通知）
@@ -92,10 +94,13 @@ src-tauri/src/
 ├── playlist.rs
 ├── smart_playlist.rs      # 自動プレイリストの条件（検証・条件からのSQLの組み立て・ランダムな並び。ADR-042）
 ├── metadata.rs
+├── mini_player.rs         # ミニプレーヤー（メインウィンドウの大きさの切り替えと、元の大きさの記録。ADR-046）
 ├── models.rs
 ├── settings.rs
 ├── tag_backfill.rs        # 既存のトラックの、後から追加した項目（アルバムアーティスト・ソート用のタグ）の読み込み（起動時）
+├── track_notification.rs  # 曲が変わった時の通知（ADR-046）
 ├── track_relink.rs        # 移動・改名されたファイルと、見つからない曲の対応付け
+├── tray.rs                # メニューバー（トレイ）への常駐（アイコン・メニュー・再生中の曲の表示。ADR-046）
 ├── validation.rs
 └── state.rs
 ```
@@ -173,6 +178,10 @@ src-tauri/src/
 - 再生キュー（右サイドバー）の曲をダブルクリックした時は、`playQueueIndex(index)`でキューの並びを変えずに再生位置だけを移す（指定した位置より前の曲もキューに残る）
 - 再生中かどうか（`isPlaying`）は、エンジンのコマンドの結果（再生を始めた・一時停止した）と通知（失敗）から更新する。再生位置（`currentTime`）は、エンジンの`position`の通知で更新する
 - エンジンへ渡す番号（トークン）は、再生する曲・続けて再生する曲ごとに増やす。通知（`PlaybackEvent`）は番号で見分け、前の曲についての通知は捨てる
+- ミニプレーヤー（ADR-046）は、別のウィンドウを作らず、メインウィンドウを小さくして`MiniPlayer`をウィンドウいっぱいに重ねる（`#lib/stores/miniPlayer.svelte`の`miniPlayer.toggle()`。`set_mini_player`でウィンドウを切り替えてから、表示を切り替える）。通常の画面と`Player`（再生コントローラーを持つ）は、下で動き続ける。プレーヤーの外から再生を操作する時は、`#lib/stores/playback.svelte`の`togglePlayback`・`skipToNextTrack`・`skipToPreviousTrack`・`seekPlayback`を使う
+- メニューバーへの常駐・グローバルホットキー・曲が変わった時の通知（ADR-046）は、Rust側だけで行う（プラグインのJS APIはcapabilityに追加しない）。再生の操作は、どれも`PlaybackControl`イベントでフロントエンドへ送る（メニューバーの「再生」メニューと同じ）。再生中の曲は、フロントエンドが`set_now_playing`で伝えた内容から知る
+  - メニューバーのアイコン（`NSStatusItem`）の作成・削除は、メインスレッドで行う（`tray::apply`が`run_on_main_thread`で渡す。コマンドのスレッドから直接行うと、macOSで異常終了する）
+  - ウィンドウを隠している間もキューの処理（フロントエンド）が動くよう、`tauri.conf.json`でメインウィンドウの`backgroundThrottling`を無効にしている
 - Now Playingの画面（`NowPlayingView`。ADR-045）は、`ui.isNowPlayingOpen`で開閉し、`(app)/+layout.svelte`がページの領域（`.main-area`）に重ねて表示する（ルートにはしない。開いていたページは、閉じると元の位置のまま戻る）。プレーヤーのアルバムアートで開閉し、Escキー・別の画面への移動・曲名のクリック（一覧で表示）で閉じる
   - 歌詞は`useTrackLyricsQuery(trackId)`で読み、`#lib/utils/lyrics`の`parseLyrics`で解釈する（時刻付きなら、行ごとの時刻。`findCurrentLine`で再生位置の行を求める）。タグを書き換えた時は、歌詞のキャッシュも無効にする（`invalidateTagQueries`）
   - 歌詞の行のクリックなど、プレーヤーの外からのシークは、`#lib/stores/playback.svelte`の`seekPlayback(time)`を使う（動いている再生コントローラーへ渡す）
