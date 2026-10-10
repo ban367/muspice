@@ -217,6 +217,19 @@ describe('トラックの再生', () => {
     expect(commands.playbackPlay).toHaveBeenCalledTimes(1);
   });
 
+  it('再生に失敗した曲を選び直したら、もう一度再生する', async () => {
+    vi.mocked(commands.playbackPlay).mockRejectedValueOnce({ code: 'IO', message: '読めません' });
+    playTrackFromQueue(tracks, 0);
+    await flush();
+    expect(player.isPlaying).toBe(false);
+
+    playTrackFromQueue(tracks, 0);
+    await flush();
+
+    expect(commands.playbackPlay).toHaveBeenCalledTimes(2);
+    expect(player.isPlaying).toBe(true);
+  });
+
   it('キューが空になったら再生を止める', async () => {
     playTrackFromQueue([tracks[0]], 0);
     await flush();
@@ -644,6 +657,25 @@ describe('この曲が終わったら停止', () => {
 
     // 再生ボタンで、次の曲を頭から再生する
     await controller.togglePlayPause();
+    expect(commands.playbackPlay).toHaveBeenLastCalledWith('t2', expect.any(Number));
+    expect(player.isPlaying).toBe(true);
+  });
+
+  it('止めた後に、進めた先の曲を一覧から選び直したら、頭から再生する', async () => {
+    playTrackFromQueue(tracks, 0);
+    await flush();
+    playbackAids.stopAfterCurrent = true;
+    flushSync();
+    emit({ type: 'ended', token: lastPlayToken() });
+    await flush();
+    expect(player.currentTrack?.id).toBe('t2');
+    expect(commands.playbackPlay).toHaveBeenCalledTimes(1);
+
+    // 同じ一覧（同じ曲のオブジェクト）から、進めた先の曲を選び直した
+    playTrackFromQueue(tracks, 1);
+    await flush();
+
+    expect(commands.playbackPlay).toHaveBeenCalledTimes(2);
     expect(commands.playbackPlay).toHaveBeenLastCalledWith('t2', expect.any(Number));
     expect(player.isPlaying).toBe(true);
   });
@@ -1109,6 +1141,22 @@ describe('再生状態の復元', () => {
     expect(commands.playbackPlay).toHaveBeenCalledWith('t2', expect.any(Number));
     expect(player.isPlaying).toBe(true);
     expect(commands.setCurrentTrack).toHaveBeenCalledWith('t2');
+  });
+
+  it('復元した曲を一覧から選び直したら、頭から再生する', async () => {
+    vi.mocked(commands.getPlaybackState).mockResolvedValue(
+      savedState({ queue: tracks, currentIndex: 1 })
+    );
+    await recreateController();
+    expect(commands.playbackPlay).not.toHaveBeenCalled();
+
+    // 一覧で、復元した曲と同じ曲をダブルクリックした（曲のオブジェクトは一覧のもの）
+    playTrackFromQueue(['t1', 't2', 't3'].map(makeTrack), 1);
+    await flush();
+
+    expect(commands.playbackPlay).toHaveBeenCalledTimes(1);
+    expect(commands.playbackPlay).toHaveBeenLastCalledWith('t2', expect.any(Number));
+    expect(player.isPlaying).toBe(true);
   });
 
   it('復元した後の「次へ」は、キューの次の曲を再生する', async () => {

@@ -38,6 +38,14 @@ class Player {
   /** 現在の再生キュー内のインデックス */
   currentTrackIndex = $state(-1);
 
+  /**
+   * 「この曲を再生する」操作（一覧・キューから曲を選ぶ）の回数
+   *
+   * 再生コントローラーが、再生を始めずに置いてあった曲（起動して復元した曲など）を選び直された
+   * ことに気付くために読む（同じ曲を選び直しても、`currentTrack`のIDは変わらないため）。
+   */
+  playRequestCount = $state(0);
+
   /** シャッフルモード */
   isShuffleEnabled = $state(false);
 
@@ -216,6 +224,7 @@ export function playTrackFromQueue(allTracks: Track[], selectedIndex: number): v
     player.currentTrackIndex = index;
     player.currentTrack = tracks[index];
   }
+  player.playRequestCount++;
 }
 
 /**
@@ -245,6 +254,7 @@ export function playSingleTrack(track: Track): void {
   player.playQueue = [track];
   player.currentTrackIndex = 0;
   player.currentTrack = track;
+  player.playRequestCount++;
 }
 
 /**
@@ -310,6 +320,7 @@ export function playQueueIndex(index: number): boolean {
   }
   player.currentTrackIndex = index;
   player.currentTrack = queue[index];
+  player.playRequestCount++;
   return true;
 }
 

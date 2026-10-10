@@ -135,6 +135,8 @@ export function createPlaybackController(
   let loaded = false;
   /** `playbackPlay`の結果を待っている数（待っている間は、再生/一時停止の操作を受けない） */
   let starting = 0;
+  /** 対応を済ませた「この曲を再生する」操作の回数（`player.playRequestCount`） */
+  let handledPlayRequests = player.playRequestCount;
   /** 再生回数・スキップ回数に数えるかどうかの判定（聴いた時間で決める。`./playTracker.ts`） */
   const tracker = createPlayTracker({
     onPlayed: (trackId) => void recordPlay(trackId, options.queryClient),
@@ -514,13 +516,22 @@ export function createPlaybackController(
     // 再生するトラックの読み込み
     $effect(() => {
       const track = player.currentTrack;
+      const playRequests = player.playRequestCount;
       // 読み込みの処理の中で読む状態（再生中かどうか等）には反応させない
       untrack(() => {
+        const isRequested = playRequests !== handledPlayRequests;
+        handledPlayRequests = playRequests;
         if (!track) {
           stop();
           return;
         }
-        if (track.id === engineTrackId) return;
+        if (track.id === engineTrackId) {
+          // 再生を始めずに置いてあった曲（起動して復元した曲・「この曲が終わったら停止」で進めた曲・
+          // 再生に失敗した曲）を、一覧などから選び直した場合は、頭から再生する。
+          // 再生中・一時停止中の曲を選び直した場合は、再生し直さない
+          if (isRequested && !loaded && starting === 0) void start(track);
+          return;
+        }
         void start(track);
       });
     });
