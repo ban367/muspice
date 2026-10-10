@@ -13,6 +13,8 @@
   import TagToolsDialog from '#lib/components/TagToolsDialog.svelte';
   import SmartPlaylistDialog from '#lib/components/SmartPlaylistDialog.svelte';
   import NowPlayingView from '#lib/components/NowPlayingView.svelte';
+  import MiniPlayer from '#lib/components/MiniPlayer.svelte';
+  import { miniPlayer } from '#lib/stores/miniPlayer.svelte.js';
   import PlaylistInfoDialogHost from '#lib/components/PlaylistInfoDialogHost.svelte';
   import SettingsSync from '#lib/components/SettingsSync.svelte';
   import { ui, saveLastPage } from '#lib/stores/ui.svelte.js';
@@ -63,6 +65,11 @@
       ui.isAboutDialogOpen = true;
     });
 
+    // メニュー「ミニプレーヤー」: 小さな表示と通常の表示を切り替える
+    const unlistenMiniPlayer = events.toggleMiniPlayer.listen(() => {
+      void miniPlayer.toggle();
+    });
+
     // 設定ウィンドウでの再スキャン・ライブラリフォルダの削除で、ライブラリが変わった
     const unlistenLibrary = events.libraryChanged.listen(() => {
       invalidateAllTrackQueries(queryClient);
@@ -72,6 +79,7 @@
       unlistenImport.then((fn) => fn());
       unlistenSidebar.then((fn) => fn());
       unlistenAbout.then((fn) => fn());
+      unlistenMiniPlayer.then((fn) => fn());
       unlistenLibrary.then((fn) => fn());
     };
   });
@@ -154,6 +162,11 @@
     <!-- 右サイドバー（固定時は埋め込み表示） -->
     <RightSidebar />
   </div>
+
+  <!-- ミニプレーヤー（ウィンドウを小さくしている間、通常の画面の上に重ねる） -->
+  {#if miniPlayer.isActive}
+    <MiniPlayer />
+  {/if}
 
   <!-- インポートダイアログ -->
   <ImportDialog />

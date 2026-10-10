@@ -43,6 +43,7 @@ struct MenuLabels {
     view: &'static str,
     toggle_fullscreen: &'static str,
     toggle_sidebar: &'static str,
+    toggle_mini_player: &'static str,
     playback: &'static str,
     /// 「再生」メニューの項目（`PLAYBACK_ITEMS`と同じ順）
     playback_items: [&'static str; PLAYBACK_ITEMS.len()],
@@ -62,6 +63,7 @@ impl MenuLabels {
                 view: "表示",
                 toggle_fullscreen: "フルスクリーン切替",
                 toggle_sidebar: "サイドバーを表示/隠す",
+                toggle_mini_player: "ミニプレーヤー",
                 playback: "再生",
                 playback_items: [
                     "再生 / 一時停止",
@@ -85,6 +87,7 @@ impl MenuLabels {
                 view: "View",
                 toggle_fullscreen: "Toggle Full Screen",
                 toggle_sidebar: "Show/Hide Sidebar",
+                toggle_mini_player: "Mini Player",
                 playback: "Playback",
                 playback_items: [
                     "Play/Pause",
@@ -166,6 +169,11 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>, language: Language) -> tauri::
         .item(
             &MenuItemBuilder::with_id("toggle_sidebar", labels.toggle_sidebar)
                 .accelerator("CmdOrCtrl+\\")
+                .build(app)?,
+        )
+        .item(
+            &MenuItemBuilder::with_id("toggle_mini_player", labels.toggle_mini_player)
+                .accelerator("CmdOrCtrl+Shift+M")
                 .build(app)?,
         )
         .build()?;

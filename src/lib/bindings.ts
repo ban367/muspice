@@ -87,6 +87,20 @@ export const commands = {
 	 *  保存後に`SettingsChanged`イベントを送り、設定ウィンドウ以外（メインウィンドウ）にも反映させる。
 	 */
 	saveSettings: (settings: Settings) => __TAURI_INVOKE<null>("save_settings", { settings }),
+	/**
+	 *  グローバルホットキーの割り当てと、OSに登録できているかを取得（設定画面に出す）
+	 * 
+	 *  設定がオフの間は、どれも登録されていない。オンでも、ほかのアプリが使っている組み合わせは
+	 *  登録できないことがある。
+	 */
+	getGlobalShortcuts: () => __TAURI_INVOKE<GlobalShortcutInfo[]>("get_global_shortcuts"),
+	/**
+	 *  ミニプレーヤー（メインウィンドウの小さな表示）と、通常の表示を切り替える
+	 * 
+	 *  ウィンドウの大きさを変えるだけで、画面の切り替えはフロントエンドが行う。ミニプレーヤーの間に
+	 *  もう一度`enabled: true`で呼ぶと、「常に手前に表示」だけを変える。
+	 */
+	setMiniPlayer: (enabled: boolean, alwaysOnTop: boolean) => __TAURI_INVOKE<null>("set_mini_player", { enabled, alwaysOnTop }),
 	/**  すべてのトラックを取得 */
 	getAllTracks: () => __TAURI_INVOKE<Track[]>("get_all_tracks"),
 	/**  トラックを検索（部分一致。大文字と小文字・全角と半角・ひらがなとカタカナを同じとみなす） */
@@ -496,6 +510,7 @@ export const events = {
 	playbackEvent: makeEvent<PlaybackEvent>("playback-event"),
 	settingsChanged: makeEvent<SettingsChanged>("settings-changed"),
 	showAboutDialog: makeEvent<ShowAboutDialog>("show-about-dialog"),
+	toggleMiniPlayer: makeEvent<ToggleMiniPlayer>("toggle-mini-player"),
 	toggleSidebar: makeEvent<ToggleSidebar>("toggle-sidebar"),
 };
 
@@ -707,6 +722,24 @@ export type GenreSummary = {
 	trackCount: number,
 	totalDuration: number,
 	representativeTrackId: string,
+};
+
+/**  グローバルホットキーで行う操作 */
+export type GlobalShortcutAction = 
+/**  再生と一時停止を切り替える */
+"toggle" | 
+/**  次の曲へ進む */
+"next" | 
+/**  前の曲へ戻る */
+"previous";
+
+/**  グローバルホットキーの割り当てと、登録の状態（設定画面に出す） */
+export type GlobalShortcutInfo = {
+	action: GlobalShortcutAction,
+	/**  キーの名前（押す順。例: `["Control", "Option", "P"]`） */
+	keys: string[],
+	/**  OSに登録できているか（設定がオフの間は、どれも`false`） */
+	registered: boolean,
 };
 
 /**  インポートの進捗 */
@@ -1126,6 +1159,12 @@ export type Settings = {
 	autoDj: boolean,
 	/**  Auto DJが曲を選ぶプレイリスト（nullはライブラリ全体） */
 	autoDjPlaylistId: string | null,
+	/**  メニューバー（トレイ）に常駐する（アイコンを出し、ウィンドウを閉じても再生を続ける） */
+	stayInMenuBar: boolean,
+	/**  グローバルホットキー（ほかのアプリを使っている間も効くショートカット）を使う */
+	globalShortcuts: boolean,
+	/**  曲が変わった時に、OSの通知で知らせる（ウィンドウが前面にない時だけ） */
+	notifyTrackChange: boolean,
 };
 
 /**  設定が保存された（設定ウィンドウでの変更をメインウィンドウに反映する） */
@@ -1238,6 +1277,9 @@ export type Theme =
 "light" | 
 /**  OSの設定に従う */
 "system";
+
+/**  メニュー「ミニプレーヤー」: ミニプレーヤー（小さな表示）と通常の表示を切り替える */
+export type ToggleMiniPlayer = null;
 
 /**  メニュー「サイドバーを表示/隠す」: サイドバーの表示を切り替える */
 export type ToggleSidebar = null;

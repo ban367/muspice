@@ -142,6 +142,7 @@ export const ja = {
     fetchAlbumArtInfo: 'アルバムアートの情報の取得',
     loadSettings: '設定の読み込み',
     loadOutputDevices: '出力デバイスの一覧の取得',
+    loadGlobalShortcuts: 'グローバルホットキーの状態の取得',
     saveSettings: '設定の保存',
     openProjectPage: 'ページを開く',
     fetchLibraryFolders: 'ライブラリフォルダの取得',
@@ -302,6 +303,15 @@ export const ja = {
     saveAsPlaylistTitle: '再生キューをプレイリストとして保存',
     saveAsPlaylistDefaultName: (date: string) => `再生キュー ${date}`,
     save: '保存'
+  },
+
+  /** ミニプレーヤー（メインウィンドウの小さな表示） */
+  miniPlayer: {
+    title: 'ミニプレーヤー',
+    enter: 'ミニプレーヤーに切り替える',
+    exit: '通常の表示に戻す',
+    alwaysOnTop: '常に手前に表示',
+    switchFailed: 'ミニプレーヤーの切り替え'
   },
 
   /** Now Playingの画面（再生中の曲と歌詞） */
@@ -841,6 +851,21 @@ export const ja = {
     startupPages: { lastOpened: '前回開いていた画面', songs: '曲一覧' },
     sidebarItems: 'サイドバーに表示する項目',
     sidebarItemsHint: '印を外した項目は、サイドバーに出しません',
+    stayInMenuBar: 'メニューバーに常駐する',
+    stayInMenuBarHint:
+      'メニューバー（トレイ）にアイコンを表示し、ウィンドウを閉じても再生を続けます。アイコンのメニューから、再生の操作・ウィンドウの表示・終了ができます',
+    notifyTrackChange: '曲が変わった時に通知する',
+    notifyTrackChangeHint:
+      'ウィンドウが前面にない時に、曲名とアーティストをOSの通知で知らせます（OSの設定で、Muspiceの通知を許可する必要があります）',
+    globalShortcuts: 'グローバルホットキーを使う',
+    globalShortcutsHint:
+      'ほかのアプリを使っている間も、次のキーで再生を操作できます（キーボードのメディアキーは、この設定に関わらず使えます）',
+    globalShortcutActions: {
+      toggle: '再生 / 一時停止',
+      next: '次の曲',
+      previous: '前の曲'
+    },
+    globalShortcutUnavailable: 'ほかのアプリが使っているため、登録できませんでした',
     volumeNormalization: '音量の正規化',
     volumeNormalizations: { off: 'オフ', track: 'トラック単位', album: 'アルバム単位' },
     volumeNormalizationHint:

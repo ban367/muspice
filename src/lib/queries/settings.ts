@@ -46,6 +46,22 @@ export function useOutputDevicesQuery(enabled: () => boolean) {
 }
 
 /**
+ * グローバルホットキーの割り当てと、OSに登録できているかを取得するクエリ（設定画面に出す）
+ *
+ * 登録の状態は、設定を保存するたびに変わるため、キャッシュを使い回さない。
+ * @param enabled 一覧を表示しているかを返す（リアクティブな値を読む）
+ */
+export function useGlobalShortcutsQuery(enabled: () => boolean) {
+  return createQuery(() => ({
+    queryKey: queryKeys.globalShortcuts,
+    queryFn: () =>
+      withErrorToast(m.operations.loadGlobalShortcuts, () => commands.getGlobalShortcuts()),
+    enabled: enabled(),
+    staleTime: 0
+  }));
+}
+
+/**
  * 設定を保存するミューテーション
  */
 export function useSaveSettingsMutation() {

@@ -112,6 +112,21 @@ export function seekPlayback(time: number): void {
   activeController?.seek(time);
 }
 
+/** 再生と一時停止を切り替える（プレーヤーの外の部品から呼ぶ。ミニプレーヤーなど） */
+export function togglePlayback(): void {
+  void activeController?.togglePlayPause();
+}
+
+/** 次の曲へ進む（プレーヤーの外の部品から呼ぶ） */
+export function skipToNextTrack(): void {
+  activeController?.next();
+}
+
+/** 前の曲へ戻る（3秒以上再生していれば、再生中の曲の頭へ。プレーヤーの外の部品から呼ぶ） */
+export function skipToPreviousTrack(): void {
+  activeController?.previous();
+}
+
 /**
  * エンジンへ渡す番号。コントローラーを作り直しても重ならないよう、モジュールで数える
  * （エンジンは、番号の大きい要求を新しい要求として扱う）
