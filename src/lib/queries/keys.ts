@@ -87,6 +87,8 @@ export const queryKeys = {
   /** アプリケーション設定 */
   settings: ['settings'] as const,
   outputDevices: ['outputDevices'] as const,
+  /** グローバルホットキーの割り当てと、登録の状態 */
+  globalShortcuts: ['globalShortcuts'] as const,
 
   /** ライブラリフォルダ（インポートしたフォルダ） */
   libraryFolders: ['libraryFolders'] as const,

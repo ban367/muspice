@@ -2,6 +2,7 @@
   import { untrack } from 'svelte';
   import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
   import {
+    useGlobalShortcutsQuery,
     useOutputDevicesQuery,
     useSaveSettingsMutation,
     useSettingsQuery
@@ -78,6 +79,11 @@
     });
   });
 
+  // グローバルホットキーの割り当てと、登録できているか（保存した設定がオンの間だけ、登録されている）
+  const globalShortcutsQuery = useGlobalShortcutsQuery(() => activeSection === 'general');
+  const globalShortcuts = $derived(globalShortcutsQuery.data ?? []);
+  const isGlobalShortcutsSaved = $derived(settingsQuery.data?.globalShortcuts ?? false);
+
   // 出力デバイスの一覧（再生の設定を開いている間だけ取得する）
   const outputDevicesQuery = useOutputDevicesQuery(() => activeSection === 'playback');
   // 選んであるデバイスが一覧にない（接続されていない）場合も、選択肢として残す
@@ -128,6 +134,8 @@
     if (!pending) return;
     try {
       await saveMutation.mutateAsync({ ...pending });
+      // 保存でグローバルホットキーを登録し直すため、登録できたかを読み直す
+      void globalShortcutsQuery.refetch();
     } catch {
       // 失敗はミューテーション内でトースト通知済み
     }
@@ -313,6 +321,62 @@
             </div>
             <p class="setting-description">{m.settings.sidebarItemsHint}</p>
           </fieldset>
+
+          <div class="setting-item">
+            <label class="setting-checkbox-label">
+              <input
+                type="checkbox"
+                class="setting-checkbox"
+                bind:checked={pending.stayInMenuBar}
+              />
+              {m.settings.stayInMenuBar}
+            </label>
+            <p class="setting-description">{m.settings.stayInMenuBarHint}</p>
+          </div>
+
+          <div class="setting-item">
+            <label class="setting-checkbox-label">
+              <input
+                type="checkbox"
+                class="setting-checkbox"
+                bind:checked={pending.notifyTrackChange}
+              />
+              {m.settings.notifyTrackChange}
+            </label>
+            <p class="setting-description">{m.settings.notifyTrackChangeHint}</p>
+          </div>
+
+          <div class="setting-item">
+            <label class="setting-checkbox-label">
+              <input
+                type="checkbox"
+                class="setting-checkbox"
+                bind:checked={pending.globalShortcuts}
+              />
+              {m.settings.globalShortcuts}
+            </label>
+            <p class="setting-description">{m.settings.globalShortcutsHint}</p>
+            <ul class="shortcut-list">
+              {#each globalShortcuts as shortcut (shortcut.action)}
+                <li class="shortcut-item">
+                  <span class="shortcut-action">
+                    {m.settings.globalShortcutActions[shortcut.action]}
+                  </span>
+                  <span class="shortcut-keys">
+                    {#each shortcut.keys as key, index (index)}
+                      {#if index > 0}<span class="shortcut-plus">+</span>{/if}<kbd>{key}</kbd>
+                    {/each}
+                  </span>
+                  <!-- 保存した設定がオンなのに登録されていない組み合わせ（ほかのアプリが使っている） -->
+                  {#if isGlobalShortcutsSaved && pending.globalShortcuts && !shortcut.registered}
+                    <span class="shortcut-warning" role="status">
+                      {m.settings.globalShortcutUnavailable}
+                    </span>
+                  {/if}
+                </li>
+              {/each}
+            </ul>
+          </div>
         </section>
       {:else if activeSection === 'playback'}
         <section class="settings-section">
@@ -478,6 +542,36 @@
 
   .settings-nav-item .icon {
     @apply w-5 h-5 shrink-0;
+  }
+
+  /* グローバルホットキーの割り当ての一覧 */
+  .shortcut-list {
+    @apply list-none m-0 mt-2 p-0 flex flex-col gap-1.5;
+  }
+
+  .shortcut-item {
+    @apply flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-text-secondary;
+  }
+
+  .shortcut-action {
+    @apply w-32 shrink-0;
+  }
+
+  .shortcut-keys {
+    @apply flex items-center gap-1;
+  }
+
+  .shortcut-keys kbd {
+    @apply px-1.5 py-0.5 bg-base-400 border border-border rounded text-xs text-text-primary;
+    font-family: inherit;
+  }
+
+  .shortcut-plus {
+    @apply text-text-dimmed;
+  }
+
+  .shortcut-warning {
+    @apply text-xs text-warning;
   }
 
   .settings-main {
