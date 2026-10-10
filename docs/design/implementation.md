@@ -190,6 +190,10 @@ src-tauri/src/
 ### 一覧の選択とキーボード操作
 
 - 一覧では、矢印キーを押しても一覧をスクロールさせず、選択している項目から隣の項目へ選択を移す（移動先が画面の外なら、見える位置までスクロールする）。移動先の計算は`#lib/utils/listNavigation`の`navigationTarget`（リストは↑↓、グリッドは上下左右、Home・End）で行う
+- 曲の一覧（`TrackList`）のリスト表示の列は、`#lib/utils/trackColumns`の定義（`TRACK_COLUMN_IDS`・`TRACK_COLUMNS`）から描画する（ADR-038）
+  - 列を足す時は、`TRACK_COLUMN_IDS`・`TRACK_COLUMNS`（幅・そろえ方）・`trackCellText`（セルの文字列）・`trackSort`の`sortKey`（並べ替えの値）と、見出しの表示名（`m.fields`）を足す。どの列も並べ替えられる
+  - 表示する列・列の順番・並び順は、画面ごとに`#lib/stores/trackListView.svelte`の`trackListView(viewId, defaults)`が覚える（localStorageの`muspice:trackListView:<viewId>`）。一覧を置く画面は、`TrackList`に`viewId`と、その画面の既定（`defaultColumns`・`defaultSort`）を渡す。列の幅は、どの画面でも共通で`ui.columnWidths`に持つ
+  - 再生中の曲へのジャンプは、`ui.revealTrackId`に曲のIDを入れる。その曲を含む`TrackList`が、行までスクロールして選び、nullに戻す。開いている画面の一覧にない場合は、プレーヤーが全曲の一覧（`isRevealFallback`を付けた`TrackList`）へ移動する
 - 曲の一覧（`TrackList`、アルバム・アーティストの詳細、グループのモーダル、プレイリストの詳細）は、一覧ごとに`#lib/utils/trackSelection.svelte`の`TrackSelection`を作り、行のクリックを`click()`へ、一覧の`onkeydown`を`handleTrackListKeydown`へ渡す
   - 矢印キーで選択を移し、Shift+矢印で範囲選択、Cmd/Ctrl+Aですべて選択、Enterで再生する
   - 一覧の要素を`role="listbox"`・`tabindex="0"`にしてフォーカスを受け、行は`role="option"`・`data-track-id`を付けてフォーカスを受けない（行をクリックすると一覧の要素にフォーカスが移り、行が消えてもキー操作を続けられる）
