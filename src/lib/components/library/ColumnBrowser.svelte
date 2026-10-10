@@ -46,17 +46,6 @@
 
   const rowsOf = (column: BrowserColumn): Row[] => [ALL, ...result[column]];
 
-  // 同じ名前のアルバムが複数ある場合は、見分けるためにアーティストも出す
-  const duplicateAlbumNames = $derived.by(() => {
-    const seen = new Set<string | null>();
-    const duplicates = new Set<string | null>();
-    for (const album of result.albums) {
-      if (seen.has(album.name)) duplicates.add(album.name);
-      seen.add(album.name);
-    }
-    return duplicates;
-  });
-
   function handleClick(column: BrowserColumn, row: Row, event: MouseEvent) {
     if (row === ALL) {
       onSelect(column, []);
@@ -103,7 +92,8 @@
               {:else}
                 <span class="row-name" class:unknown={item.name === null}>
                   {item.name ?? unknownNames[column]}
-                  {#if column === 'albums' && duplicateAlbumNames.has(item.name)}
+                  <!-- 同じ名前のアルバムが複数ある場合は、見分けるためにアーティストも出す -->
+                  {#if item.hasSameName}
                     <span class="row-artist">{item.artist ?? m.common.unknownArtist}</span>
                   {/if}
                 </span>

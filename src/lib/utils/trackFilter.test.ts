@@ -133,6 +133,10 @@ describe('browseTracks', () => {
       '揺れる想い/ZARD(2)',
       'null/null(1)'
     ]);
+    // 同じ名前の項目には、見分けるための目印を付ける
+    expect(result.albums.filter((album) => album.hasSameName).map((album) => album.artist)).toEqual(
+      ['A', 'B']
+    );
     expect(result.tracks).toHaveLength(6);
     expect(hasBrowserSelection(result.selection)).toBe(false);
   });
