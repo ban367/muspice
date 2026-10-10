@@ -367,7 +367,8 @@ export interface Playlist {
   - 変更の内容（ファイル名からの推定・連番の振り直し・検索と置換）は、フロントエンドの`#lib/utils/tagTools`が曲の一覧から計算し、変更の一覧（前 → 後）を確認した後にこのコマンドへ渡す
   - ファイル名の書式: `%title%`・`%artist%`・`%album%`・`%albumartist%`・`%genre%`・`%year%`・`%track%`・`%disc%`と、読み飛ばす`%dummy%`。ほかの文字はそのまま一致させ、`/`で区切ると上のフォルダの名前も使える。番号・年は数字だけに一致し、範囲の外の値・書式に合わないファイル名の曲は変えない
   - 検索と置換: 対象はタイトル・アーティスト・アルバム・アルバムアーティスト・ジャンル。置換（そのままの文字列か、JavaScriptの正規表現）→ 大文字・小文字の変換 → 前後の空白の削除の順に行う
-- タグの書き方: BPMは、ID3v2の`TBPM`・MP4の`tmpo`・Vorbisコメントの`BPM`。歌詞は、ID3v2の`USLT`・Vorbisコメントの`LYRICS`・MP4の`©lyr`（読む時は、Vorbisコメントの`UNSYNCEDLYRICS`も読む）。グループは、ID3v2の`TIT1`・MP4の`©grp`・Vorbisコメントの`GROUPING`
+- タグの書き方: BPMは、ID3v2の`TBPM`・MP4の`tmpo`・Vorbisコメントの`BPM`・APEv2タグの`BPM`。歌詞は、ID3v2の`USLT`・Vorbisコメントの`LYRICS`・MP4の`©lyr`・APEv2タグの`Lyrics`（読む時は、Vorbisコメントの`UNSYNCEDLYRICS`も読む）。グループは、ID3v2の`TIT1`・MP4の`©grp`・Vorbisコメントの`GROUPING`・APEv2タグの`Grouping`
+- APEv2タグ（WavPack・APE）は、アプリが扱わない項目（ほかのアプリが書いた独自の項目・読めない種類の画像）を残して書き込む。loftyの汎用タグは、対応する項目がないもの（BPM・評価・画像を含む）を読まず、保存するとタグ全体を置き換えるため、`ape_tag.rs`が形式ごとのタグを直接読み書きする（ADR-047）
 - `BulkUpdateResult`: `updatedCount`, `failedCount`, `errors[]`
 - `WriteMetadataResult`: `writtenCount`, `unchangedCount`（ファイルと同じ）, `skippedCount`（ファイルが見つからない）, `errorCount`, `errors[]`
 - `write_library_metadata_to_files`は、DBの値がファイルと違う項目だけを書き込む。DBに値がない項目（評価なしを含む）と、タグにタイトルがないファイルの既定のタイトル（ファイル名）は書き出さない（ファイルにだけある値を消さないため）
@@ -457,7 +458,7 @@ M3Uの読み込み・書き出し（ADR-032）:
 | `remove_album_art`   | `trackIds` | `BulkUpdateResult`         | 各トラックのファイルから、埋め込みの画像をすべて取り除く。埋め込みの画像がないトラックは書き換えず、件数に数えない |
 
 - `AlbumArtInfo`: `{ source: 'embedded' \| 'folder', fileName: string \| null, mimeType, size, width: number \| null, height: number \| null }`（`fileName`は、フォルダの画像のファイル名。`size`はバイト。幅・高さは、JPEG・PNGのヘッダーから読む）
-- 埋め込みの画像: タグの画像のうち、フロントカバー（なければ最初の画像）を表示する。`set_album_art`は、その画像を置き換える（なければ、フロントカバーとして追加する）。裏ジャケットなどのほかの画像は残す
+- 埋め込みの画像: タグの画像のうち、フロントカバー（なければ最初の画像）を表示する。`set_album_art`は、その画像を置き換える（なければ、フロントカバーとして追加する）。裏ジャケットなどのほかの画像は残す。APEv2タグ（WavPack・APE）では、`Cover Art (Front)`の項目（値は「ファイル名・区切りの0・画像データ」）に書き、ファイル名は`Cover Art (Front).jpg`のように付ける（ファイル名の拡張子から画像の種類を決めるアプリがあるため）
 - 埋め込める画像は、JPEG・PNG（拡張子ではなく、中身で判定する）で、10MBまで。縮小・再圧縮はせず、そのまま埋め込む。それ以外は`VALIDATION_ERROR`で、ファイルは書き換えない
 - フォルダの画像: 音楽ファイルと同じフォルダにある、`cover`・`folder`・`front`・`album`・`albumart`（この順に優先）という名前の`.jpg`・`.jpeg`・`.png`（この順に優先）。大文字と小文字は区別しない。10MBを超えるファイル・JPEGでもPNGでもないファイルは使わず、次の候補を使う
 - 書き込めなかったトラック（ファイルが見つからないなど）は、理由を結果の`errors`に入れて残りを続ける。書き込んだトラックは、ファイルのサイズ・更新日時を記録し（再スキャンで変更とみなさない）、アルバムアートのキャッシュから捨てる。タグのほかの項目・`updated_at`は変えない
@@ -495,7 +496,7 @@ iTunes形式のライブラリXML（MusicBee・iTunes / ミュージックが書
 | `show_in_folder`         | `trackId`                                                | `void`                  |
 | `open_project_page`      | なし                                                     | `void`                  |
 
-`set_rating`は、評価をファイルのタグへ書き込み、同じ値をDBに記録する（0は評価のタグを取り除く）。評価はloftyの`ItemKey::Popularimeter`（ID3v2 `POPM` / Vorbis `RATING` / MP4 `rate` / RIFF `IRTD`）で読み書きし、インポート・再スキャン・`refresh_library_metadata`でタグから読み込む。評価の数値の付け方は書き込んだアプリごとに違うため、すでに評価があるファイルではその書き手の付け方のまま星の数だけを変え、ない場合はMusicBeeの付け方（ID3v2は1・64・128・196・255、それ以外は20刻み）で書く。Vorbisコメント（FLAC）は、書き手を付けない`RATING`に数値だけを書く（`RATING=80`。すでに星の数の1〜5で書かれていればその付け方を保つ）。loftyの汎用タグは、Vorbisコメントの数値だけの`RATING`を評価として読まず、書き出す時も変換しないため、`metadata.rs`で読み書きする。
+`set_rating`は、評価をファイルのタグへ書き込み、同じ値をDBに記録する（0は評価のタグを取り除く）。評価はloftyの`ItemKey::Popularimeter`（ID3v2 `POPM` / Vorbis `RATING` / MP4 `rate` / RIFF `IRTD`）で読み書きし、インポート・再スキャン・`refresh_library_metadata`でタグから読み込む。評価の数値の付け方は書き込んだアプリごとに違うため、すでに評価があるファイルではその書き手の付け方のまま星の数だけを変え、ない場合はMusicBeeの付け方（ID3v2は1・64・128・196・255、それ以外は20刻み）で書く。Vorbisコメント（FLAC）とAPEv2タグ（WavPack・APE）は、書き手を付けない`RATING`に数値だけを書く（`RATING=80`。すでに星の数の1〜5で書かれていればその付け方を保つ）。loftyの汎用タグは、Vorbisコメントの数値だけの`RATING`を評価として読まず、書き出す時も変換しないため、`metadata.rs`で読み書きする（APEv2タグの`RATING`は、loftyに対応する項目がないため、`ape_tag.rs`が読み書きする）。
 
 `set_favorite`・`increment_play_count`（お気に入り・再生回数・再生履歴）とプレイリストは、タグでは持てないためDBだけに保存する。
 
@@ -543,6 +544,7 @@ iTunes形式のライブラリXML（MusicBee・iTunes / ミュージックが書
   - `{ type: 'failed', token, error }`: 再生を続けられなくなった（ファイルを読めない・出力デバイスを使えない）。再生は止まっている
 - 再生位置は、出力のコールバックが取り出したフレーム数から求める（鳴っている位置。リングバッファにたまっている約0.5秒分だけ、デコードしている位置より手前になる）
 - 曲の頭と終わりの余分（エンコーダーの遅延・パディング）は取り除く。MP3（LAMEのタグ）・Ogg Vorbis・Opus・M4AのAAC（`iTunSMPB`か編集リストがある場合）が対象で、ADTSのAAC・MP2はファイルに情報がないため取り除けない
+- WavPack（`.wv`）とAPE（`.ape`）は、`symphonia`ではなく専用のデコーダーで読む（拡張子で振り分ける。ADR-047）。どちらも可逆で、元の音源と同じサンプルを返す（余分はもともとない）。再生できないファイル（ハイブリッド（非可逆）・DSD・3チャンネル以上のWavPack、Monkey's Audio 3.95より前のAPE、中身が違うファイル）は、`playback_play`がその種類を伝えるエラーを返す。デコードの途中で壊れたブロックは無音にして続け（ログに残す）、続けて4つ壊れていたら`failed`にする
 - 再生回数・スキップ回数の記録（`increment_play_count`・`increment_skip_count`）と再生中のトラックの通知（`set_current_track`）は、フロントが行う（数える条件は、上の「再生回数・スキップ回数・再生履歴」）
 - 音量の正規化: `playback_play` / `playback_set_next`の時に、Rust側がトラックのReplayGain（DB）と設定の`volumeNormalization`から倍率を決める（計算は`playback/normalization.rs`。ADR-012）。設定を変えると、再生中の曲・続けて再生する曲の倍率も決め直す
 - クロスフェード: 設定の`crossfadeSeconds`が1以上で、続けて再生する曲（`playback_set_next`）があれば、エンジンが前の曲の終わりと重ねる。重ねる長さは、設定の秒数を上限に、どちらの曲も長さの半分まで、かつ前の曲の残りまで。同じ曲の繰り返し（同じファイル）と、長さの分からない曲からは、重ねずに切れ目なく続ける。`advanced`は、重なりが鳴り始めた時点で届く
