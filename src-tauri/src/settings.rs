@@ -117,6 +117,10 @@ pub struct Settings {
     pub library_scan_interval_minutes: u32,
     /// サイドバーに表示しない項目（既定は空で、すべて表示する）
     pub hidden_sidebar_items: Vec<SidebarItem>,
+    /// Auto DJ（再生キューの最後の曲になったら、曲を足して再生を続ける）
+    pub auto_dj: bool,
+    /// Auto DJが曲を選ぶプレイリスト（nullはライブラリ全体）
+    pub auto_dj_playlist_id: Option<String>,
 }
 
 impl Settings {
@@ -140,6 +144,8 @@ impl Default for Settings {
             watch_library_folders: false,
             library_scan_interval_minutes: 0,
             hidden_sidebar_items: Vec::new(),
+            auto_dj: false,
+            auto_dj_playlist_id: None,
         }
     }
 }
@@ -174,6 +180,10 @@ pub fn validate_settings(settings: &Settings) -> AppResult<()> {
         return Err(AppError::Validation(
             "再スキャンの間隔が選べる値ではありません".to_string(),
         ));
+    }
+    // プレイリストがあるかどうかは確かめない（削除された場合は、Auto DJが曲を足さないだけ）
+    if let Some(playlist_id) = &settings.auto_dj_playlist_id {
+        crate::validation::validate_playlist_id(playlist_id)?;
     }
     Ok(())
 }
@@ -319,6 +329,8 @@ mod tests {
             watch_library_folders: true,
             library_scan_interval_minutes: 60,
             hidden_sidebar_items: vec![SidebarItem::Years, SidebarItem::PlayHistory],
+            auto_dj: true,
+            auto_dj_playlist_id: Some("b2000000-0000-4000-8000-000000000001".to_string()),
         };
 
         state.save(settings.clone()).unwrap();
@@ -441,6 +453,38 @@ mod tests {
             );
         }
         assert!(state.save(settings(1)).is_err());
+    }
+
+    #[test]
+    fn test_auto_dj_settings() {
+        // 既定は無効で、ライブラリ全体から選ぶ
+        let defaults = Settings::default();
+        assert!(!defaults.auto_dj);
+        assert_eq!(defaults.auto_dj_playlist_id, None);
+
+        let path = temp_settings_path("auto-dj");
+        let state = SettingsState::load(path.clone());
+        let settings = Settings {
+            auto_dj: true,
+            auto_dj_playlist_id: Some("b2000000-0000-4000-8000-000000000001".to_string()),
+            ..Settings::default()
+        };
+        state.save(settings.clone()).unwrap();
+        assert_eq!(load_settings(&path), settings);
+
+        // プレイリストのIDの形でなければ、保存しない
+        let invalid = Settings {
+            auto_dj_playlist_id: Some("playlist".to_string()),
+            ..Settings::default()
+        };
+        assert!(matches!(state.save(invalid), Err(AppError::Validation(_))));
+
+        // Auto DJの項目がない（前のバージョンの）ファイルは、既定値で補う
+        fs::write(&path, r#"{ "gaplessPlayback": false }"#).unwrap();
+        let loaded = load_settings(&path);
+        assert!(!loaded.gapless_playback);
+        assert!(!loaded.auto_dj);
+        fs::remove_dir_all(path.parent().unwrap()).ok();
     }
 
     #[test]

@@ -295,6 +295,21 @@ export const en: Messages = {
     save: 'Save'
   },
 
+  playbackAids: {
+    title: 'Stop Timing, Sleep Timer and Auto DJ',
+    stopAfterCurrent: 'Stop after the current track',
+    sleepTimer: 'Sleep Timer',
+    minutes: (minutes) => `${minutes} min`,
+    remaining: (time) => `${time} left`,
+    fadingOut: 'Fading out...',
+    waitForTrackEnd: 'When the time is up, play to the end of the track',
+    cancelSleepTimer: 'Cancel Timer',
+    autoDj: 'Auto DJ',
+    autoDjHint: 'Adds tracks and keeps playing when the last track of the queue is reached.',
+    autoDjSource: 'Pick tracks from',
+    autoDjLibrary: 'The whole library'
+  },
+
   equalizer: {
     title: 'Equalizer',
     turnOff: 'Turn off the equalizer',
