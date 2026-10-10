@@ -13,14 +13,24 @@
   interface Props {
     x: number;
     y: number;
-    /** 列と並び順を持つ、画面の設定 */
+    /** 列を持つ、画面の設定 */
     view: TrackListView;
+    /** 並び順を持つ設定（列と同じ単位で覚える場合は、`view`と同じもの） */
+    sortView: TrackListView;
     /** 列の表示名 */
     labels: Record<TrackColumnId, string>;
     onClose: () => void;
   }
 
-  let { x, y, view, labels, onClose }: Props = $props();
+  let { x, y, view, sortView, labels, onClose }: Props = $props();
+
+  // 列が既定のままか（並び順を別に持つ場合、`view`の並び順は使っていない）
+  const isDefaultColumns = $derived(view === sortView ? view.isDefault : view.isDefaultColumns);
+
+  function resetAll() {
+    view.reset();
+    sortView.resetSort();
+  }
 
   const isVisible = (column: TrackColumnId) => view.columns.includes(column);
 </script>
@@ -46,8 +56,8 @@
     <button
       class="menu-item"
       role="menuitem"
-      onclick={() => view.resetSort()}
-      disabled={view.isDefaultSort}
+      onclick={() => sortView.resetSort()}
+      disabled={sortView.isDefaultSort}
     >
       <span class="check" aria-hidden="true"></span>
       <span>{m.trackList.resetSort}</span>
@@ -55,8 +65,8 @@
     <button
       class="menu-item"
       role="menuitem"
-      onclick={() => view.reset()}
-      disabled={view.isDefault}
+      onclick={resetAll}
+      disabled={isDefaultColumns && sortView.isDefaultSort}
     >
       <span class="check" aria-hidden="true"></span>
       <span>{m.trackList.resetColumns}</span>

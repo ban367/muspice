@@ -25,6 +25,10 @@
     onAddToQueue?: () => void;
     onPlayNext?: () => void;
     onDelete?: () => void;
+    /** 選択した曲を、この一覧（プレイリスト）から外す操作（指定した一覧だけに項目を出す） */
+    onRemoveFromList?: () => void;
+    /** 一覧から外す項目の表示名 */
+    removeFromListLabel?: string;
   }
 
   let {
@@ -37,7 +41,9 @@
     onEditMetadata,
     onAddToQueue,
     onPlayNext,
-    onDelete
+    onDelete,
+    onRemoveFromList,
+    removeFromListLabel
   }: Props = $props();
 
   const showInFolderMutation = useShowInFolderMutation();
@@ -301,9 +307,38 @@
     <span>{m.contextMenu.showInFolder}</span>
   </button>
 
-  {#if onDelete}
+  {#if onRemoveFromList || onDelete}
     <div class="menu-divider"></div>
+  {/if}
 
+  {#if onRemoveFromList}
+    <button
+      class="menu-item"
+      onclick={() => {
+        onRemoveFromList();
+        onClose();
+      }}
+      role="menuitem"
+    >
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="menu-icon"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          d="M6 18L18 6M6 6l12 12"
+        />
+      </svg>
+      <span>{removeFromListLabel}</span>
+    </button>
+  {/if}
+
+  {#if onDelete}
     <button class="menu-item menu-item-danger" onclick={handleDelete} role="menuitem">
       <svg
         xmlns="http://www.w3.org/2000/svg"
