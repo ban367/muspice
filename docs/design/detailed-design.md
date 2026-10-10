@@ -533,6 +533,7 @@ iTunes形式のライブラリXML（MusicBee・iTunes / ミュージックが書
 | `playback_resume`        | なし                               | `void`              | 再開                                                                                                                                                                   |
 | `playback_seek`          | `position`（秒）                   | `void`              | 鳴っている曲の中で移動する。曲の長さを超える位置は曲の終わりになる。負の値・数値でない値は`VALIDATION`                                                                 |
 | `playback_set_volume`    | `volume`（0.0〜1.0）               | `void`              | 範囲外の値は丸める                                                                                                                                                     |
+| `playback_set_speed`     | `speed`（0.5〜2.0）                | `void`              | 再生速度（倍）を変える。音程は変えない。再生中の音にすぐに効く。範囲の外の値・数値でない値は`VALIDATION`。保存しない（起動時は1倍）                                    |
 | `playback_stop`          | なし                               | `void`              | 再生を止め、再生中の曲・続けて再生する曲を手放す                                                                                                                       |
 | `playback_set_equalizer` | `enabled`, `gains: number[]`       | `void`              | イコライザの設定を変える（すぐに効く）。`gains`はバンドごとのゲイン（dB。31Hz〜16kHzの10個。-12〜12に収める）。10個でなければ`VALIDATION`                              |
 | `get_output_devices`     | なし                               | `OutputDevice[]`    | `{ id, name, isDefault }`。`id`は接続し直しても変わらない                                                                                                              |
@@ -545,6 +546,7 @@ iTunes形式のライブラリXML（MusicBee・iTunes / ミュージックが書
   - `{ type: 'failed', token, error }`: 再生を続けられなくなった（ファイルを読めない・出力デバイスを使えない）。再生は止まっている
 - 再生位置は、出力のコールバックが取り出したフレーム数から求める（鳴っている位置。リングバッファにたまっている約0.5秒分だけ、デコードしている位置より手前になる）
 - 曲の頭と終わりの余分（エンコーダーの遅延・パディング）は取り除く。MP3（LAMEのタグ）・Ogg Vorbis・Opus・M4AのAAC（`iTunSMPB`か編集リストがある場合）が対象で、ADTSのAAC・MP2はファイルに情報がないため取り除けない
+- 再生速度（`playback_set_speed`。ADR-049）: 出力のコールバックが、リングバッファから取り出した音声の長さを、音程を保ったまま変える（時間伸縮。`playback/stretch.rs`）。エンジンが扱う位置（`position`・`advanced`・`ended`・シーク・クロスフェードの長さ）は、どれも元の曲の時間のままで、速度を変えると、その進み方だけが変わる（2倍なら、`position`は0.25秒ごとに0.5秒ずつ進み、6秒のクロスフェードは3秒で終わる）。1倍の間は時間伸縮を通さず、音声を変えない。速度は、エンジンが動いている間だけ保つ（保存しない。フロントが、起動時と変更のたびに送る）
 - WavPack（`.wv`）とAPE（`.ape`）は、`symphonia`ではなく専用のデコーダーで読む（拡張子で振り分ける。ADR-047）。どちらも可逆で、元の音源と同じサンプルを返す（余分はもともとない）。再生できないファイル（ハイブリッド（非可逆）・DSD・3チャンネル以上のWavPack、Monkey's Audio 3.95より前のAPE、中身が違うファイル）は、`playback_play`がその種類を伝えるエラーを返す。デコードの途中で壊れたブロックは無音にして続け（ログに残す）、続けて4つ壊れていたら`failed`にする
 - 再生回数・スキップ回数の記録（`increment_play_count`・`increment_skip_count`）と再生中のトラックの通知（`set_current_track`）は、フロントが行う（数える条件は、上の「再生回数・スキップ回数・再生履歴」）
 - 音量の正規化: `playback_play` / `playback_set_next`の時に、Rust側がトラックのReplayGain（DB）と設定の`volumeNormalization`から倍率を決める（計算は`playback/normalization.rs`。ADR-012）。設定を変えると、再生中の曲・続けて再生する曲の倍率も決め直す
@@ -559,11 +561,11 @@ OSのメディアキー・コントロールセンター・イヤホンのボタ
 | ----------------- | ---------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------- |
 | `set_now_playing` | `update: NowPlayingUpdate \| null` | `void` | プレーヤーバーの状態をOSへ伝える（`null`は、再生している曲がない）。対応していないOSでは、検証だけして何もしない |
 
-- `NowPlayingUpdate`: `{ trackId: string, playing: boolean, position: number, duration: number \| null }`（`position`・`duration`は秒）
+- `NowPlayingUpdate`: `{ trackId: string, playing: boolean, position: number, duration: number \| null, speed?: number }`（`position`・`duration`は秒。`speed`は再生速度（倍）で、省略すると1倍。OSは、伝えた位置からこの速さで進むものとして、今の位置を計算する）
   - 曲の情報（タイトル・アーティスト・アルバム）とアルバムアートは、Rust側が`trackId`からライブラリで読む。タイトルがなければファイル名を出す。アルバムアートは、曲が変わったときだけ読む
   - `duration`は、再生エンジンがファイルから読んだ値。`null`・0以下ならライブラリの値を使う。`position`は0〜曲の長さに収める
   - ライブラリにない曲は`NOT_FOUND`（OSの表示は消す）。トラックIDの形式でなければ`VALIDATION`
-- フロントは、曲・再生中かどうか・曲の長さ（秒未満の違いを除く）が変わったときと、再生位置が「前に伝えた位置 + 経過時間」と1秒以上ずれたときに呼ぶ。呼び出しは1つずつ行い、待っている間の変更は最後の状態だけを伝える（`nowPlaying.ts`）
+- フロントは、曲・再生中かどうか・曲の長さ（秒未満の違いを除く）・再生速度が変わったときと、再生位置が「前に伝えた位置 + 経過時間 × 再生速度」と1秒以上ずれたときに呼ぶ。呼び出しは1つずつ行い、待っている間の変更は最後の状態だけを伝える（`nowPlaying.ts`）
 - OSへは、再生中かどうか（`playbackState`）・再生位置・再生の速さ（再生中は1、一時停止中は0）も渡す。OSは、渡した時点からの経過で今の位置を計算して表示する
 - `PlaybackControl`（`type`で見分ける。フロントの`Player.svelte`が、ウィンドウの中のキー操作と同じ処理を行う）
 
