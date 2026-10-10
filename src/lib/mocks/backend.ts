@@ -383,7 +383,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     crossfadeSeconds: 0,
     outputDeviceId: null,
     watchLibraryFolders: false,
-    libraryScanIntervalMinutes: 0
+    libraryScanIntervalMinutes: 0,
+    hiddenSidebarItems: []
   };
   // ライブラリフォルダ（existsは「フォルダが見つかるか」。外付けドライブが外れた状態を再現する）
   let libraryFolders: Omit<LibraryFolder, 'trackCount'>[] = [

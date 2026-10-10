@@ -8,6 +8,7 @@
   import type {
     Language,
     Settings,
+    SidebarItem,
     StartupPage,
     Theme,
     VolumeNormalization
@@ -29,6 +30,19 @@
   // 選択肢の値（ラベルは表示の言語に合わせてテンプレートで`m`から読む）
   const sections: SettingsSection[] = ['general', 'playback', 'library', 'appearance'];
   const startupPages: StartupPage[] = ['lastOpened', 'songs'];
+  // サイドバーの項目（サイドバーに並ぶ順）
+  const sidebarItems: SidebarItem[] = [
+    'songs',
+    'albums',
+    'artists',
+    'genres',
+    'folders',
+    'years',
+    'favorites',
+    'recentlyAdded',
+    'playHistory',
+    'mostPlayed'
+  ];
   const themes: Theme[] = ['dark', 'light', 'system'];
   const volumeNormalizations: VolumeNormalization[] = ['off', 'track', 'album'];
 
@@ -65,9 +79,20 @@
     const saved = settingsQuery.data;
     if (pending === null || saved === undefined) return false;
     const current = pending;
-    // 項目はすべて値（文字列・数値・真偽値）のため、1つずつ比べる
-    return (Object.keys(saved) as (keyof Settings)[]).some((key) => current[key] !== saved[key]);
+    // 項目は値（文字列・数値・真偽値）か、その配列のため、1つずつ文字列にして比べる
+    return (Object.keys(saved) as (keyof Settings)[]).some(
+      (key) => JSON.stringify(current[key]) !== JSON.stringify(saved[key])
+    );
   });
+
+  /** サイドバーの項目の、表示・非表示を切り替える（隠す項目の一覧を、作り直して入れる） */
+  function setSidebarItemShown(item: SidebarItem, shown: boolean) {
+    if (pending === null) return;
+    const hidden = pending.hiddenSidebarItems.filter((candidate) => candidate !== item);
+    if (!shown) hidden.push(item);
+    // サイドバーに並ぶ順にそろえる（切り替えた順によらず、同じ内容なら同じ値にする）
+    pending.hiddenSidebarItems = sidebarItems.filter((candidate) => hidden.includes(candidate));
+  }
 
   // 設定ウィンドウにも保存済みの言語・テーマ・アクセントカラーを反映する
   $effect(() => {
@@ -257,6 +282,24 @@
               {/each}
             </select>
           </div>
+
+          <fieldset class="setting-item sidebar-items">
+            <legend class="setting-label">{m.settings.sidebarItems}</legend>
+            <div class="sidebar-item-grid">
+              {#each sidebarItems as item (item)}
+                <label class="setting-checkbox-label">
+                  <input
+                    type="checkbox"
+                    class="setting-checkbox"
+                    checked={!pending.hiddenSidebarItems.includes(item)}
+                    onchange={(e) => setSidebarItemShown(item, e.currentTarget.checked)}
+                  />
+                  {m.sidebar[item]}
+                </label>
+              {/each}
+            </div>
+            <p class="setting-description">{m.settings.sidebarItemsHint}</p>
+          </fieldset>
         </section>
       {:else if activeSection === 'playback'}
         <section class="settings-section">
@@ -503,5 +546,15 @@
 
   .settings-footer {
     @apply flex justify-end gap-3 p-4 border-t border-border bg-base-200;
+  }
+
+  /* サイドバーに表示する項目（2列に並べる） */
+  .sidebar-items {
+    @apply border-none p-0 mx-0;
+  }
+
+  .sidebar-item-grid {
+    @apply grid gap-x-6 gap-y-2 mt-2;
+    grid-template-columns: repeat(2, minmax(0, max-content));
   }
 </style>

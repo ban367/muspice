@@ -75,6 +75,22 @@ pub enum VolumeNormalization {
     Album,
 }
 
+/// サイドバーの項目（表示するかどうかを選べるもの）
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum SidebarItem {
+    Songs,
+    Albums,
+    Artists,
+    Genres,
+    Folders,
+    Years,
+    Favorites,
+    RecentlyAdded,
+    PlayHistory,
+    MostPlayed,
+}
+
 /// アプリケーション設定
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -99,6 +115,8 @@ pub struct Settings {
     pub watch_library_folders: bool,
     /// ライブラリフォルダを定期的に再スキャンする間隔（分。0で再スキャンしない）
     pub library_scan_interval_minutes: u32,
+    /// サイドバーに表示しない項目（既定は空で、すべて表示する）
+    pub hidden_sidebar_items: Vec<SidebarItem>,
 }
 
 impl Settings {
@@ -121,6 +139,7 @@ impl Default for Settings {
             output_device_id: None,
             watch_library_folders: false,
             library_scan_interval_minutes: 0,
+            hidden_sidebar_items: Vec::new(),
         }
     }
 }
@@ -190,8 +209,29 @@ fn parse_with_defaults(json: &str) -> serde_json::Result<Settings> {
         (merged.as_object_mut(), serde_json::from_str::<Value>(json)?)
     {
         merged.extend(stored);
+        if let Some(items) = merged.get_mut("hiddenSidebarItems") {
+            keep_known_sidebar_items(items);
+        }
     }
     serde_json::from_value(merged)
+}
+
+/// 隠すサイドバーの項目から、知らない項目と重複を除く
+///
+/// 項目を増やした後のバージョンが保存したファイルを、前のバージョンで開いても、設定の全体が
+/// 既定値に戻らないようにする。
+fn keep_known_sidebar_items(items: &mut Value) {
+    let Value::Array(values) = items else {
+        *items = Value::Array(Vec::new());
+        return;
+    };
+    let mut known: Vec<Value> = Vec::new();
+    for value in values.drain(..) {
+        if serde_json::from_value::<SidebarItem>(value.clone()).is_ok() && !known.contains(&value) {
+            known.push(value);
+        }
+    }
+    *values = known;
 }
 
 /// 設定をファイルに保存する
@@ -278,6 +318,7 @@ mod tests {
             output_device_id: Some("coreaudio:BuiltInSpeakerDevice".to_string()),
             watch_library_folders: true,
             library_scan_interval_minutes: 60,
+            hidden_sidebar_items: vec![SidebarItem::Years, SidebarItem::PlayHistory],
         };
 
         state.save(settings.clone()).unwrap();
@@ -303,6 +344,27 @@ mod tests {
         assert_eq!(settings.crossfade_seconds, 0);
         assert_eq!(settings.output_device_id, None);
         assert!(!settings.auto_sync_enabled());
+        assert!(settings.hidden_sidebar_items.is_empty());
+    }
+
+    /// 隠すサイドバーの項目は、知らない項目・重複があっても、ほかの設定ごと読める
+    #[test]
+    fn test_unknown_sidebar_items_are_skipped() {
+        let path = temp_settings_path("sidebar-items");
+        fs::write(
+            &path,
+            r#"{ "crossfadeSeconds": 3,
+                 "hiddenSidebarItems": ["years", "futureItem", "years", 5, "recentlyAdded"] }"#,
+        )
+        .unwrap();
+
+        let settings = load_settings(&path);
+        assert_eq!(
+            settings.hidden_sidebar_items,
+            [SidebarItem::Years, SidebarItem::RecentlyAdded]
+        );
+        // 知らない項目のために、設定の全体が既定値に戻らない
+        assert_eq!(settings.crossfade_seconds, 3);
     }
 
     #[test]

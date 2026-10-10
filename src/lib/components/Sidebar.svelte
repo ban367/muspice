@@ -19,7 +19,8 @@
   import { ui } from '#lib/stores/ui.svelte.js';
   import { isTrackDrag, readDraggedTrackIds } from '#lib/utils/trackDrag.js';
   import { useGenresQuery } from '#lib/queries/tracks.js';
-  import type { Playlist } from '#lib/types/models.js';
+  import { useSettingsQuery } from '#lib/queries/settings.js';
+  import type { Playlist, SidebarItem } from '#lib/types/models.js';
   import PlaylistContextMenu from './PlaylistContextMenu.svelte';
   import PlaylistExportDialog from './PlaylistExportDialog.svelte';
   import PlaylistImportButton from './PlaylistImportButton.svelte';
@@ -45,6 +46,11 @@
   }
 
   // ジャンルクエリ
+  // サイドバーに表示する項目（設定で隠した項目は出さない。設定を読み込むまでは、すべて出す）
+  const settingsQuery = useSettingsQuery();
+  const hiddenItems = $derived(new Set(settingsQuery.data?.hiddenSidebarItems ?? []));
+  const isShown = (item: SidebarItem) => !hiddenItems.has(item);
+
   const genresQuery = useGenresQuery();
   const genres = $derived(genresQuery.data ?? []);
 
@@ -219,73 +225,12 @@
   <div class="mb-6">
     <h2 class="section-title">{m.sidebar.browse}</h2>
     <ul class="list-none m-0 p-0">
-      <li>
-        <a
-          href={resolve('library/songs')}
-          class="nav-item-base"
-          class:active={currentPath === '/library/songs'}
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="w-5 h-5 shrink-0"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            stroke-width="2"
-          >
-            <path d="M9 18V5l12-2v13" />
-            <circle cx="6" cy="18" r="3" />
-            <circle cx="18" cy="16" r="3" />
-          </svg>
-          <span>{m.sidebar.songs}</span>
-        </a>
-      </li>
-      <li>
-        <a
-          href={resolve('library/albums')}
-          class="nav-item-base"
-          class:active={currentPath === '/library/albums'}
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="w-5 h-5 shrink-0"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            stroke-width="2"
-          >
-            <circle cx="12" cy="12" r="10" />
-            <circle cx="12" cy="12" r="3" />
-          </svg>
-          <span>{m.sidebar.albums}</span>
-        </a>
-      </li>
-      <li>
-        <a
-          href={resolve('library/artists')}
-          class="nav-item-base"
-          class:active={currentPath === '/library/artists'}
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="w-5 h-5 shrink-0"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            stroke-width="2"
-          >
-            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-            <circle cx="12" cy="7" r="4" />
-          </svg>
-          <span>{m.sidebar.artists}</span>
-        </a>
-      </li>
-      <li>
-        <div class="genre-nav-container">
+      {#if isShown('songs')}
+        <li>
           <a
-            href={resolve('library/genres')}
-            class="nav-item-base flex-1"
-            class:active={currentPath === '/library/genres'}
+            href={resolve('library/songs')}
+            class="nav-item-base"
+            class:active={currentPath === '/library/songs'}
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -295,48 +240,168 @@
               stroke="currentColor"
               stroke-width="2"
             >
-              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-              <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+              <path d="M9 18V5l12-2v13" />
+              <circle cx="6" cy="18" r="3" />
+              <circle cx="18" cy="16" r="3" />
             </svg>
-            <span class="flex-1 text-left">{m.sidebar.genres}</span>
+            <span>{m.sidebar.songs}</span>
           </a>
-          <button
-            class="genre-expand-btn"
-            class:active={isGenreExpanded}
-            onclick={toggleGenreExpand}
-            title={m.sidebar.expandGenres}
+        </li>
+      {/if}
+      {#if isShown('albums')}
+        <li>
+          <a
+            href={resolve('library/albums')}
+            class="nav-item-base"
+            class:active={currentPath === '/library/albums'}
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
-              class="w-4 h-4 transition-transform duration-200"
-              class:rotate-90={isGenreExpanded}
+              class="w-5 h-5 shrink-0"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
               stroke-width="2"
             >
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+              <circle cx="12" cy="12" r="10" />
+              <circle cx="12" cy="12" r="3" />
             </svg>
-          </button>
-        </div>
-        <!-- ジャンルサブリスト -->
-        {#if isGenreExpanded && genres.length > 0}
-          <ul class="genre-sublist">
-            {#each genres as genre (genre.name)}
-              <li>
-                <a
-                  href={resolve(`library/genres/${encodeURIComponent(genre.name)}`)}
-                  class="genre-item"
-                  class:active={currentPath === `/library/genres/${encodeURIComponent(genre.name)}`}
-                >
-                  <span class="genre-name">{genre.name}</span>
-                  <span class="genre-count">{genre.trackCount}</span>
-                </a>
-              </li>
-            {/each}
-          </ul>
-        {/if}
-      </li>
+            <span>{m.sidebar.albums}</span>
+          </a>
+        </li>
+      {/if}
+      {#if isShown('artists')}
+        <li>
+          <a
+            href={resolve('library/artists')}
+            class="nav-item-base"
+            class:active={currentPath === '/library/artists'}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="w-5 h-5 shrink-0"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+              <circle cx="12" cy="7" r="4" />
+            </svg>
+            <span>{m.sidebar.artists}</span>
+          </a>
+        </li>
+      {/if}
+      {#if isShown('genres')}
+        <li>
+          <div class="genre-nav-container">
+            <a
+              href={resolve('library/genres')}
+              class="nav-item-base flex-1"
+              class:active={currentPath === '/library/genres'}
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="w-5 h-5 shrink-0"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+              </svg>
+              <span class="flex-1 text-left">{m.sidebar.genres}</span>
+            </a>
+            <button
+              class="genre-expand-btn"
+              class:active={isGenreExpanded}
+              onclick={toggleGenreExpand}
+              title={m.sidebar.expandGenres}
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="w-4 h-4 transition-transform duration-200"
+                class:rotate-90={isGenreExpanded}
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+          </div>
+          <!-- ジャンルサブリスト -->
+          {#if isGenreExpanded && genres.length > 0}
+            <ul class="genre-sublist">
+              {#each genres as genre (genre.name)}
+                <li>
+                  <a
+                    href={resolve(`library/genres/${encodeURIComponent(genre.name)}`)}
+                    class="genre-item"
+                    class:active={currentPath ===
+                      `/library/genres/${encodeURIComponent(genre.name)}`}
+                  >
+                    <span class="genre-name">{genre.name}</span>
+                    <span class="genre-count">{genre.trackCount}</span>
+                  </a>
+                </li>
+              {/each}
+            </ul>
+          {/if}
+        </li>
+      {/if}
+      {#if isShown('folders')}
+        <li>
+          <a
+            href={resolve('library/folders')}
+            class="nav-item-base"
+            class:active={currentPath === '/library/folders'}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="w-5 h-5 shrink-0"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
+              />
+            </svg>
+            <span>{m.sidebar.folders}</span>
+          </a>
+        </li>
+      {/if}
+      {#if isShown('years')}
+        <li>
+          <a
+            href={resolve('library/years')}
+            class="nav-item-base"
+            class:active={currentPath === '/library/years'}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="w-5 h-5 shrink-0"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+              />
+            </svg>
+            <span>{m.sidebar.years}</span>
+          </a>
+        </li>
+      {/if}
     </ul>
   </div>
 
@@ -344,75 +409,106 @@
   <div class="mb-6">
     <h2 class="section-title">{m.sidebar.library}</h2>
     <ul class="list-none m-0 p-0">
-      <li>
-        <a
-          href={resolve('library/favorites')}
-          class="nav-item-base"
-          class:active={currentPath === '/library/favorites'}
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="w-5 h-5 shrink-0"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
+      {#if isShown('favorites')}
+        <li>
+          <a
+            href={resolve('library/favorites')}
+            class="nav-item-base"
+            class:active={currentPath === '/library/favorites'}
           >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"
-            />
-          </svg>
-          <span>{m.sidebar.favorites}</span>
-        </a>
-      </li>
-      <li>
-        <a
-          href={resolve('library/history')}
-          class="nav-item-base"
-          class:active={currentPath === '/library/history'}
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="w-5 h-5 shrink-0"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="w-5 h-5 shrink-0"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"
+              />
+            </svg>
+            <span>{m.sidebar.favorites}</span>
+          </a>
+        </li>
+      {/if}
+      {#if isShown('recentlyAdded')}
+        <li>
+          <a
+            href={resolve('library/recent')}
+            class="nav-item-base"
+            class:active={currentPath === '/library/recent'}
           >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-            />
-          </svg>
-          <span>{m.sidebar.playHistory}</span>
-        </a>
-      </li>
-      <li>
-        <a
-          href={resolve('library/mostplayed')}
-          class="nav-item-base"
-          class:active={currentPath === '/library/mostplayed'}
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="w-5 h-5 shrink-0"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="w-5 h-5 shrink-0"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
+            </svg>
+            <span>{m.sidebar.recentlyAdded}</span>
+          </a>
+        </li>
+      {/if}
+      {#if isShown('playHistory')}
+        <li>
+          <a
+            href={resolve('library/history')}
+            class="nav-item-base"
+            class:active={currentPath === '/library/history'}
           >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"
-            />
-          </svg>
-          <span>{m.sidebar.mostPlayed}</span>
-        </a>
-      </li>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="w-5 h-5 shrink-0"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
+            </svg>
+            <span>{m.sidebar.playHistory}</span>
+          </a>
+        </li>
+      {/if}
+      {#if isShown('mostPlayed')}
+        <li>
+          <a
+            href={resolve('library/mostplayed')}
+            class="nav-item-base"
+            class:active={currentPath === '/library/mostplayed'}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="w-5 h-5 shrink-0"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"
+              />
+            </svg>
+            <span>{m.sidebar.mostPlayed}</span>
+          </a>
+        </li>
+      {/if}
     </ul>
   </div>
 

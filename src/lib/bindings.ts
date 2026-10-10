@@ -1003,6 +1003,8 @@ export type Settings = {
 	watchLibraryFolders: boolean,
 	/**  ライブラリフォルダを定期的に再スキャンする間隔（分。0で再スキャンしない） */
 	libraryScanIntervalMinutes: number,
+	/**  サイドバーに表示しない項目（既定は空で、すべて表示する） */
+	hiddenSidebarItems: SidebarItem[],
 };
 
 /**  設定が保存された（設定ウィンドウでの変更をメインウィンドウに反映する） */
@@ -1010,6 +1012,9 @@ export type SettingsChanged = Settings;
 
 /**  メニュー「Muspice について」: Aboutダイアログを表示する */
 export type ShowAboutDialog = null;
+
+/**  サイドバーの項目（表示するかどうかを選べるもの） */
+export type SidebarItem = "songs" | "albums" | "artists" | "genres" | "folders" | "years" | "favorites" | "recentlyAdded" | "playHistory" | "mostPlayed";
 
 /**
  *  並び順に使う値（ソート用のタグ。`TITLESORT`・`ARTISTSORT`・`ALBUMSORT`・`ALBUMARTISTSORT`）
