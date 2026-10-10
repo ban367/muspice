@@ -1,4 +1,14 @@
+<!--
+  @component TrackList
+  曲の一覧（リスト表示・グリッド表示）。
+
+  - リスト表示の列は、見出しの右クリックで選び、見出しのドラッグで並べ替え、境目のドラッグで幅を変える
+  - 見出しのクリックで、その列で並べ替える（どの列でも並べ替えられる）
+  - 列と並び順は、`viewId`ごとに覚える（`#lib/stores/trackListView.svelte`）。幅は、どの画面でも共通
+  - 再生中の曲へのジャンプ（`ui.revealTrackId`）を受けて、その曲の行までスクロールして選ぶ
+-->
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { useSetRatingMutation } from '#lib/queries/tracks.js';
   import {
     addNextInQueue,
@@ -6,9 +16,8 @@
     player,
     playTrackFromQueue
   } from '#lib/stores/player.svelte.js';
-  import { ui, type ColumnWidths } from '#lib/stores/ui.svelte.js';
+  import { ui } from '#lib/stores/ui.svelte.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
-  import { formatDuration } from '#lib/utils/format.js';
   import type { Track } from '#lib/types/models.js';
   import PlayingIndicator from './PlayingIndicator.svelte';
   import RatingStars from './RatingStars.svelte';
@@ -18,12 +27,21 @@
   import DeleteTrackDialog from '../DeleteTrackDialog.svelte';
   import MarqueeText from '../MarqueeText.svelte';
   import AlbumArt from '../AlbumArt.svelte';
+  import TrackColumnMenu from './TrackColumnMenu.svelte';
+  import { TrackListView, trackListView } from '#lib/stores/trackListView.svelte.js';
+  import {
+    TRACK_COLUMNS,
+    moveColumn,
+    trackCellText,
+    type TrackColumnId
+  } from '#lib/utils/trackColumns.js';
   import { VirtualList } from '#lib/components/ui/index.js';
   import { TrackSelection, handleTrackListKeydown } from '#lib/utils/trackSelection.svelte.js';
   import { startTrackDrag } from '#lib/utils/trackDrag.js';
   import {
     createTrackSorter,
-    type SortDirection,
+    initialSortDirection,
+    type TrackSort,
     type TrackSortField
   } from '#lib/utils/trackSort.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
@@ -39,13 +57,24 @@
     emptyHint?: string;
     displayMode?: 'grid' | 'list';
     /**
+     * 列と並び順を覚える単位（画面の名前。同じ名前の一覧は、同じ設定を使う）
+     *
+     * 省略時は、覚えない（開くたびに既定の列・並び順になる）。
+     */
+    viewId?: string;
+    /** 最初に表示する列（省略時は、タイトル・アーティスト・お気に入り・評価・時間） */
+    defaultColumns?: readonly TrackColumnId[];
+    /**
      * 最初の並び順（省略時は、追加した日時の新しい順）
      *
      * nullなら、渡した順のまま並べる（見出しをクリックすると、その項目で並べ替える）。
      */
-    defaultSort?: { field: TrackSortField; direction: SortDirection } | null;
-    /** リスト表示に、再生回数の列を出すか */
-    showPlayCount?: boolean;
+    defaultSort?: TrackSort | null;
+    /**
+     * 再生中の曲へのジャンプで、この一覧にその曲がない場合に、ジャンプを取り消すか
+     * （ライブラリの全曲の一覧に指定する。ほかの一覧は、全曲の一覧へ移動するために残す）
+     */
+    isRevealFallback?: boolean;
   }
 
   let {
@@ -57,8 +86,10 @@
     emptyMessage,
     emptyHint,
     displayMode = 'list',
-    defaultSort = { field: 'createdAt', direction: 'desc' },
-    showPlayCount = false
+    viewId,
+    defaultColumns,
+    defaultSort,
+    isRevealFallback = false
   }: Props = $props();
 
   // 行の高さの見積もり（描画した後は、VirtualListが実測した高さを使う）
@@ -70,11 +101,35 @@
   // グリッド表示で、見えている範囲の前後に余分に描画する行の数（1行に何枚も並ぶため、少なくする）
   const GRID_OVERSCAN_ROWS = 2;
 
-  // 最初の並び順だけを受け取る（その後は、見出しのクリックで変える）
+  // 列と並び順（画面ごとに覚える。既定の値は、最初に受け取ったものを使う）
   // svelte-ignore state_referenced_locally
-  let sortField = $state<TrackSortField | null>(defaultSort?.field ?? null);
+  const viewDefaults = { columns: defaultColumns, sort: defaultSort };
   // svelte-ignore state_referenced_locally
-  let sortDirection = $state<SortDirection>(defaultSort?.direction ?? 'asc');
+  const view = viewId ? trackListView(viewId, viewDefaults) : new TrackListView(null, viewDefaults);
+  const columns = $derived(view.columns);
+  const sort = $derived(view.sort);
+
+  const columnLabels: Record<TrackColumnId, string> = {
+    title: m.fields.title,
+    artist: m.fields.artist,
+    album: m.fields.album,
+    albumArtist: m.fields.albumArtist,
+    genre: m.fields.genre,
+    year: m.fields.year,
+    trackNumber: m.fields.trackNumber,
+    discNumber: m.fields.discNumber,
+    favorite: m.fields.favorite,
+    rating: m.fields.rating,
+    playCount: m.fields.playCount,
+    skipCount: m.fields.skipCount,
+    lastPlayedAt: m.fields.lastPlayedAt,
+    createdAt: m.fields.createdAt,
+    duration: m.fields.duration,
+    format: m.fields.format,
+    bitrate: m.fields.bitrate,
+    sampleRate: m.fields.sampleRate,
+    fileSize: m.fields.fileSize
+  };
 
   // アルバムアートサイズ
   const artSize = $derived(ui.gridCardSize);
@@ -95,21 +150,22 @@
 
   // 列リサイズ状態
   let isResizing = $state(false);
-  let resizingColumn = $state<keyof ColumnWidths | null>(null);
+  let resizingColumn = $state<TrackColumnId | null>(null);
   let resizeStartX = $state(0);
   let resizeStartWidth = $state(0);
 
-  // お気に入りのハートの列の幅（px）
-  const FAVORITE_COLUMN_WIDTH = 20;
-  // 再生回数の列の幅（px）
-  const PLAY_COUNT_COLUMN_WIDTH = 72;
+  // 列を選ぶメニュー（見出しの右クリック）
+  let columnMenu = $state<{ x: number; y: number } | null>(null);
 
-  // グリッドテンプレート列を計算
+  // 見出しのドラッグでの、列の入れ替え
+  let draggingColumn = $state<TrackColumnId | null>(null);
+  let dropTargetColumn = $state<TrackColumnId | null>(null);
+
+  // グリッドテンプレート列を計算（番号の列の後に、選んだ列を並べる）
   const gridTemplateColumns = $derived(
-    `${ui.columnWidths.number}px ${ui.columnWidths.title}px ${ui.columnWidths.artist}px ` +
-      `${FAVORITE_COLUMN_WIDTH}px ${ui.columnWidths.rating}px ` +
-      (showPlayCount ? `${PLAY_COUNT_COLUMN_WIDTH}px ` : '') +
-      `${ui.columnWidths.duration}px`
+    [ui.columnWidths.number, ...columns.map((column) => ui.columnWidths[column])]
+      .map((width) => `${width}px`)
+      .join(' ')
   );
 
   // レーティングミューテーション
@@ -118,22 +174,38 @@
   // ソートされたトラック
   const sortTracks = createTrackSorter();
   const sortedTracks = $derived(
-    tracks && sortField ? sortTracks(tracks, sortField, sortDirection) : tracks
+    tracks && sort ? sortTracks(tracks, sort.field, sort.direction) : tracks
   );
 
+  /** 見出しのクリック: その列で並べ替える（同じ列なら、向きを逆にする） */
   function toggleSort(field: TrackSortField) {
-    if (sortField === field) {
-      sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
-    } else {
-      sortField = field;
-      sortDirection = 'asc';
-    }
+    view.sort =
+      sort?.field === field
+        ? { field, direction: sort.direction === 'asc' ? 'desc' : 'asc' }
+        : { field, direction: initialSortDirection(field) };
   }
 
   function getSortIcon(field: TrackSortField): string {
-    if (sortField !== field) return '';
-    return sortDirection === 'asc' ? '↑' : '↓';
+    if (sort?.field !== field) return '';
+    return sort.direction === 'asc' ? '↑' : '↓';
   }
+
+  // 再生中の曲へのジャンプ: この一覧にその曲があれば、その行までスクロールして選ぶ
+  $effect(() => {
+    const trackId = ui.revealTrackId;
+    if (trackId === null || !sortedTracks || !virtualList) return;
+    const index = sortedTracks.findIndex((track) => track.id === trackId);
+    untrack(() => {
+      if (index >= 0) {
+        selection.click(trackId, { shiftKey: false, toggleKey: false });
+        virtualList?.scrollToIndex(index);
+        ui.revealTrackId = null;
+      } else if (isRevealFallback && !searchTerm) {
+        // 全曲の一覧にもない曲（ライブラリから外した曲）は、移動できない
+        ui.revealTrackId = null;
+      }
+    });
+  });
 
   const selectedTracks = $derived.by(() => {
     if (!sortedTracks) return [];
@@ -239,9 +311,48 @@
     isDragging = false;
   }
 
-  // 列リサイズ開始
-  function handleResizeStart(event: MouseEvent, column: keyof ColumnWidths) {
+  function openColumnMenu(event: MouseEvent) {
     event.preventDefault();
+    columnMenu = { x: event.clientX, y: event.clientY };
+  }
+
+  /** 列の入れ替えで運ぶデータの種類（曲のドラッグと区別する） */
+  const COLUMN_DRAG_TYPE = 'application/x-muspice-column';
+
+  function handleColumnDragStart(event: DragEvent, column: TrackColumnId) {
+    // 幅を変えている間は、列を運ばない
+    if (isResizing || !event.dataTransfer) {
+      event.preventDefault();
+      return;
+    }
+    event.dataTransfer.setData(COLUMN_DRAG_TYPE, column);
+    event.dataTransfer.effectAllowed = 'move';
+    draggingColumn = column;
+  }
+
+  function handleColumnDragOver(event: DragEvent, column: TrackColumnId) {
+    if (draggingColumn === null) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+    dropTargetColumn = column;
+  }
+
+  function handleColumnDrop(event: DragEvent, column: TrackColumnId) {
+    if (draggingColumn === null) return;
+    event.preventDefault();
+    view.columns = moveColumn(columns, draggingColumn, column);
+    handleColumnDragEnd();
+  }
+
+  function handleColumnDragEnd() {
+    draggingColumn = null;
+    dropTargetColumn = null;
+  }
+
+  // 列リサイズ開始
+  function handleResizeStart(event: MouseEvent, column: TrackColumnId) {
+    event.preventDefault();
+    event.stopPropagation();
     isResizing = true;
     resizingColumn = column;
     resizeStartX = event.clientX;
@@ -256,7 +367,7 @@
     if (!isResizing || !resizingColumn) return;
 
     const delta = event.clientX - resizeStartX;
-    const newWidth = Math.max(50, resizeStartWidth + delta);
+    const newWidth = Math.max(TRACK_COLUMNS[resizingColumn].minWidth, resizeStartWidth + delta);
 
     ui.columnWidths = {
       ...ui.columnWidths,
@@ -302,56 +413,47 @@
           onkeydown={handleListKeydown}
         >
           {#snippet header()}
-            <div class="table-header" style="grid-template-columns: {gridTemplateColumns};">
+            <!-- 見出しの右クリックで、列を選ぶメニューを開く -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div
+              class="table-header"
+              style="grid-template-columns: {gridTemplateColumns};"
+              oncontextmenu={openColumnMenu}
+            >
               <div class="col-number">#</div>
-              <div class="resizable-header">
-                <button class="sortable" onclick={() => toggleSort('title')}>
-                  {m.fields.title}
-                  {getSortIcon('title')}
-                </button>
-                <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+              {#each columns as column (column)}
+                <!-- 見出しは、ドラッグで列を入れ替えられる -->
                 <div
-                  class="resize-handle"
-                  onmousedown={(e) => handleResizeStart(e, 'title')}
-                  role="separator"
-                  aria-orientation="vertical"
-                ></div>
-              </div>
-              <div class="resizable-header">
-                <button class="sortable" onclick={() => toggleSort('artist')}>
-                  {m.fields.artist}
-                  {getSortIcon('artist')}
-                </button>
-                <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-                <div
-                  class="resize-handle"
-                  onmousedown={(e) => handleResizeStart(e, 'artist')}
-                  role="separator"
-                  aria-orientation="vertical"
-                ></div>
-              </div>
-              <!-- お気に入りのハートの列（見出しは出さない） -->
-              <div></div>
-              <div class="resizable-header">
-                <div class="col-rating">{m.fields.rating}</div>
-                <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-                <div
-                  class="resize-handle"
-                  onmousedown={(e) => handleResizeStart(e, 'rating')}
-                  role="separator"
-                  aria-orientation="vertical"
-                ></div>
-              </div>
-              {#if showPlayCount}
-                <button class="sortable text-right" onclick={() => toggleSort('playCount')}>
-                  {m.fields.playCount}
-                  {getSortIcon('playCount')}
-                </button>
-              {/if}
-              <button class="sortable text-right" onclick={() => toggleSort('duration')}>
-                {m.fields.duration}
-                {getSortIcon('duration')}
-              </button>
+                  class="header-cell align-{TRACK_COLUMNS[column].align}"
+                  class:dragging={draggingColumn === column}
+                  class:drop-target={dropTargetColumn === column && draggingColumn !== column}
+                  draggable="true"
+                  ondragstart={(e) => handleColumnDragStart(e, column)}
+                  ondragover={(e) => handleColumnDragOver(e, column)}
+                  ondrop={(e) => handleColumnDrop(e, column)}
+                  ondragend={handleColumnDragEnd}
+                  data-column={column}
+                >
+                  <button
+                    class="sortable"
+                    onclick={() => toggleSort(column)}
+                    title={columnLabels[column]}
+                    aria-label={columnLabels[column]}
+                  >
+                    <span class="truncate">
+                      {column === 'favorite' ? '♥' : columnLabels[column]}
+                    </span>
+                    {getSortIcon(column)}
+                  </button>
+                  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+                  <div
+                    class="resize-handle"
+                    onmousedown={(e) => handleResizeStart(e, column)}
+                    role="separator"
+                    aria-orientation="vertical"
+                  ></div>
+                </div>
+              {/each}
             </div>
           {/snippet}
 
@@ -385,32 +487,37 @@
                   </span>
                 {/if}
               </div>
-              <MarqueeText
-                text={searchTerm ? track.title || track.fileName : track.title || track.fileName}
-                class="text-text-primary"
-              />
-              <MarqueeText
-                text={searchTerm
-                  ? track.artist || m.common.unknownArtist
-                  : track.artist || m.common.unknownArtist}
-                class="text-text-secondary text-sm"
-              />
-              <FavoriteButton trackId={track.id} isFavorite={track.isFavorite} />
-              <div class="col-rating flex items-center justify-center">
-                <RatingStars
-                  rating={track.rating}
-                  onChange={(rating) =>
-                    setRatingMutation.mutateAsync({ trackId: track.id, rating })}
-                />
-              </div>
-              {#if showPlayCount}
-                <div class="text-right text-text-muted text-sm tabular-nums">
-                  {track.playCount}
-                </div>
-              {/if}
-              <div class="text-right text-text-muted text-sm">
-                {formatDuration(track.duration)}
-              </div>
+              {#each columns as column (column)}
+                {#if column === 'title'}
+                  <MarqueeText text={track.title || track.fileName} class="text-text-primary" />
+                {:else if column === 'artist'}
+                  <MarqueeText
+                    text={track.artist || m.common.unknownArtist}
+                    class="cell-artist text-text-secondary text-sm"
+                  />
+                {:else if column === 'album' || column === 'albumArtist' || column === 'genre'}
+                  <MarqueeText
+                    text={trackCellText(track, column)}
+                    class="text-text-secondary text-sm"
+                  />
+                {:else if column === 'favorite'}
+                  <div class="flex items-center justify-center">
+                    <FavoriteButton trackId={track.id} isFavorite={track.isFavorite} />
+                  </div>
+                {:else if column === 'rating'}
+                  <div class="col-rating flex items-center justify-center">
+                    <RatingStars
+                      rating={track.rating}
+                      onChange={(rating) =>
+                        setRatingMutation.mutateAsync({ trackId: track.id, rating })}
+                    />
+                  </div>
+                {:else}
+                  <div class="cell align-{TRACK_COLUMNS[column].align}">
+                    {trackCellText(track, column)}
+                  </div>
+                {/if}
+              {/each}
             </div>
           {/snippet}
         </VirtualList>
@@ -528,6 +635,17 @@
   />
 {/if}
 
+<!-- 列を選ぶメニュー -->
+{#if columnMenu}
+  <TrackColumnMenu
+    x={columnMenu.x}
+    y={columnMenu.y}
+    {view}
+    labels={columnLabels}
+    onClose={() => (columnMenu = null)}
+  />
+{/if}
+
 <!-- 削除ダイアログ -->
 <DeleteTrackDialog
   bind:open={showDeleteDialog}
@@ -538,12 +656,31 @@
 <style>
   @reference "../../../app.css";
   /* 列の見出し（VirtualListが一覧の上に固定して表示する） */
+  /* 列が多くて幅に収まらない場合は、見出しと行を列の幅の合計まで広げ、横にスクロールする */
   .table-header {
     @apply grid gap-3 px-4 py-1.5 text-xs font-semibold uppercase text-text-muted border-b border-border bg-base-100;
+    min-width: max-content;
   }
 
-  .resizable-header {
-    @apply relative flex items-center;
+  .header-cell {
+    @apply relative flex items-center min-w-0;
+  }
+
+  .header-cell.align-right {
+    @apply justify-end;
+  }
+
+  .header-cell.align-center {
+    @apply justify-center;
+  }
+
+  /* 入れ替えで運んでいる列と、落とす先の列 */
+  .header-cell.dragging {
+    @apply opacity-50;
+  }
+
+  .header-cell.drop-target {
+    box-shadow: inset 2px 0 0 var(--color-primary);
   }
 
   .resize-handle {
@@ -556,11 +693,25 @@
   }
 
   .sortable {
-    @apply bg-transparent border-none text-text-muted cursor-pointer text-left text-xs font-semibold uppercase p-0 transition-colors hover:text-text-primary;
+    @apply flex items-center gap-1 min-w-0 bg-transparent border-none text-text-muted cursor-pointer text-left text-xs font-semibold uppercase p-0 transition-colors hover:text-text-primary;
   }
 
   .track-row {
     @apply grid gap-3 px-4 py-1.5 items-center cursor-pointer rounded transition-colors select-none;
+    min-width: max-content;
+  }
+
+  /* 文字で出す列のセル */
+  .cell {
+    @apply min-w-0 truncate text-text-muted text-sm tabular-nums;
+  }
+
+  .cell.align-right {
+    @apply text-right;
+  }
+
+  .cell.align-center {
+    @apply text-center;
   }
 
   .track-row:hover {
@@ -580,7 +731,7 @@
     @apply bg-secondary/15;
   }
 
-  .track-row.playing > div:nth-child(3) {
+  .track-row.playing :global(.cell-artist) {
     @apply text-secondary;
   }
 

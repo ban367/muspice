@@ -40,8 +40,9 @@
       {error}
       emptyMessage={m.library.noMostPlayed}
       emptyHint={m.library.noMostPlayedHint}
+      viewId="mostplayed"
+      defaultColumns={['title', 'artist', 'favorite', 'rating', 'playCount', 'duration']}
       defaultSort={{ field: 'playCount', direction: 'desc' }}
-      showPlayCount
     />
   </div>
 </div>

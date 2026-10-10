@@ -60,6 +60,14 @@ export const en: Messages = {
     discTotal: 'Disc total',
     bpm: 'BPM',
     compilation: 'Compilation',
+    favorite: 'Favorite',
+    skipCount: 'Skips',
+    lastPlayedAt: 'Last Played',
+    createdAt: 'Date Added',
+    format: 'Format',
+    bitrate: 'Bitrate',
+    sampleRate: 'Sample Rate',
+    fileSize: 'Size',
     titleSort: 'Sort Title',
     artistSort: 'Sort Artist',
     albumArtistSort: 'Sort Album Artist',
@@ -177,8 +185,15 @@ export const en: Messages = {
     confirmTitle: 'Confirm'
   },
 
+  trackList: {
+    columns: 'Columns',
+    resetSort: 'Reset Sort Order',
+    resetColumns: 'Reset Columns and Sort Order'
+  },
+
   player: {
     noTrack: 'Select a track to play',
+    revealCurrentTrack: 'Show the current track in the list (Ctrl+L)',
     shuffleTitle: 'Shuffle (S)',
     shuffle: 'Shuffle',
     previousTitle: 'Previous (Ctrl+←)',
