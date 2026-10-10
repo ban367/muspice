@@ -33,6 +33,7 @@ mod track_notification;
 mod track_relink;
 mod tray;
 mod validation;
+mod vorbis_tag;
 
 use commands::{
     add_tracks_to_playlist, apply_metadata_changes, cancel_device_sync,

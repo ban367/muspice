@@ -690,6 +690,11 @@ pub(crate) mod tests {
     //   ffmpeg -i source48_24.wav -c:a wavpack -map_metadata -1 -fflags +bitexact wavpack24.wv
     //   mac source44.wav monkey.ape -c2000
     //   mac source48_24.wav monkey24.ape -c4000
+    //
+    // FLACのファイルは、タグの読み書きのテスト（`metadata`・`vorbis_tag`）で使う（音声のフレームが
+    // ない最小のFLACは、コメントが短くなる書き込みでloftyが壊すため、テストの中では生成しない）。
+    //
+    //   ffmpeg -i source44.wav -c:a flac -map_metadata -1 -fflags +bitexact flac.flac
 
     /// フィクスチャの元の音源: 200Hzから4kHzへ上がる音にノイズを足したもの（頭から終わりまで音がある）
     fn fixture_signal(rate: u32) -> Vec<i16> {
