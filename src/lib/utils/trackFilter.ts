@@ -80,6 +80,8 @@ export interface BrowserItem {
   name: string | null;
   /** アルバムの、まとめたアーティスト（同じ名前のアルバムを見分けるために出す） */
   artist?: string | null;
+  /** 同じ名前の項目が、一覧にほかにもあるか（アルバムの列で、アーティストも出す目印） */
+  hasSameName?: boolean;
   /** その項目の曲数 */
   count: number;
 }
@@ -141,6 +143,15 @@ function collect(
     .map(({ sortName: _sortName, ...item }) => item);
 }
 
+/** 同じ名前の項目が複数ある場合に、目印を付ける（別のアーティストの、同じ名前のアルバム） */
+function markSameNames(items: BrowserItem[]): BrowserItem[] {
+  const counts = new Map<string | null, number>();
+  for (const item of items) counts.set(item.name, (counts.get(item.name) ?? 0) + 1);
+  return items.map((item) =>
+    (counts.get(item.name) ?? 0) > 1 ? { ...item, hasSameName: true } : item
+  );
+}
+
 const genreKey = (track: Track) => track.genre ?? UNKNOWN_KEY;
 const artistKey = (track: Track) => groupArtist(track) ?? UNKNOWN_KEY;
 const albumKeyOf = (track: Track) =>
@@ -188,12 +199,14 @@ export function browseTracks(tracks: readonly Track[], selection: BrowserSelecti
   const selectedArtists = keepExisting(selection.artists, artists);
   const inArtists = narrow(inGenres, selectedArtists, artistKey);
 
-  const albums = collect(inArtists, (track) => ({
-    key: albumKeyOf(track),
-    name: track.album,
-    artist: groupArtist(track),
-    sortName: track.sortTags.album
-  }));
+  const albums = markSameNames(
+    collect(inArtists, (track) => ({
+      key: albumKeyOf(track),
+      name: track.album,
+      artist: groupArtist(track),
+      sortName: track.sortTags.album
+    }))
+  );
   const selectedAlbums = keepExisting(selection.albums, albums);
   const inAlbums = narrow(inArtists, selectedAlbums, albumKeyOf);
 
