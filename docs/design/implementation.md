@@ -193,8 +193,9 @@ src-tauri/src/
 - 曲の一覧（`TrackList`）のリスト表示の列は、`#lib/utils/trackColumns`の定義（`TRACK_COLUMN_IDS`・`TRACK_COLUMNS`）から描画する（ADR-038）
   - 列を足す時は、`TRACK_COLUMN_IDS`・`TRACK_COLUMNS`（幅・そろえ方）・`trackCellText`（セルの文字列）・`trackSort`の`sortKey`（並べ替えの値）と、見出しの表示名（`m.fields`）を足す。どの列も並べ替えられる
   - 表示する列・列の順番・並び順は、画面ごとに`#lib/stores/trackListView.svelte`の`trackListView(viewId, defaults)`が覚える（localStorageの`muspice:trackListView:<viewId>`）。一覧を置く画面は、`TrackList`に`viewId`と、その画面の既定（`defaultColumns`・`defaultSort`）を渡す。列の幅は、どの画面でも共通で`ui.columnWidths`に持つ
+  - プレイリストの画面も`TrackList`で表示する（ADR-039）。`onReorder`を渡すと、渡した順のまま並べている間（並び順がnullの間）だけ、行のドラッグで並べ替えられる（並べ替えの計算は`#lib/utils/reorder`の`moveItems`）。`onRemove`を渡すと、右クリックのメニューとDeleteキーで、選択した曲を一覧から外せる。列はどのプレイリストでも共通（`viewId="playlist"`）、並び順はプレイリストごと（`sortViewId`に`playlistSortViewId(id)`）に覚える
   - 再生中の曲へのジャンプは、`ui.revealTrackId`に曲のIDを入れる。その曲を含む`TrackList`が、行までスクロールして選び、nullに戻す。開いている画面の一覧にない場合は、プレーヤーが全曲の一覧（`isRevealFallback`を付けた`TrackList`）へ移動する
-- 曲の一覧（`TrackList`、アルバム・アーティストの詳細、グループのモーダル、プレイリストの詳細）は、一覧ごとに`#lib/utils/trackSelection.svelte`の`TrackSelection`を作り、行のクリックを`click()`へ、一覧の`onkeydown`を`handleTrackListKeydown`へ渡す
+- 曲の一覧（`TrackList`（プレイリストの画面を含む）、アルバム・アーティストの詳細、グループのモーダル）は、一覧ごとに`#lib/utils/trackSelection.svelte`の`TrackSelection`を作り、行のクリックを`click()`へ、一覧の`onkeydown`を`handleTrackListKeydown`へ渡す
   - 矢印キーで選択を移し、Shift+矢印で範囲選択、Cmd/Ctrl+Aですべて選択、Enterで再生する
   - 一覧の要素を`role="listbox"`・`tabindex="0"`にしてフォーカスを受け、行は`role="option"`・`data-track-id`を付けてフォーカスを受けない（行をクリックすると一覧の要素にフォーカスが移り、行が消えてもキー操作を続けられる）
   - 表示する一覧が別のものに変わった時（別のアルバムを選んだ等）は`reset()`で選択を消す
@@ -303,7 +304,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 
 ### 長い一覧の描画（仮想スクロール）
 
-- 件数が多くなる一覧は、`#lib/components/ui`の`VirtualList`で描画する（曲の一覧`TrackList`、プレイリストの詳細、再生キュー、`AlbumList`・`ArtistList`、`LibraryGrid`）。見えている行とその前後の少しの行だけを描画するため、数万件でもDOMの要素は数十個に収まる
+- 件数が多くなる一覧は、`#lib/components/ui`の`VirtualList`で描画する（曲の一覧`TrackList`（プレイリストの画面を含む）、再生キュー、`AlbumList`・`ArtistList`、`LibraryGrid`）。見えている行とその前後の少しの行だけを描画するため、数万件でもDOMの要素は数十個に収まる
 - `VirtualList`がスクロールする領域になる（親で高さを決める）。列の見出しは`header`に渡すと上に固定される。`role`・`tabindex`・`onkeydown`などは、項目を並べる要素に渡される
 - 行の高さはすべて同じとして扱う。高さは決め打ちにせず、描画した行を実測する（`estimatedRowHeight`は最初の描画だけに使う）。`minColumnWidth`を渡すとグリッドになり、幅に入るだけ列を並べる
   - 高さがそろわない項目（名前の長さで高さが変わるジャンルのカード）は位置を正しく求められないため、すべて描画する（`LibraryGrid`の`virtualized={false}`）
