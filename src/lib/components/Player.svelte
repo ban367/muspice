@@ -14,7 +14,11 @@
   import { useSettingsQuery } from '#lib/queries/settings.js';
   import { useFavoriteTracksQuery } from '#lib/queries/tracks.js';
   import { events, type PlaybackControl } from '#lib/bindings.js';
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
+  import { goto } from '$app/navigation';
+  import { resolve } from '$app/paths';
+  import { page } from '$app/state';
+  import { ui } from '#lib/stores/ui.svelte.js';
   import AlbumArt from './AlbumArt.svelte';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import MarqueeText from './MarqueeText.svelte';
@@ -196,6 +200,22 @@
   }
 
   /**
+   * 再生中の曲を、一覧の中で表示する（その行までスクロールして選ぶ）
+   *
+   * 開いている画面の一覧にその曲があればそこで、なければ全曲の一覧へ移動して表示する。
+   */
+  async function revealCurrentTrack() {
+    const track = player.currentTrack;
+    if (!track) return;
+    ui.revealTrackId = track.id;
+    // 開いている画面の一覧（`TrackList`）が、その曲を見つければ受け取る
+    await tick();
+    if (ui.revealTrackId !== null && page.url.pathname !== '/library/songs') {
+      await goto(resolve('library/songs'));
+    }
+  }
+
+  /**
    * グローバルキーボードショートカットを処理
    */
   function handleGlobalKeydown(event: KeyboardEvent) {
@@ -234,6 +254,12 @@
         if (withModifier) {
           event.preventDefault();
           changeVolume(-VOLUME_STEP);
+        }
+        break;
+      case 'KeyL':
+        if (withModifier) {
+          event.preventDefault();
+          void revealCurrentTrack();
         }
         break;
       case 'KeyM':
@@ -275,19 +301,27 @@
   {#if player.currentTrack}
     <!-- トラック情報 -->
     <div class="flex items-center gap-3 min-w-0">
-      <div class="album-art">
-        <AlbumArt src={currentArtUrl} alt={m.common.albumArt} placeholderType="music" />
-      </div>
-      <div class="min-w-0">
-        <MarqueeText
-          text={player.currentTrack.title || player.currentTrack.fileName}
-          class="text-sm font-semibold mb-0.5"
-        />
-        <MarqueeText
-          text={`${player.currentTrack.artist || m.common.unknownArtist}${player.currentTrack.album ? ' • ' + player.currentTrack.album : ''}`}
-          class="text-xs text-text-secondary"
-        />
-      </div>
+      <!-- 曲の情報のクリックで、再生中の曲を一覧で表示する -->
+      <button
+        type="button"
+        class="track-info"
+        onclick={revealCurrentTrack}
+        title={m.player.revealCurrentTrack}
+      >
+        <div class="album-art">
+          <AlbumArt src={currentArtUrl} alt={m.common.albumArt} placeholderType="music" />
+        </div>
+        <div class="min-w-0">
+          <MarqueeText
+            text={player.currentTrack.title || player.currentTrack.fileName}
+            class="text-sm font-semibold mb-0.5"
+          />
+          <MarqueeText
+            text={`${player.currentTrack.artist || m.common.unknownArtist}${player.currentTrack.album ? ' • ' + player.currentTrack.album : ''}`}
+            class="text-xs text-text-secondary"
+          />
+        </div>
+      </button>
       <FavoriteButton
         trackId={player.currentTrack.id}
         isFavorite={favoriteIds.has(player.currentTrack.id)}
@@ -542,6 +576,11 @@
   }
 
   /* アルバムアート */
+  /* 曲の情報（クリックで、再生中の曲を一覧で表示する） */
+  .track-info {
+    @apply flex items-center gap-3 min-w-0 p-0 bg-transparent border-none text-left text-inherit cursor-pointer rounded-md;
+  }
+
   .album-art {
     @apply w-14 h-14 rounded-md overflow-hidden shrink-0 bg-base-300;
   }

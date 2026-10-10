@@ -3,6 +3,7 @@
   import { sanitizeSearchQuery } from '#lib/utils/validation.js';
   import TrackList from '#lib/components/library/TrackList.svelte';
   import LibraryHeader from '#lib/components/library/LibraryHeader.svelte';
+  import { ui } from '#lib/stores/ui.svelte.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   // 表示モード
@@ -55,6 +56,11 @@
   function handleDisplayModeChange(mode: 'grid' | 'list') {
     displayMode = mode;
   }
+
+  // 再生中の曲へのジャンプ: 検索で絞り込んでいると、その曲が一覧にないことがあるため、検索を消す
+  $effect(() => {
+    if (ui.revealTrackId !== null && searchTerm !== '') clearSearch();
+  });
 </script>
 
 <div class="songs-page">
@@ -82,6 +88,8 @@
       {error}
       searchTerm={debouncedSearchTerm}
       {displayMode}
+      viewId="songs"
+      isRevealFallback
     />
   </div>
 </div>

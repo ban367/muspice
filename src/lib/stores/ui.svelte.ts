@@ -6,6 +6,8 @@
  * localStorageに保存する状態はsetterで保存するため、オブジェクトの中身を書き換えず代入する。
  */
 
+import { TRACK_COLUMN_IDS, TRACK_COLUMNS, type TrackColumnId } from '#lib/utils/trackColumns.js';
+
 // 右サイドバーのパネル（queue: 再生キュー, equalizer: イコライザ）
 export type RightSidebarPanel = 'queue' | 'equalizer';
 
@@ -13,15 +15,21 @@ export type RightSidebarPanel = 'queue' | 'equalizer';
 export const MIN_CARD_SIZE = 50;
 export const MAX_CARD_SIZE = 200;
 
-// 列幅のデフォルト値（ピクセル単位）
-const DEFAULT_COLUMN_WIDTHS = {
-  number: 48, // トラック番号（再生中アイコンも表示）
-  title: 300, // 可変幅の基準
-  artist: 200, // 可変幅の基準
-  rating: 80, // 5rem
-  duration: 64 // 4rem
-};
-export type ColumnWidths = typeof DEFAULT_COLUMN_WIDTHS;
+/** 幅を持つ列（番号の列と、曲の一覧に出せる列） */
+type WidthColumn = 'number' | TrackColumnId;
+
+/** 曲の一覧の列の幅（px。どの画面の一覧でも共通） */
+export type ColumnWidths = Record<WidthColumn, number>;
+
+const WIDTH_COLUMNS: readonly WidthColumn[] = ['number', ...TRACK_COLUMN_IDS];
+
+/** 番号の列（行の番号・再生中の印）の幅 */
+const NUMBER_COLUMN_WIDTH = 48;
+
+/** 列の幅の既定値 */
+function defaultColumnWidth(column: WidthColumn): number {
+  return column === 'number' ? NUMBER_COLUMN_WIDTH : TRACK_COLUMNS[column].width;
+}
 
 const RIGHT_SIDEBAR_PINNED_KEY = 'muspice:rightSidebarPinned';
 const COLUMN_WIDTHS_KEY = 'muspice:columnWidths';
@@ -50,25 +58,21 @@ function loadRightSidebarPinned(): boolean {
   return loadJson(RIGHT_SIDEBAR_PINNED_KEY) === true;
 }
 
-/** 保存済みの列幅を読み込む（古いキーは捨て、ない列は既定値で補う） */
+/** 保存済みの列幅を読み込む（古いキーは捨て、ない列・不正な値は既定値で補う） */
 function loadColumnWidths(): ColumnWidths {
   const stored = loadJson(COLUMN_WIDTHS_KEY);
-  if (typeof stored !== 'object' || stored === null) return { ...DEFAULT_COLUMN_WIDTHS };
+  const parsed =
+    typeof stored === 'object' && stored !== null ? (stored as Record<string, unknown>) : null;
 
-  const parsed = stored as Partial<Record<keyof ColumnWidths, unknown>>;
-  const widthOf = (key: keyof ColumnWidths) => {
-    const value = parsed[key];
-    return typeof value === 'number' ? value : DEFAULT_COLUMN_WIDTHS[key];
-  };
-  const widths: ColumnWidths = {
-    number: widthOf('number'),
-    title: widthOf('title'),
-    artist: widthOf('artist'),
-    rating: widthOf('rating'),
-    duration: widthOf('duration')
-  };
+  const widths = Object.fromEntries(
+    WIDTH_COLUMNS.map((column) => {
+      const value = parsed?.[column];
+      const isValid = typeof value === 'number' && Number.isFinite(value) && value > 0;
+      return [column, isValid ? value : defaultColumnWidth(column)];
+    })
+  ) as ColumnWidths;
   // 古い不要なキー（checkbox・status）を除いた形で保存し直す
-  saveJson(COLUMN_WIDTHS_KEY, widths);
+  if (parsed !== null) saveJson(COLUMN_WIDTHS_KEY, widths);
   return widths;
 }
 
@@ -93,6 +97,13 @@ class UiState {
 
   /** Aboutダイアログの開閉 */
   isAboutDialogOpen = $state(false);
+
+  /**
+   * 一覧の中の位置へ移動させたい曲（再生中の曲へのジャンプ。なければnull）
+   *
+   * その曲を含む曲の一覧（`TrackList`）が、その行までスクロールして選び、nullに戻す。
+   */
+  revealTrackId = $state<string | null>(null);
 
   #isRightSidebarPinned = $state(loadRightSidebarPinned());
   #columnWidths = $state.raw<ColumnWidths>(loadColumnWidths());

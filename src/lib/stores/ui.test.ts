@@ -89,9 +89,54 @@ describe('右サイドバーの固定', () => {
 });
 
 describe('列幅', () => {
-  const DEFAULT_WIDTHS = { number: 48, title: 300, artist: 200, rating: 80, duration: 64 };
+  // 番号の列と、曲の一覧に出せるすべての列の幅を持つ
+  const DEFAULT_WIDTHS = {
+    number: 48,
+    title: 300,
+    artist: 200,
+    album: 200,
+    albumArtist: 180,
+    genre: 110,
+    year: 56,
+    trackNumber: 64,
+    discNumber: 64,
+    favorite: 28,
+    rating: 80,
+    playCount: 72,
+    skipCount: 72,
+    lastPlayedAt: 110,
+    createdAt: 110,
+    duration: 64,
+    format: 64,
+    bitrate: 88,
+    sampleRate: 88,
+    fileSize: 80
+  };
 
-  it('保存がなければ既定値を使う', async () => {
+  it('保存がなければ既定値を使う（保存はしない）', async () => {
+    expect((await importFreshUi()).columnWidths).toEqual(DEFAULT_WIDTHS);
+    expect(localStorage.getItem('muspice:columnWidths')).toBeNull();
+  });
+
+  it('列を足す前に保存した幅（一部の列だけ）は、残りを既定値で補う', async () => {
+    localStorage.setItem(
+      'muspice:columnWidths',
+      JSON.stringify({ number: 48, title: 360, artist: 150, rating: 80, duration: 64 })
+    );
+
+    expect((await importFreshUi()).columnWidths).toEqual({
+      ...DEFAULT_WIDTHS,
+      title: 360,
+      artist: 150
+    });
+  });
+
+  it('0以下・数値でない幅は、既定値にする', async () => {
+    localStorage.setItem(
+      'muspice:columnWidths',
+      JSON.stringify({ title: 0, artist: -5, album: null, genre: 'wide' })
+    );
+
     expect((await importFreshUi()).columnWidths).toEqual(DEFAULT_WIDTHS);
   });
 

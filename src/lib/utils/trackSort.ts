@@ -6,11 +6,44 @@
  */
 import type { Track } from '#lib/types/models.js';
 import { compareNames } from './nameSort.js';
+import type { TrackColumnId } from './trackColumns.js';
 
-export type TrackSortField = 'title' | 'artist' | 'album' | 'duration' | 'createdAt' | 'playCount';
+/** 並び替えに使える項目（一覧に出せる列のどれでも並べ替えられる） */
+export type TrackSortField = TrackColumnId;
 export type SortDirection = 'asc' | 'desc';
 
+/** 並び順（項目と向き） */
+export interface TrackSort {
+  field: TrackSortField;
+  direction: SortDirection;
+}
+
 type SortKey = string | number;
+
+/** 名前として比べる項目（言語に合わせた比較をする。ほかは、数値・書式のそろった文字列として比べる） */
+const NAME_FIELDS: ReadonlySet<TrackSortField> = new Set([
+  'title',
+  'artist',
+  'album',
+  'albumArtist',
+  'genre',
+  'format'
+]);
+
+/** 見出しを最初にクリックした時に、大きい方（新しい方）から並べる項目 */
+const DESCENDING_FIRST: ReadonlySet<TrackSortField> = new Set([
+  'favorite',
+  'rating',
+  'playCount',
+  'skipCount',
+  'lastPlayedAt',
+  'createdAt'
+]);
+
+/** その項目で並べ替え始める時の向き */
+export function initialSortDirection(field: TrackSortField): SortDirection {
+  return DESCENDING_FIRST.has(field) ? 'desc' : 'asc';
+}
 
 function sortKey(track: Track, field: TrackSortField): SortKey {
   switch (field) {
@@ -20,12 +53,30 @@ function sortKey(track: Track, field: TrackSortField): SortKey {
       return track.sortTags.artist || track.artist || '';
     case 'album':
       return track.sortTags.album || track.album || '';
-    case 'duration':
-      return track.duration || 0;
+    case 'albumArtist':
+      return track.sortTags.albumArtist || track.albumArtist || '';
+    case 'genre':
+      return track.genre || '';
+    case 'format':
+      return track.format;
+    case 'favorite':
+      return track.isFavorite ? 1 : 0;
+    // 日時は書式のそろった文字列のため、そのまま比べられる（値のない曲は、いちばん古い扱い）
+    case 'lastPlayedAt':
+      return track.lastPlayedAt ?? '';
     case 'createdAt':
       return track.createdAt;
+    case 'year':
+    case 'trackNumber':
+    case 'discNumber':
+    case 'rating':
     case 'playCount':
-      return track.playCount;
+    case 'skipCount':
+    case 'duration':
+    case 'bitrate':
+    case 'sampleRate':
+    case 'fileSize':
+      return track[field] ?? 0;
   }
 }
 
@@ -35,8 +86,7 @@ function sortedOrder(
   field: TrackSortField,
   direction: SortDirection
 ): number[] {
-  // 日時は書式のそろった文字列のため、言語に合わせた比較ではなく単純な比較で並べる
-  const useCollator = field === 'title' || field === 'artist' || field === 'album';
+  const useCollator = NAME_FIELDS.has(field);
   const sign = direction === 'asc' ? 1 : -1;
 
   return keys

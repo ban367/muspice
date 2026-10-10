@@ -40,6 +40,7 @@
       {error}
       emptyMessage={m.library.noFavorites}
       emptyHint={m.library.noFavoritesHint}
+      viewId="favorites"
       defaultSort={null}
     />
   </div>

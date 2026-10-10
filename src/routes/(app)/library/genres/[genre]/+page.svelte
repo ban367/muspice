@@ -48,6 +48,9 @@
       {error}
       emptyMessage={m.library.noTracksInGenre}
       emptyHint={m.library.noTracksInGenreHint}
+      viewId="genre"
+      defaultColumns={['title', 'artist', 'album', 'favorite', 'rating', 'duration']}
+      defaultSort={null}
     />
   </div>
 </div>

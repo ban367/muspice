@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Track } from '#lib/types/models.js';
-import { createTrackSorter } from './trackSort.js';
+import { createTrackSorter, initialSortDirection } from './trackSort.js';
 
 function track(id: string, overrides: Partial<Track> = {}): Track {
   return {
@@ -80,6 +80,86 @@ describe('createTrackSorter（並び替え）', () => {
     expect(ids(sortTracks(tracks, 'artist', 'asc'))).toEqual(['b', 'a', 'c']);
     // 読みのないアルバム（EAST ASIA）は、名前で並べる
     expect(ids(sortTracks(tracks, 'album', 'asc'))).toEqual(['c', 'a', 'b']);
+  });
+
+  it('どの列でも並べ替えられる', () => {
+    const tracks = [
+      track('a', {
+        album: 'B',
+        albumArtist: 'Z',
+        genre: 'Rock',
+        year: 2020,
+        trackNumber: 2,
+        rating: 3,
+        isFavorite: false,
+        skipCount: 5,
+        lastPlayedAt: '2026-02-01T00:00:00.000Z',
+        format: 'mp3',
+        bitrate: 320,
+        fileSize: 300
+      }),
+      track('b', {
+        album: 'A',
+        albumArtist: null,
+        genre: null,
+        year: null,
+        trackNumber: 10,
+        rating: 5,
+        isFavorite: true,
+        skipCount: 0,
+        lastPlayedAt: null,
+        format: 'flac',
+        bitrate: null,
+        fileSize: 900
+      }),
+      track('c', {
+        album: 'C',
+        albumArtist: 'A',
+        genre: 'Jazz',
+        year: 1999,
+        trackNumber: 1,
+        rating: 0,
+        isFavorite: false,
+        skipCount: 2,
+        lastPlayedAt: '2026-03-01T00:00:00.000Z',
+        format: 'm4a',
+        bitrate: 256,
+        fileSize: 100
+      })
+    ];
+    const order = (field: Parameters<typeof sortTracks>[1]) =>
+      ids(sortTracks(tracks, field, 'asc'));
+
+    expect(order('album')).toEqual(['b', 'a', 'c']);
+    // 値のない曲は、先頭に並べる（文字列は空、数値は0、日時はいちばん古い扱い）
+    expect(order('albumArtist')).toEqual(['b', 'c', 'a']);
+    expect(order('genre')).toEqual(['b', 'c', 'a']);
+    expect(order('year')).toEqual(['b', 'c', 'a']);
+    // 番号は、文字ではなく数値として比べる（10 は 2 の後）
+    expect(order('trackNumber')).toEqual(['c', 'a', 'b']);
+    expect(order('rating')).toEqual(['c', 'a', 'b']);
+    expect(order('favorite')).toEqual(['a', 'c', 'b']);
+    expect(order('skipCount')).toEqual(['b', 'c', 'a']);
+    expect(order('lastPlayedAt')).toEqual(['b', 'a', 'c']);
+    expect(order('format')).toEqual(['b', 'c', 'a']);
+    expect(order('bitrate')).toEqual(['b', 'c', 'a']);
+    expect(order('fileSize')).toEqual(['c', 'a', 'b']);
+  });
+
+  it('最初にクリックした時の向きは、回数・評価・日時などは大きい方（新しい方）から', () => {
+    expect(initialSortDirection('title')).toBe('asc');
+    expect(initialSortDirection('year')).toBe('asc');
+    expect(initialSortDirection('duration')).toBe('asc');
+    for (const field of [
+      'favorite',
+      'rating',
+      'playCount',
+      'skipCount',
+      'lastPlayedAt',
+      'createdAt'
+    ] as const) {
+      expect(initialSortDirection(field)).toBe('desc');
+    }
   });
 
   it('アーティスト・アルバムがない曲は、空の文字列として先頭に並べる', () => {

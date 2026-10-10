@@ -60,6 +60,14 @@ export const ja = {
     discTotal: 'ディスクの総数',
     bpm: 'BPM',
     compilation: 'コンピレーション',
+    favorite: 'お気に入り',
+    skipCount: 'スキップ回数',
+    lastPlayedAt: '最終再生日',
+    createdAt: '追加日',
+    format: '形式',
+    bitrate: 'ビットレート',
+    sampleRate: 'サンプルレート',
+    fileSize: 'サイズ',
     titleSort: 'タイトルの読み',
     artistSort: 'アーティストの読み',
     albumArtistSort: 'アルバムアーティストの読み',
@@ -186,8 +194,16 @@ export const ja = {
     confirmTitle: '確認'
   },
 
+  /** 曲の一覧（列を選ぶメニュー） */
+  trackList: {
+    columns: '表示する列',
+    resetSort: '並び順を既定に戻す',
+    resetColumns: '列と並び順を既定に戻す'
+  },
+
   player: {
     noTrack: 'トラックを選択して再生',
+    revealCurrentTrack: '再生中の曲を一覧で表示 (Ctrl+L)',
     shuffleTitle: 'シャッフル (S)',
     shuffle: 'シャッフル',
     previousTitle: '前へ (Ctrl+←)',
