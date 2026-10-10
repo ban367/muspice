@@ -143,6 +143,7 @@ src-tauri/src/
   - `albumArtUrl`は、アプリで画像を書き換えた曲の版（`#lib/stores/albumArt.svelte`）を読んでURLに付ける。版の変更に追随させるため、テンプレートか`$derived`の中で呼ぶ（値を変数に取っておくと、書き換えた後も古い画像のままになる）
   - アルバムアートの画面は、`albumArtDialog.open(tracks)`で開く（`(app)/+layout.svelte`が1つだけ表示する。開く側にダイアログを置かない）
 - メタデータの編集画面（`MetadataEditor`）は、入力欄の値と`Metadata`の変換・検証を`#lib/utils/metadataForm`に分けている（1曲の編集はすべての項目を渡し、一括編集は入力した項目だけを渡す）。1曲の編集は、開いた時に`useTrackTagsQuery`でファイルのタグを読み、読めるまで・読めない場合は保存できない（ADR-034）
+- 曲の画面の絞り込みは、`#lib/utils/trackFilter`の純粋な関数（`applyTrackFilters`・`browseTracks`）で行う（ADR-040）。順番は、検索 → フィルタ → カラムブラウザ（ジャンル → アーティスト → アルバム）で、カラムブラウザの各列には、その列より前の絞り込みに合う曲の値だけを出す。状態（カラムブラウザを出すか・選択・フィルタ）は`#lib/stores/libraryBrowser.svelte`に持つ（出すかどうかだけをlocalStorageに保存する）
 - タグの一括ツール（`TagToolsDialog`。曲の右クリックのメニューから`tagToolsDialog.open(tracks)`で開く）は、変更の計算を`#lib/utils/tagTools`の純粋な関数（`guessFromFileName`・`renumberTracks`・`searchAndReplace`）に分けている。どれも曲ごとの変更（前 → 後）を返すだけで、画面はそれを一覧に出し、「適用」で`toMetadataChanges`の結果を`useApplyMetadataChangesMutation`へ渡す（ADR-037）
 - 名前の順に並べる時は、`#lib/utils/nameSort`の`compareNames`・`sortByName`を使う（`localeCompare`・`toLowerCase`での比較を各所に書かない）。アルバム・アーティストなどは、並び順に使う値（`sortName`）があればその値で並べる。曲の一覧の並び替え（`trackSort`）も、タイトル・アーティスト・アルバムは`track.sortTags`の値を優先する
 - お気に入りのハートは`FavoriteButton`（`#lib/components/library`）を使う。曲のIDと今の状態を渡すと、押した時に`useSetFavoriteMutation`で切り替え、キャッシュにあるその曲を書き換える（`patchTracksInCache`。複数の曲をまとめて書き換えられる）
