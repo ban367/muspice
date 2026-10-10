@@ -32,7 +32,7 @@
 - ID・入力値はコマンド入口でバリデーション
 - WebViewの権限は最小限（ADR-005）
   - ファイルの読み書き・削除・フォルダ表示はすべてRust側のコマンドで行い、WebViewからは任意のパスを扱えない（パスはトラックIDからDBで解決する）
-  - capability（`src-tauri/capabilities/default.json`）は `core:default` と `dialog:allow-open` / `dialog:allow-message` のみ。fs / opener / window-state プラグインはWebViewに公開しない
+  - capability（`src-tauri/capabilities/default.json`）は `core:default` と `dialog:allow-open` / `dialog:allow-message` のみ。fs / opener / window-state / global-shortcut / notification プラグインはWebViewに公開しない（Rust側だけで使う）
   - 設定ウィンドウ（`settings`）は別のcapability（`settings.json`）で `core:default` と `core:window:allow-close`（キャンセルボタンでウィンドウを閉じる）のみ
   - assetプロトコルは無効にしている。WebViewは音声ファイルを読まず、再生はRust側の再生エンジンが行う（ADR-027）。CSPでも、音声・動画の読み込み先（`media-src`）を許可していない
 - デバイスへの転送（ADR-020）
