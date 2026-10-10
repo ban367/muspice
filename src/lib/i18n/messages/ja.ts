@@ -128,8 +128,13 @@ export const ja = {
     reshuffleSmartPlaylists: '曲の選び直し',
     addTrackToPlaylist: 'トラックの追加',
     removeTrackFromPlaylist: 'トラックの削除',
+    updatePlaylistInfo: 'プレイリストの情報の変更',
+    movePlaylist: 'プレイリストの移動',
+    fetchPlaylistFolders: 'フォルダの取得',
+    createPlaylistFolder: 'フォルダの作成',
+    renamePlaylistFolder: 'フォルダ名の変更',
+    deletePlaylistFolder: 'フォルダの削除',
     reorderPlaylistTracks: 'トラックの並び替え',
-    renamePlaylist: 'プレイリスト名の変更',
     deletePlaylist: 'プレイリストの削除',
     importM3u: 'プレイリストの読み込み',
     importLibraryXml: 'ライブラリのXMLの取り込み',
@@ -159,9 +164,11 @@ export const ja = {
     smartPlaylistUpdated: '自動プレイリストを変更しました',
     tracksAddedToPlaylist: (count: number) => `${count}曲をプレイリストに追加しました`,
     tracksAlreadyInPlaylist: 'すでにプレイリストに入っています',
-    trackRemovedFromPlaylist: 'トラックをプレイリストから削除しました',
+    tracksRemovedFromPlaylist: (count: number) => `${count}曲をプレイリストから削除しました`,
+    playlistCreatedWithTracks: (name: string, count: number) =>
+      `プレイリスト「${name}」を作成しました（${count}曲）`,
+    playlistInfoUpdated: 'プレイリストの情報を変更しました',
     tracksReordered: 'トラックを並び替えました',
-    playlistRenamed: 'プレイリスト名を変更しました',
     playlistDeleted: 'プレイリストを削除しました',
     m3uImported: (name: string, count: number) =>
       `プレイリスト「${name}」を読み込みました（${count}曲）`,
@@ -193,6 +200,9 @@ export const ja = {
     playlistNameRequired: 'プレイリスト名を入力してください',
     playlistNameTooLong: 'プレイリスト名は100文字以内で入力してください',
     playlistNameInvalid: 'プレイリスト名に使用できない文字が含まれています',
+    folderNameRequired: 'フォルダ名を入力してください',
+    folderNameTooLong: 'フォルダ名は100文字以内で入力してください',
+    descriptionTooLong: '説明は1000文字以内で入力してください',
     inputRequired: '入力してください'
   },
 
@@ -247,6 +257,24 @@ export const ja = {
     playlists: 'プレイリスト',
     newPlaylistTitle: '新規プレイリスト (Ctrl+N)',
     newSmartPlaylistTitle: '新規自動プレイリスト',
+    playlistMenu: 'フォルダと並び順',
+    newFolder: '新規フォルダ',
+    folderName: 'フォルダ名',
+    sortBy: '並び順',
+    sortOptions: {
+      name: '名前',
+      createdAt: '作成日（新しい順）',
+      manual: '手動（ドラッグで並べ替え）'
+    },
+    renameFolderTitle: 'フォルダ名を変更',
+    newFolderName: '新しいフォルダ名',
+    deleteFolder: 'フォルダを削除',
+    confirmDeleteFolder: (name: string) =>
+      `フォルダ「${name}」を削除しますか？\n中のプレイリストは削除されず、フォルダの外に出ます。`,
+    emptyFolder: 'プレイリストなし',
+    playlistCountInFolder: (count: number) => `${count}個のプレイリスト`,
+    expandFolder: 'フォルダを開く',
+    collapseFolder: 'フォルダを閉じる',
     noPlaylists: 'プレイリストがありません',
     newPlaylist: '新規プレイリスト',
     playlistName: 'プレイリスト名',
@@ -269,7 +297,11 @@ export const ja = {
     nowPlaying: '再生中',
     upNext: (count: number) => `次に再生 (${count}曲)`,
     removeFromQueue: 'キューから削除',
-    noUpcoming: 'キューに他のトラックはありません'
+    noUpcoming: 'キューに他のトラックはありません',
+    saveAsPlaylist: 'プレイリストとして保存',
+    saveAsPlaylistTitle: '再生キューをプレイリストとして保存',
+    saveAsPlaylistDefaultName: (date: string) => `再生キュー ${date}`,
+    save: '保存'
   },
 
   equalizer: {
@@ -474,10 +506,11 @@ export const ja = {
     playGroup: (type: string) => `${type}を再生`,
     playPlaylist: 'プレイリストを再生',
     rename: '名前を変更',
-    renamePlaylistTitle: 'プレイリスト名を変更',
-    newPlaylistName: '新しいプレイリスト名',
     renameConfirm: '変更',
-    confirmDeletePlaylist: (name: string) => `プレイリスト「${name}」を削除しますか？`
+    confirmDeletePlaylist: (name: string) => `プレイリスト「${name}」を削除しますか？`,
+    moveToFolder: 'フォルダへ移動',
+    noFolder: 'フォルダの外',
+    noFolders: 'フォルダがありません'
   },
 
   deleteDialog: {
@@ -620,6 +653,13 @@ export const ja = {
     noTracks: 'このプレイリストにはまだトラックがありません',
     noTracksHint: 'ライブラリからトラックをドラッグ&ドロップして追加できます',
     removeFromPlaylist: 'プレイリストから削除',
+    editInfo: '名前と説明を編集',
+    editInfoEllipsis: '名前と説明を編集...',
+    infoTitle: 'プレイリストの情報',
+    name: '名前',
+    description: '説明',
+    descriptionCount: (length: number, max: number) => `${length} / ${max}文字`,
+    outsideFolders: 'フォルダの外',
     importM3u: 'M3Uを読み込む',
     exportM3u: 'M3U8で書き出す...',
     importResultTitle: 'プレイリストの読み込み結果',

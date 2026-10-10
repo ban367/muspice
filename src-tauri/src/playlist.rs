@@ -1,10 +1,10 @@
 use crate::error::{AppError, AppResult};
-use crate::models::{Playlist, PlaylistTrack, Track};
+use crate::models::{Playlist, PlaylistFolder, PlaylistTrack, Track};
 use crate::repository::{TRACK_COLUMNS, query_tracks};
 use crate::smart_playlist::{self, EvalContext, SmartRules};
 use chrono::Utc;
 use rusqlite::{Connection, OptionalExtension, Result};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 /// プレイリストを作成
@@ -24,11 +24,19 @@ pub fn create_smart_playlist(
 fn insert_playlist(conn: &Connection, name: &str, rules: Option<&SmartRules>) -> Result<Playlist> {
     let id = Uuid::new_v4().to_string();
     let now = Utc::now().to_rfc3339();
+    // 手動の並び順では、いちばん後ろに置く
+    let position = next_position(conn, "playlists")?;
 
     conn.execute(
-        "INSERT INTO playlists (id, name, rules, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?4)",
-        rusqlite::params![id, name, rules.map(rules_to_json).transpose()?, now],
+        "INSERT INTO playlists (id, name, rules, position, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
+        rusqlite::params![
+            id,
+            name,
+            rules.map(rules_to_json).transpose()?,
+            position,
+            now
+        ],
     )?;
 
     Ok(Playlist {
@@ -37,9 +45,32 @@ fn insert_playlist(conn: &Connection, name: &str, rules: Option<&SmartRules>) ->
         description: None,
         tracks: Vec::new(),
         rules: rules.cloned(),
+        folder_id: None,
+        position,
         created_at: now.clone(),
         updated_at: now,
     })
+}
+
+/// 手動の並び順で、いちばん後ろになる位置（表の名前は、固定の文字列だけを渡す）
+fn next_position(conn: &Connection, table: &str) -> Result<i32> {
+    conn.query_row(
+        &format!("SELECT COALESCE(MAX(position), -1) + 1 FROM {table}"),
+        [],
+        |row| row.get(0),
+    )
+}
+
+/// 行があることを確かめる（なければ`QueryReturnedNoRows`。表の名前は、固定の文字列だけを渡す）
+fn ensure_exists(conn: &Connection, table: &str, id: &str) -> Result<()> {
+    let exists = conn
+        .prepare(&format!("SELECT 1 FROM {table} WHERE id = ?1"))?
+        .exists([id])?;
+    if exists {
+        Ok(())
+    } else {
+        Err(rusqlite::Error::QueryReturnedNoRows)
+    }
 }
 
 fn rules_to_json(rules: &SmartRules) -> Result<String> {
@@ -127,7 +158,7 @@ pub fn get_playlist_name(conn: &Connection, playlist_id: &str) -> Result<String>
     )
 }
 
-/// 曲を入れた状態で、プレイリストを作る（M3Uの読み込み用）
+/// 曲を入れた状態で、プレイリストを作る（M3U・ライブラリXMLの読み込み用）
 ///
 /// 同じ名前のプレイリストがある場合は、番号を付けた名前にする（`m3u::unique_playlist_name`）。
 /// 1つのトランザクションで行い、途中で失敗した場合は何も作らない。
@@ -146,28 +177,63 @@ pub fn create_playlist_with_tracks(
     let name = crate::m3u::unique_playlist_name(name, &existing);
 
     let mut playlist = create_playlist(&tx, &name)?;
-    {
-        let mut insert = tx.prepare(
-            "INSERT INTO playlist_tracks (playlist_id, track_id, position, added_at)
-             VALUES (?1, ?2, ?3, ?4)",
-        )?;
-        for (position, track_id) in track_ids.iter().enumerate() {
-            insert.execute(rusqlite::params![
-                playlist.id,
-                track_id,
-                position as i32,
-                playlist.created_at
-            ])?;
-            playlist.tracks.push(PlaylistTrack {
-                track_id: track_id.clone(),
-                position: position as i32,
-                added_at: playlist.created_at.clone(),
-            });
-        }
-    }
+    insert_playlist_tracks(&tx, &mut playlist, track_ids)?;
 
     tx.commit()?;
     Ok(playlist)
+}
+
+/// 渡した曲を入れた状態で、プレイリストを作る（再生キューの保存用）
+///
+/// 名前はそのまま使う。同じ曲は、最初の1回だけを入れる（プレイリストには、同じ曲を2回入れない）。
+/// 1つのトランザクションで行い、見つからない曲がある場合は何も作らない（`QueryReturnedNoRows`）。
+pub fn create_playlist_from_tracks(
+    conn: &mut Connection,
+    name: &str,
+    track_ids: &[String],
+) -> Result<Playlist> {
+    let mut seen = HashSet::new();
+    let unique: Vec<String> = track_ids
+        .iter()
+        .filter(|id| seen.insert(id.as_str()))
+        .cloned()
+        .collect();
+
+    let tx = conn.transaction()?;
+    for track_id in &unique {
+        ensure_exists(&tx, "tracks", track_id)?;
+    }
+    let mut playlist = create_playlist(&tx, name)?;
+    insert_playlist_tracks(&tx, &mut playlist, &unique)?;
+
+    tx.commit()?;
+    Ok(playlist)
+}
+
+/// 作ったばかりのプレイリストに、曲を渡した順に入れる（`track_ids`には、同じトラックを2回含めない）
+fn insert_playlist_tracks(
+    conn: &Connection,
+    playlist: &mut Playlist,
+    track_ids: &[String],
+) -> Result<()> {
+    let mut insert = conn.prepare(
+        "INSERT INTO playlist_tracks (playlist_id, track_id, position, added_at)
+         VALUES (?1, ?2, ?3, ?4)",
+    )?;
+    for (position, track_id) in track_ids.iter().enumerate() {
+        insert.execute(rusqlite::params![
+            playlist.id,
+            track_id,
+            position as i32,
+            playlist.created_at
+        ])?;
+        playlist.tracks.push(PlaylistTrack {
+            track_id: track_id.clone(),
+            position: position as i32,
+            added_at: playlist.created_at.clone(),
+        });
+    }
+    Ok(())
 }
 
 /// すべてのプレイリストを取得
@@ -205,7 +271,7 @@ pub fn get_all_playlists(conn: &Connection) -> Result<Vec<Playlist>> {
 
     // 2. プレイリスト本体を取得し、対応するトラックを割り当てる
     let mut stmt = conn.prepare(
-        "SELECT id, name, description, created_at, updated_at, rules
+        "SELECT id, name, description, created_at, updated_at, rules, folder_id, position
          FROM playlists ORDER BY created_at DESC",
     )?;
 
@@ -222,6 +288,8 @@ pub fn get_all_playlists(conn: &Connection) -> Result<Vec<Playlist>> {
                 // 自動プレイリストの曲は、開く時に条件から求める（ここでは持たない）
                 tracks: if rules.is_some() { Vec::new() } else { tracks },
                 rules,
+                folder_id: row.get(6)?,
+                position: row.get(7)?,
                 created_at: row.get(3)?,
                 updated_at: row.get(4)?,
             })
@@ -359,33 +427,38 @@ pub fn add_tracks_to_playlist(
     Ok(added)
 }
 
-/// プレイリストからトラックを削除
-pub fn remove_track_from_playlist(
+/// プレイリストから複数のトラックを外す
+///
+/// 入っていないトラックは飛ばす。1つのトランザクションで行い、外したトラック数を返す。
+/// プレイリストがなければ`QueryReturnedNoRows`。
+pub fn remove_tracks_from_playlist(
     conn: &Connection,
     playlist_id: &str,
-    track_id: &str,
-) -> Result<()> {
-    // トラックを削除
-    let rows_affected = conn.execute(
-        "DELETE FROM playlist_tracks WHERE playlist_id = ?1 AND track_id = ?2",
-        rusqlite::params![playlist_id, track_id],
-    )?;
+    track_ids: &[String],
+) -> Result<usize> {
+    let tx = conn.unchecked_transaction()?;
+    ensure_exists(&tx, "playlists", playlist_id)?;
 
-    if rows_affected == 0 {
-        return Err(rusqlite::Error::QueryReturnedNoRows);
+    let mut removed = 0;
+    {
+        let mut delete =
+            tx.prepare("DELETE FROM playlist_tracks WHERE playlist_id = ?1 AND track_id = ?2")?;
+        for track_id in track_ids {
+            removed += delete.execute(rusqlite::params![playlist_id, track_id])?;
+        }
     }
 
-    // position値を再計算して連番にする
-    reorder_positions_after_deletion(conn, playlist_id)?;
+    if removed > 0 {
+        // position値を再計算して連番にする
+        reorder_positions_after_deletion(&tx, playlist_id)?;
+        tx.execute(
+            "UPDATE playlists SET updated_at = ?1 WHERE id = ?2",
+            rusqlite::params![Utc::now().to_rfc3339(), playlist_id],
+        )?;
+    }
 
-    // プレイリストのupdated_atを更新
-    let now = Utc::now().to_rfc3339();
-    conn.execute(
-        "UPDATE playlists SET updated_at = ?1 WHERE id = ?2",
-        rusqlite::params![now, playlist_id],
-    )?;
-
-    Ok(())
+    tx.commit()?;
+    Ok(removed)
 }
 
 /// 削除後にposition値を再計算
@@ -426,6 +499,122 @@ pub fn rename_playlist(conn: &Connection, playlist_id: &str, name: &str) -> Resu
     )?;
 
     Ok(())
+}
+
+/// プレイリストの説明を変更（値なし・空の文字列は、説明なし）
+pub fn set_playlist_description(
+    conn: &Connection,
+    playlist_id: &str,
+    description: Option<&str>,
+) -> Result<()> {
+    ensure_exists(conn, "playlists", playlist_id)?;
+
+    let description = description.map(str::trim).filter(|text| !text.is_empty());
+    conn.execute(
+        "UPDATE playlists SET description = ?1, updated_at = ?2 WHERE id = ?3",
+        rusqlite::params![description, Utc::now().to_rfc3339(), playlist_id],
+    )?;
+    Ok(())
+}
+
+/// プレイリストのフォルダを取得（手動の並び順。同じ位置なら、作った順）
+pub fn get_playlist_folders(conn: &Connection) -> Result<Vec<PlaylistFolder>> {
+    conn.prepare(
+        "SELECT id, name, position, created_at FROM playlist_folders
+         ORDER BY position, created_at, id",
+    )?
+    .query_map([], |row| {
+        Ok(PlaylistFolder {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            position: row.get(2)?,
+            created_at: row.get(3)?,
+        })
+    })?
+    .collect()
+}
+
+/// プレイリストのフォルダを作成（手動の並び順では、いちばん後ろに置く）
+pub fn create_playlist_folder(conn: &Connection, name: &str) -> Result<PlaylistFolder> {
+    let folder = PlaylistFolder {
+        id: Uuid::new_v4().to_string(),
+        name: name.to_string(),
+        position: next_position(conn, "playlist_folders")?,
+        created_at: Utc::now().to_rfc3339(),
+    };
+    conn.execute(
+        "INSERT INTO playlist_folders (id, name, position, created_at) VALUES (?1, ?2, ?3, ?4)",
+        rusqlite::params![folder.id, folder.name, folder.position, folder.created_at],
+    )?;
+    Ok(folder)
+}
+
+/// プレイリストのフォルダの名前を変更
+pub fn rename_playlist_folder(conn: &Connection, folder_id: &str, name: &str) -> Result<()> {
+    ensure_exists(conn, "playlist_folders", folder_id)?;
+    conn.execute(
+        "UPDATE playlist_folders SET name = ?1 WHERE id = ?2",
+        [name, folder_id],
+    )?;
+    Ok(())
+}
+
+/// プレイリストのフォルダを削除（中のプレイリストは消さず、フォルダの外へ出す）
+pub fn delete_playlist_folder(conn: &Connection, folder_id: &str) -> Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    ensure_exists(&tx, "playlist_folders", folder_id)?;
+
+    tx.execute(
+        "UPDATE playlists SET folder_id = NULL WHERE folder_id = ?1",
+        [folder_id],
+    )?;
+    tx.execute("DELETE FROM playlist_folders WHERE id = ?1", [folder_id])?;
+
+    tx.commit()
+}
+
+/// プレイリストを、フォルダへ移す（`folder_id`が値なしなら、フォルダの外へ出す）
+///
+/// 手動の並び順では、移した先のいちばん後ろに置く。
+pub fn move_playlist(conn: &Connection, playlist_id: &str, folder_id: Option<&str>) -> Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    ensure_exists(&tx, "playlists", playlist_id)?;
+    if let Some(folder_id) = folder_id {
+        ensure_exists(&tx, "playlist_folders", folder_id)?;
+    }
+
+    let position = next_position(&tx, "playlists")?;
+    tx.execute(
+        "UPDATE playlists SET folder_id = ?1, position = ?2 WHERE id = ?3",
+        rusqlite::params![folder_id, position, playlist_id],
+    )?;
+
+    tx.commit()
+}
+
+/// プレイリストの手動の並び順を変更（渡した順に、位置を振り直す）
+///
+/// 並び順は同じフォルダの中で比べるため、1つのフォルダ（またはフォルダの外）のプレイリストを渡す。
+/// 見つからないプレイリストは無視する。
+pub fn reorder_playlists(conn: &Connection, playlist_ids: &[String]) -> Result<()> {
+    set_positions(conn, "playlists", playlist_ids)
+}
+
+/// プレイリストのフォルダの手動の並び順を変更（渡した順に、位置を振り直す）
+pub fn reorder_playlist_folders(conn: &Connection, folder_ids: &[String]) -> Result<()> {
+    set_positions(conn, "playlist_folders", folder_ids)
+}
+
+/// 渡した順に、位置を振り直す（表の名前は、固定の文字列だけを渡す）
+fn set_positions(conn: &Connection, table: &str, ids: &[String]) -> Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    {
+        let mut update = tx.prepare(&format!("UPDATE {table} SET position = ?1 WHERE id = ?2"))?;
+        for (position, id) in ids.iter().enumerate() {
+            update.execute(rusqlite::params![position as i32, id])?;
+        }
+    }
+    tx.commit()
 }
 
 /// プレイリストを削除
@@ -509,8 +698,21 @@ mod tests {
                 name TEXT NOT NULL,
                 description TEXT,
                 rules TEXT,
+                folder_id TEXT,
+                position INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT,
                 updated_at TEXT
+            )",
+            [],
+        )
+        .unwrap();
+
+        conn.execute(
+            "CREATE TABLE playlist_folders (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                position INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT
             )",
             [],
         )
@@ -683,23 +885,184 @@ mod tests {
         assert!(playlists[0].tracks.is_empty());
     }
 
+    /// 複数の曲をまとめて外し、残った曲の位置を詰める（入っていない曲は飛ばす）
     #[test]
-    fn test_remove_track_from_playlist() {
+    fn test_remove_tracks_from_playlist() {
         let conn = setup_test_db();
         let playlist = create_playlist(&conn, "Test Playlist").unwrap();
-        insert_test_track(&conn, "track1");
-        insert_test_track(&conn, "track2");
+        for id in ["track1", "track2", "track3", "track4"] {
+            insert_test_track(&conn, id);
+            add_track_to_playlist(&conn, &playlist.id, id).unwrap();
+        }
+        insert_test_track(&conn, "other");
 
-        add_track_to_playlist(&conn, &playlist.id, "track1").unwrap();
-        add_track_to_playlist(&conn, &playlist.id, "track2").unwrap();
-
-        let result = remove_track_from_playlist(&conn, &playlist.id, "track1");
-        assert!(result.is_ok());
+        let ids = ["track3", "track1", "other"].map(String::from);
+        let removed = remove_tracks_from_playlist(&conn, &playlist.id, &ids).unwrap();
+        assert_eq!(removed, 2);
 
         let playlists = get_all_playlists(&conn).unwrap();
-        assert_eq!(playlists[0].tracks.len(), 1);
-        assert_eq!(playlists[0].tracks[0].track_id, "track2");
-        assert_eq!(playlists[0].tracks[0].position, 0); // position再計算確認
+        let rest: Vec<(&str, i32)> = playlists[0]
+            .tracks
+            .iter()
+            .map(|t| (t.track_id.as_str(), t.position))
+            .collect();
+        assert_eq!(rest, [("track2", 0), ("track4", 1)]);
+
+        // 1曲も外さなかった場合は0。プレイリストがなければ、見つからない
+        assert_eq!(
+            remove_tracks_from_playlist(&conn, &playlist.id, &ids[2..]).unwrap(),
+            0
+        );
+        assert!(matches!(
+            remove_tracks_from_playlist(&conn, "missing", &ids),
+            Err(rusqlite::Error::QueryReturnedNoRows)
+        ));
+    }
+
+    /// 渡した曲でプレイリストを作る（同じ曲は最初の1回だけ。見つからない曲があれば作らない）
+    #[test]
+    fn test_create_playlist_from_tracks() {
+        let mut conn = setup_test_db();
+        for id in ["track1", "track2", "track3"] {
+            insert_test_track(&conn, id);
+        }
+        create_playlist(&conn, "キュー").unwrap();
+
+        let ids = ["track2", "track1", "track2", "track3"].map(String::from);
+        let playlist = create_playlist_from_tracks(&mut conn, "キュー", &ids).unwrap();
+
+        // 同じ名前があっても、番号は付けない
+        assert_eq!(playlist.name, "キュー");
+        let saved = get_all_playlists(&conn).unwrap();
+        let saved = saved.iter().find(|p| p.id == playlist.id).unwrap();
+        let order: Vec<&str> = saved.tracks.iter().map(|t| t.track_id.as_str()).collect();
+        assert_eq!(order, ["track2", "track1", "track3"]);
+
+        let with_missing = ["track1", "missing"].map(String::from);
+        assert!(matches!(
+            create_playlist_from_tracks(&mut conn, "だめ", &with_missing),
+            Err(rusqlite::Error::QueryReturnedNoRows)
+        ));
+        assert_eq!(get_all_playlists(&conn).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn test_set_playlist_description() {
+        let conn = setup_test_db();
+        let playlist = create_playlist(&conn, "Test Playlist").unwrap();
+        let description =
+            |conn: &Connection| get_all_playlists(conn).unwrap()[0].description.clone();
+
+        set_playlist_description(&conn, &playlist.id, Some("  朝の通勤用  ")).unwrap();
+        assert_eq!(description(&conn).as_deref(), Some("朝の通勤用"));
+
+        // 空の文字列・値なしは、説明なし
+        set_playlist_description(&conn, &playlist.id, Some("   ")).unwrap();
+        assert_eq!(description(&conn), None);
+        set_playlist_description(&conn, &playlist.id, Some("説明")).unwrap();
+        set_playlist_description(&conn, &playlist.id, None).unwrap();
+        assert_eq!(description(&conn), None);
+
+        assert!(matches!(
+            set_playlist_description(&conn, "missing", Some("説明")),
+            Err(rusqlite::Error::QueryReturnedNoRows)
+        ));
+    }
+
+    /// フォルダを作り、プレイリストを出し入れできる。フォルダを消しても、プレイリストは残る
+    #[test]
+    fn test_playlist_folders() {
+        let conn = setup_test_db();
+        let commute = create_playlist(&conn, "通勤").unwrap();
+        let drive = create_playlist(&conn, "ドライブ").unwrap();
+        let folder = create_playlist_folder(&conn, "外出").unwrap();
+        let other = create_playlist_folder(&conn, "家").unwrap();
+        assert_eq!((folder.position, other.position), (0, 1));
+        let folder_of = |conn: &Connection, id: &str| {
+            get_all_playlists(conn)
+                .unwrap()
+                .into_iter()
+                .find(|p| p.id == id)
+                .unwrap()
+                .folder_id
+        };
+
+        // 作ったばかりのプレイリストは、フォルダの外
+        assert_eq!(folder_of(&conn, &commute.id), None);
+        move_playlist(&conn, &commute.id, Some(&folder.id)).unwrap();
+        move_playlist(&conn, &drive.id, Some(&folder.id)).unwrap();
+        assert_eq!(folder_of(&conn, &commute.id), Some(folder.id.clone()));
+
+        rename_playlist_folder(&conn, &folder.id, "おでかけ").unwrap();
+        move_playlist(&conn, &drive.id, None).unwrap();
+        assert_eq!(folder_of(&conn, &drive.id), None);
+        let folders = get_playlist_folders(&conn).unwrap();
+        assert_eq!(
+            folders.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(),
+            ["おでかけ", "家"]
+        );
+
+        // ないプレイリスト・ないフォルダへは移せない
+        for (playlist_id, folder_id) in [
+            ("missing", Some(folder.id.as_str())),
+            (&commute.id, Some("missing")),
+        ] {
+            assert!(matches!(
+                move_playlist(&conn, playlist_id, folder_id),
+                Err(rusqlite::Error::QueryReturnedNoRows)
+            ));
+        }
+
+        delete_playlist_folder(&conn, &folder.id).unwrap();
+        assert_eq!(get_playlist_folders(&conn).unwrap().len(), 1);
+        assert_eq!(get_all_playlists(&conn).unwrap().len(), 2);
+        assert_eq!(folder_of(&conn, &commute.id), None);
+        assert!(matches!(
+            delete_playlist_folder(&conn, &folder.id),
+            Err(rusqlite::Error::QueryReturnedNoRows)
+        ));
+    }
+
+    /// 手動の並び順: 新しいものはいちばん後ろ。渡した順に並べ替えられる
+    #[test]
+    fn test_manual_order_of_playlists_and_folders() {
+        let conn = setup_test_db();
+        let ids: Vec<String> = ["A", "B", "C"]
+            .iter()
+            .map(|name| create_playlist(&conn, name).unwrap().id)
+            .collect();
+        let names_by_position = |conn: &Connection| {
+            let mut playlists = get_all_playlists(conn).unwrap();
+            playlists.sort_by_key(|p| p.position);
+            playlists.into_iter().map(|p| p.name).collect::<Vec<_>>()
+        };
+        assert_eq!(names_by_position(&conn), ["A", "B", "C"]);
+
+        reorder_playlists(
+            &conn,
+            &[
+                ids[2].clone(),
+                ids[0].clone(),
+                "missing".to_string(),
+                ids[1].clone(),
+            ],
+        )
+        .unwrap();
+        assert_eq!(names_by_position(&conn), ["C", "A", "B"]);
+
+        // フォルダへ移すと、いちばん後ろになる。新しいプレイリストも、いちばん後ろ
+        let folder = create_playlist_folder(&conn, "F").unwrap();
+        move_playlist(&conn, &ids[2], Some(&folder.id)).unwrap();
+        create_playlist(&conn, "D").unwrap();
+        assert_eq!(names_by_position(&conn), ["A", "B", "C", "D"]);
+
+        let second = create_playlist_folder(&conn, "G").unwrap();
+        reorder_playlist_folders(&conn, &[second.id.clone(), folder.id.clone()]).unwrap();
+        let folders = get_playlist_folders(&conn).unwrap();
+        assert_eq!(
+            folders.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(),
+            ["G", "F"]
+        );
     }
 
     #[test]

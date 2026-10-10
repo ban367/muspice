@@ -169,6 +169,21 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // 自動プレイリストの条件（JSON。NULLは、曲を自分で選ぶ通常のプレイリスト）
     add_column_if_not_exists(conn, "playlists", "rules", "TEXT")?;
 
+    // プレイリストのフォルダ（1階層。フォルダの中にフォルダは作らない）
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS playlist_folders (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            position INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now'))
+        )",
+        [],
+    )?;
+    // プレイリストが入っているフォルダ（NULLは、フォルダの外）と、手動の並び順での位置
+    // 外部キーは使わず、フォルダを削除する時に`playlist::delete_playlist_folder`が外へ出す
+    add_column_if_not_exists(conn, "playlists", "folder_id", "TEXT")?;
+    add_column_if_not_exists(conn, "playlists", "position", "INTEGER NOT NULL DEFAULT 0")?;
+
     // playlist_tracksテーブルの作成
     conn.execute(
         "CREATE TABLE IF NOT EXISTS playlist_tracks (
@@ -471,11 +486,12 @@ mod tests {
         assert_eq!(count_match("\"VariousArtists\""), 1);
     }
 
-    /// 条件の列を追加する前のDBのプレイリストは、移行したあとも通常のプレイリストのままになること
+    /// 条件・フォルダ・位置の列を追加する前のDBのプレイリストは、移行したあとも
+    /// フォルダの外にある通常のプレイリストのままになること
     #[test]
-    fn test_migrates_playlists_without_rules() {
+    fn test_migrates_playlists_without_rules_and_folders() {
         let conn = Connection::open_in_memory().expect("インメモリDB作成に失敗");
-        // 旧バージョンが作ったDB: playlistsにrulesの列がない
+        // 旧バージョンが作ったDB: playlistsにrules・folder_id・positionの列がない
         conn.execute_batch(
             "CREATE TABLE playlists (
                 id TEXT PRIMARY KEY,
@@ -496,6 +512,19 @@ mod tests {
         assert_eq!(playlists[0].name, "通勤");
         assert!(playlists[0].rules.is_none());
         assert!(crate::playlist::ensure_manual_playlist(&conn, "p1").is_ok());
+        assert_eq!(
+            (playlists[0].folder_id.as_deref(), playlists[0].position),
+            (None, 0)
+        );
+        assert!(
+            crate::playlist::get_playlist_folders(&conn)
+                .unwrap()
+                .is_empty()
+        );
+
+        // 移行したあとに作ったプレイリストは、手動の並び順でいちばん後ろになる
+        let created = crate::playlist::create_playlist(&conn, "ドライブ").unwrap();
+        assert_eq!(created.position, 1);
     }
 
     #[test]

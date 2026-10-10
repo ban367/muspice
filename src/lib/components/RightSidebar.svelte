@@ -5,8 +5,12 @@
     player,
     removeFromQueue,
     clearQueue,
+    moveUpcomingTrack,
     playQueueIndex
   } from '#lib/stores/player.svelte.js';
+  import { useCreatePlaylistWithTracksMutation } from '#lib/queries/playlists.js';
+  import { promptText } from '#lib/utils/dialog.svelte.js';
+  import { validatePlaylistName, toSafeString } from '#lib/utils/validation.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import { VirtualList } from '#lib/components/ui/index.js';
   import AlbumArt from './AlbumArt.svelte';
@@ -52,6 +56,78 @@
   // 行の中のボタン（キューから削除）の操作では再生しない
   function isRowButton(event: Event): boolean {
     return event.target instanceof Element && event.target.closest('button') !== null;
+  }
+
+  // ---- 「次に再生」の並べ替え（行のドラッグ） ----
+
+  /** ドラッグ中の行の位置を運ぶデータの種類（アプリの中だけで使う） */
+  const QUEUE_DRAG_TYPE = 'application/x-muspice-queue-index';
+
+  /** ドラッグしている行の、「次に再生」の一覧の中の位置 */
+  let draggedIndex = $state<number | null>(null);
+  /** 落とそうとしている行の位置 */
+  let dropIndex = $state<number | null>(null);
+
+  const isQueueDrag = (event: DragEvent) =>
+    event.dataTransfer?.types.includes(QUEUE_DRAG_TYPE) ?? false;
+
+  function handleQueueDragStart(event: DragEvent, index: number) {
+    if (!event.dataTransfer) return;
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData(QUEUE_DRAG_TYPE, String(index));
+    draggedIndex = index;
+  }
+
+  function handleQueueDragOver(event: DragEvent, index: number) {
+    if (!isQueueDrag(event)) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+    dropIndex = index;
+  }
+
+  function handleQueueDrop(event: DragEvent, index: number) {
+    if (!isQueueDrag(event)) return;
+    event.preventDefault();
+    const from = Number(event.dataTransfer?.getData(QUEUE_DRAG_TYPE));
+    endQueueDrag();
+    moveUpcomingTrack(from, index);
+  }
+
+  function endQueueDrag() {
+    draggedIndex = null;
+    dropIndex = null;
+  }
+
+  /**
+   * 落とそうとしている行の、目印の出し方（動かした曲は、落とした行の位置に来る。
+   * 下へ動かす時は行の下、上へ動かす時は行の上に線を出す）
+   */
+  function dropWhere(index: number): 'before' | 'after' | undefined {
+    if (dropIndex !== index || draggedIndex === null || draggedIndex === index) return undefined;
+    return draggedIndex < index ? 'after' : 'before';
+  }
+
+  // ---- 再生キューを、プレイリストとして保存 ----
+
+  const savePlaylistMutation = useCreatePlaylistWithTracksMutation();
+
+  async function handleSaveAsPlaylist() {
+    // 再生し終えた曲を含む、キューの全体を保存する（同じ曲は、最初の1回だけが入る）
+    const trackIds = player.playQueue.map((track) => track.id);
+    if (trackIds.length === 0) return;
+
+    // 日付は、プレイリスト名に使えない「/」を含まない形にする
+    const today = new Date().toLocaleDateString('sv-SE');
+    const name = await promptText({
+      title: m.rightSidebar.saveAsPlaylistTitle,
+      label: m.sidebar.playlistName,
+      defaultValue: m.rightSidebar.saveAsPlaylistDefaultName(today),
+      confirmLabel: m.rightSidebar.save,
+      validate: (value) => validatePlaylistName(value).error ?? null
+    });
+    if (name === null) return;
+
+    savePlaylistMutation.mutate({ name: toSafeString(name.trim(), 100), trackIds });
   }
 </script>
 
@@ -143,7 +219,7 @@
 
 <!-- バックドロップ（固定時は表示しない） -->
 {#if ui.isRightSidebarExpanded && !ui.isRightSidebarPinned}
-  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
   <div class="backdrop" onclick={closeByBackdrop}></div>
 {/if}
 
@@ -159,9 +235,35 @@
       <!-- ヘッダー -->
       <div class="queue-header">
         <h3>{m.rightSidebar.queue}</h3>
-        {#if player.playQueue.length > 1}
-          <button class="clear-btn" onclick={clearQueue}>{m.rightSidebar.clear}</button>
-        {/if}
+        <div class="queue-actions">
+          {#if player.playQueue.length > 0}
+            <button
+              class="clear-btn icon"
+              onclick={handleSaveAsPlaylist}
+              disabled={savePlaylistMutation.isPending}
+              title={m.rightSidebar.saveAsPlaylist}
+              aria-label={m.rightSidebar.saveAsPlaylist}
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="w-4 h-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M4 6h16M4 10h16M4 14h8m4 0v6m-3-3h6"
+                />
+              </svg>
+            </button>
+          {/if}
+          {#if player.playQueue.length > 1}
+            <button class="clear-btn" onclick={clearQueue}>{m.rightSidebar.clear}</button>
+          {/if}
+        </div>
       </div>
 
       <!-- 再生中 -->
@@ -204,8 +306,16 @@
               scrollerClass="px-2 pb-2"
             >
               {#snippet row(track, index)}
+                <!-- 行のドラッグで、「次に再生」の中の順を入れ替えられる -->
                 <div
                   class="queue-track"
+                  class:dragging={draggedIndex === index}
+                  data-drop={dropWhere(index)}
+                  draggable="true"
+                  ondragstart={(e) => handleQueueDragStart(e, index)}
+                  ondragover={(e) => handleQueueDragOver(e, index)}
+                  ondrop={(e) => handleQueueDrop(e, index)}
+                  ondragend={endQueueDrag}
                   ondblclick={(e) => !isRowButton(e) && playUpcoming(index)}
                   onkeydown={(e) => e.key === 'Enter' && !isRowButton(e) && playUpcoming(index)}
                   role="button"
@@ -312,8 +422,20 @@
            text-text-secondary text-xs cursor-pointer transition-all duration-200;
   }
 
-  .clear-btn:hover {
+  .clear-btn:hover:not(:disabled) {
     @apply bg-surface-active text-text-primary;
+  }
+
+  .clear-btn:disabled {
+    @apply opacity-50 cursor-not-allowed;
+  }
+
+  .clear-btn.icon {
+    @apply flex items-center justify-center px-1.5;
+  }
+
+  .queue-actions {
+    @apply flex items-center gap-1.5;
   }
 
   /* 再生中セクション */
@@ -362,6 +484,19 @@
 
   .queue-track:hover {
     @apply bg-surface;
+  }
+
+  /* 並べ替えのドラッグ中の行と、落とす位置の線 */
+  .queue-track.dragging {
+    @apply opacity-50;
+  }
+
+  .queue-track[data-drop='before'] {
+    box-shadow: inset 0 2px 0 var(--color-primary);
+  }
+
+  .queue-track[data-drop='after'] {
+    box-shadow: inset 0 -2px 0 var(--color-primary);
   }
 
   .track-number {

@@ -137,6 +137,20 @@ export function validatePlaylistName(name: string): { valid: boolean; error?: st
 }
 
 /**
+ * プレイリストのフォルダの名前を検証する
+ * @returns 誤りの説明（誤りがなければnull）
+ */
+export function validatePlaylistFolderName(name: string): string | null {
+  const trimmed = name.trim();
+  if (trimmed.length === 0) return m.validation.folderNameRequired;
+  if ([...trimmed].length > 100) return m.validation.folderNameTooLong;
+  return null;
+}
+
+/** プレイリストの説明の長さの上限（文字数。Rustの`MAX_PLAYLIST_DESCRIPTION_LENGTH`と同じ） */
+export const MAX_PLAYLIST_DESCRIPTION_LENGTH = 1000;
+
+/**
  * 複数のバリデーション結果を統合
  */
 export function combineValidationResults(results: Array<{ valid: boolean; error?: string }>): {

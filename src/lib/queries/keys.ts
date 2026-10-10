@@ -72,6 +72,9 @@ export const queryKeys = {
   /** プレイリスト一覧 */
   playlists: ['playlists'] as const,
 
+  /** プレイリストのフォルダ */
+  playlistFolders: ['playlistFolders'] as const,
+
   /** 自動プレイリストの条件に合う曲数（条件の編集画面に出す） */
   smartPlaylistCount: (rules: SmartRules) => ['smartPlaylistCount', rules] as const,
 

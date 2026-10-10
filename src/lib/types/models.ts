@@ -41,6 +41,7 @@ export type {
   PlaybackControl,
   PlaybackEvent,
   Playlist,
+  PlaylistFolder,
   PlaylistTrack,
   RefreshMetadataResult,
   ReplayGain,

@@ -6,7 +6,13 @@
  * コンピレーション（アルバムアーティスト）・同じ名前のアルバム・ファイルが見つからない曲等を含める。
  * IDと日時は固定値にし、リロードごとに同じ状態から確認できるようにする。
  */
-import type { PlayHistoryEntry, Playlist, SmartRules, Track } from '#lib/types/models.js';
+import type {
+  PlayHistoryEntry,
+  Playlist,
+  PlaylistFolder,
+  SmartRules,
+  Track
+} from '#lib/types/models.js';
 
 /** フィクスチャの基準日時（createdAtはここから1時間ずつ進む） */
 const BASE_TIME = Date.parse('2026-09-01T09:00:00.000Z');
@@ -28,6 +34,10 @@ export function mockTrackId(index: number): string {
 
 export function mockPlaylistId(index: number): string {
   return `b2000000-0000-4000-8000-${index.toString(16).padStart(12, '0')}`;
+}
+
+export function mockPlaylistFolderId(index: number): string {
+  return `b3000000-0000-4000-8000-${index.toString(16).padStart(12, '0')}`;
 }
 
 interface TrackSeed {
@@ -257,6 +267,18 @@ export function createFixturePlayHistory(
   }));
 }
 
+/** プレイリストのフォルダ（最初は空。プレイリストは、どれもフォルダの外にある） */
+export function createFixturePlaylistFolders(): PlaylistFolder[] {
+  return [
+    {
+      id: mockPlaylistFolderId(1),
+      name: '気分',
+      position: 0,
+      createdAt: toIso(BASE_TIME + 47 * HOUR_MS)
+    }
+  ];
+}
+
 export function createFixturePlaylists(): Playlist[] {
   const playlist = (
     index: number,
@@ -275,6 +297,8 @@ export function createFixturePlaylists(): Playlist[] {
         addedAt: createdAt
       })),
       rules,
+      folderId: null,
+      position: index - 1,
       createdAt,
       updatedAt: createdAt
     };

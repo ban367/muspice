@@ -31,6 +31,7 @@ import type {
   NowPlayingUpdate,
   PlayHistoryEntry,
   Playlist,
+  PlaylistFolder,
   Settings,
   SmartRules,
   SyncDevice,
@@ -41,6 +42,7 @@ import {
   ALBUMS_WITH_FOLDER_ART,
   createBulkTracks,
   createFixturePlayHistory,
+  createFixturePlaylistFolders,
   createFixturePlaylists,
   createFixtureTracks,
   mockPlaylistId,
@@ -357,6 +359,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     ...createBulkTracks(options.extraTrackCount ?? 0)
   ];
   let playlists: Playlist[] = createFixturePlaylists();
+  let playlistFolders: PlaylistFolder[] = createFixturePlaylistFolders();
   // お気に入りにした日時（フィクスチャのお気に入りは、曲を追加した日時にする）
   const favoritedAt = new Map(
     tracks.filter((track) => track.isFavorite).map((track) => [track.id, track.createdAt])
@@ -503,6 +506,40 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   function findPlaylist(id: string): Playlist {
     const playlist = playlists.find((p) => p.id === id);
     if (!playlist) fail('NOT_FOUND', 'プレイリストが見つかりません');
+    return playlist;
+  }
+
+  function findPlaylistFolder(id: string): PlaylistFolder {
+    if (!UUID_PATTERN.test(id)) fail('VALIDATION', '不正なフォルダID形式です');
+    const folder = playlistFolders.find((f) => f.id === id);
+    if (!folder) fail('NOT_FOUND', 'フォルダが見つかりません');
+    return folder;
+  }
+
+  function validatePlaylistFolderName(name: string): void {
+    if (!name.trim()) fail('VALIDATION', 'フォルダ名を入力してください');
+    if ([...name].length > 100) fail('VALIDATION', 'フォルダ名は100文字以内で入力してください');
+  }
+
+  /** 手動の並び順で、いちばん後ろになる位置 */
+  const nextPosition = (items: readonly { position: number }[]) =>
+    Math.max(-1, ...items.map((item) => item.position)) + 1;
+
+  /** 新しいプレイリスト（フォルダの外。手動の並び順では、いちばん後ろ） */
+  function newPlaylist(name: string, rules: SmartRules | null, trackIds: string[] = []): Playlist {
+    const timestamp = now();
+    const playlist: Playlist = {
+      id: crypto.randomUUID(),
+      name,
+      description: null,
+      tracks: trackIds.map((trackId, position) => ({ trackId, position, addedAt: timestamp })),
+      rules,
+      folderId: null,
+      position: nextPosition(playlists),
+      createdAt: timestamp,
+      updatedAt: timestamp
+    };
+    playlists.push(playlist);
     return playlist;
   }
 
@@ -1145,35 +1182,95 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     },
     createPlaylist: (name) => {
       validatePlaylistName(name);
-      const timestamp = now();
-      const playlist: Playlist = {
-        id: crypto.randomUUID(),
-        name,
-        description: null,
-        tracks: [],
-        rules: null,
-        createdAt: timestamp,
-        updatedAt: timestamp
-      };
-      playlists.push(playlist);
-      return playlist;
+      return newPlaylist(name, null);
     },
     createSmartPlaylist: (name, rules) => {
       const trimmed = name.trim();
       validatePlaylistName(trimmed);
       validateSmartRules(rules);
-      const timestamp = now();
-      const playlist: Playlist = {
+      return newPlaylist(trimmed, rules);
+    },
+    // 実装と同じく、同じ曲は最初の1回だけを入れ、見つからない曲があれば作らない
+    createPlaylistWithTracks: (name, trackIds) => {
+      const trimmed = name.trim();
+      validatePlaylistName(trimmed);
+      trackIds.forEach(validateTrackId);
+      const unique = [...new Set(trackIds)];
+      if (!unique.every((id) => tracks.some((track) => track.id === id))) {
+        fail('NOT_FOUND', 'トラックが見つかりません');
+      }
+      return newPlaylist(trimmed, null, unique);
+    },
+    setPlaylistDescription: (playlistId, description) => {
+      validatePlaylistId(playlistId);
+      if (description !== null && [...description].length > 1000) {
+        fail('VALIDATION', '説明は1000文字以内で入力してください');
+      }
+      const playlist = findPlaylist(playlistId);
+      playlist.description = description?.trim() || null;
+      playlist.updatedAt = now();
+      return null;
+    },
+    getPlaylistFolders: () =>
+      [...playlistFolders].sort(
+        (a, b) => a.position - b.position || compareAsc(a.createdAt, b.createdAt)
+      ),
+    createPlaylistFolder: (name) => {
+      const trimmed = name.trim();
+      validatePlaylistFolderName(trimmed);
+      const folder: PlaylistFolder = {
         id: crypto.randomUUID(),
         name: trimmed,
-        description: null,
-        tracks: [],
-        rules,
-        createdAt: timestamp,
-        updatedAt: timestamp
+        position: nextPosition(playlistFolders),
+        createdAt: now()
       };
-      playlists.push(playlist);
-      return playlist;
+      playlistFolders.push(folder);
+      return folder;
+    },
+    renamePlaylistFolder: (folderId, name) => {
+      const folder = findPlaylistFolder(folderId);
+      const trimmed = name.trim();
+      validatePlaylistFolderName(trimmed);
+      folder.name = trimmed;
+      return null;
+    },
+    // 実装と同じく、中のプレイリストは消さず、フォルダの外へ出す
+    deletePlaylistFolder: (folderId) => {
+      findPlaylistFolder(folderId);
+      for (const playlist of playlists) {
+        if (playlist.folderId === folderId) playlist.folderId = null;
+      }
+      playlistFolders = playlistFolders.filter((folder) => folder.id !== folderId);
+      return null;
+    },
+    movePlaylist: (playlistId, folderId) => {
+      validatePlaylistId(playlistId);
+      if (folderId !== null && !UUID_PATTERN.test(folderId)) {
+        fail('VALIDATION', '不正なフォルダID形式です');
+      }
+      const playlist = playlists.find((p) => p.id === playlistId);
+      if (!playlist || (folderId !== null && !playlistFolders.some((f) => f.id === folderId))) {
+        fail('NOT_FOUND', 'プレイリストまたはフォルダが見つかりません');
+      }
+      playlist.position = nextPosition(playlists);
+      playlist.folderId = folderId;
+      return null;
+    },
+    reorderPlaylists: (playlistIds) => {
+      playlistIds.forEach(validatePlaylistId);
+      playlistIds.forEach((id, position) => {
+        const playlist = playlists.find((p) => p.id === id);
+        if (playlist) playlist.position = position;
+      });
+      return null;
+    },
+    reorderPlaylistFolders: (folderIds) => {
+      folderIds.forEach((id, position) => {
+        if (!UUID_PATTERN.test(id)) fail('VALIDATION', '不正なフォルダID形式です');
+        const folder = playlistFolders.find((f) => f.id === id);
+        if (folder) folder.position = position;
+      });
+      return null;
     },
     updateSmartPlaylist: (playlistId, rules) => {
       validatePlaylistId(playlistId);
@@ -1250,21 +1347,24 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       if (added > 0) playlist.updatedAt = timestamp;
       return added;
     },
-    removeTrackFromPlaylist: (playlistId, trackId) => {
+    // 実装と同じく、入っていないトラックは飛ばし、外したトラック数を返す
+    removeTracksFromPlaylist: (playlistId, trackIds) => {
       validatePlaylistId(playlistId);
-      validateTrackId(trackId);
-      ensureManualPlaylist(playlistId);
-      const playlist = playlists.find((p) => p.id === playlistId);
-      if (!playlist || !playlist.tracks.some((entry) => entry.trackId === trackId)) {
-        fail('NOT_FOUND', 'プレイリストまたはトラックが見つかりません');
+      if (trackIds.length === 0) {
+        fail('VALIDATION', 'トラックIDが指定されていません');
       }
+      trackIds.forEach(validateTrackId);
+      ensureManualPlaylist(playlistId);
+      const playlist = findPlaylist(playlistId);
+      const before = playlist.tracks.length;
       // 削除後はpositionを連番に振り直す
       playlist.tracks = playlist.tracks
-        .filter((entry) => entry.trackId !== trackId)
+        .filter((entry) => !trackIds.includes(entry.trackId))
         .sort((a, b) => a.position - b.position)
         .map((entry, position) => ({ ...entry, position }));
-      playlist.updatedAt = now();
-      return null;
+      const removed = before - playlist.tracks.length;
+      if (removed > 0) playlist.updatedAt = now();
+      return removed;
     },
     reorderPlaylistTracks: (playlistId, trackIds) => {
       validatePlaylistId(playlistId);
@@ -1291,17 +1391,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         .filter((track) => !track.isMissing)
         .slice(0, clean ? 4 : 6)
         .map((track) => track.id);
-      const timestamp = now();
-      const playlist: Playlist = {
-        id: crypto.randomUUID(),
-        name,
-        description: null,
-        tracks: trackIds.map((trackId, position) => ({ trackId, position, addedAt: timestamp })),
-        rules: null,
-        createdAt: timestamp,
-        updatedAt: timestamp
-      };
-      playlists.push(playlist);
+      const playlist = newPlaylist(name, null, trackIds);
       return [
         {
           fileName: `${baseName}.${clean ? 'm3u8' : 'm3u'}`,
@@ -1609,18 +1699,11 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         for (let number = 2; playlists.some((playlist) => playlist.name === name); number++) {
           name = `${baseName} (${number})`;
         }
-        const timestamp = now();
-        playlists.push({
-          id: crypto.randomUUID(),
+        newPlaylist(
           name,
-          description: null,
-          tracks: targets
-            .slice(0, 5)
-            .map((track, position) => ({ trackId: track.id, position, addedAt: timestamp })),
-          rules: null,
-          createdAt: timestamp,
-          updatedAt: timestamp
-        });
+          null,
+          targets.slice(0, 5).map((track) => track.id)
+        );
         playlistCount = 1;
       }
       options.emit('library-changed', null);

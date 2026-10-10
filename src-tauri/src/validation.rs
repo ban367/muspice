@@ -68,6 +68,44 @@ pub fn validate_playlist_name(name: &str) -> AppResult<()> {
     Ok(())
 }
 
+/// プレイリストのフォルダの名前をバリデーション
+pub fn validate_playlist_folder_name(name: &str) -> AppResult<()> {
+    if name.trim().is_empty() {
+        return Err(AppError::Validation(
+            "フォルダ名を入力してください".to_string(),
+        ));
+    }
+    if name.chars().count() > 100 {
+        return Err(AppError::Validation(
+            "フォルダ名は100文字以内で入力してください".to_string(),
+        ));
+    }
+    if name.contains('\0') {
+        return Err(AppError::Validation(
+            "不正なフォルダ名: Null文字が含まれています".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// プレイリストの説明の長さの上限（文字数）
+pub const MAX_PLAYLIST_DESCRIPTION_LENGTH: usize = 1000;
+
+/// プレイリストの説明をバリデーション
+pub fn validate_playlist_description(description: &str) -> AppResult<()> {
+    if description.chars().count() > MAX_PLAYLIST_DESCRIPTION_LENGTH {
+        return Err(AppError::Validation(
+            "説明は1000文字以内で入力してください".to_string(),
+        ));
+    }
+    if description.contains('\0') {
+        return Err(AppError::Validation(
+            "不正な説明: Null文字が含まれています".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 /// 検索クエリをサニタイズ（SQLインジェクション対策）
 pub fn sanitize_search_query(query: &str) -> String {
     // 危険な文字を除去
@@ -121,6 +159,11 @@ pub fn validate_track_id(id: &str) -> AppResult<()> {
 pub fn validate_playlist_id(id: &str) -> AppResult<()> {
     validate_track_id(id)
         .map_err(|_| AppError::Validation("不正なプレイリストID形式です".to_string()))
+}
+
+/// プレイリストのフォルダのIDをバリデーション（UUID形式）
+pub fn validate_playlist_folder_id(id: &str) -> AppResult<()> {
+    validate_track_id(id).map_err(|_| AppError::Validation("不正なフォルダID形式です".to_string()))
 }
 
 /// 文字列の長さをバリデーション
@@ -184,6 +227,26 @@ mod tests {
         assert!(validate_playlist_name("Playlist<script>").is_err());
         assert!(validate_playlist_name("Playlist/Name").is_err());
         assert!(validate_playlist_name("Playlist\\Name").is_err());
+    }
+
+    #[test]
+    fn test_validate_playlist_folder_name() {
+        assert!(validate_playlist_folder_name("外出").is_ok());
+        // フォルダはファイルにしないため、記号も使える
+        assert!(validate_playlist_folder_name("Rock / Pop").is_ok());
+        assert!(validate_playlist_folder_name("あ".repeat(100).as_str()).is_ok());
+        assert!(validate_playlist_folder_name("  ").is_err());
+        assert!(validate_playlist_folder_name("あ".repeat(101).as_str()).is_err());
+        assert!(validate_playlist_folder_name("a\0b").is_err());
+    }
+
+    #[test]
+    fn test_validate_playlist_description() {
+        assert!(validate_playlist_description("").is_ok());
+        assert!(validate_playlist_description("1行目\n2行目").is_ok());
+        assert!(validate_playlist_description(&"あ".repeat(1000)).is_ok());
+        assert!(validate_playlist_description(&"あ".repeat(1001)).is_err());
+        assert!(validate_playlist_description("a\0b").is_err());
     }
 
     #[test]

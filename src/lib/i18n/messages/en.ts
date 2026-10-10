@@ -120,8 +120,13 @@ export const en: Messages = {
     createPlaylist: 'Creating the playlist',
     addTrackToPlaylist: 'Adding the track',
     removeTrackFromPlaylist: 'Removing the track',
+    updatePlaylistInfo: 'Updating the playlist',
+    movePlaylist: 'Moving the playlist',
+    fetchPlaylistFolders: 'Loading folders',
+    createPlaylistFolder: 'Creating the folder',
+    renamePlaylistFolder: 'Renaming the folder',
+    deletePlaylistFolder: 'Deleting the folder',
     reorderPlaylistTracks: 'Reordering tracks',
-    renamePlaylist: 'Renaming the playlist',
     deletePlaylist: 'Deleting the playlist',
     importM3u: 'Importing playlists',
     importLibraryXml: 'Importing the library XML',
@@ -150,9 +155,12 @@ export const en: Messages = {
     smartPlaylistUpdated: 'Smart playlist updated',
     tracksAddedToPlaylist: (count) => `Added ${plural(count, 'track', 'tracks')} to the playlist`,
     tracksAlreadyInPlaylist: 'Already in the playlist',
-    trackRemovedFromPlaylist: 'Removed the track from the playlist',
+    tracksRemovedFromPlaylist: (count) =>
+      `Removed ${plural(count, 'track', 'tracks')} from the playlist`,
+    playlistCreatedWithTracks: (name, count) =>
+      `Created the playlist "${name}" (${plural(count, 'track', 'tracks')})`,
+    playlistInfoUpdated: 'Playlist updated',
     tracksReordered: 'Reordered the tracks',
-    playlistRenamed: 'Playlist renamed',
     playlistDeleted: 'Playlist deleted',
     m3uImported: (name, count) =>
       `Imported the playlist "${name}" (${plural(count, 'track', 'tracks')})`,
@@ -184,6 +192,9 @@ export const en: Messages = {
     playlistNameRequired: 'Enter a playlist name',
     playlistNameTooLong: 'The playlist name must be 100 characters or fewer',
     playlistNameInvalid: 'The playlist name contains characters that cannot be used',
+    folderNameRequired: 'Enter a folder name',
+    folderNameTooLong: 'The folder name must be 100 characters or fewer',
+    descriptionTooLong: 'The description must be 1000 characters or fewer',
     inputRequired: 'Enter a value'
   },
 
@@ -237,6 +248,24 @@ export const en: Messages = {
     playlists: 'Playlists',
     newPlaylistTitle: 'New Playlist (Ctrl+N)',
     newSmartPlaylistTitle: 'New Smart Playlist',
+    playlistMenu: 'Folders and Order',
+    newFolder: 'New Folder',
+    folderName: 'Folder name',
+    sortBy: 'Order',
+    sortOptions: {
+      name: 'Name',
+      createdAt: 'Date created (newest first)',
+      manual: 'Manual (drag to reorder)'
+    },
+    renameFolderTitle: 'Rename Folder',
+    newFolderName: 'New folder name',
+    deleteFolder: 'Delete Folder',
+    confirmDeleteFolder: (name) =>
+      `Delete the folder "${name}"?\nThe playlists in it are kept and moved out of the folder.`,
+    emptyFolder: 'No playlists',
+    playlistCountInFolder: (count) => plural(count, 'playlist', 'playlists'),
+    expandFolder: 'Expand the folder',
+    collapseFolder: 'Collapse the folder',
     noPlaylists: 'No playlists',
     newPlaylist: 'New Playlist',
     playlistName: 'Playlist name',
@@ -259,7 +288,11 @@ export const en: Messages = {
     nowPlaying: 'Now Playing',
     upNext: (count) => `Up Next (${plural(count, 'track', 'tracks')})`,
     removeFromQueue: 'Remove from queue',
-    noUpcoming: 'No other tracks in the queue'
+    noUpcoming: 'No other tracks in the queue',
+    saveAsPlaylist: 'Save as Playlist',
+    saveAsPlaylistTitle: 'Save the Queue as a Playlist',
+    saveAsPlaylistDefaultName: (date) => `Queue ${date}`,
+    save: 'Save'
   },
 
   equalizer: {
@@ -460,10 +493,11 @@ export const en: Messages = {
     playGroup: (type) => `Play ${type}`,
     playPlaylist: 'Play Playlist',
     rename: 'Rename',
-    renamePlaylistTitle: 'Rename Playlist',
-    newPlaylistName: 'New playlist name',
     renameConfirm: 'Rename',
-    confirmDeletePlaylist: (name) => `Delete the playlist "${name}"?`
+    confirmDeletePlaylist: (name) => `Delete the playlist "${name}"?`,
+    moveToFolder: 'Move to Folder',
+    noFolder: 'Outside folders',
+    noFolders: 'No folders'
   },
 
   deleteDialog: {
@@ -602,6 +636,13 @@ export const en: Messages = {
     noTracks: 'This playlist has no tracks yet',
     noTracksHint: 'Drag and drop tracks from the library to add them',
     removeFromPlaylist: 'Remove from playlist',
+    editInfo: 'Edit Name and Description',
+    editInfoEllipsis: 'Edit Name and Description...',
+    infoTitle: 'Playlist Info',
+    name: 'Name',
+    description: 'Description',
+    descriptionCount: (length, max) => `${length} / ${max} characters`,
+    outsideFolders: 'Outside folders',
     importM3u: 'Import M3U',
     exportM3u: 'Export as M3U8...',
     importResultTitle: 'Playlist Import Results',

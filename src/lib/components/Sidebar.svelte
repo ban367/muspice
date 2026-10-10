@@ -5,27 +5,16 @@
   import { useQueryClient } from '@tanstack/svelte-query';
   import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
   import { open } from '@tauri-apps/plugin-dialog';
-  import {
-    usePlaylistsQuery,
-    useAddTracksToPlaylistMutation,
-    useCreatePlaylistMutation
-  } from '#lib/queries/playlists.js';
   import { useRegisterSyncDeviceMutation, useSyncDevicesQuery } from '#lib/queries/devices.js';
   import { queryKeys } from '#lib/queries/keys.js';
   import { handleError, showSuccess } from '#lib/stores/error.svelte.js';
   import { isDeviceNameTooLong, suggestDeviceName } from '#lib/utils/devices.js';
-  import { validatePlaylistName, toSafeString } from '#lib/utils/validation.js';
   import { promptText } from '#lib/utils/dialog.svelte.js';
   import { ui } from '#lib/stores/ui.svelte.js';
-  import { isTrackDrag, readDraggedTrackIds } from '#lib/utils/trackDrag.js';
   import { useGenresQuery } from '#lib/queries/tracks.js';
   import { useSettingsQuery } from '#lib/queries/settings.js';
-  import type { Playlist, SidebarItem } from '#lib/types/models.js';
-  import PlaylistContextMenu from './PlaylistContextMenu.svelte';
-  import PlaylistIcon from './PlaylistIcon.svelte';
-  import { smartPlaylistDialog } from '#lib/stores/smartPlaylist.svelte.js';
-  import PlaylistExportDialog from './PlaylistExportDialog.svelte';
-  import PlaylistImportButton from './PlaylistImportButton.svelte';
+  import type { SidebarItem } from '#lib/types/models.js';
+  import SidebarPlaylists from './SidebarPlaylists.svelte';
   import MarqueeText from './MarqueeText.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
@@ -61,11 +50,6 @@
 
   // 現在のパスからアクティブなページを判定
   const currentPath = $derived(page.url.pathname);
-
-  // クエリとミューテーション
-  const playlistsQuery = usePlaylistsQuery();
-  const addTracksMutation = useAddTracksToPlaylistMutation();
-  const createPlaylistMutation = useCreatePlaylistMutation();
 
   // 転送先デバイス
   const devicesQuery = useSyncDevicesQuery();
@@ -115,79 +99,6 @@
       goto(resolve(`devices/${device.id}`));
     } catch {
       // 失敗はミューテーション内でトースト通知済み
-    }
-  }
-
-  // コンテキストメニュー
-  let contextMenu = $state<{ x: number; y: number; playlist: Playlist } | null>(null);
-  // M3U8へ書き出すプレイリスト（書き方を選ぶダイアログを表示する）
-  let exportingPlaylist = $state.raw<Playlist | null>(null);
-
-  /**
-   * 右クリックメニューを表示
-   */
-  function handleContextMenu(event: MouseEvent, playlist: Playlist) {
-    event.preventDefault();
-    contextMenu = {
-      x: event.clientX,
-      y: event.clientY,
-      playlist
-    };
-  }
-
-  /**
-   * 右クリックメニューを閉じる
-   */
-  function closeContextMenu() {
-    contextMenu = null;
-  }
-
-  /**
-   * 新規プレイリストを作成
-   */
-  async function handleCreatePlaylist() {
-    const name = await promptText({
-      title: m.sidebar.newPlaylist,
-      label: m.sidebar.playlistName,
-      confirmLabel: m.sidebar.create,
-      validate: (value) => validatePlaylistName(value).error ?? null
-    });
-    if (name === null) return;
-
-    createPlaylistMutation.mutate(toSafeString(name, 100));
-  }
-
-  /**
-   * プレイリストへのドラッグオーバー
-   */
-  function handleDragOver(event: DragEvent) {
-    // トラックのドラッグだけを受け付ける
-    if (!isTrackDrag(event)) return;
-    event.preventDefault();
-    if (event.dataTransfer) {
-      event.dataTransfer.dropEffect = 'copy';
-    }
-    (event.currentTarget as HTMLElement).classList.add('playlist-drag-over');
-  }
-
-  /**
-   * プレイリストからのドラッグ離脱
-   */
-  function handleDragLeave(event: DragEvent) {
-    (event.currentTarget as HTMLElement).classList.remove('playlist-drag-over');
-  }
-
-  /**
-   * プレイリストへのドロップ
-   */
-  function handleDrop(event: DragEvent, playlistId: string) {
-    event.preventDefault();
-    (event.currentTarget as HTMLElement).classList.remove('playlist-drag-over');
-
-    // ドラッグした曲（選択していた曲すべて）を、一覧の並び順のまま1回で追加する
-    const trackIds = readDraggedTrackIds(event);
-    if (trackIds.length > 0) {
-      addTracksMutation.mutate({ playlistId, trackIds });
     }
   }
 
@@ -583,91 +494,8 @@
   </div>
 
   <!-- プレイリストセクション -->
-  <div class="flex-1 flex flex-col min-h-0 mb-6">
-    <div class="flex items-center justify-between mb-2 px-2">
-      <h2 class="text-xs font-semibold uppercase tracking-wider text-text-muted m-0">
-        {m.sidebar.playlists}
-      </h2>
-      <div class="flex items-center gap-1">
-        <PlaylistImportButton />
-        <button
-          class="btn-icon w-6 h-6 p-0"
-          title={m.sidebar.newSmartPlaylistTitle}
-          aria-label={m.sidebar.newSmartPlaylistTitle}
-          onclick={() => smartPlaylistDialog.openNew()}
-        >
-          <PlaylistIcon smart class="w-4 h-4" />
-        </button>
-        <button
-          class="btn-icon w-6 h-6 p-0"
-          title={m.sidebar.newPlaylistTitle}
-          onclick={handleCreatePlaylist}
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="w-4 h-4"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M12 4v16m8-8H4"
-            />
-          </svg>
-        </button>
-      </div>
-    </div>
-
-    <ul class="list-none m-0 p-0 flex-1 overflow-y-auto">
-      {#if playlistsQuery.isLoading}
-        <li class="px-3 py-2 text-sm text-text-dimmed">{m.common.loading}</li>
-      {:else if playlistsQuery.isError}
-        <li class="px-3 py-2 text-sm text-error-light">{m.common.errorOccurred}</li>
-      {:else if playlistsQuery.data}
-        {#each playlistsQuery.data as playlist (playlist.id)}
-          <!-- 自動プレイリストの曲は条件で決まるため、曲のドロップは受け付けず、曲数も出さない -->
-          {@const isSmart = playlist.rules !== null}
-          <li>
-            <a
-              href={resolve(`playlists/${playlist.id}`)}
-              class="nav-item-base relative"
-              class:active={currentPath === `/playlists/${playlist.id}`}
-              ondragover={isSmart ? undefined : handleDragOver}
-              ondragleave={isSmart ? undefined : handleDragLeave}
-              ondrop={isSmart ? undefined : (e) => handleDrop(e, playlist.id)}
-              oncontextmenu={(e) => handleContextMenu(e, playlist)}
-            >
-              <PlaylistIcon smart={isSmart} class="w-5 h-5 shrink-0" />
-              <MarqueeText text={playlist.name} class="flex-1" />
-              {#if !isSmart}
-                <span class="text-xs text-text-dimmed shrink-0 ml-2">{playlist.tracks.length}</span>
-              {/if}
-            </a>
-          </li>
-        {/each}
-        {#if playlistsQuery.data.length === 0}
-          <li class="px-3 py-2 text-sm text-text-dimmed">{m.sidebar.noPlaylists}</li>
-        {/if}
-      {/if}
-    </ul>
-  </div>
+  <SidebarPlaylists />
 </aside>
-
-<!-- コンテキストメニュー -->
-{#if contextMenu}
-  <PlaylistContextMenu
-    x={contextMenu.x}
-    y={contextMenu.y}
-    playlist={contextMenu.playlist}
-    onClose={closeContextMenu}
-    onExport={(playlist) => (exportingPlaylist = playlist)}
-  />
-{/if}
-
-<PlaylistExportDialog playlist={exportingPlaylist} onClose={() => (exportingPlaylist = null)} />
 
 <style>
   @reference "../../app.css";

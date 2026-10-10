@@ -56,9 +56,12 @@ pub use album_art::{get_album_art_info, remove_album_art, set_album_art};
 
 // プレイリスト管理
 pub use playlist_cmd::{
-    add_tracks_to_playlist, count_smart_playlist_tracks, create_playlist, create_smart_playlist,
-    delete_playlist, get_playlist_tracks, get_playlists, remove_track_from_playlist,
-    rename_playlist, reorder_playlist_tracks, reshuffle_smart_playlists, update_smart_playlist,
+    add_tracks_to_playlist, count_smart_playlist_tracks, create_playlist, create_playlist_folder,
+    create_playlist_with_tracks, create_smart_playlist, delete_playlist, delete_playlist_folder,
+    get_playlist_folders, get_playlist_tracks, get_playlists, move_playlist,
+    remove_tracks_from_playlist, rename_playlist, rename_playlist_folder, reorder_playlist_folders,
+    reorder_playlist_tracks, reorder_playlists, reshuffle_smart_playlists,
+    set_playlist_description, update_smart_playlist,
 };
 
 // ライブラリのXML（iTunes形式）の取り込み

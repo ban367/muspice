@@ -220,10 +220,44 @@ export const commands = {
 	 *  見つからないトラックがある場合は、1曲も追加しない。
 	 */
 	addTracksToPlaylist: (playlistId: string, trackIds: string[]) => __TAURI_INVOKE<number>("add_tracks_to_playlist", { playlistId, trackIds }),
-	/**  プレイリストからトラックを削除 */
-	removeTrackFromPlaylist: (playlistId: string, trackId: string) => __TAURI_INVOKE<null>("remove_track_from_playlist", { playlistId, trackId }),
+	/**
+	 *  プレイリストから複数のトラックを外す
+	 * 
+	 *  入っていないトラックは飛ばし、外したトラック数を返す。
+	 */
+	removeTracksFromPlaylist: (playlistId: string, trackIds: string[]) => __TAURI_INVOKE<number>("remove_tracks_from_playlist", { playlistId, trackIds }),
 	/**  プレイリスト内のトラックを並び替え */
 	reorderPlaylistTracks: (playlistId: string, trackIds: string[]) => __TAURI_INVOKE<null>("reorder_playlist_tracks", { playlistId, trackIds }),
+	/**
+	 *  渡した曲を入れた状態で、プレイリストを作成（再生キューをプレイリストとして保存する時に使う）
+	 * 
+	 *  同じ曲は、最初の1回だけを入れる。見つからない曲がある場合は、プレイリストを作らない。
+	 */
+	createPlaylistWithTracks: (name: string, trackIds: string[]) => __TAURI_INVOKE<Playlist>("create_playlist_with_tracks", { name, trackIds }),
+	/**  プレイリストの説明を変更（値なし・空の文字列は、説明なし） */
+	setPlaylistDescription: (playlistId: string, description: string | null) => __TAURI_INVOKE<null>("set_playlist_description", { playlistId, description }),
+	/**  プレイリストのフォルダを取得（手動の並び順） */
+	getPlaylistFolders: () => __TAURI_INVOKE<PlaylistFolder[]>("get_playlist_folders"),
+	/**  プレイリストのフォルダを作成 */
+	createPlaylistFolder: (name: string) => __TAURI_INVOKE<PlaylistFolder>("create_playlist_folder", { name }),
+	/**  プレイリストのフォルダの名前を変更 */
+	renamePlaylistFolder: (folderId: string, name: string) => __TAURI_INVOKE<null>("rename_playlist_folder", { folderId, name }),
+	/**  プレイリストのフォルダを削除（中のプレイリストは消さず、フォルダの外へ出す） */
+	deletePlaylistFolder: (folderId: string) => __TAURI_INVOKE<null>("delete_playlist_folder", { folderId }),
+	/**
+	 *  プレイリストを、フォルダへ移す（`folder_id`が値なしなら、フォルダの外へ出す）
+	 * 
+	 *  手動の並び順では、移した先のいちばん後ろに置く。
+	 */
+	movePlaylist: (playlistId: string, folderId: string | null) => __TAURI_INVOKE<null>("move_playlist", { playlistId, folderId }),
+	/**
+	 *  プレイリストの手動の並び順を変更（渡した順に並べる）
+	 * 
+	 *  並び順は同じフォルダの中で比べるため、1つのフォルダ（またはフォルダの外）のプレイリストを渡す。
+	 */
+	reorderPlaylists: (playlistIds: string[]) => __TAURI_INVOKE<null>("reorder_playlists", { playlistIds }),
+	/**  プレイリストのフォルダの手動の並び順を変更（渡した順に並べる） */
+	reorderPlaylistFolders: (folderIds: string[]) => __TAURI_INVOKE<null>("reorder_playlist_folders", { folderIds }),
 	/**
 	 *  M3U（M3U8）のファイルを選んで読み込み、ファイルごとにプレイリストを作る
 	 * 
@@ -963,8 +997,21 @@ export type Playlist = {
 	tracks: PlaylistTrack[],
 	/**  自動プレイリストの条件（値なしは、曲を自分で選ぶ通常のプレイリスト） */
 	rules: SmartRules | null,
+	/**  入っているフォルダ（値なしは、フォルダの外） */
+	folderId: string | null,
+	/**  手動の並び順での位置（同じフォルダの中で、小さい方が先） */
+	position: number,
 	createdAt: string,
 	updatedAt: string,
+};
+
+/**  プレイリストのフォルダ（1階層。フォルダの中にフォルダは作らない） */
+export type PlaylistFolder = {
+	id: string,
+	name: string,
+	/**  手動の並び順での位置（小さい方が先） */
+	position: number,
+	createdAt: string,
 };
 
 /**  プレイリスト内のトラック情報 */
