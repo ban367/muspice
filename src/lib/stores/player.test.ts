@@ -393,6 +393,31 @@ describe('removeFromQueue', () => {
   });
 });
 
+describe('playRequestCount', () => {
+  it('曲を選んで再生する操作のたびに増える（同じ曲を選び直した場合も）', () => {
+    const before = player.playRequestCount;
+
+    playTrackFromQueue(tracks, 0);
+    playTrackFromQueue(tracks, 0);
+    playQueueIndex(2);
+    playShuffled(tracks);
+
+    expect(player.playRequestCount).toBe(before + 4);
+  });
+
+  it('次へ・前へ・復元・範囲の外の指定では増えない', () => {
+    playTrackFromQueue(tracks, 0);
+    const before = player.playRequestCount;
+
+    playNextTrack();
+    playPreviousTrack();
+    playQueueIndex(99);
+    restoreQueue(tracks, tracks, 1);
+
+    expect(player.playRequestCount).toBe(before);
+  });
+});
+
 describe('moveUpcomingTrack', () => {
   const queue = ['t1', 't2', 't3', 't4', 't5'].map(makeTrack);
 

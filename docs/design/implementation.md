@@ -159,6 +159,7 @@ src-tauri/src/
 ### 再生制御
 
 - 再生エンジンの操作・キュー遷移・リピート・再生回数の記録・イコライザの設定の送信は`#lib/stores/playback.svelte`の`createPlaybackController(options)`が担う。`Player.svelte`は表示と操作の受付だけを行い、コントローラーのメソッドを呼ぶ
+- 再生コントローラーは、`player.currentTrack`のIDが、エンジンに再生させた曲と同じ間は再生し直さない。ただし、再生を始めずに置いてある曲（起動して復元した曲・「この曲が終わったら停止」で進めた曲・再生に失敗した曲）を、一覧・キューから選び直した場合は、頭から再生する。選び直したことは、`player.playRequestCount`（`playTrackFromQueue`・`playSingleTrack`・`playQueueIndex`が増やす）で見分ける（同じ曲では、IDもオブジェクトも変わらないことがあるため）
 - 次・前のトラックの決定は`#lib/stores/player.svelte`のキュー操作（`playNextTrack`・`playPreviousTrack`）が担う。キュー操作の結果が再生中と同じトラックだった場合（1曲リピート、3秒以上再生中の「前へ」、1曲だけのキューの全曲リピート）はトラックIDが変わらず再生が始まらないため、コントローラーが頭から再生し直す
 - 再生状態の復元と保存は`#lib/stores/playbackState.svelte`が担い、再生コントローラーが作成時に呼ぶ（ADR-028）
   - 復元（`restorePlaybackState`）は、音量・シャッフル・リピートと、キュー・再生していた曲を`player`へ戻す。再生コントローラーは`player.currentTrack`の変化で再生を始めるため、戻す直前に「この曲は再生を始めない」と記録する（復元した曲は、再生ボタンで頭から再生する）
