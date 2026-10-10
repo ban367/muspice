@@ -1,6 +1,7 @@
 <script lang="ts">
   import { resolve } from '$app/paths';
   import { usePlaylistsQuery } from '#lib/queries/playlists.js';
+  import PlaylistIcon from '#lib/components/PlaylistIcon.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   const playlistsQuery = usePlaylistsQuery();
@@ -32,25 +33,16 @@
       <div class="playlists-grid">
         {#each playlistsQuery.data as playlist (playlist.id)}
           <a href={resolve(`playlists/${playlist.id}`)} class="playlist-card">
-            <div class="playlist-icon">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                class="icon"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M4 6h16M4 10h16M4 14h16M4 18h16"
-                />
-              </svg>
+            <div class="playlist-icon" class:smart={playlist.rules !== null}>
+              <PlaylistIcon smart={playlist.rules !== null} class="w-7 h-7 text-white" />
             </div>
             <div class="playlist-info">
               <h3 class="playlist-name">{playlist.name}</h3>
-              <p class="playlist-meta">{m.common.trackCount(playlist.tracks.length)}</p>
+              <p class="playlist-meta">
+                {playlist.rules === null
+                  ? m.common.trackCount(playlist.tracks.length)
+                  : m.smartPlaylist.badge}
+              </p>
             </div>
           </a>
         {/each}
@@ -122,8 +114,9 @@
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   }
 
-  .playlist-icon .icon {
-    @apply w-7 h-7 text-white;
+  /* 自動プレイリストは、色を変えて見分ける */
+  .playlist-icon.smart {
+    background: linear-gradient(135deg, #f6a13c 0%, #e0567a 100%);
   }
 
   .playlist-info {

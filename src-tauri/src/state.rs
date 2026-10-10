@@ -1,6 +1,8 @@
 use crate::album_art::AlbumArtCache;
 use crate::error::{AppError, AppResult};
+use crate::smart_playlist::EvalContext;
 use rusqlite::Connection;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
 use tokio::sync::Semaphore;
 
@@ -25,6 +27,14 @@ pub struct AppState {
     /// 手動の操作と自動の再スキャンが同じファイルを同時に登録しないようにする。
     /// `lock_library_scan`で取得する。
     library_scan_lock: Mutex<()>,
+    /// 自動プレイリストの、ランダムな並びの種（起動のたびに変わる。「選び直す」でも変える）
+    shuffle_seed: AtomicU64,
+}
+
+/// ランダムな並びの、新しい種
+fn new_shuffle_seed() -> u64 {
+    // 並びを変えるためだけに使う（予測できないことは求めない）
+    uuid::Uuid::new_v4().as_u64_pair().0
 }
 
 impl AppState {
@@ -35,7 +45,22 @@ impl AppState {
             album_art_limiter: Semaphore::new(ALBUM_ART_CONCURRENCY),
             album_art_cache: Mutex::new(AlbumArtCache::default()),
             library_scan_lock: Mutex::new(()),
+            shuffle_seed: AtomicU64::new(new_shuffle_seed()),
         }
+    }
+
+    /// 自動プレイリストの条件から曲を求める時の状況（現在の日時と、ランダムな並びの種）
+    pub fn smart_playlist_context(&self) -> EvalContext {
+        EvalContext {
+            now: chrono::Utc::now(),
+            shuffle_seed: self.shuffle_seed.load(Ordering::Relaxed),
+        }
+    }
+
+    /// ランダムな並びの自動プレイリストを、選び直す（種を変える）
+    pub fn reshuffle_smart_playlists(&self) {
+        self.shuffle_seed
+            .store(new_shuffle_seed(), Ordering::Relaxed);
     }
 
     /// ライブラリフォルダの読み込みのロックを取得する（他の読み込みが終わるまで待つ）

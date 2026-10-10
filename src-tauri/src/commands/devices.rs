@@ -257,11 +257,23 @@ struct PreparedSync {
 
 /// デバイスの接続を確認し、同期する曲・プレイリストと管理ファイルから差分を計算する
 fn prepare_sync(state: &AppState, device_id: &str) -> AppResult<PreparedSync> {
-    let (device, all_tracks, all_playlists) = state.with_db(|db| {
+    // 自動プレイリストは、今の条件に合う曲を転送する（ランダムな並びは、選び直すまで同じ曲になる）
+    let context = state.smart_playlist_context();
+    let (device, all_tracks, playlists) = state.with_db(|db| {
         let device = crate::device::find_device(db, device_id)?;
         let tracks = crate::repository::find_transfer_tracks(db)?;
         let playlists = crate::playlist::get_all_playlists(db)
-            .map_err(|e| AppError::Database(format!("プレイリストの取得に失敗しました: {}", e)))?;
+            .map_err(|e| AppError::Database(format!("プレイリストの取得に失敗しました: {}", e)))?
+            .into_iter()
+            .filter(|playlist| device.playlist_ids.contains(&playlist.id))
+            .map(|playlist| {
+                Ok(SourcePlaylist {
+                    track_ids: crate::playlist::playlist_track_ids(db, &playlist, context)?,
+                    id: playlist.id,
+                    name: playlist.name,
+                })
+            })
+            .collect::<AppResult<Vec<SourcePlaylist>>>()?;
         Ok((device, tracks, playlists))
     })?;
 
@@ -276,15 +288,6 @@ fn prepare_sync(state: &AppState, device_id: &str) -> AppResult<PreparedSync> {
             ))
         })?;
 
-    let playlists: Vec<SourcePlaylist> = all_playlists
-        .into_iter()
-        .filter(|playlist| device.playlist_ids.contains(&playlist.id))
-        .map(|playlist| SourcePlaylist {
-            id: playlist.id,
-            name: playlist.name,
-            track_ids: playlist.tracks.into_iter().map(|t| t.track_id).collect(),
-        })
-        .collect();
     // 全曲を同期しない場合は、選んだプレイリストの曲だけにする
     let selected_ids: Option<HashSet<&str>> = (!device.sync_all).then(|| {
         playlists
@@ -728,6 +731,78 @@ mod tests {
         assert!(fixture.on_device("ドライブ.m3u8").is_some());
         // 管理外のファイルには触れない
         assert_eq!(fixture.on_device("my notes.txt").as_deref(), Some("mine"));
+    }
+
+    /// 自動プレイリストは、同期する時の条件に合う曲を転送する
+    #[test]
+    fn test_sync_smart_playlist_copies_the_tracks_matching_the_rules() {
+        use crate::smart_playlist::{
+            MatchMode, NumberField, NumberOp, SmartOrder, SmartOrderField, SmartRule, SmartRules,
+        };
+
+        let fixture = Fixture::new();
+        let one = fixture.add_track(
+            "00000000-0000-0000-0000-000000000001",
+            "Artist",
+            "Album",
+            1,
+            "One",
+        );
+        let two = fixture.add_track(
+            "00000000-0000-0000-0000-000000000002",
+            "Artist",
+            "Album",
+            2,
+            "Two",
+        );
+        let set_rating = |track_id: &str, rating: i32| {
+            fixture
+                .state
+                .with_db(|db| crate::repository::set_track_rating(db, track_id, rating))
+                .unwrap();
+        };
+        set_rating(&one, 5);
+        let rules = SmartRules {
+            match_mode: MatchMode::All,
+            rules: vec![SmartRule::Number {
+                field: NumberField::Rating,
+                op: NumberOp::AtLeast,
+                value: 4,
+                value_to: None,
+            }],
+            order: SmartOrder {
+                field: SmartOrderField::Title,
+                descending: false,
+            },
+            limit: None,
+        };
+        let playlist_id = fixture
+            .state
+            .with_db(|db| {
+                Ok(crate::playlist::create_smart_playlist(db, "高評価", &rules)
+                    .unwrap()
+                    .id)
+            })
+            .unwrap();
+        let device_id = fixture.register(false, &[&playlist_id]);
+
+        let result = fixture.sync(&device_id);
+        assert_eq!((result.copied_count, result.playlist_count), (1, 1));
+        assert_eq!(
+            fixture.on_device("高評価.m3u8").as_deref(),
+            Some("#EXTM3U\r\n#EXTINF:200,Artist - One\r\nArtist/Album/01 One.mp3\r\n")
+        );
+
+        // 評価を変えると、次の同期で曲が入れ替わる
+        set_rating(&one, 2);
+        set_rating(&two, 4);
+        let result = fixture.sync(&device_id);
+        assert_eq!((result.copied_count, result.deleted_count), (1, 1));
+        assert_eq!(fixture.on_device("Artist/Album/01 One.mp3"), None);
+        assert_eq!(
+            fixture.on_device("高評価.m3u8").as_deref(),
+            Some("#EXTM3U\r\n#EXTINF:200,Artist - Two\r\nArtist/Album/02 Two.mp3\r\n")
+        );
     }
 
     #[test]

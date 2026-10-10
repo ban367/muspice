@@ -11,10 +11,12 @@
   import AboutDialog from '#lib/components/AboutDialog.svelte';
   import AlbumArtDialog from '#lib/components/AlbumArtDialog.svelte';
   import TagToolsDialog from '#lib/components/TagToolsDialog.svelte';
+  import SmartPlaylistDialog from '#lib/components/SmartPlaylistDialog.svelte';
   import SettingsSync from '#lib/components/SettingsSync.svelte';
   import { ui, saveLastPage } from '#lib/stores/ui.svelte.js';
   import { albumArtDialog } from '#lib/stores/albumArt.svelte.js';
   import { tagToolsDialog } from '#lib/stores/tagTools.svelte.js';
+  import { smartPlaylistDialog } from '#lib/stores/smartPlaylist.svelte.js';
   import { invalidateAllTrackQueries } from '#lib/queries/tracks.js';
   import { restoreTheme } from '#lib/utils/theme.js';
   import { restoreLanguage } from '#lib/i18n/i18n.svelte.js';
@@ -159,6 +161,16 @@
   {#if tagToolsDialog.tracks}
     {#key tagToolsDialog.tracks}
       <TagToolsDialog tracks={tagToolsDialog.tracks} onClose={() => tagToolsDialog.close()} />
+    {/key}
+  {/if}
+
+  <!-- 自動プレイリストの編集画面（サイドバー・プレイリストの画面から開く。開くたびに作り直す） -->
+  {#if smartPlaylistDialog.target}
+    {#key smartPlaylistDialog.target}
+      <SmartPlaylistDialog
+        playlist={smartPlaylistDialog.target.playlist}
+        onClose={() => smartPlaylistDialog.close()}
+      />
     {/key}
   {/if}
 

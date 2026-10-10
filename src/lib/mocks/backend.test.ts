@@ -1,6 +1,7 @@
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { commands } from '#lib/bindings.js';
+import type { SmartRules } from '#lib/types/models.js';
 import { createMockBackend, toCommandName, type MockBackend } from './backend';
 import { mockPlaylistId, mockTrackId } from './fixtures';
 
@@ -455,6 +456,84 @@ describe('プレイリスト', () => {
 
   it('使用できない文字を含む名前はVALIDATIONエラーになる', async () => {
     await expect(commands.createPlaylist('a/b')).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+
+  it('自動プレイリストは、条件に合う曲を返し、曲を自分で変える操作を受け付けない', async () => {
+    const smart = (await commands.getPlaylists()).find((p) => p.id === mockPlaylistId(4))!;
+    expect(smart.rules).not.toBeNull();
+    // 一覧には曲を持たせない（開く時に条件から求める）
+    expect(smart.tracks).toEqual([]);
+
+    const tracks = await commands.getPlaylistTracks(smart.id);
+    expect(tracks.length).toBeGreaterThan(0);
+    expect(tracks.every((track) => track.rating >= 4)).toBe(true);
+    // 評価の高い順
+    expect(tracks.map((track) => track.rating)).toEqual(
+      tracks.map((track) => track.rating).sort((a, b) => b - a)
+    );
+
+    // 評価を変えると、次に開いた時の曲が変わる
+    await commands.setRating(tracks[0].id, 1);
+    const after = await commands.getPlaylistTracks(smart.id);
+    expect(after.map((track) => track.id)).not.toContain(tracks[0].id);
+
+    const rejected = { code: 'VALIDATION' };
+    await expect(commands.addTracksToPlaylist(smart.id, [mockTrackId(4)])).rejects.toMatchObject(
+      rejected
+    );
+    await expect(commands.removeTrackFromPlaylist(smart.id, after[0].id)).rejects.toMatchObject(
+      rejected
+    );
+    await expect(commands.reorderPlaylistTracks(smart.id, [after[0].id])).rejects.toMatchObject(
+      rejected
+    );
+  });
+
+  it('自動プレイリストを作り、条件を変えられる', async () => {
+    const rules: SmartRules = {
+      matchMode: 'all',
+      rules: [{ kind: 'text', field: 'genre', op: 'is', value: 'jazz' }],
+      order: { field: 'title', descending: false },
+      limit: null
+    };
+    expect(await commands.countSmartPlaylistTracks(rules)).toBe(3);
+
+    const created = await commands.createSmartPlaylist(' ジャズ ', rules);
+    expect(created).toMatchObject({ name: 'ジャズ', rules, tracks: [] });
+    const jazz = await commands.getPlaylistTracks(created.id);
+    expect(jazz.map((track) => track.genre)).toEqual(['Jazz', 'Jazz', 'Jazz']);
+
+    await commands.updateSmartPlaylist(created.id, { ...rules, limit: 2 });
+    expect(await commands.getPlaylistTracks(created.id)).toHaveLength(2);
+    expect(await commands.countSmartPlaylistTracks({ ...rules, limit: 2 })).toBe(2);
+
+    // 誤りのある条件・通常のプレイリストには設定できない
+    await expect(
+      commands.createSmartPlaylist('誤り', { ...rules, limit: 0 })
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+    await expect(commands.updateSmartPlaylist(mockPlaylistId(1), rules)).rejects.toMatchObject({
+      code: 'VALIDATION'
+    });
+    await expect(commands.updateSmartPlaylist(mockPlaylistId(99), rules)).rejects.toMatchObject({
+      code: 'NOT_FOUND'
+    });
+  });
+
+  it('ランダムな並びの自動プレイリストは、選び直すまで同じ並びになる', async () => {
+    const created = await commands.createSmartPlaylist('ランダム', {
+      matchMode: 'all',
+      rules: [],
+      order: { field: 'random', descending: false },
+      limit: null
+    });
+    const order = async () => (await commands.getPlaylistTracks(created.id)).map((t) => t.id);
+
+    const first = await order();
+    expect(await order()).toEqual(first);
+    await commands.reshuffleSmartPlaylists();
+    const reshuffled = await order();
+    expect(reshuffled).not.toEqual(first);
+    expect([...reshuffled].sort()).toEqual([...first].sort());
   });
 });
 

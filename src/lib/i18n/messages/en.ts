@@ -113,6 +113,10 @@ export const en: Messages = {
     writeMetadataToFiles: 'Writing metadata to files',
     showInFolder: 'Showing the file',
     fetchPlaylists: 'Loading playlists',
+    createSmartPlaylist: 'Creating smart playlist',
+    updateSmartPlaylist: 'Updating smart playlist',
+    countSmartPlaylistTracks: 'Counting matching tracks',
+    reshuffleSmartPlaylists: 'Reshuffling tracks',
     createPlaylist: 'Creating the playlist',
     addTrackToPlaylist: 'Adding the track',
     removeTrackFromPlaylist: 'Removing the track',
@@ -142,6 +146,8 @@ export const en: Messages = {
   notices: {
     trackFileMissing: 'This track cannot be played because its file was not found',
     playlistCreated: 'Playlist created',
+    smartPlaylistCreated: 'Smart playlist created',
+    smartPlaylistUpdated: 'Smart playlist updated',
     tracksAddedToPlaylist: (count) => `Added ${plural(count, 'track', 'tracks')} to the playlist`,
     tracksAlreadyInPlaylist: 'Already in the playlist',
     trackRemovedFromPlaylist: 'Removed the track from the playlist',
@@ -230,6 +236,7 @@ export const en: Messages = {
     years: 'Years',
     playlists: 'Playlists',
     newPlaylistTitle: 'New Playlist (Ctrl+N)',
+    newSmartPlaylistTitle: 'New Smart Playlist',
     noPlaylists: 'No playlists',
     newPlaylist: 'New Playlist',
     playlistName: 'Playlist name',
@@ -620,6 +627,119 @@ export const en: Messages = {
     exportRelativeHint:
       'Writes the locations as seen from the playlist file. Best for moving the playlist together with the tracks to another place or device.',
     exportConfirm: 'Choose Location...'
+  },
+
+  smartPlaylist: {
+    newTitle: 'New Smart Playlist',
+    editTitle: 'Edit Smart Playlist',
+    name: 'Name',
+    badge: 'Smart',
+    match: 'Match',
+    matchModes: {
+      all: 'Tracks matching all of the rules',
+      any: 'Tracks matching any of the rules'
+    },
+    rules: 'Rules',
+    ruleField: 'Field',
+    ruleOp: 'Comparison',
+    ruleValue: 'Value',
+    ruleValueTo: 'Upper value',
+    addRule: 'Add Rule',
+    removeRule: 'Remove rule',
+    noRules: 'With no rules, every track in the library matches.',
+    textHint: 'Case, character width, and hiragana/katakana differences are ignored.',
+    limit: 'Limit the number of tracks',
+    limitUnit: 'tracks',
+    order: 'Order',
+    orderHint: 'When limited, tracks are picked from the top of this order.',
+    ascending: 'Ascending',
+    descending: 'Descending',
+    random: 'Random',
+    pathField: 'File Location',
+    noRating: 'No rating',
+    days: 'days',
+    minutesUnit: 'min',
+    minutes: (value: string) => `${value} min`,
+    ops: {
+      text: {
+        contains: 'contains',
+        notContains: 'does not contain',
+        is: 'is',
+        isNot: 'is not',
+        startsWith: 'starts with',
+        endsWith: 'ends with',
+        isEmpty: 'is empty',
+        isNotEmpty: 'is not empty'
+      },
+      number: {
+        is: 'is',
+        isNot: 'is not',
+        atLeast: 'is at least',
+        atMost: 'is at most',
+        between: 'is between'
+      },
+      date: {
+        inLast: 'is in the last N days',
+        notInLast: 'is not in the last N days',
+        isEmpty: 'is empty (never played)',
+        isNotEmpty: 'is not empty'
+      },
+      favorite: {
+        is: 'is true',
+        isNot: 'is false'
+      }
+    },
+    describe: {
+      rule: (field: string, text: string) => `${field}: ${text}`,
+      text: {
+        contains: (value: string) => `contains "${value}"`,
+        notContains: (value: string) => `does not contain "${value}"`,
+        is: (value: string) => `"${value}"`,
+        isNot: (value: string) => `not "${value}"`,
+        startsWith: (value: string) => `starts with "${value}"`,
+        endsWith: (value: string) => `ends with "${value}"`,
+        isEmpty: () => 'empty',
+        isNotEmpty: () => 'not empty'
+      },
+      number: {
+        is: (value: string) => value,
+        isNot: (value: string) => `not ${value}`,
+        atLeast: (value: string) => `${value} or more`,
+        atMost: (value: string) => `${value} or less`,
+        between: (value: string, valueTo: string) => `${value} to ${valueTo}`
+      },
+      date: {
+        inLast: (days: number) => `in the last ${plural(days, 'day', 'days')}`,
+        notInLast: (days: number) => `not in the last ${plural(days, 'day', 'days')}`,
+        isEmpty: () => 'none',
+        isNotEmpty: () => 'any'
+      },
+      favorite: (value: boolean) => (value ? 'Favorite' : 'Not a favorite'),
+      order: (field: string, descending: boolean) =>
+        `${field}, ${descending ? 'descending' : 'ascending'}`,
+      limited: (order: string, limit: number) =>
+        `${order}, up to ${plural(limit, 'track', 'tracks')}`
+    },
+    matchCount: (count: number) => `Matching tracks: ${count}`,
+    counting: 'Counting matching tracks...',
+    create: 'Create',
+    errors: {
+      valueRequired: 'Enter a value for the rule',
+      valueTooLong: 'The rule value is too long (up to 255 characters)',
+      numberInvalid: 'Enter a number of 0 or more',
+      ratingInvalid: 'Choose a rating from 0 to 5',
+      rangeInvalid: 'Enter the range from the smaller value to the larger value',
+      daysInvalid: 'Enter a number of days from 1 to 36500',
+      limitInvalid: 'Enter a limit from 1 to 100000',
+      tooManyRules: 'Too many rules (up to 50)'
+    },
+    editRules: 'Edit Rules',
+    editRulesEllipsis: 'Edit Rules...',
+    reshuffle: 'Reshuffle',
+    reshuffleTitle: 'Pick a new random order (also reshuffles other smart playlists)',
+    noMatches: 'No tracks match the rules',
+    noMatchesHint: 'Change the rules with "Edit Rules"',
+    unreadable: 'The rules could not be read. Set them again with "Edit Rules".'
   },
 
   settings: {

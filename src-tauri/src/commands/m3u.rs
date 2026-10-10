@@ -195,7 +195,9 @@ fn export_playlist(
     path: &Path,
     relative_paths: bool,
 ) -> AppResult<M3uExportResult> {
-    let tracks = state.with_db(|db| crate::playlist::get_playlist_tracks(db, playlist_id))?;
+    let context = state.smart_playlist_context();
+    let tracks =
+        state.with_db(|db| crate::playlist::get_playlist_tracks(db, playlist_id, context))?;
     let base = if relative_paths { path.parent() } else { None };
 
     std::fs::write(path, m3u::build_m3u8(&tracks, base))
@@ -284,11 +286,13 @@ mod tests {
                     Ok(playlists
                         .into_iter()
                         .map(|playlist| {
-                            let tracks = crate::playlist::get_playlist_tracks(db, &playlist.id)
-                                .unwrap()
-                                .into_iter()
-                                .map(|track| track.id)
-                                .collect();
+                            let context = self.state.smart_playlist_context();
+                            let tracks =
+                                crate::playlist::get_playlist_tracks(db, &playlist.id, context)
+                                    .unwrap()
+                                    .into_iter()
+                                    .map(|track| track.id)
+                                    .collect();
                             (playlist.name, tracks)
                         })
                         .collect())
