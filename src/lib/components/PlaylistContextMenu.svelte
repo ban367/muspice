@@ -1,16 +1,16 @@
 <!--
   @component PlaylistContextMenu
   プレイリスト用コンテキストメニュー。
-  再生、シャッフル再生、キュー操作、名前変更、M3U8への書き出し、削除のアクションを提供する。
-  自動プレイリストでは、条件の編集も選べる。
+  再生、シャッフル再生、キュー操作、名前と説明の編集、フォルダへの移動、M3U8への書き出し、
+  削除のアクションを提供する。自動プレイリストでは、条件の編集も選べる。
 -->
 <script lang="ts">
-  import type { Playlist } from '#lib/types/models.js';
+  import type { Playlist, PlaylistFolder } from '#lib/types/models.js';
   import { BaseContextMenu } from '#lib/components/ui/index.js';
   import {
     useDeletePlaylistMutation,
-    usePlaylistTracksQuery,
-    useRenamePlaylistMutation
+    usePlacePlaylistMutation,
+    usePlaylistTracksQuery
   } from '#lib/queries/playlists.js';
   import {
     addNextInQueue,
@@ -18,9 +18,9 @@
     playTrackFromQueue,
     playShuffled
   } from '#lib/stores/player.svelte.js';
-  import { confirmDestructive, promptText } from '#lib/utils/dialog.svelte.js';
+  import { confirmDestructive } from '#lib/utils/dialog.svelte.js';
   import { smartPlaylistDialog } from '#lib/stores/smartPlaylist.svelte.js';
-  import { validatePlaylistName, toSafeString } from '#lib/utils/validation.js';
+  import { playlistInfoDialog } from '#lib/stores/playlistSidebar.svelte.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   // Props
@@ -28,16 +28,18 @@
     x: number;
     y: number;
     playlist: Playlist;
+    /** 移す先に出すフォルダ（1つもなければ、「フォルダへ移動」を出さない） */
+    folders?: readonly PlaylistFolder[];
     onClose: () => void;
     /** 「M3U8で書き出す」を選んだ時に呼ぶ（省略すると、項目を出さない） */
     onExport?: (playlist: Playlist) => void;
   }
 
-  let { x, y, playlist, onClose, onExport }: Props = $props();
+  let { x, y, playlist, folders = [], onClose, onExport }: Props = $props();
 
   // ミューテーション
   const deletePlaylistMutation = useDeletePlaylistMutation();
-  const renamePlaylistMutation = useRenamePlaylistMutation();
+  const placePlaylistMutation = usePlacePlaylistMutation();
 
   // プレイリスト内のトラック（プレイリストの中の並び順。メニューを開いた時に取得する。
   // 取得するまでは空で、その間、再生・キューの操作は選べない）
@@ -81,23 +83,22 @@
   }
 
   /**
-   * プレイリストの名前を変更
+   * プレイリストの名前と説明を編集する
    */
-  async function handleRename() {
-    // メニューを閉じるとこのコンポーネントは破棄されるため、使う値は先に取り出しておく
-    const { id, name } = playlist;
+  function handleEditInfo() {
+    playlistInfoDialog.open(playlist.id);
     onClose();
+  }
 
-    const newName = await promptText({
-      title: m.contextMenu.renamePlaylistTitle,
-      label: m.contextMenu.newPlaylistName,
-      defaultValue: name,
-      confirmLabel: m.contextMenu.renameConfirm,
-      validate: (value) => validatePlaylistName(value).error ?? null
-    });
-    if (newName !== null && newName !== name) {
-      renamePlaylistMutation.mutate({ playlistId: id, name: toSafeString(newName, 100) });
+  /**
+   * プレイリストを、フォルダへ移す（nullは、フォルダの外へ出す）
+   */
+  function handleMove(folderId: string | null) {
+    // メニューを閉じるとこのコンポーネントが破棄されるため、結果は待たない（失敗はトーストで通知される）
+    if (folderId !== playlist.folderId) {
+      placePlaylistMutation.mutate({ playlistId: playlist.id, folderId });
     }
+    onClose();
   }
 
   /**
@@ -247,7 +248,7 @@
     </button>
   {/if}
 
-  <button class="menu-item" onclick={handleRename} role="menuitem">
+  <button class="menu-item" onclick={handleEditInfo} role="menuitem">
     <svg
       xmlns="http://www.w3.org/2000/svg"
       class="menu-icon"
@@ -262,7 +263,7 @@
         d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
       />
     </svg>
-    <span>{m.contextMenu.rename}</span>
+    <span>{m.playlists.editInfoEllipsis}</span>
   </button>
 
   {#if onExport}
@@ -283,6 +284,36 @@
       </svg>
       <span>{m.playlists.exportM3u}</span>
     </button>
+  {/if}
+
+  {#if folders.length > 0}
+    <div class="menu-divider"></div>
+    <div class="menu-label">{m.contextMenu.moveToFolder}</div>
+    <div class="folder-list">
+      <button
+        class="menu-item"
+        role="menuitemradio"
+        aria-checked={playlist.folderId === null}
+        onclick={() => handleMove(null)}
+      >
+        <span class="menu-check" aria-hidden="true">{playlist.folderId === null ? '✓' : ''}</span>
+        <span>{m.contextMenu.noFolder}</span>
+      </button>
+      {#each folders as folder (folder.id)}
+        <button
+          class="menu-item"
+          role="menuitemradio"
+          aria-checked={playlist.folderId === folder.id}
+          onclick={() => handleMove(folder.id)}
+        >
+          <span class="menu-check" aria-hidden="true">
+            {playlist.folderId === folder.id ? '✓' : ''}
+          </span>
+          <span class="truncate">{folder.name}</span>
+        </button>
+      {/each}
+    </div>
+    <div class="menu-divider"></div>
   {/if}
 
   <button class="menu-item menu-item-danger" onclick={handleDelete} role="menuitem">
@@ -344,6 +375,20 @@
 
   .menu-item span {
     @apply flex-1;
+  }
+
+  .menu-label {
+    @apply py-1 px-4 text-xs font-semibold text-text-muted uppercase;
+  }
+
+  /* フォルダが多い場合は、この中でスクロールする */
+  .folder-list {
+    max-height: 12rem;
+    overflow-y: auto;
+  }
+
+  .menu-item .menu-check {
+    @apply flex-none w-4 text-primary;
   }
 
   .menu-divider {

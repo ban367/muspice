@@ -12,6 +12,7 @@
   import AlbumArtDialog from '#lib/components/AlbumArtDialog.svelte';
   import TagToolsDialog from '#lib/components/TagToolsDialog.svelte';
   import SmartPlaylistDialog from '#lib/components/SmartPlaylistDialog.svelte';
+  import PlaylistInfoDialogHost from '#lib/components/PlaylistInfoDialogHost.svelte';
   import SettingsSync from '#lib/components/SettingsSync.svelte';
   import { ui, saveLastPage } from '#lib/stores/ui.svelte.js';
   import { albumArtDialog } from '#lib/stores/albumArt.svelte.js';
@@ -173,6 +174,9 @@
       />
     {/key}
   {/if}
+
+  <!-- プレイリストの情報（名前と説明）の編集画面 -->
+  <PlaylistInfoDialogHost />
 
   <!-- テキスト入力ダイアログ（promptText()で表示） -->
   <TextPromptDialog />

@@ -15,13 +15,14 @@
     usePlaylistsQuery,
     usePlaylistTracksQuery,
     useDeletePlaylistMutation,
-    useRemoveTrackFromPlaylistMutation,
+    useRemoveTracksFromPlaylistMutation,
     useReorderPlaylistTracksMutation,
     useReshuffleSmartPlaylistsMutation
   } from '#lib/queries/playlists.js';
   import TrackList from '#lib/components/library/TrackList.svelte';
   import PlaylistIcon from '#lib/components/PlaylistIcon.svelte';
   import { smartPlaylistDialog } from '#lib/stores/smartPlaylist.svelte.js';
+  import { playlistInfoDialog } from '#lib/stores/playlistSidebar.svelte.js';
   import { describeOrder, describeRule } from '#lib/utils/smartPlaylist.js';
   import type { Playlist, Track } from '#lib/types/models.js';
   import { playTrackFromQueue } from '#lib/stores/player.svelte.js';
@@ -36,7 +37,7 @@
   // クエリとミューテーション
   const playlistsQuery = usePlaylistsQuery();
   const deletePlaylistMutation = useDeletePlaylistMutation();
-  const removeTrackMutation = useRemoveTrackFromPlaylistMutation();
+  const removeTracksMutation = useRemoveTracksFromPlaylistMutation();
   const reorderTracksMutation = useReorderPlaylistTracksMutation();
   const reshuffleMutation = useReshuffleSmartPlaylistsMutation();
 
@@ -99,19 +100,15 @@
   }
 
   /**
-   * 選択した曲を、プレイリストから外す
+   * 選択した曲を、プレイリストからまとめて外す
    */
-  async function handleRemoveTracks(tracks: Track[]) {
-    if (!selectedPlaylist) return;
-    const playlistId = selectedPlaylist.id;
-
-    try {
-      for (const track of tracks) {
-        await removeTrackMutation.mutateAsync({ playlistId, trackId: track.id });
-      }
-    } catch (error) {
-      console.error('トラックの削除に失敗しました:', error);
-    }
+  function handleRemoveTracks(tracks: Track[]) {
+    if (!selectedPlaylist || tracks.length === 0) return;
+    // 失敗はミューテーション内でトースト通知される
+    removeTracksMutation.mutate({
+      playlistId: selectedPlaylist.id,
+      trackIds: tracks.map((track) => track.id)
+    });
   }
 
   /**
@@ -175,6 +172,9 @@
           <p class="playlist-meta">
             {m.common.trackCountAndDuration(trackCount, formatTotalDuration(totalDuration))}
           </p>
+          {#if selectedPlaylist.description}
+            <p class="playlist-description">{selectedPlaylist.description}</p>
+          {/if}
           {#if smartRules}
             <!-- 自動プレイリストの条件の説明 -->
             <ul class="rule-summary" aria-label={m.smartPlaylist.rules}>
@@ -225,9 +225,31 @@
           </button>
         {/if}
         <button
-          class="btn-delete"
+          class="btn-round"
+          onclick={() => playlistInfoDialog.open(selectedPlaylist.id)}
+          title={m.playlists.editInfo}
+          aria-label={m.playlists.editInfo}
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="icon-delete"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+            />
+          </svg>
+        </button>
+        <button
+          class="btn-round btn-delete"
           onclick={handleDeletePlaylist}
           title={m.playlists.deletePlaylist}
+          aria-label={m.playlists.deletePlaylist}
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -369,6 +391,16 @@
     @apply m-0 text-sm text-text-muted;
   }
 
+  /* 説明（長い場合は、3行までにする） */
+  .playlist-description {
+    @apply m-0 text-sm text-text-secondary whitespace-pre-line break-words;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    overflow: hidden;
+  }
+
   .playlist-actions {
     @apply flex items-center gap-2 shrink-0;
   }
@@ -401,11 +433,15 @@
     @apply w-5 h-5;
   }
 
-  .btn-delete {
+  .btn-round {
     @apply flex items-center justify-center w-10 h-10 p-0 bg-transparent border border-border rounded-full text-text-muted cursor-pointer transition-all;
   }
 
-  .btn-delete:hover {
+  .btn-round:hover {
+    @apply bg-surface-hover text-text-primary;
+  }
+
+  .btn-round.btn-delete:hover {
     @apply bg-error/10 border-error text-error;
   }
 

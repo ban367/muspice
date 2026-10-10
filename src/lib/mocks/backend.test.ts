@@ -422,7 +422,7 @@ describe('プレイリスト', () => {
       mockTrackId(1),
       mockTrackId(2)
     ]);
-    await commands.removeTrackFromPlaylist(playlist.id, mockTrackId(1));
+    expect(await commands.removeTracksFromPlaylist(playlist.id, [mockTrackId(1)])).toBe(1);
 
     const saved = (await commands.getPlaylists()).find((p) => p.id === playlist.id);
     expect(saved?.tracks.map(({ trackId, position }) => [trackId, position])).toEqual([
@@ -481,7 +481,7 @@ describe('プレイリスト', () => {
     await expect(commands.addTracksToPlaylist(smart.id, [mockTrackId(4)])).rejects.toMatchObject(
       rejected
     );
-    await expect(commands.removeTrackFromPlaylist(smart.id, after[0].id)).rejects.toMatchObject(
+    await expect(commands.removeTracksFromPlaylist(smart.id, [after[0].id])).rejects.toMatchObject(
       rejected
     );
     await expect(commands.reorderPlaylistTracks(smart.id, [after[0].id])).rejects.toMatchObject(
@@ -517,6 +517,116 @@ describe('プレイリスト', () => {
     await expect(commands.updateSmartPlaylist(mockPlaylistId(99), rules)).rejects.toMatchObject({
       code: 'NOT_FOUND'
     });
+  });
+
+  it('複数の曲を、プレイリストからまとめて外す', async () => {
+    const id = mockPlaylistId(1);
+    // 入っていない曲は飛ばす
+    const removed = await commands.removeTracksFromPlaylist(id, [7, 1, 2].map(mockTrackId));
+    expect(removed).toBe(2);
+
+    const saved = (await commands.getPlaylists()).find((p) => p.id === id)!;
+    expect(saved.tracks.map((entry) => [entry.trackId, entry.position])).toEqual([
+      [mockTrackId(8), 0],
+      [mockTrackId(10), 1],
+      [mockTrackId(12), 2]
+    ]);
+
+    await expect(commands.removeTracksFromPlaylist(id, [])).rejects.toMatchObject({
+      code: 'VALIDATION'
+    });
+    await expect(
+      commands.removeTracksFromPlaylist(mockPlaylistId(99), [mockTrackId(1)])
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  it('渡した曲でプレイリストを作る（同じ曲は最初の1回だけ）', async () => {
+    const ids = [3, 1, 3, 2].map(mockTrackId);
+    const created = await commands.createPlaylistWithTracks(' キュー ', ids);
+
+    expect(created.name).toBe('キュー');
+    expect(created.tracks.map((entry) => entry.trackId)).toEqual([3, 1, 2].map(mockTrackId));
+    expect((await commands.getPlaylistTracks(created.id)).map((track) => track.id)).toEqual(
+      [3, 1, 2].map(mockTrackId)
+    );
+
+    const before = (await commands.getPlaylists()).length;
+    await expect(
+      commands.createPlaylistWithTracks('だめ', [mockTrackId(1), mockTrackId(999)])
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(await commands.getPlaylists()).toHaveLength(before);
+  });
+
+  it('プレイリストの説明を変えられる', async () => {
+    const id = mockPlaylistId(1);
+    const description = async () =>
+      (await commands.getPlaylists()).find((p) => p.id === id)!.description;
+
+    await commands.setPlaylistDescription(id, '  休日のドライブ用  ');
+    expect(await description()).toBe('休日のドライブ用');
+    await commands.setPlaylistDescription(id, '   ');
+    expect(await description()).toBeNull();
+    await commands.setPlaylistDescription(id, '説明');
+    await commands.setPlaylistDescription(id, null);
+    expect(await description()).toBeNull();
+
+    await expect(commands.setPlaylistDescription(id, 'あ'.repeat(1001))).rejects.toMatchObject({
+      code: 'VALIDATION'
+    });
+  });
+
+  it('フォルダを作り、プレイリストを出し入れできる。フォルダを消しても、プレイリストは残る', async () => {
+    const folder = await commands.createPlaylistFolder(' 外出 ');
+    expect(folder.name).toBe('外出');
+    const folderOf = async (id: string) =>
+      (await commands.getPlaylists()).find((p) => p.id === id)!.folderId;
+
+    await commands.movePlaylist(mockPlaylistId(1), folder.id);
+    await commands.movePlaylist(mockPlaylistId(2), folder.id);
+    expect(await folderOf(mockPlaylistId(1))).toBe(folder.id);
+
+    await commands.renamePlaylistFolder(folder.id, 'おでかけ');
+    await commands.movePlaylist(mockPlaylistId(2), null);
+    expect(await folderOf(mockPlaylistId(2))).toBeNull();
+    expect((await commands.getPlaylistFolders()).map((f) => f.name)).toContain('おでかけ');
+
+    await expect(commands.movePlaylist(mockPlaylistId(99), folder.id)).rejects.toMatchObject({
+      code: 'NOT_FOUND'
+    });
+    await expect(commands.createPlaylistFolder('  ')).rejects.toMatchObject({
+      code: 'VALIDATION'
+    });
+
+    const playlistCount = (await commands.getPlaylists()).length;
+    await commands.deletePlaylistFolder(folder.id);
+    expect((await commands.getPlaylistFolders()).map((f) => f.id)).not.toContain(folder.id);
+    expect(await commands.getPlaylists()).toHaveLength(playlistCount);
+    expect(await folderOf(mockPlaylistId(1))).toBeNull();
+    await expect(commands.deletePlaylistFolder(folder.id)).rejects.toMatchObject({
+      code: 'NOT_FOUND'
+    });
+  });
+
+  it('プレイリストとフォルダを、手動で並べ替えられる', async () => {
+    const byPosition = async () =>
+      (await commands.getPlaylists()).sort((a, b) => a.position - b.position).map((p) => p.id);
+    expect(await byPosition()).toEqual([1, 2, 3, 4].map(mockPlaylistId));
+
+    await commands.reorderPlaylists([3, 1, 4, 2].map(mockPlaylistId));
+    expect(await byPosition()).toEqual([3, 1, 4, 2].map(mockPlaylistId));
+
+    // 新しいプレイリストと、フォルダへ移したプレイリストは、いちばん後ろになる
+    const created = await commands.createPlaylist('新しい');
+    const [existing] = await commands.getPlaylistFolders();
+    await commands.movePlaylist(mockPlaylistId(3), existing.id);
+    expect((await byPosition()).slice(-2)).toEqual([created.id, mockPlaylistId(3)]);
+
+    const second = await commands.createPlaylistFolder('あとから');
+    await commands.reorderPlaylistFolders([second.id, existing.id]);
+    expect((await commands.getPlaylistFolders()).map((f) => f.id)).toEqual([
+      second.id,
+      existing.id
+    ]);
   });
 
   it('ランダムな並びの自動プレイリストは、選び直すまで同じ並びになる', async () => {

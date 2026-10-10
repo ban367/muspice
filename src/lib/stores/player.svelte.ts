@@ -379,6 +379,27 @@ export function addNextInQueue(tracks: readonly Track[]): void {
 }
 
 /**
+ * 「次に再生」の曲を、別の曲の位置へ動かす（再生中の曲と、それより前の曲は動かさない）
+ *
+ * 動かした曲が、落とした曲の位置に来る（下へ動かす時は落とした曲の後ろ、上へ動かす時は前）。
+ * シャッフルする前の順（`originalQueue`）は変えない。
+ * @param from - 動かす曲の、`player.upcomingTracks`の中の位置
+ * @param to - 落とした曲の、`player.upcomingTracks`の中の位置
+ */
+export function moveUpcomingTrack(from: number, to: number): void {
+  const queue = player.playQueue;
+  const start = player.currentTrackIndex + 1;
+  const count = queue.length - start;
+  const isValid = (index: number) => Number.isInteger(index) && index >= 0 && index < count;
+  if (player.currentTrackIndex < 0 || !isValid(from) || !isValid(to) || from === to) return;
+
+  const next = [...queue];
+  const [moved] = next.splice(start + from, 1);
+  next.splice(start + to, 0, moved);
+  player.playQueue = next;
+}
+
+/**
  * キューから特定のトラックを削除
  */
 export function removeFromQueue(trackId: string): void {

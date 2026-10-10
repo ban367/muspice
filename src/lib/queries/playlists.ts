@@ -5,7 +5,7 @@ import {
   type QueryClient
 } from '@tanstack/svelte-query';
 import { commands } from '#lib/bindings.js';
-import type { Playlist, SmartRules } from '#lib/types/models.js';
+import type { Playlist, PlaylistFolder, SmartRules } from '#lib/types/models.js';
 import { showSuccess } from '#lib/stores/error.svelte.js';
 import { queryKeys } from './keys';
 import { CACHE_POLICY, withErrorToast } from './shared';
@@ -238,27 +238,224 @@ export function useAddTracksToPlaylistMutation() {
 }
 
 /**
- * プレイリストからトラックを削除するミューテーション（Optimistic Update付き）
+ * プレイリストからトラックを外すミューテーション（Optimistic Update付き）
+ *
+ * 複数のトラックを1回で外す。通知は、外した曲数で1回だけ出す。
  */
-export function useRemoveTrackFromPlaylistMutation() {
+export function useRemoveTracksFromPlaylistMutation() {
   const queryClient = useQueryClient();
 
   return createMutation(() => ({
-    mutationFn: ({ playlistId, trackId }: { playlistId: string; trackId: string }) =>
+    mutationFn: ({ playlistId, trackIds }: { playlistId: string; trackIds: string[] }) =>
       withErrorToast(m.operations.removeTrackFromPlaylist, () =>
-        commands.removeTrackFromPlaylist(playlistId, trackId)
+        commands.removeTracksFromPlaylist(playlistId, trackIds)
       ),
-    ...optimisticPlaylistUpdate<{ playlistId: string; trackId: string }>(
+    ...optimisticPlaylistUpdate<{ playlistId: string; trackIds: string[] }>(
       queryClient,
-      (playlists, { playlistId, trackId }) =>
+      (playlists, { playlistId, trackIds }) =>
         playlists.map((pl) =>
           pl.id === playlistId
-            ? { ...pl, tracks: pl.tracks.filter((t) => t.trackId !== trackId) }
+            ? { ...pl, tracks: pl.tracks.filter((t) => !trackIds.includes(t.trackId)) }
             : pl
         )
     ),
+    onSuccess: (removedCount) => {
+      if (removedCount > 0) showSuccess(m.notices.tracksRemovedFromPlaylist(removedCount));
+    }
+  }));
+}
+
+/**
+ * 渡した曲を入れたプレイリストを作成するミューテーション（再生キューの保存）
+ *
+ * 同じ曲は、最初の1回だけが入る。
+ */
+export function useCreatePlaylistWithTracksMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: ({ name, trackIds }: { name: string; trackIds: string[] }) =>
+      withErrorToast(m.operations.createPlaylist, () =>
+        commands.createPlaylistWithTracks(name, trackIds)
+      ),
+    onSuccess: (playlist) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.playlists });
+      showSuccess(m.notices.playlistCreatedWithTracks(playlist.name, playlist.tracks.length));
+    }
+  }));
+}
+
+/**
+ * プレイリストの名前と説明を変更するミューテーション（変わっている項目だけを変更する）
+ */
+export function useUpdatePlaylistInfoMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: ({
+      playlist,
+      name,
+      description
+    }: {
+      playlist: Playlist;
+      name: string;
+      /** 説明（空の文字列は、説明なし） */
+      description: string;
+    }) =>
+      withErrorToast(m.operations.updatePlaylistInfo, async () => {
+        if (name !== playlist.name) await commands.renamePlaylist(playlist.id, name);
+        if (description !== (playlist.description ?? '')) {
+          await commands.setPlaylistDescription(playlist.id, description || null);
+        }
+      }),
     onSuccess: () => {
-      showSuccess(m.notices.trackRemovedFromPlaylist);
+      showSuccess(m.notices.playlistInfoUpdated);
+    },
+    // 名前だけ変わって説明の変更に失敗した場合も、一覧を取り直す
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.playlists });
+    }
+  }));
+}
+
+/**
+ * プレイリストのフォルダの一覧を取得するクエリ
+ */
+export function usePlaylistFoldersQuery() {
+  return createQuery(() => ({
+    queryKey: queryKeys.playlistFolders,
+    queryFn: () =>
+      withErrorToast(m.operations.fetchPlaylistFolders, () => commands.getPlaylistFolders())
+  }));
+}
+
+/** フォルダの変更の後に、フォルダとプレイリストの一覧を取り直す */
+function invalidatePlaylistFolderQueries(queryClient: QueryClient) {
+  queryClient.invalidateQueries({ queryKey: queryKeys.playlistFolders });
+  queryClient.invalidateQueries({ queryKey: queryKeys.playlists });
+}
+
+/**
+ * プレイリストのフォルダを作成するミューテーション
+ */
+export function useCreatePlaylistFolderMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: (name: string) =>
+      withErrorToast(m.operations.createPlaylistFolder, () => commands.createPlaylistFolder(name)),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.playlistFolders });
+    }
+  }));
+}
+
+/**
+ * プレイリストのフォルダの名前を変更するミューテーション
+ */
+export function useRenamePlaylistFolderMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: ({ folderId, name }: { folderId: string; name: string }) =>
+      withErrorToast(m.operations.renamePlaylistFolder, () =>
+        commands.renamePlaylistFolder(folderId, name)
+      ),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.playlistFolders });
+    }
+  }));
+}
+
+/**
+ * プレイリストのフォルダを削除するミューテーション（中のプレイリストは、フォルダの外へ出る）
+ */
+export function useDeletePlaylistFolderMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: (folderId: string) =>
+      withErrorToast(m.operations.deletePlaylistFolder, () =>
+        commands.deletePlaylistFolder(folderId)
+      ),
+    onSettled: () => {
+      invalidatePlaylistFolderQueries(queryClient);
+    }
+  }));
+}
+
+/** プレイリストを置く場所 */
+export interface PlaylistPlacement {
+  playlistId: string;
+  /** 移す先のフォルダ（nullはフォルダの外。今と同じなら、移さない） */
+  folderId: string | null;
+  /**
+   * 移した先の、手動の並び順（移すプレイリストを含む。省略すると、並び順は変えない。
+   * フォルダを移した場合は、いちばん後ろになる）
+   */
+  orderedIds?: string[];
+}
+
+/**
+ * プレイリストを、フォルダへ移す・手動で並べ替えるミューテーション（Optimistic Update付き）
+ */
+export function usePlacePlaylistMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: ({ playlistId, folderId, orderedIds }: PlaylistPlacement) =>
+      withErrorToast(m.operations.movePlaylist, async () => {
+        // 同じフォルダの中での並べ替えでも、先にフォルダを設定する（いちばん後ろになるが、
+        // 続けて並び順を振り直すため、結果は変わらない）
+        await commands.movePlaylist(playlistId, folderId);
+        if (orderedIds) await commands.reorderPlaylists(orderedIds);
+      }),
+    ...optimisticPlaylistUpdate<PlaylistPlacement>(
+      queryClient,
+      (playlists, { playlistId, folderId, orderedIds }) => {
+        const lastPosition = Math.max(-1, ...playlists.map((playlist) => playlist.position));
+        return playlists.map((playlist) => {
+          const index = orderedIds?.indexOf(playlist.id) ?? -1;
+          if (playlist.id === playlistId) {
+            return { ...playlist, folderId, position: index >= 0 ? index : lastPosition + 1 };
+          }
+          return index >= 0 ? { ...playlist, position: index } : playlist;
+        });
+      }
+    )
+  }));
+}
+
+/**
+ * プレイリストのフォルダを、手動で並べ替えるミューテーション
+ */
+export function useReorderPlaylistFoldersMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: (folderIds: string[]) =>
+      withErrorToast(m.operations.movePlaylist, () => commands.reorderPlaylistFolders(folderIds)),
+    onMutate: async (folderIds: string[]) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.playlistFolders });
+      const previous = queryClient.getQueryData<PlaylistFolder[]>(queryKeys.playlistFolders);
+      if (previous) {
+        queryClient.setQueryData<PlaylistFolder[]>(
+          queryKeys.playlistFolders,
+          previous.map((folder) => {
+            const index = folderIds.indexOf(folder.id);
+            return index >= 0 ? { ...folder, position: index } : folder;
+          })
+        );
+      }
+      return { previous };
+    },
+    onError: (_error, _folderIds, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(queryKeys.playlistFolders, context.previous);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.playlistFolders });
     }
   }));
 }
@@ -278,26 +475,6 @@ export function useReorderPlaylistTracksMutation() {
       // プレイリスト一覧と、プレイリストの曲を再取得
       invalidatePlaylistQueries(queryClient);
       showSuccess(m.notices.tracksReordered);
-    }
-  }));
-}
-
-/**
- * プレイリストの名前を変更するミューテーション（Optimistic Update付き）
- */
-export function useRenamePlaylistMutation() {
-  const queryClient = useQueryClient();
-
-  return createMutation(() => ({
-    mutationFn: ({ playlistId, name }: { playlistId: string; name: string }) =>
-      withErrorToast(m.operations.renamePlaylist, () => commands.renamePlaylist(playlistId, name)),
-    ...optimisticPlaylistUpdate<{ playlistId: string; name: string }>(
-      queryClient,
-      (playlists, { playlistId, name }) =>
-        playlists.map((pl) => (pl.id === playlistId ? { ...pl, name } : pl))
-    ),
-    onSuccess: () => {
-      showSuccess(m.notices.playlistRenamed);
     }
   }));
 }
