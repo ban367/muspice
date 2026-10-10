@@ -122,6 +122,10 @@ export const ja = {
     showInFolder: 'ファイルの場所を開く',
     fetchPlaylists: 'プレイリスト一覧の取得',
     createPlaylist: 'プレイリストの作成',
+    createSmartPlaylist: '自動プレイリストの作成',
+    updateSmartPlaylist: '自動プレイリストの変更',
+    countSmartPlaylistTracks: '条件に合う曲数の取得',
+    reshuffleSmartPlaylists: '曲の選び直し',
     addTrackToPlaylist: 'トラックの追加',
     removeTrackFromPlaylist: 'トラックの削除',
     reorderPlaylistTracks: 'トラックの並び替え',
@@ -151,6 +155,8 @@ export const ja = {
   notices: {
     trackFileMissing: 'ファイルが見つからないため、再生できません',
     playlistCreated: 'プレイリストを作成しました',
+    smartPlaylistCreated: '自動プレイリストを作成しました',
+    smartPlaylistUpdated: '自動プレイリストを変更しました',
     tracksAddedToPlaylist: (count: number) => `${count}曲をプレイリストに追加しました`,
     tracksAlreadyInPlaylist: 'すでにプレイリストに入っています',
     trackRemovedFromPlaylist: 'トラックをプレイリストから削除しました',
@@ -240,6 +246,7 @@ export const ja = {
     years: '年代',
     playlists: 'プレイリスト',
     newPlaylistTitle: '新規プレイリスト (Ctrl+N)',
+    newSmartPlaylistTitle: '新規自動プレイリスト',
     noPlaylists: 'プレイリストがありません',
     newPlaylist: '新規プレイリスト',
     playlistName: 'プレイリスト名',
@@ -636,6 +643,119 @@ export const ja = {
     exportRelativeHint:
       'プレイリストのファイルから見た場所で書きます。曲と一緒に別の場所・機器へ移す場合に向いています。',
     exportConfirm: '保存先を選ぶ...'
+  },
+
+  /** 自動プレイリスト（条件で曲を集めるプレイリスト） */
+  smartPlaylist: {
+    newTitle: '新規自動プレイリスト',
+    editTitle: '自動プレイリストを編集',
+    name: '名前',
+    badge: '自動',
+    match: '集める曲',
+    matchModes: {
+      all: 'すべての条件に合う曲',
+      any: 'いずれかの条件に合う曲'
+    },
+    rules: '条件',
+    ruleField: '項目',
+    ruleOp: '比べ方',
+    ruleValue: '値',
+    ruleValueTo: '範囲の上の値',
+    addRule: '条件を追加',
+    removeRule: '条件を削除',
+    noRules: '条件がない場合は、ライブラリのすべての曲が対象になります。',
+    textHint: '大文字と小文字・全角と半角・ひらがなとカタカナは区別しません。',
+    limit: '曲数を制限する',
+    limitUnit: '曲まで',
+    order: '並び順',
+    orderHint: '曲数を制限する場合は、この並びの先頭から選びます。',
+    ascending: '昇順',
+    descending: '降順',
+    random: 'ランダム',
+    pathField: 'ファイルの場所',
+    noRating: '評価なし',
+    days: '日',
+    minutesUnit: '分',
+    minutes: (value: string) => `${value}分`,
+    ops: {
+      text: {
+        contains: 'を含む',
+        notContains: 'を含まない',
+        is: 'と一致する',
+        isNot: 'と一致しない',
+        startsWith: 'で始まる',
+        endsWith: 'で終わる',
+        isEmpty: 'が空',
+        isNotEmpty: 'が空でない'
+      },
+      number: {
+        is: 'と等しい',
+        isNot: 'と等しくない',
+        atLeast: '以上',
+        atMost: '以下',
+        between: 'の範囲'
+      },
+      date: {
+        inLast: 'が過去N日以内',
+        notInLast: 'が過去N日より前',
+        isEmpty: 'がない（未再生）',
+        isNotEmpty: 'がある'
+      },
+      favorite: {
+        is: 'である',
+        isNot: 'でない'
+      }
+    },
+    /** 条件の説明（プレイリストの画面に出す） */
+    describe: {
+      rule: (field: string, text: string) => `${field}: ${text}`,
+      text: {
+        contains: (value: string) => `「${value}」を含む`,
+        notContains: (value: string) => `「${value}」を含まない`,
+        is: (value: string) => `「${value}」`,
+        isNot: (value: string) => `「${value}」以外`,
+        startsWith: (value: string) => `「${value}」で始まる`,
+        endsWith: (value: string) => `「${value}」で終わる`,
+        isEmpty: () => '空',
+        isNotEmpty: () => '空でない'
+      },
+      number: {
+        is: (value: string) => value,
+        isNot: (value: string) => `${value}以外`,
+        atLeast: (value: string) => `${value}以上`,
+        atMost: (value: string) => `${value}以下`,
+        between: (value: string, valueTo: string) => `${value}〜${valueTo}`
+      },
+      date: {
+        inLast: (days: number) => `過去${days}日以内`,
+        notInLast: (days: number) => `過去${days}日より前`,
+        isEmpty: () => 'なし',
+        isNotEmpty: () => 'あり'
+      },
+      favorite: (value: boolean): string => (value ? 'お気に入り' : 'お気に入りではない'),
+      order: (field: string, descending: boolean) => `${field}の${descending ? '降順' : '昇順'}`,
+      limited: (order: string, limit: number) => `${order}で${limit}曲まで`
+    },
+    matchCount: (count: number) => `条件に合う曲: ${count}曲`,
+    counting: '条件に合う曲を数えています...',
+    create: '作成',
+    errors: {
+      valueRequired: '条件の値を入力してください',
+      valueTooLong: '条件の値が長すぎます（255文字まで）',
+      numberInvalid: '条件の数値は、0以上の数で入力してください',
+      ratingInvalid: '評価は、0から5で指定してください',
+      rangeInvalid: '範囲の条件は、小さい値と大きい値の順に入力してください',
+      daysInvalid: '日数は、1から36500で入力してください',
+      limitInvalid: '曲数の上限は、1から100000で入力してください',
+      tooManyRules: '条件が多すぎます（50個まで）'
+    },
+    editRules: '条件を編集',
+    editRulesEllipsis: '条件を編集...',
+    reshuffle: '選び直す',
+    reshuffleTitle: 'ランダムな並びを選び直す（ほかの自動プレイリストも選び直します）',
+    noMatches: '条件に合う曲がありません',
+    noMatchesHint: '「条件を編集」から、条件を変えられます',
+    unreadable: '条件を読めませんでした。「条件を編集」から、設定し直してください。'
   },
 
   settings: {

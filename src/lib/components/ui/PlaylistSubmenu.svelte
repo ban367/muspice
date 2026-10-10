@@ -20,6 +20,11 @@
   const playlistsQuery = usePlaylistsQuery();
   const addTracksMutation = useAddTracksToPlaylistMutation();
 
+  // 曲を追加できるプレイリスト（自動プレイリストの曲は条件で決まるため、含めない）
+  const playlists = $derived(
+    (playlistsQuery.data ?? []).filter((playlist: Playlist) => playlist.rules === null)
+  );
+
   // サブメニュー表示状態
   let showSubmenu = $state(false);
 
@@ -67,8 +72,8 @@
     <div class="submenu">
       {#if playlistsQuery.isLoading}
         <div class="menu-message">{m.common.loading}</div>
-      {:else if playlistsQuery.data && playlistsQuery.data.length > 0}
-        {#each playlistsQuery.data as playlist (playlist.id)}
+      {:else if playlists.length > 0}
+        {#each playlists as playlist (playlist.id)}
           <button class="menu-item" onclick={() => handleAddToPlaylist(playlist)} role="menuitem">
             <svg
               xmlns="http://www.w3.org/2000/svg"

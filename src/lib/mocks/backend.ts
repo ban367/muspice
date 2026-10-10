@@ -32,6 +32,7 @@ import type {
   PlayHistoryEntry,
   Playlist,
   Settings,
+  SmartRules,
   SyncDevice,
   Track
 } from '#lib/types/models.js';
@@ -46,6 +47,12 @@ import {
   mockTrackId
 } from './fixtures';
 import { matchesSearchTerms, normalizeSearchText, searchTerms } from '#lib/utils/searchText.js';
+import {
+  countSmartPlaylistTracks,
+  findSmartPlaylistTracks,
+  smartRulesError,
+  type SmartPlaylistContext
+} from './smartPlaylist.js';
 import { createAlbumArt } from './media';
 import { createMockPlaybackEngine, MOCK_OUTPUT_DEVICES } from './playbackEngine';
 
@@ -499,6 +506,34 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     return playlist;
   }
 
+  // 自動プレイリストの、ランダムな並びの種（「選び直す」で変える）
+  let shuffleSeed = 1;
+  const smartContext = (): SmartPlaylistContext => ({ now: Date.now(), shuffleSeed });
+
+  function validateSmartRules(rules: SmartRules): void {
+    const error = smartRulesError(rules);
+    if (error !== null) fail('VALIDATION', error);
+  }
+
+  /** プレイリストの曲（プレイリストの中の並び順。自動プレイリストは、条件に合う曲） */
+  function playlistTracks(playlist: Playlist): Track[] {
+    if (playlist.rules !== null) {
+      return findSmartPlaylistTracks(tracks, playlist.rules, smartContext());
+    }
+    const byId = new Map(tracks.map((track) => [track.id, track]));
+    return [...playlist.tracks]
+      .sort((a, b) => a.position - b.position)
+      .map((entry) => byId.get(entry.trackId))
+      .filter((track): track is Track => track !== undefined);
+  }
+
+  /** 自動プレイリストの曲は条件で決まるため、追加・削除・並べ替えはできない */
+  function ensureManualPlaylist(playlistId: string): void {
+    if (playlists.some((p) => p.id === playlistId && p.rules !== null)) {
+      fail('VALIDATION', '自動プレイリストの曲は条件で決まるため、変更できません');
+    }
+  }
+
   function uniqueValues(key: 'artist' | 'album' | 'genre'): string[] {
     const values = new Set<string>();
     for (const track of tracks) {
@@ -878,7 +913,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   function tracksToSync(device: MockSyncDevice): Track[] {
     if (device.syncAll) return tracks;
     const ids = new Set(
-      devicePlaylists(device).flatMap((playlist) => playlist.tracks.map((t) => t.trackId))
+      devicePlaylists(device).flatMap((playlist) => playlistTracks(playlist).map((t) => t.id))
     );
     return tracks.filter((track) => ids.has(track.id));
   }
@@ -1116,29 +1151,65 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         name,
         description: null,
         tracks: [],
+        rules: null,
         createdAt: timestamp,
         updatedAt: timestamp
       };
       playlists.push(playlist);
       return playlist;
     },
+    createSmartPlaylist: (name, rules) => {
+      const trimmed = name.trim();
+      validatePlaylistName(trimmed);
+      validateSmartRules(rules);
+      const timestamp = now();
+      const playlist: Playlist = {
+        id: crypto.randomUUID(),
+        name: trimmed,
+        description: null,
+        tracks: [],
+        rules,
+        createdAt: timestamp,
+        updatedAt: timestamp
+      };
+      playlists.push(playlist);
+      return playlist;
+    },
+    updateSmartPlaylist: (playlistId, rules) => {
+      validatePlaylistId(playlistId);
+      validateSmartRules(rules);
+      const playlist = findPlaylist(playlistId);
+      if (playlist.rules === null) {
+        fail('VALIDATION', '通常のプレイリストには、条件を設定できません');
+      }
+      playlist.rules = rules;
+      playlist.updatedAt = now();
+      return null;
+    },
+    countSmartPlaylistTracks: (rules) => {
+      validateSmartRules(rules);
+      return countSmartPlaylistTracks(tracks, rules, Date.now());
+    },
+    reshuffleSmartPlaylists: () => {
+      shuffleSeed++;
+      return null;
+    },
+    // 実装と同じく、自動プレイリストの曲は持たせない（開く時に条件から求める）
     getPlaylists: () =>
       [...playlists]
         .sort((a, b) => compareAsc(b.createdAt, a.createdAt))
         .map((playlist) => ({
           ...playlist,
-          tracks: [...playlist.tracks].sort((a, b) => a.position - b.position)
+          tracks:
+            playlist.rules === null
+              ? [...playlist.tracks].sort((a, b) => a.position - b.position)
+              : []
         })),
     // 実装と同じく、見つからないプレイリストは空の一覧を返す
     getPlaylistTracks: (playlistId) => {
       validatePlaylistId(playlistId);
       const playlist = playlists.find((p) => p.id === playlistId);
-      if (!playlist) return [];
-      const byId = new Map(tracks.map((track) => [track.id, track]));
-      return [...playlist.tracks]
-        .sort((a, b) => a.position - b.position)
-        .map((entry) => byId.get(entry.trackId))
-        .filter((track): track is Track => track !== undefined);
+      return playlist ? playlistTracks(playlist) : [];
     },
     deletePlaylist: (playlistId) => {
       validatePlaylistId(playlistId);
@@ -1161,6 +1232,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         fail('VALIDATION', 'トラックIDが指定されていません');
       }
       trackIds.forEach(validateTrackId);
+      ensureManualPlaylist(playlistId);
       const playlist = playlists.find((p) => p.id === playlistId);
       // 実装と同じく、見つからないトラックがあれば1曲も追加しない
       if (!playlist || !trackIds.every((id) => tracks.some((track) => track.id === id))) {
@@ -1181,6 +1253,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     removeTrackFromPlaylist: (playlistId, trackId) => {
       validatePlaylistId(playlistId);
       validateTrackId(trackId);
+      ensureManualPlaylist(playlistId);
       const playlist = playlists.find((p) => p.id === playlistId);
       if (!playlist || !playlist.tracks.some((entry) => entry.trackId === trackId)) {
         fail('NOT_FOUND', 'プレイリストまたはトラックが見つかりません');
@@ -1196,6 +1269,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     reorderPlaylistTracks: (playlistId, trackIds) => {
       validatePlaylistId(playlistId);
       trackIds.forEach(validateTrackId);
+      ensureManualPlaylist(playlistId);
       const playlist = findPlaylist(playlistId);
       trackIds.forEach((trackId, position) => {
         const entry = playlist.tracks.find((e) => e.trackId === trackId);
@@ -1223,6 +1297,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         name,
         description: null,
         tracks: trackIds.map((trackId, position) => ({ trackId, position, addedAt: timestamp })),
+        rules: null,
         createdAt: timestamp,
         updatedAt: timestamp
       };
@@ -1246,7 +1321,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       validatePlaylistId(playlistId);
       const playlist = findPlaylist(playlistId);
       // 保存先を選ぶダイアログ（Rust側が開く）の代わりに、プレイリスト名のファイルへ書いたことにする
-      return { fileName: `${playlist.name}.m3u8`, trackCount: playlist.tracks.length };
+      return { fileName: `${playlist.name}.m3u8`, trackCount: playlistTracks(playlist).length };
     },
     setCurrentTrack: (trackId) => {
       currentTrackId = trackId;
@@ -1542,6 +1617,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
           tracks: targets
             .slice(0, 5)
             .map((track, position) => ({ trackId: track.id, position, addedAt: timestamp })),
+          rules: null,
           createdAt: timestamp,
           updatedAt: timestamp
         });

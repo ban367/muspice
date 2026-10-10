@@ -166,6 +166,8 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         )",
         [],
     )?;
+    // 自動プレイリストの条件（JSON。NULLは、曲を自分で選ぶ通常のプレイリスト）
+    add_column_if_not_exists(conn, "playlists", "rules", "TEXT")?;
 
     // playlist_tracksテーブルの作成
     conn.execute(
@@ -467,6 +469,33 @@ mod tests {
         assert_eq!(version, FTS_SCHEMA_VERSION);
         run_migrations(&conn).expect("2回目のマイグレーション実行に失敗");
         assert_eq!(count_match("\"VariousArtists\""), 1);
+    }
+
+    /// 条件の列を追加する前のDBのプレイリストは、移行したあとも通常のプレイリストのままになること
+    #[test]
+    fn test_migrates_playlists_without_rules() {
+        let conn = Connection::open_in_memory().expect("インメモリDB作成に失敗");
+        // 旧バージョンが作ったDB: playlistsにrulesの列がない
+        conn.execute_batch(
+            "CREATE TABLE playlists (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now'))
+            );
+            INSERT INTO playlists (id, name) VALUES ('p1', '通勤');",
+        )
+        .expect("旧スキーマの作成に失敗");
+
+        run_migrations(&conn).expect("マイグレーション実行に失敗");
+        run_migrations(&conn).expect("2回目のマイグレーション実行に失敗");
+
+        let playlists = crate::playlist::get_all_playlists(&conn).unwrap();
+        assert_eq!(playlists.len(), 1);
+        assert_eq!(playlists[0].name, "通勤");
+        assert!(playlists[0].rules.is_none());
+        assert!(crate::playlist::ensure_manual_playlist(&conn, "p1").is_ok());
     }
 
     #[test]

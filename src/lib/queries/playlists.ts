@@ -5,7 +5,7 @@ import {
   type QueryClient
 } from '@tanstack/svelte-query';
 import { commands } from '#lib/bindings.js';
-import type { Playlist } from '#lib/types/models.js';
+import type { Playlist, SmartRules } from '#lib/types/models.js';
 import { showSuccess } from '#lib/stores/error.svelte.js';
 import { queryKeys } from './keys';
 import { CACHE_POLICY, withErrorToast } from './shared';
@@ -82,13 +82,34 @@ export function usePlaylistsQuery() {
  * プレイリストの曲を取得するクエリ（プレイリストの中の並び順）
  *
  * 曲の情報は全曲の一覧からではなく、プレイリストごとにバックエンドから取得する。
+ *
+ * 自動プレイリストの曲は条件から求めるため、開くたびに取り直す（評価・再生回数などが変わると、
+ * 合う曲が変わる。開いている間は、聴いている途中で曲が消えないよう、取り直さない）。
+ * @param isSmart - 自動プレイリストか
  */
-export function usePlaylistTracksQuery(playlistId: string) {
+export function usePlaylistTracksQuery(playlistId: string, isSmart = false) {
   return createQuery(() => ({
     queryKey: queryKeys.tracks.playlist(playlistId),
     queryFn: () =>
       withErrorToast(m.operations.fetchTracks, () => commands.getPlaylistTracks(playlistId)),
-    ...CACHE_POLICY.detail
+    ...CACHE_POLICY.detail,
+    ...(isSmart ? { staleTime: 0, refetchOnMount: 'always' as const } : {})
+  }));
+}
+
+/**
+ * 条件に合う曲数を取得するクエリ（条件の編集画面で、保存する前に出す）
+ */
+export function useSmartPlaylistCountQuery(rules: SmartRules) {
+  return createQuery(() => ({
+    queryKey: queryKeys.smartPlaylistCount(rules),
+    queryFn: () =>
+      withErrorToast(m.operations.countSmartPlaylistTracks, () =>
+        commands.countSmartPlaylistTracks(rules)
+      ),
+    // 編集画面を開いている間だけ使う（開き直したら、数え直す）
+    staleTime: 0,
+    gcTime: 0
   }));
 }
 
@@ -105,6 +126,75 @@ export function useCreatePlaylistMutation() {
       // プレイリスト一覧を再取得
       queryClient.invalidateQueries({ queryKey: queryKeys.playlists });
       showSuccess(m.notices.playlistCreated);
+    }
+  }));
+}
+
+/**
+ * 自動プレイリスト（条件で曲を集めるプレイリスト）を作成するミューテーション
+ */
+export function useCreateSmartPlaylistMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: ({ name, rules }: { name: string; rules: SmartRules }) =>
+      withErrorToast(m.operations.createSmartPlaylist, () =>
+        commands.createSmartPlaylist(name, rules)
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.playlists });
+      showSuccess(m.notices.smartPlaylistCreated);
+    }
+  }));
+}
+
+/**
+ * 自動プレイリストの名前と条件を変更するミューテーション
+ *
+ * 名前は、変わっている場合だけ変更する。
+ */
+export function useUpdateSmartPlaylistMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: ({
+      playlist,
+      name,
+      rules
+    }: {
+      playlist: Playlist;
+      name: string;
+      rules: SmartRules;
+    }) =>
+      withErrorToast(m.operations.updateSmartPlaylist, async () => {
+        if (name !== playlist.name) await commands.renamePlaylist(playlist.id, name);
+        await commands.updateSmartPlaylist(playlist.id, rules);
+      }),
+    onSuccess: () => {
+      showSuccess(m.notices.smartPlaylistUpdated);
+    },
+    // 名前だけ変わって条件の変更に失敗した場合も、一覧を取り直す
+    onSettled: () => {
+      invalidatePlaylistQueries(queryClient);
+    }
+  }));
+}
+
+/**
+ * ランダムな並びの自動プレイリストを、選び直すミューテーション
+ *
+ * ランダムな並びは、選び直すまで変わらない（すべての自動プレイリストの並びが変わる）。
+ */
+export function useReshuffleSmartPlaylistsMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: () =>
+      withErrorToast(m.operations.reshuffleSmartPlaylists, () =>
+        commands.reshuffleSmartPlaylists()
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.tracks.playlists });
     }
   }));
 }

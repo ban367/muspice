@@ -6,7 +6,7 @@
  * コンピレーション（アルバムアーティスト）・同じ名前のアルバム・ファイルが見つからない曲等を含める。
  * IDと日時は固定値にし、リロードごとに同じ状態から確認できるようにする。
  */
-import type { PlayHistoryEntry, Playlist, Track } from '#lib/types/models.js';
+import type { PlayHistoryEntry, Playlist, SmartRules, Track } from '#lib/types/models.js';
 
 /** フィクスチャの基準日時（createdAtはここから1時間ずつ進む） */
 const BASE_TIME = Date.parse('2026-09-01T09:00:00.000Z');
@@ -258,7 +258,12 @@ export function createFixturePlayHistory(
 }
 
 export function createFixturePlaylists(): Playlist[] {
-  const playlist = (index: number, name: string, trackIndexes: number[]): Playlist => {
+  const playlist = (
+    index: number,
+    name: string,
+    trackIndexes: number[],
+    rules: SmartRules | null = null
+  ): Playlist => {
     const createdAt = toIso(BASE_TIME + (48 + index) * HOUR_MS);
     return {
       id: mockPlaylistId(index),
@@ -269,6 +274,7 @@ export function createFixturePlaylists(): Playlist[] {
         position,
         addedAt: createdAt
       })),
+      rules,
       createdAt,
       updatedAt: createdAt
     };
@@ -277,6 +283,13 @@ export function createFixturePlaylists(): Playlist[] {
   return [
     playlist(1, 'ドライブ用', [7, 8, 1, 10, 12]),
     playlist(2, '作業用BGM', [14, 15, 16, 17]),
-    playlist(3, '空のプレイリスト', [])
+    playlist(3, '空のプレイリスト', []),
+    // 自動プレイリスト（条件で曲を集める。曲は持たない）
+    playlist(4, '高評価の曲', [], {
+      matchMode: 'all',
+      rules: [{ kind: 'number', field: 'rating', op: 'atLeast', value: 4, valueTo: null }],
+      order: { field: 'rating', descending: true },
+      limit: null
+    })
   ];
 }

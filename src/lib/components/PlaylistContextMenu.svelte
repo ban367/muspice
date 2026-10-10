@@ -2,6 +2,7 @@
   @component PlaylistContextMenu
   プレイリスト用コンテキストメニュー。
   再生、シャッフル再生、キュー操作、名前変更、M3U8への書き出し、削除のアクションを提供する。
+  自動プレイリストでは、条件の編集も選べる。
 -->
 <script lang="ts">
   import type { Playlist } from '#lib/types/models.js';
@@ -18,6 +19,7 @@
     playShuffled
   } from '#lib/stores/player.svelte.js';
   import { confirmDestructive, promptText } from '#lib/utils/dialog.svelte.js';
+  import { smartPlaylistDialog } from '#lib/stores/smartPlaylist.svelte.js';
   import { validatePlaylistName, toSafeString } from '#lib/utils/validation.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
@@ -40,7 +42,8 @@
   // プレイリスト内のトラック（プレイリストの中の並び順。メニューを開いた時に取得する。
   // 取得するまでは空で、その間、再生・キューの操作は選べない）
   const playlistId = $derived(playlist.id);
-  const tracksQuery = $derived(usePlaylistTracksQuery(playlistId));
+  const isSmart = $derived(playlist.rules !== null);
+  const tracksQuery = $derived(usePlaylistTracksQuery(playlistId, isSmart));
   const playlistTracks = $derived(tracksQuery.data ?? []);
 
   /**
@@ -98,6 +101,14 @@
   }
 
   /**
+   * 自動プレイリストの条件を編集する
+   */
+  function handleEditRules() {
+    smartPlaylistDialog.openEdit(playlist);
+    onClose();
+  }
+
+  /**
    * プレイリストをM3U8へ書き出す（書き方を選ぶダイアログは、呼び出し側が表示する）
    */
   function handleExport() {
@@ -121,7 +132,9 @@
 
 <BaseContextMenu {x} {y} {onClose}>
   <div class="menu-header">{playlist.name}</div>
-  <div class="menu-subheader">{m.common.trackCount(playlist.tracks.length)}</div>
+  <div class="menu-subheader">
+    {isSmart ? m.smartPlaylist.badge : m.common.trackCount(playlist.tracks.length)}
+  </div>
   <div class="menu-divider"></div>
 
   <button
@@ -213,6 +226,26 @@
   </button>
 
   <div class="menu-divider"></div>
+
+  {#if isSmart}
+    <button class="menu-item" onclick={handleEditRules} role="menuitem">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="menu-icon"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"
+        />
+      </svg>
+      <span>{m.smartPlaylist.editRulesEllipsis}</span>
+    </button>
+  {/if}
 
   <button class="menu-item" onclick={handleRename} role="menuitem">
     <svg

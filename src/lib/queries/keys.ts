@@ -9,7 +9,7 @@
  * アルバムやプレイリストの曲など`['tracks', ...]`で始まる全クエリに波及する。
  */
 
-import type { FilterOptions } from '#lib/types/models.js';
+import type { FilterOptions, SmartRules } from '#lib/types/models.js';
 
 export const queryKeys = {
   /**
@@ -71,6 +71,9 @@ export const queryKeys = {
 
   /** プレイリスト一覧 */
   playlists: ['playlists'] as const,
+
+  /** 自動プレイリストの条件に合う曲数（条件の編集画面に出す） */
+  smartPlaylistCount: (rules: SmartRules) => ['smartPlaylistCount', rules] as const,
 
   /** アプリケーション設定 */
   settings: ['settings'] as const,

@@ -22,6 +22,8 @@
   import { useSettingsQuery } from '#lib/queries/settings.js';
   import type { Playlist, SidebarItem } from '#lib/types/models.js';
   import PlaylistContextMenu from './PlaylistContextMenu.svelte';
+  import PlaylistIcon from './PlaylistIcon.svelte';
+  import { smartPlaylistDialog } from '#lib/stores/smartPlaylist.svelte.js';
   import PlaylistExportDialog from './PlaylistExportDialog.svelte';
   import PlaylistImportButton from './PlaylistImportButton.svelte';
   import MarqueeText from './MarqueeText.svelte';
@@ -590,6 +592,14 @@
         <PlaylistImportButton />
         <button
           class="btn-icon w-6 h-6 p-0"
+          title={m.sidebar.newSmartPlaylistTitle}
+          aria-label={m.sidebar.newSmartPlaylistTitle}
+          onclick={() => smartPlaylistDialog.openNew()}
+        >
+          <PlaylistIcon smart class="w-4 h-4" />
+        </button>
+        <button
+          class="btn-icon w-6 h-6 p-0"
           title={m.sidebar.newPlaylistTitle}
           onclick={handleCreatePlaylist}
         >
@@ -618,32 +628,23 @@
         <li class="px-3 py-2 text-sm text-error-light">{m.common.errorOccurred}</li>
       {:else if playlistsQuery.data}
         {#each playlistsQuery.data as playlist (playlist.id)}
+          <!-- 自動プレイリストの曲は条件で決まるため、曲のドロップは受け付けず、曲数も出さない -->
+          {@const isSmart = playlist.rules !== null}
           <li>
             <a
               href={resolve(`playlists/${playlist.id}`)}
               class="nav-item-base relative"
               class:active={currentPath === `/playlists/${playlist.id}`}
-              ondragover={handleDragOver}
-              ondragleave={handleDragLeave}
-              ondrop={(e) => handleDrop(e, playlist.id)}
+              ondragover={isSmart ? undefined : handleDragOver}
+              ondragleave={isSmart ? undefined : handleDragLeave}
+              ondrop={isSmart ? undefined : (e) => handleDrop(e, playlist.id)}
               oncontextmenu={(e) => handleContextMenu(e, playlist)}
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                class="w-5 h-5 shrink-0"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M4 6h16M4 10h16M4 14h16M4 18h16"
-                />
-              </svg>
+              <PlaylistIcon smart={isSmart} class="w-5 h-5 shrink-0" />
               <MarqueeText text={playlist.name} class="flex-1" />
-              <span class="text-xs text-text-dimmed shrink-0 ml-2">{playlist.tracks.length}</span>
+              {#if !isSmart}
+                <span class="text-xs text-text-dimmed shrink-0 ml-2">{playlist.tracks.length}</span>
+              {/if}
             </a>
           </li>
         {/each}
