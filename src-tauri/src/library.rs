@@ -9,8 +9,10 @@ use std::path::{Path, PathBuf};
 /// できる形式に限る。追加する時は、実ファイルで両方を確かめる（調査の結果は
 /// `docs/design/decisions.md`のADR-024・ADR-025）。
 /// m4aは、AACとALACのどちらも扱える。aacはADTS形式のAAC。oggは、中がVorbisでもOpusでも扱える。
+/// wv（WavPack）とape（Monkey's Audio）は、`symphonia`ではなく専用のデコーダーで再生する
+/// （ADR-047。WavPackは可逆のものだけ）。
 const SUPPORTED_EXTENSIONS: &[&str] = &[
-    "mp3", "flac", "wav", "m4a", "aac", "mp2", "aiff", "aif", "ogg", "opus",
+    "mp3", "flac", "wav", "m4a", "aac", "mp2", "aiff", "aif", "ogg", "opus", "wv", "ape",
 ];
 
 /// フォルダから音楽ファイルをインポートする結果
@@ -255,7 +257,7 @@ mod tests {
         assert!(is_supported_audio_file(Path::new("test.flac")));
         assert!(is_supported_audio_file(Path::new("test.wav")));
         assert!(is_supported_audio_file(Path::new("test.m4a")));
-        for extension in ["aac", "mp2", "aiff", "aif", "ogg", "opus"] {
+        for extension in ["aac", "mp2", "aiff", "aif", "ogg", "opus", "wv", "ape"] {
             assert!(
                 is_supported_audio_file(Path::new(&format!("test.{extension}"))),
                 "{extension}"
@@ -264,7 +266,7 @@ mod tests {
         assert!(is_supported_audio_file(Path::new("test.MP3")));
         assert!(is_supported_audio_file(Path::new("test.AIFF")));
         // 再生かタグの読み書きができない形式は、取り込まない（ADR-024）
-        for extension in ["wma", "wv", "ape", "dsf", "tta", "mka", "oga"] {
+        for extension in ["wma", "dsf", "tta", "mpc", "mka", "oga"] {
             assert!(
                 !is_supported_audio_file(Path::new(&format!("test.{extension}"))),
                 "{extension}"
