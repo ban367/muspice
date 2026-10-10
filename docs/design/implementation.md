@@ -72,6 +72,7 @@ src-tauri/src/
 ├── library.rs
 ├── library_folder.rs
 ├── library_sync.rs        # ライブラリフォルダの変更の自動反映（起動時・定期・監視）
+├── lyrics.rs              # 表示する歌詞の読み込み（曲と同じ名前の.lrcファイルを優先し、なければ埋め込みの歌詞。ADR-045）
 ├── library_xml.rs         # iTunes形式のライブラリXMLの読み込み（ほかのプレーヤーの再生回数・追加日・プレイリスト。ADR-033）
 ├── m3u.rs                 # プレイリストのM3Uの読み込み（文字コードの判定・曲の対応付け）と書き出し（ADR-032）
 ├── media_controls/        # OSのメディアキー・Now Playing（ADR-029）
@@ -171,6 +172,10 @@ src-tauri/src/
 - 再生キュー（右サイドバー）の曲をダブルクリックした時は、`playQueueIndex(index)`でキューの並びを変えずに再生位置だけを移す（指定した位置より前の曲もキューに残る）
 - 再生中かどうか（`isPlaying`）は、エンジンのコマンドの結果（再生を始めた・一時停止した）と通知（失敗）から更新する。再生位置（`currentTime`）は、エンジンの`position`の通知で更新する
 - エンジンへ渡す番号（トークン）は、再生する曲・続けて再生する曲ごとに増やす。通知（`PlaybackEvent`）は番号で見分け、前の曲についての通知は捨てる
+- Now Playingの画面（`NowPlayingView`。ADR-045）は、`ui.isNowPlayingOpen`で開閉し、`(app)/+layout.svelte`がページの領域（`.main-area`）に重ねて表示する（ルートにはしない。開いていたページは、閉じると元の位置のまま戻る）。プレーヤーのアルバムアートで開閉し、Escキー・別の画面への移動・曲名のクリック（一覧で表示）で閉じる
+  - 歌詞は`useTrackLyricsQuery(trackId)`で読み、`#lib/utils/lyrics`の`parseLyrics`で解釈する（時刻付きなら、行ごとの時刻。`findCurrentLine`で再生位置の行を求める）。タグを書き換えた時は、歌詞のキャッシュも無効にする（`invalidateTagQueries`）
+  - 歌詞の行のクリックなど、プレーヤーの外からのシークは、`#lib/stores/playback.svelte`の`seekPlayback(time)`を使う（動いている再生コントローラーへ渡す）
+  - 再生キューの曲は、キューに入れた時点の内容のため、評価は全曲の一覧（`useTracksQuery`）から、お気に入りはお気に入りの一覧から調べる
 - 再生の補助（ADR-044）は、状態を`#lib/stores/playbackAids.svelte`（`stopAfterCurrent`・`sleepTimer`・`isFadingOut`。保存しない）に持ち、再生コントローラーが読んで再生を止める。画面は`PlaybackAidsMenu`（プレーヤーのボタンから開く）
   - 「この曲が終わったら停止」が有効な間は、`syncNext`が次の曲をエンジンへ伝えない（先読みを取り消す）。曲の終わり（`ended`）で、`engineTrackId`を次の曲にしてからキューを進め（再生は始まらない）、指示を解除する。次の曲がなければ、通常の終わり方と同じ
   - スリープタイマーは、時間が来たかを、1秒ごとのタイマーと再生位置の通知（`position`）の両方で確かめる（ウィンドウが隠れている間は、タイマーが間引かれるため）。時間が来たら、`playbackSetVolume`で音量を少しずつ下げ（`SLEEP_FADE_SECONDS`）、一時停止してから、エンジンの音量を設定の値（`player.volume`）に戻す。`player.volume`は変えない。「曲の終わりまで再生する」場合は、時間が来た時点で「この曲が終わったら停止」にする
