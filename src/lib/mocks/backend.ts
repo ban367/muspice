@@ -42,6 +42,8 @@ import {
   ALBUMS_WITH_FOLDER_ART,
   createBulkTracks,
   createFixturePlayHistory,
+  FIXTURE_EMBEDDED_LYRICS,
+  FIXTURE_LRC_FILES,
   createFixturePlaylistFolders,
   createFixturePlaylists,
   createFixtureTracks,
@@ -1114,6 +1116,18 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         .sort(bySortName),
     getGenreTracks: (genre) => sortGenreTracks(tracks.filter((track) => track.genre === genre)),
     getTrackTags,
+    // 実装と同じく、曲と同じ名前の.lrcファイルを優先し、なければ埋め込みの歌詞（タグ）を返す
+    getTrackLyrics: (trackId) => {
+      validateTrackId(trackId);
+      findTrack(trackId);
+      const lrc = FIXTURE_LRC_FILES.get(trackId);
+      if (lrc !== undefined) return { text: lrc, source: 'lrcFile' };
+      // 編集画面で入れた歌詞（空にした場合は、歌詞なし）を、最初からある歌詞より優先する
+      const tags = fileOnlyTags.get(trackId);
+      const embedded =
+        tags && 'lyrics' in tags ? tags.lyrics : FIXTURE_EMBEDDED_LYRICS.get(trackId);
+      return embedded ? { text: embedded, source: 'embedded' } : null;
+    },
     updateTrackMetadata,
     updateMultipleTracksMetadata: (trackIds, metadata) => {
       if (trackIds.length === 0) fail('VALIDATION', 'トラックIDが指定されていません');

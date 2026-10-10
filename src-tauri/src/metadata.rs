@@ -342,6 +342,31 @@ pub fn read_file_tags(file_path: &Path) -> AppResult<Metadata> {
         .unwrap_or_default())
 }
 
+/// 音楽ファイルのタグから、表示する歌詞を読む（歌詞がなければ値なし）
+///
+/// 歌詞の項目が2つある場合（時刻のないもの・そうでないもの）は、時刻付き（LRC形式）のものを
+/// 優先する（再生位置に合わせて表示できるため）。どちらも時刻付きでなければ、編集画面と同じく
+/// 時刻のないものを優先する。
+pub fn read_file_lyrics(file_path: &Path) -> AppResult<Option<String>> {
+    let tagged_file = read_tagged_file(file_path, ParseOptions::new().read_properties(false))?;
+    let Some(tag) = tagged_file
+        .primary_tag()
+        .or_else(|| tagged_file.first_tag())
+    else {
+        return Ok(None);
+    };
+
+    let candidates = [
+        extract_text(tag, ItemKey::UnsyncLyrics),
+        extract_text(tag, ItemKey::Lyrics),
+    ];
+    let timed = candidates
+        .iter()
+        .flatten()
+        .find(|text| crate::lyrics::has_timestamps(text));
+    Ok(timed.or(candidates.iter().flatten().next()).cloned())
+}
+
 /// 音楽ファイルに埋め込まれた画像（アルバムアート）
 #[derive(Debug, Clone)]
 pub struct EmbeddedPicture {
