@@ -150,6 +150,31 @@ describe('createMockPlaybackEngine', () => {
     expect(events).toHaveLength(count);
   });
 
+  it('再生速度を変えると、再生位置がその速さで進む', () => {
+    engine.setSpeed(2);
+    engine.play('a', 1);
+    vi.advanceTimersByTime(2000);
+    expect(lastPosition()).toBe(4);
+
+    // 途中で変えても、そこまでの位置は変わらない
+    engine.setSpeed(0.5);
+    vi.advanceTimersByTime(2000);
+    expect(lastPosition()).toBe(5);
+
+    // 一時停止中に変えた速度は、再開してから効く
+    engine.pause();
+    engine.setSpeed(2);
+    vi.advanceTimersByTime(2000);
+    expect(lastPosition()).toBe(5);
+    engine.resume();
+    vi.advanceTimersByTime(1000);
+    expect(lastPosition()).toBe(7);
+
+    // 曲の終わりも、速さの分だけ早く来る（10秒の曲の残り3秒が、1.5秒）
+    vi.advanceTimersByTime(1500);
+    expect(transitions()).toEqual([{ type: 'ended', token: 1 }]);
+  });
+
   it('クロスフェードでは、重なりの始まりで次の曲へ切り替わる', () => {
     crossfadeSeconds = 3;
     engine.play('a', 1); // 10秒

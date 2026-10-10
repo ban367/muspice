@@ -329,7 +329,12 @@ export const ja = {
 
   /** 再生の補助（プレーヤーのメニュー） */
   playbackAids: {
-    title: '停止のタイミング・スリープタイマー・Auto DJ',
+    title: '再生速度・停止のタイミング・スリープタイマー・Auto DJ',
+    speed: '再生速度',
+    speedValue: (speed: number) => `${speed}倍`,
+    speedSlider: '再生速度を細かく変える',
+    speedReset: '1倍に戻す',
+    speedHint: '音程は変わりません。アプリを起動し直すと、1倍に戻ります。',
     stopAfterCurrent: 'この曲が終わったら停止',
     sleepTimer: 'スリープタイマー',
     minutes: (minutes: number) => `${minutes}分`,

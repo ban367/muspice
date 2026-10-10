@@ -317,7 +317,12 @@ export const en: Messages = {
   },
 
   playbackAids: {
-    title: 'Stop Timing, Sleep Timer and Auto DJ',
+    title: 'Playback Speed, Stop Timing, Sleep Timer and Auto DJ',
+    speed: 'Playback Speed',
+    speedValue: (speed) => `${speed}×`,
+    speedSlider: 'Fine-tune the playback speed',
+    speedReset: 'Back to 1×',
+    speedHint: 'The pitch stays the same. The speed goes back to 1× when the app restarts.',
     stopAfterCurrent: 'Stop after the current track',
     sleepTimer: 'Sleep Timer',
     minutes: (minutes) => `${minutes} min`,

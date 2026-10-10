@@ -7,7 +7,9 @@
 use super::run_blocking;
 use crate::error::{AppError, AppResult};
 use crate::media_controls::{MediaControls, NowPlayingUpdate};
-use crate::playback::{OutputDevice, PlayRequest, PlaybackEngine, PlaybackTrackInfo};
+use crate::playback::{
+    MAX_SPEED, MIN_SPEED, OutputDevice, PlayRequest, PlaybackEngine, PlaybackTrackInfo,
+};
 use crate::state::AppState;
 use crate::validation::validate_track_id;
 use std::path::PathBuf;
@@ -96,6 +98,22 @@ pub async fn playback_set_volume(volume: f32, engine: State<'_, PlaybackEngine>)
         return Err(AppError::Validation("音量が正しくありません".to_string()));
     }
     engine.set_volume(volume)
+}
+
+/// 再生速度（倍。0.5〜2.0）を設定する（音程は変えない。再生中の音にすぐに効く）
+///
+/// 再生位置・曲の長さ・シークは、速度を変えても元の曲の時間のまま。速度は保存しない
+/// （起動のたびに1倍。ADR-049）。
+#[tauri::command]
+#[specta::specta]
+pub async fn playback_set_speed(speed: f32, engine: State<'_, PlaybackEngine>) -> AppResult<()> {
+    if !speed.is_finite() || !(MIN_SPEED..=MAX_SPEED).contains(&speed) {
+        return Err(AppError::Validation(format!(
+            "再生速度は{}倍から{}倍の範囲で指定してください",
+            MIN_SPEED, MAX_SPEED
+        )));
+    }
+    engine.set_speed(speed)
 }
 
 /// 再生を止める（再生中の曲・続けて再生する曲を手放す）

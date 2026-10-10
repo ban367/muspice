@@ -1324,6 +1324,12 @@ describe('再生エンジン', () => {
     await expect(commands.playbackSetVolume(Number.NaN)).rejects.toMatchObject({
       code: 'VALIDATION'
     });
+    // 再生速度は、0.5〜2倍
+    for (const speed of [0.4, 2.1, Number.NaN]) {
+      await expect(commands.playbackSetSpeed(speed)).rejects.toMatchObject({ code: 'VALIDATION' });
+    }
+    await expect(commands.playbackSetSpeed(1.5)).resolves.toBeNull();
+    await expect(commands.playbackSetSpeed(1)).resolves.toBeNull();
     // イコライザのゲインは、バンドの数（10個）で渡す
     await expect(commands.playbackSetEqualizer(true, [0, 0, 0])).rejects.toMatchObject({
       code: 'VALIDATION'

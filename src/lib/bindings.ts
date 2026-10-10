@@ -406,6 +406,13 @@ export const commands = {
 	/**  音量（0.0〜1.0）を設定する */
 	playbackSetVolume: (volume: number | null) => __TAURI_INVOKE<null>("playback_set_volume", { volume }),
 	/**
+	 *  再生速度（倍。0.5〜2.0）を設定する（音程は変えない。再生中の音にすぐに効く）
+	 * 
+	 *  再生位置・曲の長さ・シークは、速度を変えても元の曲の時間のまま。速度は保存しない
+	 *  （起動のたびに1倍。ADR-049）。
+	 */
+	playbackSetSpeed: (speed: number | null) => __TAURI_INVOKE<null>("playback_set_speed", { speed }),
+	/**
 	 *  イコライザの設定を変える（再生中の音にすぐに効く）
 	 * 
 	 *  `gains`は、バンドごとのゲイン（dB。31Hz〜16kHzの10個。範囲外の値は-12〜12に収める）。
@@ -432,6 +439,8 @@ export const commands = {
 	position: number | null,
 	/**  曲の長さ（秒。再生エンジンがファイルから読んだ値。分からなければnullで、ライブラリの値を使う） */
 	duration: number | null,
+	/**  再生速度（倍。OSが、渡した位置から今の位置を計算するのに使う。省略すると1倍） */
+	speed?: number | null,
 } | null) => __TAURI_INVOKE<null>("set_now_playing", { update }),
 	/**
 	 *  トラックのファイルをシステムのファイルマネージャーで表示
@@ -921,6 +930,8 @@ export type NowPlayingUpdate = {
 	position: number | null,
 	/**  曲の長さ（秒。再生エンジンがファイルから読んだ値。分からなければnullで、ライブラリの値を使う） */
 	duration: number | null,
+	/**  再生速度（倍。OSが、渡した位置から今の位置を計算するのに使う。省略すると1倍） */
+	speed?: number | null,
 };
 
 /**  数値の項目 */

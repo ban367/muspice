@@ -567,6 +567,12 @@ export function createPlaybackController(
       send(() => commands.playbackSetVolume(volume), '音量の設定');
     });
 
+    // 再生速度: エンジンは速度を保存しないため、起動時（1倍）と変更のたびに送る
+    $effect(() => {
+      const speed = playbackAids.speed;
+      send(() => commands.playbackSetSpeed(speed), '再生速度の設定');
+    });
+
     // スリープタイマー: 設定している間、時間が来たかを定期的に確かめる
     $effect(() => {
       if (playbackAids.sleepTimer === null) return;
@@ -597,7 +603,8 @@ export function createPlaybackController(
           trackId: track.id,
           playing: player.isPlaying,
           position: player.currentTime,
-          duration: player.duration
+          duration: player.duration,
+          speed: playbackAids.speed
         }
       );
     });

@@ -76,7 +76,8 @@ pub use player::{get_current_track, get_playback_state, save_playback_state, set
 // 再生エンジンと、OSのNow Playing
 pub use playback::{
     get_output_devices, playback_pause, playback_play, playback_resume, playback_seek,
-    playback_set_equalizer, playback_set_next, playback_set_volume, playback_stop, set_now_playing,
+    playback_set_equalizer, playback_set_next, playback_set_speed, playback_set_volume,
+    playback_stop, set_now_playing,
 };
 
 // 統計（お気に入り・レーティング・再生回数・スキップ回数・再生履歴）

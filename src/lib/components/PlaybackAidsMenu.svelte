@@ -2,18 +2,26 @@
   @component PlaybackAidsMenu
   再生の補助のメニュー（プレーヤーのボタンから開く）。
 
+  - 再生速度（0.5〜2倍。音程は変えない）
   - この曲が終わったら停止
   - スリープタイマー（時間を選ぶ。時間が来たら音量を下げて止めるか、曲の終わりまで再生してから止める）
   - Auto DJ（再生キューの最後の曲になったら、ライブラリかプレイリストから曲を足す）
 
-  「この曲が終わったら停止」とスリープタイマーは、その場かぎりの指示（`playbackAids`）。
-  Auto DJは設定（`settings.json`）に保存する。
+  再生速度・「この曲が終わったら停止」・スリープタイマーは、その場かぎりの指示（`playbackAids`。
+  保存しない）。Auto DJは設定（`settings.json`）に保存する。
 -->
 <script lang="ts">
   import { usePlaylistsQuery } from '#lib/queries/playlists.js';
   import { useSaveSettingsMutation, useSettingsQuery } from '#lib/queries/settings.js';
   import { formatTime, player } from '#lib/stores/player.svelte.js';
-  import { playbackAids, SLEEP_TIMER_MINUTES } from '#lib/stores/playbackAids.svelte.js';
+  import {
+    MAX_PLAYBACK_SPEED,
+    MIN_PLAYBACK_SPEED,
+    PLAYBACK_SPEED_PRESETS,
+    PLAYBACK_SPEED_STEP,
+    playbackAids,
+    SLEEP_TIMER_MINUTES
+  } from '#lib/stores/playbackAids.svelte.js';
   import type { Settings } from '#lib/types/models.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
@@ -46,8 +54,13 @@
   const sleepRemaining = $derived(playbackAids.sleepRemainingSeconds(now));
   let waitForTrackEnd = $state(false);
 
+  /** 再生速度を変えているか */
+  const isSpeedChanged = $derived(playbackAids.speed !== 1);
+
   /** ボタンを目立たせるか（その場かぎりの指示が有効な間） */
-  const isActive = $derived(playbackAids.stopAfterCurrent || playbackAids.sleepTimer !== null);
+  const isActive = $derived(
+    isSpeedChanged || playbackAids.stopAfterCurrent || playbackAids.sleepTimer !== null
+  );
 
   function saveSettings(patch: Partial<Settings>) {
     if (settings) saveSettingsMutation.mutate({ ...settings, ...patch });
@@ -96,22 +109,72 @@
       />
     </svg>
   </button>
+  {#if isSpeedChanged}
+    <span class="remaining" title={m.playbackAids.speed}>
+      {m.playbackAids.speedValue(playbackAids.speed)}
+    </span>
+  {/if}
   {#if sleepRemaining !== null}
     <span class="remaining" aria-hidden="true">{formatTime(sleepRemaining)}</span>
   {/if}
 
   {#if isOpen}
     <div class="aids-panel" role="dialog" aria-label={m.playbackAids.title}>
-      <!-- この曲が終わったら停止 -->
-      <label class="check">
+      <!-- 再生速度 -->
+      <section>
+        <div class="group-header">
+          <h3 class="group-title">{m.playbackAids.speed}</h3>
+          <span class="status" aria-live="polite">
+            {m.playbackAids.speedValue(playbackAids.speed)}
+          </span>
+        </div>
+        <div class="options" role="group" aria-label={m.playbackAids.speed}>
+          {#each PLAYBACK_SPEED_PRESETS as speed (speed)}
+            <button
+              type="button"
+              class="option-button"
+              class:selected={playbackAids.speed === speed}
+              aria-pressed={playbackAids.speed === speed}
+              onclick={() => playbackAids.setSpeed(speed)}
+            >
+              {m.playbackAids.speedValue(speed)}
+            </button>
+          {/each}
+        </div>
         <input
-          type="checkbox"
-          class="w-4 h-4"
-          bind:checked={playbackAids.stopAfterCurrent}
-          disabled={player.currentTrack === null}
+          type="range"
+          class="speed-slider"
+          min={MIN_PLAYBACK_SPEED}
+          max={MAX_PLAYBACK_SPEED}
+          step={PLAYBACK_SPEED_STEP}
+          value={playbackAids.speed}
+          oninput={(e) => playbackAids.setSpeed(Number(e.currentTarget.value))}
+          aria-label={m.playbackAids.speedSlider}
         />
-        {m.playbackAids.stopAfterCurrent}
-      </label>
+        <p class="hint speed-hint">{m.playbackAids.speedHint}</p>
+        {#if isSpeedChanged}
+          <button
+            type="button"
+            class="btn-secondary cancel"
+            onclick={() => playbackAids.setSpeed(1)}
+          >
+            {m.playbackAids.speedReset}
+          </button>
+        {/if}
+      </section>
+
+      <!-- この曲が終わったら停止 -->
+      <section class="group">
+        <label class="check">
+          <input
+            type="checkbox"
+            class="w-4 h-4"
+            bind:checked={playbackAids.stopAfterCurrent}
+            disabled={player.currentTrack === null}
+          />
+          {m.playbackAids.stopAfterCurrent}
+        </label>
+      </section>
 
       <!-- スリープタイマー -->
       <section class="group">
@@ -125,11 +188,11 @@
             </span>
           {/if}
         </div>
-        <div class="minutes" role="group" aria-label={m.playbackAids.sleepTimer}>
+        <div class="options" role="group" aria-label={m.playbackAids.sleepTimer}>
           {#each SLEEP_TIMER_MINUTES as minutes (minutes)}
             <button
               type="button"
-              class="minute-button"
+              class="option-button"
               class:selected={playbackAids.sleepTimer?.minutes === minutes}
               aria-pressed={playbackAids.sleepTimer?.minutes === minutes}
               onclick={() => playbackAids.startSleepTimer(minutes, waitForTrackEnd)}
@@ -214,14 +277,15 @@
     @apply text-secondary;
   }
 
-  /* スリープタイマーの残り時間（ボタンの横に出す） */
+  /* 変えている再生速度・スリープタイマーの残り時間（ボタンの横に出す） */
   .remaining {
     @apply text-[0.7rem] text-primary tabular-nums;
   }
 
-  /* プレーヤーは画面の下にあるため、上へ開く */
+  /* プレーヤーは画面の下にあるため、上へ開く（ウィンドウが低い時は、この中でスクロールする） */
   .aids-panel {
-    @apply absolute right-0 bottom-full z-30 mb-3 w-72 p-4 bg-base-200 border border-border rounded-lg shadow-lg text-left;
+    @apply absolute right-0 bottom-full z-30 mb-3 w-72 p-4 bg-base-200 border border-border rounded-lg shadow-lg text-left overflow-y-auto;
+    max-height: calc(100vh - var(--spacing-player-height) - 2rem);
   }
 
   .group {
@@ -244,20 +308,50 @@
     @apply flex items-center gap-2 text-sm text-text-secondary cursor-pointer;
   }
 
-  .minutes {
+  /* 選択肢のボタン（再生速度・スリープタイマーの時間） */
+  .options {
     @apply grid grid-cols-3 gap-1.5 mb-3;
   }
 
-  .minute-button {
+  .option-button {
     @apply py-1.5 bg-base-400 border border-border rounded text-xs text-text-secondary cursor-pointer transition-colors;
   }
 
-  .minute-button:hover {
+  .option-button:hover {
     @apply text-text-primary border-border-light;
   }
 
-  .minute-button.selected {
+  .option-button.selected {
     @apply border-primary text-primary;
+  }
+
+  /* 再生速度のスライダー（`CardSizeSlider`と同じ見た目） */
+  .speed-slider {
+    @apply block w-full h-1 rounded-sm cursor-pointer bg-surface-active;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
+  .speed-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    @apply w-3 h-3 rounded-full bg-primary cursor-pointer transition-transform duration-150;
+  }
+
+  .speed-slider::-webkit-slider-thumb:hover {
+    @apply scale-125;
+  }
+
+  .speed-slider::-moz-range-thumb {
+    @apply w-3 h-3 rounded-full bg-primary cursor-pointer border-none transition-transform duration-150;
+  }
+
+  .speed-slider::-moz-range-thumb:hover {
+    @apply scale-125;
+  }
+
+  .speed-hint {
+    @apply mt-3 mb-0;
   }
 
   .cancel {
