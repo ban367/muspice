@@ -144,6 +144,7 @@ src-tauri/src/
   - `albumArtUrl`は、アプリで画像を書き換えた曲の版（`#lib/stores/albumArt.svelte`）を読んでURLに付ける。版の変更に追随させるため、テンプレートか`$derived`の中で呼ぶ（値を変数に取っておくと、書き換えた後も古い画像のままになる）
   - アルバムアートの画面は、`albumArtDialog.open(tracks)`で開く（`(app)/+layout.svelte`が1つだけ表示する。開く側にダイアログを置かない）
 - メタデータの編集画面（`MetadataEditor`）は、入力欄の値と`Metadata`の変換・検証を`#lib/utils/metadataForm`に分けている（1曲の編集はすべての項目を渡し、一括編集は入力した項目だけを渡す）。1曲の編集は、開いた時に`useTrackTagsQuery`でファイルのタグを読み、読めるまで・読めない場合は保存できない（ADR-034）
+- サイドバーのプレイリストの一覧は`SidebarPlaylists`が表示する（ADR-043）。フォルダ分けと並び順は`#lib/utils/playlistTree`の純粋な関数（`buildPlaylistTree`・`sortPlaylistItems`・`placeRelative`）で求め、並び順（名前・作成日・手動）と閉じているフォルダは`#lib/stores/playlistSidebar.svelte`がlocalStorageに保存する。プレイリスト・フォルダのドラッグは、専用の種類のデータ（`application/x-muspice-playlist-id`など）で運び、曲のドラッグ（`#lib/utils/trackDrag`）と見分ける。プレイリストの名前と説明は`PlaylistInfoDialog`（`playlistInfoDialog.open(id)`）で編集する
 - 自動プレイリスト（ADR-042）の編集画面（`SmartPlaylistDialog`。`smartPlaylistDialog.openNew()`・`openEdit(playlist)`で開く）は、入力（文字列のままの値。`RuleDraft`）と保存する条件（`SmartRules`）の変換・検証・説明文を`#lib/utils/smartPlaylist`の純粋な関数に分けている。条件に合う曲は、フロントエンドでは求めない（バックエンドの`get_playlist_tracks`・`count_smart_playlist_tracks`を使う。`#lib/mocks/smartPlaylist`は、モックのバックエンドが同じ規則で求めるためのもの）。自動プレイリストの曲のクエリは、開くたびに取り直す（`usePlaylistTracksQuery(id, true)`）
 - ライブラリのビュー（最近追加した曲・フォルダ別・年代別）の集計は、`#lib/utils/libraryViews`の純粋な関数で行う（ADR-041）。フォルダ別・年代別は、左に木の形の一覧（`TreeBrowser`）、右に曲の一覧を出す`TreeBrowsePage`を使う（木の項目は`TreeNode`。画面は、全曲の一覧から木と、選んだ項目の曲を計算して渡す）。サイドバーに項目を足す時は、Rustの`SidebarItem`・設定画面の`sidebarItems`・`m.sidebar`にも足す（設定で隠せるようにするため）
 - 曲の画面の絞り込みは、`#lib/utils/trackFilter`の純粋な関数（`applyTrackFilters`・`browseTracks`）で行う（ADR-040）。順番は、検索 → フィルタ → カラムブラウザ（ジャンル → アーティスト → アルバム）で、カラムブラウザの各列には、その列より前の絞り込みに合う曲の値だけを出す。状態（カラムブラウザを出すか・選択・フィルタ）は`#lib/stores/libraryBrowser.svelte`に持つ（出すかどうかだけをlocalStorageに保存する）
@@ -166,6 +167,7 @@ src-tauri/src/
   - `recordPlay`は、キャッシュにあるその曲の再生回数を書き換え、再生履歴と「よく再生する曲」を取り直す（開いている画面に、そのまま反映される）
 - OSのNow Playingへの通知は`#lib/stores/nowPlaying`が担い、再生コントローラーが`player`の状態を渡す（ADR-029）。再生位置は0.25秒ごとに変わるが、伝え直すのは、曲・再生中かどうかが変わったときと、位置がOSの計算と1秒以上ずれたときだけ
 - メニューバーの「再生」メニューと、OSのメディアキーなどからの操作（`PlaybackControl`イベント）は、`Player.svelte`が受け取り、ウィンドウの中のキー操作と同じ処理を行う
+- 再生キュー（右サイドバー）の「次に再生」は、行のドラッグで並べ替えられる（`moveUpcomingTrack(from, to)`。再生中の曲と、それより前の曲は動かさない。シャッフルする前の順は変えない）。キューの全体は、`create_playlist_with_tracks`でプレイリストとして保存できる（同じ曲は、最初の1回だけが入る）
 - 再生キュー（右サイドバー）の曲をダブルクリックした時は、`playQueueIndex(index)`でキューの並びを変えずに再生位置だけを移す（指定した位置より前の曲もキューに残る）
 - 再生中かどうか（`isPlaying`）は、エンジンのコマンドの結果（再生を始めた・一時停止した）と通知（失敗）から更新する。再生位置（`currentTime`）は、エンジンの`position`の通知で更新する
 - エンジンへ渡す番号（トークン）は、再生する曲・続けて再生する曲ごとに増やす。通知（`PlaybackEvent`）は番号で見分け、前の曲についての通知は捨てる
