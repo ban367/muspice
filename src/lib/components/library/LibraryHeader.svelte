@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Snippet } from 'svelte';
   import CardSizeSlider from './CardSizeSlider.svelte';
   import { useRefreshLibraryMetadataMutation } from '#lib/queries/tracks.js';
   import { confirmDestructive } from '#lib/utils/dialog.svelte.js';
@@ -21,6 +22,8 @@
     showListMode?: boolean;
     showCardSizeSlider?: boolean;
     showRefreshButton?: boolean;
+    /** 検索欄の左に出す、画面ごとのボタン（絞り込みなど） */
+    actions?: Snippet;
   }
 
   let {
@@ -36,7 +39,8 @@
     showGridMode = true,
     showListMode = true,
     showCardSizeSlider = true,
-    showRefreshButton = true
+    showRefreshButton = true,
+    actions
   }: Props = $props();
 
   // 内部検索状態
@@ -150,6 +154,7 @@
 
   <!-- 右側: 更新ボタン、検索バー -->
   <div class="header-right">
+    {@render actions?.()}
     {#if showRefreshButton}
       <button
         class="refresh-btn"

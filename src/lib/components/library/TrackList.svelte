@@ -54,7 +54,6 @@
     isLoading?: boolean;
     isError?: boolean;
     error?: Error | null;
-    searchTerm?: string;
     emptyMessage?: string;
     emptyHint?: string;
     displayMode?: 'grid' | 'list';
@@ -92,7 +91,8 @@
     removeLabel?: string;
     /**
      * 再生中の曲へのジャンプで、この一覧にその曲がない場合に、ジャンプを取り消すか
-     * （ライブラリの全曲の一覧に指定する。ほかの一覧は、全曲の一覧へ移動するために残す）
+     * （ライブラリの全曲を、絞り込まずに出している一覧に指定する。ほかの一覧は、全曲の一覧へ
+     * 移動するため・絞り込みを解除してから探すために残す）
      */
     isRevealFallback?: boolean;
   }
@@ -102,7 +102,6 @@
     isLoading = false,
     isError = false,
     error = null,
-    searchTerm = '',
     emptyMessage,
     emptyHint,
     displayMode = 'list',
@@ -236,7 +235,7 @@
         selection.click(trackId, { shiftKey: false, toggleKey: false });
         virtualList?.scrollToIndex(index);
         ui.revealTrackId = null;
-      } else if (isRevealFallback && !searchTerm) {
+      } else if (isRevealFallback) {
         // 全曲の一覧にもない曲（ライブラリから外した曲）は、移動できない
         ui.revealTrackId = null;
       }
