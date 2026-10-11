@@ -1,6 +1,7 @@
 use crate::ape_tag;
 use crate::error::{AppError, AppResult};
 use crate::models::{Metadata, ReplayGain, SortTags};
+use crate::multi_value;
 use crate::vorbis_tag;
 use lofty::config::{ParseOptions, WriteOptions};
 use lofty::file::{AudioFile, TaggedFile, TaggedFileExt};
@@ -94,9 +95,12 @@ pub struct BackfillTags {
     pub album_artist: Option<String>,
     /// 並び順に使う値（ソート用のタグ）
     pub sort_tags: SortTags,
+    /// アーティスト・ジャンル（複数ある場合は、`; `でつないだ文字列）
+    pub artist: Option<String>,
+    pub genre: Option<String>,
 }
 
-/// 音楽ファイルのタグから、アルバムアーティストとソート用のタグだけを読む
+/// 音楽ファイルのタグから、アルバムアーティスト・ソート用のタグ・アーティスト・ジャンルだけを読む
 ///
 /// それらの列を追加する前に登録したトラックの読み込み（`tag_backfill`）に使う。
 /// 長さ・ビットレートなどは読まない（全ファイルを読むため、1ファイルあたりの時間を抑える）。
@@ -111,6 +115,8 @@ pub fn read_backfill_tags(file_path: &Path) -> AppResult<BackfillTags> {
             BackfillTags {
                 sort_tags: metadata.sort_tags(),
                 album_artist: metadata.album_artist,
+                artist: metadata.artist,
+                genre: metadata.genre,
             }
         })
         .unwrap_or_default())
@@ -323,6 +329,15 @@ fn extract_disc_number(tag: &Tag) -> Option<i32> {
         .or_else(|| tag.disk().map(|d| d as i32))
 }
 
+/// タグから、複数の値を持てる項目（アーティスト・ジャンル）を取得する
+///
+/// 同じ項目が複数ある場合と、1つの値に`;`で区切って書かれている場合は、値を`; `でつないだ
+/// 文字列にする（`multi_value`）。複数の値でない項目は、そのままの文字列。
+fn extract_multi_value(tag: &Tag, key: ItemKey) -> Option<String> {
+    let items: Vec<&str> = tag.get_strings(key).collect();
+    multi_value::display(&items)
+}
+
 /// タグから、ライブラリ（データベース）に登録する項目を取り出す
 ///
 /// インポート・再スキャンで全ファイルについて読むため、編集画面だけで使う項目（歌詞など）は
@@ -330,9 +345,9 @@ fn extract_disc_number(tag: &Tag) -> Option<i32> {
 fn library_metadata(tag: &Tag) -> Metadata {
     Metadata {
         title: tag.title().map(|s| s.to_string()),
-        artist: tag.artist().map(|s| s.to_string()),
+        artist: extract_multi_value(tag, ItemKey::TrackArtist),
         album: tag.album().map(|s| s.to_string()),
-        genre: tag.genre().map(|s| s.to_string()),
+        genre: extract_multi_value(tag, ItemKey::Genre),
         year: extract_year(tag),
         track_number: tag.track().map(|t| t as i32),
         disc_number: extract_disc_number(tag),
@@ -696,11 +711,55 @@ fn apply_text(tag: &mut Tag, key: ItemKey, value: &Option<String>, clear_missing
     }
 }
 
+/// タグの、複数の値を持てる項目（アーティスト・ジャンル）を書き換える
+///
+/// 値は、`;`で区切った文字列で受け取る。タグの今の値と同じなら、タグを変えない（書かれていた
+/// 形のまま残す）。違う場合は、タグが「1つの値に`;`で区切って書く」形ならその形で、そうでなければ
+/// 値ごとの項目として書く（形式ごとの書き方は、loftyが決める。Vorbisコメントは同じ項目を複数、
+/// ID3v2.4は区切り付きの値、MP4は複数の値）。
+fn apply_multi_value(tag: &mut Tag, key: ItemKey, value: &Option<String>, clear_missing: bool) {
+    let text = match text_change(value, clear_missing) {
+        TextChange::Set(text) => text,
+        TextChange::Remove => {
+            tag.remove_key(key);
+            return;
+        }
+        TextChange::Keep => return,
+    };
+
+    let values = multi_value::split(text);
+    let current: Vec<String> = tag.get_strings(key).map(str::to_string).collect();
+    if values == multi_value::values_of(current.iter().map(String::as_str)) {
+        return;
+    }
+
+    let was_joined =
+        matches!(current.as_slice(), [single] if single.contains(multi_value::SEPARATOR));
+    tag.remove_key(key);
+    match values.as_slice() {
+        // `;`だけの値は、値がないものとして扱う
+        [] => {}
+        // 複数の値でなければ、渡された文字列をそのまま書く
+        [_] if !text.contains(multi_value::SEPARATOR) => {
+            tag.insert_text(key, text.to_string());
+        }
+        _ if values.len() == 1 || was_joined => {
+            tag.insert_text(key, multi_value::join(&values));
+        }
+        _ => {
+            for value in values {
+                tag.push(TagItem::new(key, ItemValue::Text(value)));
+            }
+        }
+    }
+}
+
 /// タグにメタデータを反映する
 ///
 /// 値がある項目はその値にする。`clear_missing`がtrueなら、値がない項目をタグから取り除く
 /// （1曲の編集で、欄を空にして保存した場合。編集画面は、すべての項目の値を渡す）。
 /// falseなら、値がない項目は変えない（一括編集・データベースの内容の書き出し）。
+/// アーティストとジャンルは、`;`で区切ると複数の値になる（`apply_multi_value`）。
 /// 文字列の項目（コメント・歌詞を除く）は、空の値を「取り除く」指定として扱う
 /// （タグの一括ツールで、置換の結果が空になった場合。`text_change`を参照）。
 fn apply_metadata(tag: &mut Tag, metadata: &Metadata, clear_missing: bool) {
@@ -710,11 +769,7 @@ fn apply_metadata(tag: &mut Tag, metadata: &Metadata, clear_missing: bool) {
         TextChange::Keep => {}
     }
 
-    match text_change(&metadata.artist, clear_missing) {
-        TextChange::Set(artist) => tag.set_artist(artist.to_string()),
-        TextChange::Remove => tag.remove_artist(),
-        TextChange::Keep => {}
-    }
+    apply_multi_value(tag, ItemKey::TrackArtist, &metadata.artist, clear_missing);
 
     match text_change(&metadata.album, clear_missing) {
         TextChange::Set(album) => tag.set_album(album.to_string()),
@@ -722,11 +777,7 @@ fn apply_metadata(tag: &mut Tag, metadata: &Metadata, clear_missing: bool) {
         TextChange::Keep => {}
     }
 
-    match text_change(&metadata.genre, clear_missing) {
-        TextChange::Set(genre) => tag.set_genre(genre.to_string()),
-        TextChange::Remove => tag.remove_genre(),
-        TextChange::Keep => {}
-    }
+    apply_multi_value(tag, ItemKey::Genre, &metadata.genre, clear_missing);
 
     match metadata.year {
         Some(year) => {
@@ -1248,6 +1299,8 @@ mod tests {
                         album: Some("あるばむ".to_string()),
                         album_artist: Some("あるばむあーてぃすと".to_string()),
                     },
+                    artist: Some("アーティスト".to_string()),
+                    genre: Some("Jazz".to_string()),
                 },
                 "{name}"
             );
@@ -1289,6 +1342,146 @@ mod tests {
             };
             update_file_metadata(&file, &cleared, true).unwrap();
             assert_eq!(read_file_tags(&file).unwrap(), cleared, "{name}");
+        }
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// アーティスト・ジャンルは、同じ項目が複数あるタグと、`;`で区切った値を、複数の値として読む
+    #[test]
+    fn test_reads_multiple_artists_and_genres() {
+        let mut tag = Tag::new(TagType::VorbisComments);
+        for artist in ["Artist A", "Artist B"] {
+            tag.push(TagItem::new(
+                ItemKey::TrackArtist,
+                ItemValue::Text(artist.to_string()),
+            ));
+        }
+        tag.insert_text(ItemKey::Genre, "Rock;Pop".to_string());
+        let metadata = library_metadata(&tag);
+        assert_eq!(metadata.artist.as_deref(), Some("Artist A; Artist B"));
+        assert_eq!(metadata.genre.as_deref(), Some("Rock; Pop"));
+
+        // 複数の値でない項目は、そのまま（`/`・`,`・`&`では分けない）
+        let mut tag = Tag::new(TagType::Id3v2);
+        tag.insert_text(ItemKey::TrackArtist, "AC/DC".to_string());
+        tag.insert_text(ItemKey::Genre, "Rock, Pop & Soul".to_string());
+        let metadata = library_metadata(&tag);
+        assert_eq!(metadata.artist.as_deref(), Some("AC/DC"));
+        assert_eq!(metadata.genre.as_deref(), Some("Rock, Pop & Soul"));
+        assert_eq!(library_metadata(&Tag::new(TagType::Id3v2)).artist, None);
+    }
+
+    /// アーティスト・ジャンルを書き換える時は、タグに書かれていた形（1つの値に`;`で区切る・
+    /// 値ごとの項目）を保つ
+    #[test]
+    fn test_multi_value_fields_keep_the_form_of_the_tag() {
+        let strings = |tag: &Tag, key: ItemKey| -> Vec<String> {
+            tag.get_strings(key).map(str::to_string).collect()
+        };
+        let apply = |tag: &mut Tag, value: &str| {
+            apply_multi_value(tag, ItemKey::Genre, &Some(value.to_string()), true);
+        };
+
+        // 1つの値に`;`で区切って書かれていたタグ
+        let mut tag = Tag::new(TagType::VorbisComments);
+        tag.insert_text(ItemKey::Genre, "Rock;Pop".to_string());
+        // 同じ値なら、タグを変えない（書かれていた文字列のまま）
+        apply(&mut tag, "Rock; Pop");
+        assert_eq!(strings(&tag, ItemKey::Genre), ["Rock;Pop"]);
+        // 値を変えると、同じ形（1つの値）で書く
+        apply(&mut tag, "Rock; Pop; Jazz");
+        assert_eq!(strings(&tag, ItemKey::Genre), ["Rock; Pop; Jazz"]);
+
+        // 値ごとの項目だったタグは、値ごとの項目のまま
+        let mut tag = Tag::new(TagType::VorbisComments);
+        for genre in ["Rock", "Pop"] {
+            tag.push(TagItem::new(
+                ItemKey::Genre,
+                ItemValue::Text(genre.to_string()),
+            ));
+        }
+        apply(&mut tag, "Rock;Pop");
+        assert_eq!(strings(&tag, ItemKey::Genre), ["Rock", "Pop"]);
+        apply(&mut tag, "Rock; Jazz ; Rock");
+        assert_eq!(strings(&tag, ItemKey::Genre), ["Rock", "Jazz"]);
+
+        // 1つの値だったタグを複数にした時は、値ごとの項目として書く
+        let mut tag = Tag::new(TagType::Id3v2);
+        tag.insert_text(ItemKey::Genre, "Rock".to_string());
+        apply(&mut tag, "Rock; Pop");
+        assert_eq!(strings(&tag, ItemKey::Genre), ["Rock", "Pop"]);
+        // 1つの値に戻すと、1つの項目（渡された文字列のまま）
+        apply(&mut tag, "AC/DC, Live");
+        assert_eq!(strings(&tag, ItemKey::Genre), ["AC/DC, Live"]);
+
+        // 空の値・`;`だけの値は、項目を取り除く。値がなければ、`clear_missing`の時だけ取り除く
+        apply(&mut tag, " ; ");
+        assert!(strings(&tag, ItemKey::Genre).is_empty());
+        tag.insert_text(ItemKey::Genre, "Rock".to_string());
+        apply_multi_value(&mut tag, ItemKey::Genre, &None, false);
+        assert_eq!(strings(&tag, ItemKey::Genre), ["Rock"]);
+        apply_multi_value(&mut tag, ItemKey::Genre, &None, true);
+        assert!(strings(&tag, ItemKey::Genre).is_empty());
+    }
+
+    /// 複数のアーティスト・ジャンルを書き込み、読み直して同じ値を取得できる（タグの種類ごと）
+    #[test]
+    fn test_multiple_artists_and_genres_round_trip_in_every_tag_type() {
+        let dir = std::env::temp_dir().join(format!("muspice-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        for file in tag_test_files(&dir) {
+            let name = file.file_name().unwrap().to_string_lossy().into_owned();
+            let items = |key: ItemKey| -> Vec<String> {
+                let tagged = read_tagged_file(&file, ParseOptions::new()).unwrap();
+                let tag = tagged.primary_tag().unwrap();
+                tag.get_strings(key).map(str::to_string).collect()
+            };
+            let metadata = Metadata {
+                title: Some("タイトル".to_string()),
+                artist: Some("宇多田ヒカル; AC/DC; Earth, Wind & Fire".to_string()),
+                genre: Some("Rock; J-Pop".to_string()),
+                ..Default::default()
+            };
+
+            update_file_metadata(&file, &metadata, true).unwrap();
+            assert_eq!(read_file_tags(&file).unwrap(), metadata, "{name}");
+            let library = extract_all_file_info(&file).unwrap().metadata;
+            assert_eq!(library.artist, metadata.artist, "{name}");
+            assert_eq!(library.genre, metadata.genre, "{name}");
+            // タグには、値ごとの項目として書かれる
+            assert_eq!(
+                items(ItemKey::TrackArtist),
+                ["宇多田ヒカル", "AC/DC", "Earth, Wind & Fire"],
+                "{name}"
+            );
+            assert_eq!(items(ItemKey::Genre), ["Rock", "J-Pop"], "{name}");
+
+            // ほかの項目を変えても、複数の値はそのまま
+            let partial = Metadata {
+                album: Some("アルバム".to_string()),
+                ..Default::default()
+            };
+            update_file_metadata(&file, &partial, false).unwrap();
+            assert_eq!(items(ItemKey::Genre), ["Rock", "J-Pop"], "{name}");
+            // 評価を書いても、そのまま
+            update_file_rating(&file, 4).unwrap();
+            assert_eq!(
+                read_file_tags(&file).unwrap().artist,
+                metadata.artist,
+                "{name}"
+            );
+
+            // 1つの値に戻す
+            let single = Metadata {
+                artist: Some("ZARD".to_string()),
+                genre: Some("J-Pop".to_string()),
+                ..Default::default()
+            };
+            update_file_metadata(&file, &single, false).unwrap();
+            assert_eq!(items(ItemKey::TrackArtist), ["ZARD"], "{name}");
+            assert_eq!(items(ItemKey::Genre), ["J-Pop"], "{name}");
         }
 
         std::fs::remove_dir_all(&dir).unwrap();
@@ -1488,6 +1681,40 @@ mod tests {
             let read = read_file_tags(&file).unwrap();
             println!("{}: {}", file.display(), read == metadata);
             assert_eq!(read, metadata, "{}", file.display());
+        }
+    }
+
+    /// 実際のファイルへ複数のアーティスト・ジャンルを書き込み、ほかのツール（ffprobeなど）で
+    /// 読めるか確かめる（手動で実行する）
+    ///
+    /// `TAG_TEST_DIR=<音楽ファイルを置いたフォルダ> cargo test write_multiple_values_to_real_files -- --ignored`
+    #[test]
+    #[ignore = "実際のファイルが必要（TAG_TEST_DIRで指定する。ファイルを書き換える）"]
+    fn write_multiple_values_to_real_files() {
+        let dir = std::env::var("TAG_TEST_DIR").expect("TAG_TEST_DIRを指定する");
+        let metadata = Metadata {
+            artist: Some("Artist A; Artist B".to_string()),
+            genre: Some("Rock; Pop".to_string()),
+            ..Default::default()
+        };
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let file = entry.unwrap().path();
+            if !file.is_file() {
+                continue;
+            }
+            let before = read_file_tags(&file).unwrap();
+            update_file_metadata(&file, &metadata, false).unwrap();
+            let read = read_file_tags(&file).unwrap();
+            println!(
+                "{}: {:?} / {:?} -> {:?} / {:?}",
+                file.display(),
+                before.artist,
+                before.genre,
+                read.artist,
+                read.genre
+            );
+            assert_eq!(read.artist, metadata.artist, "{}", file.display());
+            assert_eq!(read.genre, metadata.genre, "{}", file.display());
         }
     }
 

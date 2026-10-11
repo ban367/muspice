@@ -144,7 +144,8 @@
     tabindex="0"
     onkeydown={handleListKeydown}
   >
-    {#each albums as album (album.name)}
+    <!-- 同じ名前のアルバムが複数あることがある（ほかのアーティストとの曲のアルバムなど）ため、代表の曲で見分ける -->
+    {#each albums as album (album.representativeTrackId)}
       <div class="album-section">
         <!-- アルバムヘッダー -->
         <div class="album-header">
@@ -157,6 +158,10 @@
           </div>
           <div class="album-info">
             <MarqueeText text={album.name} class="album-title" />
+            {#if album.artist && album.artist !== artist.name}
+              <!-- ほかのアーティストとの曲のアルバム: アルバムをまとめるアーティストを出す -->
+              <span class="album-meta">{album.artist}</span>
+            {/if}
             <span class="album-meta"
               >{album.tracks[0]?.genre || m.common.unknownGenre} · {album.tracks[0]?.year ||
                 ''}</span

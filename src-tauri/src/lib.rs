@@ -21,6 +21,7 @@ mod menu;
 mod metadata;
 mod mini_player;
 mod models;
+mod multi_value;
 mod opened_files;
 mod playback;
 mod playback_state;

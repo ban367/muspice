@@ -1,13 +1,17 @@
-//! 既存のトラックの、後から追加した項目（アルバムアーティスト・ソート用のタグ）の読み込み
+//! 既存のトラックの、後から追加した項目（アルバムアーティスト・ソート用のタグ・複数の値）の読み込み
 //!
 //! これらの列（`tracks.album_artist`・`tracks.title_sort`など）を追加する前に登録したトラックは、
 //! 値が空になっている。そのままでは、コンピレーションが曲のアーティストごとの別のアルバムに
 //! 分かれて見え、読みの順に並ばないため、起動時にバックグラウンドでファイルのタグから読み込む。
 //!
+//! 複数の値（アーティスト・ジャンル。ADR-051）に対応する前に登録したトラックは、同じ項目が複数ある
+//! タグの、最初の値だけを読んでいる。ファイルに複数の値があり、今の値がその最初の値のままなら、
+//! すべての値に置き換える（アプリで編集した値は、変えない）。
+//!
 //! - 読み込むのは未読の項目だけで、ほかの項目は変えない（「メタデータを更新」と違い、
 //!   以前のバージョンでDBだけに保存した編集内容を失わない）
-//! - 読み込んだトラックは`album_artist_read`・`sort_tags_read`を1にする。対象がなくなれば、
-//!   次回以降の起動では何もしない
+//! - 読み込んだトラックは`album_artist_read`・`sort_tags_read`・`multi_values_read`を1にする。
+//!   対象がなくなれば、次回以降の起動では何もしない
 //! - ファイルを読めなかったトラック（外付けドライブが外れているなど）は未読のまま残し、次回の起動で読み直す
 //! - 途中でアプリを終了した場合は、次回の起動で続きから読み込む
 
@@ -112,6 +116,14 @@ fn backfill(
                 if track.needs_sort_tags {
                     crate::repository::set_track_sort_tags(&tx, &track.id, &tags.sort_tags)?;
                 }
+                if track.needs_multi_values {
+                    crate::repository::set_track_multi_values(
+                        &tx,
+                        &track.id,
+                        all_values(track.artist.as_deref(), tags.artist.as_deref()),
+                        all_values(track.genre.as_deref(), tags.genre.as_deref()),
+                    )?;
+                }
             }
             tx.commit().map_err(|e| {
                 AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
@@ -124,11 +136,26 @@ fn backfill(
             .filter(|(track, tags)| {
                 (track.needs_album_artist && tags.album_artist.is_some())
                     || (track.needs_sort_tags && !tags.sort_tags.is_empty())
+                    || (track.needs_multi_values
+                        && (all_values(track.artist.as_deref(), tags.artist.as_deref()).is_some()
+                            || all_values(track.genre.as_deref(), tags.genre.as_deref()).is_some()))
             })
             .count();
     }
 
     Ok(result)
+}
+
+/// 最初の値だけを読んでいた項目なら、ファイルにあるすべての値（`; `でつないだ文字列）を返す
+///
+/// `current`は今の値、`from_file`はファイルから複数の値として読んだ値。ファイルに複数の値があり、
+/// 今の値がその最初の値と同じ場合だけ、置き換える値を返す（アプリで編集した値・もともと1つの値は、
+/// 変えない）。
+fn all_values<'a>(current: Option<&str>, from_file: Option<&'a str>) -> Option<&'a str> {
+    let from_file = from_file?;
+    let file_values = crate::multi_value::split(from_file);
+    let current_values = crate::multi_value::split(current?);
+    (file_values.len() > 1 && current_values.as_slice() == &file_values[..1]).then_some(from_file)
 }
 
 #[cfg(test)]
@@ -212,6 +239,103 @@ mod tests {
         }
     }
 
+    /// 最初の値だけを読んでいたアーティスト・ジャンルを、ファイルのすべての値に置き換える
+    #[test]
+    fn test_backfill_widens_values_that_were_read_as_the_first_one() {
+        let state = setup_state();
+        // t1: 最初の値だけを読んでいた曲。t2: アプリで編集した曲。t3: もともと1つの値の曲
+        for (id, artist, genre) in [
+            ("t1", "曲のアーティスト", "Rock"),
+            ("t2", "編集したアーティスト", "Rock"),
+            ("t3", "曲のアーティスト", "Rock"),
+        ] {
+            insert_unread_track(&state, id, "曲");
+            state
+                .with_db(|db| {
+                    db.execute(
+                        "UPDATE tracks SET artist = ?2, genre = ?3 WHERE id = ?1",
+                        rusqlite::params![id, artist, genre],
+                    )
+                    .unwrap();
+                    Ok(())
+                })
+                .unwrap();
+        }
+
+        let result = backfill(&state, |path| {
+            let single = path.ends_with("t3.mp3");
+            Ok(BackfillTags {
+                artist: Some(if single {
+                    "曲のアーティスト".to_string()
+                } else {
+                    "曲のアーティスト; ゲスト".to_string()
+                }),
+                genre: Some(if single { "Rock" } else { "Rock; Pop" }.to_string()),
+                ..Default::default()
+            })
+        })
+        .unwrap();
+
+        assert_eq!(result.read_count, 3);
+        // 値が変わったのは、t1（アーティスト・ジャンル）とt2（ジャンル）
+        assert_eq!(result.found_count, 2);
+        let values = |id: &str| {
+            state
+                .with_db(|db| {
+                    Ok(db
+                        .query_row(
+                            "SELECT artist, genre, multi_values_read FROM tracks WHERE id = ?1",
+                            [id],
+                            |row| {
+                                Ok((
+                                    row.get::<_, String>(0)?,
+                                    row.get::<_, String>(1)?,
+                                    row.get::<_, bool>(2)?,
+                                ))
+                            },
+                        )
+                        .unwrap())
+                })
+                .unwrap()
+        };
+        assert_eq!(
+            values("t1"),
+            (
+                "曲のアーティスト; ゲスト".to_string(),
+                "Rock; Pop".to_string(),
+                true
+            )
+        );
+        // 編集した値は変えない（最初の値のままの項目だけを置き換える）
+        assert_eq!(
+            values("t2"),
+            (
+                "編集したアーティスト".to_string(),
+                "Rock; Pop".to_string(),
+                true
+            )
+        );
+        assert_eq!(
+            values("t3"),
+            ("曲のアーティスト".to_string(), "Rock".to_string(), true)
+        );
+
+        // 読み込み済みのトラックは、もう読まない
+        let again = backfill(&state, |_| panic!("読み込み済みのトラックを読んだ")).unwrap();
+        assert_eq!(again.read_count, 0);
+    }
+
+    #[test]
+    fn test_all_values_replaces_only_first_value_reads() {
+        assert_eq!(all_values(Some("A"), Some("A; B")), Some("A; B"));
+        // もともと1つの値・すでに複数の値・編集した値・値のない項目は、変えない
+        assert_eq!(all_values(Some("A"), Some("A")), None);
+        assert_eq!(all_values(Some("A;B"), Some("A; B")), None);
+        assert_eq!(all_values(Some("C"), Some("A; B")), None);
+        assert_eq!(all_values(None, Some("A; B")), None);
+        assert_eq!(all_values(Some("A"), None), None);
+    }
+
     #[test]
     fn test_backfill_reads_album_artist_and_keeps_other_fields() {
         let state = setup_state();
@@ -269,6 +393,7 @@ mod tests {
                 } else {
                     SortTags::default()
                 },
+                ..Default::default()
             })
         })
         .unwrap();
@@ -313,6 +438,7 @@ mod tests {
             Ok(BackfillTags {
                 album_artist: Some("ファイルの値".to_string()),
                 sort_tags: artist_sort("よみ"),
+                ..Default::default()
             })
         })
         .unwrap();

@@ -377,6 +377,8 @@ export const ja = {
     artistPlaceholder: 'アーティストを入力',
     albumPlaceholder: 'アルバムを入力',
     genrePlaceholder: 'ジャンルを入力',
+    multiValueHint:
+      'アーティストとジャンルは、「;」で区切ると複数の値になります（例: Rock; Pop）。',
     yearPlaceholder: '例: 2023',
     writesToFile: '変更は音楽ファイルのタグに書き込まれます',
     /** タブ */

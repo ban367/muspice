@@ -284,6 +284,7 @@
           genreSuggestions
         )}
       </div>
+      <p class="mt-0 mb-3 text-xs text-text-muted">{m.metadataEditor.multiValueHint}</p>
       <div class="field-row four">
         <div class="form-group">
           <label for="metadata-year" class="form-label">{labels.year}</label>

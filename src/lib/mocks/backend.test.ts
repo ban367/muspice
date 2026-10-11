@@ -202,6 +202,56 @@ describe('トラック', () => {
     expect(artist?.representativeTrackId).toBe(albums[0].representativeTrackId);
   });
 
+  it('アーティスト・ジャンルが複数ある曲は、それぞれの値の一覧・絞り込みに出る', async () => {
+    const track = (await commands.getAllTracks()).find(
+      (t) => !t.isMissing && t.albumArtist === null && t.album !== null
+    )!;
+    const tags = await commands.getTrackTags(track.id);
+    await commands.updateTrackMetadata(track.id, {
+      ...tags,
+      artist: 'Duo One; Duo Two',
+      genre: 'Bossa Nova; Chanson',
+      artistSort: 'でゅお わん; でゅお つー'
+    });
+
+    // アーティストの一覧: それぞれのアーティストに入る（つないだ文字列の項目はない）
+    const artists = await commands.getArtists();
+    const names = artists.map((artist) => artist.name);
+    expect(names).toEqual(expect.arrayContaining(['Duo One', 'Duo Two']));
+    expect(names).not.toContain('Duo One; Duo Two');
+    const duoTwo = artists.find((artist) => artist.name === 'Duo Two')!;
+    expect(duoTwo).toMatchObject({ trackCount: 1, albumCount: 1, sortName: 'でゅお つー' });
+    expect(duoTwo.representativeTrackId).toBe(track.id);
+
+    // アーティストの詳細: アルバムの`artist`は、アルバムをまとめるアーティスト（つないだ文字列）
+    const albums = await commands.getArtistAlbums('Duo Two');
+    expect(albums).toHaveLength(1);
+    expect(albums[0]).toMatchObject({ name: track.album, artist: 'Duo One; Duo Two' });
+    expect(albums[0].tracks.map((t) => t.id)).toEqual([track.id]);
+    expect(
+      (await commands.getAlbumTracks(track.album!, 'Duo One; Duo Two')).map((t) => t.id)
+    ).toEqual([track.id]);
+    expect(await commands.getArtistAlbums('Duo One; Duo Two')).toEqual([]);
+
+    // ジャンル
+    const genres = (await commands.getGenres()).map((genre) => genre.name);
+    expect(genres).toEqual(expect.arrayContaining(['Bossa Nova', 'Chanson']));
+    expect(genres).not.toContain('Bossa Nova; Chanson');
+    expect((await commands.getGenreTracks('Chanson')).map((t) => t.id)).toEqual([track.id]);
+
+    // 絞り込みと、値の一覧
+    expect(
+      (await commands.filterTracks({ artist: 'Duo One', genre: 'Chanson' })).map((t) => t.id)
+    ).toEqual([track.id]);
+    expect(await commands.filterTracks({ artist: 'Duo' })).toEqual([]);
+    expect(await commands.getUniqueArtists()).toEqual(
+      expect.arrayContaining(['Duo One', 'Duo Two'])
+    );
+    expect(await commands.getUniqueGenres()).toEqual(
+      expect.arrayContaining(['Bossa Nova', 'Chanson'])
+    );
+  });
+
   it('ジャンルの一覧は、曲数と代表の曲がジャンルの曲と一致する', async () => {
     const genres = await commands.getGenres();
 
