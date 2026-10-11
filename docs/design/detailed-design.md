@@ -200,9 +200,23 @@ export interface Playlist {
 | コマンド                           | 引数                            | 戻り値                  | 備考                                                                                                                                                                                                                                                                                                                                                             |
 | ---------------------------------- | ------------------------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `import_folder`                    | `folderPath`, `duplicateAction` | `ImportResult`          | 50件/トランザクション、`ImportProgress`イベント送信。音楽ファイルが見つかったフォルダをライブラリフォルダとして記録し、`LibraryChanged`を送る。新しいファイルが見つからない曲の移動・改名の先と判定できた場合は、新しい曲として登録せず、その曲に結び付ける（`relinkedCount`）。登録済みのファイルが見つかった場合は、見つからない曲にしていても見つかる曲に戻す |
+| `import_files`                     | `duplicateAction`               | `ImportResult \| null`  | Rust側でファイルを選ぶダイアログ（複数選択。対応する拡張子で絞り込む）を開き、選んだ音楽ファイルを登録する。フォルダは、ライブラリフォルダとして記録しない。選ばなかった場合は`null`                                                                                                                                                                             |
+| `import_dropped_files`             | `names: string[]`               | `ImportResult`          | ウィンドウへドロップされたファイル・フォルダを登録する（macOS）。`names`は、ドロップされたものの名前（パスは含めない）。登録済みのファイルはスキップする。下の「ウィンドウへのドロップ」を参照                                                                                                                                                                   |
+| `take_opened_files`                | なし                            | `OpenedFiles`           | 「このアプリで開く」などで開かれ、インポートが済んだ曲を受け取る（受け取った分は、手放す）。下の「開かれたファイル」を参照                                                                                                                                                                                                                                       |
 | `delete_tracks_command`            | `trackIds: string[]`            | `number`                | DBからのみ削除                                                                                                                                                                                                                                                                                                                                                   |
 | `delete_tracks_with_files_command` | `trackIds: string[]`            | `DeleteResult`          | DB+ファイル削除                                                                                                                                                                                                                                                                                                                                                  |
 | `refresh_library_metadata`         | なし                            | `RefreshMetadataResult` | 全トラックのファイルを読み直し、タグの内容（タイトルなど・評価・track/disc番号・ReplayGain）を反映する。お気に入り・再生回数は変えない                                                                                                                                                                                                                           |
+
+- インポートの対象は、フォルダ（`import_folder`）なら中の音楽ファイルすべてで、フォルダをライブラリフォルダとして記録する。ファイル（`import_files`・ドロップ・開かれたファイル）は、その曲だけを登録し、ファイルのあるフォルダは記録しない（「どのライブラリフォルダにも属さない曲」になり、自動の再スキャンの対象にならない。ライブラリフォルダの中のファイルは、今までどおり、そのフォルダの曲として扱われる）。音楽ファイルでもフォルダでもないものは読み飛ばし、取り込めるものが1つもなければ`VALIDATION`（ADR-050）
+- ウィンドウへのドロップ（`import_dropped_files`。macOS）: WebViewのドロップでは、ファイルのパスが得られない（名前と中身だけ）。フロント（`FileDropZone`）は、ドロップされたものの名前だけを渡し、Rust側が、OSのドラッグ用のペーストボードからパスを読む（`dropped_files.rs`）。WebViewへパスを渡さず、WebViewからパスを受け取らない
+  - ペーストボードのパスのうち、渡された名前のものだけを使う。渡された名前が1つでもペーストボードになければ、別のドラッグの内容とみなして`VALIDATION`（名前は、Unicodeの正規化の違いを無視して比べる）
+  - 同じドラッグの内容は、1回だけ使う（ペーストボードの版で見分ける。2回目は`VALIDATION`）
+  - フォルダは`import_folder`と同じく、ライブラリフォルダとして記録する
+  - macOS以外では`VALIDATION`（ファイルを選ぶインポートを使う）
+- 開かれたファイル（`opened_files.rs`）: Finderの「このアプリで開く」・Dockのアイコンへのドロップ（macOS。`RunEvent::Opened`）と、起動時の引数（Windows・Linux）で渡された音楽ファイルを、Rust側がインポートし（登録済みはスキップ）、その曲を預かって`TracksOpened`を送る。フロント（`openedFiles.ts`）は、起動した時と`TracksOpened`が届いた時に`take_opened_files`を呼び、受け取った曲を再生キューにして再生する
+  - `OpenedFiles`: `{ tracks: Track[], errors: string[] }`（`tracks`は開かれた順。`errors`は、開けなかったファイルの内容で、フロントが通知する）
+  - アプリが起動していない状態で開かれたファイルは、起動の準備が済む前にOSから届くため、取っておいて、準備が済んでから開く
+  - ファイルの関連付けは`tauri.conf.json`の`bundle.fileAssociations`に書く（対応する拡張子。役割は`Viewer`、順位は`Alternate`で、既定のアプリにはならない）。macOSでは、システムが種類（UTI）を宣言している形式は種類で、そうでない形式（Ogg・Opus・WavPack・APE）は拡張子で宣言する。Linuxのmimeの種類は`tauri.linux.conf.json`に書く（共通の設定に`mimeType`を書くと、Tauriが、macOSで「すべての音声」として宣言してしまうため）
 
 ### ライブラリフォルダ
 
@@ -334,19 +348,21 @@ export interface Playlist {
 
 `src-tauri/src/events.rs` で定義し、`bindings.ts` の `events` から型付きで購読する。イベント名は型名のケバブケース。
 
-| イベント              | ペイロード                                                         | 送信元                                                                                                                             |
-| --------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `ImportProgress`      | `{ current, total, currentFile }`                                  | `import_folder`（1ファイルごと）                                                                                                   |
-| `LibraryScanProgress` | `{ current, total, currentFile }`                                  | `rescan_library_folder`（読み込むファイルごと）                                                                                    |
-| `LibraryChanged`      | なし                                                               | インポートの後、再スキャン（自動を含む）・ライブラリフォルダの削除で曲が変わった時                                                 |
-| `DeviceSyncProgress`  | `{ deviceId, current, total, bytesDone, bytesTotal, currentFile }` | `run_device_sync`（コピーするファイルごと。大きなファイルでは途中でも送る）                                                        |
-| `ShowAboutDialog`     | なし                                                               | メニュー「Muspice について」                                                                                                       |
-| `OpenImportDialog`    | なし                                                               | メニュー「フォルダをインポート...」                                                                                                |
-| `ToggleSidebar`       | なし                                                               | メニュー「サイドバーを表示/隠す」                                                                                                  |
-| `ToggleMiniPlayer`    | なし                                                               | メニュー「ミニプレーヤー」（Cmd/Ctrl+Shift+M）                                                                                     |
-| `SettingsChanged`     | `Settings`                                                         | `save_settings`                                                                                                                    |
-| `PlaybackEvent`       | 下の「再生エンジン」を参照                                         | 再生エンジン（再生位置・曲の切り替わり・終了・失敗）                                                                               |
-| `PlaybackControl`     | 下の「メディアキー・Now Playingと、再生メニュー」を参照            | メニューバーの「再生」メニュー、OSのメディアキー・コントロールセンターなど、メニューバーのアイコンのメニュー、グローバルホットキー |
+| イベント               | ペイロード                                                         | 送信元                                                                                                                             |
+| ---------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `ImportProgress`       | `{ current, total, currentFile }`                                  | インポート（`import_folder`・`import_files`・`import_dropped_files`・開かれたファイル。1ファイルごと）                             |
+| `LibraryScanProgress`  | `{ current, total, currentFile }`                                  | `rescan_library_folder`（読み込むファイルごと）                                                                                    |
+| `LibraryChanged`       | なし                                                               | インポートの後、再スキャン（自動を含む）・ライブラリフォルダの削除で曲が変わった時                                                 |
+| `DeviceSyncProgress`   | `{ deviceId, current, total, bytesDone, bytesTotal, currentFile }` | `run_device_sync`（コピーするファイルごと。大きなファイルでは途中でも送る）                                                        |
+| `ShowAboutDialog`      | なし                                                               | メニュー「Muspice について」                                                                                                       |
+| `OpenImportDialog`     | なし                                                               | メニュー「フォルダをインポート...」                                                                                                |
+| `ImportFilesRequested` | なし                                                               | メニュー「ファイルをインポート...」（Cmd/Ctrl+Shift+I）                                                                            |
+| `TracksOpened`         | なし                                                               | 「このアプリで開く」などで開かれたファイルのインポートが済んだ時（曲は`take_opened_files`で受け取る）                              |
+| `ToggleSidebar`        | なし                                                               | メニュー「サイドバーを表示/隠す」                                                                                                  |
+| `ToggleMiniPlayer`     | なし                                                               | メニュー「ミニプレーヤー」（Cmd/Ctrl+Shift+M）                                                                                     |
+| `SettingsChanged`      | `Settings`                                                         | `save_settings`                                                                                                                    |
+| `PlaybackEvent`        | 下の「再生エンジン」を参照                                         | 再生エンジン（再生位置・曲の切り替わり・終了・失敗）                                                                               |
+| `PlaybackControl`      | 下の「メディアキー・Now Playingと、再生メニュー」を参照            | メニューバーの「再生」メニュー、OSのメディアキー・コントロールセンターなど、メニューバーのアイコンのメニュー、グローバルホットキー |
 
 ### メタデータ編集
 

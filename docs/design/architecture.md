@@ -99,6 +99,14 @@ sequenceDiagram
 
 インポートしたフォルダは `library_folders` に記録する（ライブラリフォルダ）。
 
+インポートの始め方は4つあり、どれも同じ処理（`commands/import.rs`の`import_paths`）で曲を登録する（ADR-050）。フォルダは中の曲を登録してライブラリフォルダとして記録し、ファイルは曲だけを登録する（フォルダは記録しない）。
+
+- フォルダを選ぶ（`import_folder`）・ファイルを選ぶ（`import_files`。ファイルを選ぶダイアログは、Rust側が開く）: インポートダイアログから
+- ウィンドウへドロップする（`import_dropped_files`。macOS）: `FileDropZone`がドロップを受け取り、名前だけをRust側へ伝える。パスは、Rust側（`dropped_files.rs`）がOSのドラッグ用のペーストボードから読む（Tauriのファイルドロップは使えない。ADR-018）
+- Finderの「このアプリで開く」・Dockのアイコンへのドロップ（ファイルの関連付け。`opened_files.rs`）: Rust側がインポートしてから`TracksOpened`で知らせ、フロントエンドが`take_opened_files`で曲を受け取って再生する
+
+進み具合と結果は、どの始め方でもインポートダイアログに表示する（実行と状態は`importer`ストアが持つ）。
+
 ### ライブラリフォルダの再スキャン
 
 1. 設定ウィンドウの「ライブラリ」で再スキャンを実行する（`rescan_library_folder`）
