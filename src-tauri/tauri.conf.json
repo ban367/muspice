@@ -37,6 +37,81 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
+    ],
+    "fileAssociations": [
+      {
+        "ext": ["mp3"],
+        "name": "MP3 Audio",
+        "contentTypes": ["public.mp3"],
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["flac"],
+        "name": "FLAC Audio",
+        "contentTypes": ["org.xiph.flac"],
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["wav"],
+        "name": "WAV Audio",
+        "contentTypes": ["com.microsoft.waveform-audio"],
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["m4a"],
+        "name": "MPEG-4 Audio",
+        "contentTypes": ["com.apple.m4a-audio", "public.mpeg-4-audio"],
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["aac"],
+        "name": "AAC Audio",
+        "contentTypes": ["public.aac-audio"],
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["mp2"],
+        "name": "MP2 Audio",
+        "contentTypes": ["public.mp2"],
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["aiff", "aif"],
+        "name": "AIFF Audio",
+        "contentTypes": ["public.aiff-audio", "public.aifc-audio"],
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["ogg"],
+        "name": "Ogg Vorbis Audio",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["opus"],
+        "name": "Opus Audio",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["wv"],
+        "name": "WavPack Audio",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["ape"],
+        "name": "Monkey's Audio",
+        "role": "Viewer",
+        "rank": "Alternate"
+      }
     ]
   }
 }

@@ -8,6 +8,7 @@
   import Sidebar from '#lib/components/Sidebar.svelte';
   import RightSidebar from '#lib/components/RightSidebar.svelte';
   import ImportDialog from '#lib/components/ImportDialog.svelte';
+  import FileDropZone from '#lib/components/FileDropZone.svelte';
   import AboutDialog from '#lib/components/AboutDialog.svelte';
   import AlbumArtDialog from '#lib/components/AlbumArtDialog.svelte';
   import TagToolsDialog from '#lib/components/TagToolsDialog.svelte';
@@ -18,6 +19,8 @@
   import PlaylistInfoDialogHost from '#lib/components/PlaylistInfoDialogHost.svelte';
   import SettingsSync from '#lib/components/SettingsSync.svelte';
   import { ui, saveLastPage } from '#lib/stores/ui.svelte.js';
+  import { importer } from '#lib/stores/importer.svelte.js';
+  import { watchOpenedFiles } from '#lib/stores/openedFiles.js';
   import { albumArtDialog } from '#lib/stores/albumArt.svelte.js';
   import { tagToolsDialog } from '#lib/stores/tagTools.svelte.js';
   import { smartPlaylistDialog } from '#lib/stores/smartPlaylist.svelte.js';
@@ -55,6 +58,14 @@
       ui.isImportDialogOpen = true;
     });
 
+    // メニュー「ファイルをインポート...」: ファイルを選ぶダイアログを開いて、インポートする
+    const unlistenImportFiles = events.importFilesRequested.listen(() => {
+      void importer.importFiles();
+    });
+
+    // 「このアプリで開く」・Dockのアイコンへのドロップで開かれた曲を、再生する
+    const stopWatchingOpenedFiles = watchOpenedFiles();
+
     // サイドバー切替イベント
     const unlistenSidebar = events.toggleSidebar.listen(() => {
       ui.isSidebarOpen = !ui.isSidebarOpen;
@@ -77,6 +88,8 @@
 
     return () => {
       unlistenImport.then((fn) => fn());
+      unlistenImportFiles.then((fn) => fn());
+      stopWatchingOpenedFiles();
       unlistenSidebar.then((fn) => fn());
       unlistenAbout.then((fn) => fn());
       unlistenMiniPlayer.then((fn) => fn());
@@ -170,6 +183,7 @@
 
   <!-- インポートダイアログ -->
   <ImportDialog />
+  <FileDropZone />
 
   <!-- Aboutダイアログ -->
   <AboutDialog />

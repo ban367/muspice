@@ -20,7 +20,12 @@
  */
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
 import type { NowPlayingUpdate } from '#lib/types/models.js';
-import { createMockBackend, type MockAlbumArtPickMode, type MockM3uImportMode } from './backend';
+import {
+  createMockBackend,
+  type MockAlbumArtPickMode,
+  type MockFileImportMode,
+  type MockM3uImportMode
+} from './backend';
 
 /** アートがないトラックに返すURL（読み込みエラーになり、実アプリの404と同じ扱いになる） */
 const MISSING_ALBUM_ART_URL = 'data:image/png;base64,';
@@ -56,6 +61,13 @@ interface MuspiceMockHandle {
    * （`pick`: 埋め込める画像（既定）・`cancel`: 選ばなかった・`tooLarge`: 大きすぎる画像）
    */
   setAlbumArtPickMode(mode: MockAlbumArtPickMode): void;
+  /**
+   * ファイルを選ぶインポートで、ファイルを選んだことにするかを切り替える
+   * （`pick`: 2つの音楽ファイルを選んだ（既定）・`cancel`: 選ばなかった）
+   */
+  setFileImportMode(mode: MockFileImportMode): void;
+  /** Finderの「このアプリで開く」で、音楽ファイルが開かれたことにする（インポートして再生される） */
+  openFiles(fileNames: string[]): void;
 }
 
 /** モックで使う`__TAURI_INTERNALS__`の一部（公開型がないため最小限を定義する） */
@@ -175,7 +187,9 @@ export function setupTauriMock(): void {
     },
     nowPlaying: () => backend.nowPlaying(),
     setM3uImportMode: (mode) => backend.setM3uImportMode(mode),
-    setAlbumArtPickMode: (mode) => backend.setAlbumArtPickMode(mode)
+    setAlbumArtPickMode: (mode) => backend.setAlbumArtPickMode(mode),
+    setFileImportMode: (mode) => backend.setFileImportMode(mode),
+    openFiles: (fileNames) => backend.openFiles(fileNames)
   };
 
   console.info('[mock] Tauri IPCをモックしています（npm run dev:mock）');

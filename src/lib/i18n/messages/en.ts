@@ -232,7 +232,7 @@ export const en: Messages = {
   },
 
   sidebar: {
-    importFolder: 'Import Folder',
+    importFolder: 'Import Music',
     browse: 'Browse',
     songs: 'Songs',
     albums: 'Albums',
@@ -552,7 +552,7 @@ export const en: Messages = {
   },
 
   importDialog: {
-    title: 'Import Music Folder',
+    title: 'Import Music',
     selectFolderTitle: 'Select a folder to import',
     selectFolderFailed: 'Failed to select the folder',
     folderRequired: 'Select a folder',
@@ -573,7 +573,20 @@ export const en: Messages = {
     errors: 'Errors:',
     errorDetails: 'Error details:',
     importingShort: 'Importing...',
-    start: 'Start Import'
+    start: 'Start Import',
+    orFiles: 'or',
+    selectFiles: 'Choose Files to Import...',
+    filesHint:
+      'Choosing files adds only those tracks (their folder is not rescanned automatically).',
+    dropHere: 'Drop here to import'
+  },
+
+  openedFiles: {
+    context: 'Playing the opened files',
+    failed: (error, more) =>
+      more > 0
+        ? `Some files could not be opened: ${error} (and ${more} more)`
+        : `The file could not be opened: ${error}`
   },
 
   about: {

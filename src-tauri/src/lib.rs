@@ -6,6 +6,7 @@ mod device;
 mod device_manifest;
 mod device_sync;
 mod device_transfer;
+mod dropped_files;
 mod error;
 mod events;
 mod global_shortcuts;
@@ -20,6 +21,7 @@ mod menu;
 mod metadata;
 mod mini_player;
 mod models;
+mod opened_files;
 mod playback;
 mod playback_state;
 mod playlist;
@@ -45,17 +47,18 @@ use commands::{
     get_global_shortcuts, get_library_folders, get_most_played_tracks, get_output_devices,
     get_play_history, get_playback_state, get_playlist_folders, get_playlist_tracks, get_playlists,
     get_settings, get_sync_devices, get_track_lyrics, get_track_tags, get_unique_albums,
-    get_unique_artists, get_unique_genres, import_folder, import_library_xml, import_m3u_playlists,
-    increment_play_count, increment_skip_count, move_playlist, open_project_page, plan_device_sync,
-    playback_pause, playback_play, playback_resume, playback_seek, playback_set_equalizer,
-    playback_set_next, playback_set_speed, playback_set_volume, playback_stop,
-    refresh_library_metadata, register_sync_device, relink_sync_device, remove_album_art,
-    remove_library_folder, remove_missing_tracks, remove_sync_device, remove_tracks_from_playlist,
-    rename_playlist, rename_playlist_folder, reorder_playlist_folders, reorder_playlist_tracks,
-    reorder_playlists, rescan_library_folder, reshuffle_smart_playlists, run_device_sync,
-    save_playback_state, save_settings, search_tracks, set_album_art, set_current_track,
-    set_favorite, set_mini_player, set_now_playing, set_playlist_description, set_rating,
-    show_in_folder, update_multiple_tracks_metadata, update_smart_playlist, update_sync_device,
+    get_unique_artists, get_unique_genres, import_dropped_files, import_files, import_folder,
+    import_library_xml, import_m3u_playlists, increment_play_count, increment_skip_count,
+    move_playlist, open_project_page, plan_device_sync, playback_pause, playback_play,
+    playback_resume, playback_seek, playback_set_equalizer, playback_set_next, playback_set_speed,
+    playback_set_volume, playback_stop, refresh_library_metadata, register_sync_device,
+    relink_sync_device, remove_album_art, remove_library_folder, remove_missing_tracks,
+    remove_sync_device, remove_tracks_from_playlist, rename_playlist, rename_playlist_folder,
+    reorder_playlist_folders, reorder_playlist_tracks, reorder_playlists, rescan_library_folder,
+    reshuffle_smart_playlists, run_device_sync, save_playback_state, save_settings, search_tracks,
+    set_album_art, set_current_track, set_favorite, set_mini_player, set_now_playing,
+    set_playlist_description, set_rating, show_in_folder, take_opened_files,
+    update_multiple_tracks_metadata, update_smart_playlist, update_sync_device,
     update_track_metadata, write_library_metadata_to_files,
 };
 use state::AppState;
@@ -74,6 +77,9 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         .error_handling(tauri_specta::ErrorHandlingMode::Throw)
         .commands(tauri_specta::collect_commands![
             import_folder,
+            import_files,
+            import_dropped_files,
+            take_opened_files,
             get_library_folders,
             remove_library_folder,
             rescan_library_folder,
@@ -170,6 +176,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::LibraryChanged,
             events::ShowAboutDialog,
             events::OpenImportDialog,
+            events::ImportFilesRequested,
+            events::TracksOpened,
             events::ToggleSidebar,
             events::ToggleMiniPlayer,
             events::SettingsChanged,
@@ -360,6 +368,12 @@ pub fn run() {
             // デバイスへの同期の実行状態（同時に実行する同期は1つだけ）
             app.manage(device::DeviceSyncState::default());
 
+            // ウィンドウへのドロップ・「このアプリで開く」で渡されたファイルの受け取り。
+            // 起動と一緒に開かれたファイル（ここまでの間に届いた分・起動時の引数）は、ここで開く
+            app.manage(dropped_files::DroppedFiles::default());
+            app.manage(opened_files::OpenedFilesState::default());
+            opened_files::open_startup_paths(app.handle());
+
             // メニューバーを構築（設定の言語に合わせる。言語を変えると`save_settings`が作り直す）
             let menu = menu::build_menu(app.handle(), menu::current_language(app.handle()))?;
             app.set_menu(menu)?;
@@ -394,6 +408,10 @@ pub fn run() {
                 "import_folder" => {
                     // インポートダイアログを開くイベントをフロントエンドに送信
                     let _ = events::OpenImportDialog.emit(app);
+                }
+                "import_files" => {
+                    // ファイルを選ぶダイアログは、フロントエンドがコマンドで開く（進み具合を表示するため）
+                    let _ = events::ImportFilesRequested.emit(app);
                 }
                 "toggle_sidebar" => {
                     // サイドバー切替イベントをフロントエンドに送信
@@ -441,14 +459,22 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
-            // macOS: Dockのアイコンを押した時に、隠してあるメインウィンドウを表示する
             #[cfg(target_os = "macos")]
-            if let tauri::RunEvent::Reopen {
-                has_visible_windows: false,
-                ..
-            } = event
-            {
-                tray::show_main_window(app);
+            match event {
+                // Dockのアイコンを押した時に、隠してあるメインウィンドウを表示する
+                tauri::RunEvent::Reopen {
+                    has_visible_windows: false,
+                    ..
+                } => tray::show_main_window(app),
+                // Finderの「このアプリで開く」・Dockのアイコンへのドロップで、ファイルが開かれた
+                tauri::RunEvent::Opened { urls } => {
+                    let paths = urls
+                        .iter()
+                        .filter_map(|url| url.to_file_path().ok())
+                        .collect();
+                    opened_files::open_paths(app, paths);
+                }
+                _ => {}
             }
             #[cfg(not(target_os = "macos"))]
             let _ = (app, event);

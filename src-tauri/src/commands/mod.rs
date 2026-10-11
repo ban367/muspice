@@ -23,7 +23,8 @@ mod system;
 mod tracks;
 
 // インポート関連
-pub use import::import_folder;
+pub(crate) use import::{ImportTargets, import_paths};
+pub use import::{import_dropped_files, import_files, import_folder, take_opened_files};
 
 // ライブラリフォルダ（インポートしたフォルダ）の一覧・削除・再スキャンと、見つからない曲の削除
 pub use library_folders::{

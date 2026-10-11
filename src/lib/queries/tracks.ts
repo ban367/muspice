@@ -10,7 +10,6 @@ import type {
   Track,
   Metadata,
   DeleteResult,
-  DuplicateAction,
   FilterOptions,
   TrackMetadataChange
 } from '#lib/types/models.js';
@@ -586,29 +585,6 @@ export function useDeleteTracksWithFilesMutation() {
 }
 
 // ========== ライブラリ管理ミューテーション ==========
-
-/**
- * フォルダから音楽ファイルをインポートするミューテーション
- *
- * 進捗は`events.importProgress`で受け取る。失敗はインポートダイアログ内に
- * 表示するため、トースト通知はしない。
- */
-export function useImportFolderMutation() {
-  const queryClient = useQueryClient();
-
-  return createMutation(() => ({
-    mutationFn: ({
-      folderPath,
-      duplicateAction
-    }: {
-      folderPath: string;
-      duplicateAction: DuplicateAction;
-    }) => commands.importFolder(folderPath, duplicateAction),
-    onSuccess: () => {
-      invalidateTrackListQueries(queryClient);
-    }
-  }));
-}
 
 /**
  * ライブラリ全体のメタデータ（タグの内容・評価）をファイルから読み直すミューテーション

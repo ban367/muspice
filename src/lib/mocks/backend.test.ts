@@ -1038,6 +1038,62 @@ describe('インポート', () => {
       code: 'VALIDATION'
     });
   });
+
+  it('ファイルを選ぶインポートは、曲だけを登録する（フォルダは記録しない）', async () => {
+    const folders = (await commands.getLibraryFolders()).folders.length;
+
+    const result = await commands.importFiles('Skip');
+    expect(result).toMatchObject({ importedCount: 2, skippedCount: 0 });
+    const picked = (await commands.getAllTracks()).filter((track) =>
+      track.filePath.startsWith('/Users/mock/Downloads/')
+    );
+    expect(picked.map((track) => track.fileName).sort()).toEqual([
+      'Picked Song A.flac',
+      'Picked Song B.mp3'
+    ]);
+    expect(picked.map((track) => track.format).sort()).toEqual(['flac', 'mp3']);
+    expect((await commands.getLibraryFolders()).folders).toHaveLength(folders);
+    expect(events.map((e) => e.event)).toContain('library-changed');
+
+    // 同じファイルは、重複としてスキップする
+    expect(await commands.importFiles('Skip')).toMatchObject({ importedCount: 0, skippedCount: 2 });
+    // 選ばずに閉じた場合は、何もしない
+    backend.setFileImportMode('cancel');
+    expect(await commands.importFiles('Skip')).toBeNull();
+  });
+
+  it('ドロップされたものは、音楽ファイルだけをインポートする', async () => {
+    const result = await commands.importDroppedFiles(['Dropped.FLAC', 'cover.jpg', 'notes']);
+    expect(result).toMatchObject({ importedCount: 1, skippedCount: 0 });
+    const tracks = await commands.getAllTracks();
+    expect(tracks.some((track) => track.filePath === '/Users/mock/Desktop/Dropped.FLAC')).toBe(
+      true
+    );
+
+    // 音楽ファイルが1つもなければエラー
+    await expect(commands.importDroppedFiles(['cover.jpg'])).rejects.toMatchObject({
+      code: 'VALIDATION'
+    });
+    await expect(commands.importDroppedFiles([])).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+
+  it('開かれたファイルは、インポートしてから知らせ、1回だけ渡す', async () => {
+    expect(await commands.takeOpenedFiles()).toEqual({ tracks: [], errors: [] });
+
+    backend.openFiles(['Opened B.mp3', 'readme.txt', 'Opened A.flac']);
+    await vi.waitFor(() => expect(events.map((e) => e.event)).toContain('tracks-opened'));
+
+    const opened = await commands.takeOpenedFiles();
+    // 開かれた順
+    expect(opened.tracks.map((track) => track.fileName)).toEqual(['Opened B.mp3', 'Opened A.flac']);
+    expect(opened.errors).toHaveLength(1);
+    expect(opened.errors[0]).toContain('readme.txt');
+    // ライブラリに入っている
+    const ids = (await commands.getAllTracks()).map((track) => track.id);
+    expect(ids).toEqual(expect.arrayContaining(opened.tracks.map((track) => track.id)));
+    // 受け取った分は、残らない
+    expect(await commands.takeOpenedFiles()).toEqual({ tracks: [], errors: [] });
+  });
 });
 
 describe('見つからない曲', () => {

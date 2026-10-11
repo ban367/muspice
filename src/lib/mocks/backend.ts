@@ -123,9 +123,47 @@ export interface MockBackend {
    * ブラウザではウィンドウの大きさを変えられないため、`setMiniPlayer`で受け取った内容をここで確認する。
    */
   miniPlayer(): { enabled: boolean; alwaysOnTop: boolean };
+  /**
+   * ファイルを選ぶインポート（`importFiles`）で、ファイルを選んだことにするかを切り替える
+   *
+   * - `pick`（既定）: 2つの音楽ファイルを選んだ
+   * - `cancel`: 選ばずに閉じた
+   */
+  setFileImportMode(mode: MockFileImportMode): void;
+  /**
+   * Finderの「このアプリで開く」で、音楽ファイルが開かれたことにする
+   *
+   * 実装と同じく、ライブラリへインポートしてから`tracks-opened`を送る（曲は`takeOpenedFiles`で渡す）。
+   * @param fileNames - 開かれたファイルの名前（音楽ファイルでないものは、エラーとして渡す）
+   */
+  openFiles(fileNames: string[]): void;
   /** `albumart`プロトコルの代わりに、トラックのアルバムアートをdata URLで返す（アートがなければnull） */
   albumArtUrl(trackId: string): string | null;
 }
+
+/** ファイルを選ぶインポートで、選んだことにする内容 */
+export type MockFileImportMode = 'pick' | 'cancel';
+
+/** インポートできる音楽ファイルの拡張子（Rustの`SUPPORTED_EXTENSIONS`と同じ） */
+const AUDIO_EXTENSIONS = [
+  'mp3',
+  'flac',
+  'wav',
+  'm4a',
+  'aac',
+  'mp2',
+  'aiff',
+  'aif',
+  'ogg',
+  'opus',
+  'wv',
+  'ape'
+];
+/** ファイルを選ぶインポートで、選んだことにするファイル（フォルダと名前） */
+const PICKED_FILES_FOLDER = '/Users/mock/Downloads';
+const PICKED_FILE_NAMES = ['Picked Song A.flac', 'Picked Song B.mp3'];
+/** ウィンドウへのドロップ・「このアプリで開く」で渡されたファイルが、あることにするフォルダ */
+const DROPPED_FILES_FOLDER = '/Users/mock/Desktop';
 
 /** インポート時に「見つかった」ことにするファイル数 */
 const IMPORT_FILE_COUNT = 6;
@@ -382,6 +420,9 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   // ファイルのタグだけにある項目（作曲者・コメント・歌詞など。トラックID → 値）
   const fileOnlyTags = new Map<string, Metadata>();
   let m3uImportMode: MockM3uImportMode = 'partial';
+  let fileImportMode: MockFileImportMode = 'pick';
+  /** 「このアプリで開く」で開かれ、フロントエンドがまだ受け取っていないもの */
+  let openedFiles: { tracks: Track[]; errors: string[] } = { tracks: [], errors: [] };
   // アプリで書き換えたアルバムアート（トラックID → 埋め込んだ画像の番号。nullは取り除いた）
   const embeddedArt = new Map<string, number | null>();
   let albumArtPickMode: MockAlbumArtPickMode = 'pick';
@@ -804,16 +845,44 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   ): Promise<ImportResult> {
     validateFilePath(folderPath);
     const folder = normalizeFolderPath(folderPath);
+    const fileNames = Array.from(
+      { length: IMPORT_FILE_COUNT },
+      (_, index) => `Mock Track ${String(index + 1).padStart(2, '0')}.mp3`
+    );
+    const result = await importAudioFiles(folder, fileNames, duplicateAction);
+
+    // Rustと同じく、フォルダをライブラリフォルダとして記録し、ライブラリが変わったことを知らせる
+    registerLibraryFolder(folder);
+    options.emit('library-changed', null);
+    return result;
+  }
+
+  /** 音楽ファイルか（拡張子で決める。大文字と小文字は区別しない） */
+  function isAudioFileName(fileName: string): boolean {
+    const extension = fileName.includes('.') ? fileName.split('.').pop()!.toLowerCase() : '';
+    return AUDIO_EXTENSIONS.includes(extension);
+  }
+
+  /**
+   * フォルダにあることにした音楽ファイルを、ライブラリへ登録する（フォルダ・ファイルのインポートで共通）
+   *
+   * 実ファイルは存在しないため、曲の内容はファイル名から決める。移動・改名されたファイルの
+   * 対応付けは再現しない。
+   */
+  async function importAudioFiles(
+    folder: string,
+    fileNames: string[],
+    duplicateAction: DuplicateAction
+  ): Promise<ImportResult> {
     const album = folder.split(/[\\/]/).filter(Boolean).pop() || 'Imported';
     let importedCount = 0;
     let skippedCount = 0;
 
-    for (let index = 0; index < IMPORT_FILE_COUNT; index++) {
-      const fileName = `Mock Track ${String(index + 1).padStart(2, '0')}.mp3`;
+    for (const [index, fileName] of fileNames.entries()) {
       const filePath = `${folderPrefix(folder)}${fileName}`;
       options.emit('import-progress', {
         current: index + 1,
-        total: IMPORT_FILE_COUNT,
+        total: fileNames.length,
         currentFile: fileName
       });
       await sleep(IMPORT_STEP_MS);
@@ -829,11 +898,12 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         existing.updatedAt = timestamp;
       } else {
         const duration = 150 + index * 17;
+        const format = fileName.split('.').pop()!.toLowerCase();
         tracks.push({
           id: crypto.randomUUID(),
           filePath,
           fileName,
-          title: `Mock Track ${index + 1}`,
+          title: fileName.replace(/\.[^.]+$/, ''),
           artist: 'Mock Importer',
           album,
           albumArtist: null,
@@ -843,7 +913,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
           discNumber: 1,
           duration,
           fileSize: duration * 40_000,
-          format: 'mp3',
+          format,
           bitrate: 320,
           sampleRate: 44100,
           isFavorite: false,
@@ -861,11 +931,27 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       importedCount++;
     }
 
-    // Rustと同じく、インポートの後にライブラリが変わったことを知らせる
-    registerLibraryFolder(folder);
-    options.emit('library-changed', null);
-    // 実ファイルは存在しないため、移動・改名されたファイルの対応付けは再現しない
     return { importedCount, skippedCount, relinkedCount: 0, errorCount: 0, errors: [] };
+  }
+
+  /**
+   * ファイルのインポート（ファイルを選ぶ・ウィンドウへのドロップ）
+   *
+   * 曲だけを登録し、フォルダは、ライブラリフォルダとして記録しない。音楽ファイルでないものは
+   * 読み飛ばし、1つもなければエラーにする。
+   */
+  async function importFilesIn(
+    folder: string,
+    fileNames: string[],
+    duplicateAction: DuplicateAction
+  ): Promise<ImportResult> {
+    const audioFiles = fileNames.filter(isAudioFileName);
+    if (audioFiles.length === 0) {
+      fail('VALIDATION', 'インポートできる音楽ファイルがありません');
+    }
+    const result = await importAudioFiles(folder, audioFiles, duplicateAction);
+    options.emit('library-changed', null);
+    return result;
   }
 
   // ---- ライブラリフォルダ（src-tauri/src/library_folder.rsに対応） ----
@@ -1061,6 +1147,17 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
 
   const handlers: MockCommandHandlers = {
     importFolder,
+    importFiles: (duplicateAction) =>
+      fileImportMode === 'cancel'
+        ? null
+        : importFilesIn(PICKED_FILES_FOLDER, PICKED_FILE_NAMES, duplicateAction),
+    // 実装は、OSのドラッグ用のペーストボードからパスを読む。モックは、名前のファイルがあることにする
+    importDroppedFiles: (names) => importFilesIn(DROPPED_FILES_FOLDER, names, 'Skip'),
+    takeOpenedFiles: () => {
+      const taken = openedFiles;
+      openedFiles = { tracks: [], errors: [] };
+      return taken;
+    },
     getAllTracks: () => tracksWhere(() => true),
     // 実装と同じく、空白で区切った語をすべて含む曲を返す（途中の一致。大文字と小文字・
     // 全角と半角・ひらがなとカタカナを同じとみなす）
@@ -1872,6 +1969,30 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       return track ? albumArtOf(track).url : null;
     },
     nowPlaying: () => structuredClone(nowPlaying),
+    setFileImportMode: (mode) => {
+      fileImportMode = mode;
+    },
+    openFiles: (fileNames) => {
+      const audioFiles = fileNames.filter(isAudioFileName);
+      const errors = fileNames
+        .filter((fileName) => !isAudioFileName(fileName))
+        .map((fileName) => `${fileName}: 対応していない形式です`);
+      void (async () => {
+        if (audioFiles.length > 0) {
+          await importAudioFiles(DROPPED_FILES_FOLDER, audioFiles, 'Skip');
+          options.emit('library-changed', null);
+        }
+        const opened = audioFiles
+          .map((fileName) => `${folderPrefix(DROPPED_FILES_FOLDER)}${fileName}`)
+          .map((filePath) => tracks.find((track) => track.filePath === filePath))
+          .filter((track) => track !== undefined);
+        openedFiles = {
+          tracks: [...openedFiles.tracks, ...opened],
+          errors: [...openedFiles.errors, ...errors]
+        };
+        options.emit('tracks-opened', null);
+      })();
+    },
     setM3uImportMode: (mode) => {
       m3uImportMode = mode;
     },

@@ -15,8 +15,13 @@ const SUPPORTED_EXTENSIONS: &[&str] = &[
     "mp3", "flac", "wav", "m4a", "aac", "mp2", "aiff", "aif", "ogg", "opus", "wv", "ape",
 ];
 
-/// フォルダから音楽ファイルをインポートする結果
-#[derive(Debug, serde::Serialize, specta::Type)]
+/// サポートされている音楽ファイルの拡張子（ファイルを選ぶダイアログの絞り込みに使う）
+pub fn supported_extensions() -> &'static [&'static str] {
+    SUPPORTED_EXTENSIONS
+}
+
+/// 音楽ファイルをインポートした結果
+#[derive(Debug, Default, PartialEq, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportResult {
     pub imported_count: u32,
@@ -25,6 +30,17 @@ pub struct ImportResult {
     pub relinked_count: u32,
     pub error_count: u32,
     pub errors: Vec<String>,
+}
+
+impl ImportResult {
+    /// 別の結果を足し合わせる（ファイルとフォルダを、まとめてインポートした場合）
+    pub fn merge(&mut self, other: ImportResult) {
+        self.imported_count += other.imported_count;
+        self.skipped_count += other.skipped_count;
+        self.relinked_count += other.relinked_count;
+        self.error_count += other.error_count;
+        self.errors.extend(other.errors);
+    }
 }
 
 /// 重複ファイルの処理方法

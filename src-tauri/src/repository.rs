@@ -268,6 +268,34 @@ pub fn find_tracks_by_ids(
     Ok(tracks)
 }
 
+/// ファイルパスの一覧から、トラックを取得する（渡した順。登録されていないパスは、結果に含めない）
+///
+/// 「このアプリで開く」で開いたファイルを、開いた順に再生するのに使う。
+pub fn find_tracks_by_file_paths(
+    conn: &Connection,
+    file_paths: &[String],
+) -> AppResult<Vec<Track>> {
+    let sql = format!("SELECT {} FROM tracks WHERE file_path = ?1", TRACK_COLUMNS);
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
+
+    let mut tracks = Vec::with_capacity(file_paths.len());
+    for file_path in file_paths {
+        match stmt.query_row([file_path], map_track_row) {
+            Ok(track) => tracks.push(track),
+            Err(rusqlite::Error::QueryReturnedNoRows) => {}
+            Err(e) => {
+                return Err(AppError::Database(format!(
+                    "トラックの取得に失敗しました: {}",
+                    e
+                )));
+            }
+        }
+    }
+    Ok(tracks)
+}
+
 /// トラックIDからファイルパスを取得
 pub fn find_file_path_by_track_id(conn: &Connection, track_id: &str) -> AppResult<String> {
     try_find_file_path_by_track_id(conn, track_id)?

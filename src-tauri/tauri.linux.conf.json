@@ -1,0 +1,83 @@
+{
+  "bundle": {
+    "fileAssociations": [
+      {
+        "ext": ["mp3"],
+        "name": "MP3 Audio",
+        "mimeType": "audio/mpeg",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["flac"],
+        "name": "FLAC Audio",
+        "mimeType": "audio/flac",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["wav"],
+        "name": "WAV Audio",
+        "mimeType": "audio/x-wav",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["m4a"],
+        "name": "MPEG-4 Audio",
+        "mimeType": "audio/mp4",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["aac"],
+        "name": "AAC Audio",
+        "mimeType": "audio/aac",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["mp2"],
+        "name": "MP2 Audio",
+        "mimeType": "audio/mp2",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["aiff", "aif"],
+        "name": "AIFF Audio",
+        "mimeType": "audio/x-aiff",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["ogg"],
+        "name": "Ogg Vorbis Audio",
+        "mimeType": "audio/ogg",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["opus"],
+        "name": "Opus Audio",
+        "mimeType": "audio/x-opus+ogg",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["wv"],
+        "name": "WavPack Audio",
+        "mimeType": "audio/x-wavpack",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["ape"],
+        "name": "Monkey's Audio",
+        "mimeType": "audio/x-ape",
+        "role": "Viewer",
+        "rank": "Alternate"
+      }
+    ]
+  }
+}

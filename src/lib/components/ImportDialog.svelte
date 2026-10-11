@@ -1,11 +1,15 @@
+<!--
+  @component ImportDialog
+  音楽ファイルのインポート（フォルダを選ぶ・ファイルを選ぶ）と、進み具合・結果の表示。
+
+  インポートの実行と状態は`importer`が持つ（メニュー・ウィンドウへのドロップから始めた
+  インポートも、このダイアログに表示する）。
+-->
 <script lang="ts">
-  import { events } from '#lib/bindings.js';
   import { open } from '@tauri-apps/plugin-dialog';
-  import type { DuplicateAction, ImportResult } from '#lib/types/models.js';
   import { validateFilePath } from '#lib/utils/validation.js';
+  import { importer } from '#lib/stores/importer.svelte.js';
   import { ui } from '#lib/stores/ui.svelte.js';
-  import { toErrorMessage } from '#lib/stores/error.svelte.js';
-  import { useImportFolderMutation } from '#lib/queries/tracks.js';
   import { Modal } from '#lib/components/ui/index.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
@@ -15,18 +19,26 @@
 
   let { onClose }: Props = $props();
 
-  // インポート（成功時にトラック一覧のキャッシュを無効化する）
-  const importMutation = useImportFolderMutation();
+  /** インポートが終わってから、ダイアログを自動で閉じるまでの時間（ミリ秒） */
+  const CLOSE_DELAY_MS = 2000;
 
   let selectedFolder = $state<string>('');
-  let duplicateAction = $state<DuplicateAction>('Skip');
-  let isImporting = $state(false);
-  let progress = $state(0);
-  let currentFile = $state('');
-  let totalFiles = $state(0);
-  let processedFiles = $state(0);
-  let importResult = $state<ImportResult | null>(null);
-  let errorMessage = $state<string>('');
+  /** フォルダの選択・入力の誤り（インポートそのものの失敗は`importer.errorMessage`） */
+  let selectionError = $state<string>('');
+
+  const isImporting = $derived(importer.isImporting);
+  const importResult = $derived(importer.result);
+  const errorMessage = $derived(selectionError || importer.errorMessage);
+
+  // 成功したら、少し待ってからダイアログを閉じる（その間に次のインポートが始まったら、閉じない）
+  $effect(() => {
+    const result = importer.result;
+    if (!result) return;
+    const timer = setTimeout(() => {
+      if (importer.result === result) closeDialog();
+    }, CLOSE_DELAY_MS);
+    return () => clearTimeout(timer);
+  });
 
   /**
    * フォルダ選択ダイアログを開く
@@ -41,70 +53,39 @@
 
       if (selected && typeof selected === 'string') {
         selectedFolder = selected;
-        errorMessage = '';
+        selectionError = '';
       }
     } catch (error) {
       console.error('フォルダ選択エラー:', error);
-      errorMessage = m.importDialog.selectFolderFailed;
+      selectionError = m.importDialog.selectFolderFailed;
     }
   }
 
   /**
-   * インポートを開始
+   * 選んだフォルダのインポートを開始
    */
-  async function startImport() {
+  function startImport() {
     if (!selectedFolder) {
-      errorMessage = m.importDialog.folderRequired;
+      selectionError = m.importDialog.folderRequired;
       return;
     }
 
     // ファイルパスをバリデーション
     if (!validateFilePath(selectedFolder)) {
-      errorMessage = m.importDialog.invalidPath;
+      selectionError = m.importDialog.invalidPath;
       return;
     }
 
-    isImporting = true;
-    progress = 0;
-    currentFile = '';
-    totalFiles = 0;
-    processedFiles = 0;
-    errorMessage = '';
-    importResult = null;
+    selectionError = '';
+    void importer.importFolder(selectedFolder);
+  }
 
-    let unlisten: (() => void) | null = null;
-
-    try {
-      // インポート進捗イベントをリッスン
-      unlisten = await events.importProgress.listen((event) => {
-        const { current, total, currentFile: file } = event.payload;
-        processedFiles = current;
-        totalFiles = total;
-        currentFile = file;
-        progress = total > 0 ? Math.round((current / total) * 100) : 0;
-      });
-
-      const result = await importMutation.mutateAsync({
-        folderPath: selectedFolder,
-        duplicateAction
-      });
-
-      progress = 100;
-      importResult = result;
-
-      // 成功後、少し待ってからダイアログを閉じる
-      setTimeout(() => {
-        closeDialog();
-      }, 2000);
-    } catch (error) {
-      console.error('インポートエラー:', error);
-      errorMessage = m.importDialog.importFailed(toErrorMessage(error));
-      progress = 0;
-    } finally {
-      isImporting = false;
-      // イベントリスナーを解除
-      unlisten?.();
-    }
+  /**
+   * ファイルを選ぶダイアログを開き、選んだファイルをインポートする
+   */
+  function importFiles() {
+    selectionError = '';
+    void importer.importFiles();
   }
 
   /**
@@ -113,13 +94,8 @@
   function closeDialog() {
     ui.isImportDialogOpen = false;
     selectedFolder = '';
-    duplicateAction = 'Skip';
-    progress = 0;
-    currentFile = '';
-    totalFiles = 0;
-    processedFiles = 0;
-    importResult = null;
-    errorMessage = '';
+    selectionError = '';
+    importer.reset();
     if (onClose) {
       onClose();
     }
@@ -153,6 +129,18 @@
           {m.importDialog.selectFolder}
         </button>
       </div>
+      <!-- ファイルを個別に選ぶ（選んだ曲だけを登録する） -->
+      <div class="mt-3 flex items-center gap-3">
+        <span class="text-sm text-text-muted">{m.importDialog.orFiles}</span>
+        <button
+          onclick={importFiles}
+          disabled={isImporting}
+          class="btn-secondary whitespace-nowrap"
+        >
+          {m.importDialog.selectFiles}
+        </button>
+      </div>
+      <p class="mt-2 mb-0 text-xs text-text-muted">{m.importDialog.filesHint}</p>
     </div>
 
     <!-- 重複ファイル処理の選択 -->
@@ -162,7 +150,7 @@
         <label class="flex items-center gap-2 cursor-pointer text-text-secondary">
           <input
             type="radio"
-            bind:group={duplicateAction}
+            bind:group={importer.duplicateAction}
             value="Skip"
             disabled={isImporting}
             class="w-4 h-4"
@@ -172,7 +160,7 @@
         <label class="flex items-center gap-2 cursor-pointer text-text-secondary">
           <input
             type="radio"
-            bind:group={duplicateAction}
+            bind:group={importer.duplicateAction}
             value="Replace"
             disabled={isImporting}
             class="w-4 h-4"
@@ -186,20 +174,20 @@
     {#if isImporting}
       <div class="mt-6">
         <p class="text-center text-text-secondary mb-2">
-          {#if totalFiles > 0}
-            {m.importDialog.importing(processedFiles, totalFiles)}
+          {#if importer.totalFiles > 0}
+            {m.importDialog.importing(importer.processedFiles, importer.totalFiles)}
           {:else}
             {m.importDialog.scanning}
           {/if}
         </p>
         <div class="progress-bar-container">
-          <div class="progress-bar-fill" style="width: {progress}%"></div>
+          <div class="progress-bar-fill" style="width: {importer.progress}%"></div>
         </div>
         <div class="mt-2 flex flex-col items-center gap-1">
-          <p class="text-center text-primary font-semibold m-0">{progress}%</p>
-          {#if currentFile}
+          <p class="text-center text-primary font-semibold m-0">{importer.progress}%</p>
+          {#if importer.currentFile}
             <p class="text-center text-text-dimmed text-xs m-0 max-w-full truncate">
-              {currentFile}
+              {importer.currentFile}
             </p>
           {/if}
         </div>
