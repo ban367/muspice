@@ -24,6 +24,22 @@ pub struct ImportProgress {
     pub current_file: String,
 }
 
+/// 音量（ラウドネス）の解析の進捗
+#[derive(Debug, Clone, Serialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+pub struct LoudnessScanProgress {
+    /// 読み終わった曲の数
+    pub current: u32,
+    /// 読む曲の総数（アルバムのゲインのために読む曲を含む）
+    pub total: u32,
+    /// 読み終わったファイルの名前
+    pub current_file: String,
+}
+
+/// 音量（ラウドネス）の解析が終わった（中断した場合を含む）
+#[derive(Debug, Clone, Serialize, Type, Event)]
+pub struct LoudnessScanFinished(pub crate::loudness_scan::LoudnessScanResult);
+
 /// ライブラリフォルダの再スキャンの進捗
 #[derive(Debug, Clone, Serialize, Type, Event)]
 #[serde(rename_all = "camelCase")]

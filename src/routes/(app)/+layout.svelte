@@ -13,6 +13,7 @@
   import AlbumArtDialog from '#lib/components/AlbumArtDialog.svelte';
   import TagToolsDialog from '#lib/components/TagToolsDialog.svelte';
   import FileOrganizeDialog from '#lib/components/FileOrganizeDialog.svelte';
+  import LoudnessScanDialog from '#lib/components/LoudnessScanDialog.svelte';
   import SmartPlaylistDialog from '#lib/components/SmartPlaylistDialog.svelte';
   import NowPlayingView from '#lib/components/NowPlayingView.svelte';
   import MiniPlayer from '#lib/components/MiniPlayer.svelte';
@@ -25,6 +26,7 @@
   import { albumArtDialog } from '#lib/stores/albumArt.svelte.js';
   import { tagToolsDialog } from '#lib/stores/tagTools.svelte.js';
   import { fileOrganizeDialog } from '#lib/stores/fileOrganize.svelte.js';
+  import { loudnessScan, loudnessScanDialog } from '#lib/stores/loudnessScan.svelte.js';
   import { smartPlaylistDialog } from '#lib/stores/smartPlaylist.svelte.js';
   import { invalidateAllTrackQueries } from '#lib/queries/tracks.js';
   import { restoreTheme } from '#lib/utils/theme.js';
@@ -83,6 +85,9 @@
       void miniPlayer.toggle();
     });
 
+    // 音量の解析の進捗（設定ウィンドウで始めた解析も、曲のメニューの画面に出す）
+    const stopWatchingLoudnessScan = loudnessScan.watch();
+
     // 設定ウィンドウでの再スキャン・ライブラリフォルダの削除で、ライブラリが変わった
     const unlistenLibrary = events.libraryChanged.listen(() => {
       invalidateAllTrackQueries(queryClient);
@@ -92,6 +97,7 @@
       unlistenImport.then((fn) => fn());
       unlistenImportFiles.then((fn) => fn());
       stopWatchingOpenedFiles();
+      stopWatchingLoudnessScan();
       unlistenSidebar.then((fn) => fn());
       unlistenAbout.then((fn) => fn());
       unlistenMiniPlayer.then((fn) => fn());
@@ -210,6 +216,16 @@
       <FileOrganizeDialog
         tracks={fileOrganizeDialog.tracks}
         onClose={() => fileOrganizeDialog.close()}
+      />
+    {/key}
+  {/if}
+
+  <!-- 選んだ曲の音量の解析（曲のメニューから開く。開くたびに作り直す） -->
+  {#if loudnessScanDialog.tracks}
+    {#key loudnessScanDialog.tracks}
+      <LoudnessScanDialog
+        tracks={loudnessScanDialog.tracks}
+        onClose={() => loudnessScanDialog.close()}
       />
     {/key}
   {/if}

@@ -120,6 +120,7 @@ export const ja = {
     deleteTracksAndFiles: 'トラックとファイルの削除',
     refreshMetadata: 'メタデータの更新',
     writeMetadataToFiles: 'メタデータの書き出し',
+    loudnessScan: '音量の解析',
     showInFolder: 'ファイルの場所を開く',
     fetchPlaylists: 'プレイリスト一覧の取得',
     createPlaylist: 'プレイリストの作成',
@@ -433,6 +434,33 @@ export const ja = {
       `書き出し完了（書き込み: ${written}曲、変更なし: ${unchanged}曲、ファイルなし: ${skipped}曲、エラー: ${errors}曲）`
   },
 
+  loudnessScan: {
+    title: '音量の解析',
+    description:
+      '音量の情報（ReplayGainのタグ）がない曲の音量を解析して、ファイルのタグへ書き込みます。「再生」の「音量の正規化」で使われます。アルバムの音量は、ライブラリにあるそのアルバムの全曲から求めます。解析はバックグラウンドで進み、中断しても、次は残りの曲から続けられます',
+    pending: (count: number) => `音量の情報がない曲: ${count}曲`,
+    noPending: 'すべての曲に、音量の情報があります',
+    startMissing: 'タグのない曲を解析',
+    confirmMissing: (count: number) =>
+      `${count}曲の音量を解析して、音楽ファイルのタグへ書き込みます。ファイルが書き換わります。続けますか？`,
+    /** 選んだ曲の解析の画面 */
+    dialogTitle: (count: number) => `音量を解析（${count}曲）`,
+    dialogDescription:
+      '選んだ曲の音量を解析し直して、ファイルのタグ（ReplayGain）へ書き込みます。アルバムの音量は、ライブラリにあるそのアルバムの全曲から求めて、全曲に書き込みます（アルバムのほかの曲も読みます）。',
+    start: '解析する',
+    alreadyRunning: 'ほかの解析を実行中です。終わってから、もう一度お試しください',
+    continueInBackground: '閉じる（解析は続けます）',
+    /** 進み具合 */
+    preparing: '解析を始めています...',
+    progress: (current: number, total: number) => `${current} / ${total}曲`,
+    cancel: '中断',
+    cancelling: '中断しています...',
+    result: (written: number, unchanged: number, errors: number) =>
+      `音量の解析が終わりました（書き込み: ${written}曲、変更なし: ${unchanged}曲、エラー: ${errors}曲）`,
+    cancelledResult: (written: number, unchanged: number, errors: number) =>
+      `音量の解析を中断しました（書き込み: ${written}曲、変更なし: ${unchanged}曲、エラー: ${errors}曲）`
+  },
+
   fileOrganize: {
     title: (count: number) => `ファイルを整理（${count}曲）`,
     template: '書式',
@@ -580,6 +608,7 @@ export const ja = {
     albumArt: 'アルバムアート...',
     tagTools: 'タグの一括ツール...',
     fileOrganize: 'ファイルを整理...',
+    loudnessScan: '音量を解析...',
     showInFolder: 'ファイルの場所を開く',
     deleteEllipsis: '削除...',
     addToPlaylist: 'プレイリストに追加',
@@ -930,7 +959,11 @@ export const ja = {
     volumeNormalization: '音量の正規化',
     volumeNormalizations: { off: 'オフ', track: 'トラック単位', album: 'アルバム単位' },
     volumeNormalizationHint:
-      '曲ごとの音量の差を、ファイルのReplayGainのタグを使ってそろえます。アルバム単位では、アルバム内の曲の音量の差はそのまま残します。タグのない曲は補正しません（既存の曲のタグは「メタデータを更新」で読み込まれます）',
+      '曲ごとの音量の差を、ファイルのReplayGainのタグを使ってそろえます。アルバム単位では、アルバム内の曲の音量の差はそのまま残します。タグのない曲は補正しません（「ライブラリ」の「音量の解析」で、タグのない曲に音量の情報を書き込めます）',
+    normalizationPreamp: 'プリアンプ',
+    normalizationPreampValue: (db: number) => `${db > 0 ? '+' : ''}${db} dB`,
+    normalizationPreampHint:
+      '音量の正規化で補正する曲の音量を、まとめて上げ下げします。正規化で全体が小さく聞こえる場合に上げます（音割れしない範囲に抑えます）。音量の情報のない曲には、かかりません',
     gaplessPlayback: 'ギャップレス再生',
     gaplessPlaybackHint: '次の曲を先に読み込んでおき、曲と曲の間に無音を入れずに続けて再生します',
     crossfade: 'クロスフェード',

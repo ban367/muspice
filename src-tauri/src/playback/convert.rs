@@ -225,7 +225,7 @@ impl Resampling {
 }
 
 /// サンプル（`channels`チャンネルのインターリーブ）をステレオにして、`out`の後ろへ足す
-fn append_stereo(samples: &[f32], channels: usize, out: &mut Vec<f32>) {
+pub(crate) fn append_stereo(samples: &[f32], channels: usize, out: &mut Vec<f32>) {
     match channels {
         1 => out.extend(samples.iter().flat_map(|&sample| [sample, sample])),
         2 => out.extend_from_slice(samples),

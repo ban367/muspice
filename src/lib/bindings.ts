@@ -223,6 +223,26 @@ export const commands = {
 	 *  移せなかった曲は、結果の`errors`へ理由を入れて残りを続ける。
 	 */
 	organizeFiles: (trackIds: string[], template: string) => __TAURI_INVOKE<OrganizeResult>("organize_files", { trackIds, template }),
+	/**  音量の解析の状態を取得する（設定の画面を開いた時と、解析が終わった時に読む） */
+	getLoudnessScanStatus: () => __TAURI_INVOKE<LoudnessScanStatus>("get_loudness_scan_status"),
+	/**
+	 *  曲のラウドネスを解析して、ゲインとピークをファイルのタグ（ReplayGain）へ書き込む
+	 * 
+	 *  `track_ids`を省くと、ライブラリの、音量の情報が欠けている曲を解析する（すでにあるゲインは変えない）。
+	 *  指定すると、その曲を解析し直す。アルバムのゲインは、ライブラリにあるそのアルバムの全曲から求め、
+	 *  全曲に書く（アルバムのほかの曲も読む）。
+	 * 
+	 *  終わるまで返らない（`LoudnessScanProgress`を送り、終わると`LoudnessScanFinished`を送る）。
+	 *  同時に実行できる解析は1つで、実行中は`LOCK`。解析できなかった・書き込めなかった曲は、
+	 *  結果の`errors`へ理由を入れて残りを続ける。
+	 */
+	startLoudnessScan: (trackIds: string[] | null) => __TAURI_INVOKE<LoudnessScanResult>("start_loudness_scan", { trackIds }),
+	/**
+	 *  実行中の音量の解析を中断する（実行中でなければ何もしない）
+	 * 
+	 *  解析の途中のアルバムには何も書かずに終わる。次に解析すると、残りの曲から続く。
+	 */
+	cancelLoudnessScan: () => __TAURI_INVOKE<null>("cancel_loudness_scan"),
 	/**
 	 *  トラックのアルバムアートの情報（埋め込みの画像か、フォルダの画像か・種類・大きさ）を取得する
 	 * 
@@ -562,6 +582,8 @@ export const events = {
 	importProgress: makeEvent<ImportProgress>("import-progress"),
 	libraryChanged: makeEvent<LibraryChanged>("library-changed"),
 	libraryScanProgress: makeEvent<LibraryScanProgress>("library-scan-progress"),
+	loudnessScanFinished: makeEvent<LoudnessScanFinished>("loudness-scan-finished"),
+	loudnessScanProgress: makeEvent<LoudnessScanProgress>("loudness-scan-progress"),
 	openImportDialog: makeEvent<OpenImportDialog>("open-import-dialog"),
 	playbackControl: makeEvent<PlaybackControl>("playback-control"),
 	playbackEvent: makeEvent<PlaybackEvent>("playback-event"),
@@ -578,6 +600,8 @@ export const DEFAULT_ACCENT_COLOR = "#3b82f6" as const;
 export const LIBRARY_SCAN_INTERVALS = [0,15,30,60,360] as const;
 
 export const MAX_CROSSFADE_SECONDS = 12 as const;
+
+export const MAX_NORMALIZATION_PREAMP_DB = 12 as const;
 
 /* Types */
 /**  トラックのアルバムアートの情報（アルバムアートの画面に出す） */
@@ -889,6 +913,44 @@ export type LibraryXmlImportResult = {
 	playlistCount: number,
 	/**  対応する曲が1つもなく、作らなかったプレイリストの数 */
 	skippedPlaylistCount: number,
+};
+
+/**  音量（ラウドネス）の解析が終わった（中断した場合を含む） */
+export type LoudnessScanFinished = LoudnessScanResult;
+
+/**  音量（ラウドネス）の解析の進捗 */
+export type LoudnessScanProgress = {
+	/**  読み終わった曲の数 */
+	current: number,
+	/**  読む曲の総数（アルバムのゲインのために読む曲を含む） */
+	total: number,
+	/**  読み終わったファイルの名前 */
+	currentFile: string,
+};
+
+/**  解析の結果 */
+export type LoudnessScanResult = {
+	/**  ゲインを書き込んだ曲の数 */
+	writtenCount: number,
+	/**  解析したが、今の値と同じだったため書き込まなかった曲の数 */
+	unchangedCount: number,
+	/**  解析できなかった・書き込めなかった曲の数 */
+	errorCount: number,
+	/**  解析できなかった・書き込めなかった理由（`場所: 理由`） */
+	errors: string[],
+	/**  途中で中断したか */
+	cancelled: boolean,
+};
+
+/**  音量の解析の状態 */
+export type LoudnessScanStatus = {
+	/**  解析を実行中か */
+	running: boolean,
+	/**  読み終わった曲の数と、読む曲の総数（実行中でなければ0） */
+	current: number,
+	total: number,
+	/**  音量の情報が欠けている曲の数（見つからない曲を除く） */
+	pendingCount: number,
 };
 
 /**  歌詞の出どころ */
@@ -1256,6 +1318,8 @@ export type Settings = {
 	accentColor: string,
 	/**  音量の正規化 */
 	volumeNormalization: VolumeNormalization,
+	/**  音量の正規化のプリアンプ（dB。正規化で補正する曲の音量を、まとめて上げ下げする） */
+	normalizationPreampDb: number,
 	/**  ギャップレス再生（次の曲を先読みし、曲間に無音を入れずに続ける） */
 	gaplessPlayback: boolean,
 	/**  クロスフェードの秒数（0でクロスフェードしない） */

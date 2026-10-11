@@ -4,7 +4,7 @@ use crate::models::{Metadata, ReplayGain, SortTags};
 use crate::multi_value;
 use crate::vorbis_tag;
 use lofty::config::{ParseOptions, WriteOptions};
-use lofty::file::{AudioFile, TaggedFile, TaggedFileExt};
+use lofty::file::{AudioFile, FileType, TaggedFile, TaggedFileExt};
 use lofty::picture::{MimeType, Picture, PictureInformation, PictureType};
 use lofty::probe::Probe;
 use lofty::tag::items::popularimeter::{Popularimeter, StarRating};
@@ -651,8 +651,24 @@ pub fn validate_metadata(metadata: &Metadata) -> AppResult<()> {
 ///
 /// タグがないファイルには、その形式の既定のタグを作る。
 fn modify_file_tag(file_path: &Path, modify: impl FnOnce(&mut Tag)) -> AppResult<()> {
+    modify_file_tag_of_type(file_path, |tag, _| {
+        modify(tag);
+        Ok(true)
+    })
+    .map(|_| ())
+}
+
+/// 音楽ファイルのタグを書き換えて保存する（書き換える処理に、ファイルの形式も渡す）
+///
+/// 書き換える処理は、タグを変えたかを返す。変えなかった場合と、エラーを返した場合は、保存しない。
+/// @returns ファイルへ保存したか
+fn modify_file_tag_of_type(
+    file_path: &Path,
+    modify: impl FnOnce(&mut Tag, FileType) -> AppResult<bool>,
+) -> AppResult<bool> {
     // ファイルを読み込み
     let mut tagged_file = read_tagged_file(file_path, ParseOptions::new())?;
+    let file_type = tagged_file.file_type();
 
     // プライマリタグを取得または作成
     let tag = match tagged_file.primary_tag_mut() {
@@ -675,9 +691,140 @@ fn modify_file_tag(file_path: &Path, modify: impl FnOnce(&mut Tag)) -> AppResult
         }
     };
 
-    modify(tag);
+    if !modify(tag, file_type)? {
+        return Ok(false);
+    }
 
-    save_tagged_file(&tagged_file, file_path)
+    save_tagged_file(&tagged_file, file_path)?;
+    Ok(true)
+}
+
+/// ゲイン（dB）を、ReplayGainのタグの値にする（`-6.48 dB`）
+fn format_gain_db(gain: f64) -> String {
+    format!("{:+.2} dB", gain)
+}
+
+/// ピークを、ReplayGainのタグの値にする（`0.988769`）
+fn format_peak(peak: f64) -> String {
+    format!("{:.6}", peak)
+}
+
+/// ゲイン（ReplayGainの基準のdB）を、EBU R128のタグの値（Q7.8の整数）にする
+fn format_r128_gain(gain: f64) -> String {
+    let q78 = ((gain - R128_TO_REPLAY_GAIN_DB) * 256.0).round();
+    (q78.clamp(f64::from(i16::MIN), f64::from(i16::MAX)) as i16).to_string()
+}
+
+/// タグに、ゲインとピークを書く（値のある項目だけ）
+///
+/// Opusは、Opusの決まり（RFC 7845）に合わせて、`R128_TRACK_GAIN`・`R128_ALBUM_GAIN`で書く
+/// （ピークの項目はない）。読む時に優先する`REPLAYGAIN_*`が残っていると、書いた値が使われないため、
+/// 書いた項目に対応する`REPLAYGAIN_*`は取り除く。
+/// @returns タグを変えたか（すでに同じ値が書かれていれば、変えない）
+fn set_tag_replay_gain(tag: &mut Tag, file_type: FileType, values: &ReplayGain) -> AppResult<bool> {
+    /// 項目を書く（同じ値が書かれていれば、何もしない）
+    fn insert(tag: &mut Tag, key: ItemKey, value: String) -> AppResult<bool> {
+        if tag.get_string(key) == Some(value.as_str()) {
+            Ok(false)
+        } else if tag.insert_text(key, value) {
+            Ok(true)
+        } else {
+            Err(AppError::Metadata(
+                "この形式のタグには、音量の情報を書き込めません".to_string(),
+            ))
+        }
+    }
+    let mut changed = false;
+
+    if file_type == FileType::Opus {
+        let gains = [
+            (
+                values.track_gain,
+                ItemKey::R128TrackGain,
+                [ItemKey::ReplayGainTrackGain, ItemKey::ReplayGainTrackPeak],
+            ),
+            (
+                values.album_gain,
+                ItemKey::R128AlbumGain,
+                [ItemKey::ReplayGainAlbumGain, ItemKey::ReplayGainAlbumPeak],
+            ),
+        ];
+        for (gain, key, replaced) in gains {
+            let Some(gain) = gain else { continue };
+            changed |= insert(tag, key, format_r128_gain(gain))?;
+            for key in replaced {
+                if tag.get(key).is_some() {
+                    tag.remove_key(key);
+                    changed = true;
+                }
+            }
+        }
+        return Ok(changed);
+    }
+
+    let items = [
+        (
+            values.track_gain.map(format_gain_db),
+            ItemKey::ReplayGainTrackGain,
+        ),
+        (
+            values.track_peak.map(format_peak),
+            ItemKey::ReplayGainTrackPeak,
+        ),
+        (
+            values.album_gain.map(format_gain_db),
+            ItemKey::ReplayGainAlbumGain,
+        ),
+        (
+            values.album_peak.map(format_peak),
+            ItemKey::ReplayGainAlbumPeak,
+        ),
+    ];
+    for (value, key) in items {
+        if let Some(value) = value {
+            changed |= insert(tag, key, value)?;
+        }
+    }
+    Ok(changed)
+}
+
+/// 音楽ファイルに、解析したゲインとピークを書き込む（値のある項目だけ。ほかのタグは変えない）
+///
+/// すでに同じ値が書かれているファイルには、書き込まない（ファイルを変えない）。
+/// @returns 書き込んだ後に、ファイルのタグから読めるゲインとピーク（データベースに記録する値）と、
+///   ファイルへ書き込んだか
+pub fn update_file_replay_gain(
+    file_path: &Path,
+    values: &ReplayGain,
+) -> AppResult<(ReplayGain, bool)> {
+    let finite = [
+        values.track_gain,
+        values.track_peak,
+        values.album_gain,
+        values.album_peak,
+    ]
+    .into_iter()
+    .flatten()
+    .all(f64::is_finite);
+    if !finite {
+        return Err(AppError::Validation(
+            "音量の値が正しくありません".to_string(),
+        ));
+    }
+
+    let written = modify_file_tag_of_type(file_path, |tag, file_type| {
+        set_tag_replay_gain(tag, file_type, values)
+    })?;
+    Ok((read_file_replay_gain(file_path)?, written))
+}
+
+/// 音楽ファイルのタグから、ゲインとピークを読む
+pub fn read_file_replay_gain(file_path: &Path) -> AppResult<ReplayGain> {
+    let tagged_file = read_tagged_file(file_path, ParseOptions::new().read_cover_art(false))?;
+    let tag = tagged_file
+        .primary_tag()
+        .or_else(|| tagged_file.first_tag());
+    Ok(tag.map(extract_replay_gain).unwrap_or_default())
 }
 
 /// 文字列の項目の書き換え方
@@ -1521,6 +1668,141 @@ mod tests {
         }
 
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// ゲインとピークを書き込み、読み直して同じ値を取得できる（タグの種類ごと）
+    #[test]
+    fn test_replay_gain_round_trips_in_every_tag_type() {
+        let dir = std::env::temp_dir().join(format!("muspice-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        for file in tag_test_files(&dir) {
+            let name = file.file_name().unwrap().to_string_lossy().into_owned();
+            let is_opus = name.ends_with(".opus");
+            let metadata = full_metadata();
+            update_file_metadata(&file, &metadata, true).unwrap();
+            update_file_rating(&file, 4).unwrap();
+
+            // 曲のゲインとピークだけを書く
+            let track_only = ReplayGain {
+                track_gain: Some(-6.484),
+                track_peak: Some(0.9887694),
+                ..ReplayGain::default()
+            };
+            let (written, saved) = update_file_replay_gain(&file, &track_only).unwrap();
+            assert!(saved, "{name}");
+            // 同じ値をもう一度書いても、ファイルを変えない
+            let modified = std::fs::metadata(&file).unwrap().modified().unwrap();
+            assert_eq!(
+                update_file_replay_gain(&file, &track_only).unwrap(),
+                (written.clone(), false),
+                "{name}"
+            );
+            assert_eq!(
+                std::fs::metadata(&file).unwrap().modified().unwrap(),
+                modified,
+                "{name}"
+            );
+            if is_opus {
+                // Opusは、R128のタグ（1/256 dB刻み。ピークはない）で書く
+                let gain = written.track_gain.unwrap();
+                assert!((gain + 6.484).abs() < 1.0 / 256.0, "{name}: {gain}");
+                assert_eq!(written.track_peak, None, "{name}");
+            } else {
+                // タグに書く桁（ゲインは小数2桁、ピークは小数6桁）に丸めた値を読む
+                assert_eq!(written.track_gain, Some(-6.48), "{name}");
+                assert_eq!(written.track_peak, Some(0.988769), "{name}");
+            }
+            assert_eq!(
+                (written.album_gain, written.album_peak),
+                (None, None),
+                "{name}"
+            );
+
+            // アルバムのゲインとピークを足す（曲のゲインは変えない）
+            let album_only = ReplayGain {
+                album_gain: Some(2.5),
+                album_peak: Some(1.0),
+                ..ReplayGain::default()
+            };
+            let (both, saved) = update_file_replay_gain(&file, &album_only).unwrap();
+            assert!(saved, "{name}");
+            assert_eq!(both.track_gain, written.track_gain, "{name}");
+            assert_eq!(both.track_peak, written.track_peak, "{name}");
+            assert_eq!(both.album_gain, Some(2.5), "{name}");
+            assert_eq!(both.album_peak, (!is_opus).then_some(1.0), "{name}");
+
+            // 取り込みで読む値と同じで、ほかの項目・評価は変わらない
+            let info = extract_all_file_info(&file).unwrap();
+            assert_eq!(info.replay_gain, both, "{name}");
+            assert_eq!(info.rating, 4, "{name}");
+            assert_eq!(read_file_tags(&file).unwrap(), metadata, "{name}");
+            assert_eq!(read_file_replay_gain(&file).unwrap(), both, "{name}");
+        }
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn test_opus_replay_gain_tags_are_replaced_by_r128() {
+        let dir = std::env::temp_dir().join(format!("muspice-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/playback");
+        let file = dir.join("opus.opus");
+        std::fs::copy(fixtures.join("opus.opus"), &file).unwrap();
+        // ほかのアプリが、Opusの決まりにない`REPLAYGAIN_*`を書いていたファイル
+        modify_file_tag(&file, |tag| {
+            tag.insert_text(ItemKey::ReplayGainTrackGain, "-1.00 dB".to_string());
+            tag.insert_text(ItemKey::ReplayGainTrackPeak, "0.5".to_string());
+            tag.insert_text(ItemKey::ReplayGainAlbumGain, "-2.00 dB".to_string());
+        })
+        .unwrap();
+        assert_eq!(read_file_replay_gain(&file).unwrap().track_gain, Some(-1.0));
+
+        // 曲のゲインだけを書く: 曲の`REPLAYGAIN_*`は取り除き、アルバムの分は残す
+        let values = ReplayGain {
+            track_gain: Some(-8.0),
+            track_peak: Some(0.9),
+            ..ReplayGain::default()
+        };
+        let (written, saved) = update_file_replay_gain(&file, &values).unwrap();
+        assert!(saved);
+
+        assert_eq!(written.track_gain, Some(-8.0));
+        assert_eq!(written.track_peak, None);
+        assert_eq!(written.album_gain, Some(-2.0));
+        // ピークは書けないが、同じゲインをもう一度書く時は、ファイルを変えない
+        assert_eq!(
+            update_file_replay_gain(&file, &values).unwrap(),
+            (written, false)
+        );
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn test_replay_gain_values_are_formatted_for_tags() {
+        assert_eq!(format_gain_db(-6.484), "-6.48 dB");
+        assert_eq!(format_gain_db(1.2), "+1.20 dB");
+        assert_eq!(format_gain_db(0.0), "+0.00 dB");
+        assert_eq!(parse_gain_db(&format_gain_db(1.2)), Some(1.2));
+        assert_eq!(format_peak(0.9887694), "0.988769");
+        assert_eq!(format_peak(1.0), "1.000000");
+        // R128: -23 LUFSが基準（ReplayGainより5 dB低い）のQ7.8
+        assert_eq!(format_r128_gain(5.0), "0");
+        assert_eq!(format_r128_gain(-1.0), "-1536");
+        assert_eq!(parse_r128_gain(&format_r128_gain(-7.25)), Some(-7.25));
+        assert_eq!(format_r128_gain(1000.0), "32767");
+
+        // 数でない値は、書き込まない
+        let invalid = ReplayGain {
+            track_gain: Some(f64::NAN),
+            ..ReplayGain::default()
+        };
+        assert!(matches!(
+            update_file_replay_gain(Path::new("/missing.flac"), &invalid),
+            Err(AppError::Validation(_))
+        ));
     }
 
     fn embedded(data: Vec<u8>, mime_type: &str) -> EmbeddedPicture {

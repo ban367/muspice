@@ -1429,6 +1429,47 @@ pub fn delete_tracks_under(conn: &Connection, path_prefix: &str) -> AppResult<us
     .map_err(|e| AppError::Database(format!("トラックの削除に失敗しました: {}", e)))
 }
 
+/// 音量の情報が欠けている曲の数（見つからない曲を除く）
+///
+/// 曲のゲインがない曲と、アルバムのタグがあるのにアルバムのゲインがない曲を数える
+/// （「タグのない曲」の解析で、ゲインを書く曲。`loudness_scan::plan_units`と同じ考え方）。
+pub fn count_tracks_without_replay_gain(conn: &Connection) -> AppResult<u32> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM tracks
+         WHERE missing_since IS NULL
+           AND (replay_gain_track_gain IS NULL
+                OR (album IS NOT NULL AND album != '' AND replay_gain_album_gain IS NULL))",
+        [],
+        |row| row.get(0),
+    )
+    .map_err(|e| AppError::Database(format!("曲数の取得に失敗しました: {}", e)))
+}
+
+/// 音量の正規化に使うゲインとピークを記録する（ラウドネスを解析して、ファイルのタグへ書き込んだ後）
+///
+/// 渡した4つの値で置き換える（ファイルのタグから読み直した値を渡す）。評価などと同じく、
+/// `updated_at`は変えない。
+pub fn set_track_replay_gain(
+    conn: &Connection,
+    track_id: &str,
+    replay_gain: &ReplayGain,
+) -> AppResult<()> {
+    conn.execute(
+        "UPDATE tracks SET replay_gain_track_gain = ?2, replay_gain_track_peak = ?3,
+             replay_gain_album_gain = ?4, replay_gain_album_peak = ?5
+         WHERE id = ?1",
+        rusqlite::params![
+            track_id,
+            replay_gain.track_gain,
+            replay_gain.track_peak,
+            replay_gain.album_gain,
+            replay_gain.album_peak
+        ],
+    )
+    .map_err(|e| AppError::Database(format!("音量の情報の記録に失敗しました: {}", e)))?;
+    Ok(())
+}
+
 /// ファイルのサイズと更新日時を記録する（アプリがファイルにタグを書き込んだ後）
 pub fn set_track_file_state(
     conn: &Connection,

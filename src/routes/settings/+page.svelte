@@ -21,11 +21,13 @@
   import {
     DEFAULT_ACCENT_COLOR,
     LIBRARY_SCAN_INTERVALS,
-    MAX_CROSSFADE_SECONDS
+    MAX_CROSSFADE_SECONDS,
+    MAX_NORMALIZATION_PREAMP_DB
   } from '#lib/bindings.js';
   import LibraryFolderSettings from '#lib/components/LibraryFolderSettings.svelte';
   import MetadataExportSettings from '#lib/components/MetadataExportSettings.svelte';
   import LibraryXmlImportSettings from '#lib/components/LibraryXmlImportSettings.svelte';
+  import LoudnessScanSettings from '#lib/components/LoudnessScanSettings.svelte';
 
   type SettingsSection = 'general' | 'playback' | 'library' | 'appearance';
 
@@ -240,6 +242,7 @@
       <div hidden={activeSection !== 'library'}>
         <LibraryFolderSettings />
         <LibraryXmlImportSettings />
+        <LoudnessScanSettings />
         <MetadataExportSettings />
       </div>
 
@@ -396,6 +399,28 @@
             </select>
             <p class="setting-description">
               {m.settings.volumeNormalizationHint}
+            </p>
+          </div>
+
+          <div class="setting-item">
+            <label class="setting-label" for="preamp">{m.settings.normalizationPreamp}</label>
+            <div class="setting-slider-row">
+              <input
+                type="range"
+                id="preamp"
+                class="setting-slider"
+                min={-MAX_NORMALIZATION_PREAMP_DB}
+                max={MAX_NORMALIZATION_PREAMP_DB}
+                step="1"
+                bind:value={pending.normalizationPreampDb}
+                disabled={pending.volumeNormalization === 'off'}
+              />
+              <span class="setting-slider-value">
+                {m.settings.normalizationPreampValue(pending.normalizationPreampDb)}
+              </span>
+            </div>
+            <p class="setting-description">
+              {m.settings.normalizationPreampHint}
             </p>
           </div>
 

@@ -12,6 +12,7 @@ mod devices;
 mod import;
 mod library_folders;
 mod library_xml;
+mod loudness;
 mod m3u;
 mod metadata_cmd;
 mod organize;
@@ -52,6 +53,9 @@ pub use metadata_cmd::{
     apply_metadata_changes, get_track_lyrics, get_track_tags, refresh_library_metadata,
     update_multiple_tracks_metadata, update_track_metadata, write_library_metadata_to_files,
 };
+
+// 音量（ラウドネス）の解析
+pub use loudness::{cancel_loudness_scan, get_loudness_scan_status, start_loudness_scan};
 
 // ファイルの整理（タグに基づくリネーム・移動）
 pub use organize::{organize_files, plan_file_organize};

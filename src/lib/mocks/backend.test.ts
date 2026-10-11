@@ -24,6 +24,117 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe('音量の解析', () => {
+  const pendingCount = async () => (await commands.getLoudnessScanStatus()).pendingCount;
+  const progressEvents = () => events.filter((e) => e.event === 'loudness-scan-progress');
+
+  it('音量の情報が欠けている曲を解析し、アルバムの全曲にアルバムのゲインを書く', async () => {
+    const before = await commands.getAllTracks();
+    const pending = before.filter((t) => !t.isMissing && t.replayGain.trackGain === null);
+    expect(pending.length).toBeGreaterThan(0);
+    expect(await pendingCount()).toBeGreaterThanOrEqual(pending.length);
+
+    const result = await commands.startLoudnessScan(null);
+
+    expect(result).toMatchObject({ errorCount: 0, errors: [], cancelled: false });
+    expect(result.writtenCount).toBeGreaterThanOrEqual(pending.length);
+    expect(await pendingCount()).toBe(0);
+    const after = await commands.getAllTracks();
+    for (const track of after.filter((t) => !t.isMissing)) {
+      expect(track.replayGain.trackGain, track.fileName).not.toBeNull();
+    }
+    // アルバムのゲインは、アルバムのある曲にだけ書く
+    for (const { id } of pending) {
+      const track = after.find((t) => t.id === id)!;
+      expect(track.replayGain.albumGain === null, track.fileName).toBe(track.album === null);
+    }
+    // すでにあった曲のゲインは、変えない
+    for (const track of before.filter((t) => t.replayGain.trackGain !== null)) {
+      expect(after.find((t) => t.id === track.id)?.replayGain.trackGain).toBe(
+        track.replayGain.trackGain
+      );
+    }
+    // 進捗と完了を知らせ、曲の一覧を取り直させる
+    const total = progressEvents().length;
+    expect(total).toBeGreaterThanOrEqual(pending.length);
+    expect(progressEvents().at(-1)?.payload).toMatchObject({ current: total, total });
+    expect(events.map((e) => e.event)).toContain('library-changed');
+    expect(events.at(-1)).toEqual({ event: 'loudness-scan-finished', payload: result });
+
+    // もう一度解析しても、対象はない
+    events = [];
+    expect(await commands.startLoudnessScan(null)).toMatchObject({
+      writtenCount: 0,
+      unchangedCount: 0
+    });
+    expect(progressEvents()).toEqual([]);
+  });
+
+  it('選んだ曲は、ゲインがあっても解析し直す（同じ値なら書き込まない）', async () => {
+    await commands.startLoudnessScan(null);
+    const tracks = await commands.getAllTracks();
+    // フィクスチャで、はじめからゲインのあった曲
+    const target = tracks.find((t) => t.album === 'Blue Horizon')!;
+    const album = tracks.filter((t) => t.album === 'Blue Horizon' && !t.isMissing);
+    events = [];
+
+    // 選んだ曲のゲインを解析した値に書き換え、アルバムのほかの曲は読むだけ
+    const result = await commands.startLoudnessScan([target.id]);
+    expect(progressEvents()).toHaveLength(album.length);
+    expect(result).toMatchObject({ writtenCount: 1, unchangedCount: album.length - 1 });
+    const rescanned = (await commands.getAllTracks()).find((t) => t.id === target.id)!;
+    expect(rescanned.replayGain.trackGain).not.toBe(target.replayGain.trackGain);
+    expect(rescanned.replayGain.albumGain).toBe(target.replayGain.albumGain);
+
+    // もう一度解析すると、同じ値のため書き込まない
+    events = [];
+    expect(await commands.startLoudnessScan([target.id])).toMatchObject({
+      writtenCount: 0,
+      unchangedCount: album.length
+    });
+    expect(events.map((e) => e.event)).not.toContain('library-changed');
+  });
+
+  it('中断すると、解析の途中のアルバムには何も書かない', async () => {
+    const before = await pendingCount();
+    // 1曲目を読み終わった時点で中断する
+    backend = createMockBackend({
+      emit: (event, payload) => {
+        events.push({ event, payload });
+        if (event === 'loudness-scan-progress') void commands.cancelLoudnessScan();
+      },
+      sleep: async () => {}
+    });
+    mockIPC((cmd, payload) => backend.invoke(cmd, payload as Record<string, unknown>));
+
+    const result = await commands.startLoudnessScan(null);
+
+    expect(result).toMatchObject({ writtenCount: 0, cancelled: true });
+    expect(await pendingCount()).toBe(before);
+    expect((await commands.getLoudnessScanStatus()).running).toBe(false);
+  });
+
+  it('同時に実行できる解析は1つで、入力の誤りはVALIDATIONのエラーにする', async () => {
+    let release!: () => void;
+    backend = createMockBackend({
+      emit: () => {},
+      sleep: () => new Promise((resolve) => (release = () => resolve()))
+    });
+    mockIPC((cmd, payload) => backend.invoke(cmd, payload as Record<string, unknown>));
+
+    const running = commands.startLoudnessScan(null);
+    await Promise.resolve();
+    expect(await commands.getLoudnessScanStatus()).toMatchObject({ running: true, current: 0 });
+    await expect(commands.startLoudnessScan(null)).rejects.toMatchObject({ code: 'LOCK' });
+    await commands.cancelLoudnessScan();
+    release();
+    expect((await running).cancelled).toBe(true);
+
+    await expect(commands.startLoudnessScan([])).rejects.toMatchObject({ code: 'VALIDATION' });
+    await expect(commands.startLoudnessScan(['x'])).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+});
+
 describe('ファイルの整理', () => {
   const DEFAULT = '%albumartist%/%album%/%track% %title%';
 

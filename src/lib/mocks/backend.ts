@@ -12,6 +12,7 @@ import {
   DEFAULT_ACCENT_COLOR,
   LIBRARY_SCAN_INTERVALS,
   MAX_CROSSFADE_SECONDS,
+  MAX_NORMALIZATION_PREAMP_DB,
   type commands
 } from '#lib/bindings.js';
 import type {
@@ -27,6 +28,7 @@ import type {
   GenreSummary,
   ImportResult,
   LibraryFolder,
+  LoudnessScanResult,
   Metadata,
   NowPlayingUpdate,
   PlayHistoryEntry,
@@ -183,6 +185,9 @@ const DEFAULT_STATS_LIMIT = 50;
 const EQ_BAND_COUNT = 10;
 /** デバイスへの同期の1曲あたりの処理時間（進捗表示の確認用） */
 const SYNC_STEP_MS = 300;
+
+/** 音量の解析で、1曲を読むのにかかることにする時間（進捗と中断を目視できるようにする） */
+const LOUDNESS_SCAN_STEP_MS = 250;
 /** 空き容量の判定で残しておく容量（Rustの`SPACE_MARGIN_BYTES`と同じ） */
 const SYNC_SPACE_MARGIN_BYTES = 1024 * 1024;
 const GIB = 1024 ** 3;
@@ -463,6 +468,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     theme: 'dark',
     accentColor: DEFAULT_ACCENT_COLOR,
     volumeNormalization: 'off',
+    normalizationPreampDb: 0,
     gaplessPlayback: true,
     crossfadeSeconds: 0,
     outputDeviceId: null,
@@ -534,6 +540,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   ];
   let isSyncRunning = false;
   let isSyncCancelled = false;
+  // 音量の解析の実行の状態（同時に実行できる解析は1つ）
+  const loudnessScan = { running: false, cancelled: false, current: 0, total: 0 };
 
   const now = () => new Date().toISOString();
   const newestFirst = (a: Track, b: Track) => compareAsc(b.createdAt, a.createdAt);
@@ -1027,6 +1035,94 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   const tracksUnder = (folder: string) =>
     tracks.filter((track) => track.filePath.startsWith(folderPrefix(folder)));
 
+  /** 音量の解析で、曲をまとめるアルバムのキー（Rustの`loudness_scan::album_key`。アルバムのない曲はnull） */
+  const loudnessAlbumKey = (track: Track) =>
+    track.album ? `${track.album}\n${track.albumArtist ?? track.artist ?? ''}` : null;
+
+  /**
+   * 音量を解析して、ゲインとピークを曲に記録する（Rustの`loudness_scan`の、まとまりごとの解析）
+   *
+   * 実ファイルはないため、ゲインは曲の長さから決まる値にする（同じ曲は、何度解析しても同じ値）。
+   * アルバムのゲインは、アルバムの曲のゲインの平均にする。
+   */
+  async function startLoudnessScan(trackIds: string[] | null): Promise<LoudnessScanResult> {
+    if (trackIds !== null) {
+      if (trackIds.length === 0) fail('VALIDATION', '解析する曲が指定されていません');
+      trackIds.forEach(validateTrackId);
+    }
+    if (loudnessScan.running) fail('LOCK', '音量の解析を実行中です');
+
+    const selected = trackIds === null ? null : new Set(trackIds);
+    const isTarget = (track: Track) =>
+      selected === null ? track.replayGain.trackGain === null : selected.has(track.id);
+    // まとまり（アルバムか、アルバムのない1曲）に分け、解析の要るまとまりだけを残す
+    const groups: Record<string, Track[]> = Object.create(null);
+    for (const track of tracks.filter((t) => !t.isMissing)) {
+      (groups[loudnessAlbumKey(track) ?? `\n${track.id}`] ??= []).push(track);
+    }
+    const units = Object.values(groups).filter(
+      (unit) =>
+        unit.some(isTarget) ||
+        (selected === null &&
+          loudnessAlbumKey(unit[0]) !== null &&
+          unit.some((track) => track.replayGain.albumGain === null))
+    );
+
+    const result: LoudnessScanResult = {
+      writtenCount: 0,
+      unchangedCount: 0,
+      errorCount: 0,
+      errors: [],
+      cancelled: false
+    };
+    Object.assign(loudnessScan, {
+      running: true,
+      cancelled: false,
+      current: 0,
+      total: units.reduce((sum, unit) => sum + unit.length, 0)
+    });
+    const gainOf = (track: Track) => -(((track.duration ?? 0) % 90) / 10) - 3;
+    try {
+      for (const unit of units) {
+        // 1. まとまりの全曲を読む（中断したら、このまとまりには何も書かない）
+        for (const track of unit) {
+          if (loudnessScan.cancelled) break;
+          await sleep(LOUDNESS_SCAN_STEP_MS);
+          loudnessScan.current++;
+          options.emit('loudness-scan-progress', {
+            current: loudnessScan.current,
+            total: loudnessScan.total,
+            currentFile: track.fileName
+          });
+        }
+        if (loudnessScan.cancelled) break;
+
+        // 2. 値を決めて書く
+        const isAlbum = loudnessAlbumKey(unit[0]) !== null;
+        const albumGain =
+          Math.round((unit.reduce((sum, track) => sum + gainOf(track), 0) / unit.length) * 100) /
+          100;
+        for (const track of unit) {
+          const next = { ...track.replayGain };
+          if (isTarget(track)) Object.assign(next, { trackGain: gainOf(track), trackPeak: 0.95 });
+          if (isAlbum) Object.assign(next, { albumGain, albumPeak: 0.95 });
+          if (JSON.stringify(next) === JSON.stringify(track.replayGain)) {
+            result.unchangedCount++;
+          } else {
+            track.replayGain = next;
+            result.writtenCount++;
+          }
+        }
+      }
+      result.cancelled = loudnessScan.cancelled;
+    } finally {
+      loudnessScan.running = false;
+    }
+    if (result.writtenCount > 0) options.emit('library-changed', null);
+    options.emit('loudness-scan-finished', result);
+    return result;
+  }
+
   /** 選んだ曲（選んだ順）の、ファイルの整理の計画（Rustの`commands/organize.rs`の`build_plan`） */
   function organizePlan(trackIds: string[], templateText: string) {
     if (trackIds.length === 0) fail('VALIDATION', '整理する曲が指定されていません');
@@ -1354,6 +1450,22 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         result.updatedCount++;
       }
       return result;
+    },
+    getLoudnessScanStatus: () => ({
+      running: loudnessScan.running,
+      current: loudnessScan.running ? loudnessScan.current : 0,
+      total: loudnessScan.running ? loudnessScan.total : 0,
+      pendingCount: tracks.filter(
+        (track) =>
+          !track.isMissing &&
+          (track.replayGain.trackGain === null ||
+            (loudnessAlbumKey(track) !== null && track.replayGain.albumGain === null))
+      ).length
+    }),
+    startLoudnessScan,
+    cancelLoudnessScan: () => {
+      if (loudnessScan.running) loudnessScan.cancelled = true;
+      return null;
     },
     planFileOrganize: (trackIds, template) => ({
       entries: organizePlan(trackIds, template).entries
@@ -1795,6 +1907,15 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       }
       if (next.outputDeviceId !== null && next.outputDeviceId.length === 0) {
         fail('VALIDATION', '出力デバイスの指定が正しくありません');
+      }
+      if (
+        !Number.isInteger(next.normalizationPreampDb) ||
+        Math.abs(next.normalizationPreampDb) > MAX_NORMALIZATION_PREAMP_DB
+      ) {
+        fail(
+          'VALIDATION',
+          `プリアンプは-${MAX_NORMALIZATION_PREAMP_DB}〜${MAX_NORMALIZATION_PREAMP_DB} dBで指定してください`
+        );
       }
       if (
         !(LIBRARY_SCAN_INTERVALS as readonly number[]).includes(next.libraryScanIntervalMinutes)
