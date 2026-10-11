@@ -24,6 +24,73 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe('ファイルの整理', () => {
+  const DEFAULT = '%albumartist%/%album%/%track% %title%';
+
+  it('計画を立てるだけでは、曲の場所を変えない', async () => {
+    const tracks = await commands.getAllTracks();
+    const compilation = tracks.find((track) => track.title === 'Harbor Lights')!;
+
+    const plan = await commands.planFileOrganize([compilation.id], DEFAULT);
+
+    // コンピレーションの曲は、アルバムアーティストのフォルダへ移す
+    expect(plan.entries).toEqual([
+      {
+        trackId: compilation.id,
+        currentPath: 'ネオン通り/City Nights Collection/01 Harbor Lights.mp3',
+        newPath: 'Various Artists/City Nights Collection/01 Harbor Lights.mp3',
+        status: 'move'
+      }
+    ]);
+    const after = await commands.getAllTracks();
+    expect(after.find((track) => track.id === compilation.id)?.filePath).toBe(compilation.filePath);
+  });
+
+  it('動かせる曲だけを移し、トラックのIDとお気に入りは変えない', async () => {
+    backend.addDuplicateTracks();
+    const tracks = await commands.getAllTracks();
+    const downloads = tracks.filter((track) => track.filePath.includes('/Downloads/'));
+    expect(downloads).toHaveLength(4);
+    const favorite = downloads.find((track) => track.fileName === 'overclock.flac')!;
+    await commands.setFavorite([favorite.id], true);
+    events = [];
+
+    const ids = downloads.map((track) => track.id);
+    const plan = await commands.planFileOrganize(ids, DEFAULT);
+    expect(plan.entries.map((entry) => entry.status).sort()).toEqual([
+      'move',
+      'sameTarget',
+      'sameTarget',
+      'targetExists'
+    ]);
+
+    const result = await commands.organizeFiles(ids, DEFAULT);
+
+    expect(result).toEqual({ movedCount: 1, skippedCount: 3, failedCount: 0, errors: [] });
+    const moved = (await commands.getAllTracks()).find((track) => track.id === favorite.id)!;
+    expect(moved.filePath).toBe(
+      '/Users/demo/Music/The Voltage/Midnight Circuit/01 ｏｖｅｒｃｌｏｃｋ.flac'
+    );
+    expect(moved.fileName).toBe('01 ｏｖｅｒｃｌｏｃｋ.flac');
+    expect(moved.isFavorite).toBe(true);
+    expect(events.map((e) => e.event)).toContain('library-changed');
+  });
+
+  it('入力の誤りは、VALIDATIONのエラーにする', async () => {
+    const [track] = await commands.getAllTracks();
+    await expect(commands.planFileOrganize([], DEFAULT)).rejects.toMatchObject({
+      code: 'VALIDATION'
+    });
+    await expect(commands.planFileOrganize(['x'], DEFAULT)).rejects.toMatchObject({
+      code: 'VALIDATION'
+    });
+    await expect(commands.organizeFiles([track.id], '%unknown%')).rejects.toMatchObject({
+      code: 'VALIDATION',
+      message: '使えない項目です: %unknown%'
+    });
+  });
+});
+
 describe('コマンドの対応付け', () => {
   it('bindings.tsの全コマンドのIPC名がハンドラ名に変換できる', async () => {
     const invoked: string[] = [];

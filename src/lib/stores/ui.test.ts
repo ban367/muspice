@@ -110,7 +110,8 @@ describe('列幅', () => {
     format: 64,
     bitrate: 88,
     sampleRate: 88,
-    fileSize: 80
+    fileSize: 80,
+    filePath: 360
   };
 
   it('保存がなければ既定値を使う（保存はしない）', async () => {

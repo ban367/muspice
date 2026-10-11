@@ -58,6 +58,7 @@ import {
   type SmartPlaylistContext
 } from './smartPlaylist.js';
 import { createAlbumArt } from './media';
+import { parseOrganizeTemplate, planOrganize } from './fileOrganize';
 import { createMockPlaybackEngine, MOCK_OUTPUT_DEVICES } from './playbackEngine';
 import { MAX_PLAYBACK_SPEED, MIN_PLAYBACK_SPEED } from '#lib/stores/playbackAids.svelte.js';
 import { hasValue, listedArtists, splitValues, VALUE_SEPARATOR } from '#lib/utils/multiValue.js';
@@ -138,6 +139,13 @@ export interface MockBackend {
    * @param fileNames - 開かれたファイルの名前（音楽ファイルでないものは、エラーとして渡す）
    */
   openFiles(fileNames: string[]): void;
+  /**
+   * 重複した曲を、ライブラリに足す（重複した曲の画面と、ファイルの整理の確認用）
+   *
+   * ライブラリフォルダの中の`Downloads`に、今ある曲と同じタイトル・アーティストの曲を足す
+   * （整理すると、移動先に同じ名前のファイルがある曲・同じ移動先になる曲が出る）。
+   */
+  addDuplicateTracks(): void;
   /** `albumart`プロトコルの代わりに、トラックのアルバムアートをdata URLで返す（アートがなければnull） */
   albumArtUrl(trackId: string): string | null;
 }
@@ -1019,6 +1027,22 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   const tracksUnder = (folder: string) =>
     tracks.filter((track) => track.filePath.startsWith(folderPrefix(folder)));
 
+  /** 選んだ曲（選んだ順）の、ファイルの整理の計画（Rustの`commands/organize.rs`の`build_plan`） */
+  function organizePlan(trackIds: string[], templateText: string) {
+    if (trackIds.length === 0) fail('VALIDATION', '整理する曲が指定されていません');
+    trackIds.forEach(validateTrackId);
+    const template = parseOrganizeTemplate(templateText);
+    const selected = [...new Set(trackIds)]
+      .map((id) => tracks.find((track) => track.id === id))
+      .filter((track) => track !== undefined);
+    return planOrganize(
+      selected,
+      libraryFolders.map((folder) => folder.path),
+      template,
+      tracks.map((track) => track.filePath)
+    );
+  }
+
   /** インポートしたフォルダを記録する（フォルダ同士は入れ子にしない） */
   function registerLibraryFolder(path: string): void {
     const same = libraryFolders.find((folder) => folder.path === path);
@@ -1330,6 +1354,28 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         result.updatedCount++;
       }
       return result;
+    },
+    planFileOrganize: (trackIds, template) => ({
+      entries: organizePlan(trackIds, template).entries
+    }),
+    // 実ファイルは存在しないため、動かせる曲は常に移せたものとして扱う
+    organizeFiles: (trackIds, template) => {
+      const { entries, moves } = organizePlan(trackIds, template);
+      for (const move of moves) {
+        const track = tracks.find((t) => t.id === move.trackId);
+        if (!track) continue;
+        track.filePath = move.to;
+        track.fileName = move.to.slice(move.to.lastIndexOf('/') + 1);
+      }
+      if (moves.length > 0) options.emit('library-changed', null);
+      return {
+        movedCount: moves.length,
+        skippedCount: entries.filter(
+          (entry) => entry.status !== 'move' && entry.status !== 'unchanged'
+        ).length,
+        failedCount: 0,
+        errors: []
+      };
     },
     getAlbumArtInfo: (trackId) => {
       validateTrackId(trackId);
@@ -2044,6 +2090,45 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         };
         options.emit('tracks-opened', null);
       })();
+    },
+    addDuplicateTracks: () => {
+      const find = (title: string) => tracks.find((track) => track.title === title);
+      const copy = (source: Track | undefined, filePath: string, overrides: Partial<Track>) => {
+        if (!source) return;
+        tracks.push({
+          ...structuredClone(source),
+          id: crypto.randomUUID(),
+          filePath,
+          fileName: filePath.slice(filePath.lastIndexOf('/') + 1),
+          isFavorite: false,
+          rating: 0,
+          playCount: 0,
+          skipCount: 0,
+          lastPlayedAt: null,
+          createdAt: now(),
+          updatedAt: now(),
+          ...overrides
+        });
+      };
+      const downloads = '/Users/demo/Music/Downloads';
+      const paperPlanes = find('Paper Planes');
+      const overclock = find('Overclock');
+      const neonRain = find('Neon Rain');
+      // 同じ形式の写し（整理すると、移動先に同じ名前のファイルがある）
+      copy(paperPlanes, `${downloads}/paper planes (1).mp3`, {
+        duration: (paperPlanes?.duration ?? 0) + 1
+      });
+      // 全角・小文字のタイトルで、形式の違う写し（整理すると、移せる）
+      copy(overclock, `${downloads}/overclock.flac`, {
+        title: 'ｏｖｅｒｃｌｏｃｋ',
+        format: 'flac',
+        bitrate: 1411,
+        duration: (overclock?.duration ?? 0) + 2
+      });
+      // 同じ曲の写しが2つ（整理すると、同じ移動先になる）
+      copy(neonRain, `${downloads}/a/neon.mp3`, { format: 'mp3', bitrate: 320 });
+      copy(neonRain, `${downloads}/b/neon.mp3`, { format: 'mp3', bitrate: 128 });
+      options.emit('library-changed', null);
     },
     setM3uImportMode: (mode) => {
       m3uImportMode = mode;

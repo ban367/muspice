@@ -144,6 +144,8 @@ describe('createTrackSorter（並び替え）', () => {
     expect(order('format')).toEqual(['b', 'c', 'a']);
     expect(order('bitrate')).toEqual(['b', 'c', 'a']);
     expect(order('fileSize')).toEqual(['c', 'a', 'b']);
+    // 場所は、パスの文字の順
+    expect(order('filePath')).toEqual(['a', 'b', 'c']);
   });
 
   it('最初にクリックした時の向きは、回数・評価・日時などは大きい方（新しい方）から', () => {

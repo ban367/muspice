@@ -143,6 +143,7 @@ describe('trackCellText', () => {
     expect(trackCellText(track, 'bitrate')).toBe('1411 kbps');
     expect(trackCellText(track, 'sampleRate')).toBe('44.1 kHz');
     expect(trackCellText(track, 'fileSize')).toBe('3.0 MB');
+    expect(trackCellText(track, 'filePath')).toBe('/music/a.flac');
     expect(trackCellText(track, 'createdAt')).toContain('2026');
   });
 

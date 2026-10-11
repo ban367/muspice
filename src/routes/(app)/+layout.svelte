@@ -12,6 +12,7 @@
   import AboutDialog from '#lib/components/AboutDialog.svelte';
   import AlbumArtDialog from '#lib/components/AlbumArtDialog.svelte';
   import TagToolsDialog from '#lib/components/TagToolsDialog.svelte';
+  import FileOrganizeDialog from '#lib/components/FileOrganizeDialog.svelte';
   import SmartPlaylistDialog from '#lib/components/SmartPlaylistDialog.svelte';
   import NowPlayingView from '#lib/components/NowPlayingView.svelte';
   import MiniPlayer from '#lib/components/MiniPlayer.svelte';
@@ -23,6 +24,7 @@
   import { watchOpenedFiles } from '#lib/stores/openedFiles.js';
   import { albumArtDialog } from '#lib/stores/albumArt.svelte.js';
   import { tagToolsDialog } from '#lib/stores/tagTools.svelte.js';
+  import { fileOrganizeDialog } from '#lib/stores/fileOrganize.svelte.js';
   import { smartPlaylistDialog } from '#lib/stores/smartPlaylist.svelte.js';
   import { invalidateAllTrackQueries } from '#lib/queries/tracks.js';
   import { restoreTheme } from '#lib/utils/theme.js';
@@ -199,6 +201,16 @@
   {#if tagToolsDialog.tracks}
     {#key tagToolsDialog.tracks}
       <TagToolsDialog tracks={tagToolsDialog.tracks} onClose={() => tagToolsDialog.close()} />
+    {/key}
+  {/if}
+
+  <!-- ファイルの整理（曲のメニューから開く。開くたびに作り直す） -->
+  {#if fileOrganizeDialog.tracks}
+    {#key fileOrganizeDialog.tracks}
+      <FileOrganizeDialog
+        tracks={fileOrganizeDialog.tracks}
+        onClose={() => fileOrganizeDialog.close()}
+      />
     {/key}
   {/if}
 

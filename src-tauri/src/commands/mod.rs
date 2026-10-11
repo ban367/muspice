@@ -14,6 +14,7 @@ mod library_folders;
 mod library_xml;
 mod m3u;
 mod metadata_cmd;
+mod organize;
 mod playback;
 mod player;
 mod playlist_cmd;
@@ -51,6 +52,9 @@ pub use metadata_cmd::{
     apply_metadata_changes, get_track_lyrics, get_track_tags, refresh_library_metadata,
     update_multiple_tracks_metadata, update_track_metadata, write_library_metadata_to_files,
 };
+
+// ファイルの整理（タグに基づくリネーム・移動）
+pub use organize::{organize_files, plan_file_organize};
 
 // アルバムアートの編集（埋め込み・取り除き）と、情報の取得
 pub use album_art::{get_album_art_info, remove_album_art, set_album_art};

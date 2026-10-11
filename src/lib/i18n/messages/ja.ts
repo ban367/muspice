@@ -68,6 +68,7 @@ export const ja = {
     bitrate: 'ビットレート',
     sampleRate: 'サンプルレート',
     fileSize: 'サイズ',
+    filePath: '場所',
     titleSort: 'タイトルの読み',
     artistSort: 'アーティストの読み',
     albumArtistSort: 'アルバムアーティストの読み',
@@ -252,6 +253,7 @@ export const ja = {
     favorites: 'お気に入り',
     playHistory: '再生履歴',
     mostPlayed: 'よく再生する曲',
+    duplicates: '重複した曲',
     recentlyAdded: '最近追加した曲',
     folders: 'フォルダ',
     years: '年代',
@@ -431,6 +433,38 @@ export const ja = {
       `書き出し完了（書き込み: ${written}曲、変更なし: ${unchanged}曲、ファイルなし: ${skipped}曲、エラー: ${errors}曲）`
   },
 
+  fileOrganize: {
+    title: (count: number) => `ファイルを整理（${count}曲）`,
+    template: '書式',
+    preset: '書式の例',
+    templateHint:
+      '使える項目: %title% %artist% %album% %albumartist% %genre% %year% %track% %disc% %filename%。「/」で区切るとフォルダになり、「/」がなければ、今のフォルダのままファイル名だけを変えます。[ ] で囲んだ部分は、中の項目に値がない曲では省きます。',
+    scopeHint:
+      '曲のあるライブラリフォルダの中で移します。同じ名前の歌詞ファイル（.lrc）と、フォルダごと移る場合のフォルダの画像も一緒に移し、空になったフォルダは消します。',
+    /** 計画の一覧 */
+    moves: '移す曲',
+    moveCount: (count: number) => `${count}曲を移します`,
+    noMoves: '移す曲はありません',
+    unchanged: (count: number) => `${count}曲は、すでに書式どおりの場所にあります`,
+    blocked: '動かさない曲',
+    blockedCount: (count: number) => `${count}曲`,
+    more: (count: number) => `ほか${count}曲`,
+    columnCurrent: '今の場所',
+    columnNew: '整理後の場所',
+    columnReason: '理由',
+    reasons: {
+      outsideLibrary: 'ライブラリフォルダの外にあります',
+      missing: 'ファイルが見つかりません',
+      targetExists: '移動先に、同じ名前のファイルがあります',
+      sameTarget: '選んだ曲の中に、同じ移動先になる曲があります'
+    },
+    apply: '整理する',
+    applying: '整理しています...',
+    moved: (count: number) => `${count}曲のファイルを整理しました`,
+    partiallyFailed: (moved: number, failed: number) =>
+      `${moved}曲を整理しました（${failed}曲は移せませんでした）`,
+    allFailed: (reason: string) => `ファイルを移せませんでした: ${reason}`
+  },
   tagTools: {
     title: (count: number) => `タグの一括ツール（${count}曲）`,
     tabs: { fileName: 'ファイル名から', renumber: '連番', replace: '検索と置換' },
@@ -545,6 +579,7 @@ export const ja = {
     editMetadata: 'メタデータを編集',
     albumArt: 'アルバムアート...',
     tagTools: 'タグの一括ツール...',
+    fileOrganize: 'ファイルを整理...',
     showInFolder: 'ファイルの場所を開く',
     deleteEllipsis: '削除...',
     addToPlaylist: 'プレイリストに追加',
@@ -686,6 +721,12 @@ export const ja = {
     mostPlayed: 'よく再生する曲',
     noMostPlayed: 'よく再生する曲がありません',
     noMostPlayedHint: '曲の半分か4分を聴くと、1回と数えます',
+    duplicates: '重複した曲',
+    duplicatesDescription: 'タイトルとアーティストが同じで、長さがほぼ同じ曲です',
+    duplicatesSummary: (groups: number, tracks: number) => `${groups}組・${tracks}曲`,
+    noDuplicates: '重複した曲はありません',
+    noDuplicatesHint:
+      'タイトルとアーティストが同じで、長さがほぼ同じ曲があると、ここに表示されます',
     favorites: 'お気に入り',
     noFavorites: 'お気に入りの曲がありません',
     noFavoritesHint: '曲のハートを押すと、ここに表示されます',

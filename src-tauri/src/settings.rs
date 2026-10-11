@@ -89,6 +89,8 @@ pub enum SidebarItem {
     RecentlyAdded,
     PlayHistory,
     MostPlayed,
+    /// 重複した曲
+    Duplicates,
 }
 
 /// アプリケーション設定

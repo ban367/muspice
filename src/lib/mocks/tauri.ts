@@ -68,6 +68,8 @@ interface MuspiceMockHandle {
   setFileImportMode(mode: MockFileImportMode): void;
   /** Finderの「このアプリで開く」で、音楽ファイルが開かれたことにする（インポートして再生される） */
   openFiles(fileNames: string[]): void;
+  /** 重複した曲を、ライブラリに足す（重複した曲の画面と、ファイルの整理の確認用） */
+  addDuplicateTracks(): void;
 }
 
 /** モックで使う`__TAURI_INTERNALS__`の一部（公開型がないため最小限を定義する） */
@@ -189,7 +191,8 @@ export function setupTauriMock(): void {
     setM3uImportMode: (mode) => backend.setM3uImportMode(mode),
     setAlbumArtPickMode: (mode) => backend.setAlbumArtPickMode(mode),
     setFileImportMode: (mode) => backend.setFileImportMode(mode),
-    openFiles: (fileNames) => backend.openFiles(fileNames)
+    openFiles: (fileNames) => backend.openFiles(fileNames),
+    addDuplicateTracks: () => backend.addDuplicateTracks()
   };
 
   console.info('[mock] Tauri IPCをモックしています（npm run dev:mock）');

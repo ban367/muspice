@@ -11,6 +11,7 @@ import type {
   Metadata,
   DeleteResult,
   FilterOptions,
+  OrganizePlan,
   TrackMetadataChange
 } from '#lib/types/models.js';
 import { handleError, showSuccess, showWarning } from '#lib/stores/error.svelte.js';
@@ -491,6 +492,35 @@ export function useApplyMetadataChangesMutation() {
       if (result.updatedCount === 0) return;
       invalidateTrackListQueries(queryClient);
       invalidateTagQueries(queryClient);
+    }
+  }));
+}
+
+/**
+ * 選んだ曲のファイルの、整理の計画（今の場所 → 整理後の場所）を取得する
+ *
+ * 書式を変えるたびに取り直すため、キャッシュしない。書式の誤りは`VALIDATION`のエラーで返り、
+ * 画面がその場に表示する（トーストは出さない）。
+ */
+export function fetchFileOrganizePlan(trackIds: string[], template: string): Promise<OrganizePlan> {
+  return commands.planFileOrganize(trackIds, template);
+}
+
+/**
+ * 選んだ曲のファイルを、書式に従って整理する（リネーム・移動する）ミューテーション
+ *
+ * 動かせる曲だけを移す。移せなかった曲は結果の`failedCount`・`errors`で返る（残りは移される）。
+ * 曲の場所が変わるため、曲の一覧とプレイリストを取り直す（トラックのIDは変わらない）。
+ */
+export function useOrganizeFilesMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: ({ trackIds, template }: { trackIds: string[]; template: string }) =>
+      commands.organizeFiles(trackIds, template),
+    onSuccess: (result) => {
+      if (result.movedCount === 0) return;
+      invalidateAllTrackQueries(queryClient);
     }
   }));
 }

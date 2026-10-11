@@ -43,7 +43,8 @@
     'favorites',
     'recentlyAdded',
     'playHistory',
-    'mostPlayed'
+    'mostPlayed',
+    'duplicates'
   ];
   const themes: Theme[] = ['dark', 'light', 'system'];
   const volumeNormalizations: VolumeNormalization[] = ['off', 'track', 'album'];
