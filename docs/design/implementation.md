@@ -102,6 +102,7 @@ src-tauri/src/
 ├── metadata.rs
 ├── mini_player.rs         # ミニプレーヤー（メインウィンドウの大きさの切り替えと、元の大きさの記録。ADR-046）
 ├── models.rs
+├── multi_value.rs         # 複数の値を持つ項目（アーティスト・ジャンル）を値に分ける・比べる（SQLの関数を含む。ADR-051）
 ├── opened_files.rs        # 「このアプリで開く」・Dockのアイコンへのドロップで開かれたファイルの受け取り（インポートして、再生する曲として預かる。ADR-050）
 ├── settings.rs
 ├── tag_backfill.rs        # 既存のトラックの、後から追加した項目（アルバムアーティスト・ソート用のタグ）の読み込み（起動時）
@@ -163,6 +164,7 @@ src-tauri/src/
 - ライブラリのビュー（最近追加した曲・フォルダ別・年代別）の集計は、`#lib/utils/libraryViews`の純粋な関数で行う（ADR-041）。フォルダ別・年代別は、左に木の形の一覧（`TreeBrowser`）、右に曲の一覧を出す`TreeBrowsePage`を使う（木の項目は`TreeNode`。画面は、全曲の一覧から木と、選んだ項目の曲を計算して渡す）。サイドバーに項目を足す時は、Rustの`SidebarItem`・設定画面の`sidebarItems`・`m.sidebar`にも足す（設定で隠せるようにするため）
 - 曲の画面の絞り込みは、`#lib/utils/trackFilter`の純粋な関数（`applyTrackFilters`・`browseTracks`）で行う（ADR-040）。順番は、検索 → フィルタ → カラムブラウザ（ジャンル → アーティスト → アルバム）で、カラムブラウザの各列には、その列より前の絞り込みに合う曲の値だけを出す。状態（カラムブラウザを出すか・選択・フィルタ）は`#lib/stores/libraryBrowser.svelte`に持つ（出すかどうかだけをlocalStorageに保存する）
 - タグの一括ツール（`TagToolsDialog`。曲の右クリックのメニューから`tagToolsDialog.open(tracks)`で開く）は、変更の計算を`#lib/utils/tagTools`の純粋な関数（`guessFromFileName`・`renumberTracks`・`searchAndReplace`）に分けている。どれも曲ごとの変更（前 → 後）を返すだけで、画面はそれを一覧に出し、「適用」で`toMetadataChanges`の結果を`useApplyMetadataChangesMutation`へ渡す（ADR-037）
+- アーティスト・ジャンルを値ごとに扱う時（一覧の集計・絞り込み）は、`#lib/utils/multiValue`の`splitValues`・`hasValue`・`listedArtists`で値に分ける（`track.artist === ...`で比べない。`A; B`のように複数の値を持つ曲があるため。ADR-051）
 - 名前の順に並べる時は、`#lib/utils/nameSort`の`compareNames`・`sortByName`を使う（`localeCompare`・`toLowerCase`での比較を各所に書かない）。アルバム・アーティストなどは、並び順に使う値（`sortName`）があればその値で並べる。曲の一覧の並び替え（`trackSort`）も、タイトル・アーティスト・アルバムは`track.sortTags`の値を優先する
 - お気に入りのハートは`FavoriteButton`（`#lib/components/library`）を使う。曲のIDと今の状態を渡すと、押した時に`useSetFavoriteMutation`で切り替え、キャッシュにあるその曲を書き換える（`patchTracksInCache`。複数の曲をまとめて書き換えられる）
   - 再生キューの曲（`player.currentTrack`）は、キューに入れた時点の内容のまま。プレーヤーのハートは、お気に入りの一覧（`useFavoriteTracksQuery`）から状態を調べる
