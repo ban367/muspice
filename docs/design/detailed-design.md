@@ -339,7 +339,7 @@ export interface Playlist {
 | `get_global_shortcuts` | なし                     | `GlobalShortcutInfo[]` | グローバルホットキーの割り当てと、OSに登録できているか（`{ action: 'toggle' \| 'next' \| 'previous', keys: string[], registered: boolean }`）。保存した設定`globalShortcuts`がオフの間は、どれも`registered: false`。オンでも、ほかのアプリが使っている組み合わせは登録できないことがある                                                                                                          |
 | `set_mini_player`      | `enabled`, `alwaysOnTop` | `void`                 | メインウィンドウを、ミニプレーヤーの大きさ（420×150）と通常の大きさで切り替える（画面の切り替えはフロントエンドが行う）。ミニプレーヤーの間は、大きさを変えられず、`alwaysOnTop`なら常に手前に表示する。ミニプレーヤーの間に`enabled: true`で呼ぶと、`alwaysOnTop`だけを変える。小さくする前の大きさ・位置は`mini-player.json`にも記録し、ミニプレーヤーのまま終了した場合は、次の起動時に元へ戻す |
 
-`Settings`: `{ language: 'ja' \| 'en', startupPage: 'lastOpened' \| 'songs', theme: 'dark' \| 'light' \| 'system', accentColor: string, volumeNormalization: 'off' \| 'track' \| 'album', gaplessPlayback: boolean, crossfadeSeconds: number, outputDeviceId: string \| null, watchLibraryFolders: boolean, libraryScanIntervalMinutes: number, hiddenSidebarItems: SidebarItem[], autoDj: boolean, autoDjPlaylistId: string \| null, stayInMenuBar: boolean, globalShortcuts: boolean, notifyTrackChange: boolean }`（`SidebarItem`は`'songs' \| 'albums' \| 'artists' \| 'genres' \| 'folders' \| 'years' \| 'favorites' \| 'recentlyAdded' \| 'playHistory' \| 'mostPlayed'`。`hiddenSidebarItems`は、サイドバーに出さない項目。ファイルを読む時は、知らない項目と重複を除く）。`autoDj`はAuto DJ（再生キューの最後の曲になったら、曲を足して再生を続ける）、`autoDjPlaylistId`は曲を選ぶプレイリスト（`null`はライブラリ全体。UUIDの形だけを確かめ、プレイリストがあるかどうかは確かめない）。`stayInMenuBar`はメニューバー（トレイ）への常駐（アイコンを出し、ウィンドウを閉じても再生を続ける）、`globalShortcuts`はグローバルホットキー、`notifyTrackChange`は曲が変わった時のOSの通知（ADR-046）。既定値は`ja`・`lastOpened`・`dark`・`#3b82f6`・`off`・`true`・`0`・`null`・`false`・`0`・`[]`・`false`・`null`・`false`・`false`・`false`。`crossfadeSeconds`は0〜12（整数）、`libraryScanIntervalMinutes`は0（しない）・15・30・60・360のいずれか、`outputDeviceId`は`get_output_devices`が返すID（`null`はOSの既定のデバイス。空文字・512バイトを超える値は不可）で、それ以外は`VALIDATION_ERROR`。`outputDeviceId`のデバイスが接続されていない間は、既定のデバイスで再生する（設定は変えない）。以前のバージョンが保存した、今はない項目（`playbackEngine`）は無視する。ファイルにない項目は既定値で補う（項目を追加しても古いファイルを読める）。
+`Settings`: `{ language: 'ja' \| 'en', startupPage: 'lastOpened' \| 'songs', theme: 'dark' \| 'light' \| 'system', accentColor: string, volumeNormalization: 'off' \| 'track' \| 'album', gaplessPlayback: boolean, crossfadeSeconds: number, outputDeviceId: string \| null, watchLibraryFolders: boolean, libraryScanIntervalMinutes: number, hiddenSidebarItems: SidebarItem[], autoDj: boolean, autoDjPlaylistId: string \| null, stayInMenuBar: boolean, globalShortcuts: boolean, notifyTrackChange: boolean }`（`SidebarItem`は`'songs' \| 'albums' \| 'artists' \| 'genres' \| 'folders' \| 'years' \| 'favorites' \| 'recentlyAdded' \| 'playHistory' \| 'mostPlayed' \| 'duplicates'`。`hiddenSidebarItems`は、サイドバーに出さない項目。ファイルを読む時は、知らない項目と重複を除く）。`autoDj`はAuto DJ（再生キューの最後の曲になったら、曲を足して再生を続ける）、`autoDjPlaylistId`は曲を選ぶプレイリスト（`null`はライブラリ全体。UUIDの形だけを確かめ、プレイリストがあるかどうかは確かめない）。`stayInMenuBar`はメニューバー（トレイ）への常駐（アイコンを出し、ウィンドウを閉じても再生を続ける）、`globalShortcuts`はグローバルホットキー、`notifyTrackChange`は曲が変わった時のOSの通知（ADR-046）。既定値は`ja`・`lastOpened`・`dark`・`#3b82f6`・`off`・`true`・`0`・`null`・`false`・`0`・`[]`・`false`・`null`・`false`・`false`・`false`。`crossfadeSeconds`は0〜12（整数）、`libraryScanIntervalMinutes`は0（しない）・15・30・60・360のいずれか、`outputDeviceId`は`get_output_devices`が返すID（`null`はOSの既定のデバイス。空文字・512バイトを超える値は不可）で、それ以外は`VALIDATION_ERROR`。`outputDeviceId`のデバイスが接続されていない間は、既定のデバイスで再生する（設定は変えない）。以前のバージョンが保存した、今はない項目（`playbackEngine`）は無視する。ファイルにない項目は既定値で補う（項目を追加しても古いファイルを読める）。
 
 ### カスタムプロトコル
 
@@ -393,6 +393,41 @@ export interface Playlist {
 - `BulkUpdateResult`: `updatedCount`, `failedCount`, `errors[]`
 - `WriteMetadataResult`: `writtenCount`, `unchangedCount`（ファイルと同じ）, `skippedCount`（ファイルが見つからない）, `errorCount`, `errors[]`
 - `write_library_metadata_to_files`は、DBの値がファイルと違う項目だけを書き込む。DBに値がない項目（評価なしを含む）と、タグにタイトルがないファイルの既定のタイトル（ファイル名）は書き出さない（ファイルにだけある値を消さないため）
+
+### ファイルの整理（タグに基づくリネーム・移動）
+
+選んだ曲のファイルを、書式に従って、その曲のあるライブラリフォルダの中でリネーム・移動する（`file_organize.rs`。ADR-052）。
+
+| コマンド             | 引数                   | 戻り値           | 内容                                                                                                                        |
+| -------------------- | ---------------------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `plan_file_organize` | `trackIds`, `template` | `OrganizePlan`   | 整理の計画（曲ごとの、今の場所 → 整理後の場所と、動かすかどうか）を返す。ファイルは動かさない                               |
+| `organize_files`     | `trackIds`, `template` | `OrganizeResult` | 計画を立て直し、動かせる曲だけを移す。移せなかった曲は理由を結果に入れて、残りを続ける。1曲でも移すと`LibraryChanged`を送る |
+
+- `OrganizePlan`: `entries: OrganizeEntry[]`（選んだ順）。`OrganizeEntry`: `{ trackId, currentPath, newPath: string | null, status }`。`currentPath`・`newPath`は、ライブラリフォルダからの場所（表示用。フォルダの外の曲の`currentPath`は、ファイルのパス）
+- `status`（`OrganizeStatus`）: `move`（動かす）・`unchanged`（すでに書式どおりの場所にある）・`outsideLibrary`（ライブラリフォルダの外にある）・`missing`（ファイルが見つからない）・`targetExists`（移動先に同じ名前のファイルがある）・`sameTarget`（選んだ曲の中に、同じ移動先になる曲がある）。動かすのは`move`だけ
+- `OrganizeResult`: `movedCount`, `skippedCount`（`move`・`unchanged`以外の数）, `failedCount`, `errors[]`（`場所: 理由`。歌詞ファイルだけを移せなかった場合も入る）
+- 入力の誤り（曲の指定がない・IDの形が違う・書式の誤り）は`VALIDATION_ERROR`。書式の誤りは、理由をメッセージで返す（画面は、そのまま表示する）
+- 書式（`Template`。255文字まで）
+  - `%名前%`が項目: `title`・`artist`・`album`・`albumartist`・`genre`・`year`・`track`・`disc`・`filename`（今のファイル名。拡張子を除く）。名前の大文字と小文字は区別しない。`%%`は`%`。ほかの文字は、そのまま書く
+  - `/`（`\`も同じ）で区切ると、フォルダの階層になる。最後の区切りより後ろがファイル名で、項目を1つ以上入れる（ないと、どの曲も同じ名前になる）。拡張子は、元のファイルのまま
+  - `/`を含む書式は、ライブラリフォルダからの場所（先頭に`/`だけを付けると、ライブラリフォルダの直下）。`/`を含まない書式は、今のフォルダのまま、ファイル名だけを変える
+  - `[ ]`で囲んだ部分は、中の項目のどれにも値がない曲では省く（`[%disc%-]%track% %title%`。入れ子にはできない）。値がなくて空になった階層は省き、ファイル名が空になる曲は、今のファイル名のままにする
+  - 値のない項目: タイトルは今のファイル名、アルバムアーティストはアーティスト。それもなければ`Unknown Title`・`Unknown Artist`・`Unknown Album`・`Unknown Genre`（デバイスへの転送と同じ、言語によらない名前）。年・トラック番号・ディスク番号は、何も書かない。トラック番号は2桁にそろえる（`01`）。複数の値を持つアーティスト・ジャンルは、つないだ文字列（`A; B`）のまま使う
+  - フォルダ名・ファイル名は、デバイスへの転送と同じ規則で、ファイル名に使える形にする（`device_sync::sanitize_component`。NFCにそろえ、使えない文字を`_`にし、前後のドット・空白を除き、80文字で切る）。値の中の`/`は、階層にしない
+- 移動先の判定
+  - 曲のあるライブラリフォルダは、曲のパスがフォルダのパスで始まるかで決める（パスの要素の単位）。どのフォルダにも属さない曲は、動かさない
+  - 整理後の場所が今の場所と同じ（文字の形（NFC・NFD）だけが違う場合を含む）なら、`unchanged`
+  - 選んだ曲の中で移動先が重なる曲は、どれも動かさない（大文字と小文字・文字の形の違いは、同じ場所とみなす）
+  - 移動先に何かある曲と、移動先がライブラリのほかの曲（見つからない曲を含む）の場所として登録されている曲は、動かさない。名前の大文字と小文字だけを変える場合（移動先が、動かすファイル自身）は、動かせる
+- 一緒に動かすもの
+  - 曲と同じフォルダにある、同じ名前の歌詞ファイル（`.lrc`。`get_track_lyrics`が読むもの）は、曲と同じ名前で移す。移動先がふさがっている場合は、曲も動かさない（`targetExists`）
+  - フォルダの画像（`cover.jpg`など。`album_art.rs`が使う名前）は、元のフォルダに音楽ファイルが残らず、移した曲の移動先が1つのフォルダで、そのフォルダへ移ってきた曲がすべて同じフォルダから来た場合に移す。移動先に同じ名前のファイルがあれば、移さない
+  - 曲がなくなって空になったフォルダは、上へさかのぼって消す（`.DS_Store`・`Thumbs.db`・`desktop.ini`だけが残るフォルダも、空とみなす。ライブラリフォルダ自体は消さない）
+- 実行（`organize_files`）
+  - 再スキャン（自動のものを含む）と同時に動かないよう、`library_scan_lock`を取ってから計画を立て直す
+  - ファイルは、上書きしない方法で移す: ハードリンクを作ってから元を消す（リンクは、移動先があると失敗する）。ハードリンクを作れないファイルシステム（FAT32・exFATなど）では、移動先がないことを確かめてから`rename`する。移せるのは、同じボリュームの中だけ
+  - 50曲ごとに、ファイルを移してから、DBの場所（`file_path`・`file_name`・`file_modified_at`）をトランザクションで書き換える（`repository::relink_track`。トラックのID・お気に入り・再生回数・プレイリストへの登録は変えない）。書き換えられなかった曲は、ファイルを元の場所へ戻す
+  - 終わったら、アルバムアートのキャッシュを捨てる（フォルダの画像を使う曲は、フォルダが変わると画像も変わるため）
 
 ### プレイリスト
 
