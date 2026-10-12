@@ -304,6 +304,22 @@ export const ja = {
     save: '保存'
   },
 
+  /** 再生の補助（プレーヤーのメニュー） */
+  playbackAids: {
+    title: '停止のタイミング・スリープタイマー・Auto DJ',
+    stopAfterCurrent: 'この曲が終わったら停止',
+    sleepTimer: 'スリープタイマー',
+    minutes: (minutes: number) => `${minutes}分`,
+    remaining: (time: string) => `残り ${time}`,
+    fadingOut: '音量を下げています...',
+    waitForTrackEnd: '時間が来たら、曲の終わりまで再生する',
+    cancelSleepTimer: 'タイマーを解除',
+    autoDj: 'Auto DJ',
+    autoDjHint: '再生キューの最後の曲になったら、曲を足して再生を続けます。',
+    autoDjSource: '曲を選ぶ元',
+    autoDjLibrary: 'ライブラリ全体'
+  },
+
   equalizer: {
     title: 'イコライザ',
     turnOff: 'イコライザをオフ',

@@ -1105,6 +1105,10 @@ export type Settings = {
 	libraryScanIntervalMinutes: number,
 	/**  サイドバーに表示しない項目（既定は空で、すべて表示する） */
 	hiddenSidebarItems: SidebarItem[],
+	/**  Auto DJ（再生キューの最後の曲になったら、曲を足して再生を続ける） */
+	autoDj: boolean,
+	/**  Auto DJが曲を選ぶプレイリスト（nullはライブラリ全体） */
+	autoDjPlaylistId: string | null,
 };
 
 /**  設定が保存された（設定ウィンドウでの変更をメインウィンドウに反映する） */
