@@ -67,6 +67,7 @@
 - ログは `tauri-plugin-log` が標準出力とOS標準のログフォルダに出力する（ファイル名は `muspice.log`、レベルはInfo以上、時刻はローカル時刻）
   - macOS: `~/Library/Logs/com.ban367.muspice`、Windows: `%LOCALAPPDATA%\com.ban367.muspice\logs`、Linux: `~/.local/share/com.ban367.muspice/logs`
   - 5MiBを超えたら日時付きの名前に変えて新しいファイルに切り替え、古いファイルは4つまで残す（最大で約25MiB）
+  - 再生エンジンのデコーダー（symphonia）のログは、エラーだけを残す（曲を開くたびに形式の情報などを出すため）。出力が開き直された・デコードが間に合わず音が途切れたことは、再生エンジンがログに残す
   - アプリデータ配下（以前の出力先）ではなくOS標準の場所にしているのは、macOSのコンソールアプリで参照でき、WindowsではRoamingプロファイルに含まれないため
 
 ## 品質維持の運用

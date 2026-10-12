@@ -198,6 +198,31 @@ export const commands = {
 	isMissing: boolean,
 } | null>("get_current_track"),
 	/**
+	 *  トラックを頭から再生する（再生中の曲は止める）
+	 * 
+	 *  `token`は、フロントエンドが再生ごとに振る番号。この曲についての`PlaybackEvent`に付いて返る。
+	 */
+	playbackPlay: (trackId: string, token: number) => __TAURI_INVOKE<PlaybackTrackInfo>("playback_play", { trackId, token }),
+	/**
+	 *  再生中の曲に続けて再生するトラックを用意する（nullで取り消す）
+	 * 
+	 *  用意しておくと、再生中の曲の終わりから切れ目なく続けて再生し（ギャップレス再生）、
+	 *  切り替わった時点で`PlaybackEvent`の`advanced`が届く。
+	 */
+	playbackSetNext: (trackId: string | null, token: number) => __TAURI_INVOKE<null>("playback_set_next", { trackId, token }),
+	/**  再生を一時停止する */
+	playbackPause: () => __TAURI_INVOKE<null>("playback_pause"),
+	/**  一時停止した再生を再開する */
+	playbackResume: () => __TAURI_INVOKE<null>("playback_resume"),
+	/**  再生中の曲の、指定した位置（秒）へ移動する */
+	playbackSeek: (position: number | null) => __TAURI_INVOKE<null>("playback_seek", { position }),
+	/**  音量（0.0〜1.0）を設定する */
+	playbackSetVolume: (volume: number | null) => __TAURI_INVOKE<null>("playback_set_volume", { volume }),
+	/**  再生を止める（再生中の曲・続けて再生する曲を手放す） */
+	playbackStop: () => __TAURI_INVOKE<null>("playback_stop"),
+	/**  出力デバイスの一覧を取得する */
+	getOutputDevices: () => __TAURI_INVOKE<OutputDevice[]>("get_output_devices"),
+	/**
 	 *  トラックのファイルをシステムのファイルマネージャーで表示
 	 * 
 	 *  WebViewから任意のパスを指定できないよう、トラックIDからDB上のパスを解決する。
@@ -251,6 +276,7 @@ export const events = {
 	libraryChanged: makeEvent<LibraryChanged>("library-changed"),
 	libraryScanProgress: makeEvent<LibraryScanProgress>("library-scan-progress"),
 	openImportDialog: makeEvent<OpenImportDialog>("open-import-dialog"),
+	playbackEvent: makeEvent<PlaybackEvent>("playback-event"),
 	settingsChanged: makeEvent<SettingsChanged>("settings-changed"),
 	showAboutDialog: makeEvent<ShowAboutDialog>("show-about-dialog"),
 	toggleSidebar: makeEvent<ToggleSidebar>("toggle-sidebar"),
@@ -307,7 +333,9 @@ export type AppError =
 /**  ファイルI/Oエラー */
 { code: "IO"; message: string } | 
 /**  メタデータの抽出・書き込みエラー */
-{ code: "METADATA"; message: string };
+{ code: "METADATA"; message: string } | 
+/**  再生エンジンのエラー（デコードできない・出力デバイスを使えない） */
+{ code: "PLAYBACK"; message: string };
 
 /**
  *  アーティストの一覧の1件（アルバムと曲は含めない。`get_artist_albums`で取得する）
@@ -505,6 +533,49 @@ export type Metadata = {
 /**  メニュー「フォルダをインポート...」: インポートダイアログを開く */
 export type OpenImportDialog = null;
 
+/**  出力デバイス */
+export type OutputDevice = {
+	/**  デバイスを選ぶためのID（設定に保存する。接続し直しても変わらない） */
+	id: string,
+	/**  表示名 */
+	name: string,
+	/**  OSの既定の出力デバイスか */
+	isDefault: boolean,
+};
+
+/**  再生に使うエンジン */
+export type PlaybackEngineKind = 
+/**  WebViewのaudio要素（これまでの再生） */
+"webView" | 
+/**  ネイティブの再生エンジン（`playback`。出力デバイスを選べる） */
+"native";
+
+/**
+ *  ネイティブの再生エンジン（`playback`）からの通知
+ * 
+ *  `token`は、フロントエンドが再生する曲ごとに振った番号（`playback_play` / `playback_set_next`で
+ *  渡したもの）。曲を切り替えた後に届いた、前の曲の通知を見分けるために使う。
+ */
+export type PlaybackEvent = 
+/**  続けて再生する曲（`playback_set_next`で用意した曲）へ、切れ目なく切り替わった */
+{ type: "advanced"; token: number; 
+/**  曲の長さ（秒。ファイルから分からない場合はnull） */
+duration: number | null } | 
+/**  再生位置（再生中に一定の間隔で届く。シークの直後にも届く） */
+{ type: "position"; token: number; 
+/**  曲の頭からの秒数 */
+position: number | null } | 
+/**  曲が最後まで鳴り終わり、続けて再生する曲がなかった */
+{ type: "ended"; token: number } | 
+/**  再生を続けられなくなった（ファイルを読めない・出力デバイスを使えないなど）。再生は止まっている */
+{ type: "failed"; token: number; error: AppError };
+
+/**  再生を始めた曲の情報 */
+export type PlaybackTrackInfo = {
+	/**  曲の長さ（秒。ファイルから分からない場合はnull） */
+	duration: number | null,
+};
+
 /**  プレイリストのデータモデル */
 export type Playlist = {
 	id: string,
@@ -576,6 +647,10 @@ export type Settings = {
 	gaplessPlayback: boolean,
 	/**  クロスフェードの秒数（0でクロスフェードしない） */
 	crossfadeSeconds: number,
+	/**  再生に使うエンジン */
+	playbackEngine: PlaybackEngineKind,
+	/**  出力デバイスのID（ネイティブの再生エンジンだけが使う。nullはOSの既定のデバイス） */
+	outputDeviceId: string | null,
 	/**  ライブラリフォルダを監視し、ファイルの変更を自動で反映する */
 	watchLibraryFolders: boolean,
 	/**  ライブラリフォルダを定期的に再スキャンする間隔（分。0で再スキャンしない） */

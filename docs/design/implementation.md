@@ -2,20 +2,21 @@
 
 ## 技術スタック
 
-| 層               | 技術                            | バージョン（2026-10-03時点）                       | 備考                                                 |
-| ---------------- | ------------------------------- | -------------------------------------------------- | ---------------------------------------------------- |
-| フロントエンド   | SvelteKit + Svelte + TypeScript | `@sveltejs/kit` 3.0.x / `svelte` 5.57.x / TS 6.0.x | SPA構成（adapter-static）                            |
-| ビルド           | Vite                            | 8.3.x                                              | Tailwindは`@tailwindcss/vite`経由（PostCSS設定なし） |
-| テスト           | Vitest                          | 5.0.x                                              | ストア・ユーティリティの単体テスト                   |
-| UIスタイル       | TailwindCSS + DaisyUI           | Tailwind 4.3.x / DaisyUI 5.7.x                     | `@apply`運用に制限あり                               |
-| データ取得       | TanStack Query（Svelte）        | 6.3.x                                              | Queryキャッシュ/再取得制御                           |
-| デスクトップ基盤 | Tauri + tauri-specta            | 2.12.x / 2.0.0-rc.25                               | 型付きコマンド呼び出しを自動生成                     |
-| バックエンド     | Rust                            | edition 2024（stable）                             | コアロジック/DBアクセス                              |
-| DB               | SQLite + FTS5                   | rusqlite 0.40（bundled）                           | 全文検索・ローカル保存                               |
-| メタデータ       | lofty                           | 0.25                                               | タグ読み書き/アルバムアート抽出                      |
-| フォルダの監視   | notify-debouncer-mini（notify） | 0.7（notify 8）                                    | ライブラリフォルダの変更の自動反映                   |
-| ウィンドウの状態 | tauri-plugin-window-state       | 2.5.x                                              | メインウィンドウのサイズ・位置の記憶（Rust側のみ）   |
-| デバイスへの転送 | fs4 / unicode-normalization     | 1.1 / 0.1                                          | 転送先の空き容量の取得 / ファイル名のNFC正規化       |
+| 層               | 技術                             | バージョン（2026-10-03時点）                       | 備考                                                                                                                                              |
+| ---------------- | -------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| フロントエンド   | SvelteKit + Svelte + TypeScript  | `@sveltejs/kit` 3.0.x / `svelte` 5.57.x / TS 6.0.x | SPA構成（adapter-static）                                                                                                                         |
+| ビルド           | Vite                             | 8.3.x                                              | Tailwindは`@tailwindcss/vite`経由（PostCSS設定なし）                                                                                              |
+| テスト           | Vitest                           | 5.0.x                                              | ストア・ユーティリティの単体テスト                                                                                                                |
+| UIスタイル       | TailwindCSS + DaisyUI            | Tailwind 4.3.x / DaisyUI 5.7.x                     | `@apply`運用に制限あり                                                                                                                            |
+| データ取得       | TanStack Query（Svelte）         | 6.3.x                                              | Queryキャッシュ/再取得制御                                                                                                                        |
+| デスクトップ基盤 | Tauri + tauri-specta             | 2.12.x / 2.0.0-rc.25                               | 型付きコマンド呼び出しを自動生成                                                                                                                  |
+| バックエンド     | Rust                             | edition 2024（stable）                             | コアロジック/DBアクセス                                                                                                                           |
+| DB               | SQLite + FTS5                    | rusqlite 0.40（bundled）                           | 全文検索・ローカル保存                                                                                                                            |
+| メタデータ       | lofty                            | 0.25                                               | タグ読み書き/アルバムアート抽出                                                                                                                   |
+| フォルダの監視   | notify-debouncer-mini（notify）  | 0.7（notify 8）                                    | ライブラリフォルダの変更の自動反映                                                                                                                |
+| ウィンドウの状態 | tauri-plugin-window-state        | 2.5.x                                              | メインウィンドウのサイズ・位置の記憶（Rust側のみ）                                                                                                |
+| デバイスへの転送 | fs4 / unicode-normalization      | 1.1 / 0.1                                          | 転送先の空き容量の取得 / ファイル名のNFC正規化                                                                                                    |
+| 再生エンジン     | symphonia / cpal / rubato / rtrb | 0.6 / 0.18 / 5 / 0.4                               | デコード / 出力 / サンプルレートの変換 / リングバッファ。Opusは`symphonia-adapter-libopus` 0.3（libopusを同梱。ビルドにCコンパイラとcmakeが要る） |
 
 ## ディレクトリ構成
 
@@ -46,6 +47,7 @@ src-tauri/src/
 │   ├── import.rs
 │   ├── library_folders.rs
 │   ├── metadata_cmd.rs
+│   ├── playback.rs        # ネイティブの再生エンジンのコマンド
 │   ├── player.rs
 │   ├── playlist_cmd.rs
 │   ├── settings.rs
@@ -68,6 +70,13 @@ src-tauri/src/
 ├── library_folder.rs
 ├── library_sync.rs        # ライブラリフォルダの変更の自動反映（起動時・定期・監視）
 ├── menu.rs                # メニューバーと設定ウィンドウのタイトル（言語に合わせる）
+├── playback/              # ネイティブの再生エンジン（ADR-025）
+│   ├── engine.rs          # エンジン本体（コマンドの処理・曲の切り替え・再生位置の通知）
+│   ├── decoder.rs         # ファイルのデコード（symphonia + libopus）
+│   ├── mp4_gapless.rs     # M4AのAACの、曲の頭と終わりの余分の読み取り
+│   ├── convert.rs         # 出力の形式（ステレオ・出力のサンプルレート）への変換
+│   ├── render.rs          # 出力のコールバックでの音声の取り出し（音量・一時停止）
+│   └── output.rs          # 出力デバイスの一覧と、出力のストリーム（cpal）
 ├── playlist.rs
 ├── metadata.rs
 ├── models.rs
@@ -140,6 +149,12 @@ src-tauri/src/
   - クロスフェードの途中で一時停止・シーク・曲の選択などをしたら、前の曲を止めて再生中の曲を通常の音量に戻す（`endCrossfade`）
   - デッキが再生中になるときは、フェードの音量を必ず決め直す（フェードインか1）。前の曲として音量を0まで下げたデッキを、そのまま使わないため
 - 音量の正規化は、再生中のトラックの`replayGain`と設定の`volumeNormalization`から`#lib/utils/normalization`の`normalizationGain`で倍率を求め、イコライザの前段のGainNodeへ`setNormalizationGain`で反映する。コントローラーは設定を直接読まず、`options`の関数（`normalizationMode`・`gapless`・`crossfadeSeconds`）で受け取る（テストで差し替えるため）。補正はデッキごとにかけ、各デッキが読み込んだトラックの値を使う。audio要素の`volume`はユーザーの音量のまま変えない
+- ネイティブの再生エンジンでの再生は`#lib/stores/nativePlayback.svelte`の`createNativePlaybackController(options)`が担う（設定の`playbackEngine`が`native`の時に、`Player.svelte`がこちらを作る。操作は`PlaybackController`で共通）
+  - 再生キューの扱い（`peekNextTrack`・`playNextTrack`・同じトラックの再生し直し）と、再生回数の記録の規則は、audio要素の再生コントローラーと同じにする
+  - エンジンへ渡す番号（トークン）は、再生する曲・続けて再生する曲ごとに増やす。通知（`PlaybackEvent`）は番号で見分け、前の曲についての通知は捨てる
+  - `advanced`が届いたら、再生し直さずに`playNextTrack()`でキューを進める。伝えてあった曲がもうキューの次の曲でない場合は、キューの次の曲を再生し直す
+  - シークバーのドラッグ中は、シークを間隔（80ms）を空けて送る（そのたびにシークすると、音が細切れになる）
+  - 再生コントローラーを作り直す（再生エンジンを切り替える）と、再生は止まりキューは空になる。audio要素は一度Web Audioの経路につなぐと別の経路につなぎ直せないため、audio要素での再生に戻した時は`Player.svelte`が新しい要素を作る
 - アルバム・プレイリストなどの「シャッフル再生」は`playShuffled(tracks)`を使う（配列を`sort(() => Math.random() - 0.5)`などで独自に並べ替えない）。シャッフルモードを有効にし、元の順序を保持するため、解除すると元の順序に戻る
 
 ### 多言語化（i18n）
@@ -249,6 +264,9 @@ cargo test --manifest-path src-tauri/Cargo.toml
 ## テスト方針
 
 - Rustユニットテストを `cargo test` で実行
+  - 再生エンジン（`playback/`）は、音声デバイスのない環境でも動かせるよう、出力を`OutputBackend`で差し替えてテストする（エンジンをスレッドなしで動かし、出力のコールバックの代わりにテストから音声を取り出す）
+  - 非可逆の形式（MP3・AAC・Opus・Vorbis）の、曲の頭・終わりの余分とシークの位置は、`src-tauri/tests/fixtures/playback/`の短いファイルで確かめる（作り直す手順は`decoder.rs`のテストのコメント）
+  - 実際の出力デバイスでの再生は、手動のテストで確かめる（音量を0にするため音は出ない）: `PLAYBACK_TEST_FILES=a.flac:b.mp3 cargo test real_output -- --ignored --nocapture`。再生位置・曲の切り替わりの通知と、かかった時間（実時間で再生されたか）、音切れのログを表示する
 - フロントエンドのロジック（ストア・ユーティリティ）は Vitest で単体テストする（`npm test`）
   - テストは対象と同じディレクトリに `*.test.ts` として置き、Node環境で実行する。テスト内で`$state`・`$effect`などのRunesを使う場合は `*.svelte.test.ts` にする
   - Svelteはアプリと同じクライアント向けにコンパイルする（`vitest.environment.ts`の環境と、Vitest実行時の`resolve.conditions: ['browser']`）。組み込みの`node`環境ではサーバー向けになり、`$effect`が実行されない
@@ -289,9 +307,10 @@ Tauriのウィンドウ（macOSではWKWebView）はブラウザ自動化ツー�
   - `window.__MUSPICE_MOCK__.emit('open-import-dialog')`（`toggle-sidebar` / `show-about-dialog`も同様）
   - `window.__MUSPICE_MOCK__.setConfirmResult(false)`で、以降の確認ダイアログを「キャンセル」にする
   - `window.__MUSPICE_MOCK__.setFolderResult('/Volumes/NEW_SD')`で、以降のフォルダ選択ダイアログで選ばれるパスを変える。既定のパスはライブラリフォルダの中のため、転送先デバイスの追加を確認するときはライブラリの外のパスにする
+- ネイティブの再生エンジンでの動作は、URLに`?mockEngine=native`を付けて開くと確認できる（設定の「再生エンジン」をネイティブにした状態で始まる）。`playbackEngine.ts`がエンジンのコマンドと通知を再現し、音は鳴らさずに、時計に合わせて再生位置・曲の切り替わり・曲の終わりを進める
 - 数万曲のライブラリでの動作は、URLに`?mockTracks=50000`を付けて開くと確認できる（例: `/library/songs?mockTracks=50000`。フィクスチャに加えて、指定した数のトラックを生成する。アプリ内の移動では状態が保たれ、再読み込みすると付けたURLで開き直すまで元の件数に戻る）
 - デバイスへの転送は、デバイス上の曲を「コピー済みのトラックの集合」で再現する（配置の決定・リネーム・プレイリストのファイルは再現しない）
-- 確認できないもの: Rust側の処理（SQLite・FTS5・ファイルI/O・タグ読み書き）、実ファイルの再生、CSP・capabilityによる制約。これらは`cargo test`と`npm run tauri dev`で確認する
+- 確認できないもの: Rust側の処理（SQLite・FTS5・ファイルI/O・タグ読み書き）、実ファイルの再生（ネイティブの再生エンジンのデコード・出力を含む）、CSP・capabilityによる制約。これらは`cargo test`と`npm run tauri dev`で確認する
 
 ## CI方針
 
@@ -300,6 +319,8 @@ Tauriのウィンドウ（macOSではWKWebView）はブラウザ自動化ツー�
 1. Frontend Check（type-check, lint, format:check, test）
 2. Backend Check（fmt --check, clippy, test）
 3. Build Test（PR時のみ、Tauri build）
+
+Linuxでは、Tauriの依存に加えて、再生エンジンの出力（`cpal`のALSA）のために`libasound2-dev`を入れる。libopusのビルドにはcmakeが要る（GitHubのランナーには入っている。手元のmacOSでは`brew install cmake`）。
 
 `.github/workflows/audit.yml` で依存関係の脆弱性を検査する（毎週・lockfile変更PR時。詳細は `non-functional.md`）。
 

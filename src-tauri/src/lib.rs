@@ -14,6 +14,7 @@ mod library_sync;
 mod menu;
 mod metadata;
 mod models;
+mod playback;
 mod playlist;
 mod repository;
 mod search_text;
@@ -27,14 +28,16 @@ use commands::{
     delete_tracks_command, delete_tracks_with_files_command, filter_tracks, get_album_tracks,
     get_albums, get_all_tracks, get_artist_albums, get_artists, get_current_track,
     get_favorite_tracks, get_genre_tracks, get_genres, get_library_folders, get_most_played_tracks,
-    get_playlist_tracks, get_playlists, get_recently_played_tracks, get_settings, get_sync_devices,
-    get_track_file_path, get_unique_albums, get_unique_artists, get_unique_genres, import_folder,
-    increment_play_count, open_project_page, plan_device_sync, refresh_library_metadata,
-    register_sync_device, relink_sync_device, remove_library_folder, remove_missing_tracks,
-    remove_sync_device, remove_track_from_playlist, rename_playlist, reorder_playlist_tracks,
-    rescan_library_folder, run_device_sync, save_settings, search_tracks, set_current_track,
-    set_rating, show_in_folder, toggle_favorite, update_multiple_tracks_metadata,
-    update_sync_device, update_track_metadata, write_library_metadata_to_files,
+    get_output_devices, get_playlist_tracks, get_playlists, get_recently_played_tracks,
+    get_settings, get_sync_devices, get_track_file_path, get_unique_albums, get_unique_artists,
+    get_unique_genres, import_folder, increment_play_count, open_project_page, plan_device_sync,
+    playback_pause, playback_play, playback_resume, playback_seek, playback_set_next,
+    playback_set_volume, playback_stop, refresh_library_metadata, register_sync_device,
+    relink_sync_device, remove_library_folder, remove_missing_tracks, remove_sync_device,
+    remove_track_from_playlist, rename_playlist, reorder_playlist_tracks, rescan_library_folder,
+    run_device_sync, save_settings, search_tracks, set_current_track, set_rating, show_in_folder,
+    toggle_favorite, update_multiple_tracks_metadata, update_sync_device, update_track_metadata,
+    write_library_metadata_to_files,
 };
 use state::AppState;
 use std::path::PathBuf;
@@ -92,6 +95,14 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             get_track_file_path,
             set_current_track,
             get_current_track,
+            playback_play,
+            playback_set_next,
+            playback_pause,
+            playback_resume,
+            playback_seek,
+            playback_set_volume,
+            playback_stop,
+            get_output_devices,
             show_in_folder,
             open_project_page,
             toggle_favorite,
@@ -112,7 +123,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::ShowAboutDialog,
             events::OpenImportDialog,
             events::ToggleSidebar,
-            events::SettingsChanged
+            events::SettingsChanged,
+            events::PlaybackEvent
         ])
         // 設定の値の範囲（フロントの設定画面・モックと共有する）
         .constant("DEFAULT_ACCENT_COLOR", settings::DEFAULT_ACCENT_COLOR)
@@ -139,6 +151,11 @@ fn log_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
             Target::new(TargetKind::Stdout),
             Target::new(TargetKind::LogDir { file_name: None }),
         ])
+        // 再生エンジンのデコーダー（symphonia）は、曲を開くたびに形式の情報などをinfo・warnで
+        // 出すため、エラーだけを残す（再生できない場合の理由は、再生エンジンがログに残す）
+        .filter(|metadata| {
+            !metadata.target().starts_with("symphonia") || metadata.level() <= log::Level::Error
+        })
         .max_file_size(LOG_MAX_FILE_SIZE)
         .rotation_strategy(RotationStrategy::KeepSome(LOG_KEEP_ROTATED_FILES))
         // 既定はUTCのため、ログの時刻とファイル名をローカル時刻にする
@@ -234,8 +251,22 @@ pub fn run() {
             app.manage(app_state);
 
             // 設定を読み込む（ない・壊れている場合は既定値）
-            app.manage(settings::SettingsState::load(
-                app_data_dir.join("settings.json"),
+            let settings_state = settings::SettingsState::load(app_data_dir.join("settings.json"));
+            let output_device_id = settings_state
+                .get()
+                .ok()
+                .and_then(|settings| settings.output_device_id);
+            app.manage(settings_state);
+
+            // ネイティブの再生エンジン（スレッドを始めるだけで、出力は最初に再生するときに開く）
+            let playback_events = app.handle().clone();
+            app.manage(playback::PlaybackEngine::start(
+                output_device_id,
+                move |event| {
+                    if let Err(e) = event.emit(&playback_events) {
+                        log::warn!("再生エンジンの通知を送れません: {}", e);
+                    }
+                },
             ));
 
             // ライブラリフォルダの変更の自動反映（設定に応じて、起動時の再スキャン・定期的な

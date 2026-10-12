@@ -6,6 +6,7 @@
 //! 新しいイベントを追加したら`lib.rs`の`collect_events!`にも登録すること
 //! （未登録のまま`emit`するとパニックする）。
 
+use crate::error::AppError;
 use crate::settings::Settings;
 use serde::Serialize;
 use specta::Type;
@@ -75,3 +76,65 @@ pub struct ToggleSidebar;
 /// 設定が保存された（設定ウィンドウでの変更をメインウィンドウに反映する）
 #[derive(Debug, Clone, Serialize, Type, Event)]
 pub struct SettingsChanged(pub Settings);
+
+/// ネイティブの再生エンジン（`playback`）からの通知
+///
+/// `token`は、フロントエンドが再生する曲ごとに振った番号（`playback_play` / `playback_set_next`で
+/// 渡したもの）。曲を切り替えた後に届いた、前の曲の通知を見分けるために使う。
+#[derive(Debug, Clone, PartialEq, Serialize, Type, Event)]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum PlaybackEvent {
+    /// 続けて再生する曲（`playback_set_next`で用意した曲）へ、切れ目なく切り替わった
+    Advanced {
+        token: u32,
+        /// 曲の長さ（秒。ファイルから分からない場合はnull）
+        duration: Option<f64>,
+    },
+    /// 再生位置（再生中に一定の間隔で届く。シークの直後にも届く）
+    Position {
+        token: u32,
+        /// 曲の頭からの秒数
+        position: f64,
+    },
+    /// 曲が最後まで鳴り終わり、続けて再生する曲がなかった
+    Ended { token: u32 },
+    /// 再生を続けられなくなった（ファイルを読めない・出力デバイスを使えないなど）。再生は止まっている
+    Failed { token: u32, error: AppError },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// フロントエンド（`nativePlayback.svelte.ts`）は`type`で通知を見分ける
+    #[test]
+    fn test_playback_event_is_tagged_with_type() {
+        let advanced = serde_json::to_value(PlaybackEvent::Advanced {
+            token: 3,
+            duration: Some(12.5),
+        })
+        .unwrap();
+        assert_eq!(
+            advanced,
+            serde_json::json!({ "type": "advanced", "token": 3, "duration": 12.5 })
+        );
+
+        let failed = serde_json::to_value(PlaybackEvent::Failed {
+            token: 4,
+            error: AppError::Playback("再生できません".to_string()),
+        })
+        .unwrap();
+        assert_eq!(
+            failed,
+            serde_json::json!({
+                "type": "failed",
+                "token": 4,
+                "error": { "code": "PLAYBACK", "message": "再生できません" }
+            })
+        );
+    }
+}
