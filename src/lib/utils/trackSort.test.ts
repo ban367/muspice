@@ -23,6 +23,7 @@ function track(id: string, overrides: Partial<Track> = {}): Track {
     isFavorite: false,
     rating: 0,
     playCount: 0,
+    skipCount: 0,
     lastPlayedAt: null,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',

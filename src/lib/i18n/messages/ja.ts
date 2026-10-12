@@ -45,7 +45,8 @@ export const ja = {
     genre: 'ジャンル',
     year: '年',
     duration: '時間',
-    rating: '評価'
+    rating: '評価',
+    playCount: '再生回数'
   },
 
   format: {
@@ -83,7 +84,7 @@ export const ja = {
     filterTracks: 'トラックフィルタリング',
     fetchFavorites: 'お気に入り一覧の取得',
     fetchMostPlayed: 'よく再生するトラック一覧の取得',
-    fetchRecentlyPlayed: '最近再生したトラック一覧の取得',
+    fetchPlayHistory: '再生履歴の取得',
     fetchAlbums: 'アルバム一覧の取得',
     fetchArtists: 'アーティスト一覧の取得',
     fetchGenres: 'ジャンル一覧の取得',
@@ -187,7 +188,7 @@ export const ja = {
     genres: 'ジャンル',
     expandGenres: 'ジャンルを展開',
     library: 'ライブラリ',
-    recentlyPlayed: '最近再生した曲',
+    playHistory: '再生履歴',
     mostPlayed: 'よく再生する曲',
     playlists: 'プレイリスト',
     newPlaylistTitle: '新規プレイリスト (Ctrl+N)',
@@ -364,10 +365,15 @@ export const ja = {
     noTracksInGenreHint: '他のジャンルを選択してください',
     mostPlayed: 'よく再生する曲',
     noMostPlayed: 'よく再生する曲がありません',
-    noMostPlayedHint: '曲を繰り返し再生すると、ここに表示されます',
-    recentlyPlayed: '最近再生した曲',
-    noRecentlyPlayed: '最近再生した曲がありません',
-    noRecentlyPlayedHint: '曲を再生すると、ここに表示されます'
+    noMostPlayedHint: '曲の半分か4分を聴くと、1回と数えます',
+    playHistory: '再生履歴',
+    noPlayHistory: '再生履歴がありません',
+    noPlayHistoryHint: '曲の半分か4分を聴くと、ここに記録されます',
+    /** 再生履歴の日付の見出し */
+    today: '今日',
+    yesterday: '昨日',
+    /** 再生履歴の、再生した時刻の列 */
+    playedAt: '時刻'
   },
 
   playlists: {

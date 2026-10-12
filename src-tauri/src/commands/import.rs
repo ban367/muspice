@@ -295,6 +295,7 @@ pub(super) fn create_track_from_file(file_path: &Path) -> AppResult<Track> {
         is_favorite: false,
         rating: file_info.rating,
         play_count: 0,
+        skip_count: 0,
         last_played_at: None,
         created_at: now.clone(),
         updated_at: now,

@@ -45,7 +45,8 @@ export const en: Messages = {
     genre: 'Genre',
     year: 'Year',
     duration: 'Time',
-    rating: 'Rating'
+    rating: 'Rating',
+    playCount: 'Plays'
   },
 
   format: {
@@ -75,7 +76,7 @@ export const en: Messages = {
     filterTracks: 'Filtering tracks',
     fetchFavorites: 'Loading favorites',
     fetchMostPlayed: 'Loading most played tracks',
-    fetchRecentlyPlayed: 'Loading recently played tracks',
+    fetchPlayHistory: 'Loading play history',
     fetchAlbums: 'Loading albums',
     fetchArtists: 'Loading artists',
     fetchGenres: 'Loading genres',
@@ -178,7 +179,7 @@ export const en: Messages = {
     genres: 'Genres',
     expandGenres: 'Expand genres',
     library: 'Library',
-    recentlyPlayed: 'Recently Played',
+    playHistory: 'Play History',
     mostPlayed: 'Most Played',
     playlists: 'Playlists',
     newPlaylistTitle: 'New Playlist (Ctrl+N)',
@@ -355,10 +356,15 @@ export const en: Messages = {
     noTracksInGenreHint: 'Select another genre',
     mostPlayed: 'Most Played',
     noMostPlayed: 'No most played songs yet',
-    noMostPlayedHint: 'Songs you play often will appear here',
-    recentlyPlayed: 'Recently Played',
-    noRecentlyPlayed: 'No recently played songs',
-    noRecentlyPlayedHint: 'Songs you play will appear here'
+    noMostPlayedHint: 'A play is counted once you listen to half of a song or 4 minutes',
+    playHistory: 'Play History',
+    noPlayHistory: 'No play history yet',
+    noPlayHistoryHint: 'A song is recorded here once you listen to half of it or 4 minutes',
+    /** 再生履歴の日付の見出し */
+    today: 'Today',
+    yesterday: 'Yesterday',
+    /** 再生履歴の、再生した時刻の列 */
+    playedAt: 'Time'
   },
 
   playlists: {

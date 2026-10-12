@@ -27,6 +27,7 @@ export type {
   Metadata,
   NowPlayingUpdate,
   OutputDevice,
+  PlayHistoryEntry,
   PlaybackControl,
   PlaybackEvent,
   Playlist,

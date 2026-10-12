@@ -223,6 +223,61 @@ describe('トラック', () => {
   });
 });
 
+describe('再生統計', () => {
+  it('再生回数に数えると、再生履歴の先頭に加わる', async () => {
+    const trackId = mockTrackId(20);
+    const before = await commands.getPlayHistory();
+    const track = (await commands.getAllTracks()).find((t) => t.id === trackId)!;
+
+    expect(await commands.incrementPlayCount(trackId)).toBe(track.playCount + 1);
+
+    const history = await commands.getPlayHistory();
+    expect(history).toHaveLength(before.length + 1);
+    expect(history[0].trackId).toBe(trackId);
+    // 行を見分けるIDは、すべて違う
+    expect(new Set(history.map((entry) => entry.id)).size).toBe(history.length);
+  });
+
+  it('再生履歴は新しい順で、同じ曲が何度も出る', async () => {
+    const history = await commands.getPlayHistory();
+
+    expect(history.length).toBeGreaterThan(10);
+    const times = history.map((entry) => Date.parse(entry.playedAt));
+    expect(times).toEqual([...times].sort((a, b) => b - a));
+    expect(new Set(history.map((entry) => entry.trackId)).size).toBeLessThan(history.length);
+  });
+
+  it('スキップ回数を数える（再生回数・再生履歴は変えない）', async () => {
+    const trackId = mockTrackId(2);
+    const before = (await commands.getAllTracks()).find((t) => t.id === trackId)!;
+    const historyLength = (await commands.getPlayHistory()).length;
+
+    expect(await commands.incrementSkipCount(trackId)).toBe(before.skipCount + 1);
+
+    const after = (await commands.getAllTracks()).find((t) => t.id === trackId)!;
+    expect(after.skipCount).toBe(before.skipCount + 1);
+    expect(after.playCount).toBe(before.playCount);
+    expect(await commands.getPlayHistory()).toHaveLength(historyLength);
+  });
+
+  it('よく再生する曲は、再生回数の多い順に返す', async () => {
+    const tracks = await commands.getMostPlayedTracks(5);
+
+    expect(tracks).toHaveLength(5);
+    const counts = tracks.map((track) => track.playCount);
+    expect(counts).toEqual([...counts].sort((a, b) => b - a));
+  });
+
+  it('ライブラリから外した曲は、再生履歴からも消える', async () => {
+    const [latest] = await commands.getPlayHistory();
+
+    await commands.deleteTracksCommand([latest.trackId]);
+
+    const history = await commands.getPlayHistory();
+    expect(history.some((entry) => entry.trackId === latest.trackId)).toBe(false);
+  });
+});
+
 describe('プレイリスト', () => {
   it('追加・並び替え・削除でpositionを連番に保つ', async () => {
     const playlist = await commands.createPlaylist('テスト');
