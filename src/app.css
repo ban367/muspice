@@ -374,6 +374,15 @@ body {
 }
 
 /* ================================
+   パネル（#lib/components/ui の Popover が使う。ボタンから開く、入力の部品を置く小さな面）
+   ================================ */
+.popover-panel {
+  @apply z-[9000] p-4 bg-base-200 border border-border rounded-lg shadow-lg text-left overflow-y-auto outline-none;
+  /* 画面に収まらない場合は、パネルの中でスクロールする */
+  max-height: var(--bits-popover-content-available-height);
+}
+
+/* ================================
    アニメーション
    ================================ */
 @keyframes spin {

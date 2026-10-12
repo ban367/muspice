@@ -8,7 +8,7 @@
 | ビルド                 | Vite                                                                            | 8.3.x                                              | Tailwindは`@tailwindcss/vite`経由（PostCSS設定なし）                                                                                                                                                                         |
 | テスト                 | Vitest                                                                          | 5.0.x                                              | ストア・ユーティリティの単体テスト                                                                                                                                                                                           |
 | UIスタイル             | TailwindCSS                                                                     | 4.3.x                                              | 部品のクラス集（DaisyUIなど）は使わない（ADR-055）。`@apply`運用に制限あり                                                                                                                                                   |
-| UI部品（動作）         | Bits UI                                                                         | 2.19.x                                             | ヘッドレス（スタイルなし）。メニューで使う（ADR-056）                                                                                                                                                                        |
+| UI部品（動作）         | Bits UI                                                                         | 2.19.x                                             | ヘッドレス（スタイルなし）。メニューとパネルで使う（ADR-056）                                                                                                                                                                |
 | データ取得             | TanStack Query（Svelte）                                                        | 6.3.x                                              | Queryキャッシュ/再取得制御                                                                                                                                                                                                   |
 | デスクトップ基盤       | Tauri + tauri-specta                                                            | 2.12.x / 2.0.0-rc.25                               | 型付きコマンド呼び出しを自動生成                                                                                                                                                                                             |
 | バックエンド           | Rust                                                                            | edition 2024（stable）                             | コアロジック/DBアクセス                                                                                                                                                                                                      |
@@ -268,14 +268,15 @@ src-tauri/src/
   - `prompt`はmacOSのWebView（wry）が実装しておらず、常にnullを返す
 - コンテキストメニューからダイアログを開く場合は、使う値を取り出してからメニューを閉じ、その後で`await`する（ダイアログの操作でメニューのコンポーネントが破棄され、`await`後にpropsを読むと失敗するため）
 
-### メニュー
+### メニューとパネル
 
 - 右クリックなどで開くメニューは、`#lib/components/ui`の`BaseContextMenu`（Bits UIのメニュー）と、その中に置く`MenuItem`・`MenuCheckboxItem`・`MenuRadioGroup` / `MenuRadioItem`・`MenuSub`・`MenuSeparator`・`MenuHeading`で作る。`role="menu"`・`role="menuitem"`を付けた要素を自分で並べない（矢印キーでの移動・先頭の文字での選択・フォーカスの移動と復帰・画面の端での位置の調整は、Bits UIが行う）
 - 開く側は、開く位置（`x`・`y`）と対象を状態に持ち、`{#if}`でメニューのコンポーネントを描画する（`BaseContextMenu`に座標を渡す）。右クリックする範囲を`ContextMenu.Trigger`で包まない（仮想スクロールの行ごとに置かずに済み、開く側が選択の更新と対象の決定を行える）
 - 項目の処理は`onSelect`に渡す。選ぶとメニューは閉じる（続けて操作する項目は`closeOnSelect={false}`）。アイコンは`icon`のスニペットで渡し、svgに`menu-icon`のクラスを付ける
 - 見た目は`app.css`の「メニュー」のクラス（`menu-panel`・`menu-item`など）で決める。選んでいる項目・使えない項目は、Bits UIが付ける`data-highlighted`・`data-disabled`で表す（`:hover`・`:disabled`は使わない。キーボードで選んでいる項目にも同じ見た目を出すため）
 - Bits UIの部品に見た目を付ける時は、`child`スニペットで自分の要素を描画し、受け取った`props`を広げる（Bits UIが描画する要素には、コンポーネントの`<style>`のクラスが当たらないため）
-- Bits UIの浮く部品（メニュー・サブメニュー）は、`Portal`で`<body>`へ描画する。`Modal`（`showModal()`で開く`<dialog>`）の中で使う場合は、`<body>`へ描画すると最前面の層の裏に隠れるため、`Portal`の`to`にダイアログの中の要素を渡す（今はその使い方をしている箇所はない）
+- ボタンから開く、入力の部品を置く小さなパネル（再生の補助・絞り込み）は、`#lib/components/ui`の`Popover`（Bits UIのPopover）で作る。ボタンは`trigger`のスニペットで描画し、受け取った属性を`<button>`に広げる。開閉・外側の操作とEscキーで閉じること・フォーカスの移動と復帰・位置の調整を、自分で書かない（`<svelte:window>`でクリックやキーを拾わない）
+- Bits UIの浮く部品（メニュー・サブメニュー・パネル）は、`Portal`で`<body>`へ描画する。`Modal`（`showModal()`で開く`<dialog>`）の中で使う場合は、`<body>`へ描画すると最前面の層の裏に隠れるため、`Portal`の`to`にダイアログの中の要素を渡す（今はその使い方をしている箇所はない）
 
 ### TailwindCSS
 
