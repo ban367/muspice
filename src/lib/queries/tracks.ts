@@ -397,7 +397,25 @@ export function useUpdateTrackMetadataMutation() {
     },
     onSuccess: () => {
       invalidateTrackListQueries(queryClient);
+      queryClient.removeQueries({ queryKey: queryKeys.trackTags.all });
     }
+  }));
+}
+
+/**
+ * 曲のタグ（編集画面で扱うすべての項目）を、ファイルから読むクエリ
+ *
+ * 作曲者・コメント・歌詞などはデータベースに保存していないため、編集画面を開く時に読む。
+ * 開くたびにファイルの今の内容を読む（キャッシュを使い回さない）。失敗は、編集画面の中に表示する。
+ */
+export function useTrackTagsQuery(trackId: string) {
+  return createQuery(() => ({
+    queryKey: queryKeys.trackTags.track(trackId),
+    queryFn: () => commands.getTrackTags(trackId),
+    staleTime: 0,
+    gcTime: 0,
+    retry: false,
+    refetchOnWindowFocus: false
   }));
 }
 
@@ -415,6 +433,7 @@ export function useUpdateMultipleTracksMutation() {
       commands.updateMultipleTracksMetadata(trackIds, metadata),
     onSuccess: () => {
       invalidateTrackListQueries(queryClient);
+      queryClient.removeQueries({ queryKey: queryKeys.trackTags.all });
     }
   }));
 }

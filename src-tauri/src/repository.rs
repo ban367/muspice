@@ -641,17 +641,18 @@ pub fn update_track_metadata(
 
     let rows_affected = conn
         .execute(
-            // アルバムアーティストは、指定された場合だけ変える（編集画面に項目がなく、
-            // ファイルのタグも指定された場合だけ書き込むため）
+            // 編集画面はすべての項目の値を渡すため、値のない項目は空にする
             "UPDATE tracks SET
                 title = ?1,
                 artist = ?2,
                 album = ?3,
                 genre = ?4,
                 year = ?5,
-                album_artist = COALESCE(?6, album_artist),
-                updated_at = ?7
-             WHERE id = ?8",
+                album_artist = ?6,
+                track_number = ?7,
+                disc_number = ?8,
+                updated_at = ?9
+             WHERE id = ?10",
             rusqlite::params![
                 metadata.title,
                 metadata.artist,
@@ -659,6 +660,8 @@ pub fn update_track_metadata(
                 metadata.genre,
                 metadata.year,
                 metadata.album_artist,
+                metadata.track_number,
+                metadata.disc_number,
                 now,
                 track_id,
             ],
@@ -725,6 +728,16 @@ pub fn update_track_metadata_partial(
     if metadata.album_artist.is_some() {
         update_parts.push("album_artist = ?");
         params.push(Box::new(metadata.album_artist.clone()));
+    }
+
+    if metadata.track_number.is_some() {
+        update_parts.push("track_number = ?");
+        params.push(Box::new(metadata.track_number));
+    }
+
+    if metadata.disc_number.is_some() {
+        update_parts.push("disc_number = ?");
+        params.push(Box::new(metadata.disc_number));
     }
 
     if update_parts.is_empty() {
@@ -2461,37 +2474,42 @@ mod tests {
     }
 
     #[test]
-    fn test_update_track_metadata_keeps_album_artist_unless_given() {
+    fn test_update_track_metadata_sets_every_library_field() {
         let conn = setup_test_db();
         insert_test_track(&conn, "t1", "曲", "アーティストA", "アルバム", "ロック");
         set_album_artist(&conn, "t1", "Various Artists");
+        set_track_position(&conn, "t1", Some(2), Some(7), None);
         let mut metadata = Metadata {
             title: Some("新しいタイトル".to_string()),
             artist: Some("アーティストA".to_string()),
             album: Some("アルバム".to_string()),
-            genre: None,
-            year: None,
-            track_number: None,
-            disc_number: None,
-            album_artist: None,
-            composer: None,
+            album_artist: Some("アーティストA".to_string()),
+            track_number: Some(3),
+            disc_number: Some(1),
+            // データベースに保存しない項目は、渡しても無視する
+            composer: Some("作曲者".to_string()),
+            lyrics: Some("歌詞".to_string()),
+            ..Default::default()
         };
 
-        // 編集画面はアルバムアーティストを送らないため、今の値を保つ
         update_track_metadata(&conn, "t1", &metadata).unwrap();
         let track = find_track_by_id(&conn, "t1").unwrap();
         assert_eq!(track.title.as_deref(), Some("新しいタイトル"));
-        assert_eq!(track.album_artist.as_deref(), Some("Various Artists"));
+        assert_eq!(track.album_artist.as_deref(), Some("アーティストA"));
+        assert_eq!(track.track_number, Some(3));
+        assert_eq!(track.disc_number, Some(1));
+        // 値のない項目（ジャンル）は空にする
+        assert_eq!(track.genre, None);
 
-        metadata.album_artist = Some("アーティストA".to_string());
+        // 編集画面はすべての項目の値を渡すため、空にした項目は空になる
+        metadata.album_artist = None;
+        metadata.track_number = None;
+        metadata.disc_number = None;
         update_track_metadata(&conn, "t1", &metadata).unwrap();
-        assert_eq!(
-            find_track_by_id(&conn, "t1")
-                .unwrap()
-                .album_artist
-                .as_deref(),
-            Some("アーティストA")
-        );
+        let track = find_track_by_id(&conn, "t1").unwrap();
+        assert_eq!(track.album_artist, None);
+        assert_eq!(track.track_number, None);
+        assert_eq!(track.disc_number, None);
 
         let partial = Metadata {
             title: None,
@@ -2503,15 +2521,25 @@ mod tests {
             disc_number: None,
             album_artist: Some("Various Artists".to_string()),
             composer: None,
+            ..Default::default()
         };
         update_track_metadata_partial(&conn, "t1", &partial, "2026-01-02T00:00:00Z").unwrap();
-        assert_eq!(
-            find_track_by_id(&conn, "t1")
-                .unwrap()
-                .album_artist
-                .as_deref(),
-            Some("Various Artists")
-        );
+        let track = find_track_by_id(&conn, "t1").unwrap();
+        assert_eq!(track.album_artist.as_deref(), Some("Various Artists"));
+        // 一括編集は、値のある項目だけを変える
+        assert_eq!(track.title.as_deref(), Some("新しいタイトル"));
+        assert_eq!(track.disc_number, None);
+
+        let numbers = Metadata {
+            track_number: Some(5),
+            disc_number: Some(2),
+            ..Default::default()
+        };
+        update_track_metadata_partial(&conn, "t1", &numbers, "2026-01-03T00:00:00Z").unwrap();
+        let track = find_track_by_id(&conn, "t1").unwrap();
+        assert_eq!(track.track_number, Some(5));
+        assert_eq!(track.disc_number, Some(2));
+        assert_eq!(track.album_artist.as_deref(), Some("Various Artists"));
     }
 
     #[test]
@@ -2863,6 +2891,7 @@ mod tests {
             disc_number: None,
             album_artist: None,
             composer: None,
+            ..Default::default()
         }
     }
 

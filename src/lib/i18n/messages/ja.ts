@@ -48,7 +48,18 @@ export const ja = {
     year: '年',
     duration: '時間',
     rating: '評価',
-    playCount: '再生回数'
+    playCount: '再生回数',
+    albumArtist: 'アルバムアーティスト',
+    composer: '作曲者',
+    grouping: 'グループ',
+    comment: 'コメント',
+    lyrics: '歌詞',
+    trackNumber: 'トラック番号',
+    trackTotal: 'トラックの総数',
+    discNumber: 'ディスク番号',
+    discTotal: 'ディスクの総数',
+    bpm: 'BPM',
+    compilation: 'コンピレーション'
   },
 
   format: {
@@ -158,6 +169,8 @@ export const ja = {
     trackNumberOutOfRange: 'トラック番号は1から999の範囲で指定してください',
     tooLong: (field: string, maxLength: number, length: number) =>
       `${field}は${maxLength}文字以内で入力してください（現在: ${length}文字）`,
+    numberOutOfRange: (field: string, min: number, max: number) =>
+      `${field}は${min}から${max}の整数で指定してください`,
     playlistNameRequired: 'プレイリスト名を入力してください',
     playlistNameTooLong: 'プレイリスト名は100文字以内で入力してください',
     playlistNameInvalid: 'プレイリスト名に使用できない文字が含まれています',
@@ -247,7 +260,8 @@ export const ja = {
   metadataEditor: {
     editTitle: 'メタデータを編集',
     bulkEditTitle: (count: number) => `${count}件のトラックを一括編集`,
-    bulkHint: '空欄のフィールドは変更されません。変更したいフィールドのみ入力してください。',
+    bulkHint:
+      '空欄のフィールドは変更されません。変更したいフィールドのみ入力してください。タイトル・トラック番号・歌詞は、1曲ずつ編集します。',
     bulkPartiallyFailed: (updated: number, failed: number) =>
       `${updated}曲を更新しました（${failed}曲はファイルに書き込めませんでした）`,
     bulkAllFailed: (reason: string) => `ファイルに書き込めませんでした: ${reason}`,
@@ -257,7 +271,38 @@ export const ja = {
     albumPlaceholder: 'アルバムを入力',
     genrePlaceholder: 'ジャンルを入力',
     yearPlaceholder: '例: 2023',
-    writesToFile: '変更は音楽ファイルのタグに書き込まれます'
+    writesToFile: '変更は音楽ファイルのタグに書き込まれます',
+    /** タブ */
+    tabs: { tags: 'タグ', lyrics: '歌詞', file: 'ファイル情報' },
+    track: 'トラック',
+    disc: 'ディスク',
+    /** トラック番号・ディスク番号の、番号と総数の間の文字（例: 3 / 12） */
+    of: '/',
+    compilationHint: '複数のアーティストの曲を集めたアルバム',
+    compilationOn: '印を付ける',
+    compilationOff: '印を外す',
+    lyricsPlaceholder: '歌詞を入力（ファイルに埋め込まれます）',
+    loadingTags: 'ファイルのタグを読み込み中...',
+    tagsUnavailable: (reason: string) => `ファイルのタグを読めないため、編集できません: ${reason}`,
+    /** ファイル情報 */
+    file: {
+      fileName: 'ファイル名',
+      location: '場所',
+      format: '形式',
+      bitrate: 'ビットレート',
+      sampleRate: 'サンプルレート',
+      duration: '長さ',
+      size: 'サイズ',
+      addedAt: '追加した日時',
+      lastPlayedAt: '最後に再生した日時',
+      playCount: '再生回数',
+      skipCount: 'スキップ回数',
+      never: '未再生',
+      kbps: (value: number) => `${value} kbps`,
+      hz: (value: number) => `${value.toLocaleString()} Hz`,
+      times: (count: number) => `${count}回`,
+      missing: 'ファイルが見つかりません'
+    }
   },
 
   metadataExport: {

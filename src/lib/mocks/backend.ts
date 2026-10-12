@@ -187,31 +187,46 @@ function validateFilePath(path: string): void {
 }
 
 function validateMetadata(metadata: Metadata): void {
-  const { year, trackNumber } = metadata;
+  const { year } = metadata;
   if (year != null && (year < 1000 || year > 9999)) {
     fail('VALIDATION', '年は1000から9999の範囲で指定してください');
   }
-  if (trackNumber != null && (trackNumber < 1 || trackNumber > 999)) {
-    fail('VALIDATION', 'トラック番号は1から999の範囲で指定してください');
+  const numbers: [number | null | undefined, string][] = [
+    [metadata.trackNumber, 'トラック番号'],
+    [metadata.trackTotal, 'トラックの総数'],
+    [metadata.discNumber, 'ディスク番号'],
+    [metadata.discTotal, 'ディスクの総数'],
+    [metadata.bpm, 'BPM']
+  ];
+  for (const [value, name] of numbers) {
+    if (value != null && (value < 1 || value > 999)) {
+      fail('VALIDATION', `${name}は1から999の範囲で指定してください`);
+    }
   }
 }
 
-function validateStringLength(value: string | null | undefined, field: string, max: number) {
-  if (value == null) return;
-  const length = byteLength(value);
-  if (length > max) {
-    fail('VALIDATION', `${field}は${max}文字以内で入力してください（現在: ${length}文字）`);
-  }
-}
+/** 文字列の項目の長さの上限（文字数。Rustの`validate_metadata_input`と同じ） */
+const METADATA_TEXT_LIMITS: [keyof Metadata, string, number][] = [
+  ['title', 'タイトル', 255],
+  ['artist', 'アーティスト', 255],
+  ['album', 'アルバム', 255],
+  ['genre', 'ジャンル', 100],
+  ['albumArtist', 'アルバムアーティスト', 255],
+  ['composer', '作曲者', 255],
+  ['grouping', 'グループ', 255],
+  ['comment', 'コメント', 2000],
+  ['lyrics', '歌詞', 50000]
+];
 
 function validateMetadataInput(metadata: Metadata): void {
   validateMetadata(metadata);
-  validateStringLength(metadata.title, 'タイトル', 255);
-  validateStringLength(metadata.artist, 'アーティスト', 255);
-  validateStringLength(metadata.album, 'アルバム', 255);
-  validateStringLength(metadata.genre, 'ジャンル', 100);
-  validateStringLength(metadata.albumArtist, 'アルバムアーティスト', 255);
-  validateStringLength(metadata.composer, '作曲者', 255);
+  for (const [field, name, limit] of METADATA_TEXT_LIMITS) {
+    const value = metadata[field];
+    const length = typeof value === 'string' ? [...value].length : 0;
+    if (length > limit) {
+      fail('VALIDATION', `${name}は${limit}文字以内で入力してください（現在: ${length}文字）`);
+    }
+  }
 }
 
 function sanitizeSearchQuery(query: string): string {
@@ -307,6 +322,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   let playHistory: PlayHistoryEntry[] = createFixturePlayHistory(tracks, Date.now());
   let currentTrackId: string | null = null;
   let nowPlaying: NowPlayingUpdate | null = null;
+  // ファイルのタグだけにある項目（作曲者・コメント・歌詞など。トラックID → 値）
+  const fileOnlyTags = new Map<string, Metadata>();
   let m3uImportMode: MockM3uImportMode = 'partial';
   // 前回の再生状態（保存先に壊れた内容があれば使わない）
   let playbackState: StoredPlaybackState = EMPTY_PLAYBACK_STATE;
@@ -477,13 +494,46 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     validateMetadataInput(metadata);
     const track = tracks.find((t) => t.id === trackId);
     if (!track) fail('NOT_FOUND', '指定されたトラックが見つかりません');
+    // 1曲の編集は、すべての項目を置き換える（値のない項目は空にする）
     track.title = metadata.title ?? null;
     track.artist = metadata.artist ?? null;
     track.album = metadata.album ?? null;
     track.genre = metadata.genre ?? null;
     track.year = metadata.year ?? null;
+    track.albumArtist = metadata.albumArtist ?? null;
+    track.trackNumber = metadata.trackNumber ?? null;
+    track.discNumber = metadata.discNumber ?? null;
     track.updatedAt = now();
+    // データベースに保存しない項目（作曲者・歌詞など）は、ファイルのタグの代わりに持っておく
+    fileOnlyTags.set(trackId, pickFileOnlyTags(metadata));
     return null;
+  }
+
+  /** ファイルのタグだけにある項目（データベースに保存しない項目）を取り出す */
+  function pickFileOnlyTags(metadata: Metadata): Metadata {
+    const { composer, trackTotal, discTotal, grouping, bpm, compilation, comment, lyrics } =
+      metadata;
+    return { composer, trackTotal, discTotal, grouping, bpm, compilation, comment, lyrics };
+  }
+
+  /** 曲のタグ（編集画面で扱うすべての項目）。モックでは、曲の情報と、編集で入れた値から作る */
+  function getTrackTags(trackId: string): Metadata {
+    validateTrackId(trackId);
+    const track = findTrack(trackId);
+    if (track.isMissing) fail('METADATA', 'ファイルのオープンに失敗しました: No such file');
+    const tags: Metadata = { ...fileOnlyTags.get(trackId) };
+    if (track.title !== null) tags.title = track.title;
+    if (track.artist !== null) tags.artist = track.artist;
+    if (track.album !== null) tags.album = track.album;
+    if (track.albumArtist !== null) tags.albumArtist = track.albumArtist;
+    if (track.genre !== null) tags.genre = track.genre;
+    if (track.year !== null) tags.year = track.year;
+    if (track.trackNumber !== null) tags.trackNumber = track.trackNumber;
+    if (track.discNumber !== null) tags.discNumber = track.discNumber;
+    // 値のない項目は、キーごと除く（Rust側は、タグにない項目を返さない）
+    return Object.fromEntries(
+      Object.entries(tags).filter(([, value]) => value !== undefined && value !== null)
+    );
   }
 
   /**
@@ -819,6 +869,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         }))
         .sort(byNameIgnoreCase),
     getGenreTracks: (genre) => sortGenreTracks(tracks.filter((track) => track.genre === genre)),
+    getTrackTags,
     updateTrackMetadata,
     updateMultipleTracksMetadata: (trackIds, metadata) => {
       if (trackIds.length === 0) fail('VALIDATION', 'トラックIDが指定されていません');
@@ -831,15 +882,35 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         return track;
       });
       const timestamp = now();
-      const { title, artist, album, genre, year } = metadata;
-      const hasChanges = [title, artist, album, genre, year].some((value) => value != null);
+      const { title, artist, album, genre, year, albumArtist, trackNumber, discNumber } = metadata;
+      const hasChanges = [
+        title,
+        artist,
+        album,
+        genre,
+        year,
+        albumArtist,
+        trackNumber,
+        discNumber
+      ].some((value) => value != null);
+      // 値のある項目だけを変える
+      const fileOnly = Object.fromEntries(
+        Object.entries(pickFileOnlyTags(metadata)).filter(([, value]) => value != null)
+      );
       for (const track of targets) {
         if (title != null) track.title = title;
         if (artist != null) track.artist = artist;
         if (album != null) track.album = album;
         if (genre != null) track.genre = genre;
         if (year != null) track.year = year;
+        if (albumArtist != null) track.albumArtist = albumArtist;
+        if (trackNumber != null) track.trackNumber = trackNumber;
+        if (discNumber != null) track.discNumber = discNumber;
         if (hasChanges) track.updatedAt = timestamp;
+        const merged: Metadata = { ...fileOnlyTags.get(track.id), ...fileOnly };
+        // コンピレーションの印を外す指定は、項目ごと取り除く
+        if (merged.compilation === false) delete merged.compilation;
+        fileOnlyTags.set(track.id, merged);
       }
       // モックではファイルへの書き込みに失敗しない
       return { updatedCount: targets.length, failedCount: 0, errors: [] };

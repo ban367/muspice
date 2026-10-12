@@ -322,6 +322,87 @@ describe('再生統計', () => {
   });
 });
 
+describe('曲のタグ（編集画面）', () => {
+  const trackId = mockTrackId(1);
+
+  it('1曲の編集は、すべての項目を置き換える（データベースにない項目も読み直せる）', async () => {
+    const before = await commands.getTrackTags(trackId);
+    expect(before.title).toBeTruthy();
+    expect(before.composer).toBeUndefined();
+
+    await commands.updateTrackMetadata(trackId, {
+      title: '新しいタイトル',
+      albumArtist: 'Various Artists',
+      trackNumber: 7,
+      discNumber: 2,
+      composer: '作曲者',
+      bpm: 128,
+      compilation: true,
+      lyrics: '歌詞'
+    });
+
+    expect(await commands.getTrackTags(trackId)).toEqual({
+      title: '新しいタイトル',
+      albumArtist: 'Various Artists',
+      trackNumber: 7,
+      discNumber: 2,
+      composer: '作曲者',
+      bpm: 128,
+      compilation: true,
+      lyrics: '歌詞'
+    });
+    const track = (await commands.getAllTracks()).find((t) => t.id === trackId)!;
+    expect(track).toMatchObject({
+      title: '新しいタイトル',
+      artist: null,
+      albumArtist: 'Various Artists',
+      trackNumber: 7,
+      discNumber: 2
+    });
+  });
+
+  it('一括編集は、値のある項目だけを変える', async () => {
+    const ids = [mockTrackId(1), mockTrackId(2)];
+    const titles = (await commands.getAllTracks())
+      .filter((track) => ids.includes(track.id))
+      .map((track) => track.title);
+    await commands.updateTrackMetadata(ids[0], { title: titles[0] ?? 'x', composer: '元の作曲者' });
+
+    await commands.updateMultipleTracksMetadata(ids, { grouping: 'グループ', discNumber: 3 });
+
+    const first = await commands.getTrackTags(ids[0]);
+    expect(first).toMatchObject({ composer: '元の作曲者', grouping: 'グループ', discNumber: 3 });
+    expect((await commands.getTrackTags(ids[1])).grouping).toBe('グループ');
+
+    // コンピレーションの印は、付けて外せる
+    await commands.updateMultipleTracksMetadata(ids, { compilation: true });
+    expect((await commands.getTrackTags(ids[1])).compilation).toBe(true);
+    await commands.updateMultipleTracksMetadata(ids, { compilation: false });
+    expect((await commands.getTrackTags(ids[1])).compilation).toBeUndefined();
+  });
+
+  it('範囲の外の値・長すぎる値はエラーにする（文字数で数える）', async () => {
+    await expect(commands.updateTrackMetadata(trackId, { bpm: 1000 })).rejects.toMatchObject({
+      code: 'VALIDATION'
+    });
+    await expect(commands.updateTrackMetadata(trackId, { discTotal: 0 })).rejects.toMatchObject({
+      code: 'VALIDATION'
+    });
+    await expect(
+      commands.updateTrackMetadata(trackId, { title: 'あ'.repeat(255) })
+    ).resolves.toBeNull();
+    await expect(
+      commands.updateTrackMetadata(trackId, { title: 'あ'.repeat(256) })
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+
+  it('ファイルが見つからない曲は、タグを読めない', async () => {
+    const missing = (await commands.getAllTracks()).find((track) => track.isMissing)!;
+
+    await expect(commands.getTrackTags(missing.id)).rejects.toMatchObject({ code: 'METADATA' });
+  });
+});
+
 describe('プレイリスト', () => {
   it('追加・並び替え・削除でpositionを連番に保つ', async () => {
     const playlist = await commands.createPlaylist('テスト');

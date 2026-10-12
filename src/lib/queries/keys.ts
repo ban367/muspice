@@ -57,6 +57,12 @@ export const queryKeys = {
    */
   playHistory: ['playHistory'] as const,
 
+  /** 曲のタグ（編集画面で扱うすべての項目。ファイルから読む） */
+  trackTags: {
+    all: ['trackTags'] as const,
+    track: (trackId: string) => ['trackTags', trackId] as const
+  },
+
   /** プレイリスト一覧 */
   playlists: ['playlists'] as const,
 

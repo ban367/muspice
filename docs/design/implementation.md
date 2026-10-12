@@ -139,6 +139,7 @@ src-tauri/src/
   - 再生制御（再生エンジンのコマンド・`setCurrentTrack`）はクエリではなく`#lib/stores/playback.svelte`の再生コントローラーが呼ぶ
   - 複数のクエリの状態（読み込み中・エラー）を合わせる時は、`#lib/queries/shared`の`combineQueryStates`を使う。TanStack Queryは、読んだことのあるプロパティが変わった時だけ通知するため、`a.isLoading || b.isLoading`のような短絡評価では、読まなかった側が先に終わった時の通知を取りこぼす（読み込み中の表示のまま止まる）
 - アルバムアートは`#lib/utils/albumArt`の`albumArtUrl(trackId)`をそのまま`<img>`（`AlbumArt`コンポーネント）に渡す。画像データをフロントエンドで取得・保持しない。アートがない場合は読み込みエラーになり、`AlbumArt`がプレースホルダーを表示する
+- メタデータの編集画面（`MetadataEditor`）は、入力欄の値と`Metadata`の変換・検証を`#lib/utils/metadataForm`に分けている（1曲の編集はすべての項目を渡し、一括編集は入力した項目だけを渡す）。1曲の編集は、開いた時に`useTrackTagsQuery`でファイルのタグを読み、読めるまで・読めない場合は保存できない（ADR-034）
 - お気に入りのハートは`FavoriteButton`（`#lib/components/library`）を使う。曲のIDと今の状態を渡すと、押した時に`useSetFavoriteMutation`で切り替え、キャッシュにあるその曲を書き換える（`patchTracksInCache`。複数の曲をまとめて書き換えられる）
   - 再生キューの曲（`player.currentTrack`）は、キューに入れた時点の内容のまま。プレーヤーのハートは、お気に入りの一覧（`useFavoriteTracksQuery`）から状態を調べる
 - クエリキーは`src/lib/queries/keys.ts`の`queryKeys`に集約する。クエリ定義・無効化のどちらもここを参照し、`['tracks']`のようなマジック配列を直接書かない
