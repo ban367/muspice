@@ -97,6 +97,7 @@ export const en: Messages = {
     renamePlaylist: 'Renaming the playlist',
     deletePlaylist: 'Deleting the playlist',
     importM3u: 'Importing playlists',
+    importLibraryXml: 'Importing the library XML',
     exportM3u: 'Exporting the playlist',
     loadSettings: 'Loading settings',
     loadOutputDevices: 'Loading output devices',
@@ -260,6 +261,28 @@ export const en: Messages = {
       'This writes the edits and ratings saved in the app to the tags of the music files. The files will be modified. Continue?',
     result: (written, unchanged, skipped, errors) =>
       `Finished writing (written: ${written}, unchanged: ${unchanged}, missing files: ${skipped}, errors: ${errors})`
+  },
+
+  libraryXmlImport: {
+    title: 'Import from Another Player',
+    description:
+      'Imports play counts, last played dates, dates added and favorites, which are not stored in file tags, from the library XML (iTunes format) written by MusicBee or iTunes / Music. Tracks are matched by the file name and the names of the folders above it, so import the tracks into the library first',
+    rules:
+      'Play and skip counts take the larger value, the last played date the newer one and the date added the older one (importing again never keeps adding)',
+    musicBeeHint:
+      'In MusicBee, enable the option to export the library as an iTunes-formatted XML file in the Library preferences; the XML is created next to the library file',
+    includePlaylists: 'Also import playlists (a number is added to the name when it is taken)',
+    choose: 'Choose an XML File...',
+    importing: 'Importing...',
+    result: (updated, matched, total) =>
+      `Import finished: ${matched} of ${plural(total, 'track', 'tracks')} matched the library and ${plural(updated, 'track was', 'tracks were')} updated`,
+    playlists: (created, skipped) =>
+      skipped > 0
+        ? `Playlists: ${created} created (${skipped} without any matching track not created)`
+        : `Playlists: ${created} created`,
+    unmatched: (count) =>
+      `${plural(count, 'track', 'tracks')} did not match a track in the library`,
+    unmatchedMore: (count) => `and ${count} more`
   },
 
   contextMenu: {

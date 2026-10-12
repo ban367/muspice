@@ -22,6 +22,7 @@
   } from '#lib/bindings.js';
   import LibraryFolderSettings from '#lib/components/LibraryFolderSettings.svelte';
   import MetadataExportSettings from '#lib/components/MetadataExportSettings.svelte';
+  import LibraryXmlImportSettings from '#lib/components/LibraryXmlImportSettings.svelte';
 
   type SettingsSection = 'general' | 'playback' | 'library' | 'appearance';
 
@@ -191,6 +192,7 @@
            再スキャンの途中で別のセクションへ移っても進捗を保つよう、常に置いて表示だけを切り替える -->
       <div hidden={activeSection !== 'library'}>
         <LibraryFolderSettings />
+        <LibraryXmlImportSettings />
         <MetadataExportSettings />
       </div>
 

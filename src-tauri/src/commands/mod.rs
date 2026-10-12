@@ -8,6 +8,7 @@ use crate::error::{AppError, AppResult};
 mod devices;
 mod import;
 mod library_folders;
+mod library_xml;
 mod m3u;
 mod metadata_cmd;
 mod playback;
@@ -52,6 +53,9 @@ pub use playlist_cmd::{
     add_tracks_to_playlist, create_playlist, delete_playlist, get_playlist_tracks, get_playlists,
     remove_track_from_playlist, rename_playlist, reorder_playlist_tracks,
 };
+
+// ライブラリのXML（iTunes形式）の取り込み
+pub use library_xml::import_library_xml;
 
 // プレイリストのM3Uの読み込み・書き出し
 pub use m3u::{export_playlist_m3u, import_m3u_playlists};

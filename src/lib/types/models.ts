@@ -24,6 +24,7 @@ export type {
   Language,
   LibraryFolder,
   LibraryFolderList,
+  LibraryXmlImportResult,
   M3uExportResult,
   M3uImportResult,
   Metadata,

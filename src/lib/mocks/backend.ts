@@ -1250,6 +1250,51 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       errors: []
     }),
     // モックの値はすべて「ファイルと同じ」として扱う（書き込みは行わない）
+    importLibraryXml: (includePlaylists) => {
+      // ファイルを選ぶダイアログ（Rust側が開く）の代わりに、決まった内容のXMLを選んだことにする:
+      // 先頭の8曲に、今より多い再生回数・古い追加日が書かれている（2回目からは変わらない）
+      const targets = tracks.filter((track) => !track.isMissing).slice(0, 8);
+      let updatedCount = 0;
+      targets.forEach((track, index) => {
+        const playCount = 20 + index * 3;
+        const createdAt = `2019-0${(index % 9) + 1}-10T12:00:00.000Z`;
+        if (track.playCount < playCount || track.createdAt > createdAt) updatedCount++;
+        track.playCount = Math.max(track.playCount, playCount);
+        if (track.createdAt > createdAt) track.createdAt = createdAt;
+        track.lastPlayedAt ??= '2024-09-25T18:31:11.000Z';
+      });
+      let playlistCount = 0;
+      if (includePlaylists) {
+        const baseName = 'お気に入り（MusicBee）';
+        let name = baseName;
+        for (let number = 2; playlists.some((playlist) => playlist.name === name); number++) {
+          name = `${baseName} (${number})`;
+        }
+        const timestamp = now();
+        playlists.push({
+          id: crypto.randomUUID(),
+          name,
+          description: null,
+          tracks: targets
+            .slice(0, 5)
+            .map((track, position) => ({ trackId: track.id, position, addedAt: timestamp })),
+          createdAt: timestamp,
+          updatedAt: timestamp
+        });
+        playlistCount = 1;
+      }
+      options.emit('library-changed', null);
+      return {
+        fileName: 'iTunes Music Library.xml',
+        trackCount: targets.length + 2,
+        matchedCount: targets.length,
+        updatedCount,
+        unmatchedCount: 2,
+        unmatched: ['D:/Music/Unknown Artist/99 Missing.mp3', 'D:/Music/Old/Deleted Song.flac'],
+        playlistCount,
+        skippedPlaylistCount: includePlaylists ? 1 : 0
+      };
+    },
     writeLibraryMetadataToFiles: () => {
       options.emit('library-changed', null);
       return {

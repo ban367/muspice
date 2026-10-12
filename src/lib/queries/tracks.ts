@@ -438,6 +438,27 @@ export function useWriteLibraryMetadataToFilesMutation() {
   }));
 }
 
+/**
+ * ライブラリのXML（iTunes形式）を選んで取り込むミューテーション
+ *
+ * ほかのプレーヤーの再生回数・最終再生日・追加日・お気に入りと、プレイリストを取り込む。
+ * ファイルはRust側のダイアログで選ぶ。選ばなかった場合はnullが返る。
+ * 結果の表示は、呼び出し側が行う。
+ */
+export function useImportLibraryXmlMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: (includePlaylists: boolean) =>
+      withErrorToast(m.operations.importLibraryXml, () =>
+        commands.importLibraryXml(includePlaylists)
+      ),
+    onSuccess: (result) => {
+      if (result) invalidateAllTrackQueries(queryClient);
+    }
+  }));
+}
+
 // ========== トラック削除ミューテーション ==========
 
 /**
