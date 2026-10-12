@@ -33,7 +33,7 @@ export function resolveTheme(theme: Theme, prefersDark: boolean): ResolvedTheme 
   return theme;
 }
 
-/** 配色を`<html data-theme>`に反映する（`app.css`とDaisyUIのテーマが切り替わる） */
+/** 配色を`<html data-theme>`に反映する（`app.css`の配色が切り替わる） */
 function setDocumentTheme(theme: ResolvedTheme): void {
   document.documentElement.dataset.theme = theme;
 }

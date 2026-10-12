@@ -4,7 +4,7 @@
     useDeleteTracksMutation,
     useDeleteTracksWithFilesMutation
   } from '#lib/queries/tracks.js';
-  import { Button, Modal } from '#lib/components/ui/index.js';
+  import { Modal } from '#lib/components/ui/index.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   // Props
@@ -111,11 +111,7 @@
 
   <div class="space-y-3">
     <!-- ライブラリから削除 -->
-    <button
-      class="btn btn-outline w-full justify-start gap-3"
-      onclick={handleDeleteFromLibrary}
-      disabled={isDeleting}
-    >
+    <button class="option" onclick={handleDeleteFromLibrary} disabled={isDeleting}>
       <svg
         xmlns="http://www.w3.org/2000/svg"
         viewBox="0 0 24 24"
@@ -135,11 +131,7 @@
     </button>
 
     <!-- ファイルも削除 -->
-    <button
-      class="btn btn-error btn-outline w-full justify-start gap-3"
-      onclick={handleDeleteWithFiles}
-      disabled={isDeleting}
-    >
+    <button class="option option-danger" onclick={handleDeleteWithFiles} disabled={isDeleting}>
       <svg
         xmlns="http://www.w3.org/2000/svg"
         viewBox="0 0 24 24"
@@ -163,12 +155,43 @@
 
   {#if isDeleting}
     <div class="flex items-center justify-center gap-2 mt-4 text-sm opacity-60">
-      <span class="loading loading-spinner loading-sm"></span>
+      <span class="deleting-spinner" aria-hidden="true"></span>
       <span>{m.common.deleting}</span>
     </div>
   {/if}
 
   {#snippet footer()}
-    <Button variant="ghost" onclick={handleClose} disabled={isDeleting}>{m.common.cancel}</Button>
+    <button type="button" class="btn-secondary" onclick={handleClose} disabled={isDeleting}>
+      {m.common.cancel}
+    </button>
   {/snippet}
 </Modal>
+
+<style>
+  @reference "../../app.css";
+
+  /* 削除の方法を選ぶボタン（枠線だけ。ポインターを乗せると塗りつぶす） */
+  .option {
+    @apply flex items-center gap-3 w-full min-h-10 px-4 bg-transparent border border-current rounded text-sm font-semibold text-text-primary cursor-pointer transition-colors duration-200;
+  }
+
+  .option:hover:not(:disabled) {
+    @apply bg-text-primary border-text-primary text-base-100;
+  }
+
+  .option:disabled {
+    @apply opacity-50 cursor-not-allowed;
+  }
+
+  .option-danger {
+    @apply text-error;
+  }
+
+  .option-danger:hover:not(:disabled) {
+    @apply bg-error border-error text-white;
+  }
+
+  .deleting-spinner {
+    @apply w-5 h-5 rounded-full border-2 border-current border-t-transparent animate-spin;
+  }
+</style>

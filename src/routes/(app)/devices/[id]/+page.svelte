@@ -318,7 +318,7 @@
     @apply m-0 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-text-muted;
   }
 
-  /* 接続の状態（`status`はDaisyUIのコンポーネントと名前が重なるため使わない） */
+  /* 接続の状態 */
   .connection {
     @apply inline-flex items-center gap-1.5;
   }

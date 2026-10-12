@@ -287,7 +287,7 @@
     <label class="flex items-start gap-2 text-sm cursor-pointer">
       <input
         type="checkbox"
-        class="checkbox checkbox-sm mt-0.5"
+        class="w-4 h-4 shrink-0 mt-0.5 accent-primary cursor-pointer"
         bind:checked={removeTracks}
         disabled={removeMutation.isPending}
       />
