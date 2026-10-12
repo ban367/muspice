@@ -69,6 +69,16 @@ pub struct ShowAboutDialog;
 #[derive(Debug, Clone, Serialize, Type, Event)]
 pub struct OpenImportDialog;
 
+/// メニュー「ファイルをインポート...」: インポートダイアログを開き、ファイルを選ぶダイアログを出す
+#[derive(Debug, Clone, Serialize, Type, Event)]
+pub struct ImportFilesRequested;
+
+/// 「このアプリで開く」などで開かれたファイルのインポートが済んだ
+///
+/// フロントエンドは、`take_opened_files`で曲を受け取って再生する（`opened_files`）。
+#[derive(Debug, Clone, Serialize, Type, Event)]
+pub struct TracksOpened;
+
 /// メニュー「サイドバーを表示/隠す」: サイドバーの表示を切り替える
 #[derive(Debug, Clone, Serialize, Type, Event)]
 pub struct ToggleSidebar;

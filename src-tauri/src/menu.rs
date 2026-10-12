@@ -39,6 +39,7 @@ struct MenuLabels {
     settings: &'static str,
     file: &'static str,
     import_folder: &'static str,
+    import_files: &'static str,
     edit: &'static str,
     view: &'static str,
     toggle_fullscreen: &'static str,
@@ -59,6 +60,7 @@ impl MenuLabels {
                 settings: "設定...",
                 file: "ファイル",
                 import_folder: "フォルダをインポート...",
+                import_files: "ファイルをインポート...",
                 edit: "編集",
                 view: "表示",
                 toggle_fullscreen: "フルスクリーン切替",
@@ -83,6 +85,7 @@ impl MenuLabels {
                 settings: "Settings...",
                 file: "File",
                 import_folder: "Import Folder...",
+                import_files: "Import Files...",
                 edit: "Edit",
                 view: "View",
                 toggle_fullscreen: "Toggle Full Screen",
@@ -143,6 +146,11 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>, language: Language) -> tauri::
         .item(
             &MenuItemBuilder::with_id("import_folder", labels.import_folder)
                 .accelerator("CmdOrCtrl+I")
+                .build(app)?,
+        )
+        .item(
+            &MenuItemBuilder::with_id("import_files", labels.import_files)
+                .accelerator("CmdOrCtrl+Shift+I")
                 .build(app)?,
         )
         .separator()

@@ -8,6 +8,38 @@ export const commands = {
 	/**  フォルダから音楽ファイルをインポート（バッチ処理最適化版） */
 	importFolder: (folderPath: string, duplicateAction: DuplicateAction) => __TAURI_INVOKE<ImportResult>("import_folder", { folderPath, duplicateAction }),
 	/**
+	 *  ファイルを選ぶダイアログを開き、選んだ音楽ファイルをインポートする
+	 * 
+	 *  ダイアログはRust側で開く（WebViewへパスを渡さない）。選んだ曲だけを登録し、ファイルのある
+	 *  フォルダは、ライブラリフォルダとして記録しない（再スキャンの対象にならない）。
+	 * 
+	 *  @returns インポートの結果（選ばずに閉じた場合はnull）
+	 */
+	importFiles: (duplicateAction: DuplicateAction) => __TAURI_INVOKE<{
+	importedCount: number,
+	skippedCount: number,
+	/**  見つからない曲を、移動・改名された先のファイルに結び付けた数（新しい曲としては登録しない） */
+	relinkedCount: number,
+	errorCount: number,
+	errors: string[],
+} | null>("import_files", { duplicateAction }),
+	/**
+	 *  ウィンドウへドロップされたファイル・フォルダをインポートする（macOS）
+	 * 
+	 *  WebViewは、ドロップされたファイルのパスを知らない（HTML5のドロップでは得られず、Tauriの
+	 *  ファイルドロップは曲のドラッグ&ドロップのために無効にしている。ADR-018）。WebViewからは
+	 *  「ドロップされた」ことと名前だけを受け取り、パスは、OSのドラッグ用のペーストボードから
+	 *  Rust側で読む（`dropped_files`）。ファイルは曲だけを登録し、フォルダは`import_folder`と同じく
+	 *  ライブラリフォルダとして記録する。登録済みのファイルはスキップする。
+	 */
+	importDroppedFiles: (names: string[]) => __TAURI_INVOKE<ImportResult>("import_dropped_files", { names }),
+	/**
+	 *  「このアプリで開く」などで開かれ、インポートが済んだ曲を受け取る（受け取った分は、手放す）
+	 * 
+	 *  フロントエンドは、起動した時と、`TracksOpened`が届いた時に呼び、受け取った曲を再生する。
+	 */
+	takeOpenedFiles: () => __TAURI_INVOKE<OpenedFiles>("take_opened_files"),
+	/**
 	 *  ライブラリフォルダの一覧を取得
 	 * 
 	 *  フォルダの存在確認は、外れたネットワークドライブなどで時間がかかることがあるため、
@@ -511,6 +543,7 @@ export const commands = {
 /** Events */
 export const events = {
 	deviceSyncProgress: makeEvent<DeviceSyncProgress>("device-sync-progress"),
+	importFilesRequested: makeEvent<ImportFilesRequested>("import-files-requested"),
 	importProgress: makeEvent<ImportProgress>("import-progress"),
 	libraryChanged: makeEvent<LibraryChanged>("library-changed"),
 	libraryScanProgress: makeEvent<LibraryScanProgress>("library-scan-progress"),
@@ -521,6 +554,7 @@ export const events = {
 	showAboutDialog: makeEvent<ShowAboutDialog>("show-about-dialog"),
 	toggleMiniPlayer: makeEvent<ToggleMiniPlayer>("toggle-mini-player"),
 	toggleSidebar: makeEvent<ToggleSidebar>("toggle-sidebar"),
+	tracksOpened: makeEvent<TracksOpened>("tracks-opened"),
 };
 
 /* Constants */
@@ -751,6 +785,9 @@ export type GlobalShortcutInfo = {
 	registered: boolean,
 };
 
+/**  メニュー「ファイルをインポート...」: インポートダイアログを開き、ファイルを選ぶダイアログを出す */
+export type ImportFilesRequested = null;
+
 /**  インポートの進捗 */
 export type ImportProgress = {
 	/**  処理済みファイル数 */
@@ -761,7 +798,7 @@ export type ImportProgress = {
 	currentFile: string,
 };
 
-/**  フォルダから音楽ファイルをインポートする結果 */
+/**  音楽ファイルをインポートした結果 */
 export type ImportResult = {
 	importedCount: number,
 	skippedCount: number,
@@ -950,6 +987,14 @@ export type NumberOp = "is" | "isNot" | "atLeast" | "atMost" |
 
 /**  メニュー「フォルダをインポート...」: インポートダイアログを開く */
 export type OpenImportDialog = null;
+
+/**  開かれたファイルのうち、フロントエンドがまだ受け取っていないもの */
+export type OpenedFiles = {
+	/**  再生する曲（開かれた順） */
+	tracks: Track[],
+	/**  開けなかったファイルの、エラーの内容 */
+	errors: string[],
+};
 
 /**  出力デバイス */
 export type OutputDevice = {
@@ -1345,6 +1390,13 @@ export type TrackMetadataChange = {
 	/**  変える項目（値がある項目だけを変える。文字列の項目は、空の値で項目を取り除く） */
 	metadata: Metadata,
 };
+
+/**
+ *  「このアプリで開く」などで開かれたファイルのインポートが済んだ
+ * 
+ *  フロントエンドは、`take_opened_files`で曲を受け取って再生する（`opened_files`）。
+ */
+export type TracksOpened = null;
 
 /**  音量の正規化（ReplayGain） */
 export type VolumeNormalization = 

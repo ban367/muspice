@@ -241,7 +241,7 @@ export const ja = {
   },
 
   sidebar: {
-    importFolder: 'フォルダをインポート',
+    importFolder: '音楽をインポート',
     browse: 'ブラウズ',
     songs: '曲',
     albums: 'アルバム',
@@ -569,7 +569,7 @@ export const ja = {
   },
 
   importDialog: {
-    title: '音楽フォルダをインポート',
+    title: '音楽をインポート',
     selectFolderTitle: 'インポートするフォルダを選択',
     selectFolderFailed: 'フォルダの選択に失敗しました',
     folderRequired: 'フォルダを選択してください',
@@ -590,7 +590,20 @@ export const ja = {
     errors: 'エラー:',
     errorDetails: 'エラー詳細:',
     importingShort: 'インポート中...',
-    start: 'インポート開始'
+    start: 'インポート開始',
+    orFiles: 'または',
+    selectFiles: 'ファイルを選んでインポート...',
+    filesHint:
+      'ファイルを選んだ場合は、その曲だけを登録します（ファイルのあるフォルダは、自動の再スキャンの対象になりません）。',
+    dropHere: 'ここにドロップしてインポート'
+  },
+
+  openedFiles: {
+    context: '開いたファイルの再生',
+    failed: (error: string, more: number) =>
+      more > 0
+        ? `開けないファイルがありました: ${error}（ほか${more}件）`
+        : `ファイルを開けませんでした: ${error}`
   },
 
   about: {

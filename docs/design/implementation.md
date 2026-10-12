@@ -67,6 +67,7 @@ src-tauri/src/
 ├── device_manifest.rs     # デバイス側の管理ファイル（.muspice/manifest.json）
 ├── device_sync.rs         # デバイス上の配置と差分の計算（ファイルシステムに触れない）
 ├── device_transfer.rs     # 同期の実行（削除・リネーム・コピー・プレイリストの書き出し）
+├── dropped_files.rs       # ウィンドウへドロップされたファイルのパスの受け取り（OSのドラッグ用のペーストボードから読む。macOS。ADR-050）
 ├── error.rs
 ├── events.rs
 ├── repository.rs
@@ -101,6 +102,7 @@ src-tauri/src/
 ├── metadata.rs
 ├── mini_player.rs         # ミニプレーヤー（メインウィンドウの大きさの切り替えと、元の大きさの記録。ADR-046）
 ├── models.rs
+├── opened_files.rs        # 「このアプリで開く」・Dockのアイコンへのドロップで開かれたファイルの受け取り（インポートして、再生する曲として預かる。ADR-050）
 ├── settings.rs
 ├── tag_backfill.rs        # 既存のトラックの、後から追加した項目（アルバムアーティスト・ソート用のタグ）の読み込み（起動時）
 ├── track_notification.rs  # 曲が変わった時の通知（ADR-046）
@@ -365,6 +367,7 @@ Tauriのウィンドウ（macOSではWKWebView）はブラウザ自動化ツー�
   - `window.__MUSPICE_MOCK__.emit('playback-control', { type: 'next' })`で、「再生」メニュー・OSのメディアキーの操作を再現する
   - `window.__MUSPICE_MOCK__.nowPlaying()`で、OSのNow Playingへ伝えた内容を確認する（ブラウザにはOSの表示がないため）
   - `window.__MUSPICE_MOCK__.setM3uImportMode('clean')`で、M3Uの読み込みで選んだことにするファイルを切り替える（`partial`: 対応が付かない行がある（既定）・`clean`: すべて対応が付く・`cancel`: 選ばなかった）。ファイルを選ぶダイアログはRust側が開くため、モックは決まった結果を返す
+  - `window.__MUSPICE_MOCK__.setFileImportMode('cancel')`で、ファイルを選ぶインポートで選ばなかったことにする（`pick`: 2つの音楽ファイルを選んだ（既定））。`window.__MUSPICE_MOCK__.openFiles(['a.flac'])`で、Finderの「このアプリで開く」でファイルが開かれたことにする（インポートして再生される）。ウィンドウへのドロップは、`DataTransfer`に`File`を入れた`dragover`・`drop`を`window`へ送ると確かめられる（パスの読み取りは再現せず、名前のファイルがあることにする）
   - `window.__MUSPICE_MOCK__.setAlbumArtPickMode('cancel')`で、アルバムアートの埋め込みで選んだことにする画像を切り替える（`pick`: 埋め込める画像（既定。選ぶたびに違う色の画像になる）・`cancel`: 選ばなかった・`tooLarge`: 大きすぎる画像）。フィクスチャでは、「Midnight Circuit」がフォルダの画像（`cover.jpg`）、「Quiet Rooms」がアートなし、ほかは埋め込みの画像
   - `window.__MUSPICE_MOCK__.setConfirmResult(false)`で、以降の確認ダイアログを「キャンセル」にする
   - `window.__MUSPICE_MOCK__.setFolderResult('/Volumes/NEW_SD')`で、以降のフォルダ選択ダイアログで選ばれるパスを変える。既定のパスはライブラリフォルダの中のため、転送先デバイスの追加を確認するときはライブラリの外のパスにする

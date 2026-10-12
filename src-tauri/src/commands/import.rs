@@ -1,11 +1,18 @@
 //! 音楽ファイルのインポート関連コマンド
+//!
+//! 取り込み方は4つあり、どれも同じ処理（`import_audio_files`）で曲を登録する（ADR-050）。
+//!
+//! - フォルダを選ぶ（`import_folder`）: 中の曲をすべて登録し、フォルダをライブラリフォルダとして記録する
+//! - ファイルを選ぶ（`import_files`）: 選んだ曲だけを登録する（フォルダは記録しない）
+//! - ウィンドウへドロップする（`import_dropped_files`。macOS）: ファイルは曲だけ、フォルダはフォルダとして
+//! - 「このアプリで開く」・Dockのアイコンへのドロップ（`opened_files`）: 曲だけを登録して、再生する
 
-use super::run_blocking;
+use super::{file_dialog, run_blocking};
 use crate::error::{AppError, AppResult};
 use crate::events::{ImportProgress, LibraryChanged};
 use crate::library::{
     DuplicateAction, ImportResult, get_default_title, get_file_format, get_file_modified_at,
-    get_file_size, scan_directory,
+    get_file_size, is_supported_audio_file, scan_directory, supported_extensions,
 };
 use crate::library_sync::LibrarySync;
 use crate::metadata::extract_all_file_info;
@@ -14,7 +21,7 @@ use crate::state::AppState;
 use crate::track_relink::MissingTrackIndex;
 use crate::validation::validate_file_path;
 use chrono::Utc;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 use uuid::Uuid;
@@ -31,41 +38,210 @@ pub async fn import_folder(
     validate_file_path(&folder_path)?;
 
     // スキャン・メタデータ抽出・バッチ書き込みはブロッキング処理用スレッドで行う
+    run_blocking(move || import_paths(&app_handle, &[PathBuf::from(folder_path)], duplicate_action))
+        .await
+}
+
+/// ファイルを選ぶダイアログを開き、選んだ音楽ファイルをインポートする
+///
+/// ダイアログはRust側で開く（WebViewへパスを渡さない）。選んだ曲だけを登録し、ファイルのある
+/// フォルダは、ライブラリフォルダとして記録しない（再スキャンの対象にならない）。
+///
+/// @returns インポートの結果（選ばずに閉じた場合はnull）
+#[tauri::command]
+#[specta::specta]
+pub async fn import_files(
+    duplicate_action: DuplicateAction,
+    app_handle: AppHandle,
+) -> AppResult<Option<ImportResult>> {
     run_blocking(move || {
-        let state = app_handle.state::<AppState>();
-        let result = {
-            // 自動の再スキャンと同じファイルを同時に登録しないよう、終わるまで待ってから始める
-            let _scan = state.lock_library_scan();
-            import_folder_blocking(
-                Path::new(&folder_path),
-                duplicate_action,
-                state.inner(),
-                &app_handle,
-            )?
+        let english = crate::menu::current_language(&app_handle) == crate::settings::Language::En;
+        let (title, filter) = if english {
+            ("Select the music files to import", "Music files")
+        } else {
+            ("インポートする音楽ファイルを選択", "音楽ファイル")
         };
-        // 記録したフォルダを監視する（監視が有効な場合）
-        app_handle
-            .state::<LibrarySync>()
-            .refresh_watches(&app_handle);
-        // 設定ウィンドウのライブラリフォルダの一覧にも反映させる
-        if let Err(e) = LibraryChanged.emit(&app_handle) {
-            log::warn!("ライブラリの変更の通知に失敗しました: {}", e);
-        }
-        Ok(result)
+        let Some(files) = file_dialog(&app_handle)
+            .set_title(title)
+            .add_filter(filter, supported_extensions())
+            .blocking_pick_files()
+        else {
+            return Ok(None);
+        };
+        let paths: Vec<PathBuf> = files
+            .into_iter()
+            .filter_map(|file| file.into_path().ok())
+            .collect();
+        import_paths(&app_handle, &paths, duplicate_action).map(Some)
     })
     .await
 }
 
-/// `import_folder`の本体（同期処理）
+/// ウィンドウへドロップされたファイル・フォルダをインポートする（macOS）
+///
+/// WebViewは、ドロップされたファイルのパスを知らない（HTML5のドロップでは得られず、Tauriの
+/// ファイルドロップは曲のドラッグ&ドロップのために無効にしている。ADR-018）。WebViewからは
+/// 「ドロップされた」ことと名前だけを受け取り、パスは、OSのドラッグ用のペーストボードから
+/// Rust側で読む（`dropped_files`）。ファイルは曲だけを登録し、フォルダは`import_folder`と同じく
+/// ライブラリフォルダとして記録する。登録済みのファイルはスキップする。
+#[tauri::command]
+#[specta::specta]
+pub async fn import_dropped_files(
+    names: Vec<String>,
+    app_handle: AppHandle,
+) -> AppResult<ImportResult> {
+    run_blocking(move || {
+        let paths = crate::dropped_files::take_dropped_paths(
+            &app_handle,
+            &app_handle.state::<crate::dropped_files::DroppedFiles>(),
+            &names,
+        )?;
+        import_paths(&app_handle, &paths, DuplicateAction::Skip)
+    })
+    .await
+}
+
+/// 「このアプリで開く」などで開かれ、インポートが済んだ曲を受け取る（受け取った分は、手放す）
+///
+/// フロントエンドは、起動した時と、`TracksOpened`が届いた時に呼び、受け取った曲を再生する。
+#[tauri::command]
+#[specta::specta]
+pub fn take_opened_files(
+    opened: tauri::State<'_, crate::opened_files::OpenedFilesState>,
+) -> crate::opened_files::OpenedFiles {
+    opened.take()
+}
+
+/// ファイル・フォルダをインポートし、ライブラリの変更を知らせる（同期処理）
+///
+/// 音楽ファイルは曲だけを登録し、フォルダは中の曲を登録してライブラリフォルダとして記録する。
+/// 音楽ファイルでもフォルダでもないものは、読み飛ばす。取り込めるものが1つもなければエラー。
+pub(crate) fn import_paths(
+    app_handle: &AppHandle,
+    paths: &[PathBuf],
+    duplicate_action: DuplicateAction,
+) -> AppResult<ImportResult> {
+    let targets = ImportTargets::from_paths(paths);
+    if targets.is_empty() {
+        return Err(AppError::Validation(
+            "インポートできる音楽ファイルがありません".to_string(),
+        ));
+    }
+
+    let state = app_handle.state::<AppState>();
+    let result = import_targets(&state, &targets, duplicate_action, &|progress| {
+        if let Err(e) = progress.emit(app_handle) {
+            log::warn!("進捗イベントの送信に失敗しました: {}", e);
+        }
+    })?;
+
+    // 記録したフォルダを監視する（監視が有効な場合）
+    app_handle
+        .state::<LibrarySync>()
+        .refresh_watches(app_handle);
+    // 曲の一覧と、設定ウィンドウのライブラリフォルダの一覧に反映させる
+    if let Err(e) = LibraryChanged.emit(app_handle) {
+        log::warn!("ライブラリの変更の通知に失敗しました: {}", e);
+    }
+    Ok(result)
+}
+
+/// インポートする対象（音楽ファイルと、フォルダ）
+#[derive(Debug, Default, PartialEq)]
+pub(crate) struct ImportTargets {
+    /// 音楽ファイル（曲だけを登録する）
+    pub files: Vec<PathBuf>,
+    /// フォルダ（中の曲を登録し、ライブラリフォルダとして記録する）
+    pub folders: Vec<PathBuf>,
+}
+
+impl ImportTargets {
+    /// パスを、音楽ファイルとフォルダに分ける（どちらでもないもの・重複は除く）
+    pub fn from_paths(paths: &[PathBuf]) -> Self {
+        let mut targets = Self::default();
+        for path in paths {
+            if path.is_dir() {
+                if !targets.folders.contains(path) {
+                    targets.folders.push(path.clone());
+                }
+            } else if path.is_file()
+                && is_supported_audio_file(path)
+                && !targets.files.contains(path)
+            {
+                targets.files.push(path.clone());
+            }
+        }
+        targets
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.files.is_empty() && self.folders.is_empty()
+    }
+}
+
+/// 音楽ファイルとフォルダをインポートする（同期処理）
+///
+/// `on_progress`には、ファイルを1つ読むたびに進み具合を渡す（ファイルの分と、フォルダごとに、
+/// 件数を数え直す）。
+fn import_targets(
+    state: &AppState,
+    targets: &ImportTargets,
+    duplicate_action: DuplicateAction,
+    on_progress: &dyn Fn(ImportProgress),
+) -> AppResult<ImportResult> {
+    // 自動の再スキャンと同じファイルを同時に登録しないよう、終わるまで待ってから始める
+    let _scan = state.lock_library_scan();
+    let mut result = ImportResult::default();
+    if !targets.files.is_empty() {
+        result.merge(import_audio_files(
+            &targets.files,
+            duplicate_action,
+            state,
+            on_progress,
+        )?);
+    }
+    for folder in &targets.folders {
+        result.merge(import_folder_blocking(
+            folder,
+            duplicate_action,
+            state,
+            on_progress,
+        )?);
+    }
+    Ok(result)
+}
+
+/// フォルダの中の音楽ファイルをインポートし、フォルダをライブラリフォルダとして記録する（同期処理）
 fn import_folder_blocking(
     path: &Path,
     duplicate_action: DuplicateAction,
     state: &AppState,
-    app_handle: &AppHandle,
+    on_progress: &dyn Fn(ImportProgress),
 ) -> AppResult<ImportResult> {
     // ディレクトリをスキャン
     let audio_files = scan_directory(path)?;
+    let result = import_audio_files(&audio_files, duplicate_action, state, on_progress)?;
 
+    // インポートしたフォルダをライブラリフォルダとして記録する（再スキャンの対象になる）
+    // 音楽ファイルが見つからなかったフォルダは記録しない（中のライブラリフォルダの記録を
+    // まとめて消さないため）。記録に失敗してもインポート自体は成功しているため、結果は返す
+    if !audio_files.is_empty()
+        && let Some(folder_path) = path.to_str()
+        && let Err(e) = state.with_db(|db| crate::library_folder::register_folder(db, folder_path))
+    {
+        log::error!("ライブラリフォルダの記録に失敗しました: {}", e);
+    }
+
+    Ok(result)
+}
+
+/// 音楽ファイルの一覧を、ライブラリへ登録する（同期処理。フォルダ・ファイルのインポートで共通）
+fn import_audio_files(
+    audio_files: &[PathBuf],
+    duplicate_action: DuplicateAction,
+    state: &AppState,
+    on_progress: &dyn Fn(ImportProgress),
+) -> AppResult<ImportResult> {
     let mut imported_count = 0;
     let mut skipped_count = 0;
     let mut relinked_count = 0;
@@ -117,14 +293,11 @@ fn import_folder_blocking(
                 .unwrap_or("不明なファイル")
                 .to_string();
 
-            let progress = ImportProgress {
+            on_progress(ImportProgress {
                 current: processed_count,
                 total: total_files,
                 current_file,
-            };
-            if let Err(e) = progress.emit(app_handle) {
-                log::warn!("進捗イベントの送信に失敗しました: {}", e);
-            }
+            });
 
             // 重複チェック
             // insertは未登録のパスの場合にtrueを返すため、falseなら重複
@@ -217,16 +390,6 @@ fn import_folder_blocking(
         cache.clear();
     }
 
-    // インポートしたフォルダをライブラリフォルダとして記録する（再スキャンの対象になる）
-    // 音楽ファイルが見つからなかったフォルダは記録しない（中のライブラリフォルダの記録を
-    // まとめて消さないため）。記録に失敗してもインポート自体は成功しているため、結果は返す
-    if !audio_files.is_empty()
-        && let Some(folder_path) = path.to_str()
-        && let Err(e) = state.with_db(|db| crate::library_folder::register_folder(db, folder_path))
-    {
-        log::error!("ライブラリフォルダの記録に失敗しました: {}", e);
-    }
-
     Ok(ImportResult {
         imported_count,
         skipped_count,
@@ -304,4 +467,147 @@ pub(super) fn create_track_from_file(file_path: &Path) -> AppResult<Track> {
         sort_tags,
         is_missing: false,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::metadata::test_images::write_wav;
+    use rusqlite::Connection;
+    use std::cell::RefCell;
+
+    fn test_state() -> AppState {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::run_migrations(&conn).unwrap();
+        AppState::new(conn)
+    }
+
+    /// 音楽ファイル（WAV）を2つ、フォルダ（中にWAVが1つ）を1つ、音楽ではないファイルを1つ作る
+    fn fixture() -> (PathBuf, [PathBuf; 4]) {
+        let dir = std::env::temp_dir().join(format!("muspice-test-{}", Uuid::new_v4()));
+        let album = dir.join("album");
+        std::fs::create_dir_all(&album).unwrap();
+        let first = dir.join("first.wav");
+        let second = dir.join("second.WAV");
+        let cover = dir.join("cover.jpg");
+        write_wav(&first);
+        write_wav(&second);
+        write_wav(&album.join("inside.wav"));
+        std::fs::write(&cover, b"not music").unwrap();
+        (dir, [first, second, album, cover])
+    }
+
+    fn track_paths(state: &AppState) -> Vec<String> {
+        let mut paths: Vec<String> = state
+            .with_db(|db| crate::repository::find_all_tracks(db))
+            .unwrap()
+            .into_iter()
+            .map(|track| track.file_path)
+            .collect();
+        paths.sort();
+        paths
+    }
+
+    fn folder_paths(state: &AppState) -> Vec<String> {
+        state
+            .with_db(|db| crate::library_folder::find_all_folders(db))
+            .unwrap()
+            .into_iter()
+            .map(|folder| folder.path)
+            .collect()
+    }
+
+    #[test]
+    fn test_targets_are_split_into_audio_files_and_folders() {
+        let (dir, [first, second, album, cover]) = fixture();
+
+        let targets = ImportTargets::from_paths(&[
+            first.clone(),
+            cover.clone(),
+            album.clone(),
+            second.clone(),
+            first.clone(),
+            dir.join("missing.wav"),
+        ]);
+        // 音楽ではないファイル・ないファイル・重複は除く（拡張子の大文字と小文字は区別しない）
+        assert_eq!(targets.files, vec![first, second]);
+        assert_eq!(targets.folders, vec![album]);
+        assert!(!targets.is_empty());
+        assert!(ImportTargets::from_paths(&[cover, dir.join("missing.wav")]).is_empty());
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// ファイルを選んだインポートは、曲だけを登録する（フォルダは、ライブラリフォルダにしない）
+    #[test]
+    fn test_importing_files_registers_only_the_tracks() {
+        let (dir, [first, second, _album, cover]) = fixture();
+        let state = test_state();
+        let progress = RefCell::new(Vec::new());
+        let targets = ImportTargets::from_paths(&[first.clone(), cover, second.clone()]);
+
+        let result = import_targets(&state, &targets, DuplicateAction::Skip, &|event| {
+            progress
+                .borrow_mut()
+                .push((event.current, event.total, event.current_file));
+        })
+        .unwrap();
+
+        assert_eq!((result.imported_count, result.skipped_count), (2, 0));
+        assert_eq!(
+            track_paths(&state),
+            [first.to_str().unwrap(), second.to_str().unwrap()]
+        );
+        // 同じフォルダにある、選んでいない曲（album/inside.wav）は登録しない
+        assert!(folder_paths(&state).is_empty());
+        assert_eq!(
+            *progress.borrow(),
+            [
+                (1, 2, "first.wav".to_string()),
+                (2, 2, "second.WAV".to_string())
+            ]
+        );
+
+        // もう一度インポートすると、登録済みとしてスキップする
+        let again = import_targets(&state, &targets, DuplicateAction::Skip, &|_| {}).unwrap();
+        assert_eq!((again.imported_count, again.skipped_count), (0, 2));
+        // 「このアプリで開く」では、開いた順に曲を受け取る
+        let opened = state
+            .with_db(|db| {
+                crate::repository::find_tracks_by_file_paths(
+                    db,
+                    &[
+                        second.to_str().unwrap().to_string(),
+                        "/no/such/file.wav".to_string(),
+                        first.to_str().unwrap().to_string(),
+                    ],
+                )
+            })
+            .unwrap();
+        assert_eq!(
+            opened
+                .iter()
+                .map(|track| track.file_name.as_str())
+                .collect::<Vec<_>>(),
+            ["second.WAV", "first.wav"]
+        );
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// ファイルとフォルダを一緒に渡すと、フォルダの方はライブラリフォルダとして記録する
+    #[test]
+    fn test_importing_a_folder_with_files_registers_the_folder() {
+        let (dir, [first, _second, album, _cover]) = fixture();
+        let state = test_state();
+        let targets = ImportTargets::from_paths(&[first, album.clone()]);
+
+        let result = import_targets(&state, &targets, DuplicateAction::Skip, &|_| {}).unwrap();
+
+        assert_eq!(result.imported_count, 2);
+        assert_eq!(track_paths(&state).len(), 2);
+        assert_eq!(folder_paths(&state), [album.to_str().unwrap()]);
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }
