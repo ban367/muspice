@@ -3,8 +3,15 @@ use rusqlite::Connection;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// サポートされている音楽ファイル形式
-const SUPPORTED_EXTENSIONS: &[&str] = &["mp3", "flac", "wav", "m4a"];
+/// サポートされている音楽ファイル形式（拡張子）
+///
+/// 一般的な音楽プレーヤーが扱う形式のうち、再生（WebView）とタグの読み書き（lofty）の両方が
+/// できる形式に限る。追加する時は、実ファイルで両方を確かめる（調査の結果は
+/// `docs/design/decisions.md`のADR-024）。
+/// m4aは、AACとALACのどちらも扱える。aacはADTS形式のAAC。oggは、中がVorbisでもOpusでも扱える。
+const SUPPORTED_EXTENSIONS: &[&str] = &[
+    "mp3", "flac", "wav", "m4a", "aac", "mp2", "aiff", "aif", "ogg", "opus",
+];
 
 /// フォルダから音楽ファイルをインポートする結果
 #[derive(Debug, serde::Serialize, specta::Type)]
@@ -248,7 +255,21 @@ mod tests {
         assert!(is_supported_audio_file(Path::new("test.flac")));
         assert!(is_supported_audio_file(Path::new("test.wav")));
         assert!(is_supported_audio_file(Path::new("test.m4a")));
+        for extension in ["aac", "mp2", "aiff", "aif", "ogg", "opus"] {
+            assert!(
+                is_supported_audio_file(Path::new(&format!("test.{extension}"))),
+                "{extension}"
+            );
+        }
         assert!(is_supported_audio_file(Path::new("test.MP3")));
+        assert!(is_supported_audio_file(Path::new("test.AIFF")));
+        // 再生かタグの読み書きができない形式は、取り込まない（ADR-024）
+        for extension in ["wma", "wv", "ape", "dsf", "tta", "mka", "oga"] {
+            assert!(
+                !is_supported_audio_file(Path::new(&format!("test.{extension}"))),
+                "{extension}"
+            );
+        }
         assert!(!is_supported_audio_file(Path::new("test.txt")));
         assert!(!is_supported_audio_file(Path::new("test.jpg")));
     }
