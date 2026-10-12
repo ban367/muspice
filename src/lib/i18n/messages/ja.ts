@@ -416,7 +416,7 @@ export const ja = {
     playbackEngine: '再生エンジン',
     playbackEngines: { webView: '標準', native: 'ネイティブ（試験的）' },
     playbackEngineHint:
-      'ネイティブでは、出力デバイスを選べます。イコライザ・音量の正規化・クロスフェードは、まだ効きません。切り替えると再生は止まり、再生キューは空になります',
+      'ネイティブでは、出力デバイスを選べます。切り替えると再生は止まり、再生キューは空になります',
     outputDevice: '出力デバイス',
     outputDeviceDefault: 'システムの既定',
     /** 選んであるデバイスが一覧にない（接続されていない）場合の表示 */

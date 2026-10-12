@@ -407,7 +407,7 @@ export const en: Messages = {
     playbackEngine: 'Playback engine',
     playbackEngines: { webView: 'Standard', native: 'Native (experimental)' },
     playbackEngineHint:
-      'The native engine lets you choose the output device. The equalizer, volume normalization and crossfade do not work with it yet. Switching stops playback and clears the queue.',
+      'The native engine lets you choose the output device. Switching stops playback and clears the queue.',
     outputDevice: 'Output device',
     outputDeviceDefault: 'System default',
     outputDeviceDisconnected: 'Disconnected device',

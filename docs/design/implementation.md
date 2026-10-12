@@ -75,7 +75,9 @@ src-tauri/src/
 │   ├── decoder.rs         # ファイルのデコード（symphonia + libopus）
 │   ├── mp4_gapless.rs     # M4AのAACの、曲の頭と終わりの余分の読み取り
 │   ├── convert.rs         # 出力の形式（ステレオ・出力のサンプルレート）への変換
-│   ├── render.rs          # 出力のコールバックでの音声の取り出し（音量・一時停止）
+│   ├── normalization.rs   # 音量の正規化（ReplayGain）の倍率の計算
+│   ├── effects.rs         # 出力の直前にかける加工（イコライザ・リミッター）
+│   ├── render.rs          # 出力のコールバックでの音声の取り出し（イコライザ・音量・一時停止・リミッター）
 │   └── output.rs          # 出力デバイスの一覧と、出力のストリーム（cpal）
 ├── playlist.rs
 ├── metadata.rs
@@ -154,6 +156,8 @@ src-tauri/src/
   - エンジンへ渡す番号（トークン）は、再生する曲・続けて再生する曲ごとに増やす。通知（`PlaybackEvent`）は番号で見分け、前の曲についての通知は捨てる
   - `advanced`が届いたら、再生し直さずに`playNextTrack()`でキューを進める。伝えてあった曲がもうキューの次の曲でない場合は、キューの次の曲を再生し直す
   - シークバーのドラッグ中は、シークを間隔（80ms）を空けて送る（そのたびにシークすると、音が細切れになる）
+  - 次の曲は、ギャップレス再生かクロスフェードが有効なら伝える（audio要素の再生コントローラーの先読みと同じ条件）。重ねる処理・重ねる長さは、エンジンが設定を読んで決める
+  - イコライザの設定は`equalizer.svelte`から読み、起動時と変更のたびに`playbackSetEqualizer`で送る（音量の正規化とクロスフェードの設定は、`save_settings`がエンジンへ伝えるため、送らない）
   - 再生コントローラーを作り直す（再生エンジンを切り替える）と、再生は止まりキューは空になる。audio要素は一度Web Audioの経路につなぐと別の経路につなぎ直せないため、audio要素での再生に戻した時は`Player.svelte`が新しい要素を作る
 - アルバム・プレイリストなどの「シャッフル再生」は`playShuffled(tracks)`を使う（配列を`sort(() => Math.random() - 0.5)`などで独自に並べ替えない）。シャッフルモードを有効にし、元の順序を保持するため、解除すると元の順序に戻る
 
@@ -266,7 +270,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 - Rustユニットテストを `cargo test` で実行
   - 再生エンジン（`playback/`）は、音声デバイスのない環境でも動かせるよう、出力を`OutputBackend`で差し替えてテストする（エンジンをスレッドなしで動かし、出力のコールバックの代わりにテストから音声を取り出す）
   - 非可逆の形式（MP3・AAC・Opus・Vorbis）の、曲の頭・終わりの余分とシークの位置は、`src-tauri/tests/fixtures/playback/`の短いファイルで確かめる（作り直す手順は`decoder.rs`のテストのコメント）
-  - 実際の出力デバイスでの再生は、手動のテストで確かめる（音量を0にするため音は出ない）: `PLAYBACK_TEST_FILES=a.flac:b.mp3 cargo test real_output -- --ignored --nocapture`。再生位置・曲の切り替わりの通知と、かかった時間（実時間で再生されたか）、音切れのログを表示する
+  - 実際の出力デバイスでの再生は、手動のテストで確かめる（音量を0にするため音は出ない）: `PLAYBACK_TEST_FILES=a.flac:b.mp3 cargo test real_output -- --ignored --nocapture`。再生位置・曲の切り替わりの通知と、かかった時間（実時間で再生されたか）、音切れのログを表示する（`PLAYBACK_TEST_CROSSFADE=2`でクロスフェードの秒数、`PLAYBACK_TEST_PLAIN=1`で途中の操作なしを指定できる）
 - フロントエンドのロジック（ストア・ユーティリティ）は Vitest で単体テストする（`npm test`）
   - テストは対象と同じディレクトリに `*.test.ts` として置き、Node環境で実行する。テスト内で`$state`・`$effect`などのRunesを使う場合は `*.svelte.test.ts` にする
   - Svelteはアプリと同じクライアント向けにコンパイルする（`vitest.environment.ts`の環境と、Vitest実行時の`resolve.conditions: ['browser']`）。組み込みの`node`環境ではサーバー向けになり、`$effect`が実行されない
