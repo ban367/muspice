@@ -35,8 +35,30 @@ pub struct Track {
     pub updated_at: String,
     /// 音量の正規化に使うゲイン（タグにない項目は値なし）
     pub replay_gain: ReplayGain,
+    /// 並び順に使う値（読みなど。タグにない項目は値なし）
+    pub sort_tags: SortTags,
     /// ファイルが見つからない（再スキャンで見つからなくなった曲。利用者が外すまで残す）
     pub is_missing: bool,
+}
+
+/// 並び順に使う値（ソート用のタグ。`TITLESORT`・`ARTISTSORT`・`ALBUMSORT`・`ALBUMARTISTSORT`）
+///
+/// 漢字の名前を読みの順に並べるための読み仮名などが入る。値のない項目は、表示用の値
+/// （タイトル・アーティストなど）で並べる。
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SortTags {
+    pub title: Option<String>,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub album_artist: Option<String>,
+}
+
+impl SortTags {
+    /// どの項目にも値がないか
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
 }
 
 /// M3Uのファイル1つを読み込んだ結果
@@ -227,6 +249,27 @@ pub struct Metadata {
     /// 歌詞（時刻のないテキスト）
     #[specta(optional)]
     pub lyrics: Option<String>,
+    /// 並び順に使う値（読みなど。`SortTags`を参照）
+    #[specta(optional)]
+    pub title_sort: Option<String>,
+    #[specta(optional)]
+    pub artist_sort: Option<String>,
+    #[specta(optional)]
+    pub album_sort: Option<String>,
+    #[specta(optional)]
+    pub album_artist_sort: Option<String>,
+}
+
+impl Metadata {
+    /// 並び順に使う値を、トラックに持たせる形にする
+    pub fn sort_tags(&self) -> SortTags {
+        SortTags {
+            title: self.title_sort.clone(),
+            artist: self.artist_sort.clone(),
+            album: self.album_sort.clone(),
+            album_artist: self.album_artist_sort.clone(),
+        }
+    }
 }
 
 /// アルバムの一覧の1件（曲は含めない。曲は`get_album_tracks`で取得する）
@@ -236,6 +279,8 @@ pub struct Metadata {
 #[serde(rename_all = "camelCase")]
 pub struct AlbumSummary {
     pub name: String,
+    /// 並び順に使う値（アルバムの曲のソート用のタグ。なければ値なしで、`name`で並べる）
+    pub sort_name: Option<String>,
     /// アルバムをまとめたアーティスト（アルバムアーティスト。なければ曲のアーティスト）
     pub artist: Option<String>,
     pub track_count: i32,
@@ -250,6 +295,8 @@ pub struct AlbumSummary {
 #[serde(rename_all = "camelCase")]
 pub struct ArtistSummary {
     pub name: String,
+    /// 並び順に使う値（アーティストの曲のソート用のタグ。なければ値なしで、`name`で並べる）
+    pub sort_name: Option<String>,
     pub album_count: i32,
     pub track_count: i32,
     pub total_duration: i32,
@@ -271,6 +318,8 @@ pub struct GenreSummary {
 #[serde(rename_all = "camelCase")]
 pub struct AlbumGroup {
     pub name: String,
+    /// 並び順に使う値（`AlbumSummary::sort_name`と同じ）
+    pub sort_name: Option<String>,
     pub artist: Option<String>,
     pub track_count: i32,
     pub total_duration: i32,

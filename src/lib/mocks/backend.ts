@@ -45,7 +45,7 @@ import {
   mockPlaylistId,
   mockTrackId
 } from './fixtures';
-import { matchesSearchTerms, searchTerms } from '#lib/utils/searchText.js';
+import { matchesSearchTerms, normalizeSearchText, searchTerms } from '#lib/utils/searchText.js';
 import { createAlbumArt } from './media';
 import { createMockPlaybackEngine, MOCK_OUTPUT_DEVICES } from './playbackEngine';
 
@@ -229,7 +229,11 @@ const METADATA_TEXT_LIMITS: [keyof Metadata, string, number][] = [
   ['composer', '作曲者', 255],
   ['grouping', 'グループ', 255],
   ['comment', 'コメント', 2000],
-  ['lyrics', '歌詞', 50000]
+  ['lyrics', '歌詞', 50000],
+  ['titleSort', 'タイトルの読み', 255],
+  ['artistSort', 'アーティストの読み', 255],
+  ['albumSort', 'アルバムの読み', 255],
+  ['albumArtistSort', 'アルバムアーティストの読み', 255]
 ];
 
 function validateMetadataInput(metadata: Metadata): void {
@@ -274,8 +278,14 @@ function orderBy<T>(...keys: ((item: T) => SortKey)[]): (a: T, b: T) => number {
   };
 }
 
-const byNameIgnoreCase = (a: { name: string }, b: { name: string }) =>
-  compareAsc(a.name.toLowerCase(), b.name.toLowerCase());
+/** 一覧を並べる時に比べる文字列（並び順に使う値。なければ名前。Rustの`sort_key`と同じ） */
+const sortKeyOf = (item: { name: string; sortName?: string | null }) =>
+  normalizeSearchText(item.sortName ?? item.name);
+
+const bySortName = (
+  a: { name: string; sortName?: string | null },
+  b: { name: string; sortName?: string | null }
+) => compareAsc(sortKeyOf(a), sortKeyOf(b));
 
 /** 出現順を保ったままグループ化する */
 function groupBy<T>(items: T[], key: (item: T) => string): Map<string, T[]> {
@@ -298,6 +308,17 @@ const UNKNOWN_ALBUM = '不明なアルバム';
 /** アルバム・アーティストの一覧をまとめるアーティスト（Rustの`ALBUM_ARTIST`と同じ） */
 const groupArtist = (track: Track) => track.albumArtist ?? track.artist;
 
+/** まとめたアーティストの、並び順に使う値（Rustの`ALBUM_ARTIST_SORT`と同じ） */
+const groupArtistSort = (track: Track) =>
+  track.albumArtist === null
+    ? track.sortTags.artist
+    : (track.sortTags.albumArtist ??
+      (track.artist === track.albumArtist ? track.sortTags.artist : null));
+
+/** 並び順に使う値のうち、最初に見つかったもの（なければnull） */
+const firstSortName = (tracks: Track[], pick: (track: Track) => string | null) =>
+  tracks.map(pick).find((value) => value !== null) ?? null;
+
 /** アルバムの中の曲の並び（ディスク番号 → トラック番号 → タイトル。Rustの`ALBUM_TRACK_ORDER`と同じ） */
 const albumTrackOrder: ((track: Track) => SortKey)[] = [
   (t) => t.discNumber ?? 1,
@@ -312,6 +333,7 @@ function sumDuration(tracks: Track[]): number {
 function toAlbumSummary(name: string, artist: string | null, tracks: Track[]): AlbumSummary {
   return {
     name,
+    sortName: firstSortName(tracks, (track) => track.sortTags.album),
     artist,
     trackCount: tracks.length,
     totalDuration: sumDuration(tracks),
@@ -463,7 +485,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         ...toAlbumSummary(name, artist, albumTracks),
         tracks: albumTracks
       }))
-      .sort(byNameIgnoreCase);
+      .sort(bySortName);
   }
 
   /** ジャンルの曲を並べる（アルバムをまとめるアーティスト → アルバム → アルバムの中の並び） */
@@ -521,6 +543,12 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     track.albumArtist = metadata.albumArtist ?? null;
     track.trackNumber = metadata.trackNumber ?? null;
     track.discNumber = metadata.discNumber ?? null;
+    track.sortTags = {
+      title: metadata.titleSort ?? null,
+      artist: metadata.artistSort ?? null,
+      album: metadata.albumSort ?? null,
+      albumArtist: metadata.albumArtistSort ?? null
+    };
     track.updatedAt = now();
     // データベースに保存しない項目（作曲者・歌詞など）は、ファイルのタグの代わりに持っておく
     fileOnlyTags.set(trackId, pickFileOnlyTags(metadata));
@@ -628,6 +656,10 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     if (track.year !== null) tags.year = track.year;
     if (track.trackNumber !== null) tags.trackNumber = track.trackNumber;
     if (track.discNumber !== null) tags.discNumber = track.discNumber;
+    tags.titleSort = track.sortTags.title;
+    tags.artistSort = track.sortTags.artist;
+    tags.albumSort = track.sortTags.album;
+    tags.albumArtistSort = track.sortTags.albumArtist;
     // 値のない項目は、キーごと除く（Rust側は、タグにない項目を返さない）
     return Object.fromEntries(
       Object.entries(tags).filter(([, value]) => value !== undefined && value !== null)
@@ -696,6 +728,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
           createdAt: timestamp,
           updatedAt: timestamp,
           replayGain: { trackGain: null, trackPeak: null, albumGain: null, albumPeak: null },
+          sortTags: { title: null, artist: null, album: null, albumArtist: null },
           isMissing: false
         });
       }
@@ -932,7 +965,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         .sort(orderBy((t) => t.album, groupArtist, ...albumTrackOrder));
       return [...groupBy(sorted, (track) => JSON.stringify([track.album, groupArtist(track)]))]
         .map(([, items]) => toAlbumSummary(items[0].album ?? '', groupArtist(items[0]), items))
-        .sort(byNameIgnoreCase);
+        .sort(bySortName);
     },
     getAlbumTracks: (album, artist) =>
       tracks
@@ -944,6 +977,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
           const albums = toArtistAlbums(name, items);
           return {
             name,
+            sortName: firstSortName(items, groupArtistSort),
             albumCount: albums.length,
             trackCount: items.length,
             totalDuration: sumDuration(items),
@@ -951,7 +985,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
             representativeTrackId: albums[0]?.representativeTrackId ?? ''
           };
         })
-        .sort(byNameIgnoreCase),
+        .sort(bySortName),
     getArtistAlbums: (artist) =>
       toArtistAlbums(
         artist,
@@ -965,7 +999,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
           totalDuration: sumDuration(items),
           representativeTrackId: sortGenreTracks(items)[0]?.id ?? ''
         }))
-        .sort(byNameIgnoreCase),
+        .sort(bySortName),
     getGenreTracks: (genre) => sortGenreTracks(tracks.filter((track) => track.genre === genre)),
     getTrackTags,
     updateTrackMetadata,
@@ -981,6 +1015,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       });
       const timestamp = now();
       const { title, artist, album, genre, year, albumArtist, trackNumber, discNumber } = metadata;
+      const { titleSort, artistSort, albumSort, albumArtistSort } = metadata;
       const hasChanges = [
         title,
         artist,
@@ -989,7 +1024,11 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         year,
         albumArtist,
         trackNumber,
-        discNumber
+        discNumber,
+        titleSort,
+        artistSort,
+        albumSort,
+        albumArtistSort
       ].some((value) => value != null);
       // 値のある項目だけを変える
       const fileOnly = Object.fromEntries(
@@ -1004,6 +1043,12 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         if (albumArtist != null) track.albumArtist = albumArtist;
         if (trackNumber != null) track.trackNumber = trackNumber;
         if (discNumber != null) track.discNumber = discNumber;
+        track.sortTags = {
+          title: titleSort ?? track.sortTags.title,
+          artist: artistSort ?? track.sortTags.artist,
+          album: albumSort ?? track.sortTags.album,
+          albumArtist: albumArtistSort ?? track.sortTags.albumArtist
+        };
         if (hasChanges) track.updatedAt = timestamp;
         const merged: Metadata = { ...fileOnlyTags.get(track.id), ...fileOnly };
         // コンピレーションの印を外す指定は、項目ごと取り除く

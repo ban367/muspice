@@ -60,7 +60,6 @@ src-tauri/src/
 │   └── tracks.rs
 ├── lib.rs
 ├── album_art.rs           # アルバムアートの配信（albumartプロトコル）・フォルダの画像の検索・キャッシュ
-├── album_artist_backfill.rs # 既存のトラックのアルバムアーティストの読み込み（起動時）
 ├── db.rs
 ├── device.rs              # 転送先デバイスの記録（SQL）と同期の実行状態
 ├── device_manifest.rs     # デバイス側の管理ファイル（.muspice/manifest.json）
@@ -93,6 +92,7 @@ src-tauri/src/
 ├── metadata.rs
 ├── models.rs
 ├── settings.rs
+├── tag_backfill.rs        # 既存のトラックの、後から追加した項目（アルバムアーティスト・ソート用のタグ）の読み込み（起動時）
 ├── track_relink.rs        # 移動・改名されたファイルと、見つからない曲の対応付け
 ├── validation.rs
 └── state.rs
@@ -143,6 +143,7 @@ src-tauri/src/
   - `albumArtUrl`は、アプリで画像を書き換えた曲の版（`#lib/stores/albumArt.svelte`）を読んでURLに付ける。版の変更に追随させるため、テンプレートか`$derived`の中で呼ぶ（値を変数に取っておくと、書き換えた後も古い画像のままになる）
   - アルバムアートの画面は、`albumArtDialog.open(tracks)`で開く（`(app)/+layout.svelte`が1つだけ表示する。開く側にダイアログを置かない）
 - メタデータの編集画面（`MetadataEditor`）は、入力欄の値と`Metadata`の変換・検証を`#lib/utils/metadataForm`に分けている（1曲の編集はすべての項目を渡し、一括編集は入力した項目だけを渡す）。1曲の編集は、開いた時に`useTrackTagsQuery`でファイルのタグを読み、読めるまで・読めない場合は保存できない（ADR-034）
+- 名前の順に並べる時は、`#lib/utils/nameSort`の`compareNames`・`sortByName`を使う（`localeCompare`・`toLowerCase`での比較を各所に書かない）。アルバム・アーティストなどは、並び順に使う値（`sortName`）があればその値で並べる。曲の一覧の並び替え（`trackSort`）も、タイトル・アーティスト・アルバムは`track.sortTags`の値を優先する
 - お気に入りのハートは`FavoriteButton`（`#lib/components/library`）を使う。曲のIDと今の状態を渡すと、押した時に`useSetFavoriteMutation`で切り替え、キャッシュにあるその曲を書き換える（`patchTracksInCache`。複数の曲をまとめて書き換えられる）
   - 再生キューの曲（`player.currentTrack`）は、キューに入れた時点の内容のまま。プレーヤーのハートは、お気に入りの一覧（`useFavoriteTracksQuery`）から状態を調べる
 - クエリキーは`src/lib/queries/keys.ts`の`queryKeys`に集約する。クエリ定義・無効化のどちらもここを参照し、`['tracks']`のようなマジック配列を直接書かない

@@ -561,6 +561,7 @@ mod tests {
                 created_at: "2026-01-01T00:00:00Z".to_string(),
                 updated_at: "2026-01-01T00:00:00Z".to_string(),
                 replay_gain: ReplayGain::default(),
+                sort_tags: Default::default(),
             };
             self.state
                 .with_db(|db| crate::repository::insert_track(db, &track, None))
