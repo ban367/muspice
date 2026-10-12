@@ -525,6 +525,23 @@ export const ja = {
     artistSummary: (count: number) => `${count}人のアーティスト`,
     genreSummary: (count: number) => `${count}種類のジャンル`,
     searchSongs: '曲を検索...',
+    /** カラムブラウザ（ジャンル / アーティスト / アルバムでの絞り込み） */
+    columnBrowser: 'カラムブラウザ',
+    browserAll: (count: number) => `すべて（${count}）`,
+    filters: {
+      button: 'フィルタ',
+      anyRating: 'すべて',
+      ratingAtLeast: (rating: number) => `${'★'.repeat(rating)} 以上`,
+      yearFrom: '開始',
+      yearTo: '終了',
+      favoritesOnly: 'お気に入りのみ',
+      clear: 'クリア'
+    },
+    /** 絞り込み（検索・フィルタ・カラムブラウザ）に合う曲がない時 */
+    noMatches: '条件に合う曲がありません',
+    noMatchesHint: '検索・フィルタ・カラムブラウザの条件を変えてください',
+    clearFilters: '絞り込みを解除',
+    filteredCount: (count: number, total: number) => `${count} / ${total}曲`,
     searchAlbums: 'アルバムを検索...',
     searchArtists: 'アーティストを検索...',
     searchGenres: 'ジャンルを検索...',
