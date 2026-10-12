@@ -98,60 +98,56 @@ pub fn find_track_by_id(conn: &Connection, track_id: &str) -> AppResult<Track> {
         })
 }
 
-/// テキスト検索（FTS5 + LIKEフォールバック）
-///
-/// FTS5テーブルが利用可能であればMATCH検索を行い、
-/// 利用不可の場合はLIKE検索にフォールバックする。
-pub fn search_tracks_by_query(conn: &Connection, query: &str) -> AppResult<Vec<Track>> {
-    // FTS5テーブルの存在確認
-    let fts_available: bool = conn
-        .query_row(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='tracks_fts'",
-            [],
-            |row| row.get::<_, i64>(0).map(|count| count > 0),
-        )
-        .unwrap_or(false);
+/// trigramの索引で探せる語の、最小の文字数
+const TRIGRAM_MIN_CHARS: usize = 3;
 
-    if fts_available {
-        // FTS5検索を試行
-        match search_tracks_fts(conn, query) {
-            Ok(tracks) => return Ok(tracks),
-            Err(_) => {
-                // FTS5検索失敗時はLIKEフォールバック
-            }
-        }
+/// テキスト検索（タイトル・アーティスト・アルバム・ジャンル・アルバムアーティストの部分一致）
+///
+/// 検索語を空白で区切り、すべての語をどこかに含む曲を返す（語の途中の一致を含む）。
+/// 大文字と小文字・全角と半角・ひらがなとカタカナの違いは同じとみなす（`search_text`）。
+///
+/// - すべての語が3文字以上: 全文検索の索引（FTS5のtrigram）で探す
+/// - 3文字未満の語がある: 索引では探せないため、検索用の文字列を`LIKE`で走査する
+pub fn search_tracks_by_query(conn: &Connection, query: &str) -> AppResult<Vec<Track>> {
+    let terms = crate::search_text::query_terms(query);
+    if terms.is_empty() {
+        return Ok(Vec::new());
     }
 
-    // LIKEフォールバック
-    search_tracks_like(conn, query)
-}
-
-/// FTS5を使用した全文検索
-fn search_tracks_fts(conn: &Connection, query: &str) -> AppResult<Vec<Track>> {
-    // FTS5用のクエリ文字列を構築（特殊文字のエスケープ）
-    let fts_query = query.replace([';', '\'', '"'], "");
-    let fts_query = format!("\"{}\"", fts_query);
+    let uses_index = terms
+        .iter()
+        .all(|term| term.chars().count() >= TRIGRAM_MIN_CHARS);
+    let (condition, params): (String, Vec<String>) = if uses_index {
+        // 語をフレーズ（二重引用符で囲む。中の二重引用符は重ねる）にして、ANDでつなぐ
+        let fts_query = terms
+            .iter()
+            .map(|term| format!("\"{}\"", term.replace('"', "\"\"")))
+            .collect::<Vec<_>>()
+            .join(" AND ");
+        ("tracks_fts MATCH ?1".to_string(), vec![fts_query])
+    } else {
+        let condition = (1..=terms.len())
+            .map(|index| format!("text LIKE ?{index} ESCAPE '\\'"))
+            .collect::<Vec<_>>()
+            .join(" AND ");
+        let patterns = terms
+            .iter()
+            .map(|term| format!("%{}%", escape_like_pattern(term)))
+            .collect();
+        (condition, patterns)
+    };
 
     let sql = format!(
         "SELECT {} FROM tracks
-         WHERE id IN (
-             SELECT id FROM tracks_fts WHERE tracks_fts MATCH ?1
-         )
+         WHERE rowid IN (SELECT rowid FROM tracks_fts WHERE {})
          ORDER BY created_at DESC",
-        TRACK_COLUMNS
+        TRACK_COLUMNS, condition
     );
-
-    let mut stmt = conn
-        .prepare(&sql)
-        .map_err(|e| AppError::Database(format!("FTS5クエリの準備に失敗しました: {}", e)))?;
-
-    let tracks = stmt
-        .query_map([&fts_query], map_track_row)
-        .map_err(|e| AppError::Database(format!("FTS5クエリの実行に失敗しました: {}", e)))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| AppError::Database(format!("FTS5結果の取得に失敗しました: {}", e)))?;
-
-    Ok(tracks)
+    let params: Vec<&dyn rusqlite::ToSql> = params
+        .iter()
+        .map(|param| param as &dyn rusqlite::ToSql)
+        .collect();
+    query_tracks(conn, &sql, &params)
 }
 
 /// LIKEパターンのワイルドカード（`%`・`_`）をエスケープする
@@ -163,31 +159,6 @@ fn escape_like_pattern(value: &str) -> String {
         .replace('\\', "\\\\")
         .replace('%', "\\%")
         .replace('_', "\\_")
-}
-
-/// LIKE検索によるフォールバック
-fn search_tracks_like(conn: &Connection, query: &str) -> AppResult<Vec<Track>> {
-    let like_pattern = format!("%{}%", escape_like_pattern(query));
-    let sql = format!(
-        "SELECT {} FROM tracks
-         WHERE title LIKE ?1 ESCAPE '\\' OR artist LIKE ?1 ESCAPE '\\'
-            OR album LIKE ?1 ESCAPE '\\' OR genre LIKE ?1 ESCAPE '\\'
-            OR album_artist LIKE ?1 ESCAPE '\\'
-         ORDER BY created_at DESC",
-        TRACK_COLUMNS
-    );
-
-    let mut stmt = conn
-        .prepare(&sql)
-        .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
-
-    let tracks = stmt
-        .query_map([&like_pattern], map_track_row)
-        .map_err(|e| AppError::Database(format!("クエリの実行に失敗しました: {}", e)))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| AppError::Database(format!("結果の取得に失敗しました: {}", e)))?;
-
-    Ok(tracks)
 }
 
 /// フィルタオプション
@@ -1373,11 +1344,11 @@ mod tests {
     }
 
     #[test]
-    fn test_search_tracks_like() {
+    fn test_search_matches_each_field() {
         let conn = setup_test_db();
         insert_test_track(&conn, "t1", "夜に駆ける", "YOASOBI", "THE BOOK", "J-POP");
         insert_test_track(&conn, "t2", "群青", "YOASOBI", "THE BOOK 2", "J-POP");
-        insert_test_track(&conn, "t3", "Lemon", "米津玄師", "BOOTLEG", "J-POP");
+        insert_test_track(&conn, "t3", "Lemon", "米津玄師", "BOOTLEG", "Rock");
 
         // アーティスト名で検索
         let tracks = search_tracks_by_query(&conn, "YOASOBI").unwrap();
@@ -1387,6 +1358,160 @@ mod tests {
         let tracks = search_tracks_by_query(&conn, "Lemon").unwrap();
         assert_eq!(tracks.len(), 1);
         assert_eq!(tracks[0].artist, Some("米津玄師".to_string()));
+
+        // アルバム・ジャンルで検索
+        assert_eq!(search_tracks_by_query(&conn, "BOOTLEG").unwrap().len(), 1);
+        assert_eq!(search_tracks_by_query(&conn, "J-POP").unwrap().len(), 2);
+
+        // 空の検索語は何も返さない
+        assert!(search_tracks_by_query(&conn, "  ").unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_search_matches_in_the_middle_of_words() {
+        let conn = setup_test_db();
+        insert_test_track(
+            &conn,
+            "t1",
+            "First Love",
+            "宇多田ヒカル",
+            "First Love",
+            "J-POP",
+        );
+        insert_test_track(&conn, "t2", "Hey Jude", "The Beatles", "1", "Rock");
+        insert_test_track(&conn, "t3", "夜に駆ける", "YOASOBI", "THE BOOK", "J-POP");
+
+        // 区切りのない日本語の途中（3文字以上: 索引で探す）
+        assert_eq!(
+            track_ids(&search_tracks_by_query(&conn, "ヒカル").unwrap()),
+            ["t1"]
+        );
+        assert_eq!(
+            track_ids(&search_tracks_by_query(&conn, "駆ける").unwrap()),
+            ["t3"]
+        );
+        // 単語の先頭・途中
+        assert_eq!(
+            track_ids(&search_tracks_by_query(&conn, "beat").unwrap()),
+            ["t2"]
+        );
+        assert_eq!(
+            track_ids(&search_tracks_by_query(&conn, "atle").unwrap()),
+            ["t2"]
+        );
+        // 3文字未満の検索語（索引では探せないため、走査する）
+        assert_eq!(
+            track_ids(&search_tracks_by_query(&conn, "宇多").unwrap()),
+            ["t1"]
+        );
+        assert_eq!(
+            track_ids(&search_tracks_by_query(&conn, "夜").unwrap()),
+            ["t3"]
+        );
+        assert_eq!(
+            track_ids(&search_tracks_by_query(&conn, "ey").unwrap()),
+            ["t2"]
+        );
+        // 項目をまたいだ一致は起こさない（タイトルの終わりとアーティストの始まり）
+        assert!(search_tracks_by_query(&conn, "judethe").unwrap().is_empty());
+        assert!(search_tracks_by_query(&conn, "ey").unwrap().len() == 1);
+        assert!(search_tracks_by_query(&conn, "eth").unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_search_ignores_case_width_and_kana() {
+        let conn = setup_test_db();
+        insert_test_track(
+            &conn,
+            "t1",
+            "First Love",
+            "宇多田ヒカル",
+            "First Love",
+            "J-POP",
+        );
+        insert_test_track(&conn, "t2", "ｶﾌﾞﾄﾑｼ", "ａｉｋｏ", "桜の木の下", "J-POP");
+        insert_test_track(
+            &conn,
+            "t3",
+            "さくら",
+            "ケツメイシ",
+            "ケツノポリス4",
+            "J-POP",
+        );
+
+        // 大文字と小文字
+        assert_eq!(
+            track_ids(&search_tracks_by_query(&conn, "FIRST love").unwrap()),
+            ["t1"]
+        );
+        // ひらがなとカタカナ（どちらで入力しても、どちらで書かれた曲も見つかる）
+        assert_eq!(
+            track_ids(&search_tracks_by_query(&conn, "ひかる").unwrap()),
+            ["t1"]
+        );
+        assert_eq!(
+            track_ids(&search_tracks_by_query(&conn, "サクラ").unwrap()),
+            ["t3"]
+        );
+        assert_eq!(
+            track_ids(&search_tracks_by_query(&conn, "けつめいし").unwrap()),
+            ["t3"]
+        );
+        // 全角と半角（タグが全角の英字・半角のカタカナ）
+        assert_eq!(
+            track_ids(&search_tracks_by_query(&conn, "aiko").unwrap()),
+            ["t2"]
+        );
+        assert_eq!(
+            track_ids(&search_tracks_by_query(&conn, "カブトムシ").unwrap()),
+            ["t2"]
+        );
+        assert_eq!(
+            track_ids(&search_tracks_by_query(&conn, "かぶと").unwrap()),
+            ["t2"]
+        );
+        // 検索語が全角の英字・半角のカタカナ
+        assert_eq!(
+            track_ids(&search_tracks_by_query(&conn, "ｆｉｒｓｔ").unwrap()),
+            ["t1"]
+        );
+        assert_eq!(
+            track_ids(&search_tracks_by_query(&conn, "ﾋｶﾙ").unwrap()),
+            ["t1"]
+        );
+        // 2文字（走査）でも同じ
+        assert_eq!(
+            track_ids(&search_tracks_by_query(&conn, "ＡＩ").unwrap()),
+            ["t2"]
+        );
+    }
+
+    #[test]
+    fn test_search_requires_all_terms() {
+        let conn = setup_test_db();
+        insert_test_track(&conn, "t1", "Help!", "The Beatles", "Help!", "Rock");
+        insert_test_track(&conn, "t2", "Hey Jude", "The Beatles", "1", "Rock");
+        insert_test_track(&conn, "t3", "Help Me", "Other", "Album", "Pop");
+
+        // 空白で区切った語を、すべて含む曲（項目が違ってもよい）
+        assert_eq!(
+            track_ids(&search_tracks_by_query(&conn, "beatles help").unwrap()),
+            ["t1"]
+        );
+        // 全角の空白でも区切る。3文字未満の語が混ざる場合は、すべての語を走査で探す
+        assert_eq!(
+            track_ids(&search_tracks_by_query(&conn, "beatles　he").unwrap()).len(),
+            2
+        );
+        assert_eq!(
+            track_ids(&search_tracks_by_query(&conn, "he me").unwrap()),
+            ["t3"]
+        );
+        assert!(
+            search_tracks_by_query(&conn, "beatles other")
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -1397,11 +1522,9 @@ mod tests {
         assert_eq!(escape_like_pattern("a\\b"), "a\\\\b");
     }
 
-    /// LIKE検索でワイルドカードがリテラルとして扱われることを検証する
-    ///
-    /// `search_tracks_by_query`はFTS5を優先するため、フォールバック実装を直接呼ぶ。
+    /// 検索語の記号が、ワイルドカードや全文検索の構文として解釈されないことを検証する
     #[test]
-    fn test_search_tracks_like_escapes_wildcards() {
+    fn test_search_treats_symbols_literally() {
         let conn = setup_test_db();
         insert_test_track(
             &conn,
@@ -1421,20 +1544,112 @@ mod tests {
         );
         insert_test_track(&conn, "t3", "a_b", "アーティストZ", "アルバム3", "ロック");
         insert_test_track(&conn, "t4", "axb", "アーティストW", "アルバム4", "ロック");
+        insert_test_track(
+            &conn,
+            "t5",
+            "Rock \"n\" Roll",
+            "AC-DC",
+            "NOT OR AND",
+            "ロック",
+        );
 
-        // `%`はリテラルとして扱われ、"50XOFF"にはマッチしない
-        let tracks = search_tracks_like(&conn, "50%O").unwrap();
-        assert_eq!(tracks.len(), 1);
-        assert_eq!(tracks[0].id, "t1");
-
+        // `%`はリテラルとして扱われ、"50XOFF"にはマッチしない（索引・走査のどちらでも）
+        assert_eq!(
+            track_ids(&search_tracks_by_query(&conn, "50%O").unwrap()),
+            ["t1"]
+        );
+        assert_eq!(
+            track_ids(&search_tracks_by_query(&conn, "0%").unwrap()),
+            ["t1"]
+        );
         // `_`もリテラルとして扱われ、"axb"にはマッチしない
-        let tracks = search_tracks_like(&conn, "a_b").unwrap();
-        assert_eq!(tracks.len(), 1);
-        assert_eq!(tracks[0].id, "t3");
+        assert_eq!(
+            track_ids(&search_tracks_by_query(&conn, "a_b").unwrap()),
+            ["t3"]
+        );
+        assert_eq!(
+            track_ids(&search_tracks_by_query(&conn, "_b").unwrap()),
+            ["t3"]
+        );
+        // 通常の検索語は部分一致する
+        assert_eq!(search_tracks_by_query(&conn, "OFF").unwrap().len(), 2);
 
-        // 通常の検索語は従来どおり部分一致する
-        let tracks = search_tracks_like(&conn, "OFF").unwrap();
-        assert_eq!(tracks.len(), 2);
+        // 全文検索の演算子・記号・二重引用符も、文字として探す
+        assert_eq!(
+            track_ids(&search_tracks_by_query(&conn, "AC-DC").unwrap()),
+            ["t5"]
+        );
+        assert_eq!(
+            track_ids(&search_tracks_by_query(&conn, "NOT OR AND").unwrap()),
+            ["t5"]
+        );
+        assert_eq!(
+            track_ids(&search_tracks_by_query(&conn, "NOT AND").unwrap()),
+            ["t5"]
+        );
+        assert!(
+            search_tracks_by_query(&conn, "NOT roll*")
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            track_ids(&search_tracks_by_query(&conn, "\"n\" roll").unwrap()),
+            ["t5"]
+        );
+        assert!(search_tracks_by_query(&conn, "roll*").unwrap().is_empty());
+        assert!(
+            search_tracks_by_query(&conn, "text:rock")
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn test_search_follows_updates_and_deletes() {
+        let conn = setup_test_db();
+        insert_test_track(
+            &conn,
+            "t1",
+            "古いタイトル",
+            "アーティスト",
+            "アルバム",
+            "ロック",
+        );
+
+        conn.execute(
+            "UPDATE tracks SET title = '新しいタイトル' WHERE id = 't1'",
+            [],
+        )
+        .unwrap();
+        assert!(
+            search_tracks_by_query(&conn, "古いタイトル")
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            search_tracks_by_query(&conn, "新しいタイトル")
+                .unwrap()
+                .len(),
+            1
+        );
+
+        // 検索の対象ではない項目の更新では、検索の結果は変わらない
+        conn.execute("UPDATE tracks SET play_count = 5 WHERE id = 't1'", [])
+            .unwrap();
+        assert_eq!(
+            search_tracks_by_query(&conn, "新しいタイトル")
+                .unwrap()
+                .len(),
+            1
+        );
+
+        delete_track(&conn, "t1").unwrap();
+        assert!(
+            search_tracks_by_query(&conn, "新しいタイトル")
+                .unwrap()
+                .is_empty()
+        );
+        assert!(search_tracks_by_query(&conn, "新").unwrap().is_empty());
     }
 
     #[test]
@@ -1630,8 +1845,12 @@ mod tests {
         conn.execute_batch("COMMIT").unwrap();
 
         assert_eq!(find_all_tracks(&conn).unwrap().len(), 1500);
-        assert_eq!(search_tracks_like(&conn, "曲").unwrap().len(), 1500);
+        // 走査（3文字未満）と索引（3文字以上）のどちらの検索でも、すべて返す
         assert_eq!(search_tracks_by_query(&conn, "曲").unwrap().len(), 1500);
+        assert_eq!(
+            search_tracks_by_query(&conn, "アーティスト").unwrap().len(),
+            1500
+        );
         let filters = FilterOptions {
             artist: None,
             album: None,
@@ -1852,7 +2071,7 @@ mod tests {
             ["c1"]
         );
         assert_eq!(
-            track_ids(&search_tracks_like(&conn, "arious Art").unwrap()),
+            track_ids(&search_tracks_by_query(&conn, "ar").unwrap()),
             ["c1"]
         );
     }

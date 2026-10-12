@@ -109,6 +109,21 @@ describe('トラック', () => {
     expect(await commands.searchTracks(' ;" ')).toEqual([]);
   });
 
+  it('検索は語の途中に一致し、全角と半角・ひらがなとカタカナを同じとみなす', async () => {
+    const titles = async (query: string) =>
+      (await commands.searchTracks(query)).map((track) => track.title).sort();
+
+    // 区切りのない日本語の途中・1文字
+    expect(await titles('ドライブ')).toEqual(['ミッドナイト・ドライブ']);
+    expect(await titles('港')).toEqual(['港の灯り']);
+    // ひらがなで入力してカタカナの曲、全角の英字で入力して半角の曲
+    expect(await titles('どらいぶ')).toEqual(['ミッドナイト・ドライブ']);
+    expect(await titles('ＯＶＥＲ')).toEqual(['Overclock']);
+    // 空白で区切った語を、すべて含む曲（項目が違ってもよい）
+    expect(await titles('voltage rain')).toEqual(['Neon Rain']);
+    expect(await titles('voltage どらいぶ')).toEqual([]);
+  });
+
   it('アルバムの一覧は曲を持たず、曲数・長さ・代表の曲がアルバムの曲と一致する', async () => {
     const albums = await commands.getAlbums();
     const names = albums.map((album) => album.name);

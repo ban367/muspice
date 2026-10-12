@@ -12,13 +12,8 @@
   const albumsQuery = useAlbumsQuery();
   const allAlbums = $derived(albumsQuery.data ?? []);
 
-  // 検索フィルター
-  function filterAlbum(album: AlbumSummary, query: string): boolean {
-    return (
-      album.name.toLowerCase().includes(query) ||
-      (album.artist != null && album.artist.toLowerCase().includes(query))
-    );
-  }
+  // 絞り込みの対象（アルバム名・アーティスト）
+  const albumSearchFields = (album: AlbumSummary) => [album.name, album.artist];
 </script>
 
 <LibraryBrowsePage
@@ -28,7 +23,7 @@
   searchPlaceholder={m.library.searchAlbums}
   emptyPrompt={m.library.selectAlbum}
   items={allAlbums}
-  filterFn={filterAlbum}
+  searchFields={albumSearchFields}
   getItemKey={albumKey}
 >
   {#snippet emptyIcon()}

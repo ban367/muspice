@@ -89,7 +89,7 @@ export const commands = {
 	saveSettings: (settings: Settings) => __TAURI_INVOKE<null>("save_settings", { settings }),
 	/**  すべてのトラックを取得 */
 	getAllTracks: () => __TAURI_INVOKE<Track[]>("get_all_tracks"),
-	/**  トラックを検索（FTS5 + LIKEフォールバック） */
+	/**  トラックを検索（部分一致。大文字と小文字・全角と半角・ひらがなとカタカナを同じとみなす） */
 	searchTracks: (query: string) => __TAURI_INVOKE<Track[]>("search_tracks", { query }),
 	/**  トラックをフィルタリング */
 	filterTracks: (filters: FilterOptions) => __TAURI_INVOKE<Track[]>("filter_tracks", { filters }),
