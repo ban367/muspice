@@ -228,3 +228,39 @@ export function useDeletePlaylistMutation() {
     }
   }));
 }
+
+/**
+ * M3U（M3U8）のファイルを選んで読み込み、プレイリストを作るミューテーション
+ *
+ * ファイルはRust側のダイアログで選ぶ。選ばなかった場合は、空の一覧が返る。
+ * 結果（作ったプレイリスト・対応が付かなかった行）の表示は、呼び出し側が行う。
+ */
+export function useImportM3uMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: () => withErrorToast(m.operations.importM3u, () => commands.importM3uPlaylists()),
+    onSuccess: (results) => {
+      if (results.some((result) => result.playlistId !== null)) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.playlists });
+      }
+    }
+  }));
+}
+
+/**
+ * プレイリストを、保存先を選んでM3U8へ書き出すミューテーション
+ *
+ * 保存先はRust側のダイアログで選ぶ。選ばなかった場合は、何も通知しない。
+ */
+export function useExportPlaylistM3uMutation() {
+  return createMutation(() => ({
+    mutationFn: ({ playlistId, relativePaths }: { playlistId: string; relativePaths: boolean }) =>
+      withErrorToast(m.operations.exportM3u, () =>
+        commands.exportPlaylistM3u(playlistId, relativePaths)
+      ),
+    onSuccess: (result) => {
+      if (result) showSuccess(m.notices.m3uExported(result.fileName, result.trackCount));
+    }
+  }));
+}

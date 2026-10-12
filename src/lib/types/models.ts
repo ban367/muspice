@@ -24,6 +24,8 @@ export type {
   Language,
   LibraryFolder,
   LibraryFolderList,
+  M3uExportResult,
+  M3uImportResult,
   Metadata,
   NowPlayingUpdate,
   OutputDevice,

@@ -39,6 +39,37 @@ pub struct Track {
     pub is_missing: bool,
 }
 
+/// M3Uのファイル1つを読み込んだ結果
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct M3uImportResult {
+    /// 読み込んだファイルの名前
+    pub file_name: String,
+    /// 作ったプレイリストのIDと名前（対応する曲が1つもない・読めなかった場合は作らず、null）
+    pub playlist_id: Option<String>,
+    pub playlist_name: Option<String>,
+    /// プレイリストに入れた曲数
+    pub added_count: u32,
+    /// 同じ曲が2回以上書かれていて、飛ばした数（プレイリストには、同じ曲を1回だけ入れる）
+    pub duplicate_count: u32,
+    /// ライブラリの曲と対応が付かなかった行の数
+    pub unmatched_count: u32,
+    /// 対応が付かなかった行（M3Uに書かれていたまま。多い場合は先頭の一部だけ）
+    pub unmatched: Vec<String>,
+    /// ファイルを読めなかった場合のエラー
+    pub error: Option<String>,
+}
+
+/// プレイリストをM3U8へ書き出した結果
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct M3uExportResult {
+    /// 書き出したファイルの名前
+    pub file_name: String,
+    /// 書き出した曲数
+    pub track_count: u32,
+}
+
 /// 再生履歴の1件（再生回数に数えた再生）
 ///
 /// 曲の情報は持たない（フロントエンドが、全曲の一覧のキャッシュからトラックIDで引く）。

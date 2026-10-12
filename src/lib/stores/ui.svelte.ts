@@ -25,6 +25,7 @@ export type ColumnWidths = typeof DEFAULT_COLUMN_WIDTHS;
 
 const RIGHT_SIDEBAR_PINNED_KEY = 'muspice:rightSidebarPinned';
 const COLUMN_WIDTHS_KEY = 'muspice:columnWidths';
+const PLAYLIST_EXPORT_RELATIVE_KEY = 'muspice:playlistExportRelative';
 
 /** localStorageのJSONを読む（ない・読めない・壊れている場合はnull） */
 function loadJson(key: string): unknown {
@@ -95,6 +96,17 @@ class UiState {
 
   #isRightSidebarPinned = $state(loadRightSidebarPinned());
   #columnWidths = $state.raw<ColumnWidths>(loadColumnWidths());
+  #playlistExportRelative = $state(loadJson(PLAYLIST_EXPORT_RELATIVE_KEY) === true);
+
+  /** プレイリストの書き出しで、曲の場所を相対パスで書くか（前回の選択。localStorageに保存） */
+  get playlistExportRelative(): boolean {
+    return this.#playlistExportRelative;
+  }
+
+  set playlistExportRelative(value: boolean) {
+    this.#playlistExportRelative = value;
+    saveJson(PLAYLIST_EXPORT_RELATIVE_KEY, value);
+  }
 
   /** 右サイドバーの固定（固定時は明示的に閉じるまで表示され続ける。localStorageに保存） */
   get isRightSidebarPinned(): boolean {

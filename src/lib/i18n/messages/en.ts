@@ -96,6 +96,8 @@ export const en: Messages = {
     reorderPlaylistTracks: 'Reordering tracks',
     renamePlaylist: 'Renaming the playlist',
     deletePlaylist: 'Deleting the playlist',
+    importM3u: 'Importing playlists',
+    exportM3u: 'Exporting the playlist',
     loadSettings: 'Loading settings',
     loadOutputDevices: 'Loading output devices',
     saveSettings: 'Saving settings',
@@ -121,6 +123,11 @@ export const en: Messages = {
     tracksReordered: 'Reordered the tracks',
     playlistRenamed: 'Playlist renamed',
     playlistDeleted: 'Playlist deleted',
+    m3uImported: (name, count) =>
+      `Imported the playlist "${name}" (${plural(count, 'track', 'tracks')})`,
+    m3uImportedMany: (count) => `Imported ${plural(count, 'playlist', 'playlists')}`,
+    m3uExported: (fileName, count) =>
+      `Exported to "${fileName}" (${plural(count, 'track', 'tracks')})`,
     tracksRemovedFromLibrary: (count) =>
       count === 1
         ? 'Removed the track from the library'
@@ -384,7 +391,32 @@ export const en: Messages = {
     deletePlaylist: 'Delete playlist',
     noTracks: 'This playlist has no tracks yet',
     noTracksHint: 'Drag and drop tracks from the library to add them',
-    removeFromPlaylist: 'Remove from playlist'
+    removeFromPlaylist: 'Remove from playlist',
+    importM3u: 'Import M3U',
+    exportM3u: 'Export as M3U8...',
+    importResultTitle: 'Playlist Import Results',
+    /** 読み込んだファイルごとの結果 */
+    importCreated: (name, count) =>
+      `Created the playlist "${name}" (${plural(count, 'track', 'tracks')})`,
+    importNotCreated: 'No playlist was created because no line matched a track in the library',
+    importFailed: (message) => `Could not be imported: ${message}`,
+    importDuplicates: (count) =>
+      `${plural(count, 'repeated entry was', 'repeated entries were')} skipped (a track is added once)`,
+    importUnmatched: (count) =>
+      `${plural(count, 'line', 'lines')} did not match a track in the library`,
+    importUnmatchedMore: (count) => `and ${count} more`,
+    importUnmatchedHint:
+      'Lines are matched by the file name and the names of the folders above it. Import the tracks into the library, then import the playlist again.',
+    exportTitle: 'Export Playlist',
+    exportDescription: (name) => `Export "${name}" to an M3U8 (UTF-8) file.`,
+    exportPathStyle: 'Track locations',
+    exportAbsolute: 'Absolute paths',
+    exportAbsoluteHint:
+      'Writes the locations on this Mac as they are. Best for opening the playlist in another app on this Mac.',
+    exportRelative: 'Paths relative to the playlist file',
+    exportRelativeHint:
+      'Writes the locations as seen from the playlist file. Best for moving the playlist together with the tracks to another place or device.',
+    exportConfirm: 'Choose Location...'
   },
 
   settings: {

@@ -104,6 +104,8 @@ export const ja = {
     reorderPlaylistTracks: 'トラックの並び替え',
     renamePlaylist: 'プレイリスト名の変更',
     deletePlaylist: 'プレイリストの削除',
+    importM3u: 'プレイリストの読み込み',
+    exportM3u: 'プレイリストの書き出し',
     loadSettings: '設定の読み込み',
     loadOutputDevices: '出力デバイスの一覧の取得',
     saveSettings: '設定の保存',
@@ -130,6 +132,11 @@ export const ja = {
     tracksReordered: 'トラックを並び替えました',
     playlistRenamed: 'プレイリスト名を変更しました',
     playlistDeleted: 'プレイリストを削除しました',
+    m3uImported: (name: string, count: number) =>
+      `プレイリスト「${name}」を読み込みました（${count}曲）`,
+    m3uImportedMany: (count: number) => `${count}件のプレイリストを読み込みました`,
+    m3uExported: (fileName: string, count: number) =>
+      `「${fileName}」に書き出しました（${count}曲）`,
     tracksRemovedFromLibrary: (count: number) =>
       count === 1
         ? 'トラックをライブラリから削除しました'
@@ -394,7 +401,30 @@ export const ja = {
     deletePlaylist: 'プレイリストを削除',
     noTracks: 'このプレイリストにはまだトラックがありません',
     noTracksHint: 'ライブラリからトラックをドラッグ&ドロップして追加できます',
-    removeFromPlaylist: 'プレイリストから削除'
+    removeFromPlaylist: 'プレイリストから削除',
+    importM3u: 'M3Uを読み込む',
+    exportM3u: 'M3U8で書き出す...',
+    importResultTitle: 'プレイリストの読み込み結果',
+    /** 読み込んだファイルごとの結果 */
+    importCreated: (name: string, count: number) => `プレイリスト「${name}」を作成（${count}曲）`,
+    importNotCreated: 'ライブラリの曲と対応する行がなかったため、プレイリストを作りませんでした',
+    importFailed: (message: string) => `読み込めませんでした: ${message}`,
+    importDuplicates: (count: number) =>
+      `同じ曲が${count}回重ねて書かれていたため、1回だけ入れました`,
+    importUnmatched: (count: number) => `ライブラリの曲と対応が付かなかった行: ${count}件`,
+    importUnmatchedMore: (count: number) => `ほか${count}件`,
+    importUnmatchedHint:
+      '曲のファイル名と、その上のフォルダの名前で対応を付けます。曲をライブラリに取り込んでから、もう一度読み込んでください。',
+    exportTitle: 'プレイリストを書き出す',
+    exportDescription: (name: string) => `「${name}」を、M3U8（UTF-8）のファイルへ書き出します。`,
+    exportPathStyle: '曲の場所の書き方',
+    exportAbsolute: '絶対パス',
+    exportAbsoluteHint:
+      'このMacの中での場所をそのまま書きます。このMacのほかのアプリで開く場合に向いています。',
+    exportRelative: '書き出し先からの相対パス',
+    exportRelativeHint:
+      'プレイリストのファイルから見た場所で書きます。曲と一緒に別の場所・機器へ移す場合に向いています。',
+    exportConfirm: '保存先を選ぶ...'
   },
 
   settings: {

@@ -21,6 +21,8 @@
   import { useGenresQuery } from '#lib/queries/tracks.js';
   import type { Playlist } from '#lib/types/models.js';
   import PlaylistContextMenu from './PlaylistContextMenu.svelte';
+  import PlaylistExportDialog from './PlaylistExportDialog.svelte';
+  import PlaylistImportButton from './PlaylistImportButton.svelte';
   import MarqueeText from './MarqueeText.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
@@ -110,6 +112,8 @@
 
   // コンテキストメニュー
   let contextMenu = $state<{ x: number; y: number; playlist: Playlist } | null>(null);
+  // M3U8へ書き出すプレイリスト（書き方を選ぶダイアログを表示する）
+  let exportingPlaylist = $state.raw<Playlist | null>(null);
 
   /**
    * 右クリックメニューを表示
@@ -486,26 +490,29 @@
       <h2 class="text-xs font-semibold uppercase tracking-wider text-text-muted m-0">
         {m.sidebar.playlists}
       </h2>
-      <button
-        class="btn-icon w-6 h-6 p-0"
-        title={m.sidebar.newPlaylistTitle}
-        onclick={handleCreatePlaylist}
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          class="w-4 h-4"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
+      <div class="flex items-center gap-1">
+        <PlaylistImportButton />
+        <button
+          class="btn-icon w-6 h-6 p-0"
+          title={m.sidebar.newPlaylistTitle}
+          onclick={handleCreatePlaylist}
         >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M12 4v16m8-8H4"
-          />
-        </svg>
-      </button>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="w-4 h-4"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M12 4v16m8-8H4"
+            />
+          </svg>
+        </button>
+      </div>
     </div>
 
     <ul class="list-none m-0 p-0 flex-1 overflow-y-auto">
@@ -559,8 +566,11 @@
     y={contextMenu.y}
     playlist={contextMenu.playlist}
     onClose={closeContextMenu}
+    onExport={(playlist) => (exportingPlaylist = playlist)}
   />
 {/if}
+
+<PlaylistExportDialog playlist={exportingPlaylist} onClose={() => (exportingPlaylist = null)} />
 
 <style>
   @reference "../../app.css";

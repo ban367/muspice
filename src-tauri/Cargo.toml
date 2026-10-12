@@ -62,6 +62,8 @@ notify-debouncer-mini = "0.7"
 fs4 = { version = "1", default-features = false, features = ["sync"] }
 # デバイスへの転送: デバイス上のファイル名をNFCにそろえる。検索: 全角・半角などをそろえる（NFKC）
 unicode-normalization = "0.1"
+# M3Uの読み込み: UTF-8以外（Shift_JIS・UTF-16）で書かれたファイルの文字コードの変換
+encoding_rs = "0.8"
 thiserror = "2"
 # Tauriが内部で使うtokioと同じもの（セマフォのためsync機能のみ追加）
 tokio = { version = "1", features = ["sync"] }

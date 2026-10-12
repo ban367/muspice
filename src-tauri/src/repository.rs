@@ -310,6 +310,17 @@ pub fn find_play_history(conn: &Connection) -> AppResult<Vec<PlayHistoryEntry>> 
     Ok(entries)
 }
 
+/// すべてのトラックの、IDとファイルのパスを取得する（M3Uの読み込みでの突き合わせ用）
+pub fn find_track_paths(conn: &Connection) -> AppResult<Vec<(String, String)>> {
+    let mut stmt = conn
+        .prepare("SELECT id, file_path FROM tracks")
+        .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
+    stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .map_err(|e| AppError::Database(format!("トラックの取得に失敗しました: {}", e)))?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|e| AppError::Database(format!("トラックの読み取りに失敗しました: {}", e)))
+}
+
 /// 共通のトラッククエリ実行ヘルパー
 pub(crate) fn query_tracks(
     conn: &Connection,
