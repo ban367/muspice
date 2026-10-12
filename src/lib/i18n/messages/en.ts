@@ -110,6 +110,7 @@ export const en: Messages = {
     importM3u: 'Importing playlists',
     importLibraryXml: 'Importing the library XML',
     exportM3u: 'Exporting the playlist',
+    fetchAlbumArtInfo: 'Loading the album art details',
     loadSettings: 'Loading settings',
     loadOutputDevices: 'Loading output devices',
     saveSettings: 'Saving settings',
@@ -309,6 +310,35 @@ export const en: Messages = {
       `Finished writing (written: ${written}, unchanged: ${unchanged}, missing files: ${skipped}, errors: ${errors})`
   },
 
+  albumArtDialog: {
+    title: 'Album Art',
+    open: 'Change album art',
+    target: (count) => `Applies to ${plural(count, 'track', 'tracks')}`,
+    previewOf: (title) => `Showing the art of "${title}"`,
+    embedded: 'Image embedded in the file',
+    folder: (fileName) => `Image in the folder (${fileName})`,
+    none: 'No image',
+    dimensions: (width, height) => `${width} × ${height}`,
+    folderHint:
+      'Folder images are shown for tracks without an embedded image. An embedded image takes priority.',
+    choose: 'Choose an Image to Embed...',
+    remove: 'Remove Embedded Images',
+    writesToFile:
+      'The image (JPEG or PNG, up to 10 MB) is embedded into the music files as is, without resizing.',
+    confirmRemove: (count) =>
+      `All embedded images will be removed from ${plural(count, 'file', 'files')}. This cannot be undone.`,
+    confirmRemoveAction: 'Remove',
+    working: 'Writing to the files...',
+    missingExcluded: (count) =>
+      `${plural(count, 'track', 'tracks')} with a missing file will be left out`,
+    allMissing: 'The file is missing, so the art cannot be changed',
+    embeddedResult: (count) => `Embedded the image into ${plural(count, 'track', 'tracks')}`,
+    removedResult: (count) => `Removed the images from ${plural(count, 'track', 'tracks')}`,
+    nothingToRemove: 'None of the tracks had an embedded image',
+    partiallyFailed: (failed) => `${plural(failed, 'file', 'files')} could not be written`,
+    allFailed: (reason) => `Could not write to the files: ${reason}`
+  },
+
   libraryXmlImport: {
     title: 'Import from Another Player',
     description:
@@ -334,6 +364,7 @@ export const en: Messages = {
   contextMenu: {
     selectedCount: (count) => `${plural(count, 'track', 'tracks')} selected`,
     editMetadata: 'Edit Metadata',
+    albumArt: 'Album Art...',
     showInFolder: 'Show in Folder',
     deleteEllipsis: 'Delete...',
     addToPlaylist: 'Add to Playlist',

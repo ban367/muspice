@@ -143,6 +143,44 @@ export const commands = {
 	 *  書き込まれなかった頃の内容を、ファイルへ移すために使う。
 	 */
 	writeLibraryMetadataToFiles: () => __TAURI_INVOKE<WriteMetadataResult>("write_library_metadata_to_files"),
+	/**
+	 *  トラックのアルバムアートの情報（埋め込みの画像か、フォルダの画像か・種類・大きさ）を取得する
+	 * 
+	 *  アートがなければNone。
+	 */
+	getAlbumArtInfo: (trackId: string) => __TAURI_INVOKE<{
+	source: AlbumArtSource,
+	/**  フォルダの画像のファイル名（埋め込みの画像ではNone） */
+	fileName: string | null,
+	/**  MIMEタイプ（image/jpeg, image/png など） */
+	mimeType: string,
+	/**  画像データのサイズ（バイト） */
+	size: number,
+	/**  幅・高さ（ピクセル。読めない場合はNone） */
+	width: number | null,
+	height: number | null,
+} | null>("get_album_art_info", { trackId }),
+	/**
+	 *  画像ファイルを選び、トラックのファイルにアルバムアートとして埋め込む
+	 * 
+	 *  画像（JPEG・PNG）は縮小せず、そのまま埋め込む。表示している画像（フロントカバー）を
+	 *  置き換える。書き込めなかったトラックは、結果の`errors`へ理由を入れて残りを続ける。
+	 *  画像を選ばなかった場合はNoneを返す。
+	 */
+	setAlbumArt: (trackIds: string[]) => __TAURI_INVOKE<{
+	/**  ファイルとデータベースを更新できたトラック数 */
+	updatedCount: number,
+	/**  更新できなかったトラック数（ファイルが見つからない・書き込めないなど） */
+	failedCount: number,
+	/**  更新できなかったトラックの理由（ファイルごと） */
+	errors: string[],
+} | null>("set_album_art", { trackIds }),
+	/**
+	 *  トラックのファイルから、埋め込みの画像をすべて取り除く
+	 * 
+	 *  埋め込みの画像がないトラックは書き換えず、結果の件数にも数えない。
+	 */
+	removeAlbumArt: (trackIds: string[]) => __TAURI_INVOKE<BulkUpdateResult>("remove_album_art", { trackIds }),
 	/**  プレイリストを作成 */
 	createPlaylist: (name: string) => __TAURI_INVOKE<Playlist>("create_playlist", { name }),
 	/**  すべてのプレイリストを取得 */
@@ -401,6 +439,27 @@ export const LIBRARY_SCAN_INTERVALS = [0,15,30,60,360] as const;
 export const MAX_CROSSFADE_SECONDS = 12 as const;
 
 /* Types */
+/**  トラックのアルバムアートの情報（アルバムアートの画面に出す） */
+export type AlbumArtInfo = {
+	source: AlbumArtSource,
+	/**  フォルダの画像のファイル名（埋め込みの画像ではNone） */
+	fileName: string | null,
+	/**  MIMEタイプ（image/jpeg, image/png など） */
+	mimeType: string,
+	/**  画像データのサイズ（バイト） */
+	size: number,
+	/**  幅・高さ（ピクセル。読めない場合はNone） */
+	width: number | null,
+	height: number | null,
+};
+
+/**  表示しているアルバムアートが、どこの画像か */
+export type AlbumArtSource = 
+/**  音楽ファイルに埋め込まれた画像 */
+"embedded" | 
+/**  音楽ファイルと同じフォルダの画像（`cover.jpg`など） */
+"folder";
+
 /**  アルバムとその曲（アーティストの詳細で、アルバムごとに曲を表示するために使う） */
 export type AlbumGroup = {
 	name: string,
