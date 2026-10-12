@@ -24,14 +24,14 @@
 use super::convert::{Converter, OUTPUT_CHANNELS};
 use super::decoder::TrackDecoder;
 use super::effects::{EQ_BANDS, EffectParams};
-use super::normalization::normalization_gain;
+use super::normalization::{Normalization, normalization_gain};
 use super::output::{CpalBackend, OutputBackend, OutputEvent, OutputHandle};
 use super::render::{RenderShared, Renderer};
 use super::stretch::{MAX_SPEED, MIN_SPEED};
 use crate::error::{AppError, AppResult};
 use crate::events::PlaybackEvent;
 use crate::models::ReplayGain;
-use crate::settings::{MAX_CROSSFADE_SECONDS, Settings, VolumeNormalization};
+use crate::settings::{MAX_CROSSFADE_SECONDS, Settings};
 use serde::Serialize;
 use specta::Type;
 use std::collections::VecDeque;
@@ -69,8 +69,8 @@ const MIN_CROSSFADE_SECONDS: f64 = 0.05;
 pub struct PlaybackOptions {
     /// 出力デバイスのID（Noneは、OSの既定のデバイス）
     pub output_device_id: Option<String>,
-    /// 音量の正規化
-    pub normalization: VolumeNormalization,
+    /// 音量の正規化（単位と、プリアンプ）
+    pub normalization: Normalization,
     /// クロスフェードの秒数（0でクロスフェードしない）
     pub crossfade_seconds: u8,
 }
@@ -79,7 +79,7 @@ impl From<&Settings> for PlaybackOptions {
     fn from(settings: &Settings) -> Self {
         Self {
             output_device_id: settings.output_device_id.clone(),
-            normalization: settings.volume_normalization,
+            normalization: Normalization::from(settings),
             crossfade_seconds: settings.crossfade_seconds,
         }
     }
@@ -124,7 +124,7 @@ enum Command {
     SetSpeed(f32),
     Stop,
     SetOutputDevice(Option<String>),
-    SetNormalization(VolumeNormalization),
+    SetNormalization(Normalization),
     SetCrossfade(u8),
     /// 出力からの通知（`generation`は、通知した出力を開いたときの番号）
     Output {
@@ -374,7 +374,7 @@ struct Engine {
     latest_play_token: Option<u32>,
     /// イコライザの設定（開いた出力の`Renderer`へ渡す）
     effects: Arc<EffectParams>,
-    normalization: VolumeNormalization,
+    normalization: Normalization,
     /// クロスフェードの秒数（0でクロスフェードしない）
     crossfade_seconds: f64,
 }
@@ -513,8 +513,8 @@ impl Engine {
                     self.reopen_output();
                 }
             }
-            Command::SetNormalization(mode) => {
-                self.normalization = mode;
+            Command::SetNormalization(normalization) => {
+                self.normalization = normalization;
                 // 開いている曲の倍率を決め直す（次に書く音声から、滑らかに変わる）
                 let decks = [
                     self.current.as_mut(),
@@ -522,7 +522,7 @@ impl Engine {
                     self.fade.as_mut().map(|fade| &mut fade.incoming),
                 ];
                 for deck in decks.into_iter().flatten() {
-                    deck.gain = normalization_gain(&deck.replay_gain, mode);
+                    deck.gain = normalization_gain(&deck.replay_gain, normalization);
                 }
             }
             Command::SetCrossfade(seconds) => {
@@ -1205,11 +1205,7 @@ fn superseded() -> AppError {
 
 impl Deck {
     /// デコーダーを開いた曲から、デッキを作る（`normalization`は、音量の正規化の設定）
-    fn new(
-        request: PlayRequest,
-        decoder: TrackDecoder,
-        normalization: VolumeNormalization,
-    ) -> Self {
+    fn new(request: PlayRequest, decoder: TrackDecoder, normalization: Normalization) -> Self {
         let gain = normalization_gain(&request.replay_gain, normalization);
         Self {
             token: request.token,
@@ -1268,6 +1264,7 @@ fn output_closed() -> AppError {
 mod tests {
     use super::super::decoder::tests::{temp_dir, wav_sample, write_wav, write_wav_samples};
     use super::*;
+    use crate::settings::VolumeNormalization;
     use std::sync::Mutex;
 
     /// テスト用の出力のサンプルレート
@@ -1336,7 +1333,7 @@ mod tests {
     fn options() -> PlaybackOptions {
         PlaybackOptions {
             output_device_id: None,
-            normalization: VolumeNormalization::Off,
+            normalization: Normalization::OFF,
             crossfade_seconds: 0,
         }
     }
@@ -2188,7 +2185,7 @@ mod tests {
     #[test]
     fn test_normalization_scales_each_track_by_its_gain() {
         let mut harness = Harness::with_options(PlaybackOptions {
-            normalization: VolumeNormalization::Track,
+            normalization: VolumeNormalization::Track.into(),
             ..options()
         });
         let first = harness.track("a.wav", 2_000);
@@ -2231,7 +2228,7 @@ mod tests {
         let played = harness.render(1_000);
         assert_sample(&played, 999, 999);
 
-        harness.send(Command::SetNormalization(VolumeNormalization::Track));
+        harness.send(Command::SetNormalization(VolumeNormalization::Track.into()));
         // バッファにたまっていた分（0.5秒）の後から、新しい倍率になる（途中は滑らかに変わる）
         let played = harness.render(9_000);
         assert_sample(&played, 1_000, 2_000);
@@ -2248,7 +2245,7 @@ mod tests {
         );
 
         // シークの後は、すぐに新しい倍率で鳴る
-        harness.send(Command::SetNormalization(VolumeNormalization::Off));
+        harness.send(Command::SetNormalization(Normalization::OFF));
         harness.send(Command::Seek(0.5));
         let played = harness.render(500);
         assert_sample(&played, 400, 4_400);
@@ -2485,7 +2482,7 @@ mod tests {
     #[test]
     fn test_output_is_limited_when_the_gain_boosts_past_full_scale() {
         let mut harness = Harness::with_options(PlaybackOptions {
-            normalization: VolumeNormalization::Track,
+            normalization: VolumeNormalization::Track.into(),
             ..options()
         });
         harness.output.lock().unwrap().keep_effects = true;
@@ -2553,6 +2550,7 @@ mod tests {
         let settings = Settings {
             output_device_id: Some("usb-dac".to_string()),
             volume_normalization: VolumeNormalization::Album,
+            normalization_preamp_db: -3,
             crossfade_seconds: 7,
             ..Settings::default()
         };
@@ -2561,7 +2559,10 @@ mod tests {
             PlaybackOptions::from(&settings),
             PlaybackOptions {
                 output_device_id: Some("usb-dac".to_string()),
-                normalization: VolumeNormalization::Album,
+                normalization: Normalization {
+                    mode: VolumeNormalization::Album,
+                    preamp_db: -3.0,
+                },
                 crossfade_seconds: 7,
             }
         );

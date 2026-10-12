@@ -2,7 +2,7 @@
   @component ContextMenu
   トラック用コンテキストメニュー。
   再生、キュー操作、プレイリスト追加、お気に入りの切り替え、メタデータ編集、タグの一括ツール、
-  ファイルの整理、アルバムアートの変更、削除などのアクションを提供する。
+  ファイルの整理、音量の解析、アルバムアートの変更、削除などのアクションを提供する。
 -->
 <script lang="ts">
   import type { Track } from '#lib/types/models.js';
@@ -12,6 +12,7 @@
   import { albumArtDialog } from '#lib/stores/albumArt.svelte.js';
   import { tagToolsDialog } from '#lib/stores/tagTools.svelte.js';
   import { fileOrganizeDialog } from '#lib/stores/fileOrganize.svelte.js';
+  import { loudnessScanDialog } from '#lib/stores/loudnessScan.svelte.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   // Props
@@ -133,6 +134,14 @@
    */
   function handleFileOrganize() {
     fileOrganizeDialog.open(selectedTracks);
+    onClose();
+  }
+
+  /**
+   * 選択した曲の、音量の解析の画面を開く
+   */
+  function handleLoudnessScan() {
+    loudnessScanDialog.open(selectedTracks);
     onClose();
   }
 
@@ -296,6 +305,24 @@
       />
     </svg>
     <span>{m.contextMenu.fileOrganize}</span>
+  </button>
+
+  <button class="menu-item" onclick={handleLoudnessScan} role="menuitem">
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      class="menu-icon"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+    >
+      <path
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="2"
+        d="M9 19V6m6 13V10M3 19v-4m18 4v-7M6 19v-9m12 9V4"
+      />
+    </svg>
+    <span>{m.contextMenu.loudnessScan}</span>
   </button>
 
   <button class="menu-item" onclick={handleAlbumArt} role="menuitem">

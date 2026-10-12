@@ -21,6 +21,9 @@ pub const DEFAULT_ACCENT_COLOR: &str = "#3b82f6";
 /// クロスフェードの最大の秒数
 pub const MAX_CROSSFADE_SECONDS: u8 = 12;
 
+/// 音量の正規化のプリアンプの上限（dB。下限は、符号を変えた値）
+pub const MAX_NORMALIZATION_PREAMP_DB: i8 = 12;
+
 /// ライブラリフォルダを定期的に再スキャンする間隔として選べる値（分。0は再スキャンしない）
 pub const LIBRARY_SCAN_INTERVALS: [u32; 5] = [0, 15, 30, 60, 360];
 
@@ -107,6 +110,8 @@ pub struct Settings {
     pub accent_color: String,
     /// 音量の正規化
     pub volume_normalization: VolumeNormalization,
+    /// 音量の正規化のプリアンプ（dB。正規化で補正する曲の音量を、まとめて上げ下げする）
+    pub normalization_preamp_db: i8,
     /// ギャップレス再生（次の曲を先読みし、曲間に無音を入れずに続ける）
     pub gapless_playback: bool,
     /// クロスフェードの秒数（0でクロスフェードしない）
@@ -146,6 +151,7 @@ impl Default for Settings {
             theme: Theme::default(),
             accent_color: DEFAULT_ACCENT_COLOR.to_string(),
             volume_normalization: VolumeNormalization::default(),
+            normalization_preamp_db: 0,
             gapless_playback: true,
             crossfade_seconds: 0,
             output_device_id: None,
@@ -176,6 +182,13 @@ pub fn validate_settings(settings: &Settings) -> AppResult<()> {
         return Err(AppError::Validation(format!(
             "クロスフェードは0〜{}秒で指定してください",
             MAX_CROSSFADE_SECONDS
+        )));
+    }
+    if settings.normalization_preamp_db.unsigned_abs() > MAX_NORMALIZATION_PREAMP_DB.unsigned_abs()
+    {
+        return Err(AppError::Validation(format!(
+            "プリアンプは-{0}〜{0} dBで指定してください",
+            MAX_NORMALIZATION_PREAMP_DB
         )));
     }
     if settings
@@ -334,6 +347,7 @@ mod tests {
             theme: Theme::System,
             accent_color: "#ff8800".to_string(),
             volume_normalization: VolumeNormalization::Album,
+            normalization_preamp_db: -6,
             gapless_playback: false,
             crossfade_seconds: 5,
             output_device_id: Some("coreaudio:BuiltInSpeakerDevice".to_string()),
@@ -450,6 +464,28 @@ mod tests {
         };
         assert!(state.save(settings(MAX_CROSSFADE_SECONDS)).is_ok());
         assert!(state.save(settings(MAX_CROSSFADE_SECONDS + 1)).is_err());
+    }
+
+    #[test]
+    fn test_rejects_out_of_range_preamp() {
+        let state = SettingsState::load(temp_settings_path("preamp"));
+        let settings = |normalization_preamp_db| Settings {
+            normalization_preamp_db,
+            ..Settings::default()
+        };
+        assert!(state.save(settings(MAX_NORMALIZATION_PREAMP_DB)).is_ok());
+        assert!(state.save(settings(-MAX_NORMALIZATION_PREAMP_DB)).is_ok());
+        assert!(
+            state
+                .save(settings(MAX_NORMALIZATION_PREAMP_DB + 1))
+                .is_err()
+        );
+        assert!(
+            state
+                .save(settings(-MAX_NORMALIZATION_PREAMP_DB - 1))
+                .is_err()
+        );
+        assert!(state.save(settings(i8::MIN)).is_err());
     }
 
     #[test]

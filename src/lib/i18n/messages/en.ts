@@ -112,6 +112,7 @@ export const en: Messages = {
     deleteTracksAndFiles: 'Deleting tracks and files',
     refreshMetadata: 'Refreshing metadata',
     writeMetadataToFiles: 'Writing metadata to files',
+    loudnessScan: 'Analyzing loudness',
     showInFolder: 'Showing the file',
     fetchPlaylists: 'Loading playlists',
     createSmartPlaylist: 'Creating smart playlist',
@@ -419,6 +420,31 @@ export const en: Messages = {
       `Finished writing (written: ${written}, unchanged: ${unchanged}, missing files: ${skipped}, errors: ${errors})`
   },
 
+  loudnessScan: {
+    title: 'Loudness analysis',
+    description:
+      'Analyzes the loudness of tracks that have no loudness information (ReplayGain tags) and writes it to the tags in the files. It is used by "Volume normalization" under Playback. Album loudness is calculated from all tracks of the album in the library. The analysis runs in the background; if you stop it, the next run continues with the remaining tracks.',
+    pending: (count) => `Tracks without loudness information: ${count}`,
+    noPending: 'All tracks have loudness information',
+    startMissing: 'Analyze tracks without tags',
+    confirmMissing: (count) =>
+      `The loudness of ${plural(count, 'track', 'tracks')} will be analyzed and written to the tags in the music files. The files will be modified. Continue?`,
+    dialogTitle: (count) => `Analyze Loudness (${plural(count, 'track', 'tracks')})`,
+    dialogDescription:
+      'Analyzes the selected tracks again and writes the result to the tags in the files (ReplayGain). Album loudness is calculated from all tracks of the album in the library and written to all of them (the other tracks of the album are read too).',
+    start: 'Analyze',
+    alreadyRunning: 'Another analysis is running. Try again when it has finished.',
+    continueInBackground: 'Close (keep analyzing)',
+    preparing: 'Starting the analysis...',
+    progress: (current, total) => `${current} / ${plural(total, 'track', 'tracks')}`,
+    cancel: 'Stop',
+    cancelling: 'Stopping...',
+    result: (written, unchanged, errors) =>
+      `Loudness analysis finished (written: ${written}, unchanged: ${unchanged}, errors: ${errors})`,
+    cancelledResult: (written, unchanged, errors) =>
+      `Loudness analysis stopped (written: ${written}, unchanged: ${unchanged}, errors: ${errors})`
+  },
+
   fileOrganize: {
     title: (count) => `Organize Files (${plural(count, 'track', 'tracks')})`,
     template: 'Format',
@@ -563,6 +589,7 @@ export const en: Messages = {
     albumArt: 'Album Art...',
     tagTools: 'Tag Tools...',
     fileOrganize: 'Organize Files...',
+    loudnessScan: 'Analyze Loudness...',
     showInFolder: 'Show in Folder',
     deleteEllipsis: 'Delete...',
     addToPlaylist: 'Add to Playlist',
@@ -912,7 +939,11 @@ export const en: Messages = {
     volumeNormalization: 'Volume normalization',
     volumeNormalizations: { off: 'Off', track: 'Per track', album: 'Per album' },
     volumeNormalizationHint:
-      'Evens out the loudness of tracks using the ReplayGain tags in the files. Per album keeps the differences between tracks on the same album. Tracks without tags are not adjusted (run "Refresh metadata" to read the tags of existing tracks).',
+      'Evens out the loudness of tracks using the ReplayGain tags in the files. Per album keeps the differences between tracks on the same album. Tracks without tags are not adjusted (use "Loudness analysis" under Library to add the information to tracks without tags).',
+    normalizationPreamp: 'Preamp',
+    normalizationPreampValue: (db) => `${db > 0 ? '+' : ''}${db} dB`,
+    normalizationPreampHint:
+      'Raises or lowers the volume of all normalized tracks. Raise it if normalization makes everything too quiet (the level is kept below clipping). It does not apply to tracks without loudness information.',
     gaplessPlayback: 'Gapless playback',
     gaplessPlaybackHint:
       'Loads the next track in advance and plays it without silence between tracks.',

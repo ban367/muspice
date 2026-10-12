@@ -51,6 +51,7 @@ src-tauri/src/
 │   ├── devices.rs         # 転送先デバイスの登録・設定・同期
 │   ├── import.rs
 │   ├── library_folders.rs
+│   ├── loudness.rs        # 音量（ラウドネス）の解析の開始・中断・状態（ADR-053）
 │   ├── metadata_cmd.rs
 │   ├── organize.rs        # ファイルの整理（計画の取得と実行。ADR-052）
 │   ├── playback.rs        # 再生エンジンのコマンド
@@ -77,6 +78,8 @@ src-tauri/src/
 ├── library.rs
 ├── library_folder.rs
 ├── library_sync.rs        # ライブラリフォルダの変更の自動反映（起動時・定期・監視）
+├── loudness.rs            # ラウドネスの測定（ITU-R BS.1770。K特性のフィルターとゲート）と、ReplayGainの値の計算（ADR-053）
+├── loudness_scan.rs       # ラウドネスの解析の実行（対象のまとまり・並行しての解析・タグとDBへの書き込み・実行の状態）
 ├── lyrics.rs              # 表示する歌詞の読み込み（曲と同じ名前の.lrcファイルを優先し、なければ埋め込みの歌詞。ADR-045）
 ├── library_xml.rs         # iTunes形式のライブラリXMLの読み込み（ほかのプレーヤーの再生回数・追加日・プレイリスト。ADR-033）
 ├── m3u.rs                 # プレイリストのM3Uの読み込み（文字コードの判定・曲の対応付け）と書き出し（ADR-032）
@@ -93,7 +96,7 @@ src-tauri/src/
 │   ├── ape.rs             # APE（Monkey's Audio）のデコード（ape-decoder）
 │   ├── mp4_gapless.rs     # M4AのAACの、曲の頭と終わりの余分の読み取り
 │   ├── convert.rs         # 出力の形式（ステレオ・出力のサンプルレート）への変換
-│   ├── normalization.rs   # 音量の正規化（ReplayGain）の倍率の計算
+│   ├── normalization.rs   # 音量の正規化（ReplayGain）の倍率の計算（プリアンプを含む）
 │   ├── effects.rs         # 出力の直前にかける加工（イコライザ・リミッター）
 │   ├── stretch.rs         # 再生速度の変更（音程を保ったまま速さを変える時間伸縮。WSOLA。ADR-049）
 │   ├── render.rs          # 出力のコールバックでの音声の取り出し（再生速度・イコライザ・音量・一時停止・リミッター）
@@ -166,6 +169,7 @@ src-tauri/src/
 - ライブラリのビュー（最近追加した曲・フォルダ別・年代別）の集計は、`#lib/utils/libraryViews`の純粋な関数で行う（ADR-041）。フォルダ別・年代別は、左に木の形の一覧（`TreeBrowser`）、右に曲の一覧を出す`TreeBrowsePage`を使う（木の項目は`TreeNode`。画面は、全曲の一覧から木と、選んだ項目の曲を計算して渡す）。サイドバーに項目を足す時は、Rustの`SidebarItem`・設定画面の`sidebarItems`・`m.sidebar`にも足す（設定で隠せるようにするため）
 - 曲の画面の絞り込みは、`#lib/utils/trackFilter`の純粋な関数（`applyTrackFilters`・`browseTracks`）で行う（ADR-040）。順番は、検索 → フィルタ → カラムブラウザ（ジャンル → アーティスト → アルバム）で、カラムブラウザの各列には、その列より前の絞り込みに合う曲の値だけを出す。状態（カラムブラウザを出すか・選択・フィルタ）は`#lib/stores/libraryBrowser.svelte`に持つ（出すかどうかだけをlocalStorageに保存する）
 - タグの一括ツール（`TagToolsDialog`。曲の右クリックのメニューから`tagToolsDialog.open(tracks)`で開く）は、変更の計算を`#lib/utils/tagTools`の純粋な関数（`guessFromFileName`・`renumberTracks`・`searchAndReplace`）に分けている。どれも曲ごとの変更（前 → 後）を返すだけで、画面はそれを一覧に出し、「適用」で`toMetadataChanges`の結果を`useApplyMetadataChangesMutation`へ渡す（ADR-037）
+- 音量の解析の画面の状態は、`loudnessScan`（`#lib/stores/loudnessScan.svelte`）が持つ。`watch()`で進捗・完了のイベントを受け取り（メインウィンドウは`(app)/+layout.svelte`、設定ウィンドウは`LoudnessScanSettings`が呼ぶ）、どちらのウィンドウで始めた解析でも進み具合を出す。結果の通知（トースト）は、`start()`を呼んだウィンドウだけが出す。選んだ曲の解析は、曲のメニューから`loudnessScanDialog.open(tracks)`で開く（`LoudnessScanDialog`。実行中に閉じても、解析は続く）
 - ファイルの整理（`FileOrganizeDialog`。曲の右クリックのメニューから`fileOrganizeDialog.open(tracks)`で開く）は、整理後の場所をRust側（`file_organize.rs`）だけが決める。画面は、書式を変えるたびに`plan_file_organize`を呼び（入力が止まってから300ms。後から始めた取得の結果だけを使う）、返った計画を`#lib/utils/fileOrganize`の`summarizeOrganizePlan`で、動かす曲・動かさない曲・そのままの曲に分けて出す。書式の候補（`FILE_ORGANIZE_PRESETS`）と、前回の書式の記憶（localStorage）も同じモジュールにある。モックは、`src/lib/mocks/fileOrganize.ts`が同じ規則で場所を決める（書式を変えたら、両方を直す）
 - 重複した曲の画面（`/library/duplicates`）は、`#lib/utils/duplicates`の`findDuplicateGroups`で全曲の一覧からまとまりを作り、`TrackList`にまとまりの順で渡す（`defaultSort={null}`）。`TrackList`の`groupOf`に、曲からまとまりのキーを返す関数を渡すと、渡した順で並べている間、まとまりの間に線を引く。場所の列（`filePath`）は、どの一覧でも選べる
 - アーティスト・ジャンルを値ごとに扱う時（一覧の集計・絞り込み）は、`#lib/utils/multiValue`の`splitValues`・`hasValue`・`listedArtists`で値に分ける（`track.artist === ...`で比べない。`A; B`のように複数の値を持つ曲があるため。ADR-051）
@@ -374,6 +378,7 @@ Tauriのウィンドウ（macOSではWKWebView）はブラウザ自動化ツー�
   - `window.__MUSPICE_MOCK__.nowPlaying()`で、OSのNow Playingへ伝えた内容を確認する（ブラウザにはOSの表示がないため）
   - `window.__MUSPICE_MOCK__.setM3uImportMode('clean')`で、M3Uの読み込みで選んだことにするファイルを切り替える（`partial`: 対応が付かない行がある（既定）・`clean`: すべて対応が付く・`cancel`: 選ばなかった）。ファイルを選ぶダイアログはRust側が開くため、モックは決まった結果を返す
   - `window.__MUSPICE_MOCK__.setFileImportMode('cancel')`で、ファイルを選ぶインポートで選ばなかったことにする（`pick`: 2つの音楽ファイルを選んだ（既定））。`window.__MUSPICE_MOCK__.openFiles(['a.flac'])`で、Finderの「このアプリで開く」でファイルが開かれたことにする（インポートして再生される）。ウィンドウへのドロップは、`DataTransfer`に`File`を入れた`dragover`・`drop`を`window`へ送ると確かめられる（パスの読み取りは再現せず、名前のファイルがあることにする）
+  - 音量の解析は、1曲を250msで読んだことにして進捗を送り、ゲインは曲の長さから決まる値にする（同じ曲は、何度解析しても同じ値）。フィクスチャの曲の3分の1には、音量の情報がない
   - `window.__MUSPICE_MOCK__.addDuplicateTracks()`で、今ある曲と同じタイトル・アーティストの曲を、ライブラリフォルダの中の`Downloads`に足す（重複した曲の画面と、ファイルの整理の確認用。整理すると、移せる曲・移動先に同じ名前のファイルがある曲・同じ移動先になる曲が出る）。ファイルの整理は、実ファイルがないため、動かせる曲は常に移せたものとして、曲の場所だけを書き換える（歌詞ファイル・フォルダの画像・空のフォルダの扱いは再現しない）
   - `window.__MUSPICE_MOCK__.setAlbumArtPickMode('cancel')`で、アルバムアートの埋め込みで選んだことにする画像を切り替える（`pick`: 埋め込める画像（既定。選ぶたびに違う色の画像になる）・`cancel`: 選ばなかった・`tooLarge`: 大きすぎる画像）。フィクスチャでは、「Midnight Circuit」がフォルダの画像（`cover.jpg`）、「Quiet Rooms」がアートなし、ほかは埋め込みの画像
   - `window.__MUSPICE_MOCK__.setConfirmResult(false)`で、以降の確認ダイアログを「キャンセル」にする

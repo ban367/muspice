@@ -130,7 +130,7 @@ export interface Playlist {
 - `playlist_tracks`, `play_history` は `tracks` / `playlists` への外部キー（`ON DELETE CASCADE`）
 - `playlists.folder_id` は `playlist_folders` を指すが、外部キーにはしない。フォルダを削除する時に、中のプレイリストの `folder_id` をNULLにする（プレイリストは消さない）
 - `tracks.file_modified_at` はファイルの更新日時（UNIX時間の秒）。再スキャンで、サイズとあわせて変更の検出に使う。列を追加する前に登録したトラックはNULLで、再スキャンで（ファイルを読み直さずに）記録する。サイズが同じで更新日時がちょうど1時間（±2秒）ずれた場合は、夏時間の切り替えによるずれ（更新日時をローカル時刻で記録するFAT32など）とみなし、読み直さずに日時だけ記録する
-- `tracks.replay_gain_track_gain` / `replay_gain_track_peak` / `replay_gain_album_gain` / `replay_gain_album_peak`（REAL）はファイルのタグから読んだReplayGain。`REPLAYGAIN_*`を優先し、ゲインがない場合はOpusの`R128_*_GAIN`（Q7.8形式、基準が-23 LUFSのため+5 dBしてReplayGainの基準にそろえる）を使う。範囲外（ゲインは±60 dB、ピークは0以下）は読まない。列を追加する前に登録したトラックはNULLで、`refresh_library_metadata`か再スキャン（ファイルが変わった場合）で読み込む
+- `tracks.replay_gain_track_gain` / `replay_gain_track_peak` / `replay_gain_album_gain` / `replay_gain_album_peak`（REAL）はファイルのタグから読んだReplayGain。`REPLAYGAIN_*`を優先し、ゲインがない場合はOpusの`R128_*_GAIN`（Q7.8形式、基準が-23 LUFSのため+5 dBしてReplayGainの基準にそろえる）を使う。範囲外（ゲインは±60 dB、ピークは0以下）は読まない。列を追加する前に登録したトラックはNULLで、`refresh_library_metadata`か再スキャン（ファイルが変わった場合）で読み込む。タグのない曲は、音量の解析（`start_loudness_scan`）で、タグへ書き込んでから記録する（ADR-053）
 - `library_folders` とトラックの対応は `tracks.file_path` の前方一致（フォルダのパス＋区切り文字）で判定する。`file_path >= 接頭辞 AND file_path < 上限`（接頭辞の最後の文字を次の文字にしたもの）の範囲で比較する（二分比較のため大文字・小文字を区別し、`file_path`のUNIQUEのインデックスを使える。`LIKE`はASCIIの大文字・小文字を区別しない）。フォルダ同士は入れ子にしない（中のフォルダはインポートしても登録せず、外のフォルダをインポートすると中のフォルダの記録をまとめる）
 - `sync_device_playlists` は `sync_devices` / `playlists` への外部キー（`ON DELETE CASCADE`）。取得するときも `playlists` と結合し、削除済みのプレイリストを含めない
 - `sync_devices.id` はデバイス側の管理ファイル（後述）の `deviceId` と同じ値。デバイスにコピーしたファイルの一覧はDBに持たず、管理ファイルに記録する
@@ -335,11 +335,11 @@ export interface Playlist {
 | コマンド               | 引数                     | 戻り値                 | 備考                                                                                                                                                                                                                                                                                                                                                                                               |
 | ---------------------- | ------------------------ | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `get_settings`         | なし                     | `Settings`             | `settings.json`がない・壊れている場合は既定値                                                                                                                                                                                                                                                                                                                                                      |
-| `save_settings`        | `settings: Settings`     | `void`                 | アクセントカラーは`#rrggbb`、クロスフェードは0〜12秒、再スキャンの間隔は選択肢の値。保存後に`SettingsChanged`イベントを送り、ライブラリフォルダの自動反映と、再生エンジン（出力デバイス・音量の正規化・クロスフェード）に設定を反映する                                                                                                                                                            |
+| `save_settings`        | `settings: Settings`     | `void`                 | アクセントカラーは`#rrggbb`、クロスフェードは0〜12秒、プリアンプは-12〜12 dB、再スキャンの間隔は選択肢の値。保存後に`SettingsChanged`イベントを送り、ライブラリフォルダの自動反映と、再生エンジン（出力デバイス・音量の正規化・クロスフェード）に設定を反映する                                                                                                                                    |
 | `get_global_shortcuts` | なし                     | `GlobalShortcutInfo[]` | グローバルホットキーの割り当てと、OSに登録できているか（`{ action: 'toggle' \| 'next' \| 'previous', keys: string[], registered: boolean }`）。保存した設定`globalShortcuts`がオフの間は、どれも`registered: false`。オンでも、ほかのアプリが使っている組み合わせは登録できないことがある                                                                                                          |
 | `set_mini_player`      | `enabled`, `alwaysOnTop` | `void`                 | メインウィンドウを、ミニプレーヤーの大きさ（420×150）と通常の大きさで切り替える（画面の切り替えはフロントエンドが行う）。ミニプレーヤーの間は、大きさを変えられず、`alwaysOnTop`なら常に手前に表示する。ミニプレーヤーの間に`enabled: true`で呼ぶと、`alwaysOnTop`だけを変える。小さくする前の大きさ・位置は`mini-player.json`にも記録し、ミニプレーヤーのまま終了した場合は、次の起動時に元へ戻す |
 
-`Settings`: `{ language: 'ja' \| 'en', startupPage: 'lastOpened' \| 'songs', theme: 'dark' \| 'light' \| 'system', accentColor: string, volumeNormalization: 'off' \| 'track' \| 'album', gaplessPlayback: boolean, crossfadeSeconds: number, outputDeviceId: string \| null, watchLibraryFolders: boolean, libraryScanIntervalMinutes: number, hiddenSidebarItems: SidebarItem[], autoDj: boolean, autoDjPlaylistId: string \| null, stayInMenuBar: boolean, globalShortcuts: boolean, notifyTrackChange: boolean }`（`SidebarItem`は`'songs' \| 'albums' \| 'artists' \| 'genres' \| 'folders' \| 'years' \| 'favorites' \| 'recentlyAdded' \| 'playHistory' \| 'mostPlayed' \| 'duplicates'`。`hiddenSidebarItems`は、サイドバーに出さない項目。ファイルを読む時は、知らない項目と重複を除く）。`autoDj`はAuto DJ（再生キューの最後の曲になったら、曲を足して再生を続ける）、`autoDjPlaylistId`は曲を選ぶプレイリスト（`null`はライブラリ全体。UUIDの形だけを確かめ、プレイリストがあるかどうかは確かめない）。`stayInMenuBar`はメニューバー（トレイ）への常駐（アイコンを出し、ウィンドウを閉じても再生を続ける）、`globalShortcuts`はグローバルホットキー、`notifyTrackChange`は曲が変わった時のOSの通知（ADR-046）。既定値は`ja`・`lastOpened`・`dark`・`#3b82f6`・`off`・`true`・`0`・`null`・`false`・`0`・`[]`・`false`・`null`・`false`・`false`・`false`。`crossfadeSeconds`は0〜12（整数）、`libraryScanIntervalMinutes`は0（しない）・15・30・60・360のいずれか、`outputDeviceId`は`get_output_devices`が返すID（`null`はOSの既定のデバイス。空文字・512バイトを超える値は不可）で、それ以外は`VALIDATION_ERROR`。`outputDeviceId`のデバイスが接続されていない間は、既定のデバイスで再生する（設定は変えない）。以前のバージョンが保存した、今はない項目（`playbackEngine`）は無視する。ファイルにない項目は既定値で補う（項目を追加しても古いファイルを読める）。
+`Settings`: `{ language: 'ja' \| 'en', startupPage: 'lastOpened' \| 'songs', theme: 'dark' \| 'light' \| 'system', accentColor: string, volumeNormalization: 'off' \| 'track' \| 'album', normalizationPreampDb: number, gaplessPlayback: boolean, crossfadeSeconds: number, outputDeviceId: string \| null, watchLibraryFolders: boolean, libraryScanIntervalMinutes: number, hiddenSidebarItems: SidebarItem[], autoDj: boolean, autoDjPlaylistId: string \| null, stayInMenuBar: boolean, globalShortcuts: boolean, notifyTrackChange: boolean }`（`SidebarItem`は`'songs' \| 'albums' \| 'artists' \| 'genres' \| 'folders' \| 'years' \| 'favorites' \| 'recentlyAdded' \| 'playHistory' \| 'mostPlayed' \| 'duplicates'`。`hiddenSidebarItems`は、サイドバーに出さない項目。ファイルを読む時は、知らない項目と重複を除く）。`autoDj`はAuto DJ（再生キューの最後の曲になったら、曲を足して再生を続ける）、`autoDjPlaylistId`は曲を選ぶプレイリスト（`null`はライブラリ全体。UUIDの形だけを確かめ、プレイリストがあるかどうかは確かめない）。`stayInMenuBar`はメニューバー（トレイ）への常駐（アイコンを出し、ウィンドウを閉じても再生を続ける）、`globalShortcuts`はグローバルホットキー、`notifyTrackChange`は曲が変わった時のOSの通知（ADR-046）。`normalizationPreampDb`は、音量の正規化のプリアンプ（dB。ゲインのある曲の音量を、まとめて上げ下げする。-12〜12の整数。ADR-053）。既定値は`ja`・`lastOpened`・`dark`・`#3b82f6`・`off`・`0`・`true`・`0`・`null`・`false`・`0`・`[]`・`false`・`null`・`false`・`false`・`false`。`crossfadeSeconds`は0〜12（整数）、`libraryScanIntervalMinutes`は0（しない）・15・30・60・360のいずれか、`outputDeviceId`は`get_output_devices`が返すID（`null`はOSの既定のデバイス。空文字・512バイトを超える値は不可）で、それ以外は`VALIDATION_ERROR`。`outputDeviceId`のデバイスが接続されていない間は、既定のデバイスで再生する（設定は変えない）。以前のバージョンが保存した、今はない項目（`playbackEngine`）は無視する。ファイルにない項目は既定値で補う（項目を追加しても古いファイルを読める）。
 
 ### カスタムプロトコル
 
@@ -356,6 +356,8 @@ export interface Playlist {
 | `ImportProgress`       | `{ current, total, currentFile }`                                  | インポート（`import_folder`・`import_files`・`import_dropped_files`・開かれたファイル。1ファイルごと）                             |
 | `LibraryScanProgress`  | `{ current, total, currentFile }`                                  | `rescan_library_folder`（読み込むファイルごと）                                                                                    |
 | `LibraryChanged`       | なし                                                               | インポートの後、再スキャン（自動を含む）・ライブラリフォルダの削除で曲が変わった時                                                 |
+| `LoudnessScanProgress` | `{ current, total, currentFile }`                                  | `start_loudness_scan`（曲を読み終わるたび）                                                                                        |
+| `LoudnessScanFinished` | `LoudnessScanResult`                                               | `start_loudness_scan`が終わった時（中断した場合を含む）                                                                            |
 | `DeviceSyncProgress`   | `{ deviceId, current, total, bytesDone, bytesTotal, currentFile }` | `run_device_sync`（コピーするファイルごと。大きなファイルでは途中でも送る）                                                        |
 | `ShowAboutDialog`      | なし                                                               | メニュー「Muspice について」                                                                                                       |
 | `OpenImportDialog`     | なし                                                               | メニュー「フォルダをインポート...」                                                                                                |
@@ -393,6 +395,35 @@ export interface Playlist {
 - `BulkUpdateResult`: `updatedCount`, `failedCount`, `errors[]`
 - `WriteMetadataResult`: `writtenCount`, `unchangedCount`（ファイルと同じ）, `skippedCount`（ファイルが見つからない）, `errorCount`, `errors[]`
 - `write_library_metadata_to_files`は、DBの値がファイルと違う項目だけを書き込む。DBに値がない項目（評価なしを含む）と、タグにタイトルがないファイルの既定のタイトル（ファイル名）は書き出さない（ファイルにだけある値を消さないため）
+
+### 音量（ラウドネス）の解析
+
+ReplayGainのタグがない曲のラウドネスを解析して、ゲインとピークをファイルのタグへ書き込み、DBに記録する（`loudness.rs`・`loudness_scan.rs`。ADR-053）。
+
+| コマンド                   | 引数                         | 戻り値               | 内容                                                                                                                                         |
+| -------------------------- | ---------------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `get_loudness_scan_status` | なし                         | `LoudnessScanStatus` | 解析を実行中か・進み具合・音量の情報が欠けている曲の数を返す                                                                                 |
+| `start_loudness_scan`      | `trackIds: string[] \| null` | `LoudnessScanResult` | 解析して書き込む。`null`は、音量の情報が欠けている曲。指定すると、その曲を解析し直す。終わるまで返らない（進捗と完了は、イベントで知らせる） |
+| `cancel_loudness_scan`     | なし                         | `void`               | 実行中の解析を中断する（実行中でなければ何もしない）                                                                                         |
+
+- `LoudnessScanStatus`: `{ running, current, total, pendingCount }`。`pendingCount`は、曲のゲインがない曲と、アルバムのタグがあるのにアルバムのゲインがない曲の数（見つからない曲を除く）
+- `LoudnessScanResult`: `{ writtenCount, unchangedCount, errorCount, errors[], cancelled }`。`unchangedCount`は、解析した値がファイルのタグと同じで、書き込まなかった曲の数
+- 同時に実行できる解析は1つ（実行中は`LOCK_ERROR`）。`trackIds`が空・IDの形が違う場合は`VALIDATION_ERROR`。解析できなかった・書き込めなかった曲は、理由を`errors`に入れて残りを続ける
+- 測り方（`loudness.rs`）
+  - ITU-R BS.1770の「番組のラウドネス」: K特性のフィルター（48kHz以外は、同じ特性になる係数を求める）をかけ、400msのブロック（100msずつずらす）ごとの大きさを、絶対ゲート（-70 LUFS）と相対ゲート（絶対ゲートを通ったブロックの平均の-10 LU）を通ったブロックで平均する
+  - 測るのは、再生エンジンが出す音。再生と同じデコーダー（`TrackDecoder`。取り込める形式のすべて）で読み、再生と同じまとめ方でステレオにしてから測る（モノラルは、左右に同じ音を出すため、2チャンネル分として数える。1チャンネルとして測る道具より、ラウドネスが3 LU高くなる）
+  - ゲインは、ReplayGain 2.0の基準（-18 LUFS）との差。ピークは、サンプルの最大の振幅（サンプルの間の山（トゥルーピーク）は求めない）。短すぎる（400ms未満）・無音の曲は、ゲインを0 dBにする
+- まとまり（`loudness_scan.rs`）
+  - 解析は、アルバムか、アルバムのない1曲ごとに行う。アルバムは、アルバムの一覧と同じく、アルバム名とアルバムアーティスト（なければ曲のアーティスト）が同じ曲。見つからない曲は、対象にしない
+  - アルバムのラウドネスは、アルバムの全曲のブロックをまとめて、同じ方法で平均する（曲ごとの値の平均ではない）。アルバムのピークは、全曲のピークの最大。アルバムの1曲でも解析が要る場合は、ライブラリにあるそのアルバムの全曲を読み、アルバムのゲインとピークを全曲に書く
+  - `trackIds`が`null`: 曲のゲインがない曲のあるまとまりと、アルバムのゲインが欠けている曲のあるアルバムを解析する。すでにある曲のゲインは変えない
+  - `trackIds`を指定: その曲を含むまとまりを解析する。指定した曲は、曲のゲインも書き直す
+  - まとまりは、いくつか（コアの数の半分。4つまで）を並行して解析する。中断すると、解析の途中のまとまりには何も書かない（アルバムの一部の曲にだけ書かれた状態を作らない）。次に解析すると、残りの曲から続く
+- 書き込み
+  - `REPLAYGAIN_TRACK_GAIN`・`REPLAYGAIN_ALBUM_GAIN`（`+6.23 dB`の形。小数2桁）と、`REPLAYGAIN_TRACK_PEAK`・`REPLAYGAIN_ALBUM_PEAK`（小数6桁）を書く（ID3v2は`TXXX`、MP4は`----:com.apple.iTunes:`の項目、Vorbisコメント・APEv2はその名前の項目。WAV・AIFFは、ID3v2のタグ）
+  - Opusは、Opusの決まり（RFC 7845）に合わせて、`R128_TRACK_GAIN`・`R128_ALBUM_GAIN`（-23 LUFSが基準のQ7.8の整数）で書き、書いた項目に対応する`REPLAYGAIN_*`は取り除く（ピークは書けない）
+  - ほかのタグ・評価・画像は変えない。すでに同じ値が書かれているファイルは、書き換えない
+  - DBには、書き込んだ後にファイルのタグから読める値（タグに書く桁に丸めた値）を記録し、ファイルのサイズ・更新日時も記録し直す（再スキャンで読み直さない）。1曲でも書き込むと、終わった時に`LibraryChanged`を送る
 
 ### ファイルの整理（タグに基づくリネーム・移動）
 
@@ -605,7 +636,7 @@ iTunes形式のライブラリXML（MusicBee・iTunes / ミュージックが書
 - 再生速度（`playback_set_speed`。ADR-049）: 出力のコールバックが、リングバッファから取り出した音声の長さを、音程を保ったまま変える（時間伸縮。`playback/stretch.rs`）。エンジンが扱う位置（`position`・`advanced`・`ended`・シーク・クロスフェードの長さ）は、どれも元の曲の時間のままで、速度を変えると、その進み方だけが変わる（2倍なら、`position`は0.25秒ごとに0.5秒ずつ進み、6秒のクロスフェードは3秒で終わる）。1倍の間は時間伸縮を通さず、音声を変えない。速度は、エンジンが動いている間だけ保つ（保存しない。フロントが、起動時と変更のたびに送る）
 - WavPack（`.wv`）とAPE（`.ape`）は、`symphonia`ではなく専用のデコーダーで読む（拡張子で振り分ける。ADR-047）。どちらも可逆で、元の音源と同じサンプルを返す（余分はもともとない）。再生できないファイル（ハイブリッド（非可逆）・DSD・3チャンネル以上のWavPack、Monkey's Audio 3.95より前のAPE、中身が違うファイル）は、`playback_play`がその種類を伝えるエラーを返す。デコードの途中で壊れたブロックは無音にして続け（ログに残す）、続けて4つ壊れていたら`failed`にする
 - 再生回数・スキップ回数の記録（`increment_play_count`・`increment_skip_count`）と再生中のトラックの通知（`set_current_track`）は、フロントが行う（数える条件は、上の「再生回数・スキップ回数・再生履歴」）
-- 音量の正規化: `playback_play` / `playback_set_next`の時に、Rust側がトラックのReplayGain（DB）と設定の`volumeNormalization`から倍率を決める（計算は`playback/normalization.rs`。ADR-012）。設定を変えると、再生中の曲・続けて再生する曲の倍率も決め直す
+- 音量の正規化: `playback_play` / `playback_set_next`の時に、Rust側がトラックのReplayGain（DB）と設定の`volumeNormalization`から倍率を決める（計算は`playback/normalization.rs`。ADR-012）。ゲインのある曲には、設定の`normalizationPreampDb`（プリアンプ）を足してから、ピークがフルスケールを超えない倍率に抑える（ゲインのない曲・正規化がオフの時は、プリアンプもかけない）。設定を変えると、再生中の曲・続けて再生する曲の倍率も決め直す
 - クロスフェード: 設定の`crossfadeSeconds`が1以上で、続けて再生する曲（`playback_set_next`）があれば、エンジンが前の曲の終わりと重ねる。重ねる長さは、設定の秒数を上限に、どちらの曲も長さの半分まで、かつ前の曲の残りまで。同じ曲の繰り返し（同じファイル）と、長さの分からない曲からは、重ねずに切れ目なく続ける。`advanced`は、重なりが鳴り始めた時点で届く
 - イコライザとリミッターは、出力の直前にかける（ADR-026）。イコライザの設定は、エンジンを使う再生コントローラーが、起動時と変更のたびに`playback_set_equalizer`で送る。リミッターは常に有効で、設定はない
 
