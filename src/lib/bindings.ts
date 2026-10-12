@@ -209,6 +209,21 @@ export const commands = {
 	 */
 	writeLibraryMetadataToFiles: () => __TAURI_INVOKE<WriteMetadataResult>("write_library_metadata_to_files"),
 	/**
+	 *  選んだ曲のファイルを、書式に従って整理する計画（今の場所 → 整理後の場所）を取得する
+	 * 
+	 *  ファイルは動かさない。画面は、この一覧を見せてから`organize_files`を呼ぶ。
+	 *  書式の誤りは、入力の誤り（`VALIDATION`）として返す。
+	 */
+	planFileOrganize: (trackIds: string[], template: string) => __TAURI_INVOKE<OrganizePlan>("plan_file_organize", { trackIds, template }),
+	/**
+	 *  選んだ曲のファイルを、書式に従って、その曲のあるライブラリフォルダの中で移す
+	 * 
+	 *  計画は呼ばれた時点で立て直し、動かせる曲だけを移す（移動先がふさがっている曲などは動かさない）。
+	 *  トラックのID・お気に入り・再生回数・プレイリストへの登録は、変えない。
+	 *  移せなかった曲は、結果の`errors`へ理由を入れて残りを続ける。
+	 */
+	organizeFiles: (trackIds: string[], template: string) => __TAURI_INVOKE<OrganizeResult>("organize_files", { trackIds, template }),
+	/**
 	 *  トラックのアルバムアートの情報（埋め込みの画像か、フォルダの画像か・種類・大きさ）を取得する
 	 * 
 	 *  アートがなければNone。
@@ -996,6 +1011,48 @@ export type OpenedFiles = {
 	errors: string[],
 };
 
+/**  1曲の計画（一覧に表示する） */
+export type OrganizeEntry = {
+	trackId: string,
+	/**  今の場所（ライブラリフォルダからの場所。フォルダの外の曲は、ファイルのパス） */
+	currentPath: string,
+	/**  整理後の場所（ライブラリフォルダからの場所。決まらない曲はNone） */
+	newPath: string | null,
+	status: OrganizeStatus,
+};
+
+/**  ファイルの整理の計画（選んだ曲の順） */
+export type OrganizePlan = {
+	entries: OrganizeEntry[],
+};
+
+/**  ファイルの整理の結果 */
+export type OrganizeResult = {
+	/**  移した曲の数 */
+	movedCount: number,
+	/**  動かさなかった曲の数（ライブラリフォルダの外・見つからない・移動先がふさがっている） */
+	skippedCount: number,
+	/**  移せなかった曲の数 */
+	failedCount: number,
+	/**  移せなかった理由と、歌詞ファイルを移せなかった理由（`場所: 理由`） */
+	errors: string[],
+};
+
+/**  曲を動かすか、動かさない理由 */
+export type OrganizeStatus = 
+/**  動かす */
+"move" | 
+/**  すでに、書式どおりの場所にある */
+"unchanged" | 
+/**  ライブラリフォルダの外にある */
+"outsideLibrary" | 
+/**  ファイルが見つからない */
+"missing" | 
+/**  移動先に、同じ名前のファイルがある */
+"targetExists" | 
+/**  選んだ曲の中に、同じ移動先になる曲がある */
+"sameTarget";
+
 /**  出力デバイス */
 export type OutputDevice = {
 	/**  デバイスを選ぶためのID（設定に保存する。接続し直しても変わらない） */
@@ -1230,7 +1287,9 @@ export type SettingsChanged = Settings;
 export type ShowAboutDialog = null;
 
 /**  サイドバーの項目（表示するかどうかを選べるもの） */
-export type SidebarItem = "songs" | "albums" | "artists" | "genres" | "folders" | "years" | "favorites" | "recentlyAdded" | "playHistory" | "mostPlayed";
+export type SidebarItem = "songs" | "albums" | "artists" | "genres" | "folders" | "years" | "favorites" | "recentlyAdded" | "playHistory" | "mostPlayed" | 
+/**  重複した曲 */
+"duplicates";
 
 /**  並び順（上限がある場合は、この順の先頭から選ぶ） */
 export type SmartOrder = {

@@ -68,6 +68,7 @@ export const en: Messages = {
     bitrate: 'Bitrate',
     sampleRate: 'Sample Rate',
     fileSize: 'Size',
+    filePath: 'Location',
     titleSort: 'Sort Title',
     artistSort: 'Sort Artist',
     albumArtistSort: 'Sort Album Artist',
@@ -243,6 +244,7 @@ export const en: Messages = {
     favorites: 'Favorites',
     playHistory: 'Play History',
     mostPlayed: 'Most Played',
+    duplicates: 'Duplicates',
     recentlyAdded: 'Recently Added',
     folders: 'Folders',
     years: 'Years',
@@ -417,6 +419,38 @@ export const en: Messages = {
       `Finished writing (written: ${written}, unchanged: ${unchanged}, missing files: ${skipped}, errors: ${errors})`
   },
 
+  fileOrganize: {
+    title: (count) => `Organize Files (${plural(count, 'track', 'tracks')})`,
+    template: 'Format',
+    preset: 'Examples',
+    templateHint:
+      'Fields: %title% %artist% %album% %albumartist% %genre% %year% %track% %disc% %filename%. Use "/" to make folders; without "/", files are renamed in their current folder. A part in [ ] is left out for songs that have no value for the fields inside it.',
+    scopeHint:
+      'Files are moved within the library folder they are in. Lyrics files (.lrc) with the same name move with the song, folder images move when a whole folder moves, and folders left empty are removed.',
+    moves: 'Files to move',
+    moveCount: (count) => `${plural(count, 'file', 'files')} will be moved`,
+    noMoves: 'Nothing to move',
+    unchanged: (count) =>
+      `${plural(count, 'song is', 'songs are')} already where the format puts them`,
+    blocked: 'Files that will not move',
+    blockedCount: (count) => plural(count, 'song', 'songs'),
+    more: (count) => `and ${count} more`,
+    columnCurrent: 'Current location',
+    columnNew: 'New location',
+    columnReason: 'Reason',
+    reasons: {
+      outsideLibrary: 'Outside the library folders',
+      missing: 'The file is missing',
+      targetExists: 'A file with the same name is already there',
+      sameTarget: 'Another selected song would move to the same place'
+    },
+    apply: 'Organize',
+    applying: 'Organizing...',
+    moved: (count) => `Organized ${plural(count, 'file', 'files')}`,
+    partiallyFailed: (moved, failed) =>
+      `Organized ${plural(moved, 'file', 'files')} (${failed} could not be moved)`,
+    allFailed: (reason) => `Could not move the files: ${reason}`
+  },
   tagTools: {
     title: (count) => `Tag Tools (${plural(count, 'track', 'tracks')})`,
     tabs: { fileName: 'From File Name', renumber: 'Renumber', replace: 'Find & Replace' },
@@ -528,6 +562,7 @@ export const en: Messages = {
     editMetadata: 'Edit Metadata',
     albumArt: 'Album Art...',
     tagTools: 'Tag Tools...',
+    fileOrganize: 'Organize Files...',
     showInFolder: 'Show in Folder',
     deleteEllipsis: 'Delete...',
     addToPlaylist: 'Add to Playlist',
@@ -666,6 +701,13 @@ export const en: Messages = {
     mostPlayed: 'Most Played',
     noMostPlayed: 'No most played songs yet',
     noMostPlayedHint: 'A play is counted once you listen to half of a song or 4 minutes',
+    duplicates: 'Duplicates',
+    duplicatesDescription: 'Songs with the same title and artist and nearly the same length',
+    duplicatesSummary: (groups: number, tracks: number) =>
+      `${groups} ${groups === 1 ? 'group' : 'groups'} · ${tracks} songs`,
+    noDuplicates: 'No duplicate songs',
+    noDuplicatesHint:
+      'Songs with the same title and artist and nearly the same length will appear here',
     favorites: 'Favorites',
     noFavorites: 'No favorite songs yet',
     noFavoritesHint: 'Click the heart on a song to add it here',

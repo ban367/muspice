@@ -59,6 +59,8 @@ function sortKey(track: Track, field: TrackSortField): SortKey {
       return track.genre || '';
     case 'format':
       return track.format;
+    case 'filePath':
+      return track.filePath;
     case 'favorite':
       return track.isFavorite ? 1 : 0;
     // 日時は書式のそろった文字列のため、そのまま比べられる（値のない曲は、いちばん古い扱い）

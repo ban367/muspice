@@ -23,10 +23,10 @@ use unicode_normalization::UnicodeNormalization;
 /// アーティスト・アルバムのタグがない曲を置くフォルダの名前
 ///
 /// デバイス上のフォルダ名のため、表示の言語によらず固定にする（言語を切り替えても、
-/// コピー済みの曲のパスが変わらないようにする）。
-const UNKNOWN_ARTIST: &str = "Unknown Artist";
-const UNKNOWN_ALBUM: &str = "Unknown Album";
-const UNKNOWN_TITLE: &str = "Unknown Title";
+/// コピー済みの曲のパスが変わらないようにする）。ファイルの整理（`file_organize`）も同じ名前を使う。
+pub(crate) const UNKNOWN_ARTIST: &str = "Unknown Artist";
+pub(crate) const UNKNOWN_ALBUM: &str = "Unknown Album";
+pub(crate) const UNKNOWN_TITLE: &str = "Unknown Title";
 
 /// プレイリストのファイルの拡張子（UTF-8のM3U）
 const PLAYLIST_EXTENSION: &str = "m3u8";

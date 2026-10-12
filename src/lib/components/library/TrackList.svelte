@@ -95,6 +95,12 @@
      * 移動するため・絞り込みを解除してから探すために残す）
      */
     isRevealFallback?: boolean;
+    /**
+     * 行のまとまり（続いた行のうち、同じ値を返す行が1つのまとまり）
+     *
+     * 渡した順のまま並べている間、まとまりの最初の行の上に、区切りの線を引く（重複した曲の一覧で使う）。
+     */
+    groupOf?: (track: Track) => string;
   }
 
   let {
@@ -113,7 +119,8 @@
     onReorder,
     onRemove,
     removeLabel,
-    isRevealFallback = false
+    isRevealFallback = false,
+    groupOf
   }: Props = $props();
 
   // 行の高さの見積もり（描画した後は、VirtualListが実測した高さを使う）
@@ -163,7 +170,8 @@
     format: m.fields.format,
     bitrate: m.fields.bitrate,
     sampleRate: m.fields.sampleRate,
-    fileSize: m.fields.fileSize
+    fileSize: m.fields.fileSize,
+    filePath: m.fields.filePath
   };
 
   // アルバムアートサイズ
@@ -211,6 +219,12 @@
   const sortedTracks = $derived(
     tracks && sort ? sortTracks(tracks, sort.field, sort.direction) : tracks
   );
+
+  /** 行が、まとまりの最初の行か（一覧の先頭の行と、並べ替えている間は、区切らない） */
+  function isGroupStart(track: Track, index: number): boolean {
+    if (!groupOf || sort !== null || index === 0 || !sortedTracks) return false;
+    return groupOf(sortedTracks[index - 1]) !== groupOf(track);
+  }
 
   /** 見出しのクリック: その列で並べ替える（同じ列なら、向きを逆にする） */
   function toggleSort(field: TrackSortField) {
@@ -550,6 +564,7 @@
               class="track-row"
               class:selected={selection.has(track.id)}
               class:missing={track.isMissing}
+              class:group-start={isGroupStart(track, index)}
               title={track.isMissing ? m.common.fileMissing : undefined}
               class:playing={player.currentTrack?.id === track.id}
               class:dragging={isDragging && selection.has(track.id)}
@@ -830,6 +845,12 @@
 
   .track-row.dragging {
     @apply opacity-50 bg-primary/30;
+  }
+
+  /* まとまりの最初の行（重複した曲の一覧）: 前のまとまりとの間に、線を引く */
+  .track-row.group-start {
+    @apply rounded-t-none;
+    box-shadow: inset 0 1px 0 var(--color-border);
   }
 
   /* 並べ替えで、運んでいる曲を落とす先の行 */

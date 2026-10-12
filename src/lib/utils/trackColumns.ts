@@ -27,7 +27,8 @@ export const TRACK_COLUMN_IDS = [
   'format',
   'bitrate',
   'sampleRate',
-  'fileSize'
+  'fileSize',
+  'filePath'
 ] as const;
 export type TrackColumnId = (typeof TRACK_COLUMN_IDS)[number];
 
@@ -59,7 +60,8 @@ export const TRACK_COLUMNS: Record<TrackColumnId, TrackColumn> = {
   format: { width: 64, minWidth: 48, align: 'left' },
   bitrate: { width: 88, minWidth: 64, align: 'right' },
   sampleRate: { width: 88, minWidth: 64, align: 'right' },
-  fileSize: { width: 80, minWidth: 60, align: 'right' }
+  fileSize: { width: 80, minWidth: 60, align: 'right' },
+  filePath: { width: 360, minWidth: 100, align: 'left' }
 };
 
 /** 既定で表示する列 */
@@ -156,6 +158,8 @@ export function trackCellText(track: Track, id: TrackColumnId): string {
       return track.sampleRate ? `${track.sampleRate / 1000} kHz` : '';
     case 'fileSize':
       return formatFileSize(track.fileSize);
+    case 'filePath':
+      return track.filePath;
     // ハート・星は、文字ではなく部品で出す
     case 'favorite':
     case 'rating':

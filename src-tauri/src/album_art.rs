@@ -58,6 +58,11 @@ fn folder_image_rank(path: &Path) -> Option<(usize, usize)> {
     ))
 }
 
+/// ファイル名が、フォルダの画像の名前か（ファイルの整理で、曲と一緒に移す画像の判定に使う）
+pub(crate) fn is_folder_image(path: &Path) -> bool {
+    folder_image_rank(path).is_some()
+}
+
 /// フォルダの画像を読む（大きすぎる・JPEGでもPNGでもないファイルは使わない）
 ///
 /// @returns 画像と、読む前のファイルの更新日時
