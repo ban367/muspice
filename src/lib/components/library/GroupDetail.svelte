@@ -12,6 +12,7 @@
   import { TrackSelection, handleTrackListKeydown } from '#lib/utils/trackSelection.svelte.js';
   import PlayingIndicator from './PlayingIndicator.svelte';
   import RatingStars from './RatingStars.svelte';
+  import FavoriteButton from './FavoriteButton.svelte';
   import AlbumArt from '../AlbumArt.svelte';
   import { Modal } from '#lib/components/ui/index.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
@@ -202,10 +203,13 @@
               <span class="track-artist">{track.artist}</span>
             {/if}
           </div>
-          <RatingStars
-            rating={track.rating}
-            onChange={(rating) => setRatingMutation.mutateAsync({ trackId: track.id, rating })}
-          />
+          <div class="flex items-center gap-2">
+            <FavoriteButton trackId={track.id} isFavorite={track.isFavorite} />
+            <RatingStars
+              rating={track.rating}
+              onChange={(rating) => setRatingMutation.mutateAsync({ trackId: track.id, rating })}
+            />
+          </div>
           <span class="track-duration">{formatDuration(track.duration)}</span>
         </div>
       {/each}

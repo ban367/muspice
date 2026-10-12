@@ -64,7 +64,7 @@ pub use playback::{
 // 統計（お気に入り・レーティング・再生回数・スキップ回数・再生履歴）
 pub use stats::{
     get_favorite_tracks, get_most_played_tracks, get_play_history, increment_play_count,
-    increment_skip_count, set_rating, toggle_favorite,
+    increment_skip_count, set_favorite, set_rating,
 };
 
 // 設定
