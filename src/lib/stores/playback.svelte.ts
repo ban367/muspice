@@ -3,8 +3,8 @@
  *
  * Rust側の再生エンジン（`src-tauri/src/playback/`）をコマンドで操作し、エンジンからの通知
  * （`PlaybackEvent`）を再生状態（`./player.svelte.ts`）へ反映する。キューの遷移・再生回数の
- * 記録・イコライザの設定の送信もまとめて扱う。Playerコンポーネントは表示と操作の受付だけを行い、
- * 再生の制御はここに委ねる。
+ * 記録・イコライザの設定の送信・再生状態の復元と保存（`./playbackState.svelte.ts`）もまとめて扱う。
+ * Playerコンポーネントは表示と操作の受付だけを行い、再生の制御はここに委ねる。
  *
  * 再生キューはフロントエンド（`./player.svelte.ts`）が持つ。エンジンへは「再生する曲」と
  * 「続けて再生する曲」（`peekNextTrack`）だけを伝える。次・前のトラックの決定はキュー操作
@@ -32,6 +32,7 @@ import { commands, events, type PlaybackEvent } from '#lib/bindings.js';
 import { incrementPlayCount } from '#lib/queries/tracks.js';
 import { EQ_FREQUENCIES, equalizer } from './equalizer.svelte.js';
 import { handleError } from './error.svelte.js';
+import { restorePlaybackState, watchPlaybackState } from './playbackState.svelte.js';
 import {
   peekNextTrack,
   player,
@@ -108,6 +109,8 @@ export function createPlaybackController(
   let pendingSeek: number | null = null;
   let seekTimer: ReturnType<typeof setTimeout> | null = null;
   let destroyed = false;
+  /** 再生状態の保存をやめる関数（復元が済んでから保存を始める） */
+  let stopSaving: (() => void) | null = null;
 
   /** 次の曲を、先にエンジンへ伝えるか（ギャップレス再生かクロスフェードが有効） */
   const isPreloadEnabled = () =>
@@ -296,10 +299,12 @@ export function createPlaybackController(
   }
 
   function seek(time: number): void {
+    // エンジンが曲を持っていない間（起動して復元した直後・再生に失敗した後）は、頭から再生する
+    // ことになるため、位置を動かさない
+    if (!loaded) return;
     const max = player.duration > 0 ? player.duration : time;
     const clamped = Math.max(0, Math.min(time, max));
     player.currentTime = clamped;
-    if (!loaded) return;
 
     if (!scrubbing) {
       cancelPendingSeek();
@@ -325,6 +330,30 @@ export function createPlaybackController(
     cancelPendingSeek();
     send(() => commands.playbackStop(), '再生の停止');
   }
+
+  // ---------- 前回の再生状態 ----------
+
+  /**
+   * 前回の終了時の再生状態（音量・キュー・再生していた曲）を復元し、その後の変更を保存し始める
+   *
+   * 復元した曲は、再生を始めない（再生ボタンで頭から再生する）。
+   */
+  async function restore(): Promise<void> {
+    try {
+      await restorePlaybackState({
+        isCancelled: () => destroyed,
+        // 復元した曲を、下の「再生するトラックの読み込み」の監視で再生し始めないよう、
+        // エンジンに再生させた曲として記録しておく（`loaded`はfalseのまま）
+        onTrackRestoring: (track) => {
+          engineTrackId = track.id;
+        }
+      });
+    } catch (error) {
+      console.error('再生状態の復元に失敗しました:', error);
+    }
+    if (!destroyed) stopSaving = watchPlaybackState();
+  }
+  void restore();
 
   // ---------- エンジンからの通知 ----------
 
@@ -408,6 +437,8 @@ export function createPlaybackController(
     },
     destroy() {
       destroyed = true;
+      // 再生状態の保存は、下で再生状態をリセットする前にやめる（空のキューを保存しない）
+      stopSaving?.();
       stopEffects();
       cancelPendingSeek();
       void listening.then((unlisten) => unlisten()).catch(() => {});

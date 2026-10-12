@@ -1,6 +1,7 @@
 import { flushSync } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlaybackEvent, Track } from '#lib/types/models.js';
+import type { RestoredPlaybackState } from '#lib/bindings.js';
 import { commands } from '#lib/bindings.js';
 import { incrementPlayCount } from '#lib/queries/tracks.js';
 import { equalizer } from './equalizer.svelte.js';
@@ -10,7 +11,8 @@ import {
   playTrackFromQueue,
   removeFromQueue,
   resetPlayer,
-  toggleRepeat
+  toggleRepeat,
+  toggleShuffle
 } from './player.svelte.js';
 import { notifications } from './error.svelte.js';
 
@@ -27,7 +29,16 @@ vi.mock('#lib/bindings.js', () => ({
     playbackSetVolume: vi.fn(async () => null),
     playbackSetEqualizer: vi.fn(async () => null),
     playbackStop: vi.fn(async () => null),
-    setCurrentTrack: vi.fn(async () => null)
+    setCurrentTrack: vi.fn(async () => null),
+    getPlaybackState: vi.fn(async () => ({
+      volume: 1,
+      shuffle: false,
+      repeat: 'off',
+      queue: [],
+      originalTrackIds: null,
+      currentIndex: null
+    })),
+    savePlaybackState: vi.fn(async () => null)
   },
   events: {
     playbackEvent: {
@@ -71,7 +82,33 @@ let controller: PlaybackController;
 let gapless: boolean;
 let crossfadeSeconds: number;
 
-beforeEach(() => {
+/** 保存してある再生状態（何も指定しなければ、何も再生していなかった状態） */
+function savedState(overrides: Partial<RestoredPlaybackState> = {}): RestoredPlaybackState {
+  return {
+    volume: 1,
+    shuffle: false,
+    repeat: 'off',
+    queue: [],
+    originalTrackIds: null,
+    currentIndex: null,
+    ...overrides
+  };
+}
+
+/** 再生コントローラーを作り直す（保存してある再生状態を変えてから、起動し直す場合） */
+async function recreateController(): Promise<void> {
+  controller.destroy();
+  resetPlayer();
+  vi.clearAllMocks();
+  controller = createPlaybackController({
+    gapless: () => gapless,
+    crossfadeSeconds: () => crossfadeSeconds
+  });
+  flushSync();
+  await flush();
+}
+
+beforeEach(async () => {
   resetPlayer();
   player.isShuffleEnabled = false;
   player.repeatMode = 'off';
@@ -92,6 +129,8 @@ beforeEach(() => {
   });
   // 状態の監視（$effect）はマイクロタスクで始まるため、ここで反映しておく
   flushSync();
+  // 前回の再生状態の復元（非同期）が済むのを待つ
+  await flush();
 });
 
 afterEach(() => {
@@ -552,5 +591,192 @@ describe('操作', () => {
     player.currentTime = 0;
     emit({ type: 'position', token: lastPlayToken(), position: 5 });
     expect(player.currentTime).toBe(0);
+  });
+});
+
+describe('再生状態の復元', () => {
+  it('前回のキューと再生していた曲を戻すが、再生は始めない', async () => {
+    vi.mocked(commands.getPlaybackState).mockResolvedValueOnce(
+      savedState({ volume: 0.4, repeat: 'all', queue: tracks, currentIndex: 1 })
+    );
+    await recreateController();
+
+    expect(player.currentTrack?.id).toBe('t2');
+    expect(player.playQueue.map((t) => t.id)).toEqual(['t1', 't2', 't3']);
+    expect(player.currentTrackIndex).toBe(1);
+    expect(player.duration).toBe(180);
+    expect(player.volume).toBe(0.4);
+    expect(player.repeatMode).toBe('all');
+    expect(player.isPlaying).toBe(false);
+    expect(commands.playbackPlay).not.toHaveBeenCalled();
+    expect(commands.playbackSetNext).not.toHaveBeenCalled();
+  });
+
+  it('復元した曲は、再生ボタンで頭から再生する（再生回数も記録する）', async () => {
+    vi.mocked(commands.getPlaybackState).mockResolvedValueOnce(
+      savedState({ queue: tracks, currentIndex: 1 })
+    );
+    await recreateController();
+
+    // エンジンが曲を持っていない間は、シークしても位置を動かさない
+    controller.seek(50);
+    expect(player.currentTime).toBe(0);
+    expect(commands.playbackSeek).not.toHaveBeenCalled();
+
+    await controller.togglePlayPause();
+
+    expect(commands.playbackPlay).toHaveBeenCalledWith('t2', expect.any(Number));
+    expect(player.isPlaying).toBe(true);
+    expect(incrementPlayCount).toHaveBeenCalledWith('t2');
+  });
+
+  it('復元した後の「次へ」は、キューの次の曲を再生する', async () => {
+    vi.mocked(commands.getPlaybackState).mockResolvedValueOnce(
+      savedState({ queue: tracks, currentIndex: 0 })
+    );
+    await recreateController();
+
+    controller.next();
+    await flush();
+
+    expect(player.currentTrack?.id).toBe('t2');
+    expect(commands.playbackPlay).toHaveBeenLastCalledWith('t2', expect.any(Number));
+  });
+
+  it('シャッフルしていた場合は、シャッフルする前の順も戻す', async () => {
+    vi.mocked(commands.getPlaybackState).mockResolvedValueOnce(
+      savedState({
+        shuffle: true,
+        queue: [tracks[2], tracks[0], tracks[1]],
+        originalTrackIds: ['t1', 't2', 't3'],
+        currentIndex: 0
+      })
+    );
+    await recreateController();
+
+    expect(player.isShuffleEnabled).toBe(true);
+    expect(player.playQueue.map((t) => t.id)).toEqual(['t3', 't1', 't2']);
+    expect(player.originalQueue.map((t) => t.id)).toEqual(['t1', 't2', 't3']);
+    expect(player.currentTrack?.id).toBe('t3');
+  });
+
+  it('復元を待つ間に再生を始めていたら、キューは上書きしない', async () => {
+    let resolveState: (state: RestoredPlaybackState) => void = () => {};
+    vi.mocked(commands.getPlaybackState).mockImplementationOnce(
+      () => new Promise((resolve) => (resolveState = resolve))
+    );
+    controller.destroy();
+    resetPlayer();
+    vi.clearAllMocks();
+    controller = createPlaybackController();
+    flushSync();
+
+    playTrackFromQueue([tracks[2]], 0);
+    await flush();
+    resolveState(savedState({ volume: 0.2, queue: tracks, currentIndex: 0 }));
+    await flush();
+
+    expect(player.currentTrack?.id).toBe('t3');
+    expect(player.playQueue.map((t) => t.id)).toEqual(['t3']);
+    expect(commands.playbackPlay).toHaveBeenCalledTimes(1);
+    // 音量などは戻す
+    expect(player.volume).toBe(0.2);
+  });
+
+  it('再生していた曲がなければ（キューの終わりまで再生した後など）、何も戻さない', async () => {
+    vi.mocked(commands.getPlaybackState).mockResolvedValueOnce(
+      savedState({ queue: tracks, currentIndex: null })
+    );
+    await recreateController();
+
+    expect(player.currentTrack).toBeNull();
+    expect(player.playQueue).toEqual([]);
+  });
+
+  it('復元に失敗しても、再生はできる', async () => {
+    vi.mocked(commands.getPlaybackState).mockRejectedValueOnce({ code: 'IO', message: 'x' });
+    await recreateController();
+
+    playTrackFromQueue(tracks, 0);
+    await flush();
+
+    expect(commands.playbackPlay).toHaveBeenCalledWith('t1', expect.any(Number));
+    expect(notifications.items).toHaveLength(0);
+  });
+});
+
+describe('再生状態の保存', () => {
+  /** 保存のたびに渡した内容 */
+  const saves = () => vi.mocked(commands.savePlaybackState).mock.calls;
+
+  it('復元した直後の状態は保存しない', async () => {
+    vi.useFakeTimers();
+    vi.advanceTimersByTime(1000);
+
+    expect(commands.savePlaybackState).not.toHaveBeenCalled();
+  });
+
+  it('キューが変わったら、少し待ってからキューと合わせて保存する', async () => {
+    playTrackFromQueue(tracks, 1);
+    await flush();
+    expect(commands.savePlaybackState).not.toHaveBeenCalled();
+
+    await new Promise((resolve) => setTimeout(resolve, 350));
+
+    expect(saves()).toEqual([
+      [
+        { volume: 1, shuffle: false, repeat: 'off', currentIndex: 1 },
+        { trackIds: ['t1', 't2', 't3'], originalTrackIds: null }
+      ]
+    ]);
+  });
+
+  it('曲の切り替わり・音量・リピートの変更では、キューを送らない', async () => {
+    playTrackFromQueue(tracks, 0);
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    vi.mocked(commands.savePlaybackState).mockClear();
+    vi.useFakeTimers();
+
+    // 続けての変更は、まとめて1回で保存する
+    player.volume = 0.5;
+    flushSync();
+    player.volume = 0.3;
+    toggleRepeat();
+    controller.next();
+    flushSync();
+    vi.advanceTimersByTime(300);
+
+    expect(saves()).toEqual([
+      [{ volume: 0.3, shuffle: false, repeat: 'all', currentIndex: 1 }, null]
+    ]);
+  });
+
+  it('シャッフルが有効な間は、シャッフルする前の順も保存する', async () => {
+    playTrackFromQueue(tracks, 0);
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    vi.mocked(commands.savePlaybackState).mockClear();
+    vi.useFakeTimers();
+
+    toggleShuffle();
+    flushSync();
+    vi.advanceTimersByTime(300);
+
+    const [cursor, queue] = saves()[0];
+    expect(cursor.shuffle).toBe(true);
+    expect(queue?.trackIds[0]).toBe('t1');
+    expect([...(queue?.trackIds ?? [])].sort()).toEqual(['t1', 't2', 't3']);
+    expect(queue?.originalTrackIds).toEqual(['t1', 't2', 't3']);
+  });
+
+  it('破棄する時は、待っている変更をすぐに保存し、リセットした後の空の状態は保存しない', async () => {
+    playTrackFromQueue(tracks, 2);
+    await flush();
+
+    controller.destroy();
+    await new Promise((resolve) => setTimeout(resolve, 350));
+
+    expect(saves()).toHaveLength(1);
+    expect(saves()[0][0].currentIndex).toBe(2);
+    expect(saves()[0][1]?.trackIds).toEqual(['t1', 't2', 't3']);
   });
 });

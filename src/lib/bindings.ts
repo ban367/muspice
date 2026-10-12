@@ -190,6 +190,24 @@ export const commands = {
 	isMissing: boolean,
 } | null>("get_current_track"),
 	/**
+	 *  再生状態（音量・シャッフル・リピート・再生キュー・再生していた曲）を保存する
+	 * 
+	 *  `queue`は、キューが変わった時だけ渡す（nullなら、保存してあるキューから変えない）。
+	 *  再生位置は保存しない。
+	 */
+	savePlaybackState: (cursor: PlaybackCursor, queue: {
+	/**  再生する順のトラックID */
+	trackIds: string[],
+	/**  シャッフルする前の順のトラックID（シャッフルが有効な時だけ。解除した時に、この順へ戻す） */
+	originalTrackIds: string[] | null,
+} | null) => __TAURI_INVOKE<null>("save_playback_state", { cursor, queue }),
+	/**
+	 *  保存してある再生状態を取得する（起動時の復元用）
+	 * 
+	 *  ライブラリからなくなった曲・ファイルが見つからない曲は、キューから除いて返す。
+	 */
+	getPlaybackState: () => __TAURI_INVOKE<RestoredPlaybackState>("get_playback_state"),
+	/**
 	 *  トラックを頭から再生する（再生中の曲は止める）
 	 * 
 	 *  `token`は、フロントエンドが再生ごとに振る番号。この曲についての`PlaybackEvent`に付いて返る。
@@ -542,6 +560,17 @@ export type OutputDevice = {
 	isDefault: boolean,
 };
 
+/**  保存する再生状態のうち、キュー以外の値 */
+export type PlaybackCursor = {
+	/**  音量（0.0〜1.0） */
+	volume: number | null,
+	/**  シャッフルが有効か */
+	shuffle: boolean,
+	repeat: RepeatMode,
+	/**  キューの中の、再生していた曲の位置（何も再生していなければnull） */
+	currentIndex: number | null,
+};
+
 /**
  *  再生エンジン（`playback`）からの通知
  * 
@@ -561,6 +590,14 @@ position: number | null } |
 { type: "ended"; token: number } | 
 /**  再生を続けられなくなった（ファイルを読めない・出力デバイスを使えないなど）。再生は止まっている */
 { type: "failed"; token: number; error: AppError };
+
+/**  保存する再生キュー（トラックIDの並び） */
+export type PlaybackQueue = {
+	/**  再生する順のトラックID */
+	trackIds: string[],
+	/**  シャッフルする前の順のトラックID（シャッフルが有効な時だけ。解除した時に、この順へ戻す） */
+	originalTrackIds: string[] | null,
+};
 
 /**  再生を始めた曲の情報 */
 export type PlaybackTrackInfo = {
@@ -593,6 +630,15 @@ export type RefreshMetadataResult = {
 	errors: string[],
 };
 
+/**  リピートの設定 */
+export type RepeatMode = 
+/**  リピートしない */
+"off" | 
+/**  キューの最後まで再生したら、先頭へ戻る */
+"all" | 
+/**  同じ曲を繰り返す */
+"one";
+
 /**
  *  音量の正規化に使うゲインとピーク（ReplayGainのタグ、またはEBU R128のタグから読み取る）
  * 
@@ -621,6 +667,19 @@ export type RescanResult = {
 	errors: string[],
 	/**  音楽ファイルが1件も見つからなかったため、見つからない曲にしなかった */
 	missingSkipped: boolean,
+};
+
+/**  復元する再生状態 */
+export type RestoredPlaybackState = {
+	volume: number | null,
+	shuffle: boolean,
+	repeat: RepeatMode,
+	/**  再生キュー（再生する順。ライブラリからなくなった曲・ファイルが見つからない曲は除く） */
+	queue: Track[],
+	/**  シャッフルする前の順のトラックID（`queue`にある曲だけ。シャッフルが無効ならnull） */
+	originalTrackIds: string[] | null,
+	/**  `queue`の中の、再生していた曲の位置（その曲がなくなっていれば、次の曲の位置。なければnull） */
+	currentIndex: number | null,
 };
 
 /**  アプリケーション設定 */

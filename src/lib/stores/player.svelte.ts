@@ -98,6 +98,24 @@ export function resetPlayer(): void {
 }
 
 /**
+ * 保存してあった再生キューを復元する（前回の終了時の状態。再生は始めない）
+ *
+ * @param queue - 再生する順のキュー
+ * @param originalQueue - シャッフルする前の順のキュー（シャッフルが無効なら`queue`と同じ）
+ * @param index - `queue`の中の、再生していたトラックの位置
+ */
+export function restoreQueue(queue: Track[], originalQueue: Track[], index: number): void {
+  if (!Number.isInteger(index) || index < 0 || index >= queue.length) return;
+  player.originalQueue = originalQueue;
+  player.playQueue = queue;
+  player.currentTrackIndex = index;
+  player.currentTrack = queue[index];
+  player.isPlaying = false;
+  player.currentTime = 0;
+  player.duration = queue[index].duration ?? 0;
+}
+
+/**
  * 配列をシャッフル（Fisher-Yates アルゴリズム）
  */
 function shuffleArray<T>(array: T[]): T[] {
