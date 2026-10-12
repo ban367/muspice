@@ -143,8 +143,42 @@ pub async fn get_output_devices() -> AppResult<Vec<OutputDevice>> {
 pub async fn set_now_playing(update: Option<NowPlayingUpdate>, app: AppHandle) -> AppResult<()> {
     // 曲の情報をDBから読み、曲が変わったときはアルバムアートをファイルから読む
     run_blocking(move || {
+        announce_now_playing(&app, update.as_ref());
         app.state::<MediaControls>()
             .set(&app.state::<AppState>(), update)
     })
     .await
+}
+
+/// 再生中の曲を、メニューバーのアイコンのメニューへ反映し、曲が変わっていたら通知する
+///
+/// OSのNow Playing（macOSだけ）とは別に、どのOSでも行う。曲の情報を読めない場合（ライブラリから
+/// 外した曲など）は、再生している曲がないものとして扱う。
+fn announce_now_playing(app: &AppHandle, update: Option<&NowPlayingUpdate>) {
+    let track = update.and_then(|update| {
+        validate_track_id(&update.track_id).ok()?;
+        app.state::<AppState>()
+            .with_db(|db| crate::repository::find_track_by_id(db, &update.track_id))
+            .ok()
+    });
+    let playing = update.is_some_and(|update| update.playing);
+
+    crate::tray::set_now_playing(
+        app,
+        track.as_ref().map(|track| crate::tray::TrayNowPlaying {
+            title: track
+                .title
+                .clone()
+                .unwrap_or_else(|| track.file_name.clone()),
+            artist: track.artist.clone(),
+            playing,
+        }),
+    );
+
+    let changed = app
+        .state::<crate::track_notification::TrackNotifier>()
+        .observe(track.as_ref().map(|track| track.id.as_str()), playing);
+    if changed && let Some(track) = &track {
+        crate::track_notification::notify_track_change(app, track);
+    }
 }

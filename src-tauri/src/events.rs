@@ -73,6 +73,10 @@ pub struct OpenImportDialog;
 #[derive(Debug, Clone, Serialize, Type, Event)]
 pub struct ToggleSidebar;
 
+/// メニュー「ミニプレーヤー」: ミニプレーヤー（小さな表示）と通常の表示を切り替える
+#[derive(Debug, Clone, Serialize, Type, Event)]
+pub struct ToggleMiniPlayer;
+
 /// 設定が保存された（設定ウィンドウでの変更をメインウィンドウに反映する）
 #[derive(Debug, Clone, Serialize, Type, Event)]
 pub struct SettingsChanged(pub Settings);

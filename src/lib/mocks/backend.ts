@@ -116,6 +116,12 @@ export interface MockBackend {
    * - `tooLarge`: 大きすぎる画像
    */
   setAlbumArtPickMode(mode: MockAlbumArtPickMode): void;
+  /**
+   * ミニプレーヤー（メインウィンドウの小さな表示）にしていることになっているか
+   *
+   * ブラウザではウィンドウの大きさを変えられないため、`setMiniPlayer`で受け取った内容をここで確認する。
+   */
+  miniPlayer(): { enabled: boolean; alwaysOnTop: boolean };
   /** `albumart`プロトコルの代わりに、トラックのアルバムアートをdata URLで返す（アートがなければnull） */
   albumArtUrl(trackId: string): string | null;
 }
@@ -362,6 +368,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   ];
   let playlists: Playlist[] = createFixturePlaylists();
   let playlistFolders: PlaylistFolder[] = createFixturePlaylistFolders();
+  // ミニプレーヤー（メインウィンドウの小さな表示）にしているか・常に手前に表示しているか
+  let miniPlayerWindow = { enabled: false, alwaysOnTop: false };
   // お気に入りにした日時（フィクスチャのお気に入りは、曲を追加した日時にする）
   const favoritedAt = new Map(
     tracks.filter((track) => track.isFavorite).map((track) => [track.id, track.createdAt])
@@ -398,7 +406,10 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     libraryScanIntervalMinutes: 0,
     hiddenSidebarItems: [],
     autoDj: false,
-    autoDjPlaylistId: null
+    autoDjPlaylistId: null,
+    stayInMenuBar: false,
+    globalShortcuts: false,
+    notifyTrackChange: false
   };
   // ライブラリフォルダ（existsは「フォルダが見つかるか」。外付けドライブが外れた状態を再現する）
   let libraryFolders: Omit<LibraryFolder, 'trackCount'>[] = [
@@ -1539,6 +1550,27 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       return null;
     },
     getSettings: () => settings,
+    // 実装と同じく、保存した設定がオンの間だけ登録されている。モックでは「次の曲」だけ、
+    // ほかのアプリが使っていて登録できなかったことにする（設定画面の表示の確認用）
+    getGlobalShortcuts: () => {
+      const modifiers = ['Control', 'Option'];
+      return (
+        [
+          ['toggle', 'P', true],
+          ['next', '.', false],
+          ['previous', ',', true]
+        ] as const
+      ).map(([action, key, available]) => ({
+        action,
+        keys: [...modifiers, key],
+        registered: settings.globalShortcuts && available
+      }));
+    },
+    // ウィンドウの大きさは変えられないため、切り替えたことだけを覚える
+    setMiniPlayer: (enabled, alwaysOnTop) => {
+      miniPlayerWindow = { enabled, alwaysOnTop: enabled && alwaysOnTop };
+      return null;
+    },
     saveSettings: (next) => {
       if (!/^#[0-9a-fA-F]{6}$/.test(next.accentColor)) {
         fail('VALIDATION', 'アクセントカラーは#rrggbb形式で指定してください');
@@ -1811,8 +1843,11 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       }
       const handler = handlers[name as CommandName] as (...params: unknown[]) => unknown;
       // bindings.tsは引数を宣言順のオブジェクト（`{ trackId, metadata }`）で渡すため、
-      // 値の並びがそのまま`commands.xxx()`の位置引数に対応する
-      const result = await handler(...Object.values(args));
+      // 値の並びがそのまま`commands.xxx()`の位置引数に対応する。
+      // IPCと同じくJSONを通して複製する（画面の状態（Svelteのプロキシ）を、そのまま持ち続けない。
+      // 持ったままだと、後で結果として返す時に複製できない）
+      const params = JSON.parse(JSON.stringify(Object.values(args))) as unknown[];
+      const result = await handler(...params);
       // IPCのシリアライズと同様に複製を返し、呼び出し側から状態を書き換えられないようにする
       return structuredClone(result ?? null);
     },
@@ -1824,6 +1859,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     setM3uImportMode: (mode) => {
       m3uImportMode = mode;
     },
+    miniPlayer: () => miniPlayerWindow,
     setAlbumArtPickMode: (mode) => {
       albumArtPickMode = mode;
     }

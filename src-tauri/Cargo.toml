@@ -19,12 +19,16 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# tray-icon: メニューバー（トレイ）のアイコン（設定でオンにした時だけ作る）
+tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-log = "2"
 # メインウィンドウのサイズ・位置の記憶（Rust側だけで使い、WebViewには公開しない）
 tauri-plugin-window-state = "2"
+# グローバルホットキーと、曲が変わった時の通知（どちらもRust側だけで使い、WebViewには公開しない）
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-notification = "2"
 log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

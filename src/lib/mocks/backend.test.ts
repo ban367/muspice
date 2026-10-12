@@ -519,6 +519,40 @@ describe('プレイリスト', () => {
     });
   });
 
+  it('引数は複製して受け取る（呼び出し側のオブジェクトを持ち続けない）', async () => {
+    // 複製できないオブジェクト（画面の状態のプロキシなど）を渡されても、後で結果として返せる
+    const hidden = new Proxy(['years'], {});
+    const settings = { ...(await commands.getSettings()), hiddenSidebarItems: hidden };
+
+    await backend.invoke('save_settings', { settings });
+    hidden.push('folders');
+
+    expect((await commands.getSettings()).hiddenSidebarItems).toEqual(['years']);
+  });
+
+  it('グローバルホットキーは、保存した設定がオンの間だけ登録されている', async () => {
+    const off = await commands.getGlobalShortcuts();
+    expect(off.map((shortcut) => shortcut.action)).toEqual(['toggle', 'next', 'previous']);
+    expect(off.every((shortcut) => !shortcut.registered)).toBe(true);
+    expect(off[0].keys.at(-1)).toBe('P');
+
+    await commands.saveSettings({ ...(await commands.getSettings()), globalShortcuts: true });
+    const on = await commands.getGlobalShortcuts();
+    // 「次の曲」は、ほかのアプリが使っていて登録できなかったことにしている
+    expect(on.map((shortcut) => shortcut.registered)).toEqual([true, false, true]);
+  });
+
+  it('ミニプレーヤーへの切り替えを受け取る', async () => {
+    expect(backend.miniPlayer()).toEqual({ enabled: false, alwaysOnTop: false });
+
+    await commands.setMiniPlayer(true, true);
+    expect(backend.miniPlayer()).toEqual({ enabled: true, alwaysOnTop: true });
+    await commands.setMiniPlayer(true, false);
+    expect(backend.miniPlayer()).toEqual({ enabled: true, alwaysOnTop: false });
+    await commands.setMiniPlayer(false, true);
+    expect(backend.miniPlayer()).toEqual({ enabled: false, alwaysOnTop: false });
+  });
+
   it('歌詞は、.lrcファイルを優先し、なければ埋め込みの歌詞を返す', async () => {
     const synced = await commands.getTrackLyrics(mockTrackId(1));
     expect(synced?.source).toBe('lrcFile');

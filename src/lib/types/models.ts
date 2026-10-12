@@ -24,6 +24,8 @@ export type {
   DuplicateAction,
   FilterOptions,
   GenreSummary,
+  GlobalShortcutAction,
+  GlobalShortcutInfo,
   ImportResult,
   Language,
   LibraryFolder,

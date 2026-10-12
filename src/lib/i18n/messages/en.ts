@@ -134,6 +134,7 @@ export const en: Messages = {
     fetchAlbumArtInfo: 'Loading the album art details',
     loadSettings: 'Loading settings',
     loadOutputDevices: 'Loading output devices',
+    loadGlobalShortcuts: 'Loading global shortcuts',
     saveSettings: 'Saving settings',
     openProjectPage: 'Opening the page',
     fetchLibraryFolders: 'Loading library folders',
@@ -293,6 +294,14 @@ export const en: Messages = {
     saveAsPlaylistTitle: 'Save the Queue as a Playlist',
     saveAsPlaylistDefaultName: (date) => `Queue ${date}`,
     save: 'Save'
+  },
+
+  miniPlayer: {
+    title: 'Mini Player',
+    enter: 'Switch to the mini player',
+    exit: 'Return to the full window',
+    alwaysOnTop: 'Always on top',
+    switchFailed: 'Switching the mini player'
   },
 
   nowPlaying: {
@@ -824,6 +833,21 @@ export const en: Messages = {
     startupPages: { lastOpened: 'The last opened page', songs: 'Songs' },
     sidebarItems: 'Sidebar items',
     sidebarItemsHint: 'Unchecked items are hidden from the sidebar',
+    stayInMenuBar: 'Stay in the menu bar',
+    stayInMenuBarHint:
+      'Shows an icon in the menu bar (tray) and keeps playing when the window is closed. The icon menu controls playback, shows the window and quits the app',
+    notifyTrackChange: 'Notify when the track changes',
+    notifyTrackChangeHint:
+      'Shows the title and artist in an OS notification while the window is not in front (notifications for Muspice must be allowed in the OS settings)',
+    globalShortcuts: 'Use global shortcuts',
+    globalShortcutsHint:
+      'Control playback with these keys while using other apps (the media keys on the keyboard work regardless of this setting)',
+    globalShortcutActions: {
+      toggle: 'Play/Pause',
+      next: 'Next track',
+      previous: 'Previous track'
+    },
+    globalShortcutUnavailable: 'Could not be registered because another app is using it',
     volumeNormalization: 'Volume normalization',
     volumeNormalizations: { off: 'Off', track: 'Per track', album: 'Per album' },
     volumeNormalizationHint:

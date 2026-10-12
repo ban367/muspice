@@ -121,6 +121,12 @@ pub struct Settings {
     pub auto_dj: bool,
     /// Auto DJが曲を選ぶプレイリスト（nullはライブラリ全体）
     pub auto_dj_playlist_id: Option<String>,
+    /// メニューバー（トレイ）に常駐する（アイコンを出し、ウィンドウを閉じても再生を続ける）
+    pub stay_in_menu_bar: bool,
+    /// グローバルホットキー（ほかのアプリを使っている間も効くショートカット）を使う
+    pub global_shortcuts: bool,
+    /// 曲が変わった時に、OSの通知で知らせる（ウィンドウが前面にない時だけ）
+    pub notify_track_change: bool,
 }
 
 impl Settings {
@@ -146,6 +152,9 @@ impl Default for Settings {
             hidden_sidebar_items: Vec::new(),
             auto_dj: false,
             auto_dj_playlist_id: None,
+            stay_in_menu_bar: false,
+            global_shortcuts: false,
+            notify_track_change: false,
         }
     }
 }
@@ -331,6 +340,9 @@ mod tests {
             hidden_sidebar_items: vec![SidebarItem::Years, SidebarItem::PlayHistory],
             auto_dj: true,
             auto_dj_playlist_id: Some("b2000000-0000-4000-8000-000000000001".to_string()),
+            stay_in_menu_bar: true,
+            global_shortcuts: true,
+            notify_track_change: true,
         };
 
         state.save(settings.clone()).unwrap();
@@ -484,6 +496,23 @@ mod tests {
         let loaded = load_settings(&path);
         assert!(!loaded.gapless_playback);
         assert!(!loaded.auto_dj);
+        fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn test_desktop_integration_settings_default_to_off() {
+        let defaults = Settings::default();
+        assert!(!defaults.stay_in_menu_bar);
+        assert!(!defaults.global_shortcuts);
+        assert!(!defaults.notify_track_change);
+
+        // 項目がない（前のバージョンの）ファイルは、オフで補う
+        let path = temp_settings_path("desktop-integration");
+        fs::write(&path, r#"{ "gaplessPlayback": false }"#).unwrap();
+        let loaded = load_settings(&path);
+        assert!(!loaded.stay_in_menu_bar);
+        assert!(!loaded.global_shortcuts);
+        assert!(!loaded.notify_track_change);
         fs::remove_dir_all(path.parent().unwrap()).ok();
     }
 

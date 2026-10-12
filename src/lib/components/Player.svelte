@@ -14,6 +14,7 @@
   import { useSettingsQuery } from '#lib/queries/settings.js';
   import { watchAutoDj } from '#lib/stores/autoDj.svelte.js';
   import PlaybackAidsMenu from './PlaybackAidsMenu.svelte';
+  import { miniPlayer } from '#lib/stores/miniPlayer.svelte.js';
   import { useFavoriteTracksQuery } from '#lib/queries/tracks.js';
   import { events, type PlaybackControl } from '#lib/bindings.js';
   import { onMount, tick } from 'svelte';
@@ -495,6 +496,28 @@
     <!-- 右側コントロール -->
     <div class="flex items-center justify-end gap-3">
       <PlaybackAidsMenu />
+      <button
+        class="control-button small"
+        onclick={() => miniPlayer.toggle()}
+        title={m.miniPlayer.enter}
+        aria-label={m.miniPlayer.enter}
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="18"
+          height="18"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M4 5h16a1 1 0 011 1v12a1 1 0 01-1 1H4a1 1 0 01-1-1V6a1 1 0 011-1zm8 7h7v5h-7z"
+          />
+        </svg>
+      </button>
       <div class="flex items-center gap-2">
         <button
           class="control-button small"
