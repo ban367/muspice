@@ -11,6 +11,7 @@ mod events;
 mod library;
 mod library_folder;
 mod library_sync;
+mod media_controls;
 mod menu;
 mod metadata;
 mod models;
@@ -37,8 +38,8 @@ use commands::{
     refresh_library_metadata, register_sync_device, relink_sync_device, remove_library_folder,
     remove_missing_tracks, remove_sync_device, remove_track_from_playlist, rename_playlist,
     reorder_playlist_tracks, rescan_library_folder, run_device_sync, save_playback_state,
-    save_settings, search_tracks, set_current_track, set_rating, show_in_folder, toggle_favorite,
-    update_multiple_tracks_metadata, update_sync_device, update_track_metadata,
+    save_settings, search_tracks, set_current_track, set_now_playing, set_rating, show_in_folder,
+    toggle_favorite, update_multiple_tracks_metadata, update_sync_device, update_track_metadata,
     write_library_metadata_to_files,
 };
 use state::AppState;
@@ -107,6 +108,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             playback_set_equalizer,
             playback_stop,
             get_output_devices,
+            set_now_playing,
             show_in_folder,
             open_project_page,
             toggle_favorite,
@@ -128,7 +130,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::OpenImportDialog,
             events::ToggleSidebar,
             events::SettingsChanged,
-            events::PlaybackEvent
+            events::PlaybackEvent,
+            events::PlaybackControl
         ])
         // 設定の値の範囲（フロントの設定画面・モックと共有する）
         .constant("DEFAULT_ACCENT_COLOR", settings::DEFAULT_ACCENT_COLOR)
@@ -276,6 +279,10 @@ pub fn run() {
                 },
             ));
 
+            // OSのメディアキー・Now Playing（OSからの操作を受け取り始める。対応していないOSでは
+            // 何もしない）
+            app.manage(media_controls::MediaControls::start(app.handle()));
+
             // ライブラリフォルダの変更の自動反映（設定に応じて、起動時の再スキャン・定期的な
             // 再スキャン・フォルダの監視を別スレッドで始める）
             app.manage(library_sync::LibrarySync::default());
@@ -339,7 +346,12 @@ pub fn run() {
                     // GitHubを開く
                     let _ = tauri_plugin_opener::open_url(commands::PROJECT_URL, None::<&str>);
                 }
-                _ => {}
+                _ => {
+                    // 「再生」メニュー: 再生の操作をフロントエンドに送信
+                    if let Some(control) = menu::playback_control(id) {
+                        let _ = control.emit(app);
+                    }
+                }
             }
         })
         .run(tauri::generate_context!())

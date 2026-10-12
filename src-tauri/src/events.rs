@@ -106,11 +106,50 @@ pub enum PlaybackEvent {
     Failed { token: u32, error: AppError },
 }
 
+/// 再生の操作の要求（メニューバーの「再生」メニューと、OSのメディアキー・コントロールセンターなどから）
+///
+/// 再生キューと再生の制御はフロントエンドが持つため、操作はフロントエンド（`Player.svelte`）が
+/// 行う。ウィンドウの中のキー操作と同じ動きになる。
+// `Play`・`Pause`・`Seek`はOSからの操作だけが使い、対応していないOS（macOS以外）では作られない
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Type, Event)]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum PlaybackControl {
+    /// 再生と一時停止を切り替える
+    Toggle,
+    /// 再生する（再生中なら何もしない）
+    Play,
+    /// 一時停止する（一時停止中なら何もしない）
+    Pause,
+    /// 次の曲へ進む
+    Next,
+    /// 前の曲へ戻る（3秒以上再生していれば、再生中の曲の頭へ）
+    Previous,
+    /// 再生中の曲の、指定した位置へ移動する
+    Seek {
+        /// 曲の頭からの秒数
+        position: f64,
+    },
+    /// 音量を1段階上げる・下げる
+    VolumeUp,
+    VolumeDown,
+    /// ミュートを切り替える
+    ToggleMute,
+    /// シャッフルを切り替える
+    ToggleShuffle,
+    /// リピートを切り替える（オフ → 全曲 → 1曲）
+    ToggleRepeat,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// フロントエンド（`nativePlayback.svelte.ts`）は`type`で通知を見分ける
+    /// フロントエンド（`playback.svelte.ts`）は`type`で通知を見分ける
     #[test]
     fn test_playback_event_is_tagged_with_type() {
         let advanced = serde_json::to_value(PlaybackEvent::Advanced {
@@ -135,6 +174,19 @@ mod tests {
                 "token": 4,
                 "error": { "code": "PLAYBACK", "message": "再生できません" }
             })
+        );
+    }
+
+    /// フロントエンド（`Player.svelte`）は`type`で操作を見分ける
+    #[test]
+    fn test_playback_control_is_tagged_with_type() {
+        assert_eq!(
+            serde_json::to_value(PlaybackControl::ToggleMute).unwrap(),
+            serde_json::json!({ "type": "toggleMute" })
+        );
+        assert_eq!(
+            serde_json::to_value(PlaybackControl::Seek { position: 42.5 }).unwrap(),
+            serde_json::json!({ "type": "seek", "position": 42.5 })
         );
     }
 }

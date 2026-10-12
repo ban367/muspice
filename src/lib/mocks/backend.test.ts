@@ -6,12 +6,13 @@ import { mockPlaylistId, mockTrackId } from './fixtures';
 
 /** バックエンドから送信されたイベント */
 let events: { event: string; payload: unknown }[];
+let backend: MockBackend;
 
 beforeEach(() => {
   // Node環境には`window`がないため、`__TAURI_INTERNALS__`の置き場所として空オブジェクトを用意する
   vi.stubGlobal('window', {});
   events = [];
-  const backend = createMockBackend({
+  backend = createMockBackend({
     emit: (event, payload) => events.push({ event, payload }),
     sleep: async () => {}
   });
@@ -608,6 +609,40 @@ describe('再生エンジン', () => {
     await expect(commands.saveSettings({ ...settings, outputDeviceId: '' })).rejects.toMatchObject({
       code: 'VALIDATION'
     });
+  });
+});
+
+describe('OSのNow Playing', () => {
+  it('伝えた内容を保持し、nullで消す', async () => {
+    const update = { trackId: mockTrackId(1), playing: true, position: 12, duration: 200 };
+    await commands.setNowPlaying(update);
+    expect(backend.nowPlaying()).toEqual(update);
+
+    await commands.setNowPlaying(null);
+    expect(backend.nowPlaying()).toBeNull();
+  });
+
+  it('ライブラリにない曲はエラーにし、前の曲の情報を残さない', async () => {
+    await commands.setNowPlaying({
+      trackId: mockTrackId(1),
+      playing: true,
+      position: 0,
+      duration: null
+    });
+
+    await expect(
+      commands.setNowPlaying({
+        trackId: '00000000-0000-4000-8000-00000000ffff',
+        playing: true,
+        position: 0,
+        duration: null
+      })
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(backend.nowPlaying()).toBeNull();
+
+    await expect(
+      commands.setNowPlaying({ trackId: 'x', playing: true, position: 0, duration: null })
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
   });
 });
 

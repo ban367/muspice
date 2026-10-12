@@ -29,6 +29,7 @@ vi.mock('#lib/bindings.js', () => ({
     playbackSetVolume: vi.fn(async () => null),
     playbackSetEqualizer: vi.fn(async () => null),
     playbackStop: vi.fn(async () => null),
+    setNowPlaying: vi.fn(async () => null),
     setCurrentTrack: vi.fn(async () => null),
     getPlaybackState: vi.fn(async () => ({
       volume: 1,
@@ -591,6 +592,88 @@ describe('操作', () => {
     player.currentTime = 0;
     emit({ type: 'position', token: lastPlayToken(), position: 5 });
     expect(player.currentTime).toBe(0);
+  });
+});
+
+describe('OSのNow Playing', () => {
+  /** OSへ最後に伝えた内容 */
+  const lastNowPlaying = () => vi.mocked(commands.setNowPlaying).mock.lastCall?.[0];
+
+  it('再生を始めたら、曲・再生中かどうか・位置・長さを伝える', async () => {
+    playTrackFromQueue(tracks, 1);
+    await flush();
+    flushSync();
+    await flush();
+
+    expect(lastNowPlaying()).toEqual({ trackId: 't2', playing: true, position: 0, duration: 200 });
+  });
+
+  it('一時停止・シーク・曲の切り替わりを伝え、再生が進むだけでは伝え直さない', async () => {
+    playTrackFromQueue(tracks, 0);
+    await flush();
+    flushSync();
+    await flush();
+    vi.mocked(commands.setNowPlaying).mockClear();
+
+    emit({ type: 'position', token: lastPlayToken(), position: 0.25 });
+    await flush();
+    expect(commands.setNowPlaying).not.toHaveBeenCalled();
+
+    controller.seek(120);
+    flushSync();
+    await flush();
+    expect(lastNowPlaying()).toMatchObject({ trackId: 't1', playing: true, position: 120 });
+
+    await controller.togglePlayPause();
+    flushSync();
+    await flush();
+    expect(lastNowPlaying()).toMatchObject({ trackId: 't1', playing: false });
+
+    controller.next();
+    await flush();
+    flushSync();
+    await flush();
+    expect(lastNowPlaying()).toMatchObject({ trackId: 't2', playing: true, position: 0 });
+  });
+
+  it('キューの最後の曲が終わったら、再生している曲がないことを伝える', async () => {
+    playTrackFromQueue(tracks, 2);
+    await flush();
+    flushSync();
+    await flush();
+
+    emit({ type: 'ended', token: lastPlayToken() });
+    await flush();
+
+    expect(lastNowPlaying()).toBeNull();
+  });
+
+  it('起動して復元した曲は、一時停止中として伝える', async () => {
+    vi.mocked(commands.getPlaybackState).mockResolvedValueOnce(
+      savedState({ queue: tracks, currentIndex: 1 })
+    );
+    await recreateController();
+    flushSync();
+    await flush();
+    expect(player.currentTrack?.id).toBe('t2');
+    expect(lastNowPlaying()).toMatchObject({ trackId: 't2', playing: false, position: 0 });
+
+    await controller.togglePlayPause();
+    flushSync();
+    await flush();
+    expect(lastNowPlaying()).toMatchObject({ trackId: 't2', playing: true });
+  });
+
+  it('破棄したら、再生している曲がないことを伝える', async () => {
+    playTrackFromQueue(tracks, 0);
+    await flush();
+    flushSync();
+    await flush();
+
+    controller.destroy();
+    await flush();
+
+    expect(lastNowPlaying()).toBeNull();
   });
 });
 

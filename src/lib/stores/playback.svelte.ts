@@ -3,7 +3,8 @@
  *
  * Rust側の再生エンジン（`src-tauri/src/playback/`）をコマンドで操作し、エンジンからの通知
  * （`PlaybackEvent`）を再生状態（`./player.svelte.ts`）へ反映する。キューの遷移・再生回数の
- * 記録・イコライザの設定の送信・再生状態の復元と保存（`./playbackState.svelte.ts`）もまとめて扱う。
+ * 記録・イコライザの設定の送信・再生状態の復元と保存（`./playbackState.svelte.ts`）・OSのNow Playing
+ * への通知（`./nowPlaying.ts`）もまとめて扱う。
  * Playerコンポーネントは表示と操作の受付だけを行い、再生の制御はここに委ねる。
  *
  * 再生キューはフロントエンド（`./player.svelte.ts`）が持つ。エンジンへは「再生する曲」と
@@ -32,6 +33,7 @@ import { commands, events, type PlaybackEvent } from '#lib/bindings.js';
 import { incrementPlayCount } from '#lib/queries/tracks.js';
 import { EQ_FREQUENCIES, equalizer } from './equalizer.svelte.js';
 import { handleError } from './error.svelte.js';
+import { createNowPlayingReporter } from './nowPlaying.js';
 import { restorePlaybackState, watchPlaybackState } from './playbackState.svelte.js';
 import {
   peekNextTrack,
@@ -111,6 +113,7 @@ export function createPlaybackController(
   let destroyed = false;
   /** 再生状態の保存をやめる関数（復元が済んでから保存を始める） */
   let stopSaving: (() => void) | null = null;
+  const nowPlaying = createNowPlayingReporter((update) => commands.setNowPlaying(update));
 
   /** 次の曲を、先にエンジンへ伝えるか（ギャップレス再生かクロスフェードが有効） */
   const isPreloadEnabled = () =>
@@ -139,6 +142,8 @@ export function createPlaybackController(
     loaded = false;
     cancelPendingSeek();
     player.currentTime = 0;
+    // 曲の長さは、再生エンジンがファイルから読むまで、ライブラリの値を出しておく
+    player.duration = track.duration ?? 0;
     starting++;
 
     try {
@@ -398,6 +403,21 @@ export function createPlaybackController(
       const gains = EQ_FREQUENCIES.map((frequency) => bands[frequency]);
       send(() => commands.playbackSetEqualizer(enabled, gains), 'イコライザの設定');
     });
+
+    // OSのNow Playing: プレーヤーバーと同じ内容を伝える（伝え直すかどうかは`nowPlaying`が決める）。
+    // 起動して復元しただけの曲も、一時停止中として伝える（macOSは、一度も再生していないアプリを
+    // 「再生中のアプリ」にしないため、ほかのアプリからメディアキーの対象を奪うことはない）
+    $effect(() => {
+      const track = player.currentTrack;
+      nowPlaying.update(
+        track && {
+          trackId: track.id,
+          playing: player.isPlaying,
+          position: player.currentTime,
+          duration: player.duration
+        }
+      );
+    });
   });
 
   return {
@@ -444,6 +464,7 @@ export function createPlaybackController(
       void listening.then((unlisten) => unlisten()).catch(() => {});
       currentToken = null;
       send(() => commands.playbackStop(), '再生の停止');
+      nowPlaying.update(null);
       resetPlayer();
     }
   };

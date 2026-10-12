@@ -156,7 +156,12 @@ fn load_picture(app: &AppHandle, track_id: &str) -> Response<Vec<u8>> {
             }
         };
 
-    let picture = match extract_album_art(Path::new(&file_path)) {
+    picture_response(extract_and_cache(&state, track_id, &file_path))
+}
+
+/// アルバムアートをファイルから抽出してキャッシュに登録する（同期処理）
+fn extract_and_cache(state: &AppState, track_id: &str, file_path: &str) -> Option<EmbeddedPicture> {
+    let picture = match extract_album_art(Path::new(file_path)) {
         Ok(picture) => picture,
         Err(e) => {
             // 読めないファイルは「アートなし」として扱い、何度も読みに行かない
@@ -168,7 +173,27 @@ fn load_picture(app: &AppHandle, track_id: &str) -> Response<Vec<u8>> {
     if let Ok(mut cache) = state.album_art_cache.lock() {
         cache.insert(track_id.to_string(), picture.clone());
     }
-    picture_response(picture)
+    picture
+}
+
+/// トラックのアルバムアートを取得する（キャッシュになければファイルから抽出する。同期処理）
+///
+/// OSのNow Playing（`media_controls`）へ渡す画像に使う。再生中の曲はプレーヤーバーにも
+/// 表示しているため、たいていはキャッシュにある。`file_path`は、呼び出し側がDBから取得したもの。
+pub fn picture_for_track(
+    state: &AppState,
+    track_id: &str,
+    file_path: &str,
+) -> Option<EmbeddedPicture> {
+    let cached = state
+        .album_art_cache
+        .lock()
+        .ok()
+        .and_then(|mut cache| cache.get(track_id));
+    match cached {
+        Some(picture) => picture,
+        None => extract_and_cache(state, track_id, file_path),
+    }
 }
 
 /// `albumart`プロトコルのリクエストを処理する
