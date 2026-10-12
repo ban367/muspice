@@ -1,3 +1,4 @@
+use crate::ape_tag;
 use crate::error::{AppError, AppResult};
 use crate::models::{Metadata, ReplayGain, SortTags};
 use lofty::config::{ParseOptions, WriteOptions};
@@ -5,7 +6,7 @@ use lofty::file::{AudioFile, TaggedFile, TaggedFileExt};
 use lofty::picture::{MimeType, Picture, PictureInformation, PictureType};
 use lofty::probe::Probe;
 use lofty::tag::items::popularimeter::{Popularimeter, StarRating};
-use lofty::tag::{Accessor, ItemKey, Tag, TagType};
+use lofty::tag::{Accessor, ItemKey, ItemValue, Tag, TagExt, TagItem, TagType};
 use std::path::Path;
 
 /// アプリが扱う年の有効範囲
@@ -39,14 +40,45 @@ fn extract_album_artist(tag: &Tag) -> Option<String> {
 ///
 /// 形式は中身から判定し、判定できない場合は拡張子から決める（拡張子と中身が違うファイル、
 /// たとえば`.ogg`の中がOpusのファイルも読めるようにする）。
+///
+/// APEv2タグを持つ形式（WavPack・Monkey's Audio）は、汎用タグで読めない項目（BPM・評価・画像）を
+/// 足して返す（`ape_tag`）。
 fn read_tagged_file(file_path: &Path, options: ParseOptions) -> AppResult<TaggedFile> {
-    Probe::open(file_path)
+    let probe = Probe::open(file_path)
         .map_err(|e| AppError::Metadata(format!("ファイルのオープンに失敗しました: {}", e)))?
         .options(options)
         .guess_file_type()
-        .map_err(|e| AppError::Metadata(format!("ファイルの読み取りに失敗しました: {}", e)))?
-        .read()
-        .map_err(|e| AppError::Metadata(format!("ファイルの読み取りに失敗しました: {}", e)))
+        .map_err(|e| AppError::Metadata(format!("ファイルの読み取りに失敗しました: {}", e)))?;
+
+    match probe.file_type() {
+        Some(file_type) if ape_tag::uses_ape_tag(file_type) => {
+            ape_tag::read_file(&mut probe.into_inner(), file_type, options)
+        }
+        _ => probe.read(),
+    }
+    .map_err(|e| AppError::Metadata(format!("ファイルの読み取りに失敗しました: {}", e)))
+}
+
+/// 読み込んだファイルのタグを、ファイルへ保存する
+///
+/// APEv2タグは、アプリが扱わない項目を残して書き込む（`ape_tag::save_tag`）。
+fn save_tagged_file(tagged_file: &TaggedFile, file_path: &Path) -> AppResult<()> {
+    let file_type = tagged_file.file_type();
+    let result = if ape_tag::uses_ape_tag(file_type) {
+        tagged_file.tags().iter().try_for_each(|tag| {
+            if tag.tag_type() == TagType::Ape {
+                ape_tag::save_tag(file_path, file_type, tag)
+            } else if tagged_file.tag_support(tag.tag_type()).is_writable() {
+                tag.save_to_path(file_path, WriteOptions::default())
+            } else {
+                Ok(())
+            }
+        })
+    } else {
+        tagged_file.save_to_path(file_path, WriteOptions::default())
+    };
+
+    result.map_err(|e| AppError::Metadata(format!("メタデータの保存に失敗しました: {}", e)))
 }
 
 /// 列を追加する前に登録したトラックについて、後からファイルのタグを読む項目
@@ -135,61 +167,69 @@ fn extract_replay_gain(tag: &Tag) -> ReplayGain {
 /// 評価として受け付ける範囲（0は評価なし）
 pub const RATING_RANGE: std::ops::RangeInclusive<i32> = 0..=5;
 
-/// Vorbisコメントの`RATING`の値の付け方
+/// 数値だけの`RATING`（Vorbisコメント・APEv2タグ）の値の付け方
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum VorbisRatingScale {
+enum PlainRatingScale {
     /// 星の数をそのまま書く（1〜5）
     Stars,
     /// 20刻みで書く（20〜100。MusicBee・MediaMonkeyなど。こちらが多い）
     Percent,
 }
 
-/// Vorbisコメントの`RATING`の値（数値だけの文字列）を、星の数と付け方に解釈する
+/// `RATING`の値（数値だけの文字列）を、星の数と付け方に解釈する
 ///
 /// - 1〜5: 星の数
 /// - 6〜100: 20刻み（半分の星は切り上げる。例: 90 → 5）
 /// - 0より大きく1未満の小数: 0〜1の割合（例: 0.8 → 4）
 ///
 /// 0・範囲外・数値でない値はNone（評価なし）。
-fn parse_vorbis_rating(value: &str) -> Option<(i32, VorbisRatingScale)> {
+fn parse_plain_rating(value: &str) -> Option<(i32, PlainRatingScale)> {
     let number: f64 = value.trim().parse().ok()?;
     if !number.is_finite() || number <= 0.0 || number > 100.0 {
         return None;
     }
     if number < 1.0 {
         let stars = (number * 5.0).round().clamp(1.0, 5.0);
-        return Some((stars as i32, VorbisRatingScale::Percent));
+        return Some((stars as i32, PlainRatingScale::Percent));
     }
     if number <= 5.0 {
-        return Some((number.round() as i32, VorbisRatingScale::Stars));
+        return Some((number.round() as i32, PlainRatingScale::Stars));
     }
     let stars = (number / 20.0).ceil().clamp(1.0, 5.0);
-    Some((stars as i32, VorbisRatingScale::Percent))
+    Some((stars as i32, PlainRatingScale::Percent))
 }
 
-/// Vorbisコメント（FLACなど）の、数値だけの`RATING`を読む
+/// 評価を、数値だけの`RATING`として読み書きするタグの種類か
+///
+/// Vorbisコメント（FLAC・Oggなど）とAPEv2タグ（WavPack・Monkey's Audio）。どちらも、多くのアプリが
+/// 書き手を付けない`RATING=80`の形で書く。
+fn uses_plain_rating(tag_type: TagType) -> bool {
+    matches!(tag_type, TagType::VorbisComments | TagType::Ape)
+}
+
+/// 数値だけの`RATING`を読む
 ///
 /// lofty（0.25）は、Vorbisコメントの`RATING`を汎用タグへ文字列のまま入れるだけで、
-/// `Tag::ratings()`では読めない（読めるのは`RATING:書き手`の形だけ）。多くのアプリは
-/// 書き手を付けない`RATING=80`の形で書くため、ここで解釈する。
-fn vorbis_plain_rating(tag: &Tag) -> Option<(i32, VorbisRatingScale)> {
-    if tag.tag_type() != TagType::VorbisComments {
+/// `Tag::ratings()`では読めない（読めるのは`RATING:書き手`の形だけ）。APEv2タグの`RATING`は、
+/// `ape_tag`が同じ形で汎用タグへ入れる。
+fn plain_rating(tag: &Tag) -> Option<(i32, PlainRatingScale)> {
+    if !uses_plain_rating(tag.tag_type()) {
         return None;
     }
     tag.get_strings(ItemKey::Popularimeter)
-        .find_map(parse_vorbis_rating)
+        .find_map(parse_plain_rating)
 }
 
 /// タグから評価（星の数。1〜5）を読み取る。評価のタグがない場合は0
 ///
 /// 評価の数値の付け方は書き込んだアプリごとに違うため、loftyが書き手（POPMのemailなど）に
 /// 応じて星の数へ直したものを使う。複数ある場合は最初の評価を使う。
-/// Vorbisコメントの数値だけの`RATING`は、`vorbis_plain_rating`で読む。
+/// 数値だけの`RATING`（Vorbisコメント・APEv2タグ）は、`plain_rating`で読む。
 fn extract_rating(tag: &Tag) -> i32 {
     tag.ratings()
         .next()
         .map(|popularimeter| popularimeter.rating as i32)
-        .or_else(|| vorbis_plain_rating(tag).map(|(stars, _)| stars))
+        .or_else(|| plain_rating(tag).map(|(stars, _)| stars))
         .unwrap_or(0)
 }
 
@@ -211,20 +251,24 @@ fn star_rating(rating: i32) -> Option<StarRating> {
 /// （書き込んだアプリが、自分の付け方のまま読めるようにする）。ない場合は、対応するアプリが
 /// 多いMusicBeeの付け方で書く（ID3v2は1・64・128・196・255、それ以外は20刻み）。
 ///
-/// Vorbisコメント（FLACなど）は、書き手を付けない`RATING`に数値だけを書く。
+/// Vorbisコメント（FLACなど）とAPEv2タグは、書き手を付けない`RATING`に数値だけを書く。
 /// lofty（0.25）は汎用タグの評価をVorbisコメントへ変換せずに書き出すため、loftyの形の
 /// まま入れると、他のアプリが読めない値（`RATING=MusicBee|4|0`）がファイルに書かれる。
+/// APEv2タグは、loftyに対応する項目がないため、検査なしで入れる（保存時に`ape_tag`が書く）。
 fn set_tag_rating(tag: &mut Tag, rating: i32) {
-    if tag.tag_type() == TagType::VorbisComments {
+    if uses_plain_rating(tag.tag_type()) {
         // すでに星の数（1〜5）で書かれている場合はその付け方を保ち、それ以外は20刻みで書く
-        let scale = vorbis_plain_rating(tag).map(|(_, scale)| scale);
+        let scale = plain_rating(tag).map(|(_, scale)| scale);
         tag.remove_key(ItemKey::Popularimeter);
         if star_rating(rating).is_some() {
             let value = match scale {
-                Some(VorbisRatingScale::Stars) => rating,
+                Some(PlainRatingScale::Stars) => rating,
                 _ => rating * 20,
             };
-            tag.insert_text(ItemKey::Popularimeter, value.to_string());
+            tag.insert_unchecked(TagItem::new(
+                ItemKey::Popularimeter,
+                ItemValue::Text(value.to_string()),
+            ));
         }
         return;
     }
@@ -299,7 +343,7 @@ fn library_metadata(tag: &Tag) -> Metadata {
 /// タグから、編集画面で扱うすべての項目を取り出す
 fn editor_metadata(tag: &Tag) -> Metadata {
     // BPMは、タグの種類によって整数の項目（ID3v2の`TBPM`・MP4の`tmpo`）か、小数もありうる
-    // 項目（Vorbisコメントの`BPM`）に入っている。どちらも整数に丸めて扱う
+    // 項目（Vorbisコメント・APEv2タグの`BPM`）に入っている。どちらも整数に丸めて扱う
     let bpm = tag
         .get_string(ItemKey::IntegerBpm)
         .or_else(|| tag.get_string(ItemKey::Bpm))
@@ -539,9 +583,7 @@ pub fn remove_file_album_art(file_path: &Path) -> AppResult<bool> {
         }
     }
 
-    tagged_file
-        .save_to_path(file_path, WriteOptions::default())
-        .map_err(|e| AppError::Metadata(format!("メタデータの保存に失敗しました: {}", e)))?;
+    save_tagged_file(&tagged_file, file_path)?;
     Ok(true)
 }
 
@@ -614,12 +656,7 @@ fn modify_file_tag(file_path: &Path, modify: impl FnOnce(&mut Tag)) -> AppResult
 
     modify(tag);
 
-    // ファイルに保存
-    tagged_file
-        .save_to_path(file_path, WriteOptions::default())
-        .map_err(|e| AppError::Metadata(format!("メタデータの保存に失敗しました: {}", e)))?;
-
-    Ok(())
+    save_tagged_file(&tagged_file, file_path)
 }
 
 /// 文字列の項目の書き換え方
@@ -749,15 +786,18 @@ fn apply_metadata(tag: &mut Tag, metadata: &Metadata, clear_missing: bool) {
         None => {}
     }
 
-    // BPM: タグの種類によって、整数の項目（ID3v2・MP4）か、もう一方の項目（Vorbisコメント）に書く
+    // BPM: タグの種類によって、整数の項目（ID3v2・MP4）か、もう一方の項目（Vorbisコメント）に書く。
+    // APEv2タグは、loftyに対応する項目がないため、検査なしで入れる（保存時に`ape_tag`が書く）
     if metadata.bpm.is_some() || clear_missing {
         tag.remove_key(ItemKey::IntegerBpm);
         tag.remove_key(ItemKey::Bpm);
     }
     if let Some(bpm) = metadata.bpm
         && !tag.insert_text(ItemKey::IntegerBpm, bpm.to_string())
+        && !tag.insert_text(ItemKey::Bpm, bpm.to_string())
+        && tag.tag_type() == TagType::Ape
     {
-        tag.insert_text(ItemKey::Bpm, bpm.to_string());
+        tag.insert_unchecked(TagItem::new(ItemKey::Bpm, ItemValue::Text(bpm.to_string())));
     }
 
     // コンピレーション: 印を付ける時だけ値を書き、外す時は項目ごと取り除く
@@ -1000,28 +1040,28 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_vorbis_rating() {
-        use VorbisRatingScale::{Percent, Stars};
+    fn test_parse_plain_rating() {
+        use PlainRatingScale::{Percent, Stars};
 
         // 20刻み（半分の星は切り上げる）
-        assert_eq!(parse_vorbis_rating("20"), Some((1, Percent)));
-        assert_eq!(parse_vorbis_rating("80"), Some((4, Percent)));
-        assert_eq!(parse_vorbis_rating("90"), Some((5, Percent)));
-        assert_eq!(parse_vorbis_rating("100"), Some((5, Percent)));
-        assert_eq!(parse_vorbis_rating("10"), Some((1, Percent)));
+        assert_eq!(parse_plain_rating("20"), Some((1, Percent)));
+        assert_eq!(parse_plain_rating("80"), Some((4, Percent)));
+        assert_eq!(parse_plain_rating("90"), Some((5, Percent)));
+        assert_eq!(parse_plain_rating("100"), Some((5, Percent)));
+        assert_eq!(parse_plain_rating("10"), Some((1, Percent)));
         // 星の数
-        assert_eq!(parse_vorbis_rating("1"), Some((1, Stars)));
-        assert_eq!(parse_vorbis_rating(" 4 "), Some((4, Stars)));
-        assert_eq!(parse_vorbis_rating("5"), Some((5, Stars)));
+        assert_eq!(parse_plain_rating("1"), Some((1, Stars)));
+        assert_eq!(parse_plain_rating(" 4 "), Some((4, Stars)));
+        assert_eq!(parse_plain_rating("5"), Some((5, Stars)));
         // 0〜1の割合
-        assert_eq!(parse_vorbis_rating("0.8"), Some((4, Percent)));
-        assert_eq!(parse_vorbis_rating("0.1"), Some((1, Percent)));
+        assert_eq!(parse_plain_rating("0.8"), Some((4, Percent)));
+        assert_eq!(parse_plain_rating("0.1"), Some((1, Percent)));
         // 評価なし・不正な値
-        assert_eq!(parse_vorbis_rating("0"), None);
-        assert_eq!(parse_vorbis_rating("101"), None);
-        assert_eq!(parse_vorbis_rating("-1"), None);
-        assert_eq!(parse_vorbis_rating("MusicBee|4|0"), None);
-        assert_eq!(parse_vorbis_rating(""), None);
+        assert_eq!(parse_plain_rating("0"), None);
+        assert_eq!(parse_plain_rating("101"), None);
+        assert_eq!(parse_plain_rating("-1"), None);
+        assert_eq!(parse_plain_rating("MusicBee|4|0"), None);
+        assert_eq!(parse_plain_rating(""), None);
     }
 
     /// Vorbisコメントには、他のアプリが読める数値だけの`RATING`を書く
@@ -1080,7 +1120,7 @@ mod tests {
         set_tag_rating(&mut tag, 3);
         assert_eq!(tag.get_string(ItemKey::Popularimeter), Some("60"));
 
-        // 数値だけの値の解釈は、Vorbisコメントだけに使う
+        // 数値だけの値の解釈は、VorbisコメントとAPEv2タグだけに使う
         let mut id3 = Tag::new(TagType::Id3v2);
         id3.insert_text(ItemKey::Popularimeter, "80".to_string());
         assert_eq!(extract_rating(&id3), 0);
@@ -1147,13 +1187,20 @@ mod tests {
 
     /// 読み書きを確かめる形式（タグの種類が違うもの）のファイルを、一時フォルダに用意する
     ///
-    /// WAV（ID3v2）は生成し、MP3（ID3v2）・M4A（MP4）・Ogg Vorbis / Opus（Vorbisコメント）は、
-    /// 再生エンジンのテスト用のファイルを写す。
+    /// WAV（ID3v2）は生成し、MP3（ID3v2）・M4A（MP4）・Ogg Vorbis / Opus（Vorbisコメント）・
+    /// WavPack / APE（APEv2）は、再生エンジンのテスト用のファイルを写す。
     fn tag_test_files(dir: &Path) -> Vec<std::path::PathBuf> {
         let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/playback");
         let mut files = vec![dir.join("generated.wav")];
         write_test_wav(&files[0]);
-        for name in ["lame.mp3", "apple_aac.m4a", "vorbis.ogg", "opus.opus"] {
+        for name in [
+            "lame.mp3",
+            "apple_aac.m4a",
+            "vorbis.ogg",
+            "opus.opus",
+            "wavpack.wv",
+            "monkey.ape",
+        ] {
             let file = dir.join(name);
             std::fs::copy(fixtures.join(name), &file).unwrap();
             files.push(file);
@@ -1235,6 +1282,42 @@ mod tests {
             };
             update_file_metadata(&file, &cleared, true).unwrap();
             assert_eq!(read_file_tags(&file).unwrap(), cleared, "{name}");
+        }
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// 評価を書き込み・書き換え・取り除きでき、ほかのタグは変わらない（タグの種類ごと）
+    #[test]
+    fn test_rating_round_trips_in_every_tag_type() {
+        let dir = std::env::temp_dir().join(format!("muspice-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        for file in tag_test_files(&dir) {
+            let name = file.file_name().unwrap().to_string_lossy().into_owned();
+            let metadata = full_metadata();
+            update_file_metadata(&file, &metadata, true).unwrap();
+            assert_eq!(extract_all_file_info(&file).unwrap().rating, 0, "{name}");
+
+            for rating in [4, 2, 0] {
+                update_file_rating(&file, rating).unwrap();
+                assert_eq!(
+                    extract_all_file_info(&file).unwrap().rating,
+                    rating,
+                    "{name}"
+                );
+                assert_eq!(read_file_tags(&file).unwrap(), metadata, "{name}");
+            }
+
+            // ほかの項目と一緒に書いても、同じ値を読む
+            let partial = Metadata {
+                genre: Some("Rock".to_string()),
+                ..Default::default()
+            };
+            update_file_metadata_and_rating(&file, &partial, Some(5)).unwrap();
+            let info = extract_all_file_info(&file).unwrap();
+            assert_eq!(info.rating, 5, "{name}");
+            assert_eq!(info.metadata.genre.as_deref(), Some("Rock"), "{name}");
         }
 
         std::fs::remove_dir_all(&dir).unwrap();

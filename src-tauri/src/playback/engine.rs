@@ -1595,6 +1595,33 @@ mod tests {
         );
     }
 
+    /// 専用のデコーダーで読む形式（WavPack・APE）も、続けて切れ目なく再生する
+    #[test]
+    fn test_block_format_tracks_follow_each_other() {
+        let fixture = |name: &str| {
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/playback")
+                .join(name)
+        };
+        let mut harness = Harness::new();
+        // どちらも0.5秒（44.1kHz。出力のレートへ変換される）
+        harness.play(1, &fixture("wavpack.wv")).unwrap();
+        harness.set_next(2, &fixture("monkey.ape")).unwrap();
+
+        // 2曲分の長さ（1秒）を、途切れずに取り出せる
+        assert_eq!(harness.render(20_000).len(), RATE as usize);
+        assert_eq!(
+            harness.take_transitions(),
+            vec![
+                PlaybackEvent::Advanced {
+                    token: 2,
+                    duration: Some(0.5)
+                },
+                PlaybackEvent::Ended { token: 2 }
+            ]
+        );
+    }
+
     #[test]
     fn test_next_track_set_after_decoding_finished_still_follows() {
         let mut harness = Harness::new();

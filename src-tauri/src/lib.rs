@@ -1,4 +1,5 @@
 mod album_art;
+mod ape_tag;
 mod commands;
 mod db;
 mod device;

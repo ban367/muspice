@@ -54,6 +54,9 @@ symphonia = { version = "0.6", default-features = false, features = [
 ] }
 # symphoniaにないOpusのデコーダー（libopusを同梱してビルドする。ビルドにCコンパイラとcmakeが要る）
 symphonia-adapter-libopus = "0.3"
+# symphoniaにないWavPack・APE（Monkey's Audio）のデコーダー（どちらも純Rust）
+wavicle = "0.1"
+ape-decoder = "0.3"
 # 再生エンジン: 音声の出力（macOSはCoreAudio、LinuxはALSA）
 cpal = "0.18"
 # 再生エンジン: 出力デバイスのサンプルレートへの変換
@@ -108,3 +111,15 @@ objc2-media-player = { version = "0.3", default-features = false, features = [
     "MPRemoteCommandCenter",
     "MPRemoteCommandEvent",
 ] }
+
+# WavPack・APEのデコーダー（wavicle・ape-decoder）は、整数の桁あふれが折り返す前提で書かれている
+# （参照実装と同じ計算。リリースビルドでは折り返す）。開発用・テスト用のビルドでは桁あふれの検査で
+# パニックするため、この2つだけ検査を外す。あわせて最適化し、開発用のビルドでも実時間より速く
+# デコードできるようにする
+[profile.dev.package.wavicle]
+overflow-checks = false
+opt-level = 3
+
+[profile.dev.package.ape-decoder]
+overflow-checks = false
+opt-level = 3

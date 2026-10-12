@@ -2,6 +2,8 @@
 //!
 //! `symphonia`でファイルを開き、インターリーブのf32のサンプルとして順に取り出す。
 //! Opusは`symphonia`にデコーダーがないため、libopusのアダプターを登録して使う。
+//! WavPack・APEは`symphonia`で読めないため、別のデコーダー（`wavpack`・`ape`）を使う
+//! （`TrackDecoder`が、拡張子で振り分ける）。以下は、`symphonia`で読む形式についての説明。
 //!
 //! # 曲の頭と終わりの余分
 //!
@@ -16,6 +18,7 @@
 //! - MP4のAACは、`symphonia`が遅延を扱わないため、ファイルの情報（`mp4_gapless`）を読んで足す
 //! - 終わりは、曲の長さ（フレーム数）を超える分を返さない
 
+use super::block_decoder::{BlockDecoder, BlockSource, catch_panic};
 use super::mp4_gapless;
 use crate::error::{AppError, AppResult};
 use std::fs::File;
@@ -57,7 +60,105 @@ fn codec_registry() -> &'static CodecRegistry {
 }
 
 /// 1つの音声ファイルのデコーダー
+///
+/// ファイルの形式（拡張子）に合わせて、デコードの実装を選ぶ。`symphonia`で読める形式は
+/// `SymphoniaDecoder`、WavPack・APEは、ブロック単位のデコーダー（`block_decoder`）を使う。
 pub struct TrackDecoder {
+    backend: Backend,
+}
+
+enum Backend {
+    Symphonia(Box<SymphoniaDecoder>),
+    Blocks(BlockDecoder),
+}
+
+/// `symphonia`以外のデコーダーで読む形式（拡張子から決める。なければ`None`）
+fn open_block_source(path: &Path) -> Option<AppResult<Box<dyn BlockSource>>> {
+    let extension = path.extension()?.to_str()?.to_ascii_lowercase();
+    match extension.as_str() {
+        "wv" => Some(
+            super::wavpack::WavPackSource::open(path)
+                .map(|source| Box::new(source) as Box<dyn BlockSource>),
+        ),
+        "ape" => Some(
+            super::ape::ApeSource::open(path)
+                .map(|source| Box::new(source) as Box<dyn BlockSource>),
+        ),
+        _ => None,
+    }
+}
+
+impl TrackDecoder {
+    /// ファイルを開き、形式（サンプルレート・チャンネル数）を確かめる
+    pub fn open(path: &Path) -> AppResult<Self> {
+        // 外部のデコーダーが、壊れたファイルでパニックしても、エラーとして返す
+        let backend = match catch_panic(|| open_block_source(path).transpose())? {
+            Some(source) => Backend::Blocks(BlockDecoder::new(source)?),
+            None => Backend::Symphonia(Box::new(SymphoniaDecoder::open(path)?)),
+        };
+        Ok(Self { backend })
+    }
+
+    /// サンプルレート（Hz）
+    pub fn sample_rate(&self) -> u32 {
+        match &self.backend {
+            Backend::Symphonia(decoder) => decoder.sample_rate(),
+            Backend::Blocks(decoder) => decoder.sample_rate(),
+        }
+    }
+
+    /// チャンネル数
+    pub fn channels(&self) -> usize {
+        match &self.backend {
+            Backend::Symphonia(decoder) => decoder.channels(),
+            Backend::Blocks(decoder) => decoder.channels(),
+        }
+    }
+
+    /// 曲の長さ（秒。分からなければNone）
+    pub fn duration_seconds(&self) -> Option<f64> {
+        match &self.backend {
+            Backend::Symphonia(decoder) => decoder.duration_seconds(),
+            Backend::Blocks(decoder) => decoder.duration_seconds(),
+        }
+    }
+
+    /// まだ返していない音声の長さ（秒。曲の長さが分からなければNone）
+    pub fn remaining_seconds(&self) -> Option<f64> {
+        match &self.backend {
+            Backend::Symphonia(decoder) => decoder.remaining_seconds(),
+            Backend::Blocks(decoder) => decoder.remaining_seconds(),
+        }
+    }
+
+    /// 次のかたまり（インターリーブのサンプル）を返す。曲の終わりではNone
+    pub fn next_chunk(&mut self) -> AppResult<Option<&[f32]>> {
+        self.next_chunk_limited(None)
+    }
+
+    /// 次のかたまりを、多くても`limit`フレームまで返す（残りは、次に呼んだ時に返す）
+    ///
+    /// 曲の中の決まった位置（クロスフェードを始める位置）で、かたまりを区切るために使う。
+    pub fn next_chunk_limited(&mut self, limit: Option<u64>) -> AppResult<Option<&[f32]>> {
+        match &mut self.backend {
+            Backend::Symphonia(decoder) => decoder.next_chunk_limited(limit),
+            Backend::Blocks(decoder) => decoder.next_chunk_limited(limit),
+        }
+    }
+
+    /// 指定した位置（秒）へ移動し、移動した位置（秒）を返す
+    ///
+    /// 曲の長さを超える位置は、曲の終わりになる（次の`next_chunk`がNoneを返す）。
+    pub fn seek(&mut self, seconds: f64) -> AppResult<f64> {
+        match &mut self.backend {
+            Backend::Symphonia(decoder) => decoder.seek(seconds),
+            Backend::Blocks(decoder) => decoder.seek(seconds),
+        }
+    }
+}
+
+/// `symphonia`で読む形式のデコーダー
+struct SymphoniaDecoder {
     path: PathBuf,
     format: Box<dyn FormatReader>,
     decoder: Box<dyn AudioDecoder>,
@@ -89,9 +190,9 @@ pub struct TrackDecoder {
     consecutive_errors: u32,
 }
 
-impl TrackDecoder {
+impl SymphoniaDecoder {
     /// ファイルを開き、最初のパケットをデコードして形式（サンプルレート・チャンネル数）を確かめる
-    pub fn open(path: &Path) -> AppResult<Self> {
+    fn open(path: &Path) -> AppResult<Self> {
         let file = File::open(path).map_err(|e| match e.kind() {
             std::io::ErrorKind::NotFound => {
                 AppError::NotFound(format!("ファイルが見つかりません: {}", path.display()))
@@ -186,36 +287,31 @@ impl TrackDecoder {
     }
 
     /// サンプルレート（Hz）
-    pub fn sample_rate(&self) -> u32 {
+    fn sample_rate(&self) -> u32 {
         self.sample_rate
     }
 
     /// チャンネル数
-    pub fn channels(&self) -> usize {
+    fn channels(&self) -> usize {
         self.channels
     }
 
     /// 曲の長さ（秒。分からなければNone）
-    pub fn duration_seconds(&self) -> Option<f64> {
+    fn duration_seconds(&self) -> Option<f64> {
         self.total_frames
             .map(|frames| frames as f64 / f64::from(self.sample_rate))
     }
 
     /// まだ返していない音声の長さ（秒。曲の長さが分からなければNone）
-    pub fn remaining_seconds(&self) -> Option<f64> {
+    fn remaining_seconds(&self) -> Option<f64> {
         self.total_frames
             .map(|frames| frames.saturating_sub(self.position) as f64 / f64::from(self.sample_rate))
-    }
-
-    /// 次のかたまり（インターリーブのサンプル）を返す。曲の終わりではNone
-    pub fn next_chunk(&mut self) -> AppResult<Option<&[f32]>> {
-        self.next_chunk_limited(None)
     }
 
     /// 次のかたまりを、多くても`limit`フレームまで返す（残りは、次に呼んだ時に返す）
     ///
     /// 曲の中の決まった位置（クロスフェードを始める位置）で、かたまりを区切るために使う。
-    pub fn next_chunk_limited(&mut self, limit: Option<u64>) -> AppResult<Option<&[f32]>> {
+    fn next_chunk_limited(&mut self, limit: Option<u64>) -> AppResult<Option<&[f32]>> {
         loop {
             if self.finished || (self.pending.is_empty() && self.decode_packet()?.is_none()) {
                 return Ok(None);
@@ -262,7 +358,7 @@ impl TrackDecoder {
     /// 指定した位置（秒）へ移動し、移動した位置（秒）を返す
     ///
     /// 曲の長さを超える位置は、曲の終わりになる（次の`next_chunk`がNoneを返す）。
-    pub fn seek(&mut self, seconds: f64) -> AppResult<f64> {
+    fn seek(&mut self, seconds: f64) -> AppResult<f64> {
         let rate = f64::from(self.sample_rate);
         let target = (seconds.max(0.0) * rate).round() as u64;
         self.pending = 0..0;
@@ -585,6 +681,15 @@ pub(crate) mod tests {
     //   afconvert -f m4af -d aac -b 128000 source44.wav apple_aac.m4a   （macOS）
     //   ffmpeg -i source44.wav -c:a vorbis -strict -2 -ac 2 vorbis.ogg
     //   ffmpeg -i source48.wav -c:a libopus -b:a 96k opus.opus
+    //
+    // 可逆の形式（WavPack・APE）のファイルも、同じ音源から作る（24ビットのものは、同じ値を
+    // 2チャンネルに入れた24ビットのWAVから作る）。APEは、Monkey's Audioの`mac`で作る。
+    //
+    //   ffmpeg -i source44.wav -c:a wavpack -map_metadata -1 -fflags +bitexact wavpack.wv
+    //   ffmpeg -i source48.wav -af "pan=stereo|c0=c0|c1=c0" -c:a pcm_s24le source48_24.wav
+    //   ffmpeg -i source48_24.wav -c:a wavpack -map_metadata -1 -fflags +bitexact wavpack24.wv
+    //   mac source44.wav monkey.ape -c2000
+    //   mac source48_24.wav monkey24.ape -c4000
 
     /// フィクスチャの元の音源: 200Hzから4kHzへ上がる音にノイズを足したもの（頭から終わりまで音がある）
     fn fixture_signal(rate: u32) -> Vec<i16> {
@@ -662,6 +767,116 @@ pub(crate) mod tests {
         (-MAX_LAG..=MAX_LAG)
             .max_by(|a, b| score(*a).total_cmp(&score(*b)))
             .unwrap()
+    }
+
+    /// 可逆の形式（WavPack・APE）は、元の音源と同じサンプルを返し、途中からも正確に読める
+    #[test]
+    fn test_lossless_block_formats_decode_the_original_samples() {
+        for (name, rate, channels) in [
+            ("wavpack.wv", 44_100, 1),
+            ("wavpack24.wv", 48_000, 2),
+            ("monkey.ape", 44_100, 1),
+            ("monkey24.ape", 48_000, 2),
+        ] {
+            let source: Vec<f32> = fixture_signal(rate)
+                .into_iter()
+                .map(|sample| f32::from(sample) / 32_768.0)
+                .collect();
+            let mut decoder = TrackDecoder::open(&fixture(name)).unwrap();
+            assert_eq!(decoder.sample_rate(), rate, "{name}");
+            assert_eq!(decoder.channels(), channels, "{name}");
+            assert_eq!(decoder.duration_seconds(), Some(0.5), "{name}");
+            assert_eq!(decoder.remaining_seconds(), Some(0.5), "{name}");
+
+            // 16ビットの音源を24ビットにしたものも、同じ値になる
+            let decoded = read_first_channel(&mut decoder);
+            assert_eq!(decoded, source, "{name}");
+            assert_eq!(decoder.remaining_seconds(), Some(0.0), "{name}");
+
+            // 途中へ移動すると、その位置のサンプルから返す
+            let start = (rate as usize * 3) / 10;
+            assert_eq!(decoder.seek(0.3).unwrap(), 0.3, "{name}");
+            assert_eq!(read_first_channel(&mut decoder), source[start..], "{name}");
+
+            // 曲の終わりを超える位置は、曲の終わり
+            assert_eq!(decoder.seek(9.0).unwrap(), 0.5, "{name}");
+            assert!(decoder.next_chunk().unwrap().is_none(), "{name}");
+        }
+    }
+
+    /// タグと画像を書き込んだファイルも、同じサンプルを返す（タグは音声の後ろに付く）
+    #[test]
+    fn test_block_formats_decode_files_with_tags() {
+        use crate::metadata::{EmbeddedPicture, set_file_album_art, update_file_metadata};
+        use crate::models::Metadata;
+
+        let dir = temp_dir("block-format-tags");
+        for name in ["wavpack.wv", "monkey.ape"] {
+            let expected = read_first_channel(&mut TrackDecoder::open(&fixture(name)).unwrap());
+
+            let path = dir.join(name);
+            std::fs::copy(fixture(name), &path).unwrap();
+            let metadata = Metadata {
+                title: Some("タイトル".to_string()),
+                lyrics: Some("歌詞\n".repeat(200)),
+                ..Default::default()
+            };
+            update_file_metadata(&path, &metadata, true).unwrap();
+            // 画像は、音声のブロックより大きいもの
+            let mut image = crate::metadata::test_images::jpeg(600, 600);
+            image.resize(300_000, 0x55);
+            let art = EmbeddedPicture {
+                data: image,
+                mime_type: "image/jpeg".to_string(),
+            };
+            set_file_album_art(&path, &art).unwrap();
+
+            let mut decoder = TrackDecoder::open(&path).unwrap();
+            assert_eq!(decoder.duration_seconds(), Some(0.5), "{name}");
+            assert_eq!(read_first_channel(&mut decoder), expected, "{name}");
+            let start = (decoder.sample_rate() as usize * 3) / 10;
+            assert_eq!(decoder.seek(0.3).unwrap(), 0.3, "{name}");
+            assert_eq!(
+                read_first_channel(&mut decoder),
+                expected[start..],
+                "{name}"
+            );
+        }
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 2チャンネルのファイルは、どちらのチャンネルも返す（インターリーブ）
+    #[test]
+    fn test_lossless_block_formats_keep_both_channels() {
+        for name in ["wavpack24.wv", "monkey24.ape"] {
+            let mut decoder = TrackDecoder::open(&fixture(name)).unwrap();
+            let chunk = decoder.next_chunk_limited(Some(100)).unwrap().unwrap();
+
+            assert_eq!(chunk.len(), 200, "{name}");
+            // このファイルは、同じ値を2チャンネルに入れてある
+            let (frames, _) = chunk.as_chunks::<2>();
+            assert!(frames.iter().all(|frame| frame[0] == frame[1]), "{name}");
+            assert!(chunk.iter().any(|&sample| sample != 0.0), "{name}");
+        }
+    }
+
+    /// 拡張子がWavPack・APEでも、中身が違うファイルはエラーにする
+    #[test]
+    fn test_block_formats_report_broken_files() {
+        let dir = temp_dir("block-format-error");
+        for name in ["broken.wv", "broken.ape", "BROKEN.WV"] {
+            let path = dir.join(name);
+            std::fs::write(&path, b"this is not an audio file").unwrap();
+            assert!(
+                matches!(TrackDecoder::open(&path), Err(AppError::Playback(_))),
+                "{name}"
+            );
+        }
+        assert!(matches!(
+            TrackDecoder::open(&dir.join("missing.ape")),
+            Err(AppError::NotFound(_))
+        ));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
