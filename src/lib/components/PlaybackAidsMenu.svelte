@@ -24,12 +24,10 @@
   } from '#lib/stores/playbackAids.svelte.js';
   import type { Settings } from '#lib/types/models.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
+  import { Popover } from '#lib/components/ui/index.js';
 
   /** 曲の元の選択肢で、ライブラリ全体を表す値 */
   const LIBRARY_SOURCE = '';
-
-  let isOpen = $state(false);
-  let container = $state<HTMLElement>();
 
   const settingsQuery = useSettingsQuery();
   const saveSettingsMutation = useSaveSettingsMutation();
@@ -70,45 +68,164 @@
     waitForTrackEnd = checked;
     playbackAids.setSleepWaitForTrackEnd(checked);
   }
-
-  function handleWindowClick(event: MouseEvent) {
-    if (isOpen && container && !container.contains(event.target as Node)) isOpen = false;
-  }
-
-  function handleWindowKeydown(event: KeyboardEvent) {
-    if (isOpen && event.key === 'Escape') isOpen = false;
-  }
 </script>
 
-<svelte:window onclick={handleWindowClick} onkeydown={handleWindowKeydown} />
+<div class="aids-menu">
+  <!-- プレーヤーは画面の下にあるため、上へ開く -->
+  <Popover label={m.playbackAids.title} side="top" sideOffset={12} class="w-72">
+    {#snippet trigger(props)}
+      <button
+        {...props}
+        type="button"
+        class="aids-button"
+        class:active={isActive}
+        title={m.playbackAids.title}
+        aria-label={m.playbackAids.title}
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="18"
+          height="18"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+          />
+        </svg>
+      </button>
+    {/snippet}
 
-<div class="aids-menu" bind:this={container}>
-  <button
-    type="button"
-    class="aids-button"
-    class:active={isActive}
-    onclick={() => (isOpen = !isOpen)}
-    aria-expanded={isOpen}
-    aria-haspopup="dialog"
-    title={m.playbackAids.title}
-    aria-label={m.playbackAids.title}
-  >
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="18"
-      height="18"
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-    >
-      <path
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        stroke-width="2"
-        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+    <!-- 再生速度 -->
+    <section>
+      <div class="group-header">
+        <h3 class="group-title">{m.playbackAids.speed}</h3>
+        <span class="status" aria-live="polite">
+          {m.playbackAids.speedValue(playbackAids.speed)}
+        </span>
+      </div>
+      <div class="options" role="group" aria-label={m.playbackAids.speed}>
+        {#each PLAYBACK_SPEED_PRESETS as speed (speed)}
+          <button
+            type="button"
+            class="option-button"
+            class:selected={playbackAids.speed === speed}
+            aria-pressed={playbackAids.speed === speed}
+            onclick={() => playbackAids.setSpeed(speed)}
+          >
+            {m.playbackAids.speedValue(speed)}
+          </button>
+        {/each}
+      </div>
+      <input
+        type="range"
+        class="speed-slider"
+        min={MIN_PLAYBACK_SPEED}
+        max={MAX_PLAYBACK_SPEED}
+        step={PLAYBACK_SPEED_STEP}
+        value={playbackAids.speed}
+        oninput={(e) => playbackAids.setSpeed(Number(e.currentTarget.value))}
+        aria-label={m.playbackAids.speedSlider}
       />
-    </svg>
-  </button>
+      <p class="hint speed-hint">{m.playbackAids.speedHint}</p>
+      {#if isSpeedChanged}
+        <button type="button" class="btn-secondary cancel" onclick={() => playbackAids.setSpeed(1)}>
+          {m.playbackAids.speedReset}
+        </button>
+      {/if}
+    </section>
+
+    <!-- この曲が終わったら停止 -->
+    <section class="group">
+      <label class="check">
+        <input
+          type="checkbox"
+          class="w-4 h-4"
+          bind:checked={playbackAids.stopAfterCurrent}
+          disabled={player.currentTrack === null}
+        />
+        {m.playbackAids.stopAfterCurrent}
+      </label>
+    </section>
+
+    <!-- スリープタイマー -->
+    <section class="group">
+      <div class="group-header">
+        <h3 class="group-title">{m.playbackAids.sleepTimer}</h3>
+        {#if sleepRemaining !== null}
+          <span class="status" aria-live="polite">
+            {playbackAids.isFadingOut
+              ? m.playbackAids.fadingOut
+              : m.playbackAids.remaining(formatTime(sleepRemaining))}
+          </span>
+        {/if}
+      </div>
+      <div class="options" role="group" aria-label={m.playbackAids.sleepTimer}>
+        {#each SLEEP_TIMER_MINUTES as minutes (minutes)}
+          <button
+            type="button"
+            class="option-button"
+            class:selected={playbackAids.sleepTimer?.minutes === minutes}
+            aria-pressed={playbackAids.sleepTimer?.minutes === minutes}
+            onclick={() => playbackAids.startSleepTimer(minutes, waitForTrackEnd)}
+          >
+            {m.playbackAids.minutes(minutes)}
+          </button>
+        {/each}
+      </div>
+      <label class="check">
+        <input
+          type="checkbox"
+          class="w-4 h-4"
+          checked={playbackAids.sleepTimer?.waitForTrackEnd ?? waitForTrackEnd}
+          onchange={(e) => toggleSleepWaitForTrackEnd(e.currentTarget.checked)}
+        />
+        {m.playbackAids.waitForTrackEnd}
+      </label>
+      {#if playbackAids.sleepTimer !== null}
+        <button
+          type="button"
+          class="btn-secondary cancel"
+          onclick={() => playbackAids.cancelSleepTimer()}
+        >
+          {m.playbackAids.cancelSleepTimer}
+        </button>
+      {/if}
+    </section>
+
+    <!-- Auto DJ -->
+    <section class="group">
+      <label class="check">
+        <input
+          type="checkbox"
+          class="w-4 h-4"
+          checked={settings?.autoDj ?? false}
+          onchange={(e) => saveSettings({ autoDj: e.currentTarget.checked })}
+          disabled={settings === null}
+        />
+        {m.playbackAids.autoDj}
+      </label>
+      <p class="hint">{m.playbackAids.autoDjHint}</p>
+      <label class="source">
+        <span class="source-label">{m.playbackAids.autoDjSource}</span>
+        <select
+          class="form-input"
+          value={autoDjSource}
+          onchange={(e) => saveSettings({ autoDjPlaylistId: e.currentTarget.value || null })}
+          disabled={settings === null}
+        >
+          <option value={LIBRARY_SOURCE}>{m.playbackAids.autoDjLibrary}</option>
+          {#each playlists as playlist (playlist.id)}
+            <option value={playlist.id}>{playlist.name}</option>
+          {/each}
+        </select>
+      </label>
+    </section>
+  </Popover>
   {#if isSpeedChanged}
     <span class="remaining" title={m.playbackAids.speed}>
       {m.playbackAids.speedValue(playbackAids.speed)}
@@ -116,140 +233,6 @@
   {/if}
   {#if sleepRemaining !== null}
     <span class="remaining" aria-hidden="true">{formatTime(sleepRemaining)}</span>
-  {/if}
-
-  {#if isOpen}
-    <div class="aids-panel" role="dialog" aria-label={m.playbackAids.title}>
-      <!-- 再生速度 -->
-      <section>
-        <div class="group-header">
-          <h3 class="group-title">{m.playbackAids.speed}</h3>
-          <span class="status" aria-live="polite">
-            {m.playbackAids.speedValue(playbackAids.speed)}
-          </span>
-        </div>
-        <div class="options" role="group" aria-label={m.playbackAids.speed}>
-          {#each PLAYBACK_SPEED_PRESETS as speed (speed)}
-            <button
-              type="button"
-              class="option-button"
-              class:selected={playbackAids.speed === speed}
-              aria-pressed={playbackAids.speed === speed}
-              onclick={() => playbackAids.setSpeed(speed)}
-            >
-              {m.playbackAids.speedValue(speed)}
-            </button>
-          {/each}
-        </div>
-        <input
-          type="range"
-          class="speed-slider"
-          min={MIN_PLAYBACK_SPEED}
-          max={MAX_PLAYBACK_SPEED}
-          step={PLAYBACK_SPEED_STEP}
-          value={playbackAids.speed}
-          oninput={(e) => playbackAids.setSpeed(Number(e.currentTarget.value))}
-          aria-label={m.playbackAids.speedSlider}
-        />
-        <p class="hint speed-hint">{m.playbackAids.speedHint}</p>
-        {#if isSpeedChanged}
-          <button
-            type="button"
-            class="btn-secondary cancel"
-            onclick={() => playbackAids.setSpeed(1)}
-          >
-            {m.playbackAids.speedReset}
-          </button>
-        {/if}
-      </section>
-
-      <!-- この曲が終わったら停止 -->
-      <section class="group">
-        <label class="check">
-          <input
-            type="checkbox"
-            class="w-4 h-4"
-            bind:checked={playbackAids.stopAfterCurrent}
-            disabled={player.currentTrack === null}
-          />
-          {m.playbackAids.stopAfterCurrent}
-        </label>
-      </section>
-
-      <!-- スリープタイマー -->
-      <section class="group">
-        <div class="group-header">
-          <h3 class="group-title">{m.playbackAids.sleepTimer}</h3>
-          {#if sleepRemaining !== null}
-            <span class="status" aria-live="polite">
-              {playbackAids.isFadingOut
-                ? m.playbackAids.fadingOut
-                : m.playbackAids.remaining(formatTime(sleepRemaining))}
-            </span>
-          {/if}
-        </div>
-        <div class="options" role="group" aria-label={m.playbackAids.sleepTimer}>
-          {#each SLEEP_TIMER_MINUTES as minutes (minutes)}
-            <button
-              type="button"
-              class="option-button"
-              class:selected={playbackAids.sleepTimer?.minutes === minutes}
-              aria-pressed={playbackAids.sleepTimer?.minutes === minutes}
-              onclick={() => playbackAids.startSleepTimer(minutes, waitForTrackEnd)}
-            >
-              {m.playbackAids.minutes(minutes)}
-            </button>
-          {/each}
-        </div>
-        <label class="check">
-          <input
-            type="checkbox"
-            class="w-4 h-4"
-            checked={playbackAids.sleepTimer?.waitForTrackEnd ?? waitForTrackEnd}
-            onchange={(e) => toggleSleepWaitForTrackEnd(e.currentTarget.checked)}
-          />
-          {m.playbackAids.waitForTrackEnd}
-        </label>
-        {#if playbackAids.sleepTimer !== null}
-          <button
-            type="button"
-            class="btn-secondary cancel"
-            onclick={() => playbackAids.cancelSleepTimer()}
-          >
-            {m.playbackAids.cancelSleepTimer}
-          </button>
-        {/if}
-      </section>
-
-      <!-- Auto DJ -->
-      <section class="group">
-        <label class="check">
-          <input
-            type="checkbox"
-            class="w-4 h-4"
-            checked={settings?.autoDj ?? false}
-            onchange={(e) => saveSettings({ autoDj: e.currentTarget.checked })}
-            disabled={settings === null}
-          />
-          {m.playbackAids.autoDj}
-        </label>
-        <p class="hint">{m.playbackAids.autoDjHint}</p>
-        <label class="source">
-          <span class="source-label">{m.playbackAids.autoDjSource}</span>
-          <select
-            class="form-input"
-            value={autoDjSource}
-            onchange={(e) => saveSettings({ autoDjPlaylistId: e.currentTarget.value || null })}
-            disabled={settings === null}
-          >
-            <option value={LIBRARY_SOURCE}>{m.playbackAids.autoDjLibrary}</option>
-            {#each playlists as playlist (playlist.id)}
-              <option value={playlist.id}>{playlist.name}</option>
-            {/each}
-          </select>
-        </label>
-      </section>
-    </div>
   {/if}
 </div>
 
@@ -280,12 +263,6 @@
   /* 変えている再生速度・スリープタイマーの残り時間（ボタンの横に出す） */
   .remaining {
     @apply text-[0.7rem] text-primary tabular-nums;
-  }
-
-  /* プレーヤーは画面の下にあるため、上へ開く（ウィンドウが低い時は、この中でスクロールする） */
-  .aids-panel {
-    @apply absolute right-0 bottom-full z-30 mb-3 w-72 p-4 bg-base-200 border border-border rounded-lg shadow-lg text-left overflow-y-auto;
-    max-height: calc(100vh - var(--spacing-player-height) - 2rem);
   }
 
   .group {
