@@ -69,6 +69,23 @@ pub async fn get_track_tags(track_id: String, state: State<'_, AppState>) -> App
     run_blocking(move || crate::metadata::read_file_tags(Path::new(&file_path))).await
 }
 
+/// 曲の歌詞を取得（曲と同じ名前の`.lrc`ファイルを優先し、なければ埋め込みの歌詞。どちらもなければnull）
+///
+/// 時刻付きの歌詞は、LRC形式の文字列のまま返す（解釈はフロントエンドが行う）。
+#[tauri::command]
+#[specta::specta]
+pub async fn get_track_lyrics(
+    track_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<Option<crate::lyrics::TrackLyrics>> {
+    validate_track_id(&track_id)?;
+
+    let file_path =
+        state.with_db(|db| crate::repository::find_file_path_by_track_id(db, &track_id))?;
+
+    run_blocking(move || crate::lyrics::read_track_lyrics(Path::new(&file_path))).await
+}
+
 /// 書き込み後のファイルのサイズと更新日時を取得する
 ///
 /// データベースに記録し、再スキャンで自分の書き込みを変更として検出しないようにする。

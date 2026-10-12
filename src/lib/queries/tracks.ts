@@ -413,8 +413,31 @@ export function useUpdateTrackMetadataMutation() {
     },
     onSuccess: () => {
       invalidateTrackListQueries(queryClient);
-      queryClient.removeQueries({ queryKey: queryKeys.trackTags.all });
+      invalidateTagQueries(queryClient);
     }
+  }));
+}
+
+/**
+ * タグを書き換えた後に、ファイルから読んだタグのキャッシュを捨て、歌詞を読み直す
+ */
+function invalidateTagQueries(queryClient: QueryClient) {
+  queryClient.removeQueries({ queryKey: queryKeys.trackTags.all });
+  queryClient.invalidateQueries({ queryKey: queryKeys.trackLyrics.all });
+}
+
+/**
+ * 曲の歌詞を、ファイルから読むクエリ（Now Playingの画面に表示する）
+ *
+ * 曲と同じ名前の`.lrc`ファイルを優先し、なければ埋め込みの歌詞。どちらもなければnull。
+ * 一覧の取得には含めず、表示する時に読む。失敗は、画面の中に表示する。
+ */
+export function useTrackLyricsQuery(trackId: string) {
+  return createQuery(() => ({
+    queryKey: queryKeys.trackLyrics.track(trackId),
+    queryFn: () => commands.getTrackLyrics(trackId),
+    ...CACHE_POLICY.detail,
+    retry: false
   }));
 }
 
@@ -449,7 +472,7 @@ export function useUpdateMultipleTracksMutation() {
       commands.updateMultipleTracksMetadata(trackIds, metadata),
     onSuccess: () => {
       invalidateTrackListQueries(queryClient);
-      queryClient.removeQueries({ queryKey: queryKeys.trackTags.all });
+      invalidateTagQueries(queryClient);
     }
   }));
 }
@@ -468,7 +491,7 @@ export function useApplyMetadataChangesMutation() {
     onSuccess: (result) => {
       if (result.updatedCount === 0) return;
       invalidateTrackListQueries(queryClient);
-      queryClient.removeQueries({ queryKey: queryKeys.trackTags.all });
+      invalidateTagQueries(queryClient);
     }
   }));
 }

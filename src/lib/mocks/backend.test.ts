@@ -519,6 +519,29 @@ describe('プレイリスト', () => {
     });
   });
 
+  it('歌詞は、.lrcファイルを優先し、なければ埋め込みの歌詞を返す', async () => {
+    const synced = await commands.getTrackLyrics(mockTrackId(1));
+    expect(synced?.source).toBe('lrcFile');
+    expect(synced?.text).toContain('[00:05.00]');
+
+    const plain = await commands.getTrackLyrics(mockTrackId(2));
+    expect(plain?.source).toBe('embedded');
+    expect(plain?.text).toContain('紙ひこうき');
+
+    expect(await commands.getTrackLyrics(mockTrackId(3))).toBeNull();
+
+    // 編集画面で入れた歌詞は、埋め込みの歌詞として返る（.lrcファイルのある曲は、ファイルが優先）
+    await commands.updateTrackMetadata(mockTrackId(3), {
+      title: '雨上がりのメロディ',
+      lyrics: '新しい歌詞'
+    });
+    expect(await commands.getTrackLyrics(mockTrackId(3))).toEqual({
+      text: '新しい歌詞',
+      source: 'embedded'
+    });
+    await expect(commands.getTrackLyrics('invalid')).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+
   it('複数の曲を、プレイリストからまとめて外す', async () => {
     const id = mockPlaylistId(1);
     // 入っていない曲は飛ばす

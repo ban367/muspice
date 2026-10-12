@@ -12,6 +12,7 @@
   import AlbumArtDialog from '#lib/components/AlbumArtDialog.svelte';
   import TagToolsDialog from '#lib/components/TagToolsDialog.svelte';
   import SmartPlaylistDialog from '#lib/components/SmartPlaylistDialog.svelte';
+  import NowPlayingView from '#lib/components/NowPlayingView.svelte';
   import PlaylistInfoDialogHost from '#lib/components/PlaylistInfoDialogHost.svelte';
   import SettingsSync from '#lib/components/SettingsSync.svelte';
   import { ui, saveLastPage } from '#lib/stores/ui.svelte.js';
@@ -31,6 +32,8 @@
   // 起動時に「前回開いていた画面」を開けるよう、開いた画面を記録する
   afterNavigate(({ to }) => {
     if (to) saveLastPage(to.url.pathname);
+    // 別の画面へ移ったら、Now Playingの画面を閉じる（移った先の画面が見えるように）
+    ui.isNowPlayingOpen = false;
   });
 
   // サイドバーの開閉を切り替え
@@ -132,10 +135,17 @@
         <span class="mobile-title">Muspice</span>
       </header>
 
-      <!-- ページコンテンツ -->
-      <main class="main-content">
-        {@render children()}
-      </main>
+      <div class="main-area">
+        <!-- ページコンテンツ -->
+        <main class="main-content">
+          {@render children()}
+        </main>
+
+        <!-- Now Playingの画面（ページの領域に重ねる。プレーヤーのアルバムアートから開く） -->
+        {#if ui.isNowPlayingOpen}
+          <NowPlayingView />
+        {/if}
+      </div>
 
       <!-- プレイヤー -->
       <Player />
@@ -225,6 +235,11 @@
 
   .mobile-title {
     @apply text-xl font-bold text-text-primary;
+  }
+
+  /* ページの領域（Now Playingの画面を、この領域いっぱいに重ねる） */
+  .main-area {
+    @apply relative flex-1 min-h-0 flex flex-col;
   }
 
   .main-content {

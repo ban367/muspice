@@ -98,6 +98,9 @@ class UiState {
   /** Aboutダイアログの開閉 */
   isAboutDialogOpen = $state(false);
 
+  /** Now Playingの画面（再生中の曲を大きく表示し、歌詞を出す）を開いているか */
+  isNowPlayingOpen = $state(false);
+
   /**
    * 一覧の中の位置へ移動させたい曲（再生中の曲へのジャンプ。なければnull）
    *

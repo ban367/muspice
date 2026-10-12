@@ -216,6 +216,8 @@
   async function revealCurrentTrack() {
     const track = player.currentTrack;
     if (!track) return;
+    // Now Playingの画面を開いていたら、一覧が見えるように閉じる
+    ui.isNowPlayingOpen = false;
     ui.revealTrackId = track.id;
     // 開いている画面の一覧（`TrackList`）が、その曲を見つければ受け取る
     await tick();
@@ -310,6 +312,17 @@
   {#if player.currentTrack}
     <!-- トラック情報 -->
     <div class="flex items-center gap-3 min-w-0">
+      <!-- アルバムアートのクリックで、Now Playingの画面（大きなアルバムアートと歌詞）を開閉する -->
+      <button
+        type="button"
+        class="album-art"
+        onclick={() => (ui.isNowPlayingOpen = !ui.isNowPlayingOpen)}
+        title={ui.isNowPlayingOpen ? m.nowPlaying.close : m.nowPlaying.open}
+        aria-label={ui.isNowPlayingOpen ? m.nowPlaying.close : m.nowPlaying.open}
+        aria-pressed={ui.isNowPlayingOpen}
+      >
+        <AlbumArt src={currentArtUrl} alt={m.common.albumArt} placeholderType="music" />
+      </button>
       <!-- 曲の情報のクリックで、再生中の曲を一覧で表示する -->
       <button
         type="button"
@@ -317,9 +330,6 @@
         onclick={revealCurrentTrack}
         title={m.player.revealCurrentTrack}
       >
-        <div class="album-art">
-          <AlbumArt src={currentArtUrl} alt={m.common.albumArt} placeholderType="music" />
-        </div>
         <div class="min-w-0">
           <MarqueeText
             text={player.currentTrack.title || player.currentTrack.fileName}
@@ -592,7 +602,11 @@
   }
 
   .album-art {
-    @apply w-14 h-14 rounded-md overflow-hidden shrink-0 bg-base-300;
+    @apply w-14 h-14 p-0 border-none rounded-md overflow-hidden shrink-0 bg-base-300 cursor-pointer transition-opacity;
+  }
+
+  .album-art:hover {
+    @apply opacity-80;
   }
 
   /* コントロールボタン */

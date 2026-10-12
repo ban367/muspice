@@ -267,6 +267,40 @@ export function createFixturePlayHistory(
   }));
 }
 
+/**
+ * 曲と同じ名前の`.lrc`ファイル（時刻付きの歌詞）があることにする曲と、その中身
+ *
+ * 実装では、曲のファイルと同じフォルダから探す。モックでは、決まった曲にだけ持たせる。
+ */
+export const FIXTURE_LRC_FILES: ReadonlyMap<string, string> = new Map([
+  [
+    mockTrackId(1),
+    [
+      '[ar:Aoi Sora]',
+      '[ti:青い地平線]',
+      '[00:05.00]夜明け前の道を',
+      '[00:12.50]ひとり歩いていた',
+      '[00:20.00]遠くに見える',
+      '[00:27.50]青い地平線',
+      '[00:35.00]',
+      '[00:45.00]風が変わるたびに',
+      '[00:52.50]思い出すあの日のこと',
+      '[01:00.00]まだ届かない',
+      '[01:07.50]青い地平線',
+      '[01:15.00][02:30.00]どこまでも続いていく',
+      '[01:22.50][02:37.50]空と海のあいだ'
+    ].join('\n')
+  ]
+]);
+
+/** 埋め込みの歌詞（時刻なし）を持つ曲と、その歌詞 */
+export const FIXTURE_EMBEDDED_LYRICS: ReadonlyMap<string, string> = new Map([
+  [
+    mockTrackId(2),
+    ['紙ひこうきを飛ばした', '屋上の午後', '', '風にのって', 'どこまで行けるだろう'].join('\n')
+  ]
+]);
+
 /** プレイリストのフォルダ（最初は空。プレイリストは、どれもフォルダの外にある） */
 export function createFixturePlaylistFolders(): PlaylistFolder[] {
   return [
