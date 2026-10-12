@@ -1,11 +1,23 @@
 //! プレイリスト管理コマンド
 
 use crate::error::{AppError, AppResult};
+use crate::models::PlaylistFolder;
 use crate::smart_playlist::{SmartRules, validate_rules};
 use crate::state::AppState;
-use crate::validation::{validate_playlist_id, validate_playlist_name, validate_track_id};
+use crate::validation::{
+    validate_playlist_description, validate_playlist_folder_id, validate_playlist_folder_name,
+    validate_playlist_id, validate_playlist_name, validate_track_id,
+};
 use chrono::Utc;
 use tauri::State;
+
+/// プレイリストの操作のエラーを、`AppError`にする（行が見つからない場合は`NotFound`）
+fn playlist_error(error: rusqlite::Error, not_found: &str, operation: &str) -> AppError {
+    match error {
+        rusqlite::Error::QueryReturnedNoRows => AppError::NotFound(not_found.to_string()),
+        _ => AppError::Database(format!("{}に失敗しました: {}", operation, error)),
+    }
+}
 
 /// プレイリストを作成
 #[tauri::command]
@@ -135,28 +147,194 @@ pub async fn add_tracks_to_playlist(
     crate::library::to_count(added)
 }
 
-/// プレイリストからトラックを削除
+/// プレイリストから複数のトラックを外す
+///
+/// 入っていないトラックは飛ばし、外したトラック数を返す。
 #[tauri::command]
 #[specta::specta]
-pub async fn remove_track_from_playlist(
+pub async fn remove_tracks_from_playlist(
     playlist_id: String,
-    track_id: String,
+    track_ids: Vec<String>,
     state: State<'_, AppState>,
-) -> AppResult<()> {
+) -> AppResult<u32> {
     // IDをバリデーション
     validate_playlist_id(&playlist_id)?;
-    validate_track_id(&track_id)?;
+    if track_ids.is_empty() {
+        return Err(AppError::Validation(
+            "トラックIDが指定されていません".to_string(),
+        ));
+    }
+    for track_id in &track_ids {
+        validate_track_id(track_id)?;
+    }
+
+    let removed = state.with_db(|db| {
+        crate::playlist::ensure_manual_playlist(db, &playlist_id)?;
+        crate::playlist::remove_tracks_from_playlist(db, &playlist_id, &track_ids)
+            .map_err(|e| playlist_error(e, "プレイリストが見つかりません", "トラックの削除"))
+    })?;
+    crate::library::to_count(removed)
+}
+
+/// 渡した曲を入れた状態で、プレイリストを作成（再生キューをプレイリストとして保存する時に使う）
+///
+/// 同じ曲は、最初の1回だけを入れる。見つからない曲がある場合は、プレイリストを作らない。
+#[tauri::command]
+#[specta::specta]
+pub async fn create_playlist_with_tracks(
+    name: String,
+    track_ids: Vec<String>,
+    state: State<'_, AppState>,
+) -> AppResult<crate::models::Playlist> {
+    let name = name.trim().to_string();
+    validate_playlist_name(&name)?;
+    for track_id in &track_ids {
+        validate_track_id(track_id)?;
+    }
 
     state.with_db(|db| {
-        crate::playlist::ensure_manual_playlist(db, &playlist_id)?;
-        crate::playlist::remove_track_from_playlist(db, &playlist_id, &track_id).map_err(
-            |e| match e {
-                rusqlite::Error::QueryReturnedNoRows => {
-                    AppError::NotFound("プレイリストまたはトラックが見つかりません".to_string())
-                }
-                _ => AppError::Database(format!("トラックの削除に失敗しました: {}", e)),
-            },
-        )
+        crate::playlist::create_playlist_from_tracks(db, &name, &track_ids)
+            .map_err(|e| playlist_error(e, "トラックが見つかりません", "プレイリストの作成"))
+    })
+}
+
+/// プレイリストの説明を変更（値なし・空の文字列は、説明なし）
+#[tauri::command]
+#[specta::specta]
+pub async fn set_playlist_description(
+    playlist_id: String,
+    description: Option<String>,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    validate_playlist_id(&playlist_id)?;
+    if let Some(description) = &description {
+        validate_playlist_description(description)?;
+    }
+
+    state.with_db(|db| {
+        crate::playlist::set_playlist_description(db, &playlist_id, description.as_deref())
+            .map_err(|e| playlist_error(e, "プレイリストが見つかりません", "説明の変更"))
+    })
+}
+
+/// プレイリストのフォルダを取得（手動の並び順）
+#[tauri::command]
+#[specta::specta]
+pub async fn get_playlist_folders(state: State<'_, AppState>) -> AppResult<Vec<PlaylistFolder>> {
+    state.with_db(|db| {
+        crate::playlist::get_playlist_folders(db)
+            .map_err(|e| AppError::Database(format!("フォルダの取得に失敗しました: {}", e)))
+    })
+}
+
+/// プレイリストのフォルダを作成
+#[tauri::command]
+#[specta::specta]
+pub async fn create_playlist_folder(
+    name: String,
+    state: State<'_, AppState>,
+) -> AppResult<PlaylistFolder> {
+    let name = name.trim().to_string();
+    validate_playlist_folder_name(&name)?;
+
+    state.with_db(|db| {
+        crate::playlist::create_playlist_folder(db, &name)
+            .map_err(|e| AppError::Database(format!("フォルダの作成に失敗しました: {}", e)))
+    })
+}
+
+/// プレイリストのフォルダの名前を変更
+#[tauri::command]
+#[specta::specta]
+pub async fn rename_playlist_folder(
+    folder_id: String,
+    name: String,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    validate_playlist_folder_id(&folder_id)?;
+    let name = name.trim().to_string();
+    validate_playlist_folder_name(&name)?;
+
+    state.with_db(|db| {
+        crate::playlist::rename_playlist_folder(db, &folder_id, &name)
+            .map_err(|e| playlist_error(e, "フォルダが見つかりません", "フォルダ名の変更"))
+    })
+}
+
+/// プレイリストのフォルダを削除（中のプレイリストは消さず、フォルダの外へ出す）
+#[tauri::command]
+#[specta::specta]
+pub async fn delete_playlist_folder(
+    folder_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    validate_playlist_folder_id(&folder_id)?;
+
+    state.with_db(|db| {
+        crate::playlist::delete_playlist_folder(db, &folder_id)
+            .map_err(|e| playlist_error(e, "フォルダが見つかりません", "フォルダの削除"))
+    })
+}
+
+/// プレイリストを、フォルダへ移す（`folder_id`が値なしなら、フォルダの外へ出す）
+///
+/// 手動の並び順では、移した先のいちばん後ろに置く。
+#[tauri::command]
+#[specta::specta]
+pub async fn move_playlist(
+    playlist_id: String,
+    folder_id: Option<String>,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    validate_playlist_id(&playlist_id)?;
+    if let Some(folder_id) = &folder_id {
+        validate_playlist_folder_id(folder_id)?;
+    }
+
+    state.with_db(|db| {
+        crate::playlist::move_playlist(db, &playlist_id, folder_id.as_deref()).map_err(|e| {
+            playlist_error(
+                e,
+                "プレイリストまたはフォルダが見つかりません",
+                "プレイリストの移動",
+            )
+        })
+    })
+}
+
+/// プレイリストの手動の並び順を変更（渡した順に並べる）
+///
+/// 並び順は同じフォルダの中で比べるため、1つのフォルダ（またはフォルダの外）のプレイリストを渡す。
+#[tauri::command]
+#[specta::specta]
+pub async fn reorder_playlists(
+    playlist_ids: Vec<String>,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    for playlist_id in &playlist_ids {
+        validate_playlist_id(playlist_id)?;
+    }
+
+    state.with_db(|db| {
+        crate::playlist::reorder_playlists(db, &playlist_ids)
+            .map_err(|e| AppError::Database(format!("プレイリストの並び替えに失敗しました: {}", e)))
+    })
+}
+
+/// プレイリストのフォルダの手動の並び順を変更（渡した順に並べる）
+#[tauri::command]
+#[specta::specta]
+pub async fn reorder_playlist_folders(
+    folder_ids: Vec<String>,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    for folder_id in &folder_ids {
+        validate_playlist_folder_id(folder_id)?;
+    }
+
+    state.with_db(|db| {
+        crate::playlist::reorder_playlist_folders(db, &folder_ids)
+            .map_err(|e| AppError::Database(format!("フォルダの並び替えに失敗しました: {}", e)))
     })
 }
 

@@ -81,6 +81,8 @@ export interface Playlist {
   description: string | null;
   tracks: PlaylistTrack[]; // 自動プレイリストでは、いつも空（曲は開く時に条件から求める）
   rules: SmartRules | null; // 自動プレイリストの条件（nullは、曲を自分で選ぶ通常のプレイリスト）
+  folderId: string | null; // 入っているフォルダ（nullは、フォルダの外）
+  position: number; // 手動の並び順での位置（同じフォルダの中で、小さい方が先）
   createdAt: string;
   updatedAt: string;
 }
@@ -109,22 +111,24 @@ export interface Playlist {
 
 ### テーブル
 
-| テーブル                | 用途                           | 主なカラム                                                                                                                                                                                                                                                                                                                                                                                 |
-| ----------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `tracks`                | トラック本体                   | `id`, `file_path`, `title`, `artist`, `album`, `album_artist`, `album_artist_read`, `title_sort`, `artist_sort`, `album_sort`, `album_artist_sort`, `sort_tags_read`, `genre`, `year`, `track_number`, `disc_number`, `duration`, `file_size`, `file_modified_at`, `missing_since`, `is_favorite`, `favorited_at`, `rating`, `play_count`, `skip_count`, `last_played_at`, `replay_gain_*` |
-| `library_folders`       | ライブラリフォルダ             | `id`, `path`（UNIQUE）, `added_at`, `last_scanned_at`                                                                                                                                                                                                                                                                                                                                      |
-| `playlists`             | プレイリスト本体               | `id`, `name`, `description`, `rules`（自動プレイリストの条件のJSON。通常のプレイリストはNULL）, `created_at`, `updated_at`                                                                                                                                                                                                                                                                 |
-| `playlist_tracks`       | プレイリスト内順序             | `playlist_id`, `track_id`, `position`, `added_at`                                                                                                                                                                                                                                                                                                                                          |
-| `play_history`          | 再生履歴                       | `id`, `track_id`, `played_at`                                                                                                                                                                                                                                                                                                                                                              |
-| `tracks_fts`            | 全文検索（FTS5・trigram）      | `text`（タイトル・アーティスト・アルバム・ジャンル・アルバムアーティストを、検索用に正規化してつないだ文字列）。`rowid`は`tracks`と同じ                                                                                                                                                                                                                                                    |
-| `sync_devices`          | 転送先デバイス                 | `id`, `name`, `path`, `sync_all`, `remove_unselected`, `created_at`, `last_synced_at`                                                                                                                                                                                                                                                                                                      |
-| `sync_device_playlists` | デバイスに同期するプレイリスト | `device_id`, `playlist_id`                                                                                                                                                                                                                                                                                                                                                                 |
+| テーブル                | 用途                            | 主なカラム                                                                                                                                                                                                                                                                                                                                                                                 |
+| ----------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `tracks`                | トラック本体                    | `id`, `file_path`, `title`, `artist`, `album`, `album_artist`, `album_artist_read`, `title_sort`, `artist_sort`, `album_sort`, `album_artist_sort`, `sort_tags_read`, `genre`, `year`, `track_number`, `disc_number`, `duration`, `file_size`, `file_modified_at`, `missing_since`, `is_favorite`, `favorited_at`, `rating`, `play_count`, `skip_count`, `last_played_at`, `replay_gain_*` |
+| `library_folders`       | ライブラリフォルダ              | `id`, `path`（UNIQUE）, `added_at`, `last_scanned_at`                                                                                                                                                                                                                                                                                                                                      |
+| `playlists`             | プレイリスト本体                | `id`, `name`, `description`, `rules`（自動プレイリストの条件のJSON。通常のプレイリストはNULL）, `folder_id`（入っているフォルダ。フォルダの外はNULL）, `position`（手動の並び順での位置）, `created_at`, `updated_at`                                                                                                                                                                      |
+| `playlist_folders`      | プレイリストのフォルダ（1階層） | `id`, `name`, `position`（手動の並び順での位置）, `created_at`                                                                                                                                                                                                                                                                                                                             |
+| `playlist_tracks`       | プレイリスト内順序              | `playlist_id`, `track_id`, `position`, `added_at`                                                                                                                                                                                                                                                                                                                                          |
+| `play_history`          | 再生履歴                        | `id`, `track_id`, `played_at`                                                                                                                                                                                                                                                                                                                                                              |
+| `tracks_fts`            | 全文検索（FTS5・trigram）       | `text`（タイトル・アーティスト・アルバム・ジャンル・アルバムアーティストを、検索用に正規化してつないだ文字列）。`rowid`は`tracks`と同じ                                                                                                                                                                                                                                                    |
+| `sync_devices`          | 転送先デバイス                  | `id`, `name`, `path`, `sync_all`, `remove_unselected`, `created_at`, `last_synced_at`                                                                                                                                                                                                                                                                                                      |
+| `sync_device_playlists` | デバイスに同期するプレイリスト  | `device_id`, `playlist_id`                                                                                                                                                                                                                                                                                                                                                                 |
 
 ### インデックス/制約
 
 - `tracks(artist|album|genre|title)` にインデックス
 - `playlist_tracks(playlist_id)` にインデックス
 - `playlist_tracks`, `play_history` は `tracks` / `playlists` への外部キー（`ON DELETE CASCADE`）
+- `playlists.folder_id` は `playlist_folders` を指すが、外部キーにはしない。フォルダを削除する時に、中のプレイリストの `folder_id` をNULLにする（プレイリストは消さない）
 - `tracks.file_modified_at` はファイルの更新日時（UNIX時間の秒）。再スキャンで、サイズとあわせて変更の検出に使う。列を追加する前に登録したトラックはNULLで、再スキャンで（ファイルを読み直さずに）記録する。サイズが同じで更新日時がちょうど1時間（±2秒）ずれた場合は、夏時間の切り替えによるずれ（更新日時をローカル時刻で記録するFAT32など）とみなし、読み直さずに日時だけ記録する
 - `tracks.replay_gain_track_gain` / `replay_gain_track_peak` / `replay_gain_album_gain` / `replay_gain_album_peak`（REAL）はファイルのタグから読んだReplayGain。`REPLAYGAIN_*`を優先し、ゲインがない場合はOpusの`R128_*_GAIN`（Q7.8形式、基準が-23 LUFSのため+5 dBしてReplayGainの基準にそろえる）を使う。範囲外（ゲインは±60 dB、ピークは0以下）は読まない。列を追加する前に登録したトラックはNULLで、`refresh_library_metadata`か再スキャン（ファイルが変わった場合）で読み込む
 - `library_folders` とトラックの対応は `tracks.file_path` の前方一致（フォルダのパス＋区切り文字）で判定する。`file_path >= 接頭辞 AND file_path < 上限`（接頭辞の最後の文字を次の文字にしたもの）の範囲で比較する（二分比較のため大文字・小文字を区別し、`file_path`のUNIQUEのインデックスを使える。`LIKE`はASCIIの大文字・小文字を区別しない）。フォルダ同士は入れ子にしない（中のフォルダはインポートしても登録せず、外のフォルダをインポートすると中のフォルダの記録をまとめる）
@@ -369,6 +373,7 @@ export interface Playlist {
 | コマンド                      | 引数                          | 戻り値                    |
 | ----------------------------- | ----------------------------- | ------------------------- |
 | `create_playlist`             | `name`                        | `Playlist`                |
+| `create_playlist_with_tracks` | `name`, `trackIds`            | `Playlist`                |
 | `create_smart_playlist`       | `name`, `rules`               | `Playlist`                |
 | `update_smart_playlist`       | `playlistId`, `rules`         | `void`                    |
 | `count_smart_playlist_tracks` | `rules`                       | `number`                  |
@@ -376,14 +381,36 @@ export interface Playlist {
 | `get_playlists`               | なし                          | `Playlist[]`              |
 | `get_playlist_tracks`         | `playlistId`                  | `Track[]`                 |
 | `rename_playlist`             | `playlistId`, `name`          | `void`                    |
+| `set_playlist_description`    | `playlistId`, `description`   | `void`                    |
 | `delete_playlist`             | `playlistId`                  | `void`                    |
 | `add_tracks_to_playlist`      | `playlistId`, `trackIds`      | `number`                  |
-| `remove_track_from_playlist`  | `playlistId`, `trackId`       | `void`                    |
+| `remove_tracks_from_playlist` | `playlistId`, `trackIds`      | `number`                  |
 | `reorder_playlist_tracks`     | `playlistId`, `trackIds`      | `void`                    |
+| `get_playlist_folders`        | なし                          | `PlaylistFolder[]`        |
+| `create_playlist_folder`      | `name`                        | `PlaylistFolder`          |
+| `rename_playlist_folder`      | `folderId`, `name`            | `void`                    |
+| `delete_playlist_folder`      | `folderId`                    | `void`                    |
+| `move_playlist`               | `playlistId`, `folderId`      | `void`                    |
+| `reorder_playlists`           | `playlistIds`                 | `void`                    |
+| `reorder_playlist_folders`    | `folderIds`                   | `void`                    |
 | `import_m3u_playlists`        | なし                          | `M3uImportResult[]`       |
 | `export_playlist_m3u`         | `playlistId`, `relativePaths` | `M3uExportResult \| null` |
 
 `add_tracks_to_playlist`は、複数のトラックを渡した順に1つのトランザクションで追加する。すでに入っているトラックは飛ばし、追加したトラック数を返す。見つからないトラックがある場合は`NOT_FOUND`で、1曲も追加しない。
+
+- 1つのプレイリストに、同じ曲は1回だけ入る（`playlist_tracks`の主キーは`(playlist_id, track_id)`。ADR-043）
+- `remove_tracks_from_playlist`は、複数のトラックを1つのトランザクションで外し、残った曲の位置を詰める。入っていないトラックは飛ばし、外したトラック数を返す
+- `create_playlist_with_tracks`は、渡した曲を渡した順に入れたプレイリストを作る（再生キューの保存に使う）。同じ曲は最初の1回だけを入れる。見つからない曲がある場合は`NOT_FOUND`で、プレイリストを作らない
+- `set_playlist_description`は、説明を変える（前後の空白を除く。空・`null`は説明なし。1000文字まで）
+
+プレイリストのフォルダと並び順（ADR-043）:
+
+- `PlaylistFolder`: `{ id, name, position, createdAt }`。フォルダは1階層（フォルダの中にフォルダは作らない）。名前は必須・100文字まで（同じ名前のフォルダを作れる）
+- `move_playlist`は、プレイリストをフォルダへ移す（`folderId`が`null`なら、フォルダの外へ出す）。手動の並び順では、移した先のいちばん後ろに置く。プレイリスト・フォルダが見つからなければ`NOT_FOUND`
+- `delete_playlist_folder`は、フォルダだけを消す。中のプレイリストは、フォルダの外へ出る
+- `reorder_playlists`・`reorder_playlist_folders`は、渡した順に`position`を0から振り直す（手動の並び順）。プレイリストの`position`は同じフォルダの中で比べるため、1つのフォルダ（またはフォルダの外）のプレイリストを渡す。見つからないIDは無視する
+- 新しいプレイリスト・フォルダの`position`は、いちばん後ろ（今の最大値の次）にする
+- 並び順（名前・作成日の新しい順・手動）の選択と、閉じているフォルダは、フロントエンドがlocalStorageに保存する（`get_playlists`・`get_playlist_folders`は、並び順に関わらず同じ内容を返す）
 
 自動プレイリスト（条件で曲を集めるプレイリスト。ADR-042）:
 
@@ -399,7 +426,7 @@ export interface Playlist {
 - `get_playlists`は、自動プレイリストの`tracks`を空で返す。曲は`get_playlist_tracks`が、呼ぶたびに条件から求める（評価・再生回数・タグの変更に追随する）
 - ランダムな並び（`order.field`が`random`）は、種と曲のIDから決める。種は起動のたびに変わり、`reshuffle_smart_playlists`でも変わる（すべての自動プレイリストの並びが変わる）。種が同じ間は、何度取得しても同じ並びになる
 - `update_smart_playlist`は条件だけを変える（名前は`rename_playlist`）。通常のプレイリストに対しては`VALIDATION`（入れてある曲が見えなくなるため、自動プレイリストには変えない）
-- `add_tracks_to_playlist`・`remove_track_from_playlist`・`reorder_playlist_tracks`は、自動プレイリストに対しては`VALIDATION`
+- `add_tracks_to_playlist`・`remove_tracks_from_playlist`・`reorder_playlist_tracks`は、自動プレイリストに対しては`VALIDATION`
 - `count_smart_playlist_tracks`は、保存する前の条件に合う曲数を返す（`limit`があれば、それを超えない）
 - 保存してある条件を読めない場合（新しいバージョンで足した項目を含む条件を、前のバージョンで開いた場合など）は、`matchMode: 'any'`で条件のない自動プレイリスト（曲なし）として返す。通常のプレイリストとしては扱わない（曲を追加できてしまうため）
 - デバイスへの転送・M3Uの書き出しでは、その時点で条件に合う曲を、条件の並び順で使う

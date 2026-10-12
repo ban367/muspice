@@ -190,8 +190,23 @@ pub struct Playlist {
     pub tracks: Vec<PlaylistTrack>,
     /// 自動プレイリストの条件（値なしは、曲を自分で選ぶ通常のプレイリスト）
     pub rules: Option<crate::smart_playlist::SmartRules>,
+    /// 入っているフォルダ（値なしは、フォルダの外）
+    pub folder_id: Option<String>,
+    /// 手動の並び順での位置（同じフォルダの中で、小さい方が先）
+    pub position: i32,
     pub created_at: String,
     pub updated_at: String,
+}
+
+/// プレイリストのフォルダ（1階層。フォルダの中にフォルダは作らない）
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaylistFolder {
+    pub id: String,
+    pub name: String,
+    /// 手動の並び順での位置（小さい方が先）
+    pub position: i32,
+    pub created_at: String,
 }
 
 /// プレイリスト内のトラック情報
