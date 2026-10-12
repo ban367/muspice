@@ -44,7 +44,7 @@ npm run tauri build           # 本番ビルド
 - **命名**: Svelte=PascalCase、TypeScript=camelCase、Rust=snake_case。型=PascalCase、定数=UPPER_SNAKE_CASE
 - **Svelte 5**: Runes構文（`$props()`, `$state()`, `$derived()`, `$effect()`）を使用
 - **TailwindCSS**: カスタムクラスを`@apply`で使わない。スタイルブロック先頭に`@reference`を追加
-- **UI部品**: 見た目はTailwindと`app.css`の独自クラスで作る（DaisyUIなどのクラス集は入れない）。メニューは`#lib/components/ui`の`BaseContextMenu`と`Menu*`、ボタンから開くパネルは`Popover`（どちらもBits UI）を使い、開閉やキー操作を自作しない
+- **UI部品**: 見た目はTailwindと`app.css`の独自クラスで作る（DaisyUIなどのクラス集は入れない）。メニューは`#lib/components/ui`の`BaseContextMenu`と`Menu*`、ボタンから開くパネルは`Popover`、タブは`Tabs` / `TabPanel`（どれもBits UI）を使い、開閉やキー操作を自作しない
 - **セキュリティ**: WebViewの権限（capability）は最小限にし（assetプロトコルは無効）、ファイルアクセスはRust側のコマンドで行う。WebViewから任意のパスを受け取らずトラックID等で解決する。ローカルデータのみ。外部通信なし
 - **動作確認**: Claude CodeでのUI確認は`npm run dev:mock`（`.claude/launch.json`の`web-mock`）でTauri IPCをモックしたブラウザを使う。Rustのコマンドを変更したら`src/lib/mocks/backend.ts`も追随させる（詳細は`docs/design/implementation.md`）
 - **パフォーマンス**: バッチインポート（50件/TX）、FTS5検索、DBインデックス、デバウンス（300ms）。一覧は件数の上限なく全件を取得し、`VirtualList`で見えている行だけを描画する（仮想スクロール。詳細は`docs/design/implementation.md`）

@@ -34,7 +34,7 @@
   } from '#lib/utils/metadataForm.js';
   import { formatDateTime, formatDuration, formatFileSize } from '#lib/utils/format.js';
   import { showWarning, toErrorMessage } from '#lib/stores/error.svelte.js';
-  import { Modal } from '#lib/components/ui/index.js';
+  import { Modal, TabPanel, Tabs } from '#lib/components/ui/index.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   interface Props {
@@ -61,6 +61,7 @@
 
   type Tab = 'tags' | 'sort' | 'lyrics' | 'file';
   const tabs: Tab[] = ['tags', 'sort', 'lyrics', 'file'];
+  const tabItems = $derived(tabs.map((tab) => ({ value: tab, label: m.metadataEditor.tabs[tab] })));
   let activeTab = $state<Tab>('tags');
 
   // 1曲の編集では、ファイルからタグを読む（読めるまで・読めない場合は、保存できない）
@@ -236,212 +237,206 @@
 {/snippet}
 
 <Modal open {onClose} title={dialogTitle} dismissible={!isSaving} class="max-w-2xl">
-  {#if isSingleEdit}
-    <div class="tab-list" role="tablist">
-      {#each tabs as tab (tab)}
-        <button
-          type="button"
-          class="tab"
-          class:active={activeTab === tab}
-          role="tab"
-          aria-selected={activeTab === tab}
-          onclick={() => (activeTab = tab)}
-        >
-          {m.metadataEditor.tabs[tab]}
-        </button>
-      {/each}
-    </div>
-  {:else}
-    <div class="message-info mb-4">{m.metadataEditor.bulkHint}</div>
-  {/if}
+  <!-- 一括編集ではタブを出さず、タグの項目だけを出す -->
+  <Tabs bind:value={activeTab} tabs={tabItems} showList={isSingleEdit}>
+    {#if !isSingleEdit}
+      <div class="message-info mb-4">{m.metadataEditor.bulkHint}</div>
+    {/if}
 
-  {#if tagsError}
-    <div class="message-error mb-4">{m.metadataEditor.tagsUnavailable(tagsError)}</div>
-  {:else if !formLoaded}
-    <p class="text-sm text-text-muted mt-0 mb-4" role="status">{m.metadataEditor.loadingTags}</p>
-  {/if}
+    {#if tagsError}
+      <div class="message-error mb-4">{m.metadataEditor.tagsUnavailable(tagsError)}</div>
+    {:else if !formLoaded}
+      <p class="text-sm text-text-muted mt-0 mb-4" role="status">{m.metadataEditor.loadingTags}</p>
+    {/if}
 
-  <form onsubmit={(e) => e.preventDefault()}>
-    <!-- タグ -->
-    <div hidden={activeTab !== 'tags'}>
-      {#if isSingleEdit}
-        {@render textField('title', m.metadataEditor.titlePlaceholder, null)}
-      {/if}
-      <div class="field-row">
-        {@render textField(
-          'artist',
-          placeholder(m.metadataEditor.artistPlaceholder),
-          artistSuggestions
-        )}
-        {@render textField('albumArtist', placeholder(''), albumArtistSuggestions)}
-      </div>
-      {@render textField('album', placeholder(m.metadataEditor.albumPlaceholder), albumSuggestions)}
-      <div class="field-row">
-        {@render textField('composer', placeholder(''), composerSuggestions)}
-        {@render textField(
-          'genre',
-          placeholder(m.metadataEditor.genrePlaceholder),
-          genreSuggestions
-        )}
-      </div>
-      <p class="mt-0 mb-3 text-xs text-text-muted">{m.metadataEditor.multiValueHint}</p>
-      <div class="field-row four">
-        <div class="form-group">
-          <label for="metadata-year" class="form-label">{labels.year}</label>
-          <input
-            id="metadata-year"
-            type="text"
-            inputmode="numeric"
-            class="form-input"
-            bind:value={form.year}
-            placeholder={placeholder(m.metadataEditor.yearPlaceholder)}
-            disabled={!canEdit}
-          />
+    <form onsubmit={(e) => e.preventDefault()}>
+      <!-- タグ -->
+      <TabPanel value="tags">
+        {#if isSingleEdit}
+          {@render textField('title', m.metadataEditor.titlePlaceholder, null)}
+        {/if}
+        <div class="field-row">
+          {@render textField(
+            'artist',
+            placeholder(m.metadataEditor.artistPlaceholder),
+            artistSuggestions
+          )}
+          {@render textField('albumArtist', placeholder(''), albumArtistSuggestions)}
         </div>
-        {@render numberPair(
-          m.metadataEditor.track,
-          isSingleEdit ? 'trackNumber' : null,
-          'trackTotal',
-          'metadata-track'
+        {@render textField(
+          'album',
+          placeholder(m.metadataEditor.albumPlaceholder),
+          albumSuggestions
         )}
-        {@render numberPair(m.metadataEditor.disc, 'discNumber', 'discTotal', 'metadata-disc')}
+        <div class="field-row">
+          {@render textField('composer', placeholder(''), composerSuggestions)}
+          {@render textField(
+            'genre',
+            placeholder(m.metadataEditor.genrePlaceholder),
+            genreSuggestions
+          )}
+        </div>
+        <p class="mt-0 mb-3 text-xs text-text-muted">{m.metadataEditor.multiValueHint}</p>
+        <div class="field-row four">
+          <div class="form-group">
+            <label for="metadata-year" class="form-label">{labels.year}</label>
+            <input
+              id="metadata-year"
+              type="text"
+              inputmode="numeric"
+              class="form-input"
+              bind:value={form.year}
+              placeholder={placeholder(m.metadataEditor.yearPlaceholder)}
+              disabled={!canEdit}
+            />
+          </div>
+          {@render numberPair(
+            m.metadataEditor.track,
+            isSingleEdit ? 'trackNumber' : null,
+            'trackTotal',
+            'metadata-track'
+          )}
+          {@render numberPair(m.metadataEditor.disc, 'discNumber', 'discTotal', 'metadata-disc')}
+          <div class="form-group">
+            <label for="metadata-bpm" class="form-label">{labels.bpm}</label>
+            <input
+              id="metadata-bpm"
+              type="text"
+              inputmode="numeric"
+              class="form-input"
+              bind:value={form.bpm}
+              placeholder={unchangedPlaceholder}
+              disabled={!canEdit}
+            />
+          </div>
+        </div>
+        {@render textField('grouping', placeholder(''), null)}
         <div class="form-group">
-          <label for="metadata-bpm" class="form-label">{labels.bpm}</label>
-          <input
-            id="metadata-bpm"
-            type="text"
-            inputmode="numeric"
+          <label for="metadata-comment" class="form-label">{labels.comment}</label>
+          <textarea
+            id="metadata-comment"
             class="form-input"
-            bind:value={form.bpm}
+            rows="2"
+            bind:value={form.comment}
             placeholder={unchangedPlaceholder}
-            disabled={!canEdit}
-          />
+            disabled={!canEdit}></textarea>
         </div>
-      </div>
-      {@render textField('grouping', placeholder(''), null)}
-      <div class="form-group">
-        <label for="metadata-comment" class="form-label">{labels.comment}</label>
-        <textarea
-          id="metadata-comment"
-          class="form-input"
-          rows="2"
-          bind:value={form.comment}
-          placeholder={unchangedPlaceholder}
-          disabled={!canEdit}></textarea>
-      </div>
 
-      <!-- コンピレーション: 1曲の編集は印の有無、一括編集は「変更しない」も選べる -->
+        <!-- コンピレーション: 1曲の編集は印の有無、一括編集は「変更しない」も選べる -->
+        {#if isSingleEdit}
+          <label class="flex items-center gap-2 text-sm text-text-secondary cursor-pointer">
+            <input
+              type="checkbox"
+              class="w-4 h-4"
+              checked={form.compilation === 'on'}
+              onchange={(e) => (form.compilation = e.currentTarget.checked ? 'on' : 'off')}
+              disabled={!canEdit}
+            />
+            {m.fields.compilation}
+            <span class="text-xs text-text-muted">（{m.metadataEditor.compilationHint}）</span>
+          </label>
+        {:else}
+          <div class="form-group">
+            <label for="metadata-compilation" class="form-label">{m.fields.compilation}</label>
+            <select
+              id="metadata-compilation"
+              class="form-input"
+              bind:value={form.compilation}
+              disabled={!canEdit}
+            >
+              <option value="unchanged">{m.metadataEditor.unchanged}</option>
+              <option value="on">{m.metadataEditor.compilationOn}</option>
+              <option value="off">{m.metadataEditor.compilationOff}</option>
+            </select>
+          </div>
+        {/if}
+      </TabPanel>
+
+      <!-- 並び順（1曲の編集はタブ、一括編集はタグの下） -->
       {#if isSingleEdit}
-        <label class="flex items-center gap-2 text-sm text-text-secondary cursor-pointer">
-          <input
-            type="checkbox"
-            class="w-4 h-4"
-            checked={form.compilation === 'on'}
-            onchange={(e) => (form.compilation = e.currentTarget.checked ? 'on' : 'off')}
-            disabled={!canEdit}
-          />
-          {m.fields.compilation}
-          <span class="text-xs text-text-muted">（{m.metadataEditor.compilationHint}）</span>
-        </label>
+        <TabPanel value="sort">
+          <p class="text-sm text-text-muted mt-0 mb-4">{m.metadataEditor.sortHint}</p>
+          {@render sortFields()}
+        </TabPanel>
       {:else}
-        <div class="form-group">
-          <label for="metadata-compilation" class="form-label">{m.fields.compilation}</label>
-          <select
-            id="metadata-compilation"
-            class="form-input"
-            bind:value={form.compilation}
-            disabled={!canEdit}
-          >
-            <option value="unchanged">{m.metadataEditor.unchanged}</option>
-            <option value="on">{m.metadataEditor.compilationOn}</option>
-            <option value="off">{m.metadataEditor.compilationOff}</option>
-          </select>
-        </div>
+        <fieldset class="sort-section">
+          <legend>{m.metadataEditor.sortHeading}</legend>
+          <p class="text-xs text-text-muted mt-0 mb-3">{m.metadataEditor.sortHint}</p>
+          {@render sortFields()}
+        </fieldset>
       {/if}
-    </div>
 
-    <!-- 並び順（1曲の編集はタブ、一括編集はタグの下） -->
-    {#if isSingleEdit}
-      <div hidden={activeTab !== 'sort'}>
-        <p class="text-sm text-text-muted mt-0 mb-4">{m.metadataEditor.sortHint}</p>
-        {@render sortFields()}
-      </div>
-    {:else}
-      <fieldset class="sort-section">
-        <legend>{m.metadataEditor.sortHeading}</legend>
-        <p class="text-xs text-text-muted mt-0 mb-3">{m.metadataEditor.sortHint}</p>
-        {@render sortFields()}
-      </fieldset>
-    {/if}
+      <!-- 歌詞（1曲の編集だけ） -->
+      {#if isSingleEdit}
+        <TabPanel value="lyrics">
+          <textarea
+            class="form-input lyrics-input"
+            rows="14"
+            bind:value={form.lyrics}
+            aria-label={labels.lyrics}
+            placeholder={m.metadataEditor.lyricsPlaceholder}
+            disabled={!canEdit}></textarea>
+        </TabPanel>
 
-    <!-- 歌詞（1曲の編集だけ） -->
-    {#if isSingleEdit}
-      <div hidden={activeTab !== 'lyrics'}>
-        <textarea
-          class="form-input lyrics-input"
-          rows="14"
-          bind:value={form.lyrics}
-          aria-label={labels.lyrics}
-          placeholder={m.metadataEditor.lyricsPlaceholder}
-          disabled={!canEdit}></textarea>
-      </div>
+        <!-- ファイル情報（読み取り専用） -->
+        <TabPanel value="file" focusable>
+          <dl class="file-info">
+            <dt>{m.metadataEditor.file.fileName}</dt>
+            <dd>{track.fileName}</dd>
+            <dt>{m.metadataEditor.file.location}</dt>
+            <dd>
+              <span class="break-all select-text">{track.filePath}</span>
+              {#if track.isMissing}
+                <span class="block text-warning">{m.metadataEditor.file.missing}</span>
+              {:else}
+                <button
+                  type="button"
+                  class="btn-secondary text-xs mt-1"
+                  onclick={() => showInFolderMutation.mutate(track.id)}
+                >
+                  {m.contextMenu.showInFolder}
+                </button>
+              {/if}
+            </dd>
+            <dt>{m.metadataEditor.file.format}</dt>
+            <dd>{track.format.toUpperCase()}</dd>
+            <dt>{m.metadataEditor.file.bitrate}</dt>
+            <dd>{track.bitrate ? m.metadataEditor.file.kbps(track.bitrate) : '--'}</dd>
+            <dt>{m.metadataEditor.file.sampleRate}</dt>
+            <dd>{track.sampleRate ? m.metadataEditor.file.hz(track.sampleRate) : '--'}</dd>
+            <dt>{m.metadataEditor.file.duration}</dt>
+            <dd>{formatDuration(track.duration)}</dd>
+            <dt>{m.metadataEditor.file.size}</dt>
+            <dd>{formatFileSize(track.fileSize)}</dd>
+            <dt>{m.metadataEditor.file.addedAt}</dt>
+            <dd>{formatDateTime(track.createdAt)}</dd>
+            <dt>{m.metadataEditor.file.lastPlayedAt}</dt>
+            <dd>
+              {track.lastPlayedAt
+                ? formatDateTime(track.lastPlayedAt)
+                : m.metadataEditor.file.never}
+            </dd>
+            <dt>{m.metadataEditor.file.playCount}</dt>
+            <dd>{m.metadataEditor.file.times(track.playCount)}</dd>
+            <dt>{m.metadataEditor.file.skipCount}</dt>
+            <dd>{m.metadataEditor.file.times(track.skipCount)}</dd>
+          </dl>
+        </TabPanel>
+      {/if}
 
-      <!-- ファイル情報（読み取り専用） -->
-      <div hidden={activeTab !== 'file'}>
-        <dl class="file-info">
-          <dt>{m.metadataEditor.file.fileName}</dt>
-          <dd>{track.fileName}</dd>
-          <dt>{m.metadataEditor.file.location}</dt>
-          <dd>
-            <span class="break-all select-text">{track.filePath}</span>
-            {#if track.isMissing}
-              <span class="block text-warning">{m.metadataEditor.file.missing}</span>
-            {:else}
-              <button
-                type="button"
-                class="btn-secondary text-xs mt-1"
-                onclick={() => showInFolderMutation.mutate(track.id)}
-              >
-                {m.contextMenu.showInFolder}
-              </button>
-            {/if}
-          </dd>
-          <dt>{m.metadataEditor.file.format}</dt>
-          <dd>{track.format.toUpperCase()}</dd>
-          <dt>{m.metadataEditor.file.bitrate}</dt>
-          <dd>{track.bitrate ? m.metadataEditor.file.kbps(track.bitrate) : '--'}</dd>
-          <dt>{m.metadataEditor.file.sampleRate}</dt>
-          <dd>{track.sampleRate ? m.metadataEditor.file.hz(track.sampleRate) : '--'}</dd>
-          <dt>{m.metadataEditor.file.duration}</dt>
-          <dd>{formatDuration(track.duration)}</dd>
-          <dt>{m.metadataEditor.file.size}</dt>
-          <dd>{formatFileSize(track.fileSize)}</dd>
-          <dt>{m.metadataEditor.file.addedAt}</dt>
-          <dd>{formatDateTime(track.createdAt)}</dd>
-          <dt>{m.metadataEditor.file.lastPlayedAt}</dt>
-          <dd>
-            {track.lastPlayedAt ? formatDateTime(track.lastPlayedAt) : m.metadataEditor.file.never}
-          </dd>
-          <dt>{m.metadataEditor.file.playCount}</dt>
-          <dd>{m.metadataEditor.file.times(track.playCount)}</dd>
-          <dt>{m.metadataEditor.file.skipCount}</dt>
-          <dd>{m.metadataEditor.file.times(track.skipCount)}</dd>
-        </dl>
-      </div>
-    {/if}
+      {#if activeTab !== 'file'}
+        <p class="text-xs text-text-muted mt-3 mb-0">{m.metadataEditor.writesToFile}</p>
+      {/if}
 
-    {#if activeTab !== 'file'}
-      <p class="text-xs text-text-muted mt-3 mb-0">{m.metadataEditor.writesToFile}</p>
-    {/if}
+      {#if validationError}
+        <div class="message-error mt-4">{validationError}</div>
+      {/if}
 
-    {#if validationError}
-      <div class="message-error mt-4">{validationError}</div>
-    {/if}
-
-    {#if error}
-      <div class="message-error mt-4">{error}</div>
-    {/if}
-  </form>
+      {#if error}
+        <div class="message-error mt-4">{error}</div>
+      {/if}
+    </form>
+  </Tabs>
 
   {#snippet footer()}
     <button class="btn-secondary" onclick={onClose} disabled={isSaving}>{m.common.cancel}</button>
@@ -453,23 +448,6 @@
 
 <style>
   @reference "../../app.css";
-
-  .tab-list {
-    @apply flex gap-1 mb-4 border-b border-border;
-  }
-
-  .tab {
-    @apply bg-transparent border-none px-4 py-2 text-sm text-text-muted cursor-pointer border-b-2 border-transparent transition-colors;
-    margin-bottom: -1px;
-  }
-
-  .tab:hover {
-    @apply text-text-primary;
-  }
-
-  .tab.active {
-    @apply text-primary border-primary font-semibold;
-  }
 
   /* 2つの項目を横に並べる（狭い画面では縦に並べる） */
   .field-row {

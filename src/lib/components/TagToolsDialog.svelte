@@ -26,7 +26,7 @@
     type ToolResult
   } from '#lib/utils/tagTools.js';
   import { showSuccess, showWarning, toErrorMessage } from '#lib/stores/error.svelte.js';
-  import { Modal } from '#lib/components/ui/index.js';
+  import { Modal, TabPanel, Tabs } from '#lib/components/ui/index.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   interface Props {
@@ -48,6 +48,7 @@
 
   type Tool = 'fileName' | 'renumber' | 'replace';
   const tools: Tool[] = ['fileName', 'renumber', 'replace'];
+  const toolItems = $derived(tools.map((tool) => ({ value: tool, label: m.tagTools.tabs[tool] })));
   let activeTool = $state<Tool>('fileName');
 
   // ファイル名から
@@ -149,144 +150,148 @@
   dismissible={!isApplying}
   class="max-w-3xl"
 >
-  <div class="tab-list" role="tablist">
-    {#each tools as tool (tool)}
-      <button
-        type="button"
-        class="tab"
-        class:active={activeTool === tool}
-        role="tab"
-        aria-selected={activeTool === tool}
-        onclick={() => (activeTool = tool)}
-        disabled={isApplying}
-      >
-        {m.tagTools.tabs[tool]}
-      </button>
-    {/each}
-  </div>
-
-  <form class="options" onsubmit={(e) => e.preventDefault()}>
-    {#if activeTool === 'fileName'}
-      <div class="form-row">
-        <div class="form-group grow">
-          <label for="tag-tools-pattern" class="form-label">{m.tagTools.pattern}</label>
-          <input
-            id="tag-tools-pattern"
-            type="text"
-            class="form-input font-mono"
-            bind:value={pattern}
-            autocomplete="off"
-            spellcheck="false"
-            disabled={isApplying}
-            data-autofocus
-          />
-        </div>
-        <div class="form-group">
-          <label for="tag-tools-preset" class="form-label">{m.tagTools.patternPreset}</label>
-          <select
-            id="tag-tools-preset"
-            class="form-input"
-            value={(FILE_NAME_PATTERN_PRESETS as readonly string[]).includes(pattern)
-              ? pattern
-              : ''}
-            onchange={(e) => {
-              if (e.currentTarget.value) pattern = e.currentTarget.value;
-            }}
-            disabled={isApplying}
-          >
-            <option value="" hidden></option>
-            {#each FILE_NAME_PATTERN_PRESETS as preset (preset)}
-              <option value={preset}>{preset}</option>
+  <Tabs bind:value={activeTool} tabs={toolItems} disabled={isApplying}>
+    <form class="options" onsubmit={(e) => e.preventDefault()}>
+      <!-- 選んでいるツールの入力欄だけを描画する -->
+      <TabPanel value={activeTool}>
+        {#if activeTool === 'fileName'}
+          <div class="form-row">
+            <div class="form-group grow">
+              <label for="tag-tools-pattern" class="form-label">{m.tagTools.pattern}</label>
+              <input
+                id="tag-tools-pattern"
+                type="text"
+                class="form-input font-mono"
+                bind:value={pattern}
+                autocomplete="off"
+                spellcheck="false"
+                disabled={isApplying}
+                data-autofocus
+              />
+            </div>
+            <div class="form-group">
+              <label for="tag-tools-preset" class="form-label">{m.tagTools.patternPreset}</label>
+              <select
+                id="tag-tools-preset"
+                class="form-input"
+                value={(FILE_NAME_PATTERN_PRESETS as readonly string[]).includes(pattern)
+                  ? pattern
+                  : ''}
+                onchange={(e) => {
+                  if (e.currentTarget.value) pattern = e.currentTarget.value;
+                }}
+                disabled={isApplying}
+              >
+                <option value="" hidden></option>
+                {#each FILE_NAME_PATTERN_PRESETS as preset (preset)}
+                  <option value={preset}>{preset}</option>
+                {/each}
+              </select>
+            </div>
+          </div>
+          <p class="hint">{m.tagTools.patternHint}</p>
+        {:else if activeTool === 'renumber'}
+          <p class="hint mt-0 mb-3">{m.tagTools.renumberHint}</p>
+          <div class="form-row items-end">
+            <div class="form-group">
+              <label for="tag-tools-start" class="form-label">{m.tagTools.startNumber}</label>
+              <input
+                id="tag-tools-start"
+                type="text"
+                inputmode="numeric"
+                class="form-input w-24 text-center"
+                bind:value={startNumber}
+                disabled={isApplying}
+              />
+            </div>
+            <label class="check mb-4">
+              <input
+                type="checkbox"
+                class="w-4 h-4"
+                bind:checked={setTotal}
+                disabled={isApplying}
+              />
+              {m.tagTools.setTotal}
+            </label>
+          </div>
+        {:else}
+          <fieldset class="fields">
+            <legend class="form-label">{m.tagTools.targetFields}</legend>
+            {#each TEXT_TOOL_FIELDS as field (field)}
+              <label class="check">
+                <input
+                  type="checkbox"
+                  class="w-4 h-4"
+                  checked={replaceFields.includes(field)}
+                  onchange={(e) => toggleField(field, e.currentTarget.checked)}
+                  disabled={isApplying}
+                />
+                {fieldLabels[field]}
+              </label>
             {/each}
-          </select>
-        </div>
-      </div>
-      <p class="hint">{m.tagTools.patternHint}</p>
-    {:else if activeTool === 'renumber'}
-      <p class="hint mt-0 mb-3">{m.tagTools.renumberHint}</p>
-      <div class="form-row items-end">
-        <div class="form-group">
-          <label for="tag-tools-start" class="form-label">{m.tagTools.startNumber}</label>
-          <input
-            id="tag-tools-start"
-            type="text"
-            inputmode="numeric"
-            class="form-input w-24 text-center"
-            bind:value={startNumber}
-            disabled={isApplying}
-          />
-        </div>
-        <label class="check mb-4">
-          <input type="checkbox" class="w-4 h-4" bind:checked={setTotal} disabled={isApplying} />
-          {m.tagTools.setTotal}
-        </label>
-      </div>
-    {:else}
-      <fieldset class="fields">
-        <legend class="form-label">{m.tagTools.targetFields}</legend>
-        {#each TEXT_TOOL_FIELDS as field (field)}
-          <label class="check">
-            <input
-              type="checkbox"
-              class="w-4 h-4"
-              checked={replaceFields.includes(field)}
-              onchange={(e) => toggleField(field, e.currentTarget.checked)}
-              disabled={isApplying}
-            />
-            {fieldLabels[field]}
-          </label>
-        {/each}
-      </fieldset>
-      <div class="form-row">
-        <div class="form-group grow">
-          <label for="tag-tools-search" class="form-label">{m.tagTools.search}</label>
-          <input
-            id="tag-tools-search"
-            type="text"
-            class="form-input"
-            bind:value={search}
-            autocomplete="off"
-            spellcheck="false"
-            disabled={isApplying}
-          />
-        </div>
-        <div class="form-group grow">
-          <label for="tag-tools-replace" class="form-label">{m.tagTools.replaceWith}</label>
-          <input
-            id="tag-tools-replace"
-            type="text"
-            class="form-input"
-            bind:value={replace}
-            autocomplete="off"
-            spellcheck="false"
-            disabled={isApplying}
-          />
-        </div>
-      </div>
-      <div class="form-row items-center">
-        <label class="check">
-          <input type="checkbox" class="w-4 h-4" bind:checked={matchCase} disabled={isApplying} />
-          {m.tagTools.matchCase}
-        </label>
-        <label class="check">
-          <input type="checkbox" class="w-4 h-4" bind:checked={useRegex} disabled={isApplying} />
-          {m.tagTools.useRegex}
-        </label>
-        <label class="check">
-          <input type="checkbox" class="w-4 h-4" bind:checked={trim} disabled={isApplying} />
-          {m.tagTools.trim}
-        </label>
-        <label class="check">
-          {m.tagTools.caseConversion}
-          <select class="form-input w-auto" bind:value={caseConversion} disabled={isApplying}>
-            {#each caseConversions as conversion (conversion)}
-              <option value={conversion}>{m.tagTools.caseOptions[conversion]}</option>
-            {/each}
-          </select>
-        </label>
-      </div>
-    {/if}
-  </form>
+          </fieldset>
+          <div class="form-row">
+            <div class="form-group grow">
+              <label for="tag-tools-search" class="form-label">{m.tagTools.search}</label>
+              <input
+                id="tag-tools-search"
+                type="text"
+                class="form-input"
+                bind:value={search}
+                autocomplete="off"
+                spellcheck="false"
+                disabled={isApplying}
+              />
+            </div>
+            <div class="form-group grow">
+              <label for="tag-tools-replace" class="form-label">{m.tagTools.replaceWith}</label>
+              <input
+                id="tag-tools-replace"
+                type="text"
+                class="form-input"
+                bind:value={replace}
+                autocomplete="off"
+                spellcheck="false"
+                disabled={isApplying}
+              />
+            </div>
+          </div>
+          <div class="form-row items-center">
+            <label class="check">
+              <input
+                type="checkbox"
+                class="w-4 h-4"
+                bind:checked={matchCase}
+                disabled={isApplying}
+              />
+              {m.tagTools.matchCase}
+            </label>
+            <label class="check">
+              <input
+                type="checkbox"
+                class="w-4 h-4"
+                bind:checked={useRegex}
+                disabled={isApplying}
+              />
+              {m.tagTools.useRegex}
+            </label>
+            <label class="check">
+              <input type="checkbox" class="w-4 h-4" bind:checked={trim} disabled={isApplying} />
+              {m.tagTools.trim}
+            </label>
+            <label class="check">
+              {m.tagTools.caseConversion}
+              <select class="form-input w-auto" bind:value={caseConversion} disabled={isApplying}>
+                {#each caseConversions as conversion (conversion)}
+                  <option value={conversion}>{m.tagTools.caseOptions[conversion]}</option>
+                {/each}
+              </select>
+            </label>
+          </div>
+        {/if}
+      </TabPanel>
+    </form>
+  </Tabs>
 
   {#if inputError}
     <div class="message-error mt-3" role="alert">{inputError}</div>
@@ -368,23 +373,6 @@
 
 <style>
   @reference "../../app.css";
-
-  .tab-list {
-    @apply flex gap-1 mb-4 border-b border-border;
-  }
-
-  .tab {
-    @apply bg-transparent border-none px-4 py-2 text-sm text-text-muted cursor-pointer border-b-2 border-transparent transition-colors;
-    margin-bottom: -1px;
-  }
-
-  .tab:hover:not(:disabled) {
-    @apply text-text-primary;
-  }
-
-  .tab.active {
-    @apply text-primary border-primary font-semibold;
-  }
 
   .form-row {
     @apply flex flex-wrap gap-x-4 gap-y-2;
