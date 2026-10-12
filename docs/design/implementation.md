@@ -71,6 +71,7 @@ src-tauri/src/
 ├── metadata.rs
 ├── models.rs
 ├── settings.rs
+├── track_relink.rs        # 移動・改名されたファイルと、見つからない曲の対応付け
 ├── validation.rs
 └── state.rs
 ```

@@ -189,6 +189,8 @@
             <div
               class="track-row"
               class:selected={selection.has(track.id)}
+              class:missing={track.isMissing}
+              title={track.isMissing ? m.common.fileMissing : undefined}
               class:playing={player.currentTrack?.id === track.id}
               draggable="true"
               ondragstart={(e) => handleDragStart(e, track.id)}
@@ -335,6 +337,11 @@
 
   .track-row:hover {
     @apply bg-surface-hover;
+  }
+
+  /* ファイルが見つからない曲（再生できない）は薄く表示する */
+  .track-row.missing {
+    @apply opacity-50;
   }
 
   .track-row.selected {

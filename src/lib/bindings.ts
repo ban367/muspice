@@ -22,11 +22,17 @@ export const commands = {
 	 */
 	removeLibraryFolder: (folderId: string, removeTracks: boolean) => __TAURI_INVOKE<number>("remove_library_folder", { folderId, removeTracks }),
 	/**
-	 *  ライブラリフォルダを再スキャンし、追加・削除・変更されたファイルをライブラリに反映する
+	 *  ライブラリフォルダを再スキャンし、追加・移動・削除・変更されたファイルをライブラリに反映する
 	 * 
-	 *  フォルダが見つからない場合はエラーにする（トラックは外さない）。
+	 *  フォルダが見つからない場合はエラーにする（トラックは見つからない曲にしない）。
 	 */
 	rescanLibraryFolder: (folderId: string) => __TAURI_INVOKE<RescanResult>("rescan_library_folder", { folderId }),
+	/**
+	 *  見つからない曲（ファイルが見つからなくなったトラック）を、すべてライブラリから外す
+	 * 
+	 *  外したトラック数を返す。ファイルには触れない。
+	 */
+	removeMissingTracks: () => __TAURI_INVOKE<number>("remove_missing_tracks"),
 	/**
 	 *  登録済みのデバイスの一覧を取得する
 	 * 
@@ -188,6 +194,8 @@ export const commands = {
 	updatedAt: string,
 	/**  音量の正規化に使うゲイン（タグにない項目は値なし） */
 	replayGain: ReplayGain,
+	/**  ファイルが見つからない（再スキャンで見つからなくなった曲。利用者が外すまで残す） */
+	isMissing: boolean,
 } | null>("get_current_track"),
 	/**
 	 *  トラックのファイルをシステムのファイルマネージャーで表示
@@ -427,6 +435,8 @@ export type ImportProgress = {
 export type ImportResult = {
 	importedCount: number,
 	skippedCount: number,
+	/**  見つからない曲を、移動・改名された先のファイルに結び付けた数（新しい曲としては登録しない） */
+	relinkedCount: number,
 	errorCount: number,
 	errors: string[],
 };
@@ -465,6 +475,8 @@ export type LibraryFolderList = {
 	 *  インポートした曲など。同じフォルダをインポートし直すと登録される）
 	 */
 	unregisteredTrackCount: number,
+	/**  見つからない曲の数（ファイルが見つからなくなり、利用者が外すまで残しているトラック） */
+	missingTrackCount: number,
 };
 
 /**  ライブラリフォルダの再スキャンの進捗 */
@@ -536,12 +548,16 @@ export type RescanResult = {
 	addedCount: number,
 	/**  変更を読み直したトラック数 */
 	updatedCount: number,
-	/**  ファイルが見つからなくなり、ライブラリから外したトラック数 */
-	removedCount: number,
+	/**  移動・改名されたファイルに結び付けたトラック数（見つからない曲を、同じ曲として引き継いだ） */
+	relinkedCount: number,
+	/**  ファイルが見つからなくなり、見つからない曲にしたトラック数（ライブラリからは外さない） */
+	missingCount: number,
+	/**  ファイルが同じ場所に戻り、見つかる曲に戻したトラック数 */
+	restoredCount: number,
 	errorCount: number,
 	errors: string[],
-	/**  音楽ファイルが1件も見つからなかったため、ライブラリから外さなかった */
-	removalSkipped: boolean,
+	/**  音楽ファイルが1件も見つからなかったため、見つからない曲にしなかった */
+	missingSkipped: boolean,
 };
 
 /**  アプリケーション設定 */
@@ -647,6 +663,8 @@ export type Track = {
 	updatedAt: string,
 	/**  音量の正規化に使うゲイン（タグにない項目は値なし） */
 	replayGain: ReplayGain,
+	/**  ファイルが見つからない（再スキャンで見つからなくなった曲。利用者が外すまで残す） */
+	isMissing: boolean,
 };
 
 /**  音量の正規化（ReplayGain） */

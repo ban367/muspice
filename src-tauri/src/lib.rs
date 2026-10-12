@@ -18,6 +18,7 @@ mod playlist;
 mod repository;
 mod settings;
 mod state;
+mod track_relink;
 mod validation;
 
 use commands::{
@@ -28,11 +29,11 @@ use commands::{
     get_playlist_tracks, get_playlists, get_recently_played_tracks, get_settings, get_sync_devices,
     get_track_file_path, get_unique_albums, get_unique_artists, get_unique_genres, import_folder,
     increment_play_count, open_project_page, plan_device_sync, refresh_library_metadata,
-    register_sync_device, relink_sync_device, remove_library_folder, remove_sync_device,
-    remove_track_from_playlist, rename_playlist, reorder_playlist_tracks, rescan_library_folder,
-    run_device_sync, save_settings, search_tracks, set_current_track, set_rating, show_in_folder,
-    toggle_favorite, update_multiple_tracks_metadata, update_sync_device, update_track_metadata,
-    write_library_metadata_to_files,
+    register_sync_device, relink_sync_device, remove_library_folder, remove_missing_tracks,
+    remove_sync_device, remove_track_from_playlist, rename_playlist, reorder_playlist_tracks,
+    rescan_library_folder, run_device_sync, save_settings, search_tracks, set_current_track,
+    set_rating, show_in_folder, toggle_favorite, update_multiple_tracks_metadata,
+    update_sync_device, update_track_metadata, write_library_metadata_to_files,
 };
 use state::AppState;
 use std::path::PathBuf;
@@ -53,6 +54,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             get_library_folders,
             remove_library_folder,
             rescan_library_folder,
+            remove_missing_tracks,
             get_sync_devices,
             register_sync_device,
             update_sync_device,

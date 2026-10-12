@@ -464,7 +464,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
           lastPlayedAt: null,
           createdAt: timestamp,
           updatedAt: timestamp,
-          replayGain: { trackGain: null, trackPeak: null, albumGain: null, albumPeak: null }
+          replayGain: { trackGain: null, trackPeak: null, albumGain: null, albumPeak: null },
+          isMissing: false
         });
       }
       importedCount++;
@@ -473,7 +474,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     // Rustと同じく、インポートの後にライブラリが変わったことを知らせる
     registerLibraryFolder(folder);
     options.emit('library-changed', null);
-    return { importedCount, skippedCount, errorCount: 0, errors: [] };
+    // 実ファイルは存在しないため、移動・改名されたファイルの対応付けは再現しない
+    return { importedCount, skippedCount, relinkedCount: 0, errorCount: 0, errors: [] };
   }
 
   // ---- ライブラリフォルダ（src-tauri/src/library_folder.rsに対応） ----
@@ -949,7 +951,19 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         .sort((a, b) => compareAsc(a.path, b.path))
         .map((folder) => ({ ...folder, trackCount: tracksUnder(folder.path).length }));
       const registered = folders.reduce((sum, folder) => sum + folder.trackCount, 0);
-      return { folders, unregisteredTrackCount: tracks.length - registered };
+      return {
+        folders,
+        unregisteredTrackCount: tracks.length - registered,
+        missingTrackCount: tracks.filter((track) => track.isMissing).length
+      };
+    },
+    // 見つからない曲を、すべてライブラリから外す
+    removeMissingTracks: () => {
+      const removed = removeTracks(
+        tracks.filter((track) => track.isMissing).map((track) => track.id)
+      );
+      if (removed > 0) options.emit('library-changed', null);
+      return removed;
     },
     removeLibraryFolder: (folderId, removeTracksToo) => {
       const folder = findLibraryFolder(folderId);
@@ -973,10 +987,12 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       return {
         addedCount: 0,
         updatedCount: 0,
-        removedCount: 0,
+        relinkedCount: 0,
+        missingCount: 0,
+        restoredCount: 0,
         errorCount: 0,
         errors: [],
-        removalSkipped: false
+        missingSkipped: false
       };
     },
     // 実ファイルを読み直す代わりに、全トラックを更新済みとして扱う

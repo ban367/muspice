@@ -329,6 +329,8 @@
             <div
               class="track-row"
               class:selected={selection.has(track.id)}
+              class:missing={track.isMissing}
+              title={track.isMissing ? m.common.fileMissing : undefined}
               class:playing={player.currentTrack?.id === track.id}
               class:dragging={isDragging && selection.has(track.id)}
               style="grid-template-columns: {gridTemplateColumns};"
@@ -397,6 +399,8 @@
             <div
               class="track-card"
               class:selected={selection.has(track.id)}
+              class:missing={track.isMissing}
+              title={track.isMissing ? m.common.fileMissing : undefined}
               class:playing={player.currentTrack?.id === track.id}
               style="width: {cardWidth}px;"
               draggable="true"
@@ -525,6 +529,11 @@
     @apply bg-surface;
   }
 
+  /* ファイルが見つからない曲（再生できない）は薄く表示する */
+  .track-row.missing {
+    @apply opacity-50;
+  }
+
   .track-row.selected {
     @apply bg-primary/20;
   }
@@ -562,6 +571,11 @@
 
   .track-card:hover {
     @apply -translate-y-0.5 shadow-lg bg-surface-hover;
+  }
+
+  /* ファイルが見つからない曲（再生できない）は薄く表示する */
+  .track-card.missing {
+    @apply opacity-50;
   }
 
   .track-card.selected {

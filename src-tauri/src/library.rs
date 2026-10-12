@@ -12,6 +12,8 @@ const SUPPORTED_EXTENSIONS: &[&str] = &["mp3", "flac", "wav", "m4a"];
 pub struct ImportResult {
     pub imported_count: u32,
     pub skipped_count: u32,
+    /// 見つからない曲を、移動・改名された先のファイルに結び付けた数（新しい曲としては登録しない）
+    pub relinked_count: u32,
     pub error_count: u32,
     pub errors: Vec<String>,
 }

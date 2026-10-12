@@ -320,6 +320,41 @@ describe('addToQueue / addNextInQueue', () => {
   });
 });
 
+describe('ファイルが見つからない曲', () => {
+  const missing = { id: 'gone', title: 'gone', isMissing: true } as Track;
+  const withMissing = [tracks[0], missing, tracks[1], tracks[2]];
+
+  it('キューには入れず、選んだ曲から再生する', () => {
+    playTrackFromQueue(withMissing, 2);
+
+    expect(ids(player.playQueue)).toEqual(['t1', 't2', 't3']);
+    expect(ids(player.originalQueue)).toEqual(['t1', 't2', 't3']);
+    expect(player.currentTrackIndex).toBe(1);
+    expect(player.currentTrack?.id).toBe('t2');
+  });
+
+  it('見つからない曲を選んだ場合は、再生もキューの変更もしない', () => {
+    playTrackFromQueue(tracks, 0);
+    playTrackFromQueue(withMissing, 1);
+
+    expect(ids(player.playQueue)).toEqual(['t1', 't2', 't3', 't4']);
+    expect(player.currentTrack?.id).toBe('t1');
+  });
+
+  it('キューへの追加・シャッフル再生でも入れない', () => {
+    playTrackFromQueue(tracks, 0);
+    addToQueue([missing, makeTrack('x')]);
+    addNextInQueue([missing, makeTrack('y')]);
+    expect(ids(player.playQueue)).toEqual(['t1', 'y', 't2', 't3', 't4', 'x']);
+
+    playShuffled([missing, makeTrack('only')]);
+    expect(ids(player.playQueue)).toEqual(['only']);
+    // 再生できる曲がなければ何もしない
+    playShuffled([missing]);
+    expect(ids(player.playQueue)).toEqual(['only']);
+  });
+});
+
 describe('removeFromQueue', () => {
   it('再生中以外のトラックを削除すると再生中トラックのインデックスを詰める', () => {
     playTrackFromQueue(tracks, 2);

@@ -227,6 +227,15 @@
             >{m.common.itemCount(importResult.skippedCount)}</span
           >
         </div>
+        {#if importResult.relinkedCount > 0}
+          <!-- 見つからない曲を、移動・改名された先のファイルに結び付けた（新しい曲としては登録していない） -->
+          <div class="result-stat">
+            <span class="text-text-secondary">{m.importDialog.relinked}</span>
+            <span class="font-semibold text-text-primary"
+              >{m.common.itemCount(importResult.relinkedCount)}</span
+            >
+          </div>
+        {/if}
         <div class="result-stat">
           <span class="text-text-secondary">{m.importDialog.errors}</span>
           <span class="font-semibold text-error-light"

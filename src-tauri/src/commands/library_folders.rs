@@ -12,7 +12,10 @@ use crate::library_folder::{
 use crate::library_sync::LibrarySync;
 use crate::models::Track;
 use crate::state::AppState;
+use crate::track_relink::MissingTrackIndex;
 use crate::validation::validate_track_id;
+use chrono::Utc;
+use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 use tauri::{AppHandle, Manager};
@@ -39,14 +42,15 @@ pub async fn get_library_folders(app_handle: AppHandle) -> AppResult<LibraryFold
 
 /// `get_library_folders`の本体（同期処理）
 fn list_folders(state: &AppState) -> AppResult<LibraryFolderList> {
-    let (records, counts, total) = state.with_db(|db| {
+    let (records, counts, total, missing_track_count) = state.with_db(|db| {
         let records = find_all_folders(db)?;
         let counts = records
             .iter()
             .map(|f| crate::repository::count_tracks_under(db, &track_path_prefix(&f.path)))
             .collect::<AppResult<Vec<_>>>()?;
         let total = crate::repository::count_all_tracks(db)?;
-        Ok((records, counts, total))
+        let missing = crate::repository::count_missing_tracks(db)?;
+        Ok((records, counts, total, missing))
     })?;
 
     // フォルダの存在確認はファイルシステムへのアクセスのため、DBロックの外で行う
@@ -68,6 +72,7 @@ fn list_folders(state: &AppState) -> AppResult<LibraryFolderList> {
     Ok(LibraryFolderList {
         folders,
         unregistered_track_count: total.saturating_sub(registered),
+        missing_track_count,
     })
 }
 
@@ -129,9 +134,32 @@ fn remove_folder_blocking(
     Ok(removed)
 }
 
-/// ライブラリフォルダを再スキャンし、追加・削除・変更されたファイルをライブラリに反映する
+/// 見つからない曲（ファイルが見つからなくなったトラック）を、すべてライブラリから外す
 ///
-/// フォルダが見つからない場合はエラーにする（トラックは外さない）。
+/// 外したトラック数を返す。ファイルには触れない。
+#[tauri::command]
+#[specta::specta]
+pub async fn remove_missing_tracks(app_handle: AppHandle) -> AppResult<u32> {
+    run_blocking(move || {
+        let state = app_handle.state::<AppState>();
+        let removed = {
+            // 再スキャンの途中（見つからない曲にしてから、移動・改名の先のファイルに結び付けるまでの間）に
+            // 外さないよう、終わるまで待つ
+            let _scan = state.lock_library_scan();
+            let removed = state.with_db(|db| crate::repository::delete_missing_tracks(db))?;
+            to_count(removed)?
+        };
+        if removed > 0 {
+            notify_library_changed(&app_handle);
+        }
+        Ok(removed)
+    })
+    .await
+}
+
+/// ライブラリフォルダを再スキャンし、追加・移動・削除・変更されたファイルをライブラリに反映する
+///
+/// フォルダが見つからない場合はエラーにする（トラックは見つからない曲にしない）。
 #[tauri::command]
 #[specta::specta]
 pub async fn rescan_library_folder(
@@ -186,78 +214,112 @@ pub(crate) fn rescan_folder(
     let plan = plan_rescan(disk_files, tracks);
 
     let mut result = RescanResult {
-        removal_skipped: plan.removal_skipped,
+        missing_skipped: plan.missing_skipped,
         ..RescanResult::default()
     };
 
-    // 2. 追加・変更のあったファイルを読み込み、バッチごとに書き込む
+    // 2. 見つからなくなったトラックを見つからない曲にし、同じ場所に戻ったトラックを元に戻す。
+    //    ファイルの読み込みの前に行い、見つからない曲（これまでの分を含む）を、新しく見つかった
+    //    ファイルの対応付けの候補にする。途中で失敗しても、見つからない曲は次の再スキャンで対応付けられる
     let progress = report_progress.then_some(app_handle);
-    let mut outcome = read_and_write_tracks(&plan, state, progress, &mut result);
-
-    // 3. 更新日時の記録と、見つからなくなったトラックの削除（書き込みに失敗した場合は行わない）
-    if outcome.is_ok() {
-        match record_and_remove(state, &folder.id, &plan) {
-            Ok(removed) => result.removed_count = removed,
-            Err(e) => outcome = Err(e),
-        }
-    }
+    let outcome = record_file_states(state, &plan, &mut result)
+        // 3. 追加・変更のあったファイルを読み込み、バッチごとに書き込む
+        .and_then(|newly_missing| {
+            read_and_write_tracks(&plan, state, progress, newly_missing, &mut result)
+        })
+        // 4. スキャン日時を記録する（途中で失敗した場合は記録しない）
+        .and_then(|()| state.with_db(|db| crate::library_folder::mark_scanned(db, &folder.id)));
 
     // 失敗した場合も、それまでに書き込んだバッチはライブラリに反映されているため、通知する
     log::info!(
-        "ライブラリフォルダを再スキャンしました: {} 追加={}, 更新={}, 削除={}, エラー={}",
+        "ライブラリフォルダを再スキャンしました: {} 追加={}, 更新={}, 移動={}, 見つからない={}, 見つかった={}, エラー={}",
         folder.path,
         result.added_count,
         result.updated_count,
-        result.removed_count,
+        result.relinked_count,
+        result.missing_count,
+        result.restored_count,
         result.error_count
     );
 
-    if result.updated_count > 0 || result.removed_count > 0 {
-        // 同じパスのファイルが差し替わったため、アルバムアートを読み直させる
+    if result.updated_count > 0 || result.relinked_count > 0 || result.restored_count > 0 {
+        // 同じトラックのファイルが差し替わった・見つかったため、アルバムアートを読み直させる
         if let Ok(mut cache) = state.album_art_cache.lock() {
             cache.clear();
         }
     }
-    if result.added_count > 0 || result.updated_count > 0 || result.removed_count > 0 {
+    if result.added_count > 0
+        || result.updated_count > 0
+        || result.relinked_count > 0
+        || result.missing_count > 0
+        || result.restored_count > 0
+    {
         notify_library_changed(app_handle);
     }
 
     outcome.map(|()| result)
 }
 
-/// 更新日時を記録し、見つからなくなったトラックを外して、スキャン日時を記録する
+/// 更新日時を記録し、見つからなくなったトラックを見つからない曲に、同じ場所に戻ったトラックを元に戻す
 ///
-/// @returns 外したトラック数
-fn record_and_remove(state: &AppState, folder_id: &str, plan: &RescanPlan) -> AppResult<u32> {
-    let removed = state.with_db(|db| {
+/// @returns 今回の再スキャンで見つからない曲にしたトラックのID
+fn record_file_states(
+    state: &AppState,
+    plan: &RescanPlan,
+    result: &mut RescanResult,
+) -> AppResult<HashSet<String>> {
+    let (newly_missing, restored) = state.with_db(|db| {
         let tx = db.transaction().map_err(|e| {
             AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
         })?;
         for (track_id, modified_at) in &plan.to_record_modified_at {
             crate::repository::set_track_file_modified_at(&tx, track_id, *modified_at)?;
         }
-        let mut removed = 0;
-        for track_id in &plan.to_remove {
-            removed += crate::repository::delete_track(&tx, track_id)?;
+        let now = Utc::now().to_rfc3339();
+        let mut newly_missing = HashSet::new();
+        for track_id in &plan.to_mark_missing {
+            if crate::repository::mark_track_missing(&tx, track_id, &now)? > 0 {
+                newly_missing.insert(track_id.clone());
+            }
         }
-        crate::library_folder::mark_scanned(&tx, folder_id)?;
+        let mut restored = 0;
+        for track_id in &plan.to_restore {
+            restored += crate::repository::restore_missing_track(&tx, track_id)?;
+        }
         tx.commit().map_err(|e| {
             AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
         })?;
-        Ok(removed)
+        Ok((newly_missing, restored))
     })?;
-    to_count(removed)
+    result.missing_count = to_count(newly_missing.len())?;
+    result.restored_count = to_count(restored)?;
+    Ok(newly_missing)
+}
+
+/// 読み込んだファイルの書き込み方
+enum WriteAction {
+    /// 新しいトラックとして追加する
+    Insert,
+    /// 同じパスのトラックを、読み直した内容で更新する
+    Update,
+    /// 見つからない曲（このID）を、移動・改名の先のこのファイルに結び付ける
+    Relink(String),
 }
 
 /// 追加・変更のあったファイルを読み込んでライブラリに書き込む
 ///
 /// ファイルの読み込み（メタデータの抽出）はDBロックの外で行い、ロックはバッチ単位の
 /// 書き込みの間だけ保持する（インポートと同じ）。
+/// 新しいファイルが、見つからない曲（ほかのライブラリフォルダの分を含む）の移動・改名の先と
+/// 判定できた場合は、新しいトラックとして追加せず、その曲に結び付ける。
 /// `progress`を渡すと、ファイルごとに`LibraryScanProgress`を送る。
+/// `newly_missing`は、今回の再スキャンで見つからない曲にしたトラックのID
+/// （結び付けた分を、結果の「見つからない曲にした数」から除くために使う）。
 fn read_and_write_tracks(
     plan: &RescanPlan,
     state: &AppState,
     progress: Option<&AppHandle>,
+    mut newly_missing: HashSet<String>,
     result: &mut RescanResult,
 ) -> AppResult<()> {
     // (ファイル, 新規か)
@@ -270,8 +332,15 @@ fn read_and_write_tracks(
     let total = to_count(files.len())?;
     let mut processed: u32 = 0;
 
+    // 新しいファイルがある場合だけ、見つからない曲を対応付けの候補として読み込む
+    let mut missing_tracks = if plan.to_add.is_empty() {
+        MissingTrackIndex::default()
+    } else {
+        MissingTrackIndex::new(state.with_db(|db| crate::repository::find_missing_tracks(db))?)
+    };
+
     for chunk in files.chunks(BATCH_SIZE) {
-        let mut pending: Vec<(Track, bool, Option<i64>)> = Vec::new();
+        let mut pending: Vec<(Track, WriteAction, Option<i64>)> = Vec::new();
 
         for (file, is_new) in chunk {
             let path = Path::new(&file.path);
@@ -292,7 +361,17 @@ fn read_and_write_tracks(
             }
 
             match create_track_from_file(path) {
-                Ok(track) => pending.push((track, *is_new, file.modified_at)),
+                Ok(track) => {
+                    let action = if !*is_new {
+                        WriteAction::Update
+                    } else if let Some(moved) = missing_tracks.take_match(&track, file.modified_at)
+                    {
+                        WriteAction::Relink(moved.id)
+                    } else {
+                        WriteAction::Insert
+                    };
+                    pending.push((track, action, file.modified_at));
+                }
                 Err(e) => {
                     result.errors.push(format!("{}: {}", file.path, e));
                     result.error_count += 1;
@@ -308,16 +387,33 @@ fn read_and_write_tracks(
             let tx = db.transaction().map_err(|e| {
                 AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
             })?;
-            for (track, is_new, modified_at) in &pending {
-                let written = if *is_new {
-                    crate::repository::insert_track(&tx, track, *modified_at)
-                } else {
-                    crate::repository::update_track_by_file_path(&tx, track, *modified_at)
+            for (track, action, modified_at) in &pending {
+                let written = match action {
+                    WriteAction::Insert => {
+                        crate::repository::insert_track(&tx, track, *modified_at)
+                    }
+                    WriteAction::Update => {
+                        crate::repository::update_track_by_file_path(&tx, track, *modified_at)
+                    }
+                    WriteAction::Relink(track_id) => crate::repository::relink_track(
+                        &tx,
+                        track_id,
+                        &track.file_path,
+                        &track.file_name,
+                        *modified_at,
+                    ),
                 };
-                match written {
-                    Ok(()) if *is_new => result.added_count += 1,
-                    Ok(()) => result.updated_count += 1,
-                    Err(e) => {
+                match (written, action) {
+                    (Ok(()), WriteAction::Insert) => result.added_count += 1,
+                    (Ok(()), WriteAction::Update) => result.updated_count += 1,
+                    (Ok(()), WriteAction::Relink(track_id)) => {
+                        result.relinked_count += 1;
+                        // 今回見つからなくなった曲の移動・改名だった（見つからない曲のままではない）
+                        if newly_missing.remove(track_id) {
+                            result.missing_count = result.missing_count.saturating_sub(1);
+                        }
+                    }
+                    (Err(e), _) => {
                         result.errors.push(format!("{}: {}", track.file_path, e));
                         result.error_count += 1;
                     }
