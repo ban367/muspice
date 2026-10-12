@@ -13,6 +13,7 @@
 
 use crate::error::{AppError, AppResult};
 use crate::models::Track;
+use crate::multi_value::MatchOp;
 use crate::repository::{TRACK_COLUMNS, query_tracks};
 use chrono::{DateTime, Duration, Utc};
 use rusqlite::{Connection, ToSql};
@@ -338,6 +339,21 @@ fn date_column(field: DateField) -> &'static str {
     }
 }
 
+/// 文字列の比べ方を、複数の値の比べ方にする（合わない時に成り立つ条件は、2つ目がtrue）
+///
+/// 「空」「空でない」は、値ごとに比べる必要がないためNone。
+fn multi_value_op(op: TextOp) -> Option<(MatchOp, bool)> {
+    match op {
+        TextOp::Contains => Some((MatchOp::Contains, false)),
+        TextOp::NotContains => Some((MatchOp::Contains, true)),
+        TextOp::StartsWith => Some((MatchOp::StartsWith, false)),
+        TextOp::EndsWith => Some((MatchOp::EndsWith, false)),
+        TextOp::Is => Some((MatchOp::Is, false)),
+        TextOp::IsNot => Some((MatchOp::Is, true)),
+        TextOp::IsEmpty | TextOp::IsNotEmpty => None,
+    }
+}
+
 /// 1つの条件を、SQLの条件式にする
 fn rule_condition(rule: &SmartRule, now: DateTime<Utc>) -> Condition {
     match rule {
@@ -346,6 +362,20 @@ fn rule_condition(rule: &SmartRule, now: DateTime<Utc>) -> Condition {
             // 検索と同じ正規化（大文字と小文字・全角と半角・ひらがなとカタカナをそろえる）をして比べる
             let normalized = format!("search_text({column})");
             let needle = crate::search_text::normalize(value.trim());
+            // アーティスト・ジャンルは複数の値を持てるため、値のどれかが条件に合うかで比べる
+            // （「ジャンルがRock」は、`Rock; Pop`の曲にも合う。`multi_value`）
+            if matches!(field, TextField::Artist | TextField::Genre)
+                && let Some((match_op, negate)) = multi_value_op(*op)
+            {
+                return Condition::new(
+                    format!(
+                        "{}multi_value_match({column}, '{}', ?)",
+                        if negate { "NOT " } else { "" },
+                        match_op.as_sql()
+                    ),
+                    vec![Box::new(needle)],
+                );
+            }
             let like = |pattern: String, negate: bool| {
                 Condition::new(
                     format!(
@@ -656,6 +686,49 @@ mod tests {
         assert_eq!(find(TextField::Path, TextOp::Contains, "/zard/"), ["b"]);
         assert_eq!(find(TextField::Format, TextOp::Is, "MP3").len(), 4);
         assert!(find(TextField::Format, TextOp::Is, "flac").is_empty());
+    }
+
+    /// アーティスト・ジャンルが複数ある曲は、値のどれかが条件に合えば合う
+    #[test]
+    fn test_text_rules_match_each_value_of_artists_and_genres() {
+        let conn = setup();
+        insert(&conn, "a", "宇多田ヒカル; ZARD", "X", Some("Rock; J-Pop"));
+        insert(&conn, "b", "ZARD", "Y", Some("J-Pop"));
+        insert(&conn, "c", "Miles Davis", "Z", Some("Jazz"));
+        insert(&conn, "d", "Popper", "W", None);
+        let find = |field, op, value: &str| {
+            ids(&conn, &rules(MatchMode::All, vec![text(field, op, value)]))
+        };
+
+        assert_eq!(find(TextField::Genre, TextOp::Is, "rock"), ["a"]);
+        assert_eq!(find(TextField::Genre, TextOp::Is, "j-pop"), ["a", "b"]);
+        // 値の一部だけでは「である」に合わない。分ける前の文字列そのものには合う
+        assert!(find(TextField::Genre, TextOp::Is, "pop").is_empty());
+        assert_eq!(find(TextField::Genre, TextOp::Is, "Rock; J-Pop"), ["a"]);
+        // 「ではない」は、どの値も合わない曲（値のない曲を含む）
+        assert_eq!(find(TextField::Genre, TextOp::IsNot, "j-pop"), ["c", "d"]);
+        assert_eq!(
+            find(TextField::Genre, TextOp::IsNot, "rock"),
+            ["b", "c", "d"]
+        );
+        // 「で始まる」「で終わる」も、値ごとに比べる
+        assert_eq!(
+            find(TextField::Artist, TextOp::StartsWith, "zard"),
+            ["a", "b"]
+        );
+        assert_eq!(find(TextField::Artist, TextOp::EndsWith, "ひかる"), ["a"]);
+        assert_eq!(find(TextField::Artist, TextOp::Contains, "ar"), ["a", "b"]);
+        assert_eq!(
+            find(TextField::Artist, TextOp::NotContains, "zard"),
+            ["c", "d"]
+        );
+        // アルバムなど、ほかの項目は分けない
+        insert(&conn, "e", "Solo", "Live; Remastered", None);
+        assert!(find(TextField::Album, TextOp::Is, "Live").is_empty());
+        assert_eq!(
+            find(TextField::Album, TextOp::Is, "Live; Remastered"),
+            ["e"]
+        );
     }
 
     #[test]

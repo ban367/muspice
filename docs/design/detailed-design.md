@@ -139,6 +139,8 @@ export interface Playlist {
 - `tracks.album_artist_read` は、アルバムアーティストをファイルから読んだか（0/1）。インポート・再スキャン・`refresh_library_metadata`でファイルを読んだトラックは1にする。列を追加する前に登録したトラックは0で、起動時にバックグラウンドで読み込む（後述の「既存のトラックの、後から追加した項目の読み込み」）
 - `tracks.title_sort` / `artist_sort` / `album_sort` / `album_artist_sort` は、ファイルのタグから読んだ、並び順に使う値（ソート用のタグ。読み仮名など。前後の空白を除き、空の値はNULL）。ID3v2は`TSOT`・`TSOP`・`TSOA`・`TSO2`、Vorbisコメントは`TITLESORT`・`ARTISTSORT`・`ALBUMSORT`・`ALBUMARTISTSORT`、MP4は`sonm`・`soar`・`soal`・`soaa`（ADR-036）
 - `tracks.sort_tags_read` は、ソート用のタグをファイルから読んだか（0/1）。扱いは`album_artist_read`と同じ
+- `tracks.artist` / `genre` は、複数の値を持てる（ADR-051）。タグに同じ項目が複数ある曲と、1つの値に`;`で区切って書かれている曲は、値を`; `でつないだ文字列で持つ（`Rock; Pop`）。一覧の集計・絞り込みの時に、`;`で値に分ける（前後の空白を除く。空の値・同じ値の2つ目以降は除く）。`/`・`,`・`&`では分けない
+- `tracks.multi_values_read` は、アーティスト・ジャンルを複数の値として読んだか（0/1）。扱いは`album_artist_read`と同じ（複数の値に対応する前に登録したトラックは0で、同じ項目が複数あるタグの最初の値だけを読んでいる）
 - `tracks_fts` は `tracks` とINSERT/UPDATE/DELETEトリガーで同期する。UPDATEは、検索の対象の列（`title`・`artist`・`album`・`genre`・`album_artist`）を変えた時だけ同期する（再生回数・評価などの更新では索引を更新しない）
   - トークナイザーはtrigram（3文字の並びを索引にする）。語の途中の一致（区切りのない日本語を含む）を探せる
   - 入れる文字列は、SQLの関数`search_text(...)`で作る（`search_text.rs`が接続に登録する。NFKC → 小文字 → カタカナをひらがなに、の順で正規化し、項目を改行でつなぐ）。トリガーがこの関数を使うため、アプリの外（`sqlite3`コマンドなど）から`tracks`の対象の列を書き換えると、関数がないエラーになる
@@ -169,18 +171,18 @@ export interface Playlist {
 
 ### ライブラリ取得・検索
 
-| コマンド                           | 引数                                      | 戻り値            | 備考                                                                                                                                                                           |
-| ---------------------------------- | ----------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `get_all_tracks`                   | なし                                      | `Track[]`         | 全曲。作成日時降順                                                                                                                                                             |
-| `search_tracks`                    | `query: string`                           | `Track[]`         | 部分一致の検索（「検索」を参照）。作成日時降順                                                                                                                                 |
-| `filter_tracks`                    | `filters: { artist?, album?, genre? }`    | `Track[]`         | 完全一致フィルタ。作成日時降順                                                                                                                                                 |
-| `get_unique_artists/albums/genres` | なし                                      | `string[]`        | フィルタ候補用                                                                                                                                                                 |
-| `get_albums`                       | なし                                      | `AlbumSummary[]`  | アルバムの一覧（名前の順。「一覧の取得」を参照）。`artist`は、アルバムをまとめたアーティスト（アルバムアーティスト。なければ曲のアーティスト）。代表の曲は、アルバムの最初の曲 |
-| `get_album_tracks`                 | `album: string`, `artist: string \| null` | `Track[]`         | アルバムの曲（ディスク番号 → トラック番号 → タイトル）。`artist`には`AlbumSummary`の`artist`を渡す                                                                             |
-| `get_artists`                      | なし                                      | `ArtistSummary[]` | アーティストの一覧（アルバムアーティストでまとめる。名前の順）。代表の曲は、名前の順で最初のアルバムの最初の曲                                                                 |
-| `get_artist_albums`                | `artist: string`                          | `AlbumGroup[]`    | アルバムアーティストが一致する曲を、アルバムごとに返す（アルバム名順。曲ごとのアーティストが違う曲も含む）。アルバムのない曲は「不明なアルバム」にまとめる                     |
-| `get_genres`                       | なし                                      | `GenreSummary[]`  | ジャンルの一覧（名前順）。代表の曲は、ジャンルの最初の曲                                                                                                                       |
-| `get_genre_tracks`                 | `genre: string`                           | `Track[]`         | ジャンルの曲（アルバムをまとめるアーティスト → アルバム → アルバムの中の並び）                                                                                                 |
+| コマンド                           | 引数                                      | 戻り値            | 備考                                                                                                                                                                                                                                                                                                                                                                                 |
+| ---------------------------------- | ----------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `get_all_tracks`                   | なし                                      | `Track[]`         | 全曲。作成日時降順                                                                                                                                                                                                                                                                                                                                                                   |
+| `search_tracks`                    | `query: string`                           | `Track[]`         | 部分一致の検索（「検索」を参照）。作成日時降順                                                                                                                                                                                                                                                                                                                                       |
+| `filter_tracks`                    | `filters: { artist?, album?, genre? }`    | `Track[]`         | 完全一致フィルタ（アーティスト・ジャンルは、複数ある値のどれかが一致する曲）。作成日時降順                                                                                                                                                                                                                                                                                           |
+| `get_unique_artists/albums/genres` | なし                                      | `string[]`        | フィルタ候補用（アーティスト・ジャンルは、複数ある曲のそれぞれの値）                                                                                                                                                                                                                                                                                                                 |
+| `get_albums`                       | なし                                      | `AlbumSummary[]`  | アルバムの一覧（名前の順。「一覧の取得」を参照）。`artist`は、アルバムをまとめたアーティスト（アルバムアーティスト。なければ曲のアーティスト）。代表の曲は、アルバムの最初の曲                                                                                                                                                                                                       |
+| `get_album_tracks`                 | `album: string`, `artist: string \| null` | `Track[]`         | アルバムの曲（ディスク番号 → トラック番号 → タイトル）。`artist`には`AlbumSummary`の`artist`を渡す                                                                                                                                                                                                                                                                                   |
+| `get_artists`                      | なし                                      | `ArtistSummary[]` | アーティストの一覧（アルバムアーティストでまとめる。アルバムアーティストがなく、曲のアーティストが複数ある曲は、それぞれのアーティストに入る。名前の順）。代表の曲は、名前の順で最初のアルバムの最初の曲                                                                                                                                                                             |
+| `get_artist_albums`                | `artist: string`                          | `AlbumGroup[]`    | アルバムアーティスト（なければ、曲のアーティストのどれか）が一致する曲を、アルバムごとに返す（アルバム名順。曲ごとのアーティストが違う曲も含む）。アルバムは「アルバム名＋まとめるアーティスト」で分け、`artist`は、そのアルバムをまとめるアーティスト（複数のアーティストの曲のアルバムでは`A; B`の形。`get_album_tracks`に渡す値）。アルバムのない曲は「不明なアルバム」にまとめる |
+| `get_genres`                       | なし                                      | `GenreSummary[]`  | ジャンルの一覧（名前順。ジャンルが複数ある曲は、それぞれのジャンルに入る）。代表の曲は、ジャンルの最初の曲                                                                                                                                                                                                                                                                           |
+| `get_genre_tracks`                 | `genre: string`                           | `Track[]`         | ジャンルの曲（ジャンルが複数ある曲は、そのどれかが一致する曲。アルバムをまとめるアーティスト → アルバム → アルバムの中の並び）                                                                                                                                                                                                                                                       |
 
 一覧（`AlbumSummary`・`ArtistSummary`・`GenreSummary`）は`name`・`trackCount`・`totalDuration`・`representativeTrackId`（アルバムアートの取得に使う）を持ち、曲は含まない（アルバムは`artist`と`sortName`、アーティストは`albumCount`と`sortName`も持つ）。見つからないアルバムなどの曲は、空の一覧を返す。
 
@@ -194,6 +196,7 @@ export interface Playlist {
 - 200曲ずつ、ファイルの読み取りはDBロックの外で行い、1つのトランザクションで記録する。読み込んだトラックは`album_artist_read`・`sort_tags_read`を1にするため、対象がなくなれば次回以降の起動では何もしない
 - ファイルを読めなかったトラック（外付けドライブが外れているなど）は未読のまま残し、次回の起動で読み直す。途中でアプリを終了した場合も、次回の起動で続きから読み込む
 - 未読だった項目にタグのあるトラックが1曲でもあれば、終わった時に`LibraryChanged`を送る（一覧のまとめ方・並びが変わるため）
+- 複数の値に対応する前に登録したトラック（`multi_values_read = 0`）は、アーティスト・ジャンルを読み直す。ファイルに複数の値があり、今の値がその最初の値と同じ場合だけ、すべての値（`; `でつないだ文字列）に置き換える（アプリで編集した値・もともと1つの値は変えない）
 
 ### インポート・削除
 
@@ -384,6 +387,7 @@ export interface Playlist {
   - ファイル名の書式: `%title%`・`%artist%`・`%album%`・`%albumartist%`・`%genre%`・`%year%`・`%track%`・`%disc%`と、読み飛ばす`%dummy%`。ほかの文字はそのまま一致させ、`/`で区切ると上のフォルダの名前も使える。番号・年は数字だけに一致し、範囲の外の値・書式に合わないファイル名の曲は変えない
   - 検索と置換: 対象はタイトル・アーティスト・アルバム・アルバムアーティスト・ジャンル。置換（そのままの文字列か、JavaScriptの正規表現）→ 大文字・小文字の変換 → 前後の空白の削除の順に行う
 - タグの書き方: BPMは、ID3v2の`TBPM`・MP4の`tmpo`・Vorbisコメントの`BPM`・APEv2タグの`BPM`。歌詞は、ID3v2の`USLT`・Vorbisコメントの`LYRICS`・MP4の`©lyr`・APEv2タグの`Lyrics`（読む時は、Vorbisコメントの`UNSYNCEDLYRICS`も読む）。グループは、ID3v2の`TIT1`・MP4の`©grp`・Vorbisコメントの`GROUPING`・APEv2タグの`Grouping`
+- アーティスト・ジャンルは、`;`で区切ると複数の値になる（ADR-051）。入力は、複数の値の形にそろえて記録する（`A ;B` → `A; B`）。ファイルへは、タグに書かれていた形を保って書く: タグの今の値と同じなら、タグを変えない。違う場合、1つの値に`;`で区切って書かれていたタグはその形（`; `でつないだ1つの値）で、そうでなければ値ごとの項目として書く（Vorbisコメントは同じ項目を複数、ID3v2.4・APEv2は区切り付きの値、MP4は複数の値）。`write_library_metadata_to_files`は、書き方だけの違いと、最初の値だけを読んでいた頃の値を、編集した内容として書き出さない
 - APEv2タグ（WavPack・APE）は、アプリが扱わない項目（ほかのアプリが書いた独自の項目・読めない種類の画像）を残して書き込む。loftyの汎用タグは、対応する項目がないもの（BPM・評価・画像を含む）を読まず、保存するとタグ全体を置き換えるため、`ape_tag.rs`が形式ごとのタグを直接読み書きする（ADR-047）
 - Vorbisコメント（FLAC・Ogg Vorbis・Opus）も、アプリが扱わない項目（ほかのアプリが書いた独自の項目）とベンダーの文字列を残して書き込む（`vorbis_tag.rs`。ADR-048）。書き手の付いた評価（`RATING:書き手`）は、評価を変えない限り、その形のまま残す。エンコーダーの項目（`ENCODER`）は、ファイルにあった場合だけ書く。ID3v2・MP4は、loftyが対応のない項目を残すため、汎用タグのまま保存する
 - `BulkUpdateResult`: `updatedCount`, `failedCount`, `errors[]`
@@ -439,6 +443,7 @@ export interface Playlist {
 - 条件は`SmartRules`: `{ matchMode: 'all' | 'any', rules: SmartRule[], order: { field, descending }, limit: number | null }`。`playlists.rules`にJSONで保存する
   - `SmartRule`は、`kind`で種類を分ける
     - `{ kind: 'text', field, op, value }`: `field`は`title`・`artist`・`albumArtist`・`album`・`genre`・`format`・`path`（ファイルの場所）。`op`は`contains`・`notContains`・`is`・`isNot`・`startsWith`・`endsWith`・`isEmpty`・`isNotEmpty`。検索と同じ正規化（大文字と小文字・全角と半角・ひらがなとカタカナをそろえる）をして比べる。値のない項目は、空の文字列として比べる（「〜ではない」「〜を含まない」に合う）
+    - `artist`・`genre`は複数の値を持てるため、値のどれかが条件に合うかで比べる（「ジャンルがRock」は、`Rock; Pop`の曲にも合う。分ける前の文字列そのものが合う場合も、合うとみなす。`notContains`・`isNot`は、どの値も合わない曲）
     - `{ kind: 'number', field, op, value, valueTo }`: `field`は`rating`・`year`・`playCount`・`skipCount`・`duration`（秒）・`trackNumber`・`discNumber`・`bitrate`（kbps）。`op`は`is`・`isNot`・`atLeast`・`atMost`・`between`（`value`以上・`valueTo`以下）。評価・再生回数・スキップ回数は、値がなければ0として比べる。ほかの項目の値のない曲は、`isNot`にだけ合う
     - `{ kind: 'date', field, op, days }`: `field`は`createdAt`（追加日）・`lastPlayedAt`（最終再生日）。`op`は`inLast`（過去`days`日以内）・`notInLast`（過去`days`日より前。日付のない曲＝未再生の曲を含む）・`isEmpty`・`isNotEmpty`
     - `{ kind: 'favorite', value }`: お気に入りかどうか

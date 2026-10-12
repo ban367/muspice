@@ -6,9 +6,12 @@
  *
  * 絞り込みの順は、条件 → ジャンル → アーティスト → アルバム。カラムブラウザの各列には、
  * その列より前の絞り込みに合う曲の値だけを出す。
+ *
+ * ジャンル・アーティストが複数ある曲（`Rock; Pop`）は、それぞれの値の項目に入る（`multiValue`）。
  */
 import type { Track } from '#lib/types/models.js';
 import { albumKey } from './albumKey.js';
+import { listedArtists, splitValues } from './multiValue.js';
 import { compareNames } from './nameSort.js';
 
 // ---------- フィルタ（評価・年・お気に入り） ----------
@@ -114,20 +117,21 @@ interface Bucket extends BrowserItem {
   sortName: string | null;
 }
 
-/** 曲を、キーごとに数える */
+/** 曲を、キーごとに数える（1曲が複数の項目に入ることがある） */
 function collect(
   tracks: readonly Track[],
-  describe: (track: Track) => Omit<Bucket, 'count'>
+  describe: (track: Track) => Omit<Bucket, 'count'>[]
 ): BrowserItem[] {
   const buckets = new Map<string, Bucket>();
   for (const track of tracks) {
-    const item = describe(track);
-    const bucket = buckets.get(item.key);
-    if (bucket) {
-      bucket.count++;
-      bucket.sortName ??= item.sortName;
-    } else {
-      buckets.set(item.key, { ...item, count: 1 });
+    for (const item of describe(track)) {
+      const bucket = buckets.get(item.key);
+      if (bucket) {
+        bucket.count++;
+        bucket.sortName ??= item.sortName;
+      } else {
+        buckets.set(item.key, { ...item, count: 1 });
+      }
     }
   }
 
@@ -152,20 +156,36 @@ function markSameNames(items: BrowserItem[]): BrowserItem[] {
   );
 }
 
-const genreKey = (track: Track) => track.genre ?? UNKNOWN_KEY;
-const artistKey = (track: Track) => groupArtist(track) ?? UNKNOWN_KEY;
-const albumKeyOf = (track: Track) =>
-  albumKey({ name: track.album ?? '', artist: groupArtist(track) });
+/** 値がなければ、値のない項目のキーにする */
+const orUnknown = (keys: string[]) => (keys.length > 0 ? keys : [UNKNOWN_KEY]);
+
+/** 曲のジャンルのキー（複数ある曲は、それぞれ） */
+const genreKeys = (track: Track) => orUnknown(splitValues(track.genre));
+/** 曲をまとめるアーティストのキー（アルバムアーティストがなく、曲のアーティストが複数ある曲は、それぞれ） */
+const artistKeys = (track: Track) => orUnknown(listedArtists(track));
+const albumKeysOf = (track: Track) => [
+  albumKey({ name: track.album ?? '', artist: groupArtist(track) })
+];
+
+/**
+ * まとめるアーティストの項目（並び順に使う値は、アーティストが1つの曲のものだけを使う。
+ * 複数ある曲の読みは、どのアーティストのものか分からないため）
+ */
+function artistItems(track: Track): Omit<Bucket, 'count'>[] {
+  const keys = artistKeys(track);
+  const sortName = keys.length === 1 ? groupArtistSortName(track) : null;
+  return keys.map((key) => ({ key, name: key === UNKNOWN_KEY ? null : key, sortName }));
+}
 
 /** 選んだ項目に合う曲だけにする（何も選んでいなければ、すべて） */
 function narrow(
   tracks: readonly Track[],
   selected: readonly string[],
-  keyOf: (track: Track) => string
+  keysOf: (track: Track) => string[]
 ): readonly Track[] {
   if (selected.length === 0) return tracks;
   const keys = new Set(selected);
-  return tracks.filter((track) => keys.has(keyOf(track)));
+  return tracks.filter((track) => keysOf(track).some((key) => keys.has(key)));
 }
 
 /** 今の一覧にある項目だけを、選択に残す */
@@ -178,37 +198,38 @@ function keepExisting(selected: readonly string[], items: readonly BrowserItem[]
 /**
  * カラムブラウザの各列の項目と、選択で絞り込んだ曲を求める
  *
- * - ジャンルの列: 渡した曲のジャンル
- * - アーティストの列: 選んだジャンルの曲の、アーティスト（アルバムアーティスト。なければ曲のアーティスト）
+ * - ジャンルの列: 渡した曲のジャンル（複数ある曲は、それぞれ）
+ * - アーティストの列: 選んだジャンルの曲の、アーティスト（アルバムアーティスト。なければ曲のアーティスト。
+ *   複数ある曲は、それぞれ）
  * - アルバムの列: 選んだジャンル・アーティストの曲の、アルバム（同じ名前でも、アーティストが違えば別）
  */
 export function browseTracks(tracks: readonly Track[], selection: BrowserSelection): BrowserResult {
-  const genres = collect(tracks, (track) => ({
-    key: genreKey(track),
-    name: track.genre,
-    sortName: null
-  }));
-  const selectedGenres = keepExisting(selection.genres, genres);
-  const inGenres = narrow(tracks, selectedGenres, genreKey);
-
-  const artists = collect(inGenres, (track) => ({
-    key: artistKey(track),
-    name: groupArtist(track),
-    sortName: groupArtistSortName(track)
-  }));
-  const selectedArtists = keepExisting(selection.artists, artists);
-  const inArtists = narrow(inGenres, selectedArtists, artistKey);
-
-  const albums = markSameNames(
-    collect(inArtists, (track) => ({
-      key: albumKeyOf(track),
-      name: track.album,
-      artist: groupArtist(track),
-      sortName: track.sortTags.album
+  const genres = collect(tracks, (track) =>
+    genreKeys(track).map((key) => ({
+      key,
+      name: key === UNKNOWN_KEY ? null : key,
+      sortName: null
     }))
   );
+  const selectedGenres = keepExisting(selection.genres, genres);
+  const inGenres = narrow(tracks, selectedGenres, genreKeys);
+
+  const artists = collect(inGenres, artistItems);
+  const selectedArtists = keepExisting(selection.artists, artists);
+  const inArtists = narrow(inGenres, selectedArtists, artistKeys);
+
+  const albums = markSameNames(
+    collect(inArtists, (track) => [
+      {
+        key: albumKeysOf(track)[0],
+        name: track.album,
+        artist: groupArtist(track),
+        sortName: track.sortTags.album
+      }
+    ])
+  );
   const selectedAlbums = keepExisting(selection.albums, albums);
-  const inAlbums = narrow(inArtists, selectedAlbums, albumKeyOf);
+  const inAlbums = narrow(inArtists, selectedAlbums, albumKeysOf);
 
   return {
     genres,

@@ -14,6 +14,7 @@ use crate::metadata::{
     validate_metadata,
 };
 use crate::models::{Metadata, Track};
+use crate::multi_value;
 use crate::repository::TrackTagValues;
 use crate::state::AppState;
 use crate::validation::{validate_string_length, validate_track_id};
@@ -31,6 +32,21 @@ const MAX_COMMENT_LENGTH: usize = 2_000;
 
 /// 歌詞の長さの上限（文字数）
 const MAX_LYRICS_LENGTH: usize = 50_000;
+
+/// アーティスト・ジャンルの入力を、複数の値の形にそろえる（`A ;B` → `A; B`）
+///
+/// ファイルから読み直した時と同じ文字列を、データベースに記録するため（`multi_value::display`）。
+/// 複数の値でない入力は、そのまま。
+fn normalize_multi_values(mut metadata: Metadata) -> Metadata {
+    for value in [&mut metadata.artist, &mut metadata.genre] {
+        if let Some(text) = value
+            && text.contains(multi_value::SEPARATOR)
+        {
+            *text = multi_value::join(&multi_value::split(text));
+        }
+    }
+    metadata
+}
 
 fn validate_metadata_input(metadata: &Metadata) -> AppResult<()> {
     validate_metadata(metadata)?;
@@ -108,6 +124,7 @@ pub async fn update_track_metadata(
 ) -> AppResult<()> {
     validate_track_id(&track_id)?;
     validate_metadata_input(&metadata)?;
+    let metadata = normalize_multi_values(metadata);
 
     // トラックのファイルパスを取得
     let file_path =
@@ -173,6 +190,7 @@ pub async fn update_multiple_tracks_metadata(
     }
 
     validate_metadata_input(&metadata)?;
+    let metadata = normalize_multi_values(metadata);
 
     // ファイルの書き込みとバッチ書き込みはブロッキング処理用スレッドで行う
     run_blocking(move || {
@@ -213,6 +231,14 @@ pub async fn apply_metadata_changes(
         validate_track_id(&change.track_id)?;
         validate_metadata_input(&change.metadata)?;
     }
+
+    let changes: Vec<TrackMetadataChange> = changes
+        .into_iter()
+        .map(|change| TrackMetadataChange {
+            track_id: change.track_id,
+            metadata: normalize_multi_values(change.metadata),
+        })
+        .collect();
 
     run_blocking(move || {
         let updates: Vec<(&String, &Metadata)> = changes
@@ -427,6 +453,16 @@ fn pending_file_changes(
         Some(value) if file.as_ref() != Some(value) => Some(value.clone()),
         _ => None,
     };
+    // アーティスト・ジャンルは、複数の値として比べる。書き方だけの違い（`A;B`と`A; B`）と、
+    // 複数の値に対応する前に読んだ値（ファイルにある値の、最初の1つだけ）は、編集した内容ではない
+    let changed_values = |db: &Option<String>, file: &Option<String>| {
+        let value = changed(db, file)?;
+        let db_values = multi_value::split(&value);
+        let file_values = multi_value::split(file.as_deref().unwrap_or_default());
+        let is_first_value_only =
+            file_values.len() > 1 && db_values.as_slice() == &file_values[..1];
+        (db_values != file_values && !is_first_value_only).then_some(value)
+    };
 
     // タグにタイトルがないファイルは、ファイル名をタイトルとして登録している。
     // その既定のタイトルは、編集した内容ではないため書き出さない
@@ -435,9 +471,9 @@ fn pending_file_changes(
 
     let metadata = Metadata {
         title,
-        artist: changed(&values.artist, &file.metadata.artist),
+        artist: changed_values(&values.artist, &file.metadata.artist),
         album: changed(&values.album, &file.metadata.album),
-        genre: changed(&values.genre, &file.metadata.genre),
+        genre: changed_values(&values.genre, &file.metadata.genre),
         year: values.year.filter(|year| file.metadata.year != Some(*year)),
         track_number: None,
         disc_number: None,
@@ -618,6 +654,57 @@ mod tests {
         assert_eq!(metadata.artist.as_deref(), Some("Artist"));
         assert_eq!(metadata.year, None);
         assert_eq!(rating, Some(4));
+    }
+
+    /// 複数の値に対応する前に読んだアーティスト（ファイルにある値の最初の1つ）と、書き方だけの違いは、
+    /// 編集した内容として書き出さない（ファイルの複数の値を、1つに戻さない）
+    #[test]
+    fn test_pending_file_changes_ignores_first_value_reads_of_multiple_values() {
+        let values = TrackTagValues {
+            rating: 0,
+            ..db_values()
+        };
+        // データベース: "Artist"。ファイル: "Artist; Guest"
+        let file = file_info(metadata(Some("Title"), Some("Artist; Guest"), None), 0);
+        assert!(pending_file_changes(&values, &file, "song").is_none());
+
+        // 書き方だけが違う値（`;`の前後の空白）も、同じ値
+        let spaced = TrackTagValues {
+            artist: Some("Artist;Guest".to_string()),
+            ..values.clone()
+        };
+        assert!(pending_file_changes(&spaced, &file, "song").is_none());
+
+        // 値が違えば、編集した内容として書き出す
+        let edited = TrackTagValues {
+            artist: Some("Guest".to_string()),
+            ..values
+        };
+        let (metadata, _) = pending_file_changes(&edited, &file, "song").expect("違いがあること");
+        assert_eq!(metadata.artist.as_deref(), Some("Guest"));
+    }
+
+    #[test]
+    fn test_normalize_multi_values_joins_artists_and_genres() {
+        let input = Metadata {
+            title: Some("A ;B".to_string()),
+            artist: Some("A ;B;; A".to_string()),
+            genre: Some(" Rock".to_string()),
+            album: Some("X;Y".to_string()),
+            ..Default::default()
+        };
+        let normalized = normalize_multi_values(input);
+        // アーティスト・ジャンルだけ、複数の値の形にそろえる（複数の値でない入力は、そのまま）
+        assert_eq!(normalized.artist.as_deref(), Some("A; B"));
+        assert_eq!(normalized.genre.as_deref(), Some(" Rock"));
+        assert_eq!(normalized.title.as_deref(), Some("A ;B"));
+        assert_eq!(normalized.album.as_deref(), Some("X;Y"));
+        // `;`だけの入力は、空（項目を取り除く指定）になる
+        let empty = normalize_multi_values(Metadata {
+            genre: Some(" ; ".to_string()),
+            ..Default::default()
+        });
+        assert_eq!(empty.genre.as_deref(), Some(""));
     }
 
     /// データベースに値がない項目は、ファイルにだけ値があっても書き出さない（消さない）

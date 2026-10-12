@@ -54,6 +54,8 @@ fn fts_text_expr(prefix: &str) -> String {
 pub fn run_migrations(conn: &Connection) -> Result<()> {
     // 全文検索の表を同期するトリガーが使う関数を登録する（`tracks`に書き込む前に必要）
     crate::search_text::register(conn)?;
+    // 複数の値を持つ項目（アーティスト・ジャンル）を、値ごとに比べる関数（一覧の絞り込みで使う）
+    crate::multi_value::register(conn)?;
 
     // tracksテーブルの作成
     conn.execute(
@@ -126,6 +128,16 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         conn,
         "tracks",
         "sort_tags_read",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+
+    // アーティスト・ジャンルを、複数の値として読んだか。複数の値に対応する前に登録したトラックは0で
+    // （同じ項目が複数あるタグの、最初の値だけを読んでいる）、起動時にバックグラウンドで読み直す
+    // （`tag_backfill`）
+    add_column_if_not_exists(
+        conn,
+        "tracks",
+        "multi_values_read",
         "INTEGER NOT NULL DEFAULT 0",
     )?;
 

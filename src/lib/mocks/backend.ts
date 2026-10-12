@@ -60,6 +60,7 @@ import {
 import { createAlbumArt } from './media';
 import { createMockPlaybackEngine, MOCK_OUTPUT_DEVICES } from './playbackEngine';
 import { MAX_PLAYBACK_SPEED, MIN_PLAYBACK_SPEED } from '#lib/stores/playbackAids.svelte.js';
+import { hasValue, listedArtists, splitValues, VALUE_SEPARATOR } from '#lib/utils/multiValue.js';
 
 type Commands = typeof commands;
 type CommandName = keyof Commands;
@@ -371,6 +372,19 @@ const groupArtistSort = (track: Track) =>
     : (track.sortTags.albumArtist ??
       (track.artist === track.albumArtist ? track.sortTags.artist : null));
 
+/**
+ * 一覧でまとめるアーティスト（`name`）の、並び順に使う値
+ *
+ * 曲のアーティストが複数ある曲は、読みも同じ数だけ区切って書かれている場合に、順に対応させる
+ * （Rustの`find_artist_summaries`と同じ）。
+ */
+function listedArtistSort(track: Track, name: string): string | null {
+  if (track.albumArtist !== null) return groupArtistSort(track);
+  const names = splitValues(track.artist);
+  const sortNames = splitValues(track.sortTags.artist);
+  return sortNames.length === names.length ? (sortNames[names.indexOf(name)] ?? null) : null;
+}
+
 /** 並び順に使う値のうち、最初に見つかったもの（なければnull） */
 const firstSortName = (tracks: Track[], pick: (track: Track) => string | null) =>
   tracks.map(pick).find((value) => value !== null) ?? null;
@@ -519,6 +533,9 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     tracks.filter(predicate).sort(newestFirst);
   const matches = (value: string | null, expected: string | null | undefined) =>
     expected == null || value === expected;
+  /** 複数の値を持つ項目（アーティスト・ジャンル）の、値のどれかが一致するか */
+  const matchesValue = (value: string | null, expected: string | null | undefined) =>
+    expected == null || hasValue(value, expected);
 
   function findTrack(id: string): Track {
     const track = tracks.find((t) => t.id === id);
@@ -538,19 +555,41 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     }
   });
 
-  /** トラックを、値のある項目ごとにまとめる（値がnullのトラックは含めない） */
-  const tracksBy = (value: (track: Track) => string | null) =>
-    groupBy(
-      tracks.filter((track) => value(track) !== null),
-      (track) => value(track) ?? ''
-    );
+  /** トラックを、値ごとにまとめる（1曲が複数の値を持つ場合は、それぞれに入る。値のないトラックは含めない） */
+  function tracksByValues(values: (track: Track) => string[]): Map<string, Track[]> {
+    const groups = new Map<string, Track[]>();
+    for (const track of tracks) {
+      for (const value of values(track)) {
+        const group = groups.get(value);
+        if (group) {
+          group.push(track);
+        } else {
+          groups.set(value, [track]);
+        }
+      }
+    }
+    return groups;
+  }
 
-  /** アーティストの曲を、アルバムごとにまとめる（アルバム名の順。アルバムのない曲は`UNKNOWN_ALBUM`にまとめる） */
-  function toArtistAlbums(artist: string, items: Track[]): AlbumGroup[] {
-    const sorted = [...items].sort(orderBy((t) => t.album ?? UNKNOWN_ALBUM, ...albumTrackOrder));
-    return [...groupBy(sorted, (track) => track.album ?? UNKNOWN_ALBUM)]
-      .map(([name, albumTracks]) => ({
-        ...toAlbumSummary(name, artist, albumTracks),
+  /**
+   * アーティストの曲を、アルバムごとにまとめる（アルバム名の順。アルバムのない曲は`UNKNOWN_ALBUM`にまとめる）
+   *
+   * アルバムは「アルバム名＋まとめるアーティスト」で分ける。アルバムの`artist`は、そのアルバムを
+   * まとめるアーティスト（複数のアーティストの曲のアルバムでは、`A; B`の形）。
+   */
+  function toArtistAlbums(items: Track[]): AlbumGroup[] {
+    const sorted = [...items].sort(
+      orderBy((t) => t.album ?? UNKNOWN_ALBUM, groupArtist, ...albumTrackOrder)
+    );
+    const keyOf = (track: Track) =>
+      JSON.stringify([track.album ?? UNKNOWN_ALBUM, groupArtist(track)]);
+    return [...groupBy(sorted, keyOf)]
+      .map(([, albumTracks]) => ({
+        ...toAlbumSummary(
+          albumTracks[0].album ?? UNKNOWN_ALBUM,
+          groupArtist(albumTracks[0]),
+          albumTracks
+        ),
         tracks: albumTracks
       }))
       .sort(bySortName);
@@ -628,11 +667,13 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     }
   }
 
+  /** 項目の値の一覧（アーティスト・ジャンルは、複数ある曲のそれぞれの値） */
   function uniqueValues(key: 'artist' | 'album' | 'genre'): string[] {
     const values = new Set<string>();
     for (const track of tracks) {
       const value = track[key];
-      if (value !== null) values.add(value);
+      if (value === null) continue;
+      for (const each of key === 'album' ? [value] : splitValues(value)) values.add(each);
     }
     return [...values].sort(compareAsc);
   }
@@ -656,6 +697,16 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   }
 
   /**
+   * アーティスト・ジャンルの入力を、複数の値の形にそろえる（`A ;B` → `A; B`。Rustの
+   * `normalize_multi_values`と同じ）。複数の値でない入力は、そのまま
+   */
+  function normalizeMultiValue<T extends string | null | undefined>(value: T): T | string {
+    return typeof value === 'string' && value.includes(VALUE_SEPARATOR)
+      ? splitValues(value).join(`${VALUE_SEPARATOR} `)
+      : value;
+  }
+
+  /**
    * update_track_metadataと同様、title/artist/album/genre/yearを丸ごと置き換える
    * （実装はファイルのタグへ書き込むが、モックはライブラリの値だけを変える）
    */
@@ -666,9 +717,9 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     if (!track) fail('NOT_FOUND', '指定されたトラックが見つかりません');
     // 1曲の編集は、すべての項目を置き換える（値のない項目は空にする）
     track.title = metadata.title ?? null;
-    track.artist = metadata.artist ?? null;
+    track.artist = normalizeMultiValue(metadata.artist) || null;
     track.album = metadata.album ?? null;
-    track.genre = metadata.genre ?? null;
+    track.genre = normalizeMultiValue(metadata.genre) || null;
     track.year = metadata.year ?? null;
     track.albumArtist = metadata.albumArtist ?? null;
     track.trackNumber = metadata.trackNumber ?? null;
@@ -697,9 +748,9 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     const before = JSON.stringify(track);
 
     track.title = text(metadata.title, track.title);
-    track.artist = text(metadata.artist, track.artist);
+    track.artist = text(normalizeMultiValue(metadata.artist), track.artist);
     track.album = text(metadata.album, track.album);
-    track.genre = text(metadata.genre, track.genre);
+    track.genre = text(normalizeMultiValue(metadata.genre), track.genre);
     track.albumArtist = text(metadata.albumArtist, track.albumArtist);
     if (year != null) track.year = year;
     if (trackNumber != null) track.trackNumber = trackNumber;
@@ -1174,9 +1225,9 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     filterTracks: (filters) =>
       tracksWhere(
         (track) =>
-          matches(track.artist, filters.artist) &&
+          matchesValue(track.artist, filters.artist) &&
           matches(track.album, filters.album) &&
-          matches(track.genre, filters.genre)
+          matchesValue(track.genre, filters.genre)
       ),
     getUniqueArtists: () => uniqueValues('artist'),
     getUniqueAlbums: () => uniqueValues('album'),
@@ -1194,13 +1245,15 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       tracks
         .filter((track) => track.album === album && groupArtist(track) === artist)
         .sort(orderBy(...albumTrackOrder)),
+    // アルバムアーティスト（なければ曲のアーティスト。複数ある曲は、それぞれ）でまとめる
     getArtists: () =>
-      [...tracksBy(groupArtist)]
+      [...tracksByValues(listedArtists)]
         .map(([name, items]): ArtistSummary => {
-          const albums = toArtistAlbums(name, items);
+          const albums = toArtistAlbums(items);
           return {
             name,
-            sortName: firstSortName(items, groupArtistSort),
+            // 読みは、アーティストが1つの曲のものを使う（複数ある曲の読みは、順に対応させる）
+            sortName: firstSortName(items, (track) => listedArtistSort(track, name)),
             albumCount: albums.length,
             trackCount: items.length,
             totalDuration: sumDuration(items),
@@ -1210,12 +1263,10 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         })
         .sort(bySortName),
     getArtistAlbums: (artist) =>
-      toArtistAlbums(
-        artist,
-        tracks.filter((track) => groupArtist(track) === artist)
-      ),
+      toArtistAlbums(tracks.filter((track) => listedArtists(track).includes(artist))),
+    // ジャンルが複数ある曲は、それぞれのジャンルに入る
     getGenres: () =>
-      [...tracksBy((track) => track.genre)]
+      [...tracksByValues((track) => splitValues(track.genre))]
         .map(([name, items]): GenreSummary => ({
           name,
           trackCount: items.length,
@@ -1223,7 +1274,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
           representativeTrackId: sortGenreTracks(items)[0]?.id ?? ''
         }))
         .sort(bySortName),
-    getGenreTracks: (genre) => sortGenreTracks(tracks.filter((track) => track.genre === genre)),
+    getGenreTracks: (genre) =>
+      sortGenreTracks(tracks.filter((track) => hasValue(track.genre, genre))),
     getTrackTags,
     // 実装と同じく、曲と同じ名前の.lrcファイルを優先し、なければ埋め込みの歌詞（タグ）を返す
     getTrackLyrics: (trackId) => {

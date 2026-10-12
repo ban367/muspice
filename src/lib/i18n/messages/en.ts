@@ -365,6 +365,7 @@ export const en: Messages = {
     artistPlaceholder: 'Artist',
     albumPlaceholder: 'Album',
     genrePlaceholder: 'Genre',
+    multiValueHint: 'Separate multiple artists or genres with ";" (for example: Rock; Pop).',
     yearPlaceholder: 'e.g. 2023',
     writesToFile: 'Changes are written to the tags of the music files',
     /** タブ */

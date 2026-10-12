@@ -112,6 +112,35 @@ describe('browseTracks', () => {
     track('n1', { genre: null, artist: null, album: null })
   ];
 
+  it('ジャンル・アーティストが複数ある曲は、それぞれの項目に入る', () => {
+    const multi = [
+      track('m1', { genre: 'Rock; Pop', artist: 'A; B', album: 'Duets' }),
+      track('m2', { genre: 'Pop', artist: 'B', album: 'Solo' }),
+      // アルバムアーティストがあれば、曲のアーティストでは分けない
+      track('m3', { genre: 'Jazz;Rock', artist: 'C; D', albumArtist: 'Various', album: 'Mix' }),
+      // `/`・`,`では分けない
+      track('m4', { genre: 'Rock', artist: 'AC/DC', album: 'Live' })
+    ];
+    const all = browseTracks(multi, EMPTY_SELECTION);
+    expect(names(all.genres)).toEqual(['Jazz(1)', 'Pop(2)', 'Rock(3)']);
+    expect(names(all.artists)).toEqual(['A(1)', 'AC/DC(1)', 'B(2)', 'Various(1)']);
+    // アルバムは、まとめるアーティストの文字列のまま
+    expect(all.albums.find((album) => album.name === 'Duets')?.artist).toBe('A; B');
+    expect(all.tracks).toHaveLength(4);
+
+    // 値のどれかを選べば、その曲に絞り込まれる
+    const pop = browseTracks(multi, { ...EMPTY_SELECTION, genres: ['Pop'] });
+    expect(pop.tracks.map((t) => t.id)).toEqual(['m1', 'm2']);
+    expect(names(pop.artists)).toEqual(['A(1)', 'B(2)']);
+    const artistB = browseTracks(multi, { ...EMPTY_SELECTION, artists: ['B'] });
+    expect(artistB.tracks.map((t) => t.id)).toEqual(['m1', 'm2']);
+    const rockByA = browseTracks(multi, { genres: ['Rock'], artists: ['A'], albums: [] });
+    expect(rockByA.tracks.map((t) => t.id)).toEqual(['m1']);
+    // 複数選んでも、同じ曲は1回だけ
+    const both = browseTracks(multi, { ...EMPTY_SELECTION, genres: ['Rock', 'Pop'] });
+    expect(both.tracks.map((t) => t.id)).toEqual(['m1', 'm2', 'm3', 'm4']);
+  });
+
   it('何も選んでいなければ、すべての項目と、すべての曲を返す', () => {
     const result = browseTracks(tracks, EMPTY_SELECTION);
 

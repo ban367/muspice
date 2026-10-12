@@ -6,6 +6,7 @@
  */
 import type { SmartOrder, SmartRule, SmartRules, Track } from '#lib/types/models.js';
 import { normalizeSearchText } from '#lib/utils/searchText.js';
+import { splitValues } from '#lib/utils/multiValue.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -71,21 +72,26 @@ function matchesText(track: Track, rule: TextRule): boolean {
   if (rule.op === 'isNotEmpty') return raw !== null && raw.trim() !== '';
 
   // 検索と同じ正規化をして比べる（値のない項目は、空の文字列として扱う）
-  const value = normalizeSearchText(raw ?? '');
   const needle = normalizeSearchText(rule.value.trim());
+  // アーティスト・ジャンルは複数の値を持てるため、値のどれか（か、分ける前の文字列）が合うかで比べる
+  const candidates =
+    rule.field === 'artist' || rule.field === 'genre'
+      ? [raw ?? '', ...splitValues(raw)]
+      : [raw ?? ''];
+  const values = candidates.map((value) => normalizeSearchText(value.trim()));
   switch (rule.op) {
     case 'contains':
-      return value.includes(needle);
+      return values.some((value) => value.includes(needle));
     case 'notContains':
-      return !value.includes(needle);
+      return !values.some((value) => value.includes(needle));
     case 'is':
-      return value === needle;
+      return values.some((value) => value === needle);
     case 'isNot':
-      return value !== needle;
+      return !values.some((value) => value === needle);
     case 'startsWith':
-      return value.startsWith(needle);
+      return values.some((value) => value.startsWith(needle));
     case 'endsWith':
-      return value.endsWith(needle);
+      return values.some((value) => value.endsWith(needle));
   }
 }
 

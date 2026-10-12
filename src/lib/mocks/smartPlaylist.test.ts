@@ -108,6 +108,35 @@ describe('findSmartPlaylistTracks', () => {
     expect(match({ kind: 'text', field: 'format', op: 'is', value: 'MP3' })).toHaveLength(4);
   });
 
+  it('アーティスト・ジャンルが複数ある曲は、値のどれかが条件に合えば合う', () => {
+    const library = [
+      track('a', { artist: '宇多田ヒカル; ZARD', genre: 'Rock; J-Pop', album: 'Live; Remastered' }),
+      track('b', { artist: 'ZARD', genre: 'J-Pop' }),
+      track('c', { artist: 'Miles Davis', genre: 'Jazz' }),
+      track('d', { artist: 'Popper', genre: null })
+    ];
+    const find = (rule: SmartRule) => ids(rules({ rules: [rule] }), 1, library);
+
+    expect(find({ kind: 'text', field: 'genre', op: 'is', value: 'rock' })).toEqual(['a']);
+    expect(find({ kind: 'text', field: 'genre', op: 'is', value: 'j-pop' })).toEqual(['a', 'b']);
+    // 値の一部だけでは「である」に合わない。分ける前の文字列そのものには合う
+    expect(find({ kind: 'text', field: 'genre', op: 'is', value: 'pop' })).toEqual([]);
+    expect(find({ kind: 'text', field: 'genre', op: 'is', value: 'Rock; J-Pop' })).toEqual(['a']);
+    // 「ではない」は、どの値も合わない曲（値のない曲を含む）
+    expect(find({ kind: 'text', field: 'genre', op: 'isNot', value: 'j-pop' })).toEqual(['c', 'd']);
+    expect(find({ kind: 'text', field: 'artist', op: 'startsWith', value: 'zard' })).toEqual([
+      'a',
+      'b'
+    ]);
+    expect(find({ kind: 'text', field: 'artist', op: 'endsWith', value: 'ひかる' })).toEqual(['a']);
+    expect(find({ kind: 'text', field: 'artist', op: 'notContains', value: 'zard' })).toEqual([
+      'c',
+      'd'
+    ]);
+    // アルバムなど、ほかの項目は分けない
+    expect(find({ kind: 'text', field: 'album', op: 'is', value: 'Live' })).toEqual([]);
+  });
+
   it('数値を比べる（値のない曲は、「その値ではない」にだけ含める）', () => {
     const number = (
       field: 'rating' | 'year' | 'playCount',
