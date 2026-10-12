@@ -14,6 +14,7 @@
   import TagToolsDialog from '#lib/components/TagToolsDialog.svelte';
   import FileOrganizeDialog from '#lib/components/FileOrganizeDialog.svelte';
   import LoudnessScanDialog from '#lib/components/LoudnessScanDialog.svelte';
+  import ConvertDialogHost from '#lib/components/ConvertDialogHost.svelte';
   import SmartPlaylistDialog from '#lib/components/SmartPlaylistDialog.svelte';
   import NowPlayingView from '#lib/components/NowPlayingView.svelte';
   import MiniPlayer from '#lib/components/MiniPlayer.svelte';
@@ -27,6 +28,7 @@
   import { tagToolsDialog } from '#lib/stores/tagTools.svelte.js';
   import { fileOrganizeDialog } from '#lib/stores/fileOrganize.svelte.js';
   import { loudnessScan, loudnessScanDialog } from '#lib/stores/loudnessScan.svelte.js';
+  import { conversion } from '#lib/stores/convert.svelte.js';
   import { smartPlaylistDialog } from '#lib/stores/smartPlaylist.svelte.js';
   import { invalidateAllTrackQueries } from '#lib/queries/tracks.js';
   import { restoreTheme } from '#lib/utils/theme.js';
@@ -87,6 +89,8 @@
 
     // 音量の解析の進捗（設定ウィンドウで始めた解析も、曲のメニューの画面に出す）
     const stopWatchingLoudnessScan = loudnessScan.watch();
+    // 形式の変換の進捗
+    const stopWatchingConversion = conversion.watch();
 
     // 設定ウィンドウでの再スキャン・ライブラリフォルダの削除で、ライブラリが変わった
     const unlistenLibrary = events.libraryChanged.listen(() => {
@@ -98,6 +102,7 @@
       unlistenImportFiles.then((fn) => fn());
       stopWatchingOpenedFiles();
       stopWatchingLoudnessScan();
+      stopWatchingConversion();
       unlistenSidebar.then((fn) => fn());
       unlistenAbout.then((fn) => fn());
       unlistenMiniPlayer.then((fn) => fn());
@@ -229,6 +234,9 @@
       />
     {/key}
   {/if}
+
+  <!-- 形式の変換（曲のメニューから開く） -->
+  <ConvertDialogHost />
 
   <!-- 自動プレイリストの編集画面（サイドバー・プレイリストの画面から開く。開くたびに作り直す） -->
   {#if smartPlaylistDialog.target}

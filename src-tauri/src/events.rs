@@ -24,6 +24,18 @@ pub struct ImportProgress {
     pub current_file: String,
 }
 
+/// 形式の変換の進捗
+#[derive(Debug, Clone, Serialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+pub struct ConvertProgress {
+    /// 変換が済んだ（失敗した分を含む）曲の数
+    pub current: u32,
+    /// 変換する曲の総数
+    pub total: u32,
+    /// 変換が済んだファイルの名前
+    pub current_file: String,
+}
+
 /// 音量（ラウドネス）の解析の進捗
 #[derive(Debug, Clone, Serialize, Type, Event)]
 #[serde(rename_all = "camelCase")]

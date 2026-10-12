@@ -121,6 +121,7 @@ export const ja = {
     refreshMetadata: 'メタデータの更新',
     writeMetadataToFiles: 'メタデータの書き出し',
     loudnessScan: '音量の解析',
+    convert: '形式の変換',
     showInFolder: 'ファイルの場所を開く',
     fetchPlaylists: 'プレイリスト一覧の取得',
     createPlaylist: 'プレイリストの作成',
@@ -434,6 +435,59 @@ export const ja = {
       `書き出し完了（書き込み: ${written}曲、変更なし: ${unchanged}曲、ファイルなし: ${skipped}曲、エラー: ${errors}曲）`
   },
 
+  convert: {
+    title: (count: number) => `形式を変換（${count}曲）`,
+    format: '変換先の形式',
+    formats: {
+      aac: 'AAC（.m4a）',
+      alac: 'Apple Lossless（.m4a）',
+      flac: 'FLAC',
+      wav: 'WAV',
+      aiff: 'AIFF'
+    },
+    bitrate: 'ビットレート',
+    bitrateValue: (kbps: number) => `${kbps} kbps`,
+    destination: '出力先',
+    modes: { export: '別のフォルダへ書き出す', replace: '元のファイルを置き換える' },
+    template: '書き出す場所の書式',
+    addToLibrary: '書き出した曲を、ライブラリに加える',
+    exportHint:
+      '「変換する」を押すと、書き出すフォルダを選びます。ライブラリの曲と元のファイルは、変わりません。書式は、ファイルの整理と同じ書き方です。',
+    replaceHint:
+      '元のファイルと同じ場所に、変換したファイルを作って入れ替えます。曲はそのまま残り、お気に入り・再生回数・プレイリストは変わりません。元のファイルは、ゴミ箱へ移します。',
+    warnings: {
+      lossyToLossless: (count: number) =>
+        `非可逆の形式の曲が${count}曲あります。可逆の形式に変換しても、音質は戻りません（ファイルが大きくなるだけです）`,
+      lossyToLossy: (count: number) =>
+        `非可逆の形式の曲が${count}曲あります。もう一度非可逆の形式にすると、音質が下がります`,
+      losslessReplaced: (count: number) =>
+        `可逆の形式の${count}曲を、非可逆の形式に置き換えます。元の音質には戻せません（元のファイルは、ゴミ箱に残ります）`
+    },
+    /** 計画の一覧 */
+    conversions: '変換する曲',
+    conversionCount: (count: number) => `${count}曲を変換します`,
+    noConversions: '変換する曲はありません',
+    blocked: '変換しない曲',
+    columnSource: '元のファイル',
+    columnOutput: '出力先',
+    reasons: {
+      missing: 'ファイルが見つかりません',
+      targetExists: '出力先に、同じ名前のファイルがあります',
+      sameTarget: '選んだ曲の中に、同じ出力先になる曲があります'
+    },
+    startExport: 'フォルダを選んで変換',
+    startReplace: '変換して置き換える',
+    converting: '変換しています...',
+    progress: (current: number, total: number) => `${current} / ${total}曲`,
+    cancel: '中断',
+    cancelling: '中断しています...',
+    continueInBackground: '閉じる（変換は続けます）',
+    result: (converted: number, skipped: number, failed: number) =>
+      `形式の変換が終わりました（変換: ${converted}曲、変換しない: ${skipped}曲、失敗: ${failed}曲）`,
+    cancelledResult: (converted: number, skipped: number, failed: number) =>
+      `形式の変換を中断しました（変換: ${converted}曲、変換しない: ${skipped}曲、失敗: ${failed}曲）`
+  },
+
   loudnessScan: {
     title: '音量の解析',
     description:
@@ -609,6 +663,7 @@ export const ja = {
     tagTools: 'タグの一括ツール...',
     fileOrganize: 'ファイルを整理...',
     loudnessScan: '音量を解析...',
+    convert: '形式を変換...',
     showInFolder: 'ファイルの場所を開く',
     deleteEllipsis: '削除...',
     addToPlaylist: 'プレイリストに追加',

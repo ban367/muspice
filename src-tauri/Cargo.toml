@@ -82,6 +82,7 @@ tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
 
 # OSのメディアキー・Now Playing（media_controls/macos.rs）。Tauriが使っているものと同じobjc2系で、
 # MediaPlayerフレームワークを呼ぶ。使うクラスの機能だけを有効にする
+# （NSFileManager・NSErrorは、ファイルをゴミ箱へ移す処理（trash.rs）が使う）
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 block2 = "0.6"
@@ -90,6 +91,8 @@ objc2-foundation = { version = "0.3", default-features = false, features = [
     "NSArray",
     "NSData",
     "NSDictionary",
+    "NSError",
+    "NSFileManager",
     "NSString",
     "NSURL",
     "NSValue",

@@ -8,6 +8,7 @@ use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::{DialogExt, FileDialogBuilder};
 
 mod album_art;
+mod convert;
 mod devices;
 mod import;
 mod library_folders;
@@ -52,6 +53,11 @@ pub use tracks::{
 pub use metadata_cmd::{
     apply_metadata_changes, get_track_lyrics, get_track_tags, refresh_library_metadata,
     update_multiple_tracks_metadata, update_track_metadata, write_library_metadata_to_files,
+};
+
+// 形式の変換
+pub use convert::{
+    ConvertState, cancel_conversion, convert_tracks, get_convert_formats, plan_conversion,
 };
 
 // 音量（ラウドネス）の解析

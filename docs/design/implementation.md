@@ -48,6 +48,7 @@ src/
 src-tauri/src/
 ├── commands/
 │   ├── album_art.rs       # アルバムアートの埋め込み・取り除き・情報の取得（ADR-035）
+│   ├── convert.rs         # 形式の変換（計画の取得・書き出し・置き換え・実行の状態。ADR-054）
 │   ├── devices.rs         # 転送先デバイスの登録・設定・同期
 │   ├── import.rs
 │   ├── library_folders.rs
@@ -113,6 +114,8 @@ src-tauri/src/
 ├── tag_backfill.rs        # 既存のトラックの、後から追加した項目（アルバムアーティスト・ソート用のタグ）の読み込み（起動時）
 ├── track_notification.rs  # 曲が変わった時の通知（ADR-046）
 ├── track_relink.rs        # 移動・改名されたファイルと、見つからない曲の対応付け
+├── transcode.rs           # 形式の変換（デコードした音声の一時ファイル・afconvertでのエンコード・出力先の計画。ADR-054）
+├── trash.rs               # ファイルをOSのゴミ箱へ移す（形式の変換の置き換えで使う。macOS）
 ├── tray.rs                # メニューバー（トレイ）への常駐（アイコン・メニュー・再生中の曲の表示。ADR-046）
 ├── validation.rs
 ├── vorbis_tag.rs          # Vorbisコメント（FLAC・Ogg Vorbis・Opus）の保存（アプリが扱わない項目の保持。ADR-048）
@@ -169,6 +172,7 @@ src-tauri/src/
 - ライブラリのビュー（最近追加した曲・フォルダ別・年代別）の集計は、`#lib/utils/libraryViews`の純粋な関数で行う（ADR-041）。フォルダ別・年代別は、左に木の形の一覧（`TreeBrowser`）、右に曲の一覧を出す`TreeBrowsePage`を使う（木の項目は`TreeNode`。画面は、全曲の一覧から木と、選んだ項目の曲を計算して渡す）。サイドバーに項目を足す時は、Rustの`SidebarItem`・設定画面の`sidebarItems`・`m.sidebar`にも足す（設定で隠せるようにするため）
 - 曲の画面の絞り込みは、`#lib/utils/trackFilter`の純粋な関数（`applyTrackFilters`・`browseTracks`）で行う（ADR-040）。順番は、検索 → フィルタ → カラムブラウザ（ジャンル → アーティスト → アルバム）で、カラムブラウザの各列には、その列より前の絞り込みに合う曲の値だけを出す。状態（カラムブラウザを出すか・選択・フィルタ）は`#lib/stores/libraryBrowser.svelte`に持つ（出すかどうかだけをlocalStorageに保存する）
 - タグの一括ツール（`TagToolsDialog`。曲の右クリックのメニューから`tagToolsDialog.open(tracks)`で開く）は、変更の計算を`#lib/utils/tagTools`の純粋な関数（`guessFromFileName`・`renumberTracks`・`searchAndReplace`）に分けている。どれも曲ごとの変更（前 → 後）を返すだけで、画面はそれを一覧に出し、「適用」で`toMetadataChanges`の結果を`useApplyMetadataChangesMutation`へ渡す（ADR-037）
+- 形式の変換（`ConvertDialog`。曲の右クリックのメニューから`convertDialog.open(tracks)`で開く）は、変換先にできる形式（`useConvertFormatsQuery`）が空でない環境でだけ、メニューに項目を出す（`ConvertDialogHost`が、形式を取得してから画面を出す）。出力先を決めるのはRust側で、画面は`plan_conversion`の結果を`#lib/utils/convert`の`summarizeConvertPlan`で集計して出す（変換する曲・変換しない曲・音質が戻らない変換の数）。実行の状態は`conversion`（`#lib/stores/convert.svelte`）が持ち、画面を閉じても変換は続く。前回の指定は覚えるが、出力先はいつも「書き出す」から始める（置き換えは、毎回選ばせる）
 - 音量の解析の画面の状態は、`loudnessScan`（`#lib/stores/loudnessScan.svelte`）が持つ。`watch()`で進捗・完了のイベントを受け取り（メインウィンドウは`(app)/+layout.svelte`、設定ウィンドウは`LoudnessScanSettings`が呼ぶ）、どちらのウィンドウで始めた解析でも進み具合を出す。結果の通知（トースト）は、`start()`を呼んだウィンドウだけが出す。選んだ曲の解析は、曲のメニューから`loudnessScanDialog.open(tracks)`で開く（`LoudnessScanDialog`。実行中に閉じても、解析は続く）
 - ファイルの整理（`FileOrganizeDialog`。曲の右クリックのメニューから`fileOrganizeDialog.open(tracks)`で開く）は、整理後の場所をRust側（`file_organize.rs`）だけが決める。画面は、書式を変えるたびに`plan_file_organize`を呼び（入力が止まってから300ms。後から始めた取得の結果だけを使う）、返った計画を`#lib/utils/fileOrganize`の`summarizeOrganizePlan`で、動かす曲・動かさない曲・そのままの曲に分けて出す。書式の候補（`FILE_ORGANIZE_PRESETS`）と、前回の書式の記憶（localStorage）も同じモジュールにある。モックは、`src/lib/mocks/fileOrganize.ts`が同じ規則で場所を決める（書式を変えたら、両方を直す）
 - 重複した曲の画面（`/library/duplicates`）は、`#lib/utils/duplicates`の`findDuplicateGroups`で全曲の一覧からまとまりを作り、`TrackList`にまとまりの順で渡す（`defaultSort={null}`）。`TrackList`の`groupOf`に、曲からまとまりのキーを返す関数を渡すと、渡した順で並べている間、まとまりの間に線を引く。場所の列（`filePath`）は、どの一覧でも選べる
@@ -378,6 +382,7 @@ Tauriのウィンドウ（macOSではWKWebView）はブラウザ自動化ツー�
   - `window.__MUSPICE_MOCK__.nowPlaying()`で、OSのNow Playingへ伝えた内容を確認する（ブラウザにはOSの表示がないため）
   - `window.__MUSPICE_MOCK__.setM3uImportMode('clean')`で、M3Uの読み込みで選んだことにするファイルを切り替える（`partial`: 対応が付かない行がある（既定）・`clean`: すべて対応が付く・`cancel`: 選ばなかった）。ファイルを選ぶダイアログはRust側が開くため、モックは決まった結果を返す
   - `window.__MUSPICE_MOCK__.setFileImportMode('cancel')`で、ファイルを選ぶインポートで選ばなかったことにする（`pick`: 2つの音楽ファイルを選んだ（既定））。`window.__MUSPICE_MOCK__.openFiles(['a.flac'])`で、Finderの「このアプリで開く」でファイルが開かれたことにする（インポートして再生される）。ウィンドウへのドロップは、`DataTransfer`に`File`を入れた`dragover`・`drop`を`window`へ送ると確かめられる（パスの読み取りは再現せず、名前のファイルがあることにする）
+  - 形式の変換は、どの環境でも変換できることにし、1曲を300msで変換したことにする（書き出しは場所を覚えるだけ、置き換えは曲の場所と形式を書き換える）。`window.__MUSPICE_MOCK__.setConvertExportFolder(null)`で、書き出すフォルダを選ばなかったことにする（既定は`/Users/mock/Export`）
   - 音量の解析は、1曲を250msで読んだことにして進捗を送り、ゲインは曲の長さから決まる値にする（同じ曲は、何度解析しても同じ値）。フィクスチャの曲の3分の1には、音量の情報がない
   - `window.__MUSPICE_MOCK__.addDuplicateTracks()`で、今ある曲と同じタイトル・アーティストの曲を、ライブラリフォルダの中の`Downloads`に足す（重複した曲の画面と、ファイルの整理の確認用。整理すると、移せる曲・移動先に同じ名前のファイルがある曲・同じ移動先になる曲が出る）。ファイルの整理は、実ファイルがないため、動かせる曲は常に移せたものとして、曲の場所だけを書き換える（歌詞ファイル・フォルダの画像・空のフォルダの扱いは再現しない）
   - `window.__MUSPICE_MOCK__.setAlbumArtPickMode('cancel')`で、アルバムアートの埋め込みで選んだことにする画像を切り替える（`pick`: 埋め込める画像（既定。選ぶたびに違う色の画像になる）・`cancel`: 選ばなかった・`tooLarge`: 大きすぎる画像）。フィクスチャでは、「Midnight Circuit」がフォルダの画像（`cover.jpg`）、「Quiet Rooms」がアートなし、ほかは埋め込みの画像

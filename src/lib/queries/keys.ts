@@ -75,6 +75,9 @@ export const queryKeys = {
     track: (trackId: string) => ['albumArtInfo', trackId] as const
   },
 
+  /** 変換先にできる形式（この環境で変換できなければ、空） */
+  convertFormats: ['convertFormats'] as const,
+
   /** プレイリスト一覧 */
   playlists: ['playlists'] as const,
 

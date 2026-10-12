@@ -356,6 +356,7 @@ export interface Playlist {
 | `ImportProgress`       | `{ current, total, currentFile }`                                  | インポート（`import_folder`・`import_files`・`import_dropped_files`・開かれたファイル。1ファイルごと）                             |
 | `LibraryScanProgress`  | `{ current, total, currentFile }`                                  | `rescan_library_folder`（読み込むファイルごと）                                                                                    |
 | `LibraryChanged`       | なし                                                               | インポートの後、再スキャン（自動を含む）・ライブラリフォルダの削除で曲が変わった時                                                 |
+| `ConvertProgress`      | `{ current, total, currentFile }`                                  | `convert_tracks`（曲の変換が済むたび。失敗した曲を含む）                                                                           |
 | `LoudnessScanProgress` | `{ current, total, currentFile }`                                  | `start_loudness_scan`（曲を読み終わるたび）                                                                                        |
 | `LoudnessScanFinished` | `LoudnessScanResult`                                               | `start_loudness_scan`が終わった時（中断した場合を含む）                                                                            |
 | `DeviceSyncProgress`   | `{ deviceId, current, total, bytesDone, bytesTotal, currentFile }` | `run_device_sync`（コピーするファイルごと。大きなファイルでは途中でも送る）                                                        |
@@ -395,6 +396,38 @@ export interface Playlist {
 - `BulkUpdateResult`: `updatedCount`, `failedCount`, `errors[]`
 - `WriteMetadataResult`: `writtenCount`, `unchangedCount`（ファイルと同じ）, `skippedCount`（ファイルが見つからない）, `errorCount`, `errors[]`
 - `write_library_metadata_to_files`は、DBの値がファイルと違う項目だけを書き込む。DBに値がない項目（評価なしを含む）と、タグにタイトルがないファイルの既定のタイトル（ファイル名）は書き出さない（ファイルにだけある値を消さないため）
+
+### 形式の変換
+
+選んだ曲を、別の形式（AAC・ALAC・FLAC・WAV・AIFF）に変換する（`transcode.rs`・`commands/convert.rs`。ADR-054）。macOSだけで使える。
+
+| コマンド              | 引数                  | 戻り値                  | 内容                                                                                                                                          |
+| --------------------- | --------------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `get_convert_formats` | なし                  | `ConvertFormat[]`       | 変換先にできる形式を返す。この環境で変換できなければ（macOSでない・`afconvert`がない）空で、画面は変換の項目を出さない                        |
+| `plan_conversion`     | `trackIds`, `options` | `ConvertPlan`           | 変換の計画（曲ごとの出力先と、変換するかどうか）を返す。ファイルは作らない                                                                    |
+| `convert_tracks`      | `trackIds`, `options` | `ConvertResult \| null` | 変換する。書き出しでは、書き出すフォルダを選ぶダイアログを開く（選ばなければ`null`）。終わるまで返らない（進捗は`ConvertProgress`で知らせる） |
+| `cancel_conversion`   | なし                  | `void`                  | 実行中の変換を中断する（実行中でなければ何もしない）                                                                                          |
+
+- `ConvertOptions`: `{ format: 'aac' | 'alac' | 'flac' | 'wav' | 'aiff', aacBitrateKbps: number, mode: 'export' | 'replace', template: string, addToLibrary: boolean }`。`aacBitrateKbps`は128・192・256・320のどれか（AACの時だけ確かめる。モノラルは半分にし、その音声で使えない値なら、エンコーダーの既定の値でやり直す）。`template`は、書き出す場所の書式（ファイルの整理と同じ書き方。書き出しだけで使う）
+- `ConvertPlan`: `entries: ConvertEntry[]`（選んだ順）。`ConvertEntry`: `{ trackId, sourceName, outputPath: string | null, status, sourceLossless: boolean | null }`。`outputPath`は、書き出しでは書き出すフォルダからの場所、置き換えではファイルの名前。`sourceLossless`は、元の曲が可逆の形式か（拡張子から決め、`.m4a`は中のコーデックを読む）
+- `status`（`ConvertStatus`）: `convert`（変換する）・`missing`（ファイルが見つからない）・`targetExists`（出力先に同じ名前のファイルがある）・`sameTarget`（選んだ曲の中に、同じ出力先になる曲がある）。変換するのは`convert`だけ（上書きしない・連番も付けない。ファイルの整理と同じ）
+- `ConvertResult`: `{ convertedCount, skippedCount, failedCount, errors[], cancelled }`
+- 同時に実行できる変換は1つ（実行中は`LOCK_ERROR`。フォルダを選んでいる間を含む）。入力の誤り（曲の指定がない・IDの形が違う・選べないビットレート・書式の誤り）は`VALIDATION_ERROR`
+- 変換（`transcode::convert_file`）
+  - デコードは、再生エンジンのデコーダー（`TrackDecoder`）で行う。取り込める形式のすべてを変換元にでき、再生で聴く音（曲の頭・終わりの余分を除いたもの）が変換される
+  - デコードした音声を、アプリのキャッシュのフォルダの一時ファイル（CAF。大きさを後から書き直さなくてよい）に書き、macOSの`/usr/bin/afconvert`で変換先の形式にする。可逆の形式の曲は、元と同じビット数（16か24。32ビットは24にする）で、非可逆の形式の曲は16ビットで渡す。モノラルはモノラルのまま、3チャンネル以上は、再生と同じまとめ方でステレオにする。サンプルレートは変えない（AACは、48kHzを超える曲を48kHzにする）
+  - 変換後のファイルを開いて、長さが元と合っているか（0.05秒以内）を確かめる。合わなければ失敗として扱う（macOSのFLACのエンコーダーは、4608フレーム（44.1kHzで約0.1秒）より短い音声から、音声のないファイルを作る）
+  - タグは、変換した後に写す（`metadata::copy_file_tags`）: 編集画面の項目・評価・ゲインとピーク・表示するアルバムアートを、変換先の形式のタグの書き方で書く（アプリが扱わない項目と、表示する画像のほかの画像は写さない）
+  - 出力先と同じフォルダの一時的な名前（`.<UUID>.converting.<拡張子>`）に書いてから、出力先の名前にする（上書きしない移動。途中まで書いたファイルを、出力先の名前で見せない）
+  - いくつか（コアの数の半分。4つまで）を並行して変換する。中断すると、変換の途中の曲は出力を残さない
+- 書き出し（`export`）
+  - 出力先は、選んだフォルダの中の、書式に従った場所（拡張子は、変換先の形式）。ライブラリの曲と元のファイルは変えない
+  - `addToLibrary`がtrueなら、できたファイルを、曲だけライブラリに登録する（フォルダは、ライブラリフォルダにしない。開かれたファイルの取り込みと同じ）
+- 置き換え（`replace`）
+  - 出力先は、元のファイルと同じ場所・同じ名前（拡張子は、変換先の形式）。拡張子が同じ場合（FLAC → FLAC、AAC → ALACなど）は、出力先が元のファイル自身になる
+  - 変換したファイルを出力先に置き、元のファイルをOSのゴミ箱へ移し（`trash.rs`。`NSFileManager`の`trashItemAtURL`）、DBの場所・ファイル名・形式・ビットレート・サンプルレート・長さ・大きさ・更新日時・ゲインとピークを書き換える（`repository::replace_track_file`）。トラックのID・お気に入り・再生回数・プレイリストへの登録・タイトルなどは変えない
+  - ゴミ箱へ移せない（ゴミ箱のないボリュームなど）・DBを書き換えられない場合は、元の状態に戻す（変換したファイルを消し、元のファイルを元の場所へ戻す）
+  - 1曲でも置き換えると、終わった時に`LibraryChanged`を送る
 
 ### 音量（ラウドネス）の解析
 

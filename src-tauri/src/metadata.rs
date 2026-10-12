@@ -818,6 +818,37 @@ pub fn update_file_replay_gain(
     Ok((read_file_replay_gain(file_path)?, written))
 }
 
+/// 音楽ファイルのタグを、別のファイル（形式を変換したファイル）へ写す
+///
+/// アプリが扱う項目（編集画面の項目・評価・ゲインとピーク・表示するアルバムアート）を、
+/// 変換先の形式のタグの書き方で書く。変換先には、まだタグがないものとして扱う。
+/// 入力の検証（文字数など）はしない（元のファイルにある値を、そのまま写す）。
+pub fn copy_file_tags(source: &Path, destination: &Path) -> AppResult<()> {
+    let tagged_file = read_tagged_file(source, ParseOptions::new().read_properties(false))?;
+    let Some(tag) = tagged_file
+        .primary_tag()
+        .or_else(|| tagged_file.first_tag())
+    else {
+        return Ok(());
+    };
+    let metadata = editor_metadata(tag);
+    let rating = extract_rating(tag);
+    let replay_gain = extract_replay_gain(tag);
+    let pictures = tag.pictures();
+    let picture = displayed_picture_index(pictures).map(|index| pictures[index].clone());
+
+    modify_file_tag_of_type(destination, |tag, file_type| {
+        apply_metadata(tag, &metadata, false);
+        set_tag_rating(tag, rating);
+        set_tag_replay_gain(tag, file_type, &replay_gain)?;
+        if let Some(picture) = picture {
+            tag.push_picture(picture);
+        }
+        Ok(true)
+    })
+    .map(|_| ())
+}
+
 /// 音楽ファイルのタグから、ゲインとピークを読む
 pub fn read_file_replay_gain(file_path: &Path) -> AppResult<ReplayGain> {
     let tagged_file = read_tagged_file(file_path, ParseOptions::new().read_cover_art(false))?;
