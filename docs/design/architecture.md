@@ -36,7 +36,7 @@ graph TD
 - 多言語化: 画面の文言は`src/lib/i18n/messages`（日本語・英語）に定義し、`#lib/i18n/i18n.svelte`の`m`から読む。言語は`$state`のため、切り替えるとコンポーネントを作り直さずに文言が変わる（再生は止まらない）。メニューバーと設定ウィンドウのタイトルはRust側（`menu.rs`）が言語に合わせて作り直す
 - テーマ: `#lib/utils/theme`の`applyTheme`が`<html data-theme>`に`dark`・`light`を設定し、`app.css`の配色を切り替える。「OSの設定に従う」の間は`prefers-color-scheme`の変化に追従する。設定を読み込むまでの間は、前回のテーマ（`localStorage`）を`restoreTheme`で反映する
 - 起動時の画面: ルート（`/`）が設定に応じて、前回開いていた画面（`localStorage`に記録）か曲一覧へ移動する
-- UI部品: `src/lib/components` と `src/lib/components/ui`
+- UI部品: `src/lib/components` と `src/lib/components/ui`（共通の部品。メニューは、Bits UIのメニューを包んだ`BaseContextMenu`と`Menu*`。ADR-056）
 - 型: `src/lib/types/models.ts` をRustモデルと対応させる
 - データ取得: `src/lib/queries/*.ts` のクエリ・ミューテーションがコマンド呼び出し・キャッシュ無効化・エラー通知を担い、コンポーネントからは直接コマンドを呼ばない
 - 曲の一覧: 全曲の一覧は件数の上限なく1回で取得してキャッシュし、並び替え・選択・再生キューの作成はフロントで行う。アルバム・アーティストはアルバムアーティスト（なければ曲のアーティスト）でまとめる（ADR-022）。アルバム・アーティスト・ジャンルは一覧（曲数・代表の曲）だけを取得し、曲は詳細を開いた時・再生する時にその分だけ取得する。プレイリストの曲も、プレイリストごとに取得する（ADR-021）。自動プレイリストの曲は、開くたびに条件から求め直す（ADR-042）。名前の順の並びは、クエリが取得した後に`#lib/utils/nameSort`で並べ直す（並び順に使う値（読み仮名など）があればその値で、言語に合わせた比較で並べる。ADR-036）

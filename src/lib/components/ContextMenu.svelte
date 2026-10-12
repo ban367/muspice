@@ -6,7 +6,13 @@
 -->
 <script lang="ts">
   import type { Track } from '#lib/types/models.js';
-  import { BaseContextMenu, PlaylistSubmenu } from '#lib/components/ui/index.js';
+  import {
+    BaseContextMenu,
+    MenuHeading,
+    MenuItem,
+    MenuSeparator,
+    PlaylistSubmenu
+  } from '#lib/components/ui/index.js';
   import { addNextInQueue, addToQueue, playSingleTrack } from '#lib/stores/player.svelte.js';
   import { useSetFavoriteMutation, useShowInFolderMutation } from '#lib/queries/tracks.js';
   import { albumArtDialog } from '#lib/stores/albumArt.svelte.js';
@@ -187,84 +193,114 @@
 
 <BaseContextMenu {x} {y} {onClose}>
   {#if selectedCount > 1}
-    <div class="menu-header">{m.contextMenu.selectedCount(selectedCount)}</div>
-    <div class="menu-divider"></div>
+    <MenuHeading>{m.contextMenu.selectedCount(selectedCount)}</MenuHeading>
+    <MenuSeparator />
   {/if}
 
-  <button class="menu-item" onclick={handlePlay} role="menuitem">
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      class="menu-icon"
-      viewBox="0 0 24 24"
-      fill="currentColor"
-    >
-      <path d="M8 5v14l11-7z" />
-    </svg>
-    <span>{m.common.play}</span>
-  </button>
+  <MenuItem onSelect={handlePlay}>
+    {#snippet icon()}
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="menu-icon"
+        viewBox="0 0 24 24"
+        fill="currentColor"
+      >
+        <path d="M8 5v14l11-7z" />
+      </svg>
+    {/snippet}
+    {m.common.play}
+  </MenuItem>
 
-  <button class="menu-item" onclick={handlePlayNext} role="menuitem">
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      class="menu-icon"
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-    >
-      <path
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        stroke-width="2"
-        d="M13 5l7 7-7 7M5 5l7 7-7 7"
-      />
-    </svg>
-    <span>{m.common.playNext}</span>
-  </button>
+  <MenuItem onSelect={handlePlayNext}>
+    {#snippet icon()}
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="menu-icon"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          d="M13 5l7 7-7 7M5 5l7 7-7 7"
+        />
+      </svg>
+    {/snippet}
+    {m.common.playNext}
+  </MenuItem>
 
-  <button class="menu-item" onclick={handleAddToQueue} role="menuitem">
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      class="menu-icon"
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-    >
-      <path
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        stroke-width="2"
-        d="M4 6h16M4 10h16M4 14h16M4 18h7"
-      />
-    </svg>
-    <span>{m.common.addToQueue}</span>
-  </button>
+  <MenuItem onSelect={handleAddToQueue}>
+    {#snippet icon()}
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="menu-icon"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          d="M4 6h16M4 10h16M4 14h16M4 18h7"
+        />
+      </svg>
+    {/snippet}
+    {m.common.addToQueue}
+  </MenuItem>
 
-  <div class="menu-divider"></div>
+  <MenuSeparator />
 
   <PlaylistSubmenu tracks={selectedTracks} {onClose} />
 
-  <button class="menu-item" onclick={handleToggleFavorite} role="menuitem">
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      class="menu-icon"
-      fill={allFavorite ? 'currentColor' : 'none'}
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-    >
-      <path
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        stroke-width="2"
-        d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"
-      />
-    </svg>
-    <span>{allFavorite ? m.common.removeFromFavorites : m.common.addToFavorites}</span>
-  </button>
+  <MenuItem onSelect={handleToggleFavorite}>
+    {#snippet icon()}
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="menu-icon"
+        fill={allFavorite ? 'currentColor' : 'none'}
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"
+        />
+      </svg>
+    {/snippet}
+    {allFavorite ? m.common.removeFromFavorites : m.common.addToFavorites}
+  </MenuItem>
 
-  <div class="menu-divider"></div>
+  <MenuSeparator />
 
   {#if onEditMetadata}
-    <button class="menu-item" onclick={handleEditMetadata} role="menuitem">
+    <MenuItem onSelect={handleEditMetadata} shortcut="Ctrl+I">
+      {#snippet icon()}
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          class="menu-icon"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+          />
+        </svg>
+      {/snippet}
+      {m.contextMenu.editMetadata}
+    </MenuItem>
+  {/if}
+
+  <MenuItem onSelect={handleTagTools}>
+    {#snippet icon()}
       <svg
         xmlns="http://www.w3.org/2000/svg"
         class="menu-icon"
@@ -276,52 +312,57 @@
           stroke-linecap="round"
           stroke-linejoin="round"
           stroke-width="2"
-          d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+          d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"
         />
       </svg>
-      <span>{m.contextMenu.editMetadata}</span>
-      <span class="menu-shortcut">Ctrl+I</span>
-    </button>
-  {/if}
+    {/snippet}
+    {m.contextMenu.tagTools}
+  </MenuItem>
 
-  <button class="menu-item" onclick={handleTagTools} role="menuitem">
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      class="menu-icon"
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-    >
-      <path
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        stroke-width="2"
-        d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"
-      />
-    </svg>
-    <span>{m.contextMenu.tagTools}</span>
-  </button>
-
-  <button class="menu-item" onclick={handleFileOrganize} role="menuitem">
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      class="menu-icon"
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-    >
-      <path
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        stroke-width="2"
-        d="M9 13h6m-3-3l3 3-3 3M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
-      />
-    </svg>
-    <span>{m.contextMenu.fileOrganize}</span>
-  </button>
+  <MenuItem onSelect={handleFileOrganize}>
+    {#snippet icon()}
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="menu-icon"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          d="M9 13h6m-3-3l3 3-3 3M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
+        />
+      </svg>
+    {/snippet}
+    {m.contextMenu.fileOrganize}
+  </MenuItem>
 
   {#if canConvert}
-    <button class="menu-item" onclick={handleConvert} role="menuitem">
+    <MenuItem onSelect={handleConvert}>
+      {#snippet icon()}
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          class="menu-icon"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"
+          />
+        </svg>
+      {/snippet}
+      {m.contextMenu.convert}
+    </MenuItem>
+  {/if}
+
+  <MenuItem onSelect={handleLoudnessScan}>
+    {#snippet icon()}
       <svg
         xmlns="http://www.w3.org/2000/svg"
         class="menu-icon"
@@ -333,156 +374,103 @@
           stroke-linecap="round"
           stroke-linejoin="round"
           stroke-width="2"
-          d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"
+          d="M9 19V6m6 13V10M3 19v-4m18 4v-7M6 19v-9m12 9V4"
         />
       </svg>
-      <span>{m.contextMenu.convert}</span>
-    </button>
-  {/if}
+    {/snippet}
+    {m.contextMenu.loudnessScan}
+  </MenuItem>
 
-  <button class="menu-item" onclick={handleLoudnessScan} role="menuitem">
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      class="menu-icon"
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-    >
-      <path
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        stroke-width="2"
-        d="M9 19V6m6 13V10M3 19v-4m18 4v-7M6 19v-9m12 9V4"
-      />
-    </svg>
-    <span>{m.contextMenu.loudnessScan}</span>
-  </button>
+  <MenuItem onSelect={handleAlbumArt}>
+    {#snippet icon()}
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="menu-icon"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+        />
+      </svg>
+    {/snippet}
+    {m.contextMenu.albumArt}
+  </MenuItem>
 
-  <button class="menu-item" onclick={handleAlbumArt} role="menuitem">
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      class="menu-icon"
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-    >
-      <path
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        stroke-width="2"
-        d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-      />
-    </svg>
-    <span>{m.contextMenu.albumArt}</span>
-  </button>
-
-  <button class="menu-item" onclick={handleShowInFolder} role="menuitem">
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      class="menu-icon"
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-    >
-      <path
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        stroke-width="2"
-        d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
-      />
-    </svg>
-    <span>{m.contextMenu.showInFolder}</span>
-  </button>
+  <MenuItem onSelect={handleShowInFolder}>
+    {#snippet icon()}
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="menu-icon"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
+        />
+      </svg>
+    {/snippet}
+    {m.contextMenu.showInFolder}
+  </MenuItem>
 
   {#if onRemoveFromList || onDelete}
-    <div class="menu-divider"></div>
+    <MenuSeparator />
   {/if}
 
   {#if onRemoveFromList}
-    <button
-      class="menu-item"
-      onclick={() => {
+    <MenuItem
+      onSelect={() => {
         onRemoveFromList();
         onClose();
       }}
-      role="menuitem"
     >
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        class="menu-icon"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-      >
-        <path
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="2"
-          d="M6 18L18 6M6 6l12 12"
-        />
-      </svg>
-      <span>{removeFromListLabel}</span>
-    </button>
+      {#snippet icon()}
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          class="menu-icon"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M6 18L18 6M6 6l12 12"
+          />
+        </svg>
+      {/snippet}
+      {removeFromListLabel}
+    </MenuItem>
   {/if}
 
   {#if onDelete}
-    <button class="menu-item menu-item-danger" onclick={handleDelete} role="menuitem">
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        class="menu-icon"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-      >
-        <path
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="2"
-          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-        />
-      </svg>
-      <span>{m.contextMenu.deleteEllipsis}</span>
-    </button>
+    <MenuItem onSelect={handleDelete} danger>
+      {#snippet icon()}
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          class="menu-icon"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+          />
+        </svg>
+      {/snippet}
+      {m.contextMenu.deleteEllipsis}
+    </MenuItem>
   {/if}
 </BaseContextMenu>
-
-<style>
-  @reference "../../app.css";
-
-  .menu-header {
-    @apply py-2 px-4 text-xs font-semibold text-text-muted uppercase;
-  }
-
-  .menu-item {
-    @apply flex items-center gap-3 w-full py-2 px-4 bg-transparent border-none text-text-secondary text-sm text-left cursor-pointer transition-colors duration-150;
-  }
-
-  .menu-item:hover {
-    @apply bg-surface-active;
-  }
-
-  .menu-icon {
-    @apply w-4 h-4 shrink-0;
-  }
-
-  .menu-item span {
-    @apply flex-1;
-  }
-
-  .menu-shortcut {
-    @apply text-xs text-text-dimmed shrink-0;
-    flex: none !important;
-  }
-
-  .menu-divider {
-    @apply h-px bg-border my-2;
-  }
-
-  .menu-item-danger {
-    @apply text-error;
-  }
-
-  .menu-item-danger:hover {
-    @apply bg-error/10;
-  }
-</style>

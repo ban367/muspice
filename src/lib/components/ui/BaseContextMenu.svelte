@@ -1,10 +1,14 @@
 <!--
   @component BaseContextMenu
-  コンテキストメニューの共通基盤コンポーネント。
-  位置調整（画面外はみ出し防止）、クリック外側閉じ、Escキー閉じを提供する。
+  カーソルの位置に開くメニューの共通基盤コンポーネント。
+  Bits UIのメニューを、開く側が渡した位置（x, y）に開く。画面の端での位置の調整、外側の操作と
+  Escキーで閉じること、矢印キーでの移動、先頭の文字での選択、閉じた後のフォーカスの復帰は、
+  Bits UIに任せる。中には`MenuItem`・`MenuCheckboxItem`・`MenuRadioGroup`・`MenuSub`などを置く。
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte';
+  import { ContextMenu } from 'bits-ui';
+  import { setMenuContext } from './menuContext.js';
 
   // Props
   interface Props {
@@ -16,83 +20,40 @@
 
   let { x, y, onClose, children }: Props = $props();
 
-  let menuElement: HTMLDivElement | null = null;
-
-  // メニュー位置の調整
-  let adjustedX = $state(0);
-  let adjustedY = $state(0);
-
-  // propsからの初期位置を設定
-  $effect(() => {
-    adjustedX = x;
-    adjustedY = y;
+  // 開く位置（大きさのない点）。右クリックする範囲を`ContextMenu.Trigger`で包まず、開く側が
+  // 座標を渡す（仮想スクロールの行ごとにTriggerを置かずに済み、開く側が対象を決められる）
+  const anchor = $derived({
+    getBoundingClientRect: () => DOMRect.fromRect({ x, y, width: 0, height: 0 })
   });
 
-  // メニュー位置調整 + イベントリスナー登録
-  $effect(() => {
-    if (!menuElement) return;
+  // 開く前にフォーカスがあった要素（曲の一覧など）。メニューが開くと、フォーカスはメニューへ移る
+  const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 
-    // メニューが画面外に出ないように位置を調整
-    const rect = menuElement.getBoundingClientRect();
-    const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
-
-    if (x + rect.width > viewportWidth) {
-      adjustedX = viewportWidth - rect.width - 10;
-    }
-    if (y + rect.height > viewportHeight) {
-      adjustedY = viewportHeight - rect.height - 10;
-    }
-
-    // クリックイベントでメニューを閉じる
-    const handleClick = (e: MouseEvent) => {
-      if (menuElement && !menuElement.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-
-    // Escキーでメニューを閉じる
-    const handleKeydown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-
-    document.addEventListener('click', handleClick);
-    document.addEventListener('keydown', handleKeydown);
-
-    return () => {
-      document.removeEventListener('click', handleClick);
-      document.removeEventListener('keydown', handleKeydown);
-    };
+  // 項目を選んだ時に、項目の処理より先にフォーカスを戻す。項目がダイアログを開く場合、
+  // `<dialog>`は開いた時のフォーカスを覚えて閉じた後に戻すため、先に戻しておかないと、
+  // ダイアログを閉じた後のフォーカスが（消えたメニューの代わりに）bodyへ行ってしまう
+  setMenuContext({
+    restoreFocus: () => opener?.focus({ preventScroll: true })
   });
+
+  function handleOpenChange(open: boolean) {
+    if (!open) onClose();
+  }
 </script>
 
-<div
-  class="context-menu"
-  bind:this={menuElement}
-  style="left: {adjustedX}px; top: {adjustedY}px;"
-  role="menu"
->
-  {@render children()}
-</div>
-
-<style>
-  @reference "../../../app.css";
-  .context-menu {
-    @apply fixed z-[10000] min-w-[200px] bg-base-300 border border-border rounded-lg py-2;
-    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
-    animation: fadeIn 0.1s ease-out;
-  }
-
-  @keyframes fadeIn {
-    from {
-      opacity: 0;
-      transform: scale(0.95);
-    }
-    to {
-      opacity: 1;
-      transform: scale(1);
-    }
-  }
-</style>
+<!-- 開いたまま別の場所を右クリックした時は、作り直して新しい位置に開く（位置だけを変えても動かない） -->
+{#key `${x},${y}`}
+  <ContextMenu.Root open onOpenChange={handleOpenChange}>
+    <ContextMenu.Portal>
+      <ContextMenu.Content customAnchor={anchor} collisionPadding={10}>
+        {#snippet child({ props, wrapperProps })}
+          <div {...wrapperProps}>
+            <div {...props} class="menu-panel">
+              {@render children()}
+            </div>
+          </div>
+        {/snippet}
+      </ContextMenu.Content>
+    </ContextMenu.Portal>
+  </ContextMenu.Root>
+{/key}
