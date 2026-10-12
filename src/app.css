@@ -1,12 +1,12 @@
 @import 'tailwindcss';
-@plugin "daisyui";
 
 /* ================================
    テーマ設定 (Tailwind v4 @theme)
    ================================
-   色の値はダークの配色。ライトの配色と、DaisyUIのテーマに上書きされる色は、
-   下の「配色（ダーク / ライト）」で定義し直している */
-@theme {
+   色の値はダークの配色。ライトの配色は、下の「配色（ダーク / ライト）」で定義している。
+   `static`は、ユーティリティで使っていない変数も出力させるための指定
+   （コンポーネントの<style>やスクリプトから`var(--color-…)`で参照するため） */
+@theme static {
   /* カラーパレット */
   --color-base-100: #0f0f1a;
   --color-base-200: #1a1a2e;
@@ -83,29 +83,13 @@
 /* ================================
    配色（ダーク / ライト）
    ================================
-   `<html data-theme="dark|light">`で切り替える（`#lib/utils/theme`の`applyTheme`が設定する。
-   DaisyUIのテーマも同じ属性で切り替わる）。属性がない間（起動直後）はダーク。
-
-   DaisyUI 5のテーマは、同じ名前の変数（--color-base-100・--color-primaryなど）を@layer baseで
-   定義し、@layer themeにある上の@themeより優先されてしまう。アプリの配色を使うため、ここ
-   （レイヤーの外。どのレイヤーよりも優先される）で定義し直す。
+   `<html data-theme="dark|light">`で切り替える（`#lib/utils/theme`の`applyTheme`が設定する）。
+   属性がない間（起動直後）はダーク。ダークの色は上の@themeの値で、ライトはここで上書きする
+   （レイヤーの外に書くため、@layer themeにある@themeの値より優先される）。
    アクセントカラー（--color-primary）は、設定の値を`applyAccentColor`がstyle属性で上書きする */
 :root,
 :root[data-theme='dark'] {
   color-scheme: dark;
-
-  /* DaisyUIのテーマと名前が重なる色（値は上の@themeと同じ） */
-  --color-base-100: #0f0f1a;
-  --color-base-200: #1a1a2e;
-  --color-base-300: #1e1e2e;
-  --color-primary: #3b82f6;
-  --color-primary-content: #ffffff;
-  --color-secondary: #1db954;
-  --color-secondary-content: #000000;
-  --color-accent: #667eea;
-  --color-error: #ef4444;
-  --color-success: #22c55e;
-  --color-warning: #f59e0b;
 }
 
 :root[data-theme='light'] {
@@ -182,6 +166,12 @@ body {
 /* ================================
    スクロールバースタイル
    ================================ */
+/* `scrollbar-color`に対応する環境では、OSのスクロールバーがこの色（文字色の35%）で表示され、
+   下の`::-webkit-scrollbar`は使われない */
+:root {
+  scrollbar-color: color-mix(in oklch, currentColor 35%, #0000) #0000;
+}
+
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -305,7 +295,7 @@ body {
   @apply w-16 h-16 text-text-dimmed/50 mb-4;
 }
 
-/* モーダルのパネル（#lib/components/ui/Modal.svelte が使う。DaisyUIのmodalと競合しないよう独自クラス名にしている）
+/* モーダルのパネル（#lib/components/ui/Modal.svelte が使う）
    最大幅はModalのclassで指定する。ここはレイヤー外のため、ここで指定するとmax-w-*のユーティリティより優先されてしまう */
 .modal-content {
   @apply bg-base-300 rounded-xl w-full max-h-[78vh] flex flex-col overflow-hidden shadow-xl;
