@@ -1,19 +1,34 @@
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::models::{Playlist, PlaylistTrack, Track};
 use crate::repository::{TRACK_COLUMNS, query_tracks};
+use crate::smart_playlist::{self, EvalContext, SmartRules};
 use chrono::Utc;
-use rusqlite::{Connection, Result};
+use rusqlite::{Connection, OptionalExtension, Result};
 use std::collections::HashMap;
 use uuid::Uuid;
 
 /// プレイリストを作成
 pub fn create_playlist(conn: &Connection, name: &str) -> Result<Playlist> {
+    insert_playlist(conn, name, None)
+}
+
+/// 自動プレイリスト（条件で曲を集めるプレイリスト）を作成
+pub fn create_smart_playlist(
+    conn: &Connection,
+    name: &str,
+    rules: &SmartRules,
+) -> Result<Playlist> {
+    insert_playlist(conn, name, Some(rules))
+}
+
+fn insert_playlist(conn: &Connection, name: &str, rules: Option<&SmartRules>) -> Result<Playlist> {
     let id = Uuid::new_v4().to_string();
     let now = Utc::now().to_rfc3339();
 
     conn.execute(
-        "INSERT INTO playlists (id, name, created_at, updated_at) VALUES (?1, ?2, ?3, ?4)",
-        rusqlite::params![id, name, now, now],
+        "INSERT INTO playlists (id, name, rules, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?4)",
+        rusqlite::params![id, name, rules.map(rules_to_json).transpose()?, now],
     )?;
 
     Ok(Playlist {
@@ -21,9 +36,86 @@ pub fn create_playlist(conn: &Connection, name: &str) -> Result<Playlist> {
         name: name.to_string(),
         description: None,
         tracks: Vec::new(),
+        rules: rules.cloned(),
         created_at: now.clone(),
         updated_at: now,
     })
+}
+
+fn rules_to_json(rules: &SmartRules) -> Result<String> {
+    serde_json::to_string(rules).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
+}
+
+/// 保存してある条件（`playlists.rules`）を読む（NULLは、通常のプレイリスト）
+///
+/// 読めない条件は、どの曲にも合わない条件にする（`SmartRules::unreadable`）。
+fn parse_rules(json: Option<String>) -> Option<SmartRules> {
+    json.map(|json| serde_json::from_str(&json).unwrap_or_else(|_| SmartRules::unreadable()))
+}
+
+/// プレイリストの条件を取得する
+///
+/// 外側の`None`はプレイリストがない場合、内側の`None`は通常のプレイリスト。
+fn find_rules(conn: &Connection, playlist_id: &str) -> Result<Option<Option<SmartRules>>> {
+    conn.query_row(
+        "SELECT rules FROM playlists WHERE id = ?1",
+        [playlist_id],
+        |row| row.get::<_, Option<String>>(0),
+    )
+    .optional()
+    .map(|found| found.map(parse_rules))
+}
+
+/// 曲を自分で選ぶ通常のプレイリストであることを確かめる（曲の追加・削除・並べ替えの前に呼ぶ）
+///
+/// 自動プレイリストの曲は条件で決まるため、変更できない。プレイリストがない場合は、
+/// このあとの操作が「見つからない」を返すため、ここでは通す。
+pub fn ensure_manual_playlist(conn: &Connection, playlist_id: &str) -> AppResult<()> {
+    let rules = find_rules(conn, playlist_id)
+        .map_err(|e| AppError::Database(format!("プレイリストの取得に失敗しました: {}", e)))?;
+    if matches!(rules, Some(Some(_))) {
+        return Err(AppError::Validation(
+            "自動プレイリストの曲は条件で決まるため、変更できません".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// 自動プレイリストの条件を変更
+///
+/// 通常のプレイリストは、自動プレイリストに変えない（入れてある曲が見えなくなるため）。
+pub fn update_smart_playlist_rules(
+    conn: &Connection,
+    playlist_id: &str,
+    rules: &SmartRules,
+) -> AppResult<()> {
+    let database = |e: rusqlite::Error| {
+        AppError::Database(format!("プレイリストの条件の変更に失敗しました: {}", e))
+    };
+    match find_rules(conn, playlist_id).map_err(database)? {
+        None => {
+            return Err(AppError::NotFound(
+                "プレイリストが見つかりません".to_string(),
+            ));
+        }
+        Some(None) => {
+            return Err(AppError::Validation(
+                "通常のプレイリストには、条件を設定できません".to_string(),
+            ));
+        }
+        Some(Some(_)) => {}
+    }
+
+    conn.execute(
+        "UPDATE playlists SET rules = ?1, updated_at = ?2 WHERE id = ?3",
+        rusqlite::params![
+            rules_to_json(rules).map_err(database)?,
+            Utc::now().to_rfc3339(),
+            playlist_id
+        ],
+    )
+    .map_err(database)?;
+    Ok(())
 }
 
 /// プレイリストの名前を取得する（プレイリストがなければ`QueryReturnedNoRows`）
@@ -113,19 +205,23 @@ pub fn get_all_playlists(conn: &Connection) -> Result<Vec<Playlist>> {
 
     // 2. プレイリスト本体を取得し、対応するトラックを割り当てる
     let mut stmt = conn.prepare(
-        "SELECT id, name, description, created_at, updated_at FROM playlists ORDER BY created_at DESC",
+        "SELECT id, name, description, created_at, updated_at, rules
+         FROM playlists ORDER BY created_at DESC",
     )?;
 
     let playlists = stmt
         .query_map([], |row| {
             let playlist_id: String = row.get(0)?;
             let tracks = tracks_by_playlist.remove(&playlist_id).unwrap_or_default();
+            let rules = parse_rules(row.get(5)?);
 
             Ok(Playlist {
                 id: playlist_id,
                 name: row.get(1)?,
                 description: row.get(2)?,
-                tracks,
+                // 自動プレイリストの曲は、開く時に条件から求める（ここでは持たない）
+                tracks: if rules.is_some() { Vec::new() } else { tracks },
+                rules,
                 created_at: row.get(3)?,
                 updated_at: row.get(4)?,
             })
@@ -137,8 +233,19 @@ pub fn get_all_playlists(conn: &Connection) -> Result<Vec<Playlist>> {
 
 /// プレイリストの曲を取得（プレイリストの中の並び順）
 ///
+/// 自動プレイリストでは、条件に合う曲を、条件の並び順で返す。
 /// プレイリストが見つからない場合は、空の一覧を返す。
-pub fn get_playlist_tracks(conn: &Connection, playlist_id: &str) -> AppResult<Vec<Track>> {
+pub fn get_playlist_tracks(
+    conn: &Connection,
+    playlist_id: &str,
+    context: EvalContext,
+) -> AppResult<Vec<Track>> {
+    let rules = find_rules(conn, playlist_id)
+        .map_err(|e| AppError::Database(format!("プレイリストの取得に失敗しました: {}", e)))?;
+    if let Some(Some(rules)) = rules {
+        return smart_playlist::find_tracks(conn, &rules, context);
+    }
+
     let sql = format!(
         "SELECT {} FROM tracks
          JOIN playlist_tracks ON playlist_tracks.track_id = tracks.id
@@ -147,6 +254,27 @@ pub fn get_playlist_tracks(conn: &Connection, playlist_id: &str) -> AppResult<Ve
         TRACK_COLUMNS
     );
     query_tracks(conn, &sql, &[&playlist_id])
+}
+
+/// プレイリストの曲のIDを取得（プレイリストの中の並び順。自動プレイリストは、条件に合う曲）
+///
+/// `get_all_playlists`で取得したプレイリストから求める（デバイスへの転送用）。
+pub fn playlist_track_ids(
+    conn: &Connection,
+    playlist: &Playlist,
+    context: EvalContext,
+) -> AppResult<Vec<String>> {
+    match &playlist.rules {
+        Some(rules) => Ok(smart_playlist::find_tracks(conn, rules, context)?
+            .into_iter()
+            .map(|track| track.id)
+            .collect()),
+        None => Ok(playlist
+            .tracks
+            .iter()
+            .map(|track| track.track_id.clone())
+            .collect()),
+    }
 }
 
 /// プレイリストにトラックを追加
@@ -380,6 +508,7 @@ mod tests {
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 description TEXT,
+                rules TEXT,
                 created_at TEXT,
                 updated_at TEXT
             )",
@@ -630,7 +759,7 @@ mod tests {
         )
         .unwrap();
 
-        let tracks = get_playlist_tracks(&conn, &playlist.id).unwrap();
+        let tracks = get_playlist_tracks(&conn, &playlist.id, context()).unwrap();
 
         let ids: Vec<&str> = tracks.iter().map(|t| t.id.as_str()).collect();
         assert_eq!(ids, ["track2", "track1"]);
@@ -638,6 +767,162 @@ mod tests {
         assert_eq!(tracks[0].file_path, "/test/track2.mp3");
 
         // 見つからないプレイリストは、空の一覧
-        assert!(get_playlist_tracks(&conn, "missing").unwrap().is_empty());
+        assert!(
+            get_playlist_tracks(&conn, "missing", context())
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    fn context() -> EvalContext {
+        EvalContext {
+            now: Utc::now(),
+            shuffle_seed: 1,
+        }
+    }
+
+    fn jazz_rules() -> SmartRules {
+        use crate::smart_playlist::{
+            MatchMode, SmartOrder, SmartOrderField, SmartRule, TextField, TextOp,
+        };
+        SmartRules {
+            match_mode: MatchMode::All,
+            rules: vec![SmartRule::Text {
+                field: TextField::Genre,
+                op: TextOp::Is,
+                value: "Jazz".to_string(),
+            }],
+            order: SmartOrder {
+                field: SmartOrderField::Title,
+                descending: false,
+            },
+            limit: None,
+        }
+    }
+
+    fn smart_db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::run_migrations(&conn).unwrap();
+        for (id, genre) in [("track1", "Jazz"), ("track2", "Rock"), ("track3", "Jazz")] {
+            conn.execute(
+                "INSERT INTO tracks (id, file_path, file_name, title, genre, file_size, format)
+                 VALUES (?1, ?2, ?3, ?1, ?4, 0, 'mp3')",
+                rusqlite::params![id, format!("/test/{id}.mp3"), format!("{id}.mp3"), genre],
+            )
+            .unwrap();
+        }
+        conn
+    }
+
+    /// 自動プレイリストの曲は、開くたびに条件から求める（曲のタグが変われば、一覧も変わる）
+    #[test]
+    fn test_smart_playlist_tracks_follow_the_rules() {
+        let conn = smart_db();
+        let playlist = create_smart_playlist(&conn, "ジャズ", &jazz_rules()).unwrap();
+        let track_ids = |conn: &Connection| -> Vec<String> {
+            get_playlist_tracks(conn, &playlist.id, context())
+                .unwrap()
+                .into_iter()
+                .map(|track| track.id)
+                .collect()
+        };
+
+        assert_eq!(track_ids(&conn), ["track1", "track3"]);
+
+        conn.execute("UPDATE tracks SET genre = 'Jazz' WHERE id = 'track2'", [])
+            .unwrap();
+        assert_eq!(track_ids(&conn), ["track1", "track2", "track3"]);
+
+        // 一覧には条件を持たせ、曲は持たせない（曲のIDは、条件から求める）
+        let playlists = get_all_playlists(&conn).unwrap();
+        assert_eq!(playlists[0].rules, Some(jazz_rules()));
+        assert!(playlists[0].tracks.is_empty());
+        assert_eq!(
+            playlist_track_ids(&conn, &playlists[0], context()).unwrap(),
+            ["track1", "track2", "track3"]
+        );
+    }
+
+    #[test]
+    fn test_playlist_track_ids_of_a_manual_playlist_keep_the_order() {
+        let conn = smart_db();
+        let manual = create_playlist(&conn, "通勤").unwrap();
+        add_tracks_to_playlist(
+            &conn,
+            &manual.id,
+            &["track3".to_string(), "track1".to_string()],
+        )
+        .unwrap();
+
+        let playlists = get_all_playlists(&conn).unwrap();
+        assert_eq!(
+            playlist_track_ids(&conn, &playlists[0], context()).unwrap(),
+            ["track3", "track1"]
+        );
+    }
+
+    #[test]
+    fn test_update_smart_playlist_rules() {
+        let conn = smart_db();
+        let smart = create_smart_playlist(&conn, "ジャズ", &jazz_rules()).unwrap();
+        let manual = create_playlist(&conn, "通勤").unwrap();
+        let mut rules = jazz_rules();
+        rules.limit = Some(1);
+
+        update_smart_playlist_rules(&conn, &smart.id, &rules).unwrap();
+        assert_eq!(
+            get_playlist_tracks(&conn, &smart.id, context())
+                .unwrap()
+                .len(),
+            1
+        );
+
+        // 通常のプレイリスト・ないプレイリストには、条件を設定できない
+        assert!(matches!(
+            update_smart_playlist_rules(&conn, &manual.id, &rules),
+            Err(AppError::Validation(_))
+        ));
+        assert!(matches!(
+            update_smart_playlist_rules(&conn, "missing", &rules),
+            Err(AppError::NotFound(_))
+        ));
+        assert_eq!(get_all_playlists(&conn).unwrap().len(), 2);
+    }
+
+    /// 自動プレイリストの曲は、追加・削除・並べ替えの対象にしない
+    #[test]
+    fn test_ensure_manual_playlist() {
+        let conn = smart_db();
+        let smart = create_smart_playlist(&conn, "ジャズ", &jazz_rules()).unwrap();
+        let manual = create_playlist(&conn, "通勤").unwrap();
+
+        assert!(ensure_manual_playlist(&conn, &manual.id).is_ok());
+        assert!(matches!(
+            ensure_manual_playlist(&conn, &smart.id),
+            Err(AppError::Validation(_))
+        ));
+        // ないプレイリストは、このあとの操作が「見つからない」を返す
+        assert!(ensure_manual_playlist(&conn, "missing").is_ok());
+    }
+
+    /// 読めない条件（新しいバージョンで足した項目など）は、曲のない自動プレイリストとして扱う
+    #[test]
+    fn test_unreadable_rules_keep_the_playlist_smart_and_empty() {
+        let conn = smart_db();
+        let smart = create_smart_playlist(&conn, "ジャズ", &jazz_rules()).unwrap();
+        conn.execute(
+            "UPDATE playlists SET rules = '{\"matchMode\":\"future\"}' WHERE id = ?1",
+            [&smart.id],
+        )
+        .unwrap();
+
+        let playlists = get_all_playlists(&conn).unwrap();
+        assert_eq!(playlists[0].rules, Some(SmartRules::unreadable()));
+        assert!(
+            get_playlist_tracks(&conn, &smart.id, context())
+                .unwrap()
+                .is_empty()
+        );
+        assert!(ensure_manual_playlist(&conn, &smart.id).is_err());
     }
 }

@@ -192,9 +192,22 @@ export const commands = {
 	removeAlbumArt: (trackIds: string[]) => __TAURI_INVOKE<BulkUpdateResult>("remove_album_art", { trackIds }),
 	/**  プレイリストを作成 */
 	createPlaylist: (name: string) => __TAURI_INVOKE<Playlist>("create_playlist", { name }),
+	/**  自動プレイリスト（条件で曲を集めるプレイリスト）を作成 */
+	createSmartPlaylist: (name: string, rules: SmartRules) => __TAURI_INVOKE<Playlist>("create_smart_playlist", { name, rules }),
+	/**  自動プレイリストの条件を変更（名前は`rename_playlist`で変える） */
+	updateSmartPlaylist: (playlistId: string, rules: SmartRules) => __TAURI_INVOKE<null>("update_smart_playlist", { playlistId, rules }),
+	/**  条件に合う曲数を数える（条件の編集画面で、保存する前に出す。上限があれば、それを超えない） */
+	countSmartPlaylistTracks: (rules: SmartRules) => __TAURI_INVOKE<number>("count_smart_playlist_tracks", { rules }),
+	/**
+	 *  ランダムな並びの自動プレイリストを、選び直す
+	 * 
+	 *  ランダムな並びは、一覧を取り直しても変わらない（聴いている途中で並びが変わらないようにするため）。
+	 *  別の曲・別の順にしたい時に呼ぶ（すべての自動プレイリストの並びが変わる）。
+	 */
+	reshuffleSmartPlaylists: () => __TAURI_INVOKE<null>("reshuffle_smart_playlists"),
 	/**  すべてのプレイリストを取得 */
 	getPlaylists: () => __TAURI_INVOKE<Playlist[]>("get_playlists"),
-	/**  プレイリストの曲を取得（プレイリストの中の並び順） */
+	/**  プレイリストの曲を取得（プレイリストの中の並び順。自動プレイリストは、条件に合う曲） */
 	getPlaylistTracks: (playlistId: string) => __TAURI_INVOKE<Track[]>("get_playlist_tracks", { playlistId }),
 	/**  プレイリストを削除 */
 	deletePlaylist: (playlistId: string) => __TAURI_INVOKE<null>("delete_playlist", { playlistId }),
@@ -547,6 +560,22 @@ export type BulkUpdateResult = {
 	errors: string[],
 };
 
+/**  日付の項目 */
+export type DateField = 
+/**  追加した日時 */
+"createdAt" | 
+/**  最後に再生した日時 */
+"lastPlayedAt";
+
+/**  日付の比べ方 */
+export type DateOp = 
+/**  過去`days`日以内 */
+"inLast" | 
+/**  過去`days`日より前（日付のない曲を含む。「長く聴いていない曲」には、未再生の曲も入る） */
+"notInLast" | 
+/**  日付がない（未再生） */
+"isEmpty" | "isNotEmpty";
+
 /**  削除失敗の詳細 */
 export type DeleteFailure = {
 	/**  トラックID */
@@ -751,6 +780,13 @@ export type M3uImportResult = {
 	error: string | null,
 };
 
+/**  条件の組み合わせ方 */
+export type MatchMode = 
+/**  すべての条件を満たす曲（条件がなければ、すべての曲） */
+"all" | 
+/**  いずれかの条件を満たす曲（条件がなければ、曲なし） */
+"any";
+
 /**
  *  曲のタグ（編集画面で扱う項目）
  * 
@@ -802,6 +838,20 @@ export type NowPlayingUpdate = {
 	/**  曲の長さ（秒。再生エンジンがファイルから読んだ値。分からなければnullで、ライブラリの値を使う） */
 	duration: number | null,
 };
+
+/**  数値の項目 */
+export type NumberField = 
+/**  評価（星の数。0は評価なし） */
+"rating" | "year" | "playCount" | "skipCount" | 
+/**  長さ（秒） */
+"duration" | "trackNumber" | "discNumber" | 
+/**  ビットレート（kbps） */
+"bitrate";
+
+/**  数値の比べ方 */
+export type NumberOp = "is" | "isNot" | "atLeast" | "atMost" | 
+/**  `value`以上・`valueTo`以下 */
+"between";
 
 /**  メニュー「フォルダをインポート...」: インポートダイアログを開く */
 export type OpenImportDialog = null;
@@ -909,7 +959,10 @@ export type Playlist = {
 	id: string,
 	name: string,
 	description: string | null,
+	/**  入っている曲（自動プレイリストでは、いつも空。曲は開く時に条件から求める） */
 	tracks: PlaylistTrack[],
+	/**  自動プレイリストの条件（値なしは、曲を自分で選ぶ通常のプレイリスト） */
+	rules: SmartRules | null,
 	createdAt: string,
 	updatedAt: string,
 };
@@ -1016,6 +1069,38 @@ export type ShowAboutDialog = null;
 /**  サイドバーの項目（表示するかどうかを選べるもの） */
 export type SidebarItem = "songs" | "albums" | "artists" | "genres" | "folders" | "years" | "favorites" | "recentlyAdded" | "playHistory" | "mostPlayed";
 
+/**  並び順（上限がある場合は、この順の先頭から選ぶ） */
+export type SmartOrder = {
+	field: SmartOrderField,
+	/**  大きい方（新しい方）から並べるか（`Random`では使わない） */
+	descending: boolean,
+};
+
+/**  並び順に使う項目 */
+export type SmartOrderField = 
+/**  ランダム（選び直すまで、同じ並びになる） */
+"random" | "title" | "artist" | "album" | "createdAt" | "lastPlayedAt" | "playCount" | "rating" | "year" | "duration";
+
+/**  1つの条件 */
+export type SmartRule = 
+/**  文字列の項目の条件（`IsEmpty`・`IsNotEmpty`では、`value`を使わない） */
+{ kind: "text"; field: TextField; op: TextOp; value: string } | 
+/**  数値の項目の条件（`value_to`は、`Between`の上端） */
+{ kind: "number"; field: NumberField; op: NumberOp; value: number; valueTo: number | null } | 
+/**  日付の項目の条件（`IsEmpty`・`IsNotEmpty`では、`days`を使わない） */
+{ kind: "date"; field: DateField; op: DateOp; days: number } | 
+/**  お気に入りかどうか */
+{ kind: "favorite"; value: boolean };
+
+/**  自動プレイリストの条件 */
+export type SmartRules = {
+	matchMode: MatchMode,
+	rules: SmartRule[],
+	order: SmartOrder,
+	/**  曲数の上限（Noneは上限なし） */
+	limit: number | null,
+};
+
 /**
  *  並び順に使う値（ソート用のタグ。`TITLESORT`・`ARTISTSORT`・`ALBUMSORT`・`ALBUMARTISTSORT`）
  * 
@@ -1064,6 +1149,18 @@ export type SyncDeviceConfig = {
 	playlistIds: string[],
 	removeUnselected: boolean,
 };
+
+/**  文字列の項目 */
+export type TextField = "title" | "artist" | "albumArtist" | "album" | "genre" | 
+/**  ファイルの種類（mp3・flacなど） */
+"format" | 
+/**  ファイルの場所（フォルダ名での絞り込みに使う） */
+"path";
+
+/**  文字列の比べ方（大文字と小文字・全角と半角・ひらがなとカタカナは区別しない） */
+export type TextOp = "contains" | "notContains" | "is" | "isNot" | "startsWith" | "endsWith" | 
+/**  値がない（タグがない） */
+"isEmpty" | "isNotEmpty";
 
 /**  画面の配色 */
 export type Theme = 

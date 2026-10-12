@@ -239,7 +239,11 @@
                   onchange={(e) => togglePlaylist(device, playlist.id, e.currentTarget.checked)}
                 />
                 <span class="flex-1 truncate">{playlist.name}</span>
-                <span class="hint shrink-0">{m.common.trackCount(playlist.tracks.length)}</span>
+                <span class="hint shrink-0">
+                  {playlist.rules === null
+                    ? m.common.trackCount(playlist.tracks.length)
+                    : m.smartPlaylist.badge}
+                </span>
               </label>
             </li>
           {/each}

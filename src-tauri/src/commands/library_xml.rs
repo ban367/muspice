@@ -206,17 +206,19 @@ mod tests {
     }
 
     fn playlists(state: &AppState) -> Vec<(String, Vec<String>)> {
+        let context = state.smart_playlist_context();
         state
             .with_db(|db| {
                 let playlists = crate::playlist::get_all_playlists(db).unwrap();
                 Ok(playlists
                     .into_iter()
                     .map(|playlist| {
-                        let tracks = crate::playlist::get_playlist_tracks(db, &playlist.id)
-                            .unwrap()
-                            .into_iter()
-                            .map(|track| track.id)
-                            .collect();
+                        let tracks =
+                            crate::playlist::get_playlist_tracks(db, &playlist.id, context)
+                                .unwrap()
+                                .into_iter()
+                                .map(|track| track.id)
+                                .collect();
                         (playlist.name, tracks)
                     })
                     .collect())

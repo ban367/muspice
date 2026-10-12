@@ -22,17 +22,19 @@ mod playlist;
 mod repository;
 mod search_text;
 mod settings;
+mod smart_playlist;
 mod state;
 mod tag_backfill;
 mod track_relink;
 mod validation;
 
 use commands::{
-    add_tracks_to_playlist, apply_metadata_changes, cancel_device_sync, create_playlist,
-    delete_playlist, delete_tracks_command, delete_tracks_with_files_command, export_playlist_m3u,
-    filter_tracks, get_album_art_info, get_album_tracks, get_albums, get_all_tracks,
-    get_artist_albums, get_artists, get_current_track, get_favorite_tracks, get_genre_tracks,
-    get_genres, get_library_folders, get_most_played_tracks, get_output_devices, get_play_history,
+    add_tracks_to_playlist, apply_metadata_changes, cancel_device_sync,
+    count_smart_playlist_tracks, create_playlist, create_smart_playlist, delete_playlist,
+    delete_tracks_command, delete_tracks_with_files_command, export_playlist_m3u, filter_tracks,
+    get_album_art_info, get_album_tracks, get_albums, get_all_tracks, get_artist_albums,
+    get_artists, get_current_track, get_favorite_tracks, get_genre_tracks, get_genres,
+    get_library_folders, get_most_played_tracks, get_output_devices, get_play_history,
     get_playback_state, get_playlist_tracks, get_playlists, get_settings, get_sync_devices,
     get_track_tags, get_unique_albums, get_unique_artists, get_unique_genres, import_folder,
     import_library_xml, import_m3u_playlists, increment_play_count, increment_skip_count,
@@ -40,10 +42,11 @@ use commands::{
     playback_seek, playback_set_equalizer, playback_set_next, playback_set_volume, playback_stop,
     refresh_library_metadata, register_sync_device, relink_sync_device, remove_album_art,
     remove_library_folder, remove_missing_tracks, remove_sync_device, remove_track_from_playlist,
-    rename_playlist, reorder_playlist_tracks, rescan_library_folder, run_device_sync,
-    save_playback_state, save_settings, search_tracks, set_album_art, set_current_track,
-    set_favorite, set_now_playing, set_rating, show_in_folder, update_multiple_tracks_metadata,
-    update_sync_device, update_track_metadata, write_library_metadata_to_files,
+    rename_playlist, reorder_playlist_tracks, rescan_library_folder, reshuffle_smart_playlists,
+    run_device_sync, save_playback_state, save_settings, search_tracks, set_album_art,
+    set_current_track, set_favorite, set_now_playing, set_rating, show_in_folder,
+    update_multiple_tracks_metadata, update_smart_playlist, update_sync_device,
+    update_track_metadata, write_library_metadata_to_files,
 };
 use state::AppState;
 use std::path::PathBuf;
@@ -96,6 +99,10 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             set_album_art,
             remove_album_art,
             create_playlist,
+            create_smart_playlist,
+            update_smart_playlist,
+            count_smart_playlist_tracks,
+            reshuffle_smart_playlists,
             get_playlists,
             get_playlist_tracks,
             delete_playlist,
