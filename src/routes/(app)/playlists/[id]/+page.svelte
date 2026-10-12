@@ -1,5 +1,11 @@
+<!--
+  プレイリストの画面。曲の一覧は、ほかの曲の一覧と同じ部品（`TrackList`）で表示する。
+
+  - 並び順の既定は、プレイリストの順（手動の並び）。その間だけ、行のドラッグで並べ替えられる
+  - 表示する列は、どのプレイリストでも共通。並び順は、プレイリストごとに覚える（ADR-039）
+  - 選択した曲は、右クリックのメニュー・Deleteキーでプレイリストから外せる
+-->
 <script lang="ts">
-  import { untrack } from 'svelte';
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
@@ -10,20 +16,16 @@
     useRemoveTrackFromPlaylistMutation,
     useReorderPlaylistTracksMutation
   } from '#lib/queries/playlists.js';
-  import { VirtualList } from '#lib/components/ui/index.js';
+  import TrackList from '#lib/components/library/TrackList.svelte';
   import type { Playlist, Track } from '#lib/types/models.js';
   import { playTrackFromQueue } from '#lib/stores/player.svelte.js';
-  import { formatDuration, formatTotalDuration } from '#lib/utils/format.js';
+  import { formatTotalDuration } from '#lib/utils/format.js';
   import { confirmDestructive } from '#lib/utils/dialog.svelte.js';
-  import { TrackSelection, handleTrackListKeydown } from '#lib/utils/trackSelection.svelte.js';
-  import { startTrackDrag } from '#lib/utils/trackDrag.js';
+  import { playlistSortViewId } from '#lib/stores/trackListView.svelte.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   // URLからプレイリストIDを取得
   const playlistId = $derived(page.params.id);
-
-  // 行の高さの見積もり（描画した後は、VirtualListが実測した高さを使う）
-  const ESTIMATED_ROW_HEIGHT = 52;
 
   // クエリとミューテーション
   const playlistsQuery = usePlaylistsQuery();
@@ -46,10 +48,7 @@
     new Map((tracksQuery?.data ?? []).map((track: Track) => [track.id, track]))
   );
 
-  // ドラッグ中のトラックID
-  let draggedTrackId = $state<string | null>(null);
-
-  // プレイリストのトラック（表示順）
+  // プレイリストのトラック（プレイリストの順）
   // 並びはプレイリストの一覧から取る（曲の削除を、曲の情報の取り直しを待たずに反映する）。
   // 情報をまだ取得していないトラック・ライブラリにないトラックは除く
   const playlistTracks = $derived.by(() =>
@@ -59,38 +58,6 @@
           .filter((t): t is Track => t !== undefined)
       : []
   );
-
-  // 見えている行だけを描画する一覧
-  let virtualList = $state<VirtualList<Track>>();
-
-  // トラックの選択（クリック・キーボード）
-  const selection = new TrackSelection(() => playlistTracks);
-
-  // 別のプレイリストを開いたら、選択を消す
-  $effect(() => {
-    void playlistId;
-    // 選択の中身には反応させない（選択を変えるたびに消えてしまう）
-    untrack(() => selection.reset());
-  });
-
-  function handleTrackClick(trackId: string, event: MouseEvent) {
-    selection.click(trackId, {
-      shiftKey: event.shiftKey,
-      toggleKey: event.ctrlKey || event.metaKey
-    });
-  }
-
-  /**
-   * 一覧のキーボード操作（矢印キーで選択を移す・Enterで再生する）
-   */
-  function handleListKeydown(event: KeyboardEvent) {
-    const indexOf = (trackId: string) => playlistTracks.findIndex((t) => t.id === trackId);
-    handleTrackListKeydown(event, selection, {
-      onActivate: (trackId) => playFromIndex(indexOf(trackId)),
-      // 移動先の行は描画されていないことがあるため、一覧の中の位置でスクロールする
-      scrollTo: (trackId) => virtualList?.scrollToIndex(indexOf(trackId))
-    });
-  }
 
   /**
    * プレイリストを削除
@@ -111,78 +78,43 @@
   }
 
   /**
-   * トラックを削除
+   * 選択した曲を、プレイリストから外す
    */
-  async function handleRemoveTrack(trackId: string) {
+  async function handleRemoveTracks(tracks: Track[]) {
     if (!selectedPlaylist) return;
+    const playlistId = selectedPlaylist.id;
 
     try {
-      await removeTrackMutation.mutateAsync({
-        playlistId: selectedPlaylist.id,
-        trackId
-      });
+      for (const track of tracks) {
+        await removeTrackMutation.mutateAsync({ playlistId, trackId: track.id });
+      }
     } catch (error) {
       console.error('トラックの削除に失敗しました:', error);
     }
   }
 
   /**
-   * ドラッグ開始
-   *
-   * このプレイリストの中での並び替え（ドラッグした行だけ）と、サイドバーの別のプレイリストへの
-   * 追加（選択中の曲すべて）の両方に使う。
+   * 行のドラッグでの並べ替え
+   * @param trackIds - 一覧に出ている曲の、新しい並び
    */
-  function handleDragStart(event: DragEvent, trackId: string) {
-    draggedTrackId = trackId;
-    const trackIds = selection.beginDrag(trackId);
-    startTrackDrag(event, trackIds, m.common.trackCount(trackIds.length), 'copyMove');
-  }
+  async function handleReorder(trackIds: string[]) {
+    if (!selectedPlaylist) return;
 
-  /**
-   * ドラッグオーバー
-   */
-  function handleDragOver(event: DragEvent) {
-    event.preventDefault();
-    if (event.dataTransfer) {
-      event.dataTransfer.dropEffect = 'move';
-    }
-  }
-
-  /**
-   * トラックの並び替え
-   */
-  async function handleDropOnTrack(event: DragEvent, targetTrackId: string) {
-    event.preventDefault();
-
-    if (!selectedPlaylist || !draggedTrackId || draggedTrackId === targetTrackId) {
-      draggedTrackId = null;
-      return;
-    }
-
-    const tracks = selectedPlaylist.tracks;
-    const draggedIndex = tracks.findIndex((t) => t.trackId === draggedTrackId);
-    const targetIndex = tracks.findIndex((t) => t.trackId === targetTrackId);
-
-    if (draggedIndex === -1 || targetIndex === -1) {
-      draggedTrackId = null;
-      return;
-    }
-
-    // 新しい順序を作成
-    const newOrder = [...tracks];
-    const [removed] = newOrder.splice(draggedIndex, 1);
-    newOrder.splice(targetIndex, 0, removed);
+    // 一覧に出ていない曲（情報をまだ取得していない曲）の位置は変えず、出ている曲だけを入れ替える
+    const visible = new Set(trackIds);
+    const reordered = trackIds[Symbol.iterator]();
+    const newOrder = selectedPlaylist.tracks.map((pt) =>
+      visible.has(pt.trackId) ? (reordered.next().value as string) : pt.trackId
+    );
 
     try {
       await reorderTracksMutation.mutateAsync({
         playlistId: selectedPlaylist.id,
-        trackIds: newOrder.map((t) => t.trackId)
+        trackIds: newOrder
       });
     } catch (error) {
       console.error('トラックの並び替えに失敗しました:', error);
     }
-
-    draggedTrackId = null;
   }
 
   /**
@@ -300,81 +232,23 @@
           <p class="hint">{m.playlists.noTracksHint}</p>
         </div>
       {:else}
-        <!-- トラック一覧（一覧がフォーカスを受けてキー操作を扱う。枠は出さず、選択中の行の色で示す） -->
-        <VirtualList
-          bind:this={virtualList}
-          items={playlistTracks}
-          getKey={(track) => track.id}
-          estimatedRowHeight={ESTIMATED_ROW_HEIGHT}
-          class="outline-none"
-          role="listbox"
-          aria-multiselectable="true"
-          aria-label={selectedPlaylist.name}
-          tabindex={0}
-          onkeydown={handleListKeydown}
-        >
-          {#snippet header()}
-            <div class="track-header">
-              <div class="col-number">#</div>
-              <div class="col-title">{m.fields.title}</div>
-              <div class="col-artist">{m.fields.artist}</div>
-              <div class="col-album">{m.fields.album}</div>
-              <div class="col-duration">{m.fields.duration}</div>
-              <div class="col-actions"></div>
-            </div>
-          {/snippet}
-
-          {#snippet row(track, index)}
-            <!-- キー操作は一覧（listbox）で受けるため、行はフォーカスを受けない -->
-            <!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
-            <div
-              class="track-row"
-              class:selected={selection.has(track.id)}
-              class:missing={track.isMissing}
-              title={track.isMissing ? m.common.fileMissing : undefined}
-              draggable="true"
-              ondragstart={(e) => handleDragStart(e, track.id)}
-              ondragend={() => (draggedTrackId = null)}
-              ondragover={handleDragOver}
-              ondrop={(e) => handleDropOnTrack(e, track.id)}
-              onclick={(e) => handleTrackClick(track.id, e)}
-              ondblclick={() => playFromIndex(index)}
-              role="option"
-              aria-selected={selection.has(track.id)}
-              data-track-id={track.id}
-            >
-              <div class="col-number">{index + 1}</div>
-              <div class="col-title">
-                <span class="track-name">{track.title || track.fileName}</span>
-              </div>
-              <div class="col-artist">{track.artist || m.common.unknownArtist}</div>
-              <div class="col-album">{track.album || m.common.unknownAlbum}</div>
-              <div class="col-duration">{formatDuration(track.duration)}</div>
-              <div class="col-actions">
-                <button
-                  class="btn-remove-track"
-                  onclick={() => handleRemoveTrack(track.id)}
-                  title={m.playlists.removeFromPlaylist}
-                >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    class="icon-remove"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg>
-                </button>
-              </div>
-            </div>
-          {/snippet}
-        </VirtualList>
+        <!-- トラック一覧（プレイリストを切り替えたら、選択・並び順の設定ごと作り直す） -->
+        {#key selectedPlaylist.id}
+          <TrackList
+            tracks={tracksQuery?.data ? playlistTracks : null}
+            isLoading={tracksQuery?.isLoading ?? false}
+            isError={tracksQuery?.isError ?? false}
+            error={tracksQuery?.error ?? null}
+            label={selectedPlaylist.name}
+            viewId="playlist"
+            sortViewId={playlistSortViewId(selectedPlaylist.id)}
+            defaultColumns={['title', 'artist', 'album', 'duration']}
+            defaultSort={null}
+            onReorder={handleReorder}
+            onRemove={handleRemoveTracks}
+            removeLabel={m.playlists.removeFromPlaylist}
+          />
+        {/key}
       {/if}
     </div>
   {/if}
@@ -466,74 +340,9 @@
     @apply w-5 h-5;
   }
 
-  /* トラックリスト（スクロールはVirtualListが行う） */
+  /* トラックリスト（スクロールは一覧の中で行う） */
   .track-list {
     @apply flex-1 min-h-0;
-  }
-
-  /* 列の見出し（VirtualListが一覧の上に固定して表示する） */
-  .track-header {
-    @apply grid gap-4 px-4 py-3 text-xs font-semibold uppercase text-text-muted border-b border-border bg-base-100;
-    grid-template-columns: 3rem 2fr 1.5fr 1.5fr 4rem 3rem;
-  }
-
-  .track-row {
-    @apply grid gap-4 px-4 py-3 items-center cursor-pointer rounded transition-colors select-none;
-    grid-template-columns: 3rem 2fr 1.5fr 1.5fr 4rem 3rem;
-  }
-
-  .track-row:hover {
-    @apply bg-surface-hover;
-  }
-
-  /* ファイルが見つからない曲（再生できない）は薄く表示する */
-  .track-row.missing {
-    @apply opacity-50;
-  }
-
-  .track-row.selected {
-    @apply bg-primary/20;
-  }
-
-  .col-number {
-    @apply text-center text-text-muted text-sm;
-  }
-
-  .col-title {
-    @apply overflow-hidden;
-  }
-
-  .track-name {
-    @apply block truncate text-text-primary;
-  }
-
-  .col-artist,
-  .col-album {
-    @apply truncate text-text-secondary text-sm;
-  }
-
-  .col-duration {
-    @apply text-right text-text-muted text-sm;
-  }
-
-  .col-actions {
-    @apply flex justify-center;
-  }
-
-  .btn-remove-track {
-    @apply flex items-center justify-center w-7 h-7 p-0 bg-transparent border-none text-text-dimmed cursor-pointer rounded opacity-0 transition-all;
-  }
-
-  .track-row:hover .btn-remove-track {
-    @apply opacity-100;
-  }
-
-  .btn-remove-track:hover {
-    @apply bg-error/10 text-error;
-  }
-
-  .icon-remove {
-    @apply w-4 h-4;
   }
 
   /* 空のプレイリスト */

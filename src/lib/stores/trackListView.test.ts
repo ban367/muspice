@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { TrackListView, trackListView } from './trackListView.svelte.js';
+import {
+  TrackListView,
+  forgetTrackListView,
+  playlistSortViewId,
+  trackListView
+} from './trackListView.svelte.js';
 
 /** Node環境にはlocalStorageがないため、メモリ上の実装に差し替える */
 function createMemoryStorage(): Storage {
@@ -140,5 +145,38 @@ describe('trackListView', () => {
     first.columns = ['title'];
     expect(second.columns).toEqual(['title']);
     expect(trackListView('other')).not.toBe(first);
+  });
+});
+
+describe('列と並び順を別の単位で覚える（プレイリスト）', () => {
+  it('列が既定のままかは、並び順と別に分かる', () => {
+    const view = new TrackListView('split', { columns: ['title', 'album'], sort: null });
+    view.sort = { field: 'title', direction: 'asc' };
+
+    expect(view.isDefaultColumns).toBe(true);
+    expect(view.isDefault).toBe(false);
+
+    view.columns = ['title'];
+    expect(view.isDefaultColumns).toBe(false);
+  });
+
+  it('プレイリストごとの並び順の名前は、プレイリストのIDで決まる', () => {
+    expect(playlistSortViewId('p1')).toBe('playlist:p1');
+    expect(playlistSortViewId('p1')).not.toBe(playlistSortViewId('p2'));
+  });
+
+  it('設定を忘れると、保存していた内容も消える', () => {
+    const id = playlistSortViewId('gone');
+    const view = trackListView(id, { sort: null });
+    view.sort = { field: 'artist', direction: 'desc' };
+    expect(localStorage.getItem(`muspice:trackListView:${id}`)).not.toBeNull();
+
+    forgetTrackListView(id);
+
+    expect(localStorage.getItem(`muspice:trackListView:${id}`)).toBeNull();
+    // 同じ名前でもう一度開くと、既定から始まる
+    const reopened = trackListView(id, { sort: null });
+    expect(reopened).not.toBe(view);
+    expect(reopened.sort).toBeNull();
   });
 });

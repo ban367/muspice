@@ -5,6 +5,7 @@
   - リスト表示の列は、見出しの右クリックで選び、見出しのドラッグで並べ替え、境目のドラッグで幅を変える
   - 見出しのクリックで、その列で並べ替える（どの列でも並べ替えられる）
   - 列と並び順は、`viewId`ごとに覚える（`#lib/stores/trackListView.svelte`）。幅は、どの画面でも共通
+  - `onReorder`を渡した一覧（プレイリスト）は、渡した順のまま並べている間、行のドラッグで並べ替えられる
   - 再生中の曲へのジャンプ（`ui.revealTrackId`）を受けて、その曲の行までスクロールして選ぶ
 -->
 <script lang="ts">
@@ -38,6 +39,7 @@
   import { VirtualList } from '#lib/components/ui/index.js';
   import { TrackSelection, handleTrackListKeydown } from '#lib/utils/trackSelection.svelte.js';
   import { startTrackDrag } from '#lib/utils/trackDrag.js';
+  import { moveItems } from '#lib/utils/reorder.js';
   import {
     createTrackSorter,
     initialSortDirection,
@@ -71,6 +73,24 @@
      */
     defaultSort?: TrackSort | null;
     /**
+     * 並び順だけを覚える単位（省略時は`viewId`と同じ）
+     *
+     * 列はどのプレイリストでも共通にし、並び順だけをプレイリストごとに覚える、という場合に使う。
+     */
+    sortViewId?: string;
+    /** 一覧の名前（スクリーンリーダー向け。省略時は「曲」） */
+    label?: string;
+    /**
+     * 渡した順のまま並べている間に、行のドラッグで並べ替えた時に呼ばれる（新しい並びの全トラックID）
+     *
+     * 指定した一覧（プレイリスト）だけ、行のドラッグで並べ替えられる。
+     */
+    onReorder?: (trackIds: string[]) => void;
+    /** 選択した曲を、この一覧（プレイリスト）から外す操作（右クリックのメニュー・Deleteキー） */
+    onRemove?: (tracks: Track[]) => void;
+    /** 一覧から外す操作の表示名 */
+    removeLabel?: string;
+    /**
      * 再生中の曲へのジャンプで、この一覧にその曲がない場合に、ジャンプを取り消すか
      * （ライブラリの全曲の一覧に指定する。ほかの一覧は、全曲の一覧へ移動するために残す）
      */
@@ -87,8 +107,13 @@
     emptyHint,
     displayMode = 'list',
     viewId,
+    sortViewId,
+    label,
     defaultColumns,
     defaultSort,
+    onReorder,
+    onRemove,
+    removeLabel,
     isRevealFallback = false
   }: Props = $props();
 
@@ -106,8 +131,19 @@
   const viewDefaults = { columns: defaultColumns, sort: defaultSort };
   // svelte-ignore state_referenced_locally
   const view = viewId ? trackListView(viewId, viewDefaults) : new TrackListView(null, viewDefaults);
+  // 並び順を別の単位で覚える場合は、その設定の並び順だけを使う
+  // svelte-ignore state_referenced_locally
+  const sortView = sortViewId ? trackListView(sortViewId, viewDefaults) : view;
   const columns = $derived(view.columns);
-  const sort = $derived(view.sort);
+  const sort = $derived(sortView.sort);
+
+  // 行のドラッグで並べ替えられるか（渡した順のまま並べている間だけ）
+  const canReorder = $derived(onReorder !== undefined && sort === null);
+  // 並べ替えで運んでいる曲と、落とす先の行
+  let reorderIds = $state<string[] | null>(null);
+  let dropTargetId = $state<string | null>(null);
+  // 下へ動かしているか（落とした行の後ろに入るため、線を行の下に出す）
+  let dropAfter = $state(false);
 
   const columnLabels: Record<TrackColumnId, string> = {
     title: m.fields.title,
@@ -179,7 +215,7 @@
 
   /** 見出しのクリック: その列で並べ替える（同じ列なら、向きを逆にする） */
   function toggleSort(field: TrackSortField) {
-    view.sort =
+    sortView.sort =
       sort?.field === field
         ? { field, direction: sort.direction === 'asc' ? 'desc' : 'asc' }
         : { field, direction: initialSortDirection(field) };
@@ -223,6 +259,20 @@
    * 一覧のキーボード操作（矢印キーで選択を移す・Enterで再生する）
    */
   function handleListKeydown(event: KeyboardEvent) {
+    // Delete / Backspace: 選択した曲を、この一覧（プレイリスト）から外す
+    if (
+      onRemove &&
+      (event.key === 'Delete' || event.key === 'Backspace') &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      selectedTracks.length > 0
+    ) {
+      event.preventDefault();
+      handleRemove();
+      return;
+    }
+
     const indexOf = (trackId: string) => sortedTracks?.findIndex((t) => t.id === trackId) ?? -1;
     handleTrackListKeydown(event, selection, {
       columns: () => (displayMode === 'grid' ? (virtualList?.getColumns() ?? null) : null),
@@ -299,16 +349,53 @@
 
   const cardWidth = $derived(artSize + 24);
 
+  /** 選択した曲を、この一覧（プレイリスト）から外す */
+  function handleRemove() {
+    if (!onRemove || selectedTracks.length === 0) return;
+    onRemove(selectedTracks);
+    clearSelection();
+  }
+
   function handleDragStart(event: DragEvent, track: Track) {
     // 選択中の曲の上で始めた場合は選択中の曲すべて、そうでなければその曲だけを運ぶ
     const trackIds = selection.beginDrag(track.id);
-    startTrackDrag(event, trackIds, m.common.trackCount(trackIds.length));
+    // 並べ替えられる一覧では、この一覧の中への移動（並べ替え）も、ほかのプレイリストへの追加もできる
+    startTrackDrag(
+      event,
+      trackIds,
+      m.common.trackCount(trackIds.length),
+      canReorder ? 'copyMove' : 'copy'
+    );
 
     isDragging = true;
+    reorderIds = canReorder ? trackIds : null;
   }
 
   function handleDragEnd() {
     isDragging = false;
+    reorderIds = null;
+    dropTargetId = null;
+  }
+
+  /** 並べ替え: この一覧から運んでいる曲を、行の上へ持ってきた */
+  function handleRowDragOver(event: DragEvent, track: Track) {
+    if (reorderIds === null) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+    dropTargetId = reorderIds.includes(track.id) ? null : track.id;
+    const indexOf = (id: string) => sortedTracks?.findIndex((t) => t.id === id) ?? -1;
+    const firstMoved = Math.min(...reorderIds.map(indexOf).filter((index) => index >= 0));
+    dropAfter = firstMoved < indexOf(track.id);
+  }
+
+  /** 並べ替え: 運んでいる曲を、落とした行の位置へ動かす */
+  function handleRowDrop(event: DragEvent, track: Track) {
+    if (reorderIds === null || !sortedTracks) return;
+    event.preventDefault();
+    const order = sortedTracks.map((t) => t.id);
+    const next = moveItems(order, reorderIds, track.id);
+    handleDragEnd();
+    if (next.some((id, index) => id !== order[index])) onReorder?.(next);
   }
 
   function openColumnMenu(event: MouseEvent) {
@@ -408,7 +495,7 @@
           class="outline-none"
           role="listbox"
           aria-multiselectable="true"
-          aria-label={m.library.songs}
+          aria-label={label ?? m.library.songs}
           tabindex={0}
           onkeydown={handleListKeydown}
         >
@@ -467,10 +554,14 @@
               title={track.isMissing ? m.common.fileMissing : undefined}
               class:playing={player.currentTrack?.id === track.id}
               class:dragging={isDragging && selection.has(track.id)}
+              class:drop-target={dropTargetId === track.id}
+              class:drop-after={dropTargetId === track.id && dropAfter}
               style="grid-template-columns: {gridTemplateColumns};"
               draggable="true"
               ondragstart={(e) => handleDragStart(e, track)}
               ondragend={handleDragEnd}
+              ondragover={(e) => handleRowDragOver(e, track)}
+              ondrop={(e) => handleRowDrop(e, track)}
               onclick={(e) => handleTrackClick(track.id, e)}
               ondblclick={() => playFromIndex(index)}
               oncontextmenu={(e) => handleContextMenu(e, track)}
@@ -534,7 +625,7 @@
           class="outline-none justify-items-center"
           role="listbox"
           aria-multiselectable="true"
-          aria-label={m.library.songs}
+          aria-label={label ?? m.library.songs}
           tabindex={0}
           onkeydown={handleListKeydown}
         >
@@ -632,6 +723,8 @@
     onPlayNext={handlePlayNext}
     onAddToQueue={handleAddToQueue}
     onDelete={openDeleteDialog}
+    onRemoveFromList={onRemove ? handleRemove : undefined}
+    removeFromListLabel={removeLabel}
   />
 {/if}
 
@@ -641,6 +734,7 @@
     x={columnMenu.x}
     y={columnMenu.y}
     {view}
+    {sortView}
     labels={columnLabels}
     onClose={() => (columnMenu = null)}
   />
@@ -737,6 +831,15 @@
 
   .track-row.dragging {
     @apply opacity-50 bg-primary/30;
+  }
+
+  /* 並べ替えで、運んでいる曲を落とす先の行 */
+  .track-row.drop-target {
+    box-shadow: inset 0 2px 0 var(--color-primary);
+  }
+
+  .track-row.drop-target.drop-after {
+    box-shadow: inset 0 -2px 0 var(--color-primary);
   }
 
   /* 番号列 */

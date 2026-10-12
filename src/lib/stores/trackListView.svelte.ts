@@ -103,13 +103,17 @@ export class TrackListView {
     this.#save();
   }
 
-  /** 列・並び順が、既定のままか */
-  get isDefault(): boolean {
+  /** 列が、既定のままか */
+  get isDefaultColumns(): boolean {
     return (
-      sameSort(this.#sort, this.#defaultSort) &&
       this.#columns.length === this.#defaultColumns.length &&
       this.#columns.every((column, index) => column === this.#defaultColumns[index])
     );
+  }
+
+  /** 列・並び順が、既定のままか */
+  get isDefault(): boolean {
+    return this.isDefaultSort && this.isDefaultColumns;
   }
 
   /** 並び順が、既定のままか */
@@ -133,6 +137,28 @@ export class TrackListView {
 // 設定の置き場（名前 → 設定）。一覧そのものは画面に出さないため、変更に追随させる必要はない
 // eslint-disable-next-line svelte/prefer-svelte-reactivity
 const views = new Map<string, TrackListView>();
+
+/**
+ * プレイリストの画面の、並び順を覚える単位の名前
+ *
+ * プレイリストの画面は、列をどのプレイリストでも共通（`playlist`）にし、並び順だけを
+ * プレイリストごとに覚える。
+ */
+export function playlistSortViewId(playlistId: string): string {
+  return `playlist:${playlistId}`;
+}
+
+/**
+ * 画面の設定を忘れる（保存していた内容も消す。プレイリストを削除した時など）
+ */
+export function forgetTrackListView(id: string): void {
+  views.delete(id);
+  try {
+    localStorage.removeItem(KEY_PREFIX + id);
+  } catch {
+    // 消せなくても動作には影響しない
+  }
+}
 
 /**
  * 画面の、曲の一覧の設定を返す（同じ名前の画面は、同じ設定を共有する）

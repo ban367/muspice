@@ -10,6 +10,7 @@ import { showSuccess } from '#lib/stores/error.svelte.js';
 import { queryKeys } from './keys';
 import { CACHE_POLICY, withErrorToast } from './shared';
 import { m } from '#lib/i18n/i18n.svelte.js';
+import { forgetTrackListView, playlistSortViewId } from '#lib/stores/trackListView.svelte.js';
 
 /**
  * プレイリストの一覧と、プレイリストの曲を無効化（プレイリストの内容を変えた時）
@@ -223,7 +224,9 @@ export function useDeletePlaylistMutation() {
     ...optimisticPlaylistUpdate<string>(queryClient, (playlists, playlistId) =>
       playlists.filter((pl) => pl.id !== playlistId)
     ),
-    onSuccess: () => {
+    onSuccess: (_result, playlistId) => {
+      // このプレイリストの並び順の設定は、もう使わない
+      forgetTrackListView(playlistSortViewId(playlistId));
       showSuccess(m.notices.playlistDeleted);
     }
   }));
