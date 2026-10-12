@@ -52,10 +52,10 @@ pub use playlist_cmd::{
     remove_track_from_playlist, rename_playlist, reorder_playlist_tracks,
 };
 
-// プレーヤー・アルバムアート
-pub use player::{get_current_track, get_track_file_path, set_current_track};
+// 再生中のトラックの記録
+pub use player::{get_current_track, set_current_track};
 
-// ネイティブの再生エンジン
+// 再生エンジン
 pub use playback::{
     get_output_devices, playback_pause, playback_play, playback_resume, playback_seek,
     playback_set_equalizer, playback_set_next, playback_set_volume, playback_stop,

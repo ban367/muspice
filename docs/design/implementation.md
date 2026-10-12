@@ -47,7 +47,7 @@ src-tauri/src/
 │   ├── import.rs
 │   ├── library_folders.rs
 │   ├── metadata_cmd.rs
-│   ├── playback.rs        # ネイティブの再生エンジンのコマンド
+│   ├── playback.rs        # 再生エンジンのコマンド
 │   ├── player.rs
 │   ├── playlist_cmd.rs
 │   ├── settings.rs
@@ -70,7 +70,7 @@ src-tauri/src/
 ├── library_folder.rs
 ├── library_sync.rs        # ライブラリフォルダの変更の自動反映（起動時・定期・監視）
 ├── menu.rs                # メニューバーと設定ウィンドウのタイトル（言語に合わせる）
-├── playback/              # ネイティブの再生エンジン（ADR-025）
+├── playback/              # 再生エンジン（ADR-025・ADR-026）
 │   ├── engine.rs          # エンジン本体（コマンドの処理・曲の切り替え・再生位置の通知）
 │   ├── decoder.rs         # ファイルのデコード（symphonia + libopus）
 │   ├── mp4_gapless.rs     # M4AのAACの、曲の頭と終わりの余分の読み取り
@@ -134,31 +134,20 @@ src-tauri/src/
 
 ### 再生制御
 
-- audio要素の操作・キュー遷移・リピート・再生回数の記録・イコライザの接続・ギャップレス再生は`#lib/stores/playback.svelte`の`createPlaybackController([audio, standbyAudio], options)`が担う。`Player.svelte`は表示と操作の受付だけを行い、コントローラーのメソッドを呼ぶ
-- 次・前のトラックの決定は`#lib/stores/player.svelte`のキュー操作（`playNextTrack`・`playPreviousTrack`）が担う。キュー操作の結果が再生中と同じトラックだった場合（1曲リピート、3秒以上再生中の「前へ」、1曲だけのキューの全曲リピート）はトラックIDが変わらず読み込みが走らないため、コントローラーが頭から再生し直す
+- 再生エンジンの操作・キュー遷移・リピート・再生回数の記録・イコライザの設定の送信は`#lib/stores/playback.svelte`の`createPlaybackController(options)`が担う。`Player.svelte`は表示と操作の受付だけを行い、コントローラーのメソッドを呼ぶ
+- 次・前のトラックの決定は`#lib/stores/player.svelte`のキュー操作（`playNextTrack`・`playPreviousTrack`）が担う。キュー操作の結果が再生中と同じトラックだった場合（1曲リピート、3秒以上再生中の「前へ」、1曲だけのキューの全曲リピート）はトラックIDが変わらず再生が始まらないため、コントローラーが頭から再生し直す
 - 再生キュー（右サイドバー）の曲をダブルクリックした時は、`playQueueIndex(index)`でキューの並びを変えずに再生位置だけを移す（指定した位置より前の曲もキューに残る）
-- 再生中かどうか（`isPlaying`）はaudio要素の`play`/`pause`イベントから更新する
-- ギャップレス再生では、audio要素（デッキ）を2つ使い、再生中のデッキ（`active`）と先読みのデッキ（`standby`）を切り替える
-  - 先読みするトラックは`#lib/stores/player.svelte`の`peekNextTrack()`（`playNextTrack`の進む先を、状態を変えずに返す）で決める。キュー・リピート・シャッフル・設定が変わると`$effect`で先読みし直す
-  - 曲の終わりの1秒前から、残り時間に合わせたタイマーで、終わりの少し前（`GAPLESS_LEAD_SECONDS`）に先読みしたデッキの再生を始め、`playNextTrack()`で再生中のトラックを進める。前の曲は止めずに最後まで鳴らし、鳴り終わってから空いたデッキに次の曲を先読みする
-  - タイマーに間に合わなかった場合（`ended`が先に来た場合）も、先読みが済んでいればそのデッキで続ける。先読みが済んでいない・次の曲と一致しない場合は、従来どおり読み込む
-  - 「次へ」などで先読みしたトラックへ移った場合も、読み込み直さずにそのデッキへ切り替える
-  - イベントは両方のデッキから受け、再生状態（`isPlaying`・再生位置・長さ）には再生中のデッキのものだけを反映する。先読みのエラーは表示せず、切り替えのときの通常の読み込みで改めて扱う
-  - 同じ曲を繰り返す切り替え（1曲リピート）は、従来の頭からの再生し直しと同じく、再生回数に数えない
-- クロスフェードは、ギャップレス再生の切り替えを曲の終わりの設定した秒数前に早め、`equalizer.svelte`の`fadeDeck`で前の曲のデッキをフェードアウト、次の曲のデッキをフェードインさせる（等パワーの曲線）
-  - 秒数が1以上なら、ギャップレス再生の設定にかかわらず先読みする
-  - 秒数は、どちらの曲も長さの半分まで、かつ前の曲の残りまで（シークなどで切り替えが遅れた場合）にする。同じ曲の繰り返し（1曲リピート）・`ended`での切り替え・手動の操作（「次へ」・曲の選択）・Web Audioの経路を作れていない場合はクロスフェードしない
-  - クロスフェードの途中で一時停止・シーク・曲の選択などをしたら、前の曲を止めて再生中の曲を通常の音量に戻す（`endCrossfade`）
-  - デッキが再生中になるときは、フェードの音量を必ず決め直す（フェードインか1）。前の曲として音量を0まで下げたデッキを、そのまま使わないため
-- 音量の正規化は、再生中のトラックの`replayGain`と設定の`volumeNormalization`から`#lib/utils/normalization`の`normalizationGain`で倍率を求め、イコライザの前段のGainNodeへ`setNormalizationGain`で反映する。コントローラーは設定を直接読まず、`options`の関数（`normalizationMode`・`gapless`・`crossfadeSeconds`）で受け取る（テストで差し替えるため）。補正はデッキごとにかけ、各デッキが読み込んだトラックの値を使う。audio要素の`volume`はユーザーの音量のまま変えない
-- ネイティブの再生エンジンでの再生は`#lib/stores/nativePlayback.svelte`の`createNativePlaybackController(options)`が担う（設定の`playbackEngine`が`native`の時に、`Player.svelte`がこちらを作る。操作は`PlaybackController`で共通）
-  - 再生キューの扱い（`peekNextTrack`・`playNextTrack`・同じトラックの再生し直し）と、再生回数の記録の規則は、audio要素の再生コントローラーと同じにする
-  - エンジンへ渡す番号（トークン）は、再生する曲・続けて再生する曲ごとに増やす。通知（`PlaybackEvent`）は番号で見分け、前の曲についての通知は捨てる
-  - `advanced`が届いたら、再生し直さずに`playNextTrack()`でキューを進める。伝えてあった曲がもうキューの次の曲でない場合は、キューの次の曲を再生し直す
-  - シークバーのドラッグ中は、シークを間隔（80ms）を空けて送る（そのたびにシークすると、音が細切れになる）
-  - 次の曲は、ギャップレス再生かクロスフェードが有効なら伝える（audio要素の再生コントローラーの先読みと同じ条件）。重ねる処理・重ねる長さは、エンジンが設定を読んで決める
-  - イコライザの設定は`equalizer.svelte`から読み、起動時と変更のたびに`playbackSetEqualizer`で送る（音量の正規化とクロスフェードの設定は、`save_settings`がエンジンへ伝えるため、送らない）
-  - 再生コントローラーを作り直す（再生エンジンを切り替える）と、再生は止まりキューは空になる。audio要素は一度Web Audioの経路につなぐと別の経路につなぎ直せないため、audio要素での再生に戻した時は`Player.svelte`が新しい要素を作る
+- 再生中かどうか（`isPlaying`）は、エンジンのコマンドの結果（再生を始めた・一時停止した）と通知（失敗）から更新する。再生位置（`currentTime`）は、エンジンの`position`の通知で更新する
+- エンジンへ渡す番号（トークン）は、再生する曲・続けて再生する曲ごとに増やす。通知（`PlaybackEvent`）は番号で見分け、前の曲についての通知は捨てる
+- ギャップレス再生・クロスフェードでは、キューの次の曲（`#lib/stores/player.svelte`の`peekNextTrack()`。`playNextTrack`の進む先を、状態を変えずに返す）を、先にエンジンへ伝える（`playbackSetNext`）。キュー・リピート・シャッフル・設定が変わると`$effect`で伝え直す
+  - エンジンは、再生中の曲の終わりから切れ目なく（クロスフェードでは、終わりと重ねて）次の曲を続け、鳴っている曲が切り替わった時点で`advanced`を送る。コントローラーは、再生し直さずに`playNextTrack()`でキューを進める
+  - 伝えてあった曲が、もうキューの次の曲でない場合（伝えた後でキューを変えた場合）は、キューの次の曲を再生し直す
+  - 次の曲を伝えていない場合（ギャップレス再生もクロスフェードも無効）・次の曲の準備に失敗した場合は、曲の終わりの`ended`でキューを進め、次の曲を`playbackPlay`で再生する
+  - 同じ曲を繰り返す切り替え（1曲リピート）は、頭からの再生し直しと同じく、再生回数に数えない
+  - 重ねる処理・重ねる長さ（設定の秒数を上限に、どちらの曲も長さの半分まで）・手動の操作や1曲リピートではクロスフェードしないことは、エンジンが決める（ADR-026）
+- 音量の正規化とクロスフェードの設定は、`save_settings`がエンジンへ伝える（フロントからは送らない）。イコライザの設定は`equalizer.svelte`から読み、起動時と変更のたびに`playbackSetEqualizer`で送る
+- シークバーのドラッグ中は、シークを間隔（80ms）を空けて送る（そのたびにシークすると、音が細切れになる）
+- コントローラーは設定を直接読まず、`options`の関数（`gapless`・`crossfadeSeconds`）で受け取る（テストで差し替えるため）
 - アルバム・プレイリストなどの「シャッフル再生」は`playShuffled(tracks)`を使う（配列を`sort(() => Math.random() - 0.5)`などで独自に並べ替えない）。シャッフルモードを有効にし、元の順序を保持するため、解除すると元の順序に戻る
 
 ### 多言語化（i18n）
@@ -305,16 +294,17 @@ Tauriのウィンドウ（macOSではWKWebView）はブラウザ自動化ツー�
 - `src/lib/mocks/`の構成:
   - `backend.ts`: `commands`の全コマンドをメモリ上で再現するバックエンド。ハンドラ表の型を`bindings.ts`から導出しているため、Rust側でコマンドを追加・変更したら型エラーに従ってここも更新する
   - `fixtures.ts`: 初期データ。状態はメモリ上のみで、リロードすると初期状態に戻る
-  - `media.ts`: アルバムアート（SVGのdata URL）と再生用トーン（20秒のWAV）の生成。`albumart`プロトコルの代わりに`convertFileSrc(id, 'albumart')`がdata URLを返す
+  - `media.ts`: アルバムアート（SVGのdata URL）の生成。`albumart`プロトコルの代わりに`convertFileSrc(id, 'albumart')`がdata URLを返す
+  - `playbackEngine.ts`: 再生エンジンのコマンドと通知の再現。音は鳴らさず、時計に合わせて再生位置・曲の切り替わり（ギャップレス再生・クロスフェード）・曲の終わりを進める
   - `tauri.ts`: event・dialog・windowプラグインと`convertFileSrc`の差し替え
 - ネイティブメニューのイベントや確認ダイアログの回答は、開発者ツールから`window.__MUSPICE_MOCK__`で操作する
   - `window.__MUSPICE_MOCK__.emit('open-import-dialog')`（`toggle-sidebar` / `show-about-dialog`も同様）
   - `window.__MUSPICE_MOCK__.setConfirmResult(false)`で、以降の確認ダイアログを「キャンセル」にする
   - `window.__MUSPICE_MOCK__.setFolderResult('/Volumes/NEW_SD')`で、以降のフォルダ選択ダイアログで選ばれるパスを変える。既定のパスはライブラリフォルダの中のため、転送先デバイスの追加を確認するときはライブラリの外のパスにする
-- ネイティブの再生エンジンでの動作は、URLに`?mockEngine=native`を付けて開くと確認できる（設定の「再生エンジン」をネイティブにした状態で始まる）。`playbackEngine.ts`がエンジンのコマンドと通知を再現し、音は鳴らさずに、時計に合わせて再生位置・曲の切り替わり・曲の終わりを進める
+- 音は鳴らない（再生位置と曲の切り替わりだけが進む）。音の確認は、実アプリで行う
 - 数万曲のライブラリでの動作は、URLに`?mockTracks=50000`を付けて開くと確認できる（例: `/library/songs?mockTracks=50000`。フィクスチャに加えて、指定した数のトラックを生成する。アプリ内の移動では状態が保たれ、再読み込みすると付けたURLで開き直すまで元の件数に戻る）
 - デバイスへの転送は、デバイス上の曲を「コピー済みのトラックの集合」で再現する（配置の決定・リネーム・プレイリストのファイルは再現しない）
-- 確認できないもの: Rust側の処理（SQLite・FTS5・ファイルI/O・タグ読み書き）、実ファイルの再生（ネイティブの再生エンジンのデコード・出力を含む）、CSP・capabilityによる制約。これらは`cargo test`と`npm run tauri dev`で確認する
+- 確認できないもの: Rust側の処理（SQLite・FTS5・ファイルI/O・タグ読み書き）、実ファイルの再生（再生エンジンのデコード・出力）、CSP・capabilityによる制約。これらは`cargo test`と`npm run tauri dev`で確認する
 
 ## CI方針
 

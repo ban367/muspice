@@ -7,7 +7,7 @@ import { showWarning } from './error.svelte.js';
  *
  * `player`の各プロパティを直接読み書きする（例: `player.volume = 0.5`）。
  * キューの変更（再生するトラックの決定）は、下のキュー操作の関数を使う。
- * audio要素との同期は再生コントローラー（`./playback.svelte.ts`）が担う。
+ * 再生エンジンとの同期は再生コントローラー（`./playback.svelte.ts`）が担う。
  */
 
 // リピートモード
@@ -17,7 +17,7 @@ class Player {
   /** 現在再生中のトラック */
   currentTrack = $state.raw<Track | null>(null);
 
-  /** 再生中かどうか（audio要素のplay/pauseイベントから更新する） */
+  /** 再生中かどうか（再生コントローラーが、再生エンジンの操作の結果と通知から更新する） */
   isPlaying = $state(false);
 
   /** 現在の再生位置（秒） */

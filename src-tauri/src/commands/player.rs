@@ -1,35 +1,11 @@
-//! 音楽再生関連コマンド
+//! 再生中のトラックの記録
+//!
+//! 再生そのものは、再生エンジンのコマンド（`playback.rs`）で行う。
 
 use crate::error::{AppError, AppResult};
 use crate::models::Track;
 use crate::state::AppState;
-use crate::validation::validate_track_id;
-use tauri::{AppHandle, Manager, State};
-
-/// トラックのファイルパスを取得
-///
-/// asset protocolの静的スコープは空にしてあるため、ここで返すファイルだけを
-/// その都度スコープへ追加する。これによりWebViewから`convertFileSrc`で読めるのは
-/// ライブラリに登録済みのトラックに限られる。
-#[tauri::command]
-#[specta::specta]
-pub async fn get_track_file_path(
-    track_id: String,
-    state: State<'_, AppState>,
-    app: AppHandle,
-) -> AppResult<String> {
-    // トラックIDをバリデーション
-    validate_track_id(&track_id)?;
-
-    let file_path =
-        state.with_db(|db| crate::repository::find_file_path_by_track_id(db, &track_id))?;
-
-    app.asset_protocol_scope()
-        .allow_file(&file_path)
-        .map_err(|e| AppError::Io(format!("ファイルへのアクセス許可に失敗しました: {}", e)))?;
-
-    Ok(file_path)
-}
+use tauri::State;
 
 /// 現在再生中のトラックIDを設定
 #[tauri::command]

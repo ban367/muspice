@@ -66,12 +66,6 @@ export const en: Messages = {
     },
     unknown: 'An error occurred',
     withContext: (context, message) => `${context}: ${message}`,
-    media: {
-      network: 'A network error occurred',
-      decode: 'Decoding error: the file is corrupted or in an unsupported format',
-      unsupported: 'The format is not supported, or the file could not be found',
-      generic: 'A playback error occurred'
-    },
     playbackFailed: 'Failed to play the track'
   },
 
@@ -404,15 +398,11 @@ export const en: Messages = {
     crossfadeSeconds: (seconds) => `${seconds} s`,
     crossfadeHint:
       'Fades out the end of a track over the set time while fading in the next one. Short tracks are crossfaded for at most half of their length. Tracks changed with "Next" and the like, and repeat one, are not crossfaded.',
-    playbackEngine: 'Playback engine',
-    playbackEngines: { webView: 'Standard', native: 'Native (experimental)' },
-    playbackEngineHint:
-      'The native engine lets you choose the output device. Switching stops playback and clears the queue.',
     outputDevice: 'Output device',
     outputDeviceDefault: 'System default',
     outputDeviceDisconnected: 'Disconnected device',
     outputDeviceHint:
-      'The output used when the playback engine is "Native". While the selected device is disconnected, the system default device is used.',
+      'The device that plays the sound. While the selected device is disconnected, the system default device is used. Changing it during playback continues from the same position.',
     autoSync: 'Automatic updates',
     watchFolders: 'Watch folders for changes',
     watchFoldersHint:

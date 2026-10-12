@@ -73,12 +73,6 @@ export const ja = {
     unknown: 'エラーが発生しました',
     /** エラーの通知（例: トラックの削除: ファイルが見つかりません） */
     withContext: (context: string, message: string) => `${context}: ${message}`,
-    media: {
-      network: 'ネットワークエラーが発生しました',
-      decode: 'デコードエラー: ファイルが破損しているか未対応の形式です',
-      unsupported: '未対応のフォーマットか、ファイルが見つかりません',
-      generic: '再生エラーが発生しました'
-    },
     playbackFailed: 'トラックの再生に失敗しました'
   },
 
@@ -413,16 +407,12 @@ export const ja = {
     crossfadeSeconds: (seconds: number) => `${seconds}秒`,
     crossfadeHint:
       '曲の終わりを設定した秒数でフェードアウトしながら、次の曲をフェードインします。短い曲では曲の長さの半分までにします。「次へ」などの操作で曲を変えたときと、1曲リピートではクロスフェードしません',
-    playbackEngine: '再生エンジン',
-    playbackEngines: { webView: '標準', native: 'ネイティブ（試験的）' },
-    playbackEngineHint:
-      'ネイティブでは、出力デバイスを選べます。切り替えると再生は止まり、再生キューは空になります',
     outputDevice: '出力デバイス',
     outputDeviceDefault: 'システムの既定',
     /** 選んであるデバイスが一覧にない（接続されていない）場合の表示 */
     outputDeviceDisconnected: '接続されていないデバイス',
     outputDeviceHint:
-      '再生エンジンが「ネイティブ」のときに使う出力先です。選んだデバイスが接続されていない間は、システムの既定のデバイスで再生します',
+      '音を出すデバイスです。選んだデバイスが接続されていない間は、システムの既定のデバイスで再生します。再生中に変えると、同じ位置から続けて再生します',
     autoSync: '変更の自動反映',
     watchFolders: 'フォルダの変更を監視する',
     watchFoldersHint:
