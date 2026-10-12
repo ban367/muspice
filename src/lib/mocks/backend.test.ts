@@ -522,6 +522,78 @@ describe('並び順に使う値（ソート用のタグ）', () => {
   });
 });
 
+describe('曲ごとのメタデータの変更（タグの一括ツール）', () => {
+  it('曲ごとに違う値を書き込み、値のある項目だけを変える', async () => {
+    const tracks = (await commands.getAllTracks()).filter((t) => t.album === 'Blue Horizon');
+    const [first, second] = tracks;
+
+    const result = await commands.applyMetadataChanges([
+      { trackId: first.id, metadata: { title: '新しいタイトル', trackNumber: 11, trackTotal: 12 } },
+      { trackId: second.id, metadata: { artist: 'AOI SORA' } }
+    ]);
+
+    expect(result).toEqual({ updatedCount: 2, failedCount: 0, errors: [] });
+    const updated = await commands.getAllTracks();
+    const updatedFirst = updated.find((t) => t.id === first.id)!;
+    expect(updatedFirst).toMatchObject({
+      title: '新しいタイトル',
+      trackNumber: 11,
+      artist: first.artist,
+      album: first.album
+    });
+    expect(updatedFirst.updatedAt).not.toBe(first.updatedAt);
+    expect(updated.find((t) => t.id === second.id)).toMatchObject({
+      title: second.title,
+      artist: 'AOI SORA'
+    });
+    // ライブラリに持たない項目（総数）は、ファイルのタグとして読める
+    expect((await commands.getTrackTags(first.id)).trackTotal).toBe(12);
+  });
+
+  it('文字列の項目に空の値を渡すと、その項目を空にする', async () => {
+    const track = (await commands.getAllTracks()).find((t) => t.genre === 'Jazz')!;
+
+    await commands.applyMetadataChanges([{ trackId: track.id, metadata: { genre: '' } }]);
+
+    const updated = (await commands.getAllTracks()).find((t) => t.id === track.id)!;
+    expect(updated.genre).toBeNull();
+    expect(updated.title).toBe(track.title);
+    expect((await commands.getTrackTags(track.id)).genre).toBeUndefined();
+  });
+
+  it('ファイルが見つからない曲は、書き込めなかった曲として返し、残りを続ける', async () => {
+    const tracks = await commands.getAllTracks();
+    const missing = tracks.find((t) => t.isMissing)!;
+    const present = tracks.find((t) => !t.isMissing)!;
+
+    const result = await commands.applyMetadataChanges([
+      { trackId: missing.id, metadata: { title: 'x' } },
+      { trackId: mockTrackId(9999), metadata: { title: 'y' } },
+      { trackId: present.id, metadata: { title: 'z' } }
+    ]);
+
+    expect(result).toMatchObject({ updatedCount: 1, failedCount: 2 });
+    expect(result.errors[0]).toContain(missing.filePath);
+    const after = await commands.getAllTracks();
+    expect(after.find((t) => t.id === missing.id)?.title).toBe(missing.title);
+    expect(after.find((t) => t.id === present.id)?.title).toBe('z');
+  });
+
+  it('不正な入力が1件でもあれば、何も書き込まない', async () => {
+    const [track] = await commands.getAllTracks();
+
+    await expect(commands.applyMetadataChanges([])).rejects.toMatchObject({ code: 'VALIDATION' });
+    await expect(
+      commands.applyMetadataChanges([
+        { trackId: track.id, metadata: { title: '書き込まれない' } },
+        { trackId: track.id, metadata: { trackNumber: 1000 } }
+      ])
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+
+    expect((await commands.getAllTracks())[0].title).toBe(track.title);
+  });
+});
+
 describe('アルバムアート', () => {
   /** アルバムの曲（ファイルが見つからない曲を除く） */
   async function albumTracks(album: string) {

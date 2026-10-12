@@ -28,11 +28,11 @@ mod track_relink;
 mod validation;
 
 use commands::{
-    add_tracks_to_playlist, cancel_device_sync, create_playlist, delete_playlist,
-    delete_tracks_command, delete_tracks_with_files_command, export_playlist_m3u, filter_tracks,
-    get_album_art_info, get_album_tracks, get_albums, get_all_tracks, get_artist_albums,
-    get_artists, get_current_track, get_favorite_tracks, get_genre_tracks, get_genres,
-    get_library_folders, get_most_played_tracks, get_output_devices, get_play_history,
+    add_tracks_to_playlist, apply_metadata_changes, cancel_device_sync, create_playlist,
+    delete_playlist, delete_tracks_command, delete_tracks_with_files_command, export_playlist_m3u,
+    filter_tracks, get_album_art_info, get_album_tracks, get_albums, get_all_tracks,
+    get_artist_albums, get_artists, get_current_track, get_favorite_tracks, get_genre_tracks,
+    get_genres, get_library_folders, get_most_played_tracks, get_output_devices, get_play_history,
     get_playback_state, get_playlist_tracks, get_playlists, get_settings, get_sync_devices,
     get_track_tags, get_unique_albums, get_unique_artists, get_unique_genres, import_folder,
     import_library_xml, import_m3u_playlists, increment_play_count, increment_skip_count,
@@ -90,6 +90,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             get_track_tags,
             update_track_metadata,
             update_multiple_tracks_metadata,
+            apply_metadata_changes,
             write_library_metadata_to_files,
             get_album_art_info,
             set_album_art,

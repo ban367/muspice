@@ -136,6 +136,15 @@ export const commands = {
 	 */
 	updateMultipleTracksMetadata: (trackIds: string[], metadata: Metadata) => __TAURI_INVOKE<BulkUpdateResult>("update_multiple_tracks_metadata", { trackIds, metadata }),
 	/**
+	 *  曲ごとに違う値で、メタデータをまとめて更新（ファイルのタグとデータベース）
+	 * 
+	 *  タグの一括ツール（ファイル名からの推定・連番の振り直し・検索と置換）が、確認した変更を
+	 *  書き込むために使う。扱いは`update_multiple_tracks_metadata`と同じで、値がある項目だけを変え、
+	 *  ファイルへ書き込めなかったトラックは結果の`errors`へ理由を入れて残りを続ける。
+	 *  文字列の項目に空の値を渡すと、その項目をタグから取り除く。
+	 */
+	applyMetadataChanges: (changes: TrackMetadataChange[]) => __TAURI_INVOKE<BulkUpdateResult>("apply_metadata_changes", { changes }),
+	/**
 	 *  アプリ内（データベース）だけにある編集内容・評価を、ファイルのタグへ書き出す
 	 * 
 	 *  ファイルと違う値だけを書き込み、その後ファイルを読み直してデータベースに反映する
@@ -1098,6 +1107,13 @@ export type Track = {
 	sortTags: SortTags,
 	/**  ファイルが見つからない（再スキャンで見つからなくなった曲。利用者が外すまで残す） */
 	isMissing: boolean,
+};
+
+/**  曲ごとのメタデータの変更（タグの一括ツール） */
+export type TrackMetadataChange = {
+	trackId: string,
+	/**  変える項目（値がある項目だけを変える。文字列の項目は、空の値で項目を取り除く） */
+	metadata: Metadata,
 };
 
 /**  音量の正規化（ReplayGain） */

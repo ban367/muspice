@@ -555,6 +555,43 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     return null;
   }
 
+  /**
+   * 値のある項目だけを、トラックに反映する（一括編集・タグの一括ツール）
+   *
+   * 文字列の項目は、空の値で項目を空にする（Rustの`update_track_metadata_partial`と同じ）。
+   */
+  function applyPartialMetadata(track: Track, metadata: Metadata, timestamp: string): void {
+    const text = (value: string | null | undefined, current: string | null) =>
+      value == null ? current : value === '' ? null : value;
+    const { year, trackNumber, discNumber } = metadata;
+    const before = JSON.stringify(track);
+
+    track.title = text(metadata.title, track.title);
+    track.artist = text(metadata.artist, track.artist);
+    track.album = text(metadata.album, track.album);
+    track.genre = text(metadata.genre, track.genre);
+    track.albumArtist = text(metadata.albumArtist, track.albumArtist);
+    if (year != null) track.year = year;
+    if (trackNumber != null) track.trackNumber = trackNumber;
+    if (discNumber != null) track.discNumber = discNumber;
+    track.sortTags = {
+      title: text(metadata.titleSort, track.sortTags.title),
+      artist: text(metadata.artistSort, track.sortTags.artist),
+      album: text(metadata.albumSort, track.sortTags.album),
+      albumArtist: text(metadata.albumArtistSort, track.sortTags.albumArtist)
+    };
+    if (JSON.stringify(track) !== before) track.updatedAt = timestamp;
+
+    // データベースに保存しない項目は、値のある項目だけを変える
+    const fileOnly = Object.fromEntries(
+      Object.entries(pickFileOnlyTags(metadata)).filter(([, value]) => value != null)
+    );
+    const merged: Metadata = { ...fileOnlyTags.get(track.id), ...fileOnly };
+    // コンピレーションの印を外す指定は、項目ごと取り除く
+    if (merged.compilation === false) delete merged.compilation;
+    fileOnlyTags.set(track.id, merged);
+  }
+
   /** ファイルのタグだけにある項目（データベースに保存しない項目）を取り出す */
   function pickFileOnlyTags(metadata: Metadata): Metadata {
     const { composer, trackTotal, discTotal, grouping, bpm, compilation, comment, lyrics } =
@@ -1014,49 +1051,35 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         return track;
       });
       const timestamp = now();
-      const { title, artist, album, genre, year, albumArtist, trackNumber, discNumber } = metadata;
-      const { titleSort, artistSort, albumSort, albumArtistSort } = metadata;
-      const hasChanges = [
-        title,
-        artist,
-        album,
-        genre,
-        year,
-        albumArtist,
-        trackNumber,
-        discNumber,
-        titleSort,
-        artistSort,
-        albumSort,
-        albumArtistSort
-      ].some((value) => value != null);
-      // 値のある項目だけを変える
-      const fileOnly = Object.fromEntries(
-        Object.entries(pickFileOnlyTags(metadata)).filter(([, value]) => value != null)
-      );
-      for (const track of targets) {
-        if (title != null) track.title = title;
-        if (artist != null) track.artist = artist;
-        if (album != null) track.album = album;
-        if (genre != null) track.genre = genre;
-        if (year != null) track.year = year;
-        if (albumArtist != null) track.albumArtist = albumArtist;
-        if (trackNumber != null) track.trackNumber = trackNumber;
-        if (discNumber != null) track.discNumber = discNumber;
-        track.sortTags = {
-          title: titleSort ?? track.sortTags.title,
-          artist: artistSort ?? track.sortTags.artist,
-          album: albumSort ?? track.sortTags.album,
-          albumArtist: albumArtistSort ?? track.sortTags.albumArtist
-        };
-        if (hasChanges) track.updatedAt = timestamp;
-        const merged: Metadata = { ...fileOnlyTags.get(track.id), ...fileOnly };
-        // コンピレーションの印を外す指定は、項目ごと取り除く
-        if (merged.compilation === false) delete merged.compilation;
-        fileOnlyTags.set(track.id, merged);
-      }
+      for (const track of targets) applyPartialMetadata(track, metadata, timestamp);
       // モックではファイルへの書き込みに失敗しない
       return { updatedCount: targets.length, failedCount: 0, errors: [] };
+    },
+    applyMetadataChanges: (changes) => {
+      if (changes.length === 0) fail('VALIDATION', '変更が指定されていません');
+      // 1件でも不正な入力があれば、何も書き込まない
+      for (const change of changes) {
+        validateTrackId(change.trackId);
+        validateMetadataInput(change.metadata);
+      }
+      const result: BulkUpdateResult = { updatedCount: 0, failedCount: 0, errors: [] };
+      const timestamp = now();
+      for (const { trackId, metadata } of changes) {
+        const track = tracks.find((t) => t.id === trackId);
+        // ファイルが見つからない・ライブラリにないトラックは、書き込めなかった曲として数える
+        if (!track || track.isMissing) {
+          result.failedCount++;
+          result.errors.push(
+            track
+              ? `${track.filePath}: ファイルのオープンに失敗しました: No such file`
+              : `トラックが見つかりません: ${trackId}`
+          );
+          continue;
+        }
+        applyPartialMetadata(track, metadata, timestamp);
+        result.updatedCount++;
+      }
+      return result;
     },
     getAlbumArtInfo: (trackId) => {
       validateTrackId(trackId);
