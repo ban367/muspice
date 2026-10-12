@@ -106,6 +106,7 @@ src-tauri/src/
 ├── track_relink.rs        # 移動・改名されたファイルと、見つからない曲の対応付け
 ├── tray.rs                # メニューバー（トレイ）への常駐（アイコン・メニュー・再生中の曲の表示。ADR-046）
 ├── validation.rs
+├── vorbis_tag.rs          # Vorbisコメント（FLAC・Ogg Vorbis・Opus）の保存（アプリが扱わない項目の保持。ADR-048）
 └── state.rs
 ```
 

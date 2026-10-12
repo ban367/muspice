@@ -369,6 +369,7 @@ export interface Playlist {
   - 検索と置換: 対象はタイトル・アーティスト・アルバム・アルバムアーティスト・ジャンル。置換（そのままの文字列か、JavaScriptの正規表現）→ 大文字・小文字の変換 → 前後の空白の削除の順に行う
 - タグの書き方: BPMは、ID3v2の`TBPM`・MP4の`tmpo`・Vorbisコメントの`BPM`・APEv2タグの`BPM`。歌詞は、ID3v2の`USLT`・Vorbisコメントの`LYRICS`・MP4の`©lyr`・APEv2タグの`Lyrics`（読む時は、Vorbisコメントの`UNSYNCEDLYRICS`も読む）。グループは、ID3v2の`TIT1`・MP4の`©grp`・Vorbisコメントの`GROUPING`・APEv2タグの`Grouping`
 - APEv2タグ（WavPack・APE）は、アプリが扱わない項目（ほかのアプリが書いた独自の項目・読めない種類の画像）を残して書き込む。loftyの汎用タグは、対応する項目がないもの（BPM・評価・画像を含む）を読まず、保存するとタグ全体を置き換えるため、`ape_tag.rs`が形式ごとのタグを直接読み書きする（ADR-047）
+- Vorbisコメント（FLAC・Ogg Vorbis・Opus）も、アプリが扱わない項目（ほかのアプリが書いた独自の項目）とベンダーの文字列を残して書き込む（`vorbis_tag.rs`。ADR-048）。書き手の付いた評価（`RATING:書き手`）は、評価を変えない限り、その形のまま残す。エンコーダーの項目（`ENCODER`）は、ファイルにあった場合だけ書く。ID3v2・MP4は、loftyが対応のない項目を残すため、汎用タグのまま保存する
 - `BulkUpdateResult`: `updatedCount`, `failedCount`, `errors[]`
 - `WriteMetadataResult`: `writtenCount`, `unchangedCount`（ファイルと同じ）, `skippedCount`（ファイルが見つからない）, `errorCount`, `errors[]`
 - `write_library_metadata_to_files`は、DBの値がファイルと違う項目だけを書き込む。DBに値がない項目（評価なしを含む）と、タグにタイトルがないファイルの既定のタイトル（ファイル名）は書き出さない（ファイルにだけある値を消さないため）

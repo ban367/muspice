@@ -1,6 +1,7 @@
 use crate::ape_tag;
 use crate::error::{AppError, AppResult};
 use crate::models::{Metadata, ReplayGain, SortTags};
+use crate::vorbis_tag;
 use lofty::config::{ParseOptions, WriteOptions};
 use lofty::file::{AudioFile, TaggedFile, TaggedFileExt};
 use lofty::picture::{MimeType, Picture, PictureInformation, PictureType};
@@ -61,24 +62,29 @@ fn read_tagged_file(file_path: &Path, options: ParseOptions) -> AppResult<Tagged
 
 /// 読み込んだファイルのタグを、ファイルへ保存する
 ///
-/// APEv2タグは、アプリが扱わない項目を残して書き込む（`ape_tag::save_tag`）。
+/// loftyの汎用タグは、VorbisコメントとAPEv2タグを保存する時に、タグ全体を汎用タグの内容で
+/// 置き換える（対応する項目がないものが、ファイルから消える）。この2つは、アプリが扱わない項目を
+/// 残して書き込む（`vorbis_tag::save_tag`・`ape_tag::save_tag`）。ID3v2・MP4は、loftyが
+/// 対応のない項目を残すため、そのまま保存する。
 fn save_tagged_file(tagged_file: &TaggedFile, file_path: &Path) -> AppResult<()> {
     let file_type = tagged_file.file_type();
-    let result = if ape_tag::uses_ape_tag(file_type) {
-        tagged_file.tags().iter().try_for_each(|tag| {
-            if tag.tag_type() == TagType::Ape {
+    tagged_file
+        .tags()
+        .iter()
+        .try_for_each(|tag| match tag.tag_type() {
+            TagType::Ape if ape_tag::uses_ape_tag(file_type) => {
                 ape_tag::save_tag(file_path, file_type, tag)
-            } else if tagged_file.tag_support(tag.tag_type()).is_writable() {
-                tag.save_to_path(file_path, WriteOptions::default())
-            } else {
-                Ok(())
             }
+            TagType::VorbisComments if vorbis_tag::uses_vorbis_comments(file_type) => {
+                vorbis_tag::save_tag(file_path, file_type, tag)
+            }
+            // 読めるだけで書けない種類のタグ（FLACのID3v2など）は、そのままにする
+            tag_type if tagged_file.tag_support(tag_type).is_writable() => {
+                tag.save_to_path(file_path, WriteOptions::default())
+            }
+            _ => Ok(()),
         })
-    } else {
-        tagged_file.save_to_path(file_path, WriteOptions::default())
-    };
-
-    result.map_err(|e| AppError::Metadata(format!("メタデータの保存に失敗しました: {}", e)))
+        .map_err(|e| AppError::Metadata(format!("メタデータの保存に失敗しました: {}", e)))
 }
 
 /// 列を追加する前に登録したトラックについて、後からファイルのタグを読む項目
@@ -1187,7 +1193,7 @@ mod tests {
 
     /// 読み書きを確かめる形式（タグの種類が違うもの）のファイルを、一時フォルダに用意する
     ///
-    /// WAV（ID3v2）は生成し、MP3（ID3v2）・M4A（MP4）・Ogg Vorbis / Opus（Vorbisコメント）・
+    /// WAV（ID3v2）は生成し、MP3（ID3v2）・M4A（MP4）・FLAC / Ogg Vorbis / Opus（Vorbisコメント）・
     /// WavPack / APE（APEv2）は、再生エンジンのテスト用のファイルを写す。
     fn tag_test_files(dir: &Path) -> Vec<std::path::PathBuf> {
         let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/playback");
@@ -1195,6 +1201,7 @@ mod tests {
         write_test_wav(&files[0]);
         for name in [
             "lame.mp3",
+            "flac.flac",
             "apple_aac.m4a",
             "vorbis.ogg",
             "opus.opus",
