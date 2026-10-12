@@ -235,6 +235,9 @@ export const ja = {
     favorites: 'お気に入り',
     playHistory: '再生履歴',
     mostPlayed: 'よく再生する曲',
+    recentlyAdded: '最近追加した曲',
+    folders: 'フォルダ',
+    years: '年代',
     playlists: 'プレイリスト',
     newPlaylistTitle: '新規プレイリスト (Ctrl+N)',
     noPlaylists: 'プレイリストがありません',
@@ -525,6 +528,14 @@ export const ja = {
     artistSummary: (count: number) => `${count}人のアーティスト`,
     genreSummary: (count: number) => `${count}種類のジャンル`,
     searchSongs: '曲を検索...',
+    /** ビュー（最近追加した曲・フォルダ別・年代別） */
+    recentlyAdded: '最近追加した曲',
+    folders: 'フォルダ',
+    selectFolder: 'フォルダを選んでください',
+    years: '年代',
+    selectYear: '年代か年を選んでください',
+    decade: (decade: number) => `${decade}年代`,
+    unknownYear: '年不明',
     /** カラムブラウザ（ジャンル / アーティスト / アルバムでの絞り込み） */
     columnBrowser: 'カラムブラウザ',
     browserAll: (count: number) => `すべて（${count}）`,
@@ -639,6 +650,8 @@ export const ja = {
     language: '言語',
     startupPage: '起動時に開く画面',
     startupPages: { lastOpened: '前回開いていた画面', songs: '曲一覧' },
+    sidebarItems: 'サイドバーに表示する項目',
+    sidebarItemsHint: '印を外した項目は、サイドバーに出しません',
     volumeNormalization: '音量の正規化',
     volumeNormalizations: { off: 'オフ', track: 'トラック単位', album: 'アルバム単位' },
     volumeNormalizationHint:
