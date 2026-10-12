@@ -7,7 +7,12 @@
 -->
 <script lang="ts">
   import type { AlbumSummary, ArtistSummary, GenreSummary } from '#lib/types/models.js';
-  import { BaseContextMenu, PlaylistSubmenu } from '#lib/components/ui/index.js';
+  import {
+    BaseContextMenu,
+    MenuItem,
+    MenuSeparator,
+    PlaylistSubmenu
+  } from '#lib/components/ui/index.js';
   import { useGroupTracksQuery, type GroupType } from '#lib/queries/tracks.js';
   import {
     addNextInQueue,
@@ -95,86 +100,26 @@
 </script>
 
 <BaseContextMenu {x} {y} {onClose}>
-  <div class="menu-header">{group.name}</div>
-  <div class="menu-subheader">{m.common.trackCount(group.trackCount)}</div>
-  <div class="menu-divider"></div>
+  <div class="menu-title">{group.name}</div>
+  <div class="menu-subtitle">{m.common.trackCount(group.trackCount)}</div>
+  <MenuSeparator />
 
-  <button class="menu-item" onclick={handlePlayAll} role="menuitem" disabled={isEmpty}>
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      class="menu-icon"
-      viewBox="0 0 24 24"
-      fill="currentColor"
-    >
-      <path d="M8 5v14l11-7z" />
-    </svg>
-    <span>{m.contextMenu.playGroup(typeLabel)}</span>
-  </button>
+  <MenuItem onSelect={handlePlayAll} disabled={isEmpty}>
+    {#snippet icon()}
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="menu-icon"
+        viewBox="0 0 24 24"
+        fill="currentColor"
+      >
+        <path d="M8 5v14l11-7z" />
+      </svg>
+    {/snippet}
+    {m.contextMenu.playGroup(typeLabel)}
+  </MenuItem>
 
-  <button class="menu-item" onclick={handleShufflePlay} role="menuitem" disabled={isEmpty}>
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      class="menu-icon"
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-    >
-      <path
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        stroke-width="2"
-        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-      />
-    </svg>
-    <span>{m.common.shufflePlay}</span>
-  </button>
-
-  <div class="menu-divider"></div>
-
-  <button class="menu-item" onclick={handlePlayNext} role="menuitem" disabled={isEmpty}>
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      class="menu-icon"
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-    >
-      <path
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        stroke-width="2"
-        d="M13 5l7 7-7 7M5 5l7 7-7 7"
-      />
-    </svg>
-    <span>{m.common.playNext}</span>
-  </button>
-
-  <button class="menu-item" onclick={handleAddToQueue} role="menuitem" disabled={isEmpty}>
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      class="menu-icon"
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-    >
-      <path
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        stroke-width="2"
-        d="M4 6h16M4 10h16M4 14h16M4 18h7"
-      />
-    </svg>
-    <span>{m.common.addToQueue}</span>
-  </button>
-
-  <div class="menu-divider"></div>
-
-  <PlaylistSubmenu tracks={allTracks} {onClose} />
-
-  {#if type === 'album'}
-    <div class="menu-divider"></div>
-
-    <button class="menu-item" onclick={handleAlbumArt} role="menuitem" disabled={isEmpty}>
+  <MenuItem onSelect={handleShufflePlay} disabled={isEmpty}>
+    {#snippet icon()}
       <svg
         xmlns="http://www.w3.org/2000/svg"
         class="menu-icon"
@@ -186,49 +131,80 @@
           stroke-linecap="round"
           stroke-linejoin="round"
           stroke-width="2"
-          d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
         />
       </svg>
-      <span>{m.contextMenu.albumArt}</span>
-    </button>
+    {/snippet}
+    {m.common.shufflePlay}
+  </MenuItem>
+
+  <MenuSeparator />
+
+  <MenuItem onSelect={handlePlayNext} disabled={isEmpty}>
+    {#snippet icon()}
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="menu-icon"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          d="M13 5l7 7-7 7M5 5l7 7-7 7"
+        />
+      </svg>
+    {/snippet}
+    {m.common.playNext}
+  </MenuItem>
+
+  <MenuItem onSelect={handleAddToQueue} disabled={isEmpty}>
+    {#snippet icon()}
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="menu-icon"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          d="M4 6h16M4 10h16M4 14h16M4 18h7"
+        />
+      </svg>
+    {/snippet}
+    {m.common.addToQueue}
+  </MenuItem>
+
+  <MenuSeparator />
+
+  <PlaylistSubmenu tracks={allTracks} {onClose} />
+
+  {#if type === 'album'}
+    <MenuSeparator />
+
+    <MenuItem onSelect={handleAlbumArt} disabled={isEmpty}>
+      {#snippet icon()}
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          class="menu-icon"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+          />
+        </svg>
+      {/snippet}
+      {m.contextMenu.albumArt}
+    </MenuItem>
   {/if}
 </BaseContextMenu>
-
-<style>
-  @reference "../../app.css";
-
-  .menu-header {
-    @apply py-1 px-4 text-sm font-semibold text-text-primary;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .menu-subheader {
-    @apply pb-2 px-4 text-xs text-text-muted;
-  }
-
-  .menu-item {
-    @apply flex items-center gap-3 w-full py-2 px-4 bg-transparent border-none text-text-secondary text-sm text-left cursor-pointer transition-colors duration-150;
-  }
-
-  .menu-item:hover:not(:disabled) {
-    @apply bg-surface-active;
-  }
-
-  .menu-item:disabled {
-    @apply opacity-50 cursor-not-allowed;
-  }
-
-  .menu-icon {
-    @apply w-4 h-4 shrink-0;
-  }
-
-  .menu-item span {
-    @apply flex-1;
-  }
-
-  .menu-divider {
-    @apply h-px bg-border my-2;
-  }
-</style>

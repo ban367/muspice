@@ -35,6 +35,7 @@
   import {
     PLAYLIST_SORTS,
     buildPlaylistTree,
+    isPlaylistSort,
     placeRelative,
     playlistsIn,
     sortPlaylistItems
@@ -42,7 +43,14 @@
   import { playlistSidebar } from '#lib/stores/playlistSidebar.svelte.js';
   import { smartPlaylistDialog } from '#lib/stores/smartPlaylist.svelte.js';
   import type { Playlist, PlaylistFolder } from '#lib/types/models.js';
-  import { BaseContextMenu } from '#lib/components/ui/index.js';
+  import {
+    BaseContextMenu,
+    MenuHeading,
+    MenuItem,
+    MenuRadioGroup,
+    MenuRadioItem,
+    MenuSeparator
+  } from '#lib/components/ui/index.js';
   import PlaylistContextMenu from './PlaylistContextMenu.svelte';
   import PlaylistExportDialog from './PlaylistExportDialog.svelte';
   import PlaylistIcon from './PlaylistIcon.svelte';
@@ -503,44 +511,35 @@
 {#if folderMenu}
   {@const folder = folderMenu.folder}
   <BaseContextMenu x={folderMenu.x} y={folderMenu.y} onClose={() => (folderMenu = null)}>
-    <div class="menu-header">{folder.name}</div>
-    <div class="menu-divider"></div>
-    <button class="menu-item" role="menuitem" onclick={() => handleRenameFolder(folder)}>
+    <div class="menu-title">{folder.name}</div>
+    <MenuSeparator />
+    <MenuItem onSelect={() => handleRenameFolder(folder)}>
       {m.contextMenu.rename}
-    </button>
-    <button
-      class="menu-item menu-item-danger"
-      role="menuitem"
-      onclick={() => handleDeleteFolder(folder)}
-    >
+    </MenuItem>
+    <MenuItem onSelect={() => handleDeleteFolder(folder)} danger>
       {m.sidebar.deleteFolder}
-    </button>
+    </MenuItem>
   </BaseContextMenu>
 {/if}
 
 <!-- 見出しのメニュー（フォルダの作成と、並び順） -->
 {#if sectionMenu}
   <BaseContextMenu x={sectionMenu.x} y={sectionMenu.y} onClose={() => (sectionMenu = null)}>
-    <button class="menu-item" role="menuitem" onclick={handleCreateFolder}>
-      <span class="check" aria-hidden="true"></span>
+    <MenuItem onSelect={handleCreateFolder} inset>
       {m.sidebar.newFolder}
-    </button>
-    <div class="menu-divider"></div>
-    <div class="menu-label">{m.sidebar.sortBy}</div>
-    {#each PLAYLIST_SORTS as sort (sort)}
-      <button
-        class="menu-item"
-        role="menuitemradio"
-        aria-checked={playlistSidebar.sort === sort}
-        onclick={() => {
-          playlistSidebar.sort = sort;
-          sectionMenu = null;
-        }}
-      >
-        <span class="check" aria-hidden="true">{playlistSidebar.sort === sort ? '✓' : ''}</span>
-        {m.sidebar.sortOptions[sort]}
-      </button>
-    {/each}
+    </MenuItem>
+    <MenuSeparator />
+    <MenuHeading>{m.sidebar.sortBy}</MenuHeading>
+    <MenuRadioGroup
+      value={playlistSidebar.sort}
+      onValueChange={(value) => {
+        if (isPlaylistSort(value)) playlistSidebar.sort = value;
+      }}
+    >
+      {#each PLAYLIST_SORTS as sort (sort)}
+        <MenuRadioItem value={sort}>{m.sidebar.sortOptions[sort]}</MenuRadioItem>
+      {/each}
+    </MenuRadioGroup>
   </BaseContextMenu>
 {/if}
 
@@ -586,37 +585,5 @@
 
   [data-drop='into'] {
     @apply bg-primary/30 outline-2 outline-dashed outline-primary -outline-offset-2;
-  }
-
-  .menu-header {
-    @apply py-1 px-4 text-sm font-semibold text-text-primary truncate;
-  }
-
-  .menu-label {
-    @apply py-1.5 px-4 text-xs font-semibold text-text-muted uppercase;
-  }
-
-  .menu-item {
-    @apply flex items-center gap-2 w-full py-2 px-4 bg-transparent border-none text-text-secondary text-sm text-left cursor-pointer transition-colors duration-150;
-  }
-
-  .menu-item:hover {
-    @apply bg-surface-active;
-  }
-
-  .menu-item-danger {
-    @apply text-error-light;
-  }
-
-  .menu-item-danger:hover {
-    @apply bg-error-light/10;
-  }
-
-  .check {
-    @apply w-4 shrink-0 text-primary;
-  }
-
-  .menu-divider {
-    @apply h-px bg-border my-2;
   }
 </style>

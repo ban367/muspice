@@ -27,6 +27,7 @@
     "@tanstack/svelte-query": "^6.3.0",
     "@tauri-apps/api": "^2.12.1",
     "@tauri-apps/plugin-dialog": "^2.8.1",
+    "bits-ui": "^2.19.5",
     "tailwindcss": "^4.3.3"
   },
   "devDependencies": {

@@ -1,4 +1,11 @@
 export { default as BaseContextMenu } from './BaseContextMenu.svelte';
+export { default as MenuCheckboxItem } from './MenuCheckboxItem.svelte';
+export { default as MenuHeading } from './MenuHeading.svelte';
+export { default as MenuItem } from './MenuItem.svelte';
+export { default as MenuRadioGroup } from './MenuRadioGroup.svelte';
+export { default as MenuRadioItem } from './MenuRadioItem.svelte';
+export { default as MenuSeparator } from './MenuSeparator.svelte';
+export { default as MenuSub } from './MenuSub.svelte';
 export { default as Modal } from './Modal.svelte';
 export { default as PlaylistSubmenu } from './PlaylistSubmenu.svelte';
 export { default as TextPromptDialog } from './TextPromptDialog.svelte';
