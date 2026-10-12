@@ -27,6 +27,7 @@ use super::effects::{EQ_BANDS, EffectParams};
 use super::normalization::normalization_gain;
 use super::output::{CpalBackend, OutputBackend, OutputEvent, OutputHandle};
 use super::render::{RenderShared, Renderer};
+use super::stretch::{MAX_SPEED, MIN_SPEED};
 use crate::error::{AppError, AppResult};
 use crate::events::PlaybackEvent;
 use crate::models::ReplayGain;
@@ -120,6 +121,7 @@ enum Command {
     Resume,
     Seek(f64),
     SetVolume(f32),
+    SetSpeed(f32),
     Stop,
     SetOutputDevice(Option<String>),
     SetNormalization(VolumeNormalization),
@@ -195,6 +197,11 @@ impl PlaybackEngine {
     /// 音量（0.0〜1.0）を設定する
     pub fn set_volume(&self, volume: f32) -> AppResult<()> {
         self.send(Command::SetVolume(volume))
+    }
+
+    /// 再生速度（倍。0.5〜2.0。音程は変えない）を設定する
+    pub fn set_speed(&self, speed: f32) -> AppResult<()> {
+        self.send(Command::SetSpeed(speed))
     }
 
     /// 再生を止める
@@ -337,6 +344,8 @@ struct Engine {
     commands: Sender<Command>,
     device_id: Option<String>,
     volume: f32,
+    /// 再生速度（倍。出力のコールバックで反映する。再生位置・曲の長さは、元の曲の時間のまま）
+    speed: f32,
     paused: bool,
     output: Option<Output>,
     /// 出力を開くたびに増やす番号（閉じた出力からの遅れた通知を無視する）
@@ -388,6 +397,7 @@ impl Engine {
             crossfade_seconds: f64::from(options.crossfade_seconds.min(MAX_CROSSFADE_SECONDS)),
             fade: None,
             volume: 1.0,
+            speed: 1.0,
             paused: false,
             output: None,
             output_generation: 0,
@@ -488,6 +498,12 @@ impl Engine {
                 self.volume = volume.clamp(0.0, 1.0);
                 if let Some(output) = &self.output {
                     output.shared.set_volume(self.volume);
+                }
+            }
+            Command::SetSpeed(speed) => {
+                self.speed = speed.clamp(MIN_SPEED, MAX_SPEED);
+                if let Some(output) = &self.output {
+                    output.shared.set_speed(self.speed);
                 }
             }
             Command::Stop => self.stop_playback(),
@@ -1085,7 +1101,7 @@ impl Engine {
         self.output_generation += 1;
         let generation = self.output_generation;
         let commands = self.commands.clone();
-        let (volume, paused) = (self.volume, self.paused);
+        let (volume, speed, paused) = (self.volume, self.speed, self.paused);
         let effects = self.effects.clone();
 
         let mut link = None;
@@ -1095,6 +1111,7 @@ impl Engine {
                 let frames = ((f64::from(sample_rate) * BUFFER_SECONDS) as usize).max(1024);
                 let (producer, consumer) = rtrb::RingBuffer::new(frames * OUTPUT_CHANNELS);
                 let shared = RenderShared::new(volume, paused);
+                shared.set_speed(speed);
                 link = Some((producer, shared.clone(), sample_rate));
                 Renderer::new(consumer, shared, sample_rate).with_effects(effects.clone())
             },
@@ -1436,6 +1453,22 @@ mod tests {
                 self.engine.tick();
             }
             played
+        }
+
+        /// 出力のコールバックの代わりに`frames`フレームを取り出す（取り出した音声は確かめない。
+        /// 再生速度を変えている間は、取り出したフレーム数と出力のフレーム数が一致しないため）
+        fn pump(&mut self, frames: usize) {
+            for _ in 0..frames / 100 {
+                {
+                    let mut output = self.output.lock().unwrap();
+                    if !output.running {
+                        break;
+                    }
+                    let renderer = output.renderer.as_mut().unwrap();
+                    renderer.render(&mut [0.0f32; 200], 2);
+                }
+                self.engine.tick();
+            }
         }
 
         /// 出力からの通知（デバイスの変更など）を起こし、エンジンに処理させる
@@ -1919,6 +1952,98 @@ mod tests {
         harness.send(Command::SetVolume(7.0));
         let played = harness.render(1_000);
         assert_sample(&played, 999, 1_999);
+    }
+
+    /// 再生速度を変えると、曲の中の位置が速さの分だけ進み、曲の切り替わりと終わりも早く来る
+    #[test]
+    fn test_speed_changes_how_fast_the_tracks_advance() {
+        let mut harness = Harness::new();
+        // 2秒の曲と、1秒の曲
+        let first = harness.track("a.wav", 16_000);
+        let second = harness.track("b.wav", 8_000);
+        harness.send(Command::SetSpeed(2.0));
+        harness.play(1, &first).unwrap();
+        harness.set_next(2, &second).unwrap();
+
+        // 0.5秒分を出力すると、曲は1秒進む
+        harness.pump(4_000);
+        assert!(
+            (harness.position() - 1.0).abs() < 0.1,
+            "{}",
+            harness.position()
+        );
+        assert!(harness.take_transitions().is_empty());
+
+        // さらに0.5秒ほどで1曲目が終わり、2曲目へ切れ目なく切り替わる
+        harness.pump(4_400);
+        assert_eq!(
+            harness.take_transitions(),
+            vec![PlaybackEvent::Advanced {
+                token: 2,
+                duration: Some(1.0)
+            }]
+        );
+        assert!(harness.position() < 0.3, "{}", harness.position());
+
+        // 2曲目（1秒）も、0.5秒ほどで終わる
+        harness.pump(4_400);
+        assert_eq!(
+            harness.take_transitions(),
+            vec![PlaybackEvent::Ended { token: 2 }]
+        );
+    }
+
+    /// 遅くした時も、曲の中の位置は速さの分だけ進む。範囲の外の値は、範囲の中に収める
+    #[test]
+    fn test_slow_speed_advances_the_position_slowly() {
+        let mut harness = Harness::new();
+        let path = harness.track("a.wav", 16_000);
+        harness.send(Command::SetSpeed(0.01));
+        harness.play(1, &path).unwrap();
+
+        // 1秒分を出力すると、曲は0.5秒進む（0.5倍より遅くはならない）
+        harness.pump(8_000);
+        assert!(
+            (harness.position() - 0.5).abs() < 0.1,
+            "{}",
+            harness.position()
+        );
+    }
+
+    /// 1倍に戻すと、元の音声がそのまま出る
+    #[test]
+    fn test_normal_speed_after_a_speed_change_plays_the_original_samples() {
+        let mut harness = Harness::new();
+        let path = harness.track("a.wav", 16_000);
+        harness.send(Command::SetSpeed(1.5));
+        harness.play(1, &path).unwrap();
+        harness.pump(2_000);
+
+        harness.send(Command::SetSpeed(1.0));
+        // 再生速度の変更の中に残っている音声を、出し切らせる（長くても2区間ほど。0.2秒より短い）
+        harness.pump(2_000);
+        let start = (harness.position() * f64::from(RATE)).round() as u32;
+        let played = harness.render(500);
+        assert_eq!(played.len(), 500);
+        assert_sample(&played, 0, start);
+        assert_sample(&played, 499, start + 499);
+    }
+
+    /// 出力を開き直しても（出力先の変更など）、再生速度は保たれる
+    #[test]
+    fn test_speed_is_kept_when_the_output_is_reopened() {
+        let mut harness = Harness::new();
+        let path = harness.track("a.wav", 32_000);
+        harness.send(Command::SetSpeed(2.0));
+        harness.play(1, &path).unwrap();
+        harness.pump(2_000);
+        let before = harness.position();
+
+        harness.fire_output_event(OutputEvent::DeviceChanged);
+        harness.pump(4_000);
+        // 開き直した後の0.5秒で、曲は1秒ほど進む
+        let advanced = harness.position() - before;
+        assert!((advanced - 1.0).abs() < 0.15, "{advanced}");
     }
 
     #[test]
@@ -2453,6 +2578,7 @@ mod tests {
     /// 通知の内容と、かかった時間（実時間で再生されたか）を表示する。
     /// `PLAYBACK_TEST_PLAIN=1`を指定すると、途中の操作をせずに最後まで再生する（長時間の再生の確認用）。
     /// `PLAYBACK_TEST_CROSSFADE`に、クロスフェードの秒数を指定できる。
+    /// `PLAYBACK_TEST_SPEED`に、再生速度（倍）を指定できる（かかる時間が、速さの分だけ変わる）。
     #[test]
     #[ignore]
     fn real_output_plays_files_in_real_time() {
@@ -2489,6 +2615,9 @@ mod tests {
             let _ = events.send(event);
         });
         engine.set_volume(0.0).unwrap();
+        if let Ok(speed) = std::env::var("PLAYBACK_TEST_SPEED") {
+            engine.set_speed(speed.parse().unwrap()).unwrap();
+        }
 
         let started = Instant::now();
         let elapsed = || format!("{:7.3}s", started.elapsed().as_secs_f64());

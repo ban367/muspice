@@ -29,6 +29,7 @@ vi.mock('#lib/bindings.js', () => ({
     playbackResume: vi.fn(async () => null),
     playbackSeek: vi.fn(async () => null),
     playbackSetVolume: vi.fn(async () => null),
+    playbackSetSpeed: vi.fn(async () => null),
     playbackSetEqualizer: vi.fn(async () => null),
     playbackStop: vi.fn(async () => null),
     setNowPlaying: vi.fn(async () => null),
@@ -248,6 +249,20 @@ describe('トラックの再生', () => {
     flushSync();
 
     expect(commands.playbackSetVolume).toHaveBeenLastCalledWith(0.3);
+  });
+
+  it('再生速度をエンジンに伝える（起動時は1倍）', () => {
+    expect(commands.playbackSetSpeed).toHaveBeenLastCalledWith(1);
+
+    playbackAids.setSpeed(1.5);
+    flushSync();
+    expect(commands.playbackSetSpeed).toHaveBeenLastCalledWith(1.5);
+
+    // 同じ値では、送り直さない
+    const calls = vi.mocked(commands.playbackSetSpeed).mock.calls.length;
+    playbackAids.setSpeed(1.5);
+    flushSync();
+    expect(commands.playbackSetSpeed).toHaveBeenCalledTimes(calls);
   });
 });
 
@@ -1035,7 +1050,26 @@ describe('OSのNow Playing', () => {
     flushSync();
     await flush();
 
-    expect(lastNowPlaying()).toEqual({ trackId: 't2', playing: true, position: 0, duration: 200 });
+    expect(lastNowPlaying()).toEqual({
+      trackId: 't2',
+      playing: true,
+      position: 0,
+      duration: 200,
+      speed: 1
+    });
+  });
+
+  it('再生速度を変えたら、その速度を伝える', async () => {
+    playTrackFromQueue(tracks, 0);
+    await flush();
+    flushSync();
+    await flush();
+
+    playbackAids.setSpeed(1.25);
+    flushSync();
+    await flush();
+
+    expect(lastNowPlaying()).toMatchObject({ trackId: 't1', playing: true, speed: 1.25 });
   });
 
   it('一時停止・シーク・曲の切り替わりを伝え、再生が進むだけでは伝え直さない', async () => {

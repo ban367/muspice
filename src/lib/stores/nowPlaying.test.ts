@@ -48,7 +48,29 @@ describe('createNowPlayingReporter', () => {
   it('曲・再生中かどうか・位置・長さを伝える', async () => {
     await report(state({ position: 12.5, duration: 180.4 }));
 
-    expect(sent).toEqual([{ trackId: 't1', playing: true, position: 12.5, duration: 180.4 }]);
+    expect(sent).toEqual([
+      { trackId: 't1', playing: true, position: 12.5, duration: 180.4, speed: 1 }
+    ]);
+  });
+
+  it('再生速度を伝え、変わったら伝え直す', async () => {
+    await report(state({ position: 10, speed: 1.5 }));
+    expect(sent[0]).toMatchObject({ position: 10, speed: 1.5 });
+
+    // 伝えた速さで進んでいる間は、伝え直さない（10秒で15秒進む）
+    clock += 10_000;
+    await report(state({ position: 25, speed: 1.5 }));
+    expect(sent).toHaveLength(1);
+
+    // 速度を変えたら、その時点の位置と一緒に伝え直す
+    await report(state({ position: 25, speed: 0.5 }));
+    expect(sent).toHaveLength(2);
+    expect(sent[1]).toMatchObject({ position: 25, speed: 0.5 });
+
+    // 1倍の速さで進んだ位置は、OSの計算（0.5倍）とずれているため、伝え直す
+    clock += 10_000;
+    await report(state({ position: 35, speed: 0.5 }));
+    expect(sent).toHaveLength(3);
   });
 
   it('曲の長さが分からなければ、nullで伝える', async () => {
@@ -115,7 +137,13 @@ describe('createNowPlayingReporter', () => {
     await report(state({ trackId: 't2', position: 0, duration: 200 }));
 
     expect(sent).toHaveLength(2);
-    expect(sent[1]).toEqual({ trackId: 't2', playing: true, position: 0, duration: 200 });
+    expect(sent[1]).toEqual({
+      trackId: 't2',
+      playing: true,
+      position: 0,
+      duration: 200,
+      speed: 1
+    });
   });
 
   it('曲の長さの秒未満の違いでは、伝え直さない', async () => {

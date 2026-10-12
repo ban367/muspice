@@ -7,14 +7,18 @@
 //!
 //! - 音量と一時停止は、ここで反映する（バッファにたまっている分を待たずに、すぐ効く）。
 //!   値が変わるときは短い時間をかけて滑らかに変え、ノイズ（プチッという音）を防ぐ
+//! - 再生速度も、ここで反映する（`stretch`）。リングバッファの音声は元の速さのままで、ここで
+//!   取り出す量が速さの分だけ増減する。再生位置は取り出したフレーム数から求めるため、速さを
+//!   変えても、曲の中の位置（元の曲の時間）のまま進む
 //! - シーク・曲の切り替えでは、エンジンが「この位置より前は捨てる」（`discard_until`）を書き、
 //!   ここでバッファにたまっている古い音声を読み捨てる
 //! - 取り出したフレーム数（`frames_read`）から、エンジンが再生位置と曲の切り替わりを求める
-//! - 取り出した音声に、イコライザ → 音量・一時停止 → リミッターの順でかけて出す（`effects`）。
+//! - 取り出した音声に、再生速度 → イコライザ → 音量・一時停止 → リミッターの順でかけて出す（`effects`）。
 //!   リミッターを最後に置くのは、音量を下げていて最大を超えない時に、余計に抑えないため
 
 use super::convert::OUTPUT_CHANNELS;
 use super::effects::{EffectParams, Equalizer, Limiter};
+use super::stretch::{FrameSource, MAX_SPEED, MIN_SPEED, TimeStretcher};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
@@ -23,12 +27,15 @@ const GAIN_RAMP_SECONDS: f32 = 0.015;
 
 /// エンジンのスレッドと出力のコールバックで共有する値
 pub struct RenderShared {
-    /// リングバッファから取り出したフレーム数の合計（読み捨てた分を含む）
+    /// 鳴らし終えたフレーム数の合計（読み捨てた分を含む。リングバッファから取り出したフレーム数
+    /// から、再生速度の変更の中に残っている分を引いたもの）
     frames_read: AtomicU64,
     /// この位置（フレーム数の合計）より前のフレームは、出力せずに読み捨てる
     discard_until: AtomicU64,
     /// 音量（0.0〜1.0のf32のビット列）
     volume: AtomicU32,
+    /// 再生速度（倍。f32のビット列）
+    speed: AtomicU32,
     /// 一時停止中か
     paused: AtomicBool,
     /// 再生中に、バッファの音声が足りなかったコールバックの回数（音切れ）
@@ -41,6 +48,7 @@ impl RenderShared {
             frames_read: AtomicU64::new(0),
             discard_until: AtomicU64::new(0),
             volume: AtomicU32::new(volume.to_bits()),
+            speed: AtomicU32::new(1.0f32.to_bits()),
             paused: AtomicBool::new(paused),
             underruns: AtomicU64::new(0),
         })
@@ -65,8 +73,49 @@ impl RenderShared {
             .store(volume.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
     }
 
+    /// 再生速度（倍）を設定する（範囲の外の値は収め、数値でない値は1倍にする）
+    pub fn set_speed(&self, speed: f32) {
+        let speed = if speed.is_finite() {
+            speed.clamp(MIN_SPEED, MAX_SPEED)
+        } else {
+            1.0
+        };
+        self.speed.store(speed.to_bits(), Ordering::Relaxed);
+    }
+
     pub fn set_paused(&self, paused: bool) {
         self.paused.store(paused, Ordering::Relaxed);
+    }
+}
+
+/// リングバッファを、再生速度の変更の入力にする（取り出したフレーム数を数える）
+struct RingSource<'a> {
+    consumer: &'a mut rtrb::Consumer<f32>,
+    frames_read: &'a mut u64,
+}
+
+impl FrameSource for RingSource<'_> {
+    fn available(&self) -> usize {
+        self.consumer.slots() / OUTPUT_CHANNELS
+    }
+
+    fn read(&mut self, out: &mut [f32]) {
+        if let Ok(chunk) = self.consumer.read_chunk(out.len()) {
+            let (first, second) = chunk.as_slices();
+            out[..first.len()].copy_from_slice(first);
+            out[first.len()..].copy_from_slice(second);
+            chunk.commit_all();
+            *self.frames_read += (out.len() / OUTPUT_CHANNELS) as u64;
+        } else {
+            out.fill(0.0);
+        }
+    }
+
+    fn skip(&mut self, frames: usize) {
+        if let Ok(chunk) = self.consumer.read_chunk(frames * OUTPUT_CHANNELS) {
+            chunk.commit_all();
+            *self.frames_read += frames as u64;
+        }
     }
 }
 
@@ -74,8 +123,14 @@ impl RenderShared {
 pub struct Renderer {
     consumer: rtrb::Consumer<f32>,
     shared: Arc<RenderShared>,
-    /// 取り出したフレーム数の合計（`RenderShared::frames_read`の手元の値）
+    /// リングバッファから取り出したフレーム数の合計
     frames_read: u64,
+    /// 鳴らし終えたフレーム数の合計（`RenderShared::frames_read`へ書く値。戻らないようにする）
+    frames_played: u64,
+    /// 最後に見た、読み捨てる位置の指定（`RenderShared::discard_until`）
+    discard_seen: u64,
+    /// 再生速度の変更
+    stretcher: TimeStretcher,
     /// 今かけている音量（目標の値へ少しずつ近づける）
     gain: f32,
     /// 1フレームあたりの音量の変化の上限
@@ -100,6 +155,9 @@ impl Renderer {
             consumer,
             shared,
             frames_read: 0,
+            frames_played: 0,
+            discard_seen: 0,
+            stretcher: TimeStretcher::new(sample_rate),
             gain: 0.0,
             gain_step: 1.0 / (GAIN_RAMP_SECONDS * sample_rate as f32),
             sample_rate,
@@ -157,22 +215,39 @@ impl Renderer {
         } else {
             frames
         };
-        let available = self.consumer.slots() / OUTPUT_CHANNELS;
-        let take = wanted.min(available);
-
         // 取り出した音声をステレオのまま作業用のバッファへ移す（足りない分は無音。確保は最初だけ）
         self.stereo.resize(frames * OUTPUT_CHANNELS, 0.0);
-        let (audio, silence) = self.stereo.split_at_mut(take * OUTPUT_CHANNELS);
-        silence.fill(0.0);
-        if take > 0
-            && let Ok(chunk) = self.consumer.read_chunk(take * OUTPUT_CHANNELS)
-        {
-            let (first, second) = chunk.as_slices();
-            audio[..first.len()].copy_from_slice(first);
-            audio[first.len()..].copy_from_slice(second);
-            chunk.commit_all();
-            self.frames_read += take as u64;
+        let speed = f32::from_bits(self.shared.speed.load(Ordering::Relaxed));
+        let mut take = 0;
+        // 再生速度を変えている間（1倍に戻した直後の、残りを出し切るまでを含む）は、時間伸縮を通す
+        if speed != 1.0 || !self.stretcher.is_idle() {
+            let mut source = RingSource {
+                consumer: &mut self.consumer,
+                frames_read: &mut self.frames_read,
+            };
+            take = self.stretcher.process(
+                speed,
+                &mut source,
+                &mut self.stereo[..wanted * OUTPUT_CHANNELS],
+            );
         }
+        // 1倍の間は、そのまま取り出す（音声を一切変えない）
+        if take < wanted && speed == 1.0 && self.stretcher.is_idle() {
+            let available = self.consumer.slots() / OUTPUT_CHANNELS;
+            let count = (wanted - take).min(available);
+            let audio = &mut self.stereo[take * OUTPUT_CHANNELS..(take + count) * OUTPUT_CHANNELS];
+            if count > 0
+                && let Ok(chunk) = self.consumer.read_chunk(count * OUTPUT_CHANNELS)
+            {
+                let (first, second) = chunk.as_slices();
+                audio[..first.len()].copy_from_slice(first);
+                audio[first.len()..].copy_from_slice(second);
+                chunk.commit_all();
+                self.frames_read += count as u64;
+                take += count;
+            }
+        }
+        self.stereo[take * OUTPUT_CHANNELS..].fill(0.0);
 
         if let Some(effects) = &mut self.effects {
             effects.equalizer.process(&mut self.stereo, &effects.params);
@@ -214,14 +289,27 @@ impl Renderer {
             self.shared.underruns.fetch_add(1, Ordering::Relaxed);
         }
 
+        // 再生速度の変更の中に残っている分は、まだ鳴っていない
+        self.frames_played = self
+            .frames_read
+            .saturating_sub(self.stretcher.pending_source_frames())
+            .max(self.frames_played);
         self.shared
             .frames_read
-            .store(self.frames_read, Ordering::Release);
+            .store(self.frames_played, Ordering::Release);
     }
 
     /// エンジンが捨てるよう指定した位置まで、バッファの音声を読み捨てる
     fn discard_stale_frames(&mut self) {
         let discard_until = self.shared.discard_until.load(Ordering::Acquire);
+        // 新しく指定された: 再生速度の変更の中に残っている音声も、捨てる対象
+        if discard_until != self.discard_seen {
+            self.discard_seen = discard_until;
+            if !self.stretcher.is_idle() {
+                self.stretcher.reset();
+                self.reset_after_discard();
+            }
+        }
         if self.frames_read >= discard_until {
             return;
         }
@@ -233,7 +321,11 @@ impl Renderer {
             chunk.commit_all();
             self.frames_read += frames;
         }
-        // 続きではない音声へ切り替わるため、音量を0から上げ直し、加工の中に残っている前の音声を消す
+        self.reset_after_discard();
+    }
+
+    /// 続きではない音声へ切り替わるため、音量を0から上げ直し、加工の中に残っている前の音声を消す
+    fn reset_after_discard(&mut self) {
         self.gain = 0.0;
         if let Some(effects) = &mut self.effects {
             effects.equalizer.reset();
@@ -369,6 +461,87 @@ mod tests {
         assert!(out.iter().step_by(2).all(|&sample| sample <= 0.75));
         assert!(out[0] > 0.0 && out[0] < 0.25 * 0.75);
         assert_eq!(out[38], 0.75);
+    }
+
+    /// 再生速度を変えると、同じ長さの出力に使う音声の量が、速さの分だけ変わる
+    #[test]
+    fn test_speed_changes_how_many_frames_are_consumed() {
+        let (mut producer, mut renderer, shared) = setup(8_000);
+        push(
+            &mut producer,
+            (0..8_000).map(|frame| (frame as f32 * 0.3).sin() * 0.5),
+        );
+
+        // 2倍: 1,000フレームの出力に、およそ2,000フレームを使う
+        shared.set_speed(2.0);
+        let mut out = [0.0f32; 2_000];
+        renderer.render(&mut out, 2);
+        let fast = shared.frames_read();
+        assert!(fast.abs_diff(2_000) < 150, "{fast}");
+        // 音は出ていて、左右は逆のまま
+        assert!(out.iter().any(|sample| sample.abs() > 0.3));
+        assert!(
+            out.as_chunks::<2>()
+                .0
+                .iter()
+                .all(|frame| frame[0] == -frame[1])
+        );
+
+        // 0.5倍: およそ500フレームを使う
+        shared.set_speed(0.5);
+        renderer.render(&mut out, 2);
+        let slow = shared.frames_read() - fast;
+        assert!(slow.abs_diff(500) < 150, "{slow}");
+
+        // 範囲の外の値は、範囲の中に収める
+        shared.set_speed(100.0);
+        let before = shared.frames_read();
+        renderer.render(&mut out, 2);
+        assert!((shared.frames_read() - before).abs_diff(2_000) < 150);
+    }
+
+    /// 1倍に戻すと、残りを出し切った後は、音声をそのまま取り出す
+    #[test]
+    fn test_normal_speed_passes_frames_through_after_a_speed_change() {
+        let (mut producer, mut renderer, shared) = setup(8_000);
+        // どの位置か分かるよう、フレームの番号を値にする
+        push(&mut producer, (0..8_000).map(|frame| frame as f32));
+
+        shared.set_speed(1.5);
+        let mut out = [0.0f32; 1_000];
+        renderer.render(&mut out, 2);
+
+        shared.set_speed(1.0);
+        renderer.render(&mut out, 2);
+        // 鳴らし終えた位置の次のフレームから、そのまま並ぶ
+        let position = shared.frames_read();
+        renderer.render(&mut out, 2);
+        for (index, frame) in out.as_chunks::<2>().0.iter().enumerate() {
+            let expected = (position + index as u64) as f32;
+            assert_eq!(*frame, [expected, -expected], "frame {index}");
+        }
+        assert_eq!(shared.frames_read(), position + 500);
+    }
+
+    /// 捨てるよう指定されたら、再生速度の変更の中に残っている古い音声も出さない
+    #[test]
+    fn test_discard_drops_audio_held_by_the_speed_change() {
+        let (mut producer, mut renderer, shared) = setup(8_000);
+        push(&mut producer, [1.0; 300]);
+        shared.set_speed(0.5);
+        let mut out = [0.0f32; 200];
+        renderer.render(&mut out, 2);
+        // 取り出した音声の一部は、まだ鳴っていない
+        assert!(shared.frames_read() < renderer.frames_read());
+
+        // 古い音声（1.0）を捨てさせ、新しい音声（0.25）を書く
+        shared.discard_until(300);
+        push(&mut producer, [0.25; 2_000]);
+        let mut out = [0.0f32; 400];
+        renderer.render(&mut out, 2);
+        assert!(shared.frames_read() >= 300);
+        assert!(out.iter().all(|sample| sample.abs() <= 0.25 + 1e-6));
+        assert!((out[398] - 0.25).abs() < 1e-6);
     }
 
     #[test]

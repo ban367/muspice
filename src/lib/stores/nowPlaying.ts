@@ -8,7 +8,7 @@
  * 再生位置は再生中ずっと変わり続けるが、OSは「伝えられた時点の位置」から今の位置を自分で計算して
  * 表示する。そのため、伝えるのは次の場合だけにする。
  *
- * - 曲・再生中かどうか・曲の長さが変わった
+ * - 曲・再生中かどうか・曲の長さ・再生速度が変わった
  * - 再生位置が、OSの計算とずれた（シークした・再生が途切れた）
  *
  * 呼び出しは1つずつ行う（前の結果を待つ）。続けて呼ぶと、届く順番が入れ替わって古い状態が
@@ -27,6 +27,8 @@ export interface NowPlayingState {
   position: number;
   /** 曲の長さ（秒。分からなければ0） */
   duration: number;
+  /** 再生速度（倍。省略すると1倍。OSは、この速さで位置が進むものとして計算する） */
+  speed?: number;
 }
 
 export interface NowPlayingReporter {
@@ -47,7 +49,13 @@ export function createNowPlayingReporter(
   now: () => number = () => performance.now()
 ): NowPlayingReporter {
   /** 最後に伝えた（伝えることにした）状態。何も伝えていなければnull */
-  let reported: { key: string; playing: boolean; position: number; at: number } | null = null;
+  let reported: {
+    key: string;
+    playing: boolean;
+    position: number;
+    speed: number;
+    at: number;
+  } | null = null;
   /** まだ送っていない状態（undefinedは、送るものがない） */
   let pending: NowPlayingUpdate | null | undefined;
   let sending = false;
@@ -82,20 +90,22 @@ export function createNowPlayingReporter(
       }
 
       // 曲の長さは、秒未満の違い（ライブラリの値と、再生エンジンが読んだ値の違い）では伝え直さない
-      const key = `${state.trackId}:${state.playing}:${Math.round(state.duration)}`;
+      const speed = state.speed ?? 1;
+      const key = `${state.trackId}:${state.playing}:${Math.round(state.duration)}:${speed}`;
       if (reported?.key === key) {
-        // OSが計算している、今の位置
+        // OSが計算している、今の位置（伝えた速さで進む）
         const elapsed = reported.playing ? (now() - reported.at) / 1000 : 0;
-        const expected = reported.position + elapsed;
+        const expected = reported.position + elapsed * reported.speed;
         if (Math.abs(state.position - expected) < POSITION_TOLERANCE_SECONDS) return;
       }
 
-      reported = { key, playing: state.playing, position: state.position, at: now() };
+      reported = { key, playing: state.playing, position: state.position, speed, at: now() };
       pending = {
         trackId: state.trackId,
         playing: state.playing,
         position: state.position,
-        duration: state.duration > 0 ? state.duration : null
+        duration: state.duration > 0 ? state.duration : null,
+        speed
       };
       void flush();
     }

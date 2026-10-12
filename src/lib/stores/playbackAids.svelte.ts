@@ -1,9 +1,20 @@
 /**
- * 再生の補助（「この曲が終わったら停止」とスリープタイマー）の状態
+ * 再生の補助（再生速度・「この曲が終わったら停止」・スリープタイマー）の状態
  *
- * どちらも、その場かぎりの指示として扱う（保存せず、止めた後は自動で解除する）。
- * 状態を読んで再生を止めるのは、再生コントローラー（`./playback.svelte.ts`）が行う。
+ * どれも、その場かぎりの指示として扱う（保存しない。「この曲が終わったら停止」とスリープタイマーは、
+ * 止めた後に自動で解除する。再生速度は、起動のたびに1倍に戻る）。
+ * 状態を読んでエンジンへ伝える・再生を止めるのは、再生コントローラー（`./playback.svelte.ts`）が行う。
  */
+
+/** 選べる再生速度の範囲（倍。Rust側の`MIN_SPEED`・`MAX_SPEED`と同じ） */
+export const MIN_PLAYBACK_SPEED = 0.5;
+export const MAX_PLAYBACK_SPEED = 2;
+
+/** 再生速度の刻み（倍） */
+export const PLAYBACK_SPEED_STEP = 0.05;
+
+/** すぐに選べる再生速度（倍） */
+export const PLAYBACK_SPEED_PRESETS = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
 
 /** スリープタイマーで止める時に、音量を下げていく秒数 */
 export const SLEEP_FADE_SECONDS = 10;
@@ -23,6 +34,14 @@ export interface SleepTimer {
 
 class PlaybackAids {
   /**
+   * 再生速度（倍。1が通常の速さ）
+   *
+   * 音程は変えない。再生位置・曲の長さは、速度を変えても元の曲の時間のまま。
+   * 変える時は`setSpeed`を使う（範囲と刻みに合わせる）。
+   */
+  speed = $state(1);
+
+  /**
    * 再生中の曲が終わったら、次の曲を再生せずに止めるか
    *
    * 止めた後は、再生コントローラーが解除する。有効な間は、次の曲の先読み
@@ -35,6 +54,18 @@ class PlaybackAids {
 
   /** スリープタイマーの時間が来て、音量を下げている途中か（解除すると、音量を戻して再生を続ける） */
   isFadingOut = $state(false);
+
+  /**
+   * 再生速度を変える（範囲の外の値は範囲の中に収め、刻みに合わせて丸める。数値でない値は無視する）
+   * @param speed - 再生速度（倍）
+   */
+  setSpeed(speed: number): void {
+    if (!Number.isFinite(speed)) return;
+    const clamped = Math.min(MAX_PLAYBACK_SPEED, Math.max(MIN_PLAYBACK_SPEED, speed));
+    // 刻みの倍数にする（0.05の倍数は2進数で表せないため、小数第2位で丸め直す）
+    const stepped = Math.round(clamped / PLAYBACK_SPEED_STEP) * PLAYBACK_SPEED_STEP;
+    this.speed = Math.round(stepped * 100) / 100;
+  }
 
   /**
    * スリープタイマーを設定する（設定し直すと、時間を数え直す）
@@ -68,8 +99,9 @@ class PlaybackAids {
     return Math.max(0, Math.ceil((this.sleepTimer.endsAt - now) / 1000));
   }
 
-  /** すべての指示を解除する（再生を止めた時・テスト用） */
+  /** すべての指示を解除し、再生速度を1倍に戻す（再生コントローラーを破棄する時・テスト用） */
   reset(): void {
+    this.speed = 1;
     this.stopAfterCurrent = false;
     this.cancelSleepTimer();
   }

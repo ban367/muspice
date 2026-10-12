@@ -39,6 +39,13 @@ pub struct NowPlayingUpdate {
     pub position: f64,
     /// 曲の長さ（秒。再生エンジンがファイルから読んだ値。分からなければnullで、ライブラリの値を使う）
     pub duration: Option<f64>,
+    /// 再生速度（倍。OSが、渡した位置から今の位置を計算するのに使う。省略すると1倍）
+    #[serde(default = "normal_speed")]
+    pub speed: f64,
+}
+
+fn normal_speed() -> f64 {
+    1.0
 }
 
 /// OSへ渡す、再生中の曲
@@ -54,6 +61,8 @@ pub struct NowPlaying {
     /// 再生位置（秒）
     pub position: f64,
     pub playing: bool,
+    /// 再生速度（倍）
+    pub speed: f64,
     /// アルバムアート（同じ曲の間は、同じ`Arc`を渡す）
     pub artwork: Option<Arc<EmbeddedPicture>>,
 }
@@ -220,6 +229,11 @@ impl MediaControls {
             duration,
             position: duration.map_or(position, |duration| position.min(duration)),
             playing: update.playing,
+            speed: if update.speed.is_finite() && update.speed > 0.0 {
+                update.speed
+            } else {
+                1.0
+            },
             artwork: picture,
         }));
     }
@@ -323,6 +337,7 @@ mod tests {
             playing: true,
             position,
             duration,
+            speed: 1.0,
         }
     }
 
@@ -397,6 +412,33 @@ mod tests {
         let now_playing = recorder.last().unwrap();
         assert_eq!(now_playing.position, 0.0);
         assert_eq!(now_playing.duration, None);
+    }
+
+    /// 再生速度を渡す（OSが、位置の進み方の計算に使う）。省略・正しくない値は1倍
+    #[test]
+    fn test_passes_the_playback_speed() {
+        let state = test_state();
+        insert_track(&state, TRACK_ID, Some("Song"), Some(200));
+        let (controls, recorder) = controls();
+        let track = track(&state, TRACK_ID);
+
+        let with_speed = |speed: f64| NowPlayingUpdate {
+            speed,
+            ..update(TRACK_ID, 10.0, None)
+        };
+        controls.publish(&with_speed(1.5), &track, || None);
+        assert_eq!(recorder.last().unwrap().speed, 1.5);
+        controls.publish(&with_speed(f64::NAN), &track, || None);
+        assert_eq!(recorder.last().unwrap().speed, 1.0);
+        controls.publish(&with_speed(0.0), &track, || None);
+        assert_eq!(recorder.last().unwrap().speed, 1.0);
+
+        // フロントエンドが速度を付けない場合（以前の形）は、1倍
+        let update: NowPlayingUpdate = serde_json::from_str(
+            r#"{"trackId":"t","playing":true,"position":1.0,"duration":null}"#,
+        )
+        .unwrap();
+        assert_eq!(update.speed, 1.0);
     }
 
     #[test]

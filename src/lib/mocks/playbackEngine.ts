@@ -33,6 +33,8 @@ export interface MockPlaybackEngine {
   pause(): void;
   resume(): void;
   seek(position: number): void;
+  /** 再生速度（倍）を変える（再生位置が、その速さで進む） */
+  setSpeed(speed: number): void;
   stop(): void;
 }
 
@@ -51,10 +53,12 @@ export function createMockPlaybackEngine(options: MockPlaybackEngineOptions): Mo
   let next: { token: number; trackId: string; duration: number | null } | null = null;
   let latestPlayToken: number | null = null;
   let timer: ReturnType<typeof setInterval> | null = null;
+  /** 再生速度（倍。エンジンと同じく、曲を変えても保つ） */
+  let speed = 1;
 
   function position(track: PlayingTrack): number {
     const elapsed = track.startedAt === null ? 0 : (Date.now() - track.startedAt) / 1000;
-    return track.base + elapsed;
+    return track.base + elapsed * speed;
   }
 
   function clear(): void {
@@ -150,6 +154,13 @@ export function createMockPlaybackEngine(options: MockPlaybackEngineOptions): Mo
       const base = Math.max(0, Math.min(seconds, current.duration ?? seconds));
       current = { ...current, base, startedAt: current.startedAt === null ? null : Date.now() };
       options.emit({ type: 'position', token: current.token, position: base });
+    },
+    setSpeed(value) {
+      // ここまでの位置を、前の速さで確定してから変える
+      if (current && current.startedAt !== null) {
+        current = { ...current, base: position(current), startedAt: Date.now() };
+      }
+      speed = value;
     },
     stop() {
       clear();

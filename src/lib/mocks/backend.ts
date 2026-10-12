@@ -59,6 +59,7 @@ import {
 } from './smartPlaylist.js';
 import { createAlbumArt } from './media';
 import { createMockPlaybackEngine, MOCK_OUTPUT_DEVICES } from './playbackEngine';
+import { MAX_PLAYBACK_SPEED, MIN_PLAYBACK_SPEED } from '#lib/stores/playbackAids.svelte.js';
 
 type Commands = typeof commands;
 type CommandName = keyof Commands;
@@ -1519,6 +1520,21 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       if (volume === null || !Number.isFinite(volume)) {
         fail('VALIDATION', '音量が正しくありません');
       }
+      return null;
+    },
+    playbackSetSpeed: (speed) => {
+      if (
+        speed === null ||
+        !Number.isFinite(speed) ||
+        speed < MIN_PLAYBACK_SPEED ||
+        speed > MAX_PLAYBACK_SPEED
+      ) {
+        fail(
+          'VALIDATION',
+          `再生速度は${MIN_PLAYBACK_SPEED}倍から${MAX_PLAYBACK_SPEED}倍の範囲で指定してください`
+        );
+      }
+      playbackEngine.setSpeed(speed);
       return null;
     },
     playbackSetEqualizer: (_enabled, gains) => {

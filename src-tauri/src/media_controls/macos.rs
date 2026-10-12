@@ -107,9 +107,16 @@ fn apply(now_playing: Option<NowPlaying>) {
         );
         set_number(
             MPNowPlayingInfoPropertyPlaybackRate,
-            if now_playing.playing { 1.0 } else { 0.0 },
+            if now_playing.playing {
+                now_playing.speed
+            } else {
+                0.0
+            },
         );
-        set_number(MPNowPlayingInfoPropertyDefaultPlaybackRate, 1.0);
+        set_number(
+            MPNowPlayingInfoPropertyDefaultPlaybackRate,
+            now_playing.speed,
+        );
         info.insert(
             MPNowPlayingInfoPropertyMediaType,
             &NSNumber::numberWithUnsignedInteger(MPNowPlayingInfoMediaType::Audio.0),

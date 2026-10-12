@@ -92,7 +92,8 @@ src-tauri/src/
 │   ├── convert.rs         # 出力の形式（ステレオ・出力のサンプルレート）への変換
 │   ├── normalization.rs   # 音量の正規化（ReplayGain）の倍率の計算
 │   ├── effects.rs         # 出力の直前にかける加工（イコライザ・リミッター）
-│   ├── render.rs          # 出力のコールバックでの音声の取り出し（イコライザ・音量・一時停止・リミッター）
+│   ├── stretch.rs         # 再生速度の変更（音程を保ったまま速さを変える時間伸縮。WSOLA。ADR-049）
+│   ├── render.rs          # 出力のコールバックでの音声の取り出し（再生速度・イコライザ・音量・一時停止・リミッター）
 │   └── output.rs          # 出力デバイスの一覧と、出力のストリーム（cpal）
 ├── playback_state.rs      # 再生状態（音量・キュー・再生していた曲）の保存と復元（playback-state.json）
 ├── playlist.rs

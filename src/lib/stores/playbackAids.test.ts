@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { playbackAids } from './playbackAids.svelte.js';
+import {
+  MAX_PLAYBACK_SPEED,
+  MIN_PLAYBACK_SPEED,
+  PLAYBACK_SPEED_PRESETS,
+  playbackAids
+} from './playbackAids.svelte.js';
 
 const NOW = 1_000_000;
 
@@ -9,10 +14,48 @@ beforeEach(() => {
 
 describe('playbackAids', () => {
   it('最初は、どの指示も無効', () => {
+    expect(playbackAids.speed).toBe(1);
     expect(playbackAids.stopAfterCurrent).toBe(false);
     expect(playbackAids.sleepTimer).toBeNull();
     expect(playbackAids.isFadingOut).toBe(false);
     expect(playbackAids.sleepRemainingSeconds(NOW)).toBeNull();
+  });
+
+  it('再生速度は、範囲の中に収め、刻みに合わせる', () => {
+    playbackAids.setSpeed(1.25);
+    expect(playbackAids.speed).toBe(1.25);
+
+    // 刻み（0.05）に丸める（丸めた値に、2進数の誤差を残さない）
+    playbackAids.setSpeed(1.234);
+    expect(playbackAids.speed).toBe(1.25);
+    playbackAids.setSpeed(0.7);
+    expect(playbackAids.speed).toBe(0.7);
+    playbackAids.setSpeed(1.15);
+    expect(playbackAids.speed).toBe(1.15);
+
+    // 範囲の外の値は、範囲の端にする
+    playbackAids.setSpeed(9);
+    expect(playbackAids.speed).toBe(MAX_PLAYBACK_SPEED);
+    playbackAids.setSpeed(0);
+    expect(playbackAids.speed).toBe(MIN_PLAYBACK_SPEED);
+
+    // 数値でない値では変えない
+    playbackAids.setSpeed(Number.NaN);
+    expect(playbackAids.speed).toBe(MIN_PLAYBACK_SPEED);
+  });
+
+  it('すぐに選べる速度は、どれも刻みに合っていて、1倍を含む', () => {
+    expect(PLAYBACK_SPEED_PRESETS).toContain(1);
+    for (const speed of PLAYBACK_SPEED_PRESETS) {
+      playbackAids.setSpeed(speed);
+      expect(playbackAids.speed).toBe(speed);
+    }
+  });
+
+  it('リセットすると、再生速度は1倍に戻る', () => {
+    playbackAids.setSpeed(1.5);
+    playbackAids.reset();
+    expect(playbackAids.speed).toBe(1);
   });
 
   it('スリープタイマーを設定すると、止める時刻と残りの時間が決まる', () => {
