@@ -1,7 +1,7 @@
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { commands } from '#lib/bindings.js';
-import type { SmartRules } from '#lib/types/models.js';
+import type { ConvertOptions, SmartRules } from '#lib/types/models.js';
 import { createMockBackend, toCommandName, type MockBackend } from './backend';
 import { mockPlaylistId, mockTrackId } from './fixtures';
 
@@ -22,6 +22,173 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+describe('形式の変換', () => {
+  const options = (overrides: Partial<ConvertOptions> = {}): ConvertOptions => ({
+    format: 'flac',
+    aacBitrateKbps: 256,
+    mode: 'export',
+    template: '%albumartist%/%album%/%track% %title%',
+    addToLibrary: false,
+    ...overrides
+  });
+  const byTitle = async (title: string) =>
+    (await commands.getAllTracks()).find((track) => track.title === title)!;
+
+  it('変換先にできる形式を返す', async () => {
+    expect(await commands.getConvertFormats()).toEqual(['aac', 'alac', 'flac', 'wav', 'aiff']);
+  });
+
+  it('書き出しの計画は、書式に従った場所と、元の曲が可逆かどうかを返す', async () => {
+    const lossy = await byTitle('Paper Planes');
+    const lossless = await byTitle('Morning Walk');
+    const missing = await byTitle('Lost Tape');
+
+    const plan = await commands.planConversion([lossy.id, lossless.id, missing.id], options());
+
+    expect(plan.entries).toEqual([
+      {
+        trackId: lossy.id,
+        sourceName: '02 Paper Planes.mp3',
+        outputPath: 'Aoi Sora/Blue Horizon/02 Paper Planes.flac',
+        status: 'convert',
+        sourceLossless: false
+      },
+      {
+        trackId: lossless.id,
+        sourceName: '01 Morning Walk.flac',
+        outputPath: 'Aoi Sora/Field Notes/01 Morning Walk.flac',
+        status: 'convert',
+        sourceLossless: true
+      },
+      {
+        trackId: missing.id,
+        sourceName: missing.fileName,
+        outputPath: null,
+        status: 'missing',
+        sourceLossless: false
+      }
+    ]);
+  });
+
+  it('書き出しは、ライブラリを変えない（加える指定の時だけ、曲を足す）', async () => {
+    const track = await byTitle('Paper Planes');
+    const count = (await commands.getAllTracks()).length;
+
+    const result = await commands.convertTracks([track.id], options());
+
+    expect(result).toEqual({
+      convertedCount: 1,
+      skippedCount: 0,
+      failedCount: 0,
+      errors: [],
+      cancelled: false
+    });
+    expect(await commands.getAllTracks()).toHaveLength(count);
+    expect(events.filter((e) => e.event === 'convert-progress')).toEqual([
+      {
+        event: 'convert-progress',
+        payload: { current: 1, total: 1, currentFile: '02 Paper Planes.mp3' }
+      }
+    ]);
+    expect(events.map((e) => e.event)).not.toContain('library-changed');
+
+    // 同じ場所へもう一度書き出すと、同じ名前のファイルがあるため、変換しない
+    expect(await commands.convertTracks([track.id], options())).toMatchObject({
+      convertedCount: 0,
+      skippedCount: 1
+    });
+
+    // ライブラリに加える（別の形式なら、同じ名前にならない）
+    const added = await commands.convertTracks(
+      [track.id],
+      options({ format: 'aac', aacBitrateKbps: 192, addToLibrary: true })
+    );
+    expect(added?.convertedCount).toBe(1);
+    const tracks = await commands.getAllTracks();
+    expect(tracks).toHaveLength(count + 1);
+    expect(tracks.find((t) => t.filePath.startsWith('/Users/mock/Export/'))).toMatchObject({
+      filePath: '/Users/mock/Export/Aoi Sora/Blue Horizon/02 Paper Planes.m4a',
+      format: 'm4a',
+      bitrate: 192,
+      title: 'Paper Planes'
+    });
+    expect(events.map((e) => e.event)).toContain('library-changed');
+  });
+
+  it('書き出すフォルダを選ばなかった場合は、nullを返す', async () => {
+    const track = await byTitle('Paper Planes');
+    backend.setConvertExportFolder(null);
+
+    expect(await commands.convertTracks([track.id], options())).toBeNull();
+    expect(events).toEqual([]);
+  });
+
+  it('置き換えは、曲のIDを保ったまま、場所と形式を変える', async () => {
+    const track = await byTitle('Paper Planes');
+    await commands.setFavorite([track.id], true);
+    events = [];
+
+    const plan = await commands.planConversion([track.id], options({ mode: 'replace' }));
+    expect(plan.entries[0]).toMatchObject({
+      outputPath: '02 Paper Planes.flac',
+      status: 'convert'
+    });
+
+    const result = await commands.convertTracks([track.id], options({ mode: 'replace' }));
+
+    expect(result?.convertedCount).toBe(1);
+    const replaced = (await commands.getAllTracks()).find((t) => t.id === track.id)!;
+    expect(replaced).toMatchObject({
+      filePath: track.filePath.replace(/\.mp3$/, '.flac'),
+      fileName: '02 Paper Planes.flac',
+      format: 'flac',
+      title: 'Paper Planes',
+      isFavorite: true
+    });
+    expect(events.map((e) => e.event)).toContain('library-changed');
+
+    // 同じ形式への置き換えは、出力先が元のファイル自身（変換できる）
+    const again = await commands.planConversion([track.id], options({ mode: 'replace' }));
+    expect(again.entries[0].status).toBe('convert');
+  });
+
+  it('中断すると、残りの曲を変換しない', async () => {
+    const tracks = (await commands.getAllTracks()).filter((t) => !t.isMissing).slice(0, 3);
+    backend = createMockBackend({
+      emit: (event, payload) => {
+        events.push({ event, payload });
+        if (event === 'convert-progress') void commands.cancelConversion();
+      },
+      sleep: async () => {}
+    });
+    mockIPC((cmd, payload) => backend.invoke(cmd, payload as Record<string, unknown>));
+
+    const result = await commands.convertTracks(
+      tracks.map((t) => t.id),
+      options({ mode: 'replace' })
+    );
+
+    expect(result).toMatchObject({ convertedCount: 1, cancelled: true });
+  });
+
+  it('入力の誤りは、VALIDATIONのエラーにする', async () => {
+    const track = await byTitle('Paper Planes');
+    const invalid = { code: 'VALIDATION' };
+    await expect(commands.planConversion([], options())).rejects.toMatchObject(invalid);
+    await expect(commands.planConversion(['x'], options())).rejects.toMatchObject(invalid);
+    await expect(
+      commands.planConversion([track.id], options({ template: '%nope%' }))
+    ).rejects.toMatchObject(invalid);
+    await expect(
+      commands.convertTracks([track.id], options({ format: 'aac', aacBitrateKbps: 100 }))
+    ).rejects.toMatchObject(invalid);
+    // AACのほかでは、ビットレートを確かめない
+    await expect(
+      commands.planConversion([track.id], options({ aacBitrateKbps: 0 }))
+    ).resolves.toBeDefined();
+  });
 });
 
 describe('音量の解析', () => {

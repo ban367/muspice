@@ -30,6 +30,7 @@ pub struct WavPackSource {
     blocks: Vec<BlockEntry>,
     sample_rate: u32,
     channels: usize,
+    bits_per_sample: u32,
     /// サンプルの値の範囲（整数は2の「ビット数-1」乗。浮動小数点はNone）
     full_scale: Option<f32>,
 }
@@ -102,6 +103,7 @@ impl WavPackSource {
             blocks,
             sample_rate: info.sample_rate,
             channels: info.channels as usize,
+            bits_per_sample: info.bits_per_sample,
             full_scale,
         })
     }
@@ -114,6 +116,10 @@ impl BlockSource for WavPackSource {
 
     fn channels(&self) -> usize {
         self.channels
+    }
+
+    fn bits_per_sample(&self) -> u32 {
+        self.bits_per_sample
     }
 
     fn block_count(&self) -> usize {

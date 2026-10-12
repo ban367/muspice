@@ -113,6 +113,7 @@ export const en: Messages = {
     refreshMetadata: 'Refreshing metadata',
     writeMetadataToFiles: 'Writing metadata to files',
     loudnessScan: 'Analyzing loudness',
+    convert: 'Converting',
     showInFolder: 'Showing the file',
     fetchPlaylists: 'Loading playlists',
     createSmartPlaylist: 'Creating smart playlist',
@@ -420,6 +421,58 @@ export const en: Messages = {
       `Finished writing (written: ${written}, unchanged: ${unchanged}, missing files: ${skipped}, errors: ${errors})`
   },
 
+  convert: {
+    title: (count) => `Convert Format (${plural(count, 'track', 'tracks')})`,
+    format: 'Convert to',
+    formats: {
+      aac: 'AAC (.m4a)',
+      alac: 'Apple Lossless (.m4a)',
+      flac: 'FLAC',
+      wav: 'WAV',
+      aiff: 'AIFF'
+    },
+    bitrate: 'Bitrate',
+    bitrateValue: (kbps) => `${kbps} kbps`,
+    destination: 'Destination',
+    modes: { export: 'Export to another folder', replace: 'Replace the original files' },
+    template: 'Location format',
+    addToLibrary: 'Add the exported tracks to the library',
+    exportHint:
+      'You will choose the folder after pressing the button. The tracks in the library and the original files are not changed. The format uses the same syntax as Organize Files.',
+    replaceHint:
+      'A converted file is created next to each original and takes its place. The track stays in the library with its favorites, play counts and playlists. The original files are moved to the Trash.',
+    warnings: {
+      lossyToLossless: (count) =>
+        `${plural(count, 'track is', 'tracks are')} in a lossy format. Converting to a lossless format does not bring the quality back (the files only get larger).`,
+      lossyToLossy: (count) =>
+        `${plural(count, 'track is', 'tracks are')} in a lossy format. Converting to a lossy format again lowers the quality.`,
+      losslessReplaced: (count) =>
+        `${plural(count, 'lossless track', 'lossless tracks')} will be replaced with a lossy format. The original quality cannot be restored (the original files stay in the Trash).`
+    },
+    conversions: 'Tracks to convert',
+    conversionCount: (count) => `${plural(count, 'track', 'tracks')} will be converted`,
+    noConversions: 'Nothing to convert',
+    blocked: 'Tracks that will not be converted',
+    columnSource: 'Original file',
+    columnOutput: 'Output',
+    reasons: {
+      missing: 'The file is missing',
+      targetExists: 'A file with the same name is already there',
+      sameTarget: 'Another selected track would be written to the same place'
+    },
+    startExport: 'Choose Folder and Convert',
+    startReplace: 'Convert and Replace',
+    converting: 'Converting...',
+    progress: (current, total) => `${current} / ${plural(total, 'track', 'tracks')}`,
+    cancel: 'Stop',
+    cancelling: 'Stopping...',
+    continueInBackground: 'Close (keep converting)',
+    result: (converted, skipped, failed) =>
+      `Conversion finished (converted: ${converted}, not converted: ${skipped}, failed: ${failed})`,
+    cancelledResult: (converted, skipped, failed) =>
+      `Conversion stopped (converted: ${converted}, not converted: ${skipped}, failed: ${failed})`
+  },
+
   loudnessScan: {
     title: 'Loudness analysis',
     description:
@@ -590,6 +643,7 @@ export const en: Messages = {
     tagTools: 'Tag Tools...',
     fileOrganize: 'Organize Files...',
     loudnessScan: 'Analyze Loudness...',
+    convert: 'Convert Format...',
     showInFolder: 'Show in Folder',
     deleteEllipsis: 'Delete...',
     addToPlaylist: 'Add to Playlist',

@@ -10,6 +10,7 @@
  */
 import {
   DEFAULT_ACCENT_COLOR,
+  AAC_BITRATES_KBPS,
   LIBRARY_SCAN_INTERVALS,
   MAX_CROSSFADE_SECONDS,
   MAX_NORMALIZATION_PREAMP_DB,
@@ -22,6 +23,10 @@ import type {
   AppError,
   ArtistSummary,
   BulkUpdateResult,
+  ConvertEntry,
+  ConvertFormat,
+  ConvertOptions,
+  ConvertResult,
   DeviceSyncPlan,
   DeviceSyncResult,
   DuplicateAction,
@@ -60,7 +65,7 @@ import {
   type SmartPlaylistContext
 } from './smartPlaylist.js';
 import { createAlbumArt } from './media';
-import { parseOrganizeTemplate, planOrganize } from './fileOrganize';
+import { organizedRelativePath, parseOrganizeTemplate, planOrganize } from './fileOrganize';
 import { createMockPlaybackEngine, MOCK_OUTPUT_DEVICES } from './playbackEngine';
 import { MAX_PLAYBACK_SPEED, MIN_PLAYBACK_SPEED } from '#lib/stores/playbackAids.svelte.js';
 import { hasValue, listedArtists, splitValues, VALUE_SEPARATOR } from '#lib/utils/multiValue.js';
@@ -148,6 +153,12 @@ export interface MockBackend {
    * （整理すると、移動先に同じ名前のファイルがある曲・同じ移動先になる曲が出る）。
    */
   addDuplicateTracks(): void;
+  /**
+   * 形式の変換で、書き出すフォルダを選ぶダイアログの結果を切り替える（nullは、選ばなかった）
+   *
+   * 既定は`/Users/mock/Export`。
+   */
+  setConvertExportFolder(path: string | null): void;
   /** `albumart`プロトコルの代わりに、トラックのアルバムアートをdata URLで返す（アートがなければnull） */
   albumArtUrl(trackId: string): string | null;
 }
@@ -185,6 +196,21 @@ const DEFAULT_STATS_LIMIT = 50;
 const EQ_BAND_COUNT = 10;
 /** デバイスへの同期の1曲あたりの処理時間（進捗表示の確認用） */
 const SYNC_STEP_MS = 300;
+
+/** 形式の変換で、1曲にかかることにする時間（進捗と中断を目視できるようにする） */
+const CONVERT_STEP_MS = 300;
+
+/** 変換後のファイルの拡張子と、ビットレート（kbps。AACは、指定した値） */
+const CONVERT_OUTPUTS: Record<ConvertFormat, { extension: string; bitrate: number | null }> = {
+  aac: { extension: 'm4a', bitrate: null },
+  alac: { extension: 'm4a', bitrate: 900 },
+  flac: { extension: 'flac', bitrate: 900 },
+  wav: { extension: 'wav', bitrate: 1411 },
+  aiff: { extension: 'aiff', bitrate: 1411 }
+};
+
+/** 可逆の形式の拡張子（`m4a`は、ビットレートから決める） */
+const LOSSLESS_EXTENSIONS = ['flac', 'wav', 'aiff', 'aif', 'wv', 'ape'];
 
 /** 音量の解析で、1曲を読むのにかかることにする時間（進捗と中断を目視できるようにする） */
 const LOUDNESS_SCAN_STEP_MS = 250;
@@ -540,6 +566,11 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   ];
   let isSyncRunning = false;
   let isSyncCancelled = false;
+  // 形式の変換の実行の状態（同時に実行できる変換は1つ）と、書き出すフォルダを選ぶダイアログの結果
+  const conversionJob = { running: false, cancelled: false };
+  let convertExportFolder: string | null = '/Users/mock/Export';
+  // 書き出したファイルの場所（もう一度同じ場所へ書き出すと、同じ名前のファイルがあることになる）
+  const exportedPaths = new Set<string>();
   // 音量の解析の実行の状態（同時に実行できる解析は1つ）
   const loudnessScan = { running: false, cancelled: false, current: 0, total: 0 };
 
@@ -1035,6 +1066,161 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   const tracksUnder = (folder: string) =>
     tracks.filter((track) => track.filePath.startsWith(folderPrefix(folder)));
 
+  /**
+   * 選んだ曲（選んだ順）の、変換の計画（Rustの`transcode::plan`）
+   * @param exportFolder - 書き出すフォルダ（選ぶ前はnull。その間は、同じ名前のファイルを調べない）
+   */
+  function conversionPlan(
+    trackIds: string[],
+    convertOptions: ConvertOptions,
+    exportFolder: string | null
+  ) {
+    if (trackIds.length === 0) fail('VALIDATION', '変換する曲が指定されていません');
+    trackIds.forEach(validateTrackId);
+    const { format, mode } = convertOptions;
+    if (
+      format === 'aac' &&
+      !(AAC_BITRATES_KBPS as readonly number[]).includes(convertOptions.aacBitrateKbps)
+    ) {
+      fail('VALIDATION', 'AACのビットレートが選べる値ではありません');
+    }
+    const template = parseOrganizeTemplate(convertOptions.template);
+    const extension = `.${CONVERT_OUTPUTS[format].extension}`;
+    const key = (path: string) => path.normalize('NFC').toLowerCase();
+    const isLossless = (track: Track) => {
+      const sourceFormat = track.format.toLowerCase();
+      if (LOSSLESS_EXTENSIONS.includes(sourceFormat)) return true;
+      return sourceFormat === 'm4a' ? (track.bitrate ?? 0) > 500 : false;
+    };
+
+    const entries: ConvertEntry[] = [];
+    const candidates: { index: number; track: Track; output: string }[] = [];
+    const selected = [...new Set(trackIds)]
+      .map((id) => tracks.find((track) => track.id === id))
+      .filter((track) => track !== undefined);
+    for (const track of selected) {
+      const entry: ConvertEntry = {
+        trackId: track.id,
+        sourceName: track.fileName,
+        outputPath: null,
+        status: 'convert',
+        sourceLossless: isLossless(track)
+      };
+      if (track.isMissing) {
+        entry.status = 'missing';
+      } else if (mode === 'export') {
+        const relative = organizedRelativePath(template, track, extension);
+        entry.outputPath = relative;
+        candidates.push({
+          index: entries.length,
+          track,
+          output: exportFolder === null ? relative : `${exportFolder}/${relative}`
+        });
+      } else {
+        const output = track.filePath.replace(/\.[^./]+$/, '') + extension;
+        entry.outputPath = output.slice(output.lastIndexOf('/') + 1);
+        candidates.push({ index: entries.length, track, output });
+      }
+      entries.push(entry);
+    }
+
+    const users: Record<string, number> = Object.create(null);
+    for (const { output } of candidates) users[key(output)] = (users[key(output)] ?? 0) + 1;
+    const conversions: { track: Track; output: string }[] = [];
+    for (const { index, track, output } of candidates) {
+      const occupied =
+        mode === 'replace'
+          ? key(output) !== key(track.filePath) &&
+            tracks.some((other) => key(other.filePath) === key(output))
+          : exportFolder !== null && exportedPaths.has(key(output));
+      if (users[key(output)] > 1) {
+        entries[index].status = 'sameTarget';
+      } else if (occupied) {
+        entries[index].status = 'targetExists';
+      } else {
+        conversions.push({ track, output });
+      }
+    }
+    return { entries, conversions };
+  }
+
+  /**
+   * 選んだ曲を変換する（Rustの`commands/convert.rs`）
+   *
+   * 実ファイルはないため、書き出しは場所を覚えるだけにし、置き換えは曲の場所と形式を書き換える。
+   */
+  async function convertTracks(
+    trackIds: string[],
+    convertOptions: ConvertOptions
+  ): Promise<ConvertResult | null> {
+    // 入力の誤りは、実行中かどうかを調べる前に知らせる
+    conversionPlan(trackIds, convertOptions, null);
+    if (conversionJob.running) fail('LOCK', '形式の変換を実行中です');
+    const { format, mode } = convertOptions;
+    const exportFolder = mode === 'export' ? convertExportFolder : null;
+    // 書き出すフォルダを選ぶダイアログで、選ばなかった
+    if (mode === 'export' && exportFolder === null) return null;
+
+    const { entries, conversions } = conversionPlan(trackIds, convertOptions, exportFolder);
+    const result: ConvertResult = {
+      convertedCount: 0,
+      skippedCount: entries.filter((entry) => entry.status !== 'convert').length,
+      failedCount: 0,
+      errors: [],
+      cancelled: false
+    };
+    const output = CONVERT_OUTPUTS[format];
+    const bitrate = output.bitrate ?? convertOptions.aacBitrateKbps;
+    Object.assign(conversionJob, { running: true, cancelled: false });
+    let libraryChanged = false;
+    try {
+      for (const conversion of conversions) {
+        if (conversionJob.cancelled) break;
+        await sleep(CONVERT_STEP_MS);
+        if (conversionJob.cancelled) break;
+        const { track } = conversion;
+        const sourceName = track.fileName;
+        const converted = {
+          filePath: conversion.output,
+          fileName: conversion.output.slice(conversion.output.lastIndexOf('/') + 1),
+          format: output.extension,
+          bitrate
+        };
+        if (mode === 'replace') {
+          Object.assign(track, converted, { updatedAt: now() });
+          libraryChanged = true;
+        } else {
+          exportedPaths.add(conversion.output.normalize('NFC').toLowerCase());
+          if (convertOptions.addToLibrary) {
+            tracks.push({
+              ...structuredClone(track),
+              ...converted,
+              id: crypto.randomUUID(),
+              isFavorite: false,
+              playCount: 0,
+              skipCount: 0,
+              lastPlayedAt: null,
+              createdAt: now(),
+              updatedAt: now()
+            });
+            libraryChanged = true;
+          }
+        }
+        result.convertedCount++;
+        options.emit('convert-progress', {
+          current: result.convertedCount,
+          total: conversions.length,
+          currentFile: sourceName
+        });
+      }
+      result.cancelled = conversionJob.cancelled;
+    } finally {
+      conversionJob.running = false;
+    }
+    if (libraryChanged) options.emit('library-changed', null);
+    return result;
+  }
+
   /** 音量の解析で、曲をまとめるアルバムのキー（Rustの`loudness_scan::album_key`。アルバムのない曲はnull） */
   const loudnessAlbumKey = (track: Track) =>
     track.album ? `${track.album}\n${track.albumArtist ?? track.artist ?? ''}` : null;
@@ -1450,6 +1636,16 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         result.updatedCount++;
       }
       return result;
+    },
+    // モックでは、どの環境でも変換できることにする（実際は、macOSだけ）
+    getConvertFormats: () => ['aac', 'alac', 'flac', 'wav', 'aiff'],
+    planConversion: (trackIds, convertOptions) => ({
+      entries: conversionPlan(trackIds, convertOptions, null).entries
+    }),
+    convertTracks,
+    cancelConversion: () => {
+      if (conversionJob.running) conversionJob.cancelled = true;
+      return null;
     },
     getLoudnessScanStatus: () => ({
       running: loudnessScan.running,
@@ -2250,6 +2446,9 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       copy(neonRain, `${downloads}/a/neon.mp3`, { format: 'mp3', bitrate: 320 });
       copy(neonRain, `${downloads}/b/neon.mp3`, { format: 'mp3', bitrate: 128 });
       options.emit('library-changed', null);
+    },
+    setConvertExportFolder: (path) => {
+      convertExportFolder = path;
     },
     setM3uImportMode: (mode) => {
       m3uImportMode = mode;

@@ -1429,6 +1429,56 @@ pub fn delete_tracks_under(conn: &Connection, path_prefix: &str) -> AppResult<us
     .map_err(|e| AppError::Database(format!("トラックの削除に失敗しました: {}", e)))
 }
 
+/// 曲のファイルを、形式を変換したファイルに入れ替える（曲のIDは変えない）
+///
+/// 場所・ファイル名・形式・ビットレート・サンプルレート・長さ・大きさ・更新日時と、ゲインとピーク
+/// （変換後のファイルのタグから読んだ値）を書き換え、見つかる曲に戻す。お気に入り・再生回数・
+/// プレイリストへの登録と、タイトルなどのタグの内容は変えない（タグは、変換後のファイルへ写してある）。
+/// @param file - 変換後のファイルから読んだ内容
+pub fn replace_track_file(
+    conn: &Connection,
+    track_id: &str,
+    file: &Track,
+    file_modified_at: Option<i64>,
+) -> AppResult<()> {
+    let rows_affected = conn
+        .execute(
+            "UPDATE tracks SET file_path = ?2, file_name = ?3, format = ?4, bitrate = ?5,
+                 sample_rate = ?6, duration = ?7, file_size = ?8, file_modified_at = ?9,
+                 replay_gain_track_gain = ?10, replay_gain_track_peak = ?11,
+                 replay_gain_album_gain = ?12, replay_gain_album_peak = ?13,
+                 updated_at = ?14, missing_since = NULL
+             WHERE id = ?1",
+            rusqlite::params![
+                track_id,
+                file.file_path,
+                file.file_name,
+                file.format,
+                file.bitrate,
+                file.sample_rate,
+                file.duration,
+                file.file_size,
+                file_modified_at,
+                file.replay_gain.track_gain,
+                file.replay_gain.track_peak,
+                file.replay_gain.album_gain,
+                file.replay_gain.album_peak,
+                file.updated_at,
+            ],
+        )
+        .map_err(|e| {
+            AppError::Database(format!("トラックのファイルの更新に失敗しました: {}", e))
+        })?;
+
+    if rows_affected == 0 {
+        return Err(AppError::NotFound(format!(
+            "トラックが見つかりません: {}",
+            track_id
+        )));
+    }
+    Ok(())
+}
+
 /// 音量の情報が欠けている曲の数（見つからない曲を除く）
 ///
 /// 曲のゲインがない曲と、アルバムのタグがあるのにアルバムのゲインがない曲を数える

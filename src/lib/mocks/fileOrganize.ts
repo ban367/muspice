@@ -185,17 +185,32 @@ function splitPath(filePath: string): { directory: string; stem: string; extensi
   };
 }
 
-/** 曲の、整理後の場所 */
-function destination(template: OrganizeTemplate, track: Track, libraryFolder: string): string {
-  const { directory, stem, extension } = splitPath(track.filePath);
+/**
+ * 曲の、書式に従った場所（フォルダ名 … ファイル名を`/`でつないだもの）
+ * @param extension - ファイル名に付ける拡張子（`.`から。省くと、元のファイルの拡張子）
+ */
+export function organizedRelativePath(
+  template: OrganizeTemplate,
+  track: Track,
+  extension?: string
+): string {
+  const source = splitPath(track.filePath);
   const folders = template.folders
-    .map((parts) => render(parts, track, stem))
+    .map((parts) => render(parts, track, source.stem))
     .filter((folder) => folder.trim() !== '')
     .map(sanitizeComponent);
-  const rendered = render(template.fileName, track, stem);
-  const fileName = sanitizeComponent(rendered.trim() === '' ? stem : rendered) + extension;
+  const rendered = render(template.fileName, track, source.stem);
+  const fileName =
+    sanitizeComponent(rendered.trim() === '' ? source.stem : rendered) +
+    (extension ?? source.extension);
+  return [...folders, fileName].join('/');
+}
+
+/** 曲の、整理後の場所 */
+function destination(template: OrganizeTemplate, track: Track, libraryFolder: string): string {
+  const { directory } = splitPath(track.filePath);
   const base = template.inPlace ? directory : libraryFolder;
-  return [base, ...folders, fileName].join('/');
+  return `${base}/${organizedRelativePath(template, track)}`;
 }
 
 /** 大文字と小文字・文字の形を区別しないで、同じ場所かを比べるためのキー */

@@ -64,6 +64,7 @@ pub struct ApeSource {
     decoder: ApeDecoder<BufReader<File>>,
     sample_rate: u32,
     channels: usize,
+    bits_per_sample: u32,
     format: SampleFormat,
     big_endian: bool,
     /// 1フレームのサンプル数（最後のフレームだけ、これより短い）
@@ -107,6 +108,7 @@ impl ApeSource {
         Ok(Self {
             sample_rate: info.sample_rate,
             channels: usize::from(info.channels),
+            bits_per_sample: u32::from(info.bits_per_sample),
             format,
             big_endian: info.is_big_endian,
             frames_per_block: u64::from(info.blocks_per_frame),
@@ -124,6 +126,10 @@ impl BlockSource for ApeSource {
 
     fn channels(&self) -> usize {
         self.channels
+    }
+
+    fn bits_per_sample(&self) -> u32 {
+        self.bits_per_sample
     }
 
     fn block_count(&self) -> usize {

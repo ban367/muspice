@@ -223,6 +223,47 @@ export const commands = {
 	 *  移せなかった曲は、結果の`errors`へ理由を入れて残りを続ける。
 	 */
 	organizeFiles: (trackIds: string[], template: string) => __TAURI_INVOKE<OrganizeResult>("organize_files", { trackIds, template }),
+	/**
+	 *  変換先にできる形式を取得する（この環境で変換できなければ、空）
+	 * 
+	 *  形式の変換は、macOSだけで使える。空の場合、画面は変換の項目を出さない。
+	 */
+	getConvertFormats: () => __TAURI_INVOKE<ConvertFormat[]>("get_convert_formats"),
+	/**
+	 *  選んだ曲の、変換の計画（曲ごとの出力先と、変換するかどうか）を取得する
+	 * 
+	 *  ファイルは作らない。書き出しでは、書き出すフォルダをまだ選んでいないため、出力先の同じ名前の
+	 *  ファイルは調べない（`convert_tracks`が、フォルダを選んだ後に調べる）。
+	 */
+	planConversion: (trackIds: string[], options: ConvertOptions) => __TAURI_INVOKE<ConvertPlan>("plan_conversion", { trackIds, options }),
+	/**
+	 *  選んだ曲を、別の形式に変換する
+	 * 
+	 *  書き出しでは、書き出すフォルダを選ぶダイアログを開く（選ばなかった場合は`null`を返す）。
+	 *  置き換えでは、元のファイルと同じ場所に変換後のファイルを作り、曲のIDを保ったまま入れ替えて、
+	 *  元のファイルをOSのゴミ箱へ移す。
+	 * 
+	 *  終わるまで返らない（`ConvertProgress`を送る）。同時に実行できる変換は1つで、実行中は`LOCK`。
+	 *  変換できなかった曲は、結果の`errors`へ理由を入れて残りを続ける。
+	 */
+	convertTracks: (trackIds: string[], options: ConvertOptions) => __TAURI_INVOKE<{
+	/**  変換した曲の数 */
+	convertedCount: number,
+	/**  変換しなかった曲の数（ファイルが見つからない・出力先がふさがっている） */
+	skippedCount: number,
+	/**  変換できなかった曲の数 */
+	failedCount: number,
+	/**  変換できなかった理由（`場所: 理由`） */
+	errors: string[],
+	/**  途中で中断したか */
+	cancelled: boolean,
+} | null>("convert_tracks", { trackIds, options }),
+	/**
+	 *  実行中の変換を中断する（実行中でなければ何もしない）
+	 * 
+	 *  変換の途中の曲は、出力を残さずに終わる（置き換えでは、元のファイルをそのまま残す）。
+	 */
+	cancelConversion: () => __TAURI_INVOKE<null>("cancel_conversion"),
 	/**  音量の解析の状態を取得する（設定の画面を開いた時と、解析が終わった時に読む） */
 	getLoudnessScanStatus: () => __TAURI_INVOKE<LoudnessScanStatus>("get_loudness_scan_status"),
 	/**
@@ -577,6 +618,7 @@ export const commands = {
 
 /** Events */
 export const events = {
+	convertProgress: makeEvent<ConvertProgress>("convert-progress"),
 	deviceSyncProgress: makeEvent<DeviceSyncProgress>("device-sync-progress"),
 	importFilesRequested: makeEvent<ImportFilesRequested>("import-files-requested"),
 	importProgress: makeEvent<ImportProgress>("import-progress"),
@@ -595,6 +637,10 @@ export const events = {
 };
 
 /* Constants */
+export const AAC_BITRATES_KBPS = [128,192,256,320] as const;
+
+export const DEFAULT_AAC_BITRATE_KBPS = 256 as const;
+
 export const DEFAULT_ACCENT_COLOR = "#3b82f6" as const;
 
 export const LIBRARY_SCAN_INTERVALS = [0,15,30,60,360] as const;
@@ -700,6 +746,84 @@ export type BulkUpdateResult = {
 	/**  更新できなかったトラックの理由（ファイルごと） */
 	errors: string[],
 };
+
+/**  1曲の計画（一覧に表示する） */
+export type ConvertEntry = {
+	trackId: string,
+	/**  元のファイルの名前 */
+	sourceName: string,
+	/**  出力先（書き出しは、書き出すフォルダからの場所。置き換えは、ファイルの名前。決まらない曲はNone） */
+	outputPath: string | null,
+	status: ConvertStatus,
+	/**  元の曲が可逆の形式か（分からなければNone） */
+	sourceLossless: boolean | null,
+};
+
+/**  変換先の形式 */
+export type ConvertFormat = 
+/**  AAC（`.m4a`。非可逆） */
+"aac" | 
+/**  Apple Lossless（`.m4a`。可逆） */
+"alac" | "flac" | "wav" | "aiff";
+
+/**  変換したファイルの出力先 */
+export type ConvertMode = 
+/**  別のフォルダへ書き出す（ライブラリの曲は変えない） */
+"export" | 
+/**  元のファイルを置き換える（曲のIDを保ったまま、ファイルと形式を入れ替える） */
+"replace";
+
+/**  変換の指定 */
+export type ConvertOptions = {
+	format: ConvertFormat,
+	/**  AACのビットレート（kbps。`AAC_BITRATES_KBPS`のどれか。AACのほかでは使わない） */
+	aacBitrateKbps: number,
+	mode: ConvertMode,
+	/**  書き出す場所の書式（ファイルの整理と同じ書き方。書き出しだけで使う） */
+	template: string,
+	/**  書き出した曲を、ライブラリに加えるか（書き出しだけで使う） */
+	addToLibrary: boolean,
+};
+
+/**  変換の計画（選んだ曲の順） */
+export type ConvertPlan = {
+	entries: ConvertEntry[],
+};
+
+/**  形式の変換の進捗 */
+export type ConvertProgress = {
+	/**  変換が済んだ（失敗した分を含む）曲の数 */
+	current: number,
+	/**  変換する曲の総数 */
+	total: number,
+	/**  変換が済んだファイルの名前 */
+	currentFile: string,
+};
+
+/**  変換の結果 */
+export type ConvertResult = {
+	/**  変換した曲の数 */
+	convertedCount: number,
+	/**  変換しなかった曲の数（ファイルが見つからない・出力先がふさがっている） */
+	skippedCount: number,
+	/**  変換できなかった曲の数 */
+	failedCount: number,
+	/**  変換できなかった理由（`場所: 理由`） */
+	errors: string[],
+	/**  途中で中断したか */
+	cancelled: boolean,
+};
+
+/**  曲を変換するか、変換しない理由 */
+export type ConvertStatus = 
+/**  変換する */
+"convert" | 
+/**  ファイルが見つからない */
+"missing" | 
+/**  出力先に、同じ名前のファイルがある */
+"targetExists" | 
+/**  選んだ曲の中に、同じ出力先になる曲がある */
+"sameTarget";
 
 /**  日付の項目 */
 export type DateField = 

@@ -198,6 +198,16 @@ impl Template {
     /// フォルダ名・ファイル名は、ファイル名に使える形にする（`sanitize_component`）。値がなくて
     /// 空になった階層は省き、ファイル名が空になった曲は、今のファイル名のままにする。
     fn components(&self, track: &Track, from: &Path) -> Vec<String> {
+        self.components_with_extension(track, from, from.extension().and_then(|e| e.to_str()))
+    }
+
+    /// 曲の、書式に従った場所（拡張子を、指定したものにする。形式の変換の、書き出す場所に使う）
+    pub fn components_with_extension(
+        &self,
+        track: &Track,
+        from: &Path,
+        extension: Option<&str>,
+    ) -> Vec<String> {
         let stem = from.file_stem().and_then(|s| s.to_str()).unwrap_or("");
         let mut components: Vec<String> = self
             .folders
@@ -213,7 +223,7 @@ impl Template {
         } else {
             &rendered
         });
-        components.push(match from.extension().and_then(|e| e.to_str()) {
+        components.push(match extension {
             Some(extension) => format!("{}.{}", name, extension),
             None => name,
         });
@@ -398,7 +408,7 @@ fn nfc(path: &Path) -> String {
 }
 
 /// 大文字と小文字・文字の形を区別しないファイルシステムで、同じ場所かを比べるためのキー
-fn location_key(path: &Path) -> String {
+pub(crate) fn location_key(path: &Path) -> String {
     path_key(&nfc(path))
 }
 
@@ -576,7 +586,7 @@ pub fn plan(
 /// ファイルが置かれても上書きしないよう、ハードリンクを作ってから元を消す（ハードリンクは、
 /// 移動先があると失敗する）。ハードリンクを作れないファイルシステム（FAT32・exFATなど）では、
 /// 移動先がないことを確かめてから移す。
-fn move_no_replace(from: &Path, to: &Path) -> io::Result<()> {
+pub(crate) fn move_no_replace(from: &Path, to: &Path) -> io::Result<()> {
     if is_same_entry(from, to) {
         // 大文字と小文字だけを変える（同じファイルのため、上書きにならない）
         return fs::rename(from, to);

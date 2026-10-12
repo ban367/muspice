@@ -183,7 +183,7 @@ impl ImportTargets {
 ///
 /// `on_progress`には、ファイルを1つ読むたびに進み具合を渡す（ファイルの分と、フォルダごとに、
 /// 件数を数え直す）。
-fn import_targets(
+pub(super) fn import_targets(
     state: &AppState,
     targets: &ImportTargets,
     duplicate_action: DuplicateAction,

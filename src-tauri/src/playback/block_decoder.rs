@@ -34,6 +34,10 @@ pub trait BlockSource: Send {
     fn sample_rate(&self) -> u32;
     /// チャンネル数
     fn channels(&self) -> usize;
+    /// 元の音声のビット数（形式の変換で、同じビット数で書き出すために使う）
+    fn bits_per_sample(&self) -> u32 {
+        16
+    }
     /// ブロックの数
     fn block_count(&self) -> usize;
     /// ブロックの範囲（曲の頭からの、先頭のフレームの位置と、フレーム数）
@@ -93,6 +97,10 @@ impl BlockDecoder {
 
     pub fn channels(&self) -> usize {
         self.channels
+    }
+
+    pub fn bits_per_sample(&self) -> u32 {
+        self.source.bits_per_sample()
     }
 
     pub fn duration_seconds(&self) -> Option<f64> {

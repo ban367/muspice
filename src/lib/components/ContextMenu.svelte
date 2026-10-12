@@ -2,7 +2,7 @@
   @component ContextMenu
   トラック用コンテキストメニュー。
   再生、キュー操作、プレイリスト追加、お気に入りの切り替え、メタデータ編集、タグの一括ツール、
-  ファイルの整理、音量の解析、アルバムアートの変更、削除などのアクションを提供する。
+  ファイルの整理、形式の変換、音量の解析、アルバムアートの変更、削除などのアクションを提供する。
 -->
 <script lang="ts">
   import type { Track } from '#lib/types/models.js';
@@ -13,6 +13,8 @@
   import { tagToolsDialog } from '#lib/stores/tagTools.svelte.js';
   import { fileOrganizeDialog } from '#lib/stores/fileOrganize.svelte.js';
   import { loudnessScanDialog } from '#lib/stores/loudnessScan.svelte.js';
+  import { convertDialog } from '#lib/stores/convert.svelte.js';
+  import { useConvertFormatsQuery } from '#lib/queries/convert.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   // Props
@@ -49,6 +51,9 @@
   }: Props = $props();
 
   const showInFolderMutation = useShowInFolderMutation();
+  // 形式の変換は、変換できる環境（macOS）でだけ項目を出す
+  const convertFormatsQuery = useConvertFormatsQuery();
+  const canConvert = $derived((convertFormatsQuery.data?.length ?? 0) > 0);
   const setFavoriteMutation = useSetFavoriteMutation();
 
   // 選択されたトラックの数
@@ -134,6 +139,14 @@
    */
   function handleFileOrganize() {
     fileOrganizeDialog.open(selectedTracks);
+    onClose();
+  }
+
+  /**
+   * 選択した曲（一覧の順）の、形式の変換の画面を開く
+   */
+  function handleConvert() {
+    convertDialog.open(selectedTracks);
     onClose();
   }
 
@@ -306,6 +319,26 @@
     </svg>
     <span>{m.contextMenu.fileOrganize}</span>
   </button>
+
+  {#if canConvert}
+    <button class="menu-item" onclick={handleConvert} role="menuitem">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="menu-icon"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"
+        />
+      </svg>
+      <span>{m.contextMenu.convert}</span>
+    </button>
+  {/if}
 
   <button class="menu-item" onclick={handleLoudnessScan} role="menuitem">
     <svg

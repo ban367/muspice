@@ -24,7 +24,7 @@ use crate::error::{AppError, AppResult};
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
-use symphonia::core::codecs::audio::well_known::CODEC_ID_AAC;
+use symphonia::core::codecs::audio::well_known::{CODEC_ID_AAC, CODEC_ID_ALAC, CODEC_ID_FLAC};
 use symphonia::core::codecs::audio::{AudioDecoder, AudioDecoderOptions};
 use symphonia::core::codecs::registry::CodecRegistry;
 use symphonia::core::errors::Error as SymphoniaError;
@@ -47,6 +47,9 @@ const SEEK_PREROLL_DIVISOR: u32 = 10;
 
 /// MP4のコンテナを表す`symphonia`の名前
 const ISOMP4_FORMAT_NAME: &str = "isomp4";
+
+/// 圧縮していない音声（PCM）を入れる形式の名前（`symphonia`の形式の名前。可逆として扱う）
+const PCM_FORMAT_NAMES: [&str; 2] = ["wave", "aiff"];
 
 /// 使えるデコーダーの一覧（`symphonia`のデコーダーに、libopusを加える）
 fn codec_registry() -> &'static CodecRegistry {
@@ -146,6 +149,16 @@ impl TrackDecoder {
         }
     }
 
+    /// 元の音声のビット数（可逆の形式（FLAC・ALAC・WAV・AIFF・WavPack・APE）だけ。非可逆の形式はNone）
+    ///
+    /// 形式の変換で、元と同じビット数で書き出すために使う。
+    pub fn bits_per_sample(&self) -> Option<u32> {
+        match &self.backend {
+            Backend::Symphonia(decoder) => decoder.bits_per_sample,
+            Backend::Blocks(decoder) => Some(decoder.bits_per_sample()),
+        }
+    }
+
     /// 指定した位置（秒）へ移動し、移動した位置（秒）を返す
     ///
     /// 曲の長さを超える位置は、曲の終わりになる（次の`next_chunk`がNoneを返す）。
@@ -165,6 +178,8 @@ struct SymphoniaDecoder {
     track_id: u32,
     sample_rate: u32,
     channels: usize,
+    /// 元の音声のビット数（可逆の形式だけ）
+    bits_per_sample: Option<u32>,
     /// タイムスタンプ1単位の秒数
     seconds_per_ts: f64,
     /// ファイルの中の位置（フレーム）から、曲の頭からの位置を求めるために引く数
@@ -188,6 +203,21 @@ struct SymphoniaDecoder {
     /// ファイルを終わりまで読んだ
     exhausted: bool,
     consecutive_errors: u32,
+}
+
+/// ALACのビット数を、コーデックの設定のデータ（マジッククッキー）から読む
+///
+/// MP4のALACは、ビット数がコーデックの設定の中にだけある（先頭に`frma`・`alac`のアトムが
+/// 付いていることがある。設定の5バイト目がビット数）。
+fn alac_bit_depth(extra_data: &[u8]) -> Option<u32> {
+    let mut config = extra_data;
+    for atom in [b"frma", b"alac"] {
+        if config.len() >= 12 && config[4..8] == *atom {
+            config = &config[12..];
+        }
+    }
+    let bits = u32::from(*config.get(5)?);
+    (1..=32).contains(&bits).then_some(bits)
 }
 
 impl SymphoniaDecoder {
@@ -226,6 +256,18 @@ impl SymphoniaDecoder {
             .make_audio_decoder(params, &AudioDecoderOptions::default())
             .map_err(|e| AppError::Playback(format!("対応していないコーデックです: {}", e)))?;
 
+        let lossless = params.codec == CODEC_ID_FLAC
+            || params.codec == CODEC_ID_ALAC
+            || PCM_FORMAT_NAMES.contains(&format.format_info().short_name);
+        let bits_per_sample = lossless
+            .then(|| {
+                params.bits_per_sample.or_else(|| {
+                    (params.codec == CODEC_ID_ALAC)
+                        .then(|| params.extra_data.as_deref().and_then(alac_bit_depth))
+                        .flatten()
+                })
+            })
+            .flatten();
         let declared_rate = params.sample_rate;
         let declared_channels = params.channels.as_ref().map(|channels| channels.count());
         let seconds_per_ts = track.time_base.map(f64::from).unwrap_or(0.0);
@@ -246,6 +288,7 @@ impl SymphoniaDecoder {
             track_id,
             sample_rate: declared_rate.unwrap_or(0),
             channels: declared_channels.unwrap_or(0),
+            bits_per_sample,
             seconds_per_ts,
             offset: 0,
             total_frames: None,
@@ -775,6 +818,61 @@ pub(crate) mod tests {
     }
 
     /// 可逆の形式（WavPack・APE）は、元の音源と同じサンプルを返し、途中からも正確に読める
+    #[test]
+    fn test_alac_bit_depth_is_read_from_the_codec_configuration() {
+        // フレームの長さ（4バイト）・版（1バイト）・ビット数（1バイト）…
+        let config = [0, 0, 16, 0, 0, 24, 40, 10, 14, 2, 0, 255];
+        assert_eq!(alac_bit_depth(&config), Some(24));
+        // 先頭に`frma`・`alac`のアトムが付いている形
+        let mut wrapped = Vec::new();
+        wrapped.extend_from_slice(&[0, 0, 0, 12]);
+        wrapped.extend_from_slice(b"frmaalac");
+        wrapped.extend_from_slice(&[0, 0, 0, 36]);
+        wrapped.extend_from_slice(b"alac\0\0\0\0");
+        wrapped.extend_from_slice(&config);
+        assert_eq!(alac_bit_depth(&wrapped), Some(24));
+        // 短すぎる・ありえないビット数
+        assert_eq!(alac_bit_depth(&[0, 0, 16, 0, 0]), None);
+        assert_eq!(alac_bit_depth(&[0, 0, 16, 0, 0, 0]), None);
+        assert_eq!(alac_bit_depth(&[0, 0, 16, 0, 0, 64]), None);
+    }
+
+    #[test]
+    fn test_reports_the_bit_depth_of_lossless_sources() {
+        let bits = |name: &str| {
+            TrackDecoder::open(&fixture(name))
+                .unwrap()
+                .bits_per_sample()
+        };
+
+        assert_eq!(bits("flac.flac"), Some(16));
+        assert_eq!(bits("wavpack.wv"), Some(16));
+        // ffmpegは、24ビットの音声を、32ビットの入れ物のWavPackにする
+        assert_eq!(bits("wavpack24.wv"), Some(32));
+        assert_eq!(bits("monkey.ape"), Some(16));
+        assert_eq!(bits("monkey24.ape"), Some(24));
+        // 非可逆の形式は、ビット数が決まっていない
+        for name in [
+            "lame.mp3",
+            "apple_aac.m4a",
+            "ffmpeg_aac.m4a",
+            "vorbis.ogg",
+            "opus.opus",
+        ] {
+            assert_eq!(bits(name), None, "{name}");
+        }
+
+        // WAV（圧縮していない音声）は、可逆として扱う
+        let dir = temp_dir("quality");
+        let wav = dir.join("a.wav");
+        write_wav(&wav, 44_100, 2, 100);
+        assert_eq!(
+            TrackDecoder::open(&wav).unwrap().bits_per_sample(),
+            Some(16)
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     #[test]
     fn test_lossless_block_formats_decode_the_original_samples() {
         for (name, rate, channels) in [
