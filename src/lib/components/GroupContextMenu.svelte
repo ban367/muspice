@@ -31,7 +31,9 @@
 
   // グループ内のすべてのトラック（取得するまでは空。その間、操作は選べない）
   const groupName = $derived(group.name);
-  const tracksQuery = $derived(useGroupTracksQuery(type, groupName));
+  // アルバムは、名前とアルバムをまとめたアーティストで決まる
+  const albumArtist = $derived('artist' in group ? group.artist : null);
+  const tracksQuery = $derived(useGroupTracksQuery(type, groupName, albumArtist));
   const allTracks = $derived(tracksQuery.data ?? []);
   const isEmpty = $derived(allTracks.length === 0);
 

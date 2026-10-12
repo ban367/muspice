@@ -31,6 +31,14 @@ fn add_column_if_not_exists(
     Ok(())
 }
 
+/// 全文検索の表（`tracks_fts`）の定義の版（`PRAGMA user_version`に記録する）
+///
+/// - 1: 旧トリガー（直接DELETE/UPDATE方式）で壊れた可能性のあるインデックスを作り直した
+/// - 2: 検索の対象にアルバムアーティストを加えた
+///
+/// 表の列・トークナイザーを変える時は値を上げる（古い版の表は、起動時に作り直す）。
+const FTS_SCHEMA_VERSION: i32 = 2;
+
 /// データベースマイグレーションを実行
 pub fn run_migrations(conn: &Connection) -> Result<()> {
     // tracksテーブルの作成
@@ -76,6 +84,18 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     add_column_if_not_exists(conn, "tracks", "replay_gain_track_peak", "REAL")?;
     add_column_if_not_exists(conn, "tracks", "replay_gain_album_gain", "REAL")?;
     add_column_if_not_exists(conn, "tracks", "replay_gain_album_peak", "REAL")?;
+
+    // アルバムアーティスト（ファイルのタグから読む）。アルバム・アーティストの一覧は
+    // 「アルバムアーティスト（なければアーティスト）」でまとめる
+    add_column_if_not_exists(conn, "tracks", "album_artist", "TEXT")?;
+    // アルバムアーティストをファイルから読んだか。列を追加する前に登録したトラックは0で、
+    // 起動時にバックグラウンドで読み込む（`album_artist_backfill`）
+    add_column_if_not_exists(
+        conn,
+        "tracks",
+        "album_artist_read",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
 
     // 再生履歴テーブルの作成
     conn.execute(
@@ -184,10 +204,24 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         [],
     )?;
 
+    // アーティストの詳細（アルバムアーティストでの絞り込み）用。式は`repository::ALBUM_ARTIST`と同じにする
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tracks_album_artist
+         ON tracks(COALESCE(album_artist, artist))",
+        [],
+    )?;
+
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_playlist_tracks_playlist_id ON playlist_tracks(playlist_id)",
         [],
     )?;
+
+    // 全文検索の表の列を変えた場合は、表を作り直す（user_versionで実行済みを管理）
+    // external contentテーブルのため、下の「既存データを同期」で`tracks`から作り直せる
+    let user_version: i32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    if user_version < FTS_SCHEMA_VERSION {
+        conn.execute_batch("DROP TABLE IF EXISTS tracks_fts")?;
+    }
 
     // 全文検索用の仮想テーブルを作成（FTS5）
     // 既存のテーブルがある場合はスキップ
@@ -207,6 +241,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                 artist,
                 album,
                 genre,
+                album_artist,
                 content=tracks,
                 content_rowid=rowid
             )",
@@ -215,8 +250,8 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
 
         // 既存データをFTSテーブルに同期
         conn.execute(
-            "INSERT INTO tracks_fts(rowid, id, title, artist, album, genre)
-             SELECT rowid, id, title, artist, album, genre FROM tracks",
+            "INSERT INTO tracks_fts(rowid, id, title, artist, album, genre, album_artist)
+             SELECT rowid, id, title, artist, album, genre, album_artist FROM tracks",
             [],
         )?;
     }
@@ -233,29 +268,25 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
          DROP TRIGGER IF EXISTS tracks_au;
 
          CREATE TRIGGER tracks_ai AFTER INSERT ON tracks BEGIN
-             INSERT INTO tracks_fts(rowid, id, title, artist, album, genre)
-             VALUES (new.rowid, new.id, new.title, new.artist, new.album, new.genre);
+             INSERT INTO tracks_fts(rowid, id, title, artist, album, genre, album_artist)
+             VALUES (new.rowid, new.id, new.title, new.artist, new.album, new.genre, new.album_artist);
          END;
 
          CREATE TRIGGER tracks_ad AFTER DELETE ON tracks BEGIN
-             INSERT INTO tracks_fts(tracks_fts, rowid, id, title, artist, album, genre)
-             VALUES ('delete', old.rowid, old.id, old.title, old.artist, old.album, old.genre);
+             INSERT INTO tracks_fts(tracks_fts, rowid, id, title, artist, album, genre, album_artist)
+             VALUES ('delete', old.rowid, old.id, old.title, old.artist, old.album, old.genre, old.album_artist);
          END;
 
          CREATE TRIGGER tracks_au AFTER UPDATE ON tracks BEGIN
-             INSERT INTO tracks_fts(tracks_fts, rowid, id, title, artist, album, genre)
-             VALUES ('delete', old.rowid, old.id, old.title, old.artist, old.album, old.genre);
-             INSERT INTO tracks_fts(rowid, id, title, artist, album, genre)
-             VALUES (new.rowid, new.id, new.title, new.artist, new.album, new.genre);
+             INSERT INTO tracks_fts(tracks_fts, rowid, id, title, artist, album, genre, album_artist)
+             VALUES ('delete', old.rowid, old.id, old.title, old.artist, old.album, old.genre, old.album_artist);
+             INSERT INTO tracks_fts(rowid, id, title, artist, album, genre, album_artist)
+             VALUES (new.rowid, new.id, new.title, new.artist, new.album, new.genre, new.album_artist);
          END;",
     )?;
 
-    // 旧トリガー（直接DELETE/UPDATE方式）で破損した可能性のある
-    // インデックスを一度だけ再構築する（user_versionで実行済みを管理）
-    let user_version: i32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-    if user_version < 1 {
-        conn.execute("INSERT INTO tracks_fts(tracks_fts) VALUES('rebuild')", [])?;
-        conn.execute_batch("PRAGMA user_version = 1")?;
+    if user_version < FTS_SCHEMA_VERSION {
+        conn.execute_batch(&format!("PRAGMA user_version = {FTS_SCHEMA_VERSION}"))?;
     }
 
     Ok(())
@@ -311,6 +342,88 @@ mod tests {
             [],
         )
         .expect("FTS5インデックスが破損しています");
+    }
+
+    /// アルバムアーティストの列を追加する前のDB（全文検索の表が旧定義）を、起動時に移行できること
+    #[test]
+    fn test_migrates_database_without_album_artist() {
+        let conn = Connection::open_in_memory().expect("インメモリDB作成に失敗");
+        // 旧バージョンが作ったDB: album_artistの列がなく、全文検索の表は4列、user_versionは1
+        conn.execute_batch(
+            "CREATE TABLE tracks (
+                id TEXT PRIMARY KEY,
+                file_path TEXT UNIQUE NOT NULL,
+                file_name TEXT NOT NULL,
+                title TEXT,
+                artist TEXT,
+                album TEXT,
+                genre TEXT,
+                year INTEGER,
+                duration INTEGER,
+                file_size INTEGER,
+                format TEXT,
+                bitrate INTEGER,
+                sample_rate INTEGER,
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now'))
+            );
+            CREATE VIRTUAL TABLE tracks_fts USING fts5(
+                id UNINDEXED, title, artist, album, genre,
+                content=tracks, content_rowid=rowid
+            );
+            CREATE TRIGGER tracks_ai AFTER INSERT ON tracks BEGIN
+                INSERT INTO tracks_fts(rowid, id, title, artist, album, genre)
+                VALUES (new.rowid, new.id, new.title, new.artist, new.album, new.genre);
+            END;
+            INSERT INTO tracks (id, file_path, file_name, title, artist, album, format, file_size)
+            VALUES ('t1', '/test/t1.mp3', 't1.mp3', '曲', 'ArtistA', 'Compilation', 'mp3', 1);
+            PRAGMA user_version = 1;",
+        )
+        .expect("旧スキーマの作成に失敗");
+
+        run_migrations(&conn).expect("マイグレーション実行に失敗");
+
+        let count_match = |query: &str| -> i64 {
+            conn.query_row(
+                "SELECT COUNT(*) FROM tracks_fts WHERE tracks_fts MATCH ?1",
+                [query],
+                |row| row.get(0),
+            )
+            .expect("FTS検索に失敗")
+        };
+
+        // 既存のトラックは、アルバムアーティストが未読の状態になる。これまでの項目は検索できる
+        let (album_artist, read): (Option<String>, bool) = conn
+            .query_row(
+                "SELECT album_artist, album_artist_read FROM tracks WHERE id = 't1'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(album_artist, None);
+        assert!(!read);
+        assert_eq!(count_match("\"ArtistA\""), 1);
+
+        // アルバムアーティストを記録すると、検索できる
+        conn.execute(
+            "UPDATE tracks SET album_artist = 'VariousArtists' WHERE id = 't1'",
+            [],
+        )
+        .unwrap();
+        assert_eq!(count_match("\"VariousArtists\""), 1);
+        conn.execute(
+            "INSERT INTO tracks_fts(tracks_fts) VALUES('integrity-check')",
+            [],
+        )
+        .expect("FTS5インデックスが破損しています");
+
+        // 2回目の起動では作り直さない（user_versionに記録している）
+        let version: i32 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, FTS_SCHEMA_VERSION);
+        run_migrations(&conn).expect("2回目のマイグレーション実行に失敗");
+        assert_eq!(count_match("\"VariousArtists\""), 1);
     }
 
     #[test]

@@ -10,6 +10,7 @@ function track(id: string, overrides: Partial<Track> = {}): Track {
     title: id,
     artist: null,
     album: null,
+    albumArtist: null,
     genre: null,
     year: null,
     trackNumber: null,

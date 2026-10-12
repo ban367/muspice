@@ -542,6 +542,7 @@ mod tests {
                 title: Some(title.to_string()),
                 artist: Some(artist.to_string()),
                 album: Some(album.to_string()),
+                album_artist: None,
                 genre: None,
                 year: None,
                 track_number: Some(number),

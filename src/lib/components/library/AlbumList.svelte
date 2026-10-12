@@ -3,6 +3,7 @@
   import type { AlbumSummary } from '#lib/types/models.js';
   import { VirtualList } from '#lib/components/ui/index.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
+  import { albumKey } from '#lib/utils/albumKey.js';
   import { listSelectionTarget } from '#lib/utils/listNavigation.js';
   import MarqueeText from '../MarqueeText.svelte';
   import AlbumArt from '../AlbumArt.svelte';
@@ -23,10 +24,13 @@
   // 見えている行だけを描画する一覧
   let virtualList = $state<VirtualList<AlbumSummary>>();
 
+  // 選択中のアルバムのキー（同じ名前でもアーティストが違うアルバムを区別する）
+  const selectedKey = $derived(selectedAlbum ? albumKey(selectedAlbum) : null);
+
   // ↑↓・Home・Endで、選択中のアルバムから前後のアルバムへ選択を移す
   async function handleKeydown(event: KeyboardEvent) {
     const list = event.currentTarget;
-    const current = albums.findIndex((album) => album.name === selectedAlbum?.name);
+    const current = albums.findIndex((album) => albumKey(album) === selectedKey);
     const target = listSelectionTarget(event, current, albums.length);
     if (target === null) return;
 
@@ -44,7 +48,7 @@
 <VirtualList
   bind:this={virtualList}
   items={albums}
-  getKey={(album) => album.name}
+  getKey={albumKey}
   estimatedRowHeight={ESTIMATED_ROW_HEIGHT}
   scrollerClass="py-1"
   class="outline-none"
@@ -56,11 +60,11 @@
   {#snippet row(album)}
     <button
       class="album-item"
-      class:active={selectedAlbum?.name === album.name}
+      class:active={albumKey(album) === selectedKey}
       onclick={() => onSelect(album)}
       role="option"
-      aria-selected={selectedAlbum?.name === album.name}
-      tabindex={selectedAlbum?.name === album.name ? 0 : -1}
+      aria-selected={albumKey(album) === selectedKey}
+      tabindex={albumKey(album) === selectedKey ? 0 : -1}
     >
       <div class="album-art">
         <AlbumArt src={albumArtUrl(album.representativeTrackId)} alt={album.name} rounded="sm" />

@@ -54,6 +54,7 @@ src-tauri/src/
 │   └── tracks.rs
 ├── lib.rs
 ├── album_art.rs
+├── album_artist_backfill.rs # 既存のトラックのアルバムアーティストの読み込み（起動時）
 ├── db.rs
 ├── device.rs              # 転送先デバイスの記録（SQL）と同期の実行状態
 ├── device_manifest.rs     # デバイス側の管理ファイル（.muspice/manifest.json）

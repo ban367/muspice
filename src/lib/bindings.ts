@@ -95,8 +95,12 @@ export const commands = {
 	getUniqueGenres: () => __TAURI_INVOKE<string[]>("get_unique_genres"),
 	/**  アルバムの一覧を取得（曲は含めない） */
 	getAlbums: () => __TAURI_INVOKE<AlbumSummary[]>("get_albums"),
-	/**  アルバムの曲を取得 */
-	getAlbumTracks: (album: string) => __TAURI_INVOKE<Track[]>("get_album_tracks", { album }),
+	/**
+	 *  アルバムの曲を取得
+	 * 
+	 *  `artist`は、アルバムをまとめたアーティスト（`AlbumSummary`の`artist`）。
+	 */
+	getAlbumTracks: (album: string, artist: string | null) => __TAURI_INVOKE<Track[]>("get_album_tracks", { album, artist }),
 	/**  アーティストの一覧を取得（アルバムと曲は含めない） */
 	getArtists: () => __TAURI_INVOKE<ArtistSummary[]>("get_artists"),
 	/**  アーティストのアルバムと曲を取得 */
@@ -165,6 +169,8 @@ export const commands = {
 	title: string | null,
 	artist: string | null,
 	album: string | null,
+	/**  アルバムアーティスト（タグにない曲は値なし。一覧では、ない場合に`artist`でまとめる） */
+	albumArtist: string | null,
 	genre: string | null,
 	year: number | null,
 	trackNumber: number | null,
@@ -260,9 +266,14 @@ export type AlbumGroup = {
 	tracks: Track[],
 };
 
-/**  アルバムの一覧の1件（曲は含めない。曲は`get_album_tracks`で取得する） */
+/**
+ *  アルバムの一覧の1件（曲は含めない。曲は`get_album_tracks`で取得する）
+ * 
+ *  アルバムは「アルバムアーティスト（なければ曲のアーティスト）＋アルバム名」でまとめる。
+ */
 export type AlbumSummary = {
 	name: string,
+	/**  アルバムをまとめたアーティスト（アルバムアーティスト。なければ曲のアーティスト） */
 	artist: string | null,
 	trackCount: number,
 	totalDuration: number,
@@ -290,7 +301,11 @@ export type AppError =
 /**  メタデータの抽出・書き込みエラー */
 { code: "METADATA"; message: string };
 
-/**  アーティストの一覧の1件（アルバムと曲は含めない。`get_artist_albums`で取得する） */
+/**
+ *  アーティストの一覧の1件（アルバムと曲は含めない。`get_artist_albums`で取得する）
+ * 
+ *  アーティストは、アルバムアーティスト（なければ曲のアーティスト）でまとめる。
+ */
 export type ArtistSummary = {
 	name: string,
 	albumCount: number,
@@ -613,6 +628,8 @@ export type Track = {
 	title: string | null,
 	artist: string | null,
 	album: string | null,
+	/**  アルバムアーティスト（タグにない曲は値なし。一覧では、ない場合に`artist`でまとめる） */
+	albumArtist: string | null,
 	genre: string | null,
 	year: number | null,
 	trackNumber: number | null,

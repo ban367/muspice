@@ -215,6 +215,9 @@ function groupBy<T>(items: T[], key: (item: T) => string): Map<string, T[]> {
 /** アーティストの詳細で、アルバムのない曲をまとめるアルバムの名前（Rustの`UNKNOWN_ALBUM`と同じ） */
 const UNKNOWN_ALBUM = '不明なアルバム';
 
+/** アルバム・アーティストの一覧をまとめるアーティスト（Rustの`ALBUM_ARTIST`と同じ） */
+const groupArtist = (track: Track) => track.albumArtist ?? track.artist;
+
 /** アルバムの中の曲の並び（ディスク番号 → トラック番号 → タイトル。Rustの`ALBUM_TRACK_ORDER`と同じ） */
 const albumTrackOrder: ((track: Track) => SortKey)[] = [
   (t) => t.discNumber ?? 1,
@@ -330,11 +333,11 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     return track;
   }
 
-  /** トラックを、値のある項目ごとにまとめる（項目がnullのトラックは含めない） */
-  const tracksBy = (key: 'artist' | 'genre') =>
+  /** トラックを、値のある項目ごとにまとめる（値がnullのトラックは含めない） */
+  const tracksBy = (value: (track: Track) => string | null) =>
     groupBy(
-      tracks.filter((track) => track[key] !== null),
-      (track) => track[key] ?? ''
+      tracks.filter((track) => value(track) !== null),
+      (track) => value(track) ?? ''
     );
 
   /** アーティストの曲を、アルバムごとにまとめる（アルバム名の順。アルバムのない曲は`UNKNOWN_ALBUM`にまとめる） */
@@ -348,15 +351,9 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       .sort(byNameIgnoreCase);
   }
 
-  /** ジャンルの曲を並べる（アーティスト → アルバム → アルバムの中の並び） */
+  /** ジャンルの曲を並べる（アルバムをまとめるアーティスト → アルバム → アルバムの中の並び） */
   const sortGenreTracks = (items: Track[]) =>
-    [...items].sort(
-      orderBy(
-        (t) => t.artist,
-        (t) => t.album,
-        ...albumTrackOrder
-      )
-    );
+    [...items].sort(orderBy(groupArtist, (t) => t.album, ...albumTrackOrder));
 
   function findPlaylist(id: string): Playlist {
     const playlist = playlists.find((p) => p.id === id);
@@ -451,6 +448,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
           title: `Mock Track ${index + 1}`,
           artist: 'Mock Importer',
           album,
+          albumArtist: null,
           genre: 'Demo',
           year: 2026,
           trackNumber: index + 1,
@@ -677,7 +675,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       if (!keyword) return [];
       // FTS5の代わりに、LIKEフォールバックと同じ列を部分一致で検索する
       return tracksWhere((track) =>
-        [track.title, track.artist, track.album, track.genre].some((value) =>
+        [track.title, track.artist, track.album, track.genre, track.albumArtist].some((value) =>
           value?.toLowerCase().includes(keyword)
         )
       );
@@ -692,18 +690,21 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     getUniqueArtists: () => uniqueValues('artist'),
     getUniqueAlbums: () => uniqueValues('album'),
     getUniqueGenres: () => uniqueValues('genre'),
+    // 「アルバムアーティスト（なければ曲のアーティスト）＋アルバム名」でまとめる
     getAlbums: () => {
       const sorted = tracks
         .filter((track) => track.album !== null)
-        .sort(orderBy((t) => t.album, ...albumTrackOrder));
-      return [...groupBy(sorted, (track) => track.album ?? '')]
-        .map(([name, items]) => toAlbumSummary(name, items[0].artist, items))
+        .sort(orderBy((t) => t.album, groupArtist, ...albumTrackOrder));
+      return [...groupBy(sorted, (track) => JSON.stringify([track.album, groupArtist(track)]))]
+        .map(([, items]) => toAlbumSummary(items[0].album ?? '', groupArtist(items[0]), items))
         .sort(byNameIgnoreCase);
     },
-    getAlbumTracks: (album) =>
-      tracks.filter((track) => track.album === album).sort(orderBy(...albumTrackOrder)),
+    getAlbumTracks: (album, artist) =>
+      tracks
+        .filter((track) => track.album === album && groupArtist(track) === artist)
+        .sort(orderBy(...albumTrackOrder)),
     getArtists: () =>
-      [...tracksBy('artist')]
+      [...tracksBy(groupArtist)]
         .map(([name, items]): ArtistSummary => {
           const albums = toArtistAlbums(name, items);
           return {
@@ -719,10 +720,10 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     getArtistAlbums: (artist) =>
       toArtistAlbums(
         artist,
-        tracks.filter((track) => track.artist === artist)
+        tracks.filter((track) => groupArtist(track) === artist)
       ),
     getGenres: () =>
-      [...tracksBy('genre')]
+      [...tracksBy((track) => track.genre)]
         .map(([name, items]): GenreSummary => ({
           name,
           trackCount: items.length,

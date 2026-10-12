@@ -1,6 +1,6 @@
 use crate::error::{AppError, AppResult};
 use crate::models::{Metadata, ReplayGain};
-use lofty::config::WriteOptions;
+use lofty::config::{ParseOptions, WriteOptions};
 use lofty::file::{AudioFile, TaggedFileExt};
 use lofty::picture::PictureType;
 use lofty::probe::Probe;
@@ -19,6 +19,31 @@ fn extract_year(tag: &Tag) -> Option<i32> {
     tag.date()
         .map(|d| d.year as i32)
         .filter(|y| YEAR_RANGE.contains(y))
+}
+
+/// タグからアルバムアーティストを取得する（空の値は、タグがないものとして扱う）
+fn extract_album_artist(tag: &Tag) -> Option<String> {
+    tag.get_string(ItemKey::AlbumArtist)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+/// 音楽ファイルのタグから、アルバムアーティストだけを読む（タグにない場合はNone）
+///
+/// アルバムアーティストの列を追加する前に登録したトラックの読み込みに使う。
+/// 長さ・ビットレートなどは読まない（全ファイルを読むため、1ファイルあたりの時間を抑える）。
+pub fn read_album_artist(file_path: &Path) -> AppResult<Option<String>> {
+    let tagged_file = Probe::open(file_path)
+        .map_err(|e| AppError::Metadata(format!("ファイルのオープンに失敗しました: {}", e)))?
+        .options(ParseOptions::new().read_properties(false))
+        .read()
+        .map_err(|e| AppError::Metadata(format!("ファイルの読み取りに失敗しました: {}", e)))?;
+
+    Ok(tagged_file
+        .primary_tag()
+        .or_else(|| tagged_file.first_tag())
+        .and_then(extract_album_artist))
 }
 
 /// ゲインとして受け付ける範囲（dB）。範囲外の値は壊れたタグとして無視する
@@ -240,7 +265,7 @@ pub fn extract_all_file_info(file_path: &Path) -> AppResult<FileInfo> {
             year: extract_year(tag),
             track_number: tag.track().map(|t| t as i32),
             disc_number,
-            album_artist: tag.get_string(ItemKey::AlbumArtist).map(|s| s.to_string()),
+            album_artist: extract_album_artist(tag),
             composer: tag.get_string(ItemKey::Composer).map(|s| s.to_string()),
         }
     } else {
