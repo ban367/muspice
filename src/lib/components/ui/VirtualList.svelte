@@ -62,8 +62,9 @@
   let scrollerHeight = $state(0);
   let headerHeight = $state(0);
   let listWidth = $state(0);
-  // スクロールする領域の上の余白（`scrollerClass`で付けた場合。一覧はその分だけ下から始まる）
+  // スクロールする領域の上下の余白（`scrollerClass`で付けた場合。一覧は上の余白の分だけ下から始まる）
   let paddingTop = $state(0);
+  let paddingBottom = $state(0);
   // 実測した行の高さ（行の間隔は含まない）。行を描画するまではnull
   let measuredRowHeight = $state<number | null>(null);
 
@@ -111,7 +112,9 @@
 
   $effect(() => {
     if (scroller) {
-      paddingTop = parseFloat(getComputedStyle(scroller).paddingTop) || 0;
+      const style = getComputedStyle(scroller);
+      paddingTop = parseFloat(style.paddingTop) || 0;
+      paddingBottom = parseFloat(style.paddingBottom) || 0;
     }
   });
 
@@ -160,11 +163,15 @@
     </div>
   {/if}
   <div class="virtual-sizer" style="height: {totalHeight}px;" bind:clientWidth={listWidth}>
+    <!-- 一覧（フォーカスを受ける要素）は、見出しと上の余白の分だけ下から始まる。scroll-marginがないと、
+         フォーカスが戻った時（メニューを閉じた後など）に、ブラウザーが一覧の端をスクロールする領域の端に
+         そろえようとして、その分だけスクロールしてしまう -->
     <div
       {...listAttributes}
       class="virtual-items {listClass}"
       class:is-grid={isGrid}
-      style="transform: translateY({range.offsetTop}px); gap: {gap}px; {isGrid
+      style="transform: translateY({range.offsetTop}px); gap: {gap}px; scroll-margin: {headerHeight +
+        paddingTop}px 0 {paddingBottom}px; {isGrid
         ? `grid-template-columns: repeat(${columns}, minmax(0, 1fr));`
         : ''} {listStyle}"
       bind:this={list}

@@ -44,10 +44,8 @@
   // LibraryGridコンポーネントの参照
   let libraryGrid: LibraryGrid<AlbumSummary>;
 
-  // カードサイズの計算
-  const cardWidth = $derived(ui.gridCardSize + 16);
   // カードの、アルバムアートを除いた高さの見積もり（描画した後は、実測した高さを使う）
-  const ESTIMATED_CARD_EXTRA_HEIGHT = 74;
+  const ESTIMATED_CARD_EXTRA_HEIGHT = 52;
   // リスト表示の行の高さの見積もり
   const ESTIMATED_LIST_ROW_HEIGHT = 68;
 
@@ -87,7 +85,8 @@
   emptyHint={m.library.noAlbumsHint}
   searchFields={albumSearchFields}
   getKey={albumKey}
-  minCardWidth={cardWidth}
+  minCardWidth={ui.gridCardWidth}
+  centerCards
   estimatedCardHeight={ui.gridCardSize + ESTIMATED_CARD_EXTRA_HEIGHT}
   estimatedRowHeight={ESTIMATED_LIST_ROW_HEIGHT}
   groupType="album"
@@ -110,12 +109,13 @@
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div
-      class="grid-card flex flex-col items-center"
+      class="grid-card"
+      style="width: {ui.gridCardWidth}px;"
       onclick={() => handleAlbumClick(album)}
       ondblclick={() => handleAlbumDoubleClick(album)}
       oncontextmenu={(e) => libraryGrid.handleContextMenu(e, album)}
     >
-      <div class="grid-card-art" style="width: {ui.gridCardSize}px; height: {ui.gridCardSize}px;">
+      <div class="grid-card-art">
         <AlbumArt src={albumArtUrl(album.representativeTrackId)} alt={album.name} />
         <div class="play-overlay">
           <button
@@ -129,15 +129,9 @@
           </button>
         </div>
       </div>
-      <div class="min-w-0 w-full text-center">
-        <MarqueeText
-          text={album.name}
-          class="text-[0.9375rem] font-semibold text-text-primary m-0"
-        />
-        <MarqueeText
-          text={album.artist || m.common.unknownArtist}
-          class="text-[0.8125rem] text-text-muted mt-1 m-0"
-        />
+      <div class="text-center">
+        <MarqueeText text={album.name} class="grid-card-title" />
+        <MarqueeText text={album.artist || m.common.unknownArtist} class="grid-card-subtitle" />
       </div>
     </div>
   {/snippet}

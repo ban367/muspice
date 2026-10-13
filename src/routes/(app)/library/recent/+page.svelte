@@ -10,7 +10,7 @@
   import type { AlbumSummary } from '#lib/types/models.js';
   import { useTracksQuery } from '#lib/queries/tracks.js';
   import { playSingleTrack } from '#lib/stores/player.svelte.js';
-  import { ui } from '#lib/stores/ui.svelte.js';
+  import { GRID_CARD_GAP, ui } from '#lib/stores/ui.svelte.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import { formatDate } from '#lib/utils/format.js';
   import { playGroup } from '#lib/utils/groupPlayback.js';
@@ -24,14 +24,12 @@
   import GroupDetail from '#lib/components/library/GroupDetail.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
-  // カードの間隔（px）と、アルバムアートを除いた高さの見積もり（描画した後は、実測した高さを使う）
-  const GRID_GAP = 12;
-  const ESTIMATED_CARD_EXTRA_HEIGHT = 92;
+  // カードの、アルバムアートを除いた高さの見積もり（描画した後は、実測した高さを使う）
+  const ESTIMATED_CARD_EXTRA_HEIGHT = 68;
 
   const queryClient = useQueryClient();
   const tracksQuery = useTracksQuery();
   const items = $derived(tracksQuery.data ? recentlyAdded(tracksQuery.data) : []);
-  const cardWidth = $derived(ui.gridCardSize + 16);
 
   /** アルバムの項目を、アルバムの一覧の1件と同じ形にする（曲の一覧・メニューに渡す） */
   const toAlbum = (item: RecentItem): AlbumSummary => ({
@@ -112,24 +110,24 @@
         {items}
         getKey={(item) => item.key}
         estimatedRowHeight={ui.gridCardSize + ESTIMATED_CARD_EXTRA_HEIGHT}
-        minColumnWidth={cardWidth}
-        gap={GRID_GAP}
+        minColumnWidth={ui.gridCardWidth}
+        gap={GRID_CARD_GAP}
         overscan={2}
+        scrollerClass="p-3"
         class="justify-items-center"
         aria-label={m.library.recentlyAdded}
       >
         {#snippet row(item)}
           <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
+          <!-- 幅を決めておく（決めないと、長い名前の幅までカードが広がり、隣の列に重なる） -->
           <div
-            class="grid-card flex flex-col items-center"
+            class="grid-card"
+            style="width: {ui.gridCardWidth}px;"
             onclick={() => handleClick(item)}
             ondblclick={() => play(item)}
             oncontextmenu={(event) => handleContextMenu(event, item)}
           >
-            <div
-              class="grid-card-art"
-              style="width: {ui.gridCardSize}px; height: {ui.gridCardSize}px;"
-            >
+            <div class="grid-card-art">
               <AlbumArt
                 src={albumArtUrl(item.representativeTrackId)}
                 alt={item.name}
@@ -150,14 +148,11 @@
                 </button>
               </div>
             </div>
-            <div class="min-w-0 w-full text-center">
-              <MarqueeText
-                text={item.name}
-                class="text-[0.9375rem] font-semibold text-text-primary m-0"
-              />
+            <div class="text-center">
+              <MarqueeText text={item.name} class="grid-card-title" />
               <MarqueeText
                 text={item.artist || m.common.unknownArtist}
-                class="text-[0.8125rem] text-text-muted mt-1 m-0"
+                class="grid-card-subtitle"
               />
               <p class="added-at">{formatDate(item.addedAt)}</p>
             </div>
@@ -206,11 +201,12 @@
     @apply text-xl font-bold text-text-primary m-0;
   }
 
+  /* 余白は、スクロールする領域（VirtualList）の中に付ける（カードの影が端で切れないように） */
   .grid-container {
-    @apply flex-1 min-h-0 p-4;
+    @apply flex-1 min-h-0;
   }
 
   .added-at {
-    @apply m-0 mt-1 text-xs text-text-dimmed;
+    @apply m-0 mt-0.5 text-[0.6875rem] leading-tight text-text-dimmed;
   }
 </style>
