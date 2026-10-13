@@ -427,7 +427,7 @@ pub fn run() {
                             tauri::WebviewUrl::App("/settings".into()),
                         )
                         .title(menu::settings_window_title(menu::current_language(app)))
-                        .inner_size(700.0, 500.0)
+                        .inner_size(menu::SETTINGS_WINDOW_SIZE.0, menu::SETTINGS_WINDOW_SIZE.1)
                         .resizable(true)
                         .build();
                     }
