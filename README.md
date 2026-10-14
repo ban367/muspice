@@ -4,7 +4,7 @@ PC向けデスクトップ音楽管理アプリケーション
 
 ## 技術スタック
 
-- **フロントエンド**: SvelteKit 2.x + TypeScript
+- **フロントエンド**: SvelteKit 3.x + TypeScript
 - **バックエンド**: Tauri 2.x + Rust
 - **データベース**: SQLite
 

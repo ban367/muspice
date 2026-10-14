@@ -15,7 +15,7 @@ use crate::playback::{TrackDecoder, append_stereo};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::fs::{self, File};
-use std::io::{BufWriter, Write};
+use std::io::{BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -224,6 +224,8 @@ fn encoder_args(format: ConvertFormat, pcm: Pcm, aac_bitrate: Option<u32>) -> Ve
 
 /// `afconvert`を実行する
 ///
+/// 標準エラー出力は、実行中から別のスレッドで読み取る（終わってから読むと、出力が多い時に
+/// パイプが一杯になり、エンコーダーが書き込みを待ったまま終わらなくなる）。
 /// @returns 終わったか（中断した場合はfalse）
 fn run_afconvert(
     args: &[String],
@@ -240,16 +242,21 @@ fn run_afconvert(
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| AppError::Io(format!("エンコーダーを起動できませんでした: {}", e)))?;
+    let stderr_reader = child.stderr.take().map(|mut stderr| {
+        thread::spawn(move || {
+            let mut message = Vec::new();
+            stderr.read_to_end(&mut message).ok();
+            String::from_utf8_lossy(&message).into_owned()
+        })
+    });
 
     loop {
         match child.try_wait() {
             Ok(Some(status)) if status.success() => return Ok(true),
             Ok(Some(_)) => {
-                let mut message = String::new();
-                if let Some(mut stderr) = child.stderr.take() {
-                    use std::io::Read;
-                    stderr.read_to_string(&mut message).ok();
-                }
+                let message = stderr_reader
+                    .and_then(|reader| reader.join().ok())
+                    .unwrap_or_default();
                 let reason = message
                     .lines()
                     .next()
