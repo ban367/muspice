@@ -168,6 +168,7 @@ src-tauri/src/
   - `albumArtUrl`は、アプリで画像を書き換えた曲の版（`#lib/stores/albumArt.svelte`）を読んでURLに付ける。版の変更に追随させるため、テンプレートか`$derived`の中で呼ぶ（値を変数に取っておくと、書き換えた後も古い画像のままになる）
   - アルバムアートの画面は、`albumArtDialog.open(tracks)`で開く（`(app)/+layout.svelte`が1つだけ表示する。開く側にダイアログを置かない）
 - メタデータの編集画面（`MetadataEditor`）は、入力欄の値と`Metadata`の変換・検証を`#lib/utils/metadataForm`に分けている（1曲の編集はすべての項目を渡し、一括編集は入力した項目だけを渡す）。1曲の編集は、開いた時に`useTrackTagsQuery`でファイルのタグを読み、読めるまで・読めない場合は保存できない（ADR-034）
+- 左サイドバー（`Sidebar`）は、上から「ブラウズ・ライブラリ・プレイリスト・デバイス」の順に並べる。プレイリストの一覧が残りの高さを使い、デバイスは一覧のスクロールの外に置いて、いつも下の端に出す。高さが足りない時は、プレイリストの一覧を最小の高さで止めて、デバイスより上の全体をスクロールする。項目の見た目は`app.css`の`nav-item-base`・`nav-icon`・`nav-section-header`・`nav-message`でそろえる（1行の高さは28px）
 - サイドバーのプレイリストの一覧は`SidebarPlaylists`が表示する（ADR-043）。フォルダ分けと並び順は`#lib/utils/playlistTree`の純粋な関数（`buildPlaylistTree`・`sortPlaylistItems`・`placeRelative`）で求め、並び順（名前・作成日・手動）と閉じているフォルダは`#lib/stores/playlistSidebar.svelte`がlocalStorageに保存する。プレイリスト・フォルダのドラッグは、専用の種類のデータ（`application/x-muspice-playlist-id`など）で運び、曲のドラッグ（`#lib/utils/trackDrag`）と見分ける。プレイリストの名前と説明は`PlaylistInfoDialog`（`playlistInfoDialog.open(id)`）で編集する
 - 自動プレイリスト（ADR-042）の編集画面（`SmartPlaylistDialog`。`smartPlaylistDialog.openNew()`・`openEdit(playlist)`で開く）は、入力（文字列のままの値。`RuleDraft`）と保存する条件（`SmartRules`）の変換・検証・説明文を`#lib/utils/smartPlaylist`の純粋な関数に分けている。条件に合う曲は、フロントエンドでは求めない（バックエンドの`get_playlist_tracks`・`count_smart_playlist_tracks`を使う。`#lib/mocks/smartPlaylist`は、モックのバックエンドが同じ規則で求めるためのもの）。自動プレイリストの曲のクエリは、開くたびに取り直す（`usePlaylistTracksQuery(id, true)`）
 - ライブラリのビュー（最近追加した曲・フォルダ別・年代別）の集計は、`#lib/utils/libraryViews`の純粋な関数で行う（ADR-041）。フォルダ別・年代別は、左に木の形の一覧（`TreeBrowser`）、右に曲の一覧を出す`TreeBrowsePage`を使う（木の項目は`TreeNode`。画面は、全曲の一覧から木と、選んだ項目の曲を計算して渡す）。サイドバーに項目を足す時は、Rustの`SidebarItem`・設定画面の`sidebarItems`・`m.sidebar`にも足す（設定で隠せるようにするため）
@@ -287,6 +288,7 @@ src-tauri/src/
 - 色は`app.css`の変数（`bg-base-*`・`text-text-*`・`bg-surface-*`・`border-border`など）を使い、テーマで変わるべき色に`white`・`black`・`rgba(255, 255, 255, …)`などを直接書かない（ライトテーマで読めなくなるため）。アクセントカラーを薄くする場合は`bg-primary/15`か`color-mix(in oklab, var(--color-primary) 15%, transparent)`。オーバーレイ（`bg-black/50`）・影・色付きの面の上の白い文字は、どちらのテーマでも同じでよい
 - 配色はテーマ（`<html data-theme="dark|light">`）ごとに`app.css`で定義する。ダークの色は`@theme static`の値で、ライトの色は「配色（ダーク / ライト）」の`:root[data-theme='light']`で上書きする。`static`は、ユーティリティで使っていない変数も出力させるための指定（Tailwindは、使っていない変数を出力しない。コンポーネントの`<style>`やスクリプトから`var(--color-…)`で読めるようにする）。色の変数を追加したら、`@theme`とライトの配色の両方に書く
 - 見た目は、Tailwindのユーティリティと`app.css`の独自クラス（`btn-primary`・`form-input`など）で作る。部品のクラス集（DaisyUIなど）は入れない（クラス名がコンポーネントの中のクラス名と重なり、意図しないスタイルが当たるため。ADR-055）
+- 再生バー（`Player`）は、画面の下の端に幅いっぱいで重ね、高さを`--spacing-player-height`に固定する（曲がある時・ない時で変えない）。下の端まである部品（左右のサイドバー・ページの領域・Now Playingの画面・モーダル）は、この変数の分だけ下を空ける（`pb-player-height`または`padding-bottom: var(--spacing-player-height)`）。再生バーの中身の高さを変えたら、変数の値も合わせる
 
 ### VS Codeワークスペース運用
 

@@ -369,7 +369,8 @@
     @apply fixed right-0 top-0 z-40 w-12 h-full
            flex flex-col items-center justify-between py-4
            bg-base-300 border-l border-border;
-    padding-bottom: var(--spacing-player-height);
+    /* 下のボタンが再生バーに接しないよう、再生バーの高さに余白を足す */
+    padding-bottom: calc(var(--spacing-player-height) + 0.5rem);
   }
 
   .icon-bar-top {

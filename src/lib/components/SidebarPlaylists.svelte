@@ -327,7 +327,7 @@
       ondrop={(e) => handlePlaylistDrop(e, playlist)}
       oncontextmenu={(e) => openPlaylistMenu(e, playlist)}
     >
-      <PlaylistIcon smart={isSmart} class="w-5 h-5 shrink-0" />
+      <PlaylistIcon smart={isSmart} class="nav-icon" />
       <MarqueeText text={playlist.name} class="flex-1" />
       <!-- 自動プレイリストの曲数は、開くまで分からないため出さない -->
       {#if !isSmart}
@@ -337,8 +337,8 @@
   </li>
 {/snippet}
 
-<div class="flex-1 flex flex-col min-h-0 mb-6">
-  <div class="flex items-center justify-between mb-2 px-2">
+<div class="playlists-section">
+  <div class="nav-section-header">
     <h2 class="text-xs font-semibold uppercase tracking-wider text-text-muted m-0">
       {m.sidebar.playlists}
     </h2>
@@ -407,9 +407,9 @@
     ondrop={handleRootDrop}
   >
     {#if queryState.isLoading}
-      <li class="px-3 py-2 text-sm text-text-dimmed">{m.common.loading}</li>
+      <li class="nav-message">{m.common.loading}</li>
     {:else if queryState.isError}
-      <li class="px-3 py-2 text-sm text-error-light">{m.common.errorOccurred}</li>
+      <li class="nav-message text-error-light">{m.common.errorOccurred}</li>
     {:else}
       {#each tree.folders as node (node.folder.id)}
         {@const isCollapsed = playlistSidebar.isCollapsed(node.folder.id)}
@@ -447,7 +447,7 @@
             </svg>
             <svg
               xmlns="http://www.w3.org/2000/svg"
-              class="w-5 h-5 shrink-0"
+              class="nav-icon"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -479,7 +479,7 @@
                 {@render playlistItem(playlist)}
               {/each}
               {#if node.playlists.length === 0}
-                <li class="px-3 py-1.5 text-xs text-text-dimmed">{m.sidebar.emptyFolder}</li>
+                <li class="nav-message">{m.sidebar.emptyFolder}</li>
               {/if}
             </ul>
           {/if}
@@ -489,7 +489,7 @@
         {@render playlistItem(playlist)}
       {/each}
       {#if playlists.length === 0 && folders.length === 0}
-        <li class="px-3 py-2 text-sm text-text-dimmed">{m.sidebar.noPlaylists}</li>
+        <li class="nav-message">{m.sidebar.noPlaylists}</li>
       {/if}
     {/if}
   </ul>
@@ -548,6 +548,11 @@
 <style>
   @reference "../../app.css";
 
+  /* 残りの高さを使う。サイドバーの高さが足りない時も、4行ほどは見えるようにする */
+  .playlists-section {
+    @apply flex-1 flex flex-col min-h-36 mb-3;
+  }
+
   .playlist-list {
     @apply list-none m-0 p-0 flex-1 overflow-y-auto rounded-md;
   }
@@ -557,9 +562,9 @@
     @apply outline-2 outline-dashed outline-primary -outline-offset-2;
   }
 
+  /* 文字の大きさは、ほかの項目（nav-item-base）と同じにする */
   .folder-row {
-    @apply w-full gap-2 bg-transparent border-none cursor-pointer text-sm;
-    font: inherit;
+    @apply w-full gap-2 bg-transparent border-none cursor-pointer;
   }
 
   .chevron {

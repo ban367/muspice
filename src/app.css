@@ -59,7 +59,8 @@
 
   /* スペーシング */
   --spacing-sidebar: 220px;
-  --spacing-player-height: 5.5rem;
+  /* 再生バーの高さ（再生バーはこの高さに固定し、ほかの部品はこの分だけ下を空ける） */
+  --spacing-player-height: 6.125rem;
 
   /* トランジション */
   --transition-fast: 150ms;
@@ -262,9 +263,9 @@ body {
   opacity: 1;
 }
 
-/* ナビゲーションアイテム */
+/* ナビゲーションアイテム（左サイドバーの項目。1行に多く入るよう、高さは28pxに詰める） */
 .nav-item-base {
-  @apply flex items-center gap-3 px-3 py-2 rounded-md
+  @apply flex items-center gap-2.5 px-2.5 py-1 rounded-md text-sm
          text-text-secondary no-underline transition-all duration-200;
 }
 
@@ -276,9 +277,24 @@ body {
   @apply bg-primary/20 text-primary;
 }
 
+/* ナビゲーションアイテムの先頭のアイコン */
+.nav-icon {
+  @apply w-4 h-4 shrink-0;
+}
+
+/* 項目の代わりに出す文（読み込み中・項目がない、など） */
+.nav-message {
+  @apply px-2.5 py-1 text-xs text-text-dimmed;
+}
+
 /* セクションタイトル */
 .section-title {
   @apply text-xs font-semibold uppercase tracking-wider text-text-muted mb-2 px-2;
+}
+
+/* セクションタイトルと、その右のボタンを並べる行 */
+.nav-section-header {
+  @apply flex items-center justify-between mb-1 px-2;
 }
 
 /* ローディングスピナー */

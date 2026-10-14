@@ -610,8 +610,9 @@
   @reference "../../app.css";
 
   /* プレイヤーコンテナ */
+  /* 高さは固定する（曲がある時・ない時で変えない。サイドバーなどが、同じ高さだけ下を空ける） */
   .player-container {
-    @apply fixed bottom-0 left-0 right-0 z-50
+    @apply fixed bottom-0 left-0 right-0 z-50 h-player-height
            px-6 py-3 grid items-center gap-4
            border-t border-border text-text-primary
            grid-cols-(--grid-player) bg-linear-to-t from-base-100 to-base-300
