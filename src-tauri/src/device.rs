@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-/// デバイス名の長さの上限（バイト数）
+/// デバイス名の長さの上限（文字数）
 const MAX_DEVICE_NAME_LENGTH: usize = 100;
 
 /// 転送先デバイス（一覧表示用）
@@ -169,7 +169,7 @@ pub fn validate_device_name(name: &str) -> AppResult<String> {
             "デバイス名を入力してください".to_string(),
         ));
     }
-    if trimmed.len() > MAX_DEVICE_NAME_LENGTH {
+    if trimmed.chars().count() > MAX_DEVICE_NAME_LENGTH {
         return Err(AppError::Validation(format!(
             "デバイス名は{}文字以内で入力してください",
             MAX_DEVICE_NAME_LENGTH
@@ -476,6 +476,9 @@ mod tests {
         assert_eq!(validate_device_name("  SDカード ").unwrap(), "SDカード");
         assert!(validate_device_name("   ").is_err());
         assert!(validate_device_name(&"a".repeat(101)).is_err());
+        // 長さは、バイト数ではなく文字数で数える
+        assert!(validate_device_name(&"あ".repeat(100)).is_ok());
+        assert!(validate_device_name(&"あ".repeat(101)).is_err());
         assert!(validate_device_name("SD\nカード").is_err());
     }
 

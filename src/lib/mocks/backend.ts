@@ -280,7 +280,7 @@ function byteLength(value: string): number {
 
 function validatePlaylistName(name: string): void {
   if (!name.trim()) fail('VALIDATION', 'プレイリスト名を入力してください');
-  if (byteLength(name) > 100) fail('VALIDATION', 'プレイリスト名は100文字以内で入力してください');
+  if ([...name].length > 100) fail('VALIDATION', 'プレイリスト名は100文字以内で入力してください');
   if (/[<>:"/\\|?*]/.test(name)) {
     fail('VALIDATION', 'プレイリスト名に使用できない文字が含まれています');
   }
@@ -1366,7 +1366,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   function validateDeviceName(name: string): string {
     const trimmed = name.trim();
     if (!trimmed) fail('VALIDATION', 'デバイス名を入力してください');
-    if (byteLength(trimmed) > 100) fail('VALIDATION', 'デバイス名は100文字以内で入力してください');
+    if ([...trimmed].length > 100) fail('VALIDATION', 'デバイス名は100文字以内で入力してください');
     if (/\p{Cc}/u.test(trimmed)) fail('VALIDATION', 'デバイス名に使用できない文字が含まれています');
     return trimmed;
   }

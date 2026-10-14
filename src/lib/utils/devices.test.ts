@@ -27,11 +27,12 @@ describe('suggestDeviceName', () => {
 });
 
 describe('isDeviceNameTooLong', () => {
-  it('UTF-8のバイト数で数える', () => {
+  it('文字数で数える（バイト数・UTF-16の長さではない）', () => {
     expect(isDeviceNameTooLong('a'.repeat(100))).toBe(false);
     expect(isDeviceNameTooLong('a'.repeat(101))).toBe(true);
-    expect(isDeviceNameTooLong('あ'.repeat(33))).toBe(false);
-    expect(isDeviceNameTooLong('あ'.repeat(34))).toBe(true);
+    expect(isDeviceNameTooLong('あ'.repeat(100))).toBe(false);
+    expect(isDeviceNameTooLong('あ'.repeat(101))).toBe(true);
+    expect(isDeviceNameTooLong('🎵'.repeat(100))).toBe(false);
   });
 
   it('前後の空白は数えない', () => {

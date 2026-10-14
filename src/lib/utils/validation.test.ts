@@ -22,6 +22,8 @@ describe('validatePlaylistName', () => {
   it('100文字を超えると無効', () => {
     expect(validatePlaylistName('あ'.repeat(100)).valid).toBe(true);
     expect(validatePlaylistName('あ'.repeat(101)).valid).toBe(false);
+    // 絵文字も1文字に数える
+    expect(validatePlaylistName('🎵'.repeat(100)).valid).toBe(true);
   });
 
   it('ファイル名に使えない文字を含むと無効', () => {
