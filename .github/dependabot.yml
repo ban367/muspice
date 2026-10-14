@@ -3,9 +3,15 @@ updates:
   # npm依存関係の更新
   - package-ecosystem: 'npm'
     directory: '/'
+    # 3つのエコシステムとも、毎週月曜の朝にそろえる
     schedule:
       interval: 'weekly'
+      day: 'monday'
+      time: '09:00'
+      timezone: 'Asia/Tokyo'
     open-pull-requests-limit: 5
+    assignees:
+      - 'ban367'
     labels:
       - 'dependencies'
       - 'npm'
@@ -15,13 +21,24 @@ updates:
         update-types:
           - 'minor'
           - 'patch'
+    ignore:
+      # TypeScript 7は、svelte-check・typescript-eslint・@sveltejs/kitのpeerが`typescript` 6までのため見送る
+      # （#152）。3つとも7に対応したら、この指定を外して上げる
+      - dependency-name: 'typescript'
+        versions:
+          - '>=7.0.0'
 
   # Cargo依存関係の更新
   - package-ecosystem: 'cargo'
     directory: '/src-tauri'
     schedule:
       interval: 'weekly'
+      day: 'monday'
+      time: '09:00'
+      timezone: 'Asia/Tokyo'
     open-pull-requests-limit: 5
+    assignees:
+      - 'ban367'
     labels:
       - 'dependencies'
       - 'rust'
@@ -39,7 +56,12 @@ updates:
     directory: '/'
     schedule:
       interval: 'weekly'
+      day: 'monday'
+      time: '09:00'
+      timezone: 'Asia/Tokyo'
     open-pull-requests-limit: 3
+    assignees:
+      - 'ban367'
     labels:
       - 'dependencies'
       - 'ci'
