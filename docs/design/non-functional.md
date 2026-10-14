@@ -50,7 +50,8 @@
 ### 依存関係の脆弱性監視
 
 - `.github/workflows/audit.yml` が毎週と、lockfileを変更するPRで `npm audit`（moderate以上で失敗）と `cargo-audit`（脆弱性で失敗、unmaintained・unsoundは警告）を実行する
-- Dependabotはminor/patchをエコシステムごとに1つのPRへまとめる（メジャー更新は個別PR）
+- Dependabotはminor/patchをエコシステムごとに1つのPRへまとめる（メジャー更新は個別PR）。毎週月曜 09:00（Asia/Tokyo）に実行し、PRにはban367をアサインして `dependencies` とエコシステムのラベル（`npm`・`rust`・`ci`）を付ける
+- 周辺のツールが対応するまで見送るメジャー更新は、`.github/dependabot.yml` の `ignore` に理由と外す条件を添えて書く（現在は TypeScript 7。svelte-check・typescript-eslint・@sveltejs/kit が対応したら外す）
 - 上流の対応待ちで受容しているアドバイザリ（解消条件を満たしたら再確認する）
 
 | 対象                    | アドバイザリ                      | 経路                        | 受容理由・解消条件  |
