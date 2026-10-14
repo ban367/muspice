@@ -738,6 +738,13 @@ pub(crate) mod tests {
     // ない最小のFLACは、コメントが短くなる書き込みでloftyが壊すため、テストの中では生成しない）。
     //
     //   ffmpeg -i source44.wav -c:a flac -map_metadata -1 -fflags +bitexact flac.flac
+    //
+    // Oggの中のFLACのファイルは、タグと長さの読み取りのテスト（`ogg_flac`など）で使う。ffmpegが
+    // 書く形（STREAMINFOにサンプル数がなく、長さは最後のページから求める）を、6秒の無音で作る。
+    //
+    //   ffmpeg -f lavfi -i "anullsrc=r=44100:cl=stereo" -t 6 -c:a flac
+    //     -metadata title="Ogg FLAC Title" -metadata artist="Ogg FLAC Artist"
+    //     -fflags +bitexact -flags:a +bitexact ogg_flac.ogg
 
     /// フィクスチャの元の音源: 200Hzから4kHzへ上がる音にノイズを足したもの（頭から終わりまで音がある）
     fn fixture_signal(rate: u32) -> Vec<i16> {
@@ -945,6 +952,39 @@ pub(crate) mod tests {
                 "{name}"
             );
         }
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Oggの中のFLACは、タグと画像を書き込んだ後も（ヘッダーのページを作り直す）、同じサンプルを返す
+    #[test]
+    fn test_ogg_flac_decodes_after_writing_tags() {
+        use crate::metadata::{EmbeddedPicture, set_file_album_art, update_file_metadata};
+        use crate::models::Metadata;
+
+        let dir = temp_dir("ogg-flac-tags");
+        let path = dir.join("ogg_flac.ogg");
+        std::fs::copy(fixture("ogg_flac.ogg"), &path).unwrap();
+        let expected = read_first_channel(&mut TrackDecoder::open(&path).unwrap());
+        assert_eq!(expected.len(), 6 * 44_100);
+
+        let metadata = Metadata {
+            title: Some("タイトル".to_string()),
+            ..Default::default()
+        };
+        update_file_metadata(&path, &metadata, true).unwrap();
+        // ページの最大の大きさより大きい画像（音声のページの番号が変わる）
+        let mut image = crate::metadata::test_images::jpeg(600, 600);
+        image.resize(300_000, 0x55);
+        let art = EmbeddedPicture {
+            data: image,
+            mime_type: "image/jpeg".to_string(),
+        };
+        set_file_album_art(&path, &art).unwrap();
+
+        let mut decoder = TrackDecoder::open(&path).unwrap();
+        assert_eq!(decoder.sample_rate(), 44_100);
+        assert_eq!(decoder.channels(), 2);
+        assert_eq!(read_first_channel(&mut decoder), expected);
         std::fs::remove_dir_all(&dir).ok();
     }
 

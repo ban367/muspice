@@ -64,12 +64,17 @@ pub fn is_available() -> bool {
     cfg!(target_os = "macos") && Path::new(AFCONVERT).is_file()
 }
 
-/// 曲が可逆の形式か（拡張子から決める。`.m4a`は、中のコーデックを読む。分からなければNone）
+/// 曲が可逆の形式か（拡張子から決める。`.m4a`・`.ogg`は、中のコーデックを読む。分からなければNone）
 pub fn is_lossless_source(path: &Path) -> Option<bool> {
     let extension = path.extension()?.to_str()?.to_ascii_lowercase();
     match extension.as_str() {
         "flac" | "wav" | "aiff" | "aif" | "wv" | "ape" => Some(true),
-        "mp3" | "mp2" | "aac" | "ogg" | "opus" => Some(false),
+        "mp3" | "mp2" | "aac" | "opus" => Some(false),
+        // Oggの中は、Vorbis・Opus（非可逆）か、FLAC（可逆）
+        "ogg" => {
+            let mut file = File::open(path).ok()?;
+            crate::ogg_flac::is_ogg_flac(&mut file).ok()
+        }
         "m4a" | "mp4" | "m4b" => {
             use lofty::file::AudioFile;
             use lofty::mp4::{Mp4Codec, Mp4File};
@@ -569,6 +574,17 @@ mod tests {
             Some(false)
         );
         assert_eq!(is_lossless_source(Path::new("/music/missing.m4a")), None);
+        // `.ogg`は、中がFLACなら可逆
+        assert_eq!(
+            is_lossless_source(&fixtures.join("vorbis.ogg")),
+            Some(false)
+        );
+        assert_eq!(is_lossless_source(&fixtures.join("opus.opus")), Some(false));
+        assert_eq!(
+            is_lossless_source(&fixtures.join("ogg_flac.ogg")),
+            Some(true)
+        );
+        assert_eq!(is_lossless_source(Path::new("/music/missing.ogg")), None);
         assert_eq!(is_lossless_source(Path::new("/music/a.txt")), None);
         assert_eq!(is_lossless_source(Path::new("/music/noext")), None);
     }

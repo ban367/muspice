@@ -393,7 +393,8 @@ export interface Playlist {
 - タグの書き方: BPMは、ID3v2の`TBPM`・MP4の`tmpo`・Vorbisコメントの`BPM`・APEv2タグの`BPM`。歌詞は、ID3v2の`USLT`・Vorbisコメントの`LYRICS`・MP4の`©lyr`・APEv2タグの`Lyrics`（読む時は、Vorbisコメントの`UNSYNCEDLYRICS`も読む）。グループは、ID3v2の`TIT1`・MP4の`©grp`・Vorbisコメントの`GROUPING`・APEv2タグの`Grouping`
 - アーティスト・ジャンルは、`;`で区切ると複数の値になる（ADR-051）。入力は、複数の値の形にそろえて記録する（`A ;B` → `A; B`）。ファイルへは、タグに書かれていた形を保って書く: タグの今の値と同じなら、タグを変えない。違う場合、1つの値に`;`で区切って書かれていたタグはその形（`; `でつないだ1つの値）で、そうでなければ値ごとの項目として書く（Vorbisコメントは同じ項目を複数、ID3v2.4・APEv2は区切り付きの値、MP4は複数の値）。`write_library_metadata_to_files`は、書き方だけの違いと、最初の値だけを読んでいた頃の値を、編集した内容として書き出さない
 - APEv2タグ（WavPack・APE）は、アプリが扱わない項目（ほかのアプリが書いた独自の項目・読めない種類の画像）を残して書き込む。loftyの汎用タグは、対応する項目がないもの（BPM・評価・画像を含む）を読まず、保存するとタグ全体を置き換えるため、`ape_tag.rs`が形式ごとのタグを直接読み書きする（ADR-047）
-- Vorbisコメント（FLAC・Ogg Vorbis・Opus）も、アプリが扱わない項目（ほかのアプリが書いた独自の項目）とベンダーの文字列を残して書き込む（`vorbis_tag.rs`。ADR-048）。書き手の付いた評価（`RATING:書き手`）は、評価を変えない限り、その形のまま残す。エンコーダーの項目（`ENCODER`）は、ファイルにあった場合だけ書く。ID3v2・MP4は、loftyが対応のない項目を残すため、汎用タグのまま保存する
+- Vorbisコメント（FLAC・Ogg Vorbis・Opus・Ogg FLAC）も、アプリが扱わない項目（ほかのアプリが書いた独自の項目）とベンダーの文字列を残して書き込む（`vorbis_tag.rs`。ADR-048）。書き手の付いた評価（`RATING:書き手`）は、評価を変えない限り、その形のまま残す。エンコーダーの項目（`ENCODER`）は、ファイルにあった場合だけ書く。ID3v2・MP4は、loftyが対応のない項目を残すため、汎用タグのまま保存する
+- Oggの中のFLAC（Ogg FLAC。拡張子は`.ogg`）は、loftyが対応していないため、`ogg_flac.rs`が読み書きする（ADR-058）。ヘッダーのページのメタデータのブロックを、FLACとしてloftyで読み、長さは最後のページの位置（サンプル数）から求める（ffmpegはSTREAMINFOにサンプル数を書かない）。書き込みは、コメントのブロックを差し替えてヘッダーのページを作り直し、音声のページは番号だけを付け直す。画像はコメントの`METADATA_BLOCK_PICTURE`に書き、画像のブロック（PICTURE。読む時は読む）と詰め物のブロックは取り除く。ヘッダーにほかのストリームのページが混ざるファイルは書き換えない（エラー）
 - `BulkUpdateResult`: `updatedCount`, `failedCount`, `errors[]`
 - `WriteMetadataResult`: `writtenCount`, `unchangedCount`（ファイルと同じ）, `skippedCount`（ファイルが見つからない）, `errorCount`, `errors[]`
 - `write_library_metadata_to_files`は、DBの値がファイルと違う項目だけを書き込む。DBに値がない項目（評価なしを含む）と、タグにタイトルがないファイルの既定のタイトル（ファイル名）は書き出さない（ファイルにだけある値を消さないため）
@@ -410,7 +411,7 @@ export interface Playlist {
 | `cancel_conversion`   | なし                  | `void`                  | 実行中の変換を中断する（実行中でなければ何もしない）                                                                                          |
 
 - `ConvertOptions`: `{ format: 'aac' | 'alac' | 'flac' | 'wav' | 'aiff', aacBitrateKbps: number, mode: 'export' | 'replace', template: string, addToLibrary: boolean }`。`aacBitrateKbps`は128・192・256・320のどれか（AACの時だけ確かめる。モノラルは半分にし、その音声で使えない値なら、エンコーダーの既定の値でやり直す）。`template`は、書き出す場所の書式（ファイルの整理と同じ書き方。書き出しだけで使う）
-- `ConvertPlan`: `entries: ConvertEntry[]`（選んだ順）。`ConvertEntry`: `{ trackId, sourceName, outputPath: string | null, status, sourceLossless: boolean | null }`。`outputPath`は、書き出しでは書き出すフォルダからの場所、置き換えではファイルの名前。`sourceLossless`は、元の曲が可逆の形式か（拡張子から決め、`.m4a`は中のコーデックを読む）
+- `ConvertPlan`: `entries: ConvertEntry[]`（選んだ順）。`ConvertEntry`: `{ trackId, sourceName, outputPath: string | null, status, sourceLossless: boolean | null }`。`outputPath`は、書き出しでは書き出すフォルダからの場所、置き換えではファイルの名前。`sourceLossless`は、元の曲が可逆の形式か（拡張子から決め、`.m4a`・`.ogg`は中のコーデックを読む）
 - `status`（`ConvertStatus`）: `convert`（変換する）・`missing`（ファイルが見つからない）・`targetExists`（出力先に同じ名前のファイルがある）・`sameTarget`（選んだ曲の中に、同じ出力先になる曲がある）。変換するのは`convert`だけ（上書きしない・連番も付けない。ファイルの整理と同じ）
 - `ConvertResult`: `{ convertedCount, skippedCount, failedCount, errors[], cancelled }`
 - 同時に実行できる変換は1つ（実行中は`LOCK_ERROR`。フォルダを選んでいる間を含む）。入力の誤り（曲の指定がない・IDの形が違う・選べないビットレート・書式の誤り）は`VALIDATION_ERROR`

@@ -6,8 +6,10 @@
 //!
 //! ここでは、保存する時にファイルのコメントを読み直し、汎用タグが持つ項目だけを差し替える
 //! （ほかの項目は残す。APEv2タグの`ape_tag`と同じ考え方。ADR-047）。読み取りは、汎用タグで
-//! 足りるため扱わない。
+//! 足りるため扱わない。Oggの中のFLAC（`FileType::Flac`として読む）は、loftyが書き込めないため、
+//! `ogg_flac`で読み書きする。
 
+use crate::ogg_flac;
 use lofty::config::{ParseOptions, WriteOptions};
 use lofty::error::{FileEncodingError, FileParseError};
 use lofty::file::{AudioFile, FileType};
@@ -36,6 +38,9 @@ fn read_comments<R: Read + Seek>(
 ) -> Result<Option<VorbisComments>, FileParseError> {
     reader.rewind()?;
     Ok(match file_type {
+        FileType::Flac if ogg_flac::is_ogg_flac(reader)? => {
+            ogg_flac::read_comments(reader, options)?
+        }
         FileType::Flac => FlacFile::read_from(reader, options)?.remove_vorbis_comments(),
         FileType::Vorbis => Some(VorbisFile::read_from(reader, options)?.remove_vorbis_comments()),
         FileType::Opus => Some(OpusFile::read_from(reader, options)?.remove_vorbis_comments()),
@@ -55,6 +60,7 @@ fn is_plain_number(value: &str) -> bool {
 /// それ以外の項目（ほかのアプリが書いた独自の項目）と、ベンダーの文字列は残す。
 pub fn save_tag(file_path: &Path, file_type: FileType, tag: &Tag) -> Result<(), FileEncodingError> {
     let mut reader = BufReader::new(File::open(file_path)?);
+    let is_ogg_flac = file_type == FileType::Flac && ogg_flac::is_ogg_flac(&mut reader)?;
     // 画像は汎用タグが持っているため、読み直さない
     let options = ParseOptions::new()
         .read_properties(false)
@@ -101,7 +107,11 @@ pub fn save_tag(file_path: &Path, file_type: FileType, tag: &Tag) -> Result<(), 
         let _ = comments.insert_picture(picture.clone(), Some(information));
     }
 
-    comments.save_to_path(file_path, WriteOptions::default())
+    if is_ogg_flac {
+        ogg_flac::write_comments(file_path, &comments)
+    } else {
+        comments.save_to_path(file_path, WriteOptions::default())
+    }
 }
 
 #[cfg(test)]
@@ -115,13 +125,14 @@ mod tests {
     use crate::models::Metadata;
     use std::path::PathBuf;
 
-    /// FLAC・Ogg Vorbis・Opusのファイル（再生エンジンのテスト用のファイルの写し）
+    /// FLAC・Ogg Vorbis・Opus・Oggの中のFLACのファイル（再生エンジンのテスト用のファイルの写し）
     fn test_files(dir: &Path) -> Vec<(PathBuf, FileType)> {
         let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/playback");
         [
             ("flac.flac", FileType::Flac),
             ("vorbis.ogg", FileType::Vorbis),
             ("opus.opus", FileType::Opus),
+            ("ogg_flac.ogg", FileType::Flac),
         ]
         .into_iter()
         .map(|(name, file_type)| {
@@ -147,9 +158,25 @@ mod tests {
             .unwrap_or_default()
     }
 
-    /// ファイルの画像の数（FLACは、コメントとは別のブロックに持つ）
+    /// Oggの中のFLACのファイルか
+    fn is_ogg_flac_file(file: &Path) -> bool {
+        ogg_flac::is_ogg_flac(&mut File::open(file).unwrap()).unwrap()
+    }
+
+    /// Vorbisコメントを、ファイルへそのまま書く
+    fn save_file_comments(file: &Path, comments: &VorbisComments) {
+        if is_ogg_flac_file(file) {
+            ogg_flac::write_comments(file, comments).unwrap();
+        } else {
+            comments
+                .save_to_path(file, WriteOptions::default())
+                .unwrap();
+        }
+    }
+
+    /// ファイルの画像の数（FLACは、コメントとは別のブロックに持つ。Oggの中のFLACは、コメントに持つ）
     fn picture_count(file: &Path, file_type: FileType) -> usize {
-        if file_type != FileType::Flac {
+        if file_type != FileType::Flac || is_ogg_flac_file(file) {
             return read_file_comments(file, file_type).pictures().len();
         }
         let mut reader = BufReader::new(File::open(file).unwrap());
@@ -161,19 +188,19 @@ mod tests {
     }
 
     /// ほかのアプリが書いた形のコメントを、ファイルへ足す（独自の項目・複数の値・書き手の付いた評価）
+    ///
+    /// ファイルにあったタイトル・アーティストは置き換える。
     fn write_foreign_comments(file: &Path, file_type: FileType) -> String {
         let mut comments = read_file_comments(file, file_type);
         let vendor = comments.vendor().to_string();
-        comments.push("TITLE".to_string(), "Foreign Title".to_string());
-        comments.push("ARTIST".to_string(), "First".to_string());
+        comments.insert("TITLE".to_string(), "Foreign Title".to_string());
+        comments.insert("ARTIST".to_string(), "First".to_string());
         comments.push("ARTIST".to_string(), "Second".to_string());
         comments.push("MY_CUSTOM_ITEM".to_string(), "keep me".to_string());
         comments.push("my_other_item".to_string(), "one".to_string());
         comments.push("my_other_item".to_string(), "two".to_string());
         comments.push("RATING:someone@example.com".to_string(), "80".to_string());
-        comments
-            .save_to_path(file, WriteOptions::default())
-            .unwrap();
+        save_file_comments(file, &comments);
         vendor
     }
 
@@ -297,9 +324,7 @@ mod tests {
             let mut comments = read_file_comments(&file, file_type);
             let vendor = comments.vendor().to_string();
             comments.insert("encoder".to_string(), "Some Encoder 1.0".to_string());
-            comments
-                .save_to_path(&file, WriteOptions::default())
-                .unwrap();
+            save_file_comments(&file, &comments);
 
             update_file_rating(&file, 3).unwrap();
             let comments = read_file_comments(&file, file_type);

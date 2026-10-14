@@ -2,6 +2,7 @@ use crate::ape_tag;
 use crate::error::{AppError, AppResult};
 use crate::models::{Metadata, ReplayGain, SortTags};
 use crate::multi_value;
+use crate::ogg_flac;
 use crate::vorbis_tag;
 use lofty::config::{ParseOptions, WriteOptions};
 use lofty::file::{AudioFile, FileType, TaggedFile, TaggedFileExt};
@@ -9,6 +10,8 @@ use lofty::picture::{MimeType, Picture, PictureInformation, PictureType};
 use lofty::probe::Probe;
 use lofty::tag::items::popularimeter::{Popularimeter, StarRating};
 use lofty::tag::{Accessor, ItemKey, ItemValue, Tag, TagExt, TagItem, TagType};
+use std::fs::File;
+use std::io::BufReader;
 use std::path::Path;
 
 /// アプリが扱う年の有効範囲
@@ -44,13 +47,26 @@ fn extract_album_artist(tag: &Tag) -> Option<String> {
 /// たとえば`.ogg`の中がOpusのファイルも読めるようにする）。
 ///
 /// APEv2タグを持つ形式（WavPack・Monkey's Audio）は、汎用タグで読めない項目（BPM・評価・画像）を
-/// 足して返す（`ape_tag`）。
+/// 足して返す（`ape_tag`）。Oggの中のFLACは、loftyが判定できないため、先に確かめてFLACとして
+/// 読む（`ogg_flac`）。
 fn read_tagged_file(file_path: &Path, options: ParseOptions) -> AppResult<TaggedFile> {
-    let probe = Probe::open(file_path)
-        .map_err(|e| AppError::Metadata(format!("ファイルのオープンに失敗しました: {}", e)))?
-        .options(options)
-        .guess_file_type()
-        .map_err(|e| AppError::Metadata(format!("ファイルの読み取りに失敗しました: {}", e)))?;
+    let read_error = |e: &dyn std::fmt::Display| {
+        AppError::Metadata(format!("ファイルの読み取りに失敗しました: {}", e))
+    };
+    let mut reader = BufReader::new(
+        File::open(file_path)
+            .map_err(|e| AppError::Metadata(format!("ファイルのオープンに失敗しました: {}", e)))?,
+    );
+    if ogg_flac::is_ogg_flac(&mut reader).map_err(|e| read_error(&e))? {
+        return ogg_flac::read_file(&mut reader, options).map_err(|e| read_error(&e));
+    }
+
+    // 中身から判定できなければ、拡張子から決めた形式で読む（`Probe::open`と同じ）
+    let mut probe = Probe::new(reader).options(options);
+    if let Some(file_type) = FileType::from_path(file_path) {
+        probe = probe.set_file_type(file_type);
+    }
+    let probe = probe.guess_file_type().map_err(|e| read_error(&e))?;
 
     match probe.file_type() {
         Some(file_type) if ape_tag::uses_ape_tag(file_type) => {
@@ -58,7 +74,7 @@ fn read_tagged_file(file_path: &Path, options: ParseOptions) -> AppResult<Tagged
         }
         _ => probe.read(),
     }
-    .map_err(|e| AppError::Metadata(format!("ファイルの読み取りに失敗しました: {}", e)))
+    .map_err(|e| read_error(&e))
 }
 
 /// 読み込んだファイルのタグを、ファイルへ保存する
@@ -1422,8 +1438,8 @@ mod tests {
 
     /// 読み書きを確かめる形式（タグの種類が違うもの）のファイルを、一時フォルダに用意する
     ///
-    /// WAV（ID3v2）は生成し、MP3（ID3v2）・M4A（MP4）・FLAC / Ogg Vorbis / Opus（Vorbisコメント）・
-    /// WavPack / APE（APEv2）は、再生エンジンのテスト用のファイルを写す。
+    /// WAV（ID3v2）は生成し、MP3（ID3v2）・M4A（MP4）・FLAC / Ogg Vorbis / Opus / Oggの中のFLAC
+    /// （Vorbisコメント）・WavPack / APE（APEv2）は、再生エンジンのテスト用のファイルを写す。
     fn tag_test_files(dir: &Path) -> Vec<std::path::PathBuf> {
         let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/playback");
         let mut files = vec![dir.join("generated.wav")];
@@ -1434,6 +1450,7 @@ mod tests {
             "apple_aac.m4a",
             "vorbis.ogg",
             "opus.opus",
+            "ogg_flac.ogg",
             "wavpack.wv",
             "monkey.ape",
         ] {

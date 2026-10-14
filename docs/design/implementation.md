@@ -110,6 +110,7 @@ src-tauri/src/
 ├── mini_player.rs         # ミニプレーヤー（メインウィンドウの大きさの切り替えと、元の大きさの記録。ADR-046）
 ├── models.rs
 ├── multi_value.rs         # 複数の値を持つ項目（アーティスト・ジャンル）を値に分ける・比べる（SQLの関数を含む。ADR-051）
+├── ogg_flac.rs            # Oggの中のFLACの読み書き（loftyが対応していない。ヘッダーのページの作り直し。ADR-058）
 ├── opened_files.rs        # 「このアプリで開く」・Dockのアイコンへのドロップで開かれたファイルの受け取り（インポートして、再生する曲として預かる。ADR-050）
 ├── settings.rs
 ├── tag_backfill.rs        # 既存のトラックの、後から追加した項目（アルバムアーティスト・ソート用のタグ）の読み込み（起動時）
@@ -119,7 +120,7 @@ src-tauri/src/
 ├── trash.rs               # ファイルをOSのゴミ箱へ移す（形式の変換の置き換えで使う。macOS）
 ├── tray.rs                # メニューバー（トレイ）への常駐（アイコン・メニュー・再生中の曲の表示。ADR-046）
 ├── validation.rs
-├── vorbis_tag.rs          # Vorbisコメント（FLAC・Ogg Vorbis・Opus）の保存（アプリが扱わない項目の保持。ADR-048）
+├── vorbis_tag.rs          # Vorbisコメント（FLAC・Ogg Vorbis・Opus・Ogg FLAC）の保存（アプリが扱わない項目の保持。ADR-048）
 └── state.rs
 ```
 
