@@ -31,6 +31,7 @@
   import { conversion } from '#lib/stores/convert.svelte.js';
   import { smartPlaylistDialog } from '#lib/stores/smartPlaylist.svelte.js';
   import { invalidateAllTrackQueries } from '#lib/queries/tracks.js';
+  import { LOCAL_NETWORK_MODE } from '#lib/queries/shared.js';
   import { restoreTheme } from '#lib/utils/theme.js';
   import { restoreLanguage } from '#lib/i18n/i18n.svelte.js';
   import '../../app.css';
@@ -119,12 +120,12 @@
         retry: 1, // 失敗時に1回だけリトライ
         refetchOnWindowFocus: false, // ウィンドウフォーカス時の自動再取得を無効化
         refetchOnMount: false, // マウント時の自動再取得を無効化（キャッシュがあれば使用）
-        refetchOnReconnect: true, // ネットワーク再接続時は再取得
-        networkMode: 'online' // オンライン時のみクエリを実行
+        refetchOnReconnect: false, // ネットワークの再接続では再取得しない（外部と通信しないため）
+        ...LOCAL_NETWORK_MODE
       },
       mutations: {
         retry: 0, // ミューテーションは失敗時にリトライしない
-        networkMode: 'online'
+        ...LOCAL_NETWORK_MODE
       }
     }
   });

@@ -3,6 +3,7 @@
   import { Toast } from '#lib/components/ui/index.js';
   import { restoreTheme } from '#lib/utils/theme.js';
   import { restoreLanguage } from '#lib/i18n/i18n.svelte.js';
+  import { LOCAL_NETWORK_MODE } from '#lib/queries/shared.js';
   import '../../app.css';
 
   // 設定を読み込むまでの間も、前回の言語・テーマで表示する
@@ -12,7 +13,12 @@
   let { children } = $props();
 
   // 設定ウィンドウはメインウィンドウとは別のWebViewのため、独自のQueryClientを持つ
-  const queryClient = new QueryClient();
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { refetchOnReconnect: false, ...LOCAL_NETWORK_MODE },
+      mutations: { ...LOCAL_NETWORK_MODE }
+    }
+  });
 </script>
 
 <QueryClientProvider client={queryClient}>
