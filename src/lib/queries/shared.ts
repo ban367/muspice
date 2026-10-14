@@ -26,6 +26,15 @@ export const CACHE_POLICY = {
 } as const;
 
 /**
+ * ネットワークの状態によらず実行する設定（`QueryClient`の、クエリとミューテーションの既定値に入れる）
+ *
+ * クエリ・ミューテーションが呼ぶのは、ローカルのコマンド（Tauri IPC）だけ。TanStack Queryの既定
+ * （`online`）のままだと、Wi-Fiが切れるなどしてWebViewがオフラインになった時に、取得も保存も
+ * 止まったままになる（まだ取得していない一覧は、空として表示される）。
+ */
+export const LOCAL_NETWORK_MODE = { networkMode: 'always' } as const;
+
+/**
  * コマンド呼び出しのエラーをトースト通知しつつ、Queryへ再スローする
  *
  * TanStack Queryにエラー状態を伝えるため、通知後も必ず再スローする。
