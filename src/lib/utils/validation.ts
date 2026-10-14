@@ -123,7 +123,7 @@ export function validatePlaylistName(name: string): { valid: boolean; error?: st
     return { valid: false, error: m.validation.playlistNameRequired };
   }
 
-  if (name.length > 100) {
+  if ([...name].length > 100) {
     return { valid: false, error: m.validation.playlistNameTooLong };
   }
 

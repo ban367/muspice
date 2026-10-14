@@ -43,8 +43,8 @@ pub fn validate_playlist_name(name: &str) -> AppResult<()> {
         ));
     }
 
-    // 長さをチェック
-    if name.len() > 100 {
+    // 長さをチェック（バイト数ではなく、文字数で数える）
+    if name.chars().count() > 100 {
         return Err(AppError::Validation(
             "プレイリスト名は100文字以内で入力してください".to_string(),
         ));
@@ -214,6 +214,12 @@ mod tests {
     fn test_validate_playlist_name_valid() {
         assert!(validate_playlist_name("My Playlist").is_ok());
         assert!(validate_playlist_name("プレイリスト").is_ok());
+    }
+
+    #[test]
+    fn test_validate_playlist_name_counts_characters() {
+        assert!(validate_playlist_name(&"あ".repeat(100)).is_ok());
+        assert!(validate_playlist_name(&"あ".repeat(101)).is_err());
     }
 
     #[test]
