@@ -196,11 +196,13 @@ pub(crate) fn rescan_folder(
     }
 
     // 1. ディスク上のファイルとライブラリのトラックを比べる（ファイルの走査はロックの外）
-    let disk_files = scan_directory(folder_path)?
-        .into_iter()
+    let scanned = scan_directory(folder_path)?;
+    let disk_files = scanned
+        .audio_files
+        .iter()
         .filter_map(|path| {
             let path_str = path.to_str()?.to_string();
-            let metadata = fs::metadata(&path).ok();
+            let metadata = fs::metadata(path).ok();
             Some(DiskFile {
                 size: metadata.as_ref().map(|m| m.len() as i64),
                 modified_at: metadata.as_ref().and_then(modified_at_of),
@@ -208,13 +210,22 @@ pub(crate) fn rescan_folder(
             })
         })
         .collect();
-    let tracks = state.with_db(|db| {
-        crate::repository::find_track_file_states_under(db, &track_path_prefix(&folder.path))
-    })?;
+    // 読めなかったフォルダ（権限がないなど）の中のトラックは、比べる対象から外す
+    // （ファイルがあるかを確かめられないため、見つからない曲にしない）
+    let tracks = state
+        .with_db(|db| {
+            crate::repository::find_track_file_states_under(db, &track_path_prefix(&folder.path))
+        })?
+        .into_iter()
+        .filter(|track| !scanned.is_in_unreadable_dir(Path::new(&track.file_path)))
+        .collect();
     let plan = plan_rescan(disk_files, tracks);
 
+    let unreadable = scanned.unreadable_dir_errors();
     let mut result = RescanResult {
         missing_skipped: plan.missing_skipped,
+        error_count: to_count(unreadable.len())?,
+        errors: unreadable,
         ..RescanResult::default()
     };
 

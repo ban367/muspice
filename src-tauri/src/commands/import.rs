@@ -12,7 +12,7 @@ use crate::error::{AppError, AppResult};
 use crate::events::{ImportProgress, LibraryChanged};
 use crate::library::{
     DuplicateAction, ImportResult, get_default_title, get_file_format, get_file_modified_at,
-    get_file_size, is_supported_audio_file, scan_directory, supported_extensions,
+    get_file_size, is_supported_audio_file, scan_directory, supported_extensions, to_count,
 };
 use crate::library_sync::LibrarySync;
 use crate::metadata::extract_all_file_info;
@@ -219,8 +219,13 @@ fn import_folder_blocking(
     on_progress: &dyn Fn(ImportProgress),
 ) -> AppResult<ImportResult> {
     // ディレクトリをスキャン
-    let audio_files = scan_directory(path)?;
-    let result = import_audio_files(&audio_files, duplicate_action, state, on_progress)?;
+    let scanned = scan_directory(path)?;
+    let audio_files = &scanned.audio_files;
+    let mut result = import_audio_files(audio_files, duplicate_action, state, on_progress)?;
+    // 読めなかったフォルダは、取り込めなかったものとして結果に出す
+    let unreadable = scanned.unreadable_dir_errors();
+    result.error_count += to_count(unreadable.len())?;
+    result.errors.extend(unreadable);
 
     // インポートしたフォルダをライブラリフォルダとして記録する（再スキャンの対象になる）
     // 音楽ファイルが見つからなかったフォルダは記録しない（中のライブラリフォルダの記録を
