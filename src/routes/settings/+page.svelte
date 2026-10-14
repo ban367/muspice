@@ -521,7 +521,9 @@
 
     <!-- フッター -->
     <footer class="settings-footer">
-      <button class="btn-secondary" onclick={cancel}>{m.common.cancel}</button>
+      <button class="btn-secondary" onclick={cancel}>
+        {hasChanges ? m.common.cancel : m.common.close}
+      </button>
       <button
         class="btn-primary"
         onclick={applySettings}
