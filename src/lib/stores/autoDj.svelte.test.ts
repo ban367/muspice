@@ -4,6 +4,7 @@ import type { QueryClient } from '@tanstack/svelte-query';
 import type { Track } from '#lib/types/models.js';
 import { commands } from '#lib/bindings.js';
 import { AUTO_DJ_BATCH_SIZE } from '#lib/utils/autoDj.js';
+import type { QueueEntry } from '#lib/utils/playQueue.js';
 import { watchAutoDj } from './autoDj.svelte.js';
 import { playbackAids } from './playbackAids.svelte.js';
 import {
@@ -27,7 +28,7 @@ function makeTrack(id: string): Track {
 
 const library = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map(makeTrack);
 const playlist = ['p1', 'p2'].map(makeTrack);
-const ids = (tracks: readonly Track[]) => tracks.map((track) => track.id);
+const ids = (queue: readonly QueueEntry[]) => queue.map((entry) => entry.track.id);
 
 /** 非同期の処理（曲の取得）が終わるのを待つ */
 const flush = async () => {
@@ -90,7 +91,7 @@ describe('watchAutoDj', () => {
     await flush();
 
     expect(player.playQueue).toHaveLength(1 + AUTO_DJ_BATCH_SIZE);
-    expect(player.upcomingTracks).toHaveLength(AUTO_DJ_BATCH_SIZE);
+    expect(player.upcomingEntries).toHaveLength(AUTO_DJ_BATCH_SIZE);
   });
 
   it('足した曲の最後まで進んだら、また足す', async () => {

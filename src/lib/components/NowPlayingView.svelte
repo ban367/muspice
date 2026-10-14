@@ -47,7 +47,7 @@
   );
   const isFavorite = $derived((favoritesQuery.data ?? []).some((track) => track.id === trackId));
 
-  const upNext = $derived(player.upcomingTracks.slice(0, UP_NEXT_COUNT));
+  const upNext = $derived(player.upcomingEntries.slice(0, UP_NEXT_COUNT));
 
   // 歌詞（再生中の曲の分だけを読む）
   const lyricsQuery = $derived(trackId === null ? null : useTrackLyricsQuery(trackId));
@@ -142,7 +142,7 @@
           <div class="up-next">
             <h3 class="section-label">{m.nowPlaying.upNext}</h3>
             <ol class="up-next-list">
-              {#each upNext as track, index (index)}
+              {#each upNext as { entryId, track } (entryId)}
                 <li class="up-next-item">
                   <span class="up-next-title">{track.title || track.fileName}</span>
                   <span class="up-next-artist">{track.artist || m.common.unknownArtist}</span>

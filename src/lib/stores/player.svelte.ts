@@ -1,5 +1,6 @@
 import type { Track } from '#lib/types/models.js';
 import { m } from '#lib/i18n/i18n.svelte.js';
+import { matchQueueEntries, toQueueEntries, type QueueEntry } from '#lib/utils/playQueue.js';
 import { showWarning } from './error.svelte.js';
 
 /**
@@ -8,6 +9,9 @@ import { showWarning } from './error.svelte.js';
  * `player`の各プロパティを直接読み書きする（例: `player.volume = 0.5`）。
  * キューの変更（再生するトラックの決定）は、下のキュー操作の関数を使う。
  * 再生エンジンとの同期は再生コントローラー（`./playback.svelte.ts`）が担う。
+ *
+ * キューには同じ曲を何度でも入れられるため、キューの曲は要素（`QueueEntry`）ごとのID
+ * （エントリID）か位置で扱う（曲のIDでは、同じ曲の別の要素と見分けられない）。
  */
 
 // リピートモード
@@ -29,11 +33,16 @@ class Player {
   /** 音量（0.0 - 1.0） */
   volume = $state(1.0);
 
-  /** 現在の再生キュー（プレイリストまたはライブラリのトラックリスト）。配列ごと置き換える */
-  playQueue = $state.raw<Track[]>([]);
+  /** 現在の再生キュー（再生する順）。配列ごと置き換える */
+  playQueue = $state.raw<QueueEntry[]>([]);
 
-  /** 元の再生キュー（シャッフル前の順序を保持）。配列ごと置き換える */
-  originalQueue = $state.raw<Track[]>([]);
+  /**
+   * シャッフルする前の順の再生キュー。配列ごと置き換える
+   *
+   * シャッフル中は、`playQueue`と同じ要素をシャッフルする前の順に並べる（キューへの追加・削除は
+   * 両方に行う）。シャッフルを解除すると、この順に戻す。
+   */
+  originalQueue = $state.raw<QueueEntry[]>([]);
 
   /** 現在の再生キュー内のインデックス */
   currentTrackIndex = $state(-1);
@@ -69,8 +78,8 @@ class Player {
       : this.currentTrackIndex > 0
   );
 
-  /** 残りのキュー（現在のトラック以降） */
-  readonly upcomingTracks = $derived(
+  /** 「次に再生」のキュー（再生中のトラックより後ろの要素） */
+  readonly upcomingEntries = $derived(
     this.currentTrackIndex < 0 || this.playQueue.length === 0
       ? []
       : this.playQueue.slice(this.currentTrackIndex + 1)
@@ -108,14 +117,21 @@ export function resetPlayer(): void {
 /**
  * 保存してあった再生キューを復元する（前回の終了時の状態。再生は始めない）
  *
+ * キューは曲のIDの並びで保存してあるため、要素（エントリID）はここで振り直す。シャッフルする前の
+ * 順は、同じ曲の要素へ前から順に対応付ける。
  * @param queue - 再生する順のキュー
  * @param originalQueue - シャッフルする前の順のキュー（シャッフルが無効なら`queue`と同じ）
  * @param index - `queue`の中の、再生していたトラックの位置
  */
-export function restoreQueue(queue: Track[], originalQueue: Track[], index: number): void {
+export function restoreQueue(
+  queue: readonly Track[],
+  originalQueue: readonly Track[],
+  index: number
+): void {
   if (!Number.isInteger(index) || index < 0 || index >= queue.length) return;
-  player.originalQueue = originalQueue;
-  player.playQueue = queue;
+  const entries = toQueueEntries(queue);
+  player.originalQueue = matchQueueEntries(originalQueue, entries);
+  player.playQueue = entries;
   player.currentTrackIndex = index;
   player.currentTrack = queue[index];
   player.isPlaying = false;
@@ -135,33 +151,59 @@ function shuffleArray<T>(array: T[]): T[] {
   return shuffled;
 }
 
+/** キューの中の、要素の位置（ない場合は-1） */
+function indexOfEntry(queue: readonly QueueEntry[], entryId: number): number {
+  return queue.findIndex((entry) => entry.entryId === entryId);
+}
+
+/**
+ * キューの`position`の位置に要素を入れた、新しいキューを返す
+ *
+ * 件数が多い場合があるため、引数の数に上限のあるspliceへ展開せずに組み立てる。
+ */
+function insertEntries(
+  queue: readonly QueueEntry[],
+  position: number,
+  entries: readonly QueueEntry[]
+): QueueEntry[] {
+  return [...queue.slice(0, position), ...entries, ...queue.slice(position)];
+}
+
 /**
  * シャッフルモードを切り替え
  */
 export function toggleShuffle(): void {
   const shuffle = player.isShuffleEnabled;
   const queue = player.playQueue;
-  const current = player.currentTrack;
+  const currentIndex = player.currentTrackIndex;
+  const current: QueueEntry | undefined = queue[currentIndex];
 
   if (!shuffle) {
     // シャッフルを有効にする
     player.originalQueue = [...queue];
 
-    if (current && queue.length > 0) {
-      // 現在のトラックを除いてシャッフル
-      const otherTracks = queue.filter((t) => t.id !== current.id);
-      const shuffledOthers = shuffleArray(otherTracks);
-      const newQueue = [current, ...shuffledOthers];
-      player.playQueue = newQueue;
+    if (current) {
+      // 再生中の要素を先頭にして、残りを並べ替える（同じ曲の別の要素も残す）
+      const others = queue.filter((_, index) => index !== currentIndex);
+      player.playQueue = [current, ...shuffleArray(others)];
       player.currentTrackIndex = 0;
     }
   } else {
     // シャッフルを無効にする（元の順序に戻す）
     const original = player.originalQueue;
     if (original.length > 0 && current) {
-      const originalIndex = original.findIndex((t) => t.id === current.id);
-      player.playQueue = original;
-      player.currentTrackIndex = originalIndex !== -1 ? originalIndex : 0;
+      const originalIndex = indexOfEntry(original, current.entryId);
+      if (originalIndex !== -1) {
+        player.playQueue = original;
+        player.currentTrackIndex = originalIndex;
+      } else {
+        // 元の順に再生中の要素がない（古い版で保存したキューなど）: 再生中の位置へ入れ、
+        // 「次へ」でその後ろから続ける
+        const position = Math.min(currentIndex, original.length);
+        player.playQueue = insertEntries(original, position, [current]);
+        player.originalQueue = player.playQueue;
+        player.currentTrackIndex = position;
+      }
     }
   }
 
@@ -204,26 +246,22 @@ export function playTrackFromQueue(allTracks: Track[], selectedIndex: number): v
   }
 
   const tracks = playableTracks(allTracks);
-  const index = tracks.indexOf(selected);
+  // 見つからない曲を除いた後の、選んだ曲の位置（同じ曲が複数あっても、選んだ位置のもの）
+  const index = playableTracks(allTracks.slice(0, selectedIndex)).length;
+  const entries = toQueueEntries(tracks);
   const shuffle = player.isShuffleEnabled;
 
+  player.originalQueue = entries;
   if (shuffle) {
     // シャッフルモードの場合、選択したトラックを先頭にしてシャッフル
-    const selectedTrack = tracks[index];
-    const otherTracks = tracks.filter((_, i) => i !== index);
-    const shuffledOthers = shuffleArray(otherTracks);
-    const newQueue = [selectedTrack, ...shuffledOthers];
-
-    player.originalQueue = [...tracks];
-    player.playQueue = newQueue;
+    const others = entries.filter((_, i) => i !== index);
+    player.playQueue = [entries[index], ...shuffleArray(others)];
     player.currentTrackIndex = 0;
-    player.currentTrack = selectedTrack;
   } else {
-    player.originalQueue = [...tracks];
-    player.playQueue = [...tracks];
+    player.playQueue = entries;
     player.currentTrackIndex = index;
-    player.currentTrack = tracks[index];
   }
+  player.currentTrack = selected;
   player.playRequestCount++;
 }
 
@@ -250,8 +288,9 @@ export function playSingleTrack(track: Track): void {
     showWarning(m.notices.trackFileMissing);
     return;
   }
-  player.originalQueue = [track];
-  player.playQueue = [track];
+  const entries = toQueueEntries([track]);
+  player.originalQueue = entries;
+  player.playQueue = entries;
   player.currentTrackIndex = 0;
   player.currentTrack = track;
   player.playRequestCount++;
@@ -290,7 +329,7 @@ function nextTrackIndex(): number {
  */
 export function peekNextTrack(): Track | null {
   const index = nextTrackIndex();
-  return index < 0 ? null : player.playQueue[index];
+  return index < 0 ? null : player.playQueue[index].track;
 }
 
 /**
@@ -302,7 +341,7 @@ export function playNextTrack(): boolean {
     return false;
   }
   player.currentTrackIndex = index;
-  player.currentTrack = player.playQueue[index];
+  player.currentTrack = player.playQueue[index].track;
   return true;
 }
 
@@ -319,7 +358,7 @@ export function playQueueIndex(index: number): boolean {
     return false;
   }
   player.currentTrackIndex = index;
-  player.currentTrack = queue[index];
+  player.currentTrack = queue[index].track;
   player.playRequestCount++;
   return true;
 }
@@ -345,7 +384,7 @@ export function playPreviousTrack(): boolean {
 
   // 1曲リピートの場合は同じトラックを再生
   if (repeat === 'one') {
-    player.currentTrack = queue[currentIndex];
+    player.currentTrack = queue[currentIndex]?.track ?? null;
     return true;
   }
 
@@ -353,7 +392,7 @@ export function playPreviousTrack(): boolean {
 
   if (previousIndex >= 0) {
     player.currentTrackIndex = previousIndex;
-    player.currentTrack = queue[previousIndex];
+    player.currentTrack = queue[previousIndex].track;
     return true;
   }
 
@@ -361,7 +400,7 @@ export function playPreviousTrack(): boolean {
   if (repeat === 'all') {
     const lastIndex = queue.length - 1;
     player.currentTrackIndex = lastIndex;
-    player.currentTrack = queue[lastIndex];
+    player.currentTrack = queue[lastIndex].track;
     return true;
   }
 
@@ -370,76 +409,89 @@ export function playPreviousTrack(): boolean {
 
 /**
  * キューの最後にトラックを追加（ファイルが見つからない曲は入れない）
+ *
+ * シャッフルする前の順の最後にも入れる（シャッフルを解除しても残るように）。
  */
 export function addToQueue(tracks: readonly Track[]): void {
-  player.playQueue = [...player.playQueue, ...playableTracks(tracks)];
+  const entries = toQueueEntries(playableTracks(tracks));
+  if (entries.length === 0) return;
+  player.playQueue = [...player.playQueue, ...entries];
+  player.originalQueue = [...player.originalQueue, ...entries];
 }
 
 /**
  * 再生中のトラックの次にトラックを追加（ファイルが見つからない曲は入れない）
+ *
+ * シャッフルする前の順でも、再生中の要素の次に入れる（シャッフルを解除しても残るように）。
  */
 export function addNextInQueue(tracks: readonly Track[]): void {
+  const entries = toQueueEntries(playableTracks(tracks));
+  if (entries.length === 0) return;
   const queue = player.playQueue;
-  const position = player.currentTrackIndex + 1;
-  // 件数が多い場合があるため、引数の数に上限のあるspliceへ展開せずに組み立てる
-  player.playQueue = [
-    ...queue.slice(0, position),
-    ...playableTracks(tracks),
-    ...queue.slice(position)
-  ];
+  const currentIndex = player.currentTrackIndex;
+  const current: QueueEntry | undefined = queue[currentIndex];
+  const original = player.originalQueue;
+  // 元の順では、再生中の要素の次へ入れる（再生していなければ先頭、元の順にない場合は最後）
+  let originalPosition = 0;
+  if (current) {
+    const originalIndex = indexOfEntry(original, current.entryId);
+    originalPosition = originalIndex === -1 ? original.length : originalIndex + 1;
+  }
+
+  player.playQueue = insertEntries(queue, currentIndex + 1, entries);
+  player.originalQueue = insertEntries(original, originalPosition, entries);
 }
 
 /**
  * 「次に再生」の曲を、別の曲の位置へ動かす（再生中の曲と、それより前の曲は動かさない）
  *
  * 動かした曲が、落とした曲の位置に来る（下へ動かす時は落とした曲の後ろ、上へ動かす時は前）。
+ * 位置ではなく要素で指定するため、ドラッグしている間に曲が進んでも、ドラッグした曲を動かす。
  * シャッフルする前の順（`originalQueue`）は変えない。
- * @param from - 動かす曲の、`player.upcomingTracks`の中の位置
- * @param to - 落とした曲の、`player.upcomingTracks`の中の位置
+ * @param entryId - 動かす曲の要素のID
+ * @param targetEntryId - 落とした曲の要素のID
  */
-export function moveUpcomingTrack(from: number, to: number): void {
+export function moveUpcomingEntry(entryId: number, targetEntryId: number): void {
   const queue = player.playQueue;
   const start = player.currentTrackIndex + 1;
-  const count = queue.length - start;
-  const isValid = (index: number) => Number.isInteger(index) && index >= 0 && index < count;
-  if (player.currentTrackIndex < 0 || !isValid(from) || !isValid(to) || from === to) return;
+  const from = indexOfEntry(queue, entryId);
+  const to = indexOfEntry(queue, targetEntryId);
+  // 「次に再生」にない要素（再生し終えた・再生中・キューから消えた）は動かさない
+  if (player.currentTrackIndex < 0 || from < start || to < start || from === to) return;
 
   const next = [...queue];
-  const [moved] = next.splice(start + from, 1);
-  next.splice(start + to, 0, moved);
+  const [moved] = next.splice(from, 1);
+  next.splice(to, 0, moved);
   player.playQueue = next;
 }
 
 /**
- * キューから特定のトラックを削除
+ * キューから要素を削除（同じ曲の別の要素は残す）
+ *
+ * 再生中の要素を削除した場合は、同じ位置の次の曲（最後の曲なら、新しい最後の曲）へ移る。
+ * @param entryId - 削除する要素のID
  */
-export function removeFromQueue(trackId: string): void {
+export function removeFromQueue(entryId: number): void {
   const queue = player.playQueue;
-  const original = player.originalQueue;
+  const index = indexOfEntry(queue, entryId);
+  if (index === -1) return;
   const currentIndex = player.currentTrackIndex;
-  const current = player.currentTrack;
 
-  const newQueue = queue.filter((t) => t.id !== trackId);
-  const newOriginal = original.filter((t) => t.id !== trackId);
-
+  const newQueue = queue.filter((_, i) => i !== index);
   player.playQueue = newQueue;
-  player.originalQueue = newOriginal;
+  player.originalQueue = player.originalQueue.filter((entry) => entry.entryId !== entryId);
 
-  // 現在再生中のトラックが削除された場合
-  if (current?.id === trackId) {
+  if (index === currentIndex) {
     if (newQueue.length > 0) {
       const newIndex = Math.min(currentIndex, newQueue.length - 1);
       player.currentTrackIndex = newIndex;
-      player.currentTrack = newQueue[newIndex];
+      player.currentTrack = newQueue[newIndex].track;
     } else {
       resetPlayer();
     }
-  } else {
-    // インデックスを調整
-    const newIndex = newQueue.findIndex((t) => t.id === current?.id);
-    if (newIndex !== -1) {
-      player.currentTrackIndex = newIndex;
-    }
+  } else if (index < currentIndex) {
+    // 再生中の要素より前を削除した: 位置を詰める
+    player.currentTrackIndex = currentIndex - 1;
   }
 }
 
@@ -447,7 +499,7 @@ export function removeFromQueue(trackId: string): void {
  * キューをクリア（現在再生中のトラックは残す）
  */
 export function clearQueue(): void {
-  const current = player.currentTrack;
+  const current: QueueEntry | undefined = player.playQueue[player.currentTrackIndex];
 
   if (current) {
     player.playQueue = [current];
