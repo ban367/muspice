@@ -42,10 +42,8 @@
   // LibraryGridコンポーネントの参照
   let libraryGrid: LibraryGrid<ArtistSummary>;
 
-  // カードサイズの計算
-  const cardWidth = $derived(ui.gridCardSize + 16);
   // カードの、アーティストの画像を除いた高さの見積もり（描画した後は、実測した高さを使う）
-  const ESTIMATED_CARD_EXTRA_HEIGHT = 72;
+  const ESTIMATED_CARD_EXTRA_HEIGHT = 52;
   // リスト表示の行の高さの見積もり
   const ESTIMATED_LIST_ROW_HEIGHT = 68;
 
@@ -84,7 +82,8 @@
   emptyMessage={m.library.noArtists}
   emptyHint={m.library.noArtistsHint}
   searchFields={artistSearchFields}
-  minCardWidth={cardWidth}
+  minCardWidth={ui.gridCardWidth}
+  centerCards
   estimatedCardHeight={ui.gridCardSize + ESTIMATED_CARD_EXTRA_HEIGHT}
   estimatedRowHeight={ESTIMATED_LIST_ROW_HEIGHT}
   groupType="artist"
@@ -107,12 +106,13 @@
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div
-      class="grid-card artist-card"
+      class="grid-card"
+      style="width: {ui.gridCardWidth}px;"
       onclick={() => handleArtistClick(artist)}
       ondblclick={() => handleArtistDoubleClick(artist)}
       oncontextmenu={(e) => libraryGrid.handleContextMenu(e, artist)}
     >
-      <div class="artist-art" style="width: {ui.gridCardSize}px; height: {ui.gridCardSize}px;">
+      <div class="artist-art">
         <AlbumArt
           src={albumArtUrl(artist.representativeTrackId)}
           alt={artist.name}
@@ -131,14 +131,12 @@
           </button>
         </div>
       </div>
-      <div class="text-center min-w-0 w-full">
+      <div class="text-center">
+        <MarqueeText text={artist.name} class="grid-card-title" />
         <MarqueeText
-          text={artist.name}
-          class="text-[0.9375rem] font-semibold text-text-primary m-0"
+          text={m.library.albumsAndTracks(artist.albumCount, artist.trackCount)}
+          class="grid-card-subtitle"
         />
-        <p class="text-xs text-text-dimmed mt-1.5 m-0">
-          {m.library.albumsAndTracks(artist.albumCount, artist.trackCount)}
-        </p>
       </div>
     </div>
   {/snippet}
@@ -185,12 +183,8 @@
 
 <style>
   @reference "../../../app.css";
-  .artist-card {
-    @apply flex flex-col items-center;
-  }
-
   .artist-art {
-    @apply relative aspect-square rounded-full overflow-hidden mb-3;
+    @apply relative w-full aspect-square rounded-full overflow-hidden mb-1.5;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   }
 

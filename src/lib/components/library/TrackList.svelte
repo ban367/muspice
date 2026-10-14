@@ -17,7 +17,7 @@
     player,
     playTrackFromQueue
   } from '#lib/stores/player.svelte.js';
-  import { ui } from '#lib/stores/ui.svelte.js';
+  import { GRID_CARD_GAP, ui } from '#lib/stores/ui.svelte.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import type { Track } from '#lib/types/models.js';
   import PlayingIndicator from './PlayingIndicator.svelte';
@@ -126,9 +126,7 @@
   // 行の高さの見積もり（描画した後は、VirtualListが実測した高さを使う）
   const ESTIMATED_LIST_ROW_HEIGHT = 36;
   // グリッド表示のカードの、アルバムアートを除いた高さの見積もり
-  const ESTIMATED_CARD_EXTRA_HEIGHT = 76;
-  // グリッド表示のカードの間隔（px）
-  const GRID_GAP = 12;
+  const ESTIMATED_CARD_EXTRA_HEIGHT = 52;
   // グリッド表示で、見えている範囲の前後に余分に描画する行の数（1行に何枚も並ぶため、少なくする）
   const GRID_OVERSCAN_ROWS = 2;
 
@@ -173,9 +171,6 @@
     fileSize: m.fields.fileSize,
     filePath: m.fields.filePath
   };
-
-  // アルバムアートサイズ
-  const artSize = $derived(ui.gridCardSize);
 
   // 見えている行だけを描画する一覧（リスト表示・グリッド表示のどちらか）
   let virtualList = $state<VirtualList<Track>>();
@@ -359,8 +354,6 @@
     showDeleteDialog = false;
     clearSelection();
   }
-
-  const cardWidth = $derived(artSize + 24);
 
   /** 選択した曲を、この一覧（プレイリスト）から外す */
   function handleRemove() {
@@ -632,10 +625,11 @@
           bind:this={virtualList}
           items={sortedTracks}
           getKey={(track) => track.id}
-          estimatedRowHeight={artSize + ESTIMATED_CARD_EXTRA_HEIGHT}
-          minColumnWidth={cardWidth}
-          gap={GRID_GAP}
+          estimatedRowHeight={ui.gridCardSize + ESTIMATED_CARD_EXTRA_HEIGHT}
+          minColumnWidth={ui.gridCardWidth}
+          gap={GRID_CARD_GAP}
           overscan={GRID_OVERSCAN_ROWS}
+          scrollerClass="py-3"
           class="outline-none justify-items-center"
           role="listbox"
           aria-multiselectable="true"
@@ -652,7 +646,7 @@
               class:missing={track.isMissing}
               title={track.isMissing ? m.common.fileMissing : undefined}
               class:playing={player.currentTrack?.id === track.id}
-              style="width: {cardWidth}px;"
+              style="width: {ui.gridCardWidth}px;"
               draggable="true"
               ondragstart={(e) => handleDragStart(e, track)}
               ondragend={handleDragEnd}
@@ -663,10 +657,7 @@
               aria-selected={selection.has(track.id)}
               data-track-id={track.id}
             >
-              <div
-                class="relative shrink-0 rounded-md overflow-hidden bg-base-400 mb-2"
-                style="width: {artSize}px; height: {artSize}px;"
-              >
+              <div class="track-card-art">
                 <AlbumArt
                   src={albumArtUrl(track.id)}
                   alt={m.common.albumArt}
@@ -678,14 +669,11 @@
                   </div>
                 {/if}
               </div>
-              <div class="w-full text-center min-w-0">
-                <MarqueeText
-                  text={track.title || track.fileName}
-                  class="font-semibold mb-1 text-sm text-text-primary"
-                />
+              <div class="text-center">
+                <MarqueeText text={track.title || track.fileName} class="grid-card-title" />
                 <MarqueeText
                   text={track.artist || m.common.unknownArtist}
-                  class="text-xs text-text-muted"
+                  class="grid-card-subtitle"
                 />
               </div>
             </div>
@@ -877,8 +865,15 @@
   }
 
   /* トラックカード */
+  /* 枠の内側は、選択・再生中を示す線（2px）と余白を合わせて、ほかのカード（.grid-card）と同じ6pxにする */
+  /* トランジションに幅は含めない（カードの大きさのスライダーに、遅れずに追随させる） */
   .track-card {
-    @apply p-3 bg-base-300 rounded-lg cursor-pointer transition-all border-2 border-transparent flex flex-col items-center;
+    @apply p-1 bg-base-300 rounded-lg cursor-pointer border-2 border-transparent
+           transition-[background-color,border-color,box-shadow,translate];
+  }
+
+  .track-card-art {
+    @apply relative w-full aspect-square rounded-md overflow-hidden bg-base-400 mb-1.5;
   }
 
   .track-card:hover {

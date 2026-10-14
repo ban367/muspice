@@ -522,8 +522,12 @@ body {
 /* ================================
    グリッドカードスタイル
    ================================ */
+/* カードの幅は、置く側が`ui.gridCardWidth`で決める（ジャケット画像は、その幅いっぱいに出す）。
+   1画面に多く入るよう、余白と文字は小さめにする。
+   トランジションに幅は含めない（カードの大きさのスライダーに、遅れずに追随させる） */
 .grid-card {
-  @apply bg-surface rounded-lg p-2 cursor-pointer transition-all duration-200;
+  @apply bg-surface rounded-lg p-1.5 cursor-pointer
+         transition-[background-color,box-shadow,translate] duration-200;
 }
 
 .grid-card:hover {
@@ -532,8 +536,17 @@ body {
 }
 
 .grid-card-art {
-  @apply relative aspect-square rounded-md overflow-hidden mb-3;
+  @apply relative w-full aspect-square rounded-md overflow-hidden mb-1.5;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* カードの文字（1行目の名前と、2行目以降の補足） */
+.grid-card-title {
+  @apply text-[0.8125rem] leading-tight font-semibold text-text-primary;
+}
+
+.grid-card-subtitle {
+  @apply mt-0.5 text-xs leading-tight text-text-muted;
 }
 
 .grid-card-art img {

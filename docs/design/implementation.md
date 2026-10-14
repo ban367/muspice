@@ -370,9 +370,11 @@ cargo test --manifest-path src-tauri/Cargo.toml
 
 - 件数が多くなる一覧は、`#lib/components/ui`の`VirtualList`で描画する（曲の一覧`TrackList`（プレイリストの画面を含む）、再生キュー、`AlbumList`・`ArtistList`、`LibraryGrid`）。見えている行とその前後の少しの行だけを描画するため、数万件でもDOMの要素は数十個に収まる
 - `VirtualList`がスクロールする領域になる（親で高さを決める）。列の見出しは`header`に渡すと上に固定される。`role`・`tabindex`・`onkeydown`などは、項目を並べる要素に渡される
+  - 一覧のまわりの余白は、`scrollerClass`でスクロールする領域の中に付ける（外側に付けると、カードの影や選択の枠が端で切れる）。項目を並べる要素（フォーカスを受ける）は、見出しと上の余白の分だけ下から始まるため、`VirtualList`がその分の`scroll-margin`を付ける（付けないと、メニューを閉じた後などにフォーカスが戻った時、ブラウザーがその分だけスクロールする）
 - 行の高さはすべて同じとして扱う。高さは決め打ちにせず、描画した行を実測する（`estimatedRowHeight`は最初の描画だけに使う）。`minColumnWidth`を渡すとグリッドになり、幅に入るだけ列を並べる
   - 高さがそろわない項目（名前の長さで高さが変わるジャンルのカード）は位置を正しく求められないため、すべて描画する（`LibraryGrid`の`virtualized={false}`）
 - `row`は、項目ごとに要素を1つだけ描画する（描画した行の数を、要素の数から数えるため）
+- ジャケット画像のカード（アルバム・アーティスト・最近追加した曲・曲のグリッド表示）は、幅を`ui.gridCardWidth`（スライダーの値`ui.gridCardSize`に、枠の内側の余白を足した幅）に決めて、列の中央に置く（`justify-items-center`。`LibraryGrid`では`centerCards`）。幅を決めないと、長い名前の幅までカードが広がり、隣の列に重なる。ジャケット画像はカードの幅いっぱいに出す。間隔は`GRID_CARD_GAP`、見た目は`app.css`の`grid-card`・`grid-card-art`・`grid-card-title`・`grid-card-subtitle`でそろえる
 - 表示範囲・列数・スクロール先の計算は`#lib/utils/virtualList`の純粋関数（`computeVirtualRange`など）で行う
 - 描画されていない行があるため、行の要素を探す処理（`querySelector`・`scrollIntoView`）には頼らない。位置は一覧の中の順番（index）で扱い、スクロールは`scrollToIndex`、グリッドの列数は`getColumns`を使う
 - 一覧の全件を対象にする処理（並び替え・選択・行ごとの判定）は、数万件でも重くならないようにする

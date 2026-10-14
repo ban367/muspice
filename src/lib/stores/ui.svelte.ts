@@ -15,6 +15,12 @@ export type RightSidebarPanel = 'queue' | 'equalizer';
 export const MIN_CARD_SIZE = 50;
 export const MAX_CARD_SIZE = 200;
 
+/** グリッドカードの枠の内側の余白（px。`app.css`の`.grid-card`の余白と合わせる） */
+const GRID_CARD_PADDING = 6;
+
+/** グリッドカードの間隔（px） */
+export const GRID_CARD_GAP = 8;
+
 /** 幅を持つ列（番号の列と、曲の一覧に出せる列） */
 type WidthColumn = 'number' | TrackColumnId;
 
@@ -86,8 +92,13 @@ class UiState {
   /** 右サイドバーで表示中のパネル */
   activeRightSidebarPanel = $state<RightSidebarPanel>('queue');
 
-  /** グリッドカードのサイズ（MIN_CARD_SIZE〜MAX_CARD_SIZE） */
+  /** グリッドカードのサイズ（ジャケット画像の1辺。MIN_CARD_SIZE〜MAX_CARD_SIZE） */
   gridCardSize = $state(120);
+
+  /** グリッドカードの幅（px。ジャケット画像に、枠の内側の余白を足した幅） */
+  get gridCardWidth(): number {
+    return this.gridCardSize + GRID_CARD_PADDING * 2;
+  }
 
   /** ブラウズ画面（アルバム/アーティスト/ジャンル）の名前検索 */
   browseSearchQuery = $state('');

@@ -11,7 +11,7 @@
   import type { Snippet } from 'svelte';
   import type { AlbumSummary, ArtistSummary, GenreSummary } from '#lib/types/models.js';
   import { VirtualList } from '#lib/components/ui/index.js';
-  import { ui } from '#lib/stores/ui.svelte.js';
+  import { GRID_CARD_GAP, ui } from '#lib/stores/ui.svelte.js';
   import { navigationTarget } from '#lib/utils/listNavigation.js';
   import { matchesSearchTerms, searchTerms } from '#lib/utils/searchText.js';
   import GroupContextMenu from '../GroupContextMenu.svelte';
@@ -45,6 +45,12 @@
     listRow: Snippet<[T]>;
     /** グリッド表示のカードの最小の幅（px）。幅に入るだけ列を並べる */
     minCardWidth: number;
+    /**
+     * グリッド表示のカードを、列の幅まで広げずに列の中央へ置くか
+     *
+     * カードが自分の幅を持つ一覧（ジャケット画像のカード）で使う。
+     */
+    centerCards?: boolean;
     /** グリッド表示のカードの高さの見積もり（px）。描画した後は実測した高さを使う */
     estimatedCardHeight: number;
     /** リスト表示の行の高さの見積もり（px）。描画した後は実測した高さを使う */
@@ -78,6 +84,7 @@
     gridCard,
     listRow,
     minCardWidth,
+    centerCards = false,
     estimatedCardHeight,
     estimatedRowHeight,
     virtualized = true,
@@ -94,8 +101,6 @@
     return items.filter((item) => matchesSearchTerms(searchFields(item), terms));
   });
 
-  // グリッド表示のカードの間隔（px）
-  const GRID_GAP = 12;
   // グリッド表示で、見えている範囲の前後に余分に描画する行の数（1行に何枚も並ぶため、少なくする）
   const GRID_OVERSCAN_ROWS = 2;
 
@@ -192,10 +197,10 @@
         {getKey}
         estimatedRowHeight={estimatedCardHeight}
         minColumnWidth={minCardWidth}
-        gap={GRID_GAP}
+        gap={GRID_CARD_GAP}
         overscan={virtualized ? GRID_OVERSCAN_ROWS : Infinity}
         scrollerClass="p-2"
-        class="outline-none"
+        class="outline-none {centerCards ? 'justify-items-center' : ''}"
         role="listbox"
         aria-label={itemLabel}
         tabindex={0}
