@@ -74,37 +74,165 @@ pub struct DeleteFailure {
     pub reason: String,
 }
 
-/// ディレクトリを再帰的にスキャンして音楽ファイルを検索
-pub fn scan_directory(dir_path: &Path) -> AppResult<Vec<PathBuf>> {
-    let mut audio_files = Vec::new();
-
-    scan_directory_recursive(dir_path, &mut audio_files)?;
-
-    Ok(audio_files)
+/// フォルダを走査した結果
+#[derive(Debug, Default, PartialEq)]
+pub struct ScannedFolder {
+    /// 見つかった音楽ファイル
+    pub audio_files: Vec<PathBuf>,
+    /// 読めなかったフォルダ（権限がないなど）。中のファイルは`audio_files`に入っていない
+    pub unreadable_dirs: Vec<PathBuf>,
 }
 
-/// 再帰的にディレクトリをスキャンする内部関数
-fn scan_directory_recursive(dir_path: &Path, audio_files: &mut Vec<PathBuf>) -> AppResult<()> {
-    let entries = fs::read_dir(dir_path)
-        .map_err(|e| AppError::Io(format!("ディレクトリの読み取りに失敗しました: {}", e)))?;
-
-    for entry in entries {
-        let entry =
-            entry.map_err(|e| AppError::Io(format!("エントリの読み取りに失敗しました: {}", e)))?;
-        let path = entry.path();
-
-        if path.is_dir() {
-            // サブディレクトリを再帰的にスキャン
-            scan_directory_recursive(&path, audio_files)?;
-        } else if path.is_file() {
-            // サポートされている拡張子かチェック
-            if is_supported_audio_file(&path) {
-                audio_files.push(path);
-            }
-        }
+impl ScannedFolder {
+    /// パスが、読めなかったフォルダの中か
+    ///
+    /// 再スキャンで、読めなかったフォルダの中の曲を「見つからない曲」にしないために使う。
+    pub fn is_in_unreadable_dir(&self, path: &Path) -> bool {
+        self.unreadable_dirs.iter().any(|dir| path.starts_with(dir))
     }
 
-    Ok(())
+    /// 読めなかったフォルダを知らせる文（結果のエラーの一覧に足す）
+    ///
+    /// 名前が`.`で始まるフォルダは出さない（外付けドライブの`.Trashes`・`.Spotlight-V100`のように、
+    /// OSが管理していて読めないのが普通のフォルダのため）。
+    pub fn unreadable_dir_errors(&self) -> Vec<String> {
+        self.unreadable_dirs
+            .iter()
+            .filter(|dir| {
+                !dir.file_name()
+                    .is_some_and(|name| name.to_string_lossy().starts_with('.'))
+            })
+            .map(|dir| format!("{}: フォルダを読み取れませんでした", dir.display()))
+            .collect()
+    }
+}
+
+/// ディレクトリを再帰的にスキャンして音楽ファイルを検索
+///
+/// 中のフォルダを読めなくても、ほかのフォルダの走査は続ける（読めなかったフォルダは
+/// `unreadable_dirs`に入れる）。指定したフォルダそのものを読めない場合は、エラーにする。
+///
+/// シンボリックリンクは、たどる（リンクで置いたフォルダの曲も取り込む）。ただし、たどっている
+/// 途中のフォルダへ戻るリンク（親フォルダを指すリンクなど）は、終わらなくなるため、たどらない。
+pub fn scan_directory(dir_path: &Path) -> AppResult<ScannedFolder> {
+    let read_error =
+        |e: std::io::Error| AppError::Io(format!("ディレクトリの読み取りに失敗しました: {}", e));
+    let entries = fs::read_dir(dir_path).map_err(read_error)?;
+    let real_path = fs::canonicalize(dir_path).map_err(read_error)?;
+
+    let mut scanned = ScannedFolder::default();
+    let ancestors = Ancestors {
+        real_path: &real_path,
+        parent: None,
+    };
+    scan_entries(dir_path, entries, &ancestors, &mut scanned);
+    Ok(scanned)
+}
+
+/// 指定したフォルダから今のフォルダまでの、実体のパス（リンクの循環の判定に使う）
+struct Ancestors<'a> {
+    /// 今のフォルダの、リンクをたどった後の実体のパス
+    real_path: &'a Path,
+    parent: Option<&'a Ancestors<'a>>,
+}
+
+impl Ancestors<'_> {
+    fn contains(&self, real_path: &Path) -> bool {
+        self.real_path == real_path || self.parent.is_some_and(|parent| parent.contains(real_path))
+    }
+}
+
+/// 走査で見つけた項目の種類（シンボリックリンクは、リンク先の種類）
+enum EntryKind {
+    /// フォルダ（`real_path`は、リンクをたどった後の実体のパス）
+    Dir {
+        real_path: PathBuf,
+    },
+    File,
+}
+
+/// 項目の種類を調べる（フォルダでもファイルでもないもの・切れたリンクは値なし）
+///
+/// `DirEntry::file_type`はリンクをたどらず、フォルダを読んだ時の情報で分かるため、
+/// リンクでない項目は、ファイルごとの問い合わせをせずに済む。
+fn entry_kind(entry: &fs::DirEntry, parent_real_path: &Path) -> Option<EntryKind> {
+    let file_type = entry.file_type().ok()?;
+    if file_type.is_dir() {
+        return Some(EntryKind::Dir {
+            real_path: parent_real_path.join(entry.file_name()),
+        });
+    }
+    if file_type.is_file() {
+        return Some(EntryKind::File);
+    }
+    if !file_type.is_symlink() {
+        return None;
+    }
+
+    let path = entry.path();
+    let target = fs::metadata(&path).ok()?;
+    if target.is_dir() {
+        Some(EntryKind::Dir {
+            real_path: fs::canonicalize(&path).ok()?,
+        })
+    } else if target.is_file() {
+        Some(EntryKind::File)
+    } else {
+        None
+    }
+}
+
+/// フォルダの中身を、再帰的にスキャンする内部関数
+fn scan_entries(
+    dir_path: &Path,
+    entries: fs::ReadDir,
+    ancestors: &Ancestors,
+    scanned: &mut ScannedFolder,
+) {
+    let mark_unreadable = |scanned: &mut ScannedFolder, dir: &Path, e: std::io::Error| {
+        log::warn!("フォルダを読み取れませんでした: {}: {}", dir.display(), e);
+        if !scanned.is_in_unreadable_dir(dir) {
+            scanned.unreadable_dirs.push(dir.to_path_buf());
+        }
+    };
+
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(e) => {
+                // 途中までしか読めていないため、このフォルダは読めなかったものとして扱う
+                mark_unreadable(scanned, dir_path, e);
+                continue;
+            }
+        };
+        let path = entry.path();
+
+        match entry_kind(&entry, ancestors.real_path) {
+            Some(EntryKind::Dir { real_path }) => {
+                if ancestors.contains(&real_path) {
+                    log::warn!(
+                        "たどっている途中のフォルダへ戻るリンクのため、たどりません: {}",
+                        path.display()
+                    );
+                    continue;
+                }
+                match fs::read_dir(&path) {
+                    Ok(entries) => {
+                        let ancestors = Ancestors {
+                            real_path: &real_path,
+                            parent: Some(ancestors),
+                        };
+                        scan_entries(&path, entries, &ancestors, scanned);
+                    }
+                    Err(e) => mark_unreadable(scanned, &path, e),
+                }
+            }
+            Some(EntryKind::File) if is_supported_audio_file(&path) => {
+                scanned.audio_files.push(path);
+            }
+            Some(EntryKind::File) | None => {}
+        }
+    }
 }
 
 /// ファイルがサポートされている音楽ファイルかチェック
@@ -266,6 +394,112 @@ pub fn delete_tracks_with_files(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::device_manifest::test_support::TempDir;
+
+    /// 空のファイルを作る（途中のフォルダも作る）
+    fn touch(path: &Path) {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, b"").unwrap();
+    }
+
+    /// 走査で見つかったファイルを、フォルダからの相対パスで返す（名前の順）
+    fn scanned_paths(root: &Path) -> Vec<String> {
+        let mut paths: Vec<String> = scan_directory(root)
+            .unwrap()
+            .audio_files
+            .iter()
+            .map(|path| {
+                let relative = path.strip_prefix(root).unwrap();
+                relative.to_str().unwrap().to_string()
+            })
+            .collect();
+        paths.sort();
+        paths
+    }
+
+    #[test]
+    fn test_scan_directory_finds_audio_files_in_subfolders() {
+        let dir = TempDir::new();
+        touch(&dir.path().join("a.mp3"));
+        touch(&dir.path().join("Artist/Album/b.FLAC"));
+        touch(&dir.path().join("Artist/cover.jpg"));
+
+        assert_eq!(scanned_paths(dir.path()), ["Artist/Album/b.FLAC", "a.mp3"]);
+    }
+
+    #[test]
+    fn test_scan_directory_fails_when_the_folder_cannot_be_read() {
+        let dir = TempDir::new();
+        assert!(scan_directory(&dir.path().join("none")).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_scan_directory_follows_links_but_not_back_to_an_ancestor() {
+        use std::os::unix::fs::symlink;
+
+        let dir = TempDir::new();
+        let root = dir.path().join("music");
+        let outside = dir.path().join("outside");
+        touch(&root.join("a.mp3"));
+        touch(&root.join("sub/b.mp3"));
+        touch(&outside.join("c.mp3"));
+        // リンクで置いたフォルダ・ファイルは取り込む
+        symlink(&outside, root.join("linked")).unwrap();
+        symlink(outside.join("c.mp3"), root.join("d.mp3")).unwrap();
+        // 親フォルダ・自分自身へ戻るリンクと、リンク先から戻ってくるリンクは、たどらない
+        symlink(&root, root.join("sub/parent")).unwrap();
+        symlink(root.join("sub"), root.join("sub/self")).unwrap();
+        symlink(&root, outside.join("back")).unwrap();
+        // 切れたリンクは飛ばす
+        symlink(dir.path().join("none"), root.join("broken.mp3")).unwrap();
+
+        assert_eq!(
+            scanned_paths(&root),
+            ["a.mp3", "d.mp3", "linked/c.mp3", "sub/b.mp3"]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_scan_directory_continues_past_unreadable_folders() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new();
+        touch(&dir.path().join("a.mp3"));
+        touch(&dir.path().join("locked/b.mp3"));
+        touch(&dir.path().join(".Trashes/c.mp3"));
+        let set_mode = |name: &str, mode: u32| {
+            fs::set_permissions(dir.path().join(name), fs::Permissions::from_mode(mode)).unwrap();
+        };
+        set_mode("locked", 0o000);
+        set_mode(".Trashes", 0o000);
+        // 管理者として動かしている場合は、権限がなくても読めるため、確かめられない
+        let is_locked = fs::read_dir(dir.path().join("locked")).is_err();
+
+        let scanned = scan_directory(dir.path());
+
+        // 一時フォルダを削除できるように、権限を戻す
+        set_mode("locked", 0o755);
+        set_mode(".Trashes", 0o755);
+        if !is_locked {
+            return;
+        }
+        let scanned = scanned.unwrap();
+        assert_eq!(scanned.audio_files, [dir.path().join("a.mp3")]);
+        assert!(scanned.is_in_unreadable_dir(&dir.path().join("locked/b.mp3")));
+        assert!(scanned.is_in_unreadable_dir(&dir.path().join(".Trashes/c.mp3")));
+        assert!(!scanned.is_in_unreadable_dir(&dir.path().join("a.mp3")));
+        assert!(!scanned.is_in_unreadable_dir(&dir.path().join("locked-2/d.mp3")));
+        // 名前が`.`で始まるフォルダは、エラーとしては知らせない
+        assert_eq!(
+            scanned.unreadable_dir_errors(),
+            [format!(
+                "{}: フォルダを読み取れませんでした",
+                dir.path().join("locked").display()
+            )]
+        );
+    }
 
     #[test]
     fn test_is_supported_audio_file() {
