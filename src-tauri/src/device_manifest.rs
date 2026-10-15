@@ -13,7 +13,7 @@
 use crate::error::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::io::Write;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 /// 管理ファイルを置くフォルダ（デバイスのフォルダの直下）
@@ -110,7 +110,7 @@ pub fn read_manifest(root: &Path) -> AppResult<Option<Manifest>> {
     let path = manifest_path(root);
     let content = match fs::read(&path) {
         Ok(content) => content,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
         // 転送先のフォルダ自体がない（デバイスが外れている）場合も「ない」として扱う
         Err(_) if !root.is_dir() => return Ok(None),
         Err(e) => {
@@ -168,24 +168,63 @@ pub fn read_device_id(root: &Path) -> Option<String> {
         .map(|header| header.device_id)
 }
 
+/// ファイルを削除する（すでにない場合も成功として扱う）
+///
+/// シンボリックリンクの場合は、リンク先ではなくリンク自体を消す。
+pub fn remove_file_if_exists(path: &Path) -> io::Result<()> {
+    match fs::remove_file(path) {
+        Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
+        _ => Ok(()),
+    }
+}
+
+/// 一時ファイルを新しく作る（同じ名前のものがあれば、先に消す）
+///
+/// `File::create`はシンボリックリンクをたどるため、デバイス上に一時ファイルの名前で
+/// リンクが置かれていると、リンク先（デバイスのフォルダの外を含む）を書き換えてしまう。
+/// 先に消し（リンクならリンク自体が消える）、`create_new`で開く（その間に置かれた
+/// リンクもたどらずに失敗する）。消せないもの（フォルダなど）がある場合はエラーにする。
+pub fn create_temp_file(path: &Path) -> io::Result<fs::File> {
+    remove_file_if_exists(path)?;
+    fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+}
+
 /// 管理ファイルを書く
 ///
 /// 書き込みの途中でデバイスが外れても壊れないよう、別名で書いてから置き換える。
+/// 管理ファイルのフォルダがシンボリックリンクなどでデバイスのフォルダの外を指す場合は
+/// エラーにする。
 pub fn write_manifest(root: &Path, manifest: &Manifest) -> AppResult<()> {
-    let to_error =
-        |e: std::io::Error| AppError::Io(format!("デバイスの管理ファイルを書き込めません: {}", e));
-    let dir = root.join(MANIFEST_DIR);
-    fs::create_dir_all(&dir).map_err(to_error)?;
-
     let content = serde_json::to_vec(manifest)
         .map_err(|e| AppError::Io(format!("デバイスの管理ファイルを作成できません: {}", e)))?;
+    write_manifest_file(root, &content)
+        .map_err(|e| AppError::Io(format!("デバイスの管理ファイルを書き込めません: {}", e)))
+}
+
+/// `write_manifest`の本体（ファイルへの書き込み）
+fn write_manifest_file(root: &Path, content: &[u8]) -> io::Result<()> {
+    let dir = root.join(MANIFEST_DIR);
+    fs::create_dir_all(&dir)?;
+    if !dir.canonicalize()?.starts_with(root.canonicalize()?) {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!(
+                "管理ファイルのフォルダ（{}）がデバイスのフォルダの外を指しています",
+                MANIFEST_DIR
+            ),
+        ));
+    }
+
     let temp_path = dir.join(MANIFEST_TEMP_FILE);
-    let mut file = fs::File::create(&temp_path).map_err(to_error)?;
-    file.write_all(&content).map_err(to_error)?;
+    let mut file = create_temp_file(&temp_path)?;
+    file.write_all(content)?;
     // 置き換える前にディスクへ書き出す（取り外しで、空の管理ファイルが残らないようにする）
-    file.sync_all().map_err(to_error)?;
+    file.sync_all()?;
     drop(file);
-    fs::rename(&temp_path, dir.join(MANIFEST_FILE)).map_err(to_error)
+    fs::rename(&temp_path, dir.join(MANIFEST_FILE))
 }
 
 #[cfg(test)]
@@ -276,6 +315,42 @@ mod tests {
                 .join(MANIFEST_TEMP_FILE)
                 .exists()
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_write_manifest_does_not_follow_symlink_at_temp_file() {
+        let dir = TempDir::new();
+        let root = dir.path().join("device");
+        let secret = dir.path().join("secret.txt");
+        fs::create_dir_all(root.join(MANIFEST_DIR)).unwrap();
+        fs::write(&secret, "secret").unwrap();
+        // 管理ファイルの一時ファイルの名前で、デバイスのフォルダの外を指すリンクがある
+        let temp = root.join(MANIFEST_DIR).join(MANIFEST_TEMP_FILE);
+        std::os::unix::fs::symlink(&secret, &temp).unwrap();
+
+        write_manifest(&root, &Manifest::new("device-1")).unwrap();
+
+        assert_eq!(fs::read_to_string(&secret).unwrap(), "secret");
+        assert_eq!(read_device_id(&root).as_deref(), Some("device-1"));
+        assert!(fs::symlink_metadata(&temp).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_write_manifest_refuses_folder_outside_device() {
+        let dir = TempDir::new();
+        let root = dir.path().join("device");
+        let outside = dir.path().join("outside");
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        // 管理ファイルのフォルダが、デバイスのフォルダの外を指すリンクになっている
+        std::os::unix::fs::symlink(&outside, root.join(MANIFEST_DIR)).unwrap();
+
+        let result = write_manifest(&root, &Manifest::new("device-1"));
+
+        assert!(matches!(result, Err(AppError::Io(_))));
+        assert_eq!(fs::read_dir(&outside).unwrap().count(), 0);
     }
 
     #[test]

@@ -11,7 +11,8 @@
 //! - 管理ファイルは途中でも保存する（中止・取り外しの後、次の同期で続きから差分になる）
 
 use crate::device_manifest::{
-    Manifest, ManifestFile, ManifestPlaylist, to_device_path, write_manifest,
+    Manifest, ManifestFile, ManifestPlaylist, create_temp_file, remove_file_if_exists,
+    to_device_path, write_manifest,
 };
 use crate::device_sync::{CopyOp, SyncPlan, build_m3u8, path_key};
 use crate::error::{AppError, AppResult};
@@ -86,16 +87,28 @@ impl Device<'_> {
         let path = to_device_path(self.root, relative_path);
         if let Some(parent) = path.parent() {
             if create_parent {
+                // 作る前に、すでにある所までがフォルダの中かを確かめる（途中のリンクが
+                // フォルダの外を指す場合に、リンク先にフォルダを作らない）
+                if let Some(existing) = parent.ancestors().find(|dir| dir.exists()) {
+                    self.ensure_inside(existing)?;
+                }
                 fs::create_dir_all(parent)?;
             }
-            if !parent.canonicalize()?.starts_with(&self.canonical_root) {
-                return Err(io::Error::new(
-                    io::ErrorKind::PermissionDenied,
-                    "デバイスのフォルダの外を指すパスです",
-                ));
-            }
+            self.ensure_inside(parent)?;
         }
         Ok(path)
+    }
+
+    /// シンボリックリンクを解決したフォルダが、デバイスのフォルダの中か
+    fn ensure_inside(&self, dir: &Path) -> io::Result<()> {
+        if dir.canonicalize()?.starts_with(&self.canonical_root) {
+            Ok(())
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "デバイスのフォルダの外を指すパスです",
+            ))
+        }
     }
 
     /// 管理ファイルを保存する
@@ -132,14 +145,6 @@ impl Device<'_> {
     }
 }
 
-/// ファイルを削除する（すでにない場合も成功として扱う）
-fn remove_file_if_exists(path: &Path) -> io::Result<()> {
-    match fs::remove_file(path) {
-        Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
-        _ => Ok(()),
-    }
-}
-
 /// 一時ファイルのパス（ファイル名に`.part`を足す）
 fn temp_path(path: &Path) -> PathBuf {
     let mut name = path.file_name().unwrap_or_default().to_os_string();
@@ -149,14 +154,16 @@ fn temp_path(path: &Path) -> PathBuf {
 
 /// ファイルを別名で書いてから置き換える
 ///
-/// `write`がfalseを返した（中止された）場合と失敗した場合は、一時ファイルを消す。
-/// 置き換えたらtrueを返す。
+/// 一時ファイルの名前にシンボリックリンクなどが置かれていても、たどらずに作り直す
+/// （`create_temp_file`）。置き換え（`rename`）も、置き換え先がリンクならリンク自体を
+/// 置き換える。`write`がfalseを返した（中止された）場合と失敗した場合は、一時ファイルを
+/// 消す。置き換えたらtrueを返す。
 fn write_atomically(
     path: &Path,
     write: impl FnOnce(&mut fs::File) -> io::Result<bool>,
 ) -> io::Result<bool> {
     let temp = temp_path(path);
-    let result = fs::File::create(&temp).and_then(|mut file| {
+    let result = create_temp_file(&temp).and_then(|mut file| {
         let completed = write(&mut file)?;
         if completed {
             file.flush()?;
@@ -912,16 +919,84 @@ mod tests {
         };
         let plan = SyncPlan {
             to_delete: vec![entry.clone()],
-            to_copy: vec![fixture.copy_op("t2", "link/02 Two.mp3", "two")],
+            to_copy: vec![
+                fixture.copy_op("t2", "link/02 Two.mp3", "two"),
+                // リンクの先にフォルダも作らない
+                fixture.copy_op("t3", "link/Album/03 Three.mp3", "three"),
+            ],
             ..SyncPlan::default()
         };
 
         let outcome = fixture.execute(fixture.manifest(vec![entry]), &plan);
 
         assert_eq!((outcome.deleted_count, outcome.copied_count), (0, 0));
-        assert_eq!(outcome.errors.len(), 2);
+        assert_eq!(outcome.errors.len(), 3);
         assert!(outside.join("secret.txt").exists());
         assert!(!outside.join("02 Two.mp3").exists());
+        assert!(!outside.join("Album").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_does_not_follow_symlinks_at_temp_paths() {
+        let fixture = Fixture::new();
+        // 一時ファイルの名前で、デバイスのフォルダの外を指すシンボリックリンクがある
+        // （曲はあるファイルを、プレイリストはまだないファイルを指す）
+        let secret = fixture.library.join("secret.txt");
+        let missing = fixture.library.join("created.txt");
+        fs::write(&secret, "secret").unwrap();
+        let song_temp = to_device_path(&fixture.root, "Artist/Album/01 One.mp3.part");
+        let playlist_temp = fixture.root.join("通勤.m3u8.part");
+        fs::create_dir_all(song_temp.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(&secret, &song_temp).unwrap();
+        std::os::unix::fs::symlink(&missing, &playlist_temp).unwrap();
+        let plan = SyncPlan {
+            to_copy: vec![fixture.copy_op("t1", "Artist/Album/01 One.mp3", "one")],
+            playlists: vec![PlaylistOp {
+                playlist_id: "p1".to_string(),
+                path: "通勤.m3u8".to_string(),
+                entries: vec![],
+            }],
+            ..SyncPlan::default()
+        };
+
+        let outcome = fixture.execute(fixture.manifest(vec![]), &plan);
+
+        // リンクを消して書き直すため、転送は成功し、リンク先は変わらない
+        assert_eq!((outcome.copied_count, outcome.playlist_count), (1, 1));
+        assert!(outcome.errors.is_empty());
+        assert_eq!(fs::read_to_string(&secret).unwrap(), "secret");
+        assert!(!missing.exists());
+        assert_eq!(
+            fixture.read("Artist/Album/01 One.mp3").as_deref(),
+            Some("one")
+        );
+        assert_eq!(fixture.read("通勤.m3u8").as_deref(), Some("#EXTM3U\r\n"));
+        assert!(fs::symlink_metadata(&song_temp).is_err());
+        assert!(fs::symlink_metadata(&playlist_temp).is_err());
+    }
+
+    #[test]
+    fn test_copy_fails_when_temp_path_is_a_folder() {
+        let fixture = Fixture::new();
+        // 一時ファイルの名前でフォルダがある（消さずに、そのファイルを失敗にする）
+        let temp = to_device_path(&fixture.root, "Artist/Album/01 One.mp3.part");
+        fs::create_dir_all(&temp).unwrap();
+        let plan = SyncPlan {
+            to_copy: vec![
+                fixture.copy_op("t1", "Artist/Album/01 One.mp3", "one"),
+                fixture.copy_op("t2", "Artist/Album/02 Two.mp3", "two"),
+            ],
+            ..SyncPlan::default()
+        };
+
+        let outcome = fixture.execute(fixture.manifest(vec![]), &plan);
+
+        assert_eq!(outcome.copied_count, 1);
+        assert_eq!(outcome.errors.len(), 1);
+        assert!(temp.is_dir());
+        assert_eq!(fixture.read("Artist/Album/01 One.mp3"), None);
+        assert_eq!(fixture.saved_paths(), ["Artist/Album/02 Two.mp3"]);
     }
 
     #[test]
