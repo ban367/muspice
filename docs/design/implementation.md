@@ -254,7 +254,11 @@ src-tauri/src/
   - 仮想スクロールの一覧では、移動先の行の要素がないことがあるため、`handleTrackListKeydown`の`scrollTo`に`VirtualList`の`scrollToIndex`を渡す（渡さない場合は、`data-track-id`の付いた行の要素を探してスクロールする）
 - 1つだけ選択する一覧（2ペイン表示の左の`AlbumList`・`ArtistList`）は、`listSelectionTarget`で移動先を求めて選択し、その項目へフォーカスも移す（Tabでは選択中の項目だけに止まる）
 - グリッド表示（`LibraryGrid`: アルバム・アーティスト・ジャンル）は、現在位置の項目を枠で示し、Enterでクリックと同じ操作（`onOpen`）を行う
-- 修飾キーなしの矢印キーは一覧が使う。プレーヤーのショートカット（`Player.svelte`）はCmd/Ctrl+矢印（前へ・次へ・音量）とSpace（再生・一時停止）
+- 修飾キーなしの矢印キーは一覧が使う。プレーヤーのショートカット（`Player.svelte`）はCmd/Ctrl+矢印（前へ・次へ・音量）・Cmd/Ctrl+L（再生中の曲を表示）と、Space（再生・一時停止）・S（シャッフル）・R（リピート）・M（ミュート）
+  - プレーヤーはウィンドウでキーを受け取るため、フォーカスのある要素がキーを使う場合はショートカットを行わない。条件は`#lib/utils/globalShortcuts`の`isGlobalShortcutBlocked`にまとめる
+  - ほかの処理が処理したキー（`defaultPrevented`）と、入力の部品（input・textarea・select）・編集できる要素の中、モーダル（`<dialog open>`）が開いている間は、どのショートカットも行わない（モーダルの間は背面の画面と同じく操作できなくする。Cmd/Ctrl+Lで背面の画面を移動しないように）
+  - Cmd/Ctrlなしのキー（Space・S・R・M）は、ボタン（Spaceで押す）と、メニュー（`role="menu"`。頭文字で項目を選ぶ）・ボタンから開くパネル（`role="dialog"`）の中では行わない。一覧（`role="listbox"`の要素と、ボタンで作った`role="option"`の項目）では、Spaceで再生・一時停止する
+  - キーを自分で扱う部品は、同じキーでショートカットも動かないように、扱ったキーで`preventDefault()`を呼ぶか、Cmd/Ctrl付きのキーを扱わない（プレーヤーのシーク・音量のスライダーは、修飾キーなしの矢印だけを扱う）
 
 ### ドラッグ&ドロップ
 
