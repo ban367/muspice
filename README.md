@@ -12,9 +12,11 @@ PC向けデスクトップ音楽管理アプリケーション
 
 ### 必要なツール
 
-- Node.js 24.x
-- Rust (最新安定版)
-- npm
+- Node.js 24.15以上（`.node-version`の24.21.0を使う）
+- npm 11以上（Node.js 24に同梱）
+- Rust（`rust-toolchain.toml`の1.99.0。rustupが自動で入れる）
+
+Node.js・npmの版は`package.json`の`engines`に書いてあり、満たさない版では`npm install`が失敗する（`.npmrc`の`engine-strict=true`）。miseを使う場合は、`mise install`で`.node-version`・`rust-toolchain.toml`の版が入る。
 
 ### インストール
 
@@ -71,6 +73,9 @@ npm run format
 
 # Prettierチェック
 npm run format:check
+
+# Markdownのlint（markdownlint）
+npm run lint:md
 ```
 
 ### Rustテスト
@@ -81,7 +86,7 @@ cd src-tauri && cargo test
 
 ## Recommended IDE Setup
 
-[VS Code](https://code.visualstudio.com/) + [Svelte](https://marketplace.visualstudio.com/items?itemName=svelte.svelte-vscode) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer) + [ESLint](https://marketplace.visualstudio.com/items?itemName=dbaeumer.vscode-eslint) + [Prettier](https://marketplace.visualstudio.com/items?itemName=esbenp.prettier-vscode)
+[VS Code](https://code.visualstudio.com/) + [Svelte](https://marketplace.visualstudio.com/items?itemName=svelte.svelte-vscode) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer) + [ESLint](https://marketplace.visualstudio.com/items?itemName=dbaeumer.vscode-eslint) + [Prettier](https://marketplace.visualstudio.com/items?itemName=esbenp.prettier-vscode) + [markdownlint](https://marketplace.visualstudio.com/items?itemName=DavidAnson.vscode-markdownlint)
 
 ## 詳細ドキュメント
 

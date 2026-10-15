@@ -1,9 +1,9 @@
 /// <reference types="vitest/config" />
-import { defineConfig } from "vite";
-import { sveltekit } from "@sveltejs/kit/vite";
-import { vitePreprocess } from "@sveltejs/vite-plugin-svelte";
-import adapter from "@sveltejs/adapter-static";
-import tailwindcss from "@tailwindcss/vite";
+import { defineConfig } from 'vite';
+import { sveltekit } from '@sveltejs/kit/vite';
+import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
+import adapter from '@sveltejs/adapter-static';
+import tailwindcss from '@tailwindcss/vite';
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
@@ -21,20 +21,20 @@ export default defineConfig(async () => ({
       // See: https://svelte.dev/docs/kit/single-page-apps
       // See: https://v2.tauri.app/start/frontend/sveltekit/
       adapter: adapter({
-        fallback: "index.html",
-      }),
+        fallback: 'index.html'
+      })
     }),
-    tailwindcss(),
+    tailwindcss()
   ],
 
   // Vitest: ロジック（ストア・ユーティリティ）の単体テストをNode環境で実行する
   // （Runesの$effectを動かすため、Svelteはクライアント向けにコンパイルする。vitest.environment.ts参照）
   test: {
-    include: ["src/**/*.test.ts"],
-    environment: "./vitest.environment.ts",
+    include: ['src/**/*.test.ts'],
+    environment: './vitest.environment.ts'
   },
   // テスト時はsvelte本体もクライアント用（browser条件）を読み込む（サーバー用では$effectが動かない）
-  resolve: isVitest ? { conditions: ["browser"] } : undefined,
+  resolve: isVitest ? { conditions: ['browser'] } : undefined,
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
@@ -47,14 +47,14 @@ export default defineConfig(async () => ({
     host: host || false,
     hmr: host
       ? {
-          protocol: "ws",
+          protocol: 'ws',
           host,
-          port: 1421,
+          port: 1421
         }
       : undefined,
     watch: {
       // 3. tell Vite to ignore watching `src-tauri`
-      ignored: ["**/src-tauri/**"],
-    },
-  },
+      ignored: ['**/src-tauri/**']
+    }
+  }
 }));

@@ -1,3 +1,5 @@
+# Rustの版はここで固定する（CI・手元とも、この版を使う）
+# 新しい版はDependabotがPRで上げる。clippyのlintが増えて落ちたら、そのPRで直す
 [toolchain]
-channel = "stable"
+channel = "1.99.0"
 components = ["clippy", "rustfmt"]

@@ -3,7 +3,7 @@ updates:
   # npm依存関係の更新
   - package-ecosystem: 'npm'
     directory: '/'
-    # 3つのエコシステムとも、毎週月曜の朝にそろえる
+    # どのエコシステムも、毎週月曜の朝にそろえる
     schedule:
       interval: 'weekly'
       day: 'monday'
@@ -50,6 +50,21 @@ updates:
         update-types:
           - 'minor'
           - 'patch'
+
+  # Rustのツールチェーン（rust-toolchain.tomlのchannel）の更新
+  # 新しい版でclippyのlintが増えて落ちたら、このPRで直す
+  - package-ecosystem: 'rust-toolchain'
+    directory: '/'
+    schedule:
+      interval: 'weekly'
+      day: 'monday'
+      time: '09:00'
+      timezone: 'Asia/Tokyo'
+    assignees:
+      - 'ban367'
+    labels:
+      - 'dependencies'
+      - 'rust'
 
   # GitHub Actionsの更新
   - package-ecosystem: 'github-actions'

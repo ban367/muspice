@@ -30,7 +30,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: '24'
+          node-version-file: '.node-version'
 
       # moderate以上で失敗させる
       - name: Audit npm dependencies
@@ -49,5 +49,11 @@ jobs:
 
       # 脆弱性で失敗させる（unmaintained・unsoundは警告として表示のみ）
       # rust-toolchain.tomlによるツールチェーン導入を避けるため、cargo経由ではなく直接実行する
+      # 受容済みのアドバイザリ（docs/design/non-functional.md の一覧）は --ignore で除く。
+      # 一覧を変えたら、ここも合わせる
       - name: Audit Rust dependencies
-        run: cargo-audit audit --file src-tauri/Cargo.lock
+        run: >-
+          cargo-audit audit --file src-tauri/Cargo.lock
+          --ignore RUSTSEC-2024-0429
+          --ignore RUSTSEC-2024-0370
+          --ignore RUSTSEC-2024-0436

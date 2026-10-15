@@ -26,6 +26,7 @@ npm run dev                   # フロントエンドのみ（ポート1420）
 npm run dev:mock              # ブラウザ確認用（Tauri IPCをモック、ポート1430）
 npm run check                 # TypeScript型チェック
 npm run lint                  # ESLint
+npm run lint:md               # markdownlint（Markdownのlint）
 npm test                      # Vitest（フロントエンドの単体テスト）
 npm run format                # Prettierフォーマット
 cd src-tauri && cargo test    # Rustテスト
