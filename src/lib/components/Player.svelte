@@ -24,6 +24,7 @@
   import { ui } from '#lib/stores/ui.svelte.js';
   import AlbumArt from './AlbumArt.svelte';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
+  import { isGlobalShortcutBlocked } from '#lib/utils/globalShortcuts.js';
   import MarqueeText from './MarqueeText.svelte';
   import FavoriteButton from './library/FavoriteButton.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
@@ -229,12 +230,12 @@
 
   /**
    * グローバルキーボードショートカットを処理
+   *
+   * フォーカスのある要素がキーを使う場合（入力欄・ボタン・メニューなど）は行わない（`isGlobalShortcutBlocked`）
    */
   function handleGlobalKeydown(event: KeyboardEvent) {
-    const target = event.target as HTMLElement;
-    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
-      return;
-    }
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (isGlobalShortcutBlocked(event, target)) return;
 
     const withModifier = event.ctrlKey || event.metaKey;
     const plain = !event.ctrlKey && !event.metaKey && !event.altKey;
@@ -476,6 +477,8 @@
           tabindex="0"
           onclick={(e) => seekTo(e.clientX)}
           onkeydown={(e) => {
+            // Cmd/Ctrl+矢印は、ウィンドウ全体のショートカット（前へ・次へ・音量）に任せる
+            if (e.metaKey || e.ctrlKey) return;
             if (e.key === 'ArrowLeft') {
               playback?.seekBy(-5);
             } else if (e.key === 'ArrowRight') {
@@ -574,6 +577,8 @@
           tabindex="0"
           onclick={(e) => setVolumeAt(e.clientX)}
           onkeydown={(e) => {
+            // Cmd/Ctrl+矢印は、ウィンドウ全体のショートカット（前へ・次へ・音量）に任せる
+            if (e.metaKey || e.ctrlKey) return;
             if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
               changeVolume(-VOLUME_STEP);
             } else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {

@@ -30,6 +30,8 @@
   }
 
   function handleProgressKeydown(event: KeyboardEvent) {
+    // Cmd/Ctrl+矢印は、ウィンドウ全体のショートカット（前へ・次へ・音量。`Player.svelte`）に任せる
+    if (event.metaKey || event.ctrlKey) return;
     if (event.key === 'ArrowLeft') seekPlayback(player.currentTime - 5);
     else if (event.key === 'ArrowRight') seekPlayback(player.currentTime + 5);
   }
