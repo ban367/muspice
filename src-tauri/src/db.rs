@@ -89,6 +89,15 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     add_column_if_not_exists(conn, "tracks", "favorited_at", "TEXT")?;
     // スキップ回数（再生回数に数える前に、別の曲へ移った回数）
     add_column_if_not_exists(conn, "tracks", "skip_count", "INTEGER DEFAULT 0")?;
+    // 再生回数・スキップ回数を、読める範囲（`MAX_PLAY_COUNT`まで）に収める。上限を確かめずに
+    // 書いていた版（ライブラリのXMLの取り込み）が入れた値があると、その曲を含む一覧を読めない
+    conn.execute(
+        "UPDATE tracks SET
+            play_count = MIN(play_count, ?1),
+            skip_count = MIN(skip_count, ?1)
+         WHERE play_count > ?1 OR skip_count > ?1",
+        [crate::models::MAX_PLAY_COUNT],
+    )?;
 
     // トラック番号/ディスク番号のカラムを追加
     add_column_if_not_exists(conn, "tracks", "track_number", "INTEGER")?;
@@ -537,6 +546,45 @@ mod tests {
         // 移行したあとに作ったプレイリストは、手動の並び順でいちばん後ろになる
         let created = crate::playlist::create_playlist(&conn, "ドライブ").unwrap();
         assert_eq!(created.position, 1);
+    }
+
+    /// 上限を超える再生回数・スキップ回数が入ったDBも、起動時に直して読めるようにすること
+    #[test]
+    fn test_migration_limits_counts_that_cannot_be_read() {
+        let conn = Connection::open_in_memory().expect("インメモリDB作成に失敗");
+        run_migrations(&conn).expect("マイグレーション実行に失敗");
+        // 上限を確かめずにライブラリのXMLを取り込んでいた版が書いた値
+        conn.execute_batch(
+            "INSERT INTO tracks (id, file_path, file_name, format, file_size, play_count, skip_count)
+             VALUES ('big', '/m/big.mp3', 'big.mp3', 'mp3', 1, 3000000000, NULL),
+                    ('both', '/m/both.mp3', 'both.mp3', 'mp3', 1, 2147483648, 9000000000),
+                    ('small', '/m/small.mp3', 'small.mp3', 'mp3', 1, 7, 2);",
+        )
+        .expect("トラックの挿入に失敗");
+        assert!(crate::repository::find_all_tracks(&conn).is_err());
+
+        // 次の起動
+        run_migrations(&conn).expect("2回目のマイグレーション実行に失敗");
+
+        let counts: Vec<(String, i32, i32)> = crate::repository::find_all_tracks(&conn)
+            .expect("一覧を読めること")
+            .into_iter()
+            .map(|track| (track.id, track.play_count, track.skip_count))
+            .collect();
+        let max = i32::MAX;
+        assert_eq!(counts.len(), 3);
+        assert!(counts.contains(&("big".to_string(), max, 0)));
+        assert!(counts.contains(&("both".to_string(), max, max)));
+        assert!(counts.contains(&("small".to_string(), 7, 2)));
+        // 値のなかったスキップ回数は、値のないまま
+        let skip_count: Option<i64> = conn
+            .query_row(
+                "SELECT skip_count FROM tracks WHERE id = 'big'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(skip_count, None);
     }
 
     #[test]

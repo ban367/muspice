@@ -14,6 +14,7 @@
 
 use crate::error::{AppError, AppResult};
 use crate::models::Track;
+use crate::validation::MAX_PLAYLIST_NAME_LENGTH;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use unicode_normalization::UnicodeNormalization;
@@ -341,31 +342,26 @@ pub fn sanitize_playlist_name(name: &str) -> String {
     }
 }
 
-/// プレイリスト名の長さの上限（バイト数。`validate_playlist_name`と同じ）
-const MAX_PLAYLIST_NAME_BYTES: usize = 100;
-
-/// 文字の途中で切らずに、指定したバイト数までに収める
-fn truncate_to_bytes(value: &str, max_bytes: usize) -> &str {
-    if value.len() <= max_bytes {
-        return value;
+/// 指定した文字数までに収める（`validate_playlist_name`と同じく、バイト数ではなく文字数で数える）
+fn truncate_to_chars(value: &str, max_chars: usize) -> &str {
+    match value.char_indices().nth(max_chars) {
+        Some((end, _)) => value[..end].trim_end(),
+        None => value,
     }
-    let mut end = max_bytes;
-    while !value.is_char_boundary(end) {
-        end -= 1;
-    }
-    value[..end].trim_end()
 }
 
 /// すでにあるプレイリストと重ならない名前にする（重なる場合は` (2)`・` (3)`…を付ける）
+///
+/// 長い名前は、番号を付けた後も上限（`MAX_PLAYLIST_NAME_LENGTH`）に収まるよう切る。
 pub fn unique_playlist_name(name: &str, existing: &[String]) -> String {
-    let base = truncate_to_bytes(name, MAX_PLAYLIST_NAME_BYTES);
+    let base = truncate_to_chars(name, MAX_PLAYLIST_NAME_LENGTH);
     if !existing.iter().any(|other| other == base) {
         return base.to_string();
     }
     (2..)
         .map(|number| {
             let suffix = format!(" ({})", number);
-            let base = truncate_to_bytes(name, MAX_PLAYLIST_NAME_BYTES - suffix.len());
+            let base = truncate_to_chars(name, MAX_PLAYLIST_NAME_LENGTH - suffix.chars().count());
             format!("{}{}", base, suffix)
         })
         .find(|candidate| !existing.iter().any(|other| other == candidate))
@@ -606,14 +602,19 @@ mod tests {
         assert_eq!(unique_playlist_name("作業用", &existing), "作業用");
         assert_eq!(unique_playlist_name("通勤", &existing), "通勤 (3)");
 
-        // 長い名前は、番号を付けた後も上限（100バイト）に収める
-        let long = "あ".repeat(40);
+        // 上限（100文字）までの名前は、日本語でも切らない
+        let name = unique_playlist_name(&"あ".repeat(100), &[]);
+        assert_eq!(name, "あ".repeat(100));
+        // 長い名前は、番号を付けた後も上限に収める
+        let long = "あ".repeat(120);
         let name = unique_playlist_name(&long, &[]);
-        assert_eq!(name, "あ".repeat(33));
+        assert_eq!(name, "あ".repeat(100));
         let numbered = unique_playlist_name(&long, &[name]);
-        assert!(numbered.len() <= 100);
-        assert!(numbered.ends_with(" (2)"));
+        assert_eq!(numbered, format!("{} (2)", "あ".repeat(96)));
         assert!(crate::validation::validate_playlist_name(&numbered).is_ok());
+        // 切った所の空白は除く
+        let spaced = format!("{} {}", "a".repeat(99), "b".repeat(10));
+        assert_eq!(unique_playlist_name(&spaced, &[]), "a".repeat(99));
     }
 
     fn track(file_path: &str, title: Option<&str>, artist: Option<&str>) -> Track {

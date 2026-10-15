@@ -34,6 +34,9 @@ pub fn validate_file_path(path: &str) -> AppResult<()> {
     Ok(())
 }
 
+/// プレイリスト名の長さの上限（文字数）
+pub const MAX_PLAYLIST_NAME_LENGTH: usize = 100;
+
 /// プレイリスト名をバリデーション
 pub fn validate_playlist_name(name: &str) -> AppResult<()> {
     // 空の名前をチェック
@@ -44,7 +47,7 @@ pub fn validate_playlist_name(name: &str) -> AppResult<()> {
     }
 
     // 長さをチェック（バイト数ではなく、文字数で数える）
-    if name.chars().count() > 100 {
+    if name.chars().count() > MAX_PLAYLIST_NAME_LENGTH {
         return Err(AppError::Validation(
             "プレイリスト名は100文字以内で入力してください".to_string(),
         ));

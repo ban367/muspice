@@ -565,7 +565,7 @@ M3Uの読み込み・書き出し（ADR-032）:
   - `M3uImportResult`: `{ fileName, playlistId: string \| null, playlistName: string \| null, addedCount, duplicateCount, unmatchedCount, unmatched: string[], error: string \| null }`
   - 文字コードは自動で判定する（BOM → UTF-8 → Shift_JIS）。`#`で始まる行と空行は読み飛ばす
   - 曲の場所は、ライブラリの曲のパスと突き合わせる。そのまま一致する曲がなければ、ファイル名が同じ曲のうち、上のフォルダの名前がいちばん長く一致する曲（同じ長さで複数あれば、対応を付けない）
-  - プレイリストの名前は、ファイル名（拡張子を除く。使えない文字は`_`）。同じ名前があれば`名前 (2)`のように番号を付ける
+  - プレイリストの名前は、ファイル名（拡張子を除く。使えない文字は`_`）。同じ名前があれば`名前 (2)`のように番号を付ける。名前は、番号を付けた後も100文字（`playlist_name`の上限。バイト数ではなく文字数）に収まるよう、長い名前の後ろを切る
   - 対応する曲が1つもない場合・ファイルを読めない場合（`error`）は、プレイリストを作らない（`playlistId`は`null`）。同じ曲の2回目以降は入れず、`duplicateCount`に数える。`unmatched`は、対応が付かなかった行の先頭200件
 - `export_playlist_m3u`は、Rust側で保存先を選ぶダイアログを開き、プレイリストをUTF-8の拡張M3U（`#EXTINF`付き・改行はCRLF）で書き出す。`relativePaths`が`true`なら、曲の場所を書き出し先のフォルダからの相対パスで書く（共通するフォルダがない曲は絶対パス）。拡張子がM3Uでなければ`.m3u8`を付ける。保存先を選ばなかった場合は`null`を返す
   - `M3uExportResult`: `{ fileName, trackCount }`
@@ -598,7 +598,8 @@ iTunes形式のライブラリXML（MusicBee・iTunes / ミュージックが書
 - `LibraryXmlImportResult`: `{ fileName, trackCount, matchedCount, updatedCount, unmatchedCount, unmatched: string[], playlistCount, skippedPlaylistCount }`（`trackCount`は、XMLの中の、ファイルの場所がある曲数。`unmatched`は、対応が付かなかった曲の場所の先頭200件）
 - 曲は、XMLの`Location`とライブラリの曲のパスを、M3Uの読み込みと同じ方法で突き合わせる
 - 対応が付いた曲は、再生回数（`Play Count`）・スキップ回数（`Skip Count`）を多い方、最後に再生した日時（`Play Date UTC`）を新しい方、追加した日時（`Date Added` → `created_at`）を古い方にする。`Loved`・`Favorited`が真の曲は、お気に入りにする。更新日時（`updated_at`）・再生履歴は変えない
-- `includePlaylists`が`true`なら、XMLのプレイリストごとにプレイリストを作る（対応が付いた曲だけを、XMLの順で。同じ名前があれば番号を付ける）。対応する曲が1つもないプレイリストは作らず、`skippedPlaylistCount`に数える。ライブラリ全体（`Master`）・決まったプレイリスト（`Distinguished Kind`）・フォルダ（`Folder`）は対象にしない
+  - XMLの再生回数・スキップ回数は、負の値を0、2147483647（`playCount`・`skipCount`の上限。下の「再生回数・スキップ回数・再生履歴」）を超える値を2147483647にして取り込む
+- `includePlaylists`が`true`なら、XMLのプレイリストごとにプレイリストを作る（対応が付いた曲だけを、XMLの順で。同じ名前があれば、M3Uの読み込みと同じく番号を付け、100文字に収める）。対応する曲が1つもないプレイリストは作らず、`skippedPlaylistCount`に数える。ライブラリ全体（`Master`）・決まったプレイリスト（`Distinguished Kind`）・フォルダ（`Folder`）は対象にしない
 - プロパティリストとして読めないファイル・曲が1つもないファイルは`VALIDATION`
 
 ### 再生・統計・システム
@@ -631,6 +632,7 @@ iTunes形式のライブラリXML（MusicBee・iTunes / ミュージックが書
 再生回数・スキップ回数・再生履歴（ADR-030）:
 
 - `increment_play_count`は、再生回数を1増やし、最後に再生した日時を更新して、再生履歴（`play_history`）に1件加える（新しい再生回数を返す）。`increment_skip_count`は、スキップ回数を1増やす（新しいスキップ回数を返す。更新日時・再生履歴は変えない）
+- 再生回数・スキップ回数の上限は2147483647（`Track`の`play_count`・`skip_count`はi32。`models::MAX_PLAY_COUNT`）。DBに上限を超える値が1曲でもあると、その曲を含む一覧を読めなくなるため、書く値は上限に収める（加算は上限で止め、再生履歴には加える。ライブラリのXMLの取り込みは上限に収める）。上限に収める前の版が書いた値は、起動時（`db::run_migrations`）に上限へ直す（読むたびに収めるのではなく、DBの値を直す。一覧・自動プレイリストの条件・XMLの取り込みでの比べ方など、回数を読む所すべてで同じ値になる）
 - どちらも、いつ呼ぶかはフロントの再生コントローラーが決める（`playTracker.ts`）
   - 再生回数: 実際に鳴らした時間の合計が、曲の長さの半分か4分（短いほう）に届いた時。シークで飛ばした分は含めない。曲の長さが分からなければ、4分か曲の終わり。同じ曲を頭から再生し直した場合（1曲リピートの繰り返し・「前へ」での頭出し）は、聴いた時間を数え直す
   - スキップ回数: 再生回数に数える前に、別の曲を再生し始めた時。鳴らした時間が2秒に満たない曲・最後まで再生された曲・停止・再生の失敗では数えない

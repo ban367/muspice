@@ -10,6 +10,7 @@
 
 use crate::error::{AppError, AppResult};
 use crate::m3u::TrackMatcher;
+use crate::models::MAX_PLAY_COUNT;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
@@ -114,6 +115,21 @@ fn integer(value: &Option<plist::Value>) -> Option<i64> {
         .or_else(|| value.as_string().and_then(|text| text.trim().parse().ok()))
 }
 
+/// 回数（再生回数・スキップ回数）を読む。ない値・負の値は0にし、このアプリで扱える上限
+/// （`MAX_PLAY_COUNT`）を超える値は上限にする
+fn count(value: &Option<plist::Value>) -> i64 {
+    integer(value)
+        // i64に収まらない大きな整数
+        .or_else(|| {
+            value
+                .as_ref()?
+                .as_unsigned_integer()
+                .map(|_| MAX_PLAY_COUNT)
+        })
+        .unwrap_or(0)
+        .clamp(0, MAX_PLAY_COUNT)
+}
+
 fn date(value: &Option<plist::Value>) -> Option<DateTime<Utc>> {
     let date = value.as_ref()?.as_date()?;
     Some(DateTime::<Utc>::from(std::time::SystemTime::from(date)))
@@ -152,8 +168,8 @@ pub fn parse(path: &Path) -> AppResult<XmlLibrary> {
                 track_id: integer(&track.track_id)?,
                 location: location.to_string(),
                 stats: ImportedStats {
-                    play_count: integer(&track.play_count).unwrap_or(0).max(0),
-                    skip_count: integer(&track.skip_count).unwrap_or(0).max(0),
+                    play_count: count(&track.play_count),
+                    skip_count: count(&track.skip_count),
                     last_played: date(&track.play_date),
                     date_added: date(&track.date_added),
                     loved: is_true(&track.loved) || is_true(&track.favorited),
@@ -490,6 +506,47 @@ pub(crate) mod tests {
                     track_ids: vec![]
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn test_parse_limits_counts_to_the_range_the_library_can_read() {
+        let path = write_sample(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0">
+<dict>
+	<key>Tracks</key>
+	<dict>
+		<key>1</key>
+		<dict>
+			<key>Track ID</key><integer>1</integer>
+			<key>Play Count</key><integer>3000000000</integer>
+			<key>Skip Count</key><integer>18446744073709551615</integer>
+			<key>Location</key><string>file://localhost/D:/Music/a.mp3</string>
+		</dict>
+		<key>2</key>
+		<dict>
+			<key>Track ID</key><integer>2</integer>
+			<key>Play Count</key><integer>2147483647</integer>
+			<key>Skip Count</key><integer>-3</integer>
+			<key>Location</key><string>file://localhost/D:/Music/b.mp3</string>
+		</dict>
+	</dict>
+</dict>
+</plist>"#,
+        );
+        let library = parse(&path).unwrap();
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+
+        let counts: Vec<_> = library
+            .tracks
+            .iter()
+            .map(|track| (track.stats.play_count, track.stats.skip_count))
+            .collect();
+        // 上限（i32の最大値）を超える値は上限に、負の値は0にする
+        assert_eq!(
+            counts,
+            vec![(MAX_PLAY_COUNT, MAX_PLAY_COUNT), (MAX_PLAY_COUNT, 0)]
         );
     }
 
