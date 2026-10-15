@@ -1,7 +1,7 @@
 //! アプリケーション共通のエラー型
 //!
 //! Tauriコマンドの戻り値として `{ code, message }` 形式でシリアライズされ、
-//! フロントエンド（`src/lib/stores/error.ts`）はcodeでエラーを分類する。
+//! フロントエンド（`src/lib/stores/error.svelte.ts`）はcodeでエラーを分類する。
 //! messageはユーザー向けの日本語メッセージを保持する。
 
 use serde::Serialize;

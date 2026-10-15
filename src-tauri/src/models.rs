@@ -172,19 +172,6 @@ pub struct ReplayGain {
     pub album_peak: Option<f64>,
 }
 
-/// 再生履歴のデータモデル
-/// 将来の詳細な再生履歴機能で使用予定
-#[allow(dead_code)]
-#[derive(Debug, Serialize, Deserialize, Clone, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct PlayHistory {
-    // 履歴IDは2^53未満の前提でnumberとしてエクスポートする
-    #[specta(type = specta_typescript::Number)]
-    pub id: i64,
-    pub track_id: String,
-    pub played_at: String,
-}
-
 /// プレイリストのデータモデル
 #[derive(Debug, Serialize, Deserialize, Clone, specta::Type)]
 #[serde(rename_all = "camelCase")]
