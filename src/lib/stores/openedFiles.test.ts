@@ -54,7 +54,7 @@ describe('watchOpenedFiles', () => {
     await flush();
 
     expect(player.currentTrack?.id).toBe('a');
-    expect(player.playQueue.map((track) => track.id)).toEqual(['a', 'b']);
+    expect(player.playQueue.map((entry) => entry.track.id)).toEqual(['a', 'b']);
     stop();
   });
 
@@ -80,7 +80,7 @@ describe('watchOpenedFiles', () => {
     vi.mocked(commands.takeOpenedFiles).mockResolvedValueOnce(opened({ tracks: [makeTrack('c')] }));
     for (const listener of listeners) listener();
     await flush();
-    expect(player.playQueue.map((track) => track.id)).toEqual(['c']);
+    expect(player.playQueue.map((entry) => entry.track.id)).toEqual(['c']);
 
     // やめた後は、聞かない
     stop();

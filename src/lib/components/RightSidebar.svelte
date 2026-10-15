@@ -5,7 +5,7 @@
     player,
     removeFromQueue,
     clearQueue,
-    moveUpcomingTrack,
+    moveUpcomingEntry,
     playQueueIndex
   } from '#lib/stores/player.svelte.js';
   import { useCreatePlaylistWithTracksMutation } from '#lib/queries/playlists.js';
@@ -59,51 +59,61 @@
   }
 
   // ---- 「次に再生」の並べ替え（行のドラッグ） ----
+  // 行は位置ではなくキューの要素のID（エントリID）で指す。ドラッグしている間に曲が進んで
+  // 位置がずれても、ドラッグした曲を動かす
 
-  /** ドラッグ中の行の位置を運ぶデータの種類（アプリの中だけで使う） */
-  const QUEUE_DRAG_TYPE = 'application/x-muspice-queue-index';
+  /** ドラッグ中の行の要素のIDを運ぶデータの種類（アプリの中だけで使う） */
+  const QUEUE_DRAG_TYPE = 'application/x-muspice-queue-entry';
 
-  /** ドラッグしている行の、「次に再生」の一覧の中の位置 */
-  let draggedIndex = $state<number | null>(null);
-  /** 落とそうとしている行の位置 */
-  let dropIndex = $state<number | null>(null);
+  /** ドラッグしている行の要素のID */
+  let draggedEntryId = $state<number | null>(null);
+  /** 落とそうとしている行の要素のID */
+  let dropEntryId = $state<number | null>(null);
+  /** ドラッグしている行の、「次に再生」の一覧の中の今の位置（ない場合は-1） */
+  const draggedIndex = $derived(
+    draggedEntryId === null
+      ? -1
+      : player.upcomingEntries.findIndex((entry) => entry.entryId === draggedEntryId)
+  );
 
   const isQueueDrag = (event: DragEvent) =>
     event.dataTransfer?.types.includes(QUEUE_DRAG_TYPE) ?? false;
 
-  function handleQueueDragStart(event: DragEvent, index: number) {
+  function handleQueueDragStart(event: DragEvent, entryId: number) {
     if (!event.dataTransfer) return;
     event.dataTransfer.effectAllowed = 'move';
-    event.dataTransfer.setData(QUEUE_DRAG_TYPE, String(index));
-    draggedIndex = index;
+    event.dataTransfer.setData(QUEUE_DRAG_TYPE, String(entryId));
+    draggedEntryId = entryId;
   }
 
-  function handleQueueDragOver(event: DragEvent, index: number) {
+  function handleQueueDragOver(event: DragEvent, entryId: number) {
     if (!isQueueDrag(event)) return;
     event.preventDefault();
     if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
-    dropIndex = index;
+    dropEntryId = entryId;
   }
 
-  function handleQueueDrop(event: DragEvent, index: number) {
+  function handleQueueDrop(event: DragEvent, targetEntryId: number) {
     if (!isQueueDrag(event)) return;
     event.preventDefault();
-    const from = Number(event.dataTransfer?.getData(QUEUE_DRAG_TYPE));
+    const entryId = Number(event.dataTransfer?.getData(QUEUE_DRAG_TYPE));
     endQueueDrag();
-    moveUpcomingTrack(from, index);
+    moveUpcomingEntry(entryId, targetEntryId);
   }
 
   function endQueueDrag() {
-    draggedIndex = null;
-    dropIndex = null;
+    draggedEntryId = null;
+    dropEntryId = null;
   }
 
   /**
    * 落とそうとしている行の、目印の出し方（動かした曲は、落とした行の位置に来る。
    * 下へ動かす時は行の下、上へ動かす時は行の上に線を出す）
+   * @param entryId - 行の要素のID
+   * @param index - 行の、「次に再生」の一覧の中の位置
    */
-  function dropWhere(index: number): 'before' | 'after' | undefined {
-    if (dropIndex !== index || draggedIndex === null || draggedIndex === index) return undefined;
+  function dropWhere(entryId: number, index: number): 'before' | 'after' | undefined {
+    if (dropEntryId !== entryId || draggedIndex === -1 || draggedIndex === index) return undefined;
     return draggedIndex < index ? 'after' : 'before';
   }
 
@@ -113,7 +123,7 @@
 
   async function handleSaveAsPlaylist() {
     // 再生し終えた曲を含む、キューの全体を保存する（同じ曲は、最初の1回だけが入る）
-    const trackIds = player.playQueue.map((track) => track.id);
+    const trackIds = player.playQueue.map((entry) => entry.track.id);
     if (trackIds.length === 0) return;
 
     // 日付は、プレイリスト名に使えない「/」を含まない形にする
@@ -295,26 +305,27 @@
 
       <!-- 次に再生 -->
       <div class="upcoming-section">
-        {#if player.upcomingTracks.length > 0}
-          <div class="section-label">{m.rightSidebar.upNext(player.upcomingTracks.length)}</div>
+        {#if player.upcomingEntries.length > 0}
+          <div class="section-label">{m.rightSidebar.upNext(player.upcomingEntries.length)}</div>
           <!-- 一覧の曲をすべてキューに入れた場合は数万曲になるため、見えている行だけを描画する -->
           <div class="upcoming-list">
+            <!-- 同じ曲が何度も入ることがあるため、キーは曲のIDではなく要素のID -->
             <VirtualList
-              items={player.upcomingTracks}
-              getKey={(track) => track.id}
+              items={player.upcomingEntries}
+              getKey={(entry) => entry.entryId}
               estimatedRowHeight={ESTIMATED_QUEUE_ROW_HEIGHT}
               scrollerClass="px-2 pb-2"
             >
-              {#snippet row(track, index)}
+              {#snippet row({ entryId, track }, index)}
                 <!-- 行のドラッグで、「次に再生」の中の順を入れ替えられる -->
                 <div
                   class="queue-track"
-                  class:dragging={draggedIndex === index}
-                  data-drop={dropWhere(index)}
+                  class:dragging={draggedEntryId === entryId}
+                  data-drop={dropWhere(entryId, index)}
                   draggable="true"
-                  ondragstart={(e) => handleQueueDragStart(e, index)}
-                  ondragover={(e) => handleQueueDragOver(e, index)}
-                  ondrop={(e) => handleQueueDrop(e, index)}
+                  ondragstart={(e) => handleQueueDragStart(e, entryId)}
+                  ondragover={(e) => handleQueueDragOver(e, entryId)}
+                  ondrop={(e) => handleQueueDrop(e, entryId)}
                   ondragend={endQueueDrag}
                   ondblclick={(e) => !isRowButton(e) && playUpcoming(index)}
                   onkeydown={(e) => e.key === 'Enter' && !isRowButton(e) && playUpcoming(index)}
@@ -339,7 +350,7 @@
                   </div>
                   <button
                     class="remove-btn"
-                    onclick={() => removeFromQueue(track.id)}
+                    onclick={() => removeFromQueue(entryId)}
                     title={m.rightSidebar.removeFromQueue}
                   >
                     ✕

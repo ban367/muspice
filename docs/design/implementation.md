@@ -146,7 +146,7 @@ src-tauri/src/
 - 読み書きはプロパティを直接使う（例: `ui.isSidebarOpen = false`）。`$`接頭辞や`get()`は不要で、コンポーネント外の`.ts`からも同じように読める
 - 配列・オブジェクトを丸ごと置き換える状態は`$state.raw`にし、中身を書き換えず代入で更新する（例: `notifications.items`、`ui.columnWidths`）
 - localStorageに保存する状態は、privateな`$state`とgetter/setterで実装し、setterで保存する（例: `ui.isRightSidebarPinned`）。保存値はモジュールの読み込み時に読み、localStorageが使えない環境でも例外にしない
-- 値から計算できるものは`$derived`のフィールドにする（例: `player.progress`・`player.upcomingTracks`）
+- 値から計算できるものは`$derived`のフィールドにする（例: `player.progress`・`player.upcomingEntries`）
 - 状態に付随する操作（追加・削除など）はクラスのメソッドか、モジュールの関数にする（例: `notifications.add()`、キュー操作の`playTrackFromQueue()`）。保存や外部への反映（例: イコライザのゲインをWeb Audioのノードへ）が必要な状態は、getterだけを公開してメソッド経由で変更させる（例: `equalizer.setBandGain()`）
 - 状態の変化を受け取る処理は`$effect`で書く。コンポーネントの外（例: 再生コントローラー）では`$effect.root`で作り、破棄時に止める。`$effect`は変更の直後ではなくマイクロタスクで実行されるため、同期的な反映を前提にしない（テストでは`flushSync()`で反映させる）
 
@@ -200,7 +200,8 @@ src-tauri/src/
   - `recordPlay`は、キャッシュにあるその曲の再生回数を書き換え、再生履歴と「よく再生する曲」を取り直す（開いている画面に、そのまま反映される）
 - OSのNow Playingへの通知は`#lib/stores/nowPlaying`が担い、再生コントローラーが`player`の状態を渡す（ADR-029）。再生位置は0.25秒ごとに変わるが、伝え直すのは、曲・再生中かどうかが変わったときと、位置がOSの計算と1秒以上ずれたときだけ
 - メニューバーの「再生」メニューと、OSのメディアキーなどからの操作（`PlaybackControl`イベント）は、`Player.svelte`が受け取り、ウィンドウの中のキー操作と同じ処理を行う
-- 再生キュー（右サイドバー）の「次に再生」は、行のドラッグで並べ替えられる（`moveUpcomingTrack(from, to)`。再生中の曲と、それより前の曲は動かさない。シャッフルする前の順は変えない）。キューの全体は、`create_playlist_with_tracks`でプレイリストとして保存できる（同じ曲は、最初の1回だけが入る）
+- 再生キューの要素は、曲のIDではなくエントリID（`QueueEntry.entryId`）で見分ける（同じ曲が何度も入るため。ADR-059）。「次に再生」の`VirtualList`のキー、キューからの削除（`removeFromQueue(entryId)`）、並べ替えはエントリIDで指す
+- 再生キュー（右サイドバー）の「次に再生」は、行のドラッグで並べ替えられる（`moveUpcomingEntry(entryId, targetEntryId)`。ドラッグを始めた時の要素のIDで指すため、ドラッグしている間に曲が進んでも、ドラッグした曲を動かす。再生中の曲と、それより前の曲は動かさない。シャッフルする前の順は変えない）。キューの全体は、`create_playlist_with_tracks`でプレイリストとして保存できる（同じ曲は、最初の1回だけが入る）
 - 再生キュー（右サイドバー）の曲をダブルクリックした時は、`playQueueIndex(index)`でキューの並びを変えずに再生位置だけを移す（指定した位置より前の曲もキューに残る）
 - 再生中かどうか（`isPlaying`）は、エンジンのコマンドの結果（再生を始めた・一時停止した）と通知（失敗）から更新する。再生位置（`currentTime`）は、エンジンの`position`の通知で更新する
 - エンジンへ渡す番号（トークン）は、再生する曲・続けて再生する曲ごとに増やす。通知（`PlaybackEvent`）は番号で見分け、前の曲についての通知は捨てる

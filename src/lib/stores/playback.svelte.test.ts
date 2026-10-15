@@ -64,6 +64,11 @@ function makeTrack(id: string): Track {
 
 const tracks = ['t1', 't2', 't3'].map(makeTrack);
 
+/** キューの中の、曲の（最初の）要素のID */
+function entryIdOf(trackId: string): number {
+  return player.playQueue.find((entry) => entry.track.id === trackId)!.entryId;
+}
+
 /** 非同期の処理（コマンドの結果待ち→通知）が終わるのを待つ */
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -235,7 +240,7 @@ describe('トラックの再生', () => {
     playTrackFromQueue([tracks[0]], 0);
     await flush();
 
-    removeFromQueue('t1');
+    removeFromQueue(entryIdOf('t1'));
     flushSync();
 
     expect(commands.playbackStop).toHaveBeenCalledTimes(1);
@@ -564,11 +569,11 @@ describe('ギャップレス再生', () => {
     playTrackFromQueue(tracks, 0);
     await flush();
 
-    removeFromQueue('t2');
+    removeFromQueue(entryIdOf('t2'));
     flushSync();
     expect(lastNext()[0]).toBe('t3');
 
-    removeFromQueue('t3');
+    removeFromQueue(entryIdOf('t3'));
     flushSync();
     expect(lastNext()[0]).toBeNull();
     expect(commands.playbackSetNext).toHaveBeenCalledTimes(3);
@@ -626,7 +631,7 @@ describe('ギャップレス再生', () => {
     await flush();
     const [, staleToken] = lastNext();
     // 次の曲（t2）を伝えた後でキューから外したが、エンジンはすでにt2を続けて再生し始めていた
-    removeFromQueue('t2');
+    removeFromQueue(entryIdOf('t2'));
     flushSync();
 
     emit({ type: 'advanced', token: staleToken, duration: 200 });
@@ -1149,7 +1154,7 @@ describe('再生状態の復元', () => {
     await recreateController();
 
     expect(player.currentTrack?.id).toBe('t2');
-    expect(player.playQueue.map((t) => t.id)).toEqual(['t1', 't2', 't3']);
+    expect(player.playQueue.map((entry) => entry.track.id)).toEqual(['t1', 't2', 't3']);
     expect(player.currentTrackIndex).toBe(1);
     expect(player.duration).toBe(180);
     expect(player.volume).toBe(0.4);
@@ -1218,8 +1223,8 @@ describe('再生状態の復元', () => {
     await recreateController();
 
     expect(player.isShuffleEnabled).toBe(true);
-    expect(player.playQueue.map((t) => t.id)).toEqual(['t3', 't1', 't2']);
-    expect(player.originalQueue.map((t) => t.id)).toEqual(['t1', 't2', 't3']);
+    expect(player.playQueue.map((entry) => entry.track.id)).toEqual(['t3', 't1', 't2']);
+    expect(player.originalQueue.map((entry) => entry.track.id)).toEqual(['t1', 't2', 't3']);
     expect(player.currentTrack?.id).toBe('t3');
   });
 
@@ -1240,7 +1245,7 @@ describe('再生状態の復元', () => {
     await flush();
 
     expect(player.currentTrack?.id).toBe('t3');
-    expect(player.playQueue.map((t) => t.id)).toEqual(['t3']);
+    expect(player.playQueue.map((entry) => entry.track.id)).toEqual(['t3']);
     expect(commands.playbackPlay).toHaveBeenCalledTimes(1);
     // 音量などは戻す
     expect(player.volume).toBe(0.2);
@@ -1311,6 +1316,36 @@ describe('再生状態の保存', () => {
 
     expect(saves()).toEqual([
       [{ volume: 0.3, shuffle: false, repeat: 'all', currentIndex: 1 }, null]
+    ]);
+  });
+
+  it('キューを送った保存に失敗したら、次の保存でもキューを送る', async () => {
+    vi.mocked(commands.savePlaybackState).mockRejectedValueOnce({ code: 'IO', message: 'x' });
+    playTrackFromQueue(tracks, 0);
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    expect(saves()[0][1]?.trackIds).toEqual(['t1', 't2', 't3']);
+    vi.mocked(commands.savePlaybackState).mockClear();
+    vi.useFakeTimers();
+
+    // 曲の切り替わりだけでも、保存できていないキューを合わせて送る
+    controller.next();
+    flushSync();
+    vi.advanceTimersByTime(300);
+    expect(saves()).toEqual([
+      [
+        { volume: 1, shuffle: false, repeat: 'off', currentIndex: 1 },
+        { trackIds: ['t1', 't2', 't3'], originalTrackIds: null }
+      ]
+    ]);
+
+    // 保存できた後は、キューを送らない
+    await vi.mocked(commands.savePlaybackState).mock.results[0].value;
+    controller.next();
+    flushSync();
+    vi.advanceTimersByTime(300);
+    expect(saves()[1]).toEqual([
+      { volume: 1, shuffle: false, repeat: 'off', currentIndex: 2 },
+      null
     ]);
   });
 

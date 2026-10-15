@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Track } from '#lib/types/models.js';
+import type { QueueEntry } from '#lib/utils/playQueue.js';
 import {
   player,
   addNextInQueue,
   addToQueue,
   clearQueue,
   formatTime,
-  moveUpcomingTrack,
+  moveUpcomingEntry,
   peekNextTrack,
   playNextTrack,
   playPreviousTrack,
@@ -26,7 +27,11 @@ function makeTrack(id: string): Track {
 }
 
 const tracks = ['t1', 't2', 't3', 't4'].map(makeTrack);
-const ids = (list: Track[]) => list.map((t) => t.id);
+const ids = (queue: readonly QueueEntry[]) => queue.map((entry) => entry.track.id);
+/** 再生キューの`index`の位置の要素のID */
+const entryIdAt = (index: number) => player.playQueue[index].entryId;
+/** 「次に再生」の`index`の位置の要素のID */
+const upcomingIdAt = (index: number) => player.upcomingEntries[index].entryId;
 
 beforeEach(() => {
   // ストアはモジュール単位のシングルトンのため、テストごとに初期化する
@@ -46,6 +51,14 @@ describe('playTrackFromQueue', () => {
     expect(ids(player.playQueue)).toEqual(['t1', 't2', 't3', 't4']);
     expect(player.currentTrackIndex).toBe(2);
     expect(player.currentTrack?.id).toBe('t3');
+  });
+
+  it('同じ曲が複数ある一覧では、選んだ位置の曲から再生する', () => {
+    playTrackFromQueue([tracks[0], tracks[1], tracks[0]], 2);
+
+    expect(player.currentTrackIndex).toBe(2);
+    expect(player.currentTrack?.id).toBe('t1');
+    expect(peekNextTrack()).toBeNull();
   });
 
   it('範囲外のインデックスでは状態を変えない', () => {
@@ -194,7 +207,7 @@ describe('toggleShuffle', () => {
 
     expect(player.isShuffleEnabled).toBe(false);
     expect(ids(player.playQueue)).toEqual(['t1', 't2', 't3', 't4']);
-    expect(player.playQueue[player.currentTrackIndex].id).toBe(playing);
+    expect(player.playQueue[player.currentTrackIndex].track.id).toBe(playing);
   });
 });
 
@@ -220,7 +233,7 @@ describe('playShuffled', () => {
     toggleShuffle();
     expect(player.isShuffleEnabled).toBe(false);
     expect(ids(player.playQueue)).toEqual(['t1', 't2', 't3', 't4']);
-    expect(player.playQueue[player.currentTrackIndex].id).toBe(playing);
+    expect(player.playQueue[player.currentTrackIndex].track.id).toBe(playing);
   });
 
   it('空の一覧では何もしない', () => {
@@ -250,7 +263,7 @@ describe('playQueueIndex', () => {
     expect(ids(player.playQueue)).toEqual(['t1', 't2', 't3', 't4']);
     expect(player.currentTrackIndex).toBe(2);
     expect(player.currentTrack?.id).toBe('t3');
-    expect(ids(player.upcomingTracks)).toEqual(['t4']);
+    expect(ids(player.upcomingEntries)).toEqual(['t4']);
   });
 
   it('再生中より前の位置へも移れる', () => {
@@ -259,7 +272,7 @@ describe('playQueueIndex', () => {
     expect(playQueueIndex(1)).toBe(true);
 
     expect(player.currentTrack?.id).toBe('t2');
-    expect(ids(player.upcomingTracks)).toEqual(['t3', 't4']);
+    expect(ids(player.upcomingEntries)).toEqual(['t3', 't4']);
   });
 
   it('シャッフル中は並べ替えた後のキューの位置で移る', () => {
@@ -317,8 +330,8 @@ describe('addToQueue / addNextInQueue', () => {
     addToQueue(many);
 
     expect(player.playQueue).toHaveLength(400_004);
-    expect(player.playQueue[1].id).toBe('m0');
-    expect(player.playQueue[200_001].id).toBe('t2');
+    expect(player.playQueue[1].track.id).toBe('m0');
+    expect(player.playQueue[200_001].track.id).toBe('t2');
   });
 });
 
@@ -360,7 +373,7 @@ describe('ファイルが見つからない曲', () => {
 describe('removeFromQueue', () => {
   it('再生中以外のトラックを削除すると再生中トラックのインデックスを詰める', () => {
     playTrackFromQueue(tracks, 2);
-    removeFromQueue('t1');
+    removeFromQueue(entryIdAt(0));
 
     expect(ids(player.playQueue)).toEqual(['t2', 't3', 't4']);
     expect(ids(player.originalQueue)).toEqual(['t2', 't3', 't4']);
@@ -370,7 +383,7 @@ describe('removeFromQueue', () => {
 
   it('再生中のトラックを削除すると同じ位置の次のトラックに移る', () => {
     playTrackFromQueue(tracks, 1);
-    removeFromQueue('t2');
+    removeFromQueue(entryIdAt(1));
 
     expect(player.currentTrack?.id).toBe('t3');
     expect(player.currentTrackIndex).toBe(1);
@@ -378,7 +391,7 @@ describe('removeFromQueue', () => {
 
   it('最後のトラックが再生中に削除されると新しい最後のトラックに移る', () => {
     playTrackFromQueue(tracks, 3);
-    removeFromQueue('t4');
+    removeFromQueue(entryIdAt(3));
 
     expect(player.currentTrack?.id).toBe('t3');
     expect(player.currentTrackIndex).toBe(2);
@@ -386,7 +399,7 @@ describe('removeFromQueue', () => {
 
   it('キューが空になるとプレイヤーをリセットする', () => {
     playTrackFromQueue([makeTrack('only')], 0);
-    removeFromQueue('only');
+    removeFromQueue(entryIdAt(0));
 
     expect(player.currentTrack).toBeNull();
     expect(player.currentTrackIndex).toBe(-1);
@@ -418,52 +431,64 @@ describe('playRequestCount', () => {
   });
 });
 
-describe('moveUpcomingTrack', () => {
+describe('moveUpcomingEntry', () => {
   const queue = ['t1', 't2', 't3', 't4', 't5'].map(makeTrack);
 
   it('「次に再生」の曲を、落とした曲の位置へ動かす（下へ・上へ）', () => {
     playTrackFromQueue(queue, 1);
     // 次に再生: t3, t4, t5
-    moveUpcomingTrack(0, 2);
+    moveUpcomingEntry(upcomingIdAt(0), upcomingIdAt(2));
     expect(ids(player.playQueue)).toEqual(['t1', 't2', 't4', 't5', 't3']);
 
-    moveUpcomingTrack(2, 0);
+    moveUpcomingEntry(upcomingIdAt(2), upcomingIdAt(0));
     expect(ids(player.playQueue)).toEqual(['t1', 't2', 't3', 't4', 't5']);
 
-    moveUpcomingTrack(1, 0);
+    moveUpcomingEntry(upcomingIdAt(1), upcomingIdAt(0));
     expect(ids(player.playQueue)).toEqual(['t1', 't2', 't4', 't3', 't5']);
   });
 
   it('再生中の曲と、その位置は変わらない。続けて再生する曲は、並べ替えた後の先頭になる', () => {
     playTrackFromQueue(queue, 1);
-    moveUpcomingTrack(2, 0);
+    moveUpcomingEntry(upcomingIdAt(2), upcomingIdAt(0));
 
     expect(player.currentTrack?.id).toBe('t2');
     expect(player.currentTrackIndex).toBe(1);
-    expect(ids(player.upcomingTracks)).toEqual(['t5', 't3', 't4']);
+    expect(ids(player.upcomingEntries)).toEqual(['t5', 't3', 't4']);
     expect(peekNextTrack()?.id).toBe('t5');
   });
 
   it('シャッフルする前の順は変えない', () => {
     playTrackFromQueue(queue, 0);
     const original = ids(player.originalQueue);
-    moveUpcomingTrack(0, 3);
+    moveUpcomingEntry(upcomingIdAt(0), upcomingIdAt(3));
 
     expect(ids(player.originalQueue)).toEqual(original);
   });
 
-  it('範囲の外・同じ位置・再生していない場合は、何もしない', () => {
+  it('ドラッグしている間に曲が進んでも、ドラッグした曲を落とした曲の位置へ動かす', () => {
+    playTrackFromQueue(queue, 0);
+    // 次に再生: t2, t3, t4, t5。t4をドラッグし始めた後で、曲がt2へ進んだ
+    const dragged = upcomingIdAt(2);
+    playNextTrack();
+    moveUpcomingEntry(dragged, upcomingIdAt(0));
+
+    expect(ids(player.playQueue)).toEqual(['t1', 't2', 't4', 't3', 't5']);
+  });
+
+  it('「次に再生」にない要素（再生中・再生し終えた・キューにない）・同じ要素では、何もしない', () => {
     playTrackFromQueue(queue, 1);
     const before = player.playQueue;
 
-    moveUpcomingTrack(0, 3);
-    moveUpcomingTrack(-1, 1);
-    moveUpcomingTrack(1, 1);
-    moveUpcomingTrack(0.5, 1);
+    moveUpcomingEntry(entryIdAt(1), upcomingIdAt(1));
+    moveUpcomingEntry(entryIdAt(0), upcomingIdAt(1));
+    moveUpcomingEntry(upcomingIdAt(1), entryIdAt(1));
+    moveUpcomingEntry(-1, upcomingIdAt(1));
+    moveUpcomingEntry(upcomingIdAt(1), upcomingIdAt(1));
     expect(player.playQueue).toBe(before);
 
+    const [first, second] = [entryIdAt(0), entryIdAt(1)];
     resetPlayer();
-    moveUpcomingTrack(0, 1);
+    moveUpcomingEntry(first, second);
     expect(player.playQueue).toEqual([]);
   });
 });
@@ -502,6 +527,145 @@ describe('restoreQueue', () => {
     expect(player.currentTrackIndex).toBe(2);
     expect(player.currentTrack?.id).toBe('t3');
   });
+
+  it('同じ曲が複数ある場合は、シャッフルする前の順の同じ曲へ、前から順に要素を対応付ける', () => {
+    player.isShuffleEnabled = true;
+    // 再生する順: t1, t2, t1（再生中）。シャッフルする前の順: t2, t1, t1
+    restoreQueue([tracks[0], tracks[1], tracks[0]], [tracks[1], tracks[0], tracks[0]], 2);
+
+    const entryIds = (queue: readonly QueueEntry[]) => queue.map((entry) => entry.entryId).sort();
+    expect(entryIds(player.originalQueue)).toEqual(entryIds(player.playQueue));
+
+    toggleShuffle();
+
+    expect(ids(player.playQueue)).toEqual(['t2', 't1', 't1']);
+    expect(player.currentTrackIndex).toBe(2);
+  });
+});
+
+describe('同じ曲を重ねて入れたキュー', () => {
+  it('同じ曲を何度でも入れられ、要素ごとに別のIDを振る', () => {
+    playTrackFromQueue(tracks, 0);
+    addToQueue([tracks[1]]);
+    addNextInQueue([tracks[0]]);
+
+    expect(ids(player.playQueue)).toEqual(['t1', 't1', 't2', 't3', 't4', 't2']);
+    const entryIds = player.playQueue.map((entry) => entry.entryId);
+    expect(new Set(entryIds).size).toBe(entryIds.length);
+  });
+
+  it('削除は指定した要素だけを消し、再生中の曲と同じ曲を「次に再生」から消しても再生中の曲は変わらない', () => {
+    playTrackFromQueue(tracks, 1);
+    addNextInQueue([tracks[1]]);
+    addToQueue([tracks[1]]);
+    // t1, t2（再生中）, t2, t3, t4, t2
+
+    removeFromQueue(upcomingIdAt(0));
+
+    expect(ids(player.playQueue)).toEqual(['t1', 't2', 't3', 't4', 't2']);
+    expect(ids(player.originalQueue)).toEqual(['t1', 't2', 't3', 't4', 't2']);
+    expect(player.currentTrackIndex).toBe(1);
+    expect(player.currentTrack?.id).toBe('t2');
+    expect(peekNextTrack()?.id).toBe('t3');
+  });
+
+  it('再生中の曲より前にある同じ曲を消すと、再生中の位置を詰める', () => {
+    playTrackFromQueue([tracks[0], tracks[1], tracks[0]], 2);
+
+    removeFromQueue(entryIdAt(0));
+
+    expect(ids(player.playQueue)).toEqual(['t2', 't1']);
+    expect(player.currentTrackIndex).toBe(1);
+    expect(player.currentTrack?.id).toBe('t1');
+  });
+
+  it('キューにない要素のIDでは、何もしない', () => {
+    playTrackFromQueue(tracks, 0);
+    const before = player.playQueue;
+
+    removeFromQueue(-1);
+
+    expect(player.playQueue).toBe(before);
+  });
+
+  it('シャッフルを有効にしても、同じ曲の別の要素は残る', () => {
+    playTrackFromQueue([tracks[0], tracks[1], tracks[0], tracks[0]], 2);
+    const playing = entryIdAt(2);
+
+    toggleShuffle();
+
+    expect(entryIdAt(0)).toBe(playing);
+    expect(ids(player.playQueue).sort()).toEqual(['t1', 't1', 't1', 't2']);
+  });
+
+  it('シャッフルを解除すると、同じ曲の別の要素ではなく、再生中の要素の位置へ戻る', () => {
+    playTrackFromQueue([tracks[0], tracks[1], tracks[0], tracks[2]], 2);
+
+    toggleShuffle();
+    toggleShuffle();
+
+    expect(ids(player.playQueue)).toEqual(['t1', 't2', 't1', 't3']);
+    expect(player.currentTrackIndex).toBe(2);
+    expect(peekNextTrack()?.id).toBe('t3');
+  });
+
+  it('並べ替えは、同じ曲の別の要素ではなく、ドラッグした要素を動かす', () => {
+    playTrackFromQueue([tracks[0], tracks[1], tracks[2], tracks[1]], 0);
+    // 次に再生: t2, t3, t2（2つ目）
+    const second = upcomingIdAt(2);
+
+    moveUpcomingEntry(second, upcomingIdAt(0));
+
+    expect(ids(player.upcomingEntries)).toEqual(['t2', 't2', 't3']);
+    expect(upcomingIdAt(0)).toBe(second);
+  });
+});
+
+describe('シャッフル中のキューへの追加', () => {
+  beforeEach(() => {
+    player.isShuffleEnabled = true;
+    playTrackFromQueue(tracks, 1);
+  });
+
+  it('最後に追加した曲は、シャッフルを解除しても最後に残る', () => {
+    addToQueue([makeTrack('x')]);
+    expect(ids(player.playQueue).at(-1)).toBe('x');
+
+    toggleShuffle();
+
+    expect(ids(player.playQueue)).toEqual(['t1', 't2', 't3', 't4', 'x']);
+    expect(player.currentTrackIndex).toBe(1);
+    expect(player.currentTrack?.id).toBe('t2');
+  });
+
+  it('「次に再生」に追加した曲は、シャッフルを解除しても再生中の曲の次に残る', () => {
+    addNextInQueue([makeTrack('x'), makeTrack('y')]);
+    expect(ids(player.upcomingEntries).slice(0, 2)).toEqual(['x', 'y']);
+
+    toggleShuffle();
+
+    expect(ids(player.playQueue)).toEqual(['t1', 't2', 'x', 'y', 't3', 't4']);
+    expect(peekNextTrack()?.id).toBe('x');
+  });
+});
+
+describe('シャッフルの解除で、シャッフルする前の順に再生中の曲がない場合', () => {
+  it('再生中の位置へ入れ、「次へ」はその後ろの曲へ進む', () => {
+    player.isShuffleEnabled = true;
+    // 古い版で保存したキュー: シャッフル中に追加した曲（x）が、シャッフルする前の順にない
+    restoreQueue(
+      [tracks[2], makeTrack('x'), tracks[0], tracks[1]],
+      [tracks[0], tracks[1], tracks[2]],
+      1
+    );
+
+    toggleShuffle();
+
+    expect(ids(player.playQueue)).toEqual(['t1', 'x', 't2', 't3']);
+    expect(player.currentTrackIndex).toBe(1);
+    expect(player.currentTrack?.id).toBe('x');
+    expect(peekNextTrack()?.id).toBe('t2');
+  });
 });
 
 describe('clearQueue', () => {
@@ -533,9 +697,9 @@ describe('派生ストア', () => {
     expect(player.hasPreviousTrack).toBe(true);
   });
 
-  it('upcomingTracks は再生中より後ろのトラックを返す', () => {
+  it('upcomingEntries は再生中より後ろの要素を返す', () => {
     playTrackFromQueue(tracks, 1);
-    expect(ids(player.upcomingTracks)).toEqual(['t3', 't4']);
+    expect(ids(player.upcomingEntries)).toEqual(['t3', 't4']);
   });
 });
 

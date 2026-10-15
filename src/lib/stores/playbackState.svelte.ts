@@ -7,6 +7,8 @@
  * - 復元（`restorePlaybackState`）: 起動時に1回呼ぶ。キューと再生していた曲を戻すが、再生は始めない
  * - 保存（`watchPlaybackState`）: 再生状態（`./player.svelte.ts`）を監視し、変更を少し待ってから
  *   まとめて保存する。キューは数万曲になることがあるため、キューが変わった時だけ送る
+ *
+ * キューは曲のIDの並びで保存する（キューの要素のID（エントリID）は保存せず、復元する時に振り直す）。
  */
 import { untrack } from 'svelte';
 import { commands, type RestoredPlaybackState } from '#lib/bindings.js';
@@ -68,21 +70,31 @@ function originalQueueOf(state: RestoredPlaybackState): Track[] {
  * @returns 監視をやめる関数（保存を待っている変更があれば、すぐに保存する）
  */
 export function watchPlaybackState(): () => void {
-  let queueChanged = false;
+  /** キューの版（キューが変わるたびに進める） */
+  let queueVersion = 0;
+  /**
+   * 保存が済んだキューの版
+   *
+   * `queueVersion`と違う間は、保存のたびにキューも送る。キューを送った保存が失敗した場合も、
+   * 次の保存でキューを送り直す（再生していた曲の位置だけを保存すると、保存してあるキューと
+   * 食い違う）。
+   */
+  let savedQueueVersion = 0;
   let timer: ReturnType<typeof setTimeout> | null = null;
 
   function save(): void {
     timer = null;
-    const queue = queueChanged
-      ? {
-          trackIds: player.playQueue.map((track) => track.id),
-          // シャッフルが無効の間は、元の順は再生する順と同じため送らない
-          originalTrackIds: player.isShuffleEnabled
-            ? player.originalQueue.map((track) => track.id)
-            : null
-        }
-      : null;
-    queueChanged = false;
+    const version = queueVersion;
+    const queue =
+      version !== savedQueueVersion
+        ? {
+            trackIds: player.playQueue.map((entry) => entry.track.id),
+            // シャッフルが無効の間は、元の順は再生する順と同じため送らない
+            originalTrackIds: player.isShuffleEnabled
+              ? player.originalQueue.map((entry) => entry.track.id)
+              : null
+          }
+        : null;
     commands
       .savePlaybackState(
         {
@@ -93,6 +105,9 @@ export function watchPlaybackState(): () => void {
         },
         queue
       )
+      .then(() => {
+        if (queue) savedQueueVersion = version;
+      })
       .catch((error) => console.error('再生状態の保存に失敗しました:', error));
   }
 
@@ -110,7 +125,7 @@ export function watchPlaybackState(): () => void {
       void player.originalQueue;
       untrack(() => {
         if (watchingQueue) {
-          queueChanged = true;
+          queueVersion++;
           schedule();
         }
         watchingQueue = true;

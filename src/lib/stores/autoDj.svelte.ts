@@ -60,7 +60,8 @@ export function watchAutoDj(options: AutoDjOptions): () => void {
       // 取得を待つ間に状況が変わっていたら、足さない（必要なら、次の変更でもう一度呼ばれる）
       if (!needsTracks() || options.playlistId() !== playlistId) return;
 
-      const picked = pickAutoDjTracks(candidates, player.playQueue, AUTO_DJ_BATCH_SIZE);
+      const queue = player.playQueue.map((entry) => entry.track);
+      const picked = pickAutoDjTracks(candidates, queue, AUTO_DJ_BATCH_SIZE);
       if (picked.length > 0) addToQueue(picked);
     } catch (error) {
       // 足せなくても、再生は続ける（キューの終わりで止まる）
