@@ -38,7 +38,7 @@ npm run tauri build           # 本番ビルド
 ## 設計方針
 
 - **状態管理**: Svelteの共有状態（UI状態。`src/lib/stores/*.svelte.ts`のRunesのモジュール）+ TanStack Query（データキャッシング）+ Tauri State（バックエンド永続化）
-- **DB**: SQLite + FTS5全文検索。スキーマは`tracks`, `playlists`, `playlist_tracks`, `play_history`, `library_folders`, `sync_devices`, `sync_device_playlists`, `tracks_fts`。SQLは`repository.rs`（トラック）・`playlist.rs`（プレイリスト）・`smart_playlist.rs`（自動プレイリストの条件）・`library_folder.rs`（ライブラリフォルダ）・`device.rs`（転送先デバイス）に集約し、コマンド層は`AppState::with_db`経由でアクセスする
+- **DB**: SQLite + FTS5全文検索。スキーマは`tracks`, `playlists`, `playlist_folders`, `playlist_tracks`, `play_history`, `library_folders`, `sync_devices`, `sync_device_playlists`, `tracks_fts`。SQLは`repository.rs`（トラック）・`playlist.rs`（プレイリスト）・`smart_playlist.rs`（自動プレイリストの条件）・`library_folder.rs`（ライブラリフォルダ）・`device.rs`（転送先デバイス）に集約し、コマンド層は`AppState::with_db`経由でアクセスする
 - **エラー**: Rust側は`AppResult<T>`（`AppError`）で`{code, message}`を返却（messageは日本語）。フロントは`handleError`でcodeベースに分類し一元管理。トースト通知
 - **再生**: 再生はRust側の再生エンジン（`src-tauri/src/playback/`。symphonia + cpal）で行う。フロントは再生キューを持ち、再生コントローラー（`src/lib/stores/playback.svelte.ts`）がコマンドでエンジンを操作して、通知（`PlaybackEvent`）を再生状態へ反映する。WebViewは音声ファイルを読まない（audio要素・Web Audioは使わない）。OSのメディアキー・Now Playing（macOSのみ）は`src-tauri/src/media_controls/`がOSのAPIを直接呼び、OSからの操作とメニューバーの「再生」メニューは`PlaybackControl`イベントでフロントへ届く
 - **型共有**: Rust⇔TSの型とコマンド呼び出しはtauri-spectaが`src/lib/bindings.ts`へ自動生成（`npm run tauri dev`または`cargo test export_typescript_bindings`）。手動で編集せず、Rust側を変更して再生成する。フロントは`commands.xxx()`経由で呼び出す

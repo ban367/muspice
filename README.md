@@ -15,6 +15,14 @@ PC向けデスクトップ音楽管理アプリケーション
 - Node.js 24.15以上（`.node-version`の24.21.0を使う）
 - npm 11以上（Node.js 24に同梱）
 - Rust（`rust-toolchain.toml`の1.99.0。rustupが自動で入れる）
+- CコンパイラとCMake（Opusのデコーダーの`symphonia-adapter-libopus`が、同梱のlibopusをビルドするため。macOSではXcodeのCommand Line Toolsと、Homebrewなどで入れたCMake）
+- Linuxでは、Tauri（WebKitGTK・GTK・トレイ）と音声の出力（ALSA）に要るシステムのパッケージ（CIの`.github/workflows/ci.yml`で入れているものと同じ）。Ubuntuの場合（`build-essential`・`cmake`は、上のCコンパイラとCMake）:
+
+```bash
+sudo apt-get install -y build-essential cmake \
+  libwebkit2gtk-4.1-dev librsvg2-dev patchelf libgtk-3-dev \
+  libayatana-appindicator3-dev libasound2-dev
+```
 
 Node.js・npmの版は`package.json`の`engines`に書いてあり、満たさない版では`npm install`が失敗する（`.npmrc`の`engine-strict=true`）。miseを使う場合は、`mise install`で`.node-version`・`rust-toolchain.toml`の版が入る。
 
@@ -78,9 +86,13 @@ npm run format:check
 npm run lint:md
 ```
 
-### Rustテスト
+### テスト
 
 ```bash
+# フロントエンドの単体テスト（Vitest）
+npm test
+
+# Rustのテスト
 cd src-tauri && cargo test
 ```
 

@@ -489,7 +489,7 @@ pub fn run() {
             }
         })
         .build(tauri::generate_context!())
-        .expect("error while building tauri application")
+        .expect("Tauriアプリケーションの構築に失敗しました")
         .run(|app, event| {
             #[cfg(target_os = "macos")]
             match event {

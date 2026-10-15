@@ -1215,7 +1215,7 @@ pub struct TransferTrack {
 
 /// デバイスへの転送用に、全トラックを取得する（件数の上限なし）
 ///
-/// 一覧表示用の`find_all_tracks`は1000件で打ち切るため、転送には使えない。
+/// 一覧表示用の`find_all_tracks`と違い、転送に要る列だけを読み、
 /// アルバムの曲順に並べる（この順にコピーする。フォルダに書き込んだ順に再生する機器があるため）。
 pub fn find_transfer_tracks(conn: &Connection) -> AppResult<Vec<TransferTrack>> {
     let mut stmt = conn

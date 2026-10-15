@@ -53,7 +53,9 @@ src-tauri/src/
 │   ├── devices.rs         # 転送先デバイスの登録・設定・同期
 │   ├── import.rs
 │   ├── library_folders.rs
+│   ├── library_xml.rs     # iTunes形式のライブラリXMLの取り込み（ADR-033）
 │   ├── loudness.rs        # 音量（ラウドネス）の解析の開始・中断・状態（ADR-053）
+│   ├── m3u.rs             # プレイリストのM3Uの読み込み・書き出し（ADR-032）
 │   ├── metadata_cmd.rs
 │   ├── organize.rs        # ファイルの整理（計画の取得と実行。ADR-052）
 │   ├── playback.rs        # 再生エンジンのコマンド
@@ -63,6 +65,7 @@ src-tauri/src/
 │   ├── stats.rs
 │   ├── system.rs
 │   └── tracks.rs
+├── main.rs
 ├── lib.rs
 ├── album_art.rs           # アルバムアートの配信（albumartプロトコル）・フォルダの画像の検索・キャッシュ
 ├── ape_tag.rs             # APEv2タグ（WavPack・APE）の読み書き（BPM・評価・画像と、アプリが扱わない項目の保持。ADR-047）
@@ -305,7 +308,7 @@ src-tauri/src/
 ### エラーハンドリング
 
 - Rustコマンドは `AppResult<T>`（`error.rs` の `AppError`）を返す。エラーは `{ code, message }` 形式でシリアライズされ、messageは日本語のユーザー向け文言とする（英語の表示ではcodeごとの汎用メッセージを使う。「多言語化」参照）
-- エラーコード: `LOCK` / `DATABASE` / `NOT_FOUND` / `VALIDATION` / `IO` / `METADATA`
+- エラーコード: `LOCK` / `DATABASE` / `NOT_FOUND` / `VALIDATION` / `IO` / `METADATA` / `PLAYBACK`
 - フロントエンドでは `handleError` を必ず経由し、codeでエラーを分類する（部分文字列マッチは行わない）
 - DBアクセスはコマンド層で `AppState::with_db` を経由し、ロック取得エラーの処理を一元化する
 - ファイルI/O・タグ解析・大量のDB書き込みなど重い同期処理は `commands::run_blocking` で実行する（asyncコマンド内で直接行うと非同期ランタイムのワーカーを占有する）。状態が必要な場合は `AppHandle` を受け取り、クロージャ内で `app.state::<AppState>()` から取得する
