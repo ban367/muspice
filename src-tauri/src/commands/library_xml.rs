@@ -307,6 +307,64 @@ mod tests {
     }
 
     #[test]
+    fn test_import_large_play_counts_and_long_playlist_names() {
+        let state = test_state();
+        let long_name = "長".repeat(120);
+        let path = write_sample(&format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0">
+<dict>
+	<key>Tracks</key>
+	<dict>
+		<key>1</key>
+		<dict>
+			<key>Track ID</key><integer>1</integer>
+			<key>Play Count</key><integer>3000000000</integer>
+			<key>Skip Count</key><integer>2147483648</integer>
+			<key>Location</key><string>file://localhost/D:/Music/Aoi%20Sora/Blue%20Horizon/02%20Paper%20Planes.mp3</string>
+		</dict>
+	</dict>
+	<key>Playlists</key>
+	<array>
+		<dict>
+			<key>Name</key><string>{long_name}</string>
+			<key>Playlist Items</key>
+			<array>
+				<dict><key>Track ID</key><integer>1</integer></dict>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>"#
+        ));
+
+        import_file(&state, &path, true).unwrap();
+        // もう一度取り込んでも、回数は上限のまま（プレイリストは番号を付けた名前でもう1つできる）
+        let again = import_file(&state, &path, true).unwrap();
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+
+        // 回数は上限（i32の最大値）に収め、ライブラリの一覧を読める
+        assert_eq!(again.updated_count, 0);
+        let max = i64::from(i32::MAX);
+        assert_eq!((row(&state, "t2").0, row(&state, "t2").1), (max, max));
+        let tracks = state
+            .with_db(|db| crate::repository::find_all_tracks(db))
+            .unwrap();
+        assert_eq!(tracks.len(), 3);
+
+        // プレイリストの名前は100文字で切り、番号を付けた後も100文字以内にする
+        let mut names: Vec<String> = playlists(&state)
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect();
+        names.sort();
+        assert_eq!(
+            names,
+            vec![format!("{} (2)", "長".repeat(96)), "長".repeat(100),]
+        );
+    }
+
+    #[test]
     fn test_import_rejects_files_without_tracks() {
         let state = test_state();
         let empty = write_sample(

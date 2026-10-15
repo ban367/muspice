@@ -9,8 +9,8 @@ use std::collections::{HashMap, HashSet};
 use rusqlite::{Connection, Row};
 
 use crate::models::{
-    AlbumGroup, AlbumSummary, ArtistSummary, GenreSummary, Metadata, PlayHistoryEntry, ReplayGain,
-    SortTags, Track,
+    AlbumGroup, AlbumSummary, ArtistSummary, GenreSummary, MAX_PLAY_COUNT, Metadata,
+    PlayHistoryEntry, ReplayGain, SortTags, Track,
 };
 use crate::track_relink::MissingTrack;
 
@@ -1632,6 +1632,8 @@ pub fn set_track_rating(conn: &Connection, track_id: &str, rating: i32) -> AppRe
 }
 
 /// 再生回数をインクリメントして再生履歴に追加し、新しい再生回数を返す
+///
+/// 再生回数は上限（`MAX_PLAY_COUNT`）で止める（再生履歴には追加する）。
 pub fn increment_track_play_count(conn: &Connection, track_id: &str) -> AppResult<i32> {
     let now = chrono::Utc::now().to_rfc3339();
 
@@ -1639,12 +1641,12 @@ pub fn increment_track_play_count(conn: &Connection, track_id: &str) -> AppResul
     let new_count: i32 = conn
         .query_row(
             "UPDATE tracks SET
-                play_count = COALESCE(play_count, 0) + 1,
+                play_count = MIN(COALESCE(play_count, 0) + 1, ?3),
                 last_played_at = ?1,
                 updated_at = ?1
              WHERE id = ?2
              RETURNING play_count",
-            rusqlite::params![now, track_id],
+            rusqlite::params![now, track_id, MAX_PLAY_COUNT],
             |row| row.get(0),
         )
         .map_err(|e| match e {
@@ -1666,13 +1668,13 @@ pub fn increment_track_play_count(conn: &Connection, track_id: &str) -> AppResul
 
 /// スキップ回数をインクリメントし、新しいスキップ回数を返す
 ///
-/// 再生統計だけの変更のため、`updated_at`は変えない。
+/// スキップ回数は上限（`MAX_PLAY_COUNT`）で止める。再生統計だけの変更のため、`updated_at`は変えない。
 pub fn increment_track_skip_count(conn: &Connection, track_id: &str) -> AppResult<i32> {
     conn.query_row(
-        "UPDATE tracks SET skip_count = COALESCE(skip_count, 0) + 1
+        "UPDATE tracks SET skip_count = MIN(COALESCE(skip_count, 0) + 1, ?2)
          WHERE id = ?1
          RETURNING skip_count",
-        [track_id],
+        rusqlite::params![track_id, MAX_PLAY_COUNT],
         |row| row.get(0),
     )
     .map_err(|e| match e {
@@ -2372,6 +2374,29 @@ mod tests {
 
         let result = increment_track_skip_count(&conn, "nonexistent");
         assert!(matches!(result, Err(AppError::NotFound(_))));
+    }
+
+    #[test]
+    fn test_increment_counts_stop_at_the_limit() {
+        let conn = setup_test_db();
+        insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
+        conn.execute(
+            "UPDATE tracks SET play_count = ?1 - 1, skip_count = ?1 WHERE id = 't1'",
+            [MAX_PLAY_COUNT],
+        )
+        .unwrap();
+
+        assert_eq!(increment_track_play_count(&conn, "t1").unwrap(), i32::MAX);
+        assert_eq!(increment_track_play_count(&conn, "t1").unwrap(), i32::MAX);
+        assert_eq!(increment_track_skip_count(&conn, "t1").unwrap(), i32::MAX);
+
+        // 上限で止めた後も、一覧を読める（再生履歴は再生ごとに追加する）
+        let tracks = find_all_tracks(&conn).unwrap();
+        assert_eq!(
+            (tracks[0].play_count, tracks[0].skip_count),
+            (i32::MAX, i32::MAX)
+        );
+        assert_eq!(find_play_history(&conn).unwrap().len(), 2);
     }
 
     #[test]

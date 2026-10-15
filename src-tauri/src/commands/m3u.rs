@@ -363,6 +363,24 @@ mod tests {
     }
 
     #[test]
+    fn test_import_keeps_a_long_japanese_name_within_the_limit() {
+        let fixture = Fixture::new();
+        // ファイル名の上限（255バイト）に収まる、80文字の日本語の名前（240バイト）
+        let name = "あ".repeat(80);
+        let path = fixture.write(
+            &format!("{name}.m3u8"),
+            "/Users/me/Music/Aoi Sora/Blue Horizon/01 青い地平線.mp3\n",
+        );
+
+        let first = import_files(&fixture.state, std::slice::from_ref(&path)).unwrap();
+        let second = import_files(&fixture.state, &[path]).unwrap();
+
+        // 名前の上限は100文字（バイト数では切らない）
+        assert_eq!(first[0].playlist_name.as_deref(), Some(name.as_str()));
+        assert_eq!(second[0].playlist_name, Some(format!("{name} (2)")));
+    }
+
+    #[test]
     fn test_import_creates_no_playlist_when_nothing_matches_or_the_file_is_unreadable() {
         let fixture = Fixture::new();
         let unmatched = fixture.write("知らない曲.m3u8", "C:\\Music\\Unknown\\99.mp3\n# comment\n");

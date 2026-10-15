@@ -41,6 +41,12 @@ pub struct Track {
     pub is_missing: bool,
 }
 
+/// 再生回数・スキップ回数の上限（`Track`の`play_count`・`skip_count`が`i32`のため）
+///
+/// これを超える値がDBに1曲でも入ると、その曲を含む一覧を読めなくなる。DBへ書く値はこの値までに
+/// 収める（ライブラリのXMLの取り込み・回数の加算）。収める前の版が入れた値は、起動時に直す（`db`）。
+pub const MAX_PLAY_COUNT: i64 = i32::MAX as i64;
+
 /// 並び順に使う値（ソート用のタグ。`TITLESORT`・`ARTISTSORT`・`ALBUMSORT`・`ALBUMARTISTSORT`）
 ///
 /// 漢字の名前を読みの順に並べるための読み仮名などが入る。値のない項目は、表示用の値
