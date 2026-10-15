@@ -806,7 +806,7 @@ ADR-024で再生をネイティブのエンジンへ移すと決め、エンジ�
 ### トレードオフ
 
 - 利点: プレーヤーバーとOSの表示が同じ内容になる。メディアキー・メニュー・ウィンドウの中のキー操作が、同じ処理（`Player.svelte`）を通る
-- 欠点: アプリの中に、Objective-CのAPIを呼ぶ`unsafe`のコードを持つ（macOSだけでコンパイルされ、LinuxのCIでは確かめられない）。Linux・Windowsでは、メディアキーに対応しない。WebViewが止まっている間は、OSからの操作に応えられない（再生キューをフロントエンドが持つことによる、ADR-025と同じ制約）
+- 欠点: アプリの中に、Objective-CのAPIを呼ぶ`unsafe`のコードを持つ（macOSだけでコンパイルされる。CIでは、ADR-060からmacOSのジョブで確かめている）。Linux・Windowsでは、メディアキーに対応しない。WebViewが止まっている間は、OSからの操作に応えられない（再生キューをフロントエンドが持つことによる、ADR-025と同じ制約）
 - 確認: 実アプリ（macOS 26.6）で、OSのNow Playingに曲の情報・アルバムアート・再生位置が出ること、OSのリモートコマンド（再生・一時停止・切り替え・次・前・位置の変更）で操作できること、キューの終わりで表示が消えることを確かめた（MediaRemoteフレームワークで、OS側の状態を読み、コマンドを送って確認）。キーボードのメディアキー・イヤホンのボタンを実際に押す確認は、自動ではできない
 
 ## ADR-030: 再生回数は「曲の半分か4分を聴いた時」に数え、数える前に別の曲へ移ったらスキップに数える
@@ -1852,6 +1852,41 @@ lofty 0.25.4（最新）はOgg FLACに対応していない（ADR-024の調査�
 - 利点: 同じ曲が何度入っていても、表示・削除・並べ替え・シャッフルの切り替えが、指した要素に対して行われる。シャッフル中に追加した曲が、解除しても残る。保存の形式とRust側は変わらない
 - 欠点: キューを読む側（右サイドバー・Now Playing・Auto DJ・保存）は、要素から曲を取り出す。復元した後は、シャッフルする前の順で同じ曲の要素が入れ替わることがある（再生中の要素が、同じ曲の別の位置へ戻る）
 - 確認: フロントエンドの単体テスト（同じ曲の追加・削除・シャッフルの切り替え・並べ替え、ドラッグ中に曲が進んだ場合の並べ替え、シャッフル中の追加と解除、シャッフルする前の順に再生中の曲がない場合の解除、同じ曲を含む復元、保存に失敗した後の保存）。モックのブラウザで、同じ曲を2回「キューに追加」し、再生中の曲を「次に再生」に入れても右サイドバーを開けること、再生中の曲と同じ曲を「次に再生」から消しても再生が続くこと、重なった曲の片方だけを消せること、シャッフルの切り替えで重なった曲が残ること、ドラッグで並べ替えられることを確かめた
+
+## ADR-060: ツールチェーンの版を固定してDependabotで上げ、macOSだけのコードもCIで確かめる
+
+### 背景
+
+2026-10-14のリポジトリの調査で、CIと開発用の設定に次の問題が見つかった（#273）。
+
+- CIはubuntuでだけ動き、主に使うmacOSだけのコード（`cfg(target_os = "macos")`。メディアキー・ゴミ箱・ドロップしたファイル・形式の変換・グローバルホットキーなど）とobjc2系の依存は、手元のMacでしかコンパイル・テストされていなかった
+- Rustは`stable`のままで、clippyを`-D warnings`で動かすため、新しいstableでlintが増えると、コードを変えていないPRでもCIが落ちうる
+- `.npmrc`の`engine-strict=true`は、`package.json`に`engines`がないため効いていなかった。Nodeの版は`.node-version`（24.21.0）と`mise.toml`（`24`）の2か所にあり、miseの指定が使われて手元の版が固定されていなかった。miseは`rust = "stable"`から`RUSTUP_TOOLCHAIN`を設定するため、`rust-toolchain.toml`を変えても手元では効かなかった
+- `.markdownlint.json`はあったが、実行する手段（依存・スクリプト・CI）がなかった
+
+### 採用
+
+- **macOSのジョブ（`Backend Check (macOS)`）を足し、clippy（`-D warnings`）・テスト・`bindings.ts`の確認を動かす**。必須のチェックにする。バンドルは作らず、fmtはubuntuのジョブだけで行う
+- **Rustの版を`rust-toolchain.toml`（1.99.0）で固定し、Dependabot（`rust-toolchain`）で毎週上げる**。CIは`rustup toolchain install`でこのファイルの版とコンポーネントを入れる。`Cargo.toml`に`rust-version`を書く
+- **Nodeの版は`.node-version`だけに書く**。CIの`setup-node`は`node-version-file`で、miseは`idiomatic_version_file_enable_tools`でこれを読む（Rustも同じ設定で`rust-toolchain.toml`を読ませる）。`package.json`に`engines`を書く
+- **markdownlintは、markdownlint-cliで動かす**（npmスクリプト`lint:md`と、Frontend Checkの中のステップ）。依存の依存の脆弱性（js-yaml・smol-toml・katex）は、`overrides`で直した版にする。区切りの文字（`; `）や連番（` (2)`）を示すコード表記のため、MD038（コードの中の前後の空白）は無効にする
+- `cargo audit`の受容済みのアドバイザリ（`non-functional.md`の表）を、`--ignore`で明示する
+
+### 不採用とした代替案
+
+- **Rustは`stable`のままにする**: 上げる手間はないが、新しいlintで、関係のないPRのCIが急に落ちる
+- **Rustの版を手で上げる**: 上げる時期を選べるが、忘れると古い版のままになる。DependabotのPRなら、新しいlintの修正をそのPRにまとめられる
+- **CIで`dtolnay/rust-toolchain`に版を渡す**: 版を`rust-toolchain.toml`と二重に書くことになる。`actions-rust-lang/setup-rust-toolchain`は`rust-toolchain.toml`を読むが、既定で`RUSTFLAGS`に`-D warnings`を設定し、テストのビルドの扱いが変わる
+- **Nodeの版を`mise.toml`だけに書く**: `setup-node`が読めないため、CIの版を別に書くことになる
+- **markdownlint-cli2を使う**: markdownlintの作者による新しいCLIだが、依存（globby・micromatch）が使う`braces`に、直した版のない脆弱性（GHSA-vfj7-8cjw-p6xm、high。2026-09-18）があり、`npm audit`（moderate以上で失敗）が落ちる。依存の版を固定しているため、`overrides`でも避けられない
+- **markdownlintをCIのアクションだけで動かす**: lockfileに入らず監査の対象にならないが、手元で同じ版を動かせない
+- **macOSのジョブでバンドルまで作る**: 確かめたいのはコンパイルとテストで、署名のない`.app`を作っても得るものが少なく、時間がかかる
+
+### トレードオフ
+
+- 利点: macOSだけのコードの警告・失敗を、PRで見つけられる。Rust・Nodeの版がCIと手元でそろい、新しいRustのlintは、版を上げるPRでだけ出る。Markdownの書き方がそろう
+- 欠点: CIにmacOSのジョブが増える。DependabotのRustのPRを、新しい版が出るたびに確かめてマージする。Nodeの版は手で上げる。`overrides`は、markdownlint-cliが直した版を使うようになったら外す。手元のNodeが24.15より古いと`npm install`が失敗する（miseでは`mise install`で`.node-version`の版が入る）
+- 確認: 手元（macOS）で、固定した1.99.0（`rustup toolchain install`で入れた）のclippy・テスト、Node 24.21.0（npm 11.19.0）でのフロントエンドのチェックとmarkdownlintが通ることを確かめた。miseが`.node-version`・`rust-toolchain.toml`の版を読むこと、npm 10では`engines`で`npm ci`が止まることを確かめた。PRのCIで、macOSのジョブを含むすべてのジョブが通った
 
 ## 参考資料
 

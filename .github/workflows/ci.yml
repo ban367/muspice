@@ -23,7 +23,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: '24'
+          node-version-file: '.node-version'
           cache: 'npm'
 
       - name: Install dependencies
@@ -37,6 +37,9 @@ jobs:
 
       - name: Format check
         run: npm run format:check
+
+      - name: Markdown lint
+        run: npm run lint:md
 
       - name: Unit tests
         run: npm test
@@ -59,10 +62,9 @@ jobs:
             libayatana-appindicator3-dev \
             libasound2-dev
 
+      # rust-toolchain.tomlの版とコンポーネントを入れる
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
-        with:
-          components: clippy, rustfmt
+        run: rustup toolchain install
 
       - name: Rust cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -80,6 +82,37 @@ jobs:
 
       # テスト実行時にbindings.tsが再生成されるため、
       # コミット済みの内容と差分がないこと（生成物が最新であること）を確認する
+      - name: Check generated bindings are up to date
+        run: |
+          if ! git diff --exit-code -- src/lib/bindings.ts; then
+            echo "::error::src/lib/bindings.ts が古くなっています。'cargo test --manifest-path src-tauri/Cargo.toml' を実行して再生成し、コミットしてください。"
+            exit 1
+          fi
+
+  # macOSだけのコード（cfg(target_os = "macos")）とobjc2系の依存のチェック
+  # fmtはOSによらずすべてのファイルを見るため、Backend Checkだけで行う
+  backend-macos:
+    name: Backend Check (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      # rust-toolchain.tomlの版とコンポーネントを入れる
+      - name: Setup Rust
+        run: rustup toolchain install
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri
+
+      - name: Clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
+
+      - name: Run tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      # macOSで生成したbindings.tsも、コミット済みの内容と同じであることを確認する
       - name: Check generated bindings are up to date
         run: |
           if ! git diff --exit-code -- src/lib/bindings.ts; then
@@ -118,11 +151,12 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: '24'
+          node-version-file: '.node-version'
           cache: 'npm'
 
+      # rust-toolchain.tomlの版とコンポーネントを入れる
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+        run: rustup toolchain install
 
       - name: Rust cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2

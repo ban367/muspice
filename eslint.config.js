@@ -21,9 +21,7 @@ export default defineConfig(
       'node_modules/**',
       'src-tauri/target/**',
       // tauri-spectaによる生成物
-      'src/lib/bindings.ts',
-      '*.config.js',
-      '*.config.ts'
+      'src/lib/bindings.ts'
     ]
   },
   js.configs.recommended,
@@ -52,7 +50,8 @@ export default defineConfig(
         'error',
         {
           name: 'confirm',
-          message: '#lib/utils/dialog.svelte.js の confirmDestructive を await して使用してください。'
+          message:
+            '#lib/utils/dialog.svelte.js の confirmDestructive を await して使用してください。'
         },
         {
           // macOSのWebView（wry）はwindow.promptを実装しておらず、常にnullを返す
@@ -61,6 +60,15 @@ export default defineConfig(
         }
       ],
       'no-restricted-imports': ['error', { paths: [NO_SVELTE_STORE] }]
+    }
+  },
+  {
+    // 設定ファイル（vite.config.js・eslint.config.js）はNode.jsで動く
+    files: ['*.config.js'],
+    languageOptions: {
+      globals: {
+        ...globals.node
+      }
     }
   },
   {

@@ -5,6 +5,8 @@ description = "デスクトップ音楽管理アプリケーション"
 authors = ["ban367"]
 license = "MIT"
 edition = "2024"
+# 対応する最小の版（rust-toolchain.tomlの版以下にする）。それより新しい標準ライブラリのAPIを使うと、clippyが知らせる
+rust-version = "1.99"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

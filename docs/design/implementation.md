@@ -11,7 +11,7 @@
 | UI部品（動作）         | Bits UI                                                                         | 2.19.x                                             | ヘッドレス（スタイルなし）。メニュー・パネル・タブで使う（ADR-056）                                                                                                                                                          |
 | データ取得             | TanStack Query（Svelte）                                                        | 6.3.x                                              | Queryキャッシュ/再取得制御                                                                                                                                                                                                   |
 | デスクトップ基盤       | Tauri + tauri-specta                                                            | 2.12.x / 2.0.0-rc.25                               | 型付きコマンド呼び出しを自動生成                                                                                                                                                                                             |
-| バックエンド           | Rust                                                                            | edition 2024（stable）                             | コアロジック/DBアクセス                                                                                                                                                                                                      |
+| バックエンド           | Rust                                                                            | 1.99.0（edition 2024）                             | コアロジック/DBアクセス。版は`rust-toolchain.toml`で固定する（「ツールチェーンの版」）                                                                                                                                       |
 | DB                     | SQLite + FTS5                                                                   | rusqlite 0.40（bundled）                           | 全文検索・ローカル保存                                                                                                                                                                                                       |
 | メタデータ             | lofty                                                                           | 0.25                                               | タグ読み書き/アルバムアート抽出                                                                                                                                                                                              |
 | フォルダの監視         | notify-debouncer-mini（notify）                                                 | 0.7（notify 8）                                    | ライブラリフォルダの変更の自動反映                                                                                                                                                                                           |
@@ -349,12 +349,24 @@ npm run dev
 npm run dev:mock
 npm run check
 npm run lint
+npm run lint:md
 npm test
 npm run format
 cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
+
+- `npm run lint:md`は、Markdownをmarkdownlint（markdownlint-cli。ADR-060）で確かめる。設定は`.markdownlint.jsonc`。対象はリポジトリのすべての`.md`（`.github`などドットで始まるフォルダを含む）で、`.gitignore`のものと`src-tauri/target`は除く
+- `vite.config.js`・`eslint.config.js`も、Prettier・ESLintの対象にする（Node.jsで動くため、ESLintではNode.jsのグローバル変数を使える）
+
+### ツールチェーンの版
+
+- Node.js: `.node-version`（24.21.0）だけに書く。CIの`setup-node`は`node-version-file`で、miseは`mise.toml`の`idiomatic_version_file_enable_tools`で、このファイルを読む。Nodeの版は手で上げる（Dependabotは`.node-version`を上げない）
+  - `package.json`の`engines`（Node.js 24.15以上・npm 11以上）を、`.npmrc`の`engine-strict=true`で守らせる。npm 10（Node.js 22）では、依存のpeerの食い違いでlockfileを入れられない。24.15は、依存（markdownlint-cliが使う`ini`）が求める最小の版
+- Rust: `rust-toolchain.toml`（1.99.0）だけに書く。CIは`rustup toolchain install`でこの版とコンポーネントを入れ、miseも同じファイルを読む（miseは`RUSTUP_TOOLCHAIN`を設定するため、`mise.toml`や全体の設定の`rust = "stable"`が使われると、`rust-toolchain.toml`より優先される）
+  - 新しい版は、Dependabot（`rust-toolchain`）が毎週PRで上げる。新しい版のclippyのlintで落ちたら、そのPRで直す（stableのままだと、コードを変えていないPRでもCIが急に落ちる。ADR-060）
+  - `src-tauri/Cargo.toml`の`rust-version`は、`rust-toolchain.toml`の版以下にする（今は同じ1.99）。それより新しい標準ライブラリのAPIを使うと、clippy（`incompatible_msrv`）が知らせる
 
 ## テスト方針
 
@@ -423,9 +435,12 @@ Tauriのウィンドウ（macOSではWKWebView）はブラウザ自動化ツー�
 
 `.github/workflows/ci.yml` で以下を実行:
 
-1. Frontend Check（type-check, lint, format:check, test）
-2. Backend Check（fmt --check, clippy, test）
-3. Build Test（PR時のみ、Tauri build）
+1. Frontend Check（type-check, lint, format:check, markdownlint, test）
+2. Backend Check（ubuntu。fmt --check, clippy, test, `bindings.ts`が最新か）
+3. Backend Check (macOS)（macOS。clippy, test, `bindings.ts`が最新か）: macOSだけのコード（`cfg(target_os = "macos")`。メディアキー・ゴミ箱・ドロップしたファイル・形式の変換・グローバルホットキーなど）とobjc2系の依存を確かめる。fmtはOSによらずすべてのファイルを見るため、Backend Checkだけで行う。バンドルは作らない
+4. Build Test（PR時のみ、ubuntuでTauri build）
+
+ジョブ名（`name:`）は、mainのルールセット「Main Branch Protection」の必須チェックに登録する（`Frontend Check`・`Backend Check`・`Backend Check (macOS)`・`Build Test (ubuntu-latest)`）。名前を変える時は、ルールセットも合わせて直す（直さないと、すべてのPRがマージできなくなる）。
 
 Linuxでは、Tauriの依存に加えて、再生エンジンの出力（`cpal`のALSA）のために`libasound2-dev`を入れる。libopusのビルドにはcmakeが要る（GitHubのランナーには入っている。手元のmacOSでは`brew install cmake`）。
 

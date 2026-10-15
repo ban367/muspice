@@ -1,3 +1,4 @@
+// markdownlintの設定（npm run lint:md・CIのFrontend Check・VS Codeの拡張が読む）
 {
   "default": true,
   "MD003": {
@@ -14,5 +15,7 @@
     "siblings_only": true
   },
   "MD033": false,
+  // 区切りの文字（`; `）や連番（` (2)`）を示すため、コードの中の前後の空白を許す
+  "MD038": false,
   "MD041": false
 }

@@ -55,9 +55,10 @@
 
 ### 依存関係の脆弱性監視
 
-- `.github/workflows/audit.yml` が毎週と、lockfileを変更するPRで `npm audit`（moderate以上で失敗）と `cargo-audit`（脆弱性で失敗、unmaintained・unsoundは警告）を実行する
-- Dependabotはminor/patchをエコシステムごとに1つのPRへまとめる（メジャー更新は個別PR）。毎週月曜 09:00（Asia/Tokyo）に実行し、PRにはban367をアサインして `dependencies` とエコシステムのラベル（`npm`・`rust`・`ci`）を付ける
+- `.github/workflows/audit.yml` が毎週と、lockfileを変更するPRで `npm audit`（moderate以上で失敗）と `cargo-audit`（脆弱性で失敗、unmaintained・unsoundは警告）を実行する。下の表の受容済みのアドバイザリは、`audit.yml` の `--ignore` に書いて除く（表を変えたら、`--ignore` も合わせる）
+- Dependabotはminor/patchをエコシステムごとに1つのPRへまとめる（メジャー更新は個別PR）。毎週月曜 09:00（Asia/Tokyo）に実行し、PRにはban367をアサインして `dependencies` とエコシステムのラベル（`npm`・`rust`・`ci`）を付ける。Rustのツールチェーン（`rust-toolchain.toml`）も、同じ曜日・時刻に上げる（ラベルは `rust`。ADR-060）
 - 周辺のツールが対応するまで見送るメジャー更新は、`.github/dependabot.yml` の `ignore` に理由と外す条件を添えて書く（現在は TypeScript 7。svelte-check・typescript-eslint・@sveltejs/kit が対応したら外す）
+- 依存の依存の脆弱性で、直した版があるのに上流が上げていないものは、`package.json` の `overrides` で直した版にする（現在は markdownlint-cli の `js-yaml`・`katex`・`smol-toml`。markdownlint-cli が直した版を使うようになったら外す。ADR-060）
 - 上流の対応待ちで受容しているアドバイザリ（解消条件を満たしたら再確認する）
 
 | 対象                    | アドバイザリ                      | 経路                        | 受容理由・解消条件  |
