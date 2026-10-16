@@ -260,7 +260,6 @@ fn non_empty(value: &Option<String>) -> Option<String> {
 mod tests {
     use super::*;
     use crate::error::AppError;
-    use rusqlite::Connection;
     use std::cell::Cell;
 
     const TRACK_ID: &str = "11111111-1111-4111-8111-111111111111";
@@ -304,8 +303,7 @@ mod tests {
     }
 
     fn test_state() -> AppState {
-        let conn = Connection::open_in_memory().unwrap();
-        crate::db::run_migrations(&conn).unwrap();
+        let conn = crate::db::open_in_memory();
         AppState::new(conn)
     }
 

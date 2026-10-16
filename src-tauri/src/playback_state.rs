@@ -294,9 +294,7 @@ mod tests {
     }
 
     fn setup_db() -> Connection {
-        let conn = Connection::open_in_memory().unwrap();
-        crate::db::run_migrations(&conn).unwrap();
-        conn
+        crate::db::open_in_memory()
     }
 
     /// テスト用のトラックID（UUIDの形式）

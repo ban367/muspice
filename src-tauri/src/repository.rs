@@ -1634,11 +1634,16 @@ pub fn set_track_rating(conn: &Connection, track_id: &str, rating: i32) -> AppRe
 /// 再生回数をインクリメントして再生履歴に追加し、新しい再生回数を返す
 ///
 /// 再生回数は上限（`MAX_PLAY_COUNT`）で止める（再生履歴には追加する）。
-pub fn increment_track_play_count(conn: &Connection, track_id: &str) -> AppResult<i32> {
+/// 2つの書き込みは1つのトランザクションで行い、片方だけを記録しない。
+pub fn increment_track_play_count(conn: &mut Connection, track_id: &str) -> AppResult<i32> {
     let now = chrono::Utc::now().to_rfc3339();
 
+    let tx = conn
+        .transaction()
+        .map_err(|e| AppError::Database(format!("トランザクションの開始に失敗しました: {}", e)))?;
+
     // 再生回数をインクリメントし、更新後の値をそのまま受け取る
-    let new_count: i32 = conn
+    let new_count: i32 = tx
         .query_row(
             "UPDATE tracks SET
                 play_count = MIN(COALESCE(play_count, 0) + 1, ?3),
@@ -1657,11 +1662,15 @@ pub fn increment_track_play_count(conn: &Connection, track_id: &str) -> AppResul
         })?;
 
     // 再生履歴に追加
-    conn.execute(
+    tx.execute(
         "INSERT INTO play_history (track_id, played_at) VALUES (?1, ?2)",
         rusqlite::params![track_id, now],
     )
     .map_err(|e| AppError::Database(format!("再生履歴の追加に失敗しました: {}", e)))?;
+
+    tx.commit().map_err(|e| {
+        AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
+    })?;
 
     Ok(new_count)
 }
@@ -1738,9 +1747,7 @@ mod tests {
 
     /// テスト用のインメモリDBを作成してスキーマを適用
     fn setup_test_db() -> Connection {
-        let conn = Connection::open_in_memory().expect("インメモリDB作成に失敗");
-        crate::db::run_migrations(&conn).expect("マイグレーション実行に失敗");
-        conn
+        crate::db::open_in_memory()
     }
 
     /// テスト用のトラックをDBに挿入
@@ -2322,12 +2329,12 @@ mod tests {
 
     #[test]
     fn test_increment_track_play_count() {
-        let conn = setup_test_db();
+        let mut conn = setup_test_db();
         insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
 
         // 戻り値は更新後の再生回数
-        assert_eq!(increment_track_play_count(&conn, "t1").unwrap(), 1);
-        assert_eq!(increment_track_play_count(&conn, "t1").unwrap(), 2);
+        assert_eq!(increment_track_play_count(&mut conn, "t1").unwrap(), 1);
+        assert_eq!(increment_track_play_count(&mut conn, "t1").unwrap(), 2);
 
         let track = find_track_by_id(&conn, "t1").unwrap();
         assert_eq!(track.play_count, 2);
@@ -2344,13 +2351,32 @@ mod tests {
         assert_eq!(history_count, 2);
 
         // 存在しないトラックはNotFound（履歴も追加しない）
-        let result = increment_track_play_count(&conn, "nonexistent");
+        let result = increment_track_play_count(&mut conn, "nonexistent");
         assert!(
             result
                 .unwrap_err()
                 .to_string()
                 .contains("トラックが見つかりません")
         );
+    }
+
+    /// 再生履歴を追加できなければ、再生回数も変えない
+    #[test]
+    fn test_increment_track_play_count_keeps_count_when_history_fails() {
+        let mut conn = setup_test_db();
+        insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
+        conn.execute_batch(
+            "CREATE TRIGGER fail_history BEFORE INSERT ON play_history
+             BEGIN SELECT RAISE(ABORT, '追加できない'); END;",
+        )
+        .unwrap();
+
+        let result = increment_track_play_count(&mut conn, "t1");
+        assert!(matches!(result, Err(AppError::Database(_))));
+
+        let track = find_track_by_id(&conn, "t1").unwrap();
+        assert_eq!(track.play_count, 0);
+        assert!(track.last_played_at.is_none());
     }
 
     #[test]
@@ -2378,7 +2404,7 @@ mod tests {
 
     #[test]
     fn test_increment_counts_stop_at_the_limit() {
-        let conn = setup_test_db();
+        let mut conn = setup_test_db();
         insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
         conn.execute(
             "UPDATE tracks SET play_count = ?1 - 1, skip_count = ?1 WHERE id = 't1'",
@@ -2386,8 +2412,14 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(increment_track_play_count(&conn, "t1").unwrap(), i32::MAX);
-        assert_eq!(increment_track_play_count(&conn, "t1").unwrap(), i32::MAX);
+        assert_eq!(
+            increment_track_play_count(&mut conn, "t1").unwrap(),
+            i32::MAX
+        );
+        assert_eq!(
+            increment_track_play_count(&mut conn, "t1").unwrap(),
+            i32::MAX
+        );
         assert_eq!(increment_track_skip_count(&conn, "t1").unwrap(), i32::MAX);
 
         // 上限で止めた後も、一覧を読める（再生履歴は再生ごとに追加する）
@@ -2401,7 +2433,7 @@ mod tests {
 
     #[test]
     fn test_find_play_history_returns_every_play_newest_first() {
-        let conn = setup_test_db();
+        let mut conn = setup_test_db();
         insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
         insert_test_track(&conn, "t2", "曲B", "アーティストY", "アルバム2", "ポップ");
         assert!(find_play_history(&conn).unwrap().is_empty());
@@ -2441,7 +2473,7 @@ mod tests {
         assert_eq!(ids.len(), 4);
 
         // 再生回数に数えると、履歴の先頭に加わる
-        increment_track_play_count(&conn, "t1").unwrap();
+        increment_track_play_count(&mut conn, "t1").unwrap();
         let history = find_play_history(&conn).unwrap();
         assert_eq!(history.len(), 5);
         assert_eq!(history[0].track_id, "t1");

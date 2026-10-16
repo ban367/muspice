@@ -252,15 +252,13 @@ mod tests {
     use super::*;
     use crate::device_manifest::test_support::TempDir;
     use crate::models::ReplayGain;
-    use rusqlite::Connection;
     use std::fs;
     use std::path::Path;
 
     const TEMPLATE: &str = "%albumartist%/%album%/%track% %title%";
 
     fn test_state() -> AppState {
-        let conn = Connection::open_in_memory().unwrap();
-        crate::db::run_migrations(&conn).unwrap();
+        let conn = crate::db::open_in_memory();
         AppState::new(conn)
     }
 

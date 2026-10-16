@@ -120,7 +120,7 @@ src-tauri/src/
 ├── track_notification.rs  # 曲が変わった時の通知（ADR-046）
 ├── track_relink.rs        # 移動・改名されたファイルと、見つからない曲の対応付け
 ├── transcode.rs           # 形式の変換（デコードした音声の一時ファイル・afconvertでのエンコード・出力先の計画。ADR-054）
-├── trash.rs               # ファイルをOSのゴミ箱へ移す（形式の変換の置き換えで使う。macOS）
+├── trash.rs               # ファイルをOSのゴミ箱へ移す（形式の変換の置き換えと、曲のファイルごとの削除で使う。macOS）
 ├── tray.rs                # メニューバー（トレイ）への常駐（アイコン・メニュー・再生中の曲の表示。ADR-046）
 ├── validation.rs
 ├── vorbis_tag.rs          # Vorbisコメント（FLAC・Ogg Vorbis・Opus・Ogg FLAC）の保存（アプリが扱わない項目の保持。ADR-048）

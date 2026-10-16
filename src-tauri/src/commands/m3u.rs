@@ -215,7 +215,6 @@ fn export_playlist(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rusqlite::Connection;
 
     struct Fixture {
         state: AppState,
@@ -224,8 +223,7 @@ mod tests {
 
     impl Fixture {
         fn new() -> Self {
-            let conn = Connection::open_in_memory().unwrap();
-            crate::db::run_migrations(&conn).unwrap();
+            let conn = crate::db::open_in_memory();
             let dir =
                 std::env::temp_dir().join(format!("muspice-m3u-cmd-{}", uuid::Uuid::new_v4()));
             std::fs::create_dir_all(&dir).unwrap();

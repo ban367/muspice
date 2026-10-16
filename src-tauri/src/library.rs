@@ -1,4 +1,5 @@
 use crate::error::{AppError, AppResult};
+use crate::state::AppState;
 use rusqlite::Connection;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -323,72 +324,107 @@ pub fn delete_tracks(conn: &Connection, track_ids: &[String]) -> AppResult<u32> 
     to_count(deleted_count)
 }
 
+/// 曲のファイルを消す（macOSではゴミ箱へ移し、ほかのOSでは完全に削除する）
+///
+/// @returns ゴミ箱の中での場所（完全に削除した場合と、分からない場合はNone）
+pub fn discard_track_file(path: &Path) -> AppResult<Option<PathBuf>> {
+    if crate::trash::is_available() {
+        crate::trash::move_to_trash(path)
+    } else {
+        fs::remove_file(path)
+            .map(|()| None)
+            .map_err(|e| AppError::Io(format!("ファイルの削除に失敗しました: {}", e)))
+    }
+}
+
+/// ファイルを消せた曲
+struct DiscardedTrack<'a> {
+    track_id: &'a str,
+    file_path: &'a str,
+    /// ゴミ箱の中での場所（元に戻す時に使う）
+    trashed: Option<PathBuf>,
+}
+
 /// トラックをデータベースとファイルシステムから削除
-/// ファイル削除に失敗した場合でも、可能な限り処理を続行する
+///
+/// ファイルはDBのロックの外で消す（遅いドライブでも、その間ほかのコマンドとアルバムアートの表示を
+/// 止めない）。ファイルを消せなかった曲は、ライブラリに残して`failed_tracks`に入れ、ほかの曲は続ける。
+///
+/// 1. ロックの中で、ファイルのパスを求める（見つからないトラックは飛ばす）
+/// 2. ロックの外で、ファイルを消す（`discard`。普段は`discard_track_file`。ゴミ箱へ移した場合は、
+///    ゴミ箱の中の場所を返す）。ファイルがすでにない曲は、消せたものとして扱う
+/// 3. ファイルを消せた曲の行を、1つの短いトランザクションで削除する。削除できなかった場合は、
+///    ゴミ箱へ移したファイルを元の場所へ戻してから、エラーを返す
+///
+/// トラックIDのバリデーションはコマンド層（入力境界）で実施済みであることを前提とする。
 pub fn delete_tracks_with_files(
-    conn: &Connection,
+    state: &AppState,
     track_ids: &[String],
+    discard: &dyn Fn(&Path) -> AppResult<Option<PathBuf>>,
 ) -> AppResult<DeleteResult> {
-    if track_ids.is_empty() {
-        return Ok(DeleteResult {
-            success_count: 0,
-            failed_count: 0,
-            failed_tracks: Vec::new(),
-        });
-    }
-
-    // まずファイルパスを取得（見つからないトラックはスキップ）
-    let mut track_info: Vec<(String, String)> = Vec::new();
-    for track_id in track_ids {
-        if let Some(path) = crate::repository::try_find_file_path_by_track_id(conn, track_id)? {
-            track_info.push((track_id.clone(), path));
-        }
-    }
-
-    let mut success_count: usize = 0;
-    let mut failed_tracks: Vec<DeleteFailure> = Vec::new();
-
-    // トランザクションを使用してデータベースから削除
-    let tx = conn
-        .unchecked_transaction()
-        .map_err(|e| AppError::Database(format!("トランザクションの開始に失敗しました: {}", e)))?;
-
-    for (track_id, file_path) in &track_info {
-        // ファイルの削除を試みる
-        let file_delete_result = fs::remove_file(file_path);
-
-        match file_delete_result {
-            Ok(()) => {
-                // ファイル削除成功、データベースからも削除
-                crate::repository::delete_track(&tx, track_id)?;
-                success_count += 1;
-            }
-            Err(e) => {
-                // ファイル削除失敗
-                // ファイルが見つからない場合はDBからも削除を許可
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    crate::repository::delete_track(&tx, track_id)?;
-                    success_count += 1;
-                } else {
-                    failed_tracks.push(DeleteFailure {
-                        track_id: track_id.clone(),
-                        file_path: file_path.clone(),
-                        reason: format!("ファイルの削除に失敗しました: {}", e),
-                    });
-                }
+    let targets: Vec<(String, String)> = state.with_db(|db| {
+        let mut targets = Vec::new();
+        for track_id in track_ids {
+            if let Some(path) = crate::repository::try_find_file_path_by_track_id(db, track_id)? {
+                targets.push((track_id.clone(), path));
             }
         }
-    }
-
-    tx.commit().map_err(|e| {
-        AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
+        Ok(targets)
     })?;
 
+    let mut discarded: Vec<DiscardedTrack> = Vec::new();
+    let mut failed_tracks: Vec<DeleteFailure> = Vec::new();
+    for (track_id, file_path) in &targets {
+        let path = Path::new(file_path);
+        // リンクはたどらずに確かめる（リンクの先がなくても、リンクそのものは消す）
+        let result = match fs::symlink_metadata(path) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            _ => discard(path),
+        };
+        match result {
+            Ok(trashed) => discarded.push(DiscardedTrack {
+                track_id,
+                file_path,
+                trashed,
+            }),
+            Err(e) => failed_tracks.push(DeleteFailure {
+                track_id: track_id.clone(),
+                file_path: file_path.clone(),
+                reason: e.to_string(),
+            }),
+        }
+    }
+
+    let ids: Vec<String> = discarded
+        .iter()
+        .map(|track| track.track_id.to_string())
+        .collect();
+    if let Err(e) = state.with_db(|db| delete_tracks(db, &ids)) {
+        restore_discarded_files(&discarded);
+        return Err(e);
+    }
+
     Ok(DeleteResult {
-        success_count: to_count(success_count)?,
+        success_count: to_count(discarded.len())?,
         failed_count: to_count(failed_tracks.len())?,
         failed_tracks,
     })
+}
+
+/// ゴミ箱へ移したファイルを、元の場所へ戻す（戻せなかったファイルは、ログに残す）
+fn restore_discarded_files(discarded: &[DiscardedTrack]) {
+    for track in discarded {
+        let Some(trashed) = &track.trashed else {
+            continue;
+        };
+        if let Err(e) = crate::file_organize::move_no_replace(trashed, Path::new(track.file_path)) {
+            log::error!(
+                "ファイルを、ゴミ箱から戻せませんでした: {}: {}",
+                track.file_path,
+                e
+            );
+        }
+    }
 }
 
 #[cfg(test)]
@@ -567,5 +603,153 @@ mod tests {
     #[cfg(target_pointer_width = "64")]
     fn test_to_count_overflow() {
         assert!(to_count(u32::MAX as usize + 1).is_err());
+    }
+
+    /// ファイルごとの削除のテスト用の状態（ゴミ箱の代わりに、`trash`フォルダへ移す）
+    struct DeleteFixture {
+        state: AppState,
+        dir: TempDir,
+    }
+
+    impl DeleteFixture {
+        fn new() -> Self {
+            Self {
+                state: AppState::new(crate::db::open_in_memory()),
+                dir: TempDir::new(),
+            }
+        }
+
+        /// 曲をライブラリに登録する（`exists`がtrueなら、ファイルも作る）
+        fn add_track(&self, id: &str, exists: bool) -> PathBuf {
+            let path = self.dir.path().join(format!("{id}.mp3"));
+            if exists {
+                touch(&path);
+            }
+            self.state
+                .with_db(|db| {
+                    db.execute(
+                        "INSERT INTO tracks (id, file_path, file_name) VALUES (?1, ?2, ?3)",
+                        rusqlite::params![id, path.to_string_lossy(), format!("{id}.mp3")],
+                    )
+                    .map_err(|e| AppError::Database(e.to_string()))
+                })
+                .unwrap();
+            path
+        }
+
+        fn trash_path(&self, path: &Path) -> PathBuf {
+            self.dir
+                .path()
+                .join("trash")
+                .join(path.file_name().unwrap())
+        }
+
+        /// ゴミ箱の代わり（名前が`locked`で始まるファイルは、移せない）
+        fn trash(&self, path: &Path) -> AppResult<Option<PathBuf>> {
+            let name = path.file_name().unwrap().to_string_lossy();
+            if name.starts_with("locked") {
+                return Err(AppError::Io(
+                    "ファイルをゴミ箱へ移せませんでした".to_string(),
+                ));
+            }
+            let trashed = self.trash_path(path);
+            fs::create_dir_all(trashed.parent().unwrap()).unwrap();
+            fs::rename(path, &trashed).unwrap();
+            Ok(Some(trashed))
+        }
+
+        fn track_ids(&self) -> Vec<String> {
+            self.state
+                .with_db(|db| {
+                    let mut stmt = db.prepare("SELECT id FROM tracks ORDER BY id").unwrap();
+                    let ids = stmt
+                        .query_map([], |row| row.get(0))
+                        .unwrap()
+                        .collect::<Result<Vec<String>, _>>()
+                        .unwrap();
+                    Ok(ids)
+                })
+                .unwrap()
+        }
+    }
+
+    fn ids(ids: &[&str]) -> Vec<String> {
+        ids.iter().map(|id| id.to_string()).collect()
+    }
+
+    /// ファイルを移せた曲・ファイルがもうない曲は削除し、移せなかった曲はライブラリに残す
+    #[test]
+    fn test_delete_tracks_with_files_keeps_tracks_whose_files_cannot_be_removed() {
+        let fixture = DeleteFixture::new();
+        let a = fixture.add_track("a", true);
+        fixture.add_track("b", false);
+        let locked = fixture.add_track("locked", true);
+        fixture.add_track("other", true);
+        let trash = |path: &Path| fixture.trash(path);
+
+        let result = delete_tracks_with_files(
+            &fixture.state,
+            &ids(&["a", "b", "locked", "unknown"]),
+            &trash,
+        )
+        .unwrap();
+
+        assert_eq!((result.success_count, result.failed_count), (2, 1));
+        assert_eq!(result.failed_tracks[0].track_id, "locked");
+        assert_eq!(result.failed_tracks[0].file_path, locked.to_string_lossy());
+        assert!(
+            result.failed_tracks[0]
+                .reason
+                .contains("ゴミ箱へ移せません")
+        );
+        assert_eq!(fixture.track_ids(), ids(&["locked", "other"]));
+        assert!(!a.exists());
+        assert!(fixture.trash_path(&a).is_file());
+        assert!(locked.is_file());
+    }
+
+    /// ファイルを消している間は、DBのロックを持たない
+    #[test]
+    fn test_delete_tracks_with_files_removes_files_outside_the_db_lock() {
+        let fixture = DeleteFixture::new();
+        fixture.add_track("a", true);
+        let trash = |path: &Path| {
+            assert!(
+                fixture.state.db.try_lock().is_ok(),
+                "DBのロックを持ったまま、ファイルを消している"
+            );
+            fixture.trash(path)
+        };
+
+        let result = delete_tracks_with_files(&fixture.state, &ids(&["a"]), &trash).unwrap();
+        assert_eq!(result.success_count, 1);
+        assert!(fixture.track_ids().is_empty());
+    }
+
+    /// 行を削除できなかった場合は、ゴミ箱へ移したファイルを元の場所へ戻し、ライブラリも変えない
+    #[test]
+    fn test_delete_tracks_with_files_restores_files_when_rows_cannot_be_deleted() {
+        let fixture = DeleteFixture::new();
+        let a = fixture.add_track("a", true);
+        let b = fixture.add_track("b", true);
+        fixture
+            .state
+            .with_db(|db| {
+                db.execute_batch(
+                    "CREATE TRIGGER fail_delete BEFORE DELETE ON tracks WHEN old.id = 'b'
+                     BEGIN SELECT RAISE(ABORT, '削除できない'); END;",
+                )
+                .map_err(|e| AppError::Database(e.to_string()))
+            })
+            .unwrap();
+        let trash = |path: &Path| fixture.trash(path);
+
+        let result = delete_tracks_with_files(&fixture.state, &ids(&["a", "b"]), &trash);
+
+        assert!(matches!(result, Err(AppError::Database(_))));
+        assert_eq!(fixture.track_ids(), ids(&["a", "b"]));
+        assert!(a.is_file());
+        assert!(b.is_file());
+        assert!(!fixture.trash_path(&a).exists());
     }
 }

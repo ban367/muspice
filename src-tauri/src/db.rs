@@ -4,8 +4,26 @@ use std::path::PathBuf;
 /// データベース接続を初期化
 pub fn init_db(db_path: PathBuf) -> Result<Connection> {
     let conn = Connection::open(db_path)?;
-    run_migrations(&conn)?;
+    setup_connection(&conn)?;
     Ok(conn)
+}
+
+/// 開いた接続を使える状態にする（接続ごとの設定と、スキーマの作成・移行）
+///
+/// アプリの接続も、テストの接続（`open_in_memory`）も、これを通す。
+pub fn setup_connection(conn: &Connection) -> Result<()> {
+    // 外部キー（`ON DELETE CASCADE`）を有効にする。SQLiteの既定は無効で、接続ごとに設定する
+    // （同梱のSQLiteのビルドの既定値に頼らない）。トランザクションの中では変えられないため、最初に行う
+    conn.pragma_update(None, "foreign_keys", true)?;
+    run_migrations(conn)
+}
+
+/// テスト用の、メモリ上のDBを開く（アプリと同じ設定・スキーマにする）
+#[cfg(test)]
+pub fn open_in_memory() -> Connection {
+    let conn = Connection::open_in_memory().expect("インメモリDB作成に失敗");
+    setup_connection(&conn).expect("マイグレーション実行に失敗");
+    conn
 }
 
 /// カラムが存在しない場合のみ追加するヘルパー関数
@@ -50,8 +68,8 @@ fn fts_text_expr(prefix: &str) -> String {
     )
 }
 
-/// データベースマイグレーションを実行
-pub fn run_migrations(conn: &Connection) -> Result<()> {
+/// データベースマイグレーションを実行（`setup_connection`から呼ぶ）
+fn run_migrations(conn: &Connection) -> Result<()> {
     // 全文検索の表を同期するトリガーが使う関数を登録する（`tracks`に書き込む前に必要）
     crate::search_text::register(conn)?;
     // 複数の値を持つ項目（アーティスト・ジャンル）を、値ごとに比べる関数（一覧の絞り込みで使う）
@@ -298,6 +316,13 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         [],
     )?;
 
+    // 曲を削除する時に、外部キー（`ON DELETE CASCADE`）がその曲の行を探す
+    // （主キーの`(playlist_id, track_id)`は、`track_id`だけの検索に使えない）
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_playlist_tracks_track_id ON playlist_tracks(track_id)",
+        [],
+    )?;
+
     // 全文検索の表の定義を変えた場合は、表を作り直す（user_versionで実行済みを管理）
     // 表の内容は、下の「既存データを同期」で`tracks`から作り直せる
     let user_version: i32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
@@ -368,11 +393,93 @@ mod tests {
     use super::*;
     use std::fs;
 
+    fn count(conn: &Connection, sql: &str) -> i64 {
+        conn.query_row(sql, [], |row| row.get(0)).unwrap()
+    }
+
+    /// 接続の設定で外部キーが有効になり、曲・プレイリストを削除すると関連する行も消えること
+    #[test]
+    fn test_setup_connection_enables_foreign_keys() {
+        let conn = Connection::open_in_memory().unwrap();
+        // ビルドの既定値によらず、接続の設定で有効にする
+        conn.pragma_update(None, "foreign_keys", false).unwrap();
+        setup_connection(&conn).unwrap();
+        let enabled: bool = conn
+            .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
+            .unwrap();
+        assert!(enabled);
+
+        conn.execute_batch(
+            "INSERT INTO tracks (id, file_path, file_name)
+             VALUES ('t1', '/m/t1.mp3', 't1.mp3'), ('t2', '/m/t2.mp3', 't2.mp3');
+             INSERT INTO playlists (id, name) VALUES ('p1', '通勤');
+             INSERT INTO playlist_tracks (playlist_id, track_id, position)
+             VALUES ('p1', 't1', 0), ('p1', 't2', 1);
+             INSERT INTO play_history (track_id) VALUES ('t1'), ('t2');
+             INSERT INTO sync_devices (id, name, path) VALUES ('d1', 'SD', '/Volumes/SD');
+             INSERT INTO sync_device_playlists (device_id, playlist_id) VALUES ('d1', 'p1');",
+        )
+        .unwrap();
+        // ない曲は、プレイリストに入れられない
+        assert!(
+            conn.execute(
+                "INSERT INTO playlist_tracks (playlist_id, track_id, position)
+                 VALUES ('p1', 'missing', 2)",
+                [],
+            )
+            .is_err()
+        );
+
+        conn.execute("DELETE FROM tracks WHERE id = 't1'", [])
+            .unwrap();
+        assert_eq!(
+            count(
+                &conn,
+                "SELECT COUNT(*) FROM playlist_tracks WHERE track_id = 't1'"
+            ),
+            0
+        );
+        assert_eq!(
+            count(
+                &conn,
+                "SELECT COUNT(*) FROM play_history WHERE track_id = 't1'"
+            ),
+            0
+        );
+
+        conn.execute("DELETE FROM playlists WHERE id = 'p1'", [])
+            .unwrap();
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM playlist_tracks"), 0);
+        assert_eq!(
+            count(&conn, "SELECT COUNT(*) FROM sync_device_playlists"),
+            0
+        );
+        // 曲・デバイスは残る
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM play_history"), 1);
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM sync_devices"), 1);
+    }
+
+    /// 曲の削除で、プレイリストの行を曲のIDの索引で探すこと
+    #[test]
+    fn test_playlist_tracks_has_an_index_on_track_id() {
+        let conn = open_in_memory();
+        let plan: String = conn
+            .query_row(
+                "EXPLAIN QUERY PLAN SELECT 1 FROM playlist_tracks WHERE track_id = 't1'",
+                [],
+                |row| row.get(3),
+            )
+            .unwrap();
+        assert!(
+            plan.contains("idx_playlist_tracks_track_id"),
+            "索引を使っていない: {plan}"
+        );
+    }
+
     /// FTS5インデックスがトラックのINSERT/UPDATE/DELETEに追随することを検証
     #[test]
     fn test_fts_triggers_keep_index_in_sync() {
-        let conn = Connection::open_in_memory().expect("インメモリDB作成に失敗");
-        run_migrations(&conn).expect("マイグレーション実行に失敗");
+        let conn = open_in_memory();
 
         conn.execute(
             "INSERT INTO tracks (id, file_path, file_name, title, artist, album, genre, year, format, file_size, created_at, updated_at)
@@ -452,7 +559,7 @@ mod tests {
         )
         .expect("旧スキーマの作成に失敗");
 
-        run_migrations(&conn).expect("マイグレーション実行に失敗");
+        setup_connection(&conn).expect("マイグレーション実行に失敗");
 
         let count_match = |query: &str| -> i64 {
             conn.query_row(
@@ -503,7 +610,7 @@ mod tests {
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
         assert_eq!(version, FTS_SCHEMA_VERSION);
-        run_migrations(&conn).expect("2回目のマイグレーション実行に失敗");
+        setup_connection(&conn).expect("2回目のマイグレーション実行に失敗");
         assert_eq!(count_match("\"VariousArtists\""), 1);
     }
 
@@ -525,8 +632,8 @@ mod tests {
         )
         .expect("旧スキーマの作成に失敗");
 
-        run_migrations(&conn).expect("マイグレーション実行に失敗");
-        run_migrations(&conn).expect("2回目のマイグレーション実行に失敗");
+        setup_connection(&conn).expect("マイグレーション実行に失敗");
+        setup_connection(&conn).expect("2回目のマイグレーション実行に失敗");
 
         let playlists = crate::playlist::get_all_playlists(&conn).unwrap();
         assert_eq!(playlists.len(), 1);
@@ -551,8 +658,7 @@ mod tests {
     /// 上限を超える再生回数・スキップ回数が入ったDBも、起動時に直して読めるようにすること
     #[test]
     fn test_migration_limits_counts_that_cannot_be_read() {
-        let conn = Connection::open_in_memory().expect("インメモリDB作成に失敗");
-        run_migrations(&conn).expect("マイグレーション実行に失敗");
+        let conn = open_in_memory();
         // 上限を確かめずにライブラリのXMLを取り込んでいた版が書いた値
         conn.execute_batch(
             "INSERT INTO tracks (id, file_path, file_name, format, file_size, play_count, skip_count)
@@ -564,7 +670,7 @@ mod tests {
         assert!(crate::repository::find_all_tracks(&conn).is_err());
 
         // 次の起動
-        run_migrations(&conn).expect("2回目のマイグレーション実行に失敗");
+        setup_connection(&conn).expect("2回目のマイグレーション実行に失敗");
 
         let counts: Vec<(String, i32, i32)> = crate::repository::find_all_tracks(&conn)
             .expect("一覧を読めること")

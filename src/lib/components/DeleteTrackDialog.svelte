@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Track } from '#lib/types/models.js';
   import {
+    useCanMoveToTrashQuery,
     useDeleteTracksMutation,
     useDeleteTracksWithFilesMutation
   } from '#lib/queries/tracks.js';
@@ -19,6 +20,10 @@
   // ミューテーション
   const deleteTracksMutation = useDeleteTracksMutation();
   const deleteTracksWithFilesMutation = useDeleteTracksWithFilesMutation();
+
+  // ファイルも削除する時に、ゴミ箱へ移すか（macOSだけ。ほかのOSでは完全に削除する）
+  const canMoveToTrashQuery = useCanMoveToTrashQuery();
+  const movesToTrash = $derived(canMoveToTrashQuery.data === true);
 
   // 削除中フラグ
   const isDeleting = $derived(
@@ -47,7 +52,7 @@
   }
 
   /**
-   * ファイルも削除（データベース + ファイルシステム）
+   * ファイルも削除（データベース + ファイルシステム。ゴミ箱へ移せる環境では、ゴミ箱へ移す）
    */
   async function handleDeleteWithFiles() {
     const trackIds = tracks.map((t) => t.id);
@@ -130,7 +135,7 @@
       </div>
     </button>
 
-    <!-- ファイルも削除 -->
+    <!-- ファイルも削除（ゴミ箱へ移すか、完全に削除する） -->
     <button class="option option-danger" onclick={handleDeleteWithFiles} disabled={isDeleting}>
       <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -147,8 +152,12 @@
         <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
       </svg>
       <div class="text-left">
-        <div class="font-medium">{m.deleteDialog.withFiles}</div>
-        <div class="text-xs opacity-60">{m.deleteDialog.withFilesHint}</div>
+        <div class="font-medium">
+          {movesToTrash ? m.deleteDialog.moveFilesToTrash : m.deleteDialog.withFiles}
+        </div>
+        <div class="text-xs opacity-60">
+          {movesToTrash ? m.deleteDialog.moveFilesToTrashHint : m.deleteDialog.withFilesHint}
+        </div>
       </div>
     </button>
   </div>

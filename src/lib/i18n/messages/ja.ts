@@ -185,6 +185,10 @@ export const ja = {
         : `${count}曲をライブラリから削除しました`,
     tracksAndFilesDeleted: (count: number) =>
       count === 1 ? 'トラックとファイルを削除しました' : `${count}曲とファイルを削除しました`,
+    tracksDeletedAndFilesTrashed: (count: number) =>
+      count === 1
+        ? 'トラックを削除し、ファイルをゴミ箱へ移しました'
+        : `${count}曲を削除し、ファイルをゴミ箱へ移しました`,
     tracksPartiallyDeleted: (deleted: number, failed: number) =>
       `${deleted}曲を削除しました（${failed}曲は削除に失敗）`,
     allTracksDeleteFailed: 'すべてのトラックの削除に失敗しました',
@@ -685,8 +689,11 @@ export const ja = {
     confirmMany: { before: '', after: 'を削除しますか？' },
     fromLibrary: 'ライブラリから削除',
     fromLibraryHint: 'ファイルはそのまま残ります',
-    withFiles: 'ファイルも削除',
-    withFilesHint: 'この操作は取り消せません'
+    withFiles: 'ファイルも完全に削除',
+    withFilesHint: 'この操作は取り消せません',
+    /** ファイルをゴミ箱へ移せる環境（macOS）での、ファイルも削除する方法 */
+    moveFilesToTrash: 'ファイルもゴミ箱へ移す',
+    moveFilesToTrashHint: 'ゴミ箱から戻せます（再生回数・プレイリストは戻りません）'
   },
 
   importDialog: {
