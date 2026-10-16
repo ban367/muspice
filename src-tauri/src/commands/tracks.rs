@@ -2,7 +2,7 @@
 
 use super::run_blocking;
 use crate::error::{AppError, AppResult};
-use crate::library::{DeleteResult, delete_tracks, delete_tracks_with_files};
+use crate::library::{DeleteResult, delete_tracks, delete_tracks_with_files, discard_track_file};
 use crate::models::{AlbumGroup, AlbumSummary, ArtistSummary, GenreSummary, Track};
 use crate::state::AppState;
 use crate::validation::{sanitize_search_query, validate_track_id};
@@ -135,8 +135,18 @@ pub async fn delete_tracks_command(
     state.with_db(|db| delete_tracks(db, &track_ids))
 }
 
+/// 曲と一緒に削除するファイルを、ゴミ箱へ移すか（macOSだけ。ほかのOSでは完全に削除する）
+///
+/// 画面は、削除の確認の文言を合わせる。
+#[tauri::command]
+#[specta::specta]
+pub async fn can_move_to_trash() -> AppResult<bool> {
+    Ok(crate::trash::is_available())
+}
+
 /// トラックをライブラリとファイルシステムから削除
-/// データベースとファイル両方を削除
+///
+/// ファイルは、macOSではゴミ箱へ移し、ほかのOSでは完全に削除する（`can_move_to_trash`）。
 #[tauri::command]
 #[specta::specta]
 pub async fn delete_tracks_with_files_command(
@@ -156,8 +166,11 @@ pub async fn delete_tracks_with_files_command(
 
     // ファイル削除を伴うため、ブロッキング処理用スレッドで実行する
     run_blocking(move || {
-        app.state::<AppState>()
-            .with_db(|db| delete_tracks_with_files(db, &track_ids))
+        delete_tracks_with_files(
+            app.state::<AppState>().inner(),
+            &track_ids,
+            &discard_track_file,
+        )
     })
     .await
 }

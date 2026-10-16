@@ -162,11 +162,9 @@ fn all_values<'a>(current: Option<&str>, from_file: Option<&'a str>) -> Option<&
 mod tests {
     use super::*;
     use crate::models::SortTags;
-    use rusqlite::Connection;
 
     fn setup_state() -> AppState {
-        let conn = Connection::open_in_memory().unwrap();
-        crate::db::run_migrations(&conn).unwrap();
+        let conn = crate::db::open_in_memory();
         AppState::new(conn)
     }
 

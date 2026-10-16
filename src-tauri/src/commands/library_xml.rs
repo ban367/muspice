@@ -141,11 +141,9 @@ fn import_file(
 mod tests {
     use super::*;
     use crate::library_xml::tests::{SAMPLE_XML, write_sample};
-    use rusqlite::Connection;
 
     fn test_state() -> AppState {
-        let conn = Connection::open_in_memory().unwrap();
-        crate::db::run_migrations(&conn).unwrap();
+        let conn = crate::db::open_in_memory();
         let state = AppState::new(conn);
         state
             .with_db(|db| {

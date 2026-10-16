@@ -298,9 +298,7 @@ mod tests {
     use super::*;
 
     fn setup_test_db() -> Connection {
-        let conn = Connection::open_in_memory().expect("インメモリDB作成に失敗");
-        crate::db::run_migrations(&conn).expect("マイグレーション実行に失敗");
-        conn
+        crate::db::open_in_memory()
     }
 
     fn folder_paths(conn: &Connection) -> Vec<String> {

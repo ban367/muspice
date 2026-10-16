@@ -558,9 +558,7 @@ mod tests {
     use super::*;
 
     fn setup() -> Connection {
-        let conn = Connection::open_in_memory().unwrap();
-        crate::db::run_migrations(&conn).unwrap();
-        conn
+        crate::db::open_in_memory()
     }
 
     /// 曲を入れる（指定しない項目は、既定の値）

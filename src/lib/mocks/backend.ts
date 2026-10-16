@@ -2198,6 +2198,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       validateTrackIdsForDeletion(trackIds);
       return { successCount: removeTracks(trackIds), failedCount: 0, failedTracks: [] };
     },
+    // macOSと同じく、ファイルはゴミ箱へ移すものとして扱う
+    canMoveToTrash: () => true,
     getLibraryFolders: () => {
       const folders = [...libraryFolders]
         .sort((a, b) => compareAsc(a.path, b.path))

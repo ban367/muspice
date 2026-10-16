@@ -126,9 +126,10 @@ export interface Playlist {
 ### インデックス/制約
 
 - `tracks(artist|album|genre|title)` にインデックス
-- `playlist_tracks(playlist_id)` にインデックス
+- `playlist_tracks(playlist_id)`・`playlist_tracks(track_id)` にインデックス（`track_id`は、曲を削除する時に外部キーがその曲の行を探すため。主キーの`(playlist_id, track_id)`は使えない）
 - `play_history(track_id)`・`play_history(played_at)` にインデックス
 - `playlist_tracks`, `play_history` は `tracks` / `playlists` への外部キー（`ON DELETE CASCADE`）
+- 外部キーは、DBを開く時（`db::setup_connection`）に`PRAGMA foreign_keys = ON`で有効にする。SQLiteの既定は無効で、接続ごとの設定のため、同梱のSQLiteのビルドの既定値に頼らない。テストの接続も同じ関数を通す（`db::open_in_memory`）
 - `playlists.folder_id` は `playlist_folders` を指すが、外部キーにはしない。フォルダを削除する時に、中のプレイリストの `folder_id` をNULLにする（プレイリストは消さない）
 - `tracks.file_modified_at` はファイルの更新日時（UNIX時間の秒）。再スキャンで、サイズとあわせて変更の検出に使う。列を追加する前に登録したトラックはNULLで、再スキャンで（ファイルを読み直さずに）記録する。サイズが同じで更新日時がちょうど1時間（±2秒）ずれた場合は、夏時間の切り替えによるずれ（更新日時をローカル時刻で記録するFAT32など）とみなし、読み直さずに日時だけ記録する
 - `tracks.replay_gain_track_gain` / `replay_gain_track_peak` / `replay_gain_album_gain` / `replay_gain_album_peak`（REAL）はファイルのタグから読んだReplayGain。`REPLAYGAIN_*`を優先し、ゲインがない場合はOpusの`R128_*_GAIN`（Q7.8形式、基準が-23 LUFSのため+5 dBしてReplayGainの基準にそろえる）を使う。範囲外（ゲインは±60 dB、ピークは0以下）は読まない。列を追加する前に登録したトラックはNULLで、`refresh_library_metadata`か再スキャン（ファイルが変わった場合）で読み込む。タグのない曲は、音量の解析（`start_loudness_scan`）で、タグへ書き込んでから記録する（ADR-053）
@@ -208,8 +209,9 @@ export interface Playlist {
 | `import_dropped_files`             | `names: string[]`               | `ImportResult`          | ウィンドウへドロップされたファイル・フォルダを登録する（macOS）。`names`は、ドロップされたものの名前（パスは含めない）。登録済みのファイルはスキップする。下の「ウィンドウへのドロップ」を参照                                                                                                                                                                   |
 | `take_opened_files`                | なし                            | `OpenedFiles`           | 「このアプリで開く」などで開かれ、インポートが済んだ曲を受け取る（受け取った分は、手放す）。下の「開かれたファイル」を参照                                                                                                                                                                                                                                       |
 | `delete_tracks_command`            | `trackIds: string[]`            | `number`                | DBからのみ削除                                                                                                                                                                                                                                                                                                                                                   |
-| `delete_tracks_with_files_command` | `trackIds: string[]`            | `DeleteResult`          | DB+ファイル削除                                                                                                                                                                                                                                                                                                                                                  |
-| `refresh_library_metadata`         | なし                            | `RefreshMetadataResult` | 全トラックのファイルを読み直し、タグの内容（タイトルなど・評価・track/disc番号・ReplayGain）を反映する。お気に入り・再生回数は変えない                                                                                                                                                                                                                           |
+| `delete_tracks_with_files_command` | `trackIds: string[]`            | `DeleteResult`          | DB+ファイル削除。ファイルは、macOSではゴミ箱へ移し、ほかのOSでは完全に削除する（下の「曲とファイルの削除」）                                                                                                                                                                                                                                                     |
+| `can_move_to_trash`                | なし                            | `boolean`               | 曲と一緒に削除するファイルを、ゴミ箱へ移すか（macOSだけtrue）。画面は、削除の確認の文言（「ゴミ箱へ移す」か「完全に削除」か）と完了の通知を合わせる                                                                                                                                                                                                              |
+| `refresh_library_metadata`         | なし                            | `RefreshMetadataResult` | 全トラックのファイルを読み直し、タグの内容（タイトルなど・評価・track/disc番号・ReplayGain）を反映する。お気に入り・再生回数は変えない。再スキャン・インポートの間は、終わるまで待ってから始める（`library_scan_lock`）。更新した曲があれば、アルバムアートのキャッシュを消す                                                                                    |
 
 - インポートの対象は、フォルダ（`import_folder`）なら中の音楽ファイルすべてで、フォルダをライブラリフォルダとして記録する。ファイル（`import_files`・ドロップ・開かれたファイル）は、その曲だけを登録し、ファイルのあるフォルダは記録しない（「どのライブラリフォルダにも属さない曲」になり、自動の再スキャンの対象にならない。ライブラリフォルダの中のファイルは、今までどおり、そのフォルダの曲として扱われる）。音楽ファイルでもフォルダでもないものは読み飛ばし、取り込めるものが1つもなければ`VALIDATION`（ADR-050）
 - フォルダの走査（`library::scan_directory`。インポートと再スキャンで共通）: 中のフォルダを読めなくても（権限がないなど）、ほかのフォルダの走査は続ける。読めなかったフォルダは結果の`errors`に入れる（名前が`.`で始まるフォルダは入れない。外付けドライブの`.Trashes`・`.Spotlight-V100`のように、読めないのが普通のため）。指定したフォルダそのものを読めない場合はエラーにする。シンボリックリンクはたどる（リンクで置いたフォルダ・ファイルも取り込む）が、たどっている途中のフォルダへ戻るリンク（親フォルダを指すリンクなど）は、終わらなくなるためたどらない（ADR-057）
@@ -222,6 +224,11 @@ export interface Playlist {
   - `OpenedFiles`: `{ tracks: Track[], errors: string[] }`（`tracks`は開かれた順。`errors`は、開けなかったファイルの内容で、フロントが通知する）
   - アプリが起動していない状態で開かれたファイルは、起動の準備が済む前にOSから届くため、取っておいて、準備が済んでから開く
   - ファイルの関連付けは`tauri.conf.json`の`bundle.fileAssociations`に書く（対応する拡張子。役割は`Viewer`、順位は`Alternate`で、既定のアプリにはならない）。macOSでは、システムが種類（UTI）を宣言している形式は種類で、そうでない形式（Ogg・Opus・WavPack・APE）は拡張子で宣言する。Linuxのmimeの種類は`tauri.linux.conf.json`に書く（共通の設定に`mimeType`を書くと、Tauriが、macOSで「すべての音声」として宣言してしまうため）
+- 曲とファイルの削除（`delete_tracks_with_files_command`。`library::delete_tracks_with_files`。ADR-061）
+  - DBのロックの中でファイルのパスを求め（見つからないトラックは飛ばす）、ロックの外でファイルを消し、ファイルを消せた曲の行を1つの短いトランザクションで削除する。遅いドライブでも、ファイルを消している間、ほかのコマンドとアルバムアートの表示（`albumart://`）を止めない
+  - ファイルは、macOSではゴミ箱へ移し（`trash.rs`）、ほかのOSでは完全に削除する（`library::discard_track_file`）。すでにファイルがない曲は、消せたものとして扱う（リンクはたどらずに確かめる）
+  - ファイルを消せなかった曲（ゴミ箱のないボリューム・権限がないなど）は、ライブラリに残し、`failedTracks`に理由を入れる（ほかの曲は続ける）
+  - 行を削除できなかった場合は、ゴミ箱へ移したファイルを元の場所へ戻し（上書きはしない。戻せなかったファイルはログに残す）、エラーを返す
 
 ### ライブラリフォルダ
 
@@ -632,7 +639,7 @@ iTunes形式のライブラリXML（MusicBee・iTunes / ミュージックが書
 
 再生回数・スキップ回数・再生履歴（ADR-030）:
 
-- `increment_play_count`は、再生回数を1増やし、最後に再生した日時を更新して、再生履歴（`play_history`）に1件加える（新しい再生回数を返す）。`increment_skip_count`は、スキップ回数を1増やす（新しいスキップ回数を返す。更新日時・再生履歴は変えない）
+- `increment_play_count`は、再生回数を1増やし、最後に再生した日時を更新して、再生履歴（`play_history`）に1件加える（新しい再生回数を返す。2つの書き込みは1つのトランザクションで行い、片方だけを記録しない）。`increment_skip_count`は、スキップ回数を1増やす（新しいスキップ回数を返す。更新日時・再生履歴は変えない）
 - 再生回数・スキップ回数の上限は2147483647（`Track`の`play_count`・`skip_count`はi32。`models::MAX_PLAY_COUNT`）。DBに上限を超える値が1曲でもあると、その曲を含む一覧を読めなくなるため、書く値は上限に収める（加算は上限で止め、再生履歴には加える。ライブラリのXMLの取り込みは上限に収める）。上限に収める前の版が書いた値は、起動時（`db::run_migrations`）に上限へ直す（読むたびに収めるのではなく、DBの値を直す。一覧・自動プレイリストの条件・XMLの取り込みでの比べ方など、回数を読む所すべてで同じ値になる）
 - どちらも、いつ呼ぶかはフロントの再生コントローラーが決める（`playTracker.ts`）
   - 再生回数: 実際に鳴らした時間の合計が、曲の長さの半分か4分（短いほう）に届いた時。シークで飛ばした分は含めない。曲の長さが分からなければ、4分か曲の終わり。同じ曲を頭から再生し直した場合（1曲リピートの繰り返し・「前へ」での頭出し）は、聴いた時間を数え直す

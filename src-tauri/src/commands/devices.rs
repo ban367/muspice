@@ -494,7 +494,6 @@ mod tests {
     use crate::device::{find_device, update_device_config};
     use crate::device_manifest::test_support::TempDir;
     use crate::models::{ReplayGain, Track};
-    use rusqlite::Connection;
 
     /// ライブラリのフォルダ（実ファイルを置く）と、デバイスのフォルダ
     struct Fixture {
@@ -512,8 +511,7 @@ mod tests {
             fs::create_dir_all(&library).unwrap();
             fs::create_dir_all(&device_root).unwrap();
 
-            let conn = Connection::open_in_memory().expect("インメモリDB作成に失敗");
-            crate::db::run_migrations(&conn).expect("マイグレーション実行に失敗");
+            let conn = crate::db::open_in_memory();
             Self {
                 _dir: dir,
                 state: AppState::new(conn),

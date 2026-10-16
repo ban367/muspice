@@ -337,7 +337,10 @@ pub async fn refresh_library_metadata(app: AppHandle) -> AppResult<RefreshMetada
 }
 
 /// `refresh_library_metadata`の本体（同期処理）
+///
+/// 再スキャン・インポートと同じ曲を同時に書き換えないよう、終わるまで待ってから始める。
 fn refresh_library_metadata_blocking(state: &AppState) -> AppResult<RefreshMetadataResult> {
+    let _scan = state.lock_library_scan();
     let mut updated_count = 0;
     let mut skipped_count = 0;
     let mut error_count = 0;
@@ -413,6 +416,13 @@ fn refresh_library_metadata_blocking(state: &AppState) -> AppResult<RefreshMetad
         skipped_count,
         error_count
     );
+
+    if updated_count > 0 {
+        // ファイルの画像が差し替わった可能性があるため、アルバムアートを読み直させる
+        if let Ok(mut cache) = state.album_art_cache.lock() {
+            cache.clear();
+        }
+    }
 
     Ok(RefreshMetadataResult {
         updated_count,
@@ -746,8 +756,7 @@ mod tests {
 
     impl Fixture {
         fn new() -> Self {
-            let conn = rusqlite::Connection::open_in_memory().unwrap();
-            crate::db::run_migrations(&conn).unwrap();
+            let conn = crate::db::open_in_memory();
             let dir =
                 std::env::temp_dir().join(format!("muspice-meta-cmd-{}", uuid::Uuid::new_v4()));
             std::fs::create_dir_all(&dir).unwrap();
@@ -869,5 +878,40 @@ mod tests {
         assert!(result.errors[0].contains("missing.wav"));
         assert_eq!(fixture.track("a").title.as_deref(), Some("新しいタイトル"));
         assert_eq!(fixture.track("missing").title.as_deref(), Some("missing"));
+    }
+
+    /// ファイルから読み直した後は、アルバムアートのキャッシュを消す
+    #[test]
+    fn test_refresh_library_metadata_clears_album_art_cache() {
+        let fixture = Fixture::new();
+        let a = fixture.add_track("a", true);
+        fixture.add_track("missing", false);
+        // キャッシュに記録させる
+        crate::album_art::picture_for_track(&fixture.state, "a", &a.to_string_lossy());
+        let cached = || fixture.state.album_art_cache.lock().unwrap().get("a");
+        assert!(cached().is_some());
+
+        let result = refresh_library_metadata_blocking(&fixture.state).unwrap();
+
+        assert_eq!((result.updated_count, result.skipped_count), (1, 1));
+        assert!(cached().is_none());
+    }
+
+    /// 再スキャン・インポートの途中は、終わるまで待ってから読み直す
+    #[test]
+    fn test_refresh_library_metadata_waits_for_library_scan() {
+        let fixture = Fixture::new();
+        fixture.add_track("a", true);
+
+        std::thread::scope(|scope| {
+            let scan = fixture.state.lock_library_scan();
+            let refresh = scope.spawn(|| refresh_library_metadata_blocking(&fixture.state));
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            assert!(!refresh.is_finished(), "スキャンの途中に読み直している");
+
+            drop(scan);
+            let result = refresh.join().unwrap().unwrap();
+            assert_eq!(result.updated_count, 1);
+        });
     }
 }

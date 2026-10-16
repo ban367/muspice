@@ -571,7 +571,6 @@ mod tests {
         use crate::device_manifest::test_support::TempDir;
         use crate::models::ReplayGain;
         use crate::playback::test_audio::write_wav_samples;
-        use rusqlite::Connection;
 
         /// ライブラリと、ゴミ箱の代わりのフォルダ
         struct Fixture {
@@ -583,8 +582,7 @@ mod tests {
 
         impl Fixture {
             fn new() -> Self {
-                let conn = Connection::open_in_memory().unwrap();
-                crate::db::run_migrations(&conn).unwrap();
+                let conn = crate::db::open_in_memory();
                 Self {
                     dir: TempDir::new(),
                     state: AppState::new(conn),

@@ -569,8 +569,7 @@ mod tests {
 
     impl Library {
         fn new() -> Self {
-            let conn = rusqlite::Connection::open_in_memory().unwrap();
-            crate::db::run_migrations(&conn).unwrap();
+            let conn = crate::db::open_in_memory();
             Self {
                 dir: crate::device_manifest::test_support::TempDir::new(),
                 state: AppState::new(conn),

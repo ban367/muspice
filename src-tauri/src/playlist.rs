@@ -376,14 +376,12 @@ fn add_track_to_playlist(conn: &Connection, playlist_id: &str, track_id: &str) -
         return Ok(false); // 既に存在する場合はスキップ
     }
 
-    // 現在の最大position値を取得
-    let max_position: Option<i32> = conn
-        .query_row(
-            "SELECT MAX(position) FROM playlist_tracks WHERE playlist_id = ?1",
-            [playlist_id],
-            |row| row.get(0),
-        )
-        .ok();
+    // 現在の最大position値を取得（空のプレイリストはNULL）
+    let max_position: Option<i32> = conn.query_row(
+        "SELECT MAX(position) FROM playlist_tracks WHERE playlist_id = ?1",
+        [playlist_id],
+        |row| row.get(0),
+    )?;
 
     let new_position = max_position.unwrap_or(-1) + 1;
     let now = Utc::now().to_rfc3339();
@@ -689,70 +687,7 @@ mod tests {
     use rusqlite::Connection;
 
     fn setup_test_db() -> Connection {
-        let conn = Connection::open_in_memory().unwrap();
-
-        // テーブルを作成
-        conn.execute(
-            "CREATE TABLE playlists (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                description TEXT,
-                rules TEXT,
-                folder_id TEXT,
-                position INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT,
-                updated_at TEXT
-            )",
-            [],
-        )
-        .unwrap();
-
-        conn.execute(
-            "CREATE TABLE playlist_folders (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                position INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT
-            )",
-            [],
-        )
-        .unwrap();
-
-        conn.execute(
-            "CREATE TABLE tracks (
-                id TEXT PRIMARY KEY,
-                file_path TEXT,
-                file_name TEXT,
-                title TEXT,
-                artist TEXT,
-                album TEXT,
-                genre TEXT,
-                year INTEGER,
-                duration INTEGER,
-                file_size INTEGER,
-                format TEXT,
-                bitrate INTEGER,
-                sample_rate INTEGER,
-                created_at TEXT,
-                updated_at TEXT
-            )",
-            [],
-        )
-        .unwrap();
-
-        conn.execute(
-            "CREATE TABLE playlist_tracks (
-                playlist_id TEXT,
-                track_id TEXT,
-                position INTEGER,
-                added_at TEXT,
-                PRIMARY KEY (playlist_id, track_id)
-            )",
-            [],
-        )
-        .unwrap();
-
-        conn
+        crate::db::open_in_memory()
     }
 
     fn insert_test_track(conn: &Connection, id: &str) {
@@ -760,7 +695,7 @@ mod tests {
         conn.execute(
             "INSERT INTO tracks (id, file_path, file_name, title, created_at, updated_at, file_size, format)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, 'mp3')",
-            rusqlite::params![id, "/test/path", "test.mp3", "Test Track", now, now],
+            rusqlite::params![id, format!("/test/{id}.mp3"), "test.mp3", "Test Track", now, now],
         )
         .unwrap();
     }
@@ -845,6 +780,31 @@ mod tests {
         let playlists = get_all_playlists(&conn).unwrap();
         assert_eq!(playlists[0].tracks.len(), 1);
         assert_eq!(playlists[0].tracks[0].track_id, "track1");
+    }
+
+    /// 今の位置を読めない場合は、先頭の位置に追加せず、エラーを返す
+    #[test]
+    fn test_add_track_to_playlist_fails_when_positions_cannot_be_read() {
+        let conn = setup_test_db();
+        let playlist = create_playlist(&conn, "Test Playlist").unwrap();
+        insert_test_track(&conn, "track1");
+        insert_test_track(&conn, "track2");
+        // i32に収まらない位置
+        conn.execute(
+            "INSERT INTO playlist_tracks (playlist_id, track_id, position) VALUES (?1, 'track1', 3000000000)",
+            [&playlist.id],
+        )
+        .unwrap();
+
+        assert!(add_track_to_playlist(&conn, &playlist.id, "track2").is_err());
+        let added: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM playlist_tracks WHERE track_id = 'track2'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(added, 0);
     }
 
     /// 渡した順に追加し、すでに入っているトラックは飛ばして、追加した数を返す
@@ -1096,8 +1056,7 @@ mod tests {
     #[test]
     fn test_get_playlist_tracks_returns_tracks_in_playlist_order() {
         // 曲の全項目を読むため、実際のスキーマを使う
-        let conn = Connection::open_in_memory().unwrap();
-        crate::db::run_migrations(&conn).unwrap();
+        let conn = crate::db::open_in_memory();
         let playlist = create_playlist(&conn, "Test Playlist").unwrap();
         let other = create_playlist(&conn, "Other Playlist").unwrap();
         for id in ["track1", "track2", "track3"] {
@@ -1164,8 +1123,7 @@ mod tests {
     }
 
     fn smart_db() -> Connection {
-        let conn = Connection::open_in_memory().unwrap();
-        crate::db::run_migrations(&conn).unwrap();
+        let conn = crate::db::open_in_memory();
         for (id, genre) in [("track1", "Jazz"), ("track2", "Rock"), ("track3", "Jazz")] {
             conn.execute(
                 "INSERT INTO tracks (id, file_path, file_name, title, genre, file_size, format)

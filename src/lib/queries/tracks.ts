@@ -588,8 +588,21 @@ export function useDeleteTracksMutation() {
 }
 
 /**
+ * 曲と一緒に削除するファイルを、ゴミ箱へ移すかを取得するクエリ
+ *
+ * macOSではゴミ箱へ移し、ほかのOSでは完全に削除する。削除の確認の文言を合わせる。起動中は変わらない。
+ */
+export function useCanMoveToTrashQuery() {
+  return createQuery(() => ({
+    queryKey: queryKeys.canMoveToTrash,
+    queryFn: () => commands.canMoveToTrash(),
+    staleTime: Infinity
+  }));
+}
+
+/**
  * トラックをライブラリとファイルシステムから削除するミューテーション
- * データベースとファイル両方を削除
+ * データベースとファイル両方を削除（ファイルは、ゴミ箱へ移せる環境ではゴミ箱へ移す）
  */
 export function useDeleteTracksWithFilesMutation() {
   const queryClient = useQueryClient();
@@ -604,7 +617,12 @@ export function useDeleteTracksWithFilesMutation() {
       invalidateAllTrackQueries(queryClient);
 
       if (result.failedCount === 0) {
-        showSuccess(m.notices.tracksAndFilesDeleted(result.successCount));
+        const movedToTrash = queryClient.getQueryData<boolean>(queryKeys.canMoveToTrash) === true;
+        showSuccess(
+          movedToTrash
+            ? m.notices.tracksDeletedAndFilesTrashed(result.successCount)
+            : m.notices.tracksAndFilesDeleted(result.successCount)
+        );
       } else if (result.successCount === 0) {
         handleError(new Error(m.notices.allTracksDeleteFailed), m.operations.deleteTracks);
       } else {

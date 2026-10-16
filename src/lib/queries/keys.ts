@@ -78,6 +78,9 @@ export const queryKeys = {
   /** 変換先にできる形式（この環境で変換できなければ、空） */
   convertFormats: ['convertFormats'] as const,
 
+  /** 曲と一緒に削除するファイルを、ゴミ箱へ移すか（macOSだけ。ほかのOSでは完全に削除する） */
+  canMoveToTrash: ['canMoveToTrash'] as const,
+
   /** プレイリスト一覧 */
   playlists: ['playlists'] as const,
 

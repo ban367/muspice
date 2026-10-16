@@ -177,6 +177,10 @@ export const en: Messages = {
         : `Removed ${count} tracks from the library`,
     tracksAndFilesDeleted: (count) =>
       count === 1 ? 'Deleted the track and its file' : `Deleted ${count} tracks and their files`,
+    tracksDeletedAndFilesTrashed: (count) =>
+      count === 1
+        ? 'Deleted the track and moved its file to the Trash'
+        : `Deleted ${count} tracks and moved their files to the Trash`,
     tracksPartiallyDeleted: (deleted, failed) =>
       `Deleted ${plural(deleted, 'track', 'tracks')} (${failed} could not be deleted)`,
     allTracksDeleteFailed: 'Failed to delete all of the tracks',
@@ -664,8 +668,10 @@ export const en: Messages = {
     confirmMany: { before: 'Delete ', after: '?' },
     fromLibrary: 'Remove from library',
     fromLibraryHint: 'The files are kept',
-    withFiles: 'Also delete the files',
-    withFilesHint: 'This cannot be undone'
+    withFiles: 'Also permanently delete the files',
+    withFilesHint: 'This cannot be undone',
+    moveFilesToTrash: 'Also move the files to the Trash',
+    moveFilesToTrashHint: 'Restorable from the Trash (play counts and playlists are not)'
   },
 
   importDialog: {

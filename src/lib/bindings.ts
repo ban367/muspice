@@ -604,9 +604,16 @@ export const commands = {
 	deleteTracksCommand: (trackIds: string[]) => __TAURI_INVOKE<number>("delete_tracks_command", { trackIds }),
 	/**
 	 *  トラックをライブラリとファイルシステムから削除
-	 *  データベースとファイル両方を削除
+	 * 
+	 *  ファイルは、macOSではゴミ箱へ移し、ほかのOSでは完全に削除する（`can_move_to_trash`）。
 	 */
 	deleteTracksWithFilesCommand: (trackIds: string[]) => __TAURI_INVOKE<DeleteResult>("delete_tracks_with_files_command", { trackIds }),
+	/**
+	 *  曲と一緒に削除するファイルを、ゴミ箱へ移すか（macOSだけ。ほかのOSでは完全に削除する）
+	 * 
+	 *  画面は、削除の確認の文言を合わせる。
+	 */
+	canMoveToTrash: () => __TAURI_INVOKE<boolean>("can_move_to_trash"),
 	/**
 	 *  ライブラリ全体のメタデータを更新
 	 * 

@@ -478,12 +478,10 @@ pub(super) fn create_track_from_file(file_path: &Path) -> AppResult<Track> {
 mod tests {
     use super::*;
     use crate::metadata::test_images::write_wav;
-    use rusqlite::Connection;
     use std::cell::RefCell;
 
     fn test_state() -> AppState {
-        let conn = Connection::open_in_memory().unwrap();
-        crate::db::run_migrations(&conn).unwrap();
+        let conn = crate::db::open_in_memory();
         AppState::new(conn)
     }
 
