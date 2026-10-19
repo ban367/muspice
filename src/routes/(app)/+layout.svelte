@@ -149,10 +149,11 @@
       <Sidebar />
     </div>
 
-    <!-- メインコンテンツ -->
+    <!-- メインコンテンツ（右サイドバーのパネルを横に並べる間は、パネルの幅だけ寄せる） -->
     <div
       class="main-container"
-      class:sidebar-pinned={ui.isRightSidebarPinned && ui.isRightSidebarExpanded}
+      class:sidebar-docked={ui.isRightSidebarDocked}
+      class:info-panel={ui.isInfoPanelOpen}
     >
       <!-- モバイル用ヘッダー -->
       <header class="mobile-header">
@@ -276,9 +277,13 @@
     transition: margin-right 0.2s ease;
   }
 
-  /* 右サイドバー固定時のメインコンテンツ調整 */
-  .main-container.sidebar-pinned {
-    margin-right: 17rem; /* キューパネルの幅のみ（アイコンバーは常時固定表示で別） */
+  /* パネルの幅のみ（アイコンバーは常に表示し、本文の右の余白で避ける） */
+  .main-container.sidebar-docked {
+    margin-right: var(--spacing-side-panel);
+  }
+
+  .main-container.sidebar-docked.info-panel {
+    margin-right: var(--spacing-info-panel);
   }
 
   .mobile-header {

@@ -88,6 +88,77 @@ describe('右サイドバーの固定', () => {
   });
 });
 
+describe('情報パネル', () => {
+  const album = {
+    name: 'Album',
+    sortName: null,
+    artist: 'Artist',
+    trackCount: 10,
+    totalDuration: 2400,
+    representativeTrackId: 't1'
+  };
+  const artist = {
+    name: 'Artist',
+    sortName: null,
+    albumCount: 2,
+    trackCount: 20,
+    totalDuration: 4800,
+    representativeTrackId: 't1'
+  };
+
+  it('項目を表示すると、情報パネルに切り替えて開く', async () => {
+    const ui = await importFreshUi();
+    ui.activeRightSidebarPanel = 'queue';
+
+    ui.showInfo({ type: 'album', album });
+    expect(ui.infoTarget).toEqual({ type: 'album', album });
+    expect(ui.activeRightSidebarPanel).toBe('info');
+    expect(ui.isRightSidebarExpanded).toBe(true);
+    expect(ui.isInfoPanelOpen).toBe(true);
+  });
+
+  it('追随は、情報パネルを開いている時だけ項目を入れ替える', async () => {
+    const ui = await importFreshUi();
+
+    // 閉じている間は入れ替えない（開きもしない）
+    ui.followInfo({ type: 'album', album });
+    expect(ui.infoTarget).toBeNull();
+    expect(ui.isRightSidebarExpanded).toBe(false);
+
+    ui.showInfo({ type: 'album', album });
+    ui.followInfo({ type: 'artist', artist });
+    expect(ui.infoTarget).toEqual({ type: 'artist', artist });
+
+    // 別のパネルを開いている間も入れ替えない
+    ui.activeRightSidebarPanel = 'queue';
+    ui.followInfo({ type: 'album', album });
+    expect(ui.infoTarget).toEqual({ type: 'artist', artist });
+  });
+
+  it('情報パネルは、固定していなくても本文の横に並べる', async () => {
+    const ui = await importFreshUi();
+    expect(ui.isRightSidebarDocked).toBe(false);
+
+    // 固定していないキューは本文に重ねる
+    ui.activeRightSidebarPanel = 'queue';
+    ui.isRightSidebarExpanded = true;
+    expect(ui.isRightSidebarDocked).toBe(false);
+
+    ui.showInfo({ type: 'album', album });
+    expect(ui.isRightSidebarDocked).toBe(true);
+
+    ui.isRightSidebarExpanded = false;
+    expect(ui.isRightSidebarDocked).toBe(false);
+  });
+
+  it('固定した時は、どのパネルも本文の横に並べる', async () => {
+    const ui = await importFreshUi();
+    ui.activeRightSidebarPanel = 'equalizer';
+    ui.isRightSidebarPinned = true;
+    expect(ui.isRightSidebarDocked).toBe(true);
+  });
+});
+
 describe('列幅', () => {
   // 番号の列と、曲の一覧に出せるすべての列の幅を持つ
   const DEFAULT_WIDTHS = {

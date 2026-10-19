@@ -13,7 +13,6 @@
   import { formatDuration } from '#lib/utils/format.js';
   import { playGroup } from '#lib/utils/groupPlayback.js';
   import LibraryGrid from './LibraryGrid.svelte';
-  import GroupDetail from './GroupDetail.svelte';
   import MarqueeText from '../MarqueeText.svelte';
   import AlbumArt from '../AlbumArt.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
@@ -32,15 +31,6 @@
   const isError = $derived(albumsQuery.isError);
   const allAlbums = $derived(albumsQuery.data ?? []);
 
-  // 選択中のアルバム（モーダル表示用）
-  // キーで持ち、取り直したデータから引く（曲数などの変更がモーダルの中にも反映される）
-  let selectedAlbumKey = $state<string | null>(null);
-  const selectedAlbum = $derived(
-    selectedAlbumKey === null
-      ? null
-      : (allAlbums.find((album) => albumKey(album) === selectedAlbumKey) ?? null)
-  );
-
   // LibraryGridコンポーネントの参照
   let libraryGrid: LibraryGrid<AlbumSummary>;
 
@@ -49,9 +39,14 @@
   // リスト表示の行の高さの見積もり
   const ESTIMATED_LIST_ROW_HEIGHT = 68;
 
-  // アルバムをクリック
+  // アルバムをクリック（右サイドバーの情報パネルに、アルバムの曲を表示する）
   function handleAlbumClick(album: AlbumSummary) {
-    selectedAlbumKey = albumKey(album);
+    ui.showInfo({ type: 'album', album });
+  }
+
+  // キーボードで移動した時は、情報パネルを開いている間だけ追随させる
+  function handleAlbumNavigate(album: AlbumSummary) {
+    ui.followInfo({ type: 'album', album });
   }
 
   // アルバムをダブルクリック（すべて再生）
@@ -63,11 +58,6 @@
   function handlePlayClick(event: MouseEvent, album: AlbumSummary) {
     event.stopPropagation();
     handleAlbumDoubleClick(album);
-  }
-
-  // モーダルを閉じる
-  function handleCloseDetail() {
-    selectedAlbumKey = null;
   }
 
   // 絞り込みの対象（アルバム名・アーティスト）
@@ -91,6 +81,7 @@
   estimatedRowHeight={ESTIMATED_LIST_ROW_HEIGHT}
   groupType="album"
   onOpen={handleAlbumClick}
+  onNavigate={handleAlbumNavigate}
 >
   {#snippet emptyIcon()}
     <svg
@@ -168,10 +159,6 @@
         </svg>
       </button>
     </div>
-  {/snippet}
-
-  {#snippet footer()}
-    <GroupDetail group={selectedAlbum} type="album" onClose={handleCloseDetail} />
   {/snippet}
 </LibraryGrid>
 

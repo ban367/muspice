@@ -5,6 +5,7 @@
   import { player, playTrackFromQueue, playShuffled } from '#lib/stores/player.svelte.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import { albumArtDialog } from '#lib/stores/albumArt.svelte.js';
+  import { groupByDisc } from '#lib/utils/albumDiscs.js';
   import { formatDuration, formatTotalDuration } from '#lib/utils/format.js';
   import { TrackSelection, handleTrackListKeydown } from '#lib/utils/trackSelection.svelte.js';
   import { startTrackDrag } from '#lib/utils/trackDrag.js';
@@ -30,22 +31,11 @@
   const tracksQuery = $derived(useAlbumTracksQuery(albumName, albumArtist));
   const tracks = $derived(tracksQuery.data ?? []);
 
+  // ディスクごとにグループ化されたトラック（曲はディスクの順に並んでいるため、つなげると`tracks`の順になる）
+  const groupedTracks = $derived(groupByDisc(tracks));
+
   // マルチディスクアルバムかどうか
-  const hasMultipleDiscs = $derived(new Set(tracks.map((t) => t.discNumber ?? 1)).size > 1);
-
-  // ディスクごとにグループ化されたトラック
-  const groupedTracks = $derived.by(() => {
-    if (!hasMultipleDiscs) {
-      return [{ discNumber: 1, tracks }];
-    }
-
-    const discNumbers = [...new Set(tracks.map((t) => t.discNumber ?? 1))].sort((a, b) => a - b);
-
-    return discNumbers.map((discNumber) => ({
-      discNumber,
-      tracks: tracks.filter((t) => (t.discNumber ?? 1) === discNumber)
-    }));
-  });
+  const hasMultipleDiscs = $derived(groupedTracks.length > 1);
 
   // トラックの選択（クリック・キーボード）
   const selection = new TrackSelection(() => tracks);
@@ -184,7 +174,7 @@
     {#each groupedTracks as discGroup, discIndex (discGroup.discNumber)}
       {#if hasMultipleDiscs}
         <div class="disc-header">
-          <span class="disc-label">Disc {discGroup.discNumber}</span>
+          <span class="disc-label">{m.common.disc(discGroup.discNumber)}</span>
         </div>
       {/if}
       {#each discGroup.tracks as track, trackIndexInDisc (track.id)}

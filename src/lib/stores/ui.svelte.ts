@@ -6,10 +6,15 @@
  * localStorageに保存する状態はsetterで保存するため、オブジェクトの中身を書き換えず代入する。
  */
 
+import type { AlbumSummary, ArtistSummary } from '#lib/types/models.js';
 import { TRACK_COLUMN_IDS, TRACK_COLUMNS, type TrackColumnId } from '#lib/utils/trackColumns.js';
 
-// 右サイドバーのパネル（queue: 再生キュー, equalizer: イコライザ）
-export type RightSidebarPanel = 'queue' | 'equalizer';
+// 右サイドバーのパネル（queue: 再生キュー, equalizer: イコライザ, info: 選んだアルバム・アーティストの曲）
+export type RightSidebarPanel = 'queue' | 'equalizer' | 'info';
+
+/** 情報パネルに表示する項目（グリッドで選んだアルバム・アーティスト） */
+export type InfoTarget =
+  { type: 'album'; album: AlbumSummary } | { type: 'artist'; artist: ArtistSummary };
 
 // グリッドカードサイズの範囲（px）
 export const MIN_CARD_SIZE = 50;
@@ -91,6 +96,44 @@ class UiState {
 
   /** 右サイドバーで表示中のパネル */
   activeRightSidebarPanel = $state<RightSidebarPanel>('queue');
+
+  /**
+   * 情報パネルに表示する項目（まだ選んでいなければnull）
+   *
+   * 一覧の項目をそのまま持つ（Proxyで包まない）。曲は、パネルが項目の名前で取得する。
+   */
+  infoTarget = $state.raw<InfoTarget | null>(null);
+
+  /** 情報パネルを開いているか */
+  get isInfoPanelOpen(): boolean {
+    return this.isRightSidebarExpanded && this.activeRightSidebarPanel === 'info';
+  }
+
+  /**
+   * 右サイドバーのパネルを、本文に重ねずに横へ並べるか（並べる間は、本文をパネルの幅だけ寄せる）
+   *
+   * 固定した時と、情報パネルを開いている時。情報パネルは一覧を見ながら項目を選び直すため、
+   * 重ねると（パネルの外を押すと閉じるため）別の項目を選べない。
+   */
+  get isRightSidebarDocked(): boolean {
+    return this.isRightSidebarExpanded && (this.isRightSidebarPinned || this.isInfoPanelOpen);
+  }
+
+  /**
+   * 情報パネルを開き、項目を表示する（グリッドのカードを押した時）
+   */
+  showInfo(target: InfoTarget): void {
+    this.infoTarget = target;
+    this.activeRightSidebarPanel = 'info';
+    this.isRightSidebarExpanded = true;
+  }
+
+  /**
+   * 情報パネルを開いている時だけ、表示する項目を入れ替える（グリッドのキーボードでの移動に追随させる）
+   */
+  followInfo(target: InfoTarget): void {
+    if (this.isInfoPanelOpen) this.infoTarget = target;
+  }
 
   /** グリッドカードのサイズ（ジャケット画像の1辺。MIN_CARD_SIZE〜MAX_CARD_SIZE） */
   gridCardSize = $state(120);
