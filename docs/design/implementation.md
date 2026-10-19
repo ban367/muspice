@@ -257,7 +257,7 @@ src-tauri/src/
   - 仮想スクロールの一覧では、移動先の行の要素がないことがあるため、`handleTrackListKeydown`の`scrollTo`に`VirtualList`の`scrollToIndex`を渡す（渡さない場合は、`data-track-id`の付いた行の要素を探してスクロールする）
 - 1つだけ選択する一覧（2ペイン表示の左の`AlbumList`・`ArtistList`）は、`listSelectionTarget`で移動先を求めて選択し、その項目へフォーカスも移す（Tabでは選択中の項目だけに止まる）
 - グリッド表示（`LibraryGrid`: アルバム・アーティスト・ジャンル）は、現在位置の項目を枠で示し、Enterでクリックと同じ操作（`onOpen`）を行う
-  - 矢印キーで現在位置を移すと`onNavigate`を呼ぶ。アルバム・アーティストのグリッドは、情報パネルを開いている間だけ、表示する項目を移した先に入れ替える（`ui.followInfo`。閉じている間は開かない）。カードのクリック・Enterは`ui.showInfo`で情報パネルを開く（ADR-062）
+  - 矢印キーで現在位置を移すと`onNavigate`を呼ぶ。アルバム・アーティストのグリッドは、情報パネルを開いている間だけ、表示する項目を移した先に入れ替える（`ui.followInfo`。閉じている間は開かない）。カードのクリック・Enterは`ui.showInfo`で情報パネルを開く（ADR-063）
 - 修飾キーなしの矢印キーは一覧が使う。プレーヤーのショートカット（`Player.svelte`）はCmd/Ctrl+矢印（前へ・次へ・音量）・Cmd/Ctrl+L（再生中の曲を表示）と、Space（再生・一時停止）・S（シャッフル）・R（リピート）・M（ミュート）
   - プレーヤーはウィンドウでキーを受け取るため、フォーカスのある要素がキーを使う場合はショートカットを行わない。条件は`#lib/utils/globalShortcuts`の`isGlobalShortcutBlocked`にまとめる
   - ほかの処理が処理したキー（`defaultPrevented`）と、入力の部品（input・textarea・select）・編集できる要素の中、モーダル（`<dialog open>`）が開いている間は、どのショートカットも行わない（モーダルの間は背面の画面と同じく操作できなくする。Cmd/Ctrl+Lで背面の画面を移動しないように）
@@ -429,6 +429,7 @@ Tauriのウィンドウ（macOSではWKWebView）はブラウザ自動化ツー�
   - 音量の解析は、1曲を250msで読んだことにして進捗を送り、ゲインは曲の長さから決まる値にする（同じ曲は、何度解析しても同じ値）。フィクスチャの曲の3分の1には、音量の情報がない
   - `window.__MUSPICE_MOCK__.addDuplicateTracks()`で、今ある曲と同じタイトル・アーティストの曲を、ライブラリフォルダの中の`Downloads`に足す（重複した曲の画面と、ファイルの整理の確認用。整理すると、移せる曲・移動先に同じ名前のファイルがある曲・同じ移動先になる曲が出る）。ファイルの整理は、実ファイルがないため、動かせる曲は常に移せたものとして、曲の場所だけを書き換える（歌詞ファイル・フォルダの画像・空のフォルダの扱いは再現しない）
   - `window.__MUSPICE_MOCK__.setAlbumArtPickMode('cancel')`で、アルバムアートの埋め込みで選んだことにする画像を切り替える（`pick`: 埋め込める画像（既定。選ぶたびに違う色の画像になる）・`cancel`: 選ばなかった・`tooLarge`: 大きすぎる画像）。フィクスチャでは、「Midnight Circuit」がフォルダの画像（`cover.jpg`）、「Quiet Rooms」がアートなし、ほかは埋め込みの画像
+  - `window.__MUSPICE_MOCK__.setExclusionFolder('/Users/demo/Music/Podcasts')`で、読み込まないフォルダの追加で選んだことにするフォルダを変える（`null`は、選ばなかった）。既定は、ライブラリフォルダの中で曲のある、まだ除外していない最初のフォルダ（中の曲を外すかの確認が出る）。`/Users/demo/Music`には、既知のアプリのフォルダ（`Music`・`MusicBee`）を除外として入れてある。除外を外した時の再スキャンは「変更なし」にする
   - `window.__MUSPICE_MOCK__.setConfirmResult(false)`で、以降の確認ダイアログを「キャンセル」にする
   - `window.__MUSPICE_MOCK__.setFolderResult('/Volumes/NEW_SD')`で、以降のフォルダ選択ダイアログで選ばれるパスを変える。既定のパスはライブラリフォルダの中のため、転送先デバイスの追加を確認するときはライブラリの外のパスにする
 - 音は鳴らない（再生位置と曲の切り替わりだけが進む）。音の確認は、実アプリで行う

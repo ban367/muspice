@@ -1,4 +1,4 @@
-//! ライブラリフォルダ（インポートしたフォルダ）の一覧・削除・再スキャンのコマンド
+//! ライブラリフォルダ（インポートしたフォルダ）の一覧・削除・再スキャンと、読み込まないフォルダ（除外）のコマンド
 
 use super::import::create_track_from_file;
 use super::run_blocking;
@@ -6,19 +6,24 @@ use crate::error::{AppError, AppResult};
 use crate::events::{LibraryChanged, LibraryScanProgress};
 use crate::library::{modified_at_of, scan_directory, to_count};
 use crate::library_folder::{
-    DiskFile, LibraryFolder, LibraryFolderList, RescanPlan, RescanResult, find_all_folders,
-    find_folder, plan_rescan, track_path_prefix,
+    DiskFile, ExclusionRecord, FolderExclusion, LibraryFolder, LibraryFolderList, RescanPlan,
+    RescanResult, add_exclusion, delete_exclusion, excluded_path, find_all_folders, find_exclusion,
+    find_exclusions, find_folder, plan_rescan, relative_to_folder, scan_exclusions,
+    track_path_prefix,
 };
 use crate::library_sync::LibrarySync;
 use crate::models::Track;
+use crate::settings::Language;
 use crate::state::AppState;
 use crate::track_relink::MissingTrackIndex;
 use crate::validation::validate_track_id;
 use chrono::Utc;
+use rusqlite::Connection;
 use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, WebviewWindow};
+use tauri_plugin_dialog::DialogExt;
 use tauri_specta::Event;
 
 /// 1回のトランザクションで書き込むトラック数（インポートと同じ）
@@ -28,6 +33,12 @@ const BATCH_SIZE: usize = 50;
 fn validate_folder_id(id: &str) -> AppResult<()> {
     validate_track_id(id)
         .map_err(|_| AppError::Validation("不正なライブラリフォルダID形式です".to_string()))
+}
+
+/// 読み込まないフォルダのIDをバリデーション（UUID形式）
+fn validate_exclusion_id(id: &str) -> AppResult<()> {
+    validate_track_id(id)
+        .map_err(|_| AppError::Validation("不正な読み込まないフォルダのID形式です".to_string()))
 }
 
 /// ライブラリフォルダの一覧を取得
@@ -42,28 +53,39 @@ pub async fn get_library_folders(app_handle: AppHandle) -> AppResult<LibraryFold
 
 /// `get_library_folders`の本体（同期処理）
 fn list_folders(state: &AppState) -> AppResult<LibraryFolderList> {
-    let (records, counts, total, missing_track_count) = state.with_db(|db| {
+    let (records, counts, exclusions, total, missing_track_count) = state.with_db(|db| {
         let records = find_all_folders(db)?;
         let counts = records
             .iter()
             .map(|f| crate::repository::count_tracks_under(db, &track_path_prefix(&f.path)))
             .collect::<AppResult<Vec<_>>>()?;
+        let exclusions = records
+            .iter()
+            .map(|f| {
+                find_exclusions(db, &f.id)?
+                    .into_iter()
+                    .map(|exclusion| to_folder_exclusion(db, &f.path, exclusion))
+                    .collect::<AppResult<Vec<_>>>()
+            })
+            .collect::<AppResult<Vec<_>>>()?;
         let total = crate::repository::count_all_tracks(db)?;
         let missing = crate::repository::count_missing_tracks(db)?;
-        Ok((records, counts, total, missing))
+        Ok((records, counts, exclusions, total, missing))
     })?;
 
     // フォルダの存在確認はファイルシステムへのアクセスのため、DBロックの外で行う
     let folders: Vec<LibraryFolder> = records
         .into_iter()
         .zip(counts.iter())
-        .map(|(record, &track_count)| LibraryFolder {
+        .zip(exclusions)
+        .map(|((record, &track_count), exclusions)| LibraryFolder {
             exists: Path::new(&record.path).is_dir(),
             id: record.id,
             path: record.path,
             track_count,
             added_at: record.added_at,
             last_scanned_at: record.last_scanned_at,
+            exclusions,
         })
         .collect();
 
@@ -134,6 +156,144 @@ fn remove_folder_blocking(
     Ok(removed)
 }
 
+/// 読み込まないフォルダの中にある、ライブラリの曲のパスに共通する接頭辞
+fn exclusion_track_prefix(folder_path: &str, exclusion: &ExclusionRecord) -> AppResult<String> {
+    let excluded = excluded_path(folder_path, &exclusion.path);
+    let excluded = excluded.to_str().ok_or_else(|| {
+        AppError::Validation("読み込まないフォルダのパスを扱えません".to_string())
+    })?;
+    Ok(track_path_prefix(excluded))
+}
+
+/// 記録している読み込まないフォルダを、一覧表示用にする（中にある曲を数える）
+fn to_folder_exclusion(
+    db: &Connection,
+    folder_path: &str,
+    exclusion: ExclusionRecord,
+) -> AppResult<FolderExclusion> {
+    let track_count = crate::repository::count_tracks_under(
+        db,
+        &exclusion_track_prefix(folder_path, &exclusion)?,
+    )?;
+    Ok(FolderExclusion {
+        id: exclusion.id,
+        path: exclusion.path,
+        track_count,
+    })
+}
+
+/// 読み込まないフォルダを選ぶダイアログを開き、ライブラリフォルダの除外の一覧へ足す
+///
+/// ダイアログはRust側で、ライブラリフォルダを開いた状態で出す（WebViewからパスを受け取らない）。
+/// 足せるのは、ライブラリフォルダの中のフォルダだけ。中の曲はライブラリに残す（外すかは、
+/// 利用者が選び、`remove_excluded_tracks`で外す）。
+///
+/// @returns 足した除外（中にある曲の数を含む。選ばずに閉じた場合はnull）
+#[tauri::command]
+#[specta::specta]
+pub async fn add_library_folder_exclusion(
+    folder_id: String,
+    window: WebviewWindow,
+    app_handle: AppHandle,
+) -> AppResult<Option<FolderExclusion>> {
+    validate_folder_id(&folder_id)?;
+
+    run_blocking(move || {
+        let state = app_handle.state::<AppState>();
+        let folder = state.with_db(|db| find_folder(db, &folder_id))?;
+        if !Path::new(&folder.path).is_dir() {
+            return Err(AppError::NotFound(format!(
+                "フォルダが見つかりません: {}（外付けドライブなどが接続されているか確認してください）",
+                folder.path
+            )));
+        }
+
+        let title = match crate::menu::current_language(&app_handle) {
+            Language::Ja => "読み込まないフォルダを選択",
+            Language::En => "Select a Folder to Exclude",
+        };
+        let Some(selected) = app_handle
+            .dialog()
+            .file()
+            .set_parent(&window)
+            .set_title(title)
+            .set_directory(&folder.path)
+            .blocking_pick_folder()
+        else {
+            return Ok(None);
+        };
+        let selected = selected
+            .into_path()
+            .map_err(|e| AppError::Io(format!("選んだフォルダを開けません: {}", e)))?;
+        let relative = relative_to_folder(&folder.path, &selected)?;
+
+        // 再スキャンの途中で足すと、その再スキャンが除外の前の内容で曲を書き込むため、終わるまで待つ
+        let _scan = state.lock_library_scan();
+        let exclusion = state.with_db(|db| {
+            let added = add_exclusion(db, &folder.id, &relative)?;
+            to_folder_exclusion(db, &folder.path, added)
+        })?;
+        Ok(Some(exclusion))
+    })
+    .await
+}
+
+/// 読み込まないフォルダの中にある曲を、ライブラリから外す（ファイルは消さない）
+///
+/// 外したトラック数を返す。
+#[tauri::command]
+#[specta::specta]
+pub async fn remove_excluded_tracks(exclusion_id: String, app_handle: AppHandle) -> AppResult<u32> {
+    validate_exclusion_id(&exclusion_id)?;
+
+    run_blocking(move || {
+        let state = app_handle.state::<AppState>();
+        let removed = {
+            let _scan = state.lock_library_scan();
+            state.with_db(|db| {
+                let exclusion = find_exclusion(db, &exclusion_id)?;
+                let folder = find_folder(db, &exclusion.folder_id)?;
+                let prefix = exclusion_track_prefix(&folder.path, &exclusion)?;
+                to_count(crate::repository::delete_tracks_under(db, &prefix)?)
+            })?
+        };
+        if removed > 0 {
+            notify_library_changed(&app_handle);
+        }
+        Ok(removed)
+    })
+    .await
+}
+
+/// 読み込まないフォルダを除外の一覧から外し、ライブラリフォルダを再スキャンする
+///
+/// 除外していたフォルダの曲を読み込み、除外の前から登録されていた曲も、再び比べる対象にする。
+/// 再スキャンは`rescan_library_folder`と同じ（`LibraryScanProgress`を送る）。
+///
+/// @returns 再スキャンの結果（フォルダが見つからない場合は、再スキャンせずにnull）
+#[tauri::command]
+#[specta::specta]
+pub async fn remove_library_folder_exclusion(
+    exclusion_id: String,
+    app_handle: AppHandle,
+) -> AppResult<Option<RescanResult>> {
+    validate_exclusion_id(&exclusion_id)?;
+
+    run_blocking(move || {
+        let state = app_handle.state::<AppState>();
+        let folder = state.with_db(|db| {
+            let exclusion = find_exclusion(db, &exclusion_id)?;
+            delete_exclusion(db, &exclusion.id)?;
+            find_folder(db, &exclusion.folder_id)
+        })?;
+        if !Path::new(&folder.path).is_dir() {
+            return Ok(None);
+        }
+        rescan_folder(&folder.id, state.inner(), &app_handle, true).map(Some)
+    })
+    .await
+}
+
 /// 見つからない曲（ファイルが見つからなくなったトラック）を、すべてライブラリから外す
 ///
 /// 外したトラック数を返す。ファイルには触れない。
@@ -196,7 +356,8 @@ pub(crate) fn rescan_folder(
     }
 
     // 1. ディスク上のファイルとライブラリのトラックを比べる（ファイルの走査はロックの外）
-    let scanned = scan_directory(folder_path)?;
+    let exclusions = state.with_db(|db| scan_exclusions(db, &folder))?;
+    let scanned = scan_directory(folder_path, &exclusions)?;
     let disk_files = scanned
         .audio_files
         .iter()
@@ -211,13 +372,18 @@ pub(crate) fn rescan_folder(
         })
         .collect();
     // 読めなかったフォルダ（権限がないなど）の中のトラックは、比べる対象から外す
-    // （ファイルがあるかを確かめられないため、見つからない曲にしない）
+    // （ファイルがあるかを確かめられないため、見つからない曲にしない）。読み飛ばす場所
+    // （隠しフォルダ・ゴミ箱・パッケージ・読み込まないフォルダ）の中のトラックも、走査していない
+    // ため比べず、そのまま残す（外すかは利用者が選ぶ。ADR-062）
     let tracks = state
         .with_db(|db| {
             crate::repository::find_track_file_states_under(db, &track_path_prefix(&folder.path))
         })?
         .into_iter()
-        .filter(|track| !scanned.is_in_unreadable_dir(Path::new(&track.file_path)))
+        .filter(|track| {
+            let path = Path::new(&track.file_path);
+            !scanned.is_in_unreadable_dir(path) && !exclusions.skips(folder_path, path)
+        })
         .collect();
     let plan = plan_rescan(disk_files, tracks);
 

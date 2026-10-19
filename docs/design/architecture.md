@@ -45,7 +45,7 @@ graph TD
 - ライブラリのビュー: 最近追加した曲（アルバム単位・追加した日時の新しい順）・フォルダ別・年代別の画面は、取得済みの全曲の一覧からフロントエンドで集計して表示する（`#lib/utils/libraryViews`。ADR-041）。サイドバーの項目は、設定（`hiddenSidebarItems`）で隠せる
 - 重複した曲: タイトルとアーティストが同じ（検索と同じ規則でそろえて比べる）で、長さの違いが3秒までの曲を、取得済みの全曲の一覧からフロントエンドでまとめて表示する（`#lib/utils/duplicates`。ADR-052）。一覧は`TrackList`で、まとまりの間に線を引く（`groupOf`）。どの曲を残すかは、利用者が決める（曲のメニュー・Deleteキーから削除する）
 - ライブラリの絞り込み: 曲の画面は、検索・フィルタ（評価・年・お気に入り）・カラムブラウザ（ジャンル → アーティスト → アルバム）のすべてに合う曲を出す。絞り込みは、取得済みの曲の一覧（検索している間は、検索の結果）に対してフロントエンドで行う（`#lib/utils/trackFilter`。ADR-040）
-- 右サイドバー: 再生キュー・イコライザ・情報パネルを切り替えて表示する（`RightSidebar.svelte`）。情報パネル（`InfoPanel.svelte`）は、グリッド（アルバム・アーティスト・最近追加した曲）で選んだ項目（`ui.infoTarget`）の曲を表示する。曲は、パネルが項目の名前で取得する（アルバムは`get_album_tracks`、アーティストは`get_artist_albums`）。情報パネルは固定の状態にかかわらず本文の横に並べ、キュー・イコライザは固定した時だけ並べる（並べない時は本文に重ねる。ADR-062）
+- 右サイドバー: 再生キュー・イコライザ・情報パネルを切り替えて表示する（`RightSidebar.svelte`）。情報パネル（`InfoPanel.svelte`）は、グリッド（アルバム・アーティスト・最近追加した曲）で選んだ項目（`ui.infoTarget`）の曲を表示する。曲は、パネルが項目の名前で取得する（アルバムは`get_album_tracks`、アーティストは`get_artist_albums`）。情報パネルは固定の状態にかかわらず本文の横に並べ、キュー・イコライザは固定した時だけ並べる（並べない時は本文に重ねる。ADR-063）
 - 長い一覧の描画: `src/lib/components/ui/VirtualList.svelte` が、見えている行（とその前後の少しの行）だけを描画する（`implementation.md` 参照）
 - アルバムアート: `#lib/utils/albumArt` の `albumArtUrl(trackId)` が返す `albumart://` のURLを `<img>` に指定し、Rust側のカスタムプロトコルから直接読み込む（フロントエンドに画像データを保持しない）。アルバムアートの画面（`AlbumArtDialog.svelte`。曲・アルバムの右クリックのメニューと、アルバムの画面・情報パネルの絵から開く）で画像を埋め込む・取り除くと、その曲の版（`#lib/stores/albumArt.svelte`）を進めてURLを変え、表示中の画像を読み直させる（ADR-035）
 - 再生: 再生コントローラー（`src/lib/stores/playback.svelte.ts`）が、再生状態（`player.svelte.ts` の `player`）を `$effect` で監視してRust側の再生エンジン（`src-tauri/src/playback/`）をコマンドで操作し、エンジンからの通知（`PlaybackEvent`。再生位置・曲の切り替わり・終了）を再生状態へ反映する。`Player.svelte` は表示と操作の受付に専念する
@@ -102,7 +102,7 @@ sequenceDiagram
     TauriCmd-->>Frontend: ImportResult返却
 ```
 
-インポートしたフォルダは `library_folders` に記録する（ライブラリフォルダ）。
+インポートしたフォルダは `library_folders` に記録する（ライブラリフォルダ）。フォルダの走査（インポート・再スキャン）とフォルダの監視は、隠しフォルダ・ゴミ箱・パッケージと、ライブラリフォルダごとの読み込まないフォルダ（`library_folder_exclusions`）の中を読まない（ADR-062）。
 
 インポートの始め方は4つあり、どれも同じ処理（`commands/import.rs`の`import_paths`）で曲を登録する（ADR-050）。フォルダは中の曲を登録してライブラリフォルダとして記録し、ファイルは曲だけを登録する（フォルダは記録しない）。
 

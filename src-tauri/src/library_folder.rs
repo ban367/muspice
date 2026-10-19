@@ -11,15 +11,20 @@
 //!   （移動・改名されたファイルが見つかれば、同じ曲として結び付ける。`track_relink`）。
 //!   ただしフォルダ自体が見つからない、または音楽ファイルが1件も見つからない場合は、
 //!   見つからない曲にもしない（外付けドライブが外れている場合などに、全曲を見つからない曲にしないため）
+//! - フォルダごとに、読み込まないフォルダ（除外）をフォルダからの相対パスで記録する
+//!   （`library_folder_exclusions`）。新しく登録する時は、直下にある既知のアプリのフォルダを入れておく
+//!   （ADR-062）
 
 use crate::error::{AppError, AppResult};
+use crate::library::ScanExclusions;
 use crate::repository::TrackFileState;
 use chrono::Utc;
 use rusqlite::{Connection, OptionalExtension};
 use serde::Serialize;
 use specta::Type;
 use std::collections::{HashMap, HashSet};
-use std::path::{MAIN_SEPARATOR, Path};
+use std::fs;
+use std::path::{MAIN_SEPARATOR, Path, PathBuf};
 use uuid::Uuid;
 
 /// ライブラリフォルダ（一覧表示用）
@@ -34,6 +39,19 @@ pub struct LibraryFolder {
     pub exists: bool,
     pub added_at: String,
     pub last_scanned_at: Option<String>,
+    /// 読み込まないフォルダ（パス順）
+    pub exclusions: Vec<FolderExclusion>,
+}
+
+/// ライブラリフォルダの、読み込まないフォルダ（除外。一覧表示用）
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderExclusion {
+    pub id: String,
+    /// ライブラリフォルダからの相対パス
+    pub path: String,
+    /// 中にある、ライブラリの曲の数（除外する前に登録した曲。再スキャンでは変えない）
+    pub track_count: u32,
 }
 
 /// ライブラリフォルダの一覧
@@ -147,7 +165,14 @@ pub fn find_folder(conn: &Connection, folder_id: &str) -> AppResult<FolderRecord
 /// - 登録済みのフォルダの中（または同じフォルダ）なら、新しく登録しない。同じフォルダの
 ///   場合はスキャンした日時だけ更新する
 /// - 登録済みのフォルダを含むフォルダなら、中のフォルダの記録を消してまとめる
-pub fn register_folder(conn: &Connection, folder_path: &str) -> AppResult<()> {
+///
+/// `exclusions`（フォルダからの相対パス）は、新しく登録する時だけ、読み込まないフォルダとして
+/// 記録する（`import_exclusions`で求めた`to_register`を渡す）。
+pub fn register_folder(
+    conn: &Connection,
+    folder_path: &str,
+    exclusions: &[String],
+) -> AppResult<()> {
     let path = normalize_folder_path(folder_path);
     let now = Utc::now().to_rfc3339();
     let existing = find_all_folders(conn)?;
@@ -159,19 +184,29 @@ pub fn register_folder(conn: &Connection, folder_path: &str) -> AppResult<()> {
         return Ok(());
     }
 
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| AppError::Database(format!("トランザクションの開始に失敗しました: {}", e)))?;
+    // 中のフォルダの除外は、外のフォルダの除外として`exclusions`に入っている（記録は外部キーで消える）
     for nested in existing
         .iter()
         .filter(|f| is_same_or_within(&f.path, &path))
     {
-        delete_folder(conn, &nested.id)?;
+        delete_folder(&tx, &nested.id)?;
     }
 
-    conn.execute(
+    let folder_id = Uuid::new_v4().to_string();
+    tx.execute(
         "INSERT INTO library_folders (id, path, added_at, last_scanned_at) VALUES (?1, ?2, ?3, ?3)",
-        rusqlite::params![Uuid::new_v4().to_string(), path, now],
+        rusqlite::params![folder_id, path, now],
     )
     .map_err(|e| AppError::Database(format!("ライブラリフォルダの登録に失敗しました: {}", e)))?;
-    Ok(())
+    for exclusion in exclusions {
+        insert_exclusion(&tx, &folder_id, exclusion)?;
+    }
+
+    tx.commit()
+        .map_err(|e| AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e)))
 }
 
 /// ライブラリフォルダの記録を削除する（トラックは消さない）
@@ -191,6 +226,298 @@ pub fn mark_scanned(conn: &Connection, folder_id: &str) -> AppResult<()> {
     )
     .map_err(|e| AppError::Database(format!("スキャン日時の記録に失敗しました: {}", e)))?;
     Ok(())
+}
+
+/// 記録している、読み込まないフォルダ（DBの行）
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExclusionRecord {
+    pub id: String,
+    pub folder_id: String,
+    /// ライブラリフォルダからの相対パス
+    pub path: String,
+}
+
+/// 読み込まないフォルダの絶対パス（ライブラリフォルダのパス＋相対パス）
+pub fn excluded_path(folder_path: &str, relative: &str) -> PathBuf {
+    Path::new(folder_path).join(relative)
+}
+
+/// ライブラリフォルダの、読み込まないフォルダをパス順に取得する
+pub fn find_exclusions(conn: &Connection, folder_id: &str) -> AppResult<Vec<ExclusionRecord>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, folder_id, path FROM library_folder_exclusions
+             WHERE folder_id = ?1 ORDER BY path",
+        )
+        .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
+
+    stmt.query_map([folder_id], |row| {
+        Ok(ExclusionRecord {
+            id: row.get(0)?,
+            folder_id: row.get(1)?,
+            path: row.get(2)?,
+        })
+    })
+    .map_err(|e| AppError::Database(format!("クエリの実行に失敗しました: {}", e)))?
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(|e| AppError::Database(format!("結果の取得に失敗しました: {}", e)))
+}
+
+/// IDで、読み込まないフォルダを取得する
+pub fn find_exclusion(conn: &Connection, exclusion_id: &str) -> AppResult<ExclusionRecord> {
+    conn.query_row(
+        "SELECT id, folder_id, path FROM library_folder_exclusions WHERE id = ?1",
+        [exclusion_id],
+        |row| {
+            Ok(ExclusionRecord {
+                id: row.get(0)?,
+                folder_id: row.get(1)?,
+                path: row.get(2)?,
+            })
+        },
+    )
+    .optional()
+    .map_err(|e| AppError::Database(format!("読み込まないフォルダの取得に失敗しました: {}", e)))?
+    .ok_or_else(|| AppError::NotFound("読み込まないフォルダが見つかりません".to_string()))
+}
+
+/// ライブラリフォルダの走査で読み飛ばす場所（読み込まないフォルダを、絶対パスにしたもの）
+pub fn scan_exclusions(conn: &Connection, folder: &FolderRecord) -> AppResult<ScanExclusions> {
+    let excluded = find_exclusions(conn, &folder.id)?
+        .iter()
+        .map(|exclusion| excluded_path(&folder.path, &exclusion.path))
+        .collect();
+    Ok(ScanExclusions::new(excluded))
+}
+
+/// 読み込まないフォルダを記録する
+fn insert_exclusion(
+    conn: &Connection,
+    folder_id: &str,
+    relative: &str,
+) -> AppResult<ExclusionRecord> {
+    let record = ExclusionRecord {
+        id: Uuid::new_v4().to_string(),
+        folder_id: folder_id.to_string(),
+        path: relative.to_string(),
+    };
+    conn.execute(
+        "INSERT INTO library_folder_exclusions (id, folder_id, path) VALUES (?1, ?2, ?3)",
+        rusqlite::params![record.id, record.folder_id, record.path],
+    )
+    .map_err(|e| AppError::Database(format!("読み込まないフォルダの記録に失敗しました: {}", e)))?;
+    Ok(record)
+}
+
+/// ライブラリフォルダに、読み込まないフォルダを足す
+///
+/// - すでに除外しているフォルダ（かその中）なら、`VALIDATION`
+/// - 除外しているフォルダを含むフォルダなら、中の除外をまとめる（記録を消す）
+///
+/// 中の曲には触れない（ライブラリから外すかは、利用者が選ぶ）。
+pub fn add_exclusion(
+    conn: &Connection,
+    folder_id: &str,
+    relative: &str,
+) -> AppResult<ExclusionRecord> {
+    let existing = find_exclusions(conn, folder_id)?;
+    if existing
+        .iter()
+        .any(|exclusion| is_same_or_within(relative, &exclusion.path))
+    {
+        return Err(AppError::Validation(
+            "すでに読み込まないフォルダです（または、その中のフォルダです）".to_string(),
+        ));
+    }
+
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| AppError::Database(format!("トランザクションの開始に失敗しました: {}", e)))?;
+    for nested in existing
+        .iter()
+        .filter(|exclusion| is_same_or_within(&exclusion.path, relative))
+    {
+        delete_exclusion(&tx, &nested.id)?;
+    }
+    let added = insert_exclusion(&tx, folder_id, relative)?;
+    tx.commit().map_err(|e| {
+        AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
+    })?;
+    Ok(added)
+}
+
+/// 読み込まないフォルダの記録を削除する（中の曲には触れない）
+pub fn delete_exclusion(conn: &Connection, exclusion_id: &str) -> AppResult<()> {
+    conn.execute(
+        "DELETE FROM library_folder_exclusions WHERE id = ?1",
+        [exclusion_id],
+    )
+    .map_err(|e| AppError::Database(format!("読み込まないフォルダの削除に失敗しました: {}", e)))?;
+    Ok(())
+}
+
+/// 選んだフォルダを、ライブラリフォルダからの相対パスにする（読み込まないフォルダを足す時）
+///
+/// ライブラリフォルダの中のフォルダだけを受け付ける（ライブラリフォルダそのもの・外のフォルダは
+/// `VALIDATION`）。ダイアログが、リンクをたどった後のパスを返した場合に備えて、そのままで
+/// 中にない時は、両方の実体のパスで比べる。
+pub fn relative_to_folder(folder_path: &str, selected: &Path) -> AppResult<String> {
+    let folder = Path::new(folder_path);
+    let relative = match selected.strip_prefix(folder) {
+        Ok(relative) => relative.to_path_buf(),
+        Err(_) => {
+            let real_folder = fs::canonicalize(folder).ok();
+            let real_selected = fs::canonicalize(selected).ok();
+            match (real_folder, real_selected) {
+                (Some(real_folder), Some(real_selected)) => real_selected
+                    .strip_prefix(&real_folder)
+                    .map(Path::to_path_buf)
+                    .map_err(|_| outside_folder_error())?,
+                _ => return Err(outside_folder_error()),
+            }
+        }
+    };
+    if relative.as_os_str().is_empty() {
+        return Err(AppError::Validation(
+            "ライブラリフォルダそのものは、読み込まないフォルダにできません".to_string(),
+        ));
+    }
+    relative
+        .to_str()
+        .map(str::to_string)
+        .ok_or_else(|| AppError::Validation("フォルダの名前を扱えません".to_string()))
+}
+
+fn outside_folder_error() -> AppError {
+    AppError::Validation("ライブラリフォルダの中のフォルダを選んでください".to_string())
+}
+
+/// ほかのアプリが管理するフォルダの名前（新しく登録するフォルダの直下にあれば、読み込まないフォルダに
+/// 入れておく。大文字と小文字は区別しない）
+///
+/// 固定では読み飛ばさない（ミュージックのフォルダに自分の曲を置いている人もいるため、利用者が外せる）。
+/// `Music`は、ほかの名前より一般的なため、ミュージック（Music.app）の印がある時だけ入れる
+/// （`is_music_app_folder`）。
+const APP_FOLDER_NAMES: &[&str] = &[
+    "Music",
+    "iTunes",
+    "MusicBee",
+    "GarageBand",
+    "Logic",
+    "Audio Music Apps",
+];
+
+/// ミュージック（Music.app）のフォルダか（ライブラリのパッケージか、メディアのフォルダがある）
+fn is_music_app_folder(path: &Path) -> bool {
+    let Ok(entries) = fs::read_dir(path) else {
+        return false;
+    };
+    entries.filter_map(Result::ok).any(|entry| {
+        let name = entry.file_name();
+        let name = Path::new(&name);
+        name == Path::new("Media.localized")
+            || name
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("musiclibrary"))
+    })
+}
+
+/// 新しく登録するフォルダの、既定の読み込まないフォルダ（直下にある、既知のアプリのフォルダ。名前順）
+///
+/// ファイルシステムを読むため、DBのロックの外で呼ぶ。フォルダを読めなければ空。
+pub fn default_exclusions(folder: &Path) -> Vec<String> {
+    let Ok(entries) = fs::read_dir(folder) else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let name = entry.file_name().to_str()?.to_string();
+            let known = APP_FOLDER_NAMES
+                .iter()
+                .find(|known| known.eq_ignore_ascii_case(&name))?;
+            let path = entry.path();
+            if !path.is_dir() || (*known == "Music" && !is_music_app_folder(&path)) {
+                return None;
+            }
+            Some(name)
+        })
+        .collect();
+    names.sort();
+    names
+}
+
+/// フォルダのインポートで使う、読み込まないフォルダ
+#[derive(Debug, Default, PartialEq)]
+pub struct ImportExclusions {
+    /// 走査で読み飛ばす場所
+    pub scan: ScanExclusions,
+    /// 新しく登録する時に記録する、読み込まないフォルダ（フォルダからの相対パス）。
+    /// 登録済みのフォルダ（かその中）をインポートする場合は空（記録は変えない）
+    pub to_register: Vec<String>,
+}
+
+/// フォルダのインポートで使う、読み込まないフォルダを求める
+///
+/// - 登録済みのフォルダ（かその中）なら、そのフォルダの除外を効かせる（除外したフォルダの中を
+///   選んだ場合は、選んだものとして読む）
+/// - 新しく登録するフォルダなら、`defaults`（`default_exclusions`）に、まとめる中のフォルダの
+///   除外（外のフォルダからの相対パスに直す）を足す。登録済みのフォルダを含む既定の除外は
+///   入れない（利用者が登録したフォルダを、読み込まない場所にしないため）
+pub fn import_exclusions(
+    conn: &Connection,
+    folder_path: &str,
+    defaults: &[String],
+) -> AppResult<ImportExclusions> {
+    let path = normalize_folder_path(folder_path);
+    let folders = find_all_folders(conn)?;
+
+    if let Some(registered) = folders.iter().find(|f| is_same_or_within(&path, &f.path)) {
+        return Ok(ImportExclusions {
+            scan: scan_exclusions(conn, registered)?,
+            to_register: Vec::new(),
+        });
+    }
+
+    let nested: Vec<&FolderRecord> = folders
+        .iter()
+        .filter(|f| is_same_or_within(&f.path, &path))
+        .collect();
+    let mut relative: Vec<String> = defaults
+        .iter()
+        .filter(|name| {
+            let excluded = excluded_path(&path, name);
+            !nested
+                .iter()
+                .any(|folder| Path::new(&folder.path).starts_with(&excluded))
+        })
+        .cloned()
+        .collect();
+    for folder in nested {
+        for exclusion in find_exclusions(conn, &folder.id)? {
+            let excluded = excluded_path(&folder.path, &exclusion.path);
+            if let Some(rebased) = excluded
+                .strip_prefix(&path)
+                .ok()
+                .and_then(Path::to_str)
+                .filter(|rebased| !rebased.is_empty())
+            {
+                relative.push(rebased.to_string());
+            }
+        }
+    }
+    relative.sort();
+    relative.dedup();
+
+    Ok(ImportExclusions {
+        scan: ScanExclusions::new(
+            relative
+                .iter()
+                .map(|exclusion| excluded_path(&path, exclusion))
+                .collect(),
+        ),
+        to_register: relative,
+    })
 }
 
 /// ディスク上の音楽ファイル（再スキャンで見つかったもの）
@@ -296,6 +623,7 @@ pub fn plan_rescan(disk_files: Vec<DiskFile>, tracks: Vec<TrackFileState>) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::device_manifest::test_support::TempDir;
 
     fn setup_test_db() -> Connection {
         crate::db::open_in_memory()
@@ -358,42 +686,42 @@ mod tests {
     fn test_register_folder_merges_nested_folders() {
         let conn = setup_test_db();
 
-        register_folder(&conn, "/music/jazz/").unwrap();
-        register_folder(&conn, "/music/rock").unwrap();
-        register_folder(&conn, "/other").unwrap();
+        register_folder(&conn, "/music/jazz/", &[]).unwrap();
+        register_folder(&conn, "/music/rock", &[]).unwrap();
+        register_folder(&conn, "/other", &[]).unwrap();
         assert_eq!(
             folder_paths(&conn),
             ["/music/jazz", "/music/rock", "/other"]
         );
 
         // 登録済みのフォルダの中は登録しない
-        register_folder(&conn, "/music/jazz/live").unwrap();
+        register_folder(&conn, "/music/jazz/live", &[]).unwrap();
         assert_eq!(
             folder_paths(&conn),
             ["/music/jazz", "/music/rock", "/other"]
         );
 
         // 名前が前方一致するだけの別のフォルダは中とみなさない
-        register_folder(&conn, "/music/jazz2").unwrap();
+        register_folder(&conn, "/music/jazz2", &[]).unwrap();
         assert_eq!(
             folder_paths(&conn),
             ["/music/jazz", "/music/jazz2", "/music/rock", "/other"]
         );
 
         // 登録済みのフォルダを含むフォルダは、中のフォルダの記録をまとめる
-        register_folder(&conn, "/music").unwrap();
+        register_folder(&conn, "/music", &[]).unwrap();
         assert_eq!(folder_paths(&conn), ["/music", "/other"]);
     }
 
     #[test]
     fn test_register_same_folder_updates_scanned_at_only() {
         let conn = setup_test_db();
-        register_folder(&conn, "/music").unwrap();
+        register_folder(&conn, "/music", &[]).unwrap();
         let first = find_all_folders(&conn).unwrap().remove(0);
 
         conn.execute("UPDATE library_folders SET last_scanned_at = NULL", [])
             .unwrap();
-        register_folder(&conn, "/music/").unwrap();
+        register_folder(&conn, "/music/", &[]).unwrap();
 
         let folders = find_all_folders(&conn).unwrap();
         assert_eq!(folders.len(), 1);
@@ -401,10 +729,238 @@ mod tests {
         assert!(folders[0].last_scanned_at.is_some());
     }
 
+    fn exclusion_paths(conn: &Connection, folder_path: &str) -> Vec<String> {
+        let folder = find_all_folders(conn)
+            .unwrap()
+            .into_iter()
+            .find(|f| f.path == folder_path)
+            .unwrap();
+        find_exclusions(conn, &folder.id)
+            .unwrap()
+            .into_iter()
+            .map(|e| e.path)
+            .collect()
+    }
+
+    fn folder_id(conn: &Connection, folder_path: &str) -> String {
+        find_all_folders(conn)
+            .unwrap()
+            .into_iter()
+            .find(|f| f.path == folder_path)
+            .unwrap()
+            .id
+    }
+
+    /// 新しく登録する時だけ除外を記録し、フォルダの記録を消すと除外も消える
+    #[test]
+    fn test_register_folder_records_exclusions_only_when_new() {
+        let conn = setup_test_db();
+        register_folder(&conn, "/music", &["Music".to_string()]).unwrap();
+        // 登録済みのフォルダをインポートし直しても、除外は変えない
+        register_folder(&conn, "/music", &["Other".to_string()]).unwrap();
+        register_folder(&conn, "/music/sub", &["Other".to_string()]).unwrap();
+        assert_eq!(exclusion_paths(&conn, "/music"), ["Music"]);
+
+        let id = folder_id(&conn, "/music");
+        delete_folder(&conn, &id).unwrap();
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM library_folder_exclusions",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_add_exclusion_merges_nested_and_rejects_inside() {
+        let conn = setup_test_db();
+        register_folder(&conn, "/music", &[]).unwrap();
+        let id = folder_id(&conn, "/music");
+
+        let added = add_exclusion(&conn, &id, "MusicBee/Podcasts").unwrap();
+        assert_eq!(added.path, "MusicBee/Podcasts");
+        assert_eq!(added.folder_id, id);
+        add_exclusion(&conn, &id, "Music").unwrap();
+        assert_eq!(
+            exclusion_paths(&conn, "/music"),
+            ["Music", "MusicBee/Podcasts"]
+        );
+
+        // すでに除外しているフォルダ（かその中）は足せない
+        for inside in ["Music", "MusicBee/Podcasts/Show"] {
+            assert!(matches!(
+                add_exclusion(&conn, &id, inside),
+                Err(AppError::Validation(_))
+            ));
+        }
+        // 名前の先頭が同じだけのフォルダは、別のフォルダ
+        add_exclusion(&conn, &id, "Music2").unwrap();
+        // 除外しているフォルダを含むフォルダは、中の除外をまとめる
+        add_exclusion(&conn, &id, "MusicBee").unwrap();
+        assert_eq!(
+            exclusion_paths(&conn, "/music"),
+            ["Music", "Music2", "MusicBee"]
+        );
+
+        let music = find_exclusions(&conn, &id).unwrap().remove(0);
+        assert_eq!(find_exclusion(&conn, &music.id).unwrap(), music);
+        delete_exclusion(&conn, &music.id).unwrap();
+        assert!(matches!(
+            find_exclusion(&conn, &music.id),
+            Err(AppError::NotFound(_))
+        ));
+        assert_eq!(exclusion_paths(&conn, "/music"), ["Music2", "MusicBee"]);
+    }
+
+    #[test]
+    fn test_relative_to_folder() {
+        let dir = TempDir::new();
+        let root = dir.path().join("music");
+        fs::create_dir_all(root.join("MusicBee/Podcasts")).unwrap();
+        let root_str = root.to_str().unwrap();
+
+        assert_eq!(
+            relative_to_folder(root_str, &root.join("MusicBee/Podcasts")).unwrap(),
+            Path::new("MusicBee").join("Podcasts").to_str().unwrap()
+        );
+        // ライブラリフォルダそのもの・外のフォルダは選べない
+        assert!(matches!(
+            relative_to_folder(root_str, &root),
+            Err(AppError::Validation(_))
+        ));
+        assert!(matches!(
+            relative_to_folder(root_str, dir.path()),
+            Err(AppError::Validation(_))
+        ));
+        assert!(matches!(
+            relative_to_folder(root_str, &dir.path().join("music2")),
+            Err(AppError::Validation(_))
+        ));
+    }
+
+    /// ダイアログが、リンクをたどった後のパスを返した場合も、ライブラリフォルダの中として扱う
+    #[cfg(unix)]
+    #[test]
+    fn test_relative_to_folder_through_a_link() {
+        let dir = TempDir::new();
+        let real = dir.path().join("real");
+        fs::create_dir_all(real.join("Podcasts")).unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        let selected = fs::canonicalize(real.join("Podcasts")).unwrap();
+        assert_eq!(
+            relative_to_folder(link.to_str().unwrap(), &selected).unwrap(),
+            "Podcasts"
+        );
+    }
+
+    #[test]
+    fn test_default_exclusions_finds_known_app_folders() {
+        let dir = TempDir::new();
+        let root = dir.path();
+        for folder in [
+            "Music/Media.localized/Music",
+            "musicbee/Podcasts",
+            "GarageBand",
+            "Logic",
+            "Audio Music Apps",
+            "iTunes/iTunes Media",
+            "Artist/Album",
+            // 既知のアプリのフォルダの中は、直下ではないため入れない
+            "Artist/MusicBee",
+        ] {
+            fs::create_dir_all(root.join(folder)).unwrap();
+        }
+        // 同じ名前のファイルは入れない
+        fs::write(root.join("Logic.txt"), b"").unwrap();
+
+        assert_eq!(
+            default_exclusions(root),
+            [
+                "Audio Music Apps",
+                "GarageBand",
+                "Logic",
+                "Music",
+                "iTunes",
+                "musicbee"
+            ]
+        );
+        assert!(default_exclusions(&root.join("none")).is_empty());
+    }
+
+    /// `Music`は、ミュージック（Music.app）の印がある時だけ入れる（自分の曲を入れた`Music`は読む）
+    #[test]
+    fn test_default_exclusions_checks_music_app_folder() {
+        let dir = TempDir::new();
+        let own = dir.path().join("drive");
+        fs::create_dir_all(own.join("Music/Artist/Album")).unwrap();
+        assert!(default_exclusions(&own).is_empty());
+
+        let library = dir.path().join("home");
+        fs::create_dir_all(library.join("Music/Music Library.musiclibrary")).unwrap();
+        assert_eq!(default_exclusions(&library), ["Music"]);
+    }
+
+    #[test]
+    fn test_import_exclusions_for_registered_folder() {
+        let conn = setup_test_db();
+        register_folder(&conn, "/music", &["Music".to_string()]).unwrap();
+
+        // 登録済みのフォルダ（かその中）は、そのフォルダの除外を効かせ、記録は変えない
+        for path in ["/music", "/music/", "/music/Artist"] {
+            let exclusions = import_exclusions(&conn, path, &["Other".to_string()]).unwrap();
+            assert_eq!(
+                exclusions,
+                ImportExclusions {
+                    scan: ScanExclusions::new(vec![PathBuf::from("/music/Music")]),
+                    to_register: Vec::new(),
+                }
+            );
+        }
+    }
+
+    /// 新しく登録するフォルダは、既定の除外に、まとめる中のフォルダの除外を足す
+    #[test]
+    fn test_import_exclusions_for_new_folder_rebases_nested_exclusions() {
+        let conn = setup_test_db();
+        register_folder(&conn, "/home/Music/MusicBee", &["Podcasts".to_string()]).unwrap();
+        // 利用者が登録したフォルダを含む既定の除外は、入れない
+        register_folder(&conn, "/home/Music/Music/Media.localized/Music", &[]).unwrap();
+
+        let defaults = ["Music".to_string(), "iTunes".to_string()];
+        let exclusions = import_exclusions(&conn, "/home/Music", &defaults).unwrap();
+
+        let podcasts = Path::new("MusicBee")
+            .join("Podcasts")
+            .to_str()
+            .unwrap()
+            .to_string();
+        let mut expected = vec!["iTunes".to_string(), podcasts];
+        expected.sort();
+        assert_eq!(exclusions.to_register, expected);
+        assert_eq!(
+            exclusions.scan,
+            ScanExclusions::new(
+                expected
+                    .iter()
+                    .map(|path| Path::new("/home/Music").join(path))
+                    .collect()
+            )
+        );
+
+        // 登録すると、中のフォルダの記録をまとめ、除外を引き継ぐ
+        register_folder(&conn, "/home/Music", &exclusions.to_register).unwrap();
+        assert_eq!(folder_paths(&conn), ["/home/Music"]);
+        assert_eq!(exclusion_paths(&conn, "/home/Music"), expected);
+    }
+
     #[test]
     fn test_find_and_delete_folder() {
         let conn = setup_test_db();
-        register_folder(&conn, "/music").unwrap();
+        register_folder(&conn, "/music", &[]).unwrap();
         let id = find_all_folders(&conn).unwrap()[0].id.clone();
 
         assert_eq!(find_folder(&conn, &id).unwrap().path, "/music");
