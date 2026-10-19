@@ -37,7 +37,8 @@ export const en: Messages = {
     addToFavorites: 'Add to Favorites',
     removeFromFavorites: 'Remove from Favorites',
     trackCountAndDuration: (count, duration) => `${plural(count, 'track', 'tracks')} · ${duration}`,
-    itemCount: (count) => `${count}`
+    itemCount: (count) => `${count}`,
+    disc: (number) => `Disc ${number}`
   },
 
   fields: {
@@ -290,6 +291,8 @@ export const en: Messages = {
     openQueue: 'Open the queue',
     equalizerTitle: 'Equalizer (E)',
     openEqualizer: 'Open the equalizer',
+    infoTitle: 'Info',
+    openInfo: 'Open the info panel',
     pin: 'Pin the sidebar',
     unpin: 'Unpin',
     queue: 'Queue',
@@ -302,6 +305,13 @@ export const en: Messages = {
     saveAsPlaylistTitle: 'Save the Queue as a Playlist',
     saveAsPlaylistDefaultName: (date) => `Queue ${date}`,
     save: 'Save'
+  },
+
+  infoPanel: {
+    close: 'Close the info panel',
+    empty: 'Select an album or artist to see its tracks here',
+    notFound:
+      'No tracks found. They may have been removed from the library, or their tags may have changed'
   },
 
   miniPlayer: {

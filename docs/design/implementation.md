@@ -250,13 +250,14 @@ src-tauri/src/
   - 表示する列・列の順番・並び順は、画面ごとに`#lib/stores/trackListView.svelte`の`trackListView(viewId, defaults)`が覚える（localStorageの`muspice:trackListView:<viewId>`）。一覧を置く画面は、`TrackList`に`viewId`と、その画面の既定（`defaultColumns`・`defaultSort`）を渡す。列の幅は、どの画面でも共通で`ui.columnWidths`に持つ
   - プレイリストの画面も`TrackList`で表示する（ADR-039）。`onReorder`を渡すと、渡した順のまま並べている間（並び順がnullの間）だけ、行のドラッグで並べ替えられる（並べ替えの計算は`#lib/utils/reorder`の`moveItems`）。`onRemove`を渡すと、右クリックのメニューとDeleteキーで、選択した曲を一覧から外せる。列はどのプレイリストでも共通（`viewId="playlist"`）、並び順はプレイリストごと（`sortViewId`に`playlistSortViewId(id)`）に覚える
   - 再生中の曲へのジャンプは、`ui.revealTrackId`に曲のIDを入れる。その曲を含む`TrackList`が、行までスクロールして選び、nullに戻す。開いている画面の一覧にない場合は、プレーヤーが全曲の一覧（`isRevealFallback`を付けた`TrackList`）へ移動する
-- 曲の一覧（`TrackList`（プレイリストの画面を含む）、アルバム・アーティストの詳細、グループのモーダル）は、一覧ごとに`#lib/utils/trackSelection.svelte`の`TrackSelection`を作り、行のクリックを`click()`へ、一覧の`onkeydown`を`handleTrackListKeydown`へ渡す
+- 曲の一覧（`TrackList`（プレイリストの画面を含む）、アルバム・アーティストの詳細、右サイドバーの情報パネル）は、一覧ごとに`#lib/utils/trackSelection.svelte`の`TrackSelection`を作り、行のクリックを`click()`へ、一覧の`onkeydown`を`handleTrackListKeydown`へ渡す
   - 矢印キーで選択を移し、Shift+矢印で範囲選択、Cmd/Ctrl+Aですべて選択、Enterで再生する
   - 一覧の要素を`role="listbox"`・`tabindex="0"`にしてフォーカスを受け、行は`role="option"`・`data-track-id`を付けてフォーカスを受けない（行をクリックすると一覧の要素にフォーカスが移り、行が消えてもキー操作を続けられる）
   - 表示する一覧が別のものに変わった時（別のアルバムを選んだ等）は`reset()`で選択を消す
   - 仮想スクロールの一覧では、移動先の行の要素がないことがあるため、`handleTrackListKeydown`の`scrollTo`に`VirtualList`の`scrollToIndex`を渡す（渡さない場合は、`data-track-id`の付いた行の要素を探してスクロールする）
 - 1つだけ選択する一覧（2ペイン表示の左の`AlbumList`・`ArtistList`）は、`listSelectionTarget`で移動先を求めて選択し、その項目へフォーカスも移す（Tabでは選択中の項目だけに止まる）
 - グリッド表示（`LibraryGrid`: アルバム・アーティスト・ジャンル）は、現在位置の項目を枠で示し、Enterでクリックと同じ操作（`onOpen`）を行う
+  - 矢印キーで現在位置を移すと`onNavigate`を呼ぶ。アルバム・アーティストのグリッドは、情報パネルを開いている間だけ、表示する項目を移した先に入れ替える（`ui.followInfo`。閉じている間は開かない）。カードのクリック・Enterは`ui.showInfo`で情報パネルを開く（ADR-062）
 - 修飾キーなしの矢印キーは一覧が使う。プレーヤーのショートカット（`Player.svelte`）はCmd/Ctrl+矢印（前へ・次へ・音量）・Cmd/Ctrl+L（再生中の曲を表示）と、Space（再生・一時停止）・S（シャッフル）・R（リピート）・M（ミュート）
   - プレーヤーはウィンドウでキーを受け取るため、フォーカスのある要素がキーを使う場合はショートカットを行わない。条件は`#lib/utils/globalShortcuts`の`isGlobalShortcutBlocked`にまとめる
   - ほかの処理が処理したキー（`defaultPrevented`）と、入力の部品（input・textarea・select）・編集できる要素の中、モーダル（`<dialog open>`）が開いている間は、どのショートカットも行わない（モーダルの間は背面の画面と同じく操作できなくする。Cmd/Ctrl+Lで背面の画面を移動しないように）
@@ -298,6 +299,8 @@ src-tauri/src/
 - 色は`app.css`の変数（`bg-base-*`・`text-text-*`・`bg-surface-*`・`border-border`など）を使い、テーマで変わるべき色に`white`・`black`・`rgba(255, 255, 255, …)`などを直接書かない（ライトテーマで読めなくなるため）。アクセントカラーを薄くする場合は`bg-primary/15`か`color-mix(in oklab, var(--color-primary) 15%, transparent)`。オーバーレイ（`bg-black/50`）・影・色付きの面の上の白い文字は、どちらのテーマでも同じでよい
 - 配色はテーマ（`<html data-theme="dark|light">`）ごとに`app.css`で定義する。ダークの色は`@theme static`の値で、ライトの色は「配色（ダーク / ライト）」の`:root[data-theme='light']`で上書きする。`static`は、ユーティリティで使っていない変数も出力させるための指定（Tailwindは、使っていない変数を出力しない。コンポーネントの`<style>`やスクリプトから`var(--color-…)`で読めるようにする）。色の変数を追加したら、`@theme`とライトの配色の両方に書く
 - 見た目は、Tailwindのユーティリティと`app.css`の独自クラス（`btn-primary`・`form-input`など）で作る。部品のクラス集（DaisyUIなど）は入れない（クラス名がコンポーネントの中のクラス名と重なり、意図しないスタイルが当たるため。ADR-055）
+- 右サイドバーのパネルの幅は、`app.css`の`--spacing-side-panel`（再生キュー・イコライザ）と`--spacing-info-panel`（情報パネル）。パネルを本文の横に並べる間（`ui.isRightSidebarDocked`: 固定した時と、情報パネルを開いている時）は、レイアウトが本文をその幅だけ寄せる（`.main-container`の`margin-right`）。幅を変える時は変数だけを変える
+  - 本文が狭くなるため、ライブラリの見出し（`LibraryHeader`）は、見出しの文字・ボタンの文字を折り返さず、検索欄を縮め、それでも入らなければ項目を次の行へ送る
 - 再生バー（`Player`）は、画面の下の端に幅いっぱいで重ね、高さを`--spacing-player-height`に固定する（曲がある時・ない時で変えない）。下の端まである部品（左右のサイドバー・ページの領域・Now Playingの画面・モーダル）は、この変数の分だけ下を空ける（`pb-player-height`または`padding-bottom: var(--spacing-player-height)`）。再生バーの中身の高さを変えたら、変数の値も合わせる
 
 ### VS Codeワークスペース運用

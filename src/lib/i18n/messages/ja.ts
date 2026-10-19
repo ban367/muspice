@@ -37,7 +37,9 @@ export const ja = {
     /** 曲数と合計時間（例: 12曲 · 45分） */
     trackCountAndDuration: (count: number, duration: string) => `${count}曲 · ${duration}`,
     /** 件数（インポート結果など） */
-    itemCount: (count: number) => `${count}件`
+    itemCount: (count: number) => `${count}件`,
+    /** ディスクの見出し（例: ディスク 1） */
+    disc: (number: number) => `ディスク ${number}`
   },
 
   fields: {
@@ -299,6 +301,8 @@ export const ja = {
     openQueue: '再生キューを開く',
     equalizerTitle: 'イコライザ (E)',
     openEqualizer: 'イコライザを開く',
+    infoTitle: '情報',
+    openInfo: '情報パネルを開く',
     pin: 'サイドバーを固定',
     unpin: '固定解除',
     queue: '再生キュー',
@@ -311,6 +315,13 @@ export const ja = {
     saveAsPlaylistTitle: '再生キューをプレイリストとして保存',
     saveAsPlaylistDefaultName: (date: string) => `再生キュー ${date}`,
     save: '保存'
+  },
+
+  /** 右サイドバーの情報パネル（グリッドで選んだアルバム・アーティストの曲） */
+  infoPanel: {
+    close: '情報パネルを閉じる',
+    empty: 'アルバムやアーティストを選ぶと、ここに曲を表示します',
+    notFound: '曲が見つかりません。ライブラリから削除されたか、タグが変わった可能性があります'
   },
 
   /** ミニプレーヤー（メインウィンドウの小さな表示） */

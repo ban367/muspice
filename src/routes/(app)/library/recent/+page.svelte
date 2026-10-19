@@ -2,7 +2,7 @@
   最近追加した曲の画面。追加した日時の新しい順に、アルバムのカードを並べる
   （アルバムのない曲は、1曲で1枚のカード）。項目は、取得済みの全曲の一覧から計算する。
 
-  - アルバムのカード: クリックで曲の一覧を開く。ダブルクリック・再生ボタンでアルバムを再生する
+  - アルバムのカード: クリックで、右サイドバーの情報パネルに曲を表示する。ダブルクリック・再生ボタンでアルバムを再生する
   - 曲のカード: ダブルクリック・再生ボタンで、その曲を再生する
 -->
 <script lang="ts">
@@ -21,7 +21,6 @@
   import GroupContextMenu from '#lib/components/GroupContextMenu.svelte';
   import MarqueeText from '#lib/components/MarqueeText.svelte';
   import CardSizeSlider from '#lib/components/library/CardSizeSlider.svelte';
-  import GroupDetail from '#lib/components/library/GroupDetail.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   // カードの、アルバムアートを除いた高さの見積もり（描画した後は、実測した高さを使う）
@@ -31,7 +30,7 @@
   const tracksQuery = useTracksQuery();
   const items = $derived(tracksQuery.data ? recentlyAdded(tracksQuery.data) : []);
 
-  /** アルバムの項目を、アルバムの一覧の1件と同じ形にする（曲の一覧・メニューに渡す） */
+  /** アルバムの項目を、アルバムの一覧の1件と同じ形にする（情報パネル・メニューに渡す） */
   const toAlbum = (item: RecentItem): AlbumSummary => ({
     name: item.name,
     sortName: null,
@@ -39,13 +38,6 @@
     trackCount: item.trackCount,
     totalDuration: item.totalDuration,
     representativeTrackId: item.representativeTrackId
-  });
-
-  // 開いているアルバム（キーで持ち、取り直した一覧から引く）
-  let openKey = $state<string | null>(null);
-  const openAlbum = $derived.by(() => {
-    const item = items.find((candidate) => candidate.key === openKey);
-    return item?.kind === 'album' ? toAlbum(item) : null;
   });
 
   let contextMenu = $state<{ x: number; y: number; item: RecentItem } | null>(null);
@@ -56,7 +48,7 @@
   }
 
   function handleClick(item: RecentItem) {
-    if (item.kind === 'album') openKey = item.key;
+    if (item.kind === 'album') ui.showInfo({ type: 'album', album: toAlbum(item) });
   }
 
   function handleContextMenu(event: MouseEvent, item: RecentItem) {
@@ -162,8 +154,6 @@
     {/if}
   </div>
 </div>
-
-<GroupDetail group={openAlbum} type="album" onClose={() => (openKey = null)} />
 
 {#if contextMenu?.item.kind === 'album'}
   <GroupContextMenu

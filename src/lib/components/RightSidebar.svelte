@@ -16,6 +16,7 @@
   import AlbumArt from './AlbumArt.svelte';
   import MarqueeText from './MarqueeText.svelte';
   import EqualizerPanel from './EqualizerPanel.svelte';
+  import InfoPanel from './InfoPanel.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   // 「次に再生」の行の高さの見積もり（描画した後は、VirtualListが実測した高さを使う）
@@ -35,8 +36,8 @@
 
   // 閉じる（バックドロップクリック時）
   function closeByBackdrop() {
-    // 固定時はバックドロップクリックで閉じない
-    if (ui.isRightSidebarPinned) return;
+    // 横に並べている間（固定時・情報パネル）は、バックドロップを出さない
+    if (ui.isRightSidebarDocked) return;
     ui.isRightSidebarExpanded = false;
   }
 
@@ -194,6 +195,29 @@
         <line x1="17" y1="16" x2="23" y2="16" stroke-linecap="round" />
       </svg>
     </button>
+
+    <!-- 情報パネルボタン（グリッドで選んだアルバム・アーティストの曲） -->
+    <button
+      class="icon-button"
+      class:active={ui.isInfoPanelOpen}
+      onclick={() => openPanel('info')}
+      title={m.rightSidebar.infoTitle}
+      aria-label={m.rightSidebar.openInfo}
+    >
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+      >
+        <circle cx="12" cy="12" r="9" />
+        <line x1="12" y1="11" x2="12" y2="16" stroke-linecap="round" />
+        <line x1="12" y1="8" x2="12" y2="8" stroke-linecap="round" />
+      </svg>
+    </button>
   </div>
 
   <!-- 下部アイコン（ピンボタン） -->
@@ -227,18 +251,19 @@
   </div>
 </div>
 
-<!-- バックドロップ（固定時は表示しない） -->
-{#if ui.isRightSidebarExpanded && !ui.isRightSidebarPinned}
+<!-- バックドロップ（横に並べている間（固定時・情報パネル）は表示しない） -->
+{#if ui.isRightSidebarExpanded && !ui.isRightSidebarDocked}
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
   <div class="backdrop" onclick={closeByBackdrop}></div>
 {/if}
 
-<!-- パネル（展開時のみ表示、固定時はアニメーションなし） -->
+<!-- パネル（展開時のみ表示、横に並べる時（固定時・情報パネル）はアニメーションなし） -->
 {#if ui.isRightSidebarExpanded}
   <aside
     class="side-panel"
     class:pinned={ui.isRightSidebarPinned}
-    transition:fly={{ x: 200, duration: ui.isRightSidebarPinned ? 0 : 200 }}
+    class:wide={ui.isInfoPanelOpen}
+    transition:fly={{ x: 200, duration: ui.isRightSidebarDocked ? 0 : 200 }}
   >
     {#if ui.activeRightSidebarPanel === 'queue'}
       <!-- 再生キューパネル -->
@@ -368,6 +393,9 @@
     {:else if ui.activeRightSidebarPanel === 'equalizer'}
       <!-- イコライザパネル -->
       <EqualizerPanel />
+    {:else if ui.activeRightSidebarPanel === 'info'}
+      <!-- 情報パネル -->
+      <InfoPanel target={ui.infoTarget} />
     {/if}
   </aside>
 {/if}
@@ -417,8 +445,13 @@
     @apply fixed top-0 z-30 h-full
            flex flex-col bg-base-100 border-l border-border;
     right: 3rem; /* アイコンバーの幅 */
-    width: 17rem; /* 20rem - 3rem */
+    width: var(--spacing-side-panel);
     padding-bottom: var(--spacing-player-height);
+  }
+
+  /* 情報パネル（曲名を読めるよう、ほかのパネルより広くする） */
+  .side-panel.wide {
+    width: var(--spacing-info-panel);
   }
 
   .queue-header {
