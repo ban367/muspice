@@ -24,6 +24,12 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+/** フォルダを選ぶダイアログ（Rust側が開く）でフォルダを選んだことにして、インポートする */
+function importFolder(path: string) {
+  backend.setFolderResult(path);
+  return commands.importFolder('Skip');
+}
+
 describe('形式の変換', () => {
   const options = (overrides: Partial<ConvertOptions> = {}): ConvertOptions => ({
     format: 'flac',
@@ -1417,8 +1423,8 @@ describe('ライブラリのXMLの取り込み', () => {
 
 describe('インポート', () => {
   it('進捗イベントを送信し、同じフォルダの再インポートは重複としてスキップする', async () => {
-    const first = await commands.importFolder('/Users/demo/Music/New', 'Skip');
-    const second = await commands.importFolder('/Users/demo/Music/New', 'Skip');
+    const first = await importFolder('/Users/demo/Music/New');
+    const second = await importFolder('/Users/demo/Music/New');
 
     expect(first).toMatchObject({ importedCount: 6, skippedCount: 0 });
     expect(second).toMatchObject({ importedCount: 0, skippedCount: 6 });
@@ -1428,10 +1434,15 @@ describe('インポート', () => {
     });
   });
 
-  it('親ディレクトリを含むパスはVALIDATIONエラーになる', async () => {
-    await expect(commands.importFolder('/Users/demo/../etc', 'Skip')).rejects.toMatchObject({
-      code: 'VALIDATION'
-    });
+  it('フォルダを選ばずに閉じたら、nullを返して何もしない', async () => {
+    const tracks = await commands.getAllTracks();
+    const folders = await commands.getLibraryFolders();
+    backend.setFolderResult(null);
+
+    expect(await commands.importFolder('Skip')).toBeNull();
+    expect(await commands.getAllTracks()).toEqual(tracks);
+    expect(await commands.getLibraryFolders()).toEqual(folders);
+    expect(events).toEqual([]);
   });
 
   it('ファイルを選ぶインポートは、曲だけを登録する（フォルダは記録しない）', async () => {
@@ -1523,27 +1534,27 @@ describe('見つからない曲', () => {
 
 describe('ライブラリフォルダ', () => {
   it('インポートしたフォルダを登録し、入れ子のフォルダはまとめる', async () => {
-    await commands.importFolder('/Users/demo/Imports/A', 'Skip');
-    await commands.importFolder('/Users/demo/Imports/A/Live', 'Skip');
+    await importFolder('/Users/demo/Imports/A');
+    await importFolder('/Users/demo/Imports/A/Live');
     let paths = (await commands.getLibraryFolders()).folders.map((f) => f.path);
     expect(paths).toContain('/Users/demo/Imports/A');
     expect(paths).not.toContain('/Users/demo/Imports/A/Live');
 
-    await commands.importFolder('/Users/demo/Imports', 'Skip');
+    await importFolder('/Users/demo/Imports');
     paths = (await commands.getLibraryFolders()).folders.map((f) => f.path);
     expect(paths).toContain('/Users/demo/Imports');
     expect(paths).not.toContain('/Users/demo/Imports/A');
   });
 
   it('末尾の区切り文字を除いて登録し、ルートのフォルダもRustと同じ接頭辞で数える', async () => {
-    await commands.importFolder('/Users/demo/Imports/B/', 'Skip');
+    await importFolder('/Users/demo/Imports/B/');
     let folders = (await commands.getLibraryFolders()).folders;
     const imported = folders.find((f) => f.path === '/Users/demo/Imports/B');
     expect(imported?.trackCount).toBeGreaterThan(0);
     // インポートしたら、設定ウィンドウの一覧も読み直せるよう変更を通知する
     expect(events.map((e) => e.event)).toContain('library-changed');
 
-    await commands.importFolder('/', 'Skip');
+    await importFolder('/');
     folders = (await commands.getLibraryFolders()).folders;
     // ルートは区切り文字を残し、すべての曲を含む
     expect(folders.map((f) => f.path)).toEqual(['/']);
@@ -1654,12 +1665,12 @@ describe('読み込まないフォルダ', () => {
   it('中のフォルダをまとめて登録すると、読み込まないフォルダを引き継ぐ', async () => {
     const music = await musicFolder();
     await commands.removeLibraryFolder(music.id, false);
-    await commands.importFolder('/Users/demo/Music', 'Skip');
+    await importFolder('/Users/demo/Music');
     const reimported = await musicFolder();
     backend.setExclusionFolder('/Users/demo/Music/Podcasts');
     await commands.addLibraryFolderExclusion(reimported.id);
 
-    await commands.importFolder('/Users/demo', 'Skip');
+    await importFolder('/Users/demo');
     const demo = (await commands.getLibraryFolders()).folders.find(
       (f) => f.path === '/Users/demo'
     )!;
@@ -1683,10 +1694,16 @@ describe('転送先デバイス', () => {
     expect(disconnected).toMatchObject({ connected: false, freeBytes: null, totalBytes: null });
   });
 
-  it('フォルダを登録し、ライブラリフォルダと重なるフォルダは拒否する', async () => {
-    const device = await commands.registerSyncDevice('/Volumes/NEW_SD/', '  新しいSD ');
+  /** フォルダを選ぶダイアログでフォルダを選び（nullは選ばずに閉じた）、デバイスとして登録する */
+  const registerDevice = (path: string | null) => {
+    backend.setFolderResult(path);
+    return commands.registerSyncDevice();
+  };
+
+  it('選んだフォルダを、ドライブ・フォルダの名前で登録し、ライブラリフォルダと重なるフォルダは拒否する', async () => {
+    const device = (await registerDevice('/Volumes/NEW_SD/'))!;
     expect(device).toMatchObject({
-      name: '新しいSD',
+      name: 'NEW_SD',
       path: '/Volumes/NEW_SD',
       connected: true,
       syncAll: false,
@@ -1694,16 +1711,19 @@ describe('転送先デバイス', () => {
       removeUnselected: true
     });
     expect((await commands.getSyncDevices()).map((d) => d.id)).toContain(device.id);
+    expect((await registerDevice('/Users/demo/Backup/Music'))?.name).toBe('Music');
 
-    await expect(commands.registerSyncDevice('/Users/demo/Music/Sub', 'SD')).rejects.toMatchObject({
+    await expect(registerDevice('/Users/demo/Music/Sub')).rejects.toMatchObject({
       code: 'VALIDATION'
     });
-    await expect(commands.registerSyncDevice('/Users', 'SD')).rejects.toMatchObject({
-      code: 'VALIDATION'
-    });
-    await expect(commands.registerSyncDevice('/Volumes/OTHER', '   ')).rejects.toMatchObject({
-      code: 'VALIDATION'
-    });
+    await expect(registerDevice('/Users')).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+
+  it('フォルダを選ばずに閉じたら、nullを返して登録しない', async () => {
+    const devices = await commands.getSyncDevices();
+
+    expect(await registerDevice(null)).toBeNull();
+    expect(await commands.getSyncDevices()).toEqual(devices);
   });
 
   it('設定を更新し、見つからないプレイリストは無視する', async () => {
@@ -1818,7 +1838,15 @@ describe('転送先デバイス', () => {
   it('転送先を変えると接続され、登録を解除すると一覧から消える', async () => {
     const disconnected = (await commands.getSyncDevices()).find((d) => !d.connected)!;
 
-    const relinked = await commands.relinkSyncDevice(disconnected.id, '/Volumes/WALKMAN 1/MUSIC');
+    // 選ばずに閉じたら、何も変えない
+    backend.setFolderResult(null);
+    expect(await commands.relinkSyncDevice(disconnected.id)).toBeNull();
+    expect((await commands.getSyncDevices()).find((d) => d.id === disconnected.id)).toEqual(
+      disconnected
+    );
+
+    backend.setFolderResult('/Volumes/WALKMAN 1/MUSIC');
+    const relinked = await commands.relinkSyncDevice(disconnected.id);
     expect(relinked).toMatchObject({ connected: true, path: '/Volumes/WALKMAN 1/MUSIC' });
 
     await commands.removeSyncDevice(disconnected.id);

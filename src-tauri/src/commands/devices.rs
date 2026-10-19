@@ -1,12 +1,13 @@
 //! 転送先デバイス（SDカードなどのフォルダ）の登録・設定・同期のコマンド
 //!
-//! フォルダのパスを受け取るのは登録（`register_sync_device`）と転送先の変更
-//! （`relink_sync_device`）だけで、それ以外はデバイスのIDからDBで解決する。
+//! 転送先のフォルダは、登録（`register_sync_device`）と転送先の変更（`relink_sync_device`）で
+//! Rust側のダイアログから選ぶ（WebViewからパスを受け取らない。ADR-065）。それ以外の操作は、
+//! デバイスのIDからDBで解決する。
 
-use super::run_blocking;
+use super::{pick_folder, run_blocking};
 use crate::device::{
     DeviceRecord, DeviceSyncPlan, DeviceSyncResult, DeviceSyncState, SyncDevice, SyncDeviceConfig,
-    validate_device_name,
+    suggest_device_name, validate_device_name,
 };
 use crate::device_manifest::{
     Manifest, read_device_id, read_manifest, to_device_path, write_manifest,
@@ -17,8 +18,9 @@ use crate::error::{AppError, AppResult};
 use crate::events::DeviceSyncProgress;
 use crate::library::{modified_at_of, to_count};
 use crate::library_folder::{find_all_folders, normalize_folder_path};
+use crate::settings::Language;
 use crate::state::AppState;
-use crate::validation::{validate_file_path, validate_playlist_id, validate_track_id};
+use crate::validation::{validate_playlist_id, validate_track_id};
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -29,6 +31,27 @@ use uuid::Uuid;
 
 /// 空き容量の判定で、管理ファイルとプレイリストのために残しておく容量（バイト）
 const SPACE_MARGIN_BYTES: i64 = 1024 * 1024;
+
+/// ダイアログの文言と、フォルダから名前を決められない時のデバイス名（設定の言語に合わせる）
+struct Labels {
+    pick_title: &'static str,
+    default_name: &'static str,
+}
+
+impl Labels {
+    fn for_language(language: Language) -> Self {
+        match language {
+            Language::Ja => Self {
+                pick_title: "転送先のフォルダを選択",
+                default_name: "デバイス",
+            },
+            Language::En => Self {
+                pick_title: "Select the destination folder",
+                default_name: "Device",
+            },
+        }
+    }
+}
 
 /// デバイスIDをバリデーション（UUID形式）
 fn validate_device_id(id: &str) -> AppResult<()> {
@@ -78,9 +101,10 @@ fn load_sync_device(state: &AppState, device_id: &str) -> AppResult<SyncDevice> 
 ///
 /// ライブラリフォルダと重なるフォルダは転送先にできない（コピーした曲を再スキャンが
 /// ライブラリに取り込み、その曲をまたコピーしてしまうため）。
-fn validate_device_folder(state: &AppState, folder_path: &str) -> AppResult<String> {
-    validate_file_path(folder_path)?;
-    let path = normalize_folder_path(folder_path);
+fn validate_device_folder(state: &AppState, folder: &Path) -> AppResult<String> {
+    let path = folder.to_str().map(normalize_folder_path).ok_or_else(|| {
+        AppError::Validation("フォルダのパスに扱えない文字が含まれています".to_string())
+    })?;
     let root = Path::new(&path);
     if !root.is_dir() {
         return Err(AppError::NotFound(format!(
@@ -90,16 +114,31 @@ fn validate_device_folder(state: &AppState, folder_path: &str) -> AppResult<Stri
     }
 
     let library_folders = state.with_db(|db| find_all_folders(db))?;
-    let overlaps = library_folders.iter().any(|folder| {
-        let library = Path::new(&folder.path);
-        root.starts_with(library) || library.starts_with(root)
-    });
-    if overlaps {
+    if library_folders
+        .iter()
+        .any(|folder| folders_overlap(root, Path::new(&folder.path)))
+    {
         return Err(AppError::Validation(
             "ライブラリフォルダと重なるフォルダは、転送先にできません".to_string(),
         ));
     }
     Ok(path)
+}
+
+/// 2つのフォルダが重なるか（同じフォルダか、一方がもう一方の中にある）
+///
+/// シンボリックリンクを解決したパスと、解決する前のパスの両方で比べる（再スキャンはリンクを
+/// たどるため、どちらで重なっても、コピーした曲を取り込んでしまう）。見つからないフォルダ
+/// （外れた外付けドライブのライブラリフォルダなど）は、解決する前のパスだけで比べる。
+fn folders_overlap(a: &Path, b: &Path) -> bool {
+    let resolved = |path: &Path| [Some(path.to_path_buf()), fs::canonicalize(path).ok()];
+    let (a_paths, b_paths) = (resolved(a), resolved(b));
+    a_paths.iter().flatten().any(|a| {
+        b_paths
+            .iter()
+            .flatten()
+            .any(|b| a.starts_with(b) || b.starts_with(a))
+    })
 }
 
 /// 登録済みのデバイスの一覧を取得する
@@ -118,30 +157,35 @@ pub async fn get_sync_devices(app_handle: AppHandle) -> AppResult<Vec<SyncDevice
     .await
 }
 
-/// フォルダを転送先デバイスとして登録する
+/// フォルダを選ぶダイアログを開き、選んだフォルダを転送先デバイスとして登録する
 ///
-/// フォルダに管理ファイルがある場合は、そのデバイスとして扱う（登録済みなら転送先を
-/// 更新し、未登録なら管理ファイルを引き継いで登録する）。なければ新しく作る。
+/// ダイアログはRust側で開く（WebViewからパスを受け取らない。ADR-065）。名前は、ドライブ・
+/// フォルダの名前にする（デバイスのページで変えられる）。フォルダに管理ファイルがある場合は、
+/// そのデバイスとして扱う（登録済みなら転送先を更新し、未登録なら管理ファイルを引き継いで
+/// 登録する）。なければ新しく作る。
+///
+/// @returns 登録したデバイス（選ばずに閉じた場合はnull）
 #[tauri::command]
 #[specta::specta]
-pub async fn register_sync_device(
-    folder_path: String,
-    name: String,
-    app_handle: AppHandle,
-) -> AppResult<SyncDevice> {
-    let name = validate_device_name(&name)?;
-
+pub async fn register_sync_device(app_handle: AppHandle) -> AppResult<Option<SyncDevice>> {
     run_blocking(move || {
+        let labels = Labels::for_language(crate::menu::current_language(&app_handle));
+        let Some(folder) = pick_folder(&app_handle, labels.pick_title)? else {
+            return Ok(None);
+        };
+        let name = suggest_device_name(&folder).unwrap_or_else(|| labels.default_name.to_string());
+
         let state = app_handle.state::<AppState>();
-        let device_id = register_device(state.inner(), &folder_path, &name)?;
-        load_sync_device(state.inner(), &device_id)
+        let device_id = register_device(state.inner(), &folder, &name)?;
+        load_sync_device(state.inner(), &device_id).map(Some)
     })
     .await
 }
 
-/// `register_sync_device`の本体（同期処理）。登録したデバイスのIDを返す
-fn register_device(state: &AppState, folder_path: &str, name: &str) -> AppResult<String> {
-    let path = validate_device_folder(state, folder_path)?;
+/// `register_sync_device`のダイアログの後の処理（同期処理）。登録したデバイスのIDを返す
+fn register_device(state: &AppState, folder: &Path, name: &str) -> AppResult<String> {
+    let name = validate_device_name(name)?;
+    let path = validate_device_folder(state, folder)?;
     let root = Path::new(&path);
 
     let device_id = match read_manifest(root)? {
@@ -152,7 +196,7 @@ fn register_device(state: &AppState, folder_path: &str, name: &str) -> AppResult
             state.with_db(
                 |db| match crate::device::try_find_device(db, &manifest.device_id)? {
                     Some(_) => crate::device::set_device_path(db, &manifest.device_id, &path),
-                    None => crate::device::insert_device(db, &manifest.device_id, name, &path),
+                    None => crate::device::insert_device(db, &manifest.device_id, &name, &path),
                 },
             )?;
             manifest.device_id
@@ -160,7 +204,7 @@ fn register_device(state: &AppState, folder_path: &str, name: &str) -> AppResult
         None => {
             let device_id = Uuid::new_v4().to_string();
             write_manifest(root, &Manifest::new(&device_id))?;
-            state.with_db(|db| crate::device::insert_device(db, &device_id, name, &path))?;
+            state.with_db(|db| crate::device::insert_device(db, &device_id, &name, &path))?;
             device_id
         }
     };
@@ -194,31 +238,41 @@ pub async fn update_sync_device(
     .await
 }
 
-/// デバイスの転送先のフォルダを変える（マウント先が変わった場合や、カードを初期化した場合）
+/// フォルダを選ぶダイアログを開き、デバイスの転送先をそのフォルダに変える（マウント先が
+/// 変わった場合や、カードを初期化した場合）
 ///
-/// フォルダに別のデバイスの管理ファイルがある場合はエラーにする。管理ファイルがなければ、
-/// このデバイスの管理ファイルを新しく作る。
+/// ダイアログはRust側で開く（WebViewからパスを受け取らない。ADR-065）。フォルダに別のデバイスの
+/// 管理ファイルがある場合はエラーにする。管理ファイルがなければ、このデバイスの管理ファイルを
+/// 新しく作る。
+///
+/// @returns 転送先を変えたデバイス（選ばずに閉じた場合はnull）
 #[tauri::command]
 #[specta::specta]
 pub async fn relink_sync_device(
     device_id: String,
-    folder_path: String,
     app_handle: AppHandle,
-) -> AppResult<SyncDevice> {
+) -> AppResult<Option<SyncDevice>> {
     validate_device_id(&device_id)?;
 
     run_blocking(move || {
         let state = app_handle.state::<AppState>();
-        relink_device(state.inner(), &device_id, &folder_path)?;
-        load_sync_device(state.inner(), &device_id)
+        // 見つからないデバイスなら、ダイアログを開かずにエラーにする
+        state.with_db(|db| crate::device::find_device(db, &device_id))?;
+        let labels = Labels::for_language(crate::menu::current_language(&app_handle));
+        let Some(folder) = pick_folder(&app_handle, labels.pick_title)? else {
+            return Ok(None);
+        };
+
+        relink_device(state.inner(), &device_id, &folder)?;
+        load_sync_device(state.inner(), &device_id).map(Some)
     })
     .await
 }
 
-/// `relink_sync_device`の本体（同期処理）
-fn relink_device(state: &AppState, device_id: &str, folder_path: &str) -> AppResult<()> {
+/// `relink_sync_device`のダイアログの後の処理（同期処理）
+fn relink_device(state: &AppState, device_id: &str, folder: &Path) -> AppResult<()> {
     state.with_db(|db| crate::device::find_device(db, device_id))?;
-    let path = validate_device_folder(state, folder_path)?;
+    let path = validate_device_folder(state, folder)?;
     let root = Path::new(&path);
 
     match read_manifest(root)? {
@@ -520,10 +574,6 @@ mod tests {
             }
         }
 
-        fn device_path(&self) -> &str {
-            self.device_root.to_str().unwrap()
-        }
-
         /// ライブラリにファイルを置き、トラックとして登録する
         fn add_track(
             &self,
@@ -584,7 +634,7 @@ mod tests {
 
         /// デバイスを登録し、同期する対象を設定する
         fn register(&self, sync_all: bool, playlist_ids: &[&str]) -> String {
-            let device_id = register_device(&self.state, self.device_path(), "SD").unwrap();
+            let device_id = register_device(&self.state, &self.device_root, "SD").unwrap();
             self.configure(&device_id, sync_all, playlist_ids, true);
             device_id
         }
@@ -884,7 +934,7 @@ mod tests {
 
         // 同じフォルダをもう一度登録しても、同じデバイスのまま
         assert_eq!(
-            register_device(&fixture.state, fixture.device_path(), "別の名前").unwrap(),
+            register_device(&fixture.state, &fixture.device_root, "別の名前").unwrap(),
             device_id
         );
         assert_eq!(
@@ -902,7 +952,7 @@ mod tests {
             .with_db(|db| crate::device::delete_device(db, &device_id))
             .unwrap();
         assert_eq!(
-            register_device(&fixture.state, fixture.device_path(), "SD").unwrap(),
+            register_device(&fixture.state, &fixture.device_root, "SD").unwrap(),
             device_id
         );
         fixture.configure(&device_id, true, &[], true);
@@ -929,18 +979,54 @@ mod tests {
             fixture.library.parent().unwrap(),
         ] {
             assert!(matches!(
-                register_device(&fixture.state, path.to_str().unwrap(), "SD"),
+                register_device(&fixture.state, path, "SD"),
                 Err(AppError::Validation(_))
             ));
         }
         assert!(matches!(
-            register_device(
-                &fixture.state,
-                inside.join("missing").to_str().unwrap(),
-                "SD"
-            ),
+            register_device(&fixture.state, &inside.join("missing"), "SD"),
             Err(AppError::NotFound(_))
         ));
+    }
+
+    /// シンボリックリンクを解決すると重なるフォルダも、転送先にできない
+    #[cfg(unix)]
+    #[test]
+    fn test_register_rejects_folder_overlapping_library_through_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let fixture = Fixture::new();
+        let base = fixture.device_root.parent().unwrap().to_path_buf();
+        let inside = fixture.library.join("device");
+        fs::create_dir_all(&inside).unwrap();
+        // ライブラリフォルダの中を指すリンク
+        let link_to_inside = base.join("link-to-inside");
+        symlink(&inside, &link_to_inside).unwrap();
+        // リンクのパスで記録したライブラリフォルダ（リンクの先は`real/library`）
+        let real = base.join("real");
+        fs::create_dir_all(real.join("library")).unwrap();
+        let link_to_real = base.join("link-to-real");
+        symlink(&real, &link_to_real).unwrap();
+        fixture
+            .state
+            .with_db(|db| {
+                crate::library_folder::register_folder(db, fixture.library.to_str().unwrap(), &[])?;
+                crate::library_folder::register_folder(
+                    db,
+                    link_to_real.join("library").to_str().unwrap(),
+                    &[],
+                )
+            })
+            .unwrap();
+
+        for path in [&link_to_inside, &real] {
+            assert!(matches!(
+                register_device(&fixture.state, path, "SD"),
+                Err(AppError::Validation(_))
+            ));
+        }
+        // 重ならないフォルダは、転送先にできる
+        assert!(register_device(&fixture.state, &fixture.device_root, "SD").is_ok());
     }
 
     #[test]
@@ -951,7 +1037,7 @@ mod tests {
         // 管理ファイルのないフォルダ（初期化したカードなど）: このデバイスの管理ファイルを作る
         let fresh = fixture.device_root.parent().unwrap().join("fresh");
         fs::create_dir_all(&fresh).unwrap();
-        relink_device(&fixture.state, &device_id, fresh.to_str().unwrap()).unwrap();
+        relink_device(&fixture.state, &device_id, &fresh).unwrap();
         let device = fixture
             .state
             .with_db(|db| find_device(db, &device_id))
@@ -962,10 +1048,10 @@ mod tests {
         // 別のデバイスの管理ファイルがあるフォルダは選べない
         let other = fixture.device_root.parent().unwrap().join("other");
         fs::create_dir_all(&other).unwrap();
-        let other_id = register_device(&fixture.state, other.to_str().unwrap(), "Other").unwrap();
+        let other_id = register_device(&fixture.state, &other, "Other").unwrap();
         assert_ne!(other_id, device_id);
         assert!(matches!(
-            relink_device(&fixture.state, &device_id, other.to_str().unwrap()),
+            relink_device(&fixture.state, &device_id, &other),
             Err(AppError::Validation(_))
         ));
     }

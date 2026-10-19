@@ -11,24 +11,6 @@ export function isDeviceNameTooLong(name: string): boolean {
   return [...name.trim()].length > MAX_DEVICE_NAME_LENGTH;
 }
 
-/**
- * 転送先のフォルダのパスから、デバイス名の候補を作る
- *
- * ボリュームのマウント先（macOSの`/Volumes/名前`、Linuxの`/media/ユーザー/名前`・
- * `/run/media/ユーザー/名前`）ならボリューム名、それ以外はフォルダ名を使う。
- * 候補を作れない場合（`E:\`などのルート）は空文字。
- */
-export function suggestDeviceName(folderPath: string): string {
-  const segments = folderPath.split(/[\\/]/).filter(Boolean);
-  if (segments[0] === 'Volumes' && segments.length >= 2) return segments[1];
-  if (segments[0] === 'media' && segments.length >= 3) return segments[2];
-  if (segments[0] === 'run' && segments[1] === 'media' && segments.length >= 4) return segments[3];
-
-  const last = segments.at(-1) ?? '';
-  // Windowsのドライブ（`E:`）は名前にしない
-  return /^[a-zA-Z]:$/.test(last) ? '' : last;
-}
-
 /** 同期の進捗の割合（0〜100の整数。バイト数で数え、サイズが分からなければファイル数で数える） */
 export function syncProgressPercent(
   progress: Pick<DeviceSyncProgress, 'current' | 'total' | 'bytesDone' | 'bytesTotal'>

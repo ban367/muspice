@@ -48,7 +48,7 @@ beforeEach(() => {
 });
 
 describe('importer', () => {
-  it('フォルダのインポートを実行し、進み具合と結果を持つ', async () => {
+  it('フォルダを選ぶインポートを実行し、進み具合と結果を持つ', async () => {
     let finish!: (result: ImportResult) => void;
     vi.mocked(commands.importFolder).mockReturnValue(
       new Promise((resolve) => {
@@ -57,12 +57,12 @@ describe('importer', () => {
     );
     importer.duplicateAction = 'Replace';
 
-    const running = importer.importFolder('/Music/New');
+    const running = importer.importFolder();
     await flush();
-    // ダイアログを開き、インポート中にする
+    // ダイアログを開き、インポート中にする（フォルダを選ぶダイアログは、Rust側が開く）
     expect(ui.isImportDialogOpen).toBe(true);
     expect(importer.isImporting).toBe(true);
-    expect(commands.importFolder).toHaveBeenCalledWith('/Music/New', 'Replace');
+    expect(commands.importFolder).toHaveBeenCalledWith('Replace');
 
     for (const listener of listeners) {
       listener({ payload: { current: 1, total: 4, currentFile: 'a.flac' } });
@@ -79,6 +79,18 @@ describe('importer', () => {
     expect(importer.result).toEqual(RESULT);
     // 通知を聞くのをやめる
     expect(listeners.size).toBe(0);
+  });
+
+  it('フォルダを選ばずに閉じたら、結果もエラーもなく、インポート中でなくなる', async () => {
+    vi.mocked(commands.importFolder).mockResolvedValue(null);
+
+    await importer.importFolder();
+
+    expect(commands.importFolder).toHaveBeenCalledWith('Skip');
+    expect(importer.isImporting).toBe(false);
+    expect(importer.progress).toBe(0);
+    expect(importer.result).toBeNull();
+    expect(importer.errorMessage).toBe('');
   });
 
   it('ファイルを選ばずに閉じたら、結果もエラーもなく、ダイアログも開かない', async () => {
@@ -138,7 +150,7 @@ describe('importer', () => {
         finish = resolve;
       })
     );
-    const running = importer.importFolder('/Music/New');
+    const running = importer.importFolder();
     await flush();
 
     await importer.importDropped(['a.flac']);

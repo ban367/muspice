@@ -418,7 +418,7 @@ Tauriのウィンドウ（macOSではWKWebView）はブラウザ自動化ツー�
   - `fixtures.ts`: 初期データ。状態はメモリ上のみで、リロードすると初期状態に戻る
   - `media.ts`: アルバムアート（SVGのdata URL）の生成。`albumart`プロトコルの代わりに`convertFileSrc(id, 'albumart')`がdata URLを返す
   - `playbackEngine.ts`: 再生エンジンのコマンドと通知の再現。音は鳴らさず、時計に合わせて再生位置・曲の切り替わり（ギャップレス再生・クロスフェード）・曲の終わりを進める
-  - `tauri.ts`: event・dialog・windowプラグインと`convertFileSrc`の差し替え
+  - `tauri.ts`: event・dialog（確認のダイアログ）・windowプラグインと`convertFileSrc`の差し替え
 - ネイティブメニューのイベントや確認ダイアログの回答は、開発者ツールから`window.__MUSPICE_MOCK__`で操作する
   - `window.__MUSPICE_MOCK__.emit('open-import-dialog')`（`toggle-sidebar` / `show-about-dialog`も同様）
   - `window.__MUSPICE_MOCK__.emit('playback-control', { type: 'next' })`で、「再生」メニュー・OSのメディアキーの操作を再現する
@@ -431,7 +431,7 @@ Tauriのウィンドウ（macOSではWKWebView）はブラウザ自動化ツー�
   - `window.__MUSPICE_MOCK__.setAlbumArtPickMode('cancel')`で、アルバムアートの埋め込みで選んだことにする画像を切り替える（`pick`: 埋め込める画像（既定。選ぶたびに違う色の画像になる）・`cancel`: 選ばなかった・`tooLarge`: 大きすぎる画像）。フィクスチャでは、「Midnight Circuit」がフォルダの画像（`cover.jpg`）、「Quiet Rooms」がアートなし、ほかは埋め込みの画像
   - `window.__MUSPICE_MOCK__.setExclusionFolder('/Users/demo/Music/Podcasts')`で、読み込まないフォルダの追加で選んだことにするフォルダを変える（`null`は、選ばなかった）。既定は、ライブラリフォルダの中で曲のある、まだ除外していない最初のフォルダ（中の曲を外すかの確認が出る）。`/Users/demo/Music`には、既知のアプリのフォルダ（`Music`・`MusicBee`）を除外として入れてある。除外を外した時の再スキャンは「変更なし」にする
   - `window.__MUSPICE_MOCK__.setConfirmResult(false)`で、以降の確認ダイアログを「キャンセル」にする
-  - `window.__MUSPICE_MOCK__.setFolderResult('/Volumes/NEW_SD')`で、以降のフォルダ選択ダイアログで選ばれるパスを変える。既定のパスはライブラリフォルダの中のため、転送先デバイスの追加を確認するときはライブラリの外のパスにする
+  - `window.__MUSPICE_MOCK__.setFolderResult('/Volumes/NEW_SD')`で、以降のフォルダを選ぶダイアログ（Rust側が開く。フォルダのインポート・デバイスの登録・転送先の変更）で選んだことにするフォルダを変える。`null`にすると、選ばずに閉じたことにする。既定のパス（`/Users/demo/Music/Mock Import`）はライブラリフォルダの中のため、転送先デバイスの追加を確認するときはライブラリの外のパスにする
 - 音は鳴らない（再生位置と曲の切り替わりだけが進む）。音の確認は、実アプリで行う
 - 再生状態（音量・再生キューなど）は、起動時の復元を確認できるよう`sessionStorage`に保存する（再読み込みの後も残り、タブを閉じると消える。ほかの状態は、再読み込みで初期状態に戻る）
 - 数万曲のライブラリでの動作は、URLに`?mockTracks=50000`を付けて開くと確認できる（例: `/library/songs?mockTracks=50000`。フィクスチャに加えて、指定した数のトラックを生成する。アプリ内の移動では状態が保たれ、再読み込みすると付けたURLで開き直すまで元の件数に戻る）

@@ -3,28 +3,8 @@ import {
   isDeviceNameTooLong,
   isDeviceUpToDate,
   missingSpaceBytes,
-  suggestDeviceName,
   syncProgressPercent
 } from './devices';
-
-describe('suggestDeviceName', () => {
-  it('ボリュームのマウント先ではボリューム名を使う', () => {
-    expect(suggestDeviceName('/Volumes/SDCARD')).toBe('SDCARD');
-    expect(suggestDeviceName('/Volumes/SDCARD/Music')).toBe('SDCARD');
-    expect(suggestDeviceName('/media/demo/WALKMAN/MUSIC')).toBe('WALKMAN');
-    expect(suggestDeviceName('/run/media/demo/WALKMAN')).toBe('WALKMAN');
-  });
-
-  it('それ以外はフォルダ名を使う', () => {
-    expect(suggestDeviceName('/Users/demo/Backup/')).toBe('Backup');
-    expect(suggestDeviceName('E:\\Music')).toBe('Music');
-  });
-
-  it('ルートでは候補を作らない', () => {
-    expect(suggestDeviceName('E:\\')).toBe('');
-    expect(suggestDeviceName('/')).toBe('');
-  });
-});
 
 describe('isDeviceNameTooLong', () => {
   it('文字数で数える（バイト数・UTF-16の長さではない）', () => {

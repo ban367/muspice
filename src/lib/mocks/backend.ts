@@ -168,6 +168,14 @@ export interface MockBackend {
    * 最初のフォルダ（アーティストのフォルダ）を選んだことにする（中の曲を外すかの確認が出る）。
    */
   setExclusionFolder(path: string | null): void;
+  /**
+   * フォルダのインポート・転送先デバイスの登録・転送先の変更で、フォルダを選ぶダイアログ
+   * （Rust側が開く）で選んだことにするフォルダを切り替える（nullは、選ばずに閉じた）
+   *
+   * 既定は`/Users/demo/Music/Mock Import`（ライブラリフォルダの中のため、転送先デバイスの
+   * 追加を確かめる時は、ライブラリの外のフォルダ（例: `/Volumes/NEW_SD`）にする）。
+   */
+  setFolderResult(path: string | null): void;
   /** `albumart`プロトコルの代わりに、トラックのアルバムアートをdata URLで返す（アートがなければnull） */
   albumArtUrl(trackId: string): string | null;
 }
@@ -195,6 +203,8 @@ const AUDIO_EXTENSIONS = [
   'wv',
   'ape'
 ];
+/** フォルダを選ぶダイアログで、既定で選んだことにするフォルダ（`setFolderResult`で切り替える） */
+const DEFAULT_FOLDER_RESULT = '/Users/demo/Music/Mock Import';
 /** ファイルを選ぶインポートで、選んだことにするファイル（フォルダと名前） */
 const PICKED_FILES_FOLDER = '/Users/mock/Downloads';
 const PICKED_FILE_NAMES = ['Picked Song A.flac', 'Picked Song B.mp3'];
@@ -287,9 +297,23 @@ function validatePlaylistId(id: string): void {
   if (!UUID_PATTERN.test(id)) fail('VALIDATION', '不正なプレイリストID形式です');
 }
 
-/** Rustの`str::len`と同じくUTF-8のバイト数で数える */
-function byteLength(value: string): number {
-  return new TextEncoder().encode(value).length;
+/**
+ * 転送先のフォルダから、デバイス名を決める（決められなければnull。Rustの`suggest_device_name`と同じ）
+ *
+ * 取り外せるドライブ（`/Volumes/名前`・`/media/ユーザー/名前`・`/run/media/ユーザー/名前`）の
+ * 中ならドライブの名前、それ以外はフォルダの名前にする。
+ */
+function suggestDeviceName(folderPath: string): string | null {
+  // Windowsのドライブ（`E:`）は、名前にしない
+  const segments = folderPath.split(/[\\/]/).filter((s) => s && !/^[a-zA-Z]:$/.test(s));
+  let name = segments.at(-1);
+  if (segments[0] === 'Volumes' && segments.length >= 2) name = segments[1];
+  else if (segments[0] === 'media' && segments.length >= 3) name = segments[2];
+  else if (segments[0] === 'run' && segments[1] === 'media' && segments.length >= 4) {
+    name = segments[3];
+  }
+  const cleaned = [...(name ?? '').replace(/\p{Cc}/gu, '')].slice(0, 100).join('').trim();
+  return cleaned || null;
 }
 
 function validatePlaylistName(name: string): void {
@@ -299,15 +323,6 @@ function validatePlaylistName(name: string): void {
     fail('VALIDATION', 'プレイリスト名に使用できない文字が含まれています');
   }
   if (name.includes('\0')) fail('VALIDATION', '不正なプレイリスト名: Null文字が含まれています');
-}
-
-function validateFilePath(path: string): void {
-  if (!path) fail('VALIDATION', 'ファイルパスが空です');
-  if (path.includes('\0')) fail('VALIDATION', '不正なファイルパス: Null文字が含まれています');
-  if (byteLength(path) > 4096) fail('VALIDATION', 'ファイルパスが長すぎます');
-  if (path.split(/[\\/]/).includes('..')) {
-    fail('VALIDATION', '不正なファイルパス: 親ディレクトリへのアクセスは許可されていません');
-  }
 }
 
 function validateMetadata(metadata: Metadata): void {
@@ -592,6 +607,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   // 形式の変換の実行の状態（同時に実行できる変換は1つ）と、書き出すフォルダを選ぶダイアログの結果
   const conversionJob = { running: false, cancelled: false };
   let convertExportFolder: string | null = '/Users/mock/Export';
+  // フォルダを選ぶダイアログ（フォルダのインポート・デバイスの登録・転送先の変更）の結果
+  let folderResult: string | null = DEFAULT_FOLDER_RESULT;
   // 書き出したファイルの場所（もう一度同じ場所へ書き出すと、同じ名前のファイルがあることになる）
   const exportedPaths = new Set<string>();
   // 音量の解析の実行の状態（同時に実行できる解析は1つ）
@@ -955,17 +972,14 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   }
 
   /**
-   * フォルダのインポート
+   * フォルダのインポート（フォルダは`setFolderResult`で選んだことにしたもの。nullなら選ばずに閉じた）
    *
    * 実際のスキャンの代わりに、フォルダパスから決定的なファイル一覧を生成する。
    * 同じフォルダを再度インポートすると、2回目は重複として扱われる。
    */
-  async function importFolder(
-    folderPath: string,
-    duplicateAction: DuplicateAction
-  ): Promise<ImportResult> {
-    validateFilePath(folderPath);
-    const folder = normalizeFolderPath(folderPath);
+  async function importFolder(duplicateAction: DuplicateAction): Promise<ImportResult | null> {
+    if (folderResult === null) return null;
+    const folder = normalizeFolderPath(folderResult);
     const fileNames = Array.from(
       { length: IMPORT_FILE_COUNT },
       (_, index) => `Mock Track ${String(index + 1).padStart(2, '0')}.mp3`
@@ -1459,7 +1473,6 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
 
   /** 転送先にするフォルダを検証する（ライブラリフォルダと重なるフォルダは使えない） */
   function validateDeviceFolder(folderPath: string): string {
-    validateFilePath(folderPath);
     const path = normalizeFolderPath(folderPath);
     const overlaps = libraryFolders.some(
       (folder) => isSameOrWithin(path, folder.path) || isSameOrWithin(folder.path, path)
@@ -2439,12 +2452,13 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         )
         .map(toSyncDevice),
     // 管理ファイルは存在しないため、選んだフォルダは常に新しいデバイスとして登録する
-    registerSyncDevice: (folderPath, name) => {
-      const trimmedName = validateDeviceName(name);
+    registerSyncDevice: () => {
+      if (folderResult === null) return null;
+      const path = validateDeviceFolder(folderResult);
       const device: MockSyncDevice = {
         id: crypto.randomUUID(),
-        name: trimmedName,
-        path: validateDeviceFolder(folderPath),
+        name: suggestDeviceName(path) ?? (settings.language === 'en' ? 'Device' : 'デバイス'),
+        path,
         syncAll: false,
         playlistIds: [],
         removeUnselected: true,
@@ -2469,9 +2483,10 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       return toSyncDevice(device);
     },
     // 選んだフォルダにデバイスがあることにして、接続された状態にする
-    relinkSyncDevice: (deviceId, folderPath) => {
+    relinkSyncDevice: (deviceId) => {
       const device = findSyncDevice(deviceId);
-      device.path = validateDeviceFolder(folderPath);
+      if (folderResult === null) return null;
+      device.path = validateDeviceFolder(folderResult);
       device.connected = true;
       return toSyncDevice(device);
     },
@@ -2577,6 +2592,9 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     },
     setConvertExportFolder: (path) => {
       convertExportFolder = path;
+    },
+    setFolderResult: (path) => {
+      folderResult = path;
     },
     setM3uImportMode: (mode) => {
       m3uImportMode = mode;

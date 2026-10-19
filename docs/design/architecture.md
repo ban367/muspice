@@ -94,8 +94,10 @@ sequenceDiagram
     participant TauriCmd as import_folder
     participant DB as SQLite
 
-    User->>Frontend: フォルダ選択
+    User->>Frontend: 「フォルダを選んでインポート」
     Frontend->>TauriCmd: invoke(import_folder)
+    TauriCmd->>User: フォルダを選ぶダイアログ（Rust側が開く）
+    User-->>TauriCmd: フォルダを選ぶ（閉じたらnullを返す）
     TauriCmd->>TauriCmd: ディレクトリ再帰走査 / 重複判定
     TauriCmd->>DB: 50件単位でトランザクション保存
     TauriCmd-->>Frontend: ImportProgressイベント送信（import-progress）
@@ -106,7 +108,7 @@ sequenceDiagram
 
 インポートの始め方は4つあり、どれも同じ処理（`commands/import.rs`の`import_paths`）で曲を登録する（ADR-050）。フォルダは中の曲を登録してライブラリフォルダとして記録し、ファイルは曲だけを登録する（フォルダは記録しない）。
 
-- フォルダを選ぶ（`import_folder`）・ファイルを選ぶ（`import_files`。ファイルを選ぶダイアログは、Rust側が開く）: インポートダイアログから
+- フォルダを選ぶ（`import_folder`）・ファイルを選ぶ（`import_files`）: インポートダイアログから。フォルダ・ファイルを選ぶダイアログは、Rust側が開く（WebViewからパスを受け取らない。ADR-065）
 - ウィンドウへドロップする（`import_dropped_files`。macOS）: `FileDropZone`がドロップを受け取り、名前だけをRust側へ伝える。パスは、Rust側（`dropped_files.rs`）がOSのドラッグ用のペーストボードから読む（Tauriのファイルドロップは使えない。ADR-018）
 - Finderの「このアプリで開く」・Dockのアイコンへのドロップ（ファイルの関連付け。`opened_files.rs`）: Rust側がインポートしてから`TracksOpened`で知らせ、フロントエンドが`take_opened_files`で曲を受け取って再生する
 
@@ -144,7 +146,7 @@ sequenceDiagram
     Cmd-->>Frontend: DeviceSyncResult
 ```
 
-1. サイドバーの「デバイス」でフォルダを選んで登録する（`register_sync_device`）。フォルダに管理ファイル（`.muspice/manifest.json`）を書く
+1. サイドバーの「デバイス」でフォルダを選んで登録する（`register_sync_device`。フォルダを選ぶダイアログはRust側が開き、名前はドライブ・フォルダの名前にする）。フォルダに管理ファイル（`.muspice/manifest.json`）を書く
 2. デバイスのページ（`(app)/devices/[id]`）で同期する内容（全曲・プレイリスト）を選ぶ。変更はすぐに保存する（`update_sync_device`）。接続の状態は、ページを開いている間は5秒ごとに、それ以外はウィンドウに戻ったときに読み直す
 3. 「同期」で差分を調べて（`plan_device_sync`）確認のダイアログ（`DeviceSyncDialog`）に表示し、確認の後に同期する（`run_device_sync`）
 4. 差分は、同期する曲・プレイリストと管理ファイルを比べて決める（`device_sync::plan_sync`）。詳細は`detailed-design.md`

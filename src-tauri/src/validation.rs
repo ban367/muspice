@@ -1,38 +1,4 @@
 use crate::error::{AppError, AppResult};
-use std::path::Path;
-
-/// ファイルパスをバリデーション（パストラバーサル攻撃対策）
-pub fn validate_file_path(path: &str) -> AppResult<()> {
-    // 空のパスをチェック
-    if path.is_empty() {
-        return Err(AppError::Validation("ファイルパスが空です".to_string()));
-    }
-
-    // Null文字をチェック
-    if path.contains('\0') {
-        return Err(AppError::Validation(
-            "不正なファイルパス: Null文字が含まれています".to_string(),
-        ));
-    }
-
-    // パスの長さをチェック（システム制限）
-    if path.len() > 4096 {
-        return Err(AppError::Validation("ファイルパスが長すぎます".to_string()));
-    }
-
-    // パストラバーサルパターンをチェック（パスコンポーネント単位で判定）
-    // ファイル名に".."を含むケース（例: "Artist..Live.mp3"）は許可する
-    let file_path = Path::new(path);
-    for component in file_path.components() {
-        if let std::path::Component::ParentDir = component {
-            return Err(AppError::Validation(
-                "不正なファイルパス: 親ディレクトリへのアクセスは許可されていません".to_string(),
-            ));
-        }
-    }
-
-    Ok(())
-}
 
 /// プレイリスト名の長さの上限（文字数）
 pub const MAX_PLAYLIST_NAME_LENGTH: usize = 100;
@@ -191,27 +157,6 @@ pub fn validate_string_length(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_validate_file_path_valid() {
-        assert!(validate_file_path("/home/user/music/song.mp3").is_ok());
-        assert!(validate_file_path("C:\\Users\\Music\\song.mp3").is_ok());
-        // ファイル名に".."を含むケースは許可する
-        assert!(validate_file_path("/home/user/music/Artist..Live.mp3").is_ok());
-        assert!(validate_file_path("/home/user/music/track..2024.flac").is_ok());
-    }
-
-    #[test]
-    fn test_validate_file_path_traversal() {
-        assert!(validate_file_path("../../../etc/passwd").is_err());
-        assert!(validate_file_path("/home/user/../../../etc/passwd").is_err());
-        assert!(validate_file_path("/home/user/music/../../etc/passwd").is_err());
-    }
-
-    #[test]
-    fn test_validate_file_path_null() {
-        assert!(validate_file_path("/home/user/\0/file").is_err());
-    }
 
     #[test]
     fn test_validate_playlist_name_valid() {

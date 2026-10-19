@@ -7,7 +7,7 @@
 //! - ウィンドウへドロップする（`import_dropped_files`。macOS）: ファイルは曲だけ、フォルダはフォルダとして
 //! - 「このアプリで開く」・Dockのアイコンへのドロップ（`opened_files`）: 曲だけを登録して、再生する
 
-use super::{file_dialog, run_blocking};
+use super::{file_dialog, pick_folder, run_blocking};
 use crate::error::{AppError, AppResult};
 use crate::events::{ImportProgress, LibraryChanged};
 use crate::library::{
@@ -17,29 +17,39 @@ use crate::library::{
 use crate::library_sync::LibrarySync;
 use crate::metadata::extract_all_file_info;
 use crate::models::Track;
+use crate::settings::Language;
 use crate::state::AppState;
 use crate::track_relink::MissingTrackIndex;
-use crate::validation::validate_file_path;
 use chrono::Utc;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 use uuid::Uuid;
 
-/// フォルダから音楽ファイルをインポート（バッチ処理最適化版）
+/// フォルダを選ぶダイアログを開き、選んだフォルダの音楽ファイルをインポートする
+///
+/// ダイアログはRust側で開く（WebViewからパスを受け取らない。ADR-065）。中の曲をすべて登録し、
+/// フォルダをライブラリフォルダとして記録する。
+///
+/// @returns インポートの結果（選ばずに閉じた場合はnull）
 #[tauri::command]
 #[specta::specta]
 pub async fn import_folder(
-    folder_path: String,
     duplicate_action: DuplicateAction,
     app_handle: AppHandle,
-) -> AppResult<ImportResult> {
-    // ファイルパスをバリデーション
-    validate_file_path(&folder_path)?;
-
-    // スキャン・メタデータ抽出・バッチ書き込みはブロッキング処理用スレッドで行う
-    run_blocking(move || import_paths(&app_handle, &[PathBuf::from(folder_path)], duplicate_action))
-        .await
+) -> AppResult<Option<ImportResult>> {
+    // ダイアログ・スキャン・メタデータ抽出・バッチ書き込みはブロッキング処理用スレッドで行う
+    run_blocking(move || {
+        let title = match crate::menu::current_language(&app_handle) {
+            Language::Ja => "インポートするフォルダを選択",
+            Language::En => "Select a folder to import",
+        };
+        let Some(folder) = pick_folder(&app_handle, title)? else {
+            return Ok(None);
+        };
+        import_paths(&app_handle, &[folder], duplicate_action).map(Some)
+    })
+    .await
 }
 
 /// ファイルを選ぶダイアログを開き、選んだ音楽ファイルをインポートする
@@ -610,6 +620,25 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["second.WAV", "first.wav"]
         );
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// フォルダを選んだインポート（`import_folder`）は、中の曲を登録し、フォルダを記録する
+    #[test]
+    fn test_importing_a_folder_registers_its_tracks_and_the_folder() {
+        let (dir, [_first, _second, album, _cover]) = fixture();
+        let state = test_state();
+        let targets = ImportTargets::from_paths(std::slice::from_ref(&album));
+
+        let result = import_targets(&state, &targets, DuplicateAction::Skip, &|_| {}).unwrap();
+
+        assert_eq!(result.imported_count, 1);
+        assert_eq!(
+            track_paths(&state),
+            [album.join("inside.wav").to_str().unwrap()]
+        );
+        assert_eq!(folder_paths(&state), [album.to_str().unwrap()]);
 
         std::fs::remove_dir_all(&dir).unwrap();
     }

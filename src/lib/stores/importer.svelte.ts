@@ -3,7 +3,7 @@
  *
  * インポートの始め方は3つある。どれも同じダイアログに、進み具合と結果を表示する。
  *
- * - フォルダを選ぶ（`importFolder`）
+ * - フォルダを選ぶ（`importFolder`。フォルダを選ぶダイアログは、Rust側が開く）
  * - ファイルを選ぶ（`importFiles`。ファイルを選ぶダイアログは、Rust側が開く）
  * - ウィンドウへドロップする（`importDropped`。パスはRust側が読む。ADR-050）
  *
@@ -29,9 +29,13 @@ class Importer {
   result = $state.raw<ImportResult | null>(null);
   errorMessage = $state('');
 
-  /** フォルダをインポートする */
-  importFolder(folderPath: string): Promise<void> {
-    return this.run(() => commands.importFolder(folderPath, this.duplicateAction));
+  /**
+   * フォルダを選ぶダイアログを開き、選んだフォルダをインポートする（選ばずに閉じたら、何もしない）
+   *
+   * インポートダイアログから始める（ダイアログは開いたまま、進み具合と結果を表示する）。
+   */
+  importFolder(): Promise<void> {
+    return this.run(() => commands.importFolder(this.duplicateAction));
   }
 
   /**

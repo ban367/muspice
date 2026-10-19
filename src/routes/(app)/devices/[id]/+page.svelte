@@ -6,7 +6,6 @@
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
-  import { open } from '@tauri-apps/plugin-dialog';
   import {
     useRelinkSyncDeviceMutation,
     useRemoveSyncDeviceMutation,
@@ -14,7 +13,7 @@
     useUpdateSyncDeviceMutation
   } from '#lib/queries/devices.js';
   import { usePlaylistsQuery } from '#lib/queries/playlists.js';
-  import { handleError, showSuccess } from '#lib/stores/error.svelte.js';
+  import { showSuccess } from '#lib/stores/error.svelte.js';
   import type { SyncDevice, SyncDeviceConfig } from '#lib/types/models.js';
   import DeviceSyncDialog from '#lib/components/DeviceSyncDialog.svelte';
   import { isDeviceNameTooLong } from '#lib/utils/devices.js';
@@ -70,24 +69,12 @@
     updateConfig(current, { name });
   }
 
-  /** 転送先のフォルダを選び直す（マウント先が変わった場合など） */
+  /** 転送先のフォルダを選び直す（マウント先が変わった場合など。ダイアログはRust側が開く） */
   async function handleRelink(current: SyncDevice) {
-    let selected: string | string[] | null;
     try {
-      selected = await open({
-        directory: true,
-        multiple: false,
-        title: m.devices.selectFolderTitle
-      });
-    } catch (error) {
-      handleError(error, m.devices.selectFolderFailed);
-      return;
-    }
-    if (typeof selected !== 'string') return;
-
-    try {
-      await relinkMutation.mutateAsync({ deviceId: current.id, folderPath: selected });
-      showSuccess(m.devices.relinked);
+      const relinked = await relinkMutation.mutateAsync(current.id);
+      // 選ばずに閉じた場合は、何もしない
+      if (relinked) showSuccess(m.devices.relinked);
     } catch {
       // 失敗はミューテーション内でトースト通知済み
     }
