@@ -3,6 +3,7 @@
   ライブラリビュー（アルバム、アーティスト、ジャンル）の共通グリッド/リストコンポーネント。
   ローディング/エラー/空/検索結果なし状態の表示、browseSearchQueryフィルタリング、
   displayMode切替、コンテキストメニュー、キーボード操作（矢印キーでの移動）を共通化する。
+  項目を押した時の操作（情報パネルを開くなど）は、使う側が渡す。
   一覧は、見えている項目だけを描画する（VirtualList）。
 
   カードの見た目はSnippetでカスタマイズ可能。
@@ -66,8 +67,8 @@
     groupType: 'album' | 'artist' | 'genre';
     /** キーボードで選んだ項目をEnterで開く時の操作（カード・行のクリックと同じ操作を渡す） */
     onOpen?: (_item: T) => void;
-    /** グリッド/リストの下に追加するコンテンツ（モーダル等） */
-    footer?: Snippet;
+    /** 矢印キーなどで現在位置を移した時の操作（開いている情報パネルを、移した先の項目に追随させる） */
+    onNavigate?: (_item: T) => void;
   }
 
   let {
@@ -90,7 +91,7 @@
     virtualized = true,
     groupType,
     onOpen,
-    footer
+    onNavigate
   }: Props = $props();
 
   // 検索でフィルタリングされたアイテム（曲の検索と同じく、大文字と小文字・全角と半角・
@@ -139,6 +140,7 @@
     event.preventDefault();
     activeKey = getKey(filteredItems[target]);
     virtualList?.scrollToIndex(target);
+    onNavigate?.(filteredItems[target]);
   }
 
   // コンテキストメニュー
@@ -255,11 +257,6 @@
     </div>
   {/if}
 </div>
-
-<!-- フッター（モーダル等） -->
-{#if footer}
-  {@render footer()}
-{/if}
 
 <!-- コンテキストメニュー -->
 {#if contextMenu}

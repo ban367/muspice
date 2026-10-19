@@ -213,28 +213,32 @@
 
 <style>
   @reference "../../../app.css";
+
+  /* 幅が狭い時（右サイドバーのパネルを並べている時など）は、検索欄を縮め、それでも入らなければ
+     項目を次の行へ送る（見出しの文字は折り返さない） */
   .library-header {
-    @apply flex items-center justify-between gap-4 py-3 px-4 border-b border-border;
+    @apply flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-3 px-4 border-b border-border;
   }
 
   .header-left {
-    @apply flex items-center gap-3 min-w-0;
+    @apply flex flex-wrap items-center gap-3 min-w-0;
   }
 
   .header-title {
-    @apply m-0 text-lg font-semibold text-text-primary;
+    @apply m-0 text-lg font-semibold text-text-primary whitespace-nowrap;
   }
 
   .header-count {
-    @apply text-sm text-text-muted mr-2;
+    @apply text-sm text-text-muted mr-2 whitespace-nowrap;
   }
 
+  /* 次の行へ送るかは、検索欄を縮めた幅（12rem）で決め、余った幅は検索欄が元の幅まで使う */
   .header-right {
-    @apply flex items-center gap-3 shrink-0;
+    @apply flex flex-[1_1_12rem] items-center justify-end gap-3 min-w-0;
   }
 
   .search-box {
-    @apply relative flex items-center;
+    @apply relative flex items-center min-w-0;
   }
 
   .search-icon {
@@ -242,7 +246,7 @@
   }
 
   .search-input {
-    @apply w-56 py-2 pl-9 pr-8 bg-base-400 border border-border rounded-md text-sm text-text-primary transition-all duration-200;
+    @apply w-56 min-w-0 py-2 pl-9 pr-8 bg-base-400 border border-border rounded-md text-sm text-text-primary transition-all duration-200;
   }
 
   .search-input:focus {

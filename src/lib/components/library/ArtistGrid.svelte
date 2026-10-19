@@ -11,7 +11,6 @@
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import { playGroup } from '#lib/utils/groupPlayback.js';
   import LibraryGrid from './LibraryGrid.svelte';
-  import GroupDetail from './GroupDetail.svelte';
   import MarqueeText from '../MarqueeText.svelte';
   import AlbumArt from '../AlbumArt.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
@@ -30,15 +29,6 @@
   const isError = $derived(artistsQuery.isError);
   const allArtists = $derived(artistsQuery.data ?? []);
 
-  // 選択中のアーティスト（モーダル表示用）
-  // 名前で持ち、取り直したデータから引く（曲数などの変更がモーダルの中にも反映される）
-  let selectedArtistName = $state<string | null>(null);
-  const selectedArtist = $derived(
-    selectedArtistName === null
-      ? null
-      : (allArtists.find((artist) => artist.name === selectedArtistName) ?? null)
-  );
-
   // LibraryGridコンポーネントの参照
   let libraryGrid: LibraryGrid<ArtistSummary>;
 
@@ -47,9 +37,14 @@
   // リスト表示の行の高さの見積もり
   const ESTIMATED_LIST_ROW_HEIGHT = 68;
 
-  // アーティストをクリック
+  // アーティストをクリック（右サイドバーの情報パネルに、アーティストの曲を表示する）
   function handleArtistClick(artist: ArtistSummary) {
-    selectedArtistName = artist.name;
+    ui.showInfo({ type: 'artist', artist });
+  }
+
+  // キーボードで移動した時は、情報パネルを開いている間だけ追随させる
+  function handleArtistNavigate(artist: ArtistSummary) {
+    ui.followInfo({ type: 'artist', artist });
   }
 
   // アーティストをダブルクリック（すべて再生）
@@ -61,11 +56,6 @@
   function handlePlayClick(event: MouseEvent, artist: ArtistSummary) {
     event.stopPropagation();
     handleArtistDoubleClick(artist);
-  }
-
-  // モーダルを閉じる
-  function handleCloseDetail() {
-    selectedArtistName = null;
   }
 
   // 絞り込みの対象（アーティスト名）
@@ -88,6 +78,7 @@
   estimatedRowHeight={ESTIMATED_LIST_ROW_HEIGHT}
   groupType="artist"
   onOpen={handleArtistClick}
+  onNavigate={handleArtistNavigate}
 >
   {#snippet emptyIcon()}
     <svg
@@ -174,10 +165,6 @@
         </svg>
       </button>
     </div>
-  {/snippet}
-
-  {#snippet footer()}
-    <GroupDetail group={selectedArtist} type="artist" onClose={handleCloseDetail} />
   {/snippet}
 </LibraryGrid>
 
