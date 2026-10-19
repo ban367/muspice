@@ -1,7 +1,8 @@
 <!--
   @component InfoPanel
-  右サイドバーの情報パネル。グリッドで選んだアルバム・アーティストの曲を、一覧を見たまま表示する。
-  アルバムはディスクごと、アーティストはアルバムごとに曲を区切る。
+  右サイドバーの情報パネル。グリッドで選んだアルバム・アーティストの曲と、曲の一覧で選んだ曲の
+  アルバムを、一覧を見たまま表示する（曲の一覧で選んだ曲は、パネルの一覧の中でも選んで示す）。
+  アルバムはディスクごと、アーティストはアルバムごとに曲を区切る。アルバムのない曲は、曲だけを表示する。
   曲の選択・キー操作・ダブルクリックでの再生・ドラッグ（プレイリストへの追加）は、ほかの曲の一覧と同じ。
   パネルの幅が狭いため、行には番号・曲名・時間だけを出し、お気に入りと評価は行にポインタを置いた時に出す。
 -->
@@ -88,7 +89,7 @@
 
   // 見出しの値（曲を取得するまでは、一覧の項目の値を使う。取得した後は、曲の変更に追随させる）
   const summary = $derived(
-    target === null ? null : target.type === 'album' ? target.album : target.artist
+    target?.type === 'album' ? target.album : target?.type === 'artist' ? target.artist : null
   );
   const trackCount = $derived(tracks.length > 0 ? tracks.length : (summary?.trackCount ?? 0));
   const totalDuration = $derived(
@@ -100,14 +101,24 @@
 
   // 曲のアーティストを出すかの基準（アルバムはまとめたアーティスト、アーティストはその名前）
   const groupArtist = $derived(
-    target?.type === 'album' ? target.album.artist : (target?.artist.name ?? null)
+    target?.type === 'album'
+      ? target.album.artist
+      : target?.type === 'artist'
+        ? target.artist.name
+        : null
   );
+
+  // 曲の一覧で選んだ曲（アルバムの中で選んで示す。グリッドで選んだ項目はnull）
+  const chosenTrackId = $derived(target?.type === 'album' ? (target.trackId ?? null) : null);
 
   // トラックの選択（クリック・キーボード）
   const selection = new TrackSelection(() => tracks);
 
   /** スクロールする領域（項目を切り替えた時に先頭へ戻す） */
   let body = $state<HTMLElement>();
+
+  /** 曲の一覧で選んだ曲のうち、パネルの一覧で選んだもの（選び直した時だけ選ぶため。リアクティブにしない） */
+  let shownChosenTrackId: string | null = null;
 
   // 別の項目に切り替わったら、選択を消して先頭へ戻す（データを取り直しただけでは消さない）
   $effect(() => {
@@ -117,7 +128,28 @@
     // 選択の中身には反応させない（選択を変えるたびに消えてしまう）
     untrack(() => {
       selection.reset();
+      shownChosenTrackId = null;
       body?.scrollTo({ top: 0 });
+    });
+  });
+
+  // 曲の一覧で選んだ曲を、曲を取得した後に選び、その行を見える位置へ出す。曲の一覧で選び直した時
+  // だけ行い、取り直しただけでは選び直さない（パネルの中で選んだ曲を残す）
+  $effect(() => {
+    const trackId = chosenTrackId;
+    if (trackId === null) {
+      // グリッドで選んだ項目に替わった（後で同じ曲を選び直した時も、選び直す）
+      shownChosenTrackId = null;
+      return;
+    }
+    if (trackId === shownChosenTrackId) return;
+    if (!tracks.some((track) => track.id === trackId)) return;
+    shownChosenTrackId = trackId;
+    untrack(() => {
+      selection.selectOnly(trackId);
+      body
+        ?.querySelector(`[data-track-id="${CSS.escape(trackId)}"]`)
+        ?.scrollIntoView({ block: 'nearest' });
     });
   });
 
@@ -170,7 +202,9 @@
       ? m.fields.album
       : target?.type === 'artist'
         ? m.fields.artist
-        : m.rightSidebar.infoTitle}
+        : target?.type === 'track'
+          ? m.infoPanel.track
+          : m.rightSidebar.infoTitle}
   </h3>
   <button
     class="close-button"
@@ -196,6 +230,26 @@
 <div class="panel-body" bind:this={body}>
   {#if target === null}
     <p class="panel-message">{m.infoPanel.empty}</p>
+  {:else if target.type === 'track'}
+    <!-- アルバムのない曲: 曲だけを表示する -->
+    <div class="summary">
+      <div class="summary-art">
+        <AlbumArt
+          src={albumArtUrl(target.track.id)}
+          alt={target.track.title || target.track.fileName}
+          rounded="lg"
+          placeholderType="music"
+        />
+      </div>
+      <h2 class="summary-name">{target.track.title || target.track.fileName}</h2>
+      <p class="summary-artist">{target.track.artist || m.common.unknownArtist}</p>
+      {#if target.track.genre || target.track.year}
+        <p class="summary-meta">
+          {[target.track.genre, target.track.year].filter(Boolean).join(' · ')}
+        </p>
+      {/if}
+    </div>
+    <p class="panel-message">{m.infoPanel.noAlbum}</p>
   {:else}
     <div class="summary">
       {#if target.type === 'album'}
@@ -238,8 +292,11 @@
       {/if}
       <!-- 見つからない時は、曲数（一覧の項目の古い値）と操作を出さない -->
       {#if !isNotFound}
+        <!-- 曲の一覧で選んだ曲のアルバムは、曲を取得するまで曲数がわからない（高さは変えずに空ける） -->
         <p class="summary-stats">
-          {m.common.trackCountAndDuration(trackCount, formatTotalDuration(totalDuration))}
+          {trackCount > 0
+            ? m.common.trackCountAndDuration(trackCount, formatTotalDuration(totalDuration))
+            : '\u00a0'}
         </p>
         <div class="summary-actions">
           <button
