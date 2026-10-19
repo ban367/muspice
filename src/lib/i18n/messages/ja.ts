@@ -152,6 +152,9 @@ export const ja = {
     rescanLibraryFolder: '再スキャン',
     removeLibraryFolder: 'ライブラリフォルダの削除',
     removeMissingTracks: '見つからない曲の削除',
+    addLibraryFolderExclusion: '読み込まないフォルダの追加',
+    removeLibraryFolderExclusion: '読み込まないフォルダの削除',
+    removeExcludedTracks: '読み込まないフォルダの曲の削除',
     fetchDevices: 'デバイスの取得',
     registerDevice: 'デバイスの追加',
     updateDevice: 'デバイスの設定の変更',
@@ -1107,7 +1110,31 @@ export const ja = {
     updated: (count: number) => `更新 ${count}曲`,
     relinked: (count: number) => `移動 ${count}曲`,
     markedMissing: (count: number) => `見つからない ${count}曲`,
-    restored: (count: number) => `見つかった ${count}曲`
+    restored: (count: number) => `見つかった ${count}曲`,
+    exclusionsSummary: (paths: string[]) =>
+      paths.length > 0 ? `読み込まないフォルダ: ${paths.join('、')}` : '読み込まないフォルダ: なし',
+    editExclusions: '変更...',
+    exclusionsTitle: '読み込まないフォルダ',
+    exclusionsHint: (path: string) =>
+      `「${path}」の中で、インポート・再スキャン・フォルダの監視のときに読まないフォルダです。ほかのアプリが管理するフォルダ（ミュージック・MusicBeeなど）は、フォルダを登録したときに入れてあります。`,
+    alwaysSkippedHint:
+      '隠しフォルダ・ゴミ箱・パッケージ（GarageBandやLogicのプロジェクトなど）は、ここに入れなくても読みません。',
+    noExclusions: '読み込まないフォルダはありません',
+    exclusionTracks: (count: number) => `ライブラリに${count}曲`,
+    addExclusion: 'フォルダを追加...',
+    removeExclusion: '一覧から外す',
+    exclusionAdded: (path: string) => `「${path}」を読み込まないフォルダにしました`,
+    exclusionRemoved: (path: string) =>
+      `「${path}」を一覧から外しました。フォルダが見つからないため、再スキャンはしていません`,
+    excludedTracksTitle: '読み込まないフォルダの曲',
+    excludedTracksConfirm: (path: string, count: number) =>
+      `「${path}」の中の${count}曲が、ライブラリにあります。ライブラリから外しますか？`,
+    excludedTracksHint:
+      'ファイルは削除しません。外した曲はプレイリストからも消えます。残した曲はそのまま残り、再スキャンでは更新しません',
+    keepExcludedTracks: 'ライブラリに残す',
+    removeExcludedTracks: 'ライブラリから外す',
+    excludedTracksRemoved: (path: string, count: number) =>
+      `「${path}」を読み込まないフォルダにし、${count}曲をライブラリから外しました`
   },
 
   devices: {

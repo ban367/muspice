@@ -303,7 +303,9 @@ mod tests {
     fn register_library(state: &AppState, library: &Path) {
         fs::create_dir_all(library).unwrap();
         state
-            .with_db(|db| crate::library_folder::register_folder(db, library.to_str().unwrap()))
+            .with_db(|db| {
+                crate::library_folder::register_folder(db, library.to_str().unwrap(), &[])
+            })
             .unwrap();
     }
 

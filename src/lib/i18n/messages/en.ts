@@ -144,6 +144,9 @@ export const en: Messages = {
     rescanLibraryFolder: 'Rescanning',
     removeLibraryFolder: 'Removing the library folder',
     removeMissingTracks: 'Removing missing tracks',
+    addLibraryFolderExclusion: 'Adding the excluded folder',
+    removeLibraryFolderExclusion: 'Removing the excluded folder',
+    removeExcludedTracks: 'Removing the tracks in the excluded folder',
     fetchDevices: 'Loading devices',
     registerDevice: 'Adding the device',
     updateDevice: 'Changing the device settings',
@@ -1086,7 +1089,31 @@ export const en: Messages = {
     updated: (count) => `${count} updated`,
     relinked: (count) => `${count} moved`,
     markedMissing: (count) => `${count} missing`,
-    restored: (count) => `${count} found again`
+    restored: (count) => `${count} found again`,
+    exclusionsSummary: (paths) =>
+      paths.length > 0 ? `Excluded folders: ${paths.join(', ')}` : 'Excluded folders: none',
+    editExclusions: 'Change...',
+    exclusionsTitle: 'Excluded Folders',
+    exclusionsHint: (path) =>
+      `Folders in "${path}" that are not read when importing, rescanning or watching the folder. Folders managed by other apps (such as Music and MusicBee) were added when the folder was registered.`,
+    alwaysSkippedHint:
+      'Hidden folders, trash folders and packages (such as GarageBand and Logic projects) are never read, even if they are not in this list.',
+    noExclusions: 'There are no excluded folders',
+    exclusionTracks: (count) => `${plural(count, 'track', 'tracks')} in the library`,
+    addExclusion: 'Add Folder...',
+    removeExclusion: 'Remove from List',
+    exclusionAdded: (path) => `Excluded "${path}"`,
+    exclusionRemoved: (path) =>
+      `Removed "${path}" from the list. The folder was not rescanned because it was not found`,
+    excludedTracksTitle: 'Tracks in the Excluded Folder',
+    excludedTracksConfirm: (path, count) =>
+      `The library has ${plural(count, 'track', 'tracks')} in "${path}". Remove them from the library?`,
+    excludedTracksHint:
+      'The files are not deleted. The removed tracks are also removed from playlists. Tracks you keep stay as they are and are not updated by rescans.',
+    keepExcludedTracks: 'Keep in Library',
+    removeExcludedTracks: 'Remove from Library',
+    excludedTracksRemoved: (path, count) =>
+      `Excluded "${path}" and removed ${plural(count, 'track', 'tracks')} from the library`
   },
 
   devices: {

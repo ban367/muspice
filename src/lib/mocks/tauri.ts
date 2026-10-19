@@ -72,6 +72,11 @@ interface MuspiceMockHandle {
   addDuplicateTracks(): void;
   /** 形式の変換で、書き出すフォルダを選ぶダイアログの結果を切り替える（nullは、選ばなかった） */
   setConvertExportFolder(path: string | null): void;
+  /**
+   * 読み込まないフォルダの追加で、ダイアログで選んだことにするフォルダを切り替える
+   * （絶対パス。nullは、選ばなかった。既定は、ライブラリフォルダの中の曲のある最初のフォルダ）
+   */
+  setExclusionFolder(path: string | null): void;
 }
 
 /** モックで使う`__TAURI_INTERNALS__`の一部（公開型がないため最小限を定義する） */
@@ -195,7 +200,8 @@ export function setupTauriMock(): void {
     setFileImportMode: (mode) => backend.setFileImportMode(mode),
     openFiles: (fileNames) => backend.openFiles(fileNames),
     addDuplicateTracks: () => backend.addDuplicateTracks(),
-    setConvertExportFolder: (path) => backend.setConvertExportFolder(path)
+    setConvertExportFolder: (path) => backend.setConvertExportFolder(path),
+    setExclusionFolder: (path) => backend.setExclusionFolder(path)
   };
 
   console.info('[mock] Tauri IPCをモックしています（npm run dev:mock）');

@@ -31,6 +31,7 @@ export type {
   DeviceSyncResult,
   DuplicateAction,
   FilterOptions,
+  FolderExclusion,
   GenreSummary,
   GlobalShortcutAction,
   GlobalShortcutInfo,

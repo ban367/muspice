@@ -29,9 +29,12 @@ mod tracks;
 pub(crate) use import::{ImportTargets, import_paths};
 pub use import::{import_dropped_files, import_files, import_folder, take_opened_files};
 
-// ライブラリフォルダ（インポートしたフォルダ）の一覧・削除・再スキャンと、見つからない曲の削除
+// ライブラリフォルダ（インポートしたフォルダ）の一覧・削除・再スキャン・読み込まないフォルダと、
+// 見つからない曲の削除
 pub use library_folders::{
-    get_library_folders, remove_library_folder, remove_missing_tracks, rescan_library_folder,
+    add_library_folder_exclusion, get_library_folders, remove_excluded_tracks,
+    remove_library_folder, remove_library_folder_exclusion, remove_missing_tracks,
+    rescan_library_folder,
 };
 // 自動の再スキャン（`library_sync`）が使う
 pub(crate) use library_folders::rescan_folder;

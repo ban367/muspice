@@ -1,7 +1,8 @@
 <!--
   @component LibraryFolderSettings
-  設定ウィンドウの「ライブラリ」: インポートしたフォルダ（ライブラリフォルダ）の一覧・再スキャン・削除と、
-  見つからない曲（ファイルが見つからなくなったトラック）の削除。
+  設定ウィンドウの「ライブラリ」: インポートしたフォルダ（ライブラリフォルダ）の一覧・再スキャン・削除・
+  読み込まないフォルダ（`LibraryFolderExclusionsDialog`）と、見つからない曲（ファイルが見つからなくなった
+  トラック）の削除。
   操作はすぐに反映する（設定の「適用」は不要）。ライブラリが変わると、Rustが送る
   `LibraryChanged`イベントでメインウィンドウの一覧が更新される。自動の再スキャン
   （起動時・定期・フォルダの監視）でライブラリが変わった場合も、同じイベントで曲数などを読み直す。
@@ -13,13 +14,15 @@
   import { queryKeys } from '#lib/queries/keys.js';
   import {
     useLibraryFoldersQuery,
+    useRemoveLibraryFolderExclusionMutation,
     useRemoveLibraryFolderMutation,
     useRemoveMissingTracksMutation,
     useRescanLibraryFolderMutation
   } from '#lib/queries/libraryFolders.js';
   import { showSuccess, showWarning } from '#lib/stores/error.svelte.js';
-  import type { LibraryFolder, RescanResult } from '#lib/types/models.js';
+  import type { FolderExclusion, LibraryFolder, RescanResult } from '#lib/types/models.js';
   import { Modal } from '#lib/components/ui/index.js';
+  import LibraryFolderExclusionsDialog from './LibraryFolderExclusionsDialog.svelte';
   import { formatDateTime } from '#lib/utils/format.js';
   import { describeRescan, sumRescanResults } from '#lib/utils/rescan.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
@@ -28,11 +31,27 @@
   const rescanMutation = useRescanLibraryFolderMutation();
   const removeMutation = useRemoveLibraryFolderMutation();
   const removeMissingMutation = useRemoveMissingTracksMutation();
+  const removeExclusionMutation = useRemoveLibraryFolderExclusionMutation();
 
   /** 再スキャン中のフォルダ（複数の場合は順番に処理する） */
   let scanningFolderId = $state<string | null>(null);
   let scanProgress = $state<{ current: number; total: number; currentFile: string } | null>(null);
   const isScanning = $derived(scanningFolderId !== null);
+  /** 再スキャンの進み具合の文（読み込まないフォルダの一覧でも出す） */
+  const scanStatus = $derived(
+    !isScanning
+      ? null
+      : scanProgress
+        ? m.libraryFolders.progress(
+            scanProgress.current,
+            scanProgress.total,
+            scanProgress.currentFile
+          )
+        : m.libraryFolders.checking
+  );
+
+  /** 読み込まないフォルダの一覧を開いているフォルダ（一覧の内容は、クエリの最新の値を使う） */
+  let exclusionsFolderId = $state<string | null>(null);
 
   /** 削除の確認中のフォルダ */
   let removingFolder = $state<LibraryFolder | null>(null);
@@ -44,6 +63,9 @@
 
   const folders = $derived(foldersQuery.data?.folders ?? []);
   const scannableFolders = $derived(folders.filter((folder) => folder.exists));
+  const exclusionsFolder = $derived(
+    folders.find((folder) => folder.id === exclusionsFolderId) ?? null
+  );
 
   const queryClient = useQueryClient();
 
@@ -81,6 +103,11 @@
     }
     scanningFolderId = null;
     scanProgress = null;
+    notifyRescanResults(results);
+  }
+
+  /** 再スキャンの結果をまとめて通知する */
+  function notifyRescanResults(results: { path: string; result: RescanResult }[]) {
     if (results.length === 0) return;
 
     const totals = sumRescanResults(results);
@@ -90,6 +117,25 @@
     }
     for (const path of totals.missingSkippedPaths) {
       showWarning(m.libraryFolders.missingSkipped(path));
+    }
+  }
+
+  /** 読み込まないフォルダを一覧から外し、フォルダを再スキャンする（Rust側で続けて行う） */
+  async function removeExclusion(folder: LibraryFolder, exclusion: FolderExclusion) {
+    scanningFolderId = folder.id;
+    scanProgress = null;
+    try {
+      const result = await removeExclusionMutation.mutateAsync(exclusion.id);
+      if (result) {
+        notifyRescanResults([{ path: folder.path, result }]);
+      } else {
+        showSuccess(m.libraryFolders.exclusionRemoved(exclusion.path));
+      }
+    } catch {
+      // 失敗はミューテーション内でトースト通知済み
+    } finally {
+      scanningFolderId = null;
+      scanProgress = null;
     }
   }
 
@@ -155,18 +201,8 @@
     </button>
   </div>
 
-  {#if isScanning}
-    <p class="scan-progress" role="status">
-      {#if scanProgress}
-        {m.libraryFolders.progress(
-          scanProgress.current,
-          scanProgress.total,
-          scanProgress.currentFile
-        )}
-      {:else}
-        {m.libraryFolders.checking}
-      {/if}
-    </p>
+  {#if scanStatus}
+    <p class="scan-progress" role="status">{scanStatus}</p>
   {/if}
 
   {#if foldersQuery.isPending}
@@ -193,6 +229,21 @@
                 <span class="folder-missing">{m.libraryFolders.missing}</span>
                 {m.libraryFolders.missingHint(folder.trackCount)}
               {/if}
+            </p>
+            <p class="folder-exclusions">
+              <span class="truncate">
+                {m.libraryFolders.exclusionsSummary(
+                  folder.exclusions.map((exclusion) => exclusion.path)
+                )}
+              </span>
+              <button
+                type="button"
+                class="link-button"
+                onclick={() => (exclusionsFolderId = folder.id)}
+                disabled={isScanning}
+              >
+                {m.libraryFolders.editExclusions}
+              </button>
             </p>
           </div>
           <div class="folder-actions">
@@ -243,6 +294,14 @@
     </div>
   {/if}
 </section>
+
+<LibraryFolderExclusionsDialog
+  folder={exclusionsFolder}
+  {isScanning}
+  {scanStatus}
+  onClose={() => (exclusionsFolderId = null)}
+  onRemove={removeExclusion}
+/>
 
 <Modal
   open={isConfirmingRemoveMissing}
@@ -378,6 +437,14 @@
 
   .folder-missing {
     @apply text-error-light;
+  }
+
+  .folder-exclusions {
+    @apply flex items-baseline gap-2 text-xs text-text-muted mt-1 m-0 min-w-0;
+  }
+
+  .link-button {
+    @apply shrink-0 text-xs text-primary hover:underline disabled:opacity-50 disabled:no-underline cursor-pointer disabled:cursor-default bg-transparent border-0 p-0;
   }
 
   .folder-actions {

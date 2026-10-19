@@ -1580,6 +1580,93 @@ describe('ライブラリフォルダ', () => {
   });
 });
 
+describe('読み込まないフォルダ', () => {
+  const musicFolder = async () =>
+    (await commands.getLibraryFolders()).folders.find((f) => f.path === '/Users/demo/Music')!;
+
+  it('ライブラリフォルダごとに、相対パスと中の曲数を返す', async () => {
+    const music = await musicFolder();
+    expect(music.exclusions.map((e) => [e.path, e.trackCount])).toEqual([
+      ['Music', 0],
+      ['MusicBee', 0]
+    ]);
+  });
+
+  it('足したフォルダの曲はライブラリに残し、外す操作で外す', async () => {
+    const before = await musicFolder();
+    const added = await commands.addLibraryFolderExclusion(before.id);
+    expect(added?.trackCount).toBeGreaterThan(0);
+    const total = (await commands.getAllTracks()).length;
+
+    let music = await musicFolder();
+    expect(music.exclusions.map((e) => e.path)).toContain(added!.path);
+    expect(music.trackCount).toBe(before.trackCount);
+
+    await expect(commands.removeExcludedTracks(added!.id)).resolves.toBe(added!.trackCount);
+    expect(await commands.getAllTracks()).toHaveLength(total - added!.trackCount);
+    expect(events.map((e) => e.event)).toContain('library-changed');
+    music = await musicFolder();
+    expect(music.exclusions.find((e) => e.id === added!.id)?.trackCount).toBe(0);
+  });
+
+  it('選ばなかった場合はnull。中・外・同じフォルダは拒否し、含むフォルダはまとめる', async () => {
+    const music = await musicFolder();
+    backend.setExclusionFolder(null);
+    await expect(commands.addLibraryFolderExclusion(music.id)).resolves.toBeNull();
+
+    for (const path of [
+      '/Users/demo/Music',
+      '/Users/demo/Other',
+      '/Users/demo/Music/Music/Media'
+    ]) {
+      backend.setExclusionFolder(path);
+      await expect(commands.addLibraryFolderExclusion(music.id)).rejects.toMatchObject({
+        code: 'VALIDATION'
+      });
+    }
+
+    backend.setExclusionFolder('/Users/demo/Music/Apps/MusicBee/Podcasts');
+    await commands.addLibraryFolderExclusion(music.id);
+    backend.setExclusionFolder('/Users/demo/Music/Apps');
+    await commands.addLibraryFolderExclusion(music.id);
+    expect((await musicFolder()).exclusions.map((e) => e.path)).toEqual([
+      'Apps',
+      'Music',
+      'MusicBee'
+    ]);
+  });
+
+  it('一覧から外すと再スキャンし、見つからないフォルダでは再スキャンしない', async () => {
+    const music = await musicFolder();
+    const result = await commands.removeLibraryFolderExclusion(music.exclusions[0].id);
+    expect(result).toMatchObject({ addedCount: 0, missingSkipped: false });
+    expect((await musicFolder()).exclusions.map((e) => e.path)).toEqual(['MusicBee']);
+
+    const external = (await commands.getLibraryFolders()).folders.find((f) => !f.exists)!;
+    await expect(commands.addLibraryFolderExclusion(external.id)).rejects.toMatchObject({
+      code: 'NOT_FOUND'
+    });
+    await expect(commands.removeLibraryFolderExclusion(crypto.randomUUID())).rejects.toMatchObject({
+      code: 'NOT_FOUND'
+    });
+  });
+
+  it('中のフォルダをまとめて登録すると、読み込まないフォルダを引き継ぐ', async () => {
+    const music = await musicFolder();
+    await commands.removeLibraryFolder(music.id, false);
+    await commands.importFolder('/Users/demo/Music', 'Skip');
+    const reimported = await musicFolder();
+    backend.setExclusionFolder('/Users/demo/Music/Podcasts');
+    await commands.addLibraryFolderExclusion(reimported.id);
+
+    await commands.importFolder('/Users/demo', 'Skip');
+    const demo = (await commands.getLibraryFolders()).folders.find(
+      (f) => f.path === '/Users/demo'
+    )!;
+    expect(demo.exclusions.map((e) => e.path)).toEqual(['Music/Podcasts']);
+  });
+});
+
 describe('転送先デバイス', () => {
   /** 接続されているデバイス（プレイリスト「ドライブ用」を同期する） */
   async function connectedDevice() {

@@ -66,6 +66,52 @@ export const commands = {
 	 */
 	removeMissingTracks: () => __TAURI_INVOKE<number>("remove_missing_tracks"),
 	/**
+	 *  読み込まないフォルダを選ぶダイアログを開き、ライブラリフォルダの除外の一覧へ足す
+	 * 
+	 *  ダイアログはRust側で、ライブラリフォルダを開いた状態で出す（WebViewからパスを受け取らない）。
+	 *  足せるのは、ライブラリフォルダの中のフォルダだけ。中の曲はライブラリに残す（外すかは、
+	 *  利用者が選び、`remove_excluded_tracks`で外す）。
+	 * 
+	 *  @returns 足した除外（中にある曲の数を含む。選ばずに閉じた場合はnull）
+	 */
+	addLibraryFolderExclusion: (folderId: string) => __TAURI_INVOKE<{
+	id: string,
+	/**  ライブラリフォルダからの相対パス */
+	path: string,
+	/**  中にある、ライブラリの曲の数（除外する前に登録した曲。再スキャンでは変えない） */
+	trackCount: number,
+} | null>("add_library_folder_exclusion", { folderId }),
+	/**
+	 *  読み込まないフォルダの中にある曲を、ライブラリから外す（ファイルは消さない）
+	 * 
+	 *  外したトラック数を返す。
+	 */
+	removeExcludedTracks: (exclusionId: string) => __TAURI_INVOKE<number>("remove_excluded_tracks", { exclusionId }),
+	/**
+	 *  読み込まないフォルダを除外の一覧から外し、ライブラリフォルダを再スキャンする
+	 * 
+	 *  除外していたフォルダの曲を読み込み、除外の前から登録されていた曲も、再び比べる対象にする。
+	 *  再スキャンは`rescan_library_folder`と同じ（`LibraryScanProgress`を送る）。
+	 * 
+	 *  @returns 再スキャンの結果（フォルダが見つからない場合は、再スキャンせずにnull）
+	 */
+	removeLibraryFolderExclusion: (exclusionId: string) => __TAURI_INVOKE<{
+	/**  新しく追加したトラック数 */
+	addedCount: number,
+	/**  変更を読み直したトラック数 */
+	updatedCount: number,
+	/**  移動・改名されたファイルに結び付けたトラック数（見つからない曲を、同じ曲として引き継いだ） */
+	relinkedCount: number,
+	/**  ファイルが見つからなくなり、見つからない曲にしたトラック数（ライブラリからは外さない） */
+	missingCount: number,
+	/**  ファイルが同じ場所に戻り、見つかる曲に戻したトラック数 */
+	restoredCount: number,
+	errorCount: number,
+	errors: string[],
+	/**  音楽ファイルが1件も見つからなかったため、見つからない曲にしなかった */
+	missingSkipped: boolean,
+} | null>("remove_library_folder_exclusion", { exclusionId }),
+	/**
 	 *  登録済みのデバイスの一覧を取得する
 	 * 
 	 *  接続の確認は、外れたネットワークドライブなどで時間がかかることがあるため、
@@ -929,6 +975,15 @@ export type FilterOptions = {
 	genre?: string | null,
 };
 
+/**  ライブラリフォルダの、読み込まないフォルダ（除外。一覧表示用） */
+export type FolderExclusion = {
+	id: string,
+	/**  ライブラリフォルダからの相対パス */
+	path: string,
+	/**  中にある、ライブラリの曲の数（除外する前に登録した曲。再スキャンでは変えない） */
+	trackCount: number,
+};
+
 /**  ジャンルの一覧の1件（曲は含めない。曲は`get_genre_tracks`で取得する） */
 export type GenreSummary = {
 	name: string,
@@ -1002,6 +1057,8 @@ export type LibraryFolder = {
 	exists: boolean,
 	addedAt: string,
 	lastScannedAt: string | null,
+	/**  読み込まないフォルダ（パス順） */
+	exclusions: FolderExclusion[],
 };
 
 /**  ライブラリフォルダの一覧 */

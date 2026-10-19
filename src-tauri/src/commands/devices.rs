@@ -916,7 +916,7 @@ mod tests {
         fixture
             .state
             .with_db(|db| {
-                crate::library_folder::register_folder(db, fixture.library.to_str().unwrap())
+                crate::library_folder::register_folder(db, fixture.library.to_str().unwrap(), &[])
             })
             .unwrap();
         let inside = fixture.library.join("device");

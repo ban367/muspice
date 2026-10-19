@@ -39,6 +39,7 @@ import type {
   PlayHistoryEntry,
   Playlist,
   PlaylistFolder,
+  RescanResult,
   Settings,
   SmartRules,
   SyncDevice,
@@ -159,12 +160,25 @@ export interface MockBackend {
    * 既定は`/Users/mock/Export`。
    */
   setConvertExportFolder(path: string | null): void;
+  /**
+   * 読み込まないフォルダの追加（`addLibraryFolderExclusion`）で、ダイアログで選んだことにするフォルダを
+   * 切り替える（絶対パス。nullは、選ばなかった）
+   *
+   * 切り替えるまでは、ライブラリフォルダの中で曲のある、まだ読み込まないフォルダにしていない
+   * 最初のフォルダ（アーティストのフォルダ）を選んだことにする（中の曲を外すかの確認が出る）。
+   */
+  setExclusionFolder(path: string | null): void;
   /** `albumart`プロトコルの代わりに、トラックのアルバムアートをdata URLで返す（アートがなければnull） */
   albumArtUrl(trackId: string): string | null;
 }
 
 /** ファイルを選ぶインポートで、選んだことにする内容 */
 export type MockFileImportMode = 'pick' | 'cancel';
+
+/** モックのライブラリフォルダ（曲数は、曲の一覧から数える。読み込まないフォルダは相対パス） */
+type MockLibraryFolder = Omit<LibraryFolder, 'trackCount' | 'exclusions'> & {
+  exclusions: { id: string; path: string }[];
+};
 
 /** インポートできる音楽ファイルの拡張子（Rustの`SUPPORTED_EXTENSIONS`と同じ） */
 const AUDIO_EXTENSIONS = [
@@ -508,22 +522,31 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     notifyTrackChange: false
   };
   // ライブラリフォルダ（existsは「フォルダが見つかるか」。外付けドライブが外れた状態を再現する）
-  let libraryFolders: Omit<LibraryFolder, 'trackCount'>[] = [
+  // 読み込まないフォルダ（exclusions）は、相対パスで持つ。OSの音楽フォルダには、登録した時に
+  // 入る既知のアプリのフォルダを入れておく
+  let libraryFolders: MockLibraryFolder[] = [
     {
       id: crypto.randomUUID(),
       path: '/Users/demo/Music',
       exists: true,
       addedAt: '2026-01-01T00:00:00.000Z',
-      lastScannedAt: '2026-01-01T00:00:00.000Z'
+      lastScannedAt: '2026-01-01T00:00:00.000Z',
+      exclusions: [
+        { id: crypto.randomUUID(), path: 'Music' },
+        { id: crypto.randomUUID(), path: 'MusicBee' }
+      ]
     },
     {
       id: crypto.randomUUID(),
       path: '/Volumes/External/Music',
       exists: false,
       addedAt: '2026-01-02T00:00:00.000Z',
-      lastScannedAt: null
+      lastScannedAt: null,
+      exclusions: []
     }
   ];
+  // 読み込まないフォルダの追加で、選んだことにするフォルダ（undefinedは、曲のある最初のフォルダ）
+  let exclusionFolder: string | null | undefined = undefined;
 
   // 転送先デバイス（connectedは「接続されているか」。外れた状態も再現する）
   const copiedTracks = (indexes: number[]) =>
@@ -1325,7 +1348,12 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     );
   }
 
-  /** インポートしたフォルダを記録する（フォルダ同士は入れ子にしない） */
+  /**
+   * インポートしたフォルダを記録する（フォルダ同士は入れ子にしない）
+   *
+   * 新しく登録するフォルダは、まとめる中のフォルダの読み込まないフォルダを引き継ぐ（Rustの
+   * `import_exclusions`。モックはファイルシステムを読まないため、既知のアプリのフォルダは入れない）。
+   */
   function registerLibraryFolder(path: string): void {
     const same = libraryFolders.find((folder) => folder.path === path);
     if (same) {
@@ -1333,21 +1361,79 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       return;
     }
     if (libraryFolders.some((folder) => isSameOrWithin(path, folder.path))) return;
-    libraryFolders = libraryFolders.filter((folder) => !isSameOrWithin(folder.path, path));
+    const nested = libraryFolders.filter((folder) => isSameOrWithin(folder.path, path));
+    libraryFolders = libraryFolders.filter((folder) => !nested.includes(folder));
     libraryFolders.push({
       id: crypto.randomUUID(),
       path,
       exists: true,
       addedAt: now(),
-      lastScannedAt: now()
+      lastScannedAt: now(),
+      exclusions: nested.flatMap((folder) =>
+        folder.exclusions.map((exclusion) => ({
+          id: crypto.randomUUID(),
+          path: `${folder.path}/${exclusion.path}`.slice(folderPrefix(path).length)
+        }))
+      )
     });
   }
+
+  /** 変更のなかった再スキャンの結果 */
+  const unchangedRescanResult = (): RescanResult => ({
+    addedCount: 0,
+    updatedCount: 0,
+    relinkedCount: 0,
+    missingCount: 0,
+    restoredCount: 0,
+    errorCount: 0,
+    errors: [],
+    missingSkipped: false
+  });
 
   function findLibraryFolder(folderId: string) {
     if (!UUID_PATTERN.test(folderId)) fail('VALIDATION', '不正なライブラリフォルダID形式です');
     const folder = libraryFolders.find((f) => f.id === folderId);
     if (!folder) fail('NOT_FOUND', 'ライブラリフォルダが見つかりません');
     return folder;
+  }
+
+  /** 読み込まないフォルダと、それを持つライブラリフォルダ */
+  function findExclusion(exclusionId: string) {
+    if (!UUID_PATTERN.test(exclusionId)) {
+      fail('VALIDATION', '不正な読み込まないフォルダのID形式です');
+    }
+    for (const folder of libraryFolders) {
+      const exclusion = folder.exclusions.find((e) => e.id === exclusionId);
+      if (exclusion) return { folder, exclusion };
+    }
+    fail('NOT_FOUND', '読み込まないフォルダが見つかりません');
+  }
+
+  /** 読み込まないフォルダの中にある曲 */
+  const tracksInExclusion = (folder: MockLibraryFolder, relative: string) =>
+    tracksUnder(`${folder.path}/${relative}`);
+
+  /** 読み込まないフォルダの追加で、選んだことにするフォルダ（Rust側のダイアログの代わり） */
+  function pickExclusionFolder(folder: MockLibraryFolder): string | null {
+    if (exclusionFolder !== undefined) return exclusionFolder;
+    // 曲のある、まだ読み込まないフォルダにしていない最初のフォルダ（アーティストのフォルダ）
+    const firstSegments = tracksUnder(folder.path)
+      .map((track) => track.filePath.slice(folderPrefix(folder.path).length).split('/')[0])
+      .filter((segment) => !folder.exclusions.some((e) => isSameOrWithin(segment, e.path)))
+      .sort(compareAsc);
+    return firstSegments.length > 0 ? `${folder.path}/${firstSegments[0]}` : null;
+  }
+
+  /** 選んだフォルダを、ライブラリフォルダからの相対パスにする（Rustの`relative_to_folder`） */
+  function relativeToFolder(folder: MockLibraryFolder, selected: string): string {
+    const path = normalizeFolderPath(selected);
+    if (path === folder.path) {
+      fail('VALIDATION', 'ライブラリフォルダそのものは、読み込まないフォルダにできません');
+    }
+    if (!isSameOrWithin(path, folder.path)) {
+      fail('VALIDATION', 'ライブラリフォルダの中のフォルダを選んでください');
+    }
+    return path.slice(folderPrefix(folder.path).length);
   }
 
   // ---- 転送先デバイス（src-tauri/src/device.rs・commands/devices.rsに対応） ----
@@ -2203,7 +2289,16 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     getLibraryFolders: () => {
       const folders = [...libraryFolders]
         .sort((a, b) => compareAsc(a.path, b.path))
-        .map((folder) => ({ ...folder, trackCount: tracksUnder(folder.path).length }));
+        .map((folder) => ({
+          ...folder,
+          trackCount: tracksUnder(folder.path).length,
+          exclusions: [...folder.exclusions]
+            .sort((a, b) => compareAsc(a.path, b.path))
+            .map((exclusion) => ({
+              ...exclusion,
+              trackCount: tracksInExclusion(folder, exclusion.path).length
+            }))
+        }));
       const registered = folders.reduce((sum, folder) => sum + folder.trackCount, 0);
       return {
         folders,
@@ -2228,6 +2323,43 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       if (removed > 0) options.emit('library-changed', null);
       return removed;
     },
+    // 実装はRust側のダイアログで選ぶ。モックは`setExclusionFolder`のフォルダを選んだことにする
+    addLibraryFolderExclusion: (folderId) => {
+      const folder = findLibraryFolder(folderId);
+      if (!folder.exists) {
+        fail(
+          'NOT_FOUND',
+          `フォルダが見つかりません: ${folder.path}（外付けドライブなどが接続されているか確認してください）`
+        );
+      }
+      const selected = pickExclusionFolder(folder);
+      if (selected === null) return null;
+      const relative = relativeToFolder(folder, selected);
+      if (folder.exclusions.some((e) => isSameOrWithin(relative, e.path))) {
+        fail('VALIDATION', 'すでに読み込まないフォルダです（または、その中のフォルダです）');
+      }
+      // 除外しているフォルダを含むフォルダは、中の除外をまとめる（Rustの`add_exclusion`）
+      folder.exclusions = folder.exclusions.filter((e) => !isSameOrWithin(e.path, relative));
+      const exclusion = { id: crypto.randomUUID(), path: relative };
+      folder.exclusions.push(exclusion);
+      return { ...exclusion, trackCount: tracksInExclusion(folder, relative).length };
+    },
+    removeExcludedTracks: (exclusionId) => {
+      const { folder, exclusion } = findExclusion(exclusionId);
+      const removed = removeTracks(
+        tracksInExclusion(folder, exclusion.path).map((track) => track.id)
+      );
+      if (removed > 0) options.emit('library-changed', null);
+      return removed;
+    },
+    // 実ファイルは存在しないため、再スキャンは「変更なし」として扱う
+    removeLibraryFolderExclusion: (exclusionId) => {
+      const { folder, exclusion } = findExclusion(exclusionId);
+      folder.exclusions = folder.exclusions.filter((e) => e !== exclusion);
+      if (!folder.exists) return null;
+      folder.lastScannedAt = now();
+      return unchangedRescanResult();
+    },
     // 実ファイルは存在しないため、見つかるフォルダは「変更なし」として扱う
     rescanLibraryFolder: (folderId) => {
       const folder = findLibraryFolder(folderId);
@@ -2238,16 +2370,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         );
       }
       folder.lastScannedAt = now();
-      return {
-        addedCount: 0,
-        updatedCount: 0,
-        relinkedCount: 0,
-        missingCount: 0,
-        restoredCount: 0,
-        errorCount: 0,
-        errors: [],
-        missingSkipped: false
-      };
+      return unchangedRescanResult();
     },
     // 実ファイルを読み直す代わりに、全トラックを更新済みとして扱う
     refreshLibraryMetadata: () => ({
@@ -2448,6 +2571,9 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       copy(neonRain, `${downloads}/a/neon.mp3`, { format: 'mp3', bitrate: 320 });
       copy(neonRain, `${downloads}/b/neon.mp3`, { format: 'mp3', bitrate: 128 });
       options.emit('library-changed', null);
+    },
+    setExclusionFolder: (path) => {
+      exclusionFolder = path;
     },
     setConvertExportFolder: (path) => {
       convertExportFolder = path;
