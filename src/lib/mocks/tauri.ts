@@ -33,9 +33,6 @@ const MISSING_ALBUM_ART_URL = 'data:image/png;base64,';
 /** `mockTracks`で生成できるトラックの数の上限 */
 const MAX_EXTRA_TRACKS = 200_000;
 
-/** フォルダ選択ダイアログで選ばれたことにするパス（`setFolderResult`で切り替える） */
-const MOCK_IMPORT_FOLDER = '/Users/demo/Music/Mock Import';
-
 /** 開発者ツールから操作するためのハンドル */
 interface MuspiceMockHandle {
   /** バックエンド（Rust）からのイベント送信を再現する */
@@ -43,7 +40,8 @@ interface MuspiceMockHandle {
   /** 確認ダイアログ（dialogプラグインのconfirm）の回答を切り替える。既定はOK */
   setConfirmResult(result: boolean): void;
   /**
-   * フォルダ選択ダイアログで選ばれたことにするパスを切り替える（nullはキャンセル）
+   * フォルダを選ぶダイアログ（Rust側が開く。フォルダのインポート・転送先デバイスの登録・
+   * 転送先の変更）で選んだことにするパスを切り替える（nullは、選ばずに閉じた）
    *
    * 既定のパスはライブラリフォルダの中のため、転送先デバイスの追加を確認するときは
    * ライブラリの外のパス（例: `/Volumes/NEW_SD`）にする。
@@ -127,7 +125,6 @@ export function setupTauriMock(): void {
   // 購読を解除しないため、解除済みのコールバックへ送信して警告が出てしまう
   const listeners = new Map<string, Set<number>>();
   let confirmResult = true;
-  let folderResult: string | null = MOCK_IMPORT_FOLDER;
 
   function emit(event: string, payload?: unknown): void {
     for (const handlerId of [...(listeners.get(event) ?? [])]) {
@@ -160,10 +157,6 @@ export function setupTauriMock(): void {
       case 'plugin:event|emit':
         emit(args.event as string, args.payload);
         return null;
-      case 'plugin:dialog|open': {
-        const options = args.options as { directory?: boolean } | undefined;
-        return options?.directory ? folderResult : null;
-      }
       case 'plugin:dialog|message': {
         const answer = answerMessageDialog(args.buttons, confirmResult);
         console.info(`[mock] ダイアログ「${String(args.message)}」→ ${answer}`);
@@ -191,9 +184,7 @@ export function setupTauriMock(): void {
     setConfirmResult: (result) => {
       confirmResult = result;
     },
-    setFolderResult: (path) => {
-      folderResult = path;
-    },
+    setFolderResult: (path) => backend.setFolderResult(path),
     nowPlaying: () => backend.nowPlaying(),
     setM3uImportMode: (mode) => backend.setM3uImportMode(mode),
     setAlbumArtPickMode: (mode) => backend.setAlbumArtPickMode(mode),

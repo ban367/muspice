@@ -6,8 +6,6 @@
   インポートも、このダイアログに表示する）。
 -->
 <script lang="ts">
-  import { open } from '@tauri-apps/plugin-dialog';
-  import { validateFilePath } from '#lib/utils/validation.js';
   import { importer } from '#lib/stores/importer.svelte.js';
   import { ui } from '#lib/stores/ui.svelte.js';
   import { Modal } from '#lib/components/ui/index.js';
@@ -22,13 +20,8 @@
   /** インポートが終わってから、ダイアログを自動で閉じるまでの時間（ミリ秒） */
   const CLOSE_DELAY_MS = 2000;
 
-  let selectedFolder = $state<string>('');
-  /** フォルダの選択・入力の誤り（インポートそのものの失敗は`importer.errorMessage`） */
-  let selectionError = $state<string>('');
-
   const isImporting = $derived(importer.isImporting);
   const importResult = $derived(importer.result);
-  const errorMessage = $derived(selectionError || importer.errorMessage);
 
   // 成功したら、少し待ってからダイアログを閉じる（その間に次のインポートが始まったら、閉じない）
   $effect(() => {
@@ -41,50 +34,16 @@
   });
 
   /**
-   * フォルダ選択ダイアログを開く
+   * フォルダを選ぶダイアログ（Rust側が開く）を開き、選んだフォルダをインポートする
    */
-  async function selectFolder() {
-    try {
-      const selected = await open({
-        directory: true,
-        multiple: false,
-        title: m.importDialog.selectFolderTitle
-      });
-
-      if (selected && typeof selected === 'string') {
-        selectedFolder = selected;
-        selectionError = '';
-      }
-    } catch (error) {
-      console.error('フォルダ選択エラー:', error);
-      selectionError = m.importDialog.selectFolderFailed;
-    }
+  function importFolder() {
+    void importer.importFolder();
   }
 
   /**
-   * 選んだフォルダのインポートを開始
-   */
-  function startImport() {
-    if (!selectedFolder) {
-      selectionError = m.importDialog.folderRequired;
-      return;
-    }
-
-    // ファイルパスをバリデーション
-    if (!validateFilePath(selectedFolder)) {
-      selectionError = m.importDialog.invalidPath;
-      return;
-    }
-
-    selectionError = '';
-    void importer.importFolder(selectedFolder);
-  }
-
-  /**
-   * ファイルを選ぶダイアログを開き、選んだファイルをインポートする
+   * ファイルを選ぶダイアログ（Rust側が開く）を開き、選んだファイルをインポートする
    */
   function importFiles() {
-    selectionError = '';
     void importer.importFiles();
   }
 
@@ -93,8 +52,6 @@
    */
   function closeDialog() {
     ui.isImportDialogOpen = false;
-    selectedFolder = '';
-    selectionError = '';
     importer.reset();
     if (onClose) {
       onClose();
@@ -110,39 +67,6 @@
   class="max-w-xl"
 >
   {#if !importResult}
-    <!-- フォルダ選択 -->
-    <div class="form-group">
-      <label for="folder-path" class="form-label">{m.importDialog.selectedFolder}</label>
-      <div class="flex gap-2">
-        <input
-          id="folder-path"
-          type="text"
-          readonly
-          value={selectedFolder || m.importDialog.noFolder}
-          class="form-input flex-1"
-        />
-        <button
-          onclick={selectFolder}
-          disabled={isImporting}
-          class="btn-secondary whitespace-nowrap"
-        >
-          {m.importDialog.selectFolder}
-        </button>
-      </div>
-      <!-- ファイルを個別に選ぶ（選んだ曲だけを登録する） -->
-      <div class="mt-3 flex items-center gap-3">
-        <span class="text-sm text-text-muted">{m.importDialog.orFiles}</span>
-        <button
-          onclick={importFiles}
-          disabled={isImporting}
-          class="btn-secondary whitespace-nowrap"
-        >
-          {m.importDialog.selectFiles}
-        </button>
-      </div>
-      <p class="mt-2 mb-0 text-xs text-text-muted">{m.importDialog.filesHint}</p>
-    </div>
-
     <!-- 重複ファイル処理の選択 -->
     <fieldset class="form-group border-none p-0 m-0">
       <legend class="form-label">{m.importDialog.duplicates}</legend>
@@ -170,6 +94,23 @@
       </div>
     </fieldset>
 
+    <!-- フォルダ・ファイルを選んでインポートする（選ぶダイアログは、Rust側が開く） -->
+    <div class="mt-6">
+      <div class="flex flex-wrap gap-2">
+        <button onclick={importFolder} disabled={isImporting} class="btn-primary whitespace-nowrap">
+          {m.importDialog.selectFolder}
+        </button>
+        <button
+          onclick={importFiles}
+          disabled={isImporting}
+          class="btn-secondary whitespace-nowrap"
+        >
+          {m.importDialog.selectFiles}
+        </button>
+      </div>
+      <p class="mt-2 mb-0 text-xs text-text-muted">{m.importDialog.sourceHint}</p>
+    </div>
+
     <!-- 進行状況バー -->
     {#if isImporting}
       <div class="mt-6">
@@ -195,8 +136,8 @@
     {/if}
 
     <!-- エラーメッセージ -->
-    {#if errorMessage}
-      <div class="message-error mt-4">{errorMessage}</div>
+    {#if importer.errorMessage}
+      <div class="message-error mt-4">{importer.errorMessage}</div>
     {/if}
   {:else}
     <!-- インポート結果 -->
@@ -248,9 +189,6 @@
     {#if !importResult}
       <button onclick={closeDialog} disabled={isImporting} class="btn-secondary">
         {m.common.cancel}
-      </button>
-      <button onclick={startImport} disabled={!selectedFolder || isImporting} class="btn-primary">
-        {isImporting ? m.importDialog.importingShort : m.importDialog.start}
       </button>
     {:else}
       <button onclick={closeDialog} class="btn-success">{m.common.close}</button>

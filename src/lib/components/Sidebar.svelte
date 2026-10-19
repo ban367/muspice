@@ -4,12 +4,9 @@
   import { page } from '$app/state';
   import { useQueryClient } from '@tanstack/svelte-query';
   import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-  import { open } from '@tauri-apps/plugin-dialog';
   import { useRegisterSyncDeviceMutation, useSyncDevicesQuery } from '#lib/queries/devices.js';
   import { queryKeys } from '#lib/queries/keys.js';
-  import { handleError, showSuccess } from '#lib/stores/error.svelte.js';
-  import { isDeviceNameTooLong, suggestDeviceName } from '#lib/utils/devices.js';
-  import { promptText } from '#lib/utils/dialog.svelte.js';
+  import { showSuccess } from '#lib/stores/error.svelte.js';
   import { ui } from '#lib/stores/ui.svelte.js';
   import { useGenresQuery } from '#lib/queries/tracks.js';
   import { useSettingsQuery } from '#lib/queries/settings.js';
@@ -68,33 +65,14 @@
   });
 
   /**
-   * 転送先デバイスを追加（フォルダを選び、名前を付けて登録する）
+   * 転送先デバイスを追加する（フォルダを選ぶダイアログはRust側が開き、ドライブ・フォルダの
+   * 名前で登録する。名前はデバイスのページで変えられる）
    */
   async function handleAddDevice() {
-    let selected: string | string[] | null;
     try {
-      selected = await open({
-        directory: true,
-        multiple: false,
-        title: m.devices.selectFolderTitle
-      });
-    } catch (error) {
-      handleError(error, m.devices.selectFolderFailed);
-      return;
-    }
-    if (typeof selected !== 'string') return;
-
-    const name = await promptText({
-      title: m.devices.addTitle,
-      label: m.devices.nameLabel,
-      defaultValue: suggestDeviceName(selected),
-      confirmLabel: m.devices.add,
-      validate: (value) => (isDeviceNameTooLong(value) ? m.devices.nameTooLong : null)
-    });
-    if (name === null) return;
-
-    try {
-      const device = await registerDeviceMutation.mutateAsync({ folderPath: selected, name });
+      const device = await registerDeviceMutation.mutateAsync();
+      // 選ばずに閉じた
+      if (!device) return;
       showSuccess(m.devices.added(device.name));
       goto(resolve(`devices/${device.id}`));
     } catch {

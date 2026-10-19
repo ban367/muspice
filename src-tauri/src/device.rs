@@ -13,6 +13,7 @@ use chrono::Utc;
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use specta::Type;
+use std::path::{Component, Path};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// デバイス名の長さの上限（文字数）
@@ -181,6 +182,34 @@ pub fn validate_device_name(name: &str) -> AppResult<String> {
         ));
     }
     Ok(trimmed.to_string())
+}
+
+/// 転送先のフォルダから、デバイス名を決める（決められなければNone）
+///
+/// 取り外せるドライブ（macOSの`/Volumes/<名前>`、Linuxの`/media/<ユーザー>/<名前>`・
+/// `/run/media/<ユーザー>/<名前>`）の中ならドライブの名前、それ以外はフォルダの名前にする。
+/// ルート（`/`・Windowsのドライブ`E:\`）は名前にしない。
+pub fn suggest_device_name(folder: &Path) -> Option<String> {
+    let segments: Vec<&str> = folder
+        .components()
+        .filter_map(|component| match component {
+            Component::Normal(name) => name.to_str(),
+            _ => None,
+        })
+        .collect();
+    let name = match segments.as_slice() {
+        ["Volumes", name, ..] | ["media", _, name, ..] | ["run", "media", _, name, ..] => name,
+        [.., last] => last,
+        [] => return None,
+    };
+    // 登録できる名前にそろえる（制御文字を除き、長い名前は切る）
+    let name: String = name
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(MAX_DEVICE_NAME_LENGTH)
+        .collect();
+    let name = name.trim();
+    (!name.is_empty()).then(|| name.to_string())
 }
 
 const DEVICE_COLUMNS: &str =
@@ -478,6 +507,31 @@ mod tests {
         assert!(validate_device_name(&"あ".repeat(100)).is_ok());
         assert!(validate_device_name(&"あ".repeat(101)).is_err());
         assert!(validate_device_name("SD\nカード").is_err());
+    }
+
+    #[test]
+    fn test_suggest_device_name() {
+        let suggest = |path: &str| suggest_device_name(Path::new(path));
+        // 取り外せるドライブの中なら、ドライブの名前
+        assert_eq!(suggest("/Volumes/SDCARD").as_deref(), Some("SDCARD"));
+        assert_eq!(suggest("/Volumes/SDCARD/Music").as_deref(), Some("SDCARD"));
+        assert_eq!(
+            suggest("/media/demo/WALKMAN/MUSIC").as_deref(),
+            Some("WALKMAN")
+        );
+        assert_eq!(
+            suggest("/run/media/demo/WALKMAN").as_deref(),
+            Some("WALKMAN")
+        );
+        // それ以外は、フォルダの名前
+        assert_eq!(suggest("/Users/demo/Backup/").as_deref(), Some("Backup"));
+        assert_eq!(suggest("/").as_deref(), None);
+        // 登録できる名前にそろえる
+        let long = format!("/Volumes/{}", "あ".repeat(120));
+        let name = suggest(&long).unwrap();
+        assert_eq!(name, "あ".repeat(100));
+        assert!(validate_device_name(&name).is_ok());
+        assert_eq!(suggest("/Volumes/ SD\tCARD ").as_deref(), Some("SDCARD"));
     }
 
     #[test]

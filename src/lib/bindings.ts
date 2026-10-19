@@ -5,8 +5,22 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 
 /** Commands */
 export const commands = {
-	/**  フォルダから音楽ファイルをインポート（バッチ処理最適化版） */
-	importFolder: (folderPath: string, duplicateAction: DuplicateAction) => __TAURI_INVOKE<ImportResult>("import_folder", { folderPath, duplicateAction }),
+	/**
+	 *  フォルダを選ぶダイアログを開き、選んだフォルダの音楽ファイルをインポートする
+	 * 
+	 *  ダイアログはRust側で開く（WebViewからパスを受け取らない。ADR-063）。中の曲をすべて登録し、
+	 *  フォルダをライブラリフォルダとして記録する。
+	 * 
+	 *  @returns インポートの結果（選ばずに閉じた場合はnull）
+	 */
+	importFolder: (duplicateAction: DuplicateAction) => __TAURI_INVOKE<{
+	importedCount: number,
+	skippedCount: number,
+	/**  見つからない曲を、移動・改名された先のファイルに結び付けた数（新しい曲としては登録しない） */
+	relinkedCount: number,
+	errorCount: number,
+	errors: string[],
+} | null>("import_folder", { duplicateAction }),
 	/**
 	 *  ファイルを選ぶダイアログを開き、選んだ音楽ファイルをインポートする
 	 * 
@@ -119,21 +133,65 @@ export const commands = {
 	 */
 	getSyncDevices: () => __TAURI_INVOKE<SyncDevice[]>("get_sync_devices"),
 	/**
-	 *  フォルダを転送先デバイスとして登録する
+	 *  フォルダを選ぶダイアログを開き、選んだフォルダを転送先デバイスとして登録する
 	 * 
-	 *  フォルダに管理ファイルがある場合は、そのデバイスとして扱う（登録済みなら転送先を
-	 *  更新し、未登録なら管理ファイルを引き継いで登録する）。なければ新しく作る。
+	 *  ダイアログはRust側で開く（WebViewからパスを受け取らない。ADR-063）。名前は、ドライブ・
+	 *  フォルダの名前にする（デバイスのページで変えられる）。フォルダに管理ファイルがある場合は、
+	 *  そのデバイスとして扱う（登録済みなら転送先を更新し、未登録なら管理ファイルを引き継いで
+	 *  登録する）。なければ新しく作る。
+	 * 
+	 *  @returns 登録したデバイス（選ばずに閉じた場合はnull）
 	 */
-	registerSyncDevice: (folderPath: string, name: string) => __TAURI_INVOKE<SyncDevice>("register_sync_device", { folderPath, name }),
+	registerSyncDevice: () => __TAURI_INVOKE<{
+	id: string,
+	name: string,
+	/**  転送先のフォルダ */
+	path: string,
+	/**  ライブラリの全曲を同期するか */
+	syncAll: boolean,
+	/**  同期するプレイリスト（`.m3u8`も書き出す。全曲を同期しない場合は、曲もここから決まる） */
+	playlistIds: string[],
+	/**  同期の対象から外れた曲を、デバイスから削除するか */
+	removeUnselected: boolean,
+	/**  接続されているか（転送先のフォルダに、このデバイスの管理ファイルがあるか） */
+	connected: boolean,
+	/**  空き容量・全体の容量（バイト）。接続されていない場合は値なし */
+	freeBytes: number | null,
+	totalBytes: number | null,
+	createdAt: string,
+	lastSyncedAt: string | null,
+} | null>("register_sync_device"),
 	/**  デバイスの設定（名前と同期する対象）を更新する */
 	updateSyncDevice: (deviceId: string, config: SyncDeviceConfig) => __TAURI_INVOKE<SyncDevice>("update_sync_device", { deviceId, config }),
 	/**
-	 *  デバイスの転送先のフォルダを変える（マウント先が変わった場合や、カードを初期化した場合）
+	 *  フォルダを選ぶダイアログを開き、デバイスの転送先をそのフォルダに変える（マウント先が
+	 *  変わった場合や、カードを初期化した場合）
 	 * 
-	 *  フォルダに別のデバイスの管理ファイルがある場合はエラーにする。管理ファイルがなければ、
-	 *  このデバイスの管理ファイルを新しく作る。
+	 *  ダイアログはRust側で開く（WebViewからパスを受け取らない。ADR-063）。フォルダに別のデバイスの
+	 *  管理ファイルがある場合はエラーにする。管理ファイルがなければ、このデバイスの管理ファイルを
+	 *  新しく作る。
+	 * 
+	 *  @returns 転送先を変えたデバイス（選ばずに閉じた場合はnull）
 	 */
-	relinkSyncDevice: (deviceId: string, folderPath: string) => __TAURI_INVOKE<SyncDevice>("relink_sync_device", { deviceId, folderPath }),
+	relinkSyncDevice: (deviceId: string) => __TAURI_INVOKE<{
+	id: string,
+	name: string,
+	/**  転送先のフォルダ */
+	path: string,
+	/**  ライブラリの全曲を同期するか */
+	syncAll: boolean,
+	/**  同期するプレイリスト（`.m3u8`も書き出す。全曲を同期しない場合は、曲もここから決まる） */
+	playlistIds: string[],
+	/**  同期の対象から外れた曲を、デバイスから削除するか */
+	removeUnselected: boolean,
+	/**  接続されているか（転送先のフォルダに、このデバイスの管理ファイルがあるか） */
+	connected: boolean,
+	/**  空き容量・全体の容量（バイト）。接続されていない場合は値なし */
+	freeBytes: number | null,
+	totalBytes: number | null,
+	createdAt: string,
+	lastSyncedAt: string | null,
+} | null>("relink_sync_device", { deviceId }),
 	/**
 	 *  デバイスの登録を解除する
 	 * 

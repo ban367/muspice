@@ -12,6 +12,15 @@ const NO_SVELTE_STORE = {
   message: '共有する状態は *.svelte.ts の $state で実装してください（svelte/store は使わない）。'
 };
 
+// ファイル・フォルダを選ぶダイアログはRust側のコマンドが開き、WebViewはパスを受け取らない
+// （ADR-063）。capabilityでもdialogプラグインのopen・saveを許可していない
+const NO_FILE_DIALOG = {
+  name: '@tauri-apps/plugin-dialog',
+  importNames: ['open', 'save'],
+  message:
+    'ファイル・フォルダを選ぶダイアログは、Rust側のコマンドで開いてください（WebViewからパスを渡さない）。'
+};
+
 export default defineConfig(
   {
     ignores: [
@@ -59,7 +68,7 @@ export default defineConfig(
           message: '#lib/utils/dialog.svelte.js の promptText を await して使用してください。'
         }
       ],
-      'no-restricted-imports': ['error', { paths: [NO_SVELTE_STORE] }]
+      'no-restricted-imports': ['error', { paths: [NO_SVELTE_STORE, NO_FILE_DIALOG] }]
     }
   },
   {
@@ -82,6 +91,7 @@ export default defineConfig(
           paths: [
             // ルールの設定は上書きされるため、全体の制限もここに含める
             NO_SVELTE_STORE,
+            NO_FILE_DIALOG,
             {
               name: '#lib/bindings.js',
               importNames: ['commands'],

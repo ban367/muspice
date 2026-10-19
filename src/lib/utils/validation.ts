@@ -22,22 +22,6 @@ export function sanitizeString(input: string): string {
 }
 
 /**
- * ファイルパスをバリデーション（パストラバーサル攻撃対策）
- */
-export function validateFilePath(path: string): boolean {
-  if (!path) return false;
-
-  // パストラバーサルパターンを検出
-  const dangerousPatterns = [
-    /\.\./, // 親ディレクトリへの移動
-    /~\//, // ホームディレクトリ
-    /\/\// // 二重スラッシュ
-  ];
-
-  return !dangerousPatterns.some((pattern) => pattern.test(path));
-}
-
-/**
  * 年をバリデーション
  */
 export function validateYear(year: number | null | undefined): { valid: boolean; error?: string } {

@@ -43,17 +43,18 @@ export function useSyncDevicesQuery(options: { poll?: boolean } = {}) {
 }
 
 /**
- * フォルダを転送先デバイスとして登録するミューテーション
+ * フォルダを選ぶダイアログ（Rust側が開く）を開き、選んだフォルダを転送先デバイスとして
+ * 登録するミューテーション（選ばずに閉じた場合はnullを返す）
  */
 export function useRegisterSyncDeviceMutation() {
   const queryClient = useQueryClient();
 
   return createMutation(() => ({
-    mutationFn: ({ folderPath, name }: { folderPath: string; name: string }) =>
-      withErrorToast(m.operations.registerDevice, () =>
-        commands.registerSyncDevice(folderPath, name)
-      ),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.syncDevices })
+    mutationFn: () =>
+      withErrorToast(m.operations.registerDevice, () => commands.registerSyncDevice()),
+    onSuccess: (device: SyncDevice | null) => {
+      if (device) return queryClient.invalidateQueries({ queryKey: queryKeys.syncDevices });
+    }
   }));
 }
 
@@ -94,17 +95,18 @@ export function useUpdateSyncDeviceMutation() {
 }
 
 /**
- * デバイスの転送先のフォルダを変えるミューテーション
+ * フォルダを選ぶダイアログ（Rust側が開く）を開き、デバイスの転送先をそのフォルダに変える
+ * ミューテーション（選ばずに閉じた場合はnullを返す）
  */
 export function useRelinkSyncDeviceMutation() {
   const queryClient = useQueryClient();
 
   return createMutation(() => ({
-    mutationFn: ({ deviceId, folderPath }: { deviceId: string; folderPath: string }) =>
-      withErrorToast(m.operations.relinkDevice, () =>
-        commands.relinkSyncDevice(deviceId, folderPath)
-      ),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.syncDevices })
+    mutationFn: (deviceId: string) =>
+      withErrorToast(m.operations.relinkDevice, () => commands.relinkSyncDevice(deviceId)),
+    onSuccess: (device: SyncDevice | null) => {
+      if (device) return queryClient.invalidateQueries({ queryKey: queryKeys.syncDevices });
+    }
   }));
 }
 

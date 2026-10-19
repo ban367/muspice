@@ -701,14 +701,7 @@ export const ja = {
 
   importDialog: {
     title: '音楽をインポート',
-    selectFolderTitle: 'インポートするフォルダを選択',
-    selectFolderFailed: 'フォルダの選択に失敗しました',
-    folderRequired: 'フォルダを選択してください',
-    invalidPath: '不正なファイルパスです',
     importFailed: (message: string) => `インポートに失敗しました: ${message}`,
-    selectedFolder: '選択されたフォルダ',
-    noFolder: 'フォルダが選択されていません',
-    selectFolder: 'フォルダを選択',
     duplicates: '重複ファイルの処理',
     skip: 'スキップ（既存ファイルを保持）',
     replace: '置き換え（新しいファイルで上書き）',
@@ -720,12 +713,10 @@ export const ja = {
     relinked: '移動したファイルの引き継ぎ:',
     errors: 'エラー:',
     errorDetails: 'エラー詳細:',
-    importingShort: 'インポート中...',
-    start: 'インポート開始',
-    orFiles: 'または',
+    selectFolder: 'フォルダを選んでインポート...',
     selectFiles: 'ファイルを選んでインポート...',
-    filesHint:
-      'ファイルを選んだ場合は、その曲だけを登録します（ファイルのあるフォルダは、自動の再スキャンの対象になりません）。',
+    sourceHint:
+      'フォルダを選んだ場合は、中の曲をすべて登録し、フォルダをライブラリフォルダとして記録します。ファイルを選んだ場合は、その曲だけを登録します（ファイルのあるフォルダは、自動の再スキャンの対象になりません）。',
     dropHere: 'ここにドロップしてインポート'
   },
 
@@ -1138,11 +1129,7 @@ export const ja = {
   },
 
   devices: {
-    selectFolderTitle: '転送先のフォルダを選択',
-    selectFolderFailed: 'フォルダの選択に失敗しました',
-    addTitle: 'デバイスを追加',
     nameLabel: 'デバイス名',
-    add: '追加',
     nameTooLong: 'デバイス名が長すぎます',
     added: (name: string) => `デバイス「${name}」を追加しました`,
     notFound: 'デバイスが見つかりません',

@@ -4,6 +4,7 @@
 //! lib.rsのuse文を変更不要にするため、全コマンドをここから公開する。
 
 use crate::error::{AppError, AppResult};
+use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::{DialogExt, FileDialogBuilder};
 
@@ -119,6 +120,19 @@ fn file_dialog(app: &AppHandle) -> FileDialogBuilder<tauri::Wry> {
         Some(window) => dialog.set_parent(&window),
         None => dialog,
     }
+}
+
+/// フォルダを選ぶダイアログを開き、選んだフォルダを返す（選ばずに閉じた場合はNone）
+///
+/// フォルダもRust側のダイアログで選び、WebViewからはパスを受け取らない（ADR-063）。
+fn pick_folder(app: &AppHandle, title: &str) -> AppResult<Option<PathBuf>> {
+    let Some(folder) = file_dialog(app).set_title(title).blocking_pick_folder() else {
+        return Ok(None);
+    };
+    folder
+        .into_path()
+        .map(Some)
+        .map_err(|e| AppError::Io(format!("選んだフォルダを扱えません: {}", e)))
 }
 
 /// 重い同期処理をブロッキング処理用のスレッドで実行する

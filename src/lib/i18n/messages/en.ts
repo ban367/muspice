@@ -679,14 +679,7 @@ export const en: Messages = {
 
   importDialog: {
     title: 'Import Music',
-    selectFolderTitle: 'Select a folder to import',
-    selectFolderFailed: 'Failed to select the folder',
-    folderRequired: 'Select a folder',
-    invalidPath: 'The file path is invalid',
     importFailed: (message) => `Import failed: ${message}`,
-    selectedFolder: 'Selected folder',
-    noFolder: 'No folder selected',
-    selectFolder: 'Select Folder',
     duplicates: 'Duplicate files',
     skip: 'Skip (keep existing files)',
     replace: 'Replace (overwrite with the new files)',
@@ -698,12 +691,10 @@ export const en: Messages = {
     relinked: 'Relinked moved files:',
     errors: 'Errors:',
     errorDetails: 'Error details:',
-    importingShort: 'Importing...',
-    start: 'Start Import',
-    orFiles: 'or',
+    selectFolder: 'Choose a Folder to Import...',
     selectFiles: 'Choose Files to Import...',
-    filesHint:
-      'Choosing files adds only those tracks (their folder is not rescanned automatically).',
+    sourceHint:
+      'Choosing a folder adds all of its tracks and keeps the folder as a library folder. Choosing files adds only those tracks (their folder is not rescanned automatically).',
     dropHere: 'Drop here to import'
   },
 
@@ -1117,11 +1108,7 @@ export const en: Messages = {
   },
 
   devices: {
-    selectFolderTitle: 'Select the destination folder',
-    selectFolderFailed: 'Failed to select a folder',
-    addTitle: 'Add Device',
     nameLabel: 'Device name',
-    add: 'Add',
     nameTooLong: 'The device name is too long',
     added: (name) => `Added the device "${name}"`,
     notFound: 'Device not found',
