@@ -5,7 +5,6 @@
     EQ_FREQUENCY_LABELS,
     MIN_GAIN,
     MAX_GAIN,
-    BUILTIN_PRESET_LABELS,
     isBuiltinPreset,
     type BuiltinPresetName,
     type EQFrequency
@@ -13,7 +12,7 @@
   import { confirmDestructive } from '#lib/utils/dialog.svelte.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
-  // ビルトインプリセットの選択肢
+  // ビルトインプリセットの選択肢（名前は、表示の言語に合わせてテンプレートで`m`から読む）
   const builtinPresetOptions: BuiltinPresetName[] = [
     'flat',
     'bass_boost',
@@ -122,7 +121,7 @@
       {/if}
       <optgroup label={m.equalizer.builtIn}>
         {#each builtinPresetOptions as preset (preset)}
-          <option value={preset}>{BUILTIN_PRESET_LABELS[preset]}</option>
+          <option value={preset}>{m.equalizer.presets[preset]}</option>
         {/each}
       </optgroup>
       {#if equalizer.customPresets.length > 0}

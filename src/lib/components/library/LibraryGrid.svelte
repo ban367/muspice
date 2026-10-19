@@ -13,7 +13,7 @@
   import type { AlbumSummary, ArtistSummary, GenreSummary } from '#lib/types/models.js';
   import { VirtualList } from '#lib/components/ui/index.js';
   import { GRID_CARD_GAP, ui } from '#lib/stores/ui.svelte.js';
-  import { navigationTarget } from '#lib/utils/listNavigation.js';
+  import { openableListAction } from '#lib/utils/listNavigation.js';
   import { matchesSearchTerms, searchTerms } from '#lib/utils/searchText.js';
   import GroupContextMenu from '../GroupContextMenu.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
@@ -117,30 +117,20 @@
    * 矢印キー（グリッドでは上下左右、リストでは上下）・Home・Endで現在位置を移し、Enterで開く。
    */
   function handleKeydown(event: KeyboardEvent) {
-    if (event.defaultPrevented) return;
-    if (event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return;
-
-    if (event.key === 'Enter') {
-      // カードの中のボタン（再生）では、そのボタンの操作を優先する
-      if (event.target instanceof Element && event.target.closest('button, a')) return;
-      const item = filteredItems.find((candidate) => getKey(candidate) === activeKey);
-      if (item && onOpen) {
-        onOpen(item);
-        event.preventDefault();
-      }
-      return;
-    }
-
     const current = filteredItems.findIndex((item) => getKey(item) === activeKey);
     const columns = displayMode === 'grid' ? (virtualList?.getColumns() ?? 1) : null;
-    const target = navigationTarget(event.key, current, filteredItems.length, columns);
-    if (target === null) return;
+    const action = openableListAction(event, current, filteredItems.length, columns);
+    if (action === null) return;
 
-    // 既定の動作（一覧のスクロール）の代わりに、移動先の項目を見える位置へ出す
-    event.preventDefault();
-    activeKey = getKey(filteredItems[target]);
-    virtualList?.scrollToIndex(target);
-    onNavigate?.(filteredItems[target]);
+    const item = filteredItems[action.index];
+    if (action.type === 'open') {
+      onOpen?.(item);
+      return;
+    }
+    // 既定の動作（一覧のスクロール）は止めてあるため、移動先の項目を見える位置へ出す
+    activeKey = getKey(item);
+    virtualList?.scrollToIndex(action.index);
+    onNavigate?.(item);
   }
 
   // コンテキストメニュー
@@ -272,16 +262,7 @@
 <style>
   @reference "../../../app.css";
 
-  /* キーボードで移動する時の現在位置 */
-  .grid-item {
-    @apply rounded-lg;
-  }
-
-  .grid-item.active {
-    outline: 2px solid var(--color-primary);
-    outline-offset: 2px;
-  }
-
+  /* キーボードで移動する時の現在位置（グリッド表示の`.grid-item`は`app.css`） */
   .list-item {
     @apply rounded-md;
   }

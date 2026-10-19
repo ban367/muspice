@@ -5,6 +5,7 @@
  * 番号の列（行の番号・再生中の印）は常に先頭に出すため、ここには含めない。
  */
 import type { Track } from '#lib/types/models.js';
+import { m } from '#lib/i18n/i18n.svelte.js';
 import { formatDate, formatDuration, formatFileSize } from './format.js';
 
 /** 列のID（この並びが、列を選ぶメニューの順と、列を足した時の位置の基準になる） */
@@ -72,6 +73,15 @@ export const DEFAULT_TRACK_COLUMNS: readonly TrackColumnId[] = [
   'rating',
   'duration'
 ];
+
+/**
+ * 列の表示名（見出し・列を選ぶメニュー）
+ *
+ * 呼ぶたびに今の言語の名前を返す（言語を切り替えると変わるよう、テンプレートの中で呼ぶ）。
+ */
+export function trackColumnLabel(id: TrackColumnId): string {
+  return m.fields[id];
+}
 
 const isColumnId = (value: unknown): value is TrackColumnId =>
   typeof value === 'string' && (TRACK_COLUMN_IDS as readonly string[]).includes(value);

@@ -539,6 +539,16 @@ body {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
 }
 
+/* キーボードで移動するグリッドの、カードを包む項目（`role="option"`）。現在位置を枠で示す */
+.grid-item {
+  @apply rounded-lg;
+}
+
+.grid-item.active {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
 .grid-card-art {
   @apply relative w-full aspect-square rounded-md overflow-hidden mb-1.5;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);

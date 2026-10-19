@@ -66,6 +66,12 @@ export default defineConfig(
           // macOSのWebView（wry）はwindow.promptを実装しておらず、常にnullを返す
           name: 'prompt',
           message: '#lib/utils/dialog.svelte.js の promptText を await して使用してください。'
+        },
+        {
+          // 結果の通知は、ほかの操作と同じくトーストで出す（alertは操作を止めるダイアログになる）
+          name: 'alert',
+          message:
+            '#lib/stores/error.svelte.js の showSuccess / showWarning（トースト）を使用してください。'
         }
       ],
       'no-restricted-imports': ['error', { paths: [NO_SVELTE_STORE, NO_FILE_DIALOG] }]

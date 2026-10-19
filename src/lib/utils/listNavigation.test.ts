@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { listSelectionTarget, navigationTarget } from './listNavigation.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { listSelectionTarget, navigationTarget, openableListAction } from './listNavigation.js';
 
 describe('navigationTarget（リスト）', () => {
   it('↑↓で前後の項目へ移る', () => {
@@ -69,23 +69,25 @@ describe('navigationTarget（グリッド）', () => {
   });
 });
 
-describe('listSelectionTarget', () => {
-  function keyEvent(key: string, init: Partial<KeyboardEvent> = {}) {
-    const event = {
-      key,
-      defaultPrevented: false,
-      altKey: false,
-      metaKey: false,
-      ctrlKey: false,
-      shiftKey: false,
-      preventDefault() {
-        event.defaultPrevented = true;
-      },
-      ...init
-    };
-    return event as unknown as KeyboardEvent;
-  }
+/** キーイベント（Node環境には`KeyboardEvent`がないため、使うプロパティだけを持つ） */
+function keyEvent(key: string, init: Partial<KeyboardEvent> = {}) {
+  const event = {
+    key,
+    target: null,
+    defaultPrevented: false,
+    altKey: false,
+    metaKey: false,
+    ctrlKey: false,
+    shiftKey: false,
+    preventDefault() {
+      event.defaultPrevented = true;
+    },
+    ...init
+  };
+  return event as unknown as KeyboardEvent;
+}
 
+describe('listSelectionTarget', () => {
   it('↑↓・Home・Endで移動先を返し、既定の動作を止める', () => {
     const down = keyEvent('ArrowDown');
     expect(listSelectionTarget(down, 1, 5)).toBe(2);
@@ -109,5 +111,69 @@ describe('listSelectionTarget', () => {
   it('すでに処理されたイベント・項目がない一覧では何もしない', () => {
     expect(listSelectionTarget(keyEvent('ArrowDown', { defaultPrevented: true }), 1, 5)).toBeNull();
     expect(listSelectionTarget(keyEvent('ArrowDown'), -1, 0)).toBeNull();
+  });
+});
+
+describe('openableListAction', () => {
+  // Node環境には`Element`がないため、ボタンの中かどうか（`closest`）だけを持つ要素に差し替える
+  class FakeElement {
+    constructor(private readonly inButton: boolean) {}
+    closest() {
+      return this.inButton ? this : null;
+    }
+  }
+
+  beforeEach(() => {
+    vi.stubGlobal('Element', FakeElement);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('Enterで、現在位置の項目を開く（既定の動作を止める）', () => {
+    const enter = keyEvent('Enter');
+    expect(openableListAction(enter, 2, 5, 4)).toEqual({ type: 'open', index: 2 });
+    expect(enter.defaultPrevented).toBe(true);
+  });
+
+  it('現在位置がない場合、Enterでは何もしない', () => {
+    const enter = keyEvent('Enter');
+    expect(openableListAction(enter, -1, 5, 4)).toBeNull();
+    expect(enter.defaultPrevented).toBe(false);
+  });
+
+  it('項目の中のボタンでのEnterは、ボタンの操作に任せる', () => {
+    const onButton = keyEvent('Enter', { target: new FakeElement(true) as unknown as Element });
+    expect(openableListAction(onButton, 2, 5, 4)).toBeNull();
+    expect(onButton.defaultPrevented).toBe(false);
+
+    const onCard = keyEvent('Enter', { target: new FakeElement(false) as unknown as Element });
+    expect(openableListAction(onCard, 2, 5, 4)).toEqual({ type: 'open', index: 2 });
+  });
+
+  it('矢印キー・Home・Endで、移動先へ現在位置を移す（グリッドは上下左右）', () => {
+    const down = keyEvent('ArrowDown');
+    expect(openableListAction(down, 1, 10, 4)).toEqual({ type: 'move', index: 5 });
+    expect(down.defaultPrevented).toBe(true);
+    expect(openableListAction(keyEvent('ArrowRight'), 1, 10, 4)).toEqual({
+      type: 'move',
+      index: 2
+    });
+    expect(openableListAction(keyEvent('End'), 1, 10, 4)).toEqual({ type: 'move', index: 9 });
+    // リストでは←→を扱わない
+    expect(openableListAction(keyEvent('ArrowRight'), 1, 10, null)).toBeNull();
+    expect(openableListAction(keyEvent('ArrowDown'), 1, 10, null)).toEqual({
+      type: 'move',
+      index: 2
+    });
+  });
+
+  it('修飾キーを押している場合・すでに処理されたイベントでは何もしない', () => {
+    const withShift = keyEvent('ArrowDown', { shiftKey: true });
+    expect(openableListAction(withShift, 1, 10, 4)).toBeNull();
+    expect(withShift.defaultPrevented).toBe(false);
+    expect(openableListAction(keyEvent('Enter', { metaKey: true }), 1, 10, 4)).toBeNull();
+    expect(openableListAction(keyEvent('Enter', { defaultPrevented: true }), 1, 10, 4)).toBeNull();
   });
 });
