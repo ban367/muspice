@@ -124,7 +124,7 @@ fn file_dialog(app: &AppHandle) -> FileDialogBuilder<tauri::Wry> {
 
 /// フォルダを選ぶダイアログを開き、選んだフォルダを返す（選ばずに閉じた場合はNone）
 ///
-/// フォルダもRust側のダイアログで選び、WebViewからはパスを受け取らない（ADR-063）。
+/// フォルダもRust側のダイアログで選び、WebViewからはパスを受け取らない（ADR-065）。
 fn pick_folder(app: &AppHandle, title: &str) -> AppResult<Option<PathBuf>> {
     let Some(folder) = file_dialog(app).set_title(title).blocking_pick_folder() else {
         return Ok(None);

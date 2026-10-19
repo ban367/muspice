@@ -3,6 +3,9 @@
 //! これらの形式は、ファイルが独立にデコードできるブロックの並びになっている。形式ごとの実装
 //! （`BlockSource`）は「何番目のブロックをデコードする」だけを行い、曲の中の位置・シーク・
 //! 返すかたまりの区切りは、ここでまとめて扱う。可逆の形式のため、曲の頭と終わりに余分はない。
+//!
+//! ブロックの位置は、形式によっては開いた時点で分からず、ファイルを読み進めながら調べる（WavPack）。
+//! そのため、ブロックの範囲を尋ねる操作も、ファイルを読むことがある（失敗しうる）。
 
 use crate::error::{AppError, AppResult};
 
@@ -38,10 +41,13 @@ pub trait BlockSource: Send {
     fn bits_per_sample(&self) -> u32 {
         16
     }
-    /// ブロックの数
-    fn block_count(&self) -> usize;
-    /// ブロックの範囲（曲の頭からの、先頭のフレームの位置と、フレーム数）
-    fn block_range(&self, index: usize) -> (u64, u64);
+    /// 曲の長さ（フレーム数）
+    fn total_frames(&self) -> u64;
+    /// ブロックの範囲（曲の頭からの、先頭のフレームの位置と、フレーム数）。そのブロックがなければ
+    /// （最後のブロックより後ろ）None
+    fn block_range(&mut self, index: usize) -> AppResult<Option<(u64, u64)>>;
+    /// `frame`（曲の頭からの位置）を含むブロックの番号（曲の終わりより後ろの位置は、None）
+    fn find_block(&mut self, frame: u64) -> AppResult<Option<usize>>;
     /// ブロックをデコードし、インターリーブのサンプルを`out`へ入れる（`out`は空にしてから使う）
     fn decode_block(&mut self, index: usize, out: &mut Vec<f32>) -> AppResult<()>;
 }
@@ -59,8 +65,8 @@ pub struct BlockDecoder {
     samples: Vec<f32>,
     /// `samples`の先頭のフレームの位置（曲の頭から）
     samples_start: u64,
-    /// 次にデコードするブロック
-    next_block: usize,
+    /// 次にデコードするブロック（Noneは、もうデコードするブロックがない）
+    next_block: Option<usize>,
     consecutive_errors: u32,
 }
 
@@ -71,13 +77,7 @@ impl BlockDecoder {
         if sample_rate == 0 || channels == 0 {
             return Err(AppError::Playback("音声のデータがありません".to_string()));
         }
-        let total_frames = match source.block_count() {
-            0 => 0,
-            count => {
-                let (start, frames) = source.block_range(count - 1);
-                start + frames
-            }
-        };
+        let total_frames = source.total_frames();
         Ok(Self {
             source,
             sample_rate,
@@ -86,7 +86,7 @@ impl BlockDecoder {
             position: 0,
             samples: Vec::new(),
             samples_start: 0,
-            next_block: 0,
+            next_block: Some(0),
             consecutive_errors: 0,
         })
     }
@@ -116,11 +116,17 @@ impl BlockDecoder {
         (self.samples.len() / self.channels) as u64
     }
 
-    /// 次のブロックをデコードして`samples`に入れる（デコードできないブロックは、無音にする）
-    fn decode_next_block(&mut self) -> AppResult<()> {
-        let index = self.next_block;
-        let (start, frames) = self.source.block_range(index);
-        self.next_block += 1;
+    /// 次のブロックをデコードして`samples`に入れる（デコードできないブロックは、無音にする）。
+    /// もうブロックがなければ、falseを返す
+    fn decode_next_block(&mut self) -> AppResult<bool> {
+        let Some(index) = self.next_block else {
+            return Ok(false);
+        };
+        let Some((start, frames)) = self.source.block_range(index)? else {
+            self.next_block = None;
+            return Ok(false);
+        };
+        self.next_block = Some(index + 1);
         self.samples_start = start;
 
         let expected = frames as usize * self.channels;
@@ -154,7 +160,7 @@ impl BlockDecoder {
                 self.samples.resize(expected, 0.0);
             }
         }
-        Ok(())
+        Ok(true)
     }
 
     /// 次のかたまりを、多くても`limit`フレームまで返す（曲の終わりではNone）
@@ -168,10 +174,9 @@ impl BlockDecoder {
             let offset = match offset {
                 Some(offset) if offset < self.buffered_frames() => offset as usize,
                 _ => {
-                    if self.next_block >= self.source.block_count() {
+                    if !self.decode_next_block()? {
                         return Ok(None);
                     }
-                    self.decode_next_block()?;
                     continue;
                 }
             };
@@ -194,19 +199,8 @@ impl BlockDecoder {
         let target = ((seconds.max(0.0) * rate).round() as u64).min(self.total_frames);
         self.position = target;
         self.consecutive_errors = 0;
-        // 目的の位置を含むブロックから、デコードし直す（ブロックは、位置の順に並んでいる）
-        let mut low = 0;
-        let mut high = self.source.block_count();
-        while low < high {
-            let middle = (low + high) / 2;
-            let (start, frames) = self.source.block_range(middle);
-            if start + frames <= target {
-                low = middle + 1;
-            } else {
-                high = middle;
-            }
-        }
-        self.next_block = low;
+        // 目的の位置を含むブロックから、デコードし直す
+        self.next_block = self.source.find_block(target)?;
         self.samples.clear();
         self.samples_start = 0;
         Ok(target as f64 / rate)
@@ -223,6 +217,8 @@ pub(super) mod tests {
         pub channels: usize,
         /// ブロックごとのフレーム数
         pub blocks: Vec<u64>,
+        /// ファイルに書かれた曲の長さ（Noneなら、ブロックの合計）
+        pub declared_frames: Option<u64>,
         /// デコードに失敗させるブロック
         pub broken: Vec<usize>,
         /// デコードしたブロック（呼ばれた順）
@@ -235,6 +231,7 @@ pub(super) mod tests {
                 rate: 1000,
                 channels: 2,
                 blocks: blocks.to_vec(),
+                declared_frames: None,
                 broken: Vec::new(),
                 decoded: Default::default(),
             }
@@ -248,11 +245,23 @@ pub(super) mod tests {
         fn channels(&self) -> usize {
             self.channels
         }
-        fn block_count(&self) -> usize {
-            self.blocks.len()
+        fn total_frames(&self) -> u64 {
+            self.declared_frames
+                .unwrap_or_else(|| self.blocks.iter().sum())
         }
-        fn block_range(&self, index: usize) -> (u64, u64) {
-            (self.blocks[..index].iter().sum(), self.blocks[index])
+        fn block_range(&mut self, index: usize) -> AppResult<Option<(u64, u64)>> {
+            Ok((index < self.blocks.len())
+                .then(|| (self.blocks[..index].iter().sum(), self.blocks[index])))
+        }
+        fn find_block(&mut self, frame: u64) -> AppResult<Option<usize>> {
+            let mut end = 0;
+            for (index, frames) in self.blocks.iter().enumerate() {
+                end += frames;
+                if frame < end {
+                    return Ok(Some(index));
+                }
+            }
+            Ok(None)
         }
         fn decode_block(&mut self, index: usize, out: &mut Vec<f32>) -> AppResult<()> {
             self.decoded.lock().unwrap().push(index);
@@ -260,7 +269,7 @@ pub(super) mod tests {
             if self.broken.contains(&index) {
                 return Err(AppError::Playback("壊れたブロック".to_string()));
             }
-            let (start, frames) = self.block_range(index);
+            let (start, frames) = self.block_range(index)?.unwrap();
             for frame in start..start + frames {
                 for channel in 0..self.channels {
                     let sign = if channel % 2 == 0 { 1.0 } else { -1.0 };
@@ -361,6 +370,23 @@ pub(super) mod tests {
         assert_eq!(read_positions(&mut decoder).len(), 300);
     }
 
+    /// ブロックが、書かれた曲の長さより手前で終わる（途中で切れたファイル）: 読めるブロックまで返す
+    #[test]
+    fn test_track_ends_where_the_blocks_end() {
+        let mut source = CountingSource::new(&[100, 100]);
+        source.declared_frames = Some(300);
+        let mut decoder = BlockDecoder::new(Box::new(source)).unwrap();
+
+        assert_eq!(decoder.duration_seconds(), Some(0.3));
+        assert_eq!(read_positions(&mut decoder), (0..200).collect::<Vec<_>>());
+        assert!(decoder.next_chunk_limited(None).unwrap().is_none());
+        // ブロックのない位置へのシークは、曲の終わり
+        assert_eq!(decoder.seek(0.25).unwrap(), 0.25);
+        assert!(decoder.next_chunk_limited(None).unwrap().is_none());
+        decoder.seek(0.15).unwrap();
+        assert_eq!(read_positions(&mut decoder), (150..200).collect::<Vec<_>>());
+    }
+
     #[test]
     fn test_a_broken_block_becomes_silence_and_playback_continues() {
         let mut source = CountingSource::new(&[100, 100, 100]);
@@ -386,11 +412,14 @@ pub(super) mod tests {
             fn channels(&self) -> usize {
                 1
             }
-            fn block_count(&self) -> usize {
-                2
+            fn total_frames(&self) -> u64 {
+                20
             }
-            fn block_range(&self, index: usize) -> (u64, u64) {
-                (index as u64 * 10, 10)
+            fn block_range(&mut self, index: usize) -> AppResult<Option<(u64, u64)>> {
+                Ok((index < 2).then_some((index as u64 * 10, 10)))
+            }
+            fn find_block(&mut self, frame: u64) -> AppResult<Option<usize>> {
+                Ok((frame < 20).then_some(frame as usize / 10))
             }
             fn decode_block(&mut self, index: usize, out: &mut Vec<f32>) -> AppResult<()> {
                 out.clear();

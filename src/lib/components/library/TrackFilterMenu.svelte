@@ -121,8 +121,9 @@
 <style>
   @reference "../../../app.css";
 
+  /* 幅が狭い時も、ボタンの文字は折り返さない */
   .filter-button {
-    @apply flex items-center gap-1.5 h-9 px-3 bg-base-400 border border-border rounded-md text-sm text-text-muted cursor-pointer transition-colors;
+    @apply flex items-center gap-1.5 h-9 px-3 whitespace-nowrap bg-base-400 border border-border rounded-md text-sm text-text-muted cursor-pointer transition-colors;
   }
 
   .filter-button:hover {

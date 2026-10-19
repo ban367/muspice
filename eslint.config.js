@@ -13,7 +13,7 @@ const NO_SVELTE_STORE = {
 };
 
 // ファイル・フォルダを選ぶダイアログはRust側のコマンドが開き、WebViewはパスを受け取らない
-// （ADR-063）。capabilityでもdialogプラグインのopen・saveを許可していない
+// （ADR-065）。capabilityでもdialogプラグインのopen・saveを許可していない
 const NO_FILE_DIALOG = {
   name: '@tauri-apps/plugin-dialog',
   importNames: ['open', 'save'],
