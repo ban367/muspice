@@ -212,14 +212,28 @@ pub(super) fn import_targets(
 }
 
 /// フォルダの中の音楽ファイルをインポートし、フォルダをライブラリフォルダとして記録する（同期処理）
+///
+/// 読み込まないフォルダ（登録済みのフォルダの除外、新しく登録するフォルダなら直下の既知のアプリの
+/// フォルダ）は、中を読まない（ADR-062）。
 fn import_folder_blocking(
     path: &Path,
     duplicate_action: DuplicateAction,
     state: &AppState,
     on_progress: &dyn Fn(ImportProgress),
 ) -> AppResult<ImportResult> {
+    // 既定の除外はファイルシステムを読むため、DBロックの外で求める
+    let exclusions = match path.to_str() {
+        Some(folder_path) => {
+            let defaults = crate::library_folder::default_exclusions(path);
+            state.with_db(|db| {
+                crate::library_folder::import_exclusions(db, folder_path, &defaults)
+            })?
+        }
+        None => crate::library_folder::ImportExclusions::default(),
+    };
+
     // ディレクトリをスキャン
-    let scanned = scan_directory(path)?;
+    let scanned = scan_directory(path, &exclusions.scan)?;
     let audio_files = &scanned.audio_files;
     let mut result = import_audio_files(audio_files, duplicate_action, state, on_progress)?;
     // 読めなかったフォルダは、取り込めなかったものとして結果に出す
@@ -232,7 +246,9 @@ fn import_folder_blocking(
     // まとめて消さないため）。記録に失敗してもインポート自体は成功しているため、結果は返す
     if !audio_files.is_empty()
         && let Some(folder_path) = path.to_str()
-        && let Err(e) = state.with_db(|db| crate::library_folder::register_folder(db, folder_path))
+        && let Err(e) = state.with_db(|db| {
+            crate::library_folder::register_folder(db, folder_path, &exclusions.to_register)
+        })
     {
         log::error!("ライブラリフォルダの記録に失敗しました: {}", e);
     }
@@ -610,6 +626,49 @@ mod tests {
         assert_eq!(result.imported_count, 2);
         assert_eq!(track_paths(&state).len(), 2);
         assert_eq!(folder_paths(&state), [album.to_str().unwrap()]);
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// フォルダのインポートは、読み飛ばす場所を読まず、直下の既知のアプリのフォルダを、
+    /// 読み込まないフォルダとして記録する
+    #[test]
+    fn test_importing_a_folder_skips_hidden_package_and_app_folders() {
+        let dir = std::env::temp_dir().join(format!("muspice-test-{}", Uuid::new_v4()));
+        let music = dir.join("Music");
+        for path in [
+            "Artist/Album/01.wav",
+            "Artist/Album/._01.wav",
+            ".Trashes/501/a.wav",
+            "Projects/Song.band/Media/b.wav",
+            "Music/Media.localized/Music/c.wav",
+            "MusicBee/Podcasts/Show/d.wav",
+        ] {
+            let path = music.join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            write_wav(&path);
+        }
+        let state = test_state();
+        let targets = ImportTargets::from_paths(std::slice::from_ref(&music));
+
+        let result = import_targets(&state, &targets, DuplicateAction::Skip, &|_| {}).unwrap();
+
+        assert_eq!((result.imported_count, result.error_count), (1, 0));
+        assert_eq!(
+            track_paths(&state),
+            [music.join("Artist/Album/01.wav").to_str().unwrap()]
+        );
+        assert_eq!(folder_paths(&state), [music.to_str().unwrap()]);
+        let exclusions: Vec<String> = state
+            .with_db(|db| {
+                let folder = crate::library_folder::find_all_folders(db)?.remove(0);
+                crate::library_folder::find_exclusions(db, &folder.id)
+            })
+            .unwrap()
+            .into_iter()
+            .map(|exclusion| exclusion.path)
+            .collect();
+        assert_eq!(exclusions, ["Music", "MusicBee"]);
 
         std::fs::remove_dir_all(&dir).unwrap();
     }

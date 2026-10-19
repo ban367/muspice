@@ -101,7 +101,7 @@ sequenceDiagram
     TauriCmd-->>Frontend: ImportResult返却
 ```
 
-インポートしたフォルダは `library_folders` に記録する（ライブラリフォルダ）。
+インポートしたフォルダは `library_folders` に記録する（ライブラリフォルダ）。フォルダの走査（インポート・再スキャン）とフォルダの監視は、隠しフォルダ・ゴミ箱・パッケージと、ライブラリフォルダごとの読み込まないフォルダ（`library_folder_exclusions`）の中を読まない（ADR-062）。
 
 インポートの始め方は4つあり、どれも同じ処理（`commands/import.rs`の`import_paths`）で曲を登録する（ADR-050）。フォルダは中の曲を登録してライブラリフォルダとして記録し、ファイルは曲だけを登録する（フォルダは記録しない）。
 

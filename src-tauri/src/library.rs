@@ -1,8 +1,9 @@
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 use rusqlite::Connection;
+use std::ffi::OsStr;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 /// サポートされている音楽ファイル形式（拡張子）
 ///
@@ -94,17 +95,119 @@ impl ScannedFolder {
 
     /// 読めなかったフォルダを知らせる文（結果のエラーの一覧に足す）
     ///
-    /// 名前が`.`で始まるフォルダは出さない（外付けドライブの`.Trashes`・`.Spotlight-V100`のように、
-    /// OSが管理していて読めないのが普通のフォルダのため）。
+    /// 外付けドライブの`.Trashes`・`.Spotlight-V100`のような、OSが管理していて読めないのが普通の
+    /// フォルダは、隠しフォルダとして読み飛ばすため、ここには入らない（`is_always_skipped`）。
     pub fn unreadable_dir_errors(&self) -> Vec<String> {
         self.unreadable_dirs
             .iter()
-            .filter(|dir| {
-                !dir.file_name()
-                    .is_some_and(|name| name.to_string_lossy().starts_with('.'))
-            })
             .map(|dir| format!("{}: フォルダを読み取れませんでした", dir.display()))
             .collect()
+    }
+}
+
+/// どのライブラリフォルダでも読み飛ばすフォルダの名前（ゴミ箱と、OS・NASが管理するフォルダ）
+///
+/// 大文字と小文字は区別しない（Windows・NASのドライブは区別しないため）。
+const SKIPPED_FOLDER_NAMES: &[&str] = &[
+    // Windowsのゴミ箱（`RECYCLER`は古い版）と、Windowsが管理するフォルダ
+    "$RECYCLE.BIN",
+    "RECYCLER",
+    "System Volume Information",
+    // macOSがネットワークドライブに作るゴミ箱
+    "Network Trash Folder",
+    // NAS（Synology・QNAP）のごみ箱・スナップショット（ライブラリの複製）・サムネイル
+    "#recycle",
+    "#snapshot",
+    "@Recycle",
+    "@eaDir",
+];
+
+/// どのライブラリフォルダでも読み飛ばすフォルダの拡張子（macOSのパッケージ。Finderが1つのファイル
+/// として見せるフォルダ）
+///
+/// 中に音声ファイルを持つもの（GarageBand・Logicのプロジェクト、写真・動画のライブラリなど）と、
+/// アプリ・プラグイン。判定は拡張子の一覧で行い、OSには問い合わせない（ADR-062）。
+const PACKAGE_EXTENSIONS: &[&str] = &[
+    // アプリ・プラグイン
+    "app",
+    "bundle",
+    "framework",
+    "plugin",
+    "component",
+    "vst",
+    "vst3",
+    // 音楽・写真・映像のアプリのプロジェクトとライブラリ
+    "band",
+    "logicx",
+    "logic",
+    "musiclibrary",
+    "tvlibrary",
+    "photoslibrary",
+    "photolibrary",
+    "fcpbundle",
+    "imovielibrary",
+    "theater",
+];
+
+/// 名前から、どのライブラリフォルダでも読み飛ばすものか（隠しフォルダ・ゴミ箱・パッケージ）
+///
+/// 名前が`.`で始まるものは、ファイルも読み飛ばす（macOSが外付けドライブに作る`._曲名.mp3`は、
+/// 曲ではなく、元のファイルの付加情報のため）。パッケージの拡張子は、音楽ファイルの拡張子と
+/// 重ならないため、ファイルにも同じ判定を使う。
+pub fn is_always_skipped(name: &OsStr) -> bool {
+    let name = name.to_string_lossy();
+    if name.starts_with('.') {
+        return true;
+    }
+    if SKIPPED_FOLDER_NAMES
+        .iter()
+        .any(|skipped| skipped.eq_ignore_ascii_case(&name))
+    {
+        return true;
+    }
+    Path::new(name.as_ref())
+        .extension()
+        .and_then(OsStr::to_str)
+        .is_some_and(|extension| {
+            PACKAGE_EXTENSIONS
+                .iter()
+                .any(|package| package.eq_ignore_ascii_case(extension))
+        })
+}
+
+/// フォルダの走査で読み飛ばす場所
+///
+/// どのライブラリフォルダでも読み飛ばすもの（`is_always_skipped`）と、ライブラリフォルダごとの
+/// 除外（読み込まないフォルダ。`library_folder_exclusions`）。
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct ScanExclusions {
+    /// 除外したフォルダ（絶対パス）
+    excluded: Vec<PathBuf>,
+}
+
+impl ScanExclusions {
+    pub fn new(excluded: Vec<PathBuf>) -> Self {
+        Self { excluded }
+    }
+
+    /// 走査で、この項目（ファイルかフォルダ）を読み飛ばすか
+    fn skips_entry(&self, path: &Path, name: &OsStr) -> bool {
+        is_always_skipped(name) || self.excluded.iter().any(|dir| dir == path)
+    }
+
+    /// `root`を走査した時に、`path`（ファイルかフォルダ）が読み飛ばす場所にあるか（`root`の外ならfalse）
+    ///
+    /// 再スキャンで、読み飛ばす場所にある登録済みの曲を比べる対象から外す時と、フォルダの監視で、
+    /// 読み飛ばす場所の中の変更を無視する時に使う。`root`より上のフォルダの名前は見ない
+    /// （利用者が選んだフォルダが隠しフォルダの中にあっても、中は読む）。
+    pub fn skips(&self, root: &Path, path: &Path) -> bool {
+        let Ok(relative) = path.strip_prefix(root) else {
+            return false;
+        };
+        self.excluded.iter().any(|dir| path.starts_with(dir))
+            || relative.components().any(
+                |component| matches!(component, Component::Normal(name) if is_always_skipped(name)),
+            )
     }
 }
 
@@ -113,9 +216,12 @@ impl ScannedFolder {
 /// 中のフォルダを読めなくても、ほかのフォルダの走査は続ける（読めなかったフォルダは
 /// `unreadable_dirs`に入れる）。指定したフォルダそのものを読めない場合は、エラーにする。
 ///
+/// 隠しフォルダ・ゴミ箱・パッケージと、`exclusions`の除外したフォルダは、中をたどらない
+/// （指定したフォルダそのものは、名前によらず読む）。
+///
 /// シンボリックリンクは、たどる（リンクで置いたフォルダの曲も取り込む）。ただし、たどっている
 /// 途中のフォルダへ戻るリンク（親フォルダを指すリンクなど）は、終わらなくなるため、たどらない。
-pub fn scan_directory(dir_path: &Path) -> AppResult<ScannedFolder> {
+pub fn scan_directory(dir_path: &Path, exclusions: &ScanExclusions) -> AppResult<ScannedFolder> {
     let read_error =
         |e: std::io::Error| AppError::Io(format!("ディレクトリの読み取りに失敗しました: {}", e));
     let entries = fs::read_dir(dir_path).map_err(read_error)?;
@@ -126,7 +232,7 @@ pub fn scan_directory(dir_path: &Path) -> AppResult<ScannedFolder> {
         real_path: &real_path,
         parent: None,
     };
-    scan_entries(dir_path, entries, &ancestors, &mut scanned);
+    scan_entries(dir_path, entries, &ancestors, exclusions, &mut scanned);
     Ok(scanned)
 }
 
@@ -188,6 +294,7 @@ fn scan_entries(
     dir_path: &Path,
     entries: fs::ReadDir,
     ancestors: &Ancestors,
+    exclusions: &ScanExclusions,
     scanned: &mut ScannedFolder,
 ) {
     let mark_unreadable = |scanned: &mut ScannedFolder, dir: &Path, e: std::io::Error| {
@@ -207,6 +314,10 @@ fn scan_entries(
             }
         };
         let path = entry.path();
+        // 種類を調べる前に名前で決める（読み飛ばす項目には、ファイルごとの問い合わせをしない）
+        if exclusions.skips_entry(&path, &entry.file_name()) {
+            continue;
+        }
 
         match entry_kind(&entry, ancestors.real_path) {
             Some(EntryKind::Dir { real_path }) => {
@@ -223,7 +334,7 @@ fn scan_entries(
                             real_path: &real_path,
                             parent: Some(ancestors),
                         };
-                        scan_entries(&path, entries, &ancestors, scanned);
+                        scan_entries(&path, entries, &ancestors, exclusions, scanned);
                     }
                     Err(e) => mark_unreadable(scanned, &path, e),
                 }
@@ -440,7 +551,12 @@ mod tests {
 
     /// 走査で見つかったファイルを、フォルダからの相対パスで返す（名前の順）
     fn scanned_paths(root: &Path) -> Vec<String> {
-        let mut paths: Vec<String> = scan_directory(root)
+        scanned_paths_excluding(root, &ScanExclusions::default())
+    }
+
+    /// 除外を指定して走査し、見つかったファイルを、フォルダからの相対パスで返す（名前の順）
+    fn scanned_paths_excluding(root: &Path, exclusions: &ScanExclusions) -> Vec<String> {
+        let mut paths: Vec<String> = scan_directory(root, exclusions)
             .unwrap()
             .audio_files
             .iter()
@@ -466,7 +582,7 @@ mod tests {
     #[test]
     fn test_scan_directory_fails_when_the_folder_cannot_be_read() {
         let dir = TempDir::new();
-        assert!(scan_directory(&dir.path().join("none")).is_err());
+        assert!(scan_directory(&dir.path().join("none"), &ScanExclusions::default()).is_err());
     }
 
     #[cfg(unix)]
@@ -513,7 +629,7 @@ mod tests {
         // 管理者として動かしている場合は、権限がなくても読めるため、確かめられない
         let is_locked = fs::read_dir(dir.path().join("locked")).is_err();
 
-        let scanned = scan_directory(dir.path());
+        let scanned = scan_directory(dir.path(), &ScanExclusions::default());
 
         // 一時フォルダを削除できるように、権限を戻す
         set_mode("locked", 0o755);
@@ -524,10 +640,10 @@ mod tests {
         let scanned = scanned.unwrap();
         assert_eq!(scanned.audio_files, [dir.path().join("a.mp3")]);
         assert!(scanned.is_in_unreadable_dir(&dir.path().join("locked/b.mp3")));
-        assert!(scanned.is_in_unreadable_dir(&dir.path().join(".Trashes/c.mp3")));
         assert!(!scanned.is_in_unreadable_dir(&dir.path().join("a.mp3")));
         assert!(!scanned.is_in_unreadable_dir(&dir.path().join("locked-2/d.mp3")));
-        // 名前が`.`で始まるフォルダは、エラーとしては知らせない
+        // 隠しフォルダは読みに行かないため、読めなくても知らせない
+        assert!(!scanned.is_in_unreadable_dir(&dir.path().join(".Trashes/c.mp3")));
         assert_eq!(
             scanned.unreadable_dir_errors(),
             [format!(
@@ -535,6 +651,91 @@ mod tests {
                 dir.path().join("locked").display()
             )]
         );
+    }
+
+    /// 隠しフォルダ・ゴミ箱・パッケージ・名前が`.`で始まるファイルは、どこでも読み飛ばす
+    #[test]
+    fn test_scan_directory_skips_hidden_trash_and_package_folders() {
+        let dir = TempDir::new();
+        // 選んだフォルダそのものは、名前によらず読む
+        let root = dir.path().join(".music");
+        for path in [
+            "Artist/01.mp3",
+            "Artist/._01.mp3",
+            ".Trashes/501/a.mp3",
+            "Artist/.hidden/b.mp3",
+            "$RECYCLE.BIN/S-1-5-21/c.mp3",
+            "$Recycle.Bin/d.mp3",
+            "System Volume Information/e.mp3",
+            "#recycle/f.mp3",
+            "@eaDir/g.mp3",
+            "GarageBand/Song.band/Media/h.aif",
+            "Logic/Project.logicx/Media/Audio Files/i.wav",
+            "Music/Music Library.musiclibrary/j.mp3",
+            "Plug-ins/Synth.component/Contents/k.wav",
+            // 名前に含むだけのフォルダ・拡張子に似たフォルダは読む
+            "My $RECYCLE.BIN/l.mp3",
+            "Rock.band - Live/m.mp3",
+            "Band/n.mp3",
+        ] {
+            touch(&root.join(path));
+        }
+
+        assert_eq!(
+            scanned_paths(&root),
+            [
+                "Artist/01.mp3",
+                "Band/n.mp3",
+                "My $RECYCLE.BIN/l.mp3",
+                "Rock.band - Live/m.mp3"
+            ]
+        );
+    }
+
+    /// 除外したフォルダは、中をたどらない（名前が同じ、ほかの場所のフォルダは読む）
+    #[test]
+    fn test_scan_directory_skips_excluded_folders() {
+        let dir = TempDir::new();
+        let root = dir.path();
+        for path in [
+            "Artist/01.mp3",
+            "Music/Media.localized/Music/a.m4a",
+            "MusicBee/Podcasts/Show/b.mp3",
+            "Artist/Music/c.mp3",
+        ] {
+            touch(&root.join(path));
+        }
+        let exclusions =
+            ScanExclusions::new(vec![root.join("Music"), root.join("MusicBee/Podcasts")]);
+
+        assert_eq!(
+            scanned_paths_excluding(root, &exclusions),
+            ["Artist/01.mp3", "Artist/Music/c.mp3"]
+        );
+    }
+
+    #[test]
+    fn test_scan_exclusions_skips() {
+        let root = Path::new("/music");
+        let exclusions = ScanExclusions::new(vec![root.join("Music"), root.join("A/Podcasts")]);
+        let skips = |path: &str| exclusions.skips(root, Path::new(path));
+
+        assert!(skips("/music/Music/Media/a.m4a"));
+        assert!(skips("/music/Music"));
+        assert!(skips("/music/A/Podcasts/Show/b.mp3"));
+        assert!(skips("/music/A/.hidden/c.mp3"));
+        assert!(skips("/music/A/._c.mp3"));
+        assert!(skips("/music/GarageBand/Song.band/Media/d.aif"));
+        assert!(skips("/music/$RECYCLE.BIN/e.mp3"));
+        assert!(!skips("/music/A/01.mp3"));
+        assert!(!skips("/music/A/Podcasts2/f.mp3"));
+        assert!(!skips("/music/MusicBee/g.mp3"));
+        // フォルダより上の名前は見ない。フォルダの外はfalse
+        assert!(!ScanExclusions::default().skips(
+            Path::new("/Volumes/.hidden/music"),
+            Path::new("/Volumes/.hidden/music/a.mp3")
+        ));
+        assert!(!skips("/other/.hidden/a.mp3"));
     }
 
     #[test]

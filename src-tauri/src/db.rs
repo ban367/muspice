@@ -249,6 +249,20 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         [],
     )?;
 
+    // ライブラリフォルダの、読み込まないフォルダ（除外。pathはライブラリフォルダからの相対パス）
+    // 隠しフォルダ・ゴミ箱・パッケージは、ここに入れなくても読み飛ばす（`library::is_always_skipped`）
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS library_folder_exclusions (
+            id TEXT PRIMARY KEY,
+            folder_id TEXT NOT NULL,
+            path TEXT NOT NULL,
+            added_at TEXT DEFAULT (datetime('now')),
+            UNIQUE (folder_id, path),
+            FOREIGN KEY (folder_id) REFERENCES library_folders(id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
+
     // 転送先デバイス（SDカードなどのフォルダ。同期する対象をデバイスごとに記録する）
     // デバイス上のファイルの一覧は、デバイス側の管理ファイルに記録する（`device_manifest`）
     conn.execute(
@@ -716,6 +730,7 @@ mod tests {
         assert!(tables.contains(&"playlists".to_string()));
         assert!(tables.contains(&"playlist_tracks".to_string()));
         assert!(tables.contains(&"library_folders".to_string()));
+        assert!(tables.contains(&"library_folder_exclusions".to_string()));
         assert!(tables.contains(&"sync_devices".to_string()));
         assert!(tables.contains(&"sync_device_playlists".to_string()));
 

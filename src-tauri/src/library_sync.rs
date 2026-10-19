@@ -5,14 +5,16 @@
 //! - アプリの起動時（自動反映のどちらかが有効な場合。起動直後の表示を妨げないよう少し待つ）
 //! - 一定の間隔ごと（`library_scan_interval_minutes`）
 //! - フォルダ内のファイルの変更の通知を受けたとき（`watch_library_folders`）。
-//!   短時間に続いた変更はまとめて、変更のあったフォルダだけを再スキャンする
+//!   短時間に続いた変更はまとめて、変更のあったフォルダだけを再スキャンする。読み飛ばす場所
+//!   （隠しフォルダ・ゴミ箱・パッケージ・読み込まないフォルダ）の中だけの変更では、再スキャンしない
 //!
 //! フォルダが見つからない場合（外付けドライブが外れているなど）は何もしない。
 //! ライブラリが変わった場合は、再スキャンの処理が`LibraryChanged`イベントを送る。
 
 use crate::commands::rescan_folder;
-use crate::library::is_supported_audio_file;
-use crate::library_folder::{FolderRecord, find_all_folders, track_path_prefix};
+use crate::error::AppResult;
+use crate::library::{ScanExclusions, is_supported_audio_file};
+use crate::library_folder::{FolderRecord, find_all_folders, scan_exclusions, track_path_prefix};
 use crate::repository::count_tracks_under;
 use crate::settings::{Settings, SettingsState};
 use crate::state::AppState;
@@ -181,17 +183,8 @@ fn create_watcher(app: &AppHandle) -> Option<Debouncer<RecommendedWatcher>> {
     let handler_app = app.clone();
     let handler = move |result: DebounceEventResult| match result {
         Ok(events) => {
-            let has_tracks_under = |path: &Path| has_tracks_under(&handler_app, path);
-            let paths: Vec<PathBuf> = events
-                .into_iter()
-                .map(|event| event.path)
-                .filter(|path| is_relevant_change(path, &ignored, has_tracks_under))
-                .collect();
-            if !paths.is_empty() {
-                rescan_folders(&handler_app, "変更の通知", |folder| {
-                    contains_any(folder, &paths)
-                });
-            }
+            let paths: Vec<PathBuf> = events.into_iter().map(|event| event.path).collect();
+            rescan_changed_folders(&handler_app, &paths, &ignored);
         }
         Err(e) => log::warn!("フォルダの監視でエラーが発生しました: {}", e),
     };
@@ -306,26 +299,59 @@ fn has_tracks_under(app: &AppHandle, path: &Path) -> bool {
         .map_or(true, |count| count > 0)
 }
 
-/// フォルダが、パスのいずれかを含むか
-fn contains_any(folder: &FolderRecord, paths: &[PathBuf]) -> bool {
-    paths.iter().any(|path| path.starts_with(&folder.path))
+/// パスが、フォルダの中の、読み飛ばす場所（隠しフォルダ・ゴミ箱・パッケージ・読み込まないフォルダ）の
+/// 外にあるか
+///
+/// ほかのアプリが書き込み続けるフォルダ（ミュージックのライブラリなど）を、読み込まないフォルダに
+/// していれば、その変更で再スキャンしないため。
+fn is_change_in(folder: &FolderRecord, exclusions: &ScanExclusions, path: &Path) -> bool {
+    let root = Path::new(&folder.path);
+    path.starts_with(root) && !exclusions.skips(root, path)
+}
+
+/// 変更の通知を受けたパスのうち、ライブラリに影響しうるものがあるフォルダを再スキャンする
+fn rescan_changed_folders(app: &AppHandle, paths: &[PathBuf], ignored: &[PathBuf]) {
+    // なくなったパスの判定（DBへの問い合わせ）は、読み飛ばす場所の外のものだけにする
+    let has_tracks_under = |path: &Path| has_tracks_under(app, path);
+    rescan_folders(app, "変更の通知", |folder, exclusions| {
+        paths.iter().any(|path| {
+            is_change_in(folder, exclusions, path)
+                && is_relevant_change(path, ignored, has_tracks_under)
+        })
+    });
 }
 
 /// すべてのライブラリフォルダを再スキャンする
 fn rescan_all_folders(app: &AppHandle, reason: &str) {
-    rescan_folders(app, reason, |_| true);
+    rescan_folders(app, reason, |_, _| true);
 }
 
-/// 条件に合うライブラリフォルダを再スキャンする
-fn rescan_folders(app: &AppHandle, reason: &str, filter: impl Fn(&FolderRecord) -> bool) {
-    let folders = match app.state::<AppState>().with_db(|db| find_all_folders(db)) {
+/// 条件に合うライブラリフォルダを再スキャンする（条件には、フォルダの読み飛ばす場所も渡す）
+fn rescan_folders(
+    app: &AppHandle,
+    reason: &str,
+    filter: impl Fn(&FolderRecord, &ScanExclusions) -> bool,
+) {
+    let folders = app.state::<AppState>().with_db(|db| {
+        find_all_folders(db)?
+            .into_iter()
+            .map(|folder| {
+                let exclusions = scan_exclusions(db, &folder)?;
+                Ok((folder, exclusions))
+            })
+            .collect::<AppResult<Vec<_>>>()
+    });
+    let folders = match folders {
         Ok(folders) => folders,
         Err(e) => {
             log::error!("ライブラリフォルダを取得できませんでした: {}", e);
             return;
         }
     };
-    for folder in folders.iter().filter(|folder| filter(folder)) {
+    for (folder, _) in folders
+        .iter()
+        .filter(|(folder, exclusions)| filter(folder, exclusions))
+    {
         rescan_quietly(app, folder, reason);
     }
 }
@@ -366,15 +392,31 @@ mod tests {
     }
 
     #[test]
-    fn test_contains_any_matches_whole_components() {
-        let paths = [
-            PathBuf::from("/music/rock/album/01.mp3"),
-            // 名前の先頭が同じだけのフォルダは含まない
-            PathBuf::from("/music/jazz-live/01.mp3"),
-        ];
+    fn test_is_change_in_matches_whole_components() {
+        let none = ScanExclusions::default();
+        let change_in = |folder_path: &str, path: &str| {
+            is_change_in(&folder(folder_path), &none, Path::new(path))
+        };
 
-        assert!(contains_any(&folder("/music/rock"), &paths));
-        assert!(!contains_any(&folder("/music/jazz"), &paths));
+        assert!(change_in("/music/rock", "/music/rock/album/01.mp3"));
+        // 名前の先頭が同じだけのフォルダは含まない
+        assert!(!change_in("/music/jazz", "/music/jazz-live/01.mp3"));
+    }
+
+    /// 読み飛ばす場所（読み込まないフォルダ・隠しフォルダ・パッケージ）の中の変更では、再スキャンしない
+    #[test]
+    fn test_is_change_in_ignores_skipped_locations() {
+        let music = folder("/music");
+        let exclusions = ScanExclusions::new(vec![PathBuf::from("/music/Music")]);
+        let change_in = |path: &str| is_change_in(&music, &exclusions, Path::new(path));
+
+        assert!(change_in("/music/Artist/01.mp3"));
+        assert!(change_in("/music/Artist"));
+        assert!(!change_in("/music/Music/Media.localized/Music/a.m4a"));
+        assert!(!change_in("/music/Music"));
+        assert!(!change_in("/music/GarageBand/Song.band/Media/b.aif"));
+        assert!(!change_in("/music/Artist/.DS_Store"));
+        assert!(!change_in("/music/Artist/._01.mp3"));
     }
 
     #[test]
