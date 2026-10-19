@@ -97,7 +97,7 @@ src-tauri/src/
 │   ├── engine.rs          # エンジン本体（コマンドの処理・曲の切り替え・再生位置の通知）
 │   ├── decoder.rs         # ファイルのデコード（symphonia + libopus。WavPack・APEはblock_decoderへ振り分ける）
 │   ├── block_decoder.rs   # ブロックごとにデコードする形式の共通の処理（位置・シーク・壊れたブロックの扱い。ADR-047）
-│   ├── wavpack.rs         # WavPackのデコード（wavicle）
+│   ├── wavpack.rs         # WavPackのデコード（wavicle。ブロックをファイルから順に読む）
 │   ├── ape.rs             # APE（Monkey's Audio）のデコード（ape-decoder）
 │   ├── mp4_gapless.rs     # M4AのAACの、曲の頭と終わりの余分の読み取り
 │   ├── convert.rs         # 出力の形式（ステレオ・出力のサンプルレート）への変換

@@ -119,6 +119,18 @@ impl ApeSource {
     }
 }
 
+impl ApeSource {
+    /// フレーム（ブロック）の範囲（曲の頭からの、先頭のフレームの位置と、フレーム数）
+    fn range(&self, index: usize) -> (u64, u64) {
+        let start = index as u64 * self.frames_per_block;
+        (
+            start,
+            self.frames_per_block
+                .min(self.total_frames.saturating_sub(start)),
+        )
+    }
+}
+
 impl BlockSource for ApeSource {
     fn sample_rate(&self) -> u32 {
         self.sample_rate
@@ -132,17 +144,26 @@ impl BlockSource for ApeSource {
         self.bits_per_sample
     }
 
-    fn block_count(&self) -> usize {
-        self.block_count
+    fn total_frames(&self) -> u64 {
+        match self.block_count {
+            0 => 0,
+            count => {
+                let (start, frames) = self.range(count - 1);
+                start + frames
+            }
+        }
     }
 
-    fn block_range(&self, index: usize) -> (u64, u64) {
-        let start = index as u64 * self.frames_per_block;
-        (
-            start,
-            self.frames_per_block
-                .min(self.total_frames.saturating_sub(start)),
-        )
+    fn block_range(&mut self, index: usize) -> AppResult<Option<(u64, u64)>> {
+        Ok((index < self.block_count).then(|| self.range(index)))
+    }
+
+    fn find_block(&mut self, frame: u64) -> AppResult<Option<usize>> {
+        if frame >= self.total_frames() || self.frames_per_block == 0 {
+            return Ok(None);
+        }
+        let index = (frame / self.frames_per_block) as usize;
+        Ok((index < self.block_count).then_some(index))
     }
 
     fn decode_block(&mut self, index: usize, out: &mut Vec<f32>) -> AppResult<()> {
@@ -211,19 +232,22 @@ mod tests {
 
     #[test]
     fn test_reads_the_format_and_the_frames() {
-        let source = ApeSource::open(&fixture("monkey.ape")).unwrap();
+        let mut source = ApeSource::open(&fixture("monkey.ape")).unwrap();
         assert_eq!(source.sample_rate(), 44_100);
         assert_eq!(source.channels(), 1);
         assert_eq!(source.format, SampleFormat::Int16);
         // 0.5秒の音源は、1フレームに収まる
-        assert_eq!(source.block_count(), 1);
-        assert_eq!(source.block_range(0), (0, 22_050));
+        assert_eq!(source.total_frames(), 22_050);
+        assert_eq!(source.block_range(0).unwrap(), Some((0, 22_050)));
+        assert_eq!(source.block_range(1).unwrap(), None);
+        assert_eq!(source.find_block(22_049).unwrap(), Some(0));
+        assert_eq!(source.find_block(22_050).unwrap(), None);
 
-        let source = ApeSource::open(&fixture("monkey24.ape")).unwrap();
+        let mut source = ApeSource::open(&fixture("monkey24.ape")).unwrap();
         assert_eq!(source.sample_rate(), 48_000);
         assert_eq!(source.channels(), 2);
         assert_eq!(source.format, SampleFormat::Int24);
-        assert_eq!(source.block_range(0), (0, 24_000));
+        assert_eq!(source.block_range(0).unwrap(), Some((0, 24_000)));
     }
 
     #[test]
