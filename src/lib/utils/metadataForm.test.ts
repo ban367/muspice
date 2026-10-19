@@ -1,21 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { Metadata } from '#lib/types/models.js';
+import { i18n } from '#lib/i18n/i18n.svelte.js';
 import {
-  NUMBER_FIELDS,
-  TEXT_FIELDS,
   emptyForm,
   formFromTags,
   metadataFromForm,
   suggestionsFor,
   validateForm,
-  type MetadataForm,
-  type NumberField,
-  type TextField
+  type MetadataForm
 } from './metadataForm.js';
-
-const labels = Object.fromEntries(
-  [...TEXT_FIELDS, ...NUMBER_FIELDS].map((field) => [field, field])
-) as Record<TextField | NumberField, string>;
 
 const tags: Metadata = {
   title: 'タイトル',
@@ -120,9 +113,13 @@ describe('metadataFromForm', () => {
 });
 
 describe('validateForm', () => {
+  afterEach(() => {
+    i18n.language = 'ja';
+  });
+
   it('範囲の中の入力は、誤りなし', () => {
-    expect(validateForm(formFromTags(tags), labels)).toEqual([]);
-    expect(validateForm(emptyForm(), labels)).toEqual([]);
+    expect(validateForm(formFromTags(tags))).toEqual([]);
+    expect(validateForm(emptyForm())).toEqual([]);
   });
 
   it('数値の範囲の外・整数でない入力は、誤りにする', () => {
@@ -135,14 +132,22 @@ describe('validateForm', () => {
       trackTotal: 'abc'
     };
 
-    expect(validateForm(form, labels)).toHaveLength(5);
+    expect(validateForm(form)).toHaveLength(5);
   });
 
   it('長すぎる文字列は、誤りにする（文字数で数える）', () => {
     const form: MetadataForm = { ...emptyForm(), genre: 'あ'.repeat(100), title: '🎵'.repeat(255) };
-    expect(validateForm(form, labels)).toEqual([]);
+    expect(validateForm(form)).toEqual([]);
 
-    expect(validateForm({ ...form, genre: 'あ'.repeat(101) }, labels)).toHaveLength(1);
+    expect(validateForm({ ...form, genre: 'あ'.repeat(101) })).toHaveLength(1);
+  });
+
+  it('誤りの文言の項目名は、今の言語の項目名にする', () => {
+    const form: MetadataForm = { ...emptyForm(), year: '999' };
+    expect(validateForm(form)).toEqual(['年は1000から9999の整数で指定してください']);
+
+    i18n.language = 'en';
+    expect(validateForm(form)).toEqual(['Year must be a whole number between 1000 and 9999']);
   });
 });
 

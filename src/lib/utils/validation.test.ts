@@ -1,13 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  combineValidationResults,
-  toSafeInteger,
-  toSafeString,
-  validateFieldLength,
-  validatePlaylistName,
-  validateTrackNumber,
-  validateYear
-} from './validation';
+import { toSafeString, validatePlaylistName } from './validation';
 
 describe('validatePlaylistName', () => {
   it('通常の名前は有効', () => {
@@ -33,60 +25,11 @@ describe('validatePlaylistName', () => {
   });
 });
 
-describe('validateYear / validateTrackNumber', () => {
-  it('未入力は有効', () => {
-    expect(validateYear(null).valid).toBe(true);
-    expect(validateTrackNumber(undefined).valid).toBe(true);
-  });
-
-  it('範囲の境界を判定する', () => {
-    expect(validateYear(1000).valid).toBe(true);
-    expect(validateYear(9999).valid).toBe(true);
-    expect(validateYear(999).valid).toBe(false);
-    expect(validateTrackNumber(1).valid).toBe(true);
-    expect(validateTrackNumber(999).valid).toBe(true);
-    expect(validateTrackNumber(0).valid).toBe(false);
-  });
-
-  it('NaNは無効', () => {
-    expect(validateYear(NaN).valid).toBe(false);
-    expect(validateTrackNumber(NaN).valid).toBe(false);
-  });
-});
-
-describe('validateFieldLength', () => {
-  it('上限を超えると現在の文字数を含むエラーを返す', () => {
-    const result = validateFieldLength('abcd', 'タイトル', 3);
-    expect(result.valid).toBe(false);
-    expect(result.error).toContain('タイトルは3文字以内');
-    expect(result.error).toContain('現在: 4文字');
-  });
-});
-
-describe('combineValidationResults', () => {
-  it('無効な結果のエラーだけを集める', () => {
-    expect(
-      combineValidationResults([
-        { valid: true },
-        { valid: false, error: 'A' },
-        { valid: false, error: 'B' }
-      ])
-    ).toEqual({ valid: false, errors: ['A', 'B'] });
-  });
-});
-
-describe('toSafeString / toSafeInteger', () => {
+describe('toSafeString', () => {
   it('null・undefinedは空文字にし、長さを切り詰める', () => {
     expect(toSafeString(null)).toBe('');
     expect(toSafeString(undefined)).toBe('');
     expect(toSafeString('abcdef', 3)).toBe('abc');
     expect(toSafeString(42)).toBe('42');
-  });
-
-  it('整数に変換できない値は既定値を返す', () => {
-    expect(toSafeInteger('12')).toBe(12);
-    expect(toSafeInteger('12.9')).toBe(12);
-    expect(toSafeInteger('abc', 7)).toBe(7);
-    expect(toSafeInteger(undefined)).toBe(0);
   });
 });

@@ -6,85 +6,6 @@
 import { m } from '#lib/i18n/i18n.svelte.js';
 
 /**
- * 文字列をサニタイズ（XSS対策）
- */
-export function sanitizeString(input: string): string {
-  if (!input) return '';
-
-  // HTMLエンティティをエスケープ
-  return input
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#x27;')
-    .replace(/\//g, '&#x2F;');
-}
-
-/**
- * 年をバリデーション
- */
-export function validateYear(year: number | null | undefined): { valid: boolean; error?: string } {
-  if (year === null || year === undefined) {
-    return { valid: true };
-  }
-
-  if (typeof year !== 'number' || isNaN(year)) {
-    return { valid: false, error: m.validation.yearNotNumber };
-  }
-
-  if (year < 1000 || year > 9999) {
-    return { valid: false, error: m.validation.yearOutOfRange };
-  }
-
-  return { valid: true };
-}
-
-/**
- * トラック番号をバリデーション
- */
-export function validateTrackNumber(trackNumber: number | null | undefined): {
-  valid: boolean;
-  error?: string;
-} {
-  if (trackNumber === null || trackNumber === undefined) {
-    return { valid: true };
-  }
-
-  if (typeof trackNumber !== 'number' || isNaN(trackNumber)) {
-    return { valid: false, error: m.validation.trackNumberNotNumber };
-  }
-
-  if (trackNumber < 1 || trackNumber > 999) {
-    return { valid: false, error: m.validation.trackNumberOutOfRange };
-  }
-
-  return { valid: true };
-}
-
-/**
- * メタデータフィールドの長さをバリデーション
- */
-export function validateFieldLength(
-  value: string | null | undefined,
-  fieldName: string,
-  maxLength: number = 255
-): { valid: boolean; error?: string } {
-  if (!value) {
-    return { valid: true };
-  }
-
-  if (value.length > maxLength) {
-    return {
-      valid: false,
-      error: m.validation.tooLong(fieldName, maxLength, value.length)
-    };
-  }
-
-  return { valid: true };
-}
-
-/**
  * 検索クエリをサニタイズ（SQLインジェクション対策）
  */
 export function sanitizeSearchQuery(query: string): string {
@@ -133,34 +54,6 @@ export function validatePlaylistFolderName(name: string): string | null {
 
 /** プレイリストの説明の長さの上限（文字数。Rustの`MAX_PLAYLIST_DESCRIPTION_LENGTH`と同じ） */
 export const MAX_PLAYLIST_DESCRIPTION_LENGTH = 1000;
-
-/**
- * 複数のバリデーション結果を統合
- */
-export function combineValidationResults(results: Array<{ valid: boolean; error?: string }>): {
-  valid: boolean;
-  errors: string[];
-} {
-  const errors = results.filter((r) => !r.valid && r.error).map((r) => r.error!);
-
-  return {
-    valid: errors.length === 0,
-    errors
-  };
-}
-
-/**
- * 入力値を安全な整数に変換
- */
-export function toSafeInteger(value: unknown, defaultValue: number = 0): number {
-  const parsed = parseInt(String(value), 10);
-
-  if (isNaN(parsed) || !isFinite(parsed)) {
-    return defaultValue;
-  }
-
-  return parsed;
-}
 
 /**
  * 入力値を安全な文字列に変換

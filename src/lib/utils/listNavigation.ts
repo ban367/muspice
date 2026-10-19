@@ -91,3 +91,43 @@ export function listSelectionTarget(
   event.preventDefault();
   return target;
 }
+
+/** 項目を開ける一覧で、キーを押した時に行う操作（`openableListAction`の結果） */
+export type OpenableListAction = { type: 'open'; index: number } | { type: 'move'; index: number };
+
+/**
+ * 現在位置の項目を開ける一覧（ライブラリのグリッドなど）のキーボード操作
+ *
+ * 一覧の要素の`onkeydown`から呼ぶ。矢印キー（グリッドでは上下左右、リストでは上下）・Home・Endで
+ * 現在位置を移し、Enterで現在位置の項目を開く。修飾キーを押している場合・扱わないキーの場合は
+ * 何もしない。項目の中のボタン・リンク（再生ボタンなど）でのEnterは、そのボタンの操作を優先する。
+ * 扱うキーでは、既定の動作（一覧のスクロールなど）を止める。
+ * @param event - キーイベント
+ * @param current - 現在位置（ない場合は-1）
+ * @param count - 項目の数
+ * @param columns - グリッドの列数（リストではnull）
+ * @returns 行う操作（呼び出し側で、その位置の項目を開く・現在位置にして見える位置へ出す）。
+ *   扱わないキーの場合はnull
+ */
+export function openableListAction(
+  event: KeyboardEvent,
+  current: number,
+  count: number,
+  columns: number | null
+): OpenableListAction | null {
+  if (event.defaultPrevented) return null;
+  if (event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return null;
+
+  if (event.key === 'Enter') {
+    if (event.target instanceof Element && event.target.closest('button, a')) return null;
+    if (current < 0 || current >= count) return null;
+    event.preventDefault();
+    return { type: 'open', index: current };
+  }
+
+  const target = navigationTarget(event.key, current, count, columns);
+  if (target === null) return null;
+
+  event.preventDefault();
+  return { type: 'move', index: target };
+}

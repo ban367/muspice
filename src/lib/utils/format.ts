@@ -76,15 +76,6 @@ export function formatDateTime(dateString: string | null): string {
 }
 
 /**
- * 曲数をフォーマット
- * @param count - 曲数
- * @returns フォーマットされた文字列 (例: "12曲")
- */
-export function formatTrackCount(count: number): string {
-  return m.common.trackCount(count);
-}
-
-/**
  * 時刻を「時:分」でフォーマット（表示の言語と、表示している環境のタイムゾーンに合わせる）
  */
 export function formatTime(date: Date): string {

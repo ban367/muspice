@@ -13,7 +13,12 @@
     MenuSeparator
   } from '#lib/components/ui/index.js';
   import type { TrackListView } from '#lib/stores/trackListView.svelte.js';
-  import { TRACK_COLUMN_IDS, toggleColumn, type TrackColumnId } from '#lib/utils/trackColumns.js';
+  import {
+    TRACK_COLUMN_IDS,
+    toggleColumn,
+    trackColumnLabel,
+    type TrackColumnId
+  } from '#lib/utils/trackColumns.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   interface Props {
@@ -23,12 +28,10 @@
     view: TrackListView;
     /** 並び順を持つ設定（列と同じ単位で覚える場合は、`view`と同じもの） */
     sortView: TrackListView;
-    /** 列の表示名 */
-    labels: Record<TrackColumnId, string>;
     onClose: () => void;
   }
 
-  let { x, y, view, sortView, labels, onClose }: Props = $props();
+  let { x, y, view, sortView, onClose }: Props = $props();
 
   // 列が既定のままか（並び順を別に持つ場合、`view`の並び順は使っていない）
   const isDefaultColumns = $derived(view === sortView ? view.isDefault : view.isDefaultColumns);
@@ -49,7 +52,7 @@
       onCheckedChange={() => (view.columns = toggleColumn(view.columns, column))}
       disabled={isVisible(column) && view.columns.length === 1}
     >
-      {labels[column]}
+      {trackColumnLabel(column)}
     </MenuCheckboxItem>
   {/each}
 

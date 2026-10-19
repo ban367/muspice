@@ -2,6 +2,7 @@
   import type { Snippet } from 'svelte';
   import CardSizeSlider from './CardSizeSlider.svelte';
   import { useRefreshLibraryMetadataMutation } from '#lib/queries/tracks.js';
+  import { showSuccess, showWarning } from '#lib/stores/error.svelte.js';
   import { confirmDestructive } from '#lib/utils/dialog.svelte.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
@@ -77,9 +78,16 @@
 
     try {
       const result = await refreshMutation.mutateAsync();
-      alert(
-        m.notices.metadataRefreshed(result.updatedCount, result.skippedCount, result.errorCount)
+      const summary = m.notices.metadataRefreshed(
+        result.updatedCount,
+        result.skippedCount,
+        result.errorCount
       );
+      if (result.errorCount > 0) {
+        showWarning(summary);
+      } else {
+        showSuccess(summary);
+      }
     } catch {
       // 失敗はミューテーション内でトースト通知済み
     }

@@ -34,6 +34,7 @@
     TRACK_COLUMNS,
     moveColumn,
     trackCellText,
+    trackColumnLabel,
     type TrackColumnId
   } from '#lib/utils/trackColumns.js';
   import { VirtualList } from '#lib/components/ui/index.js';
@@ -148,29 +149,6 @@
   let dropTargetId = $state<string | null>(null);
   // 下へ動かしているか（落とした行の後ろに入るため、線を行の下に出す）
   let dropAfter = $state(false);
-
-  const columnLabels: Record<TrackColumnId, string> = {
-    title: m.fields.title,
-    artist: m.fields.artist,
-    album: m.fields.album,
-    albumArtist: m.fields.albumArtist,
-    genre: m.fields.genre,
-    year: m.fields.year,
-    trackNumber: m.fields.trackNumber,
-    discNumber: m.fields.discNumber,
-    favorite: m.fields.favorite,
-    rating: m.fields.rating,
-    playCount: m.fields.playCount,
-    skipCount: m.fields.skipCount,
-    lastPlayedAt: m.fields.lastPlayedAt,
-    createdAt: m.fields.createdAt,
-    duration: m.fields.duration,
-    format: m.fields.format,
-    bitrate: m.fields.bitrate,
-    sampleRate: m.fields.sampleRate,
-    fileSize: m.fields.fileSize,
-    filePath: m.fields.filePath
-  };
 
   // 見えている行だけを描画する一覧（リスト表示・グリッド表示のどちらか）
   let virtualList = $state<VirtualList<Track>>();
@@ -530,11 +508,11 @@
                   <button
                     class="sortable"
                     onclick={() => toggleSort(column)}
-                    title={columnLabels[column]}
-                    aria-label={columnLabels[column]}
+                    title={trackColumnLabel(column)}
+                    aria-label={trackColumnLabel(column)}
                   >
                     <span class="truncate">
-                      {column === 'favorite' ? '♥' : columnLabels[column]}
+                      {column === 'favorite' ? '♥' : trackColumnLabel(column)}
                     </span>
                     {getSortIcon(column)}
                   </button>
@@ -737,7 +715,6 @@
     y={columnMenu.y}
     {view}
     {sortView}
-    labels={columnLabels}
     onClose={() => (columnMenu = null)}
   />
 {/if}

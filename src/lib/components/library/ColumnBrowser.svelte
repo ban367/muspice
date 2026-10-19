@@ -32,17 +32,18 @@
   const ALL = Symbol('all');
   type Row = BrowserItem | typeof ALL;
 
-  const titles: Record<BrowserColumn, string> = {
+  // 言語を切り替えると変わるよう、`$derived`で作る
+  const titles = $derived<Record<BrowserColumn, string>>({
     genres: m.fields.genre,
     artists: m.fields.artist,
     albums: m.fields.album
-  };
+  });
 
-  const unknownNames: Record<BrowserColumn, string> = {
+  const unknownNames = $derived<Record<BrowserColumn, string>>({
     genres: m.common.unknownGenre,
     artists: m.common.unknownArtist,
     albums: m.common.unknownAlbum
-  };
+  });
 
   const rowsOf = (column: BrowserColumn): Row[] => [ALL, ...result[column]];
 

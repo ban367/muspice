@@ -237,6 +237,7 @@ src-tauri/src/
   - 引数のある文言は関数にし、語順や単数形・複数形は言語ごとの関数で決める（文字列をつなげて文を作らない）
   - コンソールのログ（`console.*`）・Rustのログは日本語のまま（利用者に表示しない）
 - `m`は読むたびに今の言語のメッセージを返す。テンプレート・`$derived`・イベント処理の中で読む。スクリプトの初期化時に文字列として取り出すと、言語を切り替えても変わらない（選択肢は値の配列にして、ラベルをテンプレートで`m`から読む。propsの既定値に文言を書かず、テンプレートで`??`で補う）
+  - 項目の名前は、項目のIDから表示名への対応表をコンポーネントに作らず、`m.fields[id]`をテンプレートで読む（曲の一覧の列は`#lib/utils/trackColumns`の`trackColumnLabel`）。イコライザのビルトインのプリセットの名前も、表示の言語に合わせる（`m.equalizer.presets`）
 - 日付・数値の書式は`i18n.locale`（例: `ja-JP`）を使う（`#lib/utils/format`）
 - 言語は設定の`language`。メインウィンドウは`SettingsSync`、設定ウィンドウは設定画面が`applyLanguage`で反映し、設定を読み込むまでの間は`restoreLanguage`で前回の言語を使う
 - エラー: `toErrorMessage`はcodeごとの汎用メッセージ（`m.errors.byCode`）を使う。日本語では、`NOT_FOUND`・`VALIDATION`はバックエンドの日本語のメッセージをそのまま表示し、英語では汎用メッセージにする（バックエンドのメッセージは日本語のため）
@@ -246,7 +247,7 @@ src-tauri/src/
 
 - 一覧では、矢印キーを押しても一覧をスクロールさせず、選択している項目から隣の項目へ選択を移す（移動先が画面の外なら、見える位置までスクロールする）。移動先の計算は`#lib/utils/listNavigation`の`navigationTarget`（リストは↑↓、グリッドは上下左右、Home・End）で行う
 - 曲の一覧（`TrackList`）のリスト表示の列は、`#lib/utils/trackColumns`の定義（`TRACK_COLUMN_IDS`・`TRACK_COLUMNS`）から描画する（ADR-038）
-  - 列を足す時は、`TRACK_COLUMN_IDS`・`TRACK_COLUMNS`（幅・そろえ方）・`trackCellText`（セルの文字列）・`trackSort`の`sortKey`（並べ替えの値）と、見出しの表示名（`m.fields`）を足す。どの列も並べ替えられる
+  - 列を足す時は、`TRACK_COLUMN_IDS`・`TRACK_COLUMNS`（幅・そろえ方）・`trackCellText`（セルの文字列）・`trackSort`の`sortKey`（並べ替えの値）と、見出しの表示名（`m.fields`。列のIDと同じキーで、`trackColumnLabel`が読む）を足す。どの列も並べ替えられる
   - 表示する列・列の順番・並び順は、画面ごとに`#lib/stores/trackListView.svelte`の`trackListView(viewId, defaults)`が覚える（localStorageの`muspice:trackListView:<viewId>`）。一覧を置く画面は、`TrackList`に`viewId`と、その画面の既定（`defaultColumns`・`defaultSort`）を渡す。列の幅は、どの画面でも共通で`ui.columnWidths`に持つ
   - プレイリストの画面も`TrackList`で表示する（ADR-039）。`onReorder`を渡すと、渡した順のまま並べている間（並び順がnullの間）だけ、行のドラッグで並べ替えられる（並べ替えの計算は`#lib/utils/reorder`の`moveItems`）。`onRemove`を渡すと、右クリックのメニューとDeleteキーで、選択した曲を一覧から外せる。列はどのプレイリストでも共通（`viewId="playlist"`）、並び順はプレイリストごと（`sortViewId`に`playlistSortViewId(id)`）に覚える
   - 再生中の曲へのジャンプは、`ui.revealTrackId`に曲のIDを入れる。その曲を含む`TrackList`が、行までスクロールして選び、nullに戻す。開いている画面の一覧にない場合は、プレーヤーが全曲の一覧（`isRevealFallback`を付けた`TrackList`）へ移動する
@@ -258,6 +259,7 @@ src-tauri/src/
 - 1つだけ選択する一覧（2ペイン表示の左の`AlbumList`・`ArtistList`）は、`listSelectionTarget`で移動先を求めて選択し、その項目へフォーカスも移す（Tabでは選択中の項目だけに止まる）
 - グリッド表示（`LibraryGrid`: アルバム・アーティスト・ジャンル）は、現在位置の項目を枠で示し、Enterでクリックと同じ操作（`onOpen`）を行う
   - 矢印キーで現在位置を移すと`onNavigate`を呼ぶ。アルバム・アーティストのグリッドは、情報パネルを開いている間だけ、表示する項目を移した先に入れ替える（`ui.followInfo`。閉じている間は開かない）。カードのクリック・Enterは`ui.showInfo`で情報パネルを開く（ADR-063）
+  - キーの扱い（移動・Enter・修飾キーやカードの中のボタンでは何もしない）は`#lib/utils/listNavigation`の`openableListAction`にまとめる。`LibraryGrid`を使わないグリッド（最近追加した曲。アルバムと曲のカードが混ざり、メニューもカードの種類で変わる）も、これと同じ形（一覧を`role="listbox"`、カードを包む項目を`role="option"`の`grid-item`）にする。最近追加した曲の曲のカードは、開く先がないため、Enterで再生する（曲の一覧のEnterと同じ）
 - 修飾キーなしの矢印キーは一覧が使う。プレーヤーのショートカット（`Player.svelte`）はCmd/Ctrl+矢印（前へ・次へ・音量）・Cmd/Ctrl+L（再生中の曲を表示）と、Space（再生・一時停止）・S（シャッフル）・R（リピート）・M（ミュート）
   - プレーヤーはウィンドウでキーを受け取るため、フォーカスのある要素がキーを使う場合はショートカットを行わない。条件は`#lib/utils/globalShortcuts`の`isGlobalShortcutBlocked`にまとめる
   - ほかの処理が処理したキー（`defaultPrevented`）と、入力の部品（input・textarea・select）・編集できる要素の中、モーダル（`<dialog open>`）が開いている間は、どのショートカットも行わない（モーダルの間は背面の画面と同じく操作できなくする。Cmd/Ctrl+Lで背面の画面を移動しないように）
@@ -275,7 +277,7 @@ src-tauri/src/
 - モーダルは`#lib/components/ui`の`Modal`（ネイティブの`<dialog>`を`showModal()`で表示）を使い、背景のdivや`svelte-ignore`で独自に実装しない。Escキー・背面の操作の無効化（フォーカスの閉じ込め）・閉じた後のフォーカスの復帰はブラウザに任せる
   - 表示状態は呼び出し側が持ち、閉じる操作で呼ばれる`onClose`で`open`をfalseにする。処理中は`dismissible={false}`で閉じさせない
   - 最大幅は`class`（例: `max-w-md`）で指定する。最初にフォーカスする要素には`data-autofocus`を付ける
-- `window.confirm` / `window.prompt`は使わない（ESLintで禁止）。確認は`#lib/utils/dialog`の`confirmDestructive`、テキスト入力は`promptText`を`await`する
+- `window.confirm` / `window.prompt` / `window.alert`は使わない（ESLintで禁止）。確認は`#lib/utils/dialog`の`confirmDestructive`、テキスト入力は`promptText`を`await`する。操作の結果は、ほかの通知と同じくトースト（`#lib/stores/error.svelte`の`showSuccess`・失敗を含む時は`showWarning`）で出す
   - `confirm`はdialogプラグインにより非同期化されており、同期的に呼ぶと常にtrue扱いになる
   - `prompt`はmacOSのWebView（wry）が実装しておらず、常にnullを返す
 - コンテキストメニューからダイアログを開く場合は、使う値を取り出してからメニューを閉じ、その後で`await`する（ダイアログの操作でメニューのコンポーネントが破棄され、`await`後にpropsを読むと失敗するため）

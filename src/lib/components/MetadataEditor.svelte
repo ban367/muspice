@@ -55,9 +55,10 @@
   // svelte-ignore state_referenced_locally
   const track = tracks[0];
   // svelte-ignore state_referenced_locally
-  const dialogTitle = isSingleEdit
-    ? m.metadataEditor.editTitle
-    : m.metadataEditor.bulkEditTitle(tracks.length);
+  const trackCount = tracks.length;
+  const dialogTitle = $derived(
+    isSingleEdit ? m.metadataEditor.editTitle : m.metadataEditor.bulkEditTitle(trackCount)
+  );
 
   type Tab = 'tags' | 'sort' | 'lyrics' | 'file';
   const tabs: Tab[] = ['tags', 'sort', 'lyrics', 'file'];
@@ -85,28 +86,6 @@
   let isSaving = $state(false);
   const canEdit = $derived(formLoaded && !isSaving);
 
-  const labels: Record<TextField | NumberField, string> = {
-    title: m.fields.title,
-    artist: m.fields.artist,
-    album: m.fields.album,
-    albumArtist: m.fields.albumArtist,
-    composer: m.fields.composer,
-    genre: m.fields.genre,
-    grouping: m.fields.grouping,
-    comment: m.fields.comment,
-    lyrics: m.fields.lyrics,
-    titleSort: m.fields.titleSort,
-    artistSort: m.fields.artistSort,
-    albumArtistSort: m.fields.albumArtistSort,
-    albumSort: m.fields.albumSort,
-    year: m.fields.year,
-    trackNumber: m.fields.trackNumber,
-    trackTotal: m.fields.trackTotal,
-    discNumber: m.fields.discNumber,
-    discTotal: m.fields.discTotal,
-    bpm: m.fields.bpm
-  };
-
   // 入力の候補（ライブラリにある値）
   const artistsQuery = useUniqueArtistsQuery();
   const albumsQuery = useUniqueAlbumsQuery();
@@ -118,11 +97,11 @@
   const genreSuggestions = $derived(suggestionsFor(genresQuery.data, form.genre));
 
   const placeholder = (text: string) => (isSingleEdit ? text : m.metadataEditor.unchanged);
-  const unchangedPlaceholder = isSingleEdit ? undefined : m.metadataEditor.unchanged;
+  const unchangedPlaceholder = $derived(isSingleEdit ? undefined : m.metadataEditor.unchanged);
 
   async function handleSave() {
     error = null;
-    const errors = validateForm(form, labels);
+    const errors = validateForm(form);
     if (errors.length > 0) {
       validationError = errors.join(', ');
       return;
@@ -183,7 +162,7 @@
           inputmode="numeric"
           class="form-input number-input"
           bind:value={form[number]}
-          aria-label={labels[number]}
+          aria-label={m.fields[number]}
           placeholder={unchangedPlaceholder}
           disabled={!canEdit}
         />
@@ -194,7 +173,7 @@
         inputmode="numeric"
         class="form-input number-input"
         bind:value={form[total]}
-        aria-label={labels[total]}
+        aria-label={m.fields[total]}
         placeholder={unchangedPlaceholder}
         disabled={!canEdit}
       />
@@ -205,7 +184,7 @@
 <!-- 候補付きの文字列の入力欄 -->
 {#snippet textField(field: TextField, hint: string, suggestions: string[] | null)}
   <div class="form-group">
-    <label for="metadata-{field}" class="form-label">{labels[field]}</label>
+    <label for="metadata-{field}" class="form-label">{m.fields[field]}</label>
     <input
       id="metadata-{field}"
       type="text"
@@ -279,7 +258,7 @@
         <p class="mt-0 mb-3 text-xs text-text-muted">{m.metadataEditor.multiValueHint}</p>
         <div class="field-row four">
           <div class="form-group">
-            <label for="metadata-year" class="form-label">{labels.year}</label>
+            <label for="metadata-year" class="form-label">{m.fields.year}</label>
             <input
               id="metadata-year"
               type="text"
@@ -298,7 +277,7 @@
           )}
           {@render numberPair(m.metadataEditor.disc, 'discNumber', 'discTotal', 'metadata-disc')}
           <div class="form-group">
-            <label for="metadata-bpm" class="form-label">{labels.bpm}</label>
+            <label for="metadata-bpm" class="form-label">{m.fields.bpm}</label>
             <input
               id="metadata-bpm"
               type="text"
@@ -312,7 +291,7 @@
         </div>
         {@render textField('grouping', placeholder(''), null)}
         <div class="form-group">
-          <label for="metadata-comment" class="form-label">{labels.comment}</label>
+          <label for="metadata-comment" class="form-label">{m.fields.comment}</label>
           <textarea
             id="metadata-comment"
             class="form-input"
@@ -373,7 +352,7 @@
             class="form-input lyrics-input"
             rows="14"
             bind:value={form.lyrics}
-            aria-label={labels.lyrics}
+            aria-label={m.fields.lyrics}
             placeholder={m.metadataEditor.lyricsPlaceholder}
             disabled={!canEdit}></textarea>
         </TabPanel>

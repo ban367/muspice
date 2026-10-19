@@ -52,17 +52,6 @@ export type BuiltinPresetName =
 // プリセット名（ビルトイン + カスタム）
 export type PresetName = BuiltinPresetName | string;
 
-export const BUILTIN_PRESET_LABELS: Record<BuiltinPresetName, string> = {
-  flat: 'Flat',
-  bass_boost: 'Bass Boost',
-  treble_boost: 'Treble Boost',
-  vocal: 'Vocal',
-  rock: 'Rock',
-  pop: 'Pop',
-  jazz: 'Jazz',
-  classical: 'Classical'
-};
-
 export const BUILTIN_PRESETS: Record<BuiltinPresetName, EQBands> = {
   flat: { ...DEFAULT_BANDS },
   bass_boost: {

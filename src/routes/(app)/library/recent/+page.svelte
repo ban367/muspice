@@ -2,8 +2,9 @@
   最近追加した曲の画面。追加した日時の新しい順に、アルバムのカードを並べる
   （アルバムのない曲は、1曲で1枚のカード）。項目は、取得済みの全曲の一覧から計算する。
 
-  - アルバムのカード: クリックで、右サイドバーの情報パネルに曲を表示する。ダブルクリック・再生ボタンでアルバムを再生する
-  - 曲のカード: ダブルクリック・再生ボタンで、その曲を再生する
+  - アルバムのカード: クリック・Enterで、右サイドバーの情報パネルに曲を表示する。ダブルクリック・再生ボタンでアルバムを再生する
+  - 曲のカード: ダブルクリック・Enter・再生ボタンで、その曲を再生する
+  - キーボード: ほかのグリッド（`LibraryGrid`）と同じく、矢印キー・Home・Endで現在位置を移す
 -->
 <script lang="ts">
   import { useQueryClient } from '@tanstack/svelte-query';
@@ -15,6 +16,7 @@
   import { formatDate } from '#lib/utils/format.js';
   import { playGroup } from '#lib/utils/groupPlayback.js';
   import { recentlyAdded, type RecentItem } from '#lib/utils/libraryViews.js';
+  import { openableListAction } from '#lib/utils/listNavigation.js';
   import { VirtualList } from '#lib/components/ui/index.js';
   import AlbumArt from '#lib/components/AlbumArt.svelte';
   import ContextMenu from '#lib/components/ContextMenu.svelte';
@@ -49,6 +51,37 @@
 
   function handleClick(item: RecentItem) {
     if (item.kind === 'album') ui.showInfo({ type: 'album', album: toAlbum(item) });
+  }
+
+  // 見えている項目だけを描画する一覧
+  let virtualList = $state<VirtualList<RecentItem>>();
+
+  // キーボードで移動する時の現在位置（項目のキー。クリックした項目もここに入る）
+  let activeKey = $state<string | null>(null);
+
+  /**
+   * 一覧のキーボード操作（`LibraryGrid`と同じ）
+   *
+   * 矢印キー・Home・Endで現在位置を移し、Enterで開く。アルバムはクリックと同じく情報パネルに表示し、
+   * 曲は（開く先がないため）曲の一覧のEnterと同じく再生する。
+   * 移した時は、情報パネルを開いている間だけ、表示するアルバムを移した先に入れ替える。
+   */
+  function handleKeydown(event: KeyboardEvent) {
+    const current = items.findIndex((item) => item.key === activeKey);
+    const columns = virtualList?.getColumns() ?? 1;
+    const action = openableListAction(event, current, items.length, columns);
+    if (action === null) return;
+
+    const item = items[action.index];
+    if (action.type === 'open') {
+      if (item.kind === 'album') handleClick(item);
+      else play(item);
+      return;
+    }
+    // 既定の動作（一覧のスクロール）は止めてあるため、移動先の項目を見える位置へ出す
+    activeKey = item.key;
+    virtualList?.scrollToIndex(action.index);
+    if (item.kind === 'album') ui.followInfo({ type: 'album', album: toAlbum(item) });
   }
 
   function handleContextMenu(event: MouseEvent, item: RecentItem) {
@@ -98,7 +131,9 @@
         <p class="text-sm text-text-dimmed">{m.library.emptyLibraryHint}</p>
       </div>
     {:else}
+      <!-- 一覧がフォーカスを受けてキー操作を扱い、現在位置のカードを枠で示す -->
       <VirtualList
+        bind:this={virtualList}
         {items}
         getKey={(item) => item.key}
         estimatedRowHeight={ui.gridCardSize + ESTIMATED_CARD_EXTRA_HEIGHT}
@@ -106,47 +141,60 @@
         gap={GRID_CARD_GAP}
         overscan={2}
         scrollerClass="p-3"
-        class="justify-items-center"
+        class="outline-none justify-items-center"
+        role="listbox"
         aria-label={m.library.recentlyAdded}
+        tabindex={0}
+        onkeydown={handleKeydown}
       >
         {#snippet row(item)}
-          <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
-          <!-- 幅を決めておく（決めないと、長い名前の幅までカードが広がり、隣の列に重なる） -->
+          <!-- svelte-ignore a11y_interactive_supports_focus -->
           <div
-            class="grid-card"
-            style="width: {ui.gridCardWidth}px;"
-            onclick={() => handleClick(item)}
-            ondblclick={() => play(item)}
-            oncontextmenu={(event) => handleContextMenu(event, item)}
+            class="grid-item"
+            class:active={item.key === activeKey}
+            role="option"
+            aria-selected={item.key === activeKey}
+            onpointerdown={() => (activeKey = item.key)}
           >
-            <div class="grid-card-art">
-              <AlbumArt
-                src={albumArtUrl(item.representativeTrackId)}
-                alt={item.name}
-                placeholderType={item.kind === 'album' ? 'disc' : 'music'}
-              />
-              <div class="play-overlay">
-                <button
-                  class="play-button-circle"
-                  onclick={(event) => {
-                    event.stopPropagation();
-                    play(item);
-                  }}
-                  title={item.kind === 'album' ? m.library.playAlbum : m.common.play}
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M8 5v14l11-7z" />
-                  </svg>
-                </button>
+            <!-- キー操作は一覧（listbox）で受けるため、カードはフォーカスを受けない -->
+            <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
+            <!-- 幅を決めておく（決めないと、長い名前の幅までカードが広がり、隣の列に重なる） -->
+            <div
+              class="grid-card"
+              style="width: {ui.gridCardWidth}px;"
+              onclick={() => handleClick(item)}
+              ondblclick={() => play(item)}
+              oncontextmenu={(event) => handleContextMenu(event, item)}
+            >
+              <div class="grid-card-art">
+                <AlbumArt
+                  src={albumArtUrl(item.representativeTrackId)}
+                  alt={item.name}
+                  placeholderType={item.kind === 'album' ? 'disc' : 'music'}
+                />
+                <div class="play-overlay">
+                  <button
+                    class="play-button-circle"
+                    onclick={(event) => {
+                      event.stopPropagation();
+                      play(item);
+                    }}
+                    title={item.kind === 'album' ? m.library.playAlbum : m.common.play}
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M8 5v14l11-7z" />
+                    </svg>
+                  </button>
+                </div>
               </div>
-            </div>
-            <div class="text-center">
-              <MarqueeText text={item.name} class="grid-card-title" />
-              <MarqueeText
-                text={item.artist || m.common.unknownArtist}
-                class="grid-card-subtitle"
-              />
-              <p class="added-at">{formatDate(item.addedAt)}</p>
+              <div class="text-center">
+                <MarqueeText text={item.name} class="grid-card-title" />
+                <MarqueeText
+                  text={item.artist || m.common.unknownArtist}
+                  class="grid-card-subtitle"
+                />
+                <p class="added-at">{formatDate(item.addedAt)}</p>
+              </div>
             </div>
           </div>
         {/snippet}
