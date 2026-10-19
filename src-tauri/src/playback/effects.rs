@@ -273,6 +273,14 @@ impl Limiter {
                 1.0
             };
 
+            // 範囲から出た値を捨てる（このフレームの値を足す前に捨てる。範囲は、このフレームと
+            // 先読みの分の`lookahead + 1`フレームで、足した後に捨てると容量を超える）
+            while self.window_len > 0
+                && self.window[self.window_head].0 + (self.lookahead as u64) < self.position
+            {
+                self.window_head = (self.window_head + 1) % capacity;
+                self.window_len -= 1;
+            }
             // 先読みの範囲の最小を保つ: これより大きい値は、この値がある間は最小にならないため捨てる
             while self.window_len > 0 {
                 let back = (self.window_head + self.window_len - 1) % capacity;
@@ -284,11 +292,6 @@ impl Limiter {
             let back = (self.window_head + self.window_len) % capacity;
             self.window[back] = (self.position, needed);
             self.window_len += 1;
-            // 範囲から出た値を捨てる
-            while self.window[self.window_head].0 + (self.lookahead as u64) < self.position {
-                self.window_head = (self.window_head + 1) % capacity;
-                self.window_len -= 1;
-            }
             let target = f64::from(self.window[self.window_head].1);
 
             // 下げる時は速く、戻す時はゆっくり
@@ -523,6 +526,31 @@ mod tests {
         let mut tail = sine(440.0, 0.5, 96_000);
         limiter.process(&mut tail);
         assert_eq!(limiter.gain, 1.0);
+    }
+
+    /// 上限を超える音が少しずつ小さくなり、必要な音量が先読みの長さより長く上がり続けても、
+    /// 先読みの範囲の中の最小を保つ
+    #[test]
+    fn test_limiter_keeps_the_window_minimum_while_the_needed_gain_rises() {
+        let mut limiter = Limiter::new(RATE);
+        let lookahead = limiter.lookahead;
+        // 最大の4倍から、フレームごとに小さくなる音
+        let frames = lookahead * 3;
+        let mut needed = Vec::new();
+        for frame in 0..frames {
+            let peak = 4.0 - 3.0 * frame as f32 / frames as f32;
+            needed.push(LIMITER_CEILING / peak);
+            limiter.process(&mut [peak, -peak]);
+
+            // このフレームと、その前の先読みの分（遅らせて今出したフレームまで）の最小
+            let from = needed.len().saturating_sub(lookahead + 1);
+            let minimum = needed[from..].iter().copied().fold(f32::INFINITY, f32::min);
+            assert!(limiter.window_len <= limiter.window.len(), "frame {frame}");
+            assert_eq!(
+                limiter.window[limiter.window_head].1, minimum,
+                "frame {frame}"
+            );
+        }
     }
 
     #[test]
