@@ -109,25 +109,23 @@ function parseNumber(value: string): number | undefined {
 
 /**
  * フォームの入力を検証し、誤りの文言を返す（誤りがなければ空）
- * @param labels 項目の表示名（誤りの文言に使う）
+ *
+ * 誤りの文言の項目名は、今の言語の項目名（`m.fields`）にする。
  */
-export function validateForm(
-  form: MetadataForm,
-  labels: Record<TextField | NumberField, string>
-): string[] {
+export function validateForm(form: MetadataForm): string[] {
   const errors: string[] = [];
   for (const field of TEXT_FIELDS) {
     // 文字数は、Rust側と同じくコードポイントで数える（絵文字などを2文字と数えない）
     const length = [...form[field].trim()].length;
     if (length > TEXT_LIMITS[field]) {
-      errors.push(m.validation.tooLong(labels[field], TEXT_LIMITS[field], length));
+      errors.push(m.validation.tooLong(m.fields[field], TEXT_LIMITS[field], length));
     }
   }
   for (const field of NUMBER_FIELDS) {
     const value = parseNumber(form[field]);
     const [min, max] = NUMBER_RANGES[field];
     if (value !== undefined && !(value >= min && value <= max)) {
-      errors.push(m.validation.numberOutOfRange(labels[field], min, max));
+      errors.push(m.validation.numberOutOfRange(m.fields[field], min, max));
     }
   }
   return errors;

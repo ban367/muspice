@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { EQBands } from './equalizer.svelte.js';
+import type { BuiltinPresetName, EQBands } from './equalizer.svelte.js';
 
 const STORAGE_KEY = 'muspice:equalizer';
 
@@ -186,5 +186,38 @@ describe('バンド・プリセットの操作', () => {
     expect(equalizer.bands).toEqual(BUILTIN_PRESETS.jazz);
     expect(equalizer.currentPreset).toBe('夜');
     expect(equalizer.customPresets.map((p) => p.name)).toEqual(['夜']);
+  });
+});
+
+describe('ビルトインプリセットの名前', () => {
+  it('表示の言語に合わせる（言語を切り替えると、名前も変わる）', async () => {
+    const { BUILTIN_PRESETS } = await importFreshEqualizer();
+    // 読み込み直したモジュールと同じ`m`を使う
+    const { i18n, m } = await import('#lib/i18n/i18n.svelte.js');
+    const presets = Object.keys(BUILTIN_PRESETS) as BuiltinPresetName[];
+    const names = () => presets.map((preset) => m.equalizer.presets[preset]);
+
+    expect(names()).toEqual([
+      'フラット',
+      'ベースブースト',
+      'トレブルブースト',
+      'ボーカル',
+      'ロック',
+      'ポップ',
+      'ジャズ',
+      'クラシック'
+    ]);
+
+    i18n.language = 'en';
+    expect(names()).toEqual([
+      'Flat',
+      'Bass Boost',
+      'Treble Boost',
+      'Vocal',
+      'Rock',
+      'Pop',
+      'Jazz',
+      'Classical'
+    ]);
   });
 });

@@ -60,7 +60,7 @@
   {#snippet footer()}
     <button type="button" class="btn-secondary" onclick={cancel}>{m.common.cancel}</button>
     <button type="submit" form="{id}-form" class="btn-primary">
-      {request?.confirmLabel ?? 'OK'}
+      {request?.confirmLabel ?? m.common.ok}
     </button>
   {/snippet}
 </Modal>

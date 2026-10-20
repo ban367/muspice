@@ -8,6 +8,7 @@ import type { AppError } from '#lib/types/models.js';
 
 export const ja = {
   common: {
+    ok: 'OK',
     cancel: 'キャンセル',
     close: '閉じる',
     delete: '削除',
@@ -198,14 +199,10 @@ export const ja = {
       `${deleted}曲を削除しました（${failed}曲は削除に失敗）`,
     allTracksDeleteFailed: 'すべてのトラックの削除に失敗しました',
     metadataRefreshed: (updated: number, skipped: number, errors: number) =>
-      `メタデータ更新完了\n更新: ${updated}件\nスキップ: ${skipped}件\nエラー: ${errors}件`
+      `メタデータの更新が終わりました（更新: ${updated}曲、ファイルなし: ${skipped}曲、エラー: ${errors}曲）`
   },
 
   validation: {
-    yearNotNumber: '年は数値で入力してください',
-    yearOutOfRange: '年は1000から9999の範囲で指定してください',
-    trackNumberNotNumber: 'トラック番号は数値で入力してください',
-    trackNumberOutOfRange: 'トラック番号は1から999の範囲で指定してください',
     tooLong: (field: string, maxLength: number, length: number) =>
       `${field}は${maxLength}文字以内で入力してください（現在: ${length}文字）`,
     numberOutOfRange: (field: string, min: number, max: number) =>
@@ -378,6 +375,17 @@ export const ja = {
     turnOn: 'イコライザをオン',
     custom: 'カスタム',
     builtIn: 'ビルトイン',
+    /** ビルトインのプリセットの名前 */
+    presets: {
+      flat: 'フラット',
+      bass_boost: 'ベースブースト',
+      treble_boost: 'トレブルブースト',
+      vocal: 'ボーカル',
+      rock: 'ロック',
+      pop: 'ポップ',
+      jazz: 'ジャズ',
+      classical: 'クラシック'
+    },
     saved: '保存済み',
     savePreset: 'プリセットを保存',
     savePresetHint: 'プリセットを変更すると保存可能',

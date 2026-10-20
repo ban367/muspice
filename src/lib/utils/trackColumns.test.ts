@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { Track } from '#lib/types/models.js';
+import { i18n } from '#lib/i18n/i18n.svelte.js';
 import {
   DEFAULT_TRACK_COLUMNS,
   TRACK_COLUMNS,
@@ -8,6 +9,7 @@ import {
   normalizeColumns,
   toggleColumn,
   trackCellText,
+  trackColumnLabel,
   type TrackColumnId
 } from './trackColumns.js';
 
@@ -46,6 +48,30 @@ describe('列の定義', () => {
       expect(TRACK_COLUMNS[id].width).toBeGreaterThanOrEqual(TRACK_COLUMNS[id].minWidth);
     }
     expect(DEFAULT_TRACK_COLUMNS.every((id) => TRACK_COLUMN_IDS.includes(id))).toBe(true);
+  });
+});
+
+describe('trackColumnLabel', () => {
+  afterEach(() => {
+    i18n.language = 'ja';
+  });
+
+  it('呼んだ時の言語の名前を返す（言語を切り替えると、列の名前も変わる）', () => {
+    expect(trackColumnLabel('title')).toBe('タイトル');
+    expect(trackColumnLabel('createdAt')).toBe('追加日');
+
+    i18n.language = 'en';
+    expect(trackColumnLabel('title')).toBe('Title');
+    expect(trackColumnLabel('createdAt')).toBe('Date Added');
+  });
+
+  it('どの列にも、どの言語でも名前がある', () => {
+    for (const language of ['ja', 'en'] as const) {
+      i18n.language = language;
+      for (const id of TRACK_COLUMN_IDS) {
+        expect(trackColumnLabel(id)).toMatch(/\S/);
+      }
+    }
   });
 });
 

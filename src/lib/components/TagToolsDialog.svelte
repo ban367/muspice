@@ -22,7 +22,6 @@
     toMetadataChanges,
     type CaseConversion,
     type TextToolField,
-    type ToolField,
     type ToolResult
   } from '#lib/utils/tagTools.js';
   import { showSuccess, showWarning, toErrorMessage } from '#lib/stores/error.svelte.js';
@@ -67,18 +66,6 @@
   let caseConversion = $state<CaseConversion>('none');
   let trim = $state(false);
   const caseConversions: CaseConversion[] = ['none', 'upper', 'lower', 'title'];
-
-  const fieldLabels: Record<ToolField, string> = {
-    title: m.fields.title,
-    artist: m.fields.artist,
-    album: m.fields.album,
-    albumArtist: m.fields.albumArtist,
-    genre: m.fields.genre,
-    year: m.fields.year,
-    trackNumber: m.fields.trackNumber,
-    trackTotal: m.fields.trackTotal,
-    discNumber: m.fields.discNumber
-  };
 
   /** 今の入力での変更（入力を変えるたびに作り直す） */
   const result = $derived.by((): ToolResult => {
@@ -226,7 +213,7 @@
                   onchange={(e) => toggleField(field, e.currentTarget.checked)}
                   disabled={isApplying}
                 />
-                {fieldLabels[field]}
+                {m.fields[field]}
               </label>
             {/each}
           </fieldset>
@@ -321,7 +308,7 @@
               <span role="cell" class="file" title={change.track.filePath}>
                 {index === 0 ? change.track.fileName : ''}
               </span>
-              <span role="cell" class="text-text-muted">{fieldLabels[field.field]}</span>
+              <span role="cell" class="text-text-muted">{m.fields[field.field]}</span>
               <span role="cell" class="before">
                 {#if field.before === null}
                   <span class="text-text-dimmed">

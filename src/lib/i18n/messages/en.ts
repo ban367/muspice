@@ -10,6 +10,7 @@ function plural(count: number, one: string, other: string): string {
 
 export const en: Messages = {
   common: {
+    ok: 'OK',
     cancel: 'Cancel',
     close: 'Close',
     delete: 'Delete',
@@ -189,14 +190,10 @@ export const en: Messages = {
       `Deleted ${plural(deleted, 'track', 'tracks')} (${failed} could not be deleted)`,
     allTracksDeleteFailed: 'Failed to delete all of the tracks',
     metadataRefreshed: (updated, skipped, errors) =>
-      `Metadata refreshed\nUpdated: ${updated}\nSkipped: ${skipped}\nErrors: ${errors}`
+      `Metadata refresh finished (updated: ${updated}, missing files: ${skipped}, errors: ${errors})`
   },
 
   validation: {
-    yearNotNumber: 'Enter the year as a number',
-    yearOutOfRange: 'Enter a year between 1000 and 9999',
-    trackNumberNotNumber: 'Enter the track number as a number',
-    trackNumberOutOfRange: 'Enter a track number between 1 and 999',
     tooLong: (field, maxLength, length) =>
       `${field} must be ${maxLength} characters or fewer (currently ${length})`,
     numberOutOfRange: (field, min, max) =>
@@ -365,6 +362,16 @@ export const en: Messages = {
     turnOn: 'Turn on the equalizer',
     custom: 'Custom',
     builtIn: 'Built-in',
+    presets: {
+      flat: 'Flat',
+      bass_boost: 'Bass Boost',
+      treble_boost: 'Treble Boost',
+      vocal: 'Vocal',
+      rock: 'Rock',
+      pop: 'Pop',
+      jazz: 'Jazz',
+      classical: 'Classical'
+    },
     saved: 'Saved',
     savePreset: 'Save preset',
     savePresetHint: 'Change the preset to save it',
