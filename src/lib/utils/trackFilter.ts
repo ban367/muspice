@@ -10,7 +10,7 @@
  * ジャンル・アーティストが複数ある曲（`Rock; Pop`）は、それぞれの値の項目に入る（`multiValue`）。
  */
 import type { Track } from '#lib/types/models.js';
-import { albumKey } from './albumKey.js';
+import { albumKey, groupArtist } from './albumKey.js';
 import { listedArtists, splitValues } from './multiValue.js';
 import { compareNames } from './nameSort.js';
 
@@ -101,9 +101,6 @@ export interface BrowserResult {
 
 /** 値のないジャンル・アーティストのキー（空の文字列は、タグの値としては入らない） */
 const UNKNOWN_KEY = '';
-
-/** 曲をまとめるアーティスト（アルバムアーティスト。なければ曲のアーティスト） */
-const groupArtist = (track: Track) => track.albumArtist ?? track.artist;
 
 /** まとめたアーティストの、並び順に使う値（`nameSort`の`sortTracksByArtistAndAlbum`と同じ） */
 const groupArtistSortName = (track: Track) =>

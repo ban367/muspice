@@ -309,7 +309,9 @@ export const en: Messages = {
 
   infoPanel: {
     close: 'Close the info panel',
-    empty: 'Select an album or artist to see its tracks here',
+    empty: 'Select an album, artist, or track to see its tracks here',
+    track: 'Track',
+    noAlbum: 'This track has no album information',
     notFound:
       'No tracks found. They may have been removed from the library, or their tags may have changed'
   },

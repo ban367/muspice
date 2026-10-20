@@ -4,11 +4,8 @@
  * どれも、取得済みの曲の一覧から計算する（ファイル・データベースは読まない）。
  */
 import type { Track } from '#lib/types/models.js';
-import { albumKey } from './albumKey.js';
+import { albumKey, groupArtist } from './albumKey.js';
 import { compareNames } from './nameSort.js';
-
-/** 曲をまとめるアーティスト（アルバムアーティスト。なければ曲のアーティスト） */
-const groupArtist = (track: Track) => track.albumArtist ?? track.artist;
 
 /** アルバムの中の曲の並び（ディスク番号 → トラック番号 → タイトル。Rustの`ALBUM_TRACK_ORDER`と同じ） */
 function compareAlbumOrder(a: Track, b: Track): number {

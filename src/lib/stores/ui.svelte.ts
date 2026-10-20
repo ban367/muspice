@@ -6,15 +6,56 @@
  * localStorageに保存する状態はsetterで保存するため、オブジェクトの中身を書き換えず代入する。
  */
 
-import type { AlbumSummary, ArtistSummary } from '#lib/types/models.js';
+import type { AlbumSummary, ArtistSummary, Track } from '#lib/types/models.js';
+import { groupArtist } from '#lib/utils/albumKey.js';
 import { TRACK_COLUMN_IDS, TRACK_COLUMNS, type TrackColumnId } from '#lib/utils/trackColumns.js';
 
 // 右サイドバーのパネル（queue: 再生キュー, equalizer: イコライザ, info: 選んだアルバム・アーティストの曲）
 export type RightSidebarPanel = 'queue' | 'equalizer' | 'info';
 
-/** 情報パネルに表示する項目（グリッドで選んだアルバム・アーティスト） */
+/**
+ * 情報パネルに表示する項目
+ *
+ * - album: グリッドで選んだアルバム、または曲の一覧で選んだ曲のアルバム（`trackId`はその曲。
+ *   パネルの一覧の中で、その曲の行を選んで示す）
+ * - artist: グリッドで選んだアーティスト
+ * - track: 曲の一覧で選んだ、アルバムのない曲
+ */
 export type InfoTarget =
-  { type: 'album'; album: AlbumSummary } | { type: 'artist'; artist: ArtistSummary };
+  | { type: 'album'; album: AlbumSummary; trackId?: string }
+  | { type: 'artist'; artist: ArtistSummary }
+  | { type: 'track'; track: Track };
+
+/**
+ * 曲の一覧で選んだ曲から、情報パネルに表示する項目を作る（曲のアルバム。アルバムがなければ曲そのもの）
+ *
+ * アルバムは「アルバムアーティスト（なければ曲のアーティスト）＋アルバム名」でまとめる（Rustの
+ * `find_album_summaries`と同じ）。曲数・合計の時間は、パネルが曲を取得するまでわからないため0にする
+ * （パネルは、曲を取得するまで曲数を出さない）。
+ */
+export function trackInfoTarget(track: Track): InfoTarget {
+  if (track.album === null) return { type: 'track', track };
+  return {
+    type: 'album',
+    album: {
+      name: track.album,
+      sortName: track.sortTags.album,
+      artist: groupArtist(track),
+      trackCount: 0,
+      totalDuration: 0,
+      representativeTrackId: track.id
+    },
+    trackId: track.id
+  };
+}
+
+/**
+ * 情報パネルの追随を続けて呼んだ時に、まとめる間隔（ms）
+ *
+ * 矢印キーを押し続けると、選択が毎秒十数回以上動く。そのたびに曲・ジャケット画像を取得しないよう、
+ * この間隔より短く続いた呼び出しは、最後の1回だけを反映する。
+ */
+export const FOLLOW_INFO_INTERVAL = 200;
 
 // グリッドカードサイズの範囲（px）
 export const MIN_CARD_SIZE = 50;
@@ -119,20 +160,50 @@ class UiState {
     return this.isRightSidebarExpanded && (this.isRightSidebarPinned || this.isInfoPanelOpen);
   }
 
+  /** 追随をまとめている間のタイマー（まとめていなければnull） */
+  #followTimer: ReturnType<typeof setTimeout> | null = null;
+  /** まとめている間に、最後に追随させた項目（なければnull） */
+  #pendingFollow: InfoTarget | null = null;
+
   /**
    * 情報パネルを開き、項目を表示する（グリッドのカードを押した時）
    */
   showInfo(target: InfoTarget): void {
+    // まとめている追随は捨てる（押した項目を、後から古い追随で上書きしない）
+    this.#cancelFollow();
     this.infoTarget = target;
     this.activeRightSidebarPanel = 'info';
     this.isRightSidebarExpanded = true;
   }
 
   /**
-   * 情報パネルを開いている時だけ、表示する項目を入れ替える（グリッドのキーボードでの移動に追随させる）
+   * 情報パネルを開いている時だけ、表示する項目を入れ替える（グリッドのキーボードでの移動・
+   * 曲の一覧の選択に追随させる。閉じている時は開かない）
+   *
+   * 間を空けた呼び出しはすぐに反映する。`FOLLOW_INFO_INTERVAL`より短い間隔で続いた呼び出しは、
+   * 続いている間は反映せず、止まった後に最後の項目だけを反映する（矢印キーを押し続けた時）。
    */
   followInfo(target: InfoTarget): void {
-    if (this.isInfoPanelOpen) this.infoTarget = target;
+    if (!this.isInfoPanelOpen) return;
+    if (this.#followTimer === null) {
+      this.infoTarget = target;
+    } else {
+      clearTimeout(this.#followTimer);
+      this.#pendingFollow = target;
+    }
+    this.#followTimer = setTimeout(() => {
+      const pending = this.#pendingFollow;
+      this.#followTimer = null;
+      this.#pendingFollow = null;
+      // 待っている間にパネルを閉じた・別のパネルに切り替えた時は、反映しない
+      if (pending !== null && this.isInfoPanelOpen) this.infoTarget = pending;
+    }, FOLLOW_INFO_INTERVAL);
+  }
+
+  #cancelFollow(): void {
+    if (this.#followTimer !== null) clearTimeout(this.#followTimer);
+    this.#followTimer = null;
+    this.#pendingFollow = null;
   }
 
   /** グリッドカードのサイズ（ジャケット画像の1辺。MIN_CARD_SIZE〜MAX_CARD_SIZE） */

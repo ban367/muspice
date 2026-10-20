@@ -7,6 +7,7 @@
   - 列と並び順は、`viewId`ごとに覚える（`#lib/stores/trackListView.svelte`）。幅は、どの画面でも共通
   - `onReorder`を渡した一覧（プレイリスト）は、渡した順のまま並べている間、行のドラッグで並べ替えられる
   - 再生中の曲へのジャンプ（`ui.revealTrackId`）を受けて、その曲の行までスクロールして選ぶ
+  - 右サイドバーの情報パネルを開いている間は、最後に選んだ曲のアルバムをパネルに表示する
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
@@ -17,7 +18,7 @@
     player,
     playTrackFromQueue
   } from '#lib/stores/player.svelte.js';
-  import { GRID_CARD_GAP, ui } from '#lib/stores/ui.svelte.js';
+  import { GRID_CARD_GAP, trackInfoTarget, ui } from '#lib/stores/ui.svelte.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import type { Track } from '#lib/types/models.js';
   import PlayingIndicator from './PlayingIndicator.svelte';
@@ -232,6 +233,22 @@
   const selectedTracks = $derived.by(() => {
     if (!sortedTracks) return [];
     return sortedTracks.filter((track) => selection.has(track.id));
+  });
+
+  // 情報パネルに表示する曲（最後に選んだ曲。まだ選んでいなければnull）
+  // 選択を解除した後（タグの編集を保存した後など）も、その曲のタグの変更に追随させる
+  const infoTrack = $derived(
+    selection.activeId === null
+      ? null
+      : (sortedTracks?.find((track) => track.id === selection.activeId) ?? null)
+  );
+
+  // 情報パネルを開いている間だけ、選んだ曲のアルバムを表示する（閉じている時は開かない。
+  // まだ選んでいない時は、表示している項目をそのまま残す）
+  $effect(() => {
+    if (infoTrack === null || !ui.isInfoPanelOpen) return;
+    const target = trackInfoTarget(infoTrack);
+    untrack(() => ui.followInfo(target));
   });
 
   function handleTrackClick(trackId: string, event: MouseEvent) {
