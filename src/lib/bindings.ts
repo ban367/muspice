@@ -90,6 +90,46 @@ export const commands = {
 	 */
 	removeLibraryFolder: (folderId: string, removeTracks: boolean) => __TAURI_INVOKE<number>("remove_library_folder", { folderId, removeTracks }),
 	/**
+	 *  ライブラリフォルダの付け替え先を選ぶダイアログを開き、付け替えられるかと、見つかる曲の数を返す
+	 * 
+	 *  ダイアログはRust側で、呼び出したウィンドウの上に、今の場所の外側（見つからなければ、見つかる
+	 *  一番近い外側のフォルダ）を開いた状態で出す。付け替えられる場所なら預かり（`Ready`）、付け替える
+	 *  かは画面で確かめてから`relocate_library_folder`で行う。フォルダが今も見つかるかは問わない
+	 *  （同じ曲を別のドライブへ写した場合なども付け替えられる）。
+	 * 
+	 *  @returns 付け替え先を選んだ結果（選ばずに閉じた場合はnull）
+	 */
+	planLibraryFolderRelocation: (folderId: string) => __TAURI_INVOKE<
+/**
+ *  付け替えられる（選んだ場所を預かる。付け替えるなら`relocate_library_folder`、やめるなら
+ *  `cancel_library_folder_relocation`）
+ */
+{ kind: "ready"; path: string; 
+/**  フォルダの中の曲の数 */
+trackCount: number; 
+/**  新しい場所に、ファイルが見つかった曲の数 */
+foundCount: number } | 
+/**  今の場所と重なるフォルダ（同じフォルダ・中のフォルダ・外側のフォルダ）を選んだ */
+{ kind: "overlapsCurrent"; path: string } | 
+/**  ほかのライブラリフォルダと重なるフォルダを選んだ（フォルダは入れ子にしない） */
+{ kind: "overlapsLibraryFolder"; path: string; libraryFolderPath: string } | 
+/**  転送先デバイスのフォルダと重なるフォルダを選んだ（デバイスへコピーした曲を取り込まないため） */
+{ kind: "overlapsDevice"; path: string; deviceName: string } | 
+/**  付け替えると、ライブラリにあるほかの曲と同じ場所になる曲がある（フォルダの外から取り込んだ曲など） */
+{ kind: "conflicts"; path: string; conflictCount: number } | null>("plan_library_folder_relocation", { folderId }),
+	/**
+	 *  預かっている付け替え先（`plan_library_folder_relocation`で選んだ場所）へ、ライブラリフォルダを付け替える
+	 * 
+	 *  中の曲のパスの先頭を1つのトランザクションで書き換え（曲のID・お気に入り・再生回数・プレイリストへの
+	 *  登録・読み込まないフォルダ・音楽フォルダの印を保つ）、新しい場所を再スキャンする（`LibraryScanProgress`を
+	 *  送る。新しい場所に見つからなかった曲は、移動・改名の先のファイルに結び付けるか、見つからない曲になる）。
+	 *  預かっている場所がない（別のフォルダの場所を含む）場合は`NOT_FOUND`、選んだ後にほかのフォルダの登録などで
+	 *  付け替えられなくなった場合は`VALIDATION`。
+	 */
+	relocateLibraryFolder: (folderId: string) => __TAURI_INVOKE<RelocationResult>("relocate_library_folder", { folderId }),
+	/**  預かっている付け替え先を手放す（預かっていなければ、何もしない） */
+	cancelLibraryFolderRelocation: () => __TAURI_INVOKE<void>("cancel_library_folder_relocation"),
+	/**
 	 *  ライブラリフォルダを再スキャンし、追加・移動・削除・変更されたファイルをライブラリに反映する
 	 * 
 	 *  フォルダが見つからない場合はエラーにする（トラックは見つからない曲にしない）。
@@ -1140,6 +1180,26 @@ export type FolderImportMode =
 /**  音楽フォルダへコピーする（フォルダは記録しない） */
 "copy";
 
+/**  ライブラリフォルダの付け替え先を選んだ結果（ADR-072） */
+export type FolderRelocation = 
+/**
+ *  付け替えられる（選んだ場所を預かる。付け替えるなら`relocate_library_folder`、やめるなら
+ *  `cancel_library_folder_relocation`）
+ */
+{ kind: "ready"; path: string; 
+/**  フォルダの中の曲の数 */
+trackCount: number; 
+/**  新しい場所に、ファイルが見つかった曲の数 */
+foundCount: number } | 
+/**  今の場所と重なるフォルダ（同じフォルダ・中のフォルダ・外側のフォルダ）を選んだ */
+{ kind: "overlapsCurrent"; path: string } | 
+/**  ほかのライブラリフォルダと重なるフォルダを選んだ（フォルダは入れ子にしない） */
+{ kind: "overlapsLibraryFolder"; path: string; libraryFolderPath: string } | 
+/**  転送先デバイスのフォルダと重なるフォルダを選んだ（デバイスへコピーした曲を取り込まないため） */
+{ kind: "overlapsDevice"; path: string; deviceName: string } | 
+/**  付け替えると、ライブラリにあるほかの曲と同じ場所になる曲がある（フォルダの外から取り込んだ曲など） */
+{ kind: "conflicts"; path: string; conflictCount: number };
+
 /**  ジャンルの一覧の1件（曲は含めない。曲は`get_genre_tracks`で取得する） */
 export type GenreSummary = {
 	name: string,
@@ -1734,6 +1794,16 @@ export type RefreshMetadataResult = {
 	skippedCount: number,
 	errorCount: number,
 	errors: string[],
+};
+
+/**  ライブラリフォルダを付け替えた結果 */
+export type RelocationResult = {
+	/**  新しい場所 */
+	path: string,
+	/**  パスを付け替えた曲の数 */
+	relocatedCount: number,
+	/**  付け替えた後の再スキャンの結果（新しい場所が見つからず、再スキャンしなかった場合はnull） */
+	rescan: RescanResult | null,
 };
 
 /**  リピートの設定 */

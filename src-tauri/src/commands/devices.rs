@@ -17,7 +17,7 @@ use crate::device_transfer::{TransferProgress, execute_plan};
 use crate::error::{AppError, AppResult};
 use crate::events::DeviceSyncProgress;
 use crate::library::{modified_at_of, to_count};
-use crate::library_folder::{find_all_folders, normalize_folder_path};
+use crate::library_folder::{find_all_folders, folders_overlap, normalize_folder_path};
 use crate::settings::Language;
 use crate::state::AppState;
 use crate::validation::{validate_playlist_id, validate_track_id};
@@ -123,22 +123,6 @@ fn validate_device_folder(state: &AppState, folder: &Path) -> AppResult<String> 
         ));
     }
     Ok(path)
-}
-
-/// 2つのフォルダが重なるか（同じフォルダか、一方がもう一方の中にある）
-///
-/// シンボリックリンクを解決したパスと、解決する前のパスの両方で比べる（再スキャンはリンクを
-/// たどるため、どちらで重なっても、コピーした曲を取り込んでしまう）。見つからないフォルダ
-/// （外れた外付けドライブのライブラリフォルダなど）は、解決する前のパスだけで比べる。
-fn folders_overlap(a: &Path, b: &Path) -> bool {
-    let resolved = |path: &Path| [Some(path.to_path_buf()), fs::canonicalize(path).ok()];
-    let (a_paths, b_paths) = (resolved(a), resolved(b));
-    a_paths.iter().flatten().any(|a| {
-        b_paths
-            .iter()
-            .flatten()
-            .any(|b| a.starts_with(b) || b.starts_with(a))
-    })
 }
 
 /// 登録済みのデバイスの一覧を取得する

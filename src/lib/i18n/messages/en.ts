@@ -145,6 +145,8 @@ export const en: Messages = {
     fetchLibraryFolders: 'Loading library folders',
     rescanLibraryFolder: 'Rescanning',
     removeLibraryFolder: 'Removing the library folder',
+    planLibraryFolderRelocation: 'Checking the new location',
+    relocateLibraryFolder: 'Changing the location of the library folder',
     removeMissingTracks: 'Removing missing tracks',
     addLibraryFolderExclusion: 'Adding the excluded folder',
     removeLibraryFolderExclusion: 'Removing the excluded folder',
@@ -1113,9 +1115,34 @@ export const en: Messages = {
       `${plural(count, 'track', 'tracks')} · Last scan: ${scannedAt}`,
     missing: 'Folder not found',
     missingHint: (count) =>
-      ` (${plural(count, 'track', 'tracks')}. Check that the external drive or the like is connected.)`,
+      ` (${plural(count, 'track', 'tracks')}. Check that the external drive or the like is connected. If you moved the folder, choose its new location with "Change Location...".)`,
     rescan: 'Rescan',
     rescanning: 'Rescanning...',
+    relocate: 'Change Location...',
+    relocateTitle: 'Change the Location of the Library Folder',
+    relocateFrom: 'Current location',
+    relocateTo: 'New location',
+    relocateFound: (found, total) =>
+      `The files of ${found} of the ${plural(total, 'track', 'tracks')} were found in the new location.`,
+    relocateNotFound: (count) =>
+      `For the ${plural(count, 'track', 'tracks')} not found, the rescan after the change checks whether a moved or renamed file is the same track. Tracks that cannot be matched become missing tracks.`,
+    relocateNoneFound:
+      'None of the files of these tracks were found in the new location. Check that you chose the right folder.',
+    relocateHint:
+      'Favorites, play counts and playlists of the tracks, and the excluded folders and music folder setting, are kept. No files are moved.',
+    relocateConfirm: 'Change Location',
+    relocating: 'Changing the location...',
+    relocated: (path, count) =>
+      `Changed the location of the library folder to "${path}" (${plural(count, 'track', 'tracks')})`,
+    relocatedNotScanned: 'The new location was not found, so it was not rescanned',
+    relocateOverlapsCurrent: (path) =>
+      `"${path}" overlaps the current location (the same folder, or a folder inside or outside it), so the location cannot be changed to it. If you moved files within the folder, rescan it to keep them as the same tracks`,
+    relocateOverlapsLibraryFolder: (path, libraryFolderPath) =>
+      `"${path}" overlaps the library folder "${libraryFolderPath}", so the location cannot be changed to it`,
+    relocateOverlapsDevice: (path, deviceName) =>
+      `"${path}" overlaps the folder of the device "${deviceName}", so the location cannot be changed to it`,
+    relocateConflicts: (path, count) =>
+      `In "${path}", ${plural(count, 'track would have', 'tracks would have')} the same location as other tracks in the library (such as tracks imported from outside the folder), so the location cannot be changed to it. Remove those tracks from the library and choose the folder again`,
     unregistered: (count) =>
       `${plural(count, 'track is', 'tracks are')} not in any library folder (such as tracks imported before folders were recorded). Import the same folder again to register it as a library folder (registered tracks are not read again).`,
     removeTitle: 'Remove Library Folder',

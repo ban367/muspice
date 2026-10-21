@@ -36,12 +36,13 @@ pub use import::{
     import_pending_folders, take_opened_files,
 };
 
-// ライブラリフォルダ（インポートしたフォルダ）の一覧・削除・再スキャン・読み込まないフォルダと、
-// 見つからない曲の削除
+// ライブラリフォルダ（インポートしたフォルダ）の一覧・削除・場所の付け替え・再スキャン・
+// 読み込まないフォルダと、見つからない曲の削除
 pub use library_folders::{
-    add_library_folder_exclusion, get_library_folders, remove_excluded_tracks,
-    remove_library_folder, remove_library_folder_exclusion, remove_missing_tracks,
-    rescan_library_folder,
+    PendingRelocation, add_library_folder_exclusion, cancel_library_folder_relocation,
+    get_library_folders, plan_library_folder_relocation, relocate_library_folder,
+    remove_excluded_tracks, remove_library_folder, remove_library_folder_exclusion,
+    remove_missing_tracks, rescan_library_folder,
 };
 // 自動の再スキャン（`library_sync`）が使う
 pub(crate) use library_folders::rescan_folder;

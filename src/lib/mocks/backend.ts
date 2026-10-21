@@ -32,6 +32,7 @@ import type {
   DeviceSyncResult,
   DuplicateAction,
   FolderImportMode,
+  FolderRelocation,
   GenreSummary,
   ImportOutcome,
   KeepOrganizedResult,
@@ -177,6 +178,14 @@ export interface MockBackend {
    */
   setExclusionFolder(path: string | null): void;
   /**
+   * ライブラリフォルダの場所の変更（`planLibraryFolderRelocation`）で、ダイアログで選んだことにする
+   * フォルダを切り替える（絶対パス。nullは、選ばなかった）
+   *
+   * 既定は`/Volumes/Backup/Music`（どのライブラリフォルダとも重ならない）。実ファイルは存在しないため、
+   * 見つからない曲のほかは、新しい場所でファイルが見つかったことにする。
+   */
+  setRelocationFolder(path: string | null): void;
+  /**
    * フォルダのインポート・転送先デバイスの登録・転送先の変更で、フォルダを選ぶダイアログ
    * （Rust側が開く）で選んだことにするフォルダを切り替える（nullは、選ばずに閉じた）
    *
@@ -233,6 +242,8 @@ const AUDIO_EXTENSIONS = [
 ];
 /** フォルダを選ぶダイアログで、既定で選んだことにするフォルダ（`setFolderResult`で切り替える） */
 const DEFAULT_FOLDER_RESULT = '/Users/demo/Music/Mock Import';
+/** ライブラリフォルダの場所の変更で、既定で選んだことにするフォルダ（`setRelocationFolder`で切り替える） */
+const DEFAULT_RELOCATION_FOLDER = '/Volumes/Backup/Music';
 /** ファイルを選ぶインポートで、選んだことにするファイル（フォルダと名前） */
 const PICKED_FILES_FOLDER = '/Users/mock/Downloads';
 const PICKED_FILE_NAMES = ['Picked Song A.flac', 'Picked Song B.mp3'];
@@ -605,6 +616,9 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   ];
   // 読み込まないフォルダの追加で、選んだことにするフォルダ（undefinedは、曲のある最初のフォルダ）
   let exclusionFolder: string | null | undefined = undefined;
+  // ライブラリフォルダの場所の変更で、選んだことにするフォルダと、預かっている付け替え先
+  let relocationFolder: string | null = DEFAULT_RELOCATION_FOLDER;
+  let pendingRelocation: { folderId: string; path: string } | null = null;
 
   // 転送先デバイス（connectedは「接続されているか」。外れた状態も再現する）
   const copiedTracks = (indexes: number[]) =>
@@ -1903,6 +1917,37 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     return path.slice(folderPrefix(folder.path).length);
   }
 
+  /** 付け替えると、パスの先頭を付け替えた曲の新しいパス（Rustの`replace_track_path_prefix`） */
+  const relocatedPath = (track: Track, from: string, to: string) =>
+    `${folderPrefix(to)}${track.filePath.slice(folderPrefix(from).length)}`;
+
+  /**
+   * 付け替えられない場所なら、その理由（Rustの`relocation_blocker`。付け替えられる場所ならnull）
+   *
+   * 今の場所・ほかのライブラリフォルダ・転送先デバイスのフォルダと重なる場所と、付け替えるとほかの曲と
+   * 同じパスになる曲がある場所には付け替えない。
+   */
+  function relocationBlocker(
+    folder: MockLibraryFolder,
+    path: string
+  ): Exclude<FolderRelocation, { kind: 'ready' }> | null {
+    const overlaps = (a: string, b: string) => isSameOrWithin(a, b) || isSameOrWithin(b, a);
+    if (overlaps(path, folder.path)) return { kind: 'overlapsCurrent', path };
+    const other = libraryFolders.find((f) => f !== folder && overlaps(path, f.path));
+    if (other) return { kind: 'overlapsLibraryFolder', path, libraryFolderPath: other.path };
+    const device = syncDevices.find((d) => overlaps(path, d.path));
+    if (device) return { kind: 'overlapsDevice', path, deviceName: device.name };
+    const moved = tracksUnder(folder.path);
+    const otherPaths = new Set(
+      tracks.filter((track) => !moved.includes(track)).map((track) => track.filePath)
+    );
+    const conflictCount = moved.filter((track) =>
+      otherPaths.has(relocatedPath(track, folder.path, path))
+    ).length;
+    if (conflictCount > 0) return { kind: 'conflicts', path, conflictCount };
+    return null;
+  }
+
   // ---- 転送先デバイス（src-tauri/src/device.rs・commands/devices.rsに対応） ----
   //
   // 実ファイルは存在しないため、デバイス上の曲は「コピー済みのトラックIDの集合」で表す
@@ -2853,6 +2898,46 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       if (removed > 0 || folder.isMusicFolder) options.emit('library-changed', null);
       return removed;
     },
+    // 実装はRust側のダイアログで選ぶ。モックは`setRelocationFolder`のフォルダを選んだことにする
+    planLibraryFolderRelocation: (folderId) => {
+      const folder = findLibraryFolder(folderId);
+      pendingRelocation = null;
+      if (relocationFolder === null) return null;
+      const path = normalizeFolderPath(relocationFolder);
+      const blocked = relocationBlocker(folder, path);
+      if (blocked) return blocked;
+      pendingRelocation = { folderId: folder.id, path };
+      const moved = tracksUnder(folder.path);
+      // 実ファイルは存在しないため、見つからない曲のほかは、新しい場所で見つかったことにする
+      return {
+        kind: 'ready',
+        path,
+        trackCount: moved.length,
+        foundCount: moved.filter((track) => !track.isMissing).length
+      };
+    },
+    // 実ファイルは存在しないため、付け替えた後の再スキャンは「変更なし」として扱う
+    relocateLibraryFolder: (folderId) => {
+      const folder = findLibraryFolder(folderId);
+      const held = pendingRelocation;
+      pendingRelocation = null;
+      if (!held || held.folderId !== folder.id) {
+        fail('NOT_FOUND', '付け替える場所が選ばれていません');
+      }
+      if (relocationBlocker(folder, held.path)) {
+        fail('VALIDATION', '選んだ場所には付け替えられなくなりました。もう一度選んでください');
+      }
+      const moved = tracksUnder(folder.path);
+      for (const track of moved) track.filePath = relocatedPath(track, folder.path, held.path);
+      folder.path = held.path;
+      folder.exists = true;
+      folder.lastScannedAt = now();
+      options.emit('library-changed', null);
+      return { path: held.path, relocatedCount: moved.length, rescan: unchangedRescanResult() };
+    },
+    cancelLibraryFolderRelocation: () => {
+      pendingRelocation = null;
+    },
     getMusicFolder: () => {
       const folder = libraryFolders.find((candidate) => candidate.isMusicFolder);
       return {
@@ -3137,6 +3222,9 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     },
     setExclusionFolder: (path) => {
       exclusionFolder = path;
+    },
+    setRelocationFolder: (path) => {
+      relocationFolder = path;
     },
     setConvertExportFolder: (path) => {
       convertExportFolder = path;

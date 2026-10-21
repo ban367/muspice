@@ -154,6 +154,8 @@ export const ja = {
     fetchLibraryFolders: 'ライブラリフォルダの取得',
     rescanLibraryFolder: '再スキャン',
     removeLibraryFolder: 'ライブラリフォルダの削除',
+    planLibraryFolderRelocation: '新しい場所の確認',
+    relocateLibraryFolder: 'ライブラリフォルダの場所の変更',
     removeMissingTracks: '見つからない曲の削除',
     addLibraryFolderExclusion: '読み込まないフォルダの追加',
     removeLibraryFolderExclusion: '読み込まないフォルダの削除',
@@ -1139,9 +1141,34 @@ export const ja = {
     folderMeta: (count: number, scannedAt: string) => `${count}曲・最終スキャン: ${scannedAt}`,
     missing: 'フォルダが見つかりません',
     missingHint: (count: number) =>
-      `（${count}曲。外付けドライブなどが接続されているか確認してください）`,
+      `（${count}曲。外付けドライブなどが接続されているか確認してください。フォルダを移した場合は「場所を変更...」で新しい場所を選んでください）`,
     rescan: '再スキャン',
     rescanning: '再スキャン中...',
+    relocate: '場所を変更...',
+    relocateTitle: 'ライブラリフォルダの場所の変更',
+    relocateFrom: '今の場所',
+    relocateTo: '新しい場所',
+    relocateFound: (found: number, total: number) =>
+      `${total}曲のうち${found}曲のファイルが、新しい場所で見つかりました。`,
+    relocateNotFound: (count: number) =>
+      `見つからない${count}曲は、付け替えた後の再スキャンで、移動・改名したファイルと同じ曲かを確かめます。同じ曲と分からなかった曲は、見つからない曲になります。`,
+    relocateNoneFound:
+      '新しい場所に、この曲のファイルが1曲も見つかりません。フォルダを間違えていないか確認してください。',
+    relocateHint:
+      '曲のお気に入り・再生回数・プレイリストと、読み込まないフォルダ・音楽フォルダの設定は、そのまま引き継ぎます。ファイルは動かしません。',
+    relocateConfirm: '付け替える',
+    relocating: '付け替えています...',
+    relocated: (path: string, count: number) =>
+      `ライブラリフォルダを「${path}」に付け替えました（${count}曲）`,
+    relocatedNotScanned: '新しい場所が見つからないため、再スキャンはしていません',
+    relocateOverlapsCurrent: (path: string) =>
+      `「${path}」は今の場所と重なる（同じフォルダか、中か外側のフォルダ）ため、付け替えられません。フォルダの中でファイルを移した場合は、再スキャンすると同じ曲として引き継がれます`,
+    relocateOverlapsLibraryFolder: (path: string, libraryFolderPath: string) =>
+      `「${path}」はライブラリフォルダ「${libraryFolderPath}」と重なるため、付け替えられません`,
+    relocateOverlapsDevice: (path: string, deviceName: string) =>
+      `「${path}」は転送先デバイス「${deviceName}」のフォルダと重なるため、付け替えられません`,
+    relocateConflicts: (path: string, count: number) =>
+      `「${path}」では、ライブラリにあるほかの曲と同じ場所になる曲が${count}曲あるため、付け替えられません（フォルダの外から取り込んだ曲など）。それらの曲をライブラリから外してから、もう一度選んでください`,
     unregistered: (count: number) =>
       `どのライブラリフォルダにも含まれない曲が${count}曲あります（フォルダの記録を始める前にインポートした曲など）。同じフォルダをもう一度インポートすると、ライブラリフォルダとして登録されます（登録済みの曲は読み直しません）。`,
     removeTitle: 'ライブラリフォルダの削除',

@@ -17,6 +17,8 @@
 //! - フォルダの1つに、音楽フォルダ（新しい曲を置く宛先）の印を付けられる（`is_music_folder`。多くても1つ）。
 //!   音楽フォルダは、いつもライブラリフォルダの一番上（ほかのフォルダの中にはしない）。フォルダの記録を
 //!   消すと、印も消える（ADR-068）
+//! - フォルダの場所は、別のパスへ付け替えられる（中の曲のパスの先頭を書き換え、曲のID・読み込まない
+//!   フォルダ・音楽フォルダの印を保つ。ADR-072）
 
 use crate::error::{AppError, AppResult};
 use crate::library::ScanExclusions;
@@ -139,6 +141,23 @@ pub fn track_path_prefix(folder_path: &str) -> String {
 /// `path`が`folder`自身か、その中にあるか（パスの要素単位で比較する）
 fn is_same_or_within(path: &str, folder: &str) -> bool {
     Path::new(path).starts_with(Path::new(folder))
+}
+
+/// 2つのフォルダが重なるか（同じフォルダか、一方がもう一方の中にある）
+///
+/// シンボリックリンクを解決したパスと、解決する前のパスの両方で比べる（再スキャンはリンクを
+/// たどるため、どちらで重なっても、同じファイルを2つのフォルダから取り込んでしまう）。見つからない
+/// フォルダ（外れた外付けドライブのライブラリフォルダなど）は、解決する前のパスだけで比べる。
+/// ファイルシステムを読むため、DBのロックの外で呼ぶ。
+pub fn folders_overlap(a: &Path, b: &Path) -> bool {
+    let resolved = |path: &Path| [Some(path.to_path_buf()), fs::canonicalize(path).ok()];
+    let (a_paths, b_paths) = (resolved(a), resolved(b));
+    a_paths.iter().flatten().any(|a| {
+        b_paths
+            .iter()
+            .flatten()
+            .any(|b| a.starts_with(b) || b.starts_with(a))
+    })
 }
 
 /// 記録しているライブラリフォルダをパス順に取得する
@@ -294,6 +313,36 @@ pub fn delete_folder(conn: &Connection, folder_id: &str) -> AppResult<()> {
             AppError::Database(format!("ライブラリフォルダの削除に失敗しました: {}", e))
         })?;
     Ok(())
+}
+
+/// ライブラリフォルダの場所を付け替える（記録のパスと、中の曲のパスの先頭を、1つのトランザクションで書き換える）
+///
+/// 曲のID・お気に入り・再生回数・プレイリストへの登録と、読み込まないフォルダ（相対パスのため）・
+/// 音楽フォルダの印は、そのまま保つ。付け替え先が、ほかのライブラリフォルダ・今の場所と重ならないこと、
+/// 付け替えた曲のパスがほかの曲と同じにならないことは、呼び出し側が確かめる（`commands::library_folders`）。
+///
+/// @returns 付け替えた曲の数
+pub fn relocate_folder(conn: &Connection, folder_id: &str, new_path: &str) -> AppResult<usize> {
+    let folder = find_folder(conn, folder_id)?;
+    let path = normalize_folder_path(new_path);
+
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| AppError::Database(format!("トランザクションの開始に失敗しました: {}", e)))?;
+    let relocated = crate::repository::replace_track_path_prefix(
+        &tx,
+        &track_path_prefix(&folder.path),
+        &track_path_prefix(&path),
+    )?;
+    tx.execute(
+        "UPDATE library_folders SET path = ?2 WHERE id = ?1",
+        rusqlite::params![folder.id, path],
+    )
+    .map_err(|e| AppError::Database(format!("ライブラリフォルダの更新に失敗しました: {}", e)))?;
+    tx.commit().map_err(|e| {
+        AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
+    })?;
+    Ok(relocated)
 }
 
 /// スキャンした日時を記録する
@@ -1179,6 +1228,114 @@ mod tests {
             find_folder(&conn, &id),
             Err(AppError::NotFound(_))
         ));
+    }
+
+    /// 付け替えると、中の曲のパスの先頭と記録のパスが変わり、曲のID・統計・プレイリストへの登録・
+    /// 読み込まないフォルダ・音楽フォルダの印は残る
+    #[test]
+    fn test_relocate_folder_rewrites_track_paths() {
+        let conn = setup_test_db();
+        let folder_id = register_folder(&conn, "/old/music", &["Music".to_string()])
+            .unwrap()
+            .unwrap();
+        set_music_folder(&conn, &folder_id).unwrap();
+        conn.execute_batch(
+            "INSERT INTO tracks (id, file_path, file_name, play_count, is_favorite, missing_since)
+             VALUES ('t1', '/old/music/Artist/a.mp3', 'a.mp3', 3, 1, NULL),
+                    ('t2', '/old/music/b.mp3', 'b.mp3', 0, 0, '2026-01-01T00:00:00Z'),
+                    ('t3', '/old/music2/c.mp3', 'c.mp3', 0, 0, NULL);
+             INSERT INTO playlists (id, name) VALUES ('p1', '通勤');
+             INSERT INTO playlist_tracks (playlist_id, track_id, position) VALUES ('p1', 't1', 0);",
+        )
+        .unwrap();
+
+        assert_eq!(
+            relocate_folder(&conn, &folder_id, "/new/place/").unwrap(),
+            2
+        );
+
+        let row = |id: &str| {
+            conn.query_row(
+                "SELECT file_path, file_name, play_count, is_favorite, missing_since IS NOT NULL
+                 FROM tracks WHERE id = ?1",
+                [id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, i32>(2)?,
+                        row.get::<_, bool>(3)?,
+                        row.get::<_, bool>(4)?,
+                    ))
+                },
+            )
+            .unwrap()
+        };
+        assert_eq!(
+            row("t1"),
+            (
+                "/new/place/Artist/a.mp3".to_string(),
+                "a.mp3".to_string(),
+                3,
+                true,
+                false
+            )
+        );
+        // 見つからない曲かどうかは、付け替えた後の再スキャンで確かめる
+        assert_eq!(
+            row("t2"),
+            (
+                "/new/place/b.mp3".to_string(),
+                "b.mp3".to_string(),
+                0,
+                false,
+                true
+            )
+        );
+        // 名前が前方一致するだけの別のフォルダの曲は変えない
+        assert_eq!(row("t3").0, "/old/music2/c.mp3");
+
+        let folder = find_folder(&conn, &folder_id).unwrap();
+        assert_eq!(folder.path, "/new/place");
+        assert!(folder.is_music_folder);
+        let exclusions: Vec<String> = find_exclusions(&conn, &folder_id)
+            .unwrap()
+            .into_iter()
+            .map(|exclusion| exclusion.path)
+            .collect();
+        assert_eq!(exclusions, ["Music"]);
+        let playlist_tracks: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM playlist_tracks WHERE track_id = 't1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(playlist_tracks, 1);
+    }
+
+    /// 付け替えると、付け替えないほかの曲と同じパスになる曲を数える
+    #[test]
+    fn test_count_track_path_conflicts() {
+        let conn = setup_test_db();
+        conn.execute_batch(
+            "INSERT INTO tracks (id, file_path, file_name) VALUES
+                ('t1', '/old/a.mp3', 'a.mp3'),
+                ('t2', '/old/sub/b.mp3', 'b.mp3'),
+                ('t3', '/new/a.mp3', 'a.mp3'),
+                ('t4', '/new/other.mp3', 'other.mp3'),
+                ('t5', '/new/sub/b.mp3', 'b.mp3');",
+        )
+        .unwrap();
+
+        assert_eq!(
+            crate::repository::count_track_path_conflicts(&conn, "/old/", "/new/").unwrap(),
+            2
+        );
+        assert_eq!(
+            crate::repository::count_track_path_conflicts(&conn, "/old/", "/elsewhere/").unwrap(),
+            0
+        );
     }
 
     #[test]
