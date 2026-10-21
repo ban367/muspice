@@ -15,6 +15,7 @@
 //! 書き換える。呼び出し側が`repository::relink_track`で行う）。
 
 use crate::album_art::is_folder_image;
+use crate::device_manifest::create_temp_file;
 use crate::device_sync::{
     UNKNOWN_ALBUM, UNKNOWN_ARTIST, UNKNOWN_TITLE, path_key, sanitize_component,
 };
@@ -25,7 +26,7 @@ use serde::Serialize;
 use specta::Type;
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::io;
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use unicode_normalization::UnicodeNormalization;
 
@@ -36,7 +37,10 @@ pub const MAX_TEMPLATE_LENGTH: usize = 255;
 const UNKNOWN_GENRE: &str = "Unknown Genre";
 
 /// 歌詞ファイルの拡張子（大文字と小文字は区別しない）
-const LYRICS_EXTENSION: &str = "lrc";
+pub(crate) const LYRICS_EXTENSION: &str = "lrc";
+
+/// コピー中の一時ファイルの接尾辞
+const TEMP_SUFFIX: &str = ".part";
 
 /// 中身がこれらだけのフォルダは、空とみなして消す（OSが作る、表示用のファイル）
 const JUNK_FILE_NAMES: [&str; 3] = [".DS_Store", "Thumbs.db", "desktop.ini"];
@@ -368,7 +372,7 @@ pub struct Plan {
 
 /// フォルダの中身（計画の間だけ覚え、曲ごとにフォルダを読み直さない）
 #[derive(Default)]
-struct DirCache {
+pub(crate) struct DirCache {
     entries: HashMap<PathBuf, Vec<PathBuf>>,
 }
 
@@ -380,7 +384,7 @@ impl DirCache {
     }
 
     /// 曲と同じフォルダにある、同じ名前の歌詞ファイル（`lyrics::read_track_lyrics`が読むもの）
-    fn lyrics_file(&mut self, track_path: &Path) -> Option<PathBuf> {
+    pub(crate) fn lyrics_file(&mut self, track_path: &Path) -> Option<PathBuf> {
         let stem = track_path.file_stem()?;
         self.list(track_path.parent()?)
             .iter()
@@ -395,7 +399,7 @@ impl DirCache {
     }
 }
 
-fn list_dir(dir: &Path) -> io::Result<Vec<PathBuf>> {
+pub(crate) fn list_dir(dir: &Path) -> io::Result<Vec<PathBuf>> {
     Ok(fs::read_dir(dir)?
         .filter_map(Result::ok)
         .map(|entry| entry.path())
@@ -609,6 +613,43 @@ pub(crate) fn move_no_replace(from: &Path, to: &Path) -> io::Result<()> {
     }
 }
 
+/// ファイルをコピーする（コピー先に何かあれば、上書きせずに失敗する）
+///
+/// 別名（`.part`）に書いてから、`move_no_replace`で置く（途中で止まっても、書きかけのファイルを
+/// 曲として残さない。書いている間にコピー先へファイルが置かれても、上書きしない）。一時ファイルの
+/// 名前にリンクが置かれていても、たどらない（`create_temp_file`）。`std::fs::copy`は使わない
+/// （macOSでは拡張属性（ダウンロードしたファイルの検疫の印など）もコピーするため。デバイスへの転送と
+/// 同じ）。更新日時は、元のファイルに合わせる。
+/// @returns コピーしたバイト数
+pub(crate) fn copy_no_replace(from: &Path, to: &Path, buffer: &mut [u8]) -> io::Result<u64> {
+    let mut name = to.file_name().unwrap_or_default().to_os_string();
+    name.push(TEMP_SUFFIX);
+    let temp = to.with_file_name(name);
+
+    let written = (|| {
+        let mut reader = fs::File::open(from)?;
+        let mut writer = create_temp_file(&temp)?;
+        let mut written: u64 = 0;
+        loop {
+            let read = reader.read(buffer)?;
+            if read == 0 {
+                break;
+            }
+            writer.write_all(&buffer[..read])?;
+            written += read as u64;
+        }
+        if let Ok(modified) = reader.metadata().and_then(|metadata| metadata.modified()) {
+            writer.set_modified(modified).ok();
+        }
+        Ok(written)
+    })()
+    .and_then(|written| move_no_replace(&temp, to).map(|()| written));
+    if written.is_err() {
+        fs::remove_file(&temp).ok();
+    }
+    written
+}
+
 /// 1曲のファイル（と、同じ名前の歌詞ファイル）を移す
 ///
 /// 移動先のフォルダは、なければ作る。歌詞ファイルを移せなかった場合は、曲は移したままにして、
@@ -721,7 +762,7 @@ fn move_folder_images(from_dir: &Path, to_dir: &Path) {
 }
 
 /// 空になったフォルダを、上へさかのぼって消す（ライブラリフォルダ自体と、その外は消さない）
-fn remove_empty_folders(dir: &Path, library_folder: &Path) {
+pub(crate) fn remove_empty_folders(dir: &Path, library_folder: &Path) {
     let mut current = dir;
     while current != library_folder && current.starts_with(library_folder) {
         if !remove_if_empty(current) {

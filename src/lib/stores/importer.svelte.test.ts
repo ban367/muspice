@@ -1,9 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ImportResult } from '#lib/types/models.js';
+import type {
+  ImportOutcome,
+  ImportProgress,
+  ImportResult,
+  PendingFolderImport
+} from '#lib/types/models.js';
 
-type ProgressListener = (event: {
-  payload: { current: number; total: number; currentFile: string };
-}) => void;
+type ProgressListener = (event: { payload: ImportProgress }) => void;
 
 /** 進み具合の通知を聞いている関数 */
 const listeners = new Set<ProgressListener>();
@@ -13,6 +16,8 @@ vi.mock('#lib/bindings.js', () => ({
     importFolder: vi.fn(),
     importFiles: vi.fn(),
     importDroppedFiles: vi.fn(),
+    importPendingFolders: vi.fn(),
+    cancelPendingImport: vi.fn(async () => {}),
     setMusicFolder: vi.fn()
   },
   events: {
@@ -35,8 +40,28 @@ const RESULT: ImportResult = {
   skippedCount: 1,
   relinkedCount: 0,
   errorCount: 0,
-  errors: []
+  errors: [],
+  copiedCount: 0,
+  notCopied: []
 };
+const IMPORTED: ImportOutcome = { kind: 'imported', result: RESULT };
+
+/** 参照するかコピーするかを選ぶ、預かったフォルダ */
+const PENDING: PendingFolderImport = {
+  folders: ['/Volumes/Backup/Album'],
+  trackCount: 12,
+  totalBytes: 480_000_000,
+  copyCount: 12,
+  copyBytes: 480_000_000,
+  musicFolder: '/Users/a/Music',
+  musicFolderExists: true,
+  freeBytes: 100_000_000_000
+};
+
+/** 進み具合を知らせる（読む段階） */
+const progressEvent = (current: number, total: number, currentFile: string) => ({
+  payload: { phase: 'reading' as const, current, total, currentFile }
+});
 
 /** 非同期の処理（通知を聞き始める・コマンドの結果待ち）が進むのを待つ */
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -52,7 +77,7 @@ beforeEach(() => {
 
 describe('importer', () => {
   it('フォルダを選ぶインポートを実行し、進み具合と結果を持つ', async () => {
-    let finish!: (result: ImportResult) => void;
+    let finish!: (outcome: ImportOutcome) => void;
     vi.mocked(commands.importFolder).mockReturnValue(
       new Promise((resolve) => {
         finish = resolve;
@@ -68,14 +93,14 @@ describe('importer', () => {
     expect(commands.importFolder).toHaveBeenCalledWith('Replace');
 
     for (const listener of listeners) {
-      listener({ payload: { current: 1, total: 4, currentFile: 'a.flac' } });
+      listener(progressEvent(1, 4, 'a.flac'));
     }
     expect(importer.progress).toBe(25);
     expect(importer.processedFiles).toBe(1);
     expect(importer.totalFiles).toBe(4);
     expect(importer.currentFile).toBe('a.flac');
 
-    finish(RESULT);
+    finish(IMPORTED);
     await running;
     expect(importer.isImporting).toBe(false);
     expect(importer.progress).toBe(100);
@@ -109,7 +134,7 @@ describe('importer', () => {
   });
 
   it('ファイルを選ぶインポートは、インポートが始まってからダイアログを開く', async () => {
-    let finish!: (result: ImportResult) => void;
+    let finish!: (outcome: ImportOutcome) => void;
     vi.mocked(commands.importFiles).mockReturnValue(
       new Promise((resolve) => {
         finish = resolve;
@@ -122,11 +147,11 @@ describe('importer', () => {
     expect(ui.isImportDialogOpen).toBe(false);
 
     for (const listener of listeners) {
-      listener({ payload: { current: 1, total: 2, currentFile: 'a.flac' } });
+      listener(progressEvent(1, 2, 'a.flac'));
     }
     expect(ui.isImportDialogOpen).toBe(true);
 
-    finish(RESULT);
+    finish(IMPORTED);
     await running;
     expect(importer.result).toEqual(RESULT);
   });
@@ -176,7 +201,7 @@ describe('importer', () => {
     // フォルダを選んでいる間は、まだ開かない
     expect(ui.isImportDialogOpen).toBe(false);
     for (const listener of listeners) {
-      listener({ payload: { current: 1, total: 2, currentFile: 'a.flac' } });
+      listener(progressEvent(1, 2, 'a.flac'));
     }
     expect(ui.isImportDialogOpen).toBe(true);
 
@@ -203,7 +228,7 @@ describe('importer', () => {
   });
 
   it('インポートの途中では、別のインポートを始めない', async () => {
-    let finish!: (result: ImportResult) => void;
+    let finish!: (outcome: ImportOutcome) => void;
     vi.mocked(commands.importFolder).mockReturnValue(
       new Promise((resolve) => {
         finish = resolve;
@@ -218,10 +243,105 @@ describe('importer', () => {
     importer.reset();
     expect(importer.isImporting).toBe(true);
 
-    finish(RESULT);
+    finish(IMPORTED);
     await running;
     importer.reset();
     expect(importer.result).toBeNull();
     expect(importer.progress).toBe(0);
+  });
+  it('フォルダの取り込み方を選ぶ時は、預かったフォルダを持ち、選んだ方法で取り込む', async () => {
+    vi.mocked(commands.importFolder).mockResolvedValue({
+      kind: 'chooseFolderMode',
+      pending: PENDING
+    });
+    importer.duplicateAction = 'Replace';
+
+    await importer.importFolder();
+
+    expect(ui.isImportDialogOpen).toBe(true);
+    expect(importer.pending).toEqual(PENDING);
+    expect(importer.result).toBeNull();
+    expect(importer.isImporting).toBe(false);
+
+    const copied = { ...RESULT, importedCount: 12, copiedCount: 12 };
+    vi.mocked(commands.importPendingFolders).mockResolvedValue({
+      kind: 'imported',
+      result: copied
+    });
+    await importer.importPending('copy');
+
+    expect(commands.importPendingFolders).toHaveBeenCalledWith('copy', 'Replace');
+    expect(importer.result).toEqual(copied);
+    expect(importer.pending).toBeNull();
+    // 取り込んだ後は、Rust側も預かっていないため、やめる必要はない
+    importer.reset();
+    expect(commands.cancelPendingImport).not.toHaveBeenCalled();
+  });
+
+  it('音楽フォルダへコピーできなければ理由を出し、預かったフォルダは残す', async () => {
+    vi.mocked(commands.importDroppedFiles).mockResolvedValue({
+      kind: 'chooseFolderMode',
+      pending: PENDING
+    });
+    await importer.importDropped(['Album']);
+    vi.mocked(commands.importPendingFolders).mockResolvedValue({
+      kind: 'notEnoughSpace',
+      requiredBytes: 2 * 1024 ** 3,
+      freeBytes: 1024 ** 3
+    });
+
+    await importer.importPending('copy');
+
+    expect(importer.errorMessage).toContain('空き容量が足りません');
+    expect(importer.errorMessage).toContain('2.00 GB');
+    // 参照して取り込むこともできる
+    expect(importer.pending).toEqual(PENDING);
+    expect(importer.isImporting).toBe(false);
+  });
+
+  it('音楽フォルダが見つからなければ、ファイルの取り込みも理由を出す', async () => {
+    vi.mocked(commands.importFiles).mockResolvedValue({
+      kind: 'musicFolderMissing',
+      path: '/Volumes/Music'
+    });
+
+    await importer.importFiles();
+
+    expect(ui.isImportDialogOpen).toBe(true);
+    expect(importer.result).toBeNull();
+    expect(importer.errorMessage).toContain('音楽フォルダ（/Volumes/Music）が見つかりません');
+  });
+
+  it('ダイアログを閉じたら、預かったフォルダの取り込みをやめる', async () => {
+    vi.mocked(commands.importFolder).mockResolvedValue({
+      kind: 'chooseFolderMode',
+      pending: PENDING
+    });
+    await importer.importFolder();
+
+    importer.reset();
+
+    expect(commands.cancelPendingImport).toHaveBeenCalledTimes(1);
+    expect(importer.pending).toBeNull();
+  });
+
+  it('コピーの段階を、進み具合に持つ', async () => {
+    let finish!: (outcome: ImportOutcome) => void;
+    vi.mocked(commands.importFiles).mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve;
+      })
+    );
+    const running = importer.importFiles();
+    await flush();
+
+    for (const listener of listeners) {
+      listener({ payload: { phase: 'copying', current: 1, total: 2, currentFile: 'a.flac' } });
+    }
+    expect(importer.phase).toBe('copying');
+    expect(importer.progress).toBe(50);
+
+    finish(IMPORTED);
+    await running;
   });
 });

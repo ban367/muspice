@@ -31,13 +31,17 @@ import type {
   DeviceSyncPlan,
   DeviceSyncResult,
   DuplicateAction,
+  FolderImportMode,
   GenreSummary,
+  ImportOutcome,
   ImportResult,
   LibraryFolder,
   LoudnessScanResult,
   Metadata,
   MusicFolderChange,
+  NotCopied,
   NowPlayingUpdate,
+  PendingFolderImport,
   PlayHistoryEntry,
   Playlist,
   PlaylistFolder,
@@ -185,12 +189,25 @@ export interface MockBackend {
    * 既定はフォルダのインポートと同じ数。
    */
   setMusicFolderFileCount(count: number): void;
+  /**
+   * 音楽フォルダのドライブの空き容量（バイト）を切り替える（取り込む曲のコピーで、空き容量が足りない
+   * 場合の確認用）
+   *
+   * 既定は`MUSIC_FOLDER_FREE_BYTES`。
+   */
+  setMusicFolderFreeBytes(bytes: number): void;
   /** `albumart`プロトコルの代わりに、トラックのアルバムアートをdata URLで返す（アートがなければnull） */
   albumArtUrl(trackId: string): string | null;
 }
 
 /** ファイルを選ぶインポートで、選んだことにする内容 */
 export type MockFileImportMode = 'pick' | 'cancel';
+
+/** 取り込む対象（音楽ファイルは、あることにするフォルダと名前。フォルダはパス） */
+interface MockImportTargets {
+  files: { folder: string; fileName: string }[];
+  folders: string[];
+}
 
 /** モックのライブラリフォルダ（曲数は、曲の一覧から数える。読み込まないフォルダは相対パス） */
 type MockLibraryFolder = Omit<LibraryFolder, 'trackCount' | 'exclusions'> & {
@@ -222,6 +239,10 @@ const DROPPED_FILES_FOLDER = '/Users/mock/Desktop';
 
 /** インポート時に「見つかった」ことにするファイル数 */
 const IMPORT_FILE_COUNT = 6;
+/** 音楽フォルダのドライブの、既定の空き容量（バイト） */
+const MUSIC_FOLDER_FREE_BYTES = 200 * 1024 ** 3;
+/** コピーの後に残す、音楽フォルダのドライブの空き容量（Rustの`SPACE_MARGIN_BYTES`と同じ） */
+const COPY_SPACE_MARGIN_BYTES = 64 * 1024 ** 2;
 /** OSの音楽フォルダ（Rustの`audio_dir`の代わり。ライブラリフォルダとして登録してある） */
 const SYSTEM_MUSIC_FOLDER = '/Users/demo/Music';
 /** 音楽フォルダの書式の例に出す曲の数（Rustの`TEMPLATE_EXAMPLE_COUNT`と同じ） */
@@ -548,7 +569,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     stayInMenuBar: false,
     globalShortcuts: false,
     notifyTrackChange: false,
-    musicFolderTemplate: DEFAULT_MUSIC_FOLDER_TEMPLATE
+    musicFolderTemplate: DEFAULT_MUSIC_FOLDER_TEMPLATE,
+    copyToMusicFolder: true
   };
   // ライブラリフォルダ（existsは「フォルダが見つかるか」。外付けドライブが外れた状態を再現する）
   // 読み込まないフォルダ（exclusions）は、相対パスで持つ。OSの音楽フォルダには、登録した時に
@@ -627,6 +649,11 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   let folderResult: string | null = DEFAULT_FOLDER_RESULT;
   // 音楽フォルダに新しく登録するフォルダで、見つかったことにする曲の数
   let musicFolderFileCount = IMPORT_FILE_COUNT;
+  let musicFolderFreeBytes = MUSIC_FOLDER_FREE_BYTES;
+  /** 参照するかコピーするかを選ぶまで預かっている取り込み（Rustの`PendingImport`） */
+  let pendingImport: MockImportTargets | null = null;
+  /** 音楽フォルダへコピーした曲（コピー先 → 元のファイル。同じファイルをもう一度取り込んだかの判定に使う） */
+  const copiedFrom = new Map<string, string>();
   // 書き出したファイルの場所（もう一度同じ場所へ書き出すと、同じ名前のファイルがあることになる）
   const exportedPaths = new Set<string>();
   // 音量の解析の実行の状態（同時に実行できる解析は1つ）
@@ -995,19 +1022,12 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
    * 実際のスキャンの代わりに、フォルダパスから決定的なファイル一覧を生成する。
    * 同じフォルダを再度インポートすると、2回目は重複として扱われる。
    */
-  async function importFolder(duplicateAction: DuplicateAction): Promise<ImportResult | null> {
+  async function importFolder(duplicateAction: DuplicateAction): Promise<ImportOutcome | null> {
     if (folderResult === null) return null;
-    const folder = normalizeFolderPath(folderResult);
-    const result = await importAudioFiles(
-      folder,
-      mockFileNames(IMPORT_FILE_COUNT),
+    return startImport(
+      { files: [], folders: [normalizeFolderPath(folderResult)] },
       duplicateAction
     );
-
-    // Rustと同じく、フォルダをライブラリフォルダとして記録し、ライブラリが変わったことを知らせる
-    registerLibraryFolder(folder);
-    options.emit('library-changed', null);
-    return result;
   }
 
   /** フォルダのインポートで「見つかった」ことにするファイルの名前 */
@@ -1106,13 +1126,12 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     fileNames: string[],
     duplicateAction: DuplicateAction
   ): Promise<ImportResult> {
-    const album = folder.split(/[\\/]/).filter(Boolean).pop() || 'Imported';
-    let importedCount = 0;
-    let skippedCount = 0;
+    const result = emptyImportResult();
 
     for (const [index, fileName] of fileNames.entries()) {
       const filePath = `${folderPrefix(folder)}${fileName}`;
       options.emit('import-progress', {
+        phase: 'reading',
         current: index + 1,
         total: fileNames.length,
         currentFile: fileName
@@ -1121,69 +1140,326 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
 
       const existing = tracks.find((track) => track.filePath === filePath);
       if (existing && duplicateAction === 'Skip') {
-        skippedCount++;
+        result.skippedCount++;
         continue;
       }
 
-      const timestamp = now();
       if (existing) {
-        existing.updatedAt = timestamp;
+        existing.updatedAt = now();
       } else {
-        const duration = 150 + index * 17;
-        const format = fileName.split('.').pop()!.toLowerCase();
-        tracks.push({
-          id: crypto.randomUUID(),
-          filePath,
-          fileName,
-          title: fileName.replace(/\.[^.]+$/, ''),
-          artist: 'Mock Importer',
-          album,
-          albumArtist: null,
-          genre: 'Demo',
-          year: 2026,
-          trackNumber: index + 1,
-          discNumber: 1,
-          duration,
-          fileSize: duration * 40_000,
-          format,
-          bitrate: 320,
-          sampleRate: 44100,
-          isFavorite: false,
-          rating: 0,
-          playCount: 0,
-          skipCount: 0,
-          lastPlayedAt: null,
-          createdAt: timestamp,
-          updatedAt: timestamp,
-          replayGain: { trackGain: null, trackPeak: null, albumGain: null, albumPeak: null },
-          sortTags: { title: null, artist: null, album: null, albumArtist: null },
-          isMissing: false
-        });
+        tracks.push(mockTrack(folder, fileName, index));
       }
-      importedCount++;
+      result.importedCount++;
     }
 
-    return { importedCount, skippedCount, relinkedCount: 0, errorCount: 0, errors: [] };
+    return result;
+  }
+
+  const emptyImportResult = (): ImportResult => ({
+    importedCount: 0,
+    skippedCount: 0,
+    relinkedCount: 0,
+    errorCount: 0,
+    errors: [],
+    copiedCount: 0,
+    notCopied: []
+  });
+
+  /**
+   * フォルダにあることにした音楽ファイルの、曲の内容（実ファイルはないため、ファイル名から決める）
+   * @param index - フォルダの中での順番（トラック番号・長さに使う）
+   */
+  function mockTrack(folder: string, fileName: string, index: number): Track {
+    const album = folder.split(/[\\/]/).filter(Boolean).pop() || 'Imported';
+    const duration = 150 + index * 17;
+    const timestamp = now();
+    return {
+      id: crypto.randomUUID(),
+      filePath: `${folderPrefix(folder)}${fileName}`,
+      fileName,
+      title: fileName.replace(/\.[^.]+$/, ''),
+      artist: 'Mock Importer',
+      album,
+      albumArtist: null,
+      genre: 'Demo',
+      year: 2026,
+      trackNumber: index + 1,
+      discNumber: 1,
+      duration,
+      fileSize: duration * 40_000,
+      format: fileName.split('.').pop()!.toLowerCase(),
+      bitrate: 320,
+      sampleRate: 44100,
+      isFavorite: false,
+      rating: 0,
+      playCount: 0,
+      skipCount: 0,
+      lastPlayedAt: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      replayGain: { trackGain: null, trackPeak: null, albumGain: null, albumPeak: null },
+      sortTags: { title: null, artist: null, album: null, albumArtist: null },
+      isMissing: false
+    };
   }
 
   /**
-   * ファイルのインポート（ファイルを選ぶ・ウィンドウへのドロップ）
+   * 取り込む対象を、ファイルとフォルダに分ける（ドロップ・ファイルを選ぶインポート）
    *
-   * 曲だけを登録し、フォルダは、ライブラリフォルダとして記録しない。音楽ファイルでないものは
-   * 読み飛ばし、1つもなければエラーにする。
+   * 実装は、パスがフォルダかを調べる。モックは、拡張子のない名前をフォルダとする。音楽ファイルでも
+   * フォルダでもないものは読み飛ばす。
    */
-  async function importFilesIn(
-    folder: string,
-    fileNames: string[],
+  function importTargetsIn(folder: string, names: string[]): MockImportTargets {
+    return {
+      files: names.filter(isAudioFileName).map((fileName) => ({ folder, fileName })),
+      folders: names
+        .filter((name) => !name.includes('.'))
+        .map((name) => `${folderPrefix(folder)}${name}`)
+    };
+  }
+
+  /** 取り込む曲をコピーする音楽フォルダ（設定がオフか、音楽フォルダが未設定ならnull） */
+  const copyDestination = () =>
+    settings.copyToMusicFolder
+      ? (libraryFolders.find((folder) => folder.isMusicFolder) ?? null)
+      : null;
+
+  /** 曲が、すでにライブラリにあるか（登録済みか、ライブラリフォルダの中のファイル） */
+  const isInLibrary = (filePath: string) =>
+    tracks.some((track) => track.filePath === filePath) ||
+    libraryFolders.some((folder) => isSameOrWithin(filePath, folder.path));
+
+  /** 取り込む曲（ファイルと、フォルダの中の曲。フォルダは`IMPORT_FILE_COUNT`曲あることにする） */
+  const importSources = (targets: MockImportTargets) => [
+    ...targets.files,
+    ...targets.folders.flatMap((folder) =>
+      mockFileNames(IMPORT_FILE_COUNT).map((fileName) => ({ folder, fileName }))
+    )
+  ];
+
+  /**
+   * 取り込みを始める（Rustの`start_import`）
+   *
+   * 取り込む曲を音楽フォルダへコピーする設定で、ライブラリフォルダの外のフォルダがあれば、取り込まずに
+   * 預かる（コピーする曲がなければ、選ばせずに参照する）。
+   */
+  async function startImport(
+    targets: MockImportTargets,
     duplicateAction: DuplicateAction
-  ): Promise<ImportResult> {
-    const audioFiles = fileNames.filter(isAudioFileName);
-    if (audioFiles.length === 0) {
+  ): Promise<ImportOutcome> {
+    if (targets.files.length === 0 && targets.folders.length === 0) {
       fail('VALIDATION', 'インポートできる音楽ファイルがありません');
     }
-    const result = await importAudioFiles(folder, audioFiles, duplicateAction);
+    const musicFolder = copyDestination();
+    if (
+      musicFolder &&
+      targets.folders.some(
+        (folder) => !libraryFolders.some((library) => isSameOrWithin(folder, library.path))
+      )
+    ) {
+      const pending = pendingSummary(targets, musicFolder);
+      if (pending.copyCount === 0) return (await runImport(targets, duplicateAction, null)).outcome;
+      pendingImport = targets;
+      return { kind: 'chooseFolderMode', pending };
+    }
+    return (await runImport(targets, duplicateAction, musicFolder)).outcome;
+  }
+
+  /** 預かるフォルダの、画面に出す内容（Rustの`summarize_pending`） */
+  function pendingSummary(
+    targets: MockImportTargets,
+    musicFolder: MockLibraryFolder
+  ): PendingFolderImport {
+    const sources = importSources(targets).map(({ folder, fileName }, index) =>
+      mockTrack(folder, fileName, index)
+    );
+    const copied = sources.filter((track) => !isInLibrary(track.filePath));
+    const bytes = (list: Track[]) => list.reduce((sum, track) => sum + track.fileSize, 0);
+    return {
+      folders: targets.folders,
+      trackCount: sources.length,
+      totalBytes: bytes(sources),
+      copyCount: copied.length,
+      copyBytes: bytes(copied),
+      musicFolder: musicFolder.path,
+      musicFolderExists: musicFolder.exists,
+      freeBytes: musicFolder.exists ? musicFolderFreeBytes : null
+    };
+  }
+
+  /**
+   * 取り込み、ライブラリの変更を知らせる（Rustの`import_and_notify`）
+   * @param musicFolder - コピーする音楽フォルダ（nullなら、参照して取り込み、フォルダを記録する）
+   * @returns 結果と、音楽フォルダへコピーした曲（とコピー済みだった曲）の、元のパス → 登録したパス
+   */
+  async function runImport(
+    targets: MockImportTargets,
+    duplicateAction: DuplicateAction,
+    musicFolder: MockLibraryFolder | null
+  ): Promise<{ outcome: ImportOutcome; placed: Map<string, string> }> {
+    const placed = new Map<string, string>();
+    let result = emptyImportResult();
+    if (musicFolder === null) {
+      for (const folder of new Set(targets.files.map((file) => file.folder))) {
+        const fileNames = targets.files
+          .filter((file) => file.folder === folder)
+          .map((file) => file.fileName);
+        mergeImportResult(result, await importAudioFiles(folder, fileNames, duplicateAction));
+      }
+      for (const folder of targets.folders) {
+        mergeImportResult(
+          result,
+          await importAudioFiles(folder, mockFileNames(IMPORT_FILE_COUNT), duplicateAction)
+        );
+        // Rustと同じく、フォルダをライブラリフォルダとして記録する
+        registerLibraryFolder(folder);
+      }
+    } else {
+      if (!musicFolder.exists) {
+        return { outcome: { kind: 'musicFolderMissing', path: musicFolder.path }, placed };
+      }
+      const copied = await copyIntoMusicFolder(
+        importSources(targets),
+        duplicateAction,
+        musicFolder,
+        placed
+      );
+      if (copied.kind !== 'imported') return { outcome: copied, placed };
+      result = copied.result;
+    }
     options.emit('library-changed', null);
-    return result;
+    return { outcome: { kind: 'imported', result }, placed };
+  }
+
+  function mergeImportResult(result: ImportResult, other: ImportResult): void {
+    result.importedCount += other.importedCount;
+    result.skippedCount += other.skippedCount;
+    result.relinkedCount += other.relinkedCount;
+    result.errorCount += other.errorCount;
+    result.errors.push(...other.errors);
+    result.copiedCount += other.copiedCount;
+    result.notCopied.push(...other.notCopied);
+  }
+
+  /**
+   * 取り込む曲を、音楽フォルダへコピーしてから登録する（Rustの`import_with_copy`）
+   *
+   * ライブラリにある曲は参照し、コピー先に同じ名前の曲（ファイル）がある曲・同じコピー先になる曲は、
+   * 取り込まずに知らせる。同じファイルを前にコピーしていれば、コピー済みの曲として扱う。空き容量が
+   * 足りなければ、何も取り込まない。
+   */
+  async function copyIntoMusicFolder(
+    sources: { folder: string; fileName: string }[],
+    duplicateAction: DuplicateAction,
+    musicFolder: MockLibraryFolder,
+    placed: Map<string, string>
+  ): Promise<ImportOutcome> {
+    const result = emptyImportResult();
+    const template = parseOrganizeTemplate(settings.musicFolderTemplate);
+    const key = (path: string) => path.normalize('NFC').toLowerCase();
+    const referenced: { folder: string; fileName: string }[] = [];
+    const candidates: { track: Track; target: string }[] = [];
+    const toCopy = sources.filter(({ folder, fileName }) => {
+      if (!isInLibrary(`${folderPrefix(folder)}${fileName}`)) return true;
+      referenced.push({ folder, fileName });
+      return false;
+    });
+    for (const [index, { folder, fileName }] of toCopy.entries()) {
+      options.emit('import-progress', {
+        phase: 'reading',
+        current: index + 1,
+        total: toCopy.length,
+        currentFile: fileName
+      });
+      await sleep(IMPORT_STEP_MS / 3);
+      const track = mockTrack(folder, fileName, index);
+      candidates.push({
+        track,
+        target: `${folderPrefix(musicFolder.path)}${organizedRelativePath(template, track)}`
+      });
+    }
+
+    const users = new Map<string, number>();
+    for (const { target } of candidates) users.set(key(target), (users.get(key(target)) ?? 0) + 1);
+    const copies: typeof candidates = [];
+    for (const candidate of candidates) {
+      const notCopied = (reason: NotCopied['reason']): NotCopied => ({
+        source: candidate.track.filePath,
+        target: candidate.target.slice(folderPrefix(musicFolder.path).length),
+        reason
+      });
+      if ((users.get(key(candidate.target)) ?? 0) > 1) {
+        result.notCopied.push(notCopied('sameTarget'));
+      } else if (tracks.some((track) => key(track.filePath) === key(candidate.target))) {
+        if (copiedFrom.get(candidate.target) === candidate.track.filePath) {
+          // 同じファイルを前にコピーした: コピー先の曲を参照する
+          const slash = candidate.target.lastIndexOf('/');
+          referenced.push({
+            folder: candidate.target.slice(0, slash),
+            fileName: candidate.target.slice(slash + 1)
+          });
+          placed.set(candidate.track.filePath, candidate.target);
+        } else {
+          result.notCopied.push(notCopied('targetExists'));
+        }
+      } else {
+        copies.push(candidate);
+      }
+    }
+
+    const requiredBytes = copies.reduce((sum, { track }) => sum + track.fileSize, 0);
+    if (requiredBytes > 0 && requiredBytes + COPY_SPACE_MARGIN_BYTES > musicFolderFreeBytes) {
+      return { kind: 'notEnoughSpace', requiredBytes, freeBytes: musicFolderFreeBytes };
+    }
+
+    for (const folder of new Set(referenced.map((source) => source.folder))) {
+      const fileNames = referenced
+        .filter((source) => source.folder === folder)
+        .map((source) => source.fileName);
+      mergeImportResult(result, await importAudioFiles(folder, fileNames, duplicateAction));
+    }
+    for (const [index, { track, target }] of copies.entries()) {
+      options.emit('import-progress', {
+        phase: 'copying',
+        current: index + 1,
+        total: copies.length,
+        currentFile: track.fileName
+      });
+      await sleep(IMPORT_STEP_MS);
+      tracks.push({
+        ...track,
+        filePath: target,
+        fileName: target.slice(target.lastIndexOf('/') + 1)
+      });
+      copiedFrom.set(target, track.filePath);
+      placed.set(track.filePath, target);
+      musicFolderFreeBytes -= track.fileSize;
+      result.importedCount++;
+      result.copiedCount++;
+    }
+    return { kind: 'imported', result };
+  }
+
+  /**
+   * 預かっているフォルダを、選んだ方法で取り込む（Rustの`import_pending_folders`）
+   *
+   * 音楽フォルダへコピーできなかった場合は、預かったままにする。
+   */
+  async function importPendingFolders(
+    mode: FolderImportMode,
+    duplicateAction: DuplicateAction
+  ): Promise<ImportOutcome> {
+    const targets = pendingImport;
+    if (!targets) fail('NOT_FOUND', '取り込むフォルダがありません');
+    pendingImport = null;
+    let musicFolder: MockLibraryFolder | null = null;
+    if (mode === 'copy') {
+      musicFolder = libraryFolders.find((folder) => folder.isMusicFolder) ?? null;
+      if (!musicFolder) fail('NOT_FOUND', '音楽フォルダが設定されていません');
+    }
+    const { outcome } = await runImport(targets, duplicateAction, musicFolder);
+    if (outcome.kind !== 'imported') pendingImport = targets;
+    return outcome;
   }
 
   // ---- ライブラリフォルダ（src-tauri/src/library_folder.rsに対応） ----
@@ -1709,9 +1985,15 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     importFiles: (duplicateAction) =>
       fileImportMode === 'cancel'
         ? null
-        : importFilesIn(PICKED_FILES_FOLDER, PICKED_FILE_NAMES, duplicateAction),
-    // 実装は、OSのドラッグ用のペーストボードからパスを読む。モックは、名前のファイルがあることにする
-    importDroppedFiles: (names) => importFilesIn(DROPPED_FILES_FOLDER, names, 'Skip'),
+        : startImport(importTargetsIn(PICKED_FILES_FOLDER, PICKED_FILE_NAMES), duplicateAction),
+    // 実装は、OSのドラッグ用のペーストボードからパスを読む。モックは、名前のファイル（拡張子のない
+    // 名前はフォルダ）があることにする
+    importDroppedFiles: (names) =>
+      startImport(importTargetsIn(DROPPED_FILES_FOLDER, names), 'Skip'),
+    importPendingFolders,
+    cancelPendingImport: () => {
+      pendingImport = null;
+    },
     takeOpenedFiles: () => {
       const taken = openedFiles;
       openedFiles = { tracks: [], errors: [] };
@@ -2653,12 +2935,28 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         .filter((fileName) => !isAudioFileName(fileName))
         .map((fileName) => `${fileName}: 対応していない形式です`);
       void (async () => {
+        // 実装と同じく、取り込む曲を音楽フォルダへコピーする設定なら、コピーしてから登録する
+        let placed = new Map<string, string>();
         if (audioFiles.length > 0) {
-          await importAudioFiles(DROPPED_FILES_FOLDER, audioFiles, 'Skip');
-          options.emit('library-changed', null);
+          const imported = await runImport(
+            importTargetsIn(DROPPED_FILES_FOLDER, audioFiles),
+            'Skip',
+            copyDestination()
+          );
+          placed = imported.placed;
+          if (imported.outcome.kind === 'imported') {
+            errors.push(
+              ...imported.outcome.result.notCopied.map(
+                (entry) => `${entry.source}: コピー先に同じ名前のファイルがあります`
+              )
+            );
+          } else {
+            errors.push('音楽フォルダへコピーできませんでした');
+          }
         }
         const opened = audioFiles
           .map((fileName) => `${folderPrefix(DROPPED_FILES_FOLDER)}${fileName}`)
+          .map((filePath) => placed.get(filePath) ?? filePath)
           .map((filePath) => tracks.find((track) => track.filePath === filePath))
           .filter((track) => track !== undefined);
         openedFiles = {
@@ -2718,6 +3016,9 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     },
     setMusicFolderFileCount: (count) => {
       musicFolderFileCount = count;
+    },
+    setMusicFolderFreeBytes: (bytes) => {
+      musicFolderFreeBytes = bytes;
     },
     setM3uImportMode: (mode) => {
       m3uImportMode = mode;

@@ -81,6 +81,8 @@ interface MuspiceMockHandle {
    * （0は、空のフォルダ。既定はフォルダのインポートと同じ数）
    */
   setMusicFolderFileCount(count: number): void;
+  /** 音楽フォルダのドライブの空き容量（バイト）を切り替える（取り込む曲のコピーの確認用） */
+  setMusicFolderFreeBytes(bytes: number): void;
 }
 
 /** モックで使う`__TAURI_INTERNALS__`の一部（公開型がないため最小限を定義する） */
@@ -202,7 +204,8 @@ export function setupTauriMock(): void {
     addDuplicateTracks: () => backend.addDuplicateTracks(),
     setConvertExportFolder: (path) => backend.setConvertExportFolder(path),
     setExclusionFolder: (path) => backend.setExclusionFolder(path),
-    setMusicFolderFileCount: (count) => backend.setMusicFolderFileCount(count)
+    setMusicFolderFileCount: (count) => backend.setMusicFolderFileCount(count),
+    setMusicFolderFreeBytes: (bytes) => backend.setMusicFolderFreeBytes(bytes)
   };
 
   console.info('[mock] Tauri IPCをモックしています（npm run dev:mock）');

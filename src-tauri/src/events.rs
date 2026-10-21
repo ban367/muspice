@@ -12,11 +12,22 @@ use serde::Serialize;
 use specta::Type;
 use tauri_specta::Event;
 
+/// インポートの段階
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ImportPhase {
+    /// ファイルを読んで登録する（音楽フォルダへコピーする曲は、コピー先を決めるために読む）
+    Reading,
+    /// 音楽フォルダへコピーして登録する
+    Copying,
+}
+
 /// インポートの進捗
 #[derive(Debug, Clone, Serialize, Type, Event)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportProgress {
-    /// 処理済みファイル数
+    pub phase: ImportPhase,
+    /// 処理済みファイル数（段階ごとに数え直す）
     pub current: u32,
     /// 総ファイル数
     pub total: u32,

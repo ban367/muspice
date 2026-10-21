@@ -9,34 +9,44 @@ export const commands = {
 	 *  フォルダを選ぶダイアログを開き、選んだフォルダの音楽ファイルをインポートする
 	 * 
 	 *  ダイアログはRust側で開く（WebViewからパスを受け取らない。ADR-065）。中の曲をすべて登録し、
-	 *  フォルダをライブラリフォルダとして記録する。
+	 *  フォルダをライブラリフォルダとして記録する。取り込む曲を音楽フォルダへコピーする設定で、
+	 *  ライブラリフォルダの外のフォルダを選んだ時は、取り込まずに預かる（`ChooseFolderMode`）。
 	 * 
-	 *  @returns インポートの結果（選ばずに閉じた場合はnull）
+	 *  @returns 結果（選ばずに閉じた場合はnull）
 	 */
-	importFolder: (duplicateAction: DuplicateAction) => __TAURI_INVOKE<{
-	importedCount: number,
-	skippedCount: number,
-	/**  見つからない曲を、移動・改名された先のファイルに結び付けた数（新しい曲としては登録しない） */
-	relinkedCount: number,
-	errorCount: number,
-	errors: string[],
-} | null>("import_folder", { duplicateAction }),
+	importFolder: (duplicateAction: DuplicateAction) => __TAURI_INVOKE<
+/**  取り込んだ */
+{ kind: "imported"; result: ImportResult } | 
+/**
+ *  フォルダを、参照するか音楽フォルダへコピーするかを選ぶ（選ぶまで取り込まない。選んだら
+ *  `import_pending_folders`、やめたら`cancel_pending_import`）
+ */
+{ kind: "chooseFolderMode"; pending: PendingFolderImport } | 
+/**  音楽フォルダが見つからないため、取り込まなかった（外付けドライブが外れているなど） */
+{ kind: "musicFolderMissing"; path: string } | 
+/**  音楽フォルダのドライブの空き容量が足りないため、取り込まなかった */
+{ kind: "notEnoughSpace"; requiredBytes: number; freeBytes: number } | null>("import_folder", { duplicateAction }),
 	/**
 	 *  ファイルを選ぶダイアログを開き、選んだ音楽ファイルをインポートする
 	 * 
 	 *  ダイアログはRust側で開く（WebViewへパスを渡さない）。選んだ曲だけを登録し、ファイルのある
-	 *  フォルダは、ライブラリフォルダとして記録しない（再スキャンの対象にならない）。
+	 *  フォルダは、ライブラリフォルダとして記録しない（再スキャンの対象にならない）。取り込む曲を
+	 *  音楽フォルダへコピーする設定なら、コピーしてから登録する。
 	 * 
-	 *  @returns インポートの結果（選ばずに閉じた場合はnull）
+	 *  @returns 結果（選ばずに閉じた場合はnull）
 	 */
-	importFiles: (duplicateAction: DuplicateAction) => __TAURI_INVOKE<{
-	importedCount: number,
-	skippedCount: number,
-	/**  見つからない曲を、移動・改名された先のファイルに結び付けた数（新しい曲としては登録しない） */
-	relinkedCount: number,
-	errorCount: number,
-	errors: string[],
-} | null>("import_files", { duplicateAction }),
+	importFiles: (duplicateAction: DuplicateAction) => __TAURI_INVOKE<
+/**  取り込んだ */
+{ kind: "imported"; result: ImportResult } | 
+/**
+ *  フォルダを、参照するか音楽フォルダへコピーするかを選ぶ（選ぶまで取り込まない。選んだら
+ *  `import_pending_folders`、やめたら`cancel_pending_import`）
+ */
+{ kind: "chooseFolderMode"; pending: PendingFolderImport } | 
+/**  音楽フォルダが見つからないため、取り込まなかった（外付けドライブが外れているなど） */
+{ kind: "musicFolderMissing"; path: string } | 
+/**  音楽フォルダのドライブの空き容量が足りないため、取り込まなかった */
+{ kind: "notEnoughSpace"; requiredBytes: number; freeBytes: number } | null>("import_files", { duplicateAction }),
 	/**
 	 *  ウィンドウへドロップされたファイル・フォルダをインポートする（macOS）
 	 * 
@@ -44,9 +54,20 @@ export const commands = {
 	 *  ファイルドロップは曲のドラッグ&ドロップのために無効にしている。ADR-018）。WebViewからは
 	 *  「ドロップされた」ことと名前だけを受け取り、パスは、OSのドラッグ用のペーストボードから
 	 *  Rust側で読む（`dropped_files`）。ファイルは曲だけを登録し、フォルダは`import_folder`と同じく
-	 *  ライブラリフォルダとして記録する。登録済みのファイルはスキップする。
+	 *  ライブラリフォルダとして記録する。登録済みのファイルはスキップする。取り込む曲を音楽フォルダへ
+	 *  コピーする設定で、ライブラリフォルダの外のフォルダがあれば、取り込まずに預かる
+	 *  （`ChooseFolderMode`。選んだ方法で、一緒にドロップしたファイルも取り込む）。
 	 */
-	importDroppedFiles: (names: string[]) => __TAURI_INVOKE<ImportResult>("import_dropped_files", { names }),
+	importDroppedFiles: (names: string[]) => __TAURI_INVOKE<ImportOutcome>("import_dropped_files", { names }),
+	/**
+	 *  預かっているフォルダ（`ChooseFolderMode`）を、選んだ方法で取り込む
+	 * 
+	 *  音楽フォルダへコピーできなかった場合（`MusicFolderMissing`・`NotEnoughSpace`）は、預かったままにする
+	 *  （参照して取り込むこともできる）。預かっているものがなければ`NOT_FOUND`。
+	 */
+	importPendingFolders: (mode: FolderImportMode, duplicateAction: DuplicateAction) => __TAURI_INVOKE<ImportOutcome>("import_pending_folders", { mode, duplicateAction }),
+	/**  預かっているフォルダの取り込みをやめる（預かっていなければ、何もしない） */
+	cancelPendingImport: () => __TAURI_INVOKE<void>("cancel_pending_import"),
 	/**
 	 *  「このアプリで開く」などで開かれ、インポートが済んだ曲を受け取る（受け取った分は、手放す）
 	 * 
@@ -1086,6 +1107,13 @@ export type FolderExclusion = {
 	trackCount: number,
 };
 
+/**  預かったフォルダの取り込み方 */
+export type FolderImportMode = 
+/**  その場から読む（フォルダをライブラリフォルダとして記録する） */
+"reference" | 
+/**  音楽フォルダへコピーする（フォルダは記録しない） */
+"copy";
+
 /**  ジャンルの一覧の1件（曲は含めない。曲は`get_genre_tracks`で取得する） */
 export type GenreSummary = {
 	name: string,
@@ -1115,9 +1143,31 @@ export type GlobalShortcutInfo = {
 /**  メニュー「ファイルをインポート...」: インポートダイアログを開き、ファイルを選ぶダイアログを出す */
 export type ImportFilesRequested = null;
 
+/**  取り込みを始めた結果 */
+export type ImportOutcome = 
+/**  取り込んだ */
+{ kind: "imported"; result: ImportResult } | 
+/**
+ *  フォルダを、参照するか音楽フォルダへコピーするかを選ぶ（選ぶまで取り込まない。選んだら
+ *  `import_pending_folders`、やめたら`cancel_pending_import`）
+ */
+{ kind: "chooseFolderMode"; pending: PendingFolderImport } | 
+/**  音楽フォルダが見つからないため、取り込まなかった（外付けドライブが外れているなど） */
+{ kind: "musicFolderMissing"; path: string } | 
+/**  音楽フォルダのドライブの空き容量が足りないため、取り込まなかった */
+{ kind: "notEnoughSpace"; requiredBytes: number; freeBytes: number };
+
+/**  インポートの段階 */
+export type ImportPhase = 
+/**  ファイルを読んで登録する（音楽フォルダへコピーする曲は、コピー先を決めるために読む） */
+"reading" | 
+/**  音楽フォルダへコピーして登録する */
+"copying";
+
 /**  インポートの進捗 */
 export type ImportProgress = {
-	/**  処理済みファイル数 */
+	phase: ImportPhase,
+	/**  処理済みファイル数（段階ごとに数え直す） */
 	current: number,
 	/**  総ファイル数 */
 	total: number,
@@ -1133,6 +1183,10 @@ export type ImportResult = {
 	relinkedCount: number,
 	errorCount: number,
 	errors: string[],
+	/**  音楽フォルダへコピーして取り込んだ数（`imported_count`・`relinked_count`の内数） */
+	copiedCount: number,
+	/**  音楽フォルダへコピーしなかった曲（コピー先に同じ名前のファイルがあるなど。取り込んでいない） */
+	notCopied: NotCopied[],
 };
 
 /**  表示の言語 */
@@ -1362,6 +1416,22 @@ export type MusicFolderSource =
 /**  ダイアログで選ぶ */
 "pick";
 
+/**  コピーしなかった曲（インポートの結果に出す。曲は取り込んでいない） */
+export type NotCopied = {
+	/**  元のファイルのパス */
+	source: string,
+	/**  コピー先（音楽フォルダからの場所） */
+	target: string,
+	reason: NotCopiedReason,
+};
+
+/**  コピーしない理由 */
+export type NotCopiedReason = 
+/**  コピー先に、同じ名前のファイルがある */
+"targetExists" | 
+/**  取り込む曲の中に、同じコピー先になる曲がある */
+"sameTarget";
+
 /**  フロントエンドから届く、プレーヤーバーの状態 */
 export type NowPlayingUpdate = {
 	/**  再生中（一時停止中）の曲 */
@@ -1451,6 +1521,27 @@ export type OutputDevice = {
 	name: string,
 	/**  OSの既定の出力デバイスか */
 	isDefault: boolean,
+};
+
+/**  参照するかコピーするかを選ぶ、取り込むフォルダ（画面に出す） */
+export type PendingFolderImport = {
+	/**  取り込むフォルダ */
+	folders: string[],
+	/**  取り込む曲の数（フォルダの中の曲と、一緒にドロップしたファイル）と、大きさの合計（バイト） */
+	trackCount: number,
+	totalBytes: number,
+	/**
+	 *  音楽フォルダへコピーする曲の数と、大きさの合計（ライブラリフォルダの中の曲・登録済みの曲は、
+	 *  コピーしない）
+	 */
+	copyCount: number,
+	copyBytes: number,
+	/**  音楽フォルダ */
+	musicFolder: string,
+	/**  音楽フォルダが今もあるか（外付けドライブが外れている場合などはfalse） */
+	musicFolderExists: boolean,
+	/**  音楽フォルダのドライブの空き容量（バイト。取得できなければnull） */
+	freeBytes: number | null,
 };
 
 /**
@@ -1675,6 +1766,11 @@ export type Settings = {
 	 *  ファイルの整理と同じ書き方。`file_organize::Template`）
 	 */
 	musicFolderTemplate: string,
+	/**
+	 *  取り込む曲を、音楽フォルダへ書式どおりにコピーする（音楽フォルダが未設定の時は効かない。
+	 *  フォルダの取り込みは、参照かコピーかを毎回選ぶ）
+	 */
+	copyToMusicFolder: boolean,
 };
 
 /**  設定が保存された（設定ウィンドウでの変更をメインウィンドウに反映する） */

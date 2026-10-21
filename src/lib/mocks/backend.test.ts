@@ -1426,11 +1426,17 @@ describe('インポート', () => {
     const first = await importFolder('/Users/demo/Music/New');
     const second = await importFolder('/Users/demo/Music/New');
 
-    expect(first).toMatchObject({ importedCount: 6, skippedCount: 0 });
-    expect(second).toMatchObject({ importedCount: 0, skippedCount: 6 });
+    expect(first).toMatchObject({
+      kind: 'imported',
+      result: { importedCount: 6, skippedCount: 0 }
+    });
+    expect(second).toMatchObject({
+      kind: 'imported',
+      result: { importedCount: 0, skippedCount: 6 }
+    });
     expect(events[0]).toEqual({
       event: 'import-progress',
-      payload: { current: 1, total: 6, currentFile: 'Mock Track 01.mp3' }
+      payload: { phase: 'reading', current: 1, total: 6, currentFile: 'Mock Track 01.mp3' }
     });
   });
 
@@ -1448,8 +1454,12 @@ describe('インポート', () => {
   it('ファイルを選ぶインポートは、曲だけを登録する（フォルダは記録しない）', async () => {
     const folders = (await commands.getLibraryFolders()).folders.length;
 
+    // 音楽フォルダを設定していなければ、今の場所のまま登録する
     const result = await commands.importFiles('Skip');
-    expect(result).toMatchObject({ importedCount: 2, skippedCount: 0 });
+    expect(result).toMatchObject({
+      kind: 'imported',
+      result: { importedCount: 2, skippedCount: 0 }
+    });
     const picked = (await commands.getAllTracks()).filter((track) =>
       track.filePath.startsWith('/Users/mock/Downloads/')
     );
@@ -1462,15 +1472,20 @@ describe('インポート', () => {
     expect(events.map((e) => e.event)).toContain('library-changed');
 
     // 同じファイルは、重複としてスキップする
-    expect(await commands.importFiles('Skip')).toMatchObject({ importedCount: 0, skippedCount: 2 });
+    expect(await commands.importFiles('Skip')).toMatchObject({
+      result: { importedCount: 0, skippedCount: 2 }
+    });
     // 選ばずに閉じた場合は、何もしない
     backend.setFileImportMode('cancel');
     expect(await commands.importFiles('Skip')).toBeNull();
   });
 
   it('ドロップされたものは、音楽ファイルだけをインポートする', async () => {
-    const result = await commands.importDroppedFiles(['Dropped.FLAC', 'cover.jpg', 'notes']);
-    expect(result).toMatchObject({ importedCount: 1, skippedCount: 0 });
+    const result = await commands.importDroppedFiles(['Dropped.FLAC', 'cover.jpg', 'notes.txt']);
+    expect(result).toMatchObject({
+      kind: 'imported',
+      result: { importedCount: 1, skippedCount: 0 }
+    });
     const tracks = await commands.getAllTracks();
     expect(tracks.some((track) => track.filePath === '/Users/mock/Desktop/Dropped.FLAC')).toBe(
       true
@@ -1499,6 +1514,147 @@ describe('インポート', () => {
     expect(ids).toEqual(expect.arrayContaining(opened.tracks.map((track) => track.id)));
     // 受け取った分は、残らない
     expect(await commands.takeOpenedFiles()).toEqual({ tracks: [], errors: [] });
+  });
+});
+
+describe('音楽フォルダへのコピー', () => {
+  /** 取り込んだ結果（取り込んでいなければ、テストを失敗させる） */
+  function imported(outcome: Awaited<ReturnType<typeof commands.importDroppedFiles>> | null) {
+    if (outcome?.kind !== 'imported') throw new Error(`取り込んでいない: ${outcome?.kind}`);
+    return outcome.result;
+  }
+  const trackPaths = async (prefix: string) =>
+    (await commands.getAllTracks())
+      .map((track) => track.filePath)
+      .filter((path) => path.startsWith(prefix))
+      .sort();
+
+  beforeEach(async () => {
+    await commands.setMusicFolder('system');
+  });
+
+  it('ファイルは、音楽フォルダへ書式どおりにコピーし、同じファイルをもう一度取り込むとスキップする', async () => {
+    const result = imported(await commands.importFiles('Skip'));
+
+    expect(result).toMatchObject({ importedCount: 2, copiedCount: 2, notCopied: [] });
+    expect(await trackPaths('/Users/demo/Music/Mock Importer/')).toEqual([
+      '/Users/demo/Music/Mock Importer/Downloads/1-01 Picked Song A.flac',
+      '/Users/demo/Music/Mock Importer/Downloads/1-02 Picked Song B.mp3'
+    ]);
+    // 元の場所では登録しない
+    expect(await trackPaths('/Users/mock/Downloads/')).toEqual([]);
+    expect(events.map((e) => e.payload)).toContainEqual(
+      expect.objectContaining({ phase: 'copying', current: 2, total: 2 })
+    );
+
+    const again = imported(await commands.importFiles('Skip'));
+    expect(again).toMatchObject({ importedCount: 0, skippedCount: 2, copiedCount: 0 });
+  });
+
+  it('設定がオフなら、今の場所のまま登録する', async () => {
+    const settings = await commands.getSettings();
+    await commands.saveSettings({ ...settings, copyToMusicFolder: false });
+
+    const result = imported(await commands.importDroppedFiles(['Dropped.flac']));
+
+    expect(result.copiedCount).toBe(0);
+    expect(await trackPaths('/Users/mock/Desktop/')).toEqual(['/Users/mock/Desktop/Dropped.flac']);
+  });
+
+  it('コピー先に別の曲があれば、上書きせず、取り込まずに知らせる', async () => {
+    const settings = await commands.getSettings();
+    await commands.saveSettings({ ...settings, musicFolderTemplate: '%title%' });
+    await commands.importFiles('Skip');
+
+    // 別の場所の、同じ名前の曲
+    const result = imported(await commands.importDroppedFiles(['Picked Song A.flac']));
+
+    expect(result.importedCount).toBe(0);
+    expect(result.notCopied).toEqual([
+      {
+        source: '/Users/mock/Desktop/Picked Song A.flac',
+        target: 'Picked Song A.flac',
+        reason: 'targetExists'
+      }
+    ]);
+    expect(await trackPaths('/Users/mock/Desktop/')).toEqual([]);
+  });
+
+  it('ライブラリフォルダの外のフォルダは、取り込み方を選ぶまで預かる', async () => {
+    const outcome = await importFolder('/Volumes/Backup/Album');
+    expect(outcome).toEqual({
+      kind: 'chooseFolderMode',
+      pending: {
+        folders: ['/Volumes/Backup/Album'],
+        trackCount: 6,
+        totalBytes: expect.any(Number),
+        copyCount: 6,
+        copyBytes: expect.any(Number),
+        musicFolder: '/Users/demo/Music',
+        musicFolderExists: true,
+        freeBytes: expect.any(Number)
+      }
+    });
+    // まだ取り込んでいない
+    expect(await trackPaths('/Users/demo/Music/Mock Importer/Album/')).toEqual([]);
+
+    const result = imported(await commands.importPendingFolders('copy', 'Skip'));
+    expect(result.copiedCount).toBe(6);
+    expect(await trackPaths('/Users/demo/Music/Mock Importer/Album/')).toHaveLength(6);
+    // コピーした時は、元のフォルダをライブラリフォルダとして記録しない
+    const folders = (await commands.getLibraryFolders()).folders.map((folder) => folder.path);
+    expect(folders).not.toContain('/Volumes/Backup/Album');
+    // 預かったものは、なくなる
+    await expect(commands.importPendingFolders('copy', 'Skip')).rejects.toMatchObject({
+      code: 'NOT_FOUND'
+    });
+  });
+
+  it('ドロップしたフォルダも預かり、やめたら手放す', async () => {
+    expect(await commands.importDroppedFiles(['Album', 'Single.mp3'])).toMatchObject({
+      kind: 'chooseFolderMode',
+      pending: { folders: ['/Users/mock/Desktop/Album'], trackCount: 7 }
+    });
+
+    await commands.cancelPendingImport();
+
+    await expect(commands.importPendingFolders('reference', 'Skip')).rejects.toMatchObject({
+      code: 'NOT_FOUND'
+    });
+  });
+
+  it('空き容量が足りなければ何も取り込まず、預かったフォルダは参照して取り込める', async () => {
+    backend.setMusicFolderFreeBytes(1024);
+    await importFolder('/Volumes/Backup/Album');
+
+    const outcome = await commands.importPendingFolders('copy', 'Skip');
+
+    expect(outcome).toMatchObject({ kind: 'notEnoughSpace', freeBytes: 1024 });
+    expect(await trackPaths('/Volumes/Backup/Album/')).toEqual([]);
+    const result = imported(await commands.importPendingFolders('reference', 'Skip'));
+    expect(result.importedCount).toBe(6);
+    expect(await trackPaths('/Volumes/Backup/Album/')).toHaveLength(6);
+  });
+
+  it('音楽フォルダが見つからなければ、何も取り込まない', async () => {
+    backend.setFolderResult('/Volumes/External/Music');
+    await commands.setMusicFolder('pick');
+
+    expect(await commands.importFiles('Skip')).toEqual({
+      kind: 'musicFolderMissing',
+      path: '/Volumes/External/Music'
+    });
+    expect(await trackPaths('/Users/mock/Downloads/')).toEqual([]);
+  });
+
+  it('開かれたファイルは、コピー先の曲を渡す', async () => {
+    backend.openFiles(['Opened.mp3']);
+    await vi.waitFor(() => expect(events.map((e) => e.event)).toContain('tracks-opened'));
+
+    const opened = await commands.takeOpenedFiles();
+    expect(opened.tracks.map((track) => track.filePath)).toEqual([
+      '/Users/demo/Music/Mock Importer/Desktop/1-01 Opened.mp3'
+    ]);
   });
 });
 
@@ -1743,7 +1899,9 @@ describe('音楽フォルダ', () => {
 
   it('外側のフォルダをインポートすると、印は外側のフォルダへ移る', async () => {
     await commands.setMusicFolder('system');
-    await importFolder('/Users/demo');
+    // 取り込む曲をコピーする設定（既定）では、参照するかコピーするかを選ぶ
+    expect(await importFolder('/Users/demo')).toMatchObject({ kind: 'chooseFolderMode' });
+    await commands.importPendingFolders('reference', 'Skip');
     expect(await markedPaths()).toEqual(['/Users/demo']);
   });
 
