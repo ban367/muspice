@@ -3,7 +3,8 @@
 
   検索・フィルタ（評価・年・お気に入り）・カラムブラウザ（ジャンル → アーティスト → アルバム）の
   すべてに合う曲を、一覧に出す。絞り込みは、取得済みの曲の一覧に対して行う
-  （`#lib/utils/trackFilter`）。
+  （`#lib/utils/trackFilter`）。ライブラリが空の時は、音楽フォルダを選ぶ入口を出す
+  （`MusicFolderSetup`）。
 -->
 <script lang="ts">
   import { useTracksQuery, useSearchQuery } from '#lib/queries/tracks.js';
@@ -12,6 +13,7 @@
   import LibraryHeader from '#lib/components/library/LibraryHeader.svelte';
   import ColumnBrowser from '#lib/components/library/ColumnBrowser.svelte';
   import TrackFilterMenu from '#lib/components/library/TrackFilterMenu.svelte';
+  import MusicFolderSetup from '#lib/components/library/MusicFolderSetup.svelte';
   import { libraryBrowser } from '#lib/stores/libraryBrowser.svelte.js';
   import { ui } from '#lib/stores/ui.svelte.js';
   import { applyTrackFilters, browseTracks, type BrowserColumn } from '#lib/utils/trackFilter.js';
@@ -175,12 +177,18 @@
       {error}
       emptyMessage={isNarrowed ? m.library.noMatches : undefined}
       emptyHint={isNarrowed ? m.library.noMatchesHint : undefined}
+      emptyActions={isNarrowed ? undefined : musicFolderSetup}
       {displayMode}
       viewId="songs"
       isRevealFallback={!isNarrowed}
     />
   </div>
 </div>
+
+<!-- ライブラリが空の時に出す、音楽フォルダの選択 -->
+{#snippet musicFolderSetup()}
+  <MusicFolderSetup />
+{/snippet}
 
 <style>
   @reference "../../../../app.css";

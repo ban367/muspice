@@ -31,6 +31,7 @@
   import { conversion } from '#lib/stores/convert.svelte.js';
   import { smartPlaylistDialog } from '#lib/stores/smartPlaylist.svelte.js';
   import { invalidateAllTrackQueries } from '#lib/queries/tracks.js';
+  import { queryKeys } from '#lib/queries/keys.js';
   import { LOCAL_NETWORK_MODE } from '#lib/queries/shared.js';
   import { restoreTheme } from '#lib/utils/theme.js';
   import { restoreLanguage } from '#lib/i18n/i18n.svelte.js';
@@ -93,9 +94,10 @@
     // 形式の変換の進捗
     const stopWatchingConversion = conversion.watch();
 
-    // 設定ウィンドウでの再スキャン・ライブラリフォルダの削除で、ライブラリが変わった
+    // 設定ウィンドウでの再スキャン・ライブラリフォルダの削除・音楽フォルダの変更で、ライブラリが変わった
     const unlistenLibrary = events.libraryChanged.listen(() => {
       invalidateAllTrackQueries(queryClient);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.musicFolder });
     });
 
     return () => {

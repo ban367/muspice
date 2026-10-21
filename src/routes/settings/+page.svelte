@@ -25,6 +25,7 @@
     MAX_NORMALIZATION_PREAMP_DB
   } from '#lib/bindings.js';
   import LibraryFolderSettings from '#lib/components/LibraryFolderSettings.svelte';
+  import MusicFolderTemplateSetting from '#lib/components/MusicFolderTemplateSetting.svelte';
   import MetadataExportSettings from '#lib/components/MetadataExportSettings.svelte';
   import LibraryXmlImportSettings from '#lib/components/LibraryXmlImportSettings.svelte';
   import LoudnessScanSettings from '#lib/components/LoudnessScanSettings.svelte';
@@ -240,7 +241,12 @@
       <!-- ライブラリフォルダの操作はすぐに反映する（下の「適用」の対象外）。
            再スキャンの途中で別のセクションへ移っても進捗を保つよう、常に置いて表示だけを切り替える -->
       <div hidden={activeSection !== 'library'}>
-        <LibraryFolderSettings />
+        <LibraryFolderSettings>
+          <!-- 音楽フォルダの書式は、ほかの設定と同じく「適用」で保存する -->
+          {#if pending}
+            <MusicFolderTemplateSetting bind:template={pending.musicFolderTemplate} />
+          {/if}
+        </LibraryFolderSettings>
         <LibraryXmlImportSettings />
         <LoudnessScanSettings />
         <MetadataExportSettings />

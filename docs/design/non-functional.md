@@ -31,7 +31,7 @@
 - ID・入力値はコマンド入口でバリデーション（`validation.rs`）
 - WebViewの権限は最小限（ADR-005）
   - ファイルの読み書き・削除・フォルダ表示はすべてRust側のコマンドで行い、WebViewからは任意のパスを扱えない（パスはトラックIDからDBで解決する）
-  - WebViewからファイル・フォルダのパスを受け取るコマンドはない。ファイル・フォルダを選ぶダイアログは、Rust側のコマンドが開き、選んだ後の処理まで行う（フォルダのインポート・ライブラリフォルダの読み込まないフォルダ・デバイスの登録と転送先の変更・ファイルのインポート・M3U・XML・アルバムアートの画像・形式の変換の書き出し先。ADR-065）。WebViewへ渡すのは結果だけで、選ばずに閉じた場合は`null`
+  - WebViewからファイル・フォルダのパスを受け取るコマンドはない。ファイル・フォルダを選ぶダイアログは、Rust側のコマンドが開き、選んだ後の処理まで行う（フォルダのインポート・ライブラリフォルダの読み込まないフォルダ・音楽フォルダ・デバイスの登録と転送先の変更・ファイルのインポート・M3U・XML・アルバムアートの画像・形式の変換の書き出し先。ADR-065）。WebViewへ渡すのは結果だけで、選ばずに閉じた場合は`null`
   - capability（`src-tauri/capabilities/default.json`）は `core:default` と `dialog:allow-message`（確認のダイアログ）のみ。dialogプラグインの `open` / `save` はWebViewに許可せず、ESLint（`no-restricted-imports`）でも使えないようにしている。fs / opener / window-state / global-shortcut / notification プラグインはWebViewに公開しない（Rust側だけで使う）
   - 設定ウィンドウ（`settings`）は別のcapability（`settings.json`）で `core:default` と `core:window:allow-close`（キャンセルボタンでウィンドウを閉じる）のみ
   - assetプロトコルは無効にしている。WebViewは音声ファイルを読まず、再生はRust側の再生エンジンが行う（ADR-027）。CSPでも、音声・動画の読み込み先を許可していない（`media-src 'none'`）

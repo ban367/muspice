@@ -10,7 +10,7 @@
   - 右サイドバーの情報パネルを開いている間は、最後に選んだ曲のアルバムをパネルに表示する
 -->
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { untrack, type Snippet } from 'svelte';
   import { useSetRatingMutation } from '#lib/queries/tracks.js';
   import {
     addNextInQueue,
@@ -58,6 +58,8 @@
     error?: Error | null;
     emptyMessage?: string;
     emptyHint?: string;
+    /** 曲がない時に、文の下に出す操作（ライブラリが空の画面の、音楽フォルダの選択など） */
+    emptyActions?: Snippet;
     displayMode?: 'grid' | 'list';
     /**
      * 列と並び順を覚える単位（画面の名前。同じ名前の一覧は、同じ設定を使う）
@@ -112,6 +114,7 @@
     error = null,
     emptyMessage,
     emptyHint,
+    emptyActions,
     displayMode = 'list',
     viewId,
     sortViewId,
@@ -693,6 +696,7 @@
         </svg>
         <p>{emptyMessage ?? m.library.emptyLibrary}</p>
         <p class="text-sm text-text-dimmed">{emptyHint ?? m.library.emptyLibraryHint}</p>
+        {@render emptyActions?.()}
       </div>
     {/if}
   </div>

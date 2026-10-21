@@ -57,6 +57,7 @@ src-tauri/src/
 │   ├── loudness.rs        # 音量（ラウドネス）の解析の開始・中断・状態（ADR-053）
 │   ├── m3u.rs             # プレイリストのM3Uの読み込み・書き出し（ADR-032）
 │   ├── metadata_cmd.rs
+│   ├── music_folder.rs    # 音楽フォルダ（新しい曲を置く宛先）の設定と、書式の例（ADR-068）
 │   ├── organize.rs        # ファイルの整理（計画の取得と実行。ADR-052）
 │   ├── playback.rs        # 再生エンジンのコマンド
 │   ├── player.rs
@@ -435,6 +436,7 @@ Tauriのウィンドウ（macOSではWKWebView）はブラウザ自動化ツー�
   - `window.__MUSPICE_MOCK__.addDuplicateTracks()`で、今ある曲と同じタイトル・アーティストの曲を、ライブラリフォルダの中の`Downloads`に足す（重複した曲の画面と、ファイルの整理の確認用。整理すると、移せる曲・移動先に同じ名前のファイルがある曲・同じ移動先になる曲が出る）。ファイルの整理は、実ファイルがないため、動かせる曲は常に移せたものとして、曲の場所だけを書き換える（歌詞ファイル・フォルダの画像・空のフォルダの扱いは再現しない）
   - `window.__MUSPICE_MOCK__.setAlbumArtPickMode('cancel')`で、アルバムアートの埋め込みで選んだことにする画像を切り替える（`pick`: 埋め込める画像（既定。選ぶたびに違う色の画像になる）・`cancel`: 選ばなかった・`tooLarge`: 大きすぎる画像）。フィクスチャでは、「Midnight Circuit」がフォルダの画像（`cover.jpg`）、「Quiet Rooms」がアートなし、ほかは埋め込みの画像
   - `window.__MUSPICE_MOCK__.setExclusionFolder('/Users/demo/Music/Podcasts')`で、読み込まないフォルダの追加で選んだことにするフォルダを変える（`null`は、選ばなかった）。既定は、ライブラリフォルダの中で曲のある、まだ除外していない最初のフォルダ（中の曲を外すかの確認が出る）。`/Users/demo/Music`には、既知のアプリのフォルダ（`Music`・`MusicBee`）を除外として入れてある。除外を外した時の再スキャンは「変更なし」にする
+  - 音楽フォルダは、はじめは設定していない。OSの音楽フォルダは`/Users/demo/Music`（ライブラリフォルダとして登録してあるため、「OSの音楽フォルダを使う」は印を移すだけ）。ほかのフォルダは`setFolderResult`のフォルダを選んだことにする（既定の`/Users/demo/Music/Mock Import`はライブラリフォルダの中のため、外側のフォルダの案内が出る）。新しく登録するフォルダで見つかったことにする曲の数は、`window.__MUSPICE_MOCK__.setMusicFolderFileCount(0)`で変える（0は空のフォルダ。既定はフォルダのインポートと同じ6曲）。ライブラリが空の画面は、開発者ツールから`#lib/bindings`の`commands`で、ライブラリフォルダ（曲ごと）と残りの曲を消してから`library-changed`を送ると出る
   - `window.__MUSPICE_MOCK__.setConfirmResult(false)`で、以降の確認ダイアログを「キャンセル」にする
   - `window.__MUSPICE_MOCK__.setFolderResult('/Volumes/NEW_SD')`で、以降のフォルダを選ぶダイアログ（Rust側が開く。フォルダのインポート・デバイスの登録・転送先の変更）で選んだことにするフォルダを変える。`null`にすると、選ばずに閉じたことにする。既定のパス（`/Users/demo/Music/Mock Import`）はライブラリフォルダの中のため、転送先デバイスの追加を確認するときはライブラリの外のパスにする
 - 音は鳴らない（再生位置と曲の切り替わりだけが進む）。音の確認は、実アプリで行う

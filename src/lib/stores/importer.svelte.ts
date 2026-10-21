@@ -7,11 +7,15 @@
  * - ファイルを選ぶ（`importFiles`。ファイルを選ぶダイアログは、Rust側が開く）
  * - ウィンドウへドロップする（`importDropped`。パスはRust側が読む。ADR-050）
  *
+ * ライブラリが空の画面で音楽フォルダを選んだ時（`setMusicFolder`）も、中の曲の読み込みを、
+ * 同じダイアログに表示する。
+ *
  * 曲の一覧の更新は、Rust側の通知（`LibraryChanged`）で行う（レイアウトが受け取る）。
  */
 import { commands, events } from '#lib/bindings.js';
-import type { DuplicateAction, ImportResult } from '#lib/types/models.js';
-import { toErrorMessage } from './error.svelte.js';
+import type { DuplicateAction, ImportResult, MusicFolderSource } from '#lib/types/models.js';
+import { musicFolderNotice } from '#lib/utils/musicFolder.js';
+import { showSuccess, showWarning, toErrorMessage } from './error.svelte.js';
 import { ui } from './ui.svelte.js';
 import { m } from '#lib/i18n/i18n.svelte.js';
 
@@ -56,6 +60,31 @@ class Importer {
    */
   importDropped(names: string[]): Promise<void> {
     return this.run(() => commands.importDroppedFiles(names));
+  }
+
+  /**
+   * 音楽フォルダを選び、中の曲を読み込む（ライブラリが空の画面から始める）
+   *
+   * フォルダは、OSの音楽フォルダか、Rust側が開くダイアログで選ぶ。曲があれば、インポート
+   * ダイアログに進み具合と結果を表示する。どの場合も、音楽フォルダにしたこと（できなかった
+   * 場合は、その理由）をトーストで知らせる（空のフォルダでは、ダイアログを開かない）。
+   */
+  setMusicFolder(source: MusicFolderSource): Promise<void> {
+    return this.run(
+      async () => {
+        const change = await commands.setMusicFolder(source);
+        if (!change) return null;
+        const notice = musicFolderNotice(change);
+        if (notice.kind === 'success') showSuccess(notice.message);
+        else showWarning(notice.message);
+        // 曲を読み込んだ（読めなかったファイルがあった）場合だけ、結果をダイアログに出す
+        const imported = change.kind === 'set' ? change.imported : null;
+        return imported && imported.importedCount + imported.relinkedCount + imported.errorCount > 0
+          ? imported
+          : null;
+      },
+      { showDialogWhenStarted: true }
+    );
   }
 
   /** 表示を、インポートを始める前の状態に戻す（インポート中は何もしない） */

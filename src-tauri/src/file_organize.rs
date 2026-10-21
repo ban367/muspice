@@ -197,7 +197,7 @@ impl Template {
     ///
     /// フォルダ名・ファイル名は、ファイル名に使える形にする（`sanitize_component`）。値がなくて
     /// 空になった階層は省き、ファイル名が空になった曲は、今のファイル名のままにする。
-    fn components(&self, track: &Track, from: &Path) -> Vec<String> {
+    pub fn components(&self, track: &Track, from: &Path) -> Vec<String> {
         self.components_with_extension(track, from, from.extension().and_then(|e| e.to_str()))
     }
 

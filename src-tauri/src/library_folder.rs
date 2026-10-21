@@ -14,6 +14,9 @@
 //! - フォルダごとに、読み込まないフォルダ（除外）をフォルダからの相対パスで記録する
 //!   （`library_folder_exclusions`）。新しく登録する時は、直下にある既知のアプリのフォルダを入れておく
 //!   （ADR-062）
+//! - フォルダの1つに、音楽フォルダ（新しい曲を置く宛先）の印を付けられる（`is_music_folder`。多くても1つ）。
+//!   音楽フォルダは、いつもライブラリフォルダの一番上（ほかのフォルダの中にはしない）。フォルダの記録を
+//!   消すと、印も消える（ADR-068）
 
 use crate::error::{AppError, AppResult};
 use crate::library::ScanExclusions;
@@ -41,6 +44,8 @@ pub struct LibraryFolder {
     pub last_scanned_at: Option<String>,
     /// 読み込まないフォルダ（パス順）
     pub exclusions: Vec<FolderExclusion>,
+    /// 音楽フォルダ（新しい曲を置く宛先）か
+    pub is_music_folder: bool,
 }
 
 /// ライブラリフォルダの、読み込まないフォルダ（除外。一覧表示用）
@@ -93,6 +98,20 @@ pub struct FolderRecord {
     pub path: String,
     pub added_at: String,
     pub last_scanned_at: Option<String>,
+    pub is_music_folder: bool,
+}
+
+/// `FolderRecord`として読む列
+const FOLDER_COLUMNS: &str = "id, path, added_at, last_scanned_at, is_music_folder";
+
+fn folder_from_row(row: &rusqlite::Row) -> rusqlite::Result<FolderRecord> {
+    Ok(FolderRecord {
+        id: row.get(0)?,
+        path: row.get(1)?,
+        added_at: row.get(2)?,
+        last_scanned_at: row.get(3)?,
+        is_music_folder: row.get(4)?,
+    })
 }
 
 /// フォルダのパスを記録用の形にそろえる（末尾の区切り文字を除く。ルートはそのまま）
@@ -125,35 +144,23 @@ fn is_same_or_within(path: &str, folder: &str) -> bool {
 /// 記録しているライブラリフォルダをパス順に取得する
 pub fn find_all_folders(conn: &Connection) -> AppResult<Vec<FolderRecord>> {
     let mut stmt = conn
-        .prepare("SELECT id, path, added_at, last_scanned_at FROM library_folders ORDER BY path")
+        .prepare(&format!(
+            "SELECT {FOLDER_COLUMNS} FROM library_folders ORDER BY path"
+        ))
         .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
 
-    stmt.query_map([], |row| {
-        Ok(FolderRecord {
-            id: row.get(0)?,
-            path: row.get(1)?,
-            added_at: row.get(2)?,
-            last_scanned_at: row.get(3)?,
-        })
-    })
-    .map_err(|e| AppError::Database(format!("クエリの実行に失敗しました: {}", e)))?
-    .collect::<Result<Vec<_>, _>>()
-    .map_err(|e| AppError::Database(format!("結果の取得に失敗しました: {}", e)))
+    stmt.query_map([], folder_from_row)
+        .map_err(|e| AppError::Database(format!("クエリの実行に失敗しました: {}", e)))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| AppError::Database(format!("結果の取得に失敗しました: {}", e)))
 }
 
 /// IDでライブラリフォルダを取得する
 pub fn find_folder(conn: &Connection, folder_id: &str) -> AppResult<FolderRecord> {
     conn.query_row(
-        "SELECT id, path, added_at, last_scanned_at FROM library_folders WHERE id = ?1",
+        &format!("SELECT {FOLDER_COLUMNS} FROM library_folders WHERE id = ?1"),
         [folder_id],
-        |row| {
-            Ok(FolderRecord {
-                id: row.get(0)?,
-                path: row.get(1)?,
-                added_at: row.get(2)?,
-                last_scanned_at: row.get(3)?,
-            })
-        },
+        folder_from_row,
     )
     .optional()
     .map_err(|e| AppError::Database(format!("ライブラリフォルダの取得に失敗しました: {}", e)))?
@@ -164,49 +171,120 @@ pub fn find_folder(conn: &Connection, folder_id: &str) -> AppResult<FolderRecord
 ///
 /// - 登録済みのフォルダの中（または同じフォルダ）なら、新しく登録しない。同じフォルダの
 ///   場合はスキャンした日時だけ更新する
-/// - 登録済みのフォルダを含むフォルダなら、中のフォルダの記録を消してまとめる
+/// - 登録済みのフォルダを含むフォルダなら、中のフォルダの記録を消してまとめる。中のフォルダが
+///   音楽フォルダなら、外のフォルダを音楽フォルダにする（音楽フォルダは、いつも一番上のフォルダ）
 ///
 /// `exclusions`（フォルダからの相対パス）は、新しく登録する時だけ、読み込まないフォルダとして
 /// 記録する（`import_exclusions`で求めた`to_register`を渡す）。
+///
+/// @returns 記録したフォルダ（同じフォルダを含む）のID。登録済みのフォルダの中ならNone
 pub fn register_folder(
     conn: &Connection,
     folder_path: &str,
     exclusions: &[String],
-) -> AppResult<()> {
+) -> AppResult<Option<String>> {
     let path = normalize_folder_path(folder_path);
     let now = Utc::now().to_rfc3339();
     let existing = find_all_folders(conn)?;
 
     if let Some(same) = existing.iter().find(|f| f.path == path) {
-        return mark_scanned(conn, &same.id);
+        mark_scanned(conn, &same.id)?;
+        return Ok(Some(same.id.clone()));
     }
     if existing.iter().any(|f| is_same_or_within(&path, &f.path)) {
-        return Ok(());
+        return Ok(None);
     }
 
     let tx = conn
         .unchecked_transaction()
         .map_err(|e| AppError::Database(format!("トランザクションの開始に失敗しました: {}", e)))?;
     // 中のフォルダの除外は、外のフォルダの除外として`exclusions`に入っている（記録は外部キーで消える）
+    let mut is_music_folder = false;
     for nested in existing
         .iter()
         .filter(|f| is_same_or_within(&f.path, &path))
     {
+        is_music_folder |= nested.is_music_folder;
         delete_folder(&tx, &nested.id)?;
     }
 
     let folder_id = Uuid::new_v4().to_string();
     tx.execute(
-        "INSERT INTO library_folders (id, path, added_at, last_scanned_at) VALUES (?1, ?2, ?3, ?3)",
-        rusqlite::params![folder_id, path, now],
+        "INSERT INTO library_folders (id, path, added_at, last_scanned_at, is_music_folder)
+         VALUES (?1, ?2, ?3, ?3, ?4)",
+        rusqlite::params![folder_id, path, now, is_music_folder],
     )
     .map_err(|e| AppError::Database(format!("ライブラリフォルダの登録に失敗しました: {}", e)))?;
     for exclusion in exclusions {
         insert_exclusion(&tx, &folder_id, exclusion)?;
     }
 
+    tx.commit().map_err(|e| {
+        AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
+    })?;
+    Ok(Some(folder_id))
+}
+
+/// パスで、ライブラリフォルダを取得する（末尾の区切り文字は区別しない）
+pub fn find_folder_by_path(
+    conn: &Connection,
+    folder_path: &str,
+) -> AppResult<Option<FolderRecord>> {
+    let path = normalize_folder_path(folder_path);
+    Ok(find_all_folders(conn)?.into_iter().find(|f| f.path == path))
+}
+
+/// `folder_path`を中に含む、ライブラリフォルダ（`folder_path`と同じフォルダは除く）
+pub fn find_enclosing_folder(
+    conn: &Connection,
+    folder_path: &str,
+) -> AppResult<Option<FolderRecord>> {
+    let path = normalize_folder_path(folder_path);
+    Ok(find_all_folders(conn)?
+        .into_iter()
+        .find(|f| f.path != path && is_same_or_within(&path, &f.path)))
+}
+
+/// 音楽フォルダ（印を付けたライブラリフォルダ。設定していなければNone）
+pub fn find_music_folder(conn: &Connection) -> AppResult<Option<FolderRecord>> {
+    conn.query_row(
+        &format!("SELECT {FOLDER_COLUMNS} FROM library_folders WHERE is_music_folder = 1"),
+        [],
+        folder_from_row,
+    )
+    .optional()
+    .map_err(|e| AppError::Database(format!("音楽フォルダの取得に失敗しました: {}", e)))
+}
+
+/// ライブラリフォルダを音楽フォルダにする（ほかのフォルダの印は外す。ファイルは動かさない）
+pub fn set_music_folder(conn: &Connection, folder_id: &str) -> AppResult<()> {
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| AppError::Database(format!("トランザクションの開始に失敗しました: {}", e)))?;
+    clear_music_folder(&tx)?;
+    let updated = tx
+        .execute(
+            "UPDATE library_folders SET is_music_folder = 1 WHERE id = ?1",
+            [folder_id],
+        )
+        .map_err(|e| AppError::Database(format!("音楽フォルダの設定に失敗しました: {}", e)))?;
+    if updated == 0 {
+        return Err(AppError::NotFound(
+            "ライブラリフォルダが見つかりません".to_string(),
+        ));
+    }
     tx.commit()
         .map_err(|e| AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e)))
+}
+
+/// 音楽フォルダの設定を外す（ライブラリフォルダの記録は残す）
+pub fn clear_music_folder(conn: &Connection) -> AppResult<()> {
+    conn.execute(
+        "UPDATE library_folders SET is_music_folder = 0 WHERE is_music_folder = 1",
+        [],
+    )
+    .map_err(|e| AppError::Database(format!("音楽フォルダの解除に失敗しました: {}", e)))?;
+    Ok(())
 }
 
 /// ライブラリフォルダの記録を削除する（トラックは消さない）
@@ -955,6 +1033,138 @@ mod tests {
         register_folder(&conn, "/home/Music", &exclusions.to_register).unwrap();
         assert_eq!(folder_paths(&conn), ["/home/Music"]);
         assert_eq!(exclusion_paths(&conn, "/home/Music"), expected);
+    }
+
+    fn music_folder_path(conn: &Connection) -> Option<String> {
+        find_music_folder(conn).unwrap().map(|f| f.path)
+    }
+
+    /// 音楽フォルダの印は多くても1つで、移すとほかのフォルダの印は外れる
+    #[test]
+    fn test_set_and_clear_music_folder() {
+        let conn = setup_test_db();
+        register_folder(&conn, "/music", &[]).unwrap();
+        register_folder(&conn, "/other", &[]).unwrap();
+        assert_eq!(music_folder_path(&conn), None);
+
+        set_music_folder(&conn, &folder_id(&conn, "/music")).unwrap();
+        assert_eq!(music_folder_path(&conn).as_deref(), Some("/music"));
+        set_music_folder(&conn, &folder_id(&conn, "/other")).unwrap();
+        assert_eq!(music_folder_path(&conn).as_deref(), Some("/other"));
+        let marked: Vec<bool> = find_all_folders(&conn)
+            .unwrap()
+            .into_iter()
+            .map(|f| f.is_music_folder)
+            .collect();
+        assert_eq!(marked, [false, true]);
+
+        // ないフォルダは音楽フォルダにできず、今の音楽フォルダもそのまま
+        assert!(matches!(
+            set_music_folder(&conn, "00000000-0000-4000-8000-000000000000"),
+            Err(AppError::NotFound(_))
+        ));
+        assert_eq!(music_folder_path(&conn).as_deref(), Some("/other"));
+
+        // 解除しても、ライブラリフォルダは残す
+        clear_music_folder(&conn).unwrap();
+        assert_eq!(music_folder_path(&conn), None);
+        assert_eq!(folder_paths(&conn), ["/music", "/other"]);
+    }
+
+    /// 2つ目の印は、DBが受け付けない（部分一意インデックス）
+    #[test]
+    fn test_only_one_music_folder_can_be_marked() {
+        let conn = setup_test_db();
+        register_folder(&conn, "/music", &[]).unwrap();
+        register_folder(&conn, "/other", &[]).unwrap();
+        conn.execute(
+            "UPDATE library_folders SET is_music_folder = 1 WHERE path = '/music'",
+            [],
+        )
+        .unwrap();
+        assert!(
+            conn.execute(
+                "UPDATE library_folders SET is_music_folder = 1 WHERE path = '/other'",
+                []
+            )
+            .is_err()
+        );
+    }
+
+    /// 音楽フォルダのライブラリフォルダを削除すると、未設定に戻る
+    #[test]
+    fn test_deleting_music_folder_clears_the_setting() {
+        let conn = setup_test_db();
+        register_folder(&conn, "/music", &[]).unwrap();
+        let id = folder_id(&conn, "/music");
+        set_music_folder(&conn, &id).unwrap();
+
+        delete_folder(&conn, &id).unwrap();
+        assert_eq!(music_folder_path(&conn), None);
+    }
+
+    /// 音楽フォルダを含むフォルダを登録すると、記録をまとめ、外のフォルダを音楽フォルダにする
+    #[test]
+    fn test_registering_outer_folder_moves_music_folder_outward() {
+        let conn = setup_test_db();
+        register_folder(&conn, "/home/Music/Muspice", &[]).unwrap();
+        register_folder(&conn, "/home/Music/Downloads", &[]).unwrap();
+        set_music_folder(&conn, &folder_id(&conn, "/home/Music/Muspice")).unwrap();
+
+        let outer = register_folder(&conn, "/home/Music", &[]).unwrap();
+        assert_eq!(outer, Some(folder_id(&conn, "/home/Music")));
+        assert_eq!(folder_paths(&conn), ["/home/Music"]);
+        assert_eq!(music_folder_path(&conn).as_deref(), Some("/home/Music"));
+
+        // 音楽フォルダを含まないフォルダをまとめても、印は付けない
+        register_folder(&conn, "/other/a", &[]).unwrap();
+        register_folder(&conn, "/other", &[]).unwrap();
+        assert!(
+            !find_folder_by_path(&conn, "/other")
+                .unwrap()
+                .unwrap()
+                .is_music_folder
+        );
+    }
+
+    #[test]
+    fn test_register_folder_returns_the_registered_folder() {
+        let conn = setup_test_db();
+        let id = register_folder(&conn, "/music", &[]).unwrap().unwrap();
+        assert_eq!(id, folder_id(&conn, "/music"));
+        // 同じフォルダは、そのフォルダのID。中のフォルダは、登録しない
+        assert_eq!(register_folder(&conn, "/music/", &[]).unwrap(), Some(id));
+        assert_eq!(register_folder(&conn, "/music/jazz", &[]).unwrap(), None);
+    }
+
+    #[test]
+    fn test_find_folder_by_path_and_enclosing_folder() {
+        let conn = setup_test_db();
+        register_folder(&conn, "/music", &[]).unwrap();
+
+        assert_eq!(
+            find_folder_by_path(&conn, "/music/")
+                .unwrap()
+                .map(|f| f.path),
+            Some("/music".to_string())
+        );
+        assert_eq!(find_folder_by_path(&conn, "/music/jazz").unwrap(), None);
+
+        assert_eq!(
+            find_enclosing_folder(&conn, "/music/jazz")
+                .unwrap()
+                .map(|f| f.path),
+            Some("/music".to_string())
+        );
+        // 同じフォルダ・名前の先頭が同じだけのフォルダ・外のフォルダは、含むフォルダではない
+        for path in ["/music", "/music/", "/music2", "/"] {
+            assert_eq!(
+                find_enclosing_folder(&conn, path).unwrap(),
+                None,
+                "{}",
+                path
+            );
+        }
     }
 
     #[test]

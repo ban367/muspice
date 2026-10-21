@@ -149,6 +149,10 @@ export const en: Messages = {
     addLibraryFolderExclusion: 'Adding the excluded folder',
     removeLibraryFolderExclusion: 'Removing the excluded folder',
     removeExcludedTracks: 'Removing the tracks in the excluded folder',
+    fetchMusicFolder: 'Loading the music folder',
+    setMusicFolder: 'Setting the music folder',
+    clearMusicFolder: 'Unsetting the music folder',
+    previewMusicFolderTemplate: 'Loading the format examples',
     fetchDevices: 'Loading devices',
     registerDevice: 'Adding the device',
     updateDevice: 'Changing the device settings',
@@ -1124,6 +1128,38 @@ export const en: Messages = {
     removeExcludedTracks: 'Remove from Library',
     excludedTracksRemoved: (path, count) =>
       `Excluded "${path}" and removed ${plural(count, 'track', 'tracks')} from the library`
+  },
+
+  musicFolder: {
+    title: 'Music folder',
+    hint: 'The folder where new music goes (one of the library folders). Changing it does not move any files.',
+    notSet: 'Not set',
+    missing: 'Folder not found',
+    useSystem: 'Use the system Music folder',
+    pick: 'Choose a Folder...',
+    clear: 'Unset',
+    badge: 'Music folder',
+    setting: 'Setting the music folder...',
+    set: (path) => `Set the music folder to "${path}"`,
+    setWithTracks: (path, count) =>
+      `Set the music folder to "${path}" and added ${plural(count, 'track', 'tracks')}`,
+    cleared: 'Unset the music folder (the folder stays as a library folder)',
+    insideLibraryFolder: (path, libraryFolderPath) =>
+      `"${path}" is inside the library folder "${libraryFolderPath}", so it can't be the music folder. Choose the outer folder (${libraryFolderPath}) instead.`,
+    removeHint: 'This is the music folder. Removing it also unsets the music folder.',
+    setupTitle: 'Start with a music folder',
+    setupHint:
+      'Choose the folder where new music goes. Music already in the folder is added. You can change it later in Settings > Library.',
+    emptyFolder: (path) => `The music folder (${path}) has no music yet`,
+    emptyFolderHint:
+      'Put music in the folder, then rescan it in Settings > Library. You can also add music from other folders with "Import Folder..." in the menu.',
+    template: 'Music folder format',
+    templateHint: 'How folders and files are named when music is placed in the music folder.',
+    templateSyntax:
+      'Fields: %title% %artist% %album% %albumartist% %genre% %year% %track% %disc% %filename%. Use "/" to make folders. Parts in [ ] are left out when none of their fields have a value.',
+    preset: 'Format examples',
+    examples: 'Examples (tracks from recently added albums)',
+    noExamples: 'No examples yet because the library is empty'
   },
 
   devices: {

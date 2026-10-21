@@ -1,7 +1,7 @@
 //! ライブラリフォルダ（インポートしたフォルダ）の一覧・削除・再スキャンと、読み込まないフォルダ（除外）のコマンド
 
 use super::import::create_track_from_file;
-use super::run_blocking;
+use super::{pick_folder, run_blocking};
 use crate::error::{AppError, AppResult};
 use crate::events::{LibraryChanged, LibraryScanProgress};
 use crate::library::{modified_at_of, scan_directory, to_count};
@@ -86,6 +86,7 @@ fn list_folders(state: &AppState) -> AppResult<LibraryFolderList> {
             added_at: record.added_at,
             last_scanned_at: record.last_scanned_at,
             exclusions,
+            is_music_folder: record.is_music_folder,
         })
         .collect();
 
@@ -101,7 +102,8 @@ fn list_folders(state: &AppState) -> AppResult<LibraryFolderList> {
 /// ライブラリフォルダの記録を削除する
 ///
 /// `remove_tracks`がtrueなら、フォルダ内のトラックもライブラリから外す（ファイルは消さない）。
-/// 外したトラック数を返す。
+/// 外したトラック数を返す。音楽フォルダのライブラリフォルダなら、音楽フォルダは未設定に戻る
+/// （印は記録と一緒に消える）。
 #[tauri::command]
 #[specta::specta]
 pub async fn remove_library_folder(
@@ -122,7 +124,7 @@ fn remove_folder_blocking(
     app_handle: &AppHandle,
 ) -> AppResult<u32> {
     let state = app_handle.state::<AppState>();
-    let removed = {
+    let (removed, was_music_folder) = {
         // 同じフォルダの再スキャンの途中で消すと、再スキャンが曲を書き戻してしまうため、終わるまで待つ
         let _scan = state.lock_library_scan();
         state.with_db(|db| {
@@ -141,7 +143,7 @@ fn remove_folder_blocking(
             tx.commit().map_err(|e| {
                 AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
             })?;
-            to_count(removed)
+            Ok((to_count(removed)?, folder.is_music_folder))
         })?
     };
 
@@ -150,7 +152,8 @@ fn remove_folder_blocking(
         .state::<LibrarySync>()
         .refresh_watches(app_handle);
 
-    if removed > 0 {
+    // 音楽フォルダを消した場合は、曲を外さなくても、音楽フォルダの設定が変わったことを知らせる
+    if removed > 0 || was_music_folder {
         notify_library_changed(app_handle);
     }
     Ok(removed)
@@ -212,19 +215,15 @@ pub async fn add_library_folder_exclusion(
             Language::Ja => "読み込まないフォルダを選択",
             Language::En => "Select a Folder to Exclude",
         };
-        let Some(selected) = app_handle
+        let dialog = app_handle
             .dialog()
             .file()
             .set_parent(&window)
             .set_title(title)
-            .set_directory(&folder.path)
-            .blocking_pick_folder()
-        else {
+            .set_directory(&folder.path);
+        let Some(selected) = pick_folder(dialog)? else {
             return Ok(None);
         };
-        let selected = selected
-            .into_path()
-            .map_err(|e| AppError::Io(format!("選んだフォルダを開けません: {}", e)))?;
         let relative = relative_to_folder(&folder.path, &selected)?;
 
         // 再スキャンの途中で足すと、その再スキャンが除外の前の内容で曲を書き込むため、終わるまで待つ
@@ -606,7 +605,7 @@ fn read_and_write_tracks(
 }
 
 /// ライブラリが変わったことを他のウィンドウに知らせる
-fn notify_library_changed(app_handle: &AppHandle) {
+pub(super) fn notify_library_changed(app_handle: &AppHandle) {
     if let Err(e) = LibraryChanged.emit(app_handle) {
         log::warn!("ライブラリの変更の通知に失敗しました: {}", e);
     }

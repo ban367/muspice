@@ -10,6 +10,7 @@
  */
 import {
   DEFAULT_ACCENT_COLOR,
+  DEFAULT_MUSIC_FOLDER_TEMPLATE,
   AAC_BITRATES_KBPS,
   LIBRARY_SCAN_INTERVALS,
   MAX_CROSSFADE_SECONDS,
@@ -35,6 +36,7 @@ import type {
   LibraryFolder,
   LoudnessScanResult,
   Metadata,
+  MusicFolderChange,
   NowPlayingUpdate,
   PlayHistoryEntry,
   Playlist,
@@ -176,6 +178,13 @@ export interface MockBackend {
    * 追加を確かめる時は、ライブラリの外のフォルダ（例: `/Volumes/NEW_SD`）にする）。
    */
   setFolderResult(path: string | null): void;
+  /**
+   * 音楽フォルダに、新しく登録するフォルダを選んだ時（`setMusicFolder`）に、見つかったことにする
+   * 曲の数を切り替える（0は、空のフォルダ）
+   *
+   * 既定はフォルダのインポートと同じ数。
+   */
+  setMusicFolderFileCount(count: number): void;
   /** `albumart`プロトコルの代わりに、トラックのアルバムアートをdata URLで返す（アートがなければnull） */
   albumArtUrl(trackId: string): string | null;
 }
@@ -213,6 +222,10 @@ const DROPPED_FILES_FOLDER = '/Users/mock/Desktop';
 
 /** インポート時に「見つかった」ことにするファイル数 */
 const IMPORT_FILE_COUNT = 6;
+/** OSの音楽フォルダ（Rustの`audio_dir`の代わり。ライブラリフォルダとして登録してある） */
+const SYSTEM_MUSIC_FOLDER = '/Users/demo/Music';
+/** 音楽フォルダの書式の例に出す曲の数（Rustの`TEMPLATE_EXAMPLE_COUNT`と同じ） */
+const TEMPLATE_EXAMPLE_COUNT = 5;
 /** インポートの1ファイルあたりの処理時間（進捗表示の確認用） */
 const IMPORT_STEP_MS = 150;
 const DEFAULT_STATS_LIMIT = 50;
@@ -534,22 +547,24 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     autoDjPlaylistId: null,
     stayInMenuBar: false,
     globalShortcuts: false,
-    notifyTrackChange: false
+    notifyTrackChange: false,
+    musicFolderTemplate: DEFAULT_MUSIC_FOLDER_TEMPLATE
   };
   // ライブラリフォルダ（existsは「フォルダが見つかるか」。外付けドライブが外れた状態を再現する）
   // 読み込まないフォルダ（exclusions）は、相対パスで持つ。OSの音楽フォルダには、登録した時に
-  // 入る既知のアプリのフォルダを入れておく
+  // 入る既知のアプリのフォルダを入れておく。音楽フォルダ（isMusicFolder）は、設定していない
   let libraryFolders: MockLibraryFolder[] = [
     {
       id: crypto.randomUUID(),
-      path: '/Users/demo/Music',
+      path: SYSTEM_MUSIC_FOLDER,
       exists: true,
       addedAt: '2026-01-01T00:00:00.000Z',
       lastScannedAt: '2026-01-01T00:00:00.000Z',
       exclusions: [
         { id: crypto.randomUUID(), path: 'Music' },
         { id: crypto.randomUUID(), path: 'MusicBee' }
-      ]
+      ],
+      isMusicFolder: false
     },
     {
       id: crypto.randomUUID(),
@@ -557,7 +572,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       exists: false,
       addedAt: '2026-01-02T00:00:00.000Z',
       lastScannedAt: null,
-      exclusions: []
+      exclusions: [],
+      isMusicFolder: false
     }
   ];
   // 読み込まないフォルダの追加で、選んだことにするフォルダ（undefinedは、曲のある最初のフォルダ）
@@ -607,8 +623,10 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   // 形式の変換の実行の状態（同時に実行できる変換は1つ）と、書き出すフォルダを選ぶダイアログの結果
   const conversionJob = { running: false, cancelled: false };
   let convertExportFolder: string | null = '/Users/mock/Export';
-  // フォルダを選ぶダイアログ（フォルダのインポート・デバイスの登録・転送先の変更）の結果
+  // フォルダを選ぶダイアログ（フォルダのインポート・デバイスの登録・転送先の変更・音楽フォルダ）の結果
   let folderResult: string | null = DEFAULT_FOLDER_RESULT;
+  // 音楽フォルダに新しく登録するフォルダで、見つかったことにする曲の数
+  let musicFolderFileCount = IMPORT_FILE_COUNT;
   // 書き出したファイルの場所（もう一度同じ場所へ書き出すと、同じ名前のファイルがあることになる）
   const exportedPaths = new Set<string>();
   // 音量の解析の実行の状態（同時に実行できる解析は1つ）
@@ -980,16 +998,95 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   async function importFolder(duplicateAction: DuplicateAction): Promise<ImportResult | null> {
     if (folderResult === null) return null;
     const folder = normalizeFolderPath(folderResult);
-    const fileNames = Array.from(
-      { length: IMPORT_FILE_COUNT },
-      (_, index) => `Mock Track ${String(index + 1).padStart(2, '0')}.mp3`
+    const result = await importAudioFiles(
+      folder,
+      mockFileNames(IMPORT_FILE_COUNT),
+      duplicateAction
     );
-    const result = await importAudioFiles(folder, fileNames, duplicateAction);
 
     // Rustと同じく、フォルダをライブラリフォルダとして記録し、ライブラリが変わったことを知らせる
     registerLibraryFolder(folder);
     options.emit('library-changed', null);
     return result;
+  }
+
+  /** フォルダのインポートで「見つかった」ことにするファイルの名前 */
+  const mockFileNames = (count: number) =>
+    Array.from(
+      { length: count },
+      (_, index) => `Mock Track ${String(index + 1).padStart(2, '0')}.mp3`
+    );
+
+  /**
+   * 音楽フォルダを選ぶ（Rustの`commands/music_folder.rs`の`change_music_folder`）
+   *
+   * OSの音楽フォルダは`SYSTEM_MUSIC_FOLDER`、ほかのフォルダは`setFolderResult`で選んだことにしたもの
+   * （nullなら、選ばずに閉じた）。登録済みのライブラリフォルダなら印を移すだけ、その中のフォルダなら
+   * 外側のフォルダを返す。新しいフォルダは、`setMusicFolderFileCount`の数の曲を読み込んで登録する
+   * （0なら空のフォルダ）。
+   */
+  async function setMusicFolder(source: 'system' | 'pick'): Promise<MusicFolderChange | null> {
+    const selected = source === 'system' ? SYSTEM_MUSIC_FOLDER : folderResult;
+    if (selected === null) return null;
+    const path = normalizeFolderPath(selected);
+    const registered = libraryFolders.find((folder) => folder.path === path);
+    const enclosing = libraryFolders.find(
+      (folder) => folder.path !== path && isSameOrWithin(path, folder.path)
+    );
+    let change: MusicFolderChange;
+    if (registered) {
+      markMusicFolder(registered);
+      change = { kind: 'set', path, imported: null };
+    } else if (enclosing) {
+      return { kind: 'insideLibraryFolder', path, libraryFolderPath: enclosing.path };
+    } else {
+      const imported = await importAudioFiles(path, mockFileNames(musicFolderFileCount), 'Skip');
+      markMusicFolder(registerLibraryFolder(path)!);
+      change = { kind: 'set', path, imported };
+    }
+    options.emit('library-changed', null);
+    return change;
+  }
+
+  /** ライブラリフォルダを音楽フォルダにする（ほかのフォルダの印は外す） */
+  function markMusicFolder(target: MockLibraryFolder): void {
+    for (const folder of libraryFolders) folder.isMusicFolder = folder === target;
+  }
+
+  /**
+   * 音楽フォルダの書式の例（Rustの`preview_music_folder_template`）
+   *
+   * 最近追加したアルバム（アルバムアーティスト・アルバムごと）の最初の曲を、書式に当てはめる。
+   */
+  function previewMusicFolderTemplate(templateText: string): string[] {
+    const template = parseOrganizeTemplate(templateText);
+    const albums = new Map<string, { first: Track; addedAt: string }>();
+    const order = (track: Track) =>
+      [track.discNumber ?? -1, track.trackNumber ?? -1, track.filePath] as const;
+    for (const track of tracks.filter((track) => !track.isMissing)) {
+      const key = JSON.stringify([track.album, track.albumArtist ?? track.artist]);
+      const album = albums.get(key);
+      if (!album) {
+        albums.set(key, { first: track, addedAt: track.createdAt });
+        continue;
+      }
+      if (track.createdAt > album.addedAt) album.addedAt = track.createdAt;
+      const [disc, number, path] = order(track);
+      const [firstDisc, firstNumber, firstPath] = order(album.first);
+      if (
+        disc < firstDisc ||
+        (disc === firstDisc &&
+          (number < firstNumber || (number === firstNumber && path < firstPath)))
+      ) {
+        album.first = track;
+      }
+    }
+    return [...albums.values()]
+      .sort(
+        (a, b) => compareAsc(b.addedAt, a.addedAt) || compareAsc(a.first.filePath, b.first.filePath)
+      )
+      .slice(0, TEMPLATE_EXAMPLE_COUNT)
+      .map((album) => organizedRelativePath(template, album.first));
   }
 
   /** 音楽ファイルか（拡張子で決める。大文字と小文字は区別しない） */
@@ -1367,17 +1464,20 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
    *
    * 新しく登録するフォルダは、まとめる中のフォルダの読み込まないフォルダを引き継ぐ（Rustの
    * `import_exclusions`。モックはファイルシステムを読まないため、既知のアプリのフォルダは入れない）。
+   * まとめる中のフォルダが音楽フォルダなら、新しく登録するフォルダを音楽フォルダにする。
+   *
+   * @returns 記録したフォルダ（同じフォルダを含む。登録済みのフォルダの中ならnull）
    */
-  function registerLibraryFolder(path: string): void {
+  function registerLibraryFolder(path: string): MockLibraryFolder | null {
     const same = libraryFolders.find((folder) => folder.path === path);
     if (same) {
       same.lastScannedAt = now();
-      return;
+      return same;
     }
-    if (libraryFolders.some((folder) => isSameOrWithin(path, folder.path))) return;
+    if (libraryFolders.some((folder) => isSameOrWithin(path, folder.path))) return null;
     const nested = libraryFolders.filter((folder) => isSameOrWithin(folder.path, path));
     libraryFolders = libraryFolders.filter((folder) => !nested.includes(folder));
-    libraryFolders.push({
+    const registered: MockLibraryFolder = {
       id: crypto.randomUUID(),
       path,
       exists: true,
@@ -1388,8 +1488,11 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
           id: crypto.randomUUID(),
           path: `${folder.path}/${exclusion.path}`.slice(folderPrefix(path).length)
         }))
-      )
-    });
+      ),
+      isMusicFolder: nested.some((folder) => folder.isMusicFolder)
+    };
+    libraryFolders.push(registered);
+    return registered;
   }
 
   /** 変更のなかった再スキャンの結果 */
@@ -2217,6 +2320,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       ) {
         fail('VALIDATION', '再スキャンの間隔が選べる値ではありません');
       }
+      parseOrganizeTemplate(next.musicFolderTemplate);
       settings = { ...next };
       options.emit('settings-changed', settings);
       return null;
@@ -2327,15 +2431,31 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       if (removed > 0) options.emit('library-changed', null);
       return removed;
     },
+    // 音楽フォルダのライブラリフォルダを削除すると、音楽フォルダは未設定に戻る
     removeLibraryFolder: (folderId, removeTracksToo) => {
       const folder = findLibraryFolder(folderId);
       const removed = removeTracksToo
         ? removeTracks(tracksUnder(folder.path).map((track) => track.id))
         : 0;
       libraryFolders = libraryFolders.filter((f) => f.id !== folderId);
-      if (removed > 0) options.emit('library-changed', null);
+      if (removed > 0 || folder.isMusicFolder) options.emit('library-changed', null);
       return removed;
     },
+    getMusicFolder: () => {
+      const folder = libraryFolders.find((candidate) => candidate.isMusicFolder);
+      return {
+        folder: folder ? { id: folder.id, path: folder.path, exists: folder.exists } : null,
+        systemFolder: SYSTEM_MUSIC_FOLDER
+      };
+    },
+    // 実装はRust側のダイアログで選ぶ。モックは`setFolderResult`のフォルダを選んだことにする
+    setMusicFolder: (source) => setMusicFolder(source),
+    clearMusicFolder: () => {
+      for (const folder of libraryFolders) folder.isMusicFolder = false;
+      options.emit('library-changed', null);
+      return null;
+    },
+    previewMusicFolderTemplate: (template) => previewMusicFolderTemplate(template),
     // 実装はRust側のダイアログで選ぶ。モックは`setExclusionFolder`のフォルダを選んだことにする
     addLibraryFolderExclusion: (folderId) => {
       const folder = findLibraryFolder(folderId);
@@ -2595,6 +2715,9 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     },
     setFolderResult: (path) => {
       folderResult = path;
+    },
+    setMusicFolderFileCount: (count) => {
+      musicFolderFileCount = count;
     },
     setM3uImportMode: (mode) => {
       m3uImportMode = mode;
