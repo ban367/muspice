@@ -64,7 +64,8 @@ export const commands = {
 	 *  ライブラリフォルダの記録を削除する
 	 * 
 	 *  `remove_tracks`がtrueなら、フォルダ内のトラックもライブラリから外す（ファイルは消さない）。
-	 *  外したトラック数を返す。
+	 *  外したトラック数を返す。音楽フォルダのライブラリフォルダなら、音楽フォルダは未設定に戻る
+	 *  （印は記録と一緒に消える）。
 	 */
 	removeLibraryFolder: (folderId: string, removeTracks: boolean) => __TAURI_INVOKE<number>("remove_library_folder", { folderId, removeTracks }),
 	/**
@@ -125,6 +126,47 @@ export const commands = {
 	/**  音楽ファイルが1件も見つからなかったため、見つからない曲にしなかった */
 	missingSkipped: boolean,
 } | null>("remove_library_folder_exclusion", { exclusionId }),
+	/**
+	 *  音楽フォルダの設定と、OSの音楽フォルダ（候補）を取得
+	 * 
+	 *  フォルダの存在確認は、外れたネットワークドライブなどで時間がかかることがあるため、
+	 *  ブロッキング処理用スレッドで行う。
+	 */
+	getMusicFolder: () => __TAURI_INVOKE<MusicFolderInfo>("get_music_folder"),
+	/**
+	 *  音楽フォルダを選ぶ
+	 * 
+	 *  OSの音楽フォルダか、ダイアログ（Rust側で、呼び出したウィンドウの上に出す。ADR-065）で選んだ
+	 *  フォルダを、音楽フォルダにする。
+	 * 
+	 *  - 登録済みのライブラリフォルダなら、印を移すだけ（読み込み直さない）
+	 *  - 登録済みのライブラリフォルダの中のフォルダなら、音楽フォルダにせず`InsideLibraryFolder`を返す
+	 *  - それ以外は、空でもライブラリフォルダとして登録し、中の曲を読み込む（`ImportProgress`を送る）。
+	 *    直下の既知のアプリのフォルダは、読み込まないフォルダに入れる（ADR-062）。中にあるライブラリ
+	 *    フォルダの記録は、まとめる
+	 * 
+	 *  ファイルは動かさない（前の音楽フォルダは、ライブラリフォルダとして残る）。
+	 * 
+	 *  @returns 結果（ダイアログで選ばずに閉じた場合はnull）
+	 */
+	setMusicFolder: (source: MusicFolderSource) => __TAURI_INVOKE<
+/**  音楽フォルダにした */
+{ kind: "set"; path: string; 
+/**  中の曲を読み込んだ結果（登録済みのライブラリフォルダに、印を移しただけの場合はnull） */
+imported: ImportResult | null } | 
+/**
+ *  ライブラリフォルダの中のフォルダを選んだ（フォルダは入れ子にできないため、音楽フォルダには
+ *  していない。画面は、外側のフォルダを案内する）
+ */
+{ kind: "insideLibraryFolder"; path: string; libraryFolderPath: string } | null>("set_music_folder", { source }),
+	/**  音楽フォルダの設定を外す（ライブラリフォルダの記録・ファイルは、そのまま） */
+	clearMusicFolder: () => __TAURI_INVOKE<null>("clear_music_folder"),
+	/**
+	 *  音楽フォルダの書式の例（最近追加したアルバムの最初の曲を、書式に当てはめた、音楽フォルダからの場所）
+	 * 
+	 *  書式が読めない場合は`VALIDATION`。ライブラリに曲がなければ空。
+	 */
+	previewMusicFolderTemplate: (template: string) => __TAURI_INVOKE<string[]>("preview_music_folder_template", { template }),
 	/**
 	 *  登録済みのデバイスの一覧を取得する
 	 * 
@@ -754,6 +796,8 @@ export const DEFAULT_AAC_BITRATE_KBPS = 256 as const;
 
 export const DEFAULT_ACCENT_COLOR = "#3b82f6" as const;
 
+export const DEFAULT_MUSIC_FOLDER_TEMPLATE = "%albumartist%/%album%/[%disc%-]%track% %title%" as const;
+
 export const LIBRARY_SCAN_INTERVALS = [0,15,30,60,360] as const;
 
 export const MAX_CROSSFADE_SECONDS = 12 as const;
@@ -1117,6 +1161,8 @@ export type LibraryFolder = {
 	lastScannedAt: string | null,
 	/**  読み込まないフォルダ（パス順） */
 	exclusions: FolderExclusion[],
+	/**  音楽フォルダ（新しい曲を置く宛先）か */
+	isMusicFolder: boolean,
 };
 
 /**  ライブラリフォルダの一覧 */
@@ -1279,6 +1325,42 @@ export type Metadata = {
 	albumSort?: string | null,
 	albumArtistSort?: string | null,
 };
+
+/**  音楽フォルダ（印を付けたライブラリフォルダ） */
+export type MusicFolder = {
+	/**  ライブラリフォルダのID */
+	id: string,
+	path: string,
+	/**  フォルダが今も存在するか（外付けドライブが外れている場合などはfalse） */
+	exists: boolean,
+};
+
+/**  音楽フォルダを選んだ結果 */
+export type MusicFolderChange = 
+/**  音楽フォルダにした */
+{ kind: "set"; path: string; 
+/**  中の曲を読み込んだ結果（登録済みのライブラリフォルダに、印を移しただけの場合はnull） */
+imported: ImportResult | null } | 
+/**
+ *  ライブラリフォルダの中のフォルダを選んだ（フォルダは入れ子にできないため、音楽フォルダには
+ *  していない。画面は、外側のフォルダを案内する）
+ */
+{ kind: "insideLibraryFolder"; path: string; libraryFolderPath: string };
+
+/**  音楽フォルダの設定（画面に出す） */
+export type MusicFolderInfo = {
+	/**  音楽フォルダ（設定していなければnull） */
+	folder: MusicFolder | null,
+	/**  OSの音楽フォルダ（音楽フォルダの候補。見つからなければnull） */
+	systemFolder: string | null,
+};
+
+/**  音楽フォルダにするフォルダの選び方 */
+export type MusicFolderSource = 
+/**  OSの音楽フォルダ（macOSは`~/Music`。パスはRust側で求める） */
+"system" | 
+/**  ダイアログで選ぶ */
+"pick";
 
 /**  フロントエンドから届く、プレーヤーバーの状態 */
 export type NowPlayingUpdate = {
@@ -1588,6 +1670,11 @@ export type Settings = {
 	globalShortcuts: boolean,
 	/**  曲が変わった時に、OSの通知で知らせる（ウィンドウが前面にない時だけ） */
 	notifyTrackChange: boolean,
+	/**
+	 *  音楽フォルダの書式（音楽フォルダへ曲を置く時の、フォルダとファイルの名前の付け方。
+	 *  ファイルの整理と同じ書き方。`file_organize::Template`）
+	 */
+	musicFolderTemplate: string,
 };
 
 /**  設定が保存された（設定ウィンドウでの変更をメインウィンドウに反映する） */

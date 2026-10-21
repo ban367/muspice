@@ -158,6 +158,10 @@ export const ja = {
     addLibraryFolderExclusion: '読み込まないフォルダの追加',
     removeLibraryFolderExclusion: '読み込まないフォルダの削除',
     removeExcludedTracks: '読み込まないフォルダの曲の削除',
+    fetchMusicFolder: '音楽フォルダの取得',
+    setMusicFolder: '音楽フォルダの設定',
+    clearMusicFolder: '音楽フォルダの解除',
+    previewMusicFolderTemplate: '書式の例の取得',
     fetchDevices: 'デバイスの取得',
     registerDevice: 'デバイスの追加',
     updateDevice: 'デバイスの設定の変更',
@@ -1147,6 +1151,41 @@ export const ja = {
     removeExcludedTracks: 'ライブラリから外す',
     excludedTracksRemoved: (path: string, count: number) =>
       `「${path}」を読み込まないフォルダにし、${count}曲をライブラリから外しました`
+  },
+
+  /** 音楽フォルダ（新しい曲を置く宛先。ライブラリフォルダの1つ） */
+  musicFolder: {
+    title: '音楽フォルダ',
+    hint: '新しい曲を置くフォルダです（ライブラリフォルダの1つ）。変えても、ファイルは動かしません。',
+    notSet: '設定していません',
+    missing: 'フォルダが見つかりません',
+    useSystem: 'OSの音楽フォルダを使う',
+    pick: 'フォルダを選ぶ...',
+    clear: '解除',
+    badge: '音楽フォルダ',
+    setting: '音楽フォルダを設定しています...',
+    set: (path: string) => `音楽フォルダを「${path}」にしました`,
+    setWithTracks: (path: string, count: number) =>
+      `音楽フォルダを「${path}」にし、${count}曲を読み込みました`,
+    cleared: '音楽フォルダの設定を解除しました（フォルダは、ライブラリフォルダとして残ります）',
+    insideLibraryFolder: (path: string, libraryFolderPath: string) =>
+      `「${path}」はライブラリフォルダ「${libraryFolderPath}」の中にあるため、音楽フォルダにできません。外側のフォルダ（${libraryFolderPath}）を選んでください`,
+    removeHint: 'このフォルダは音楽フォルダです。削除すると、音楽フォルダの設定も解除されます',
+    /** ライブラリが空の画面 */
+    setupTitle: '音楽フォルダを選んで始める',
+    setupHint:
+      '新しい曲を置くフォルダを選びます。フォルダの中の曲は読み込みます。あとから設定の「ライブラリ」で変えられます',
+    emptyFolder: (path: string) => `音楽フォルダ（${path}）に曲がありません`,
+    emptyFolderHint:
+      '曲をフォルダに入れてから、設定の「ライブラリ」で再スキャンしてください。メニューの「フォルダをインポート...」で、ほかのフォルダの曲も取り込めます',
+    /** 書式 */
+    template: '音楽フォルダの書式',
+    templateHint: '音楽フォルダに曲を置く時の、フォルダとファイルの名前の付け方です。',
+    templateSyntax:
+      '使える項目: %title% %artist% %album% %albumartist% %genre% %year% %track% %disc% %filename%。「/」で区切るとフォルダになります。[ ] で囲んだ部分は、中の項目に値がない曲では省きます。',
+    preset: '書式の例',
+    examples: '例（最近追加したアルバムの曲）',
+    noExamples: 'ライブラリに曲がないため、例を表示できません'
   },
 
   devices: {

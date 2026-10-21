@@ -12,7 +12,8 @@ vi.mock('#lib/bindings.js', () => ({
   commands: {
     importFolder: vi.fn(),
     importFiles: vi.fn(),
-    importDroppedFiles: vi.fn()
+    importDroppedFiles: vi.fn(),
+    setMusicFolder: vi.fn()
   },
   events: {
     importProgress: {
@@ -25,6 +26,7 @@ vi.mock('#lib/bindings.js', () => ({
 }));
 
 import { commands } from '#lib/bindings.js';
+import { notifications } from './error.svelte.js';
 import { importer } from './importer.svelte.js';
 import { ui } from './ui.svelte.js';
 
@@ -43,6 +45,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   listeners.clear();
   importer.reset();
+  notifications.clear();
   ui.isImportDialogOpen = false;
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
@@ -141,6 +144,62 @@ describe('importer', () => {
     expect(importer.result).toBeNull();
     expect(importer.errorMessage).toContain('インポートできる音楽ファイルがありません');
     expect(importer.isImporting).toBe(false);
+  });
+
+  it('空の音楽フォルダを選んだら、ダイアログを開かずに知らせる', async () => {
+    vi.mocked(commands.setMusicFolder).mockResolvedValue({
+      kind: 'set',
+      path: '/Users/a/Music',
+      imported: { ...RESULT, importedCount: 0, skippedCount: 0 }
+    });
+
+    await importer.setMusicFolder('system');
+
+    expect(commands.setMusicFolder).toHaveBeenCalledWith('system');
+    expect(ui.isImportDialogOpen).toBe(false);
+    expect(importer.result).toBeNull();
+    expect(notifications.items.map((n) => [n.type, n.message])).toEqual([
+      ['info', '音楽フォルダを「/Users/a/Music」にしました']
+    ]);
+  });
+
+  it('曲のある音楽フォルダを選んだら、読み込みの進み具合と結果をダイアログに出す', async () => {
+    let finish!: (change: Awaited<ReturnType<typeof commands.setMusicFolder>>) => void;
+    vi.mocked(commands.setMusicFolder).mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve;
+      })
+    );
+
+    const running = importer.setMusicFolder('pick');
+    await flush();
+    // フォルダを選んでいる間は、まだ開かない
+    expect(ui.isImportDialogOpen).toBe(false);
+    for (const listener of listeners) {
+      listener({ payload: { current: 1, total: 2, currentFile: 'a.flac' } });
+    }
+    expect(ui.isImportDialogOpen).toBe(true);
+
+    finish({ kind: 'set', path: '/Volumes/Music', imported: RESULT });
+    await running;
+    expect(importer.result).toEqual(RESULT);
+    expect(notifications.items[0].message).toBe(
+      '音楽フォルダを「/Volumes/Music」にし、2曲を読み込みました'
+    );
+  });
+
+  it('ライブラリフォルダの中のフォルダを選んだら、外側のフォルダを案内する', async () => {
+    vi.mocked(commands.setMusicFolder).mockResolvedValue({
+      kind: 'insideLibraryFolder',
+      path: '/Users/a/Music/New',
+      libraryFolderPath: '/Users/a/Music'
+    });
+
+    await importer.setMusicFolder('pick');
+
+    expect(ui.isImportDialogOpen).toBe(false);
+    expect(notifications.items.map((n) => n.type)).toEqual(['warning']);
+    expect(notifications.items[0].message).toContain('/Users/a/Music');
   });
 
   it('インポートの途中では、別のインポートを始めない', async () => {

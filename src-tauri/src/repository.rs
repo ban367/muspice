@@ -103,6 +103,28 @@ pub fn map_track_row(row: &Row) -> rusqlite::Result<Track> {
     })
 }
 
+/// 最近追加したアルバム（アルバムアーティスト・アルバムごと）の、最初の曲を、新しいアルバムの順に取得
+///
+/// 音楽フォルダの書式の例に使う。見つからない曲は除く。
+pub fn find_recent_album_tracks(conn: &Connection, limit: u32) -> AppResult<Vec<Track>> {
+    let sql = format!(
+        "SELECT {TRACK_COLUMNS} FROM (
+            SELECT *,
+                ROW_NUMBER() OVER (
+                    PARTITION BY album, {ALBUM_ARTIST}
+                    ORDER BY disc_number, track_number, file_path
+                ) AS album_position,
+                MAX(created_at) OVER (PARTITION BY album, {ALBUM_ARTIST}) AS album_added_at
+            FROM tracks
+            WHERE missing_since IS NULL
+         )
+         WHERE album_position = 1
+         ORDER BY album_added_at DESC, file_path
+         LIMIT ?1"
+    );
+    query_tracks(conn, &sql, &[&limit])
+}
+
 /// 全トラックを取得（作成日時の降順）
 ///
 /// 件数の上限はない（一覧は、フロントが見えている行だけを描画する）。
@@ -1803,6 +1825,37 @@ mod tests {
         assert_eq!(tracks[1].file_path, "/test/t2.mp3");
         assert_eq!(tracks[1].track_number, Some(1));
         assert_eq!(tracks[1].duration, Some(200));
+    }
+
+    #[test]
+    fn test_find_recent_album_tracks_takes_first_track_of_each_album() {
+        let conn = setup_test_db();
+        insert_test_track(&conn, "old-2", "曲2", "A", "古いアルバム", "ロック");
+        insert_test_track(&conn, "old-1", "曲1", "A", "古いアルバム", "ロック");
+        insert_test_track(&conn, "new-2", "曲2", "B", "新しいアルバム", "ロック");
+        insert_test_track(&conn, "new-1", "曲1", "B", "新しいアルバム", "ロック");
+        // 同じ名前でも、アーティストが違えば別のアルバム
+        insert_test_track(&conn, "other", "曲", "C", "古いアルバム", "ロック");
+        insert_test_track(&conn, "gone", "曲", "D", "見つからない", "ロック");
+        conn.execute_batch(
+            "UPDATE tracks SET track_number = 2 WHERE id IN ('old-2', 'new-2');
+             UPDATE tracks SET track_number = 1 WHERE id IN ('old-1', 'new-1');
+             UPDATE tracks SET created_at = '2026-01-01' WHERE id LIKE 'old-%';
+             UPDATE tracks SET created_at = '2026-01-02' WHERE id = 'other';
+             UPDATE tracks SET created_at = '2026-03-01' WHERE id LIKE 'new-%';
+             UPDATE tracks SET created_at = '2026-04-01', missing_since = '2026-04-02' WHERE id = 'gone';",
+        )
+        .unwrap();
+
+        let ids = |limit| -> Vec<String> {
+            find_recent_album_tracks(&conn, limit)
+                .unwrap()
+                .into_iter()
+                .map(|t| t.id)
+                .collect()
+        };
+        assert_eq!(ids(5), ["new-1", "other", "old-1"]);
+        assert_eq!(ids(1), ["new-1"]);
     }
 
     #[test]

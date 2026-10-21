@@ -4,7 +4,7 @@
 //! Rust側のダイアログから選ぶ（WebViewからパスを受け取らない。ADR-065）。それ以外の操作は、
 //! デバイスのIDからDBで解決する。
 
-use super::{pick_folder, run_blocking};
+use super::{file_dialog, pick_folder, run_blocking};
 use crate::device::{
     DeviceRecord, DeviceSyncPlan, DeviceSyncResult, DeviceSyncState, SyncDevice, SyncDeviceConfig,
     suggest_device_name, validate_device_name,
@@ -170,7 +170,8 @@ pub async fn get_sync_devices(app_handle: AppHandle) -> AppResult<Vec<SyncDevice
 pub async fn register_sync_device(app_handle: AppHandle) -> AppResult<Option<SyncDevice>> {
     run_blocking(move || {
         let labels = Labels::for_language(crate::menu::current_language(&app_handle));
-        let Some(folder) = pick_folder(&app_handle, labels.pick_title)? else {
+        let Some(folder) = pick_folder(file_dialog(&app_handle).set_title(labels.pick_title))?
+        else {
             return Ok(None);
         };
         let name = suggest_device_name(&folder).unwrap_or_else(|| labels.default_name.to_string());
@@ -259,7 +260,8 @@ pub async fn relink_sync_device(
         // 見つからないデバイスなら、ダイアログを開かずにエラーにする
         state.with_db(|db| crate::device::find_device(db, &device_id))?;
         let labels = Labels::for_language(crate::menu::current_language(&app_handle));
-        let Some(folder) = pick_folder(&app_handle, labels.pick_title)? else {
+        let Some(folder) = pick_folder(file_dialog(&app_handle).set_title(labels.pick_title))?
+        else {
             return Ok(None);
         };
 

@@ -388,6 +388,7 @@ mod tests {
             path: path.to_string(),
             added_at: String::new(),
             last_scanned_at: None,
+            is_music_folder: false,
         }
     }
 

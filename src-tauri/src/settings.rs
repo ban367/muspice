@@ -27,6 +27,9 @@ pub const MAX_NORMALIZATION_PREAMP_DB: i8 = 12;
 /// ライブラリフォルダを定期的に再スキャンする間隔として選べる値（分。0は再スキャンしない）
 pub const LIBRARY_SCAN_INTERVALS: [u32; 5] = [0, 15, 30, 60, 360];
 
+/// 音楽フォルダの既定の書式（ディスク番号がないと、2枚組の同じ番号の曲が衝突するため、入れる）
+pub const DEFAULT_MUSIC_FOLDER_TEMPLATE: &str = "%albumartist%/%album%/[%disc%-]%track% %title%";
+
 /// 出力デバイスのIDとして受け入れる長さの上限（OSが返すIDをそのまま保存するため、形式は決めない）
 const MAX_OUTPUT_DEVICE_ID_LENGTH: usize = 512;
 
@@ -134,6 +137,9 @@ pub struct Settings {
     pub global_shortcuts: bool,
     /// 曲が変わった時に、OSの通知で知らせる（ウィンドウが前面にない時だけ）
     pub notify_track_change: bool,
+    /// 音楽フォルダの書式（音楽フォルダへ曲を置く時の、フォルダとファイルの名前の付け方。
+    /// ファイルの整理と同じ書き方。`file_organize::Template`）
+    pub music_folder_template: String,
 }
 
 impl Settings {
@@ -163,6 +169,7 @@ impl Default for Settings {
             stay_in_menu_bar: false,
             global_shortcuts: false,
             notify_track_change: false,
+            music_folder_template: DEFAULT_MUSIC_FOLDER_TEMPLATE.to_string(),
         }
     }
 }
@@ -209,6 +216,7 @@ pub fn validate_settings(settings: &Settings) -> AppResult<()> {
     if let Some(playlist_id) = &settings.auto_dj_playlist_id {
         crate::validation::validate_playlist_id(playlist_id)?;
     }
+    crate::file_organize::Template::parse(&settings.music_folder_template)?;
     Ok(())
 }
 
@@ -246,8 +254,24 @@ fn parse_with_defaults(json: &str) -> serde_json::Result<Settings> {
         if let Some(items) = merged.get_mut("hiddenSidebarItems") {
             keep_known_sidebar_items(items);
         }
+        if let Some(template) = merged.get_mut("musicFolderTemplate") {
+            keep_valid_template(template);
+        }
     }
     serde_json::from_value(merged)
+}
+
+/// 音楽フォルダの書式が読めなければ、既定の書式に戻す
+///
+/// 書式に書ける項目を増やした後のバージョンが保存したファイルを、前のバージョンで開いても、
+/// 設定の全体が既定値に戻らないようにする。
+fn keep_valid_template(template: &mut Value) {
+    let is_valid = template
+        .as_str()
+        .is_some_and(|text| crate::file_organize::Template::parse(text).is_ok());
+    if !is_valid {
+        *template = Value::String(DEFAULT_MUSIC_FOLDER_TEMPLATE.to_string());
+    }
 }
 
 /// 隠すサイドバーの項目から、知らない項目と重複を除く
@@ -359,6 +383,7 @@ mod tests {
             stay_in_menu_bar: true,
             global_shortcuts: true,
             notify_track_change: true,
+            music_folder_template: "%artist%/%album%/%track% %title%".to_string(),
         };
 
         state.save(settings.clone()).unwrap();
@@ -551,6 +576,62 @@ mod tests {
         assert!(!loaded.stay_in_menu_bar);
         assert!(!loaded.global_shortcuts);
         assert!(!loaded.notify_track_change);
+        fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn test_music_folder_template() {
+        // 既定の書式は、ディスク番号を入れる
+        assert_eq!(
+            Settings::default().music_folder_template,
+            DEFAULT_MUSIC_FOLDER_TEMPLATE
+        );
+        assert!(DEFAULT_MUSIC_FOLDER_TEMPLATE.contains("%disc%"));
+
+        let state = SettingsState::load(temp_settings_path("music-folder-template"));
+        let settings = |template: &str| Settings {
+            music_folder_template: template.to_string(),
+            ..Settings::default()
+        };
+        assert!(state.save(settings("%genre%/%artist% - %title%")).is_ok());
+        // 読めない書式は、保存しない
+        for invalid in ["", "%unknown%/%title%", "%artist%/", "[%disc%-"] {
+            assert!(
+                matches!(state.save(settings(invalid)), Err(AppError::Validation(_))),
+                "{} は保存しない",
+                invalid
+            );
+        }
+    }
+
+    /// 読めない書式（後のバージョンで増えた項目など）は、書式だけを既定に戻し、ほかの設定は読む
+    #[test]
+    fn test_unreadable_music_folder_template_falls_back_to_default() {
+        let path = temp_settings_path("music-folder-template-file");
+        fs::write(
+            &path,
+            r#"{ "crossfadeSeconds": 3, "musicFolderTemplate": "%composer%/%title%" }"#,
+        )
+        .unwrap();
+        let settings = load_settings(&path);
+        assert_eq!(settings.crossfade_seconds, 3);
+        assert_eq!(
+            settings.music_folder_template,
+            DEFAULT_MUSIC_FOLDER_TEMPLATE
+        );
+
+        fs::write(&path, r#"{ "musicFolderTemplate": 5 }"#).unwrap();
+        assert_eq!(
+            load_settings(&path).music_folder_template,
+            DEFAULT_MUSIC_FOLDER_TEMPLATE
+        );
+
+        // 項目がない（前のバージョンの）ファイルは、既定の書式で補う
+        fs::write(&path, r#"{ "gaplessPlayback": false }"#).unwrap();
+        assert_eq!(
+            load_settings(&path).music_folder_template,
+            DEFAULT_MUSIC_FOLDER_TEMPLATE
+        );
         fs::remove_dir_all(path.parent().unwrap()).ok();
     }
 

@@ -98,6 +98,8 @@ export const queryKeys = {
 
   /** ライブラリフォルダ（インポートしたフォルダ） */
   libraryFolders: ['libraryFolders'] as const,
+  /** 音楽フォルダ（新しい曲を置く宛先）と、OSの音楽フォルダ */
+  musicFolder: ['musicFolder'] as const,
 
   /** 転送先デバイス（SDカードなどのフォルダ） */
   syncDevices: ['syncDevices'] as const

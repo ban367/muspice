@@ -248,6 +248,18 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         )",
         [],
     )?;
+    // 音楽フォルダ（新しい曲を置く宛先）の印。印を付けるフォルダは、多くても1つ（ADR-068）
+    add_column_if_not_exists(
+        conn,
+        "library_folders",
+        "is_music_folder",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_library_folders_music_folder
+         ON library_folders(is_music_folder) WHERE is_music_folder = 1",
+        [],
+    )?;
 
     // ライブラリフォルダの、読み込まないフォルダ（除外。pathはライブラリフォルダからの相対パス）
     // 隠しフォルダ・ゴミ箱・パッケージは、ここに入れなくても読み飛ばす（`library::is_always_skipped`）

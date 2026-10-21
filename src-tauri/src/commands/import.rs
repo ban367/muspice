@@ -44,7 +44,7 @@ pub async fn import_folder(
             Language::Ja => "インポートするフォルダを選択",
             Language::En => "Select a folder to import",
         };
-        let Some(folder) = pick_folder(&app_handle, title)? else {
+        let Some(folder) = pick_folder(file_dialog(&app_handle).set_title(title))? else {
             return Ok(None);
         };
         import_paths(&app_handle, &[folder], duplicate_action).map(Some)
@@ -211,26 +211,42 @@ pub(super) fn import_targets(
         )?);
     }
     for folder in &targets.folders {
-        result.merge(import_folder_blocking(
+        let (folder_result, _) = import_folder_blocking(
             folder,
             duplicate_action,
             state,
             on_progress,
-        )?);
+            FolderRegistration::IfTracksFound,
+        )?;
+        result.merge(folder_result);
     }
     Ok(result)
+}
+
+/// フォルダのインポートで、フォルダをライブラリフォルダとして記録する場合
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum FolderRegistration {
+    /// 音楽ファイルが見つかった場合だけ記録する（中のライブラリフォルダの記録を、空のフォルダで
+    /// まとめて消さないため）。記録に失敗しても、インポートの結果は返す
+    IfTracksFound,
+    /// 空でも記録する（音楽フォルダ）。記録に失敗したら、エラーにする
+    Always,
 }
 
 /// フォルダの中の音楽ファイルをインポートし、フォルダをライブラリフォルダとして記録する（同期処理）
 ///
 /// 読み込まないフォルダ（登録済みのフォルダの除外、新しく登録するフォルダなら直下の既知のアプリの
-/// フォルダ）は、中を読まない（ADR-062）。
-fn import_folder_blocking(
+/// フォルダ）は、中を読まない（ADR-062）。呼び出し側が`lock_library_scan`を持って呼ぶ。
+///
+/// @returns インポートの結果と、記録したライブラリフォルダのID（記録しなかった・登録済みのフォルダの
+///   中だった場合はNone）
+pub(super) fn import_folder_blocking(
     path: &Path,
     duplicate_action: DuplicateAction,
     state: &AppState,
     on_progress: &dyn Fn(ImportProgress),
-) -> AppResult<ImportResult> {
+    registration: FolderRegistration,
+) -> AppResult<(ImportResult, Option<String>)> {
     // 既定の除外はファイルシステムを読むため、DBロックの外で求める
     let exclusions = match path.to_str() {
         Some(folder_path) => {
@@ -252,18 +268,27 @@ fn import_folder_blocking(
     result.errors.extend(unreadable);
 
     // インポートしたフォルダをライブラリフォルダとして記録する（再スキャンの対象になる）
-    // 音楽ファイルが見つからなかったフォルダは記録しない（中のライブラリフォルダの記録を
-    // まとめて消さないため）。記録に失敗してもインポート自体は成功しているため、結果は返す
-    if !audio_files.is_empty()
-        && let Some(folder_path) = path.to_str()
-        && let Err(e) = state.with_db(|db| {
+    let register = || {
+        let folder_path = path
+            .to_str()
+            .ok_or_else(|| AppError::Validation("フォルダの名前を扱えません".to_string()))?;
+        state.with_db(|db| {
             crate::library_folder::register_folder(db, folder_path, &exclusions.to_register)
         })
-    {
-        log::error!("ライブラリフォルダの記録に失敗しました: {}", e);
-    }
+    };
+    let folder_id = match registration {
+        FolderRegistration::Always => register()?,
+        // 記録に失敗してもインポート自体は成功しているため、結果は返す
+        FolderRegistration::IfTracksFound if !audio_files.is_empty() => {
+            register().unwrap_or_else(|e| {
+                log::error!("ライブラリフォルダの記録に失敗しました: {}", e);
+                None
+            })
+        }
+        FolderRegistration::IfTracksFound => None,
+    };
 
-    Ok(result)
+    Ok((result, folder_id))
 }
 
 /// 音楽ファイルの一覧を、ライブラリへ登録する（同期処理。フォルダ・ファイルのインポートで共通）

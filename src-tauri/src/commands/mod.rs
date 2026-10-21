@@ -17,6 +17,7 @@ mod library_xml;
 mod loudness;
 mod m3u;
 mod metadata_cmd;
+mod music_folder;
 mod organize;
 mod playback;
 mod player;
@@ -39,6 +40,11 @@ pub use library_folders::{
 };
 // 自動の再スキャン（`library_sync`）が使う
 pub(crate) use library_folders::rescan_folder;
+
+// 音楽フォルダ（新しい曲を置く宛先）の設定と、書式の例
+pub use music_folder::{
+    clear_music_folder, get_music_folder, preview_music_folder_template, set_music_folder,
+};
 
 // 転送先デバイス（SDカードなどのフォルダ）の登録・設定・同期
 pub use devices::{
@@ -124,15 +130,23 @@ fn file_dialog(app: &AppHandle) -> FileDialogBuilder<tauri::Wry> {
 
 /// フォルダを選ぶダイアログを開き、選んだフォルダを返す（選ばずに閉じた場合はNone）
 ///
-/// フォルダもRust側のダイアログで選び、WebViewからはパスを受け取らない（ADR-065）。
-fn pick_folder(app: &AppHandle, title: &str) -> AppResult<Option<PathBuf>> {
-    let Some(folder) = file_dialog(app).set_title(title).blocking_pick_folder() else {
+/// フォルダもRust側のダイアログで選び、WebViewからはパスを受け取らない（ADR-065）。ダイアログ
+/// （タイトル・開く場所・上に出すウィンドウ）は、呼び出し側が作る。ダイアログを開いている間は
+/// スレッドを止めるため、ブロッキング処理用のスレッド（`run_blocking`）から呼ぶ。
+fn pick_folder(dialog: FileDialogBuilder<tauri::Wry>) -> AppResult<Option<PathBuf>> {
+    let Some(folder) = dialog.blocking_pick_folder() else {
         return Ok(None);
     };
-    folder
+    let path = folder
         .into_path()
-        .map(Some)
-        .map_err(|e| AppError::Io(format!("選んだフォルダを扱えません: {}", e)))
+        .map_err(|e| AppError::Io(format!("選んだフォルダを扱えません: {}", e)))?;
+    if !path.is_absolute() || !path.is_dir() {
+        return Err(AppError::NotFound(format!(
+            "フォルダが見つかりません: {}",
+            path.display()
+        )));
+    }
+    Ok(Some(path))
 }
 
 /// 重い同期処理をブロッキング処理用のスレッドで実行する

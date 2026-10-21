@@ -1678,6 +1678,122 @@ describe('読み込まないフォルダ', () => {
   });
 });
 
+describe('音楽フォルダ', () => {
+  const musicFolderPath = async () => (await commands.getMusicFolder()).folder?.path ?? null;
+  const markedPaths = async () =>
+    (await commands.getLibraryFolders()).folders.filter((f) => f.isMusicFolder).map((f) => f.path);
+
+  it('はじめは設定しておらず、OSの音楽フォルダを候補に返す', async () => {
+    expect(await commands.getMusicFolder()).toEqual({
+      folder: null,
+      systemFolder: '/Users/demo/Music'
+    });
+  });
+
+  it('登録済みのライブラリフォルダを選ぶと、印を移すだけで読み込み直さない', async () => {
+    const total = (await commands.getAllTracks()).length;
+
+    await expect(commands.setMusicFolder('system')).resolves.toEqual({
+      kind: 'set',
+      path: '/Users/demo/Music',
+      imported: null
+    });
+    expect(await markedPaths()).toEqual(['/Users/demo/Music']);
+    expect(await commands.getAllTracks()).toHaveLength(total);
+    expect(events.map((e) => e.event)).toContain('library-changed');
+
+    backend.setFolderResult('/Volumes/External/Music');
+    await commands.setMusicFolder('pick');
+    expect(await markedPaths()).toEqual(['/Volumes/External/Music']);
+  });
+
+  it('新しいフォルダは、空でも登録し、曲があれば読み込む', async () => {
+    backend.setMusicFolderFileCount(0);
+    backend.setFolderResult('/Users/demo/Empty/');
+    await expect(commands.setMusicFolder('pick')).resolves.toMatchObject({
+      kind: 'set',
+      path: '/Users/demo/Empty',
+      imported: { importedCount: 0 }
+    });
+    expect(await musicFolderPath()).toBe('/Users/demo/Empty');
+
+    backend.setMusicFolderFileCount(3);
+    backend.setFolderResult('/Users/demo/New Music');
+    await expect(commands.setMusicFolder('pick')).resolves.toMatchObject({
+      imported: { importedCount: 3 }
+    });
+    expect(await markedPaths()).toEqual(['/Users/demo/New Music']);
+    // 前の音楽フォルダは、ライブラリフォルダとして残る
+    const paths = (await commands.getLibraryFolders()).folders.map((f) => f.path);
+    expect(paths).toContain('/Users/demo/Empty');
+  });
+
+  it('ライブラリフォルダの中のフォルダは、音楽フォルダにせず外側のフォルダを返す', async () => {
+    backend.setFolderResult('/Users/demo/Music/Muspice');
+    await expect(commands.setMusicFolder('pick')).resolves.toEqual({
+      kind: 'insideLibraryFolder',
+      path: '/Users/demo/Music/Muspice',
+      libraryFolderPath: '/Users/demo/Music'
+    });
+    expect(await musicFolderPath()).toBeNull();
+
+    backend.setFolderResult(null);
+    await expect(commands.setMusicFolder('pick')).resolves.toBeNull();
+  });
+
+  it('外側のフォルダをインポートすると、印は外側のフォルダへ移る', async () => {
+    await commands.setMusicFolder('system');
+    await importFolder('/Users/demo');
+    expect(await markedPaths()).toEqual(['/Users/demo']);
+  });
+
+  it('解除・ライブラリフォルダの削除で、未設定に戻る', async () => {
+    await commands.setMusicFolder('system');
+    await commands.clearMusicFolder();
+    expect(await musicFolderPath()).toBeNull();
+    expect((await commands.getLibraryFolders()).folders.map((f) => f.path)).toContain(
+      '/Users/demo/Music'
+    );
+
+    const folder = (await commands.setMusicFolder('system'))!;
+    expect(folder.kind).toBe('set');
+    const music = (await commands.getMusicFolder()).folder!;
+    events = [];
+    await commands.removeLibraryFolder(music.id, false);
+    expect(await musicFolderPath()).toBeNull();
+    // 曲を外さなくても、音楽フォルダの設定が変わったことを知らせる
+    expect(events.map((e) => e.event)).toContain('library-changed');
+  });
+
+  it('書式の例は、最近追加したアルバムの最初の曲を書式に当てはめる', async () => {
+    const examples = await commands.previewMusicFolderTemplate('%albumartist%/%album%/%title%');
+    expect(examples.length).toBeGreaterThan(0);
+    expect(examples.length).toBeLessThanOrEqual(5);
+    for (const example of examples) expect(example.split('/')).toHaveLength(3);
+
+    // 新しく取り込んだアルバムが、先頭に来る
+    await importFolder('/Users/demo/Imports/Fresh');
+    const [first] = await commands.previewMusicFolderTemplate(
+      '%albumartist%/%album%/[%disc%-]%track% %title%'
+    );
+    expect(first).toBe('Mock Importer/Fresh/1-01 Mock Track 01.mp3');
+
+    await expect(commands.previewMusicFolderTemplate('%unknown%')).rejects.toMatchObject({
+      code: 'VALIDATION'
+    });
+  });
+
+  it('読めない書式は、設定に保存しない', async () => {
+    const settings = await commands.getSettings();
+    expect(settings.musicFolderTemplate).toBe('%albumartist%/%album%/[%disc%-]%track% %title%');
+    await expect(
+      commands.saveSettings({ ...settings, musicFolderTemplate: '%artist%/' })
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+    await commands.saveSettings({ ...settings, musicFolderTemplate: '%artist%/%title%' });
+    expect((await commands.getSettings()).musicFolderTemplate).toBe('%artist%/%title%');
+  });
+});
+
 describe('転送先デバイス', () => {
   /** 接続されているデバイス（プレイリスト「ドライブ用」を同期する） */
   async function connectedDevice() {

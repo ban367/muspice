@@ -1,13 +1,15 @@
 <!--
   @component LibraryFolderSettings
-  設定ウィンドウの「ライブラリ」: インポートしたフォルダ（ライブラリフォルダ）の一覧・再スキャン・削除・
-  読み込まないフォルダ（`LibraryFolderExclusionsDialog`）と、見つからない曲（ファイルが見つからなくなった
-  トラック）の削除。
+  設定ウィンドウの「ライブラリ」: 音楽フォルダ（`MusicFolderSettings`）と、インポートしたフォルダ
+  （ライブラリフォルダ）の一覧・再スキャン・削除・読み込まないフォルダ（`LibraryFolderExclusionsDialog`）と、
+  見つからない曲（ファイルが見つからなくなったトラック）の削除。
+  `children`は、音楽フォルダの下に出す（設定の「適用」で保存する、音楽フォルダの書式）。
   操作はすぐに反映する（設定の「適用」は不要）。ライブラリが変わると、Rustが送る
   `LibraryChanged`イベントでメインウィンドウの一覧が更新される。自動の再スキャン
   （起動時・定期・フォルダの監視）でライブラリが変わった場合も、同じイベントで曲数などを読み直す。
 -->
 <script lang="ts">
+  import type { Snippet } from 'svelte';
   import { useQueryClient } from '@tanstack/svelte-query';
   import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
   import { events } from '#lib/bindings.js';
@@ -23,9 +25,17 @@
   import type { FolderExclusion, LibraryFolder, RescanResult } from '#lib/types/models.js';
   import { Modal } from '#lib/components/ui/index.js';
   import LibraryFolderExclusionsDialog from './LibraryFolderExclusionsDialog.svelte';
+  import MusicFolderSettings from './MusicFolderSettings.svelte';
   import { formatDateTime } from '#lib/utils/format.js';
   import { describeRescan, sumRescanResults } from '#lib/utils/rescan.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
+
+  interface Props {
+    /** 音楽フォルダの下に出す内容 */
+    children?: Snippet;
+  }
+
+  let { children }: Props = $props();
 
   const foldersQuery = useLibraryFoldersQuery();
   const rescanMutation = useRescanLibraryFolderMutation();
@@ -73,14 +83,17 @@
     const unlistenProgress = events.libraryScanProgress.listen((event) => {
       scanProgress = event.payload;
     });
-    // インポート・自動の再スキャンでライブラリが変わったら、曲数・最終スキャンの日時を読み直す
-    const unlistenChanged = events.libraryChanged.listen(() => {
+    // インポート・自動の再スキャン・音楽フォルダの変更でライブラリが変わったら、曲数・最終スキャンの
+    // 日時・音楽フォルダを読み直す
+    const invalidate = () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.libraryFolders });
-    });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.musicFolder });
+    };
+    const unlistenChanged = events.libraryChanged.listen(invalidate);
     // ウィンドウに戻ったら読み直す（外付けドライブの接続などを反映する。TanStack Queryの
     // 再取得はページの表示状態だけを見ており、ウィンドウを切り替えても動かないため）
     const unlistenFocus = getCurrentWebviewWindow().onFocusChanged(({ payload: focused }) => {
-      if (focused) void queryClient.invalidateQueries({ queryKey: queryKeys.libraryFolders });
+      if (focused) invalidate();
     });
     return () => {
       unlistenProgress.then((fn) => fn());
@@ -184,6 +197,9 @@
 <section class="settings-section">
   <h3 class="section-title">{m.libraryFolders.title}</h3>
 
+  <MusicFolderSettings disabled={isScanning} />
+  {@render children?.()}
+
   <div class="folders-header">
     <div>
       <p class="setting-label">{m.libraryFolders.folders}</p>
@@ -218,7 +234,12 @@
       {#each folders as folder (folder.id)}
         <li class="folder-item">
           <div class="folder-info">
-            <p class="folder-path" title={folder.path}>{folder.path}</p>
+            <p class="folder-path-row">
+              <span class="folder-path" title={folder.path}>{folder.path}</span>
+              {#if folder.isMusicFolder}
+                <span class="music-folder-badge">{m.musicFolder.badge}</span>
+              {/if}
+            </p>
             <p class="folder-meta">
               {#if folder.exists}
                 {m.libraryFolders.folderMeta(
@@ -343,6 +364,9 @@
 >
   {#if removingFolder}
     <p class="mb-4 break-all">{m.libraryFolders.removeConfirm(removingFolder.path)}</p>
+    {#if removingFolder.isMusicFolder}
+      <p class="mb-4 text-sm text-warning">{m.musicFolder.removeHint}</p>
+    {/if}
     <label class="flex items-start gap-2 text-sm cursor-pointer">
       <input
         type="checkbox"
@@ -427,8 +451,16 @@
     @apply flex-1 min-w-0;
   }
 
+  .folder-path-row {
+    @apply flex items-center gap-2 m-0 min-w-0;
+  }
+
   .folder-path {
-    @apply text-sm text-text-primary truncate m-0 font-mono;
+    @apply text-sm text-text-primary truncate font-mono;
+  }
+
+  .music-folder-badge {
+    @apply shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/20 text-primary;
   }
 
   .folder-meta {
