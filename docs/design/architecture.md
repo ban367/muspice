@@ -150,6 +150,14 @@ sequenceDiagram
 3. 「付け替える」で`relocate_library_folder`を呼ぶ。`lock_library_scan`の中で場所を確かめ直し、記録のパスと中の曲のパスの先頭を1つのトランザクションで書き換える（トラックのIDは変えない。ADR-072）
 4. 監視するフォルダを更新して`LibraryChanged`を送り、新しい場所を再スキャンする（上の「ライブラリフォルダの再スキャン」と同じ。`LibraryScanProgress`で進み具合を出す）
 
+### ライブラリのデータのバックアップと復元
+
+1. 設定ウィンドウの「ライブラリ」（`LibraryBackupSettings`）で「バックアップを保存...」を押すと、`export_library_backup`がRust側の保存のダイアログで選んだファイルへ、DBを`VACUUM INTO`で写し、設定を足す（`backup.rs`。ADR-073）
+2. 「バックアップから復元...」を押すと、`plan_library_restore`がRust側のダイアログで選んだファイルを調べ、復元できるファイルを預かって（`PendingRestore`）件数を返す。画面が内容を見せて確かめる（復元できないファイルは、理由をトーストで知らせる）
+3. 「復元して再起動」で`restore_library_backup`を呼ぶ。Rust側は、今のDBと設定をアプリのデータの`backups/`へ退避し、復元するDBと設定を`restore/`へ用意してから、アプリを再起動する
+4. 起動時（`lib.rs`の`setup`）に、DBと設定を開く前に、用意してある復元を当てる（`backup::apply_staged_restore`）。別のMacで復元してライブラリフォルダが見つからない場合は、上の「ライブラリフォルダの場所の付け替え」で新しい場所へ付け替える
+5. 自動のバックアップ（設定`autoBackup`）は、別スレッド（`backup::start`）が1時間ごとに確かめ、その日の分がなければ`backups/`へ作る
+
 ### デバイスへの転送
 
 ```mermaid

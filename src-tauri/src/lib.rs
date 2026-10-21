@@ -1,5 +1,6 @@
 mod album_art;
 mod ape_tag;
+mod backup;
 mod commands;
 mod db;
 mod device;
@@ -48,20 +49,21 @@ mod vorbis_tag;
 use commands::{
     add_library_folder_exclusion, add_tracks_to_playlist, apply_metadata_changes,
     can_move_to_trash, cancel_conversion, cancel_device_sync, cancel_file_organize,
-    cancel_library_folder_relocation, cancel_loudness_scan, cancel_pending_import,
-    clear_music_folder, convert_tracks, count_smart_playlist_tracks, create_playlist,
-    create_playlist_folder, create_playlist_with_tracks, create_smart_playlist, delete_playlist,
-    delete_playlist_folder, delete_tracks_command, delete_tracks_with_files_command,
-    export_playlist_m3u, filter_tracks, get_album_art_info, get_album_tracks, get_albums,
-    get_all_tracks, get_artist_albums, get_artists, get_convert_formats, get_current_track,
-    get_favorite_tracks, get_genre_tracks, get_genres, get_global_shortcuts, get_library_folders,
-    get_loudness_scan_status, get_most_played_tracks, get_music_folder, get_output_devices,
-    get_play_history, get_playback_state, get_playlist_folders, get_playlist_tracks, get_playlists,
-    get_settings, get_sync_devices, get_track_lyrics, get_track_tags, get_unique_albums,
-    get_unique_artists, get_unique_genres, import_dropped_files, import_files, import_folder,
-    import_library_xml, import_m3u_playlists, import_pending_folders, increment_play_count,
-    increment_skip_count, move_playlist, open_project_page, organize_files, plan_conversion,
-    plan_device_sync, plan_file_organize, plan_library_folder_relocation, playback_pause,
+    cancel_library_folder_relocation, cancel_library_restore, cancel_loudness_scan,
+    cancel_pending_import, clear_music_folder, convert_tracks, count_smart_playlist_tracks,
+    create_playlist, create_playlist_folder, create_playlist_with_tracks, create_smart_playlist,
+    delete_playlist, delete_playlist_folder, delete_tracks_command,
+    delete_tracks_with_files_command, export_library_backup, export_playlist_m3u, filter_tracks,
+    get_album_art_info, get_album_tracks, get_albums, get_all_tracks, get_artist_albums,
+    get_artists, get_convert_formats, get_current_track, get_favorite_tracks, get_genre_tracks,
+    get_genres, get_global_shortcuts, get_library_folders, get_loudness_scan_status,
+    get_most_played_tracks, get_music_folder, get_output_devices, get_play_history,
+    get_playback_state, get_playlist_folders, get_playlist_tracks, get_playlists, get_settings,
+    get_sync_devices, get_track_lyrics, get_track_tags, get_unique_albums, get_unique_artists,
+    get_unique_genres, import_dropped_files, import_files, import_folder, import_library_xml,
+    import_m3u_playlists, import_pending_folders, increment_play_count, increment_skip_count,
+    move_playlist, open_project_page, organize_files, plan_conversion, plan_device_sync,
+    plan_file_organize, plan_library_folder_relocation, plan_library_restore, playback_pause,
     playback_play, playback_resume, playback_seek, playback_set_equalizer, playback_set_next,
     playback_set_speed, playback_set_volume, playback_stop, preview_music_folder_template,
     refresh_library_metadata, register_sync_device, relink_sync_device, relocate_library_folder,
@@ -69,10 +71,10 @@ use commands::{
     remove_library_folder_exclusion, remove_missing_tracks, remove_sync_device,
     remove_tracks_from_playlist, rename_playlist, rename_playlist_folder, reorder_playlist_folders,
     reorder_playlist_tracks, reorder_playlists, rescan_library_folder, reshuffle_smart_playlists,
-    run_device_sync, save_playback_state, save_settings, search_tracks, set_album_art,
-    set_current_track, set_favorite, set_mini_player, set_music_folder, set_now_playing,
-    set_playlist_description, set_rating, show_in_folder, start_loudness_scan, take_opened_files,
-    update_multiple_tracks_metadata, update_smart_playlist, update_sync_device,
+    restore_library_backup, run_device_sync, save_playback_state, save_settings, search_tracks,
+    set_album_art, set_current_track, set_favorite, set_mini_player, set_music_folder,
+    set_now_playing, set_playlist_description, set_rating, show_in_folder, start_loudness_scan,
+    take_opened_files, update_multiple_tracks_metadata, update_smart_playlist, update_sync_device,
     update_track_metadata, write_library_metadata_to_files,
 };
 use state::AppState;
@@ -122,6 +124,10 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             save_settings,
             get_global_shortcuts,
             set_mini_player,
+            export_library_backup,
+            plan_library_restore,
+            restore_library_backup,
+            cancel_library_restore,
             get_all_tracks,
             search_tracks,
             filter_tracks,
@@ -242,6 +248,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             "DEFAULT_MUSIC_FOLDER_TEMPLATE",
             settings::DEFAULT_MUSIC_FOLDER_TEMPLATE,
         )
+        .constant("AUTO_BACKUP_KEEP", backup::AUTO_BACKUP_KEEP)
 }
 
 /// ログファイル1つあたりの上限（超えたら日時付きの名前に変えて新しいファイルに切り替える）
@@ -353,6 +360,13 @@ pub fn run() {
 
             log::info!("アプリケーションを起動しました");
 
+            // バックアップからの復元を用意してあれば、DBと設定を開く前に置き換える（ADR-073）
+            match backup::apply_staged_restore(&app_data_dir) {
+                Ok(true) => log::info!("バックアップからライブラリのデータを復元しました"),
+                Ok(false) => {}
+                Err(e) => log::error!("バックアップからの復元に失敗しました: {}", e),
+            }
+
             // データベースファイルのパスを設定
             let db_path: PathBuf = app_data_dir.join("muspice.db");
 
@@ -426,6 +440,9 @@ pub fn run() {
             app.manage(commands::OrganizeState::default());
             // ライブラリフォルダの付け替え先（選んでから、付け替えるかを決めるまで預かる）
             app.manage(commands::PendingRelocation::default());
+            // 復元するバックアップ（選んでから、復元するかを決めるまで預かる）と、自動のバックアップ
+            app.manage(commands::PendingRestore::default());
+            backup::start(app.handle());
 
             // ウィンドウへのドロップ・「このアプリで開く」で渡されたファイルの受け取り。
             // 起動と一緒に開かれたファイル（ここまでの間に届いた分・起動時の引数）は、ここで開く

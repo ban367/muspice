@@ -147,6 +147,9 @@ export const en: Messages = {
     removeLibraryFolder: 'Removing the library folder',
     planLibraryFolderRelocation: 'Checking the new location',
     relocateLibraryFolder: 'Changing the location of the library folder',
+    exportLibraryBackup: 'Saving the backup',
+    planLibraryRestore: 'Checking the backup',
+    restoreLibraryBackup: 'Restoring from the backup',
     removeMissingTracks: 'Removing missing tracks',
     addLibraryFolderExclusion: 'Adding the excluded folder',
     removeLibraryFolderExclusion: 'Removing the excluded folder',
@@ -1198,6 +1201,39 @@ export const en: Messages = {
     removeExcludedTracks: 'Remove from Library',
     excludedTracksRemoved: (path, count) =>
       `Excluded "${path}" and removed ${plural(count, 'track', 'tracks')} from the library`
+  },
+
+  backup: {
+    title: 'Library data backup',
+    description:
+      'Saves the information only this app has, such as favorites, play counts, play history, playlists and dates added, together with the settings, to one file (the music files are not included). When moving to another Mac, restore the backup and then choose the new location of the library folders with "Change Location...".',
+    save: 'Save Backup...',
+    saving: 'Saving...',
+    saved: (path, trackCount, playlistCount) =>
+      `Saved the backup (${plural(trackCount, 'track', 'tracks')}, ${plural(playlistCount, 'playlist', 'playlists')}): ${path}`,
+    restore: 'Restore from Backup...',
+    autoBackup: 'Back up automatically',
+    autoBackupHint: (keep) =>
+      `Makes a backup in the app data folder once a day and keeps the newest ${keep}. "Restore from Backup..." opens this folder.`,
+    restoreTitle: 'Restore from Backup',
+    restoreFile: 'File',
+    restoreCreatedAt: 'Created',
+    restoreUnknownDate: 'Unknown (a database file)',
+    restoreContents: 'Contents',
+    restoreContentsValue: (trackCount, playlistCount, folderCount) =>
+      `${plural(trackCount, 'track', 'tracks')}, ${plural(playlistCount, 'playlist', 'playlists')}, ${plural(folderCount, 'library folder', 'library folders')}`,
+    restoreConfirm:
+      'The current library data is replaced with the contents of this backup. The current data and settings are saved to the app data folder before restoring. The app restarts after restoring.',
+    restoreSettings: 'The settings are also returned to those at the time of the backup.',
+    restoreNoSettings: 'This file does not include settings, so the current settings are kept.',
+    restoreFoldersHint:
+      'If library folders are not found (such as when restoring on another Mac), choose their new location with "Change Location..." after the restart.',
+    restoreButton: 'Restore and Restart',
+    restarting: 'The restore is ready. Restarting...',
+    notBackup: (fileName) => `"${fileName}" is not a Muspice backup, so it cannot be restored`,
+    damaged: (fileName) => `"${fileName}" is damaged, so it cannot be restored`,
+    newerFormat: (fileName) =>
+      `"${fileName}" was made by a newer version of Muspice and cannot be restored by this version. Update Muspice and restore it again`
   },
 
   musicFolder: {

@@ -146,6 +146,9 @@ pub struct Settings {
     /// 音楽フォルダを整理された状態に保つ（このアプリでタグを保存した、音楽フォルダの中の曲を、
     /// 書式どおりの場所へ移し直す）
     pub keep_music_folder_organized: bool,
+    /// ライブラリのデータ（DB・設定）を、1日に1回、アプリのデータのフォルダへ自動でバックアップする
+    /// （新しい世代だけを残す。`backup`）
+    pub auto_backup: bool,
 }
 
 impl Settings {
@@ -178,6 +181,7 @@ impl Default for Settings {
             music_folder_template: DEFAULT_MUSIC_FOLDER_TEMPLATE.to_string(),
             copy_to_music_folder: true,
             keep_music_folder_organized: false,
+            auto_backup: true,
         }
     }
 }
@@ -394,6 +398,7 @@ mod tests {
             music_folder_template: "%artist%/%album%/%track% %title%".to_string(),
             copy_to_music_folder: false,
             keep_music_folder_organized: true,
+            auto_backup: false,
         };
 
         state.save(settings.clone()).unwrap();
@@ -424,6 +429,8 @@ mod tests {
         assert!(settings.copy_to_music_folder);
         // 自動の整理は、既定でオフ（ほかのアプリがパスで参照していると、見つからなくなるため）
         assert!(!settings.keep_music_folder_organized);
+        // 自動のバックアップは、既定でオン
+        assert!(settings.auto_backup);
     }
 
     /// 隠すサイドバーの項目は、知らない項目・重複があっても、ほかの設定ごと読める

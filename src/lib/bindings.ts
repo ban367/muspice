@@ -340,6 +340,53 @@ imported: ImportResult | null } |
 	 *  もう一度`enabled: true`で呼ぶと、「常に手前に表示」だけを変える。
 	 */
 	setMiniPlayer: (enabled: boolean, alwaysOnTop: boolean) => __TAURI_INVOKE<null>("set_mini_player", { enabled, alwaysOnTop }),
+	/**
+	 *  ライブラリのデータ（DB・設定）を、保存先を選ぶダイアログ（Rust側。呼び出したウィンドウの上に出す）で
+	 *  選んだファイルへバックアップする
+	 * 
+	 *  拡張子がなければ`.muspicebackup`を付ける。曲のファイルは含まない。
+	 *  @returns 保存した結果（選ばずに閉じた場合はnull）
+	 */
+	exportLibraryBackup: () => __TAURI_INVOKE<{
+	/**  保存したファイル */
+	path: string,
+	trackCount: number,
+	playlistCount: number,
+} | null>("export_library_backup"),
+	/**
+	 *  復元するファイルを選ぶダイアログ（Rust側。呼び出したウィンドウの上に、アプリのバックアップのフォルダを
+	 *  開いた状態で出す）を開き、復元できるかと、中身の件数を返す
+	 * 
+	 *  Muspiceのバックアップのほか、DBのファイルそのもの（Time Machineから取り出した`muspice.db`など）も
+	 *  選べる（設定は含まない）。復元できるファイルなら預かる（`Ready`）。
+	 *  @returns 選んだ結果（選ばずに閉じた場合はnull）
+	 */
+	planLibraryRestore: () => __TAURI_INVOKE<
+/**
+ *  復元できる（選んだファイルを預かる。復元するなら`restore_library_backup`、やめるなら
+ *  `cancel_library_restore`）
+ */
+{ kind: "ready"; fileName: string; 
+/**  作った日時（RFC 3339。DBのファイルそのものなど、分からなければnull） */
+createdAt: string | null; trackCount: number; playlistCount: number; libraryFolderCount: number; 
+/**  設定を含むか（含まなければ、設定は今のまま） */
+includesSettings: boolean } | 
+/**  Muspiceのバックアップ（DB）ではない */
+{ kind: "notBackup"; fileName: string } | 
+/**  ファイルが壊れている */
+{ kind: "damaged"; fileName: string } | 
+/**  新しい版のアプリが作った、この版では復元できないバックアップ */
+{ kind: "newerFormat"; fileName: string } | null>("plan_library_restore"),
+	/**
+	 *  預かっているファイル（`plan_library_restore`で選んだもの）から、ライブラリのデータを復元し、アプリを再起動する
+	 * 
+	 *  今のDBと設定を、アプリのバックアップのフォルダへ退避してから、復元するDB（と設定）を用意し、
+	 *  再起動を求める（DBは、次の起動で開く前に置き換える）。インポート・再スキャンが終わるのを待ってから行う。
+	 *  預かっているファイルがなければ`NOT_FOUND`。
+	 */
+	restoreLibraryBackup: () => __TAURI_INVOKE<null>("restore_library_backup"),
+	/**  預かっている復元するファイルを手放す（預かっていなければ、何もしない） */
+	cancelLibraryRestore: () => __TAURI_INVOKE<void>("cancel_library_restore"),
 	/**  すべてのトラックを取得 */
 	getAllTracks: () => __TAURI_INVOKE<Track[]>("get_all_tracks"),
 	/**  トラックを検索（部分一致。大文字と小文字・全角と半角・ひらがなとカタカナを同じとみなす） */
@@ -877,6 +924,8 @@ export const events = {
 /* Constants */
 export const AAC_BITRATES_KBPS = [128,192,256,320] as const;
 
+export const AUTO_BACKUP_KEEP = 7 as const;
+
 export const DEFAULT_AAC_BITRATE_KBPS = 256 as const;
 
 export const DEFAULT_ACCENT_COLOR = "#3b82f6" as const;
@@ -975,6 +1024,14 @@ export type ArtistSummary = {
 	trackCount: number,
 	totalDuration: number,
 	representativeTrackId: string,
+};
+
+/**  バックアップを保存した結果 */
+export type BackupSaved = {
+	/**  保存したファイル */
+	path: string,
+	trackCount: number,
+	playlistCount: number,
 };
 
 /**  一括編集の結果 */
@@ -1845,6 +1902,24 @@ export type RescanResult = {
 	missingSkipped: boolean,
 };
 
+/**  復元するファイルを選んだ結果 */
+export type RestorePlan = 
+/**
+ *  復元できる（選んだファイルを預かる。復元するなら`restore_library_backup`、やめるなら
+ *  `cancel_library_restore`）
+ */
+{ kind: "ready"; fileName: string; 
+/**  作った日時（RFC 3339。DBのファイルそのものなど、分からなければnull） */
+createdAt: string | null; trackCount: number; playlistCount: number; libraryFolderCount: number; 
+/**  設定を含むか（含まなければ、設定は今のまま） */
+includesSettings: boolean } | 
+/**  Muspiceのバックアップ（DB）ではない */
+{ kind: "notBackup"; fileName: string } | 
+/**  ファイルが壊れている */
+{ kind: "damaged"; fileName: string } | 
+/**  新しい版のアプリが作った、この版では復元できないバックアップ */
+{ kind: "newerFormat"; fileName: string };
+
 /**  復元する再生状態 */
 export type RestoredPlaybackState = {
 	volume: number | null,
@@ -1909,6 +1984,11 @@ export type Settings = {
 	 *  書式どおりの場所へ移し直す）
 	 */
 	keepMusicFolderOrganized: boolean,
+	/**
+	 *  ライブラリのデータ（DB・設定）を、1日に1回、アプリのデータのフォルダへ自動でバックアップする
+	 *  （新しい世代だけを残す。`backup`）
+	 */
+	autoBackup: boolean,
 };
 
 /**  設定が保存された（設定ウィンドウでの変更をメインウィンドウに反映する） */

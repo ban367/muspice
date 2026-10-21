@@ -2004,6 +2004,52 @@ describe('読み込まないフォルダ', () => {
   });
 });
 
+describe('ライブラリのデータのバックアップ', () => {
+  it('保存先を選ぶと、今のライブラリの件数を返す（拡張子がなければ付ける）', async () => {
+    const tracks = await commands.getAllTracks();
+    await expect(commands.exportLibraryBackup()).resolves.toMatchObject({
+      path: '/Users/demo/Documents/Muspice Backup.muspicebackup',
+      trackCount: tracks.length
+    });
+    backend.setBackupFile('/Users/demo/Backup');
+    await expect(commands.exportLibraryBackup()).resolves.toMatchObject({
+      path: '/Users/demo/Backup.muspicebackup'
+    });
+    backend.setBackupFile(null);
+    await expect(commands.exportLibraryBackup()).resolves.toBeNull();
+  });
+
+  it('復元できるファイルを預かり、復元するかやめると手放す', async () => {
+    await expect(commands.planLibraryRestore()).resolves.toMatchObject({
+      kind: 'ready',
+      fileName: 'Muspice Backup.muspicebackup',
+      includesSettings: true
+    });
+    await expect(commands.restoreLibraryBackup()).resolves.toBeNull();
+    await expect(commands.restoreLibraryBackup()).rejects.toMatchObject({ code: 'NOT_FOUND' });
+
+    backend.setBackupFile('/Users/demo/muspice.db');
+    await expect(commands.planLibraryRestore()).resolves.toMatchObject({
+      kind: 'ready',
+      includesSettings: false
+    });
+    await commands.cancelLibraryRestore();
+    await expect(commands.restoreLibraryBackup()).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  it('復元できないファイルは、理由を返して預からない', async () => {
+    for (const [path, kind] of [
+      ['/Users/demo/notes.txt', 'notBackup'],
+      ['/Users/demo/damaged.muspicebackup', 'damaged'],
+      ['/Users/demo/newer.muspicebackup', 'newerFormat']
+    ]) {
+      backend.setBackupFile(path);
+      await expect(commands.planLibraryRestore()).resolves.toMatchObject({ kind });
+      await expect(commands.restoreLibraryBackup()).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    }
+  });
+});
+
 describe('ライブラリフォルダの場所の変更', () => {
   const folderAt = async (path: string) =>
     (await commands.getLibraryFolders()).folders.find((f) => f.path === path);

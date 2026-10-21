@@ -49,6 +49,7 @@ src/
 src-tauri/src/
 ├── commands/
 │   ├── album_art.rs       # アルバムアートの埋め込み・取り除き・情報の取得（ADR-035）
+│   ├── backup.rs          # ライブラリのデータのバックアップの保存・復元するファイルの確認と復元（ADR-073）
 │   ├── convert.rs         # 形式の変換（計画の取得・書き出し・置き換え・実行の状態。ADR-054）
 │   ├── devices.rs         # 転送先デバイスの登録・設定・同期
 │   ├── import.rs
@@ -70,6 +71,7 @@ src-tauri/src/
 ├── lib.rs
 ├── album_art.rs           # アルバムアートの配信（albumartプロトコル）・フォルダの画像の検索・キャッシュ
 ├── ape_tag.rs             # APEv2タグ（WavPack・APE）の読み書き（BPM・評価・画像と、アプリが扱わない項目の保持。ADR-047）
+├── backup.rs              # ライブラリのデータ（DB・設定）のバックアップの作成・確認、復元の用意と起動時の置き換え、自動のバックアップ（ADR-073）
 ├── db.rs
 ├── device.rs              # 転送先デバイスの記録（SQL）と同期の実行状態
 ├── device_manifest.rs     # デバイス側の管理ファイル（.muspice/manifest.json）

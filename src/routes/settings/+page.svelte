@@ -19,6 +19,7 @@
   import { applyLanguage, m } from '#lib/i18n/i18n.svelte.js';
   // 設定の値の範囲はRust側（settings.rs）の定数をtauri-spectaで共有する
   import {
+    AUTO_BACKUP_KEEP,
     DEFAULT_ACCENT_COLOR,
     LIBRARY_SCAN_INTERVALS,
     MAX_CROSSFADE_SECONDS,
@@ -29,6 +30,7 @@
   import MetadataExportSettings from '#lib/components/MetadataExportSettings.svelte';
   import LibraryXmlImportSettings from '#lib/components/LibraryXmlImportSettings.svelte';
   import LoudnessScanSettings from '#lib/components/LoudnessScanSettings.svelte';
+  import LibraryBackupSettings from '#lib/components/LibraryBackupSettings.svelte';
 
   type SettingsSection = 'general' | 'playback' | 'library' | 'appearance';
 
@@ -273,6 +275,18 @@
         <LibraryXmlImportSettings />
         <LoudnessScanSettings />
         <MetadataExportSettings />
+        <LibraryBackupSettings>
+          <!-- 自動のバックアップは、ほかの設定と同じく「適用」で保存する -->
+          {#if pending}
+            <div class="setting-item">
+              <label class="setting-checkbox-label">
+                <input type="checkbox" class="setting-checkbox" bind:checked={pending.autoBackup} />
+                {m.backup.autoBackup}
+              </label>
+              <p class="setting-description">{m.backup.autoBackupHint(AUTO_BACKUP_KEEP)}</p>
+            </div>
+          {/if}
+        </LibraryBackupSettings>
       </div>
 
       {#if activeSection === 'library'}
