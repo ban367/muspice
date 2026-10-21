@@ -11,6 +11,7 @@ import type {
   Metadata,
   DeleteResult,
   FilterOptions,
+  KeepOrganizedResult,
   OrganizeDestination,
   OrganizePlan,
   TrackMetadataChange
@@ -409,14 +410,24 @@ export function useUpdateTrackMetadataMutation() {
   const queryClient = useQueryClient();
 
   return createMutation(() => ({
-    mutationFn: async ({ trackId, metadata }: { trackId: string; metadata: Metadata }) => {
-      await commands.updateTrackMetadata(trackId, metadata);
-    },
-    onSuccess: () => {
+    mutationFn: ({ trackId, metadata }: { trackId: string; metadata: Metadata }) =>
+      commands.updateTrackMetadata(trackId, metadata),
+    onSuccess: (organized) => {
       invalidateTrackListQueries(queryClient);
       invalidateTagQueries(queryClient);
+      notifyNotOrganized(organized);
     }
   }));
+}
+
+/**
+ * タグを保存した後に、音楽フォルダの書式どおりの場所へ移せなかった曲があれば知らせる
+ * （設定「音楽フォルダを整理された状態に保つ」。移した曲の一覧の更新は、`LibraryChanged`で行う）
+ */
+function notifyNotOrganized(organized: KeepOrganizedResult | null) {
+  if (organized && organized.notMovedCount > 0) {
+    showWarning(m.musicFolder.keepOrganizedNotMoved(organized.notMovedCount));
+  }
 }
 
 /**
@@ -471,9 +482,10 @@ export function useUpdateMultipleTracksMutation() {
   return createMutation(() => ({
     mutationFn: ({ trackIds, metadata }: { trackIds: string[]; metadata: Metadata }) =>
       commands.updateMultipleTracksMetadata(trackIds, metadata),
-    onSuccess: () => {
+    onSuccess: (result) => {
       invalidateTrackListQueries(queryClient);
       invalidateTagQueries(queryClient);
+      notifyNotOrganized(result.organized);
     }
   }));
 }
@@ -493,6 +505,7 @@ export function useApplyMetadataChangesMutation() {
       if (result.updatedCount === 0) return;
       invalidateTrackListQueries(queryClient);
       invalidateTagQueries(queryClient);
+      notifyNotOrganized(result.organized);
     }
   }));
 }
