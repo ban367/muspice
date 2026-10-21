@@ -1451,6 +1451,47 @@ pub fn delete_tracks_under(conn: &Connection, path_prefix: &str) -> AppResult<us
     .map_err(|e| AppError::Database(format!("トラックの削除に失敗しました: {}", e)))
 }
 
+/// 接頭辞（フォルダのパス＋区切り文字）で始まるパスのトラックの、パスの先頭を`to_prefix`に付け替える
+///
+/// ライブラリフォルダの場所の付け替えに使う。パスだけを変え、トラックのID・お気に入り・再生回数・
+/// プレイリストへの登録などは変えない（ファイル名・ファイルの更新日時も変えない。ファイルは、付け替えた
+/// 後の再スキャンで確かめる）。付け替えた件数を返す。付け替えた先が、ほかのトラックのパスと同じになる
+/// 場合はUNIQUE制約で失敗するため、先に`count_track_path_conflicts`で確かめる（`to_prefix`は、
+/// `from_prefix`と重ならないこと）。
+pub fn replace_track_path_prefix(
+    conn: &Connection,
+    from_prefix: &str,
+    to_prefix: &str,
+) -> AppResult<usize> {
+    // length・substrは文字単位で数える（接頭辞の文字数の分を除く）
+    conn.execute(
+        "UPDATE tracks SET file_path = ?3 || substr(file_path, length(?1) + 1)
+         WHERE file_path >= ?1 AND file_path < ?2",
+        [from_prefix, &prefix_upper_bound(from_prefix), to_prefix],
+    )
+    .map_err(|e| AppError::Database(format!("トラックのパスの更新に失敗しました: {}", e)))
+}
+
+/// パスの先頭を付け替えると、ほかのトラック（付け替えないトラック）と同じパスになるトラックの数
+///
+/// `replace_track_path_prefix`の前に確かめる（フォルダの外から取り込んだ曲が、付け替え先にある場合など）。
+pub fn count_track_path_conflicts(
+    conn: &Connection,
+    from_prefix: &str,
+    to_prefix: &str,
+) -> AppResult<u32> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM tracks AS moved
+         JOIN tracks AS existing
+           ON existing.file_path = ?3 || substr(moved.file_path, length(?1) + 1)
+         WHERE moved.file_path >= ?1 AND moved.file_path < ?2
+           AND NOT (existing.file_path >= ?1 AND existing.file_path < ?2)",
+        [from_prefix, &prefix_upper_bound(from_prefix), to_prefix],
+        |row| row.get(0),
+    )
+    .map_err(|e| AppError::Database(format!("トラックのパスの確認に失敗しました: {}", e)))
+}
+
 /// 曲のファイルを、形式を変換したファイルに入れ替える（曲のIDは変えない）
 ///
 /// 場所・ファイル名・形式・ビットレート・サンプルレート・長さ・大きさ・更新日時と、ゲインとピーク

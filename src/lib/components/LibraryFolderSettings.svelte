@@ -1,8 +1,8 @@
 <!--
   @component LibraryFolderSettings
   設定ウィンドウの「ライブラリ」: 音楽フォルダ（`MusicFolderSettings`）と、インポートしたフォルダ
-  （ライブラリフォルダ）の一覧・再スキャン・削除・読み込まないフォルダ（`LibraryFolderExclusionsDialog`）と、
-  見つからない曲（ファイルが見つからなくなったトラック）の削除。
+  （ライブラリフォルダ）の一覧・再スキャン・削除・場所の変更（`LibraryFolderRelocationDialog`）・読み込まない
+  フォルダ（`LibraryFolderExclusionsDialog`）と、見つからない曲（ファイルが見つからなくなったトラック）の削除。
   `children`は、音楽フォルダの下に出す（設定の「適用」で保存する、音楽フォルダの書式）。
   操作はすぐに反映する（設定の「適用」は不要）。ライブラリが変わると、Rustが送る
   `LibraryChanged`イベントでメインウィンドウの一覧が更新される。自動の再スキャン
@@ -15,7 +15,10 @@
   import { events } from '#lib/bindings.js';
   import { queryKeys } from '#lib/queries/keys.js';
   import {
+    cancelLibraryFolderRelocation,
     useLibraryFoldersQuery,
+    usePlanLibraryFolderRelocationMutation,
+    useRelocateLibraryFolderMutation,
     useRemoveLibraryFolderExclusionMutation,
     useRemoveLibraryFolderMutation,
     useRemoveMissingTracksMutation,
@@ -25,9 +28,11 @@
   import type { FolderExclusion, LibraryFolder, RescanResult } from '#lib/types/models.js';
   import { Modal } from '#lib/components/ui/index.js';
   import LibraryFolderExclusionsDialog from './LibraryFolderExclusionsDialog.svelte';
+  import LibraryFolderRelocationDialog from './LibraryFolderRelocationDialog.svelte';
   import MusicFolderSettings from './MusicFolderSettings.svelte';
   import { formatDateTime } from '#lib/utils/format.js';
   import { describeRescan, sumRescanResults } from '#lib/utils/rescan.js';
+  import { describeRelocationBlocker, type ReadyRelocation } from '#lib/utils/relocation.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   interface Props {
@@ -42,6 +47,8 @@
   const removeMutation = useRemoveLibraryFolderMutation();
   const removeMissingMutation = useRemoveMissingTracksMutation();
   const removeExclusionMutation = useRemoveLibraryFolderExclusionMutation();
+  const planRelocationMutation = usePlanLibraryFolderRelocationMutation();
+  const relocateMutation = useRelocateLibraryFolderMutation();
 
   /** 再スキャン中のフォルダ（複数の場合は順番に処理する） */
   let scanningFolderId = $state<string | null>(null);
@@ -62,6 +69,11 @@
 
   /** 読み込まないフォルダの一覧を開いているフォルダ（一覧の内容は、クエリの最新の値を使う） */
   let exclusionsFolderId = $state<string | null>(null);
+
+  /** 場所の変更を確かめているフォルダと、選んだ新しい場所（Rust側が預かっている） */
+  let relocationTarget = $state<{ folder: LibraryFolder; relocation: ReadyRelocation } | null>(
+    null
+  );
 
   /** 削除の確認中のフォルダ */
   let removingFolder = $state<LibraryFolder | null>(null);
@@ -147,6 +159,50 @@
     } catch {
       // 失敗はミューテーション内でトースト通知済み
     } finally {
+      scanningFolderId = null;
+      scanProgress = null;
+    }
+  }
+
+  /** フォルダの新しい場所を選ぶ（Rust側のダイアログ）。付け替えられる場所なら、確かめる画面を開く */
+  async function chooseRelocation(folder: LibraryFolder) {
+    try {
+      const relocation = await planRelocationMutation.mutateAsync(folder.id);
+      if (!relocation) return;
+      if (relocation.kind === 'ready') {
+        relocationTarget = { folder, relocation };
+      } else {
+        showWarning(describeRelocationBlocker(relocation));
+      }
+    } catch {
+      // 失敗はミューテーション内でトースト通知済み
+    }
+  }
+
+  function cancelRelocation() {
+    if (relocateMutation.isPending) return;
+    relocationTarget = null;
+    cancelLibraryFolderRelocation();
+  }
+
+  /** 選んだ場所へ付け替え、続けて行う再スキャンの結果も知らせる */
+  async function confirmRelocation() {
+    if (!relocationTarget) return;
+    const { folder } = relocationTarget;
+    scanningFolderId = folder.id;
+    scanProgress = null;
+    try {
+      const result = await relocateMutation.mutateAsync(folder.id);
+      showSuccess(m.libraryFolders.relocated(result.path, result.relocatedCount));
+      if (result.rescan) {
+        notifyRescanResults([{ path: result.path, result: result.rescan }]);
+      } else {
+        showWarning(m.libraryFolders.relocatedNotScanned);
+      }
+    } catch {
+      // 失敗はミューテーション内でトースト通知済み（預かった場所は、Rust側が手放している）
+    } finally {
+      relocationTarget = null;
       scanningFolderId = null;
       scanProgress = null;
     }
@@ -282,6 +338,14 @@
             <button
               type="button"
               class="btn-secondary text-xs"
+              onclick={() => chooseRelocation(folder)}
+              disabled={isScanning || planRelocationMutation.isPending}
+            >
+              {m.libraryFolders.relocate}
+            </button>
+            <button
+              type="button"
+              class="btn-secondary text-xs"
               onclick={() => openRemoveDialog(folder)}
               disabled={isScanning}
             >
@@ -315,6 +379,14 @@
     </div>
   {/if}
 </section>
+
+<LibraryFolderRelocationDialog
+  target={relocationTarget}
+  isRelocating={relocateMutation.isPending}
+  {scanStatus}
+  onCancel={cancelRelocation}
+  onConfirm={confirmRelocation}
+/>
 
 <LibraryFolderExclusionsDialog
   folder={exclusionsFolder}

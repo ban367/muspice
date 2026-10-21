@@ -2004,6 +2004,102 @@ describe('読み込まないフォルダ', () => {
   });
 });
 
+describe('ライブラリフォルダの場所の変更', () => {
+  const folderAt = async (path: string) =>
+    (await commands.getLibraryFolders()).folders.find((f) => f.path === path);
+
+  it('選んだ場所を預かり、付け替えると曲のパスだけを変える（ID・読み込まないフォルダは保つ）', async () => {
+    const music = (await folderAt('/Users/demo/Music'))!;
+    const before = await commands.getAllTracks();
+    const missingCount = before.filter((track) => track.isMissing).length;
+
+    const relocation = await commands.planLibraryFolderRelocation(music.id);
+    expect(relocation).toEqual({
+      kind: 'ready',
+      path: '/Volumes/Backup/Music',
+      trackCount: music.trackCount,
+      foundCount: music.trackCount - missingCount
+    });
+
+    events.length = 0;
+    const result = await commands.relocateLibraryFolder(music.id);
+    expect(result).toMatchObject({
+      path: '/Volumes/Backup/Music',
+      relocatedCount: music.trackCount,
+      rescan: { addedCount: 0, missingCount: 0 }
+    });
+    expect(events.map((e) => e.event)).toContain('library-changed');
+
+    const after = await commands.getAllTracks();
+    expect(after.map((track) => track.id)).toEqual(before.map((track) => track.id));
+    expect(after.map((track) => track.filePath)).toEqual(
+      before.map((track) => track.filePath.replace('/Users/demo/Music/', '/Volumes/Backup/Music/'))
+    );
+    const relocated = (await folderAt('/Volumes/Backup/Music'))!;
+    expect(relocated).toMatchObject({ id: music.id, exists: true, trackCount: music.trackCount });
+    expect(relocated.exclusions.map((e) => e.path)).toEqual(['Music', 'MusicBee']);
+  });
+
+  it('選ばなかった場合はnull。やめると手放し、付け替えられない', async () => {
+    const external = (await commands.getLibraryFolders()).folders.find((f) => !f.exists)!;
+    backend.setRelocationFolder(null);
+    await expect(commands.planLibraryFolderRelocation(external.id)).resolves.toBeNull();
+
+    backend.setRelocationFolder('/Volumes/External 2/Music/');
+    await expect(commands.planLibraryFolderRelocation(external.id)).resolves.toMatchObject({
+      kind: 'ready',
+      path: '/Volumes/External 2/Music'
+    });
+    await commands.cancelLibraryFolderRelocation();
+    await expect(commands.relocateLibraryFolder(external.id)).rejects.toMatchObject({
+      code: 'NOT_FOUND'
+    });
+  });
+
+  it('今の場所・ほかのライブラリフォルダ・転送先デバイスと重なる場所には付け替えない', async () => {
+    const music = (await folderAt('/Users/demo/Music'))!;
+    const external = (await folderAt('/Volumes/External/Music'))!;
+    const cases = [
+      { folder: music, path: '/Users/demo/Music/Sub', kind: 'overlapsCurrent' },
+      { folder: music, path: '/Users/demo', kind: 'overlapsCurrent' },
+      {
+        folder: external,
+        path: '/Users/demo/Music/Moved',
+        kind: 'overlapsLibraryFolder',
+        libraryFolderPath: '/Users/demo/Music'
+      },
+      {
+        folder: external,
+        path: '/Volumes/SDCARD',
+        kind: 'overlapsDevice',
+        deviceName: 'SDカード'
+      }
+    ];
+    for (const { folder, path, ...expected } of cases) {
+      backend.setRelocationFolder(path);
+      await expect(commands.planLibraryFolderRelocation(folder.id)).resolves.toEqual({
+        path,
+        ...expected
+      });
+      // 付け替えられない場所は預からない
+      await expect(commands.relocateLibraryFolder(folder.id)).rejects.toMatchObject({
+        code: 'NOT_FOUND'
+      });
+    }
+  });
+
+  it('選んだ後に付け替えられなくなった場所には、付け替えない', async () => {
+    const external = (await folderAt('/Volumes/External/Music'))!;
+    await commands.planLibraryFolderRelocation(external.id);
+    await importFolder('/Volumes/Backup');
+
+    await expect(commands.relocateLibraryFolder(external.id)).rejects.toMatchObject({
+      code: 'VALIDATION'
+    });
+    expect((await folderAt('/Volumes/External/Music'))?.id).toBe(external.id);
+  });
+});
+
 describe('音楽フォルダ', () => {
   const musicFolderPath = async () => (await commands.getMusicFolder()).folder?.path ?? null;
   const markedPaths = async () =>

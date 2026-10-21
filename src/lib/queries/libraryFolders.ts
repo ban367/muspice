@@ -61,6 +61,49 @@ export function useRemoveLibraryFolderMutation() {
 }
 
 /**
+ * ライブラリフォルダの付け替え先を選ぶミューテーション
+ *
+ * 場所はRust側のダイアログで選び、付け替えられる場所ならRust側が預かる（WebViewからパスを渡さない）。
+ * 付け替えられるか（付け替えられない場合は、その理由）と、新しい場所でファイルが見つかる曲の数を返す
+ * （選ばずに閉じた場合はnull）。付け替える時は`useRelocateLibraryFolderMutation`、やめる時は
+ * `cancelLibraryFolderRelocation`。
+ */
+export function usePlanLibraryFolderRelocationMutation() {
+  return createMutation(() => ({
+    mutationFn: (folderId: string) =>
+      withErrorToast(m.operations.planLibraryFolderRelocation, () =>
+        commands.planLibraryFolderRelocation(folderId)
+      )
+  }));
+}
+
+/**
+ * 預かっている付け替え先へ、ライブラリフォルダを付け替えるミューテーション
+ *
+ * 中の曲のパスを書き換えてから、新しい場所を再スキャンする（`LibraryScanProgress`が届く）。
+ * メインウィンドウの一覧は、Rustが送る`LibraryChanged`イベントで更新される。
+ */
+export function useRelocateLibraryFolderMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: (folderId: string) =>
+      withErrorToast(m.operations.relocateLibraryFolder, () =>
+        commands.relocateLibraryFolder(folderId)
+      ),
+    // 再スキャンで失敗した場合も、付け替えは反映されているため、読み直す
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.libraryFolders })
+  }));
+}
+
+/** 預かっている付け替え先を手放す（付け替えをやめた時。失敗しても画面は続ける） */
+export function cancelLibraryFolderRelocation(): void {
+  commands.cancelLibraryFolderRelocation().catch((error: unknown) => {
+    console.error('預かった付け替え先を手放せませんでした:', error);
+  });
+}
+
+/**
  * 読み込まないフォルダを足すミューテーション
  *
  * フォルダはRust側のダイアログで選ぶ（WebViewからパスを渡さない）。足した除外（中にある曲の数を

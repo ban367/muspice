@@ -1,4 +1,5 @@
-//! ライブラリフォルダ（インポートしたフォルダ）の一覧・削除・再スキャンと、読み込まないフォルダ（除外）のコマンド
+//! ライブラリフォルダ（インポートしたフォルダ）の一覧・削除・場所の付け替え・再スキャンと、
+//! 読み込まないフォルダ（除外）のコマンド
 
 use super::import::create_track_from_file;
 use super::{pick_folder, run_blocking};
@@ -6,10 +7,10 @@ use crate::error::{AppError, AppResult};
 use crate::events::{LibraryChanged, LibraryScanProgress};
 use crate::library::{modified_at_of, scan_directory, to_count};
 use crate::library_folder::{
-    DiskFile, ExclusionRecord, FolderExclusion, LibraryFolder, LibraryFolderList, RescanPlan,
-    RescanResult, add_exclusion, delete_exclusion, excluded_path, find_all_folders, find_exclusion,
-    find_exclusions, find_folder, plan_rescan, relative_to_folder, scan_exclusions,
-    track_path_prefix,
+    DiskFile, ExclusionRecord, FolderExclusion, FolderRecord, LibraryFolder, LibraryFolderList,
+    RescanPlan, RescanResult, add_exclusion, delete_exclusion, excluded_path, find_all_folders,
+    find_exclusion, find_exclusions, find_folder, folders_overlap, normalize_folder_path,
+    plan_rescan, relative_to_folder, relocate_folder, scan_exclusions, track_path_prefix,
 };
 use crate::library_sync::LibrarySync;
 use crate::models::Track;
@@ -19,9 +20,12 @@ use crate::track_relink::MissingTrackIndex;
 use crate::validation::validate_track_id;
 use chrono::Utc;
 use rusqlite::Connection;
+use serde::Serialize;
+use specta::Type;
 use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
+use std::sync::Mutex;
 use tauri::{AppHandle, Manager, WebviewWindow};
 use tauri_plugin_dialog::DialogExt;
 use tauri_specta::Event;
@@ -157,6 +161,300 @@ fn remove_folder_blocking(
         notify_library_changed(app_handle);
     }
     Ok(removed)
+}
+
+/// ライブラリフォルダの付け替え先を選んだ結果（ADR-072）
+#[derive(Debug, PartialEq, Serialize, Type)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum FolderRelocation {
+    /// 付け替えられる（選んだ場所を預かる。付け替えるなら`relocate_library_folder`、やめるなら
+    /// `cancel_library_folder_relocation`）
+    Ready {
+        path: String,
+        /// フォルダの中の曲の数
+        #[serde(rename = "trackCount")]
+        track_count: u32,
+        /// 新しい場所に、ファイルが見つかった曲の数
+        #[serde(rename = "foundCount")]
+        found_count: u32,
+    },
+    /// 今の場所と重なるフォルダ（同じフォルダ・中のフォルダ・外側のフォルダ）を選んだ
+    OverlapsCurrent { path: String },
+    /// ほかのライブラリフォルダと重なるフォルダを選んだ（フォルダは入れ子にしない）
+    OverlapsLibraryFolder {
+        path: String,
+        #[serde(rename = "libraryFolderPath")]
+        library_folder_path: String,
+    },
+    /// 転送先デバイスのフォルダと重なるフォルダを選んだ（デバイスへコピーした曲を取り込まないため）
+    OverlapsDevice {
+        path: String,
+        #[serde(rename = "deviceName")]
+        device_name: String,
+    },
+    /// 付け替えると、ライブラリにあるほかの曲と同じ場所になる曲がある（フォルダの外から取り込んだ曲など）
+    Conflicts {
+        path: String,
+        #[serde(rename = "conflictCount")]
+        conflict_count: u32,
+    },
+}
+
+/// ライブラリフォルダを付け替えた結果
+#[derive(Debug, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RelocationResult {
+    /// 新しい場所
+    pub path: String,
+    /// パスを付け替えた曲の数
+    pub relocated_count: u32,
+    /// 付け替えた後の再スキャンの結果（新しい場所が見つからず、再スキャンしなかった場合はnull）
+    pub rescan: Option<RescanResult>,
+}
+
+/// 付け替え先を選んでから、付け替えるかを決めるまで預かっている場所（Tauriの管理状態。多くても1つ）
+///
+/// 付け替えるコマンドは、WebViewから場所を受け取らない（ADR-065）。
+#[derive(Default)]
+pub struct PendingRelocation(Mutex<Option<HeldRelocation>>);
+
+/// 預かっている付け替え先
+struct HeldRelocation {
+    folder_id: String,
+    path: String,
+}
+
+impl PendingRelocation {
+    fn hold(&self, relocation: HeldRelocation) {
+        if let Ok(mut pending) = self.0.lock() {
+            *pending = Some(relocation);
+        }
+    }
+
+    fn take(&self) -> Option<HeldRelocation> {
+        self.0.lock().ok().and_then(|mut pending| pending.take())
+    }
+}
+
+/// ライブラリフォルダの付け替え先を選ぶダイアログを開き、付け替えられるかと、見つかる曲の数を返す
+///
+/// ダイアログはRust側で、呼び出したウィンドウの上に、今の場所の外側（見つからなければ、見つかる
+/// 一番近い外側のフォルダ）を開いた状態で出す。付け替えられる場所なら預かり（`Ready`）、付け替える
+/// かは画面で確かめてから`relocate_library_folder`で行う。フォルダが今も見つかるかは問わない
+/// （同じ曲を別のドライブへ写した場合なども付け替えられる）。
+///
+/// @returns 付け替え先を選んだ結果（選ばずに閉じた場合はnull）
+#[tauri::command]
+#[specta::specta]
+pub async fn plan_library_folder_relocation(
+    folder_id: String,
+    window: WebviewWindow,
+    app_handle: AppHandle,
+) -> AppResult<Option<FolderRelocation>> {
+    validate_folder_id(&folder_id)?;
+
+    run_blocking(move || {
+        let state = app_handle.state::<AppState>();
+        let pending = app_handle.state::<PendingRelocation>();
+        // 前に選んだ場所は手放す（選び直した場所だけを付け替える）
+        pending.take();
+        let folder = state.with_db(|db| find_folder(db, &folder_id))?;
+
+        let title = match crate::menu::current_language(&app_handle) {
+            Language::Ja => "ライブラリフォルダの新しい場所を選択",
+            Language::En => "Select the New Location of the Library Folder",
+        };
+        let mut dialog = app_handle
+            .dialog()
+            .file()
+            .set_parent(&window)
+            .set_title(title);
+        if let Some(directory) = Path::new(&folder.path)
+            .ancestors()
+            .skip(1)
+            .find(|path| path.is_dir())
+        {
+            dialog = dialog.set_directory(directory);
+        }
+        let Some(selected) = pick_folder(dialog)? else {
+            return Ok(None);
+        };
+
+        let relocation = check_relocation(state.inner(), &folder, &selected)?;
+        if let FolderRelocation::Ready { path, .. } = &relocation {
+            pending.hold(HeldRelocation {
+                folder_id: folder.id,
+                path: path.clone(),
+            });
+        }
+        Ok(Some(relocation))
+    })
+    .await
+}
+
+/// 預かっている付け替え先（`plan_library_folder_relocation`で選んだ場所）へ、ライブラリフォルダを付け替える
+///
+/// 中の曲のパスの先頭を1つのトランザクションで書き換え（曲のID・お気に入り・再生回数・プレイリストへの
+/// 登録・読み込まないフォルダ・音楽フォルダの印を保つ）、新しい場所を再スキャンする（`LibraryScanProgress`を
+/// 送る。新しい場所に見つからなかった曲は、移動・改名の先のファイルに結び付けるか、見つからない曲になる）。
+/// 預かっている場所がない（別のフォルダの場所を含む）場合は`NOT_FOUND`、選んだ後にほかのフォルダの登録などで
+/// 付け替えられなくなった場合は`VALIDATION`。
+#[tauri::command]
+#[specta::specta]
+pub async fn relocate_library_folder(
+    folder_id: String,
+    app_handle: AppHandle,
+) -> AppResult<RelocationResult> {
+    validate_folder_id(&folder_id)?;
+
+    run_blocking(move || {
+        let held = app_handle
+            .state::<PendingRelocation>()
+            .take()
+            .filter(|held| held.folder_id == folder_id)
+            .ok_or_else(|| AppError::NotFound("付け替える場所が選ばれていません".to_string()))?;
+        let state = app_handle.state::<AppState>();
+        let relocated_count = {
+            // 再スキャンの途中で付け替えると、再スキャンが前の場所の曲を書き込むため、終わるまで待つ
+            let _scan = state.lock_library_scan();
+            relocate_folder_paths(state.inner(), &folder_id, &held.path)?
+        };
+        log::info!(
+            "ライブラリフォルダを付け替えました: {} 曲={}",
+            held.path,
+            relocated_count
+        );
+
+        // 新しい場所を監視し、曲のパスが変わったことを知らせる（再スキャンで変更がなくても知らせる）
+        if let Ok(mut cache) = state.album_art_cache.lock() {
+            cache.clear();
+        }
+        app_handle
+            .state::<LibrarySync>()
+            .refresh_watches(&app_handle);
+        notify_library_changed(&app_handle);
+
+        let rescan = if Path::new(&held.path).is_dir() {
+            Some(rescan_folder(&folder_id, state.inner(), &app_handle, true)?)
+        } else {
+            None
+        };
+        Ok(RelocationResult {
+            path: held.path,
+            relocated_count,
+            rescan,
+        })
+    })
+    .await
+}
+
+/// 預かっている付け替え先を手放す（預かっていなければ、何もしない）
+#[tauri::command]
+#[specta::specta]
+pub fn cancel_library_folder_relocation(pending: tauri::State<'_, PendingRelocation>) {
+    pending.take();
+}
+
+/// 付け替え先を確かめ、付け替えられるなら、新しい場所でファイルが見つかる曲を数える
+///
+/// ファイルの有無はDBのロックの外で確かめる。
+fn check_relocation(
+    state: &AppState,
+    folder: &FolderRecord,
+    selected: &Path,
+) -> AppResult<FolderRelocation> {
+    let path = relocation_path(selected)?;
+    if let Some(blocked) = relocation_blocker(state, folder, &path)? {
+        return Ok(blocked);
+    }
+
+    let from_prefix = track_path_prefix(&folder.path);
+    let to_prefix = track_path_prefix(&path);
+    let tracks =
+        state.with_db(|db| crate::repository::find_track_file_states_under(db, &from_prefix))?;
+    let found = tracks
+        .iter()
+        .filter_map(|track| track.file_path.strip_prefix(&from_prefix))
+        .filter(|relative| Path::new(&format!("{to_prefix}{relative}")).is_file())
+        .count();
+    Ok(FolderRelocation::Ready {
+        path,
+        track_count: to_count(tracks.len())?,
+        found_count: to_count(found)?,
+    })
+}
+
+/// 付け替え先のパス（記録用の形。扱えない文字を含むパスは`VALIDATION`）
+fn relocation_path(selected: &Path) -> AppResult<String> {
+    selected.to_str().map(normalize_folder_path).ok_or_else(|| {
+        AppError::Validation("フォルダのパスに扱えない文字が含まれています".to_string())
+    })
+}
+
+/// 付け替えられない場所なら、その理由（付け替えられる場所ならNone）
+///
+/// フォルダの重なりはファイルシステムを読む（リンクを解決する）ため、DBのロックの外で比べる。
+fn relocation_blocker(
+    state: &AppState,
+    folder: &FolderRecord,
+    path: &str,
+) -> AppResult<Option<FolderRelocation>> {
+    let (folders, devices, conflicts) = state.with_db(|db| {
+        Ok((
+            find_all_folders(db)?,
+            crate::device::find_all_devices(db)?,
+            crate::repository::count_track_path_conflicts(
+                db,
+                &track_path_prefix(&folder.path),
+                &track_path_prefix(path),
+            )?,
+        ))
+    })?;
+    let target = Path::new(path);
+    let path = path.to_string();
+
+    if folders_overlap(target, Path::new(&folder.path)) {
+        return Ok(Some(FolderRelocation::OverlapsCurrent { path }));
+    }
+    if let Some(other) = folders
+        .iter()
+        .find(|other| other.id != folder.id && folders_overlap(target, Path::new(&other.path)))
+    {
+        return Ok(Some(FolderRelocation::OverlapsLibraryFolder {
+            path,
+            library_folder_path: other.path.clone(),
+        }));
+    }
+    if let Some(device) = devices
+        .iter()
+        .find(|device| folders_overlap(target, Path::new(&device.path)))
+    {
+        return Ok(Some(FolderRelocation::OverlapsDevice {
+            path,
+            device_name: device.name.clone(),
+        }));
+    }
+    if conflicts > 0 {
+        return Ok(Some(FolderRelocation::Conflicts {
+            path,
+            conflict_count: conflicts,
+        }));
+    }
+    Ok(None)
+}
+
+/// ライブラリフォルダを付け替える（同期処理。呼び出し側が`AppState::lock_library_scan`を取る）
+///
+/// 選んだ後にほかのフォルダの登録などで付け替えられなくなった場合は`VALIDATION`。
+/// @returns 付け替えた曲の数
+fn relocate_folder_paths(state: &AppState, folder_id: &str, path: &str) -> AppResult<u32> {
+    let folder = state.with_db(|db| find_folder(db, folder_id))?;
+    if relocation_blocker(state, &folder, path)?.is_some() {
+        return Err(AppError::Validation(
+            "選んだ場所には付け替えられなくなりました。もう一度選んでください".to_string(),
+        ));
+    }
+    to_count(state.with_db(|db| relocate_folder(db, folder_id, path))?)
 }
 
 /// 読み込まないフォルダの中にある、ライブラリの曲のパスに共通する接頭辞
@@ -608,5 +906,229 @@ fn read_and_write_tracks(
 pub(super) fn notify_library_changed(app_handle: &AppHandle) {
     if let Err(e) = LibraryChanged.emit(app_handle) {
         log::warn!("ライブラリの変更の通知に失敗しました: {}", e);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::device_manifest::test_support::TempDir;
+    use crate::library_folder::register_folder;
+
+    fn test_state() -> AppState {
+        AppState::new(crate::db::open_in_memory())
+    }
+
+    fn path_str(path: &Path) -> String {
+        path.to_str().unwrap().to_string()
+    }
+
+    /// 曲を入れる（パスだけ。ファイルは作らない）
+    fn insert_tracks(state: &AppState, paths: &[&Path]) {
+        state
+            .with_db(|db| {
+                for (index, path) in paths.iter().enumerate() {
+                    db.execute(
+                        "INSERT INTO tracks (id, file_path, file_name, file_size)
+                         VALUES (?1, ?2, ?3, 5)",
+                        rusqlite::params![
+                            format!("t{index}"),
+                            path_str(path),
+                            path.file_name().unwrap().to_str().unwrap()
+                        ],
+                    )
+                    .unwrap();
+                }
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    /// フォルダを登録する（フォルダは作らない）
+    fn register(state: &AppState, folder: &Path) -> FolderRecord {
+        state
+            .with_db(|db| {
+                let id = register_folder(db, &path_str(folder), &[])?.unwrap();
+                find_folder(db, &id)
+            })
+            .unwrap()
+    }
+
+    fn check(state: &AppState, folder: &FolderRecord, selected: &Path) -> FolderRelocation {
+        check_relocation(state, folder, selected).unwrap()
+    }
+
+    /// ファイルを作る（上のフォルダも作る）
+    fn touch(path: &Path) {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, "audio").unwrap();
+    }
+
+    /// 付け替えられる場所なら、中の曲の数と、新しい場所でファイルが見つかった曲の数を返す
+    #[test]
+    fn test_check_relocation_counts_tracks_found_in_the_new_place() {
+        let dir = TempDir::new();
+        // 前の場所（外れた外付けドライブなど）は見つからない
+        let old = dir.path().join("Old Drive/Music");
+        let new = dir.path().join("New Drive/Music");
+        let state = test_state();
+        let folder = register(&state, &old);
+        insert_tracks(
+            &state,
+            &[
+                &old.join("Artist/a.mp3"),
+                &old.join("b.flac"),
+                &old.join("c.mp3"),
+            ],
+        );
+        touch(&new.join("Artist/a.mp3"));
+        touch(&new.join("b.flac"));
+
+        assert_eq!(
+            check(&state, &folder, &new),
+            FolderRelocation::Ready {
+                path: path_str(&new),
+                track_count: 3,
+                found_count: 2,
+            }
+        );
+    }
+
+    /// 今の場所・ほかのライブラリフォルダ・転送先デバイスのフォルダと重なる場所には付け替えない
+    #[test]
+    fn test_check_relocation_rejects_overlapping_places() {
+        let dir = TempDir::new();
+        let current = dir.path().join("Music");
+        let other = dir.path().join("Other/Library");
+        let device = dir.path().join("SD/MUSIC");
+        for folder in [&current, &other, &device] {
+            fs::create_dir_all(folder).unwrap();
+        }
+        let state = test_state();
+        let folder = register(&state, &current);
+        register(&state, &other);
+        state
+            .with_db(|db| crate::device::insert_device(db, "d1", "SDカード", &path_str(&device)))
+            .unwrap();
+
+        // 今の場所そのもの・中のフォルダ・外側のフォルダ
+        for selected in [
+            current.clone(),
+            current.join("Sub"),
+            dir.path().to_path_buf(),
+        ] {
+            fs::create_dir_all(&selected).unwrap();
+            assert_eq!(
+                check(&state, &folder, &selected),
+                FolderRelocation::OverlapsCurrent {
+                    path: path_str(&selected)
+                }
+            );
+        }
+        // ほかのライブラリフォルダの中・それを含むフォルダ
+        for selected in [other.join("Inside"), dir.path().join("Other")] {
+            fs::create_dir_all(&selected).unwrap();
+            assert_eq!(
+                check(&state, &folder, &selected),
+                FolderRelocation::OverlapsLibraryFolder {
+                    path: path_str(&selected),
+                    library_folder_path: path_str(&other),
+                }
+            );
+        }
+        // 転送先デバイスのフォルダ
+        assert_eq!(
+            check(&state, &folder, &device),
+            FolderRelocation::OverlapsDevice {
+                path: path_str(&device),
+                device_name: "SDカード".to_string(),
+            }
+        );
+    }
+
+    /// 付け替えると、ライブラリにあるほかの曲と同じ場所になる曲があれば、付け替えない
+    #[test]
+    fn test_check_relocation_reports_conflicting_tracks() {
+        let dir = TempDir::new();
+        let old = dir.path().join("Old");
+        let new = dir.path().join("New");
+        fs::create_dir_all(&new).unwrap();
+        let state = test_state();
+        let folder = register(&state, &old);
+        // 新しい場所の曲を、フォルダの外から取り込んである（1曲は同じ場所、1曲は別の場所）
+        insert_tracks(
+            &state,
+            &[
+                &old.join("a.mp3"),
+                &old.join("b.mp3"),
+                &new.join("b.mp3"),
+                &new.join("other.mp3"),
+            ],
+        );
+
+        assert_eq!(
+            check(&state, &folder, &new),
+            FolderRelocation::Conflicts {
+                path: path_str(&new),
+                conflict_count: 1,
+            }
+        );
+    }
+
+    /// 付け替える時も場所を確かめ直し、付け替えられれば、中の曲のパスと記録のパスを書き換える
+    #[test]
+    fn test_relocate_folder_paths_rechecks_the_place() {
+        let dir = TempDir::new();
+        let old = dir.path().join("Old");
+        let new = dir.path().join("New/Music");
+        fs::create_dir_all(&new).unwrap();
+        let state = test_state();
+        let folder = register(&state, &old);
+        insert_tracks(&state, &[&old.join("a.mp3"), &old.join("Album/b.mp3")]);
+
+        // 選んだ後に、新しい場所を含むフォルダが登録された
+        let outer = register(&state, &dir.path().join("New"));
+        let error = relocate_folder_paths(&state, &folder.id, &path_str(&new)).unwrap_err();
+        assert!(matches!(error, AppError::Validation(_)));
+        state
+            .with_db(|db| crate::library_folder::delete_folder(db, &outer.id))
+            .unwrap();
+
+        assert_eq!(
+            relocate_folder_paths(&state, &folder.id, &path_str(&new)).unwrap(),
+            2
+        );
+        let paths = state
+            .with_db(|db| crate::repository::find_all_file_paths(db))
+            .unwrap();
+        assert_eq!(
+            paths,
+            HashSet::from([
+                path_str(&new.join("a.mp3")),
+                path_str(&new.join("Album/b.mp3"))
+            ])
+        );
+        assert_eq!(
+            state
+                .with_db(|db| find_folder(db, &folder.id))
+                .unwrap()
+                .path,
+            path_str(&new)
+        );
+    }
+
+    /// 預かった付け替え先は、取り出すと手放す
+    #[test]
+    fn test_pending_relocation_is_taken_once() {
+        let pending = PendingRelocation::default();
+        pending.hold(HeldRelocation {
+            folder_id: "f1".to_string(),
+            path: "/new".to_string(),
+        });
+        assert_eq!(
+            pending.take().map(|held| held.path),
+            Some("/new".to_string())
+        );
+        assert!(pending.take().is_none());
     }
 }
