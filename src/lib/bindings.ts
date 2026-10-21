@@ -379,17 +379,25 @@ imported: ImportResult | null } |
 	 *  選んだ曲のファイルを、書式に従って整理する計画（今の場所 → 整理後の場所）を取得する
 	 * 
 	 *  ファイルは動かさない。画面は、この一覧を見せてから`organize_files`を呼ぶ。
-	 *  書式の誤りは、入力の誤り（`VALIDATION`）として返す。
+	 *  書式の誤りは、入力の誤り（`VALIDATION`）として返す。`musicFolder`では`template`を使わず、設定の
+	 *  音楽フォルダの書式を使う（音楽フォルダが未設定・見つからない場合は`NOT_FOUND`）。
 	 */
-	planFileOrganize: (trackIds: string[], template: string) => __TAURI_INVOKE<OrganizePlan>("plan_file_organize", { trackIds, template }),
+	planFileOrganize: (trackIds: string[], template: string, destination: OrganizeDestination) => __TAURI_INVOKE<OrganizePlan>("plan_file_organize", { trackIds, template, destination }),
 	/**
-	 *  選んだ曲のファイルを、書式に従って、その曲のあるライブラリフォルダの中で移す
+	 *  選んだ曲のファイルを、書式に従って、その曲のあるライブラリフォルダの中で移すか、音楽フォルダへ集める
 	 * 
 	 *  計画は呼ばれた時点で立て直し、動かせる曲だけを移す（移動先がふさがっている曲などは動かさない）。
 	 *  トラックのID・お気に入り・再生回数・プレイリストへの登録は、変えない。
-	 *  移せなかった曲は、結果の`errors`へ理由を入れて残りを続ける。
+	 *  移せなかった曲は、結果の`errors`へ理由を入れて残りを続ける。曲ごとに`OrganizeProgress`を送り、
+	 *  `cancel_file_organize`で、次の曲の前で中止する。ほかの整理が実行中なら`LOCK`。
 	 */
-	organizeFiles: (trackIds: string[], template: string) => __TAURI_INVOKE<OrganizeResult>("organize_files", { trackIds, template }),
+	organizeFiles: (trackIds: string[], template: string, destination: OrganizeDestination) => __TAURI_INVOKE<OrganizeResult>("organize_files", { trackIds, template, destination }),
+	/**
+	 *  実行中の整理を中止する（実行中でなければ何もしない）
+	 * 
+	 *  移している途中の曲は、移し終えてから止まる。
+	 */
+	cancelFileOrganize: () => __TAURI_INVOKE<null>("cancel_file_organize"),
 	/**
 	 *  変換先にできる形式を取得する（この環境で変換できなければ、空）
 	 * 
@@ -801,6 +809,7 @@ export const events = {
 	loudnessScanFinished: makeEvent<LoudnessScanFinished>("loudness-scan-finished"),
 	loudnessScanProgress: makeEvent<LoudnessScanProgress>("loudness-scan-progress"),
 	openImportDialog: makeEvent<OpenImportDialog>("open-import-dialog"),
+	organizeProgress: makeEvent<OrganizeProgress>("organize-progress"),
 	playbackControl: makeEvent<PlaybackControl>("playback-control"),
 	playbackEvent: makeEvent<PlaybackEvent>("playback-event"),
 	settingsChanged: makeEvent<SettingsChanged>("settings-changed"),
@@ -1471,6 +1480,13 @@ export type OpenedFiles = {
 	errors: string[],
 };
 
+/**  整理の移動先 */
+export type OrganizeDestination = 
+/**  曲のあるライブラリフォルダの中（書式は、画面で選んだもの） */
+"libraryFolder" | 
+/**  音楽フォルダへ集める（書式は、設定の音楽フォルダの書式。画面の書式は使わない） */
+"musicFolder";
+
 /**  1曲の計画（一覧に表示する） */
 export type OrganizeEntry = {
 	trackId: string,
@@ -1484,6 +1500,24 @@ export type OrganizeEntry = {
 /**  ファイルの整理の計画（選んだ曲の順） */
 export type OrganizePlan = {
 	entries: OrganizeEntry[],
+	/**
+	 *  ボリュームをまたぐため、コピーしてから元をゴミ箱へ移す曲の数と、要る容量（バイト。歌詞ファイルを
+	 *  含む）。音楽フォルダへ集める時だけ
+	 */
+	copyCount: number,
+	copyBytes: number,
+	/**  音楽フォルダのドライブの空き容量（バイト。音楽フォルダへ集める時だけ。取得できなければnull） */
+	freeBytes: number | null,
+};
+
+/**  ファイルの整理（音楽フォルダへ集めるを含む）の進捗 */
+export type OrganizeProgress = {
+	/**  移し始めた曲の数（移している曲を含む） */
+	current: number,
+	/**  移す曲の総数 */
+	total: number,
+	/**  移している曲のファイル名 */
+	currentFile: string,
 };
 
 /**  ファイルの整理の結果 */
@@ -1494,8 +1528,10 @@ export type OrganizeResult = {
 	skippedCount: number,
 	/**  移せなかった曲の数 */
 	failedCount: number,
-	/**  移せなかった理由と、歌詞ファイルを移せなかった理由（`場所: 理由`） */
+	/**  移せなかった理由と、歌詞ファイルを移せなかった・元のファイルを消せなかった理由（`場所: 理由`） */
 	errors: string[],
+	/**  途中で中止したか（中止するまでに移した曲は、移したまま） */
+	cancelled: boolean,
 };
 
 /**  曲を動かすか、動かさない理由 */

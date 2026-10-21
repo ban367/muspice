@@ -107,7 +107,9 @@ describe('planOrganize', () => {
   it('「/」のない書式は、今のフォルダの中で名前を変える', () => {
     const result = plan([track('t1', '/music/in/a.mp3')], '%artist% - %title%');
     expect(result.entries[0].newPath).toBe('in/Artist - Song.mp3');
-    expect(result.moves).toEqual([{ trackId: 't1', to: '/music/in/Artist - Song.mp3' }]);
+    expect(result.moves).toEqual([
+      { trackId: 't1', to: '/music/in/Artist - Song.mp3', copy: false }
+    ]);
   });
 
   it('動かせない曲には、理由を付ける', () => {
@@ -144,11 +146,36 @@ describe('planOrganize', () => {
       'sameTarget',
       'move'
     ]);
-    expect(result.moves).toEqual([{ trackId: 'c', to: '/music/Artist/Other.mp3' }]);
+    expect(result.moves).toEqual([{ trackId: 'c', to: '/music/Artist/Other.mp3', copy: false }]);
   });
 
   it('名前の大文字と小文字だけを変える曲は、動かせる', () => {
     const result = plan([track('t1', '/music/artist/song.mp3')], '%title%');
     expect(result.entries[0].status).toBe('move');
+  });
+
+  it('音楽フォルダへ集める時は、外の曲も音楽フォルダへ移し、別のドライブの曲はコピーにする', () => {
+    const result = planOrganize(
+      [
+        track('t1', '/music/in/a.mp3'),
+        track('t2', '/Volumes/Backup/b.mp3', { title: 'Second' }),
+        track('t3', '/elsewhere/c.mp3', { title: 'Third' })
+      ],
+      ['/music', '/Volumes/Backup'],
+      parseOrganizeTemplate('%title%'),
+      [],
+      '/music'
+    );
+
+    expect(result.entries.map((entry) => [entry.currentPath, entry.newPath])).toEqual([
+      ['in/a.mp3', 'Song.mp3'],
+      ['b.mp3', 'Second.mp3'],
+      ['/elsewhere/c.mp3', 'Third.mp3']
+    ]);
+    expect(result.moves).toEqual([
+      { trackId: 't1', to: '/music/Song.mp3', copy: false },
+      { trackId: 't2', to: '/music/Second.mp3', copy: true },
+      { trackId: 't3', to: '/music/Third.mp3', copy: false }
+    ]);
   });
 });

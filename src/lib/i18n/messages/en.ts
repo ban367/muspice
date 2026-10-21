@@ -536,6 +536,20 @@ export const en: Messages = {
       'Fields: %title% %artist% %album% %albumartist% %genre% %year% %track% %disc% %filename%. Use "/" to make folders; without "/", files are renamed in their current folder. A part in [ ] is left out for songs that have no value for the fields inside it.',
     scopeHint:
       'Files are moved within the library folder they are in. Lyrics files (.lrc) with the same name move with the song, folder images move when a whole folder moves, and folders left empty are removed.',
+    destination: 'Destination',
+    destinationLibrary: 'Organize within the library folder they are in',
+    destinationMusicFolder: 'Collect into the music folder',
+    musicFolderMissing: (path) =>
+      `The music folder (${path}) could not be found. Check that the external drive is connected`,
+    musicFolderTemplate: 'Format (music folder format)',
+    musicFolderTemplateHint: 'You can change the music folder format in Settings > Library.',
+    collectHint: (path) =>
+      `Songs are moved into the music folder (${path}) using its format, wherever they are. Lyrics files and folder images move with them, and folders left empty inside library folders are removed (the library folders stay registered).`,
+    copyAcrossDrives: (count, size, trash) =>
+      `${plural(count, 'song', 'songs')} (${size}) ${count === 1 ? 'is' : 'are'} on another drive, so ${count === 1 ? 'it is' : 'they are'} copied and checked first, and then the original files are ${trash ? 'moved to the Trash' : 'deleted'}.`,
+    freeSpace: (size) => `Free space: ${size}`,
+    notEnoughSpace: (required, free) =>
+      `There is not enough free space on the music folder's drive (needed: ${required}, free: ${free})`,
     moves: 'Files to move',
     moveCount: (count) => `${plural(count, 'file', 'files')} will be moved`,
     noMoves: 'Nothing to move',
@@ -554,7 +568,12 @@ export const en: Messages = {
       sameTarget: 'Another selected song would move to the same place'
     },
     apply: 'Organize',
+    applyCollect: 'Collect',
     applying: 'Organizing...',
+    progress: (current, total) => `Organizing... (${current}/${total})`,
+    cancel: 'Stop',
+    cancelling: 'Stopping...',
+    cancelled: (moved) => `Stopped organizing (${plural(moved, 'file was', 'files were')} moved)`,
     moved: (count) => `Organized ${plural(count, 'file', 'files')}`,
     partiallyFailed: (moved, failed) =>
       `Organized ${plural(moved, 'file', 'files')} (${failed} could not be moved)`,

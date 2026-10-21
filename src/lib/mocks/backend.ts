@@ -41,6 +41,7 @@ import type {
   MusicFolderChange,
   NotCopied,
   NowPlayingUpdate,
+  OrganizeDestination,
   PendingFolderImport,
   PlayHistoryEntry,
   Playlist,
@@ -249,6 +250,8 @@ const SYSTEM_MUSIC_FOLDER = '/Users/demo/Music';
 const TEMPLATE_EXAMPLE_COUNT = 5;
 /** インポートの1ファイルあたりの処理時間（進捗表示の確認用） */
 const IMPORT_STEP_MS = 150;
+/** ファイルの整理の1曲あたりの処理時間（進捗表示・中止の確認用） */
+const ORGANIZE_STEP_MS = 200;
 const DEFAULT_STATS_LIMIT = 50;
 /** イコライザのバンドの数（Rustの`EQ_BANDS`と同じ） */
 const EQ_BAND_COUNT = 10;
@@ -650,6 +653,9 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   // 音楽フォルダに新しく登録するフォルダで、見つかったことにする曲の数
   let musicFolderFileCount = IMPORT_FILE_COUNT;
   let musicFolderFreeBytes = MUSIC_FOLDER_FREE_BYTES;
+  // 実行中のファイルの整理と、その中止
+  let isOrganizing = false;
+  let organizeCancelled = false;
   /** 参照するかコピーするかを選ぶまで預かっている取り込み（Rustの`PendingImport`） */
   let pendingImport: MockImportTargets | null = null;
   /** 音楽フォルダへコピーした曲（コピー先 → 元のファイル。同じファイルをもう一度取り込んだかの判定に使う） */
@@ -1719,20 +1725,45 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     return result;
   }
 
-  /** 選んだ曲（選んだ順）の、ファイルの整理の計画（Rustの`commands/organize.rs`の`build_plan`） */
-  function organizePlan(trackIds: string[], templateText: string) {
+  /**
+   * 選んだ曲（選んだ順）の、ファイルの整理の計画（Rustの`commands/organize.rs`の`build_plan`）
+   *
+   * 音楽フォルダへ集める時は、設定の音楽フォルダの書式を使う（`templateText`は使わない）。
+   */
+  function organizePlan(
+    trackIds: string[],
+    templateText: string,
+    organizeDestination: OrganizeDestination
+  ) {
     if (trackIds.length === 0) fail('VALIDATION', '整理する曲が指定されていません');
     trackIds.forEach(validateTrackId);
-    const template = parseOrganizeTemplate(templateText);
+    let musicFolder: MockLibraryFolder | null = null;
+    if (organizeDestination === 'musicFolder') {
+      musicFolder = libraryFolders.find((folder) => folder.isMusicFolder) ?? null;
+      if (!musicFolder) fail('NOT_FOUND', '音楽フォルダが設定されていません');
+      if (!musicFolder.exists) {
+        fail('NOT_FOUND', `音楽フォルダが見つかりません: ${musicFolder.path}`);
+      }
+    }
+    const template = parseOrganizeTemplate(
+      musicFolder ? settings.musicFolderTemplate : templateText
+    );
     const selected = [...new Set(trackIds)]
       .map((id) => tracks.find((track) => track.id === id))
       .filter((track) => track !== undefined);
-    return planOrganize(
+    const plan = planOrganize(
       selected,
       libraryFolders.map((folder) => folder.path),
       template,
-      tracks.map((track) => track.filePath)
+      tracks.map((track) => track.filePath),
+      musicFolder?.path ?? null
     );
+    const copies = plan.moves.filter((move) => move.copy);
+    const copyBytes = copies.reduce(
+      (sum, move) => sum + (tracks.find((track) => track.id === move.trackId)?.fileSize ?? 0),
+      0
+    );
+    return { ...plan, copyCount: copies.length, copyBytes, musicFolder };
   }
 
   /**
@@ -2147,27 +2178,70 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       if (loudnessScan.running) loudnessScan.cancelled = true;
       return null;
     },
-    planFileOrganize: (trackIds, template) => ({
-      entries: organizePlan(trackIds, template).entries
-    }),
-    // 実ファイルは存在しないため、動かせる曲は常に移せたものとして扱う
-    organizeFiles: (trackIds, template) => {
-      const { entries, moves } = organizePlan(trackIds, template);
-      for (const move of moves) {
-        const track = tracks.find((t) => t.id === move.trackId);
-        if (!track) continue;
-        track.filePath = move.to;
-        track.fileName = move.to.slice(move.to.lastIndexOf('/') + 1);
-      }
-      if (moves.length > 0) options.emit('library-changed', null);
+    planFileOrganize: (trackIds, template, organizeDestination) => {
+      const plan = organizePlan(trackIds, template, organizeDestination);
       return {
-        movedCount: moves.length,
+        entries: plan.entries,
+        copyCount: plan.copyCount,
+        copyBytes: plan.copyBytes,
+        freeBytes: plan.musicFolder ? musicFolderFreeBytes : null
+      };
+    },
+    // 実ファイルは存在しないため、動かせる曲は常に移せたものとして扱う（1曲ごとに進み具合を送り、
+    // 中止されたら次の曲の前で止まる）
+    organizeFiles: async (trackIds, template, organizeDestination) => {
+      if (isOrganizing) fail('LOCK', 'ファイルの整理を実行中です');
+      const { entries, moves, copyBytes, musicFolder } = organizePlan(
+        trackIds,
+        template,
+        organizeDestination
+      );
+      if (
+        musicFolder &&
+        copyBytes > 0 &&
+        copyBytes + COPY_SPACE_MARGIN_BYTES > musicFolderFreeBytes
+      ) {
+        fail(
+          'VALIDATION',
+          `音楽フォルダのドライブの空き容量が足りません（必要: ${copyBytes}バイト、空き: ${musicFolderFreeBytes}バイト）`
+        );
+      }
+      isOrganizing = true;
+      organizeCancelled = false;
+      let movedCount = 0;
+      try {
+        for (const [index, move] of moves.entries()) {
+          if (organizeCancelled) break;
+          const track = tracks.find((t) => t.id === move.trackId);
+          if (!track) continue;
+          options.emit('organize-progress', {
+            current: index + 1,
+            total: moves.length,
+            currentFile: track.fileName
+          });
+          await sleep(ORGANIZE_STEP_MS);
+          if (move.copy) musicFolderFreeBytes -= track.fileSize;
+          track.filePath = move.to;
+          track.fileName = move.to.slice(move.to.lastIndexOf('/') + 1);
+          movedCount++;
+        }
+      } finally {
+        isOrganizing = false;
+      }
+      if (movedCount > 0) options.emit('library-changed', null);
+      return {
+        movedCount,
         skippedCount: entries.filter(
           (entry) => entry.status !== 'move' && entry.status !== 'unchanged'
         ).length,
         failedCount: 0,
-        errors: []
+        errors: [],
+        cancelled: organizeCancelled
       };
+    },
+    cancelFileOrganize: () => {
+      if (isOrganizing) organizeCancelled = true;
+      return null;
     },
     getAlbumArtInfo: (trackId) => {
       validateTrackId(trackId);

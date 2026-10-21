@@ -1,15 +1,20 @@
 //! ファイルの整理（タグに基づくリネーム・移動）
 //!
 //! 選んだ曲のファイルを、書式（`%albumartist%/%album%/%track% %title%`など）に従って、その曲のある
-//! ライブラリフォルダの中で移す（ADR-052）。計画（`plan`）と実行（`move_files`・`tidy_folders`）を
-//! 分け、画面は計画を一覧（今の場所 → 整理後の場所）で見せてから実行する。
+//! ライブラリフォルダの中で移す（ADR-052）か、音楽フォルダへ集める（ADR-070）。計画（`plan`）と
+//! 実行（`move_files`・`copy_for_move`・`tidy_folders`）を分け、画面は計画を一覧（今の場所 →
+//! 整理後の場所）で見せてから実行する。
 //!
-//! - 移す先は、曲のあるライブラリフォルダの中だけ（フォルダの外の曲は、動かさない）
+//! - 移す先は、曲のあるライブラリフォルダの中（フォルダの外の曲は、動かさない）か、音楽フォルダ
+//!   （どこにある曲も、音楽フォルダの書式どおりの場所へ移す）
 //! - 移動先に同じ名前のファイルがある曲・選んだ曲の中で同じ移動先になる曲は、動かさない
 //!   （上書きしない・連番も付けない）
+//! - ボリュームをまたぐ曲（音楽フォルダへ集める時）は、コピーして大きさを確かめ、データベースを
+//!   書き換えてから、元をゴミ箱へ移す（`copy_for_move` → `discard_originals`）
 //! - 曲と同じ名前の歌詞ファイル（`.lrc`）は、曲と一緒に移す
 //! - フォルダの画像（`cover.jpg`など）は、フォルダの曲がすべて同じフォルダへ移った場合に、一緒に移す
-//! - 曲がなくなって空になったフォルダは、消す（ライブラリフォルダ自体は消さない）
+//! - 曲がなくなって空になったフォルダは、消す（ライブラリフォルダ自体と、ライブラリフォルダの外の
+//!   フォルダは消さない）
 //!
 //! トラックのID・お気に入り・再生回数・プレイリストへの登録は、変えない（データベースの場所だけを
 //! 書き換える。呼び出し側が`repository::relink_track`で行う）。
@@ -349,6 +354,14 @@ pub struct OrganizeEntry {
 #[serde(rename_all = "camelCase")]
 pub struct OrganizePlan {
     pub entries: Vec<OrganizeEntry>,
+    /// ボリュームをまたぐため、コピーしてから元をゴミ箱へ移す曲の数と、要る容量（バイト。歌詞ファイルを
+    /// 含む）。音楽フォルダへ集める時だけ
+    pub copy_count: u32,
+    #[specta(type = specta_typescript::Number)]
+    pub copy_bytes: i64,
+    /// 音楽フォルダのドライブの空き容量（バイト。音楽フォルダへ集める時だけ。取得できなければnull）
+    #[specta(type = Option<specta_typescript::Number>)]
+    pub free_bytes: Option<i64>,
 }
 
 /// 1曲の移動（実行用）
@@ -359,8 +372,19 @@ pub struct PlannedMove {
     pub to: PathBuf,
     /// 一緒に移す歌詞ファイル（今の場所, 移動先）
     pub lyrics: Option<(PathBuf, PathBuf)>,
-    /// 曲のあるライブラリフォルダ（空になったフォルダは、この手前まで消す）
-    pub library_folder: PathBuf,
+    /// 曲のあるライブラリフォルダ（空になったフォルダは、この手前まで消す。ライブラリフォルダの外の曲は
+    /// None で、フォルダを消さない）
+    pub library_folder: Option<PathBuf>,
+    /// ボリュームをまたぐため、コピーしてから元をゴミ箱へ移すか（音楽フォルダへ集める時）
+    pub copy: bool,
+}
+
+impl PlannedMove {
+    /// コピーに要る容量（曲と、歌詞ファイルの大きさ。バイト）
+    pub fn size(&self) -> u64 {
+        let size = |path: &Path| fs::metadata(path).map_or(0, |metadata| metadata.len());
+        size(&self.from) + self.lyrics.as_ref().map_or(0, |(from, _)| size(from))
+    }
 }
 
 /// 計画（表示用の一覧と、実行する移動）
@@ -473,17 +497,37 @@ impl Candidate {
     }
 }
 
+/// 2つの場所が、同じボリュームにあるか（調べられない場合は、違うとみなす）
+#[cfg(unix)]
+pub(crate) fn is_same_volume(a: &Path, b: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    match (fs::metadata(a), fs::metadata(b)) {
+        (Ok(a), Ok(b)) => a.dev() == b.dev(),
+        _ => false,
+    }
+}
+
+/// 2つの場所が、同じボリュームにあるか（Unix以外では調べず、いつもコピーで移す）
+#[cfg(not(unix))]
+pub(crate) fn is_same_volume(_a: &Path, _b: &Path) -> bool {
+    false
+}
+
 /// 選んだ曲の、ファイルの整理の計画を立てる
 ///
 /// @param tracks - 選んだ曲（この順に、一覧にする）
 /// @param library_folders - ライブラリフォルダのパス
 /// @param registered_paths - ライブラリに登録されている、すべての曲のパス（見つからない曲を含む。
 ///   ファイルがなくても、その場所は移動先にしない）
+/// @param music_folder - 音楽フォルダへ集める時は、音楽フォルダ（どの曲も、音楽フォルダからの書式どおりの
+///   場所へ移す。書式に`/`がなくても、音楽フォルダの直下に置く）。Noneなら、曲のあるライブラリフォルダの中で
+///   移す
 pub fn plan(
     tracks: &[Track],
     library_folders: &[PathBuf],
     template: &Template,
     registered_paths: &HashSet<String>,
+    music_folder: Option<&Path>,
 ) -> Plan {
     let mut dirs = DirCache::default();
     let mut entries: Vec<OrganizeEntry> = Vec::with_capacity(tracks.len());
@@ -501,7 +545,8 @@ pub fn plan(
             status: OrganizeStatus::Move,
         };
 
-        let Some(folder) = folder else {
+        // 移す先の基準のフォルダ（音楽フォルダか、曲のあるライブラリフォルダ）
+        let Some(base_folder) = music_folder.or(folder.map(PathBuf::as_path)) else {
             entry.status = OrganizeStatus::OutsideLibrary;
             entries.push(entry);
             continue;
@@ -512,16 +557,15 @@ pub fn plan(
             continue;
         }
 
-        let base = if template.in_place {
-            from.parent().unwrap_or(folder)
-        } else {
-            folder
+        let base = match from.parent() {
+            Some(parent) if template.in_place && music_folder.is_none() => parent,
+            _ => base_folder,
         };
         let to = template
             .components(track, &from)
             .iter()
             .fold(base.to_path_buf(), |path, component| path.join(component));
-        entry.new_path = Some(display_path(&to, Some(folder)));
+        entry.new_path = Some(display_path(&to, Some(base_folder)));
 
         // 文字の形（NFC・NFD）だけが違う名前は、同じ場所とみなす（名前を付け直さない）
         if nfc(&to) == nfc(&from) {
@@ -538,10 +582,11 @@ pub fn plan(
                 index: entries.len(),
                 planned: PlannedMove {
                     track_id: track.id.clone(),
+                    copy: music_folder.is_some_and(|music| !is_same_volume(&from, music)),
                     from,
                     to,
                     lyrics,
-                    library_folder: folder.clone(),
+                    library_folder: folder.cloned(),
                 },
             });
         }
@@ -696,16 +741,114 @@ pub fn undo_move(planned: &PlannedMove) {
     restore(&planned.from, &planned.to);
 }
 
+/// 移した元のファイルを消す関数（普段は`library::discard_track_file`。ゴミ箱の中の場所を返す）
+pub type Discard<'a> = dyn Fn(&Path) -> AppResult<Option<PathBuf>> + 'a;
+
+/// ボリュームをまたいで1曲を移す前半: 曲（と、同じ名前の歌詞ファイル）をコピーし、大きさを確かめる
+///
+/// 元は、まだ消さない（データベースを書き換えてから、`discard_originals`で消す）。移動先のフォルダは、
+/// なければ作る。曲のコピーが元と同じ大きさでなければ、コピーを消してエラーにする。
+pub fn copy_for_move(planned: &PlannedMove, buffer: &mut [u8]) -> AppResult<CopiedMove> {
+    if let Some(parent) = planned.to.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| AppError::Io(format!("移動先のフォルダを作れませんでした: {}", e)))?;
+    }
+    let written = copy_no_replace(&planned.from, &planned.to, buffer).map_err(|e| {
+        AppError::Io(if e.kind() == io::ErrorKind::AlreadyExists {
+            "移動先に同じ名前のファイルがあります".to_string()
+        } else {
+            format!("ファイルをコピーできませんでした: {}", e)
+        })
+    })?;
+    let source_size = fs::metadata(&planned.from).map(|metadata| metadata.len());
+    let copied_size = fs::metadata(&planned.to).map(|metadata| metadata.len());
+    if source_size.ok() != Some(written) || copied_size.ok() != Some(written) {
+        fs::remove_file(&planned.to).ok();
+        return Err(AppError::Io(
+            "コピーしたファイルの大きさが、元と違います".to_string(),
+        ));
+    }
+
+    let lyrics = planned
+        .lyrics
+        .as_ref()
+        .map(|(from, to)| copy_no_replace(from, to, buffer));
+    Ok(CopiedMove {
+        lyrics_copied: matches!(lyrics, Some(Ok(_))),
+        warning: match lyrics {
+            Some(Err(e)) => Some(format!("歌詞ファイルをコピーできませんでした: {}", e)),
+            _ => None,
+        },
+    })
+}
+
+/// ボリュームをまたいで1曲をコピーした結果
+#[derive(Debug, PartialEq, Eq)]
+pub struct CopiedMove {
+    /// 歌詞ファイルもコピーしたか（ない場合はfalse）
+    pub lyrics_copied: bool,
+    /// 歌詞ファイルをコピーできなかった場合の理由（曲は、移すものとして扱う）
+    pub warning: Option<String>,
+}
+
+/// コピーしたファイルを消す（データベースを書き換えられなかった時に使う。元のファイルは、そのまま）
+pub fn remove_copied(planned: &PlannedMove, copied: &CopiedMove) {
+    let remove = |path: &Path| {
+        if let Err(e) = fs::remove_file(path) {
+            log::error!(
+                "コピーしたファイルを消せませんでした: {}: {}",
+                path.display(),
+                e
+            );
+        }
+    };
+    remove(&planned.to);
+    if let Some((_, to)) = planned.lyrics.as_ref().filter(|_| copied.lyrics_copied) {
+        remove(to);
+    }
+}
+
+/// ボリュームをまたいで1曲を移す後半: 元の曲（と、コピーした歌詞ファイルの元）を消す
+///
+/// `discard`は、普段は`library::discard_track_file`（macOSではゴミ箱へ移し、ほかのOSでは削除する）。
+/// @returns 消せなかった場合の理由（曲はコピー先へ移ったものとして扱う。元は残る）
+pub fn discard_originals(
+    planned: &PlannedMove,
+    copied: &CopiedMove,
+    discard: &Discard<'_>,
+) -> Option<String> {
+    let lyrics = planned
+        .lyrics
+        .as_ref()
+        .filter(|_| copied.lyrics_copied)
+        .map(|(from, _)| from.as_path());
+    let failures: Vec<String> = std::iter::once(planned.from.as_path())
+        .chain(lyrics)
+        .filter_map(|path| {
+            discard(path)
+                .err()
+                .map(|e| format!("{}（{}）", e, path.display()))
+        })
+        .collect();
+    (!failures.is_empty()).then(|| {
+        format!(
+            "元のファイルを消せませんでした（コピー先へ移した曲として扱います）: {}",
+            failures.join("、")
+        )
+    })
+}
+
 /// 曲を移した後の片付け: フォルダの画像を移し、空になったフォルダを消す
 ///
 /// フォルダの画像（`cover.jpg`など。埋め込みの画像がない曲のアルバムアートに使う）は、元のフォルダに
 /// 曲が残らず、移した曲の移動先が1つのフォルダで、そのフォルダへ移ってきた曲がすべて同じフォルダから
 /// 来た場合に、一緒に移す（アルバムのフォルダを、そのまま移した場合）。移動先に同じ名前の画像が
-/// あれば、移さない。
+/// あれば、移さない。ボリュームをまたいで移した曲のフォルダの画像は、コピーしてから元を`discard`で消す。
 /// @param moved - 移した曲
-pub fn tidy_folders(moved: &[PlannedMove]) {
-    // 元のフォルダ → (移動先のフォルダ, ライブラリフォルダ)。同じフォルダの中での改名は除く
-    let mut destinations: HashMap<&Path, (HashSet<&Path>, &Path)> = HashMap::new();
+pub fn tidy_folders(moved: &[PlannedMove], discard: &Discard<'_>) {
+    // 元のフォルダ → (移動先のフォルダ, ライブラリフォルダ, コピーで移したか)。同じフォルダの中での
+    // 改名は除く
+    let mut destinations: HashMap<&Path, (HashSet<&Path>, Option<&Path>, bool)> = HashMap::new();
     // 移動先のフォルダ → 元のフォルダ
     let mut sources: HashMap<&Path, HashSet<&Path>> = HashMap::new();
     for planned in moved {
@@ -715,23 +858,29 @@ pub fn tidy_folders(moved: &[PlannedMove]) {
         if from_dir == to_dir {
             continue;
         }
-        destinations
-            .entry(from_dir)
-            .or_insert_with(|| (HashSet::new(), planned.library_folder.as_path()))
-            .0
-            .insert(to_dir);
+        let destination = destinations.entry(from_dir).or_insert_with(|| {
+            (
+                HashSet::new(),
+                planned.library_folder.as_deref(),
+                planned.copy,
+            )
+        });
+        destination.0.insert(to_dir);
+        destination.2 |= planned.copy;
         sources.entry(to_dir).or_default().insert(from_dir);
     }
 
-    for (from_dir, (to_dirs, library_folder)) in destinations {
+    for (from_dir, (to_dirs, library_folder, copy)) in destinations {
         let mut to_dirs = to_dirs.into_iter();
         if let (Some(to_dir), None) = (to_dirs.next(), to_dirs.next())
             && sources.get(to_dir).is_some_and(|from| from.len() == 1)
             && !has_audio_files(from_dir)
         {
-            move_folder_images(from_dir, to_dir);
+            move_folder_images(from_dir, to_dir, copy.then_some(discard));
         }
-        remove_empty_folders(from_dir, library_folder);
+        if let Some(library_folder) = library_folder {
+            remove_empty_folders(from_dir, library_folder);
+        }
     }
 }
 
@@ -743,7 +892,10 @@ fn has_audio_files(dir: &Path) -> bool {
 }
 
 /// フォルダの画像を、別のフォルダへ移す（同じ名前のファイルがあれば移さない。失敗はログに残す）
-fn move_folder_images(from_dir: &Path, to_dir: &Path) {
+///
+/// @param discard - ボリュームをまたぐ場合に、コピーした後で元を消す関数（Noneなら、そのまま移す）
+fn move_folder_images(from_dir: &Path, to_dir: &Path, discard: Option<&Discard<'_>>) {
+    let mut buffer = Vec::new();
     for image in list_dir(from_dir).unwrap_or_default() {
         let Some(name) = image.file_name() else {
             continue;
@@ -751,7 +903,17 @@ fn move_folder_images(from_dir: &Path, to_dir: &Path) {
         if !is_folder_image(&image) || !image.is_file() {
             continue;
         }
-        if let Err(e) = move_no_replace(&image, &to_dir.join(name)) {
+        let to = to_dir.join(name);
+        let moved = match discard {
+            None => move_no_replace(&image, &to).map_err(|e| e.to_string()),
+            Some(discard) => {
+                buffer.resize(64 * 1024, 0);
+                copy_no_replace(&image, &to, &mut buffer)
+                    .map_err(|e| e.to_string())
+                    .and_then(|_| discard(&image).map(|_| ()).map_err(|e| e.to_string()))
+            }
+        };
+        if let Err(e) = moved {
             log::info!(
                 "フォルダの画像を移しませんでした: {}: {}",
                 image.display(),
@@ -866,6 +1028,7 @@ mod tests {
             &[library.to_path_buf()],
             &parse(template),
             &tracks.iter().map(|t| t.file_path.clone()).collect(),
+            None,
         )
     }
 
@@ -1014,7 +1177,8 @@ mod tests {
                 from: source,
                 to: library.join("Artist/Album/01 Song.mp3"),
                 lyrics: None,
-                library_folder: library,
+                library_folder: Some(library),
+                copy: false,
             }]
         );
     }
@@ -1097,6 +1261,7 @@ mod tests {
             std::slice::from_ref(&library),
             &parse(DEFAULT),
             &HashSet::from([registered.to_str().unwrap().to_string()]),
+            None,
         );
 
         assert_eq!(statuses(&plan), [OrganizeStatus::TargetExists]);
@@ -1255,7 +1420,14 @@ mod tests {
         for planned in &plan.moves {
             move_files(planned).unwrap();
         }
-        tidy_folders(&plan.moves);
+        tidy_folders(&plan.moves, &remove_file);
+    }
+
+    /// テストの`discard`（ゴミ箱を使わず、ファイルを消す）
+    fn remove_file(path: &Path) -> AppResult<Option<PathBuf>> {
+        fs::remove_file(path)
+            .map(|()| None)
+            .map_err(|e| AppError::Io(e.to_string()))
     }
 
     #[test]
@@ -1361,5 +1533,227 @@ mod tests {
         // 空になったフォルダだけを消す（ほかのファイルがあるフォルダは残す）
         assert!(!library.join("keep/sub").exists());
         assert!(library.join("keep/notes.txt").is_file());
+    }
+
+    /// 音楽フォルダへ集める計画を立てる（ライブラリフォルダは`library`）
+    fn plan_into_music(library: &Path, music: &Path, tracks: &[Track], template: &str) -> Plan {
+        plan(
+            tracks,
+            &[library.to_path_buf(), music.to_path_buf()],
+            &parse(template),
+            &tracks.iter().map(|t| t.file_path.clone()).collect(),
+            Some(music),
+        )
+    }
+
+    #[test]
+    fn test_plan_collects_tracks_into_the_music_folder() {
+        let dir = TempDir::new();
+        let library = dir.path().join("Old Library");
+        let music = dir.path().join("Music");
+        fs::create_dir_all(&music).unwrap();
+        let inside = library.join("rip/a.mp3");
+        let outside = dir.path().join("Downloads/b.mp3");
+        let in_music = music.join("loose/c.mp3");
+        for path in [&inside, &outside, &in_music] {
+            touch(path);
+        }
+        let mut second = track("t2", &outside);
+        second.title = Some("Second".to_string());
+        second.track_number = Some(2);
+        let mut third = track("t3", &in_music);
+        third.title = Some("Third".to_string());
+        third.track_number = Some(3);
+
+        // 書式に`/`がなくても、音楽フォルダの直下に置く
+        let flat = plan_into_music(&library, &music, &[track("t1", &inside)], "%title%");
+        assert_eq!(flat.moves[0].to, music.join("Song.mp3"));
+
+        let plan = plan_into_music(
+            &library,
+            &music,
+            &[track("t1", &inside), second, third],
+            DEFAULT,
+        );
+
+        // ライブラリフォルダの外の曲も、音楽フォルダの中の曲も、音楽フォルダの書式どおりの場所へ移す
+        assert_eq!(
+            statuses(&plan),
+            [
+                OrganizeStatus::Move,
+                OrganizeStatus::Move,
+                OrganizeStatus::Move
+            ]
+        );
+        let targets: Vec<&Path> = plan.moves.iter().map(|m| m.to.as_path()).collect();
+        assert_eq!(
+            targets,
+            [
+                music.join("Artist/Album/01 Song.mp3"),
+                music.join("Artist/Album/02 Second.mp3"),
+                music.join("Artist/Album/03 Third.mp3")
+            ]
+        );
+        // 今の場所は、曲のあるライブラリフォルダから（外の曲は、そのままのパス）。整理後の場所は、音楽フォルダから
+        assert_eq!(
+            plan.entries[0].current_path,
+            Path::new("rip/a.mp3").display().to_string()
+        );
+        assert_eq!(plan.entries[1].current_path, outside.display().to_string());
+        assert_eq!(
+            plan.entries[1].new_path.as_deref(),
+            Some(
+                Path::new("Artist/Album/02 Second.mp3")
+                    .display()
+                    .to_string()
+                    .as_str()
+            )
+        );
+        // 空になったフォルダを消す範囲は、曲のあるライブラリフォルダ（外の曲は、消さない）
+        let folders: Vec<Option<&Path>> = plan
+            .moves
+            .iter()
+            .map(|m| m.library_folder.as_deref())
+            .collect();
+        assert_eq!(
+            folders,
+            [Some(library.as_path()), None, Some(music.as_path())]
+        );
+        // 同じボリュームの中のため、コピーせずに移す
+        assert!(plan.moves.iter().all(|m| !m.copy));
+    }
+
+    #[test]
+    fn test_copy_for_move_copies_and_discards_originals_afterwards() {
+        let dir = TempDir::new();
+        let library = dir.path().join("Old Library");
+        let music = dir.path().join("Music");
+        fs::create_dir_all(&music).unwrap();
+        let source = library.join("rip/a.mp3");
+        touch(&source);
+        touch(&library.join("rip/a.lrc"));
+        let mut planned = plan_into_music(&library, &music, &[track("t1", &source)], DEFAULT)
+            .moves
+            .remove(0);
+        // ボリュームをまたぐ場合の処理を、同じボリュームで確かめる
+        planned.copy = true;
+        assert_eq!(planned.size(), 8);
+
+        let copied = copy_for_move(&planned, &mut [0u8; 3]).unwrap();
+
+        assert_eq!(
+            copied,
+            CopiedMove {
+                lyrics_copied: true,
+                warning: None
+            }
+        );
+        let target = music.join("Artist/Album/01 Song.mp3");
+        assert_eq!(fs::read(&target).unwrap(), b"data");
+        assert!(music.join("Artist/Album/01 Song.lrc").is_file());
+        // 元は、データベースを書き換えるまで残す
+        assert!(source.is_file());
+
+        let discarded = std::cell::RefCell::new(Vec::new());
+        let warning = discard_originals(&planned, &copied, &|path| {
+            discarded.borrow_mut().push(path.to_path_buf());
+            remove_file(path)
+        });
+        assert_eq!(warning, None);
+        assert_eq!(
+            *discarded.borrow(),
+            [source.clone(), library.join("rip/a.lrc")]
+        );
+        tidy_folders(std::slice::from_ref(&planned), &remove_file);
+        // 空になったフォルダは消す（ライブラリフォルダは残す）
+        assert!(!library.join("rip").exists());
+        assert!(library.is_dir());
+    }
+
+    #[test]
+    fn test_remove_copied_keeps_the_originals() {
+        let dir = TempDir::new();
+        let music = dir.path().join("Music");
+        fs::create_dir_all(&music).unwrap();
+        let source = dir.path().join("Downloads/a.mp3");
+        touch(&source);
+        let mut planned = plan_into_music(&music, &music, &[track("t1", &source)], DEFAULT)
+            .moves
+            .remove(0);
+        planned.copy = true;
+        let copied = copy_for_move(&planned, &mut [0u8; 16]).unwrap();
+
+        remove_copied(&planned, &copied);
+
+        assert!(!planned.to.exists());
+        assert!(source.is_file());
+    }
+
+    #[test]
+    fn test_discard_failures_are_reported() {
+        let dir = TempDir::new();
+        let music = dir.path().join("Music");
+        fs::create_dir_all(&music).unwrap();
+        let source = dir.path().join("Downloads/a.mp3");
+        touch(&source);
+        let planned = plan_into_music(&music, &music, &[track("t1", &source)], DEFAULT)
+            .moves
+            .remove(0);
+        let copied = CopiedMove {
+            lyrics_copied: false,
+            warning: None,
+        };
+
+        let warning = discard_originals(&planned, &copied, &|_| {
+            Err(AppError::Io("ゴミ箱がありません".to_string()))
+        })
+        .unwrap();
+
+        assert!(warning.contains("元のファイルを消せませんでした"));
+        assert!(warning.contains("ゴミ箱がありません"));
+        assert!(source.is_file());
+    }
+
+    #[test]
+    fn test_folder_images_are_copied_when_moving_across_volumes() {
+        let dir = TempDir::new();
+        let music = dir.path().join("Music");
+        let library = dir.path().join("Old Library");
+        fs::create_dir_all(&music).unwrap();
+        let source = library.join("rip/a.mp3");
+        touch(&source);
+        touch(&library.join("rip/cover.jpg"));
+        let mut planned = plan_into_music(&library, &music, &[track("t1", &source)], DEFAULT)
+            .moves
+            .remove(0);
+        planned.copy = true;
+        let copied = copy_for_move(&planned, &mut [0u8; 16]).unwrap();
+        discard_originals(&planned, &copied, &remove_file);
+
+        tidy_folders(std::slice::from_ref(&planned), &remove_file);
+
+        assert!(music.join("Artist/Album/cover.jpg").is_file());
+        assert!(!library.join("rip").exists());
+    }
+
+    #[test]
+    fn test_copy_for_move_never_overwrites() {
+        let dir = TempDir::new();
+        let music = dir.path().join("Music");
+        fs::create_dir_all(&music).unwrap();
+        let source = dir.path().join("Downloads/a.mp3");
+        touch(&source);
+        let mut planned = plan_into_music(&music, &music, &[track("t1", &source)], DEFAULT)
+            .moves
+            .remove(0);
+        planned.copy = true;
+        fs::create_dir_all(planned.to.parent().unwrap()).unwrap();
+        fs::write(&planned.to, b"other").unwrap();
+
+        let error = copy_for_move(&planned, &mut [0u8; 16]).unwrap_err();
+
+        assert!(error.to_string().contains("同じ名前のファイル"));
+        assert_eq!(fs::read(&planned.to).unwrap(), b"other");
+        assert!(source.is_file());
     }
 }

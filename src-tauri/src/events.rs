@@ -47,6 +47,18 @@ pub struct ConvertProgress {
     pub current_file: String,
 }
 
+/// ファイルの整理（音楽フォルダへ集めるを含む）の進捗
+#[derive(Debug, Clone, Serialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+pub struct OrganizeProgress {
+    /// 移し始めた曲の数（移している曲を含む）
+    pub current: u32,
+    /// 移す曲の総数
+    pub total: u32,
+    /// 移している曲のファイル名
+    pub current_file: String,
+}
+
 /// 音量（ラウドネス）の解析の進捗
 #[derive(Debug, Clone, Serialize, Type, Event)]
 #[serde(rename_all = "camelCase")]

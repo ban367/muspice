@@ -11,6 +11,7 @@ import type {
   Metadata,
   DeleteResult,
   FilterOptions,
+  OrganizeDestination,
   OrganizePlan,
   TrackMetadataChange
 } from '#lib/types/models.js';
@@ -500,10 +501,20 @@ export function useApplyMetadataChangesMutation() {
  * 選んだ曲のファイルの、整理の計画（今の場所 → 整理後の場所）を取得する
  *
  * 書式を変えるたびに取り直すため、キャッシュしない。書式の誤りは`VALIDATION`のエラーで返り、
- * 画面がその場に表示する（トーストは出さない）。
+ * 画面がその場に表示する（トーストは出さない）。音楽フォルダへ集める時は、`template`を使わず、
+ * 設定の音楽フォルダの書式を使う。
  */
-export function fetchFileOrganizePlan(trackIds: string[], template: string): Promise<OrganizePlan> {
-  return commands.planFileOrganize(trackIds, template);
+export function fetchFileOrganizePlan(
+  trackIds: string[],
+  template: string,
+  destination: OrganizeDestination
+): Promise<OrganizePlan> {
+  return commands.planFileOrganize(trackIds, template, destination);
+}
+
+/** 実行中のファイルの整理を中止する（移している曲を移し終えてから止まる） */
+export function cancelFileOrganize(): Promise<null> {
+  return commands.cancelFileOrganize();
 }
 
 /**
@@ -516,8 +527,15 @@ export function useOrganizeFilesMutation() {
   const queryClient = useQueryClient();
 
   return createMutation(() => ({
-    mutationFn: ({ trackIds, template }: { trackIds: string[]; template: string }) =>
-      commands.organizeFiles(trackIds, template),
+    mutationFn: ({
+      trackIds,
+      template,
+      destination
+    }: {
+      trackIds: string[];
+      template: string;
+      destination: OrganizeDestination;
+    }) => commands.organizeFiles(trackIds, template, destination),
     onSuccess: (result) => {
       if (result.movedCount === 0) return;
       invalidateAllTrackQueries(queryClient);
