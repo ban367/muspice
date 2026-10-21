@@ -2,7 +2,7 @@
  * ブラウザ上でTauri IPCをモックする（`npm run dev:mock`専用）
  *
  * `@tauri-apps/api/mocks`で`window.__TAURI_INTERNALS__`を差し替え、
- * アプリのコマンドはインメモリバックエンドへ、プラグイン（event・dialog・window）は
+ * アプリのコマンドはインメモリバックエンドへ、プラグイン（event・dialog・window・app）は
  * ブラウザ内で完結する簡易実装へ振り分ける。状態はメモリ上にのみ保持し、
  * リロードするとフィクスチャの初期状態に戻る（再生状態（音量・再生キューなど）だけは、
  * 起動時の復元を確認できるよう`sessionStorage`に保存し、タブを閉じるまで残る）。
@@ -20,6 +20,7 @@
  */
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
 import type { NowPlayingUpdate } from '#lib/types/models.js';
+import tauriConfig from '../../../src-tauri/tauri.conf.json';
 import {
   createMockBackend,
   type MockAlbumArtPickMode,
@@ -165,6 +166,9 @@ export function setupTauriMock(): void {
       case 'plugin:window|close':
         console.info('[mock] ウィンドウを閉じる操作は無視しました');
         return null;
+      case 'plugin:app|version':
+        // 実アプリと同じく、tauri.conf.jsonの版を返す（ADR-067）
+        return tauriConfig.version;
     }
 
     if (cmd.startsWith('plugin:')) {

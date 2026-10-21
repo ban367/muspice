@@ -2095,6 +2095,38 @@ ADR-063で、グリッドで選んだアルバム・アーティストの曲を�
 - 欠点: 矢印キーを押し続けている間は、パネルの中身が止まる（離した後、最大200msで切り替わる）。アルバムを切り替えた直後は、曲を取得するまで曲数が出ない
 - 確認: 単体テスト（`trackInfoTarget`のアルバムのまとめ方とアルバムのない曲、`followInfo`のまとめ方・パネルを閉じた時とカードを押した時に捨てること）。モックのブラウザで、パネルを閉じている間に選んでも開かないこと・開いた時に選んでいる曲を反映すること・コンピレーション・アルバムのない曲・Shiftでの範囲選択・プレイリストの画面・画面を移っても残ること・パネルの中の選択が取り直しで変わらないこと・タグを変えた時に追随すること・矢印キーを押し続けた時の取得（12回の移動で1回、グリッドの4回の移動で2回）・パネルの中で選んだ行が見える位置へ出ること
 
+## ADR-067: 版は`tauri.conf.json`だけに書き、当面はリリースしない
+
+### 背景
+
+2026-10-14のリポジトリの調査で、版とリリースについて次のことが分かった（#274）。
+
+- 版（0.1.0）が`package.json`・`src-tauri/Cargo.toml`・`src-tauri/tauri.conf.json`の3か所と、「Muspiceについて」のダイアログ（`AboutDialog.svelte`に直書き）にあった。版を上げる時に1か所でも漏れると、バンドル・実行ファイル・ダイアログの版が食い違う
+- タグ・GitHubのリリース・リリース用のワークフローがない。CIの`Build Test`は、作ったバンドルを捨てている
+- `SECURITY.md`は「0.1.xをサポートする」と書いていたが、0.1.xのリリースはない
+- Tauri 2の`tauri.conf.json`の`version`は、書かないと`Cargo.toml`の版を使い、`"../package.json"`のようにパスを書くとそのファイルの`version`を読む
+
+### 採用
+
+- **当面はリリースしない**（利用者の判断。デバッグを続けるため）。リリースの前に行う作業（リリース用のワークフロー・署名と公証・配布物の設定など）は #303 に分け、ここでは決めない
+- **版は`tauri.conf.json`の`version`だけに書く**。`Cargo.toml`と`package.json`からは`version`を消す。クレートの版は既定の0.0.0になる。`package.json`は`private: true`にし、誤ってnpmへ公開できないようにする（`version`がなくても、npmのインストール・スクリプトの実行は変わらない）
+- **「Muspiceについて」の版は、実行中のアプリから`getVersion()`（`@tauri-apps/api/app`）で読む**。許可（`core:app:allow-version`）は、capabilityの`core:default`に含まれている。モックのブラウザでは、`tauri.ts`が`tauri.conf.json`の`version`を返す
+- **`SECURITY.md`は、リリースするまで最新の`main`だけをサポートの対象にする**
+
+### 不採用とした代替案
+
+- **`Cargo.toml`の版を使う（`tauri.conf.json`の`version`を消す）**: バンドルの`Info.plist`は`Cargo.toml`の版になるが、Tauriがビルドの時に実行ファイルへ埋め込む`Info.plist`（tauri-codegen）の版は、`tauri.conf.json`に`version`がある時だけ書かれる。`cargo build`した実行ファイルの`Info.plist`から`CFBundleShortVersionString`・`CFBundleVersion`が消えることを確かめた（バンドルしない開発中の実行ファイルでは、macOSの標準の「Muspiceについて」のパネルに版が出なくなる）。Tauriの設定の説明も、版をTauriの設定で管理することを勧めている
+- **`package.json`の版を使う（`"version": "../package.json"`）**: `npm version`で上げられるが、npmへ公開しないパッケージの`version`にアプリの版を持たせることになる。アプリの名前（`productName`）・識別子と同じ`tauri.conf.json`に置くほうが、どこを見ればよいかがわかりやすい。どちらにしても、`Cargo.toml`の版は消すか、別の値になる
+- **3か所に書いたまま、CIで一致を確かめる**: 食い違いは防げるが、版を上げる時に3か所を書き換える手間が残る
+- **ダイアログの版を、ビルドの時に埋め込む（Viteの`define`で`tauri.conf.json`を読む）**: IPCを待たずに出せるが、`vite.config.js`と型の宣言が増える。実行中のアプリの版を読むほうが、OSの「Muspiceについて」のパネルと必ず一致する
+- **リリースのワークフローを今作る**: リリースしないうちは使わず、署名・配布の形を決めないと作れない（#303）
+
+### トレードオフ
+
+- 利点: 版を上げる時は`tauri.conf.json`の1か所だけ。バンドル・実行ファイル・ダイアログの版が必ず一致する。`SECURITY.md`が実態と合う
+- 欠点: クレートの版（`CARGO_PKG_VERSION`・`cargo`の表示・`Cargo.lock`）は0.0.0で、アプリの版と違う。Rust側で版を使う時は`app.package_info().version`を使う必要がある。`npm version`・`cargo set-version`のような版を上げる道具は使えない（リリースの方法は #303 で決める）。ダイアログの版は、IPCの応答を待ってから出る
+- 確認: リリースビルドのバンドル（`tauri build --bundles app`）の`Info.plist`が、`CFBundleShortVersionString`・`CFBundleVersion`とも0.1.0のままであること。`cargo build`した実行ファイルに埋め込まれる`Info.plist`も0.1.0であること（`tauri.conf.json`の`version`を消すと、この2つが消えた）。実アプリ（識別子を変えたデバッグビルド）で、`getVersion()`が0.1.0を返し、「Muspiceについて」のダイアログに「バージョン 0.1.0」と出ること。モックのブラウザでも同じ表示になること。`version`のない`package.json`とlockfileで、`npm ci`が通ること
+
 ## 参考資料
 
 - `src-tauri/src/lib.rs` - コマンド登録とアプリ初期化

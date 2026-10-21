@@ -423,7 +423,7 @@ Tauriのウィンドウ（macOSではWKWebView）はブラウザ自動化ツー�
   - `fixtures.ts`: 初期データ。状態はメモリ上のみで、リロードすると初期状態に戻る
   - `media.ts`: アルバムアート（SVGのdata URL）の生成。`albumart`プロトコルの代わりに`convertFileSrc(id, 'albumart')`がdata URLを返す
   - `playbackEngine.ts`: 再生エンジンのコマンドと通知の再現。音は鳴らさず、時計に合わせて再生位置・曲の切り替わり（ギャップレス再生・クロスフェード）・曲の終わりを進める
-  - `tauri.ts`: event・dialog（確認のダイアログ）・windowプラグインと`convertFileSrc`の差し替え
+  - `tauri.ts`: event・dialog（確認のダイアログ）・window・app（アプリの版。`tauri.conf.json`の`version`を返す）プラグインと`convertFileSrc`の差し替え
 - ネイティブメニューのイベントや確認ダイアログの回答は、開発者ツールから`window.__MUSPICE_MOCK__`で操作する
   - `window.__MUSPICE_MOCK__.emit('open-import-dialog')`（`toggle-sidebar` / `show-about-dialog`も同様）
   - `window.__MUSPICE_MOCK__.emit('playback-control', { type: 'next' })`で、「再生」メニュー・OSのメディアキーの操作を再現する
@@ -457,6 +457,15 @@ Tauriのウィンドウ（macOSではWKWebView）はブラウザ自動化ツー�
 Linuxでは、Tauriの依存に加えて、再生エンジンの出力（`cpal`のALSA）のために`libasound2-dev`を入れる。libopusのビルドにはcmakeが要る（GitHubのランナーには入っている。手元のmacOSでは`brew install cmake`）。
 
 `.github/workflows/audit.yml` で依存関係の脆弱性を検査する（毎週・lockfile変更PR時。詳細は `non-functional.md`）。
+
+## 版とリリース
+
+- **アプリの版は`src-tauri/tauri.conf.json`の`version`だけに書く**（ADR-067）。Tauriはこの値を、バンドルの`Info.plist`（`CFBundleShortVersionString`・`CFBundleVersion`）、実行ファイルに埋め込む`Info.plist`、Windowsの実行ファイルの版の情報、`PackageInfo`（`app.package_info().version`）に使う。版を上げる時は、ここだけを書き換える
+  - `src-tauri/Cargo.toml`と`package.json`には`version`を書かない。クレートの版は既定の0.0.0になる（`cargo`の表示も0.0.0）。`package.json`は`private`にして、npmへ公開できないようにしている
+  - Rust側で版が要る時は、`env!("CARGO_PKG_VERSION")`（0.0.0）ではなく`app.package_info().version`を使う。フロントは`@tauri-apps/api/app`の`getVersion()`で読む（「Muspiceについて」のダイアログ。capabilityの`core:default`に含まれる`core:app:allow-version`で許可されている）。モックのブラウザでは、`tauri.ts`が`tauri.conf.json`の`version`を返す
+- **当面はリリースしない**（2026-10-21の判断。デバッグを続けるため）。タグ・GitHubのリリース・リリース用のワークフローはなく、CIの`Build Test`はビルドできることを確かめるだけで、成果物を残さない
+  - リリースの前に行う作業（リリース用のワークフロー・署名と公証・配布物の設定など）は、#303 にまとめてある
+  - リリースするまで、`SECURITY.md`でサポートする版は最新の`main`だけ
 
 ## 実装時のドキュメント同期ルール
 

@@ -1,6 +1,6 @@
 [package]
 name = "muspice"
-version = "0.1.0"
+# アプリの版はtauri.conf.jsonのversionだけに書く（ADR-067）。ここには書かないため、クレートの版は0.0.0になる
 description = "デスクトップ音楽管理アプリケーション"
 authors = ["ban367"]
 license = "MIT"
