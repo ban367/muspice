@@ -1,10 +1,14 @@
 <script lang="ts">
+  import { getVersion } from '@tauri-apps/api/app';
   import { ui } from '#lib/stores/ui.svelte.js';
   import { useOpenProjectPageMutation } from '#lib/queries/system.js';
   import { Modal } from '#lib/components/ui/index.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   const openProjectPage = useOpenProjectPageMutation();
+
+  // 版はtauri.conf.jsonだけに書くため（ADR-067）、実行中のアプリから読む
+  const appVersion = getVersion();
 
   function closeDialog() {
     ui.isAboutDialogOpen = false;
@@ -36,7 +40,9 @@
 
   <!-- アプリ情報 -->
   <h2 class="about-title">Muspice</h2>
-  <p class="about-version">{m.about.version('0.1.0')}</p>
+  <p class="about-version">
+    {#await appVersion then version}{m.about.version(version)}{/await}
+  </p>
 
   <p class="about-description">
     {m.about.tagline}<br />

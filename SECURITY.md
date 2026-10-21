@@ -2,9 +2,13 @@
 
 ## Supported Versions
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 0.1.x   | :white_check_mark: |
+Muspice has not been released yet: there are no tags, GitHub releases, or distributed builds.
+Until the first release, only the latest commit on the `main` branch is supported, and fixes land there.
+
+| Version       | Supported          |
+| ------------- | ------------------ |
+| Latest `main` | :white_check_mark: |
+| Older commits | :x:                |
 
 ## Reporting a Vulnerability
 
