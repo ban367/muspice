@@ -315,7 +315,7 @@ describe('ファイルの整理', () => {
     const tracks = await commands.getAllTracks();
     const compilation = tracks.find((track) => track.title === 'Harbor Lights')!;
 
-    const plan = await commands.planFileOrganize([compilation.id], DEFAULT);
+    const plan = await commands.planFileOrganize([compilation.id], DEFAULT, 'libraryFolder');
 
     // コンピレーションの曲は、アルバムアーティストのフォルダへ移す
     expect(plan.entries).toEqual([
@@ -340,7 +340,7 @@ describe('ファイルの整理', () => {
     events = [];
 
     const ids = downloads.map((track) => track.id);
-    const plan = await commands.planFileOrganize(ids, DEFAULT);
+    const plan = await commands.planFileOrganize(ids, DEFAULT, 'libraryFolder');
     expect(plan.entries.map((entry) => entry.status).sort()).toEqual([
       'move',
       'sameTarget',
@@ -348,9 +348,19 @@ describe('ファイルの整理', () => {
       'targetExists'
     ]);
 
-    const result = await commands.organizeFiles(ids, DEFAULT);
+    const result = await commands.organizeFiles(ids, DEFAULT, 'libraryFolder');
 
-    expect(result).toEqual({ movedCount: 1, skippedCount: 3, failedCount: 0, errors: [] });
+    expect(result).toEqual({
+      movedCount: 1,
+      skippedCount: 3,
+      failedCount: 0,
+      errors: [],
+      cancelled: false
+    });
+    expect(events).toContainEqual({
+      event: 'organize-progress',
+      payload: { current: 1, total: 1, currentFile: 'overclock.flac' }
+    });
     const moved = (await commands.getAllTracks()).find((track) => track.id === favorite.id)!;
     expect(moved.filePath).toBe(
       '/Users/demo/Music/The Voltage/Midnight Circuit/01 ｏｖｅｒｃｌｏｃｋ.flac'
@@ -362,16 +372,115 @@ describe('ファイルの整理', () => {
 
   it('入力の誤りは、VALIDATIONのエラーにする', async () => {
     const [track] = await commands.getAllTracks();
-    await expect(commands.planFileOrganize([], DEFAULT)).rejects.toMatchObject({
+    await expect(commands.planFileOrganize([], DEFAULT, 'libraryFolder')).rejects.toMatchObject({
       code: 'VALIDATION'
     });
-    await expect(commands.planFileOrganize(['x'], DEFAULT)).rejects.toMatchObject({
+    await expect(commands.planFileOrganize(['x'], DEFAULT, 'libraryFolder')).rejects.toMatchObject({
       code: 'VALIDATION'
     });
-    await expect(commands.organizeFiles([track.id], '%unknown%')).rejects.toMatchObject({
+    await expect(
+      commands.organizeFiles([track.id], '%unknown%', 'libraryFolder')
+    ).rejects.toMatchObject({
       code: 'VALIDATION',
       message: '使えない項目です: %unknown%'
     });
+  });
+});
+
+describe('音楽フォルダへ集める', () => {
+  /** 別のドライブ（`/Volumes/Backup`）から、参照して取り込んだ曲（ファイル名の順） */
+  async function importFromBackup() {
+    backend.setFolderResult('/Volumes/Backup/Album');
+    await commands.importFolder('Skip');
+    return (await commands.getAllTracks())
+      .filter((track) => track.filePath.startsWith('/Volumes/Backup/Album/'))
+      .sort((a, b) => a.fileName.localeCompare(b.fileName));
+  }
+
+  it('音楽フォルダが未設定なら、NOT_FOUNDにする', async () => {
+    const [track] = await commands.getAllTracks();
+    await expect(
+      commands.planFileOrganize([track.id], '%title%', 'musicFolder')
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  it('音楽フォルダの書式で、別のドライブの曲はコピーとして計画する', async () => {
+    const backup = await importFromBackup();
+    await commands.setMusicFolder('system');
+
+    // 画面の書式は使わない
+    const plan = await commands.planFileOrganize(
+      backup.map((track) => track.id),
+      '%title%',
+      'musicFolder'
+    );
+
+    expect(plan.entries[0]).toMatchObject({
+      currentPath: 'Mock Track 01.mp3',
+      newPath: 'Mock Importer/Album/1-01 Mock Track 01.mp3',
+      status: 'move'
+    });
+    expect(plan.copyCount).toBe(6);
+    expect(plan.copyBytes).toBe(backup.reduce((sum, track) => sum + track.fileSize, 0));
+    expect(plan.freeBytes).toBeGreaterThan(plan.copyBytes);
+  });
+
+  it('集めた曲は音楽フォルダへ移り、IDは変えない', async () => {
+    const backup = await importFromBackup();
+    await commands.setMusicFolder('system');
+    const ids = backup.map((track) => track.id);
+
+    const result = await commands.organizeFiles(ids, '', 'musicFolder');
+
+    expect(result).toMatchObject({ movedCount: 6, cancelled: false });
+    const moved = (await commands.getAllTracks()).find((track) => track.id === ids[0])!;
+    expect(moved.filePath).toBe('/Users/demo/Music/Mock Importer/Album/1-01 Mock Track 01.mp3');
+  });
+
+  it('空き容量が足りなければ、何も移さない', async () => {
+    const backup = await importFromBackup();
+    await commands.setMusicFolder('system');
+    backend.setMusicFolderFreeBytes(1024);
+
+    await expect(
+      commands.organizeFiles(
+        backup.map((track) => track.id),
+        '',
+        'musicFolder'
+      )
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+    expect(await commands.getAllTracks()).toEqual(expect.arrayContaining(backup));
+  });
+
+  it('中止すると、次の曲の前で止まる', async () => {
+    // 1曲目を移している間（整理の待ち時間）に止めて、中止を送る
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    backend = createMockBackend({
+      emit: (event, payload) => events.push({ event, payload }),
+      sleep: (ms) => (ms === 200 ? gate : Promise.resolve())
+    });
+    const backup = await importFromBackup();
+    await commands.setMusicFolder('system');
+    events = [];
+
+    const running = commands.organizeFiles(
+      backup.map((track) => track.id),
+      '',
+      'musicFolder'
+    );
+    await vi.waitFor(() => expect(events.map((e) => e.event)).toContain('organize-progress'));
+    // 実行中は、ほかの整理を始めない
+    await expect(commands.organizeFiles([backup[0].id], '', 'musicFolder')).rejects.toMatchObject({
+      code: 'LOCK'
+    });
+    await commands.cancelFileOrganize();
+    release();
+    const result = await running;
+
+    expect(result).toMatchObject({ cancelled: true, movedCount: 1 });
   });
 });
 

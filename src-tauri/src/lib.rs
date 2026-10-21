@@ -47,23 +47,23 @@ mod vorbis_tag;
 
 use commands::{
     add_library_folder_exclusion, add_tracks_to_playlist, apply_metadata_changes,
-    can_move_to_trash, cancel_conversion, cancel_device_sync, cancel_loudness_scan,
-    cancel_pending_import, clear_music_folder, convert_tracks, count_smart_playlist_tracks,
-    create_playlist, create_playlist_folder, create_playlist_with_tracks, create_smart_playlist,
-    delete_playlist, delete_playlist_folder, delete_tracks_command,
-    delete_tracks_with_files_command, export_playlist_m3u, filter_tracks, get_album_art_info,
-    get_album_tracks, get_albums, get_all_tracks, get_artist_albums, get_artists,
-    get_convert_formats, get_current_track, get_favorite_tracks, get_genre_tracks, get_genres,
-    get_global_shortcuts, get_library_folders, get_loudness_scan_status, get_most_played_tracks,
-    get_music_folder, get_output_devices, get_play_history, get_playback_state,
-    get_playlist_folders, get_playlist_tracks, get_playlists, get_settings, get_sync_devices,
-    get_track_lyrics, get_track_tags, get_unique_albums, get_unique_artists, get_unique_genres,
-    import_dropped_files, import_files, import_folder, import_library_xml, import_m3u_playlists,
-    import_pending_folders, increment_play_count, increment_skip_count, move_playlist,
-    open_project_page, organize_files, plan_conversion, plan_device_sync, plan_file_organize,
-    playback_pause, playback_play, playback_resume, playback_seek, playback_set_equalizer,
-    playback_set_next, playback_set_speed, playback_set_volume, playback_stop,
-    preview_music_folder_template, refresh_library_metadata, register_sync_device,
+    can_move_to_trash, cancel_conversion, cancel_device_sync, cancel_file_organize,
+    cancel_loudness_scan, cancel_pending_import, clear_music_folder, convert_tracks,
+    count_smart_playlist_tracks, create_playlist, create_playlist_folder,
+    create_playlist_with_tracks, create_smart_playlist, delete_playlist, delete_playlist_folder,
+    delete_tracks_command, delete_tracks_with_files_command, export_playlist_m3u, filter_tracks,
+    get_album_art_info, get_album_tracks, get_albums, get_all_tracks, get_artist_albums,
+    get_artists, get_convert_formats, get_current_track, get_favorite_tracks, get_genre_tracks,
+    get_genres, get_global_shortcuts, get_library_folders, get_loudness_scan_status,
+    get_most_played_tracks, get_music_folder, get_output_devices, get_play_history,
+    get_playback_state, get_playlist_folders, get_playlist_tracks, get_playlists, get_settings,
+    get_sync_devices, get_track_lyrics, get_track_tags, get_unique_albums, get_unique_artists,
+    get_unique_genres, import_dropped_files, import_files, import_folder, import_library_xml,
+    import_m3u_playlists, import_pending_folders, increment_play_count, increment_skip_count,
+    move_playlist, open_project_page, organize_files, plan_conversion, plan_device_sync,
+    plan_file_organize, playback_pause, playback_play, playback_resume, playback_seek,
+    playback_set_equalizer, playback_set_next, playback_set_speed, playback_set_volume,
+    playback_stop, preview_music_folder_template, refresh_library_metadata, register_sync_device,
     relink_sync_device, remove_album_art, remove_excluded_tracks, remove_library_folder,
     remove_library_folder_exclusion, remove_missing_tracks, remove_sync_device,
     remove_tracks_from_playlist, rename_playlist, rename_playlist_folder, reorder_playlist_folders,
@@ -138,6 +138,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             write_library_metadata_to_files,
             plan_file_organize,
             organize_files,
+            cancel_file_organize,
             get_convert_formats,
             plan_conversion,
             convert_tracks,
@@ -205,6 +206,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::ImportProgress,
             events::LibraryScanProgress,
             events::ConvertProgress,
+            events::OrganizeProgress,
             events::LoudnessScanProgress,
             events::LoudnessScanFinished,
             events::DeviceSyncProgress,
@@ -417,6 +419,7 @@ pub fn run() {
             app.manage(device::DeviceSyncState::default());
             app.manage(loudness_scan::LoudnessScanState::default());
             app.manage(commands::ConvertState::default());
+            app.manage(commands::OrganizeState::default());
 
             // ウィンドウへのドロップ・「このアプリで開く」で渡されたファイルの受け取り。
             // 起動と一緒に開かれたファイル（ここまでの間に届いた分・起動時の引数）は、ここで開く

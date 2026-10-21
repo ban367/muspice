@@ -206,11 +206,28 @@ export function organizedRelativePath(
   return [...folders, fileName].join('/');
 }
 
-/** 曲の、整理後の場所 */
-function destination(template: OrganizeTemplate, track: Track, libraryFolder: string): string {
+/**
+ * 曲の、整理後の場所
+ * @param baseFolder - 基準のフォルダ（曲のあるライブラリフォルダか、音楽フォルダ）
+ * @param inPlace - `/`のない書式で、今のフォルダのままにするか（音楽フォルダへ集める時はしない）
+ */
+function destination(
+  template: OrganizeTemplate,
+  track: Track,
+  baseFolder: string,
+  inPlace: boolean
+): string {
   const { directory } = splitPath(track.filePath);
-  const base = template.inPlace ? directory : libraryFolder;
+  const base = template.inPlace && inPlace ? directory : baseFolder;
   return `${base}/${organizedRelativePath(template, track)}`;
+}
+
+/**
+ * パスのあるボリューム（モックの決まり: `/Volumes/名前`の下はそのドライブ、ほかは起動ディスク）
+ */
+export function mockVolumeOf(path: string): string {
+  const match = /^\/Volumes\/[^/]+/.exec(path);
+  return match ? match[0] : '/';
 }
 
 /** 大文字と小文字・文字の形を区別しないで、同じ場所かを比べるためのキー */
@@ -220,6 +237,8 @@ const locationKey = (path: string) => path.normalize('NFC').toLowerCase();
 export interface MockOrganizeMove {
   trackId: string;
   to: string;
+  /** ボリュームをまたぐため、コピーしてから元を消すか（音楽フォルダへ集める時） */
+  copy: boolean;
 }
 
 /**
@@ -227,37 +246,55 @@ export interface MockOrganizeMove {
  * @param tracks - 選んだ曲（この順に、一覧にする）
  * @param libraryFolders - ライブラリフォルダのパス
  * @param allPaths - ライブラリのすべての曲の場所（ここにある場所は、移動先にしない）
+ * @param musicFolder - 音楽フォルダへ集める時は、音楽フォルダ（どの曲も、音楽フォルダからの書式どおりの
+ *   場所へ移す）。nullなら、曲のあるライブラリフォルダの中で移す
  */
 export function planOrganize(
   tracks: readonly Track[],
   libraryFolders: readonly string[],
   template: OrganizeTemplate,
-  allPaths: readonly string[]
+  allPaths: readonly string[],
+  musicFolder: string | null = null
 ): { entries: OrganizeEntry[]; moves: MockOrganizeMove[] } {
   const occupied = new Set(allPaths.map(locationKey));
   const entries: OrganizeEntry[] = [];
-  const candidates: { index: number; trackId: string; from: string; to: string }[] = [];
+  const candidates: {
+    index: number;
+    trackId: string;
+    from: string;
+    to: string;
+    copy: boolean;
+  }[] = [];
 
   for (const track of tracks) {
     const folder = libraryFolders.find((path) => track.filePath.startsWith(`${path}/`));
-    const relative = (path: string) => (folder ? path.slice(folder.length + 1) : path);
+    const base = musicFolder ?? folder;
+    const relative = (path: string, from: string | undefined) =>
+      from && path.startsWith(`${from}/`) ? path.slice(from.length + 1) : path;
     const entry: OrganizeEntry = {
       trackId: track.id,
-      currentPath: relative(track.filePath),
+      currentPath: relative(track.filePath, folder),
       newPath: null,
       status: 'move'
     };
-    if (folder === undefined) {
+    if (base === undefined) {
       entry.status = 'outsideLibrary';
     } else if (track.isMissing) {
       entry.status = 'missing';
     } else {
-      const to = destination(template, track, folder);
-      entry.newPath = relative(to);
+      const to = destination(template, track, base, musicFolder === null);
+      entry.newPath = relative(to, base);
       if (to.normalize('NFC') === track.filePath.normalize('NFC')) {
         entry.status = 'unchanged';
       } else {
-        candidates.push({ index: entries.length, trackId: track.id, from: track.filePath, to });
+        const copy = musicFolder !== null && mockVolumeOf(track.filePath) !== mockVolumeOf(to);
+        candidates.push({
+          index: entries.length,
+          trackId: track.id,
+          from: track.filePath,
+          to,
+          copy
+        });
       }
     }
     entries.push(entry);
@@ -267,14 +304,14 @@ export function planOrganize(
   for (const { to } of candidates) users[locationKey(to)] = (users[locationKey(to)] ?? 0) + 1;
 
   const moves: MockOrganizeMove[] = [];
-  for (const { index, trackId, from, to } of candidates) {
+  for (const { index, trackId, from, to, copy } of candidates) {
     const key = locationKey(to);
     if (users[key] > 1) {
       entries[index].status = 'sameTarget';
     } else if (occupied.has(key) && key !== locationKey(from)) {
       entries[index].status = 'targetExists';
     } else {
-      moves.push({ trackId, to });
+      moves.push({ trackId, to, copy });
     }
   }
   return { entries, moves };

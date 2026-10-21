@@ -555,6 +555,21 @@ export const ja = {
       '使える項目: %title% %artist% %album% %albumartist% %genre% %year% %track% %disc% %filename%。「/」で区切るとフォルダになり、「/」がなければ、今のフォルダのままファイル名だけを変えます。[ ] で囲んだ部分は、中の項目に値がない曲では省きます。',
     scopeHint:
       '曲のあるライブラリフォルダの中で移します。同じ名前の歌詞ファイル（.lrc）と、フォルダごと移る場合のフォルダの画像も一緒に移し、空になったフォルダは消します。',
+    /** 移動先 */
+    destination: '移動先',
+    destinationLibrary: '曲のあるライブラリフォルダの中で整理する',
+    destinationMusicFolder: '音楽フォルダへ集める',
+    musicFolderMissing: (path: string) =>
+      `音楽フォルダ（${path}）が見つかりません。外付けドライブが外れていないかを確かめてください`,
+    musicFolderTemplate: '書式（音楽フォルダの書式）',
+    musicFolderTemplateHint: '音楽フォルダの書式は、設定の「ライブラリ」で変えられます。',
+    collectHint: (path: string) =>
+      `どこにある曲も、音楽フォルダ（${path}）の書式どおりの場所へ移します。歌詞ファイル・フォルダの画像も一緒に移し、ライブラリフォルダの中の空になったフォルダは消します（ライブラリフォルダの登録は残ります）。`,
+    copyAcrossDrives: (count: number, size: string, trash: boolean) =>
+      `${count}曲（${size}）は別のドライブにあるため、コピーして確かめてから、元のファイルを${trash ? 'ゴミ箱へ移します' : '削除します'}。`,
+    freeSpace: (size: string) => `空き容量: ${size}`,
+    notEnoughSpace: (required: string, free: string) =>
+      `音楽フォルダのドライブの空き容量が足りません（必要: ${required}、空き: ${free}）`,
     /** 計画の一覧 */
     moves: '移す曲',
     moveCount: (count: number) => `${count}曲を移します`,
@@ -573,7 +588,12 @@ export const ja = {
       sameTarget: '選んだ曲の中に、同じ移動先になる曲があります'
     },
     apply: '整理する',
+    applyCollect: '音楽フォルダへ集める',
     applying: '整理しています...',
+    progress: (current: number, total: number) => `整理しています... (${current}/${total})`,
+    cancel: '中止',
+    cancelling: '中止しています...',
+    cancelled: (moved: number) => `整理を中止しました（${moved}曲は移しました）`,
     moved: (count: number) => `${count}曲のファイルを整理しました`,
     partiallyFailed: (moved: number, failed: number) =>
       `${moved}曲を整理しました（${failed}曲は移せませんでした）`,
