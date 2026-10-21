@@ -186,6 +186,15 @@ export interface MockBackend {
    */
   setRelocationFolder(path: string | null): void;
   /**
+   * バックアップの保存（`exportLibraryBackup`）の保存先と、復元（`planLibraryRestore`）で選ぶファイルを
+   * 切り替える（絶対パス。nullは、選ばなかった）
+   *
+   * 既定は`/Users/demo/Documents/Muspice Backup.muspicebackup`。実ファイルは存在しないため、復元では、
+   * 今のライブラリと同じ内容のバックアップを選んだことにする（拡張子が`.muspicebackup`・`.db`でなければ
+   * Muspiceのバックアップではない、名前に`damaged`・`newer`を含めば壊れている・新しい版のもの）。
+   */
+  setBackupFile(path: string | null): void;
+  /**
    * フォルダのインポート・転送先デバイスの登録・転送先の変更で、フォルダを選ぶダイアログ
    * （Rust側が開く）で選んだことにするフォルダを切り替える（nullは、選ばずに閉じた）
    *
@@ -244,6 +253,8 @@ const AUDIO_EXTENSIONS = [
 const DEFAULT_FOLDER_RESULT = '/Users/demo/Music/Mock Import';
 /** ライブラリフォルダの場所の変更で、既定で選んだことにするフォルダ（`setRelocationFolder`で切り替える） */
 const DEFAULT_RELOCATION_FOLDER = '/Volumes/Backup/Music';
+/** バックアップの保存・復元で、既定で選んだことにするファイル（`setBackupFile`で切り替える） */
+const DEFAULT_BACKUP_FILE = '/Users/demo/Documents/Muspice Backup.muspicebackup';
 /** ファイルを選ぶインポートで、選んだことにするファイル（フォルダと名前） */
 const PICKED_FILES_FOLDER = '/Users/mock/Downloads';
 const PICKED_FILE_NAMES = ['Picked Song A.flac', 'Picked Song B.mp3'];
@@ -586,7 +597,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     notifyTrackChange: false,
     musicFolderTemplate: DEFAULT_MUSIC_FOLDER_TEMPLATE,
     copyToMusicFolder: true,
-    keepMusicFolderOrganized: false
+    keepMusicFolderOrganized: false,
+    autoBackup: true
   };
   // ライブラリフォルダ（existsは「フォルダが見つかるか」。外付けドライブが外れた状態を再現する）
   // 読み込まないフォルダ（exclusions）は、相対パスで持つ。OSの音楽フォルダには、登録した時に
@@ -619,6 +631,9 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   // ライブラリフォルダの場所の変更で、選んだことにするフォルダと、預かっている付け替え先
   let relocationFolder: string | null = DEFAULT_RELOCATION_FOLDER;
   let pendingRelocation: { folderId: string; path: string } | null = null;
+  // バックアップの保存・復元で選んだことにするファイルと、預かっている復元するファイル
+  let backupFile: string | null = DEFAULT_BACKUP_FILE;
+  let pendingRestore: string | null = null;
 
   // 転送先デバイス（connectedは「接続されているか」。外れた状態も再現する）
   const copiedTracks = (indexes: number[]) =>
@@ -2938,6 +2953,41 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     cancelLibraryFolderRelocation: () => {
       pendingRelocation = null;
     },
+    // 実装はRust側のダイアログで選び、DBを写す。モックは`setBackupFile`のファイルへ保存したことにする
+    exportLibraryBackup: () => {
+      if (backupFile === null) return null;
+      // 拡張子がなければ付ける（Rustの`with_backup_extension`）
+      const path = /\.[^/.]+$/.test(backupFile) ? backupFile : `${backupFile}.muspicebackup`;
+      return { path, trackCount: tracks.length, playlistCount: playlists.length };
+    },
+    planLibraryRestore: () => {
+      pendingRestore = null;
+      if (backupFile === null) return null;
+      const fileName = backupFile.slice(backupFile.lastIndexOf('/') + 1);
+      if (!/\.(muspicebackup|db)$/i.test(fileName)) return { kind: 'notBackup', fileName };
+      if (fileName.includes('damaged')) return { kind: 'damaged', fileName };
+      if (fileName.includes('newer')) return { kind: 'newerFormat', fileName };
+      pendingRestore = backupFile;
+      return {
+        kind: 'ready',
+        fileName,
+        createdAt: '2026-10-20T09:00:00.000Z',
+        trackCount: tracks.length,
+        playlistCount: playlists.length,
+        libraryFolderCount: libraryFolders.length,
+        // DBのファイルそのものは、設定を含まない
+        includesSettings: fileName.endsWith('.muspicebackup')
+      };
+    },
+    // 実装はアプリを再起動する。モックは、預かったファイルを手放すだけ（ライブラリは変えない）
+    restoreLibraryBackup: () => {
+      if (pendingRestore === null) fail('NOT_FOUND', '復元するファイルが選ばれていません');
+      pendingRestore = null;
+      return null;
+    },
+    cancelLibraryRestore: () => {
+      pendingRestore = null;
+    },
     getMusicFolder: () => {
       const folder = libraryFolders.find((candidate) => candidate.isMusicFolder);
       return {
@@ -3225,6 +3275,9 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     },
     setRelocationFolder: (path) => {
       relocationFolder = path;
+    },
+    setBackupFile: (path) => {
+      backupFile = path;
     },
     setConvertExportFolder: (path) => {
       convertExportFolder = path;

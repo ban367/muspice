@@ -9,6 +9,7 @@ use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::{DialogExt, FileDialogBuilder};
 
 mod album_art;
+mod backup;
 mod convert;
 mod devices;
 mod import;
@@ -122,6 +123,12 @@ pub use settings::{get_global_shortcuts, get_settings, save_settings, set_mini_p
 
 // システム
 pub use system::{PROJECT_URL, open_project_page, show_in_folder};
+
+// ライブラリのデータ（DB・設定）のバックアップと復元
+pub use backup::{
+    PendingRestore, cancel_library_restore, export_library_backup, plan_library_restore,
+    restore_library_backup,
+};
 
 /// ファイルを選ぶダイアログ（メインウィンドウがあれば、その上に出す）
 ///

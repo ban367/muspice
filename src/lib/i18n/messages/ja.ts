@@ -156,6 +156,9 @@ export const ja = {
     removeLibraryFolder: 'ライブラリフォルダの削除',
     planLibraryFolderRelocation: '新しい場所の確認',
     relocateLibraryFolder: 'ライブラリフォルダの場所の変更',
+    exportLibraryBackup: 'バックアップの保存',
+    planLibraryRestore: 'バックアップの確認',
+    restoreLibraryBackup: 'バックアップからの復元',
     removeMissingTracks: '見つからない曲の削除',
     addLibraryFolderExclusion: '読み込まないフォルダの追加',
     removeLibraryFolderExclusion: '読み込まないフォルダの削除',
@@ -1223,6 +1226,41 @@ export const ja = {
     removeExcludedTracks: 'ライブラリから外す',
     excludedTracksRemoved: (path: string, count: number) =>
       `「${path}」を読み込まないフォルダにし、${count}曲をライブラリから外しました`
+  },
+
+  /** ライブラリのデータ（DB・設定）のバックアップと復元 */
+  backup: {
+    title: 'ライブラリのデータのバックアップ',
+    description:
+      'お気に入り・再生回数・再生履歴・プレイリスト・追加日など、このアプリにだけある情報と設定を、1つのファイルに保存します（曲のファイルは含みません）。別のMacへ移る時は、バックアップを復元してから、ライブラリフォルダの「場所を変更...」で新しい場所を選んでください。',
+    save: 'バックアップを保存...',
+    saving: '保存しています...',
+    saved: (path: string, trackCount: number, playlistCount: number) =>
+      `バックアップを保存しました（${trackCount}曲・プレイリスト${playlistCount}件）: ${path}`,
+    restore: 'バックアップから復元...',
+    autoBackup: '自動でバックアップする',
+    autoBackupHint: (keep: number) =>
+      `1日に1回、アプリのデータのフォルダへバックアップを作り、新しい${keep}世代を残します。「バックアップから復元...」は、このフォルダを開きます。`,
+    restoreTitle: 'バックアップから復元',
+    restoreFile: 'ファイル',
+    restoreCreatedAt: '作成日時',
+    restoreUnknownDate: '不明（データベースのファイル）',
+    restoreContents: '内容',
+    restoreContentsValue: (trackCount: number, playlistCount: number, folderCount: number) =>
+      `${trackCount}曲・プレイリスト${playlistCount}件・ライブラリフォルダ${folderCount}件`,
+    restoreConfirm:
+      '今のライブラリのデータを、このバックアップの内容に置き換えます。今のデータと設定は、復元する前にアプリのデータのフォルダへ退避します。復元すると、アプリを再起動します。',
+    restoreSettings: '設定も、バックアップを作った時の内容に戻します。',
+    restoreNoSettings: 'このファイルには設定が含まれていないため、設定は今のままです。',
+    restoreFoldersHint:
+      'ライブラリフォルダが見つからない場合（別のMacで復元した場合など）は、再起動の後に、ライブラリフォルダの「場所を変更...」で新しい場所を選んでください。',
+    restoreButton: '復元して再起動',
+    restarting: '復元の用意ができました。再起動しています...',
+    notBackup: (fileName: string) =>
+      `「${fileName}」はMuspiceのバックアップではないため、復元できません`,
+    damaged: (fileName: string) => `「${fileName}」は壊れているため、復元できません`,
+    newerFormat: (fileName: string) =>
+      `「${fileName}」は新しい版のMuspiceで作られたため、この版では復元できません。Muspiceを更新してから復元してください`
   },
 
   /** 音楽フォルダ（新しい曲を置く宛先。ライブラリフォルダの1つ） */
