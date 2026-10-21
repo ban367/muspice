@@ -140,6 +140,9 @@ pub struct Settings {
     /// 音楽フォルダの書式（音楽フォルダへ曲を置く時の、フォルダとファイルの名前の付け方。
     /// ファイルの整理と同じ書き方。`file_organize::Template`）
     pub music_folder_template: String,
+    /// 取り込む曲を、音楽フォルダへ書式どおりにコピーする（音楽フォルダが未設定の時は効かない。
+    /// フォルダの取り込みは、参照かコピーかを毎回選ぶ）
+    pub copy_to_music_folder: bool,
 }
 
 impl Settings {
@@ -170,6 +173,7 @@ impl Default for Settings {
             global_shortcuts: false,
             notify_track_change: false,
             music_folder_template: DEFAULT_MUSIC_FOLDER_TEMPLATE.to_string(),
+            copy_to_music_folder: true,
         }
     }
 }
@@ -384,6 +388,7 @@ mod tests {
             global_shortcuts: true,
             notify_track_change: true,
             music_folder_template: "%artist%/%album%/%track% %title%".to_string(),
+            copy_to_music_folder: false,
         };
 
         state.save(settings.clone()).unwrap();
@@ -410,6 +415,8 @@ mod tests {
         assert_eq!(settings.output_device_id, None);
         assert!(!settings.auto_sync_enabled());
         assert!(settings.hidden_sidebar_items.is_empty());
+        // 取り込む曲のコピーは、既定でオン（音楽フォルダを設定した時だけ効く）
+        assert!(settings.copy_to_music_folder);
     }
 
     /// 隠すサイドバーの項目は、知らない項目・重複があっても、ほかの設定ごと読める

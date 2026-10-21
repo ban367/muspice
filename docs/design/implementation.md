@@ -114,6 +114,7 @@ src-tauri/src/
 ├── mini_player.rs         # ミニプレーヤー（メインウィンドウの大きさの切り替えと、元の大きさの記録。ADR-046）
 ├── models.rs
 ├── multi_value.rs         # 複数の値を持つ項目（アーティスト・ジャンル）を値に分ける・比べる（SQLの関数を含む。ADR-051）
+├── music_folder_copy.rs   # 取り込む曲の、音楽フォルダへのコピー（コピー先の計画・上書きしないコピー・歌詞ファイルとフォルダの画像。ADR-069）
 ├── ogg_flac.rs            # Oggの中のFLACの読み書き（loftyが対応していない。ヘッダーのページの作り直し。ADR-058）
 ├── opened_files.rs        # 「このアプリで開く」・Dockのアイコンへのドロップで開かれたファイルの受け取り（インポートして、再生する曲として預かる。ADR-050）
 ├── settings.rs
@@ -430,13 +431,13 @@ Tauriのウィンドウ（macOSではWKWebView）はブラウザ自動化ツー�
   - `window.__MUSPICE_MOCK__.emit('playback-control', { type: 'next' })`で、「再生」メニュー・OSのメディアキーの操作を再現する
   - `window.__MUSPICE_MOCK__.nowPlaying()`で、OSのNow Playingへ伝えた内容を確認する（ブラウザにはOSの表示がないため）
   - `window.__MUSPICE_MOCK__.setM3uImportMode('clean')`で、M3Uの読み込みで選んだことにするファイルを切り替える（`partial`: 対応が付かない行がある（既定）・`clean`: すべて対応が付く・`cancel`: 選ばなかった）。ファイルを選ぶダイアログはRust側が開くため、モックは決まった結果を返す
-  - `window.__MUSPICE_MOCK__.setFileImportMode('cancel')`で、ファイルを選ぶインポートで選ばなかったことにする（`pick`: 2つの音楽ファイルを選んだ（既定））。`window.__MUSPICE_MOCK__.openFiles(['a.flac'])`で、Finderの「このアプリで開く」でファイルが開かれたことにする（インポートして再生される）。ウィンドウへのドロップは、`DataTransfer`に`File`を入れた`dragover`・`drop`を`window`へ送ると確かめられる（パスの読み取りは再現せず、名前のファイルがあることにする）
+  - `window.__MUSPICE_MOCK__.setFileImportMode('cancel')`で、ファイルを選ぶインポートで選ばなかったことにする（`pick`: 2つの音楽ファイルを選んだ（既定））。`window.__MUSPICE_MOCK__.openFiles(['a.flac'])`で、Finderの「このアプリで開く」でファイルが開かれたことにする（インポートして再生される）。ウィンドウへのドロップは、`DataTransfer`に`File`を入れた`dragover`・`drop`を`window`へ送ると確かめられる（パスの読み取りは再現せず、名前のファイルがあることにする。拡張子のない名前は、6曲のあるフォルダとする）
   - 形式の変換は、どの環境でも変換できることにし、1曲を300msで変換したことにする（書き出しは場所を覚えるだけ、置き換えは曲の場所と形式を書き換える）。`window.__MUSPICE_MOCK__.setConvertExportFolder(null)`で、書き出すフォルダを選ばなかったことにする（既定は`/Users/mock/Export`）
   - 音量の解析は、1曲を250msで読んだことにして進捗を送り、ゲインは曲の長さから決まる値にする（同じ曲は、何度解析しても同じ値）。フィクスチャの曲の3分の1には、音量の情報がない
   - `window.__MUSPICE_MOCK__.addDuplicateTracks()`で、今ある曲と同じタイトル・アーティストの曲を、ライブラリフォルダの中の`Downloads`に足す（重複した曲の画面と、ファイルの整理の確認用。整理すると、移せる曲・移動先に同じ名前のファイルがある曲・同じ移動先になる曲が出る）。ファイルの整理は、実ファイルがないため、動かせる曲は常に移せたものとして、曲の場所だけを書き換える（歌詞ファイル・フォルダの画像・空のフォルダの扱いは再現しない）
   - `window.__MUSPICE_MOCK__.setAlbumArtPickMode('cancel')`で、アルバムアートの埋め込みで選んだことにする画像を切り替える（`pick`: 埋め込める画像（既定。選ぶたびに違う色の画像になる）・`cancel`: 選ばなかった・`tooLarge`: 大きすぎる画像）。フィクスチャでは、「Midnight Circuit」がフォルダの画像（`cover.jpg`）、「Quiet Rooms」がアートなし、ほかは埋め込みの画像
   - `window.__MUSPICE_MOCK__.setExclusionFolder('/Users/demo/Music/Podcasts')`で、読み込まないフォルダの追加で選んだことにするフォルダを変える（`null`は、選ばなかった）。既定は、ライブラリフォルダの中で曲のある、まだ除外していない最初のフォルダ（中の曲を外すかの確認が出る）。`/Users/demo/Music`には、既知のアプリのフォルダ（`Music`・`MusicBee`）を除外として入れてある。除外を外した時の再スキャンは「変更なし」にする
-  - 音楽フォルダは、はじめは設定していない。OSの音楽フォルダは`/Users/demo/Music`（ライブラリフォルダとして登録してあるため、「OSの音楽フォルダを使う」は印を移すだけ）。ほかのフォルダは`setFolderResult`のフォルダを選んだことにする（既定の`/Users/demo/Music/Mock Import`はライブラリフォルダの中のため、外側のフォルダの案内が出る）。新しく登録するフォルダで見つかったことにする曲の数は、`window.__MUSPICE_MOCK__.setMusicFolderFileCount(0)`で変える（0は空のフォルダ。既定はフォルダのインポートと同じ6曲）。ライブラリが空の画面は、開発者ツールから`#lib/bindings`の`commands`で、ライブラリフォルダ（曲ごと）と残りの曲を消してから`library-changed`を送ると出る
+  - 音楽フォルダは、はじめは設定していない。OSの音楽フォルダは`/Users/demo/Music`（ライブラリフォルダとして登録してあるため、「OSの音楽フォルダを使う」は印を移すだけ）。ほかのフォルダは`setFolderResult`のフォルダを選んだことにする（既定の`/Users/demo/Music/Mock Import`はライブラリフォルダの中のため、外側のフォルダの案内が出る）。新しく登録するフォルダで見つかったことにする曲の数は、`window.__MUSPICE_MOCK__.setMusicFolderFileCount(0)`で変える（0は空のフォルダ。既定はフォルダのインポートと同じ6曲）。音楽フォルダを設定すると、取り込む曲は音楽フォルダへコピーしたことにする（曲の場所を、書式どおりの場所にする。ライブラリの外のフォルダ（`/Volumes/Backup/Album`など）を選ぶと、参照かコピーかを選ぶ画面が出る）。音楽フォルダのドライブの空き容量は`window.__MUSPICE_MOCK__.setMusicFolderFreeBytes(1024)`で変える（既定は200 GB）。見つからない音楽フォルダは、`setFolderResult('/Volumes/External/Music')`のフォルダを音楽フォルダにすると確かめられる。ライブラリが空の画面は、開発者ツールから`#lib/bindings`の`commands`で、ライブラリフォルダ（曲ごと）と残りの曲を消してから`library-changed`を送ると出る
   - `window.__MUSPICE_MOCK__.setConfirmResult(false)`で、以降の確認ダイアログを「キャンセル」にする
   - `window.__MUSPICE_MOCK__.setFolderResult('/Volumes/NEW_SD')`で、以降のフォルダを選ぶダイアログ（Rust側が開く。フォルダのインポート・デバイスの登録・転送先の変更）で選んだことにするフォルダを変える。`null`にすると、選ばずに閉じたことにする。既定のパス（`/Users/demo/Music/Mock Import`）はライブラリフォルダの中のため、転送先デバイスの追加を確認するときはライブラリの外のパスにする
 - 音は鳴らない（再生位置と曲の切り替わりだけが進む）。音の確認は、実アプリで行う

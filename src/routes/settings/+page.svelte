@@ -242,9 +242,20 @@
            再スキャンの途中で別のセクションへ移っても進捗を保つよう、常に置いて表示だけを切り替える -->
       <div hidden={activeSection !== 'library'}>
         <LibraryFolderSettings>
-          <!-- 音楽フォルダの書式は、ほかの設定と同じく「適用」で保存する -->
+          <!-- 音楽フォルダの書式と、取り込む曲のコピーは、ほかの設定と同じく「適用」で保存する -->
           {#if pending}
             <MusicFolderTemplateSetting bind:template={pending.musicFolderTemplate} />
+            <div class="setting-item">
+              <label class="setting-checkbox-label">
+                <input
+                  type="checkbox"
+                  class="setting-checkbox"
+                  bind:checked={pending.copyToMusicFolder}
+                />
+                {m.musicFolder.copyOnImport}
+              </label>
+              <p class="setting-description">{m.musicFolder.copyOnImportHint}</p>
+            </div>
           {/if}
         </LibraryFolderSettings>
         <LibraryXmlImportSettings />

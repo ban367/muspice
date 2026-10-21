@@ -7,13 +7,26 @@
  * - ファイルを選ぶ（`importFiles`。ファイルを選ぶダイアログは、Rust側が開く）
  * - ウィンドウへドロップする（`importDropped`。パスはRust側が読む。ADR-050）
  *
+ * 取り込む曲を音楽フォルダへコピーする設定で、ライブラリフォルダの外のフォルダを取り込む時は、
+ * Rust側が取り込まずに預かる（`chooseFolderMode`）。ダイアログが、参照するかコピーするかを選ばせ、
+ * 選んだら`importPending`、やめたら`reset`で預かったものを手放す（ADR-069）。
+ *
  * ライブラリが空の画面で音楽フォルダを選んだ時（`setMusicFolder`）も、中の曲の読み込みを、
  * 同じダイアログに表示する。
  *
  * 曲の一覧の更新は、Rust側の通知（`LibraryChanged`）で行う（レイアウトが受け取る）。
  */
 import { commands, events } from '#lib/bindings.js';
-import type { DuplicateAction, ImportResult, MusicFolderSource } from '#lib/types/models.js';
+import type {
+  DuplicateAction,
+  FolderImportMode,
+  ImportOutcome,
+  ImportPhase,
+  ImportResult,
+  MusicFolderSource,
+  PendingFolderImport
+} from '#lib/types/models.js';
+import { formatFileSize } from '#lib/utils/format.js';
 import { musicFolderNotice } from '#lib/utils/musicFolder.js';
 import { showSuccess, showWarning, toErrorMessage } from './error.svelte.js';
 import { ui } from './ui.svelte.js';
@@ -23,7 +36,9 @@ class Importer {
   /** 登録済みのファイルの扱い（フォルダ・ファイルを選ぶインポートで使う） */
   duplicateAction = $state<DuplicateAction>('Skip');
   isImporting = $state(false);
-  /** 進み具合（0〜100） */
+  /** 進み具合の段階（読む・音楽フォルダへコピーする） */
+  phase = $state<ImportPhase>('reading');
+  /** 進み具合（0〜100。段階ごとに、0から数え直す） */
   progress = $state(0);
   /** 読んでいるファイルの名前 */
   currentFile = $state('');
@@ -31,6 +46,8 @@ class Importer {
   processedFiles = $state(0);
   /** 終わったインポートの結果（まだ・失敗した場合はnull） */
   result = $state.raw<ImportResult | null>(null);
+  /** 参照するかコピーするかを選ぶ、取り込むフォルダ（Rust側が預かっている。なければnull） */
+  pending = $state.raw<PendingFolderImport | null>(null);
   errorMessage = $state('');
 
   /**
@@ -39,7 +56,7 @@ class Importer {
    * インポートダイアログから始める（ダイアログは開いたまま、進み具合と結果を表示する）。
    */
   importFolder(): Promise<void> {
-    return this.run(() => commands.importFolder(this.duplicateAction));
+    return this.run(async () => this.toResult(await commands.importFolder(this.duplicateAction)));
   }
 
   /**
@@ -49,7 +66,7 @@ class Importer {
    * 選ばずに閉じた場合に、ダイアログだけが残らないようにする）。
    */
   importFiles(): Promise<void> {
-    return this.run(() => commands.importFiles(this.duplicateAction), {
+    return this.run(async () => this.toResult(await commands.importFiles(this.duplicateAction)), {
       showDialogWhenStarted: true
     });
   }
@@ -59,7 +76,28 @@ class Importer {
    * @param names - ドロップされたものの名前（パスは、Rust側がOSから読む）
    */
   importDropped(names: string[]): Promise<void> {
-    return this.run(() => commands.importDroppedFiles(names));
+    return this.run(async () => this.toResult(await commands.importDroppedFiles(names)));
+  }
+
+  /**
+   * 預かっているフォルダ（`pending`）を、選んだ方法で取り込む
+   *
+   * 音楽フォルダへコピーできなかった場合（音楽フォルダが見つからない・空き容量が足りない）は、
+   * Rust側が預かったままにするため、`pending`も残す（参照して取り込むこともできる）。
+   */
+  importPending(mode: FolderImportMode): Promise<void> {
+    if (!this.pending) return Promise.resolve();
+    return this.run(async () => {
+      let outcome: ImportOutcome;
+      try {
+        outcome = await commands.importPendingFolders(mode, this.duplicateAction);
+      } catch (error) {
+        // 預かっているものがなくなった（取り込めない）
+        this.pending = null;
+        throw error;
+      }
+      return this.toResult(outcome);
+    });
   }
 
   /**
@@ -87,16 +125,57 @@ class Importer {
     );
   }
 
-  /** 表示を、インポートを始める前の状態に戻す（インポート中は何もしない） */
+  /**
+   * 表示を、インポートを始める前の状態に戻す（インポート中は何もしない）
+   *
+   * 預かっているフォルダがあれば、取り込みをやめる（Rust側も手放す）。
+   */
   reset(): void {
     if (this.isImporting) return;
+    if (this.pending) {
+      this.pending = null;
+      commands.cancelPendingImport().catch((error: unknown) => {
+        console.error('預かったフォルダの取り込みをやめられませんでした:', error);
+      });
+    }
     this.duplicateAction = 'Skip';
+    this.phase = 'reading';
     this.progress = 0;
     this.currentFile = '';
     this.totalFiles = 0;
     this.processedFiles = 0;
     this.result = null;
     this.errorMessage = '';
+  }
+
+  /**
+   * 取り込みを始めた結果を、ダイアログに出すものにする
+   *
+   * - 取り込んだ: 結果を返す（預かっていたフォルダは、なくなる）
+   * - フォルダの取り込み方を選ぶ: 預かったフォルダを`pending`に持ち、nullを返す
+   * - 音楽フォルダへコピーできない: 理由を投げる（エラーとして出す）
+   * @param outcome - 結果（選ばずに閉じた場合はnull）
+   */
+  private toResult(outcome: ImportOutcome | null): ImportResult | null {
+    if (!outcome) return null;
+    switch (outcome.kind) {
+      case 'imported':
+        this.pending = null;
+        return outcome.result;
+      case 'chooseFolderMode':
+        this.pending = outcome.pending;
+        ui.isImportDialogOpen = true;
+        return null;
+      case 'musicFolderMissing':
+        throw new Error(m.importDialog.musicFolderMissing(outcome.path));
+      case 'notEnoughSpace':
+        throw new Error(
+          m.importDialog.notEnoughSpace(
+            formatFileSize(outcome.requiredBytes),
+            formatFileSize(outcome.freeBytes)
+          )
+        );
+    }
   }
 
   /**
@@ -116,6 +195,7 @@ class Importer {
     };
     if (!options.showDialogWhenStarted) showDialog();
     this.isImporting = true;
+    this.phase = 'reading';
     this.progress = 0;
     this.currentFile = '';
     this.totalFiles = 0;
@@ -126,7 +206,8 @@ class Importer {
     let unlisten: (() => void) | null = null;
     try {
       unlisten = await events.importProgress.listen((event) => {
-        const { current, total, currentFile } = event.payload;
+        const { phase, current, total, currentFile } = event.payload;
+        this.phase = phase;
         this.processedFiles = current;
         this.totalFiles = total;
         this.currentFile = currentFile;

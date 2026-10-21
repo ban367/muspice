@@ -707,17 +707,41 @@ export const en: Messages = {
     skip: 'Skip (keep existing files)',
     replace: 'Replace (overwrite with the new files)',
     importing: (current, total) => `Importing... (${current}/${total})`,
+    copying: (current, total) => `Copying to the music folder... (${current}/${total})`,
     scanning: 'Scanning...',
     completed: 'Import Complete',
     imported: 'Imported:',
     skipped: 'Skipped:',
     relinked: 'Relinked moved files:',
+    copied: 'Copied to the music folder:',
     errors: 'Errors:',
     errorDetails: 'Error details:',
+    notCopied: (count) => `Not copied (${plural(count, 'song', 'songs')}, not imported):`,
+    notCopiedReasons: {
+      targetExists: 'A file with the same name is already there',
+      sameTarget: 'Another song would be copied to the same place'
+    },
     selectFolder: 'Choose a Folder to Import...',
     selectFiles: 'Choose Files to Import...',
     sourceHint:
       'Choosing a folder adds all of its tracks and keeps the folder as a library folder. Choosing files adds only those tracks (their folder is not rescanned automatically).',
+    copyHint: (path) =>
+      `Imported songs are copied into the music folder (${path}) using its format before they are added. The original files are kept. When you choose a folder, you can copy it or use it where it is.`,
+    chooseMode: 'Choose how to import the folder',
+    pendingSummary: (count, size) => `${plural(count, 'song', 'songs')} (${size})`,
+    reference: 'Use Where It Is',
+    referenceHint:
+      'Keeps the folder as a library folder and reads the songs from their current location. No files are copied.',
+    copy: 'Copy to the Music Folder',
+    copyModeHint: (path, count, size) =>
+      `Copies ${plural(count, 'song', 'songs')} (${size}) into the music folder (${path}) using its format. The original files are kept.`,
+    alreadyInLibrary: (count) =>
+      `${plural(count, 'song is', 'songs are')} already in the library and will be used as they are.`,
+    freeSpace: (size) => `Free space: ${size}`,
+    musicFolderMissing: (path) =>
+      `The music folder (${path}) could not be found. Check that the external drive is connected`,
+    notEnoughSpace: (required, free) =>
+      `There is not enough free space on the music folder's drive (needed: ${required}, free: ${free})`,
     dropHere: 'Drop here to import'
   },
 
@@ -1159,7 +1183,10 @@ export const en: Messages = {
       'Fields: %title% %artist% %album% %albumartist% %genre% %year% %track% %disc% %filename%. Use "/" to make folders. Parts in [ ] are left out when none of their fields have a value.',
     preset: 'Format examples',
     examples: 'Examples (tracks from recently added albums)',
-    noExamples: 'No examples yet because the library is empty'
+    noExamples: 'No examples yet because the library is empty',
+    copyOnImport: 'Copy imported songs to the music folder',
+    copyOnImportHint:
+      'Songs you choose, drop, or open with this app are copied into the music folder using its format before they are added (the original files are kept, and files with the same name are never overwritten). When you import a folder, you choose each time whether to copy it or use it where it is. Without a music folder, songs are added where they are.'
   },
 
   devices: {

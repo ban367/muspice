@@ -8,6 +8,8 @@ const imported = (counts: Partial<ImportResult>): ImportResult => ({
   relinkedCount: 0,
   errorCount: 0,
   errors: [],
+  copiedCount: 0,
+  notCopied: [],
   ...counts
 });
 

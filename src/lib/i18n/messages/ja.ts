@@ -731,17 +731,42 @@ export const ja = {
     skip: 'スキップ（既存ファイルを保持）',
     replace: '置き換え（新しいファイルで上書き）',
     importing: (current: number, total: number) => `インポート中... (${current}/${total})`,
+    copying: (current: number, total: number) => `音楽フォルダへコピー中... (${current}/${total})`,
     scanning: 'スキャン中...',
     completed: 'インポート完了',
     imported: 'インポート成功:',
     skipped: 'スキップ:',
     relinked: '移動したファイルの引き継ぎ:',
+    copied: '音楽フォルダへのコピー:',
     errors: 'エラー:',
     errorDetails: 'エラー詳細:',
+    notCopied: (count: number) => `コピーしなかった曲（${count}曲。取り込んでいません）:`,
+    notCopiedReasons: {
+      targetExists: 'コピー先に同じ名前のファイルがあります',
+      sameTarget: '同じコピー先になる曲がほかにあります'
+    },
     selectFolder: 'フォルダを選んでインポート...',
     selectFiles: 'ファイルを選んでインポート...',
     sourceHint:
       'フォルダを選んだ場合は、中の曲をすべて登録し、フォルダをライブラリフォルダとして記録します。ファイルを選んだ場合は、その曲だけを登録します（ファイルのあるフォルダは、自動の再スキャンの対象になりません）。',
+    copyHint: (path: string) =>
+      `取り込む曲は、音楽フォルダ（${path}）へ書式どおりにコピーしてから登録します（元のファイルは残します）。フォルダを選んだ場合は、コピーするか、今の場所のまま参照するかを選べます。`,
+    /** フォルダの取り込み方を選ぶ */
+    chooseMode: 'フォルダの取り込み方を選んでください',
+    pendingSummary: (count: number, size: string) => `${count}曲（${size}）`,
+    reference: '今の場所のまま参照する',
+    referenceHint:
+      'フォルダをライブラリフォルダとして登録し、曲は今の場所から読みます。ファイルはコピーしません。',
+    copy: '音楽フォルダへコピーする',
+    copyModeHint: (path: string, count: number, size: string) =>
+      `${count}曲（${size}）を音楽フォルダ（${path}）へ書式どおりにコピーします。元のファイルは残します。`,
+    alreadyInLibrary: (count: number) =>
+      `${count}曲はすでにライブラリにあるため、コピーせずにそのまま使います。`,
+    freeSpace: (size: string) => `空き容量: ${size}`,
+    musicFolderMissing: (path: string) =>
+      `音楽フォルダ（${path}）が見つかりません。外付けドライブが外れていないかを確かめてください`,
+    notEnoughSpace: (required: string, free: string) =>
+      `音楽フォルダのドライブの空き容量が足りません（必要: ${required}、空き: ${free}）`,
     dropHere: 'ここにドロップしてインポート'
   },
 
@@ -1185,7 +1210,11 @@ export const ja = {
       '使える項目: %title% %artist% %album% %albumartist% %genre% %year% %track% %disc% %filename%。「/」で区切るとフォルダになります。[ ] で囲んだ部分は、中の項目に値がない曲では省きます。',
     preset: '書式の例',
     examples: '例（最近追加したアルバムの曲）',
-    noExamples: 'ライブラリに曲がないため、例を表示できません'
+    noExamples: 'ライブラリに曲がないため、例を表示できません',
+    /** 取り込む曲のコピー */
+    copyOnImport: '取り込む曲を音楽フォルダへコピーする',
+    copyOnImportHint:
+      'ファイルを選んだ・ドロップした・このアプリで開いた曲を、音楽フォルダへ書式どおりにコピーしてから登録します（元のファイルは残し、同じ名前のファイルは上書きしません）。フォルダを取り込む時は、コピーするか、今の場所のまま参照するかを毎回選びます。音楽フォルダを設定していない時は、今の場所のまま登録します。'
   },
 
   devices: {

@@ -2,7 +2,8 @@
 //!
 //! Finderの「このアプリで開く」・Dockのアイコンへのドロップ（macOS）と、起動時の引数
 //! （ファイルの関連付けからの起動。Windows・Linux）で渡されたファイルを、ライブラリへ
-//! インポートしてから再生する（ADR-050）。
+//! インポートしてから再生する（ADR-050）。取り込む曲を音楽フォルダへコピーする設定なら、
+//! コピーしてから登録し、コピー先の曲を再生する（ADR-069）。
 //!
 //! 再生キューはフロントエンドが持つため、ここでは曲を登録して「再生する曲」として預かり、
 //! フロントエンドへ知らせる（`TracksOpened`）。フロントエンドは`take_opened_files`で受け取って
@@ -13,13 +14,17 @@
 //! 開くなど）が済む前にファイルを渡してくる。その分は`EARLY_PATHS`に取っておき、準備が済んで
 //! から開く（`open_startup_paths`）。
 
-use crate::commands::{ImportTargets, import_paths};
+use crate::commands::{
+    ImportRun, ImportTargets, ScannedImportFolder, copy_destination, import_and_notify,
+};
 use crate::events::TracksOpened;
 use crate::library::{DuplicateAction, is_supported_audio_file};
 use crate::models::Track;
+use crate::music_folder_copy::NotCopiedReason;
 use crate::state::AppState;
 use serde::Serialize;
 use specta::Type;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::{AppHandle, Manager};
@@ -143,15 +148,14 @@ fn import_and_find(app: &AppHandle, paths: &[PathBuf]) -> (Vec<Track>, Vec<Strin
     if targets.is_empty() {
         return (Vec::new(), errors);
     }
-    match import_paths(app, paths, DuplicateAction::Skip) {
-        Ok(result) => errors.extend(result.errors),
-        Err(e) => errors.push(e.to_string()),
-    }
+    let placed = import_opened(app, &targets, &mut errors);
 
-    // 登録済みだった曲も含めて、開かれたファイルの曲を再生する（フォルダの中の曲は、再生しない）
+    // 登録済みだった曲も含めて、開かれたファイルの曲を再生する（フォルダの中の曲は、再生しない。
+    // 音楽フォルダへコピーした曲は、コピー先の曲を再生する）
     let file_paths: Vec<String> = targets
         .files
         .iter()
+        .map(|path| placed.get(path).unwrap_or(path))
         .filter_map(|path| path.to_str().map(str::to_string))
         .collect();
     let tracks = app
@@ -162,6 +166,64 @@ fn import_and_find(app: &AppHandle, paths: &[PathBuf]) -> (Vec<Track>, Vec<Strin
             Vec::new()
         });
     (tracks, errors)
+}
+
+/// 開かれたものをインポートする
+///
+/// ファイルは、設定に従って音楽フォルダへコピーする。フォルダは、参照して取り込む（取り込み方を選ぶ
+/// 画面を出せないため）。
+/// @returns 音楽フォルダへコピーした曲（とコピー済みだった曲）の、元のパス → 登録したパス
+fn import_opened(
+    app: &AppHandle,
+    targets: &ImportTargets,
+    errors: &mut Vec<String>,
+) -> HashMap<PathBuf, PathBuf> {
+    let state = app.state::<AppState>();
+    let mut placed = HashMap::new();
+    let mut record = |run: crate::error::AppResult<ImportRun>| match run {
+        Ok(ImportRun::Imported(report)) => {
+            errors.extend(report.result.errors);
+            errors.extend(report.result.not_copied.into_iter().map(|skipped| {
+                let reason = match skipped.reason {
+                    NotCopiedReason::TargetExists => "コピー先に同じ名前のファイルがあります",
+                    NotCopiedReason::SameTarget => "同じコピー先になる曲があります",
+                };
+                format!("{}: {}（{}）", skipped.source, reason, skipped.target)
+            }));
+            placed.extend(report.placed);
+        }
+        Ok(ImportRun::MusicFolderMissing(path)) => {
+            errors.push(format!("音楽フォルダが見つかりません: {}", path));
+        }
+        Ok(ImportRun::NotEnoughSpace { .. }) => {
+            errors.push("音楽フォルダのドライブの空き容量が足りません".to_string());
+        }
+        Err(e) => errors.push(e.to_string()),
+    };
+
+    if !targets.files.is_empty() {
+        // コピーするかを決められなければ、取り込まない（黙って参照に切り替えない）
+        record(copy_destination(&state, app).and_then(|copy| {
+            import_and_notify(
+                app,
+                &targets.files,
+                &[],
+                DuplicateAction::Skip,
+                copy.as_ref(),
+            )
+        }));
+    }
+    if !targets.folders.is_empty() {
+        let folders = targets
+            .folders
+            .iter()
+            .map(|folder| ScannedImportFolder::scan(&state, folder))
+            .collect::<crate::error::AppResult<Vec<_>>>();
+        record(folders.and_then(|folders| {
+            import_and_notify(app, &[], &folders, DuplicateAction::Skip, None)
+        }));
+    }
+    placed
 }
 
 #[cfg(test)]

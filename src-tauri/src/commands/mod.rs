@@ -28,8 +28,13 @@ mod system;
 mod tracks;
 
 // インポート関連
-pub(crate) use import::{ImportTargets, import_paths};
-pub use import::{import_dropped_files, import_files, import_folder, take_opened_files};
+pub(crate) use import::{
+    ImportRun, ImportTargets, ScannedImportFolder, copy_destination, import_and_notify,
+};
+pub use import::{
+    PendingImport, cancel_pending_import, import_dropped_files, import_files, import_folder,
+    import_pending_folders, take_opened_files,
+};
 
 // ライブラリフォルダ（インポートしたフォルダ）の一覧・削除・再スキャン・読み込まないフォルダと、
 // 見つからない曲の削除

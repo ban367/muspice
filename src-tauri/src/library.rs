@@ -32,6 +32,10 @@ pub struct ImportResult {
     pub relinked_count: u32,
     pub error_count: u32,
     pub errors: Vec<String>,
+    /// 音楽フォルダへコピーして取り込んだ数（`imported_count`・`relinked_count`の内数）
+    pub copied_count: u32,
+    /// 音楽フォルダへコピーしなかった曲（コピー先に同じ名前のファイルがあるなど。取り込んでいない）
+    pub not_copied: Vec<crate::music_folder_copy::NotCopied>,
 }
 
 impl ImportResult {
@@ -42,6 +46,8 @@ impl ImportResult {
         self.relinked_count += other.relinked_count;
         self.error_count += other.error_count;
         self.errors.extend(other.errors);
+        self.copied_count += other.copied_count;
+        self.not_copied.extend(other.not_copied);
     }
 }
 
