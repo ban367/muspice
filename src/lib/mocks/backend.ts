@@ -34,6 +34,7 @@ import type {
   FolderImportMode,
   GenreSummary,
   ImportOutcome,
+  KeepOrganizedResult,
   ImportResult,
   LibraryFolder,
   LoudnessScanResult,
@@ -573,7 +574,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     globalShortcuts: false,
     notifyTrackChange: false,
     musicFolderTemplate: DEFAULT_MUSIC_FOLDER_TEMPLATE,
-    copyToMusicFolder: true
+    copyToMusicFolder: true,
+    keepMusicFolderOrganized: false
   };
   // ライブラリフォルダ（existsは「フォルダが見つかるか」。外付けドライブが外れた状態を再現する）
   // 読み込まないフォルダ（exclusions）は、相対パスで持つ。OSの音楽フォルダには、登録した時に
@@ -848,7 +850,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
    * update_track_metadataと同様、title/artist/album/genre/yearを丸ごと置き換える
    * （実装はファイルのタグへ書き込むが、モックはライブラリの値だけを変える）
    */
-  function updateTrackMetadata(trackId: string, metadata: Metadata): null {
+  function updateTrackMetadata(trackId: string, metadata: Metadata): KeepOrganizedResult | null {
     validateTrackId(trackId);
     validateMetadataInput(metadata);
     const track = tracks.find((t) => t.id === trackId);
@@ -871,7 +873,42 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     track.updatedAt = now();
     // データベースに保存しない項目（作曲者・歌詞など）は、ファイルのタグの代わりに持っておく
     fileOnlyTags.set(trackId, pickFileOnlyTags(metadata));
-    return null;
+    return keepMusicFolderOrganized([trackId]);
+  }
+
+  /**
+   * タグを保存した曲のうち、音楽フォルダの中の曲を、書式どおりの場所へ移し直す（Rustの
+   * `keep_music_folder_organized`。設定がオフ・音楽フォルダの中の曲がなければnull）
+   */
+  function keepMusicFolderOrganized(trackIds: string[]): KeepOrganizedResult | null {
+    if (!settings.keepMusicFolderOrganized) return null;
+    const musicFolder = libraryFolders.find((folder) => folder.isMusicFolder);
+    if (!musicFolder || !musicFolder.exists) return null;
+    const inside = tracks.filter(
+      (track) => trackIds.includes(track.id) && track.filePath.startsWith(`${musicFolder.path}/`)
+    );
+    if (inside.length === 0) return null;
+    const { entries, moves } = planOrganize(
+      inside,
+      libraryFolders.map((folder) => folder.path),
+      parseOrganizeTemplate(settings.musicFolderTemplate),
+      tracks.map((track) => track.filePath),
+      musicFolder.path
+    );
+    for (const move of moves) {
+      const track = tracks.find((t) => t.id === move.trackId);
+      if (!track) continue;
+      track.filePath = move.to;
+      track.fileName = move.to.slice(move.to.lastIndexOf('/') + 1);
+    }
+    if (moves.length > 0) options.emit('library-changed', null);
+    return {
+      movedCount: moves.length,
+      notMovedCount: entries.filter(
+        (entry) => entry.status !== 'move' && entry.status !== 'unchanged'
+      ).length,
+      errors: []
+    };
   }
 
   /**
@@ -978,7 +1015,13 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
    * ファイルが見つからない・ライブラリにないトラックは、書き込めなかった曲として数える。
    */
   function writeAlbumArt(trackIds: string[], write: (track: Track) => boolean): BulkUpdateResult {
-    const result: BulkUpdateResult = { updatedCount: 0, failedCount: 0, errors: [] };
+    // アルバムアートは置き場所に関わらないため、音楽フォルダの曲を移し直さない
+    const result: BulkUpdateResult = {
+      updatedCount: 0,
+      failedCount: 0,
+      errors: [],
+      organized: null
+    };
     for (const trackId of trackIds) {
       const track = tracks.find((t) => t.id === trackId);
       if (!track || track.isMissing) {
@@ -2124,7 +2167,12 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       const timestamp = now();
       for (const track of targets) applyPartialMetadata(track, metadata, timestamp);
       // モックではファイルへの書き込みに失敗しない
-      return { updatedCount: targets.length, failedCount: 0, errors: [] };
+      return {
+        updatedCount: targets.length,
+        failedCount: 0,
+        errors: [],
+        organized: keepMusicFolderOrganized(trackIds)
+      };
     },
     applyMetadataChanges: (changes) => {
       if (changes.length === 0) fail('VALIDATION', '変更が指定されていません');
@@ -2133,7 +2181,13 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         validateTrackId(change.trackId);
         validateMetadataInput(change.metadata);
       }
-      const result: BulkUpdateResult = { updatedCount: 0, failedCount: 0, errors: [] };
+      const result: BulkUpdateResult = {
+        updatedCount: 0,
+        failedCount: 0,
+        errors: [],
+        organized: null
+      };
+      const updated: string[] = [];
       const timestamp = now();
       for (const { trackId, metadata } of changes) {
         const track = tracks.find((t) => t.id === trackId);
@@ -2149,7 +2203,9 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         }
         applyPartialMetadata(track, metadata, timestamp);
         result.updatedCount++;
+        updated.push(trackId);
       }
+      result.organized = keepMusicFolderOrganized(updated);
       return result;
     },
     // モックでは、どの環境でも変換できることにする（実際は、macOSだけ）

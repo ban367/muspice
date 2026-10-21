@@ -5,6 +5,7 @@
 //! 場合はエラーにし、データベースも変えない。
 
 use super::import::create_track_from_file;
+use super::organize::{KeepOrganizedResult, keep_music_folder_organized};
 use super::run_blocking;
 use crate::error::{AppError, AppResult};
 use crate::events::LibraryChanged;
@@ -115,16 +116,21 @@ pub(super) fn file_state_of(path: &Path) -> (Option<i64>, Option<i64>) {
 /// トラックのメタデータを更新（ファイルのタグとデータベース）
 ///
 /// 編集画面のすべての項目を反映する。値のない項目は、タグからも取り除く。
+/// 設定「音楽フォルダを整理された状態に保つ」がオンで、音楽フォルダの中の曲なら、保存した後に
+/// 書式どおりの場所へ移し直す（ADR-071）。
+///
+/// @returns 移し直した結果（移し直さない場合はnull）
 #[tauri::command]
 #[specta::specta]
 pub async fn update_track_metadata(
     track_id: String,
     metadata: Metadata,
-    state: State<'_, AppState>,
-) -> AppResult<()> {
+    app: AppHandle,
+) -> AppResult<Option<KeepOrganizedResult>> {
     validate_track_id(&track_id)?;
     validate_metadata_input(&metadata)?;
     let metadata = normalize_multi_values(metadata);
+    let state = app.state::<AppState>();
 
     // トラックのファイルパスを取得
     let file_path =
@@ -152,7 +158,10 @@ pub async fn update_track_metadata(
         tx.commit().map_err(|e| {
             AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
         })
-    })
+    })?;
+
+    // ファイルの移動はブロッキング処理用スレッドで行う
+    run_blocking(move || Ok(keep_music_folder_organized(&app, &[track_id]))).await
 }
 
 /// 一括編集の結果
@@ -165,12 +174,18 @@ pub struct BulkUpdateResult {
     pub failed_count: u32,
     /// 更新できなかったトラックの理由（ファイルごと）
     pub errors: Vec<String>,
+    /// 音楽フォルダの曲を、書式どおりの場所へ移し直した結果（移し直さない場合はnull。ADR-071）
+    pub organized: Option<KeepOrganizedResult>,
+    /// 更新できたトラックのID（移し直す曲を決めるために使う。画面には渡さない）
+    #[serde(skip)]
+    pub updated_track_ids: Vec<String>,
 }
 
 /// 複数トラックのメタデータを一括更新（ファイルのタグとデータベース）
 ///
 /// 値がある項目だけを変える。ファイルへ書き込めなかったトラックは、データベースも変えずに
-/// 結果の`errors`へ理由を入れ、残りのトラックの更新を続ける。
+/// 結果の`errors`へ理由を入れ、残りのトラックの更新を続ける。設定「音楽フォルダを整理された状態に
+/// 保つ」がオンなら、更新できた音楽フォルダの中の曲を、書式どおりの場所へ移し直す（`organized`）。
 #[tauri::command]
 #[specta::specta]
 pub async fn update_multiple_tracks_metadata(
@@ -196,7 +211,9 @@ pub async fn update_multiple_tracks_metadata(
     run_blocking(move || {
         let updates: Vec<(&String, &Metadata)> =
             track_ids.iter().map(|id| (id, &metadata)).collect();
-        update_each_blocking(app.state::<AppState>().inner(), &updates)
+        let mut result = update_each_blocking(app.state::<AppState>().inner(), &updates)?;
+        result.organized = keep_music_folder_organized(&app, &result.updated_track_ids);
+        Ok(result)
     })
     .await
 }
@@ -215,7 +232,8 @@ pub struct TrackMetadataChange {
 /// タグの一括ツール（ファイル名からの推定・連番の振り直し・検索と置換）が、確認した変更を
 /// 書き込むために使う。扱いは`update_multiple_tracks_metadata`と同じで、値がある項目だけを変え、
 /// ファイルへ書き込めなかったトラックは結果の`errors`へ理由を入れて残りを続ける。
-/// 文字列の項目に空の値を渡すと、その項目をタグから取り除く。
+/// 文字列の項目に空の値を渡すと、その項目をタグから取り除く。音楽フォルダの曲の移し直しも、
+/// `update_multiple_tracks_metadata`と同じ。
 #[tauri::command]
 #[specta::specta]
 pub async fn apply_metadata_changes(
@@ -245,7 +263,9 @@ pub async fn apply_metadata_changes(
             .iter()
             .map(|change| (&change.track_id, &change.metadata))
             .collect();
-        update_each_blocking(app.state::<AppState>().inner(), &updates)
+        let mut result = update_each_blocking(app.state::<AppState>().inner(), &updates)?;
+        result.organized = keep_music_folder_organized(&app, &result.updated_track_ids);
+        Ok(result)
     })
     .await
 }
@@ -310,6 +330,9 @@ fn update_each_blocking(
             })
         })?;
         result.updated_count += to_count(written.len())?;
+        result
+            .updated_track_ids
+            .extend(written.iter().map(|(track_id, ..)| (*track_id).clone()));
     }
 
     Ok(result)
@@ -828,6 +851,8 @@ mod tests {
                 .unwrap();
 
         assert_eq!((result.updated_count, result.failed_count), (2, 0));
+        // 更新できた曲（音楽フォルダの曲を移し直す対象を決める）
+        assert_eq!(result.updated_track_ids, [id_a.clone(), id_b.clone()]);
         let tags_a = crate::metadata::read_file_tags(&a).unwrap();
         assert_eq!(tags_a.title.as_deref(), Some("曲A"));
         assert_eq!(
@@ -875,6 +900,7 @@ mod tests {
         let result = update_each_blocking(&fixture.state, &updates).unwrap();
 
         assert_eq!((result.updated_count, result.failed_count), (1, 2));
+        assert_eq!(result.updated_track_ids.len(), 1);
         assert!(result.errors[0].contains("missing.wav"));
         assert_eq!(fixture.track("a").title.as_deref(), Some("新しいタイトル"));
         assert_eq!(fixture.track("missing").title.as_deref(), Some("missing"));

@@ -484,6 +484,61 @@ describe('音楽フォルダへ集める', () => {
   });
 });
 
+describe('音楽フォルダを整理された状態に保つ', () => {
+  /** 音楽フォルダ（OSの音楽フォルダ）の中の曲 */
+  const inMusicFolder = async () =>
+    (await commands.getAllTracks()).find(
+      (track) => track.title === 'Harbor Lights' && !track.isMissing
+    )!;
+
+  it('設定がオフなら、タグを保存しても移さない', async () => {
+    await commands.setMusicFolder('system');
+    const track = await inMusicFolder();
+
+    const organized = await commands.updateTrackMetadata(track.id, {
+      title: 'Harbor Lights',
+      artist: track.artist,
+      album: 'Renamed Album',
+      albumArtist: track.albumArtist,
+      trackNumber: track.trackNumber
+    });
+
+    expect(organized).toBeNull();
+    expect((await inMusicFolder()).filePath).toBe(track.filePath);
+  });
+
+  it('オンなら、音楽フォルダの曲を書式どおりの場所へ移し直す', async () => {
+    await commands.setMusicFolder('system');
+    const settings = await commands.getSettings();
+    await commands.saveSettings({ ...settings, keepMusicFolderOrganized: true });
+    const track = await inMusicFolder();
+    events = [];
+
+    const result = await commands.updateMultipleTracksMetadata([track.id], {
+      album: 'Renamed Album'
+    });
+
+    expect(result.organized).toEqual({ movedCount: 1, notMovedCount: 0, errors: [] });
+    expect((await inMusicFolder()).filePath).toBe(
+      '/Users/demo/Music/Various Artists/Renamed Album/1-01 Harbor Lights.mp3'
+    );
+    expect(events.map((e) => e.event)).toContain('library-changed');
+  });
+
+  it('音楽フォルダが未設定なら、移さない', async () => {
+    const settings = await commands.getSettings();
+    await commands.saveSettings({ ...settings, keepMusicFolderOrganized: true });
+    const track = await inMusicFolder();
+
+    const result = await commands.applyMetadataChanges([
+      { trackId: track.id, metadata: { album: 'Renamed Album' } }
+    ]);
+
+    expect(result.organized).toBeNull();
+    expect((await inMusicFolder()).filePath).toBe(track.filePath);
+  });
+});
+
 describe('コマンドの対応付け', () => {
   it('bindings.tsの全コマンドのIPC名がハンドラ名に変換できる', async () => {
     const invoked: string[] = [];
@@ -1288,7 +1343,7 @@ describe('曲ごとのメタデータの変更（タグの一括ツール）', (
       { trackId: second.id, metadata: { artist: 'AOI SORA' } }
     ]);
 
-    expect(result).toEqual({ updatedCount: 2, failedCount: 0, errors: [] });
+    expect(result).toEqual({ updatedCount: 2, failedCount: 0, errors: [], organized: null });
     const updated = await commands.getAllTracks();
     const updatedFirst = updated.find((t) => t.id === first.id)!;
     expect(updatedFirst).toMatchObject({
@@ -1387,7 +1442,12 @@ describe('アルバムアート', () => {
 
     const result = await commands.setAlbumArt(ids);
 
-    expect(result).toEqual({ updatedCount: ids.length, failedCount: 0, errors: [] });
+    expect(result).toEqual({
+      updatedCount: ids.length,
+      failedCount: 0,
+      errors: [],
+      organized: null
+    });
     const info = await commands.getAlbumArtInfo(ids[0]);
     expect(info).toMatchObject({ source: 'embedded', fileName: null, mimeType: 'image/png' });
     expect(backend.albumArtUrl(ids[0])).not.toBe(urlBefore);
@@ -1411,7 +1471,7 @@ describe('アルバムアート', () => {
 
     const result = await commands.removeAlbumArt([folder.id, embedded.id]);
 
-    expect(result).toEqual({ updatedCount: 2, failedCount: 0, errors: [] });
+    expect(result).toEqual({ updatedCount: 2, failedCount: 0, errors: [], organized: null });
     expect(backend.albumArtUrl(folder.id)).toBe(folderUrl);
     expect(await commands.getAlbumArtInfo(embedded.id)).toBeNull();
     expect(backend.albumArtUrl(embedded.id)).toBeNull();
@@ -1422,7 +1482,8 @@ describe('アルバムアート', () => {
     expect(await commands.removeAlbumArt([folder.id, embedded.id])).toEqual({
       updatedCount: 0,
       failedCount: 0,
-      errors: []
+      errors: [],
+      organized: null
     });
   });
 

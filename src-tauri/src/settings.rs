@@ -143,6 +143,9 @@ pub struct Settings {
     /// 取り込む曲を、音楽フォルダへ書式どおりにコピーする（音楽フォルダが未設定の時は効かない。
     /// フォルダの取り込みは、参照かコピーかを毎回選ぶ）
     pub copy_to_music_folder: bool,
+    /// 音楽フォルダを整理された状態に保つ（このアプリでタグを保存した、音楽フォルダの中の曲を、
+    /// 書式どおりの場所へ移し直す）
+    pub keep_music_folder_organized: bool,
 }
 
 impl Settings {
@@ -174,6 +177,7 @@ impl Default for Settings {
             notify_track_change: false,
             music_folder_template: DEFAULT_MUSIC_FOLDER_TEMPLATE.to_string(),
             copy_to_music_folder: true,
+            keep_music_folder_organized: false,
         }
     }
 }
@@ -389,6 +393,7 @@ mod tests {
             notify_track_change: true,
             music_folder_template: "%artist%/%album%/%track% %title%".to_string(),
             copy_to_music_folder: false,
+            keep_music_folder_organized: true,
         };
 
         state.save(settings.clone()).unwrap();
@@ -417,6 +422,8 @@ mod tests {
         assert!(settings.hidden_sidebar_items.is_empty());
         // 取り込む曲のコピーは、既定でオン（音楽フォルダを設定した時だけ効く）
         assert!(settings.copy_to_music_folder);
+        // 自動の整理は、既定でオフ（ほかのアプリがパスで参照していると、見つからなくなるため）
+        assert!(!settings.keep_music_folder_organized);
     }
 
     /// 隠すサイドバーの項目は、知らない項目・重複があっても、ほかの設定ごと読める

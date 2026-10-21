@@ -349,13 +349,25 @@ imported: ImportResult | null } |
 	 *  トラックのメタデータを更新（ファイルのタグとデータベース）
 	 * 
 	 *  編集画面のすべての項目を反映する。値のない項目は、タグからも取り除く。
+	 *  設定「音楽フォルダを整理された状態に保つ」がオンで、音楽フォルダの中の曲なら、保存した後に
+	 *  書式どおりの場所へ移し直す（ADR-071）。
+	 * 
+	 *  @returns 移し直した結果（移し直さない場合はnull）
 	 */
-	updateTrackMetadata: (trackId: string, metadata: Metadata) => __TAURI_INVOKE<null>("update_track_metadata", { trackId, metadata }),
+	updateTrackMetadata: (trackId: string, metadata: Metadata) => __TAURI_INVOKE<{
+	/**  書式どおりの場所へ移した曲の数 */
+	movedCount: number,
+	/**  移さなかった曲の数（移動先に同じ名前のファイルがある・選んだ曲の中で同じ移動先になる・移せなかった） */
+	notMovedCount: number,
+	/**  移せなかった理由（`場所: 理由`） */
+	errors: string[],
+} | null>("update_track_metadata", { trackId, metadata }),
 	/**
 	 *  複数トラックのメタデータを一括更新（ファイルのタグとデータベース）
 	 * 
 	 *  値がある項目だけを変える。ファイルへ書き込めなかったトラックは、データベースも変えずに
-	 *  結果の`errors`へ理由を入れ、残りのトラックの更新を続ける。
+	 *  結果の`errors`へ理由を入れ、残りのトラックの更新を続ける。設定「音楽フォルダを整理された状態に
+	 *  保つ」がオンなら、更新できた音楽フォルダの中の曲を、書式どおりの場所へ移し直す（`organized`）。
 	 */
 	updateMultipleTracksMetadata: (trackIds: string[], metadata: Metadata) => __TAURI_INVOKE<BulkUpdateResult>("update_multiple_tracks_metadata", { trackIds, metadata }),
 	/**
@@ -364,7 +376,8 @@ imported: ImportResult | null } |
 	 *  タグの一括ツール（ファイル名からの推定・連番の振り直し・検索と置換）が、確認した変更を
 	 *  書き込むために使う。扱いは`update_multiple_tracks_metadata`と同じで、値がある項目だけを変え、
 	 *  ファイルへ書き込めなかったトラックは結果の`errors`へ理由を入れて残りを続ける。
-	 *  文字列の項目に空の値を渡すと、その項目をタグから取り除く。
+	 *  文字列の項目に空の値を渡すと、その項目をタグから取り除く。音楽フォルダの曲の移し直しも、
+	 *  `update_multiple_tracks_metadata`と同じ。
 	 */
 	applyMetadataChanges: (changes: TrackMetadataChange[]) => __TAURI_INVOKE<BulkUpdateResult>("apply_metadata_changes", { changes }),
 	/**
@@ -490,6 +503,8 @@ imported: ImportResult | null } |
 	failedCount: number,
 	/**  更新できなかったトラックの理由（ファイルごと） */
 	errors: string[],
+	/**  音楽フォルダの曲を、書式どおりの場所へ移し直した結果（移し直さない場合はnull。ADR-071） */
+	organized: KeepOrganizedResult | null,
 } | null>("set_album_art", { trackIds }),
 	/**
 	 *  トラックのファイルから、埋め込みの画像をすべて取り除く
@@ -930,6 +945,8 @@ export type BulkUpdateResult = {
 	failedCount: number,
 	/**  更新できなかったトラックの理由（ファイルごと） */
 	errors: string[],
+	/**  音楽フォルダの曲を、書式どおりの場所へ移し直した結果（移し直さない場合はnull。ADR-071） */
+	organized: KeepOrganizedResult | null,
 };
 
 /**  1曲の計画（一覧に表示する） */
@@ -1196,6 +1213,16 @@ export type ImportResult = {
 	copiedCount: number,
 	/**  音楽フォルダへコピーしなかった曲（コピー先に同じ名前のファイルがあるなど。取り込んでいない） */
 	notCopied: NotCopied[],
+};
+
+/**  タグを保存した後に、音楽フォルダの曲を移し直した結果（ADR-071） */
+export type KeepOrganizedResult = {
+	/**  書式どおりの場所へ移した曲の数 */
+	movedCount: number,
+	/**  移さなかった曲の数（移動先に同じ名前のファイルがある・選んだ曲の中で同じ移動先になる・移せなかった） */
+	notMovedCount: number,
+	/**  移せなかった理由（`場所: 理由`） */
+	errors: string[],
 };
 
 /**  表示の言語 */
@@ -1807,6 +1834,11 @@ export type Settings = {
 	 *  フォルダの取り込みは、参照かコピーかを毎回選ぶ）
 	 */
 	copyToMusicFolder: boolean,
+	/**
+	 *  音楽フォルダを整理された状態に保つ（このアプリでタグを保存した、音楽フォルダの中の曲を、
+	 *  書式どおりの場所へ移し直す）
+	 */
+	keepMusicFolderOrganized: boolean,
 };
 
 /**  設定が保存された（設定ウィンドウでの変更をメインウィンドウに反映する） */

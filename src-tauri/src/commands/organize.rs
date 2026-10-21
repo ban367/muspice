@@ -277,6 +277,132 @@ pub async fn cancel_file_organize(organize: State<'_, OrganizeState>) -> AppResu
     Ok(())
 }
 
+/// タグを保存した後に、音楽フォルダの曲を移し直した結果（ADR-071）
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct KeepOrganizedResult {
+    /// 書式どおりの場所へ移した曲の数
+    pub moved_count: u32,
+    /// 移さなかった曲の数（移動先に同じ名前のファイルがある・選んだ曲の中で同じ移動先になる・移せなかった）
+    pub not_moved_count: u32,
+    /// 移せなかった理由（`場所: 理由`）
+    pub errors: Vec<String>,
+}
+
+/// タグを保存した曲のうち、音楽フォルダの中の曲を、音楽フォルダの書式どおりの場所へ移し直す
+/// （同期処理。設定「音楽フォルダを整理された状態に保つ」。ADR-071）
+///
+/// 設定がオフ・音楽フォルダが未設定か見つからない・音楽フォルダの中の曲がない場合は、何もしない（None）。
+/// 移すのはファイルの整理（音楽フォルダへ集める）と同じ処理で、名前が衝突する曲は動かさない。
+/// タグの保存は済んでいるため、移せなかった場合もエラーにせず、結果で知らせる。1曲でも移すと
+/// `LibraryChanged`を送る。
+pub(super) fn keep_music_folder_organized(
+    app: &AppHandle,
+    track_ids: &[String],
+) -> Option<KeepOrganizedResult> {
+    let settings = match app.state::<SettingsState>().get() {
+        Ok(settings) if settings.keep_music_folder_organized => settings,
+        Ok(_) => return None,
+        Err(e) => {
+            log::error!("音楽フォルダの整理の設定を読めませんでした: {}", e);
+            return None;
+        }
+    };
+    let state = app.state::<AppState>();
+    let music_folder = match state.with_db(|db| find_music_folder(db)) {
+        Ok(Some(folder)) => PathBuf::from(folder.path),
+        Ok(None) => return None,
+        Err(e) => {
+            log::error!("音楽フォルダを読めませんでした: {}", e);
+            return None;
+        }
+    };
+    if !music_folder.is_dir() {
+        return None;
+    }
+    let template = match Template::parse(&settings.music_folder_template) {
+        Ok(template) => template,
+        Err(e) => {
+            log::error!("音楽フォルダの書式を読めませんでした: {}", e);
+            return None;
+        }
+    };
+
+    let result = organize_saved_tracks(state.inner(), track_ids, music_folder, template);
+    if let Some(KeepOrganizedResult { moved_count, .. }) = &result
+        && *moved_count > 0
+    {
+        // フォルダの画像を使う曲は、フォルダが変わると画像も変わるため、アルバムアートを読み直させる
+        if let Ok(mut cache) = state.album_art_cache.lock() {
+            cache.clear();
+        }
+        if let Err(e) = LibraryChanged.emit(app) {
+            log::warn!("ライブラリの変更の通知に失敗しました: {}", e);
+        }
+    }
+    result
+}
+
+/// `keep_music_folder_organized`の本体: 音楽フォルダの中の曲だけを、音楽フォルダの書式どおりの場所へ移す
+fn organize_saved_tracks(
+    state: &AppState,
+    track_ids: &[String],
+    music_folder: PathBuf,
+    template: Template,
+) -> Option<KeepOrganizedResult> {
+    // 音楽フォルダの外の曲は、動かさない（集めるのは、利用者がファイルの整理で行う）
+    let paths = match state.with_db(|db| crate::repository::find_tracks_by_ids(db, track_ids)) {
+        Ok(tracks) => tracks,
+        Err(e) => {
+            log::error!("整理し直す曲を読めませんでした: {}", e);
+            return None;
+        }
+    };
+    let inside: Vec<String> = track_ids
+        .iter()
+        .filter(|track_id| {
+            paths.get(*track_id).is_some_and(|track| {
+                let path = Path::new(&track.file_path);
+                path.starts_with(&music_folder) && path != music_folder
+            })
+        })
+        .cloned()
+        .collect();
+    if inside.is_empty() {
+        return None;
+    }
+
+    let destination = Destination {
+        template,
+        music_folder: Some(music_folder),
+    };
+    let organized = organize_blocking(
+        state,
+        &inside,
+        &destination,
+        &Execution {
+            cancel: &AtomicBool::new(false),
+            on_progress: &|_| {},
+            discard: &crate::library::discard_track_file,
+        },
+    );
+    Some(match organized {
+        Ok(result) => KeepOrganizedResult {
+            moved_count: result.moved_count,
+            not_moved_count: result.skipped_count + result.failed_count,
+            errors: result.errors,
+        },
+        Err(e) => {
+            log::error!("音楽フォルダの曲を整理し直せませんでした: {}", e);
+            KeepOrganizedResult {
+                moved_count: 0,
+                not_moved_count: to_count(inside.len()).unwrap_or(u32::MAX),
+                errors: vec![e.to_string()],
+            }
+        }
+    })
+}
+
 /// 実行の進め方（中止・進み具合の通知・元のファイルの消し方）
 struct Execution<'a> {
     /// trueになったら、次の曲の前で中止する
@@ -870,5 +996,74 @@ mod tests {
         assert_eq!(result.moved_count, 1);
         assert!(library.join("Artist/Album/01 First.mp3").is_file());
         assert!(library.join("in/b.mp3").is_file());
+    }
+
+    /// タグを保存した曲のうち、音楽フォルダの中の曲だけを、書式どおりの場所へ移し直す
+    #[test]
+    fn test_saved_tracks_inside_the_music_folder_are_organized() {
+        let dir = TempDir::new();
+        let state = test_state();
+        let music = dir.path().join("Music");
+        register_library(&state, &music);
+        let inside = add_track(&state, &music.join("Old Name/a.mp3"), "First", 1);
+        let outside = add_track(&state, &dir.path().join("Downloads/b.mp3"), "Second", 2);
+
+        let result = organize_saved_tracks(
+            &state,
+            &[inside.clone(), outside.clone()],
+            music.clone(),
+            Template::parse(TEMPLATE).unwrap(),
+        );
+
+        assert_eq!(
+            result,
+            Some(KeepOrganizedResult {
+                moved_count: 1,
+                not_moved_count: 0,
+                errors: Vec::new()
+            })
+        );
+        assert_eq!(
+            Path::new(&find(&state, &inside).file_path),
+            music.join("Artist/Album/01 First.mp3")
+        );
+        assert!(!music.join("Old Name").exists());
+        // 音楽フォルダの外の曲は、動かさない
+        assert!(dir.path().join("Downloads/b.mp3").is_file());
+        // 音楽フォルダの中の曲がなければ、何もしない
+        assert_eq!(
+            organize_saved_tracks(
+                &state,
+                std::slice::from_ref(&outside),
+                music.clone(),
+                Template::parse(TEMPLATE).unwrap(),
+            ),
+            None
+        );
+    }
+
+    /// 名前が衝突する曲は動かさず、数を知らせる
+    #[test]
+    fn test_saved_tracks_with_conflicting_names_are_not_moved() {
+        let dir = TempDir::new();
+        let state = test_state();
+        let music = dir.path().join("Music");
+        register_library(&state, &music);
+        let track_id = add_track(&state, &music.join("Old Name/a.mp3"), "First", 1);
+        let taken = music.join("Artist/Album/01 First.mp3");
+        fs::create_dir_all(taken.parent().unwrap()).unwrap();
+        fs::write(&taken, b"other").unwrap();
+
+        let result = organize_saved_tracks(
+            &state,
+            std::slice::from_ref(&track_id),
+            music.clone(),
+            Template::parse(TEMPLATE).unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!((result.moved_count, result.not_moved_count), (0, 1));
+        assert_eq!(fs::read(&taken).unwrap(), b"other");
+        assert!(music.join("Old Name/a.mp3").is_file());
     }
 }

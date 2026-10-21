@@ -40,6 +40,7 @@ export type {
   ImportPhase,
   ImportProgress,
   ImportResult,
+  KeepOrganizedResult,
   Language,
   LibraryFolder,
   LibraryFolderList,
