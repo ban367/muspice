@@ -289,10 +289,19 @@ fn run_afconvert(
     }
 }
 
+/// `afconvert`が、指定したビットレートをその音声で使えない時に出すエラー（`!dat`）の書き出し
+const UNSUPPORTED_SETTING_ERROR: &str = "Couldn't set audio converter property";
+
+/// エンコードの失敗が、指定した設定（ビットレート）をその音声で使えないためか
+fn is_unsupported_setting(error: &AppError) -> bool {
+    matches!(error, AppError::Playback(message) if message.contains(UNSUPPORTED_SETTING_ERROR))
+}
+
 /// 一時ファイルを、変換先の形式にエンコードする
 ///
-/// AACのビットレートは、チャンネル数・サンプルレートによって、使える値が違う。指定した値で
-/// エンコードできなければ、エンコーダーの既定の値でやり直す。
+/// AACのビットレートは、チャンネル数・サンプルレートによって、使える値が違う。指定した値が
+/// その音声で使えない場合（エンコーダーがそのエラーを出した場合）だけ、エンコーダーの既定の値で
+/// やり直す（ログに残す）。ほかの理由（読み書きの失敗など）では、やり直さずに失敗にする。
 /// @returns 終わったか（中断した場合はfalse）
 fn encode(
     input: &Path,
@@ -309,7 +318,13 @@ fn encode(
         output,
         cancelled,
     ) {
-        Err(_) if format == ConvertFormat::Aac => {
+        Err(error) if format == ConvertFormat::Aac && is_unsupported_setting(&error) => {
+            log::info!(
+                "AACの{}bpsは、この音声（{}Hz・{}チャンネル）で使えないため、既定のビットレートでエンコードします",
+                bitrate,
+                pcm.sample_rate,
+                pcm.channels
+            );
             fs::remove_file(output).ok();
             run_afconvert(&encoder_args(format, pcm, None), input, output, cancelled)
         }
@@ -625,6 +640,22 @@ mod tests {
         let mut samples = Vec::new();
         write_samples(&mut samples, &[0.5, -1.0], 24).unwrap();
         assert_eq!(samples, [0x00, 0x00, 0x40, 0x00, 0x00, 0x80]);
+    }
+
+    #[test]
+    fn test_only_unsupported_settings_are_retried() {
+        let failure =
+            |reason: &str| AppError::Playback(format!("エンコードに失敗しました: {reason}"));
+        assert!(is_unsupported_setting(&failure(
+            "Error: Couldn't set audio converter property ('!dat')"
+        )));
+        // 読み書きの失敗・ほかの種類のエラーでは、やり直さない
+        assert!(!is_unsupported_setting(&failure(
+            "Error: Couldn't open input file ('wht?')"
+        )));
+        assert!(!is_unsupported_setting(&AppError::Io(
+            "Couldn't set audio converter property".to_string()
+        )));
     }
 
     #[test]

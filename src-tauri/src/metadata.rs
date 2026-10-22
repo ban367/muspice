@@ -4,8 +4,13 @@ use crate::models::{Metadata, ReplayGain, SortTags};
 use crate::multi_value;
 use crate::ogg_flac;
 use crate::vorbis_tag;
+use lofty::aac::AacFile;
 use lofty::config::{ParseOptions, WriteOptions};
 use lofty::file::{AudioFile, FileType, TaggedFile, TaggedFileExt};
+use lofty::id3::v2::{Id3v2Tag, Id3v2Version};
+use lofty::iff::aiff::AiffFile;
+use lofty::iff::wav::WavFile;
+use lofty::mpeg::MpegFile;
 use lofty::picture::{MimeType, Picture, PictureInformation, PictureType};
 use lofty::probe::Probe;
 use lofty::tag::items::popularimeter::{Popularimeter, StarRating};
@@ -85,9 +90,12 @@ fn read_tagged_file(file_path: &Path, options: ParseOptions) -> AppResult<Tagged
 /// 残して書き込む（`vorbis_tag::save_tag`・`ape_tag::save_tag`）。ID3v2・MP4は、loftyが
 /// 対応のない項目を残すため、そのまま保存する。
 ///
+/// ID3v2は、ファイルにあったタグの版で書く（`id3v2_options`。ADR-075）。
+///
 /// 書き込みは、元のファイルの写しに行ってから置き換える（`write_atomically`。ADR-074）。
 fn save_tagged_file(tagged_file: &TaggedFile, file_path: &Path) -> AppResult<()> {
     let file_type = tagged_file.file_type();
+    let keeps_id3v23 = keeps_id3v23(file_path, file_type);
     write_atomically(file_path, |temp| {
         tagged_file
             .tags()
@@ -99,6 +107,10 @@ fn save_tagged_file(tagged_file: &TaggedFile, file_path: &Path) -> AppResult<()>
                 TagType::VorbisComments if vorbis_tag::uses_vorbis_comments(file_type) => {
                     vorbis_tag::save_tag(temp, file_type, tag)
                 }
+                TagType::Id3v2 if keeps_id3v23 => {
+                    let (tag, options) = id3v2_options(tag);
+                    tag.save_to_path(temp, options)
+                }
                 // 読めるだけで書けない種類のタグ（FLACのID3v2など）は、そのままにする
                 tag_type if tagged_file.tag_support(tag_type).is_writable() => {
                     tag.save_to_path(temp, WriteOptions::default())
@@ -107,6 +119,87 @@ fn save_tagged_file(tagged_file: &TaggedFile, file_path: &Path) -> AppResult<()>
             })
             .map_err(|e| AppError::Metadata(format!("メタデータの保存に失敗しました: {}", e)))
     })
+}
+
+/// ファイルにあったID3v2のタグが、v2.3（かv2.2）か
+fn keeps_id3v23(file_path: &Path, file_type: FileType) -> bool {
+    matches!(
+        id3v2_version(file_path, file_type),
+        Some(Id3v2Version::V2 | Id3v2Version::V3)
+    )
+}
+
+/// ID3v2.3にないフレーム（loftyが、v2.3で書く時に捨てるもの）
+///
+/// 並び順（`TSOT`・`TSOP`・`TSOA`）・ムード（`TMOO`）・ディスクの副題（`TSST`）・発売日（`TDRL`）など。
+const ID3V24_ONLY_FRAMES: &[&str] = &[
+    "ASPI", "EQU2", "RVA2", "SEEK", "SIGN", "TDEN", "TDRL", "TDTG", "TMOO", "TPRO", "TSOA", "TSOP",
+    "TSOT", "TSST",
+];
+
+/// v2.3（かv2.2）だったID3v2のタグを書く時の、タグと指定
+///
+/// loftyは、ID3v2を既定でv2.4で書く。v2.4を読めない古い機器（カーオーディオなど）があるため、
+/// v2.3のタグは、v2.3のまま書く（loftyはv2.2を書けないため、v2.2もv2.3で書く）。アーティスト・
+/// ジャンルの複数の値は、`; `でつないだ1つの値にする（`join_multiple_values`）。
+///
+/// ただし、v2.3にないフレーム（`ID3V24_ONLY_FRAMES`。アプリで編集する並び順を含む）がある場合は、
+/// v2.3で書くとそのフレームが消えるため、v2.4で書く。ID3v2のタグがなかったファイル（新しく作る
+/// タグ）も、v2.4で書く（ADR-075）。
+fn id3v2_options(tag: &Tag) -> (Tag, WriteOptions) {
+    let mut joined = tag.clone();
+    join_multiple_values(&mut joined);
+    let frames = Id3v2Tag::from(joined.clone());
+    let drops_frames = (&frames)
+        .into_iter()
+        .any(|frame| ID3V24_ONLY_FRAMES.contains(&frame.id_str()));
+    if drops_frames {
+        log::info!("ID3v2.3にない項目（並び順など）があるため、タグをID3v2.4で書きます");
+        (tag.clone(), WriteOptions::default())
+    } else {
+        (joined, WriteOptions::default().use_id3v23(true))
+    }
+}
+
+/// アーティスト・ジャンルの複数の値を、`; `でつないだ1つの値にする（`;`で区切った値。ADR-051）
+///
+/// 1つの項目に複数の値を書く決まりがないタグ（ID3v2.3・ID3v1・RIFF INFO・AIFFのテキストチャンク）に
+/// 書く時に使う。loftyはID3v2.3でもv2.4の区切り（NUL文字）で書き、ID3v1は最初の値だけを、RIFF INFOは
+/// 同じ項目を複数書くため、ほかのアプリでは最初の値しか出ない。
+fn join_multiple_values(tag: &mut Tag) {
+    for key in [ItemKey::TrackArtist, ItemKey::Genre] {
+        let values: Vec<String> = tag.get_strings(key).map(str::to_string).collect();
+        if values.len() > 1 {
+            tag.remove_key(key);
+            tag.insert_text(key, multi_value::join(&values));
+        }
+    }
+}
+
+/// ファイルにあるID3v2のタグの版（ID3v2を既定のタグにする形式だけ。タグがない・読めない場合はNone）
+///
+/// 汎用のタグ（`TaggedFile`）には版が残らないため、形式ごとの読み方で読み直す。
+fn id3v2_version(file_path: &Path, file_type: FileType) -> Option<Id3v2Version> {
+    let mut reader = BufReader::new(File::open(file_path).ok()?);
+    let options = ParseOptions::new()
+        .read_properties(false)
+        .read_cover_art(false);
+    let version = |tag: Option<&Id3v2Tag>| tag.map(Id3v2Tag::original_version);
+    match file_type {
+        FileType::Mpeg => MpegFile::read_from(&mut reader, options)
+            .ok()
+            .and_then(|file| version(file.id3v2())),
+        FileType::Aac => AacFile::read_from(&mut reader, options)
+            .ok()
+            .and_then(|file| version(file.id3v2())),
+        FileType::Wav => WavFile::read_from(&mut reader, options)
+            .ok()
+            .and_then(|file| version(file.id3v2())),
+        FileType::Aiff => AiffFile::read_from(&mut reader, options)
+            .ok()
+            .and_then(|file| version(file.id3v2())),
+        _ => None,
+    }
 }
 
 /// 音楽ファイルを書き換える処理を、同じフォルダの写しで行い、終わってから元のファイルと置き換える
@@ -219,9 +312,11 @@ fn parse_gain_db(value: &str) -> Option<f64> {
 }
 
 /// ReplayGainのピークの値（例: "0.988769"）を解釈する
+///
+/// 無音の曲のピークは0（音量の解析も0を書く）。負の値は、正しくない値として扱わない。
 fn parse_peak(value: &str) -> Option<f64> {
     let peak: f64 = value.trim().parse().ok()?;
-    (peak.is_finite() && peak > 0.0).then_some(peak)
+    (peak.is_finite() && peak >= 0.0).then_some(peak)
 }
 
 /// EBU R128のゲインの値（Q7.8の整数。例: "-1536" = -6 dB）を、ReplayGainの基準のdBに変換する
@@ -420,16 +515,18 @@ fn extract_multi_value(tag: &Tag, key: ItemKey) -> Option<String> {
 /// インポート・再スキャンで全ファイルについて読むため、編集画面だけで使う項目（歌詞など）は
 /// 取り出さない。
 fn library_metadata(tag: &Tag) -> Metadata {
+    // 空白だけの値（Vorbisコメントの空の`TITLE=`など）は、タグがないものとして扱う。タイトルが
+    // ない曲は、取り込みでファイル名をタイトルにする
     Metadata {
-        title: tag.title().map(|s| s.to_string()),
+        title: extract_text(tag, ItemKey::TrackTitle),
         artist: extract_multi_value(tag, ItemKey::TrackArtist),
-        album: tag.album().map(|s| s.to_string()),
+        album: extract_text(tag, ItemKey::AlbumTitle),
         genre: extract_multi_value(tag, ItemKey::Genre),
         year: extract_year(tag),
         track_number: tag.track().map(|t| t as i32),
         disc_number: extract_disc_number(tag),
         album_artist: extract_album_artist(tag),
-        composer: tag.get_string(ItemKey::Composer).map(|s| s.to_string()),
+        composer: extract_text(tag, ItemKey::Composer),
         title_sort: extract_sort_text(tag, ItemKey::TrackTitleSortOrder),
         artist_sort: extract_sort_text(tag, ItemKey::TrackArtistSortOrder),
         album_sort: extract_sort_text(tag, ItemKey::AlbumTitleSortOrder),
@@ -610,12 +707,25 @@ pub fn extract_album_art(file_path: &Path) -> AppResult<Option<EmbeddedPicture>>
         let picture = &pictures[displayed_picture_index(pictures)?];
         Some(EmbeddedPicture {
             data: picture.data().to_vec(),
-            mime_type: picture
-                .mime_type()
-                .map(|m| m.to_string())
-                .unwrap_or_else(|| "image/jpeg".to_string()),
+            mime_type: picture_mime_type(picture),
         })
     }))
+}
+
+/// 埋め込みの画像の種類（MIMEタイプ。配信する時の`Content-Type`・情報の表示に使う）
+///
+/// 中身で判定する。ほかのアプリが書いたタグには、`image/jpg`・`JPG`のような正しくない種類が
+/// 書かれていることがあり、そのまま使うとWebViewが表示しないため。中身で判定できない画像
+/// （JPEG・PNG以外）だけ、タグに書かれた種類を使う。
+fn picture_mime_type(picture: &Picture) -> String {
+    sniff_image_mime_type(picture.data())
+        .map(str::to_string)
+        .or_else(|| {
+            picture
+                .mime_type()
+                .map(|m| m.to_string().to_ascii_lowercase())
+        })
+        .unwrap_or_else(|| "image/jpeg".to_string())
 }
 
 /// 画像を、アルバムアートとして音楽ファイルに埋め込む
@@ -772,8 +882,52 @@ fn modify_file_tag_of_type(
         return Ok(false);
     }
 
+    mirror_primary_tag(&mut tagged_file);
     save_tagged_file(&tagged_file, file_path)?;
     Ok(true)
+}
+
+/// 既定のタグの内容を、ファイルにあるほかの書き込めるタグへ写す
+///
+/// 書き換えるのは既定のタグ（MP3・WAV・AIFFはID3v2）だけのため、写さないと、同じファイルの
+/// ほかのタグ（MP3のID3v1・APEv2、WAVのRIFF INFO、AIFFのテキストチャンク、WavPack・APEの
+/// ID3v1）が、編集する前の内容のまま残る。それらを先に読む機器では、古いタイトルなどが出る。
+/// ほかのタグは、既定のタグの項目のうち、その種類のタグに書ける項目だけで作り直す（書けない項目・
+/// そのタグにしかなかった項目はなくなる）。アーティスト・ジャンルの複数の値は、`; `でつないだ
+/// 1つの値にする（`join_multiple_values`）。画像は、そのタグにもともと画像があった場合だけ写す
+/// （MP3のAPEv2に、同じ画像をもう1つ足さない）。ID3v1は文字をLatin-1で書くため、日本語などの
+/// 文字は`?`になる。ファイルになかった種類のタグは作らない（ADR-075）。
+fn mirror_primary_tag(tagged_file: &mut TaggedFile) {
+    let primary_type = tagged_file.primary_tag_type();
+    let Some(primary) = tagged_file.primary_tag() else {
+        return;
+    };
+    let mirrored: Vec<Tag> = tagged_file
+        .tags()
+        .iter()
+        .filter(|other| {
+            other.tag_type() != primary_type
+                && tagged_file.tag_support(other.tag_type()).is_writable()
+        })
+        .map(|other| {
+            // `Tag::re_map`は、既定のタグの形式ごとの項目を捨てる時に警告のログを出すため、
+            // 項目を1つずつ移す（書けない項目は`push`が入れない）
+            let mut tag = Tag::new(other.tag_type());
+            for item in primary.items() {
+                tag.push(item.clone());
+            }
+            join_multiple_values(&mut tag);
+            if !other.pictures().is_empty() {
+                for picture in primary.pictures() {
+                    tag.push_picture(picture.clone());
+                }
+            }
+            tag
+        })
+        .collect();
+    for tag in mirrored {
+        tagged_file.insert_tag(tag);
+    }
 }
 
 /// ゲイン（dB）を、ReplayGainのタグの値にする（`-6.48 dB`）
@@ -1271,7 +1425,9 @@ mod tests {
     fn test_parse_peak() {
         assert_eq!(parse_peak("0.988769"), Some(0.988769));
         assert_eq!(parse_peak("1.2"), Some(1.2));
-        assert_eq!(parse_peak("0"), None);
+        // 無音の曲のピーク（音量の解析が書く値）
+        assert_eq!(parse_peak("0.000000"), Some(0.0));
+        assert_eq!(parse_peak("0"), Some(0.0));
         assert_eq!(parse_peak("-1"), None);
         assert_eq!(parse_peak("peak"), None);
     }
@@ -2442,5 +2598,314 @@ mod tests {
         };
 
         assert!(validate_metadata(&metadata).is_err());
+    }
+
+    /// テスト用の一時フォルダ（消すのは呼び出し側）
+    fn temp_dir() -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("muspice-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// 再生エンジンのテスト用のファイルを、一時フォルダに写す
+    fn copy_fixture(dir: &Path, name: &str) -> std::path::PathBuf {
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/playback");
+        let file = dir.join(name);
+        std::fs::copy(fixtures.join(name), &file).unwrap();
+        file
+    }
+
+    fn read_mpeg(file: &Path) -> MpegFile {
+        let mut reader = BufReader::new(File::open(file).unwrap());
+        MpegFile::read_from(&mut reader, ParseOptions::new().read_properties(false)).unwrap()
+    }
+
+    /// タイトルだけを書いた、ID3v2.3のタグとID3v1のタグを持つMP3を作る
+    fn write_mp3_with_id3v23_and_id3v1(dir: &Path) -> std::path::PathBuf {
+        use lofty::id3::v1::Id3v1Tag;
+
+        let file = copy_fixture(dir, "lame.mp3");
+        let mut mpeg = read_mpeg(&file);
+        mpeg.remove_id3v2();
+        mpeg.remove_id3v1();
+        let mut id3v2 = Id3v2Tag::new();
+        id3v2.set_title("Old Title".to_string());
+        mpeg.set_id3v2(id3v2);
+        let mut id3v1 = Id3v1Tag::new();
+        id3v1.set_title("Old Title".to_string());
+        mpeg.set_id3v1(id3v1);
+        mpeg.save_to_path(&file, WriteOptions::default().use_id3v23(true))
+            .unwrap();
+        assert_eq!(id3v2_version(&file, FileType::Mpeg), Some(Id3v2Version::V3));
+        file
+    }
+
+    /// ID3v2.3のタグは、書いた後もv2.3のまま（評価・タグ・画像・ゲインのどれを書いても）
+    #[test]
+    fn test_id3v23_tags_keep_their_version() {
+        let dir = temp_dir();
+        let file = write_mp3_with_id3v23_and_id3v1(&dir);
+
+        update_file_rating(&file, 4).unwrap();
+        assert_eq!(id3v2_version(&file, FileType::Mpeg), Some(Id3v2Version::V3));
+        update_file_metadata(
+            &file,
+            &Metadata {
+                title: Some("New Title".to_string()),
+                artist: Some("A; B".to_string()),
+                ..Default::default()
+            },
+            true,
+        )
+        .unwrap();
+        set_file_album_art(
+            &file,
+            &EmbeddedPicture {
+                data: jpeg(8, 8),
+                mime_type: "image/jpeg".to_string(),
+            },
+        )
+        .unwrap();
+        update_file_replay_gain(
+            &file,
+            &ReplayGain {
+                track_gain: Some(-6.0),
+                track_peak: Some(0.5),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(id3v2_version(&file, FileType::Mpeg), Some(Id3v2Version::V3));
+
+        // v2.3で書いた値も、読み戻せる。複数のアーティストは、`; `でつないだ1つの値で書く
+        let info = extract_all_file_info(&file).unwrap();
+        assert_eq!(info.metadata.title.as_deref(), Some("New Title"));
+        assert_eq!(info.metadata.artist.as_deref(), Some("A; B"));
+        let id3v2 = read_mpeg(&file).id3v2().cloned().unwrap();
+        let artists: Vec<String> = Tag::from(id3v2)
+            .get_strings(ItemKey::TrackArtist)
+            .map(str::to_string)
+            .collect();
+        assert_eq!(artists, ["A; B"]);
+        assert_eq!(info.rating, 4);
+        assert_eq!(info.replay_gain.track_gain, Some(-6.0));
+        assert!(extract_album_art(&file).unwrap().is_some());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// v2.3にない項目（並び順）を書く場合は、v2.4で書く（v2.3で書くと、並び順が消えるため）
+    #[test]
+    fn test_id3v23_tags_with_sort_order_are_written_as_v24() {
+        let dir = temp_dir();
+        let file = write_mp3_with_id3v23_and_id3v1(&dir);
+        let metadata = Metadata {
+            title: Some("New Title".to_string()),
+            title_sort: Some("Title, New".to_string()),
+            artist_sort: Some("Artist, The".to_string()),
+            ..Default::default()
+        };
+
+        update_file_metadata(&file, &metadata, true).unwrap();
+
+        assert_eq!(id3v2_version(&file, FileType::Mpeg), Some(Id3v2Version::V4));
+        let read = read_file_tags(&file).unwrap();
+        assert_eq!(read.title_sort.as_deref(), Some("Title, New"));
+        assert_eq!(read.artist_sort.as_deref(), Some("Artist, The"));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// ID3v2のタグがなかったファイルは、v2.4で書く
+    #[test]
+    fn test_new_id3v2_tags_are_written_as_v24() {
+        let dir = temp_dir();
+        let file = dir.join("a.wav");
+        write_test_wav(&file);
+        assert_eq!(id3v2_version(&file, FileType::Wav), None);
+
+        update_file_rating(&file, 2).unwrap();
+
+        assert_eq!(id3v2_version(&file, FileType::Wav), Some(Id3v2Version::V4));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 編集した内容は、既定のタグ（ID3v2）だけでなく、ファイルにあるほかのタグ（ID3v1）にも書く
+    #[test]
+    fn test_edits_are_mirrored_to_the_id3v1_tag() {
+        let dir = temp_dir();
+        let file = write_mp3_with_id3v23_and_id3v1(&dir);
+
+        update_file_metadata(
+            &file,
+            &Metadata {
+                title: Some("New Title".to_string()),
+                // 複数の値は、`; `でつないだ1つの値で書く（ID3v1は最初の値しか持てない）
+                artist: Some("A; B".to_string()),
+                album: Some("New Album".to_string()),
+                year: Some(2001),
+                ..Default::default()
+            },
+            true,
+        )
+        .unwrap();
+
+        let mpeg = read_mpeg(&file);
+        let id3v1 = mpeg.id3v1().expect("ID3v1のタグが残る");
+        assert_eq!(id3v1.title.as_deref(), Some("New Title"));
+        assert_eq!(id3v1.artist.as_deref(), Some("A; B"));
+        assert_eq!(id3v1.album.as_deref(), Some("New Album"));
+        assert_eq!(id3v1.year, Some(2001));
+        // ファイルになかった種類のタグ（APEv2）は作らない
+        assert!(mpeg.ape().is_none());
+
+        // 値を消した項目は、ID3v1からも消える
+        update_file_metadata(
+            &file,
+            &Metadata {
+                title: Some("New Title".to_string()),
+                ..Default::default()
+            },
+            true,
+        )
+        .unwrap();
+        let mpeg = read_mpeg(&file);
+        let id3v1 = mpeg.id3v1().unwrap();
+        assert_eq!(id3v1.title.as_deref(), Some("New Title"));
+        assert_eq!(id3v1.artist, None);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// RIFF INFOだけを持っていたWAVも、編集した内容がRIFF INFOに残る（ID3v2を作った後も）
+    #[test]
+    fn test_edits_are_mirrored_to_the_riff_info_of_a_wav() {
+        use lofty::tag::TagExt;
+
+        let dir = temp_dir();
+        let file = dir.join("a.wav");
+        write_test_wav(&file);
+        let mut info_tag = Tag::new(TagType::RiffInfo);
+        info_tag.set_title("Info Title".to_string());
+        info_tag.set_artist("Info Artist".to_string());
+        info_tag
+            .save_to_path(&file, WriteOptions::default())
+            .unwrap();
+
+        for title in ["First Edit", "Second Edit"] {
+            update_file_metadata(
+                &file,
+                &Metadata {
+                    title: Some(title.to_string()),
+                    artist: Some("Info Artist; Other".to_string()),
+                    ..Default::default()
+                },
+                true,
+            )
+            .unwrap();
+
+            let mut reader = BufReader::new(File::open(&file).unwrap());
+            let wav = WavFile::read_from(&mut reader, ParseOptions::new()).unwrap();
+            let info: Tag = wav.riff_info().cloned().expect("RIFF INFOが残る").into();
+            assert_eq!(info.title().as_deref(), Some(title));
+            let artists: Vec<&str> = info.get_strings(ItemKey::TrackArtist).collect();
+            assert_eq!(artists, ["Info Artist; Other"]);
+            assert!(wav.id3v2().is_some());
+        }
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 空のタイトル・アルバム・作曲者（Vorbisコメントの`TITLE=`など）は、タグがないものとして読む
+    #[test]
+    fn test_blank_title_album_and_composer_are_treated_as_missing() {
+        let tag = {
+            let mut tag = Tag::new(TagType::VorbisComments);
+            tag.push(TagItem::new(
+                ItemKey::TrackTitle,
+                ItemValue::Text(String::new()),
+            ));
+            tag.push(TagItem::new(
+                ItemKey::AlbumTitle,
+                ItemValue::Text("  ".to_string()),
+            ));
+            tag.push(TagItem::new(
+                ItemKey::Composer,
+                ItemValue::Text(String::new()),
+            ));
+            tag
+        };
+        let metadata = library_metadata(&tag);
+        assert_eq!(metadata.title, None);
+        assert_eq!(metadata.album, None);
+        assert_eq!(metadata.composer, None);
+
+        // ファイルに書いた空の`TITLE=`も、読み取りではタイトルなし
+        let dir = temp_dir();
+        let file = copy_fixture(&dir, "flac.flac");
+        let mut tagged_file = read_tagged_file(&file, ParseOptions::new()).unwrap();
+        let mut empty = Tag::new(TagType::VorbisComments);
+        empty.push(TagItem::new(
+            ItemKey::TrackTitle,
+            ItemValue::Text(String::new()),
+        ));
+        tagged_file.insert_tag(empty);
+        save_tagged_file(&tagged_file, &file).unwrap();
+        assert_eq!(extract_all_file_info(&file).unwrap().metadata.title, None);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// ピーク0（無音の曲）を書いた後も、ピーク0として読み戻せる（再解析で「変更あり」にならない）
+    #[test]
+    fn test_zero_peak_round_trips() {
+        let dir = temp_dir();
+        let file = copy_fixture(&dir, "flac.flac");
+        let values = ReplayGain {
+            track_gain: Some(12.0),
+            track_peak: Some(0.0),
+            album_gain: Some(12.0),
+            album_peak: Some(0.0),
+        };
+
+        let (written, changed) = update_file_replay_gain(&file, &values).unwrap();
+        assert!(changed);
+        assert_eq!(written, values);
+        // 同じ値を書き直しても、ファイルを変えない
+        assert!(!update_file_replay_gain(&file, &values).unwrap().1);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 埋め込みの画像の種類は中身で判定する（タグに`image/jpg`などと書かれていても`image/jpeg`）
+    #[test]
+    fn test_embedded_picture_type_is_sniffed_from_the_data() {
+        let picture = |data: Vec<u8>, mime_type: &str| {
+            Picture::unchecked(data)
+                .pic_type(PictureType::CoverFront)
+                .mime_type(MimeType::from_str(mime_type))
+                .build()
+        };
+        assert_eq!(
+            picture_mime_type(&picture(jpeg(4, 4), "image/jpg")),
+            "image/jpeg"
+        );
+        assert_eq!(picture_mime_type(&picture(png(4, 4), "JPG")), "image/png");
+        // 中身で判定できない画像は、タグに書かれた種類（小文字にする）
+        assert_eq!(
+            picture_mime_type(&picture(b"GIF89a".to_vec(), "IMAGE/GIF")),
+            "image/gif"
+        );
+
+        // ファイルから読んだ画像も同じ
+        let dir = temp_dir();
+        let file = copy_fixture(&dir, "lame.mp3");
+        modify_file_tag(&file, |tag| {
+            tag.push_picture(picture(jpeg(4, 4), "image/jpg"));
+        })
+        .unwrap();
+        let art = extract_album_art(&file).unwrap().unwrap();
+        assert_eq!(art.mime_type, "image/jpeg");
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
