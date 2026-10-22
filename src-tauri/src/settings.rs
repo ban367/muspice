@@ -256,21 +256,43 @@ pub fn load_settings(path: &Path) -> Settings {
     }
 }
 
-/// JSONを既定値とマージしてから設定として解釈する（ファイルにない項目は既定値になる）
+/// JSONを既定値とマージしてから設定として解釈する
+///
+/// ファイルにない項目と、読めない値の項目は既定値になる。読めない値は、項目ごとに既定値へ戻す
+/// （新しい版が保存した値（`"theme": "oled"`など）や範囲の外の値が1つあるだけで、設定の全体を
+/// 既定値に戻さない）。隠すサイドバーの項目は、知らない項目だけを除く。
 fn parse_with_defaults(json: &str) -> serde_json::Result<Settings> {
-    let mut merged = serde_json::to_value(Settings::default())?;
-    if let (Some(merged), Value::Object(stored)) =
-        (merged.as_object_mut(), serde_json::from_str::<Value>(json)?)
+    let defaults = serde_json::to_value(Settings::default())?;
+    let mut merged = defaults.clone();
+    if let (Value::Object(merged), Value::Object(stored)) =
+        (&mut merged, serde_json::from_str::<Value>(json)?)
     {
-        merged.extend(stored);
-        if let Some(items) = merged.get_mut("hiddenSidebarItems") {
-            keep_known_sidebar_items(items);
-        }
-        if let Some(template) = merged.get_mut("musicFolderTemplate") {
-            keep_valid_template(template);
+        for (key, mut value) in stored {
+            match key.as_str() {
+                "hiddenSidebarItems" => keep_known_sidebar_items(&mut value),
+                "musicFolderTemplate" => keep_valid_template(&mut value),
+                _ => {}
+            }
+            if is_readable_value(&defaults, &key, &value) {
+                merged.insert(key, value);
+            } else {
+                log::warn!("設定の{}の値を読めないため、既定値を使います", key);
+            }
         }
     }
     serde_json::from_value(merged)
+}
+
+/// 既定値の設定の1項目だけを`value`にした時に、設定として読めて、正しい値か
+///
+/// 知らない項目（新しい版の項目）は、読む時に無視されるため、読めるものとして扱う。
+fn is_readable_value(defaults: &Value, key: &str, value: &Value) -> bool {
+    let mut candidate = defaults.clone();
+    if let Value::Object(fields) = &mut candidate {
+        fields.insert(key.to_string(), value.clone());
+    }
+    serde_json::from_value::<Settings>(candidate)
+        .is_ok_and(|settings| validate_settings(&settings).is_ok())
 }
 
 /// 音楽フォルダの書式が読めなければ、既定の書式に戻す
@@ -306,14 +328,12 @@ fn keep_known_sidebar_items(items: &mut Value) {
 
 /// 設定をファイルに保存する
 ///
-/// 書き込み途中で中断してもファイルが壊れないよう、一時ファイルに書いてから置き換える。
+/// 書き込み途中で中断・停電してもファイルが壊れないよう、一時ファイルに書いてディスクへ書き出して
+/// から置き換える（`atomic_file::replace_file`）。
 pub fn write_settings(path: &Path, settings: &Settings) -> AppResult<()> {
     let json = serde_json::to_string_pretty(settings)
         .map_err(|e| AppError::Io(format!("設定の変換に失敗しました: {}", e)))?;
-    let temp_path = path.with_extension("json.tmp");
-    fs::write(&temp_path, json)
-        .map_err(|e| AppError::Io(format!("設定の保存に失敗しました: {}", e)))?;
-    fs::rename(&temp_path, path)
+    crate::atomic_file::replace_file(path, &path.with_extension("json.tmp"), json.as_bytes())
         .map_err(|e| AppError::Io(format!("設定の保存に失敗しました: {}", e)))
 }
 
@@ -653,6 +673,40 @@ mod tests {
             load_settings(&path).music_folder_template,
             DEFAULT_MUSIC_FOLDER_TEMPLATE
         );
+        fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    /// 読めない値（新しい版の選択肢・範囲の外の値）は、その項目だけを既定値に戻し、ほかの設定は読む
+    #[test]
+    fn test_unreadable_values_fall_back_per_field() {
+        let path = temp_settings_path("unreadable-values");
+        fs::write(
+            &path,
+            r##"{
+                "theme": "oled",
+                "language": "fr",
+                "volumeNormalization": "smart",
+                "startupPage": "somewhere",
+                "accentColor": "red",
+                "crossfadeSeconds": 999,
+                "gaplessPlayback": false,
+                "normalizationPreampDb": 3,
+                "futureSetting": true
+            }"##,
+        )
+        .unwrap();
+
+        let settings = load_settings(&path);
+        let defaults = Settings::default();
+        assert_eq!(settings.theme, defaults.theme);
+        assert_eq!(settings.language, defaults.language);
+        assert_eq!(settings.volume_normalization, defaults.volume_normalization);
+        assert_eq!(settings.startup_page, defaults.startup_page);
+        assert_eq!(settings.accent_color, defaults.accent_color);
+        assert_eq!(settings.crossfade_seconds, defaults.crossfade_seconds);
+        // 読める値は、そのまま使う
+        assert!(!settings.gapless_playback);
+        assert_eq!(settings.normalization_preamp_db, 3);
         fs::remove_dir_all(path.parent().unwrap()).ok();
     }
 

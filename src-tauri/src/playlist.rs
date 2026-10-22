@@ -183,7 +183,7 @@ pub fn get_playlist_name(conn: &Connection, playlist_id: &str) -> AppResult<Stri
     .ok_or_else(|| AppError::NotFound(PLAYLIST_NOT_FOUND.to_string()))
 }
 
-/// 曲を入れた状態で、プレイリストを作る（M3U・ライブラリXMLの読み込み用）
+/// 曲を入れた状態で、プレイリストを作る（M3Uの読み込み用）
 ///
 /// 同じ名前のプレイリストがある場合は、番号を付けた名前にする（`m3u::unique_playlist_name`）。
 /// 1つのトランザクションで行い、見つからない曲がある場合（`NotFound`）・途中で失敗した場合は
@@ -194,19 +194,32 @@ pub fn create_playlist_with_tracks(
     track_ids: &[String],
 ) -> AppResult<Playlist> {
     let database = database("プレイリストの作成");
+    let tx = conn.transaction().map_err(database)?;
+    let playlist = insert_playlist_with_tracks(&tx, name, track_ids)?;
+    tx.commit().map_err(database)?;
+    Ok(playlist)
+}
+
+/// `create_playlist_with_tracks`の本体（呼び出し側のトランザクションの中で行う）
+///
+/// ライブラリのXMLの取り込みは、曲の値と、すべてのプレイリストを1つのトランザクションで書く
+/// （途中で失敗した場合に、作ったプレイリストだけが残らないようにする）。
+pub fn insert_playlist_with_tracks(
+    conn: &Connection,
+    name: &str,
+    track_ids: &[String],
+) -> AppResult<Playlist> {
+    let database = database("プレイリストの作成");
     ensure_tracks_exist(conn, track_ids)?;
 
-    let tx = conn.transaction().map_err(database)?;
-    let existing: Vec<String> = tx
+    let existing: Vec<String> = conn
         .prepare("SELECT name FROM playlists")
         .and_then(|mut stmt| stmt.query_map([], |row| row.get(0))?.collect())
         .map_err(database)?;
     let name = crate::m3u::unique_playlist_name(name, &existing);
 
-    let mut playlist = create_playlist(&tx, &name)?;
-    insert_playlist_tracks(&tx, &mut playlist, track_ids).map_err(database)?;
-
-    tx.commit().map_err(database)?;
+    let mut playlist = create_playlist(conn, &name)?;
+    insert_playlist_tracks(conn, &mut playlist, track_ids).map_err(database)?;
     Ok(playlist)
 }
 

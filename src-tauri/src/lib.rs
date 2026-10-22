@@ -1,5 +1,6 @@
 mod album_art;
 mod ape_tag;
+mod atomic_file;
 mod backup;
 mod commands;
 mod db;

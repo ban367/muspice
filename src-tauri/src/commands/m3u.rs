@@ -3,7 +3,7 @@
 //! 読み書きするファイルは、Rust側で開くダイアログで選ぶ。WebViewからはパスを受け取らないため、
 //! WebViewの権限（ファイルを保存するダイアログなど）を増やさずに済む（ADR-005・ADR-032）。
 
-use super::{file_dialog, run_blocking};
+use super::{completed_save_path, file_dialog, run_blocking};
 use crate::error::{AppError, AppResult};
 use crate::m3u;
 use crate::models::{M3uExportResult, M3uImportResult};
@@ -153,13 +153,8 @@ pub async fn export_playlist_m3u(
             .into_path()
             .map_err(|e| AppError::Io(format!("保存先を扱えません: {}", e)))?;
 
-        export_playlist(
-            &state,
-            &playlist_id,
-            &with_m3u_extension(path),
-            relative_paths,
-        )
-        .map(Some)
+        let path = completed_save_path(&path, with_m3u_extension(path.clone()))?;
+        export_playlist(&state, &playlist_id, &path, relative_paths).map(Some)
     })
     .await
 }

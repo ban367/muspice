@@ -4,7 +4,7 @@
 //! lib.rsのuse文を変更不要にするため、全コマンドをここから公開する。
 
 use crate::error::{AppError, AppResult};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::{DialogExt, FileDialogBuilder};
 
@@ -162,6 +162,27 @@ fn pick_folder(dialog: FileDialogBuilder<tauri::Wry>) -> AppResult<Option<PathBu
     Ok(Some(path))
 }
 
+/// 保存のダイアログで選んだパスに拡張子を補ったパスを、保存先にする
+///
+/// ダイアログが上書きを確かめたのは、選んだパスだけ。拡張子を補ったパスに別のファイルがある場合は、
+/// 確かめずに置き換えないよう`VALIDATION`にする（選び直してもらう）。
+/// @param chosen - ダイアログで選んだパス
+/// @param completed - 拡張子を補ったパス（補う必要がなければ`chosen`と同じ）
+fn completed_save_path(chosen: &Path, completed: PathBuf) -> AppResult<PathBuf> {
+    // リンク切れのシンボリックリンクも、あるものとして扱う（たどった先へ書かない）
+    if completed != chosen && std::fs::symlink_metadata(&completed).is_ok() {
+        let name = completed
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        return Err(AppError::Validation(format!(
+            "同じ名前のファイル（{}）があります。別の名前で保存してください",
+            name
+        )));
+    }
+    Ok(completed)
+}
+
 /// 重い同期処理をブロッキング処理用のスレッドで実行する
 ///
 /// ファイルI/O・タグ解析・大量のDB書き込みをasyncコマンド内で直接行うと、
@@ -176,4 +197,33 @@ where
     tauri::async_runtime::spawn_blocking(f)
         .await
         .map_err(|e| AppError::Io(format!("バックグラウンド処理が異常終了しました: {}", e)))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::device_manifest::test_support::TempDir;
+
+    /// 拡張子を補ったパスに別のファイルがあれば、確かめずに置き換えない
+    #[test]
+    fn test_completed_save_path_does_not_overwrite_unconfirmed_files() {
+        let dir = TempDir::new();
+        let chosen = dir.path().join("list.txt");
+        let completed = dir.path().join("list.txt.m3u8");
+
+        assert_eq!(
+            completed_save_path(&chosen, completed.clone()).unwrap(),
+            completed
+        );
+        std::fs::write(&completed, "前からあるファイル").unwrap();
+        assert!(matches!(
+            completed_save_path(&chosen, completed.clone()),
+            Err(AppError::Validation(_))
+        ));
+        // ダイアログで選んだパスそのもの（上書きを確かめた）なら、そのまま
+        assert_eq!(
+            completed_save_path(&completed, completed.clone()).unwrap(),
+            completed
+        );
+    }
 }

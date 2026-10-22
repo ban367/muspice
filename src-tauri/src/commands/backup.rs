@@ -3,7 +3,7 @@
 //! 保存先・復元するファイルは、Rust側のダイアログで選ぶ（WebViewからパスを受け取らない。ADR-065）。
 //! 復元は、選んだファイルを調べて預かり（`PendingRestore`）、画面で確かめてから行う。
 
-use super::run_blocking;
+use super::{completed_save_path, run_blocking};
 use crate::backup::{
     BACKUP_EXTENSION, BackupKind, BackupMeta, BackupProblem, backups_dir, create_backup_in,
     inspect_backup, settings_json, stage_restore, write_backup,
@@ -155,7 +155,8 @@ pub async fn export_library_backup(
         let path = file
             .into_path()
             .map_err(|e| AppError::Io(format!("保存先を扱えません: {}", e)))?;
-        save_backup(&app_handle, &with_backup_extension(path)).map(Some)
+        let path = completed_save_path(&path, with_backup_extension(path.clone()))?;
+        save_backup(&app_handle, &path).map(Some)
     })
     .await
 }
