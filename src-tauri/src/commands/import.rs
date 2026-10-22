@@ -272,8 +272,9 @@ pub async fn import_pending_folders(
 /// 預かっているフォルダの取り込みをやめる（預かっていなければ、何もしない）
 #[tauri::command]
 #[specta::specta]
-pub fn cancel_pending_import(pending: tauri::State<'_, PendingImport>) {
+pub fn cancel_pending_import(pending: tauri::State<'_, PendingImport>) -> AppResult<()> {
     pending.take();
+    Ok(())
 }
 
 /// 「このアプリで開く」などで開かれ、インポートが済んだ曲を受け取る（受け取った分は、手放す）
@@ -283,8 +284,8 @@ pub fn cancel_pending_import(pending: tauri::State<'_, PendingImport>) {
 #[specta::specta]
 pub fn take_opened_files(
     opened: tauri::State<'_, crate::opened_files::OpenedFilesState>,
-) -> crate::opened_files::OpenedFiles {
-    opened.take()
+) -> AppResult<crate::opened_files::OpenedFiles> {
+    Ok(opened.take())
 }
 
 /// 取り込みを始める（ダイアログ・ドロップで選んだものの、同期処理）

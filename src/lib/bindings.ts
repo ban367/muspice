@@ -67,7 +67,7 @@ export const commands = {
 	 */
 	importPendingFolders: (mode: FolderImportMode, duplicateAction: DuplicateAction) => __TAURI_INVOKE<ImportOutcome>("import_pending_folders", { mode, duplicateAction }),
 	/**  預かっているフォルダの取り込みをやめる（預かっていなければ、何もしない） */
-	cancelPendingImport: () => __TAURI_INVOKE<void>("cancel_pending_import"),
+	cancelPendingImport: () => __TAURI_INVOKE<null>("cancel_pending_import"),
 	/**
 	 *  「このアプリで開く」などで開かれ、インポートが済んだ曲を受け取る（受け取った分は、手放す）
 	 * 
@@ -128,7 +128,7 @@ foundCount: number } |
 	 */
 	relocateLibraryFolder: (folderId: string) => __TAURI_INVOKE<RelocationResult>("relocate_library_folder", { folderId }),
 	/**  預かっている付け替え先を手放す（預かっていなければ、何もしない） */
-	cancelLibraryFolderRelocation: () => __TAURI_INVOKE<void>("cancel_library_folder_relocation"),
+	cancelLibraryFolderRelocation: () => __TAURI_INVOKE<null>("cancel_library_folder_relocation"),
 	/**
 	 *  ライブラリフォルダを再スキャンし、追加・移動・削除・変更されたファイルをライブラリに反映する
 	 * 
@@ -386,7 +386,7 @@ includesSettings: boolean } |
 	 */
 	restoreLibraryBackup: () => __TAURI_INVOKE<null>("restore_library_backup"),
 	/**  預かっている復元するファイルを手放す（預かっていなければ、何もしない） */
-	cancelLibraryRestore: () => __TAURI_INVOKE<void>("cancel_library_restore"),
+	cancelLibraryRestore: () => __TAURI_INVOKE<null>("cancel_library_restore"),
 	/**  すべてのトラックを取得 */
 	getAllTracks: () => __TAURI_INVOKE<Track[]>("get_all_tracks"),
 	/**
