@@ -46,7 +46,7 @@
 
   <p class="about-description">
     {m.about.tagline}<br />
-    Built with Tauri + Svelte
+    {m.about.builtWith}
   </p>
 
   <div class="about-links">

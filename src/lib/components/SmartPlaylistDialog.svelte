@@ -226,7 +226,7 @@
                 {/each}
               </select>
               {#if draft.op === 'between'}
-                <span class="unit">〜</span>
+                <span class="unit">{m.common.rangeSeparator}</span>
                 <select
                   class="form-input compact"
                   bind:value={draft.valueTo}
@@ -251,7 +251,7 @@
                 disabled={isSaving}
               />
               {#if draft.op === 'between'}
-                <span class="unit">〜</span>
+                <span class="unit">{m.common.rangeSeparator}</span>
                 <input
                   type="text"
                   inputmode={definition.input === 'minutes' ? 'decimal' : 'numeric'}

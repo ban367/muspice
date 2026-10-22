@@ -10,6 +10,7 @@ function plural(count: number, one: string, other: string): string {
 
 export const en: Messages = {
   common: {
+    rangeSeparator: '–',
     ok: 'OK',
     cancel: 'Cancel',
     close: 'Close',
@@ -415,7 +416,7 @@ export const en: Messages = {
     disc: 'Disc',
     /** トラック番号・ディスク番号の、番号と総数の間の文字（例: 3 / 12） */
     of: 'of',
-    compilationHint: 'An album collecting tracks by several artists',
+    compilationHint: '(an album collecting tracks by several artists)',
     compilationOn: 'Set',
     compilationOff: 'Clear',
     lyricsPlaceholder: 'Enter the lyrics (embedded in the file)',
@@ -437,7 +438,7 @@ export const en: Messages = {
       skipCount: 'Skips',
       never: 'Never played',
       kbps: (value) => `${value} kbps`,
-      hz: (value) => `${value.toLocaleString()} Hz`,
+      hz: (value) => `${value.toLocaleString('en-US')} Hz`,
       times: (count) => `${count}`,
       missing: 'The file is missing'
     }
@@ -779,7 +780,8 @@ export const en: Messages = {
   about: {
     title: 'About Muspice',
     version: (version) => `Version ${version}`,
-    tagline: 'A modern music player'
+    tagline: 'A modern music player',
+    builtWith: 'Built with Tauri + Svelte'
   },
 
   library: {

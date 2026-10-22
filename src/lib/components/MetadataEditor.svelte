@@ -312,7 +312,7 @@
               disabled={!canEdit}
             />
             {m.fields.compilation}
-            <span class="text-xs text-text-muted">（{m.metadataEditor.compilationHint}）</span>
+            <span class="text-xs text-text-muted">{m.metadataEditor.compilationHint}</span>
           </label>
         {:else}
           <div class="form-group">

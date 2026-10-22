@@ -501,11 +501,15 @@
     @apply w-9 h-9 shrink-0 rounded-sm overflow-hidden;
   }
 
-  :global(.track-title) {
+  /* 曲名・アーティスト（`MarqueeText`に渡したクラス）。ほかの画面の同じ名前のクラスに当たらないよう、
+     再生中の曲とキューの行の中に限る（限らないと、読み込んだ順で、ほかの画面の大きさに上書きされる） */
+  .now-playing-track :global(.track-title),
+  .queue-track :global(.track-title) {
     @apply text-[0.8rem] text-text-primary;
   }
 
-  :global(.track-artist) {
+  .now-playing-track :global(.track-artist),
+  .queue-track :global(.track-artist) {
     @apply text-[0.7rem] text-text-muted;
   }
 

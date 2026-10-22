@@ -153,6 +153,8 @@
   let dropTargetId = $state<string | null>(null);
   // 下へ動かしているか（落とした行の後ろに入るため、線を行の下に出す）
   let dropAfter = $state(false);
+  // 運んでいる曲のうち、一覧でいちばん上の曲の位置（ドラッグを始めた時に求める）
+  let firstMovedIndex = -1;
 
   // 見えている行だけを描画する一覧（リスト表示・グリッド表示のどちらか）
   let virtualList = $state<VirtualList<Track>>();
@@ -189,7 +191,7 @@
   );
 
   // レーティングミューテーション
-  let setRatingMutation = $derived(useSetRatingMutation());
+  const setRatingMutation = useSetRatingMutation();
 
   // ソートされたトラック
   const sortTracks = createTrackSorter();
@@ -373,6 +375,9 @@
 
     isDragging = true;
     reorderIds = canReorder ? trackIds : null;
+    // 運ぶ曲の位置は、始めた時に求めておく（行の上を通るたびに、一覧を探さない）
+    firstMovedIndex =
+      canReorder && sortedTracks ? sortedTracks.findIndex((t) => trackIds.includes(t.id)) : -1;
   }
 
   function handleDragEnd() {
@@ -382,14 +387,12 @@
   }
 
   /** 並べ替え: この一覧から運んでいる曲を、行の上へ持ってきた */
-  function handleRowDragOver(event: DragEvent, track: Track) {
+  function handleRowDragOver(event: DragEvent, track: Track, index: number) {
     if (reorderIds === null) return;
     event.preventDefault();
     if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
     dropTargetId = reorderIds.includes(track.id) ? null : track.id;
-    const indexOf = (id: string) => sortedTracks?.findIndex((t) => t.id === id) ?? -1;
-    const firstMoved = Math.min(...reorderIds.map(indexOf).filter((index) => index >= 0));
-    dropAfter = firstMoved < indexOf(track.id);
+    dropAfter = firstMovedIndex < index;
   }
 
   /** 並べ替え: 運んでいる曲を、落とした行の位置へ動かす */
@@ -565,7 +568,7 @@
               draggable="true"
               ondragstart={(e) => handleDragStart(e, track)}
               ondragend={handleDragEnd}
-              ondragover={(e) => handleRowDragOver(e, track)}
+              ondragover={(e) => handleRowDragOver(e, track, index)}
               ondrop={(e) => handleRowDrop(e, track)}
               onclick={(e) => handleTrackClick(track.id, e)}
               ondblclick={() => playFromIndex(index)}

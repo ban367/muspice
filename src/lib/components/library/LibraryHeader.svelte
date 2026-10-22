@@ -44,26 +44,15 @@
     actions
   }: Props = $props();
 
-  // 内部検索状態
-  let internalSearchTerm = $state('');
-
   // メタデータ再読み込み（成功時にキャッシュを無効化し、失敗はトーストで通知する）
   const refreshMutation = useRefreshLibraryMetadataMutation();
 
-  // 外部からの値で同期（propsを直接参照するのではなくクロージャで参照）
-  $effect(() => {
-    const currentSearchTerm = searchTerm;
-    internalSearchTerm = currentSearchTerm;
-  });
-
+  // 検索語は、呼び出し側が持つ（入力のたびに`onSearchInput`で更新し、`searchTerm`で返してもらう）
   function handleInput(event: Event) {
-    const target = event.target as HTMLInputElement;
-    internalSearchTerm = target.value;
-    onSearchInput?.(target.value);
+    onSearchInput?.((event.target as HTMLInputElement).value);
   }
 
   function handleClear() {
-    internalSearchTerm = '';
     onSearchClear?.();
   }
 
@@ -206,11 +195,11 @@
       <input
         type="text"
         placeholder={searchPlaceholder ?? m.library.search}
-        value={internalSearchTerm}
+        value={searchTerm}
         oninput={handleInput}
         class="search-input"
       />
-      {#if internalSearchTerm}
+      {#if searchTerm}
         <button onclick={handleClear} class="search-clear" aria-label={m.library.clearSearch}
           >✕</button
         >
