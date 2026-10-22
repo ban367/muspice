@@ -623,7 +623,14 @@ describe('トラック', () => {
 
     expect(tracks.length).toBeGreaterThan(0);
     expect(tracks.every((track) => track.artist === 'The Voltage')).toBe(true);
-    expect(await commands.searchTracks(' ;" ')).toEqual([]);
+    expect(await commands.searchTracks('   ')).toEqual([]);
+  });
+
+  it('検索は記号を取り除かず、文字として探す', async () => {
+    // 記号を取り除くと「voltage」になり、The Voltageの曲に一致してしまう
+    expect(await commands.searchTracks("voltage'")).toEqual([]);
+    expect(await commands.searchTracks('"voltage"')).toEqual([]);
+    expect((await commands.searchTracks('voltage')).length).toBeGreaterThan(0);
   });
 
   it('検索は語の途中に一致し、全角と半角・ひらがなとカタカナを同じとみなす', async () => {

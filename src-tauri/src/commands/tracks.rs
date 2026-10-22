@@ -5,7 +5,7 @@ use crate::error::{AppError, AppResult};
 use crate::library::{DeleteResult, delete_tracks, delete_tracks_with_files, discard_track_file};
 use crate::models::{AlbumGroup, AlbumSummary, ArtistSummary, GenreSummary, Track};
 use crate::state::AppState;
-use crate::validation::{sanitize_search_query, validate_track_id};
+use crate::validation::validate_track_id;
 use tauri::{AppHandle, Manager, State};
 
 /// フィルタオプション（repository::FilterOptionsの再エクスポート）
@@ -19,16 +19,17 @@ pub async fn get_all_tracks(state: State<'_, AppState>) -> AppResult<Vec<Track>>
 }
 
 /// トラックを検索（部分一致。大文字と小文字・全角と半角・ひらがなとカタカナを同じとみなす）
+///
+/// 検索語の記号（`'`・`"`・`%`など）は取り除かず、文字として探す（`Don't`のような曲名も探せる）。
+/// 値はプレースホルダーで渡すため、SQLとして解釈されることはない（`repository::search_tracks_by_query`）。
 #[tauri::command]
 #[specta::specta]
 pub async fn search_tracks(query: String, state: State<'_, AppState>) -> AppResult<Vec<Track>> {
-    // 検索クエリをサニタイズ
-    let sanitized = sanitize_search_query(&query);
-    if sanitized.is_empty() {
+    if query.trim().is_empty() {
         return Ok(Vec::new());
     }
 
-    state.with_db(|db| crate::repository::search_tracks_by_query(db, &sanitized))
+    state.with_db(|db| crate::repository::search_tracks_by_query(db, &query))
 }
 
 /// トラックをフィルタリング

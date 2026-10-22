@@ -8,7 +8,6 @@
 -->
 <script lang="ts">
   import { useTracksQuery, useSearchQuery } from '#lib/queries/tracks.js';
-  import { sanitizeSearchQuery } from '#lib/utils/validation.js';
   import TrackList from '#lib/components/library/TrackList.svelte';
   import LibraryHeader from '#lib/components/library/LibraryHeader.svelte';
   import ColumnBrowser from '#lib/components/library/ColumnBrowser.svelte';
@@ -70,7 +69,8 @@
     }
 
     debounceTimer = setTimeout(() => {
-      debouncedSearchTerm = sanitizeSearchQuery(searchTerm);
+      // 記号は取り除かない（`Don't`のような曲名も探せる。値はRust側がプレースホルダーで渡す）
+      debouncedSearchTerm = searchTerm.trim();
     }, 300);
   }
 

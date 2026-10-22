@@ -432,15 +432,6 @@ function validateMetadataInput(metadata: Metadata): void {
   }
 }
 
-function sanitizeSearchQuery(query: string): string {
-  return query
-    .replace(/[;'"\\]/g, '')
-    .replaceAll('--', '')
-    .replaceAll('/*', '')
-    .replaceAll('*/', '')
-    .trim();
-}
-
 // ---- 並び替え・グループ化（src-tauri/src/repository.rsに対応） ----
 
 type SortKey = string | number | null;
@@ -2137,7 +2128,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     // 実装と同じく、空白で区切った語をすべて含む曲を返す（途中の一致。大文字と小文字・
     // 全角と半角・ひらがなとカタカナを同じとみなす）
     searchTracks: (query) => {
-      const terms = searchTerms(sanitizeSearchQuery(query));
+      const terms = searchTerms(query);
       if (terms.length === 0) return [];
       return tracksWhere((track) =>
         matchesSearchTerms(
