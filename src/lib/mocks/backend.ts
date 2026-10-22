@@ -7,6 +7,7 @@
  *
  * ハンドラ表の型は`bindings.ts`の`commands`から導出しているため、Rust側でコマンドが
  * 追加・変更されてバインディングが再生成されると、ここが型エラーになり追随が必要になる。
+ * 送るイベントも、名前（`events`のキー）と内容の型を`bindings.ts`の`events`から導出している。
  */
 import {
   DEFAULT_ACCENT_COLOR,
@@ -15,7 +16,8 @@ import {
   LIBRARY_SCAN_INTERVALS,
   MAX_CROSSFADE_SECONDS,
   MAX_NORMALIZATION_PREAMP_DB,
-  type commands
+  type commands,
+  type events
 } from '#lib/bindings.js';
 import type {
   AlbumArtInfo,
@@ -82,6 +84,39 @@ import { hasValue, listedArtists, splitValues, VALUE_SEPARATOR } from '#lib/util
 
 type Commands = typeof commands;
 type CommandName = keyof Commands;
+
+type Events = typeof events;
+/** バックエンドが送るイベント（`bindings.ts`の`events`のキー） */
+export type MockEventName = keyof Events;
+/** イベントの内容（`events.xxx.listen()`のコールバックが受け取る`payload`の型） */
+export type MockEventPayload<K extends MockEventName> = Parameters<
+  Parameters<Events[K]['listen']>[0]
+>[0]['payload'];
+
+/**
+ * イベントの、IPCで送る名前（`bindings.ts`の`makeEvent`に渡している名前と同じ）
+ *
+ * `satisfies`で、`events`のすべてのキーがあることを確かめる（名前が合っているかは、テストで確かめる）。
+ */
+export const MOCK_EVENT_NAMES = {
+  convertProgress: 'convert-progress',
+  deviceSyncProgress: 'device-sync-progress',
+  importFilesRequested: 'import-files-requested',
+  importProgress: 'import-progress',
+  libraryChanged: 'library-changed',
+  libraryScanProgress: 'library-scan-progress',
+  loudnessScanFinished: 'loudness-scan-finished',
+  loudnessScanProgress: 'loudness-scan-progress',
+  openImportDialog: 'open-import-dialog',
+  organizeProgress: 'organize-progress',
+  playbackControl: 'playback-control',
+  playbackEvent: 'playback-event',
+  settingsChanged: 'settings-changed',
+  showAboutDialog: 'show-about-dialog',
+  toggleMiniPlayer: 'toggle-mini-player',
+  toggleSidebar: 'toggle-sidebar',
+  tracksOpened: 'tracks-opened'
+} as const satisfies Record<MockEventName, string>;
 type CommandResult<K extends CommandName> = Awaited<ReturnType<Commands[K]>>;
 
 /** `bindings.ts`の全コマンドを、同じ引数・戻り値で実装するハンドラ表 */
@@ -92,8 +127,13 @@ type MockCommandHandlers = {
 };
 
 export interface MockBackendOptions {
-  /** バックエンドからのイベント送信（`import-progress`など） */
-  emit: (event: string, payload: unknown) => void;
+  /**
+   * バックエンドからのイベント送信（`importProgress`など。IPCで送る名前は`MOCK_EVENT_NAMES`）
+   *
+   * 名前と内容は`bindings.ts`の`events`の型で決まるため、Rust側でイベントの名前・項目を変えると、
+   * ここが型エラーになる。
+   */
+  emit: <K extends MockEventName>(event: K, payload: MockEventPayload<K>) => void;
   /** インポート進捗を目視できるようにするための待機。テストでは即時解決に差し替える */
   sleep?: (ms: number) => Promise<void>;
   /** フィクスチャに加えて生成するトラックの数（数万曲のライブラリでの動作確認用） */
@@ -273,6 +313,8 @@ const SYSTEM_MUSIC_FOLDER = '/Users/demo/Music';
 const TEMPLATE_EXAMPLE_COUNT = 5;
 /** インポートの1ファイルあたりの処理時間（進捗表示の確認用） */
 const IMPORT_STEP_MS = 150;
+/** 再スキャン・場所の付け替えで、読み込んだことにするファイルの数（進捗表示の確認用） */
+const RESCAN_PROGRESS_STEPS = 5;
 /** ファイルの整理の1曲あたりの処理時間（進捗表示・中止の確認用） */
 const ORGANIZE_STEP_MS = 200;
 const DEFAULT_STATS_LIMIT = 50;
@@ -700,7 +742,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
 
   // 再生エンジン（音は鳴らさず、再生位置と曲の切り替わりを時計に合わせて進める）
   const playbackEngine = createMockPlaybackEngine({
-    emit: (event) => options.emit('playback-event', event),
+    emit: (event) => options.emit('playbackEvent', event),
     crossfadeSeconds: () => settings.crossfadeSeconds,
     durationOf: (trackId) => {
       validateTrackId(trackId);
@@ -916,7 +958,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       track.filePath = move.to;
       track.fileName = move.to.slice(move.to.lastIndexOf('/') + 1);
     }
-    if (moves.length > 0) options.emit('library-changed', null);
+    if (moves.length > 0) options.emit('libraryChanged', null);
     return {
       movedCount: moves.length,
       notMovedCount: entries.filter(
@@ -1128,7 +1170,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       markMusicFolder(registerLibraryFolder(path)!);
       change = { kind: 'set', path, imported };
     }
-    options.emit('library-changed', null);
+    options.emit('libraryChanged', null);
     return change;
   }
 
@@ -1194,7 +1236,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
 
     for (const [index, fileName] of fileNames.entries()) {
       const filePath = `${folderPrefix(folder)}${fileName}`;
-      options.emit('import-progress', {
+      options.emit('importProgress', {
         phase: 'reading',
         current: index + 1,
         total: fileNames.length,
@@ -1391,7 +1433,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       if (copied.kind !== 'imported') return { outcome: copied, placed };
       result = copied.result;
     }
-    options.emit('library-changed', null);
+    options.emit('libraryChanged', null);
     return { outcome: { kind: 'imported', result }, placed };
   }
 
@@ -1429,7 +1471,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       return false;
     });
     for (const [index, { folder, fileName }] of toCopy.entries()) {
-      options.emit('import-progress', {
+      options.emit('importProgress', {
         phase: 'reading',
         current: index + 1,
         total: toCopy.length,
@@ -1483,7 +1525,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       mergeImportResult(result, await importAudioFiles(folder, fileNames, duplicateAction));
     }
     for (const [index, { track, target }] of copies.entries()) {
-      options.emit('import-progress', {
+      options.emit('importProgress', {
         phase: 'copying',
         current: index + 1,
         total: copies.length,
@@ -1539,6 +1581,22 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     path === folder || path.startsWith(folderPrefix(folder));
   const tracksUnder = (folder: string) =>
     tracks.filter((track) => track.filePath.startsWith(folderPrefix(folder)));
+
+  /**
+   * 再スキャンの進み具合を送る（実装は、追加・変更のあったファイルを読むたびに送る。モックは、
+   * フォルダの最初の数曲を読んだことにして、進捗の表示を確かめられるようにする）
+   */
+  async function sendRescanProgress(folder: string): Promise<void> {
+    const files = tracksUnder(folder).slice(0, RESCAN_PROGRESS_STEPS);
+    for (const [index, track] of files.entries()) {
+      options.emit('libraryScanProgress', {
+        current: index + 1,
+        total: files.length,
+        currentFile: track.fileName
+      });
+      await sleep(IMPORT_STEP_MS);
+    }
+  }
 
   /**
    * 選んだ曲（選んだ順）の、変換の計画（Rustの`transcode::plan`）
@@ -1681,7 +1739,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
           }
         }
         result.convertedCount++;
-        options.emit('convert-progress', {
+        options.emit('convertProgress', {
           current: result.convertedCount,
           total: conversions.length,
           currentFile: sourceName
@@ -1691,7 +1749,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     } finally {
       conversionJob.running = false;
     }
-    if (libraryChanged) options.emit('library-changed', null);
+    if (libraryChanged) options.emit('libraryChanged', null);
     return result;
   }
 
@@ -1749,7 +1807,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
           if (loudnessScan.cancelled) break;
           await sleep(LOUDNESS_SCAN_STEP_MS);
           loudnessScan.current++;
-          options.emit('loudness-scan-progress', {
+          options.emit('loudnessScanProgress', {
             current: loudnessScan.current,
             total: loudnessScan.total,
             currentFile: track.fileName
@@ -1778,8 +1836,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     } finally {
       loudnessScan.running = false;
     }
-    if (result.writtenCount > 0) options.emit('library-changed', null);
-    options.emit('loudness-scan-finished', result);
+    if (result.writtenCount > 0) options.emit('libraryChanged', null);
+    options.emit('loudnessScanFinished', result);
     return result;
   }
 
@@ -2064,7 +2122,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       let copiedCount = 0;
       let bytesDone = 0;
       const progress = (current: number, currentFile: string) =>
-        options.emit('device-sync-progress', {
+        options.emit('deviceSyncProgress', {
           deviceId,
           current,
           total: toCopy.length,
@@ -2310,7 +2368,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
           if (organizeCancelled) break;
           const track = tracks.find((t) => t.id === move.trackId);
           if (!track) continue;
-          options.emit('organize-progress', {
+          options.emit('organizeProgress', {
             current: index + 1,
             total: moves.length,
             currentFile: track.fileName
@@ -2324,7 +2382,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       } finally {
         isOrganizing = false;
       }
-      if (movedCount > 0) options.emit('library-changed', null);
+      if (movedCount > 0) options.emit('libraryChanged', null);
       return {
         movedCount,
         skippedCount: entries.filter(
@@ -2774,7 +2832,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       }
       parseOrganizeTemplate(next.musicFolderTemplate);
       settings = { ...next };
-      options.emit('settings-changed', settings);
+      options.emit('settingsChanged', settings);
       return null;
     },
     openProjectPage: () => {
@@ -2880,7 +2938,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       const removed = removeTracks(
         tracks.filter((track) => track.isMissing).map((track) => track.id)
       );
-      if (removed > 0) options.emit('library-changed', null);
+      if (removed > 0) options.emit('libraryChanged', null);
       return removed;
     },
     // 音楽フォルダのライブラリフォルダを削除すると、音楽フォルダは未設定に戻る
@@ -2890,7 +2948,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         ? removeTracks(tracksUnder(folder.path).map((track) => track.id))
         : 0;
       libraryFolders = libraryFolders.filter((f) => f.id !== folderId);
-      if (removed > 0 || folder.isMusicFolder) options.emit('library-changed', null);
+      if (removed > 0 || folder.isMusicFolder) options.emit('libraryChanged', null);
       return removed;
     },
     // 実装はRust側のダイアログで選ぶ。モックは`setRelocationFolder`のフォルダを選んだことにする
@@ -2912,7 +2970,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       };
     },
     // 実ファイルは存在しないため、付け替えた後の再スキャンは「変更なし」として扱う
-    relocateLibraryFolder: (folderId) => {
+    relocateLibraryFolder: async (folderId) => {
       const folder = findLibraryFolder(folderId);
       const held = pendingRelocation;
       pendingRelocation = null;
@@ -2926,8 +2984,10 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       for (const track of moved) track.filePath = relocatedPath(track, folder.path, held.path);
       folder.path = held.path;
       folder.exists = true;
+      // 実装と同じく、付け替えた後に新しい場所を再スキャンする
+      await sendRescanProgress(folder.path);
       folder.lastScannedAt = now();
-      options.emit('library-changed', null);
+      options.emit('libraryChanged', null);
       return { path: held.path, relocatedCount: moved.length, rescan: unchangedRescanResult() };
     },
     cancelLibraryFolderRelocation: () => {
@@ -2981,7 +3041,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     setMusicFolder: (source) => setMusicFolder(source),
     clearMusicFolder: () => {
       for (const folder of libraryFolders) folder.isMusicFolder = false;
-      options.emit('library-changed', null);
+      options.emit('libraryChanged', null);
       return null;
     },
     previewMusicFolderTemplate: (template) => previewMusicFolderTemplate(template),
@@ -3011,7 +3071,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       const removed = removeTracks(
         tracksInExclusion(folder, exclusion.path).map((track) => track.id)
       );
-      if (removed > 0) options.emit('library-changed', null);
+      if (removed > 0) options.emit('libraryChanged', null);
       return removed;
     },
     // 実ファイルは存在しないため、再スキャンは「変更なし」として扱う
@@ -3023,7 +3083,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       return unchangedRescanResult();
     },
     // 実ファイルは存在しないため、見つかるフォルダは「変更なし」として扱う
-    rescanLibraryFolder: (folderId) => {
+    rescanLibraryFolder: async (folderId) => {
       const folder = findLibraryFolder(folderId);
       if (!folder.exists) {
         fail(
@@ -3031,6 +3091,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
           `フォルダが見つかりません: ${folder.path}（外付けドライブなどが接続されているか確認してください）`
         );
       }
+      await sendRescanProgress(folder.path);
       folder.lastScannedAt = now();
       return unchangedRescanResult();
     },
@@ -3069,7 +3130,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         );
         playlistCount = 1;
       }
-      options.emit('library-changed', null);
+      options.emit('libraryChanged', null);
       return {
         fileName: 'iTunes Music Library.xml',
         trackCount: targets.length + 2,
@@ -3082,7 +3143,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       };
     },
     writeLibraryMetadataToFiles: () => {
-      options.emit('library-changed', null);
+      options.emit('libraryChanged', null);
       return {
         writtenCount: 0,
         unchangedCount: tracks.length,
@@ -3210,7 +3271,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
           tracks: [...openedFiles.tracks, ...opened],
           errors: [...openedFiles.errors, ...errors]
         };
-        options.emit('tracks-opened', null);
+        options.emit('tracksOpened', null);
       })();
     },
     addDuplicateTracks: () => {
@@ -3250,7 +3311,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       // 同じ曲の写しが2つ（整理すると、同じ移動先になる）
       copy(neonRain, `${downloads}/a/neon.mp3`, { format: 'mp3', bitrate: 320 });
       copy(neonRain, `${downloads}/b/neon.mp3`, { format: 'mp3', bitrate: 128 });
-      options.emit('library-changed', null);
+      options.emit('libraryChanged', null);
     },
     setExclusionFolder: (path) => {
       exclusionFolder = path;

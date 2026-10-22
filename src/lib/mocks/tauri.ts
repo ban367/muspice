@@ -23,6 +23,7 @@ import type { NowPlayingUpdate } from '#lib/types/models.js';
 import tauriConfig from '../../../src-tauri/tauri.conf.json';
 import {
   createMockBackend,
+  MOCK_EVENT_NAMES,
   type MockAlbumArtPickMode,
   type MockFileImportMode,
   type MockM3uImportMode
@@ -141,7 +142,8 @@ export function setupTauriMock(): void {
   }
 
   const backend = createMockBackend({
-    emit,
+    // バックエンドは`events`のキーで送る。IPCでは、`bindings.ts`と同じ名前（ケバブケース）で届ける
+    emit: (event, payload) => emit(MOCK_EVENT_NAMES[event], payload),
     extraTrackCount: requestedExtraTrackCount(),
     // 再生状態は、再読み込みの後の復元を確認できるよう、タブを閉じるまで保持する
     storage: sessionStorage

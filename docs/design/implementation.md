@@ -430,7 +430,7 @@ Tauriのウィンドウ（macOSではWKWebView）はブラウザ自動化ツー�
 - 起動: `npm run dev:mock`（Viteの`mock`モード・ポート1430）。Claude Codeでは`.claude/launch.json`の`web-mock`でプレビューを起動する
 - 仕組み: `src/hooks.client.ts`が`mock`モードのときだけ`#lib/mocks/tauri`を読み込み、`@tauri-apps/api/mocks`で`window.__TAURI_INTERNALS__`を差し替える。`tauri dev`・本番ビルドではバンドルに含まれない
 - `src/lib/mocks/`の構成:
-  - `backend.ts`: `commands`の全コマンドをメモリ上で再現するバックエンド。ハンドラ表の型を`bindings.ts`から導出しているため、Rust側でコマンドを追加・変更したら型エラーに従ってここも更新する
+  - `backend.ts`: `commands`の全コマンドをメモリ上で再現するバックエンド。ハンドラ表の型を`bindings.ts`から導出しているため、Rust側でコマンドを追加・変更したら型エラーに従ってここも更新する。送るイベントも、名前（`events`のキー。`importProgress`など）と内容の型を`bindings.ts`の`events`から導出しているため、Rust側でイベントの名前・項目を変えると型エラーになる（IPCで送る名前は`MOCK_EVENT_NAMES`。`bindings.ts`と同じかはテストで確かめる）。進み具合のイベント（インポート・再スキャン・場所の付け替え・変換・音量の解析・ファイルの整理・デバイスの同期）は、待ち時間を挟んで送るため、進捗の表示を確かめられる
   - `fixtures.ts`: 初期データ。状態はメモリ上のみで、リロードすると初期状態に戻る
   - `media.ts`: アルバムアート（SVGのdata URL）の生成。`albumart`プロトコルの代わりに`convertFileSrc(id, 'albumart')`がdata URLを返す
   - `playbackEngine.ts`: 再生エンジンのコマンドと通知の再現。音は鳴らさず、時計に合わせて再生位置・曲の切り替わり（ギャップレス再生・クロスフェード）・曲の終わりを進める

@@ -1,8 +1,15 @@
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { commands } from '#lib/bindings.js';
+import { commands, events as bindingEvents } from '#lib/bindings.js';
 import type { ConvertOptions, SmartRules } from '#lib/types/models.js';
-import { createMockBackend, toCommandName, type MockBackend } from './backend';
+import {
+  createMockBackend,
+  MOCK_EVENT_NAMES,
+  toCommandName,
+  type MockBackend,
+  type MockBackendOptions,
+  type MockEventName
+} from './backend';
 import { mockPlaylistId, mockTrackId } from './fixtures';
 
 /** バックエンドから送信されたイベント */
@@ -14,7 +21,7 @@ beforeEach(() => {
   vi.stubGlobal('window', {});
   events = [];
   backend = createMockBackend({
-    emit: (event, payload) => events.push({ event, payload }),
+    emit: (event, payload) => events.push({ event: MOCK_EVENT_NAMES[event], payload }),
     sleep: async () => {}
   });
   mockIPC((cmd, payload) => backend.invoke(cmd, payload as Record<string, unknown>));
@@ -164,8 +171,8 @@ describe('形式の変換', () => {
     const tracks = (await commands.getAllTracks()).filter((t) => !t.isMissing).slice(0, 3);
     backend = createMockBackend({
       emit: (event, payload) => {
-        events.push({ event, payload });
-        if (event === 'convert-progress') void commands.cancelConversion();
+        events.push({ event: MOCK_EVENT_NAMES[event], payload });
+        if (event === 'convertProgress') void commands.cancelConversion();
       },
       sleep: async () => {}
     });
@@ -273,8 +280,8 @@ describe('音量の解析', () => {
     // 1曲目を読み終わった時点で中断する
     backend = createMockBackend({
       emit: (event, payload) => {
-        events.push({ event, payload });
-        if (event === 'loudness-scan-progress') void commands.cancelLoudnessScan();
+        events.push({ event: MOCK_EVENT_NAMES[event], payload });
+        if (event === 'loudnessScanProgress') void commands.cancelLoudnessScan();
       },
       sleep: async () => {}
     });
@@ -459,7 +466,7 @@ describe('音楽フォルダへ集める', () => {
       release = resolve;
     });
     backend = createMockBackend({
-      emit: (event, payload) => events.push({ event, payload }),
+      emit: (event, payload) => events.push({ event: MOCK_EVENT_NAMES[event], payload }),
       sleep: (ms) => (ms === 200 ? gate : Promise.resolve())
     });
     const backup = await importFromBackup();
@@ -2623,5 +2630,48 @@ describe('再生状態の保存と復元', () => {
     await expect(
       commands.savePlaybackState(cursor, { trackIds: ['x'], originalTrackIds: null })
     ).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+});
+
+describe('イベント', () => {
+  it('名前と内容は、bindings.tsのeventsの型で拘束する', () => {
+    const emit: MockBackendOptions['emit'] = () => {};
+    // @ts-expect-error bindings.tsにないイベント
+    emit('unknownEvent', null);
+    // @ts-expect-error 内容の項目が足りない
+    emit('importProgress', { phase: 'reading' });
+    // @ts-expect-error 内容のないイベントに、内容を渡す
+    emit('libraryChanged', { changed: true });
+    emit('libraryChanged', null);
+    emit('libraryScanProgress', { current: 1, total: 2, currentFile: 'a.mp3' });
+  });
+
+  it('IPCで送る名前は、bindings.tsのeventsが購読する名前と同じ', async () => {
+    // 購読のコールバックのIDを作るため、`crypto`も置く
+    vi.stubGlobal('window', { crypto: globalThis.crypto });
+    const listened: string[] = [];
+    mockIPC((cmd, payload) => {
+      if (cmd === 'plugin:event|listen') listened.push((payload as { event: string }).event);
+      return 1;
+    });
+    const names = Object.keys(MOCK_EVENT_NAMES) as MockEventName[];
+    expect(names.sort()).toEqual(Object.keys(bindingEvents).sort());
+    for (const name of names) await bindingEvents[name].listen(() => {});
+
+    expect(listened).toEqual(names.map((name) => MOCK_EVENT_NAMES[name]));
+  });
+
+  it('再スキャン・場所の付け替えは、読み込みの進み具合を送る', async () => {
+    const { folders } = await commands.getLibraryFolders();
+    const folder = folders.find((candidate) => candidate.exists && candidate.trackCount > 0)!;
+    const progress = () =>
+      events.filter((e) => e.event === 'library-scan-progress').map((e) => e.payload);
+
+    await commands.rescanLibraryFolder(folder.id);
+
+    const sent = progress() as { current: number; total: number; currentFile: string }[];
+    expect(sent.length).toBeGreaterThan(0);
+    expect(sent.map((p) => p.current)).toEqual(sent.map((_, index) => index + 1));
+    expect(sent.every((p) => p.total === sent.length && p.currentFile !== '')).toBe(true);
   });
 });
