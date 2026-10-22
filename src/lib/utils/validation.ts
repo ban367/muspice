@@ -1,24 +1,9 @@
 /**
- * 入力バリデーションとサニタイゼーションユーティリティ
+ * 入力バリデーションユーティリティ
  *
  * エラーの文言は表示の言語に合わせる。
  */
 import { m } from '#lib/i18n/i18n.svelte.js';
-
-/**
- * 検索クエリをサニタイズ（SQLインジェクション対策）
- */
-export function sanitizeSearchQuery(query: string): string {
-  if (!query) return '';
-
-  // 危険な文字を除去
-  return query
-    .replace(/[;'"\\]/g, '') // セミコロン、クォート、バックスラッシュを除去
-    .replace(/--/g, '') // SQLコメントを除去
-    .replace(/\/\*/g, '') // マルチラインコメント開始を除去
-    .replace(/\*\//g, '') // マルチラインコメント終了を除去
-    .trim();
-}
 
 /**
  * プレイリスト名をバリデーション

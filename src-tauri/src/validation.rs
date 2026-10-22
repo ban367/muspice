@@ -75,18 +75,6 @@ pub fn validate_playlist_description(description: &str) -> AppResult<()> {
     Ok(())
 }
 
-/// 検索クエリをサニタイズ（SQLインジェクション対策）
-pub fn sanitize_search_query(query: &str) -> String {
-    // 危険な文字を除去
-    query
-        .replace([';', '\'', '"', '\\'], "")
-        .replace("--", "")
-        .replace("/*", "")
-        .replace("*/", "")
-        .trim()
-        .to_string()
-}
-
 /// トラックIDをバリデーション（UUID形式）
 pub fn validate_track_id(id: &str) -> AppResult<()> {
     if id.is_empty() {
@@ -201,16 +189,6 @@ mod tests {
         assert!(validate_playlist_description(&"あ".repeat(1000)).is_ok());
         assert!(validate_playlist_description(&"あ".repeat(1001)).is_err());
         assert!(validate_playlist_description("a\0b").is_err());
-    }
-
-    #[test]
-    fn test_sanitize_search_query() {
-        assert_eq!(sanitize_search_query("normal query"), "normal query");
-        assert_eq!(
-            sanitize_search_query("query'; DROP TABLE--"),
-            "query DROP TABLE"
-        );
-        assert_eq!(sanitize_search_query("query/*comment*/"), "querycomment");
     }
 
     #[test]

@@ -389,7 +389,12 @@ includesSettings: boolean } |
 	cancelLibraryRestore: () => __TAURI_INVOKE<void>("cancel_library_restore"),
 	/**  すべてのトラックを取得 */
 	getAllTracks: () => __TAURI_INVOKE<Track[]>("get_all_tracks"),
-	/**  トラックを検索（部分一致。大文字と小文字・全角と半角・ひらがなとカタカナを同じとみなす） */
+	/**
+	 *  トラックを検索（部分一致。大文字と小文字・全角と半角・ひらがなとカタカナを同じとみなす）
+	 * 
+	 *  検索語の記号（`'`・`"`・`%`など）は取り除かず、文字として探す（`Don't`のような曲名も探せる）。
+	 *  値はプレースホルダーで渡すため、SQLとして解釈されることはない（`repository::search_tracks_by_query`）。
+	 */
 	searchTracks: (query: string) => __TAURI_INVOKE<Track[]>("search_tracks", { query }),
 	/**  トラックをフィルタリング */
 	filterTracks: (filters: FilterOptions) => __TAURI_INVOKE<Track[]>("filter_tracks", { filters }),

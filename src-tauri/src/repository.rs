@@ -763,7 +763,8 @@ pub fn find_genre_summaries(conn: &Connection) -> AppResult<Vec<GenreSummary>> {
         }
     }
 
-    genres.sort_by_cached_key(|a| a.name.to_lowercase());
+    // アルバム・アーティストの一覧と同じく、正規化した名前の順にする
+    genres.sort_by_cached_key(|a| sort_key(None, &a.name));
     Ok(genres)
 }
 
@@ -2205,6 +2206,48 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn test_search_finds_titles_with_apostrophes_and_quotes() {
+        let conn = setup_test_db();
+        insert_test_track(&conn, "t1", "Don't Stop Me Now", "Queen", "Jazz", "ロック");
+        insert_test_track(
+            &conn,
+            "t2",
+            "Dont Panic",
+            "Coldplay",
+            "Parachutes",
+            "ロック",
+        );
+        insert_test_track(&conn, "t3", "\"Heroes\"", "David Bowie", "Heroes", "ロック");
+
+        // アポストロフィを含む語（3文字以上は索引、3文字未満は走査）
+        assert_eq!(
+            track_ids(&search_tracks_by_query(&conn, "don't").unwrap()),
+            ["t1"]
+        );
+        assert_eq!(
+            track_ids(&search_tracks_by_query(&conn, "n'").unwrap()),
+            ["t1"]
+        );
+        // 引用符を含む語
+        assert_eq!(
+            track_ids(&search_tracks_by_query(&conn, "\"heroes\"").unwrap()),
+            ["t3"]
+        );
+        // 記号を取り除かないため、記号のない曲名とは区別される
+        assert_eq!(
+            track_ids(&search_tracks_by_query(&conn, "dont").unwrap()),
+            ["t2"]
+        );
+        // SQLの記号も、文字として探す（どの曲にも一致せず、表も変わらない）
+        assert!(
+            search_tracks_by_query(&conn, "'; DROP TABLE tracks; --")
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(find_all_tracks(&conn).unwrap().len(), 3);
     }
 
     #[test]
@@ -3678,6 +3721,24 @@ mod tests {
         let tracks = find_genre_tracks(&conn, "ロック").unwrap();
         assert_eq!(track_ids(&tracks), ["t3", "t2", "t1"]);
         assert!(find_genre_tracks(&conn, "ないジャンル").unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_genre_summaries_are_sorted_by_normalized_name() {
+        let conn = setup_test_db();
+        insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ろっく");
+        insert_test_track(&conn, "t2", "曲B", "アーティストX", "アルバム1", "パンク");
+        insert_test_track(&conn, "t3", "曲C", "アーティストX", "アルバム1", "Jazz");
+        insert_test_track(&conn, "t4", "曲D", "アーティストX", "アルバム1", "Ｂlues");
+
+        let names: Vec<String> = find_genre_summaries(&conn)
+            .unwrap()
+            .into_iter()
+            .map(|genre| genre.name)
+            .collect();
+
+        // 全角と半角・ひらがなとカタカナをそろえた順（文字コードのままなら、全角の「Ｂ」とカタカナが後ろになる）
+        assert_eq!(names, ["Ｂlues", "Jazz", "パンク", "ろっく"]);
     }
 
     #[test]
