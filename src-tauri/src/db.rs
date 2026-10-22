@@ -224,6 +224,8 @@ fn run_migrations(conn: &Connection) -> Result<()> {
     add_column_if_not_exists(conn, "playlists", "position", "INTEGER NOT NULL DEFAULT 0")?;
 
     // playlist_tracksテーブルの作成
+    // 主キーの列に`NOT NULL`がない（SQLiteのrowidの表は、主キーにNULLを許す）。アプリはNULLを
+    // 入れないため今は付けない。表を作り直す時に付ける
     conn.execute(
         "CREATE TABLE IF NOT EXISTS playlist_tracks (
             playlist_id TEXT,
@@ -417,7 +419,6 @@ fn run_migrations(conn: &Connection) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
 
     fn count(conn: &Connection, sql: &str) -> i64 {
         conn.query_row(sql, [], |row| row.get(0)).unwrap()
@@ -681,6 +682,83 @@ mod tests {
         assert_eq!(created.position, 1);
     }
 
+    /// 全文検索の表を作り直している途中で落ちたDB（表を消した後・作った直後）も、次の起動で作り直す
+    #[test]
+    fn test_recovers_from_an_interrupted_fts_rebuild() {
+        let count_match = |conn: &Connection, query: &str| -> i64 {
+            conn.query_row(
+                "SELECT COUNT(*) FROM tracks_fts WHERE tracks_fts MATCH ?1",
+                [query],
+                |row| row.get(0),
+            )
+            .expect("FTS検索に失敗")
+        };
+        let interrupted = [
+            // 表を消した後（トリガーは、消した表を指したまま残る）
+            "DROP TABLE tracks_fts;",
+            // 表を作った後、中身を入れる前
+            "DROP TABLE tracks_fts;
+             CREATE VIRTUAL TABLE tracks_fts USING fts5(text, tokenize = 'trigram');",
+        ];
+        for state in interrupted {
+            let conn = open_in_memory();
+            conn.execute(
+                "INSERT INTO tracks (id, file_path, file_name, title, artist, album, format, file_size)
+                 VALUES ('t1', '/test/t1.mp3', 't1.mp3', '夜明けの歌', 'ArtistA', 'Album', 'mp3', 1)",
+                [],
+            )
+            .unwrap();
+            conn.execute_batch(&format!(
+                "{state} PRAGMA user_version = {};",
+                FTS_SCHEMA_VERSION - 1
+            ))
+            .unwrap();
+
+            setup_connection(&conn).expect("作り直しの続きに失敗");
+
+            assert_eq!(count_match(&conn, "\"夜明け\""), 1, "{state}");
+            conn.execute(
+                "INSERT INTO tracks_fts(tracks_fts) VALUES('integrity-check')",
+                [],
+            )
+            .expect("FTS5インデックスが破損しています");
+            let version: i32 = conn
+                .query_row("PRAGMA user_version", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(version, FTS_SCHEMA_VERSION);
+        }
+    }
+
+    /// 音楽フォルダの印の列がない（追加する前の版の）DBも、移行して読めるようにすること
+    #[test]
+    fn test_migrates_library_folders_without_music_folder_flag() {
+        let conn = Connection::open_in_memory().expect("インメモリDB作成に失敗");
+        conn.execute_batch(
+            "CREATE TABLE library_folders (
+                id TEXT PRIMARY KEY,
+                path TEXT UNIQUE NOT NULL,
+                added_at TEXT DEFAULT (datetime('now')),
+                last_scanned_at TEXT
+            );
+            INSERT INTO library_folders (id, path) VALUES ('f1', '/music');",
+        )
+        .expect("旧スキーマの作成に失敗");
+
+        setup_connection(&conn).expect("マイグレーション実行に失敗");
+        setup_connection(&conn).expect("2回目のマイグレーション実行に失敗");
+
+        let folders = crate::library_folder::find_all_folders(&conn).unwrap();
+        assert_eq!(folders.len(), 1);
+        assert!(!folders[0].is_music_folder);
+        crate::library_folder::set_music_folder(&conn, "f1").unwrap();
+        assert_eq!(
+            crate::library_folder::find_music_folder(&conn)
+                .unwrap()
+                .map(|folder| folder.id),
+            Some("f1".to_string())
+        );
+    }
+
     /// 上限を超える再生回数・スキップ回数が入ったDBも、起動時に直して読めるようにすること
     #[test]
     fn test_migration_limits_counts_that_cannot_be_read() {
@@ -719,35 +797,38 @@ mod tests {
         assert_eq!(skip_count, None);
     }
 
+    /// ファイルのDBを作ると、すべての表ができる（一時フォルダに作る。作業フォルダにファイルを残さない）
     #[test]
     fn test_init_db() {
-        let test_db_path = PathBuf::from("test_music.db");
+        let dir = crate::device_manifest::test_support::TempDir::new();
+        let test_db_path = dir.path().join("test_music.db");
 
-        // テスト用データベースを作成
-        let result = init_db(test_db_path.clone());
-        assert!(result.is_ok());
+        let conn = init_db(test_db_path.clone()).expect("DBを作れること");
+        assert!(test_db_path.exists());
 
-        let conn = result.unwrap();
-
-        // テーブルが作成されたことを確認
         let tables: Vec<String> = conn
-            .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+            .prepare("SELECT name FROM sqlite_master WHERE type IN ('table', 'view') ORDER BY name")
             .unwrap()
             .query_map([], |row| row.get(0))
             .unwrap()
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
-
-        assert!(tables.contains(&"tracks".to_string()));
-        assert!(tables.contains(&"playlists".to_string()));
-        assert!(tables.contains(&"playlist_tracks".to_string()));
-        assert!(tables.contains(&"library_folders".to_string()));
-        assert!(tables.contains(&"library_folder_exclusions".to_string()));
-        assert!(tables.contains(&"sync_devices".to_string()));
-        assert!(tables.contains(&"sync_device_playlists".to_string()));
-
-        // テスト後にクリーンアップ
-        drop(conn);
-        fs::remove_file(test_db_path).ok();
+        for table in [
+            "tracks",
+            "playlists",
+            "playlist_folders",
+            "playlist_tracks",
+            "play_history",
+            "library_folders",
+            "library_folder_exclusions",
+            "sync_devices",
+            "sync_device_playlists",
+            "tracks_fts",
+        ] {
+            assert!(
+                tables.iter().any(|name| name == table),
+                "{table}: {tables:?}"
+            );
+        }
     }
 }

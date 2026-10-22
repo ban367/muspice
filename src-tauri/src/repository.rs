@@ -50,11 +50,14 @@ fn stored_text(value: &Option<String>) -> Option<&str> {
 
 /// SELECTで使用するトラックカラム列挙
 ///
-/// is_favorite, rating, play_countはCOALESCEでNULL安全にしている。
+/// NULLを許す列のうち、`Track`で値なしにできない項目（大きさ・形式・日時・お気に入り・評価・
+/// 再生回数など）は、COALESCEでNULL安全にしている。アプリは必ず値を入れるが、ほかのツール・古い版が
+/// NULLの行を1件入れただけで、その行を含む一覧全体を読めなくなるため（既存の表に`NOT NULL`は
+/// 後から付けられない）。
 pub const TRACK_COLUMNS: &str = "id, file_path, file_name, title, artist, album, genre, year,
-    track_number, disc_number, duration, file_size, format, bitrate, sample_rate,
-    COALESCE(is_favorite, 0), COALESCE(rating, 0), COALESCE(play_count, 0), last_played_at,
-    created_at, updated_at,
+    track_number, disc_number, duration, COALESCE(file_size, 0), COALESCE(format, ''), bitrate,
+    sample_rate, COALESCE(is_favorite, 0), COALESCE(rating, 0), COALESCE(play_count, 0),
+    last_played_at, COALESCE(created_at, ''), COALESCE(updated_at, ''),
     replay_gain_track_gain, replay_gain_track_peak, replay_gain_album_gain, replay_gain_album_peak,
     album_artist, missing_since IS NOT NULL, COALESCE(skip_count, 0),
     title_sort, artist_sort, album_sort, album_artist_sort";
@@ -105,18 +108,20 @@ pub fn map_track_row(row: &Row) -> rusqlite::Result<Track> {
 
 /// 最近追加したアルバム（アルバムアーティスト・アルバムごと）の、最初の曲を、新しいアルバムの順に取得
 ///
-/// 音楽フォルダの書式の例に使う。見つからない曲は除く。
+/// 音楽フォルダの書式の例に使う。見つからない曲と、アルバムのない曲は除く（`PARTITION BY`は
+/// NULLを1つの区画にまとめるため、除かないとアルバムのない曲がアルバムの例に出る）。最初の曲は、
+/// アルバムの中の曲の並び（`ALBUM_TRACK_ORDER`）で決める。
 pub fn find_recent_album_tracks(conn: &Connection, limit: u32) -> AppResult<Vec<Track>> {
     let sql = format!(
         "SELECT {TRACK_COLUMNS} FROM (
             SELECT *,
                 ROW_NUMBER() OVER (
                     PARTITION BY album, {ALBUM_ARTIST}
-                    ORDER BY disc_number, track_number, file_path
+                    ORDER BY {ALBUM_TRACK_ORDER}, file_path
                 ) AS album_position,
                 MAX(created_at) OVER (PARTITION BY album, {ALBUM_ARTIST}) AS album_added_at
             FROM tracks
-            WHERE missing_since IS NULL
+            WHERE missing_since IS NULL AND album IS NOT NULL
          )
          WHERE album_position = 1
          ORDER BY album_added_at DESC, file_path
@@ -341,7 +346,8 @@ pub fn find_play_history(conn: &Connection) -> AppResult<Vec<PlayHistoryEntry>> 
     Ok(entries)
 }
 
-/// すべてのトラックの、IDとファイルのパスを取得する（M3Uの読み込みでの突き合わせ用）
+/// すべてのトラックの、IDとファイルのパスを取得する（M3U・ライブラリのXMLの突き合わせ、ファイルへの
+/// タグの書き出し）
 pub fn find_track_paths(conn: &Connection) -> AppResult<Vec<(String, String)>> {
     let mut stmt = conn
         .prepare("SELECT id, file_path FROM tracks")
@@ -359,7 +365,7 @@ pub fn find_track_stats(
     let mut stmt = conn
         .prepare(
             "SELECT id, COALESCE(play_count, 0), COALESCE(skip_count, 0), last_played_at,
-                    created_at, COALESCE(is_favorite, 0)
+                    COALESCE(created_at, ''), COALESCE(is_favorite, 0)
              FROM tracks",
         )
         .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
@@ -871,21 +877,6 @@ pub fn update_track_metadata_partial(
     }
 
     Ok(())
-}
-
-/// 全トラックの (id, file_path) 一覧を取得
-pub fn find_all_track_file_paths(conn: &Connection) -> AppResult<Vec<(String, String)>> {
-    let mut stmt = conn
-        .prepare("SELECT id, file_path FROM tracks")
-        .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
-
-    let paths = stmt
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
-        .map_err(|e| AppError::Database(format!("クエリの実行に失敗しました: {}", e)))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| AppError::Database(format!("結果の取得に失敗しました: {}", e)))?;
-
-    Ok(paths)
 }
 
 /// ファイルのタグと比べるための、トラックのDB上の値（編集画面の項目と評価）
@@ -1511,8 +1502,8 @@ pub fn count_tracks_without_replay_gain(conn: &Connection) -> AppResult<u32> {
 
 /// 音量の正規化に使うゲインとピークを記録する（ラウドネスを解析して、ファイルのタグへ書き込んだ後）
 ///
-/// 渡した4つの値で置き換える（ファイルのタグから読み直した値を渡す）。評価などと同じく、
-/// `updated_at`は変えない。
+/// 渡した4つの値で置き換える（ファイルのタグから読み直した値を渡す）。再生統計と同じく、
+/// `updated_at`は変えない（`updated_at`は、曲の情報（編集画面の項目・評価）かファイルを変えた時だけ変える）。
 pub fn set_track_replay_gain(
     conn: &Connection,
     track_id: &str,
@@ -1647,7 +1638,8 @@ pub fn set_track_rating(conn: &Connection, track_id: &str, rating: i32) -> AppRe
 
 /// 再生回数をインクリメントして再生履歴に追加し、新しい再生回数を返す
 ///
-/// 再生回数は上限（`MAX_PLAY_COUNT`）で止める（再生履歴には追加する）。
+/// 再生回数は上限（`MAX_PLAY_COUNT`）で止める（再生履歴には追加する）。再生統計だけの変更のため、
+/// `updated_at`は変えない（スキップ回数・お気に入りと同じ）。
 /// 2つの書き込みは1つのトランザクションで行い、片方だけを記録しない。
 pub fn increment_track_play_count(
     conn: &mut Connection,
@@ -1664,8 +1656,7 @@ pub fn increment_track_play_count(
         .query_row(
             "UPDATE tracks SET
                 play_count = MIN(COALESCE(play_count, 0) + 1, ?3),
-                last_played_at = ?1,
-                updated_at = ?1
+                last_played_at = ?1
              WHERE id = ?2
              RETURNING play_count",
             rusqlite::params![now, track_id, MAX_PLAY_COUNT],
@@ -1854,6 +1845,161 @@ mod tests {
         };
         assert_eq!(ids(5), ["new-1", "other", "old-1"]);
         assert_eq!(ids(1), ["new-1"]);
+    }
+
+    /// アルバムのない曲は、アルバムの例に出さない。最初の曲は、ディスク番号のない曲を1枚目として決める
+    #[test]
+    fn test_find_recent_album_tracks_skips_tracks_without_album() {
+        let conn = setup_test_db();
+        insert_test_track(&conn, "disc2", "曲", "A", "アルバム", "ロック");
+        insert_test_track(&conn, "disc1", "曲", "A", "アルバム", "ロック");
+        insert_test_track(&conn, "single", "曲", "A", "", "ロック");
+        conn.execute_batch(
+            "UPDATE tracks SET album = NULL, created_at = '2026-05-01' WHERE id = 'single';
+             UPDATE tracks SET disc_number = 2, track_number = 1 WHERE id = 'disc2';
+             UPDATE tracks SET disc_number = NULL, track_number = 2 WHERE id = 'disc1';",
+        )
+        .unwrap();
+
+        let ids: Vec<String> = find_recent_album_tracks(&conn, 5)
+            .unwrap()
+            .into_iter()
+            .map(|t| t.id)
+            .collect();
+        assert_eq!(ids, ["disc1"]);
+    }
+
+    /// ほかのツールが大きさ・形式・日時をNULLにした行があっても、一覧全体を読める
+    #[test]
+    fn test_tracks_with_null_columns_can_be_read() {
+        let conn = setup_test_db();
+        insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
+        insert_test_track(&conn, "t2", "曲B", "アーティストY", "アルバム2", "ポップ");
+        conn.execute(
+            "UPDATE tracks SET file_size = NULL, format = NULL, created_at = NULL, updated_at = NULL
+             WHERE id = 't1'",
+            [],
+        )
+        .unwrap();
+
+        let tracks = find_all_tracks(&conn).unwrap();
+        assert_eq!(tracks.len(), 2);
+        let t1 = tracks.iter().find(|t| t.id == "t1").unwrap();
+        assert_eq!((t1.file_size, t1.format.as_str()), (0, ""));
+        assert!(find_track_stats(&conn).unwrap().contains_key("t1"));
+    }
+
+    /// ライブラリのXMLから取り込む項目の読み書き（お気に入りにした日時は、初めてお気に入りにした時だけ）
+    #[test]
+    fn test_track_stats_round_trip() {
+        let conn = setup_test_db();
+        insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
+        let before = find_track_by_id(&conn, "t1").unwrap();
+        let favorited_at = |conn: &Connection| -> Option<String> {
+            conn.query_row(
+                "SELECT favorited_at FROM tracks WHERE id = 't1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap()
+        };
+
+        let stats = crate::library_xml::TrackStats {
+            play_count: 12,
+            skip_count: 3,
+            last_played_at: Some("2026-02-01T00:00:00+00:00".to_string()),
+            created_at: "2025-01-01T00:00:00+00:00".to_string(),
+            is_favorite: true,
+        };
+        update_track_stats(&conn, "t1", &stats).unwrap();
+        assert_eq!(find_track_stats(&conn).unwrap()["t1"], stats);
+        let first = favorited_at(&conn).expect("お気に入りにした日時を記録する");
+
+        // すでにお気に入りなら、日時を変えない。お気に入りでない値では、お気に入りを外さない
+        update_track_stats(&conn, "t1", &stats).unwrap();
+        assert_eq!(favorited_at(&conn), Some(first.clone()));
+        let not_favorite = crate::library_xml::TrackStats {
+            is_favorite: false,
+            ..stats.clone()
+        };
+        update_track_stats(&conn, "t1", &not_favorite).unwrap();
+        assert!(find_track_stats(&conn).unwrap()["t1"].is_favorite);
+        assert_eq!(favorited_at(&conn), Some(first));
+
+        // 再生統計と同じく、`updated_at`は変えない
+        assert_eq!(
+            find_track_by_id(&conn, "t1").unwrap().updated_at,
+            before.updated_at
+        );
+    }
+
+    /// 形式を変換したファイルへの入れ替え: ファイルの項目だけを変え、お気に入り・再生回数・タグの内容は残す
+    #[test]
+    fn test_replace_track_file() {
+        let conn = setup_test_db();
+        insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
+        conn.execute(
+            "UPDATE tracks SET is_favorite = 1, play_count = 5, missing_since = '2026-01-01'
+             WHERE id = 't1'",
+            [],
+        )
+        .unwrap();
+        let mut file = find_track_by_id(&conn, "t1").unwrap();
+        file.file_path = "/test/t1.m4a".to_string();
+        file.file_name = "t1.m4a".to_string();
+        file.format = "m4a".to_string();
+        file.bitrate = Some(256);
+        file.file_size = 2000;
+        file.title = Some("ファイルのタイトル".to_string());
+        file.replay_gain = ReplayGain {
+            track_gain: Some(-5.0),
+            track_peak: Some(0.9),
+            ..ReplayGain::default()
+        };
+        file.updated_at = "2026-06-01T00:00:00+00:00".to_string();
+
+        replace_track_file(&conn, "t1", &file, Some(1_700_000_000)).unwrap();
+
+        let track = find_track_by_id(&conn, "t1").unwrap();
+        assert_eq!(track.file_path, "/test/t1.m4a");
+        assert_eq!(
+            (track.format.as_str(), track.file_size, track.bitrate),
+            ("m4a", 2000, Some(256))
+        );
+        assert_eq!(track.replay_gain, file.replay_gain);
+        assert!(!track.is_missing);
+        assert!(track.is_favorite);
+        assert_eq!(track.play_count, 5);
+        assert_eq!(track.title.as_deref(), Some("曲A"));
+        assert!(matches!(
+            replace_track_file(&conn, "missing", &file, None),
+            Err(AppError::NotFound(_))
+        ));
+    }
+
+    /// ゲインとピークを記録する（4つの値で置き換え、`updated_at`は変えない）
+    #[test]
+    fn test_set_track_replay_gain() {
+        let conn = setup_test_db();
+        insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
+        let before = find_track_by_id(&conn, "t1").unwrap();
+        let values = ReplayGain {
+            track_gain: Some(-6.5),
+            track_peak: Some(0.0),
+            album_gain: Some(-7.0),
+            album_peak: Some(0.95),
+        };
+
+        set_track_replay_gain(&conn, "t1", &values).unwrap();
+        let track = find_track_by_id(&conn, "t1").unwrap();
+        assert_eq!(track.replay_gain, values);
+        assert_eq!(track.updated_at, before.updated_at);
+
+        set_track_replay_gain(&conn, "t1", &ReplayGain::default()).unwrap();
+        assert_eq!(
+            find_track_by_id(&conn, "t1").unwrap().replay_gain,
+            ReplayGain::default()
+        );
     }
 
     #[test]
@@ -2389,6 +2535,7 @@ mod tests {
     fn test_increment_track_play_count() {
         let mut conn = setup_test_db();
         insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
+        let before = find_track_by_id(&conn, "t1").unwrap();
 
         // 戻り値は更新後の再生回数と、記録した最後に再生した日時
         assert_eq!(
@@ -2403,6 +2550,8 @@ mod tests {
         let track = find_track_by_id(&conn, "t1").unwrap();
         assert_eq!(track.play_count, 2);
         assert_eq!(track.last_played_at, Some(update.last_played_at));
+        // 再生統計だけの変更のため、`updated_at`は変えない
+        assert_eq!(track.updated_at, before.updated_at);
 
         // 再生履歴も追加される
         let history_count: i64 = conn
@@ -3852,12 +4001,12 @@ mod tests {
     }
 
     #[test]
-    fn test_find_all_track_file_paths() {
+    fn test_find_track_paths() {
         let conn = setup_test_db();
         insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
         insert_test_track(&conn, "t2", "曲B", "アーティストY", "アルバム2", "ポップ");
 
-        let paths = find_all_track_file_paths(&conn).unwrap();
+        let paths = find_track_paths(&conn).unwrap();
         assert_eq!(paths.len(), 2);
         assert!(paths.contains(&("t1".to_string(), "/test/t1.mp3".to_string())));
         assert!(paths.contains(&("t2".to_string(), "/test/t2.mp3".to_string())));

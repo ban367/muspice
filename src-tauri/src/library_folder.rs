@@ -790,6 +790,88 @@ mod tests {
         }
     }
 
+    /// 同じフォルダ・中のフォルダは重なり、隣のフォルダ（名前の先頭が同じものを含む）は重ならない
+    #[test]
+    fn test_folders_overlap() {
+        let dir = TempDir::new();
+        let music = dir.path().join("Music");
+        let inner = music.join("Albums");
+        let sibling = dir.path().join("Music2");
+        for path in [&inner, &sibling] {
+            std::fs::create_dir_all(path).unwrap();
+        }
+
+        assert!(folders_overlap(&music, &music));
+        assert!(folders_overlap(&music, &inner));
+        assert!(folders_overlap(&inner, &music));
+        assert!(!folders_overlap(&music, &sibling));
+        // 見つからないフォルダも、パスで比べる
+        assert!(folders_overlap(
+            Path::new("/Volumes/外付け/Music"),
+            Path::new("/Volumes/外付け/Music/Live")
+        ));
+
+        // シンボリックリンクを解決したパスでも比べる
+        #[cfg(unix)]
+        {
+            let link = dir.path().join("link");
+            std::os::unix::fs::symlink(&inner, &link).unwrap();
+            assert!(folders_overlap(&link, &music));
+            assert!(!folders_overlap(&link, &sibling));
+        }
+    }
+
+    /// スキャンした日時を記録する
+    #[test]
+    fn test_mark_scanned() {
+        let conn = setup_test_db();
+        let folder_id = register_folder(&conn, "/music", &[]).unwrap().unwrap();
+        conn.execute(
+            "UPDATE library_folders SET last_scanned_at = NULL WHERE id = ?1",
+            [&folder_id],
+        )
+        .unwrap();
+
+        mark_scanned(&conn, &folder_id).unwrap();
+
+        let scanned_at = find_folder(&conn, &folder_id).unwrap().last_scanned_at;
+        let scanned_at = scanned_at.expect("スキャンした日時を記録する");
+        assert!(
+            chrono::DateTime::parse_from_rfc3339(&scanned_at).is_ok(),
+            "{scanned_at}"
+        );
+    }
+
+    /// 走査で読み飛ばす場所は、読み込まないフォルダを、ライブラリフォルダからの絶対パスにしたもの
+    #[test]
+    fn test_scan_exclusions() {
+        let conn = setup_test_db();
+        let folder_id = register_folder(&conn, "/music", &["Podcasts".to_string()])
+            .unwrap()
+            .unwrap();
+        add_exclusion(&conn, &folder_id, "Live/Bootlegs").unwrap();
+        let other = register_folder(&conn, "/other", &["Skip".to_string()])
+            .unwrap()
+            .unwrap();
+
+        let folder = find_folder(&conn, &folder_id).unwrap();
+        let mut expected = vec![
+            PathBuf::from("/music/Live/Bootlegs"),
+            PathBuf::from("/music/Podcasts"),
+        ];
+        expected.sort();
+        assert_eq!(
+            scan_exclusions(&conn, &folder).unwrap(),
+            ScanExclusions::new(expected)
+        );
+        // ほかのライブラリフォルダの除外は含めない
+        let other = find_folder(&conn, &other).unwrap();
+        assert_eq!(
+            scan_exclusions(&conn, &other).unwrap(),
+            ScanExclusions::new(vec![PathBuf::from("/other/Skip")])
+        );
+    }
+
     #[test]
     fn test_normalize_folder_path() {
         assert_eq!(normalize_folder_path("/music/"), "/music");

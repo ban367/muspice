@@ -1,15 +1,32 @@
+//! プレイリストのデータの読み書き
+//!
+//! どの関数も`AppResult`を返す。プレイリスト・曲・フォルダが見つからない場合は`NotFound`、
+//! SQLの失敗は`Database`（操作の名前を付けたメッセージ）。コマンド層は、そのまま返す。
+
 use crate::error::{AppError, AppResult};
 use crate::models::{Playlist, PlaylistFolder, PlaylistTrack, Track};
 use crate::repository::{TRACK_COLUMNS, query_tracks};
 use crate::smart_playlist::{self, EvalContext, SmartRules};
 use chrono::Utc;
-use rusqlite::{Connection, OptionalExtension, Result};
+use rusqlite::{Connection, OptionalExtension};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
+/// プレイリストが見つからない時のメッセージ
+const PLAYLIST_NOT_FOUND: &str = "プレイリストが見つかりません";
+/// 曲が見つからない時のメッセージ
+const TRACK_NOT_FOUND: &str = "トラックが見つかりません";
+/// プレイリストのフォルダが見つからない時のメッセージ
+const FOLDER_NOT_FOUND: &str = "フォルダが見つかりません";
+
+/// SQLの失敗を、操作の名前を付けた`Database`にする（`.map_err(database("プレイリストの作成"))`）
+fn database(operation: &'static str) -> impl Fn(rusqlite::Error) -> AppError + Copy {
+    move |e| AppError::Database(format!("{operation}に失敗しました: {e}"))
+}
+
 /// プレイリストを作成
-pub fn create_playlist(conn: &Connection, name: &str) -> Result<Playlist> {
-    insert_playlist(conn, name, None)
+pub fn create_playlist(conn: &Connection, name: &str) -> AppResult<Playlist> {
+    insert_playlist(conn, name, None).map_err(database("プレイリストの作成"))
 }
 
 /// 自動プレイリスト（条件で曲を集めるプレイリスト）を作成
@@ -17,11 +34,15 @@ pub fn create_smart_playlist(
     conn: &Connection,
     name: &str,
     rules: &SmartRules,
-) -> Result<Playlist> {
-    insert_playlist(conn, name, Some(rules))
+) -> AppResult<Playlist> {
+    insert_playlist(conn, name, Some(rules)).map_err(database("プレイリストの作成"))
 }
 
-fn insert_playlist(conn: &Connection, name: &str, rules: Option<&SmartRules>) -> Result<Playlist> {
+fn insert_playlist(
+    conn: &Connection,
+    name: &str,
+    rules: Option<&SmartRules>,
+) -> rusqlite::Result<Playlist> {
     let id = Uuid::new_v4().to_string();
     let now = Utc::now().to_rfc3339();
     // 手動の並び順では、いちばん後ろに置く
@@ -53,7 +74,7 @@ fn insert_playlist(conn: &Connection, name: &str, rules: Option<&SmartRules>) ->
 }
 
 /// 手動の並び順で、いちばん後ろになる位置（表の名前は、固定の文字列だけを渡す）
-fn next_position(conn: &Connection, table: &str) -> Result<i32> {
+fn next_position(conn: &Connection, table: &str) -> rusqlite::Result<i32> {
     conn.query_row(
         &format!("SELECT COALESCE(MAX(position), -1) + 1 FROM {table}"),
         [],
@@ -61,19 +82,27 @@ fn next_position(conn: &Connection, table: &str) -> Result<i32> {
     )
 }
 
-/// 行があることを確かめる（なければ`QueryReturnedNoRows`。表の名前は、固定の文字列だけを渡す）
-fn ensure_exists(conn: &Connection, table: &str, id: &str) -> Result<()> {
+/// 行があることを確かめる（なければ`not_found`のメッセージの`NotFound`。表の名前は、固定の文字列だけを渡す）
+fn ensure_exists(conn: &Connection, table: &str, id: &str, not_found: &str) -> AppResult<()> {
     let exists = conn
-        .prepare(&format!("SELECT 1 FROM {table} WHERE id = ?1"))?
-        .exists([id])?;
+        .prepare_cached(&format!("SELECT 1 FROM {table} WHERE id = ?1"))
+        .and_then(|mut stmt| stmt.exists([id]))
+        .map_err(database("存在の確認"))?;
     if exists {
         Ok(())
     } else {
-        Err(rusqlite::Error::QueryReturnedNoRows)
+        Err(AppError::NotFound(not_found.to_string()))
     }
 }
 
-fn rules_to_json(rules: &SmartRules) -> Result<String> {
+/// 曲がすべてあることを確かめる（1曲でもなければ`NotFound`）
+fn ensure_tracks_exist(conn: &Connection, track_ids: &[String]) -> AppResult<()> {
+    track_ids
+        .iter()
+        .try_for_each(|track_id| ensure_exists(conn, "tracks", track_id, TRACK_NOT_FOUND))
+}
+
+fn rules_to_json(rules: &SmartRules) -> rusqlite::Result<String> {
     serde_json::to_string(rules).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
 }
 
@@ -87,7 +116,7 @@ fn parse_rules(json: Option<String>) -> Option<SmartRules> {
 /// プレイリストの条件を取得する
 ///
 /// 外側の`None`はプレイリストがない場合、内側の`None`は通常のプレイリスト。
-fn find_rules(conn: &Connection, playlist_id: &str) -> Result<Option<Option<SmartRules>>> {
+fn find_rules(conn: &Connection, playlist_id: &str) -> AppResult<Option<Option<SmartRules>>> {
     conn.query_row(
         "SELECT rules FROM playlists WHERE id = ?1",
         [playlist_id],
@@ -95,6 +124,7 @@ fn find_rules(conn: &Connection, playlist_id: &str) -> Result<Option<Option<Smar
     )
     .optional()
     .map(|found| found.map(parse_rules))
+    .map_err(database("プレイリストの取得"))
 }
 
 /// 曲を自分で選ぶ通常のプレイリストであることを確かめる（曲の追加・削除・並べ替えの前に呼ぶ）
@@ -102,9 +132,7 @@ fn find_rules(conn: &Connection, playlist_id: &str) -> Result<Option<Option<Smar
 /// 自動プレイリストの曲は条件で決まるため、変更できない。プレイリストがない場合は、
 /// このあとの操作が「見つからない」を返すため、ここでは通す。
 pub fn ensure_manual_playlist(conn: &Connection, playlist_id: &str) -> AppResult<()> {
-    let rules = find_rules(conn, playlist_id)
-        .map_err(|e| AppError::Database(format!("プレイリストの取得に失敗しました: {}", e)))?;
-    if matches!(rules, Some(Some(_))) {
+    if matches!(find_rules(conn, playlist_id)?, Some(Some(_))) {
         return Err(AppError::Validation(
             "自動プレイリストの曲は条件で決まるため、変更できません".to_string(),
         ));
@@ -120,15 +148,8 @@ pub fn update_smart_playlist_rules(
     playlist_id: &str,
     rules: &SmartRules,
 ) -> AppResult<()> {
-    let database = |e: rusqlite::Error| {
-        AppError::Database(format!("プレイリストの条件の変更に失敗しました: {}", e))
-    };
-    match find_rules(conn, playlist_id).map_err(database)? {
-        None => {
-            return Err(AppError::NotFound(
-                "プレイリストが見つかりません".to_string(),
-            ));
-        }
+    match find_rules(conn, playlist_id)? {
+        None => return Err(AppError::NotFound(PLAYLIST_NOT_FOUND.to_string())),
         Some(None) => {
             return Err(AppError::Validation(
                 "通常のプレイリストには、条件を設定できません".to_string(),
@@ -137,6 +158,7 @@ pub fn update_smart_playlist_rules(
         Some(Some(_)) => {}
     }
 
+    let database = database("プレイリストの条件の変更");
     conn.execute(
         "UPDATE playlists SET rules = ?1, updated_at = ?2 WHERE id = ?3",
         rusqlite::params![
@@ -149,49 +171,54 @@ pub fn update_smart_playlist_rules(
     Ok(())
 }
 
-/// プレイリストの名前を取得する（プレイリストがなければ`QueryReturnedNoRows`）
-pub fn get_playlist_name(conn: &Connection, playlist_id: &str) -> Result<String> {
+/// プレイリストの名前を取得する
+pub fn get_playlist_name(conn: &Connection, playlist_id: &str) -> AppResult<String> {
     conn.query_row(
         "SELECT name FROM playlists WHERE id = ?1",
         [playlist_id],
         |row| row.get(0),
     )
+    .optional()
+    .map_err(database("プレイリストの取得"))?
+    .ok_or_else(|| AppError::NotFound(PLAYLIST_NOT_FOUND.to_string()))
 }
 
 /// 曲を入れた状態で、プレイリストを作る（M3U・ライブラリXMLの読み込み用）
 ///
 /// 同じ名前のプレイリストがある場合は、番号を付けた名前にする（`m3u::unique_playlist_name`）。
-/// 1つのトランザクションで行い、途中で失敗した場合は何も作らない。
-/// `track_ids`には、同じトラックを2回含めない。
+/// 1つのトランザクションで行い、見つからない曲がある場合（`NotFound`）・途中で失敗した場合は
+/// 何も作らない。`track_ids`には、同じトラックを2回含めない。
 pub fn create_playlist_with_tracks(
     conn: &mut Connection,
     name: &str,
     track_ids: &[String],
-) -> Result<Playlist> {
-    let tx = conn.transaction()?;
+) -> AppResult<Playlist> {
+    let database = database("プレイリストの作成");
+    ensure_tracks_exist(conn, track_ids)?;
 
+    let tx = conn.transaction().map_err(database)?;
     let existing: Vec<String> = tx
-        .prepare("SELECT name FROM playlists")?
-        .query_map([], |row| row.get(0))?
-        .collect::<Result<_>>()?;
+        .prepare("SELECT name FROM playlists")
+        .and_then(|mut stmt| stmt.query_map([], |row| row.get(0))?.collect())
+        .map_err(database)?;
     let name = crate::m3u::unique_playlist_name(name, &existing);
 
     let mut playlist = create_playlist(&tx, &name)?;
-    insert_playlist_tracks(&tx, &mut playlist, track_ids)?;
+    insert_playlist_tracks(&tx, &mut playlist, track_ids).map_err(database)?;
 
-    tx.commit()?;
+    tx.commit().map_err(database)?;
     Ok(playlist)
 }
 
 /// 渡した曲を入れた状態で、プレイリストを作る（再生キューの保存用）
 ///
 /// 名前はそのまま使う。同じ曲は、最初の1回だけを入れる（プレイリストには、同じ曲を2回入れない）。
-/// 1つのトランザクションで行い、見つからない曲がある場合は何も作らない（`QueryReturnedNoRows`）。
+/// 1つのトランザクションで行い、見つからない曲がある場合は何も作らない（`NotFound`）。
 pub fn create_playlist_from_tracks(
     conn: &mut Connection,
     name: &str,
     track_ids: &[String],
-) -> Result<Playlist> {
+) -> AppResult<Playlist> {
     let mut seen = HashSet::new();
     let unique: Vec<String> = track_ids
         .iter()
@@ -199,14 +226,13 @@ pub fn create_playlist_from_tracks(
         .cloned()
         .collect();
 
-    let tx = conn.transaction()?;
-    for track_id in &unique {
-        ensure_exists(&tx, "tracks", track_id)?;
-    }
+    let database = database("プレイリストの作成");
+    ensure_tracks_exist(conn, &unique)?;
+    let tx = conn.transaction().map_err(database)?;
     let mut playlist = create_playlist(&tx, name)?;
-    insert_playlist_tracks(&tx, &mut playlist, &unique)?;
+    insert_playlist_tracks(&tx, &mut playlist, &unique).map_err(database)?;
 
-    tx.commit()?;
+    tx.commit().map_err(database)?;
     Ok(playlist)
 }
 
@@ -215,7 +241,7 @@ fn insert_playlist_tracks(
     conn: &Connection,
     playlist: &mut Playlist,
     track_ids: &[String],
-) -> Result<()> {
+) -> rusqlite::Result<()> {
     let mut insert = conn.prepare(
         "INSERT INTO playlist_tracks (playlist_id, track_id, position, added_at)
          VALUES (?1, ?2, ?3, ?4)",
@@ -240,7 +266,11 @@ fn insert_playlist_tracks(
 ///
 /// プレイリストごとにトラックを問い合わせるとN+1クエリになるため、
 /// 全プレイリストのトラックを1クエリで取得してから割り当てる。
-pub fn get_all_playlists(conn: &Connection) -> Result<Vec<Playlist>> {
+pub fn get_all_playlists(conn: &Connection) -> AppResult<Vec<Playlist>> {
+    query_all_playlists(conn).map_err(database("プレイリストの取得"))
+}
+
+fn query_all_playlists(conn: &Connection) -> rusqlite::Result<Vec<Playlist>> {
     // 1. 全プレイリストのトラックをまとめて取得し、プレイリストIDごとに分配する
     let mut tracks_by_playlist: HashMap<String, Vec<PlaylistTrack>> = HashMap::new();
     {
@@ -294,7 +324,7 @@ pub fn get_all_playlists(conn: &Connection) -> Result<Vec<Playlist>> {
                 updated_at: row.get(4)?,
             })
         })?
-        .collect::<Result<Vec<_>, _>>()?;
+        .collect::<rusqlite::Result<Vec<_>>>()?;
 
     Ok(playlists)
 }
@@ -308,9 +338,7 @@ pub fn get_playlist_tracks(
     playlist_id: &str,
     context: EvalContext,
 ) -> AppResult<Vec<Track>> {
-    let rules = find_rules(conn, playlist_id)
-        .map_err(|e| AppError::Database(format!("プレイリストの取得に失敗しました: {}", e)))?;
-    if let Some(Some(rules)) = rules {
+    if let Some(Some(rules)) = find_rules(conn, playlist_id)? {
         return smart_playlist::find_tracks(conn, &rules, context);
     }
 
@@ -345,157 +373,125 @@ pub fn playlist_track_ids(
     }
 }
 
-/// プレイリストにトラックを追加
-///
-/// 追加した場合はtrue、すでに入っていて何もしなかった場合はfalseを返す。
-fn add_track_to_playlist(conn: &Connection, playlist_id: &str, track_id: &str) -> Result<bool> {
-    // プレイリストの存在確認
-    let playlist_exists: bool = conn
-        .prepare("SELECT 1 FROM playlists WHERE id = ?1")?
-        .exists([playlist_id])?;
-
-    if !playlist_exists {
-        return Err(rusqlite::Error::QueryReturnedNoRows);
-    }
-
-    // トラックの存在確認
-    let track_exists: bool = conn
-        .prepare("SELECT 1 FROM tracks WHERE id = ?1")?
-        .exists([track_id])?;
-
-    if !track_exists {
-        return Err(rusqlite::Error::QueryReturnedNoRows);
-    }
-
-    // 既に追加されているか確認
-    let already_exists: bool = conn
-        .prepare("SELECT 1 FROM playlist_tracks WHERE playlist_id = ?1 AND track_id = ?2")?
-        .exists(rusqlite::params![playlist_id, track_id])?;
-
-    if already_exists {
-        return Ok(false); // 既に存在する場合はスキップ
-    }
-
-    // 現在の最大position値を取得（空のプレイリストはNULL）
-    let max_position: Option<i32> = conn.query_row(
-        "SELECT MAX(position) FROM playlist_tracks WHERE playlist_id = ?1",
-        [playlist_id],
-        |row| row.get(0),
-    )?;
-
-    let new_position = max_position.unwrap_or(-1) + 1;
-    let now = Utc::now().to_rfc3339();
-
-    // トラックを追加
-    conn.execute(
-        "INSERT INTO playlist_tracks (playlist_id, track_id, position, added_at) 
-         VALUES (?1, ?2, ?3, ?4)",
-        rusqlite::params![playlist_id, track_id, new_position, now],
-    )?;
-
-    // プレイリストのupdated_atを更新
-    conn.execute(
-        "UPDATE playlists SET updated_at = ?1 WHERE id = ?2",
-        rusqlite::params![now, playlist_id],
-    )?;
-
-    Ok(true)
-}
-
 /// プレイリストに複数のトラックを、渡した順に追加する
 ///
 /// すでに入っているトラック（同じIDを2回渡した場合の2回目を含む）は飛ばす。
-/// 1つのトランザクションで行い、途中で失敗した場合は1曲も追加しない。
-/// 追加したトラック数を返す。
+/// 1つのトランザクションで行い、見つからないプレイリスト・曲がある場合（`NotFound`）と、途中で
+/// 失敗した場合は1曲も追加しない。追加したトラック数を返す。
+///
+/// プレイリストの確認・最後の位置の取得は1回だけ行い、曲ごとの文は使い回す（多くの曲を一度に
+/// 追加しても、曲ごとに準備し直さない）。
 pub fn add_tracks_to_playlist(
     conn: &Connection,
     playlist_id: &str,
     track_ids: &[String],
-) -> Result<usize> {
-    let tx = conn.unchecked_transaction()?;
+) -> AppResult<usize> {
+    let database = database("トラックの追加");
+    let tx = conn.unchecked_transaction().map_err(database)?;
+    ensure_exists(&tx, "playlists", playlist_id, PLAYLIST_NOT_FOUND)?;
+
+    let mut next_position: i32 = tx
+        .query_row(
+            "SELECT COALESCE(MAX(position), -1) + 1 FROM playlist_tracks WHERE playlist_id = ?1",
+            [playlist_id],
+            |row| row.get(0),
+        )
+        .map_err(database)?;
+    let now = Utc::now().to_rfc3339();
 
     let mut added = 0;
-    for track_id in track_ids {
-        if add_track_to_playlist(&tx, playlist_id, track_id)? {
-            added += 1;
+    {
+        // すでに入っている曲は、主キー（プレイリストと曲）が同じため入らない
+        let mut insert = tx
+            .prepare(
+                "INSERT OR IGNORE INTO playlist_tracks (playlist_id, track_id, position, added_at)
+                 VALUES (?1, ?2, ?3, ?4)",
+            )
+            .map_err(database)?;
+        for track_id in track_ids {
+            ensure_exists(&tx, "tracks", track_id, TRACK_NOT_FOUND)?;
+            let inserted = insert
+                .execute(rusqlite::params![playlist_id, track_id, next_position, now])
+                .map_err(database)?;
+            if inserted > 0 {
+                next_position += 1;
+                added += 1;
+            }
         }
     }
 
-    tx.commit()?;
+    if added > 0 {
+        tx.execute(
+            "UPDATE playlists SET updated_at = ?1 WHERE id = ?2",
+            rusqlite::params![now, playlist_id],
+        )
+        .map_err(database)?;
+    }
+    tx.commit().map_err(database)?;
     Ok(added)
 }
 
 /// プレイリストから複数のトラックを外す
 ///
 /// 入っていないトラックは飛ばす。1つのトランザクションで行い、外したトラック数を返す。
-/// プレイリストがなければ`QueryReturnedNoRows`。
+/// プレイリストがなければ`NotFound`。
 pub fn remove_tracks_from_playlist(
     conn: &Connection,
     playlist_id: &str,
     track_ids: &[String],
-) -> Result<usize> {
-    let tx = conn.unchecked_transaction()?;
-    ensure_exists(&tx, "playlists", playlist_id)?;
+) -> AppResult<usize> {
+    let database = database("トラックの削除");
+    let tx = conn.unchecked_transaction().map_err(database)?;
+    ensure_exists(&tx, "playlists", playlist_id, PLAYLIST_NOT_FOUND)?;
 
     let mut removed = 0;
     {
-        let mut delete =
-            tx.prepare("DELETE FROM playlist_tracks WHERE playlist_id = ?1 AND track_id = ?2")?;
+        let mut delete = tx
+            .prepare("DELETE FROM playlist_tracks WHERE playlist_id = ?1 AND track_id = ?2")
+            .map_err(database)?;
         for track_id in track_ids {
-            removed += delete.execute(rusqlite::params![playlist_id, track_id])?;
+            removed += delete
+                .execute(rusqlite::params![playlist_id, track_id])
+                .map_err(database)?;
         }
     }
 
     if removed > 0 {
         // position値を再計算して連番にする
-        reorder_positions_after_deletion(&tx, playlist_id)?;
+        renumber_positions(&tx, playlist_id).map_err(database)?;
         tx.execute(
             "UPDATE playlists SET updated_at = ?1 WHERE id = ?2",
             rusqlite::params![Utc::now().to_rfc3339(), playlist_id],
-        )?;
+        )
+        .map_err(database)?;
     }
 
-    tx.commit()?;
+    tx.commit().map_err(database)?;
     Ok(removed)
 }
 
-/// 削除後にposition値を再計算
-fn reorder_positions_after_deletion(conn: &Connection, playlist_id: &str) -> Result<()> {
-    let mut stmt = conn
-        .prepare("SELECT track_id FROM playlist_tracks WHERE playlist_id = ?1 ORDER BY position")?;
-
-    let track_ids: Vec<String> = stmt
-        .query_map([playlist_id], |row| row.get(0))?
-        .collect::<Result<Vec<_>, _>>()?;
-
-    for (index, track_id) in track_ids.iter().enumerate() {
-        conn.execute(
-            "UPDATE playlist_tracks SET position = ?1 WHERE playlist_id = ?2 AND track_id = ?3",
-            rusqlite::params![index as i32, playlist_id, track_id],
-        )?;
-    }
-
+/// プレイリストの曲の位置を、今の順のまま0からの連番に振り直す（曲を外した後。1つの文で行う）
+fn renumber_positions(conn: &Connection, playlist_id: &str) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE playlist_tracks SET position = numbered.new_position
+         FROM (
+             SELECT track_id, ROW_NUMBER() OVER (ORDER BY position) - 1 AS new_position
+             FROM playlist_tracks WHERE playlist_id = ?1
+         ) AS numbered
+         WHERE playlist_tracks.playlist_id = ?1 AND playlist_tracks.track_id = numbered.track_id",
+        [playlist_id],
+    )?;
     Ok(())
 }
 
 /// プレイリストの名前を変更
-pub fn rename_playlist(conn: &Connection, playlist_id: &str, name: &str) -> Result<()> {
-    // プレイリストの存在確認
-    let playlist_exists: bool = conn
-        .prepare("SELECT 1 FROM playlists WHERE id = ?1")?
-        .exists([playlist_id])?;
-
-    if !playlist_exists {
-        return Err(rusqlite::Error::QueryReturnedNoRows);
-    }
-
-    let now = Utc::now().to_rfc3339();
-
+pub fn rename_playlist(conn: &Connection, playlist_id: &str, name: &str) -> AppResult<()> {
+    ensure_exists(conn, "playlists", playlist_id, PLAYLIST_NOT_FOUND)?;
     conn.execute(
         "UPDATE playlists SET name = ?1, updated_at = ?2 WHERE id = ?3",
-        rusqlite::params![name, now, playlist_id],
-    )?;
-
+        rusqlite::params![name, Utc::now().to_rfc3339(), playlist_id],
+    )
+    .map_err(database("プレイリスト名の変更"))?;
     Ok(())
 }
 
@@ -504,107 +500,123 @@ pub fn set_playlist_description(
     conn: &Connection,
     playlist_id: &str,
     description: Option<&str>,
-) -> Result<()> {
-    ensure_exists(conn, "playlists", playlist_id)?;
+) -> AppResult<()> {
+    ensure_exists(conn, "playlists", playlist_id, PLAYLIST_NOT_FOUND)?;
 
     let description = description.map(str::trim).filter(|text| !text.is_empty());
     conn.execute(
         "UPDATE playlists SET description = ?1, updated_at = ?2 WHERE id = ?3",
         rusqlite::params![description, Utc::now().to_rfc3339(), playlist_id],
-    )?;
+    )
+    .map_err(database("説明の変更"))?;
     Ok(())
 }
 
 /// プレイリストのフォルダを取得（手動の並び順。同じ位置なら、作った順）
-pub fn get_playlist_folders(conn: &Connection) -> Result<Vec<PlaylistFolder>> {
+pub fn get_playlist_folders(conn: &Connection) -> AppResult<Vec<PlaylistFolder>> {
     conn.prepare(
         "SELECT id, name, position, created_at FROM playlist_folders
          ORDER BY position, created_at, id",
-    )?
-    .query_map([], |row| {
-        Ok(PlaylistFolder {
-            id: row.get(0)?,
-            name: row.get(1)?,
-            position: row.get(2)?,
-            created_at: row.get(3)?,
-        })
-    })?
-    .collect()
+    )
+    .and_then(|mut stmt| {
+        stmt.query_map([], |row| {
+            Ok(PlaylistFolder {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                position: row.get(2)?,
+                created_at: row.get(3)?,
+            })
+        })?
+        .collect()
+    })
+    .map_err(database("フォルダの取得"))
 }
 
 /// プレイリストのフォルダを作成（手動の並び順では、いちばん後ろに置く）
-pub fn create_playlist_folder(conn: &Connection, name: &str) -> Result<PlaylistFolder> {
+pub fn create_playlist_folder(conn: &Connection, name: &str) -> AppResult<PlaylistFolder> {
+    let database = database("フォルダの作成");
     let folder = PlaylistFolder {
         id: Uuid::new_v4().to_string(),
         name: name.to_string(),
-        position: next_position(conn, "playlist_folders")?,
+        position: next_position(conn, "playlist_folders").map_err(database)?,
         created_at: Utc::now().to_rfc3339(),
     };
     conn.execute(
         "INSERT INTO playlist_folders (id, name, position, created_at) VALUES (?1, ?2, ?3, ?4)",
         rusqlite::params![folder.id, folder.name, folder.position, folder.created_at],
-    )?;
+    )
+    .map_err(database)?;
     Ok(folder)
 }
 
 /// プレイリストのフォルダの名前を変更
-pub fn rename_playlist_folder(conn: &Connection, folder_id: &str, name: &str) -> Result<()> {
-    ensure_exists(conn, "playlist_folders", folder_id)?;
+pub fn rename_playlist_folder(conn: &Connection, folder_id: &str, name: &str) -> AppResult<()> {
+    ensure_exists(conn, "playlist_folders", folder_id, FOLDER_NOT_FOUND)?;
     conn.execute(
         "UPDATE playlist_folders SET name = ?1 WHERE id = ?2",
         [name, folder_id],
-    )?;
+    )
+    .map_err(database("フォルダ名の変更"))?;
     Ok(())
 }
 
 /// プレイリストのフォルダを削除（中のプレイリストは消さず、フォルダの外へ出す）
-pub fn delete_playlist_folder(conn: &Connection, folder_id: &str) -> Result<()> {
-    let tx = conn.unchecked_transaction()?;
-    ensure_exists(&tx, "playlist_folders", folder_id)?;
+pub fn delete_playlist_folder(conn: &Connection, folder_id: &str) -> AppResult<()> {
+    let database = database("フォルダの削除");
+    let tx = conn.unchecked_transaction().map_err(database)?;
+    ensure_exists(&tx, "playlist_folders", folder_id, FOLDER_NOT_FOUND)?;
 
     tx.execute(
         "UPDATE playlists SET folder_id = NULL WHERE folder_id = ?1",
         [folder_id],
-    )?;
-    tx.execute("DELETE FROM playlist_folders WHERE id = ?1", [folder_id])?;
+    )
+    .map_err(database)?;
+    tx.execute("DELETE FROM playlist_folders WHERE id = ?1", [folder_id])
+        .map_err(database)?;
 
-    tx.commit()
+    tx.commit().map_err(database)
 }
 
 /// プレイリストを、フォルダへ移す（`folder_id`が値なしなら、フォルダの外へ出す）
 ///
 /// 手動の並び順では、移した先のいちばん後ろに置く。
-pub fn move_playlist(conn: &Connection, playlist_id: &str, folder_id: Option<&str>) -> Result<()> {
-    let tx = conn.unchecked_transaction()?;
-    ensure_exists(&tx, "playlists", playlist_id)?;
+pub fn move_playlist(
+    conn: &Connection,
+    playlist_id: &str,
+    folder_id: Option<&str>,
+) -> AppResult<()> {
+    let database = database("プレイリストの移動");
+    let tx = conn.unchecked_transaction().map_err(database)?;
+    ensure_exists(&tx, "playlists", playlist_id, PLAYLIST_NOT_FOUND)?;
     if let Some(folder_id) = folder_id {
-        ensure_exists(&tx, "playlist_folders", folder_id)?;
+        ensure_exists(&tx, "playlist_folders", folder_id, FOLDER_NOT_FOUND)?;
     }
 
-    let position = next_position(&tx, "playlists")?;
+    let position = next_position(&tx, "playlists").map_err(database)?;
     tx.execute(
         "UPDATE playlists SET folder_id = ?1, position = ?2 WHERE id = ?3",
         rusqlite::params![folder_id, position, playlist_id],
-    )?;
+    )
+    .map_err(database)?;
 
-    tx.commit()
+    tx.commit().map_err(database)
 }
 
 /// プレイリストの手動の並び順を変更（渡した順に、位置を振り直す）
 ///
 /// 並び順は同じフォルダの中で比べるため、1つのフォルダ（またはフォルダの外）のプレイリストを渡す。
 /// 見つからないプレイリストは無視する。
-pub fn reorder_playlists(conn: &Connection, playlist_ids: &[String]) -> Result<()> {
-    set_positions(conn, "playlists", playlist_ids)
+pub fn reorder_playlists(conn: &Connection, playlist_ids: &[String]) -> AppResult<()> {
+    set_positions(conn, "playlists", playlist_ids).map_err(database("プレイリストの並び替え"))
 }
 
 /// プレイリストのフォルダの手動の並び順を変更（渡した順に、位置を振り直す）
-pub fn reorder_playlist_folders(conn: &Connection, folder_ids: &[String]) -> Result<()> {
-    set_positions(conn, "playlist_folders", folder_ids)
+pub fn reorder_playlist_folders(conn: &Connection, folder_ids: &[String]) -> AppResult<()> {
+    set_positions(conn, "playlist_folders", folder_ids).map_err(database("フォルダの並び替え"))
 }
 
 /// 渡した順に、位置を振り直す（表の名前は、固定の文字列だけを渡す）
-fn set_positions(conn: &Connection, table: &str, ids: &[String]) -> Result<()> {
+fn set_positions(conn: &Connection, table: &str, ids: &[String]) -> rusqlite::Result<()> {
     let tx = conn.unchecked_transaction()?;
     {
         let mut update = tx.prepare(&format!("UPDATE {table} SET position = ?1 WHERE id = ?2"))?;
@@ -616,69 +628,54 @@ fn set_positions(conn: &Connection, table: &str, ids: &[String]) -> Result<()> {
 }
 
 /// プレイリストを削除
-pub fn delete_playlist(conn: &Connection, playlist_id: &str) -> Result<()> {
-    // プレイリストの存在確認
-    let playlist_exists: bool = conn
-        .prepare("SELECT 1 FROM playlists WHERE id = ?1")?
-        .exists([playlist_id])?;
+pub fn delete_playlist(conn: &Connection, playlist_id: &str) -> AppResult<()> {
+    let database = database("プレイリストの削除");
+    let tx = conn.unchecked_transaction().map_err(database)?;
+    ensure_exists(&tx, "playlists", playlist_id, PLAYLIST_NOT_FOUND)?;
 
-    if !playlist_exists {
-        return Err(rusqlite::Error::QueryReturnedNoRows);
-    }
-
-    // トランザクションを開始
-    let tx = conn.unchecked_transaction()?;
-
-    // まずプレイリスト内のトラックを削除
+    // まずプレイリスト内のトラックを削除してから、プレイリスト自体を削除する
     tx.execute(
         "DELETE FROM playlist_tracks WHERE playlist_id = ?1",
         [playlist_id],
-    )?;
+    )
+    .map_err(database)?;
+    tx.execute("DELETE FROM playlists WHERE id = ?1", [playlist_id])
+        .map_err(database)?;
 
-    // プレイリスト自体を削除
-    tx.execute("DELETE FROM playlists WHERE id = ?1", [playlist_id])?;
-
-    tx.commit()?;
-
-    Ok(())
+    tx.commit().map_err(database)
 }
 
-/// プレイリスト内のトラックを並び替え
+/// プレイリスト内のトラックを並び替え（渡した順に、位置を振り直す）
 pub fn reorder_playlist_tracks(
     conn: &Connection,
     playlist_id: &str,
     track_ids: &[String],
-) -> Result<()> {
-    // プレイリストの存在確認
-    let playlist_exists: bool = conn
-        .prepare("SELECT 1 FROM playlists WHERE id = ?1")?
-        .exists([playlist_id])?;
+) -> AppResult<()> {
+    let database = database("トラックの並び替え");
+    let tx = conn.unchecked_transaction().map_err(database)?;
+    ensure_exists(&tx, "playlists", playlist_id, PLAYLIST_NOT_FOUND)?;
 
-    if !playlist_exists {
-        return Err(rusqlite::Error::QueryReturnedNoRows);
+    {
+        let mut update = tx
+            .prepare(
+                "UPDATE playlist_tracks SET position = ?1
+                 WHERE playlist_id = ?2 AND track_id = ?3",
+            )
+            .map_err(database)?;
+        for (index, track_id) in track_ids.iter().enumerate() {
+            update
+                .execute(rusqlite::params![index as i32, playlist_id, track_id])
+                .map_err(database)?;
+        }
     }
 
-    // トランザクションを開始
-    let tx = conn.unchecked_transaction()?;
-
-    for (index, track_id) in track_ids.iter().enumerate() {
-        tx.execute(
-            "UPDATE playlist_tracks SET position = ?1 
-             WHERE playlist_id = ?2 AND track_id = ?3",
-            rusqlite::params![index as i32, playlist_id, track_id],
-        )?;
-    }
-
-    // プレイリストのupdated_atを更新
-    let now = Utc::now().to_rfc3339();
     tx.execute(
         "UPDATE playlists SET updated_at = ?1 WHERE id = ?2",
-        rusqlite::params![now, playlist_id],
-    )?;
+        rusqlite::params![Utc::now().to_rfc3339(), playlist_id],
+    )
+    .map_err(database)?;
 
-    tx.commit()?;
-
-    Ok(())
+    tx.commit().map_err(database)
 }
 
 #[cfg(test)]
@@ -698,6 +695,114 @@ mod tests {
             rusqlite::params![id, format!("/test/{id}.mp3"), "test.mp3", "Test Track", now, now],
         )
         .unwrap();
+    }
+
+    /// プレイリストに1曲を追加する（追加したらtrue）
+    fn add_track_to_playlist(
+        conn: &Connection,
+        playlist_id: &str,
+        track_id: &str,
+    ) -> AppResult<bool> {
+        add_tracks_to_playlist(conn, playlist_id, &[track_id.to_string()]).map(|added| added > 0)
+    }
+
+    /// 名前の変更・取得。ないプレイリストは`NotFound`
+    #[test]
+    fn test_rename_and_get_playlist_name() {
+        let conn = setup_test_db();
+        let playlist = create_playlist(&conn, "通勤").unwrap();
+
+        rename_playlist(&conn, &playlist.id, "帰宅").unwrap();
+        assert_eq!(get_playlist_name(&conn, &playlist.id).unwrap(), "帰宅");
+
+        assert!(matches!(
+            rename_playlist(&conn, "missing", "名前"),
+            Err(AppError::NotFound(_))
+        ));
+        assert!(matches!(
+            get_playlist_name(&conn, "missing"),
+            Err(AppError::NotFound(_))
+        ));
+    }
+
+    /// 読み込み用のプレイリストの作成: 同じ名前には番号を付け、見つからない曲があれば作らない
+    #[test]
+    fn test_create_playlist_with_tracks() {
+        let mut conn = setup_test_db();
+        for id in ["track1", "track2"] {
+            insert_test_track(&conn, id);
+        }
+        create_playlist(&conn, "読み込み").unwrap();
+
+        let ids = ["track2", "track1"].map(String::from);
+        let playlist = create_playlist_with_tracks(&mut conn, "読み込み", &ids).unwrap();
+        assert_ne!(playlist.name, "読み込み");
+        let order: Vec<&str> = playlist
+            .tracks
+            .iter()
+            .map(|t| t.track_id.as_str())
+            .collect();
+        assert_eq!(order, ["track2", "track1"]);
+
+        // 見つからない曲は、外部キーの違反（DATABASE）ではなく`NotFound`
+        let with_missing = ["track1", "missing"].map(String::from);
+        assert!(matches!(
+            create_playlist_with_tracks(&mut conn, "だめ", &with_missing),
+            Err(AppError::NotFound(_))
+        ));
+        assert_eq!(get_all_playlists(&conn).unwrap().len(), 2);
+    }
+
+    /// 曲を外した後の位置は、今の順のまま0からの連番になる（間の空いた位置からも）
+    #[test]
+    fn test_positions_are_renumbered_in_order() {
+        let conn = setup_test_db();
+        let playlist = create_playlist(&conn, "Test Playlist").unwrap();
+        for (id, position) in [("track1", 10), ("track2", 4), ("track3", 7), ("track4", 20)] {
+            insert_test_track(&conn, id);
+            conn.execute(
+                "INSERT INTO playlist_tracks (playlist_id, track_id, position) VALUES (?1, ?2, ?3)",
+                rusqlite::params![playlist.id, id, position],
+            )
+            .unwrap();
+        }
+
+        remove_tracks_from_playlist(&conn, &playlist.id, &["track3".to_string()]).unwrap();
+
+        let playlists = get_all_playlists(&conn).unwrap();
+        let order: Vec<(&str, i32)> = playlists[0]
+            .tracks
+            .iter()
+            .map(|t| (t.track_id.as_str(), t.position))
+            .collect();
+        assert_eq!(order, [("track2", 0), ("track1", 1), ("track4", 2)]);
+    }
+
+    /// 多くの曲を追加しても、曲の確認・追加の文は準備し直さない（使い回す）
+    #[test]
+    fn test_adding_many_tracks_appends_after_the_last_position() {
+        let conn = setup_test_db();
+        let playlist = create_playlist(&conn, "Test Playlist").unwrap();
+        let ids: Vec<String> = (0..200).map(|index| format!("track{index}")).collect();
+        for id in &ids {
+            insert_test_track(&conn, id);
+        }
+        assert_eq!(
+            add_tracks_to_playlist(&conn, &playlist.id, &ids[..100]).unwrap(),
+            100
+        );
+        assert_eq!(
+            add_tracks_to_playlist(&conn, &playlist.id, &ids).unwrap(),
+            100
+        );
+
+        let playlists = get_all_playlists(&conn).unwrap();
+        let positions: Vec<i32> = playlists[0].tracks.iter().map(|t| t.position).collect();
+        assert_eq!(positions, (0..200).collect::<Vec<_>>());
+        assert!(matches!(
+            add_tracks_to_playlist(&conn, "missing", &ids[..1]),
+            Err(AppError::NotFound(_))
+        ));
     }
 
     #[test]
@@ -839,7 +944,7 @@ mod tests {
 
         let ids = ["track1", "missing"].map(String::from);
         let result = add_tracks_to_playlist(&conn, &playlist.id, &ids);
-        assert!(matches!(result, Err(rusqlite::Error::QueryReturnedNoRows)));
+        assert!(matches!(result, Err(AppError::NotFound(_))));
 
         let playlists = get_all_playlists(&conn).unwrap();
         assert!(playlists[0].tracks.is_empty());
@@ -875,7 +980,7 @@ mod tests {
         );
         assert!(matches!(
             remove_tracks_from_playlist(&conn, "missing", &ids),
-            Err(rusqlite::Error::QueryReturnedNoRows)
+            Err(AppError::NotFound(_))
         ));
     }
 
@@ -901,7 +1006,7 @@ mod tests {
         let with_missing = ["track1", "missing"].map(String::from);
         assert!(matches!(
             create_playlist_from_tracks(&mut conn, "だめ", &with_missing),
-            Err(rusqlite::Error::QueryReturnedNoRows)
+            Err(AppError::NotFound(_))
         ));
         assert_eq!(get_all_playlists(&conn).unwrap().len(), 2);
     }
@@ -925,7 +1030,7 @@ mod tests {
 
         assert!(matches!(
             set_playlist_description(&conn, "missing", Some("説明")),
-            Err(rusqlite::Error::QueryReturnedNoRows)
+            Err(AppError::NotFound(_))
         ));
     }
 
@@ -969,7 +1074,7 @@ mod tests {
         ] {
             assert!(matches!(
                 move_playlist(&conn, playlist_id, folder_id),
-                Err(rusqlite::Error::QueryReturnedNoRows)
+                Err(AppError::NotFound(_))
             ));
         }
 
@@ -979,7 +1084,7 @@ mod tests {
         assert_eq!(folder_of(&conn, &commute.id), None);
         assert!(matches!(
             delete_playlist_folder(&conn, &folder.id),
-            Err(rusqlite::Error::QueryReturnedNoRows)
+            Err(AppError::NotFound(_))
         ));
     }
 

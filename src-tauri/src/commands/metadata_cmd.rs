@@ -378,7 +378,7 @@ fn refresh_library_metadata_blocking(state: &AppState) -> AppResult<RefreshMetad
     let mut errors = Vec::new();
 
     // 全トラックのファイルパスを取得
-    let tracks = state.with_db(|db| crate::repository::find_all_track_file_paths(db))?;
+    let tracks = state.with_db(|db| crate::repository::find_track_paths(db))?;
 
     let total_tracks = tracks.len();
     log::info!("メタデータ更新を開始: {} トラック", total_tracks);

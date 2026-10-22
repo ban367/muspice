@@ -1,5 +1,5 @@
 use crate::album_art::AlbumArtCache;
-use crate::error::{AppError, AppResult};
+use crate::error::AppResult;
 use crate::smart_playlist::EvalContext;
 use rusqlite::Connection;
 use std::collections::HashSet;
@@ -133,13 +133,27 @@ impl AppState {
 
     /// DBロックを取得してクロージャを実行する共通ヘルパー
     ///
-    /// ロック取得失敗時のエラーメッセージ生成を一元化する。
     /// トランザクションが必要な場合のため`&mut Connection`を渡す
     /// （読み取りのみの場合は`&Connection`として自動的に扱える）。
+    ///
+    /// ほかの処理がDBを使っている途中でパニックした後も、ロックを回復して続ける（回復しないと、
+    /// 再起動するまですべてのDBの操作が失敗する）。途中で止まった処理のトランザクションは、
+    /// `Transaction`を捨てた時に取り消されるが、残っていれば取り消してから使う（ログに残す）。
     pub fn with_db<T>(&self, f: impl FnOnce(&mut Connection) -> AppResult<T>) -> AppResult<T> {
-        let mut db = self.db.lock().map_err(|e| {
-            AppError::Lock(format!("データベースロックの取得に失敗しました: {}", e))
-        })?;
+        let mut db = self.db.lock().unwrap_or_else(|poisoned| {
+            log::error!("データベースを使う処理が途中で止まりました。ロックを回復して続けます");
+            let db = poisoned.into_inner();
+            if !db.is_autocommit()
+                && let Err(e) = db.execute_batch("ROLLBACK")
+            {
+                log::error!(
+                    "途中で止まった処理のトランザクションを取り消せませんでした: {}",
+                    e
+                );
+            }
+            self.db.clear_poison();
+            db
+        });
         f(&mut db)
     }
 }
@@ -154,6 +168,42 @@ mod tests {
 
     fn state() -> Arc<AppState> {
         Arc::new(AppState::new(Connection::open_in_memory().unwrap()))
+    }
+
+    /// DBを使う処理がパニックした後も、DBを使い続けられる（途中のトランザクションは取り消す）
+    #[test]
+    fn test_with_db_recovers_after_a_panic() {
+        let state = state();
+        state
+            .with_db(|db| {
+                db.execute_batch("CREATE TABLE items (id INTEGER)").unwrap();
+                Ok(())
+            })
+            .unwrap();
+
+        let panicked = {
+            let state = state.clone();
+            thread::spawn(move || {
+                let _: AppResult<()> = state.with_db(|db| {
+                    db.execute_batch("BEGIN; INSERT INTO items VALUES (1);")
+                        .unwrap();
+                    panic!("処理の途中で止まる");
+                });
+            })
+            .join()
+        };
+        assert!(panicked.is_err());
+
+        let (count, autocommit) = state
+            .with_db(|db| {
+                let count: i64 = db
+                    .query_row("SELECT COUNT(*) FROM items", [], |row| row.get(0))
+                    .unwrap();
+                Ok((count, db.is_autocommit()))
+            })
+            .expect("パニックの後もDBを使える");
+        assert_eq!((count, autocommit), (0, true));
+        assert!(!state.db.is_poisoned());
     }
 
     #[test]

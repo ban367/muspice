@@ -11,14 +11,6 @@ use crate::validation::{
 use chrono::Utc;
 use tauri::State;
 
-/// プレイリストの操作のエラーを、`AppError`にする（行が見つからない場合は`NotFound`）
-fn playlist_error(error: rusqlite::Error, not_found: &str, operation: &str) -> AppError {
-    match error {
-        rusqlite::Error::QueryReturnedNoRows => AppError::NotFound(not_found.to_string()),
-        _ => AppError::Database(format!("{}に失敗しました: {}", operation, error)),
-    }
-}
-
 /// プレイリストを作成
 #[tauri::command]
 #[specta::specta]
@@ -26,13 +18,11 @@ pub async fn create_playlist(
     name: String,
     state: State<'_, AppState>,
 ) -> AppResult<crate::models::Playlist> {
-    // プレイリスト名をバリデーション
+    // 前後の空白は除く（ほかの名前を付けるコマンドと同じ）
+    let name = name.trim().to_string();
     validate_playlist_name(&name)?;
 
-    state.with_db(|db| {
-        crate::playlist::create_playlist(db, &name)
-            .map_err(|e| AppError::Database(format!("プレイリストの作成に失敗しました: {}", e)))
-    })
+    state.with_db(|db| crate::playlist::create_playlist(db, &name))
 }
 
 /// 自動プレイリスト（条件で曲を集めるプレイリスト）を作成
@@ -47,10 +37,7 @@ pub async fn create_smart_playlist(
     validate_playlist_name(&name)?;
     validate_rules(&rules)?;
 
-    state.with_db(|db| {
-        crate::playlist::create_smart_playlist(db, &name, &rules)
-            .map_err(|e| AppError::Database(format!("プレイリストの作成に失敗しました: {}", e)))
-    })
+    state.with_db(|db| crate::playlist::create_smart_playlist(db, &name, &rules))
 }
 
 /// 自動プレイリストの条件を変更（名前は`rename_playlist`で変える）
@@ -83,10 +70,7 @@ pub async fn count_smart_playlist_tracks(
 #[tauri::command]
 #[specta::specta]
 pub async fn get_playlists(state: State<'_, AppState>) -> AppResult<Vec<crate::models::Playlist>> {
-    state.with_db(|db| {
-        crate::playlist::get_all_playlists(db)
-            .map_err(|e| AppError::Database(format!("プレイリストの取得に失敗しました: {}", e)))
-    })
+    state.with_db(|db| crate::playlist::get_all_playlists(db))
 }
 
 /// プレイリストの曲を取得（プレイリストの中の並び順。自動プレイリストは、条件に合う曲）
@@ -137,12 +121,7 @@ pub async fn add_tracks_to_playlist(
 
     let added = state.with_db(|db| {
         crate::playlist::ensure_manual_playlist(db, &playlist_id)?;
-        crate::playlist::add_tracks_to_playlist(db, &playlist_id, &track_ids).map_err(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => {
-                AppError::NotFound("プレイリストまたはトラックが見つかりません".to_string())
-            }
-            _ => AppError::Database(format!("トラックの追加に失敗しました: {}", e)),
-        })
+        crate::playlist::add_tracks_to_playlist(db, &playlist_id, &track_ids)
     })?;
     crate::library::to_count(added)
 }
@@ -171,7 +150,6 @@ pub async fn remove_tracks_from_playlist(
     let removed = state.with_db(|db| {
         crate::playlist::ensure_manual_playlist(db, &playlist_id)?;
         crate::playlist::remove_tracks_from_playlist(db, &playlist_id, &track_ids)
-            .map_err(|e| playlist_error(e, "プレイリストが見つかりません", "トラックの削除"))
     })?;
     crate::library::to_count(removed)
 }
@@ -192,10 +170,7 @@ pub async fn create_playlist_with_tracks(
         validate_track_id(track_id)?;
     }
 
-    state.with_db(|db| {
-        crate::playlist::create_playlist_from_tracks(db, &name, &track_ids)
-            .map_err(|e| playlist_error(e, "トラックが見つかりません", "プレイリストの作成"))
-    })
+    state.with_db(|db| crate::playlist::create_playlist_from_tracks(db, &name, &track_ids))
 }
 
 /// プレイリストの説明を変更（値なし・空の文字列は、説明なし）
@@ -213,7 +188,6 @@ pub async fn set_playlist_description(
 
     state.with_db(|db| {
         crate::playlist::set_playlist_description(db, &playlist_id, description.as_deref())
-            .map_err(|e| playlist_error(e, "プレイリストが見つかりません", "説明の変更"))
     })
 }
 
@@ -221,10 +195,7 @@ pub async fn set_playlist_description(
 #[tauri::command]
 #[specta::specta]
 pub async fn get_playlist_folders(state: State<'_, AppState>) -> AppResult<Vec<PlaylistFolder>> {
-    state.with_db(|db| {
-        crate::playlist::get_playlist_folders(db)
-            .map_err(|e| AppError::Database(format!("フォルダの取得に失敗しました: {}", e)))
-    })
+    state.with_db(|db| crate::playlist::get_playlist_folders(db))
 }
 
 /// プレイリストのフォルダを作成
@@ -237,10 +208,7 @@ pub async fn create_playlist_folder(
     let name = name.trim().to_string();
     validate_playlist_folder_name(&name)?;
 
-    state.with_db(|db| {
-        crate::playlist::create_playlist_folder(db, &name)
-            .map_err(|e| AppError::Database(format!("フォルダの作成に失敗しました: {}", e)))
-    })
+    state.with_db(|db| crate::playlist::create_playlist_folder(db, &name))
 }
 
 /// プレイリストのフォルダの名前を変更
@@ -255,10 +223,7 @@ pub async fn rename_playlist_folder(
     let name = name.trim().to_string();
     validate_playlist_folder_name(&name)?;
 
-    state.with_db(|db| {
-        crate::playlist::rename_playlist_folder(db, &folder_id, &name)
-            .map_err(|e| playlist_error(e, "フォルダが見つかりません", "フォルダ名の変更"))
-    })
+    state.with_db(|db| crate::playlist::rename_playlist_folder(db, &folder_id, &name))
 }
 
 /// プレイリストのフォルダを削除（中のプレイリストは消さず、フォルダの外へ出す）
@@ -270,10 +235,7 @@ pub async fn delete_playlist_folder(
 ) -> AppResult<()> {
     validate_playlist_folder_id(&folder_id)?;
 
-    state.with_db(|db| {
-        crate::playlist::delete_playlist_folder(db, &folder_id)
-            .map_err(|e| playlist_error(e, "フォルダが見つかりません", "フォルダの削除"))
-    })
+    state.with_db(|db| crate::playlist::delete_playlist_folder(db, &folder_id))
 }
 
 /// プレイリストを、フォルダへ移す（`folder_id`が値なしなら、フォルダの外へ出す）
@@ -291,15 +253,7 @@ pub async fn move_playlist(
         validate_playlist_folder_id(folder_id)?;
     }
 
-    state.with_db(|db| {
-        crate::playlist::move_playlist(db, &playlist_id, folder_id.as_deref()).map_err(|e| {
-            playlist_error(
-                e,
-                "プレイリストまたはフォルダが見つかりません",
-                "プレイリストの移動",
-            )
-        })
-    })
+    state.with_db(|db| crate::playlist::move_playlist(db, &playlist_id, folder_id.as_deref()))
 }
 
 /// プレイリストの手動の並び順を変更（渡した順に並べる）
@@ -315,10 +269,7 @@ pub async fn reorder_playlists(
         validate_playlist_id(playlist_id)?;
     }
 
-    state.with_db(|db| {
-        crate::playlist::reorder_playlists(db, &playlist_ids)
-            .map_err(|e| AppError::Database(format!("プレイリストの並び替えに失敗しました: {}", e)))
-    })
+    state.with_db(|db| crate::playlist::reorder_playlists(db, &playlist_ids))
 }
 
 /// プレイリストのフォルダの手動の並び順を変更（渡した順に並べる）
@@ -332,10 +283,7 @@ pub async fn reorder_playlist_folders(
         validate_playlist_folder_id(folder_id)?;
     }
 
-    state.with_db(|db| {
-        crate::playlist::reorder_playlist_folders(db, &folder_ids)
-            .map_err(|e| AppError::Database(format!("フォルダの並び替えに失敗しました: {}", e)))
-    })
+    state.with_db(|db| crate::playlist::reorder_playlist_folders(db, &folder_ids))
 }
 
 /// プレイリストの名前を変更
@@ -353,14 +301,7 @@ pub async fn rename_playlist(
     let name = name.trim().to_string();
     validate_playlist_name(&name)?;
 
-    state.with_db(|db| {
-        crate::playlist::rename_playlist(db, &playlist_id, &name).map_err(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => {
-                AppError::NotFound("プレイリストが見つかりません".to_string())
-            }
-            _ => AppError::Database(format!("プレイリスト名の変更に失敗しました: {}", e)),
-        })
-    })
+    state.with_db(|db| crate::playlist::rename_playlist(db, &playlist_id, &name))
 }
 
 /// プレイリストを削除
@@ -370,14 +311,7 @@ pub async fn delete_playlist(playlist_id: String, state: State<'_, AppState>) ->
     // プレイリストIDをバリデーション
     validate_playlist_id(&playlist_id)?;
 
-    state.with_db(|db| {
-        crate::playlist::delete_playlist(db, &playlist_id).map_err(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => {
-                AppError::NotFound("プレイリストが見つかりません".to_string())
-            }
-            _ => AppError::Database(format!("プレイリストの削除に失敗しました: {}", e)),
-        })
-    })
+    state.with_db(|db| crate::playlist::delete_playlist(db, &playlist_id))
 }
 
 /// プレイリスト内のトラックを並び替え
@@ -398,13 +332,6 @@ pub async fn reorder_playlist_tracks(
 
     state.with_db(|db| {
         crate::playlist::ensure_manual_playlist(db, &playlist_id)?;
-        crate::playlist::reorder_playlist_tracks(db, &playlist_id, &track_ids).map_err(
-            |e| match e {
-                rusqlite::Error::QueryReturnedNoRows => {
-                    AppError::NotFound("プレイリストが見つかりません".to_string())
-                }
-                _ => AppError::Database(format!("トラックの並び替えに失敗しました: {}", e)),
-            },
-        )
+        crate::playlist::reorder_playlist_tracks(db, &playlist_id, &track_ids)
     })
 }

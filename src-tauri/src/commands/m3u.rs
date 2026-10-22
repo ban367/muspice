@@ -108,7 +108,6 @@ fn import_file(state: &AppState, matcher: &m3u::TrackMatcher, path: &Path) -> M3
 
     let created = state.with_db(|db| {
         crate::playlist::create_playlist_with_tracks(db, &read.name, &read.track_ids)
-            .map_err(|e| AppError::Database(format!("プレイリストの作成に失敗しました: {}", e)))
     });
     match created {
         Ok(playlist) => {
@@ -139,14 +138,7 @@ pub async fn export_playlist_m3u(
 
     run_blocking(move || {
         let state = app.state::<AppState>();
-        let name = state.with_db(|db| {
-            crate::playlist::get_playlist_name(db, &playlist_id).map_err(|e| match e {
-                rusqlite::Error::QueryReturnedNoRows => {
-                    AppError::NotFound("プレイリストが見つかりません".to_string())
-                }
-                e => AppError::Database(format!("プレイリストの取得に失敗しました: {}", e)),
-            })
-        })?;
+        let name = state.with_db(|db| crate::playlist::get_playlist_name(db, &playlist_id))?;
 
         let labels = Labels::for_language(crate::menu::current_language(&app));
         let Some(file) = file_dialog(&app)

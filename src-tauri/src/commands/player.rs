@@ -71,10 +71,12 @@ pub async fn get_current_track(state: State<'_, AppState>) -> AppResult<Option<T
         }
     };
 
+    // 削除された曲は、再生中の曲なし。DBの失敗などは、そのまま返す
     state.with_db(
         |db| match crate::repository::find_track_by_id(db, &track_id) {
             Ok(track) => Ok(Some(track)),
-            Err(_) => Ok(None),
+            Err(AppError::NotFound(_)) => Ok(None),
+            Err(e) => Err(e),
         },
     )
 }

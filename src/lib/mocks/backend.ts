@@ -2423,9 +2423,11 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         return true;
       });
     },
+    // 実装と同じく、前後の空白を除いた名前で作る
     createPlaylist: (name) => {
-      validatePlaylistName(name);
-      return newPlaylist(name, null);
+      const trimmed = name.trim();
+      validatePlaylistName(trimmed);
+      return newPlaylist(trimmed, null);
     },
     createSmartPlaylist: (name, rules) => {
       const trimmed = name.trim();

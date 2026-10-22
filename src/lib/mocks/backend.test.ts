@@ -1037,6 +1037,11 @@ describe('プレイリスト', () => {
     await expect(commands.createPlaylist('a/b')).rejects.toMatchObject({ code: 'VALIDATION' });
   });
 
+  it('プレイリストの名前は、前後の空白を除いて作る（改名と同じ）', async () => {
+    const created = await commands.createPlaylist('  通勤 ');
+    expect(created.name).toBe('通勤');
+  });
+
   it('自動プレイリストは、条件に合う曲を返し、曲を自分で変える操作を受け付けない', async () => {
     const smart = (await commands.getPlaylists()).find((p) => p.id === mockPlaylistId(4))!;
     expect(smart.rules).not.toBeNull();

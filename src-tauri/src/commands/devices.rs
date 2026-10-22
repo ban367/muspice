@@ -302,8 +302,7 @@ fn prepare_sync(state: &AppState, device_id: &str) -> AppResult<PreparedSync> {
     let (device, all_tracks, playlists) = state.with_db(|db| {
         let device = crate::device::find_device(db, device_id)?;
         let tracks = crate::repository::find_transfer_tracks(db)?;
-        let playlists = crate::playlist::get_all_playlists(db)
-            .map_err(|e| AppError::Database(format!("プレイリストの取得に失敗しました: {}", e)))?
+        let playlists = crate::playlist::get_all_playlists(db)?
             .into_iter()
             .filter(|playlist| device.playlist_ids.contains(&playlist.id))
             .map(|playlist| {

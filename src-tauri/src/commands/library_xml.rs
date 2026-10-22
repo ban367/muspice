@@ -110,9 +110,7 @@ fn import_file(
             }
             let name = m3u::sanitize_playlist_name(&playlist.name);
             state.with_db(|db| {
-                crate::playlist::create_playlist_with_tracks(db, &name, &track_ids).map_err(|e| {
-                    AppError::Database(format!("プレイリストの作成に失敗しました: {}", e))
-                })
+                crate::playlist::create_playlist_with_tracks(db, &name, &track_ids)
             })?;
             playlist_count += 1;
         }
