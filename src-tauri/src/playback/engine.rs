@@ -4,9 +4,10 @@
 //! デコードした音声を出力のリングバッファへ書き続ける。
 //!
 //! ```text
-//! コマンド → [エンジンのスレッド] デコード → 変換（ステレオ・出力のレート） → リングバッファ
-//!                                                                              ↓
-//!                                             [出力のコールバック] 音量・一時停止 → デバイス
+//! コマンド → [エンジンのスレッド] デコード → 変換（ステレオ・出力のレート）
+//!                                   → 音量の正規化・クロスフェード → リングバッファ
+//!                                                                     ↓
+//!   [出力のコールバック] 再生速度 → イコライザ → 音量・一時停止 → リミッター → デバイス
 //! ```
 //!
 //! 再生キューはフロントエンドが持つ。エンジンが持つのは「再生中の曲」と「続けて再生する曲」
@@ -324,6 +325,9 @@ struct Fade {
     incoming_samples: Vec<f32>,
     outgoing_finished: bool,
     incoming_finished: bool,
+    /// 次の曲が、重なりの途中でデコードに失敗した（重なりがまだ鳴っていない時）: そのエラー。
+    /// 前の曲は最後まで鳴らし、次の曲は書けた所までで終える（`Engine::deferred_failure`）
+    incoming_error: Option<AppError>,
     /// 重ね終えたフレーム数と、重ねる長さ（フレーム）
     mixed_frames: u64,
     total_frames: u64,
@@ -417,6 +421,16 @@ struct Engine {
     segments: VecDeque<Segment>,
     /// 音声の終わりの位置（続けて再生する曲がない場合。ここまで鳴ったら`Ended`）
     end_frame: Option<u64>,
+    /// まだ鳴っていない、続けて再生する曲のデコードに失敗した: その曲の番号とエラー
+    ///
+    /// 前の曲は最後まで鳴らし、失敗した曲は書けた所までで終える（`end_frame`）。そこまで鳴ったら、
+    /// `Ended`の代わりに`Failed`を送る（フロントエンドには、その曲を直接再生して失敗した時と同じに見える）
+    deferred_failure: Option<(u32, AppError)>,
+    /// `play`の途中か（途中で再生できなくなった場合は、`Failed`を送らずに`play`の結果として返す。
+    /// 送ると、コマンドの結果と合わせて、同じ失敗が2回知らされる）
+    in_play: bool,
+    /// `play`の途中で再生できなくなった時のエラー
+    failure_in_play: Option<AppError>,
     last_position_at: Instant,
     /// 再生していない状態（一時停止・何も再生していない）になった時刻
     idle_since: Option<Instant>,
@@ -462,8 +476,12 @@ impl Engine {
             pending_offset: 0,
             segments: VecDeque::new(),
             end_frame: None,
+            deferred_failure: None,
+            in_play: false,
+            failure_in_play: None,
             last_position_at: Instant::now(),
-            idle_since: None,
+            // 何も再生していない状態で始める（最初に再生するまで、定期的な処理で起きない）
+            idle_since: Some(Instant::now()),
             latest_play_token: None,
         }
     }
@@ -517,8 +535,12 @@ impl Engine {
         match command {
             Command::Play { request, reply } => {
                 let result = self.play(request);
-                if let Err(e) = &result {
-                    log::error!("再生を開始できません: {}", e);
+                match &result {
+                    Ok(_) => {}
+                    // 新しい要求を先に受け取っていた（設計どおりの取り消し）
+                    Err(e) if *e == superseded() => log::info!("{}", e),
+                    Err(AppError::NotFound(e)) => log::warn!("再生を開始できません: {}", e),
+                    Err(e) => log::error!("再生を開始できません: {}", e),
                 }
                 let _ = reply.send(result);
             }
@@ -537,6 +559,9 @@ impl Engine {
                 if !self.segments.is_empty() && self.paused {
                     self.set_paused(false);
                     self.idle_since = None;
+                    // 出力を動かす前に、鳴らす音声を書いておく（一時停止中に出力を開き直した場合は、
+                    // リングバッファが空のため）
+                    self.pump();
                     self.start_output();
                 }
             }
@@ -606,6 +631,19 @@ impl Engine {
     // ---------- コマンド ----------
 
     fn play(&mut self, request: PlayRequest) -> AppResult<PlaybackTrackInfo> {
+        self.in_play = true;
+        self.failure_in_play = None;
+        let result = self.start_playing(request);
+        self.in_play = false;
+        match self.failure_in_play.take() {
+            // 出力を動かせなかった・最初のデコードに失敗した（`fail`が再生を止めている）
+            Some(error) => Err(error),
+            None => result,
+        }
+    }
+
+    /// `play`の本体（途中で再生できなくなった場合は、`fail`が`failure_in_play`に残す）
+    fn start_playing(&mut self, request: PlayRequest) -> AppResult<PlaybackTrackInfo> {
         if self
             .latest_play_token
             .is_some_and(|latest| request.token < latest)
@@ -645,8 +683,7 @@ impl Engine {
         // 出力を動かす前に、鳴らす音声を書いておく
         self.pump();
         self.start_output();
-        if self.segments.is_empty() {
-            // 出力を動かせなかった（`start_output`が通知して再生を止めた）
+        if self.segments.is_empty() && self.failure_in_play.is_none() {
             return Err(AppError::Playback("音声の出力を開始できません".to_string()));
         }
         Ok(info)
@@ -733,10 +770,11 @@ impl Engine {
             }
         };
         let deck = Deck::new(opening.request, decoder, self.normalization);
-        if self.decode_finished {
+        if self.decode_finished && self.deferred_failure.is_none() {
             // 再生中の曲のデコードは終わっている（鳴り終わるのを待っている）ため、すぐに続ける
             self.start_next(deck);
         } else {
+            // デコードの途中か、失敗した曲が鳴り終わるのを待っている（失敗を知らせた時に、手放す）
             self.next = Some(deck);
         }
         opening.reply.send(Ok(()));
@@ -757,18 +795,61 @@ impl Engine {
         self.pending_offset = 0;
         self.segments.clear();
         self.end_frame = None;
+        self.deferred_failure = None;
         self.set_paused(false);
         self.idle_since = Some(Instant::now());
     }
 
     /// 鳴っている曲を再生できなくなった: 再生を止め、フロントエンドへ知らせる
+    ///
+    /// `play`の途中なら、知らせずに`play`の結果として返す（`failure_in_play`）。
     fn fail(&mut self, error: AppError) {
         let token = self.segments.front().map(|segment| segment.token);
         log::error!("再生を続けられません: {}", error);
         self.stop_playback();
+        if self.in_play {
+            self.failure_in_play.get_or_insert(error);
+            return;
+        }
         if let Some(token) = token {
             (self.emit)(PlaybackEvent::Failed { token, error });
         }
+    }
+
+    /// デコードしている曲（`current`）のデコードに失敗した
+    ///
+    /// 鳴っている曲なら、再生を止めて知らせる（`fail`）。まだ鳴っていない、続けて再生する曲なら、
+    /// 前の曲は最後まで鳴らし、失敗した曲は書けた所までで終える（`deferred_failure`）。
+    fn fail_decoding(&mut self, error: AppError) {
+        let token = self.current.as_ref().map(|deck| deck.token);
+        match token {
+            Some(token)
+                if self
+                    .segments
+                    .front()
+                    .is_some_and(|front| front.token != token) =>
+            {
+                log::warn!(
+                    "続けて再生する曲のデコードに失敗しました。前の曲は最後まで再生します: {}",
+                    error
+                );
+                // 変換器に残っている、失敗した曲の音声を出し切る
+                if let Some(converter) = &mut self.converter
+                    && let Err(e) = converter.flush(&mut self.pending)
+                {
+                    log::warn!("曲の終わりの音声を変換できません: {}", e);
+                }
+                self.end_with_failure(token, error);
+            }
+            _ => self.fail(error),
+        }
+    }
+
+    /// まだ鳴っていない曲（`token`）が失敗した: 書いた所までで終え、鳴り終わった時に`Failed`を送る
+    fn end_with_failure(&mut self, token: u32, error: AppError) {
+        self.decode_finished = true;
+        self.end_frame = Some(self.write_position());
+        self.deferred_failure = Some((token, error));
     }
 
     fn set_paused(&mut self, paused: bool) {
@@ -846,7 +927,7 @@ impl Engine {
                 Err(e) => Err(e),
             };
             if let Err(e) = result {
-                self.fail(e);
+                self.fail_decoding(e);
                 return;
             }
         }
@@ -913,13 +994,19 @@ impl Engine {
             incoming_samples: Vec::new(),
             outgoing_finished: false,
             incoming_finished: false,
+            incoming_error: None,
             mixed_frames: 0,
             total_frames: ((seconds * f64::from(output_rate)).round() as u64).max(1),
         });
     }
 
     /// クロスフェードの続きを書く: 前の曲の残りと次の曲の頭をデコードし、重ねて`pending`へ足す
+    ///
+    /// デコードの失敗は、鳴っている曲のものだけをエラーとして返す（`pump`が再生を止める）。
+    /// 重なりが鳴る前の次の曲の失敗は、前の曲を最後まで鳴らしてから知らせ（`incoming_error`）、
+    /// 重なりが鳴っている間の前の曲の失敗は、前の曲がそこで終わったものとして次の曲を続ける。
     fn pump_fade(&mut self) -> AppResult<()> {
+        let audible = self.segments.front().map(|segment| segment.token);
         let (Some(fade), Some(outgoing), Some(converter)) =
             (&mut self.fade, &mut self.current, &mut self.converter)
         else {
@@ -929,10 +1016,22 @@ impl Engine {
         // 短い方の音声を、1かたまり分デコードする
         if !fade.outgoing_finished && fade.outgoing_samples.len() <= fade.incoming_samples.len() {
             let start = fade.outgoing_samples.len();
-            match outgoing.decoder.next_chunk()? {
-                Some(samples) => converter.process(samples, &mut fade.outgoing_samples)?,
-                None => {
-                    converter.flush(&mut fade.outgoing_samples)?;
+            let decoded = match outgoing.decoder.next_chunk() {
+                Ok(Some(samples)) => converter
+                    .process(samples, &mut fade.outgoing_samples)
+                    .map(|()| false),
+                Ok(None) => converter.flush(&mut fade.outgoing_samples).map(|()| true),
+                Err(e) => Err(e),
+            };
+            match decoded {
+                Ok(finished) => fade.outgoing_finished = finished,
+                // 重なりがまだ鳴っていない（前の曲が鳴っている）: 前の曲の失敗として止める
+                Err(e) if audible == Some(outgoing.token) => return Err(e),
+                Err(e) => {
+                    log::warn!(
+                        "前の曲のデコードに失敗しました。重なりの残りは次の曲だけを鳴らします: {}",
+                        e
+                    );
                     fade.outgoing_finished = true;
                 }
             }
@@ -943,11 +1042,26 @@ impl Engine {
             );
         } else if !fade.incoming_finished {
             let start = fade.incoming_samples.len();
-            match fade.incoming.decoder.next_chunk()? {
-                Some(samples) => fade
+            let decoded = match fade.incoming.decoder.next_chunk() {
+                Ok(Some(samples)) => fade
                     .converter
-                    .process(samples, &mut fade.incoming_samples)?,
-                None => fade.incoming_finished = true,
+                    .process(samples, &mut fade.incoming_samples)
+                    .map(|()| false),
+                Ok(None) => Ok(true),
+                Err(e) => Err(e),
+            };
+            match decoded {
+                Ok(finished) => fade.incoming_finished = finished,
+                // 重なりが鳴っている（次の曲が、鳴っている曲になっている）: 次の曲の失敗として止める
+                Err(e) if audible == Some(fade.incoming.token) => return Err(e),
+                Err(e) => {
+                    log::warn!(
+                        "続けて再生する曲のデコードに失敗しました。前の曲は最後まで再生します: {}",
+                        e
+                    );
+                    fade.incoming_finished = true;
+                    fade.incoming_error = Some(e);
+                }
             }
             let incoming = &mut fade.incoming;
             apply_gain(
@@ -993,8 +1107,15 @@ impl Engine {
             && (fade.mixed_frames >= fade.total_frames || fade.incoming_finished)
             && let Some(fade) = self.fade.take()
         {
+            let failed = fade
+                .incoming_error
+                .map(|error| (fade.incoming.token, error));
             self.current = Some(fade.incoming);
             self.converter = Some(fade.converter);
+            if let Some((token, error)) = failed {
+                // 次の曲は、重なりの途中までで終える（重ねた分は、書いてある）
+                self.end_with_failure(token, error);
+            }
         }
         Ok(())
     }
@@ -1083,66 +1204,83 @@ impl Engine {
     }
 
     /// 鳴っている曲の中の、指定した位置（秒）から書き直す（シーク・出力の開き直し）
+    ///
+    /// 持っているデッキ（デコードしている曲と、クロスフェードで重ね始めていた曲）から、鳴っている曲と
+    /// その次の曲を、番号で探す。鳴っている曲のデッキがなければ（デコードを終えていた）、開き直す。
+    /// 次の曲は、頭から用意し直して続けて再生する曲にし、ほかのデッキは手放す。
     fn reposition(&mut self, seconds: f64) -> AppResult<()> {
         let Some(front) = self.segments.front().cloned() else {
             return Ok(());
         };
         let output = self.output.as_mut().ok_or_else(output_closed)?;
         output.discard_buffered();
+        let output_rate = output.sample_rate;
         self.pending.clear();
         self.pending_offset = 0;
+        // 失敗した次の曲は、頭から用意し直す（もう一度失敗すれば、その時に知らせる）
+        self.deferred_failure = None;
 
         // 書き始めていた曲を、続けて再生する曲として用意し直すか（その後に別の曲が伝えられて、
         // 用意している・開いている途中なら、そちらを使う）
         let keep_upcoming = self.next.is_none() && self.opening.is_none();
-        if let Some(mut fade) = self.fade.take() {
-            if self.segments.len() > 1 {
-                // 重なりは、まだ鳴り始めていない。鳴っている（前の）曲の中で移動し、
-                // 重ね始めていた曲は、続けて再生する曲として頭から用意し直す
-                if keep_upcoming && fade.incoming.decoder.seek(0.0).is_ok() {
-                    self.next = Some(fade.incoming);
-                }
-            } else {
-                // 重なりが鳴っている: 鳴っている曲は次の曲に切り替わっているため、
-                // 前の曲を止めて、次の曲の中で移動する
-                self.current = Some(fade.incoming);
-                self.converter = Some(fade.converter);
-            }
-        } else if self.segments.len() > 1 {
-            // 鳴っている曲のデコードは終わり、続きの曲を書き始めていた。鳴っている曲を開き直し、
-            // 書き始めていた曲は、続けて再生する曲として頭から用意し直す。
-            // 開き直すのは、このスレッドで待つ（たまっていた音声は捨てたため、開く間は
-            // シークの待ち時間になるだけで、鳴っている音声は途切れない）
-            if let Some(mut upcoming) = self.current.take()
-                && keep_upcoming
-                && upcoming.decoder.seek(0.0).is_ok()
-            {
-                self.next = Some(upcoming);
-            }
-            let request = PlayRequest {
-                token: front.token,
-                path: front.path.clone(),
-                replay_gain: front.replay_gain.clone(),
-            };
-            let decoder = (self.open_decoder)(&front.path)?;
-            self.current = Some(Deck::new(request, decoder, self.normalization));
+        let upcoming_token = self.segments.get(1).map(|segment| segment.token);
+
+        let mut decks: Vec<(Deck, Option<Converter>)> = Vec::new();
+        if let Some(current) = self.current.take() {
+            decks.push((current, self.converter.take()));
         }
-        let deck = self.current.as_mut().ok_or_else(output_closed)?;
+        if let Some(fade) = self.fade.take() {
+            decks.push((fade.incoming, Some(fade.converter)));
+        }
+        let mut audible = None;
+        for (mut deck, converter) in decks {
+            if deck.token == front.token {
+                audible = Some((deck, converter));
+            } else if keep_upcoming
+                && Some(deck.token) == upcoming_token
+                && deck.decoder.seek(0.0).is_ok()
+            {
+                self.next = Some(deck);
+            }
+        }
+
+        let (mut deck, converter) = match audible {
+            Some(found) => found,
+            None => {
+                // 鳴っている曲のデコードは終わり、続きの曲を書き始めていた。鳴っている曲を開き直す。
+                // 開き直すのは、このスレッドで待つ（たまっていた音声は捨てたため、開く間は
+                // シークの待ち時間になるだけで、鳴っている音声は途切れない）
+                let request = PlayRequest {
+                    token: front.token,
+                    path: front.path.clone(),
+                    replay_gain: front.replay_gain.clone(),
+                };
+                let decoder = (self.open_decoder)(&front.path)?;
+                (Deck::new(request, decoder, self.normalization), None)
+            }
+        };
         let position = deck.decoder.seek(seconds)?;
         let (rate, channels) = (deck.decoder.sample_rate(), deck.decoder.channels());
-        match &mut self.converter {
-            Some(converter) if converter.matches(rate, channels, output.sample_rate) => {
+        self.converter = Some(match converter {
+            Some(mut converter) if converter.matches(rate, channels, output_rate) => {
                 converter.reset();
+                converter
             }
-            _ => self.converter = Some(Converter::new(rate, channels, output.sample_rate)?),
-        }
+            _ => Converter::new(rate, channels, output_rate)?,
+        });
 
         // シークの後は、倍率を途中から滑らかに変える必要がない
         deck.applied_gain = deck.gain;
+        self.current = Some(deck);
 
+        let start_frame = self
+            .output
+            .as_ref()
+            .ok_or_else(output_closed)?
+            .pushed_frames;
         self.segments.clear();
         self.segments.push_back(Segment {
-            start_frame: output.pushed_frames,
+            start_frame,
             base_seconds: position,
             ..front
         });
@@ -1179,8 +1317,16 @@ impl Engine {
             && self.pending_offset >= self.pending.len()
             && let Some(token) = self.segments.front().map(|segment| segment.token)
         {
+            // デコードに失敗した曲が、書けた所まで鳴り終わった: `Ended`の代わりに`Failed`を送る
+            let failure = self
+                .deferred_failure
+                .take()
+                .filter(|(failed, _)| *failed == token);
             self.stop_playback();
-            (self.emit)(PlaybackEvent::Ended { token });
+            (self.emit)(match failure {
+                Some((token, error)) => PlaybackEvent::Failed { token, error },
+                None => PlaybackEvent::Ended { token },
+            });
         }
     }
 
@@ -1377,6 +1523,7 @@ fn output_closed() -> AppError {
 
 #[cfg(test)]
 mod tests {
+    use super::super::block_decoder::BlockSource;
     use super::super::decoder::tests::{temp_dir, wav_sample, write_wav, write_wav_samples};
     use super::*;
     use crate::settings::VolumeNormalization;
@@ -1397,6 +1544,8 @@ mod tests {
         sample_rate: u32,
         /// 次に出力を動かすときに失敗させる
         fail_next_start: bool,
+        /// 出力を動かすたびに失敗させる（デバイスが使えない）
+        fail_all_starts: bool,
         /// イコライザとリミッターをつないだままにする（既定では外す。リミッターは音声を
         /// 先読みの時間だけ遅らせるため、取り出した音声の位置を確かめにくい）
         keep_effects: bool,
@@ -1431,7 +1580,7 @@ mod tests {
     impl OutputHandle for FakeHandle {
         fn start(&mut self) -> AppResult<()> {
             let mut output = self.0.lock().unwrap();
-            if std::mem::take(&mut output.fail_next_start) {
+            if output.fail_all_starts || std::mem::take(&mut output.fail_next_start) {
                 return Err(AppError::Playback("start failed".to_string()));
             }
             output.running = true;
@@ -1440,6 +1589,52 @@ mod tests {
 
         fn stop(&mut self) -> AppResult<()> {
             self.0.lock().unwrap().running = false;
+            Ok(())
+        }
+    }
+
+    /// 途中で読めなくなる曲の、1ブロックのフレーム数
+    const BLOCK_FRAMES: u64 = 400;
+
+    /// 途中で読めなくなる曲の音声の値（ほかの曲と見分けるため、一定の値）
+    const FAILING_VALUE: f32 = 0.25;
+
+    /// 頭から`readable_blocks`ブロックまで読めて、その後で読めなくなる曲（ファイルの読み取りの失敗）
+    struct FailingSource {
+        readable_blocks: usize,
+        total_frames: u64,
+    }
+
+    impl BlockSource for FailingSource {
+        fn sample_rate(&self) -> u32 {
+            RATE
+        }
+
+        fn channels(&self) -> usize {
+            1
+        }
+
+        fn total_frames(&self) -> u64 {
+            self.total_frames
+        }
+
+        fn block_range(&mut self, index: usize) -> AppResult<Option<(u64, u64)>> {
+            if index >= self.readable_blocks {
+                return Err(AppError::Playback("read failed".to_string()));
+            }
+            let start = index as u64 * BLOCK_FRAMES;
+            Ok((start < self.total_frames)
+                .then(|| (start, BLOCK_FRAMES.min(self.total_frames - start))))
+        }
+
+        fn find_block(&mut self, frame: u64) -> AppResult<Option<usize>> {
+            Ok((frame < self.total_frames).then_some((frame / BLOCK_FRAMES) as usize))
+        }
+
+        fn decode_block(&mut self, index: usize, out: &mut Vec<f32>) -> AppResult<()> {
+            let (_, frames) = self.block_range(index)?.expect("ブロックがあるはず");
+            out.clear();
+            out.resize(frames as usize, FAILING_VALUE);
             Ok(())
         }
     }
@@ -1553,6 +1748,30 @@ mod tests {
                     return;
                 }
             }
+        }
+
+        /// 開くと、頭から`readable_frames`フレームまで読めて、その後で読めなくなる曲を作る
+        /// （長さは`total_frames`。ほかのファイルは、そのまま開く）
+        fn failing_track(
+            &mut self,
+            name: &str,
+            readable_frames: u64,
+            total_frames: u64,
+        ) -> PathBuf {
+            let failing = self.dir.join(name);
+            let path = failing.clone();
+            let readable_blocks = (readable_frames / BLOCK_FRAMES) as usize;
+            self.engine.open_decoder = Arc::new(move |path: &Path| {
+                if path == failing {
+                    TrackDecoder::from_block_source(Box::new(FailingSource {
+                        readable_blocks,
+                        total_frames,
+                    }))
+                } else {
+                    TrackDecoder::open(path)
+                }
+            });
+            path
         }
 
         /// `path`を開くのを、返した送り口から送るまで（送り口を捨てるまで）待たせる
@@ -2258,6 +2477,161 @@ mod tests {
     }
 
     #[test]
+    fn test_next_track_that_fails_while_decoding_lets_the_playing_track_finish() {
+        let mut harness = Harness::new();
+        let first = harness.track("a.wav", 8_000);
+        // 2曲目は、頭の400フレームだけ読めて、その後で読めなくなる
+        let second = harness.failing_track("b.wv", 400, 8_000);
+        let third = harness.track("c.wav", 8_000);
+        harness.play(1, &first).unwrap();
+        harness.set_next(2, &second).unwrap();
+
+        // 2曲目のデコードに失敗しても、1曲目は最後まで鳴る
+        let mut played = harness.render(8_000);
+        assert_eq!(played.len(), 8_000);
+        assert_sample(&played, 7_999, 7_999);
+        assert!(matches!(
+            harness.take_transitions().as_slice(),
+            [PlaybackEvent::Advanced { token: 2, .. }]
+        ));
+        // 2曲目が鳴り始めた後に伝えられた次の曲は、2曲目の失敗を知らせる前に続けない
+        harness.set_next(3, &third).unwrap();
+
+        // 2曲目は読めた所まで鳴り、鳴り終えた時に失敗を知らせる（1曲目の失敗にはしない）
+        played.extend(harness.render(20_000));
+        assert_eq!(played.len(), 8_000 + 400);
+        assert!(
+            played[8_000..]
+                .iter()
+                .all(|sample| (sample - FAILING_VALUE).abs() < 1e-6)
+        );
+        let transitions = harness.take_transitions();
+        assert!(
+            matches!(
+                transitions.as_slice(),
+                [PlaybackEvent::Failed { token: 2, .. }]
+            ),
+            "{transitions:?}"
+        );
+        assert!(harness.engine.position().is_none());
+    }
+
+    #[test]
+    fn test_next_track_that_fails_during_a_crossfade_lets_the_playing_track_finish() {
+        let mut harness = crossfading(1);
+        let first = harness.track("a.wav", 16_000); // 2秒
+        // 2曲目（2秒）は、重なり（1秒）の途中、頭の800フレームの後で読めなくなる
+        let second = harness.failing_track("b.wv", 800, 16_000);
+        harness.play(1, &first).unwrap();
+        harness.set_next(2, &second).unwrap();
+
+        let played = harness.render(40_000);
+        // 1曲目は、終わりまで（フェードアウトしながら）鳴る
+        assert_eq!(played.len(), 16_000);
+        // 重なりの頭は1曲目と2曲目を重ねたもの、2曲目が読めなくなった後は1曲目だけ
+        let (fade_out, fade_in) = crossfade_gains(100, 8_000);
+        let wanted = expected(8_100) * fade_out + FAILING_VALUE * fade_in;
+        assert!((played[8_100] - wanted).abs() < 1e-4, "{}", played[8_100]);
+        let (fade_out, _) = crossfade_gains(4_000, 8_000);
+        assert!((played[12_000] - expected(12_000) * fade_out).abs() < 1e-4);
+        let transitions = harness.take_transitions();
+        assert!(
+            matches!(
+                transitions.as_slice(),
+                [
+                    PlaybackEvent::Advanced { token: 2, .. },
+                    PlaybackEvent::Failed { token: 2, .. }
+                ]
+            ),
+            "{transitions:?}"
+        );
+    }
+
+    #[test]
+    fn test_playing_track_that_fails_later_is_reported_once() {
+        let mut harness = Harness::new();
+        // 再生を始めてから（リングバッファの0.5秒の先で）読めなくなる
+        let path = harness.failing_track("a.wv", 6_000, 8_000);
+        harness.play(1, &path).unwrap();
+
+        harness.render(8_000);
+        let transitions = harness.take_transitions();
+        assert!(
+            matches!(
+                transitions.as_slice(),
+                [PlaybackEvent::Failed { token: 1, .. }]
+            ),
+            "{transitions:?}"
+        );
+        assert!(harness.engine.position().is_none());
+    }
+
+    #[test]
+    fn test_track_that_fails_while_starting_is_reported_only_by_the_result() {
+        let mut harness = Harness::new();
+        // 最初にリングバッファへ書く間に、読めなくなる
+        let path = harness.failing_track("a.wv", 400, 8_000);
+
+        assert!(harness.play(1, &path).is_err());
+        // コマンドの結果で返すため、`Failed`は送らない（同じ失敗を2回知らせない）
+        assert!(harness.take_transitions().is_empty());
+        assert!(harness.engine.position().is_none());
+    }
+
+    #[test]
+    fn test_output_that_cannot_start_is_reported_only_by_the_result() {
+        let mut harness = Harness::new();
+        let path = harness.track("a.wav", 8_000);
+        harness.output.lock().unwrap().fail_all_starts = true;
+
+        assert!(matches!(harness.play(1, &path), Err(AppError::Playback(_))));
+        // 開き直してやり直しても動かない。結果で返すため、`Failed`は送らない
+        assert_eq!(harness.output.lock().unwrap().opened, 2);
+        assert!(harness.take_transitions().is_empty());
+        assert!(harness.engine.position().is_none());
+    }
+
+    #[test]
+    fn test_engine_sleeps_until_the_first_command() {
+        let harness = Harness::new();
+        // 何も再生していない間は、定期的な処理で起きない（コマンドが届くまで待つ）
+        assert_eq!(harness.engine.wait_duration(), None);
+    }
+
+    #[test]
+    fn test_resume_after_the_output_was_reopened_while_paused_starts_with_audio() {
+        let mut harness = Harness::new();
+        let path = harness.track("a.wav", 16_000);
+        harness.play(1, &path).unwrap();
+        harness.render(1_000);
+        harness.send(Command::Pause);
+        harness.render(500);
+
+        // 一時停止中に出力先が変わり、出力を開き直した（定期的な処理は動かない。エンジンは待っている）
+        let mut on_event = harness.output.lock().unwrap().on_event.take().unwrap();
+        on_event(OutputEvent::DeviceChanged);
+        while let Ok(command) = harness.commands.try_recv() {
+            assert!(harness.engine.handle(command));
+        }
+        assert_eq!(harness.output.lock().unwrap().opened, 2);
+        assert_eq!(harness.engine.wait_duration(), None);
+
+        // 再開した直後に出力のコールバックが呼ばれても、鳴らす音声がある（音が途切れない）
+        assert!(harness.engine.handle(Command::Resume));
+        let underruns = harness.underruns();
+        {
+            let mut output = harness.output.lock().unwrap();
+            assert!(output.running);
+            output
+                .renderer
+                .as_mut()
+                .unwrap()
+                .render(&mut [0.0; 200 * 2], 2);
+        }
+        assert_eq!(harness.underruns(), underruns);
+    }
+
+    #[test]
     fn test_volume_is_applied_to_the_output() {
         let mut harness = Harness::new();
         let path = harness.track("a.wav", 8_000);
@@ -2652,6 +3026,52 @@ mod tests {
         assert_eq!(
             harness.take_transitions(),
             vec![PlaybackEvent::Ended { token: 2 }]
+        );
+    }
+
+    #[test]
+    fn test_seek_while_three_tracks_are_buffered_moves_within_the_playing_track() {
+        // 2曲目が短い（0.25秒）ため、1曲目が鳴っている間に、2曲目から3曲目への重なりまで書かれる
+        let mut harness = crossfading(1);
+        let first = harness.track("a.wav", 8_000);
+        let second = harness.track("b.wav", 2_000);
+        let third = harness.track("c.wav", 8_000);
+        harness.play(1, &first).unwrap();
+        harness.set_next(2, &second).unwrap();
+        for _ in 0..100 {
+            if harness.engine.fade.is_some() {
+                break;
+            }
+            harness.render(100);
+        }
+        harness.set_next(3, &third).unwrap();
+        for _ in 0..100 {
+            if harness.engine.segments.len() == 3 {
+                break;
+            }
+            harness.render(100);
+        }
+        assert_eq!(harness.engine.segments.len(), 3);
+        assert!(harness.take_transitions().is_empty());
+
+        // 鳴っているのは1曲目: 1曲目の中で移動し、続けて2曲目を頭から鳴らす
+        harness.send(Command::Seek(0.2));
+        assert!((harness.position() - 0.2).abs() < 1e-9);
+        let played = harness.render(40_000);
+        // シークの直後は音量を短く立ち上げるため、少し後で確かめる（1曲目の0.2秒から鳴っている）
+        assert_sample(&played, 500, 2_100);
+        // 1曲目の残り（0.8秒）と2曲目（0.25秒）を、2曲目の半分（0.125秒）重ねた長さ
+        assert_eq!(played.len(), 6_400 + 2_000 - 1_000);
+        let transitions = harness.take_transitions();
+        assert!(
+            matches!(
+                transitions.as_slice(),
+                [
+                    PlaybackEvent::Advanced { token: 2, .. },
+                    PlaybackEvent::Ended { token: 2 }
+                ]
+            ),
+            "{transitions:?}"
         );
     }
 

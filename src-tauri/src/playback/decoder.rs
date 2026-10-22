@@ -92,6 +92,14 @@ fn open_block_source(path: &Path) -> Option<AppResult<Box<dyn BlockSource>>> {
 }
 
 impl TrackDecoder {
+    /// ブロック単位の源から作る（テストで、途中で失敗するデコーダーを作るため）
+    #[cfg(test)]
+    pub(crate) fn from_block_source(source: Box<dyn BlockSource>) -> AppResult<Self> {
+        Ok(Self {
+            backend: Backend::Blocks(BlockDecoder::new(source)?),
+        })
+    }
+
     /// ファイルを開き、形式（サンプルレート・チャンネル数）を確かめる
     pub fn open(path: &Path) -> AppResult<Self> {
         // 外部のデコーダーが、壊れたファイルでパニックしても、エラーとして返す
@@ -418,6 +426,9 @@ impl SymphoniaDecoder {
         // なる。終わりまで読んだ後（曲の終わりが鳴っている間・短い曲）は、ファイルを開き直す
         if self.exhausted {
             *self = Self::open(&self.path.clone())?;
+            // 開き直すと、形式を確かめるためにデコードした最初のパケットが残る。このまま返すと、
+            // 下のシークの後に読む頭のパケットと合わせて、2回鳴る
+            self.pending = 0..0;
         }
 
         // ファイルの中の位置に直し、少し手前から読み始める
@@ -679,9 +690,16 @@ pub(crate) mod tests {
         assert!((samples[0] - expected(24_000, 0)).abs() < 1e-4);
         assert!((samples[23_999] - expected(47_999, 0)).abs() < 1e-4);
 
-        // 読み終えた後も、頭へ戻って読み直せる
+        // 読み終えた後も、頭へ戻って読み直せる（頭のパケットを、2回返さない）
         assert_eq!(decoder.seek(0.0).unwrap(), 0.0);
-        assert_eq!(read_all(&mut decoder).len(), 48_000);
+        let again = read_all(&mut decoder);
+        assert_eq!(again.len(), 48_000);
+        for frame in (0..48_000).step_by(997) {
+            assert!(
+                (again[frame] - expected(frame as u32, 0)).abs() < 1e-4,
+                "frame {frame}"
+            );
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 

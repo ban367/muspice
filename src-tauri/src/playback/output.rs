@@ -150,8 +150,9 @@ where
     T: SizedSample + FromSample<f32>,
 {
     let channels = usize::from(config.channels);
-    // f32で取り出してから、デバイスの形式へ変換する（確保は最初のコールバックだけ）
-    let mut scratch: Vec<f32> = Vec::new();
+    // f32で取り出してから、デバイスの形式へ変換する。作業領域は、作る時に1秒分を確保しておく
+    // （コールバックの中で確保しない。それより長いバッファを渡された時だけ、確保し直す）
+    let mut scratch: Vec<f32> = Vec::with_capacity(config.sample_rate as usize * channels);
     device
         .build_output_stream(
             config,
