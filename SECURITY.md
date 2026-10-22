@@ -42,4 +42,4 @@ Muspice is a desktop application that:
 
 - Only accesses local files selected by the user
 - Does not transmit data to external servers
-- Stores all data in the platform-specific application data directory
+- Stores its library database, settings and automatic backups in the platform-specific application data directory, and its logs in the platform-specific log directory (manual backups and exported playlists are saved where the user chooses)

@@ -51,28 +51,29 @@ export interface ReplayGain {
 }
 
 // 曲のタグ（編集画面で扱う項目）。DBに保存するのは、title・artist・album・albumArtist・genre・
-// year・trackNumber・discNumberと、並び順に使う値（〜Sort）だけで、そのほかはファイルのタグだけにある
+// year・trackNumber・discNumberと、並び順に使う値（〜Sort）だけで、そのほかはファイルのタグだけにある。
+// タグにない項目は、Rustからはnull（`None`）で届く。Rustへ送る時は、省いてもnullでもよい（`bindings.ts`の`T?: … | null`）
 export interface Metadata {
-  title?: string;
-  artist?: string;
-  album?: string;
-  genre?: string;
-  year?: number;
-  trackNumber?: number;
-  discNumber?: number;
-  albumArtist?: string;
-  composer?: string;
-  trackTotal?: number; // アルバムのトラックの総数
-  discTotal?: number; // アルバムのディスクの総数
-  grouping?: string;
-  bpm?: number;
-  compilation?: boolean;
-  comment?: string;
-  lyrics?: string; // 時刻のないテキスト
-  titleSort?: string; // 並び順に使う値（読み仮名など）
-  artistSort?: string;
-  albumSort?: string;
-  albumArtistSort?: string;
+  title?: string | null;
+  artist?: string | null;
+  album?: string | null;
+  genre?: string | null;
+  year?: number | null;
+  trackNumber?: number | null;
+  discNumber?: number | null;
+  albumArtist?: string | null;
+  composer?: string | null;
+  trackTotal?: number | null; // アルバムのトラックの総数
+  discTotal?: number | null; // アルバムのディスクの総数
+  grouping?: string | null;
+  bpm?: number | null;
+  compilation?: boolean | null;
+  comment?: string | null;
+  lyrics?: string | null; // 時刻のないテキスト
+  titleSort?: string | null; // 並び順に使う値（読み仮名など）
+  artistSort?: string | null;
+  albumSort?: string | null;
+  albumArtistSort?: string | null;
 }
 
 export interface Playlist {
@@ -520,7 +521,7 @@ export interface Playlist {
 - 同時に実行できる変換は1つ（実行中は`LOCK`。フォルダを選んでいる間を含む）。入力の誤り（曲の指定がない・IDの形が違う・選べないビットレート・書式の誤り）は`VALIDATION`
 - 変換（`transcode::convert_file`）
   - デコードは、再生エンジンのデコーダー（`TrackDecoder`）で行う。取り込める形式のすべてを変換元にでき、再生で聴く音（曲の頭・終わりの余分を除いたもの）が変換される
-  - デコードした音声を、アプリのキャッシュのフォルダの一時ファイル（CAF。大きさを後から書き直さなくてよい）に書き、macOSの`/usr/bin/afconvert`で変換先の形式にする。可逆の形式の曲は、元と同じビット数（16か24。32ビットは24にする）で、非可逆の形式の曲は16ビットで渡す。モノラルはモノラルのまま、3チャンネル以上は、再生と同じまとめ方でステレオにする。サンプルレートは変えない（AACは、48kHzを超える曲を48kHzにする）
+  - デコードした音声を、アプリのキャッシュのフォルダの一時ファイル（CAF。大きさを後から書き直さなくてよい）に書き、macOSの`/usr/bin/afconvert`で変換先の形式にする。可逆の形式の曲は、元と同じビット数（16か24。32ビットは24にする）で、非可逆の形式の曲は16ビットで渡す。モノラルはモノラルのまま、3チャンネル以上は、再生と同じまとめ方でステレオにする。サンプルレートは変えない（AACは、48kHzを超える曲を48kHzにする。アプリが変えるのではなく、`afconvert`のAACのエンコーダーの既定の動き。96kHzのWAVで確かめた）
   - 変換後のファイルを開いて、長さが元と合っているか（0.05秒以内）を確かめる。合わなければ失敗として扱う（macOSのFLACのエンコーダーは、4608フレーム（44.1kHzで約0.1秒）より短い音声から、音声のないファイルを作る）
   - タグは、変換した後に写す（`metadata::copy_file_tags`）: 編集画面の項目・評価・ゲインとピーク・表示するアルバムアートを、変換先の形式のタグの書き方で書く（アプリが扱わない項目と、表示する画像のほかの画像は写さない）
   - 出力先と同じフォルダの一時的な名前（`.<UUID>.converting.<拡張子>`）に書いてから、出力先の名前にする（上書きしない移動。途中まで書いたファイルを、出力先の名前で見せない）
@@ -819,17 +820,16 @@ OSのメディアキー・コントロールセンター・イヤホンのボタ
 
 ## バリデーション仕様
 
-| 対象                                 | ルール                                                                                          |
-| ------------------------------------ | ----------------------------------------------------------------------------------------------- |
-| `track_id` / `playlist_id`           | UUID形式（36文字、ハイフン区切り、16進数）                                                      |
-| `device_id`                          | UUID形式（同上）                                                                                |
-| デバイス名                           | 必須（前後の空白を除く）、100文字以内、制御文字禁止                                             |
-| `playlist_name`                      | 必須、100文字以内、危険文字禁止（`<>:"/\\\|?*`）                                                |
-| ファイルパス                         | 空/Null文字禁止、`..`による親ディレクトリ遡り禁止、長さ制限                                     |
-| `Metadata.year`                      | 1000〜9999                                                                                      |
-| トラック / ディスクの番号と総数・BPM | 1〜999                                                                                          |
-| 文字列長（文字数）                   | title/artist/album/albumArtist/composer/grouping: 255、genre: 100、comment: 2000、lyrics: 50000 |
-| `rating`                             | 0〜5                                                                                            |
+| 対象                                 | ルール                                                                                                                                         |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `track_id` / `playlist_id`           | UUID形式（36文字、ハイフン区切り、16進数）                                                                                                     |
+| `device_id`                          | UUID形式（同上）                                                                                                                               |
+| デバイス名                           | 必須（前後の空白を除く）、100文字以内、制御文字禁止                                                                                            |
+| `playlist_name`                      | 必須、100文字以内、危険文字禁止（`<>:"/\\\|?*`）                                                                                               |
+| `Metadata.year`                      | 1000〜9999                                                                                                                                     |
+| トラック / ディスクの番号と総数・BPM | 1〜999                                                                                                                                         |
+| 文字列長（文字数）                   | title/artist/album/albumArtist/composer/grouping/titleSort/artistSort/albumSort/albumArtistSort: 255、genre: 100、comment: 2000、lyrics: 50000 |
+| `rating`                             | 0〜5                                                                                                                                           |
 
 ## エラーハンドリング
 

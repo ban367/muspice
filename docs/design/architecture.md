@@ -41,7 +41,7 @@ graph TD
 - データ取得: `src/lib/queries/*.ts` のクエリ・ミューテーションがコマンド呼び出し・キャッシュ無効化・エラー通知を担い、コンポーネントからは直接コマンドを呼ばない
 - 曲の一覧: 全曲の一覧は件数の上限なく1回で取得してキャッシュし、並び替え・選択・再生キューの作成はフロントで行う。アルバム・アーティストはアルバムアーティスト（なければ曲のアーティスト）でまとめる（ADR-022）。アルバム・アーティスト・ジャンルは一覧（曲数・代表の曲）だけを取得し、曲は詳細を開いた時・再生する時にその分だけ取得する。プレイリストの曲も、プレイリストごとに取得する（ADR-021）。自動プレイリストの曲は、開くたびに条件から求め直す（ADR-042）。名前の順の並びは、クエリが取得した後に`#lib/utils/nameSort`で並べ直す（並び順に使う値（読み仮名など）があればその値で、言語に合わせた比較で並べる。ADR-036）
 - 再生履歴: 再生した日時とトラックIDの一覧（`get_play_history`）を、全曲の一覧のキャッシュと突き合わせて、日付ごとに表示する（`PlayHistoryList.svelte`。同じ曲が何度も出るため、行は履歴の1件ごとに見分ける。ADR-030）
-- 曲の一覧: `TrackList.svelte` が、全曲・お気に入り・よく再生する曲・ジャンルの曲・プレイリストの曲の一覧を表示する（プレイリストは、プレイリストの順で並べている間だけ、行のドラッグで並べ替えられる。ADR-039）。リスト表示の列は選べ（見出しの右クリック）、見出しのドラッグで入れ替え、どの列でも並べ替えられる。列と並び順は、画面ごとに覚える（ADR-038）。プレーヤーの曲名のクリック（Ctrl+L）で、再生中の曲の行へ移動する
+- 曲の一覧: `TrackList.svelte` が、全曲・お気に入り・よく再生する曲・ジャンルの曲・プレイリストの曲・重複した曲と、フォルダ別・年代別で選んだ項目の曲（`TreeBrowsePage`）の一覧を表示する（プレイリストは、プレイリストの順で並べている間だけ、行のドラッグで並べ替えられる。ADR-039）。リスト表示の列は選べ（見出しの右クリック）、見出しのドラッグで入れ替え、どの列でも並べ替えられる。列と並び順は、画面ごとに覚える（ADR-038）。プレーヤーの曲名のクリック（Ctrl+L）で、再生中の曲の行へ移動する
 - ライブラリのビュー: 最近追加した曲（アルバム単位・追加した日時の新しい順）・フォルダ別・年代別の画面は、取得済みの全曲の一覧からフロントエンドで集計して表示する（`#lib/utils/libraryViews`。ADR-041）。サイドバーの項目は、設定（`hiddenSidebarItems`）で隠せる
 - 重複した曲: タイトルとアーティストが同じ（検索と同じ規則でそろえて比べる）で、長さの違いが3秒までの曲を、取得済みの全曲の一覧からフロントエンドでまとめて表示する（`#lib/utils/duplicates`。ADR-052）。一覧は`TrackList`で、まとまりの間に線を引く（`groupOf`）。どの曲を残すかは、利用者が決める（曲のメニュー・Deleteキーから削除する）
 - ライブラリの絞り込み: 曲の画面は、検索・フィルタ（評価・年・お気に入り）・カラムブラウザ（ジャンル → アーティスト → アルバム）のすべてに合う曲を出す。絞り込みは、取得済みの曲の一覧（検索している間は、検索の結果）に対してフロントエンドで行う（`#lib/utils/trackFilter`。ADR-040）
@@ -64,7 +64,7 @@ graph TD
 ## バックエンド構成
 
 - エントリーポイント: `src-tauri/src/lib.rs`
-- アプリ状態: `AppState { db: Mutex<Connection>, current_track_id: Mutex<Option<String>>, album_art_limiter: Semaphore, album_art_cache: Mutex<AlbumArtCache>, library_scan_lock: Mutex<()> }`。ほかに設定（`SettingsState`）・前回の再生状態（`PlaybackStateStore`）・再生エンジン（`PlaybackEngine`）・OSのメディアキー / Now Playing（`MediaControls`）・ライブラリフォルダの自動反映（`LibrarySync`）を管理する
+- アプリ状態: `AppState { db: Mutex<Connection>, current_track_id: Mutex<Option<String>>, album_art_limiter: Semaphore, album_art_cache: Mutex<AlbumArtCache>, library_scan_lock: Mutex<()>, track_file_locks: TrackFileLocks, shuffle_seed: AtomicU64 }`（`track_file_locks`は、曲のファイルを書き換える処理を曲ごとに1つずつにする印。`shuffle_seed`は、自動プレイリストのランダムな並びの種）。ほかに設定（`SettingsState`）・前回の再生状態（`PlaybackStateStore`）・再生エンジン（`PlaybackEngine`）・OSのメディアキー / Now Playing（`MediaControls`）・ライブラリフォルダの自動反映（`LibrarySync`）を管理する
 - 既存のトラックの、後から追加した項目の読み込み: `tag_backfill.rs` が、アルバムアーティスト・ソート用のタグの列を追加する前に登録したトラックの分と、複数の値に対応する前に最初の値だけを読んだアーティスト・ジャンルを、起動時に別スレッドでファイルのタグから読み込む（対象がなければ何もしない。ADR-022・ADR-036・ADR-051）
 - 複数の値を持つ項目（アーティスト・ジャンル）: データベースには、値を`; `でつないだ文字列で持つ（表示・検索・並べ替えはそのまま使う）。一覧の集計と絞り込みの時に、値に分ける（Rust側は`multi_value.rs`と、そのSQLの関数。フロントエンドは`#lib/utils/multiValue`。ADR-051）
 - ライブラリフォルダの自動反映: `library_sync.rs` が、設定に応じて起動時・定期（専用スレッド）・フォルダの監視（`notify-debouncer-mini`）で再スキャンする。インポート・再スキャン・ライブラリフォルダの削除・音楽フォルダの設定は`library_scan_lock`で1つずつ行い、ロックの順序は「スキャン → DB」。ファイルの整理・ファイルへのタグの書き出し・ファイルからのメタデータの読み直し（`refresh_library_metadata`）も、同じロックを取って再スキャンと重ならないようにする
@@ -81,7 +81,7 @@ graph TD
 - プレイリストのM3U: `m3u.rs`が、読み込み（文字コードの判定・曲の場所とライブラリの曲の対応付け）と書き出し（拡張M3U）を担う。ファイルの選択は、コマンド（`commands/m3u.rs`）がRust側でダイアログを開いて行い、WebViewからパスを受け取らない（ADR-032）
 - OSのメディアキー・Now Playing: `media_controls/`。`set_now_playing`で届いた曲のIDから、曲の情報とアルバムアート（`album_art.rs`のキャッシュ）を読んでOSへ渡し、OSからの操作を`PlaybackControl`イベントでフロントエンドへ送る。macOSだけに対応し（`macos.rs`。MediaPlayerフレームワーク）、ほかのOSでは何もしない。MediaPlayerのオブジェクトはメインスレッドだけで扱う（ADR-029）
 - メニューバー: `menu.rs`（設定の言語に合わせる）。「再生」メニューの項目は、`PlaybackControl`イベントを送る（キーは割り当てない）
-- コマンド登録: `tauri::generate_handler!` でインポート/検索/編集/再生/統計/システム操作を公開
+- コマンド登録: `tauri_specta::collect_commands!` でインポート/検索/編集/再生/統計/システム操作を公開（同じ一覧から、TypeScriptのバインディングも生成する）
 - DB初期化: `db.rs` のマイグレーションでテーブル・インデックス・FTS5・トリガーを作成
 
 ## 主要データフロー

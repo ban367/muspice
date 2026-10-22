@@ -2,21 +2,21 @@
 
 ## 技術スタック
 
-| 層                     | 技術                                                                            | バージョン（2026-10-14時点）                       | 備考                                                                                                                                                                                                                         |
+| 層                     | 技術                                                                            | バージョン（2026-10-22時点）                       | 備考                                                                                                                                                                                                                         |
 | ---------------------- | ------------------------------------------------------------------------------- | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| フロントエンド         | SvelteKit + Svelte + TypeScript                                                 | `@sveltejs/kit` 3.0.x / `svelte` 5.57.x / TS 6.0.x | SPA構成（adapter-static）。TS 7は、svelte-check・typescript-eslint・SvelteKitが対応するまで見送る（どれもpeerが`typescript` 6まで）                                                                                          |
+| フロントエンド         | SvelteKit + Svelte + TypeScript                                                 | `@sveltejs/kit` 3.1.x / `svelte` 5.57.x / TS 6.0.x | SPA構成（adapter-static）。TS 7は、svelte-check・typescript-eslint・SvelteKitが対応するまで見送る（どれもpeerが`typescript` 6まで）                                                                                          |
 | ビルド                 | Vite                                                                            | 8.3.x                                              | Tailwindは`@tailwindcss/vite`経由（PostCSS設定なし）                                                                                                                                                                         |
 | テスト                 | Vitest                                                                          | 5.0.x                                              | ストア・ユーティリティの単体テスト                                                                                                                                                                                           |
 | UIスタイル             | TailwindCSS                                                                     | 4.3.x                                              | 部品のクラス集（DaisyUIなど）は使わない（ADR-055）。`@apply`運用に制限あり                                                                                                                                                   |
 | UI部品（動作）         | Bits UI                                                                         | 2.19.x                                             | ヘッドレス（スタイルなし）。メニュー・パネル・タブで使う（ADR-056）                                                                                                                                                          |
 | データ取得             | TanStack Query（Svelte）                                                        | 6.3.x                                              | Queryキャッシュ/再取得制御                                                                                                                                                                                                   |
 | デスクトップ基盤       | Tauri + tauri-specta                                                            | 2.12.x / 2.0.0-rc.25                               | 型付きコマンド呼び出しを自動生成                                                                                                                                                                                             |
-| バックエンド           | Rust                                                                            | 1.99.0（edition 2024）                             | コアロジック/DBアクセス。版は`rust-toolchain.toml`で固定する（「ツールチェーンの版」）                                                                                                                                       |
+| バックエンド           | Rust                                                                            | `rust-toolchain.toml`の版（edition 2024）          | コアロジック/DBアクセス。版は`rust-toolchain.toml`で固定する（「ツールチェーンの版」）                                                                                                                                       |
 | DB                     | SQLite + FTS5                                                                   | rusqlite 0.40（bundled）                           | 全文検索・ローカル保存                                                                                                                                                                                                       |
 | メタデータ             | lofty                                                                           | 0.25                                               | タグ読み書き/アルバムアート抽出                                                                                                                                                                                              |
 | フォルダの監視         | notify-debouncer-mini（notify）                                                 | 0.7（notify 8）                                    | ライブラリフォルダの変更の自動反映                                                                                                                                                                                           |
 | ウィンドウの状態       | tauri-plugin-window-state                                                       | 2.5.x                                              | メインウィンドウのサイズ・位置の記憶（Rust側のみ）                                                                                                                                                                           |
-| 常駐・ホットキー・通知 | tauri（`tray-icon`） / tauri-plugin-global-shortcut / tauri-plugin-notification | 2 / 2.4.x / 2.6.x                                  | メニューバー（トレイ）のアイコン / グローバルホットキー / 曲が変わった時の通知（どれもRust側のみ。ADR-046）                                                                                                                  |
+| 常駐・ホットキー・通知 | tauri（`tray-icon`） / tauri-plugin-global-shortcut / tauri-plugin-notification | 2 / 2.4.x / 2.7.x                                  | メニューバー（トレイ）のアイコン / グローバルホットキー / 曲が変わった時の通知（どれもRust側のみ。ADR-046）                                                                                                                  |
 | デバイスへの転送       | fs4 / unicode-normalization                                                     | 1.1 / 0.1                                          | 転送先の空き容量の取得 / ファイル名のNFC正規化                                                                                                                                                                               |
 | M3Uの読み込み          | encoding_rs                                                                     | 0.8                                                | UTF-8以外（Shift_JIS・UTF-16）で書かれたM3Uの文字コードの変換                                                                                                                                                                |
 | ライブラリのXML        | plist                                                                           | 1.10                                               | iTunes形式のライブラリXML（プロパティリスト）の読み込み。Tauriが使っているものと同じ                                                                                                                                         |
@@ -48,6 +48,7 @@ src/
 
 src-tauri/src/
 ├── commands/
+│   ├── mod.rs             # コマンドの公開（re-export）と、共通の処理（ダイアログ・`run_blocking`）
 │   ├── album_art.rs       # アルバムアートの埋め込み・取り除き・情報の取得（ADR-035）
 │   ├── backup.rs          # ライブラリのデータのバックアップの保存・復元するファイルの確認と復元（ADR-073）
 │   ├── convert.rs         # 形式の変換（計画の取得・書き出し・置き換え・実行の状態。ADR-054）
@@ -97,6 +98,7 @@ src-tauri/src/
 ├── global_shortcuts.rs    # グローバルホットキーの登録と、押された時の操作の送信（ADR-046）
 ├── menu.rs                # メニューバー（「再生」メニューを含む）と設定ウィンドウのタイトル（言語に合わせる）
 ├── playback/              # 再生エンジン（ADR-025・ADR-026）
+│   ├── mod.rs             # エンジンの公開（コマンド・通知の型と、エンジンを動かすスレッド）
 │   ├── engine.rs          # エンジン本体（コマンドの処理・曲の切り替え・再生位置の通知）
 │   ├── decoder.rs         # ファイルのデコード（symphonia + libopus。WavPack・APEはblock_decoderへ振り分ける）
 │   ├── block_decoder.rs   # ブロックごとにデコードする形式の共通の処理（位置・シーク・壊れたブロックの扱い。ADR-047）
@@ -154,7 +156,7 @@ src-tauri/src/
 - 配列・オブジェクトを丸ごと置き換える状態は`$state.raw`にし、中身を書き換えず代入で更新する（例: `notifications.items`、`ui.columnWidths`）
 - localStorageに保存する状態は、privateな`$state`とgetter/setterで実装し、setterで保存する（例: `ui.isRightSidebarPinned`）。保存値はモジュールの読み込み時に読み、localStorageが使えない環境でも例外にしない
 - 値から計算できるものは`$derived`のフィールドにする（例: `player.progress`・`player.upcomingEntries`）
-- 状態に付随する操作（追加・削除など）はクラスのメソッドか、モジュールの関数にする（例: `notifications.add()`、キュー操作の`playTrackFromQueue()`）。保存や外部への反映（例: イコライザのゲインをWeb Audioのノードへ）が必要な状態は、getterだけを公開してメソッド経由で変更させる（例: `equalizer.setBandGain()`）
+- 状態に付随する操作（追加・削除など）はクラスのメソッドか、モジュールの関数にする（例: `notifications.add()`、キュー操作の`playTrackFromQueue()`）。保存や外部への反映（例: イコライザのゲインを再生エンジンへ）が必要な状態は、getterだけを公開してメソッド経由で変更させる（例: `equalizer.setBandGain()`）
 - 状態の変化を受け取る処理は`$effect`で書く。コンポーネントの外（例: 再生コントローラー）では`$effect.root`で作り、破棄時に止める。`$effect`は変更の直後ではなくマイクロタスクで実行されるため、同期的な反映を前提にしない（テストでは`flushSync()`で反映させる）
 
 ### SvelteKit 3
@@ -389,9 +391,9 @@ cargo test --manifest-path src-tauri/Cargo.toml
 
 - Node.js: `.node-version`（24.21.0）だけに書く。CIの`setup-node`は`node-version-file`で、miseは`mise.toml`の`idiomatic_version_file_enable_tools`で、このファイルを読む。Nodeの版は手で上げる（Dependabotは`.node-version`を上げない）
   - `package.json`の`engines`（Node.js 24.15以上・npm 11以上）を、`.npmrc`の`engine-strict=true`で守らせる。npm 10（Node.js 22）では、依存のpeerの食い違いでlockfileを入れられない。24.15は、依存（markdownlint-cliが使う`ini`）が求める最小の版
-- Rust: `rust-toolchain.toml`（1.99.0）だけに書く。CIは`rustup toolchain install`でこの版とコンポーネントを入れ、miseも同じファイルを読む（miseは`RUSTUP_TOOLCHAIN`を設定するため、`mise.toml`や全体の設定の`rust = "stable"`が使われると、`rust-toolchain.toml`より優先される）
+- Rust: `rust-toolchain.toml`だけに書く（ほかの所には版を書かない。Dependabotが上げるたびに食い違うため）。CIは`rustup toolchain install`でこの版とコンポーネントを入れ、miseも同じファイルを読む（miseは`RUSTUP_TOOLCHAIN`を設定するため、`mise.toml`や全体の設定の`rust = "stable"`が使われると、`rust-toolchain.toml`より優先される）
   - 新しい版は、Dependabot（`rust-toolchain`）が毎週PRで上げる。新しい版のclippyのlintで落ちたら、そのPRで直す（stableのままだと、コードを変えていないPRでもCIが急に落ちる。ADR-060）
-  - `src-tauri/Cargo.toml`の`rust-version`は、`rust-toolchain.toml`の版以下にする（今は同じ1.99）。それより新しい標準ライブラリのAPIを使うと、clippy（`incompatible_msrv`）が知らせる
+  - `src-tauri/Cargo.toml`の`rust-version`は、`rust-toolchain.toml`の版以下にする（今は、patchを除いて同じ）。それより新しい標準ライブラリのAPIを使うと、clippy（`incompatible_msrv`）が知らせる
 
 ## テスト方針
 
@@ -436,10 +438,12 @@ Tauriのウィンドウ（macOSではWKWebView）はブラウザ自動化ツー�
   - `backend.ts`: `commands`の全コマンドをメモリ上で再現するバックエンド。ハンドラ表の型を`bindings.ts`から導出しているため、Rust側でコマンドを追加・変更したら型エラーに従ってここも更新する。送るイベントも、名前（`events`のキー。`importProgress`など）と内容の型を`bindings.ts`の`events`から導出しているため、Rust側でイベントの名前・項目を変えると型エラーになる（IPCで送る名前は`MOCK_EVENT_NAMES`。`bindings.ts`と同じかはテストで確かめる）。進み具合のイベント（インポート・再スキャン・場所の付け替え・変換・音量の解析・ファイルの整理・デバイスの同期）は、待ち時間を挟んで送るため、進捗の表示を確かめられる
   - `fixtures.ts`: 初期データ。状態はメモリ上のみで、リロードすると初期状態に戻る
   - `media.ts`: アルバムアート（SVGのdata URL）の生成。`albumart`プロトコルの代わりに`convertFileSrc(id, 'albumart')`がdata URLを返す
+  - `smartPlaylist.ts`: 自動プレイリストの条件に合う曲を、Rust側と同じ規則で求める
+  - `fileOrganize.ts`: ファイルの整理の書式の解釈と、整理後の場所の計画（Rust側の`file_organize.rs`と同じ規則）
   - `playbackEngine.ts`: 再生エンジンのコマンドと通知の再現。音は鳴らさず、時計に合わせて再生位置・曲の切り替わり（ギャップレス再生・クロスフェード）・曲の終わりを進める
   - `tauri.ts`: event・dialog（確認のダイアログ）・window・app（アプリの版。`tauri.conf.json`の`version`を返す）プラグインと`convertFileSrc`の差し替え
 - ネイティブメニューのイベントや確認ダイアログの回答は、開発者ツールから`window.__MUSPICE_MOCK__`で操作する
-  - `window.__MUSPICE_MOCK__.emit('open-import-dialog')`（`toggle-sidebar` / `show-about-dialog`も同様）
+  - `window.__MUSPICE_MOCK__.emit('open-import-dialog')`（`import-files-requested` / `toggle-sidebar` / `toggle-mini-player` / `show-about-dialog`も同様）
   - `window.__MUSPICE_MOCK__.emit('playback-control', { type: 'next' })`で、「再生」メニュー・OSのメディアキーの操作を再現する
   - `window.__MUSPICE_MOCK__.nowPlaying()`で、OSのNow Playingへ伝えた内容を確認する（ブラウザにはOSの表示がないため）
   - `window.__MUSPICE_MOCK__.setM3uImportMode('clean')`で、M3Uの読み込みで選んだことにするファイルを切り替える（`partial`: 対応が付かない行がある（既定）・`clean`: すべて対応が付く・`cancel`: 選ばなかった）。ファイルを選ぶダイアログはRust側が開くため、モックは決まった結果を返す
