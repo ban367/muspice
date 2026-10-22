@@ -110,7 +110,6 @@ export const ja = {
   operations: {
     fetchTracks: 'トラック一覧の取得',
     searchTracks: 'トラック検索',
-    filterTracks: 'トラックフィルタリング',
     fetchFavorites: 'お気に入り一覧の取得',
     fetchMostPlayed: 'よく再生するトラック一覧の取得',
     fetchPlayHistory: '再生履歴の取得',

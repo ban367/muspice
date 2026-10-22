@@ -192,7 +192,9 @@ src-tauri/src/
 - お気に入りのハートは`FavoriteButton`（`#lib/components/library`）を使う。曲のIDと今の状態を渡すと、押した時に`useSetFavoriteMutation`で切り替え、キャッシュにあるその曲を書き換える（`patchTracksInCache`。複数の曲をまとめて書き換えられる）
   - 再生キューの曲（`player.currentTrack`）は、キューに入れた時点の内容のまま。プレーヤーのハートは、お気に入りの一覧（`useFavoriteTracksQuery`）から状態を調べる
 - クエリキーは`src/lib/queries/keys.ts`の`queryKeys`に集約する。クエリ定義・無効化のどちらもここを参照し、`['tracks']`のようなマジック配列を直接書かない
-- 無効化はプレフィックス一致で波及するため、キーの階層がそのまま無効化の粒度になる（例: `queryKeys.tracks.all`の無効化は検索・フィルタ・お気に入りにも及ぶ）
+- 無効化はプレフィックス一致で波及するため、キーの階層がそのまま無効化の粒度になる（例: `queryKeys.tracks.all`の無効化は検索・お気に入り・プレイリストの曲にも及ぶ）
+  - プレイリストの操作は、一覧を無効化し、曲を変えた（追加・削除・並べ替え・条件の変更）プレイリストの曲だけを無効化する（`invalidatePlaylistQueries`。移動・削除・名前の変更では、曲を取り直さない）。開いている自動プレイリストを、無関係な操作で取り直さないため（ADR-042）
+  - ライブラリが変わった通知（`LibraryChanged`）では、曲・プレイリスト・ライブラリフォルダ・音楽フォルダを無効化する（`invalidateLibraryQueries`）
 
 ### 再生制御
 

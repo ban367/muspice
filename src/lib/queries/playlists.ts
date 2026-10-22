@@ -13,11 +13,21 @@ import { m } from '#lib/i18n/i18n.svelte.js';
 import { forgetTrackListView, playlistSortViewId } from '#lib/stores/trackListView.svelte.js';
 
 /**
- * プレイリストの一覧と、プレイリストの曲を無効化（プレイリストの内容を変えた時）
+ * プレイリストの一覧を無効化し、曲を変えたプレイリストがあれば、その曲も無効化する
+ *
+ * 曲を取り直すのは、曲を変えた（追加・削除・並べ替え・条件の変更）プレイリストだけ。ほかのプレイリスト、
+ * 特に開いている自動プレイリストは、取り直さない（評価を下げた曲が、無関係な操作でその場から消えない。
+ * ADR-042）。
+ * @param changedPlaylistId 曲を変えたプレイリスト（一覧だけを変えた場合はnull）
  */
-function invalidatePlaylistQueries(queryClient: QueryClient) {
-  queryClient.invalidateQueries({ queryKey: queryKeys.playlists });
-  queryClient.invalidateQueries({ queryKey: queryKeys.tracks.playlists });
+export function invalidatePlaylistQueries(
+  queryClient: QueryClient,
+  changedPlaylistId: string | null
+) {
+  void queryClient.invalidateQueries({ queryKey: queryKeys.playlists });
+  if (changedPlaylistId !== null) {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.tracks.playlist(changedPlaylistId) });
+  }
 }
 
 /** ロールバック用に直前のプレイリスト一覧を保持するコンテキスト */
@@ -32,10 +42,12 @@ interface PlaylistSnapshot {
  * 失敗時のロールバック、完了後のサーバー同期をまとめて提供する。
  *
  * @param updater 現在の一覧と変数から、更新後の一覧を返す関数
+ * @param changedPlaylistOf 変数から、曲を変えたプレイリストを返す関数（一覧だけを変える場合は省く）
  */
 function optimisticPlaylistUpdate<TVariables>(
   queryClient: QueryClient,
-  updater: (playlists: Playlist[], variables: TVariables) => Playlist[]
+  updater: (playlists: Playlist[], variables: TVariables) => Playlist[],
+  changedPlaylistOf: (variables: TVariables) => string | null = () => null
 ) {
   return {
     onMutate: async (variables: TVariables): Promise<PlaylistSnapshot> => {
@@ -62,8 +74,8 @@ function optimisticPlaylistUpdate<TVariables>(
       }
     },
     // 成功・エラーに関わらず最終的にサーバーデータで同期
-    onSettled: () => {
-      invalidatePlaylistQueries(queryClient);
+    onSettled: (_data: unknown, _error: unknown, variables: TVariables) => {
+      invalidatePlaylistQueries(queryClient, changedPlaylistOf(variables));
     }
   };
 }
@@ -173,9 +185,9 @@ export function useUpdateSmartPlaylistMutation() {
     onSuccess: () => {
       showSuccess(m.notices.smartPlaylistUpdated);
     },
-    // 名前だけ変わって条件の変更に失敗した場合も、一覧を取り直す
-    onSettled: () => {
-      invalidatePlaylistQueries(queryClient);
+    // 名前だけ変わって条件の変更に失敗した場合も、一覧を取り直す（曲は、条件から求め直す）
+    onSettled: (_data, _error, { playlist }) => {
+      invalidatePlaylistQueries(queryClient, playlist.id);
     }
   }));
 }
@@ -225,7 +237,8 @@ export function useAddTracksToPlaylistMutation() {
             .filter((trackId) => !existing.has(trackId))
             .map((trackId, index) => ({ trackId, position: pl.tracks.length + index, addedAt }));
           return { ...pl, tracks: [...pl.tracks, ...added] };
-        })
+        }),
+      ({ playlistId }) => playlistId
     ),
     onSuccess: (addedCount) => {
       showSuccess(
@@ -257,7 +270,8 @@ export function useRemoveTracksFromPlaylistMutation() {
           pl.id === playlistId
             ? { ...pl, tracks: pl.tracks.filter((t) => !trackIds.includes(t.trackId)) }
             : pl
-        )
+        ),
+      ({ playlistId }) => playlistId
     ),
     onSuccess: (removedCount) => {
       if (removedCount > 0) showSuccess(m.notices.tracksRemovedFromPlaylist(removedCount));
@@ -471,9 +485,9 @@ export function useReorderPlaylistTracksMutation() {
       withErrorToast(m.operations.reorderPlaylistTracks, () =>
         commands.reorderPlaylistTracks(playlistId, trackIds)
       ),
-    onSuccess: () => {
-      // プレイリスト一覧と、プレイリストの曲を再取得
-      invalidatePlaylistQueries(queryClient);
+    onSuccess: (_result, { playlistId }) => {
+      // プレイリスト一覧と、並べ替えたプレイリストの曲を再取得
+      invalidatePlaylistQueries(queryClient, playlistId);
       showSuccess(m.notices.tracksReordered);
     }
   }));
@@ -492,8 +506,9 @@ export function useDeletePlaylistMutation() {
       playlists.filter((pl) => pl.id !== playlistId)
     ),
     onSuccess: (_result, playlistId) => {
-      // このプレイリストの並び順の設定は、もう使わない
+      // このプレイリストの並び順の設定と曲のキャッシュは、もう使わない
       forgetTrackListView(playlistSortViewId(playlistId));
+      queryClient.removeQueries({ queryKey: queryKeys.tracks.playlist(playlistId) });
       showSuccess(m.notices.playlistDeleted);
     }
   }));

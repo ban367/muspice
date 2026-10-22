@@ -5,15 +5,15 @@
  * 無効化はプレフィックス一致で動作するため、階層構造がそのまま
  * 「どこまでまとめて無効化されるか」を表す。
  *
- * 例: `queryKeys.tracks.all`（`['tracks']`）の無効化は、全曲の一覧・検索・フィルタ・
+ * 例: `queryKeys.tracks.all`（`['tracks']`）の無効化は、全曲の一覧・検索・
  * アルバムやプレイリストの曲など`['tracks', ...]`で始まる全クエリに波及する。
  */
 
-import type { FilterOptions, SmartRules } from '#lib/types/models.js';
+import type { SmartRules } from '#lib/types/models.js';
 
 export const queryKeys = {
   /**
-   * 曲を返すクエリ（全曲の一覧・検索・フィルタ・再生統計・アルバムなどの曲）
+   * 曲を返すクエリ（全曲の一覧・検索・再生統計・アルバムなどの曲）
    *
    * 曲そのものを返すクエリはすべてここに置く（評価などの変更を、`['tracks']`以下の
    * キャッシュの書き換えでまとめて反映するため。`./trackCache.ts`）。
@@ -22,7 +22,6 @@ export const queryKeys = {
     all: ['tracks'] as const,
     list: ['tracks', 'list'] as const,
     search: (term: string) => ['tracks', 'search', term] as const,
-    filter: (filters: FilterOptions) => ['tracks', 'filter', filters] as const,
     favorites: ['tracks', 'favorites'] as const,
     mostPlayedAll: ['tracks', 'mostPlayed'] as const,
     mostPlayed: (limit: number) => ['tracks', 'mostPlayed', limit] as const,

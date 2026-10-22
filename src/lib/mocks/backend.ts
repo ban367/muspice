@@ -700,11 +700,6 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   const newestFirst = (a: Track, b: Track) => compareAsc(b.createdAt, a.createdAt);
   const tracksWhere = (predicate: (track: Track) => boolean) =>
     tracks.filter(predicate).sort(newestFirst);
-  const matches = (value: string | null, expected: string | null | undefined) =>
-    expected == null || value === expected;
-  /** 複数の値を持つ項目（アーティスト・ジャンル）の、値のどれかが一致するか */
-  const matchesValue = (value: string | null, expected: string | null | undefined) =>
-    expected == null || hasValue(value, expected);
 
   function findTrack(id: string): Track {
     const track = tracks.find((t) => t.id === id);
@@ -2146,13 +2141,6 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         )
       );
     },
-    filterTracks: (filters) =>
-      tracksWhere(
-        (track) =>
-          matchesValue(track.artist, filters.artist) &&
-          matches(track.album, filters.album) &&
-          matchesValue(track.genre, filters.genre)
-      ),
     getUniqueArtists: () => uniqueValues('artist'),
     getUniqueAlbums: () => uniqueValues('album'),
     getUniqueGenres: () => uniqueValues('genre'),
@@ -2839,7 +2827,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       track.updatedAt = timestamp;
       const lastId = playHistory.reduce((max, entry) => Math.max(max, entry.id), 0);
       playHistory = [{ id: lastId + 1, trackId, playedAt: timestamp }, ...playHistory];
-      return track.playCount;
+      return { playCount: track.playCount, lastPlayedAt: timestamp };
     },
     incrementSkipCount: (trackId) => {
       validateTrackId(trackId);

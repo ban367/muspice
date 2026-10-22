@@ -391,8 +391,6 @@ includesSettings: boolean } |
 	getAllTracks: () => __TAURI_INVOKE<Track[]>("get_all_tracks"),
 	/**  トラックを検索（部分一致。大文字と小文字・全角と半角・ひらがなとカタカナを同じとみなす） */
 	searchTracks: (query: string) => __TAURI_INVOKE<Track[]>("search_tracks", { query }),
-	/**  トラックをフィルタリング */
-	filterTracks: (filters: FilterOptions) => __TAURI_INVOKE<Track[]>("filter_tracks", { filters }),
 	/**  ユニークなアーティスト一覧を取得 */
 	getUniqueArtists: () => __TAURI_INVOKE<string[]>("get_unique_artists"),
 	/**  ユニークなアルバム一覧を取得 */
@@ -853,11 +851,11 @@ includesSettings: boolean } |
 	 */
 	setRating: (trackId: string, rating: number) => __TAURI_INVOKE<null>("set_rating", { trackId, rating }),
 	/**
-	 *  再生回数をインクリメントし、再生履歴に追加する（新しい再生回数を返す）
+	 *  再生回数をインクリメントし、再生履歴に追加する（新しい再生回数と、最後に再生した日時を返す）
 	 * 
 	 *  いつ数えるか（曲の半分か4分を聴いた時）は、フロントエンドの再生コントローラーが決める。
 	 */
-	incrementPlayCount: (trackId: string) => __TAURI_INVOKE<number>("increment_play_count", { trackId }),
+	incrementPlayCount: (trackId: string) => __TAURI_INVOKE<PlayCountUpdate>("increment_play_count", { trackId }),
 	/**
 	 *  スキップ回数をインクリメントする（新しいスキップ回数を返す）
 	 * 
@@ -1213,13 +1211,6 @@ export type DeviceSyncResult = {
 
 /**  重複ファイルの処理方法 */
 export type DuplicateAction = "Skip" | "Replace";
-
-/**  フィルタオプション */
-export type FilterOptions = {
-	artist?: string | null,
-	album?: string | null,
-	genre?: string | null,
-};
 
 /**  ライブラリフォルダの、読み込まないフォルダ（除外。一覧表示用） */
 export type FolderExclusion = {
@@ -1722,6 +1713,16 @@ export type PendingFolderImport = {
 	musicFolderExists: boolean,
 	/**  音楽フォルダのドライブの空き容量（バイト。取得できなければnull） */
 	freeBytes: number | null,
+};
+
+/**
+ *  再生回数に数えた結果（新しい再生回数と、記録した最後に再生した日時）
+ * 
+ *  フロントエンドは、キャッシュにあるその曲をこの値で書き換える（日時をDBと同じ書式にするため）。
+ */
+export type PlayCountUpdate = {
+	playCount: number,
+	lastPlayedAt: string,
 };
 
 /**

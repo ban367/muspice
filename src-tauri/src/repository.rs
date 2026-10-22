@@ -215,56 +215,6 @@ fn escape_like_pattern(value: &str) -> String {
         .replace('_', "\\_")
 }
 
-/// フィルタオプション
-#[derive(Debug, serde::Deserialize, specta::Type)]
-pub struct FilterOptions {
-    #[specta(optional)]
-    pub artist: Option<String>,
-    #[specta(optional)]
-    pub album: Option<String>,
-    #[specta(optional)]
-    pub genre: Option<String>,
-}
-
-/// フィルタ条件に基づいてトラックを検索
-pub fn find_tracks_by_filter(conn: &Connection, filters: &FilterOptions) -> AppResult<Vec<Track>> {
-    let mut sql = format!("SELECT {} FROM tracks WHERE 1=1", TRACK_COLUMNS);
-    let mut params: Vec<String> = Vec::new();
-
-    // アーティスト・ジャンルは、複数の値のどれかが一致する曲（`multi_value`）
-    if let Some(ref artist) = filters.artist {
-        sql.push_str(" AND multi_value_contains(artist, ?)");
-        params.push(artist.clone());
-    }
-
-    if let Some(ref album) = filters.album {
-        sql.push_str(" AND album = ?");
-        params.push(album.clone());
-    }
-
-    if let Some(ref genre) = filters.genre {
-        sql.push_str(" AND multi_value_contains(genre, ?)");
-        params.push(genre.clone());
-    }
-
-    sql.push_str(" ORDER BY created_at DESC");
-
-    let mut stmt = conn
-        .prepare(&sql)
-        .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
-
-    let params_refs: Vec<&dyn rusqlite::ToSql> =
-        params.iter().map(|p| p as &dyn rusqlite::ToSql).collect();
-
-    let tracks = stmt
-        .query_map(params_refs.as_slice(), map_track_row)
-        .map_err(|e| AppError::Database(format!("クエリの実行に失敗しました: {}", e)))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| AppError::Database(format!("結果の取得に失敗しました: {}", e)))?;
-
-    Ok(tracks)
-}
-
 /// 1回のクエリで指定するトラックIDの数（SQLiteの変数の数の上限より十分に小さくする）
 const TRACKS_BY_ID_CHUNK: usize = 500;
 
@@ -1698,7 +1648,10 @@ pub fn set_track_rating(conn: &Connection, track_id: &str, rating: i32) -> AppRe
 ///
 /// 再生回数は上限（`MAX_PLAY_COUNT`）で止める（再生履歴には追加する）。
 /// 2つの書き込みは1つのトランザクションで行い、片方だけを記録しない。
-pub fn increment_track_play_count(conn: &mut Connection, track_id: &str) -> AppResult<i32> {
+pub fn increment_track_play_count(
+    conn: &mut Connection,
+    track_id: &str,
+) -> AppResult<crate::models::PlayCountUpdate> {
     let now = chrono::Utc::now().to_rfc3339();
 
     let tx = conn
@@ -1735,7 +1688,10 @@ pub fn increment_track_play_count(conn: &mut Connection, track_id: &str) -> AppR
         AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
     })?;
 
-    Ok(new_count)
+    Ok(crate::models::PlayCountUpdate {
+        play_count: new_count,
+        last_played_at: now,
+    })
 }
 
 /// スキップ回数をインクリメントし、新しいスキップ回数を返す
@@ -2256,41 +2212,6 @@ mod tests {
     }
 
     #[test]
-    fn test_find_tracks_by_filter() {
-        let conn = setup_test_db();
-        insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
-        insert_test_track(&conn, "t2", "曲B", "アーティストX", "アルバム2", "ポップ");
-        insert_test_track(&conn, "t3", "曲C", "アーティストY", "アルバム1", "ロック");
-
-        // アーティストでフィルタ
-        let filters = FilterOptions {
-            artist: Some("アーティストX".to_string()),
-            album: None,
-            genre: None,
-        };
-        let tracks = find_tracks_by_filter(&conn, &filters).unwrap();
-        assert_eq!(tracks.len(), 2);
-
-        // ジャンルでフィルタ
-        let filters = FilterOptions {
-            artist: None,
-            album: None,
-            genre: Some("ロック".to_string()),
-        };
-        let tracks = find_tracks_by_filter(&conn, &filters).unwrap();
-        assert_eq!(tracks.len(), 2);
-
-        // 複合フィルタ
-        let filters = FilterOptions {
-            artist: Some("アーティストX".to_string()),
-            album: None,
-            genre: Some("ロック".to_string()),
-        };
-        let tracks = find_tracks_by_filter(&conn, &filters).unwrap();
-        assert_eq!(tracks.len(), 1);
-    }
-
-    #[test]
     fn test_find_file_path_by_track_id() {
         let conn = setup_test_db();
         insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
@@ -2426,13 +2347,19 @@ mod tests {
         let mut conn = setup_test_db();
         insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
 
-        // 戻り値は更新後の再生回数
-        assert_eq!(increment_track_play_count(&mut conn, "t1").unwrap(), 1);
-        assert_eq!(increment_track_play_count(&mut conn, "t1").unwrap(), 2);
+        // 戻り値は更新後の再生回数と、記録した最後に再生した日時
+        assert_eq!(
+            increment_track_play_count(&mut conn, "t1")
+                .unwrap()
+                .play_count,
+            1
+        );
+        let update = increment_track_play_count(&mut conn, "t1").unwrap();
+        assert_eq!(update.play_count, 2);
 
         let track = find_track_by_id(&conn, "t1").unwrap();
         assert_eq!(track.play_count, 2);
-        assert!(track.last_played_at.is_some());
+        assert_eq!(track.last_played_at, Some(update.last_played_at));
 
         // 再生履歴も追加される
         let history_count: i64 = conn
@@ -2507,11 +2434,15 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            increment_track_play_count(&mut conn, "t1").unwrap(),
+            increment_track_play_count(&mut conn, "t1")
+                .unwrap()
+                .play_count,
             i32::MAX
         );
         assert_eq!(
-            increment_track_play_count(&mut conn, "t1").unwrap(),
+            increment_track_play_count(&mut conn, "t1")
+                .unwrap()
+                .play_count,
             i32::MAX
         );
         assert_eq!(increment_track_skip_count(&conn, "t1").unwrap(), i32::MAX);
@@ -2655,12 +2586,7 @@ mod tests {
             search_tracks_by_query(&conn, "アーティスト").unwrap().len(),
             1500
         );
-        let filters = FilterOptions {
-            artist: None,
-            album: None,
-            genre: Some("ロック".to_string()),
-        };
-        assert_eq!(find_tracks_by_filter(&conn, &filters).unwrap().len(), 1500);
+        assert_eq!(find_genre_tracks(&conn, "ロック").unwrap().len(), 1500);
 
         conn.execute("UPDATE tracks SET is_favorite = 1", [])
             .unwrap();
@@ -3585,26 +3511,12 @@ mod tests {
             ["アーティストX", "アーティストY", "アーティストZ", "ゲスト"]
         );
 
-        let filter = |artist: Option<&str>, genre: Option<&str>| {
-            let mut ids: Vec<String> = find_tracks_by_filter(
-                &conn,
-                &FilterOptions {
-                    artist: artist.map(str::to_string),
-                    album: None,
-                    genre: genre.map(str::to_string),
-                },
-            )
-            .unwrap()
+        let mut pop: Vec<String> = track_ids(&find_genre_tracks(&conn, "Pop").unwrap())
             .into_iter()
-            .map(|track| track.id)
+            .map(str::to_string)
             .collect();
-            ids.sort();
-            ids
-        };
-        assert_eq!(filter(None, Some("Pop")), ["t1", "t2"]);
-        assert_eq!(filter(Some("ゲスト"), None), ["t2"]);
-        assert_eq!(filter(Some("ゲスト"), Some("Rock")), Vec::<String>::new());
-        assert!(filter(Some("アーティスト"), None).is_empty());
+        pop.sort();
+        assert_eq!(pop, ["t1", "t2"]);
     }
 
     #[test]
