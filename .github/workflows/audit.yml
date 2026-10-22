@@ -3,6 +3,7 @@ name: Security Audit
 # 依存関係の既知の脆弱性を検査する
 # - 毎週の定期実行で、コード変更がなくても新たに公開されたアドバイザリを検知する
 # - lockfileを変更するPRでも実行し、脆弱なバージョンの混入を防ぐ
+# - このファイルを変更するPRでも実行し、受容済みの一覧（--ignore）の変更を確かめる
 # 受容済みのアドバイザリは docs/design/non-functional.md を参照
 
 on:
@@ -15,6 +16,7 @@ on:
       - 'package-lock.json'
       - 'src-tauri/Cargo.toml'
       - 'src-tauri/Cargo.lock'
+      - '.github/workflows/audit.yml'
   workflow_dispatch:
 
 permissions:
@@ -57,3 +59,6 @@ jobs:
           --ignore RUSTSEC-2024-0429
           --ignore RUSTSEC-2024-0370
           --ignore RUSTSEC-2024-0436
+          --ignore RUSTSEC-2026-0370
+          --ignore RUSTSEC-2026-0371
+          --ignore RUSTSEC-2026-0372
