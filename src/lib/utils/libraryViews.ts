@@ -20,6 +20,8 @@ function compareAlbumOrder(a: Track, b: Track): number {
  * 曲を、アーティスト → アルバム → アルバムの中の並びの順に並べる（元の配列は変えない）
  *
  * フォルダ・年代の画面で、曲を渡す順に使う（名前は、読みがあれば読みの順）。
+ *
+ * @internal テストのためにexportしている（アプリでは、このモジュールの中だけで使う）
  */
 export function sortTracksForBrowsing(tracks: readonly Track[]): Track[] {
   return [...tracks].sort(
@@ -160,7 +162,11 @@ const separatorOf = (path: string) => (path.includes('\\') && !path.includes('/'
 /** 末尾の区切りを除く */
 const trimSeparator = (path: string) => (path.length > 1 ? path.replace(/[/\\]+$/, '') : path);
 
-/** 曲のあるフォルダ（ファイル名を除いたパス） */
+/**
+ * 曲のあるフォルダ（ファイル名を除いたパス）
+ *
+ * @internal テストのためにexportしている（アプリでは、このモジュールの中だけで使う）
+ */
 export function folderOf(filePath: string): string {
   const index = Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\'));
   if (index < 0) return '';
@@ -173,7 +179,11 @@ function baseName(path: string): string {
   return path.split(SEPARATOR).filter(Boolean).pop() ?? path;
 }
 
-/** `path`が、`folder`かその下のフォルダか */
+/**
+ * `path`が、`folder`かその下のフォルダか
+ *
+ * @internal テストのためにexportしている（アプリでは、このモジュールの中だけで使う）
+ */
 export function isInFolder(path: string, folder: string): boolean {
   if (path === folder) return true;
   if (!path.startsWith(folder)) return false;
@@ -242,7 +252,11 @@ export function tracksInFolder(tracks: readonly Track[], folder: string): Track[
 
 // ---------- 年代別 ----------
 
-/** 年のない曲の項目のキー */
+/**
+ * 年のない曲の項目のキー
+ *
+ * @internal テストのためにexportしている（アプリでは、このモジュールの中だけで使う）
+ */
 export const UNKNOWN_YEAR_KEY = 'year:unknown';
 
 const decadeOf = (year: number) => Math.floor(year / 10) * 10;

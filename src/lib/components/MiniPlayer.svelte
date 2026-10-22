@@ -6,7 +6,8 @@
   重ねて表示する（下では、通常の画面とプレーヤーが動き続ける。再生の制御はそちらが持つ）。
 -->
 <script lang="ts">
-  import { formatTime, player } from '#lib/stores/player.svelte.js';
+  import { player } from '#lib/stores/player.svelte.js';
+  import { formatDuration } from '#lib/utils/format.js';
   import {
     seekPlayback,
     skipToNextTrack,
@@ -158,7 +159,12 @@
           <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
         </svg>
       </button>
-      <span class="time">{formatTime(player.currentTime)} / {formatTime(player.duration)}</span>
+      <span class="time"
+        >{formatDuration(player.currentTime, '0:00')} / {formatDuration(
+          player.duration,
+          '0:00'
+        )}</span
+      >
     </div>
 
     <div

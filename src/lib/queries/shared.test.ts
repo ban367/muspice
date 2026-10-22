@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { combineQueryStates, type QueryStateLike } from './shared';
+import { combineQueryStates, type QueryStateLike } from './shared.js';
 
 function state(overrides: Partial<QueryStateLike> = {}): QueryStateLike {
   return { isLoading: false, isError: false, error: null, ...overrides };

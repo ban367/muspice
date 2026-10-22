@@ -4,7 +4,7 @@
 import type { DeviceSyncPlan, DeviceSyncProgress } from '#lib/types/models.js';
 
 /** デバイス名の長さの上限（Rust側と同じく、文字数で数える） */
-export const MAX_DEVICE_NAME_LENGTH = 100;
+const MAX_DEVICE_NAME_LENGTH = 100;
 
 /** デバイス名が長さの上限を超えているか */
 export function isDeviceNameTooLong(name: string): boolean {

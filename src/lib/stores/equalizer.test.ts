@@ -90,6 +90,33 @@ describe('初期化', () => {
     expect(equalizer.enabled).toBe(false);
     expect(equalizer.bands).toEqual(FLAT);
   });
+
+  it('読めない値は、値ごとに既定値で補う（ゲインは範囲に収める）', async () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        enabled: 'yes',
+        bands: { 31: 'loud', 62: 99, 125: -99, 250: null, 500: 3 },
+        currentPreset: 'gone',
+        customPresets: [{ name: 'mine', bands: { 31: 6 } }, { bands: FLAT }, 'broken', null]
+      })
+    );
+
+    const { equalizer } = await importFreshEqualizer();
+    expect(equalizer.enabled).toBe(false);
+    expect(equalizer.bands).toEqual({ ...FLAT, 62: 12, 125: -12, 500: 3 });
+    // ないプリセットを選んでいた場合は、選択なし（カスタム）
+    expect(equalizer.currentPreset).toBeNull();
+    expect(equalizer.customPresets).toEqual([{ name: 'mine', bands: { ...FLAT, 31: 6 } }]);
+  });
+
+  it('配列など、オブジェクトでない設定は既定値で始める', async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify([1, 2, 3]));
+    const { equalizer } = await importFreshEqualizer();
+    expect(equalizer.currentPreset).toBe('flat');
+    expect(equalizer.bands).toEqual(FLAT);
+    expect(equalizer.customPresets).toEqual([]);
+  });
 });
 
 describe('バンド・プリセットの操作', () => {

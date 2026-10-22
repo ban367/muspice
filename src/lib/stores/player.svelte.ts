@@ -92,19 +92,6 @@ class Player {
 export const player = new Player();
 
 /**
- * 時間を mm:ss 形式にフォーマット
- */
-export function formatTime(seconds: number): string {
-  if (!seconds || isNaN(seconds)) {
-    return '0:00';
-  }
-
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${mins}:${secs.toString().padStart(2, '0')}`;
-}
-
-/**
  * プレイヤーの状態をリセット
  */
 export function resetPlayer(): void {

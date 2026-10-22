@@ -4,6 +4,7 @@
   設定ウィンドウで保存されると、Rustが送る`SettingsChanged`イベントでキャッシュを更新する。
 -->
 <script lang="ts">
+  import { stopListening } from '#lib/utils/listen.js';
   import { useQueryClient } from '@tanstack/svelte-query';
   import { events } from '#lib/bindings.js';
   import { queryKeys } from '#lib/queries/keys.js';
@@ -37,7 +38,7 @@
       queryClient.setQueryData(queryKeys.settings, event.payload);
     });
     return () => {
-      unlisten.then((fn) => fn());
+      stopListening(unlisten);
     };
   });
 </script>

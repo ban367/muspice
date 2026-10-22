@@ -1,8 +1,8 @@
 import { QueryClient } from '@tanstack/svelte-query';
 import { describe, expect, it } from 'vitest';
-import { queryKeys } from './keys';
-import { invalidatePlaylistQueries } from './playlists';
-import { invalidateLibraryQueries } from './tracks';
+import { queryKeys } from './keys.js';
+import { invalidatePlaylistQueries } from './playlists.js';
+import { invalidateLibraryQueries } from './tracks.js';
 
 /** キャッシュにデータを入れたクエリクライアント（取り直しは起きない。無効化の印だけを見る） */
 function clientWith(keys: readonly (readonly unknown[])[]): QueryClient {

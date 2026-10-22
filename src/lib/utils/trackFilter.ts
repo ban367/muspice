@@ -12,7 +12,7 @@
 import type { Track } from '#lib/types/models.js';
 import { albumKey, groupArtist } from './albumKey.js';
 import { listedArtists, splitValues } from './multiValue.js';
-import { compareNames } from './nameSort.js';
+import { compareNames, groupArtistSortName } from './nameSort.js';
 
 // ---------- フィルタ（評価・年・お気に入り） ----------
 
@@ -101,13 +101,6 @@ export interface BrowserResult {
 
 /** 値のないジャンル・アーティストのキー（空の文字列は、タグの値としては入らない） */
 const UNKNOWN_KEY = '';
-
-/** まとめたアーティストの、並び順に使う値（`nameSort`の`sortTracksByArtistAndAlbum`と同じ） */
-const groupArtistSortName = (track: Track) =>
-  track.albumArtist === null
-    ? track.sortTags.artist
-    : (track.sortTags.albumArtist ??
-      (track.artist === track.albumArtist ? track.sortTags.artist : null));
 
 /** 集計の途中の項目（並び順に使う値は、最初に見つかったものを使う） */
 interface Bucket extends BrowserItem {

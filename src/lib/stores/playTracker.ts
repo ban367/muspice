@@ -15,9 +15,9 @@
  */
 
 /** 再生回数に数えるまでに聴く時間の上限（秒）。曲の半分がこれより長ければ、この時間で数える */
-export const PLAYED_SECONDS_LIMIT = 240;
+const PLAYED_SECONDS_LIMIT = 240;
 /** スキップに数える、聴いた時間の下限（秒） */
-export const SKIP_MIN_SECONDS = 2;
+const SKIP_MIN_SECONDS = 2;
 /**
  * 再生位置の通知の間で「続けて再生した」とみなす、進んだ時間の上限（秒）
  *

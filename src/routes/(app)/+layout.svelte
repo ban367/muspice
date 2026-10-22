@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { stopListening } from '#lib/utils/listen.js';
   import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
   import { events } from '#lib/bindings.js';
   import { onMount } from 'svelte';
@@ -100,15 +101,17 @@
     );
 
     return () => {
-      unlistenImport.then((fn) => fn());
-      unlistenImportFiles.then((fn) => fn());
+      stopListening(
+        unlistenImport,
+        unlistenImportFiles,
+        unlistenSidebar,
+        unlistenAbout,
+        unlistenMiniPlayer,
+        unlistenLibrary
+      );
       stopWatchingOpenedFiles();
       stopWatchingLoudnessScan();
       stopWatchingConversion();
-      unlistenSidebar.then((fn) => fn());
-      unlistenAbout.then((fn) => fn());
-      unlistenMiniPlayer.then((fn) => fn());
-      unlistenLibrary.then((fn) => fn());
     };
   });
 

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { stopListening } from '#lib/utils/listen.js';
+  import { setOf } from '#lib/utils/collections.js';
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
   import { page } from '$app/state';
@@ -36,7 +38,7 @@
   // ジャンルクエリ
   // サイドバーに表示する項目（設定で隠した項目は出さない。設定を読み込むまでは、すべて出す）
   const settingsQuery = useSettingsQuery();
-  const hiddenItems = $derived(new Set(settingsQuery.data?.hiddenSidebarItems ?? []));
+  const hiddenItems = $derived(setOf(settingsQuery.data?.hiddenSidebarItems ?? []));
   const isShown = (item: SidebarItem) => !hiddenItems.has(item);
 
   const genresQuery = useGenresQuery();
@@ -60,7 +62,7 @@
       if (focused) void queryClient.invalidateQueries({ queryKey: queryKeys.syncDevices });
     });
     return () => {
-      unlistenFocus.then((fn) => fn());
+      stopListening(unlistenFocus);
     };
   });
 

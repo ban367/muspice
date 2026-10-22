@@ -7,6 +7,8 @@
   （`MusicFolderSetup`）。
 -->
 <script lang="ts">
+  import { onDestroy } from 'svelte';
+  import { createSearchDebounce } from '#lib/utils/debounce.js';
   import { useTracksQuery, useSearchQuery } from '#lib/queries/tracks.js';
   import TrackList from '#lib/components/library/TrackList.svelte';
   import LibraryHeader from '#lib/components/library/LibraryHeader.svelte';
@@ -24,7 +26,14 @@
   // 検索状態
   let searchTerm = $state('');
   let debouncedSearchTerm = $state('');
-  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  // 記号は取り除かない（`Don't`のような曲名も探せる。値はRust側がプレースホルダーで渡す）
+  const { handleInput: debounceSearch, cancel: cancelSearchDebounce } = createSearchDebounce(
+    (value) => {
+      debouncedSearchTerm = value.trim();
+    }
+  );
+  // 画面を離れた後に、検索語を書き換えない
+  onDestroy(cancelSearchDebounce);
 
   // クエリ
   const tracksQuery = useTracksQuery();
@@ -63,23 +72,13 @@
 
   function handleSearchInput(value: string) {
     searchTerm = value;
-
-    if (debounceTimer) {
-      clearTimeout(debounceTimer);
-    }
-
-    debounceTimer = setTimeout(() => {
-      // 記号は取り除かない（`Don't`のような曲名も探せる。値はRust側がプレースホルダーで渡す）
-      debouncedSearchTerm = searchTerm.trim();
-    }, 300);
+    debounceSearch(value);
   }
 
   function clearSearch() {
+    cancelSearchDebounce();
     searchTerm = '';
     debouncedSearchTerm = '';
-    if (debounceTimer) {
-      clearTimeout(debounceTimer);
-    }
   }
 
   /** 検索・フィルタ・カラムブラウザの選択を、すべて解除する */

@@ -27,6 +27,8 @@ export function applyAccentColor(color: string): void {
 /**
  * テーマの設定から、画面に反映する配色を決める
  * @param prefersDark OSの配色がダークか
+ *
+ * @internal テストのためにexportしている（アプリでは、このモジュールの中だけで使う）
  */
 export function resolveTheme(theme: Theme, prefersDark: boolean): ResolvedTheme {
   if (theme === 'system') return prefersDark ? 'dark' : 'light';

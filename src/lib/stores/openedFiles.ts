@@ -10,6 +10,7 @@ import { commands, events } from '#lib/bindings.js';
 import { handleError, showWarning } from './error.svelte.js';
 import { playTrackFromQueue } from './player.svelte.js';
 import { m } from '#lib/i18n/i18n.svelte.js';
+import { stopListening } from '#lib/utils/listen.js';
 
 /** 開かれた曲を受け取り、再生する */
 async function playOpenedFiles(): Promise<void> {
@@ -29,10 +30,7 @@ export function watchOpenedFiles(): () => void {
     playOpenedFiles().catch((error) => handleError(error, m.openedFiles.context));
   };
   const unlisten = events.tracksOpened.listen(receive);
-  receive();
-  // 聞き始める手続きが済むまでの間に届いた知らせを、取りこぼさない
-  void unlisten.then(receive);
-  return () => {
-    void unlisten.then((stop) => stop());
-  };
+  // 聞き始めた後に、それまでに開かれた分（起動の途中・聞き始める手続きの間に届いた分）を受け取る
+  unlisten.then(receive, (error) => handleError(error, m.openedFiles.context));
+  return () => stopListening(unlisten);
 }

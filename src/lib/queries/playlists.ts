@@ -7,8 +7,8 @@ import {
 import { commands } from '#lib/bindings.js';
 import type { Playlist, PlaylistFolder, SmartRules } from '#lib/types/models.js';
 import { showSuccess } from '#lib/stores/error.svelte.js';
-import { queryKeys } from './keys';
-import { CACHE_POLICY, withErrorToast } from './shared';
+import { queryKeys } from './keys.js';
+import { CACHE_POLICY, withErrorToast } from './shared.js';
 import { m } from '#lib/i18n/i18n.svelte.js';
 import { forgetTrackListView, playlistSortViewId } from '#lib/stores/trackListView.svelte.js';
 
@@ -19,6 +19,8 @@ import { forgetTrackListView, playlistSortViewId } from '#lib/stores/trackListVi
  * 特に開いている自動プレイリストは、取り直さない（評価を下げた曲が、無関係な操作でその場から消えない。
  * ADR-042）。
  * @param changedPlaylistId 曲を変えたプレイリスト（一覧だけを変えた場合はnull）
+ *
+ * @internal テストのためにexportしている（アプリでは、このモジュールの中だけで使う）
  */
 export function invalidatePlaylistQueries(
   queryClient: QueryClient,

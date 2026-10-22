@@ -5,6 +5,7 @@
   ファイルの整理、形式の変換、音量の解析、アルバムアートの変更、削除などのアクションを提供する。
 -->
 <script lang="ts">
+  import { EMPTY_ID_SET } from '#lib/utils/collections.js';
   import type { Track } from '#lib/types/models.js';
   import {
     BaseContextMenu,
@@ -29,7 +30,7 @@
     y: number;
     track: Track;
     tracks?: Track[];
-    selectedTrackIds?: Set<string>;
+    selectedTrackIds?: ReadonlySet<string>;
     onClose: () => void;
     onEditMetadata?: () => void;
     onAddToQueue?: () => void;
@@ -46,7 +47,7 @@
     y,
     track,
     tracks = [],
-    selectedTrackIds = new Set(),
+    selectedTrackIds = EMPTY_ID_SET,
     onClose,
     onEditMetadata,
     onAddToQueue,

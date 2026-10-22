@@ -7,7 +7,7 @@
 
 import { createMutation } from '@tanstack/svelte-query';
 import { commands } from '#lib/bindings.js';
-import { withErrorToast } from './shared';
+import { withErrorToast } from './shared.js';
 import { m } from '#lib/i18n/i18n.svelte.js';
 
 /**

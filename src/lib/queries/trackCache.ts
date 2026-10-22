@@ -8,7 +8,7 @@
 
 import type { QueryClient } from '@tanstack/svelte-query';
 import type { AlbumGroup, Track } from '#lib/types/models.js';
-import { queryKeys } from './keys';
+import { queryKeys } from './keys.js';
 
 /** `queryKeys.tracks`のクエリが返すデータ（曲の一覧、またはアルバムごとの曲） */
 export type TrackQueryData = Track[] | AlbumGroup[];
@@ -34,6 +34,8 @@ function patchTrackList(
  * @param data - クエリのデータ（未取得ならundefined）
  * @param trackIds - 書き換える曲のID
  * @param patch - 書き換える項目
+ *
+ * @internal テストのためにexportしている（アプリでは、このモジュールの中だけで使う）
  */
 export function patchTracksData<T extends TrackQueryData | undefined>(
   data: T,
@@ -55,17 +57,6 @@ export function patchTracksData<T extends TrackQueryData | undefined>(
   }
 
   return patchTrackList(data as Track[], trackIds, patch) as T;
-}
-
-/**
- * 曲を返すクエリのデータの中の1曲を書き換える（`patchTracksData`の1曲版）
- */
-export function patchTrackData<T extends TrackQueryData | undefined>(
-  data: T,
-  trackId: string,
-  patch: Partial<Track>
-): T {
-  return patchTracksData(data, new Set([trackId]), patch);
 }
 
 /**

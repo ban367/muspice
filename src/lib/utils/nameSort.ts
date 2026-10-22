@@ -6,6 +6,7 @@
  * 大文字と小文字を区別せず、五十音順に並ぶ）。
  */
 import type { Track } from '#lib/types/models.js';
+import { groupArtist as albumGroupArtist } from './albumKey.js';
 
 // 文字列の比較は件数が多いと重いため、比較のたびに作らず1つを使い回す
 const collator = new Intl.Collator('ja');
@@ -29,18 +30,20 @@ export function sortByName<T extends Named>(items: readonly T[]): T[] {
   return [...items].sort((a, b) => compareNames(a.sortName || a.name, b.sortName || b.name));
 }
 
-/** 曲をまとめるアーティスト（アルバムアーティスト。なければ曲のアーティスト） */
+/** 曲をまとめるアーティスト（`albumKey`の`groupArtist`。どちらもない曲は空の文字列） */
 function groupArtist(track: Track): string {
-  return track.albumArtist ?? track.artist ?? '';
+  return albumGroupArtist(track) ?? '';
 }
 
 /**
- * 曲をまとめるアーティストの、並び順に使う値（なければnull）
+ * 曲をまとめるアーティストの、並び順に使う値（なければnull。Rustの`ALBUM_ARTIST_SORT`と同じ）
  *
  * アルバムアーティストでまとめる曲は、アルバムアーティストの読み（なければ、同じ名前の
  * 曲のアーティストの読み）。曲のアーティストでまとめる曲は、曲のアーティストの読み。
  */
-function groupArtistSortName(track: Track): string | null {
+export function groupArtistSortName(
+  track: Pick<Track, 'albumArtist' | 'artist' | 'sortTags'>
+): string | null {
   const { sortTags } = track;
   if (track.albumArtist === null) return sortTags.artist;
   return sortTags.albumArtist ?? (track.artist === track.albumArtist ? sortTags.artist : null);

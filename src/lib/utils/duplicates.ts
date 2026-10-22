@@ -14,7 +14,11 @@ import type { Track } from '#lib/types/models.js';
 import { splitValues } from './multiValue.js';
 import { normalizeSearchText } from './searchText.js';
 
-/** 同じ曲とみなす、長さの違いの上限（秒） */
+/**
+ * 同じ曲とみなす、長さの違いの上限（秒）
+ *
+ * @internal テストのためにexportしている（アプリでは、このモジュールの中だけで使う）
+ */
 export const DUPLICATE_DURATION_TOLERANCE = 3;
 
 /** 重複した曲のまとまり */

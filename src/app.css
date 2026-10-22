@@ -55,10 +55,8 @@
 
   /* グリッドレイアウト */
   --grid-player: 1fr 2fr 1fr;
-  --grid-track-table: 2.5rem 2rem 2fr 1.5fr 1.5fr 5rem 4rem;
 
   /* スペーシング */
-  --spacing-sidebar: 220px;
   /* 再生バーの高さ（再生バーはこの高さに固定し、ほかの部品はこの分だけ下を空ける） */
   --spacing-player-height: 6.125rem;
   /* 右サイドバーのパネルの幅（右端のアイコンバーを除く。横に並べる間は、本文をこの分だけ寄せる） */
@@ -197,33 +195,6 @@ body {
 /* ================================
    共通ユーティリティクラス
    ================================ */
-
-/* テキストの切り詰め */
-.text-truncate {
-  @apply overflow-hidden text-ellipsis whitespace-nowrap;
-}
-
-/* マーキーテキスト用のコンテナ幅変数設定 */
-.marquee-container {
-  --container-width: 100%;
-}
-.marquee-container:hover {
-  --container-width: var(--actual-width, 100%);
-}
-
-/* グラスモーフィズム */
-.glass {
-  @apply bg-surface-hover backdrop-blur-md;
-}
-
-/* カードスタイル */
-.card-base {
-  @apply bg-surface rounded-lg p-3 transition-all duration-200;
-}
-
-.card-base:hover {
-  @apply bg-surface-hover;
-}
 
 /* ボタンベース */
 .btn-icon {
@@ -411,26 +382,6 @@ body {
   }
 }
 
-@keyframes slideUp {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
 @keyframes menuIn {
   from {
     opacity: 0;
@@ -440,14 +391,6 @@ body {
     opacity: 1;
     transform: scale(1);
   }
-}
-
-.animate-slide-up {
-  animation: slideUp var(--transition-normal) ease-out;
-}
-
-.animate-fade-in {
-  animation: fadeIn var(--transition-normal) ease-out;
 }
 
 /* ================================
@@ -514,13 +457,6 @@ body {
   50% {
     transform: scaleY(1);
   }
-}
-
-/* ================================
-   プレイリストドラッグオーバー
-   ================================ */
-.playlist-drag-over {
-  @apply bg-primary/30 outline-2 outline-dashed outline-primary -outline-offset-2;
 }
 
 /* ================================

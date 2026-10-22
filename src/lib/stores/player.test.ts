@@ -6,7 +6,6 @@ import {
   addNextInQueue,
   addToQueue,
   clearQueue,
-  formatTime,
   moveUpcomingEntry,
   peekNextTrack,
   playNextTrack,
@@ -744,13 +743,5 @@ describe('派生ストア', () => {
   it('upcomingEntries は再生中より後ろの要素を返す', () => {
     playTrackFromQueue(tracks, 1);
     expect(ids(player.upcomingEntries)).toEqual(['t3', 't4']);
-  });
-});
-
-describe('formatTime', () => {
-  it('秒数を m:ss 形式にする', () => {
-    expect(formatTime(0)).toBe('0:00');
-    expect(formatTime(65.9)).toBe('1:05');
-    expect(formatTime(NaN)).toBe('0:00');
   });
 });

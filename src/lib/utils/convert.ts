@@ -17,7 +17,11 @@ import { DEFAULT_FILE_ORGANIZE_TEMPLATE } from './fileOrganize.js';
 /** 非可逆の形式（変換すると、元の音には戻らない） */
 const LOSSY_FORMATS: readonly ConvertFormat[] = ['aac'];
 
-/** 変換先が、非可逆の形式か */
+/**
+ * 変換先が、非可逆の形式か
+ *
+ * @internal テストのためにexportしている（アプリでは、このモジュールの中だけで使う）
+ */
 export function isLossyFormat(format: ConvertFormat): boolean {
   return LOSSY_FORMATS.includes(format);
 }
@@ -73,7 +77,11 @@ export function summarizeConvertPlan(
   };
 }
 
-/** 既定の指定（AACへ書き出す） */
+/**
+ * 既定の指定（AACへ書き出す）
+ *
+ * @internal テストのためにexportしている（アプリでは、このモジュールの中だけで使う）
+ */
 export const DEFAULT_CONVERT_OPTIONS: ConvertOptions = {
   format: 'aac',
   aacBitrateKbps: DEFAULT_AAC_BITRATE_KBPS,

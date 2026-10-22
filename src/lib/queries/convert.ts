@@ -7,7 +7,7 @@
 import { createQuery } from '@tanstack/svelte-query';
 import { commands } from '#lib/bindings.js';
 import type { ConvertOptions, ConvertPlan, ConvertResult } from '#lib/types/models.js';
-import { queryKeys } from './keys';
+import { queryKeys } from './keys.js';
 
 /**
  * 変換先にできる形式を取得するクエリ

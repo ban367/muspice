@@ -9,6 +9,7 @@
   （起動時・定期・フォルダの監視）でライブラリが変わった場合も、同じイベントで曲数などを読み直す。
 -->
 <script lang="ts">
+  import { stopListening } from '#lib/utils/listen.js';
   import type { Snippet } from 'svelte';
   import { useQueryClient } from '@tanstack/svelte-query';
   import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
@@ -108,9 +109,7 @@
       if (focused) invalidate();
     });
     return () => {
-      unlistenProgress.then((fn) => fn());
-      unlistenChanged.then((fn) => fn());
-      unlistenFocus.then((fn) => fn());
+      stopListening(unlistenProgress, unlistenChanged, unlistenFocus);
     };
   });
 
