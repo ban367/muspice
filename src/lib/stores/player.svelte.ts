@@ -78,11 +78,14 @@ class Player {
       : this.currentTrackIndex > 0
   );
 
-  /** 「次に再生」のキュー（再生中のトラックより後ろの要素） */
+  /**
+   * 「次に再生」のキュー（再生中のトラックより後ろの要素）
+   *
+   * 何も再生していない間（何も再生していない時に、キューへ追加した曲）は、キューのすべて
+   * （「次へ」・再生で、先頭から再生する）。
+   */
   readonly upcomingEntries = $derived(
-    this.currentTrackIndex < 0 || this.playQueue.length === 0
-      ? []
-      : this.playQueue.slice(this.currentTrackIndex + 1)
+    this.currentTrackIndex < 0 ? this.playQueue : this.playQueue.slice(this.currentTrackIndex + 1)
   );
 }
 
@@ -187,11 +190,16 @@ export function toggleShuffle(): void {
       const others = queue.filter((_, index) => index !== currentIndex);
       player.playQueue = [current, ...shuffleArray(others)];
       player.currentTrackIndex = 0;
+    } else {
+      // 何も再生していない（キューへ追加しただけ）: キュー全体を並べ替える
+      player.playQueue = shuffleArray(queue);
     }
   } else {
     // シャッフルを無効にする（元の順序に戻す）
     const original = player.originalQueue;
-    if (original.length > 0 && current) {
+    if (original.length > 0 && !current) {
+      player.playQueue = original;
+    } else if (original.length > 0 && current) {
       const originalIndex = indexOfEntry(original, current.entryId);
       if (originalIndex !== -1) {
         player.playQueue = original;
@@ -457,7 +465,8 @@ export function moveUpcomingEntry(entryId: number, targetEntryId: number): void 
   const from = indexOfEntry(queue, entryId);
   const to = indexOfEntry(queue, targetEntryId);
   // 「次に再生」にない要素（再生し終えた・再生中・キューから消えた）は動かさない
-  if (player.currentTrackIndex < 0 || from < start || to < start || from === to) return;
+  // （何も再生していない間は、キューのすべてが「次に再生」）
+  if (from < start || to < start || from === to) return;
 
   const next = [...queue];
   const [moved] = next.splice(from, 1);

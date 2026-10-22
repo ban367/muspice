@@ -211,6 +211,26 @@ describe('toggleShuffle', () => {
   });
 });
 
+describe('toggleShuffle（何も再生していない時）', () => {
+  it('キュー全体を並べ替え、解除すると追加した順に戻る', () => {
+    addToQueue(tracks);
+    // 毎回いちばん前の要素と入れ替える乱数（並びが必ず変わる）
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+
+    toggleShuffle();
+    expect(player.isShuffleEnabled).toBe(true);
+    expect(player.currentTrackIndex).toBe(-1);
+    expect(ids(player.playQueue)).not.toEqual(['t1', 't2', 't3', 't4']);
+    expect([...ids(player.playQueue)].sort()).toEqual(['t1', 't2', 't3', 't4']);
+    expect(ids(player.upcomingEntries)).toEqual(ids(player.playQueue));
+
+    toggleShuffle();
+    expect(player.isShuffleEnabled).toBe(false);
+    expect(ids(player.playQueue)).toEqual(['t1', 't2', 't3', 't4']);
+    expect(player.currentTrackIndex).toBe(-1);
+  });
+});
+
 describe('playShuffled', () => {
   it('シャッフルモードを有効にし、ランダムに選んだトラックから再生する', () => {
     // Math.random() = 0.6 → 4曲中インデックス2（t3）を先頭にする
@@ -320,6 +340,19 @@ describe('addToQueue / addNextInQueue', () => {
     addNextInQueue([makeTrack('x')]);
 
     expect(ids(player.playQueue)).toEqual(['x']);
+  });
+
+  it('何も再生していない時に追加した曲は、「次に再生」に出て、「次へ」で先頭から再生する', () => {
+    addToQueue([makeTrack('x'), makeTrack('y')]);
+    addNextInQueue([makeTrack('w')]);
+
+    expect(player.currentTrackIndex).toBe(-1);
+    expect(ids(player.upcomingEntries)).toEqual(['w', 'x', 'y']);
+    expect(player.hasNextTrack).toBe(true);
+
+    playNextTrack();
+    expect(player.currentTrack?.id).toBe('w');
+    expect(ids(player.upcomingEntries)).toEqual(['x', 'y']);
   });
 
   it('数万曲をまとめて追加できる', () => {
@@ -490,6 +523,17 @@ describe('moveUpcomingEntry', () => {
     resetPlayer();
     moveUpcomingEntry(first, second);
     expect(player.playQueue).toEqual([]);
+  });
+});
+
+describe('moveUpcomingEntry（何も再生していない時）', () => {
+  it('キューのどの曲も動かせる', () => {
+    addToQueue(tracks);
+
+    moveUpcomingEntry(entryIdAt(3), entryIdAt(0));
+
+    expect(ids(player.playQueue)).toEqual(['t4', 't1', 't2', 't3']);
+    expect(player.currentTrackIndex).toBe(-1);
   });
 });
 
