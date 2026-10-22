@@ -761,11 +761,7 @@ describe('トラック', () => {
     expect(genres).not.toContain('Bossa Nova; Chanson');
     expect((await commands.getGenreTracks('Chanson')).map((t) => t.id)).toEqual([track.id]);
 
-    // 絞り込みと、値の一覧
-    expect(
-      (await commands.filterTracks({ artist: 'Duo One', genre: 'Chanson' })).map((t) => t.id)
-    ).toEqual([track.id]);
-    expect(await commands.filterTracks({ artist: 'Duo' })).toEqual([]);
+    // 値の一覧
     expect(await commands.getUniqueArtists()).toEqual(
       expect.arrayContaining(['Duo One', 'Duo Two'])
     );
@@ -846,7 +842,11 @@ describe('再生統計', () => {
     const before = await commands.getPlayHistory();
     const track = (await commands.getAllTracks()).find((t) => t.id === trackId)!;
 
-    expect(await commands.incrementPlayCount(trackId)).toBe(track.playCount + 1);
+    const update = await commands.incrementPlayCount(trackId);
+    expect(update.playCount).toBe(track.playCount + 1);
+    expect((await commands.getAllTracks()).find((t) => t.id === trackId)?.lastPlayedAt).toBe(
+      update.lastPlayedAt
+    );
 
     const history = await commands.getPlayHistory();
     expect(history).toHaveLength(before.length + 1);

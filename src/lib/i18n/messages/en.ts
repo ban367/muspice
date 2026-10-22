@@ -101,7 +101,6 @@ export const en: Messages = {
   operations: {
     fetchTracks: 'Loading tracks',
     searchTracks: 'Searching tracks',
-    filterTracks: 'Filtering tracks',
     fetchFavorites: 'Loading favorites',
     fetchMostPlayed: 'Loading most played tracks',
     fetchPlayHistory: 'Loading play history',

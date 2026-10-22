@@ -1,7 +1,7 @@
 <script lang="ts">
   import { resolve } from '$app/paths';
   import { page } from '$app/state';
-  import { useFilterQuery } from '#lib/queries/tracks.js';
+  import { useGroupTracksQuery } from '#lib/queries/tracks.js';
   import TrackList from '#lib/components/library/TrackList.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
@@ -10,8 +10,8 @@
   // （再デコードすると「100% Rock」のような'%'を含むジャンル名でURIErrorになる）
   const genreName = $derived(page.params.genre ?? '');
 
-  // ジャンルでフィルタリングされたトラックを取得
-  const genreQuery = $derived(useFilterQuery({ genre: genreName }));
+  // ジャンルの曲（カードから再生する時と同じ一覧・同じ並び。アーティスト → アルバムの順）
+  const genreQuery = $derived(useGroupTracksQuery('genre', genreName));
   const tracks = $derived(genreQuery.data ?? null);
   const isLoading = $derived(genreQuery.isLoading);
   const isError = $derived(genreQuery.isError);

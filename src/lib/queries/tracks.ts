@@ -10,7 +10,6 @@ import type {
   Track,
   Metadata,
   DeleteResult,
-  FilterOptions,
   KeepOrganizedResult,
   OrganizeDestination,
   OrganizePlan,
@@ -24,7 +23,7 @@ import { sortByName, sortTracksByArtistAndAlbum } from '#lib/utils/nameSort.js';
 import { m } from '#lib/i18n/i18n.svelte.js';
 
 // 呼び出し側の利便性のため、このモジュールからも型を再エクスポートする
-export type { DeleteResult, FilterOptions };
+export type { DeleteResult };
 
 // ========== Query Invalidation ヘルパー ==========
 
@@ -51,6 +50,20 @@ export function invalidateTrackListQueries(queryClient: QueryClient) {
 export function invalidateAllTrackQueries(queryClient: QueryClient) {
   invalidateTrackListQueries(queryClient);
   queryClient.invalidateQueries({ queryKey: queryKeys.playlists });
+}
+
+/**
+ * ライブラリが変わった時（`LibraryChanged`。インポート・再スキャン・ファイルの整理・ライブラリフォルダの
+ * 削除と付け替え・音楽フォルダの設定・ほかのウィンドウでの変更）に、曲・プレイリストと、ライブラリフォルダ・
+ * 音楽フォルダを無効化する
+ *
+ * ライブラリフォルダの一覧は、フォルダ別の画面が木の根に使う（古いままだと、新しいフォルダの曲が
+ * 曲ごとの根に分かれて出る）。
+ */
+export function invalidateLibraryQueries(queryClient: QueryClient) {
+  invalidateAllTrackQueries(queryClient);
+  void queryClient.invalidateQueries({ queryKey: queryKeys.libraryFolders });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.musicFolder });
 }
 
 // ========== 読み取りクエリ ==========
@@ -83,21 +96,6 @@ export function useSearchQuery(searchTerm: string) {
     ...CACHE_POLICY.search,
     refetchOnWindowFocus: false,
     // 検索中に前回結果を表示し続ける（ちらつき防止）
-    placeholderData: (previousData: Track[] | undefined) => previousData
-  }));
-}
-
-/**
- * フィルタリングクエリ（パフォーマンス最適化版）
- */
-export function useFilterQuery(filters: FilterOptions) {
-  return createQuery(() => ({
-    queryKey: queryKeys.tracks.filter(filters),
-    queryFn: () => withErrorToast(m.operations.filterTracks, () => commands.filterTracks(filters)),
-    enabled: !!(filters.artist || filters.album || filters.genre),
-    ...CACHE_POLICY.search,
-    refetchOnWindowFocus: false,
-    // フィルタリング中に前回結果を表示し続ける
     placeholderData: (previousData: Track[] | undefined) => previousData
   }));
 }
@@ -370,12 +368,10 @@ export function useSetRatingMutation() {
  */
 export async function recordPlay(trackId: string, queryClient?: QueryClient): Promise<void> {
   try {
-    const playCount = await commands.incrementPlayCount(trackId);
+    // 最後に再生した日時は、DBに記録した値（同じ書式）で書き換える
+    const { playCount, lastPlayedAt } = await commands.incrementPlayCount(trackId);
     if (!queryClient) return;
-    patchTrackInCache(queryClient, trackId, {
-      playCount,
-      lastPlayedAt: new Date().toISOString()
-    });
+    patchTrackInCache(queryClient, trackId, { playCount, lastPlayedAt });
     void queryClient.invalidateQueries({ queryKey: queryKeys.playHistory });
     void queryClient.invalidateQueries({ queryKey: queryKeys.tracks.mostPlayedAll });
   } catch (error) {

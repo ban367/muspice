@@ -3,7 +3,7 @@
 use super::run_blocking;
 use crate::error::{AppError, AppResult};
 use crate::metadata::{update_file_rating, validate_rating};
-use crate::models::{PlayHistoryEntry, Track};
+use crate::models::{PlayCountUpdate, PlayHistoryEntry, Track};
 use crate::state::AppState;
 use crate::validation::validate_track_id;
 use std::path::Path;
@@ -69,12 +69,15 @@ pub async fn set_rating(
     })
 }
 
-/// 再生回数をインクリメントし、再生履歴に追加する（新しい再生回数を返す）
+/// 再生回数をインクリメントし、再生履歴に追加する（新しい再生回数と、最後に再生した日時を返す）
 ///
 /// いつ数えるか（曲の半分か4分を聴いた時）は、フロントエンドの再生コントローラーが決める。
 #[tauri::command]
 #[specta::specta]
-pub async fn increment_play_count(track_id: String, state: State<'_, AppState>) -> AppResult<i32> {
+pub async fn increment_play_count(
+    track_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<PlayCountUpdate> {
     validate_track_id(&track_id)?;
 
     state.with_db(|db| crate::repository::increment_track_play_count(db, &track_id))

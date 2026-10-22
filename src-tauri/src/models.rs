@@ -337,3 +337,13 @@ pub struct AlbumGroup {
     pub representative_track_id: String,
     pub tracks: Vec<Track>,
 }
+
+/// 再生回数に数えた結果（新しい再生回数と、記録した最後に再生した日時）
+///
+/// フロントエンドは、キャッシュにあるその曲をこの値で書き換える（日時をDBと同じ書式にするため）。
+#[derive(Debug, Serialize, Clone, PartialEq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PlayCountUpdate {
+    pub play_count: i32,
+    pub last_played_at: String,
+}

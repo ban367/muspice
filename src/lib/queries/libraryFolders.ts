@@ -1,9 +1,10 @@
 /**
  * ライブラリフォルダ（インポートしたフォルダ）のクエリ・ミューテーション
  *
- * 設定ウィンドウの「ライブラリ」で使う。設定ウィンドウとメインウィンドウはQueryの
- * キャッシュを共有しないため、再スキャン・削除でライブラリが変わると、Rustが送る
- * `LibraryChanged`イベントでメインウィンドウの一覧を無効化する（`(app)/+layout.svelte`）。
+ * 設定ウィンドウの「ライブラリ」と、メインウィンドウのフォルダ別の画面で使う。設定ウィンドウとメイン
+ * ウィンドウはQueryのキャッシュを共有しないため、ライブラリが変わると、Rustが送る`LibraryChanged`
+ * イベントで、それぞれのウィンドウが無効化する（メインウィンドウは`invalidateLibraryQueries`、
+ * 設定ウィンドウは`LibraryFolderSettings`）。
  */
 
 import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
@@ -15,9 +16,9 @@ import { m } from '#lib/i18n/i18n.svelte.js';
 /**
  * ライブラリフォルダの一覧を取得するクエリ
  *
- * メインウィンドウでのインポート・自動の再スキャン（`LibraryChanged`）と、設定ウィンドウに
- * 戻ったとき（外付けドライブの接続など）に、`LibraryFolderSettings`が無効化して読み直す
- * （staleTimeを設けない）。
+ * ライブラリが変わった時（`LibraryChanged`）に、どちらのウィンドウも無効化して読み直す。設定ウィンドウは、
+ * ウィンドウに戻ったとき（外付けドライブの接続など）にも読み直す（`LibraryFolderSettings`。staleTimeを
+ * 設けない）。
  */
 export function useLibraryFoldersQuery() {
   return createQuery(() => ({

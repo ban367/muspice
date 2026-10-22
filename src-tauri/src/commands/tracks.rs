@@ -8,9 +8,6 @@ use crate::state::AppState;
 use crate::validation::validate_track_id;
 use tauri::{AppHandle, Manager, State};
 
-/// フィルタオプション（repository::FilterOptionsの再エクスポート）
-pub type FilterOptions = crate::repository::FilterOptions;
-
 /// すべてのトラックを取得
 #[tauri::command]
 #[specta::specta]
@@ -30,16 +27,6 @@ pub async fn search_tracks(query: String, state: State<'_, AppState>) -> AppResu
     }
 
     state.with_db(|db| crate::repository::search_tracks_by_query(db, &query))
-}
-
-/// トラックをフィルタリング
-#[tauri::command]
-#[specta::specta]
-pub async fn filter_tracks(
-    filters: FilterOptions,
-    state: State<'_, AppState>,
-) -> AppResult<Vec<Track>> {
-    state.with_db(|db| crate::repository::find_tracks_by_filter(db, &filters))
 }
 
 /// ユニークなアーティスト一覧を取得
