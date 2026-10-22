@@ -245,7 +245,8 @@ export interface MockOrganizeMove {
  * 選んだ曲の、ファイルの整理の計画を立てる
  * @param tracks - 選んだ曲（この順に、一覧にする）
  * @param libraryFolders - ライブラリフォルダのパス
- * @param allPaths - ライブラリのすべての曲の場所（ここにある場所は、移動先にしない）
+ * @param libraryTracks - ライブラリのすべての曲（その場所は、移動先にしない。見つからない曲の場所は
+ *   `targetRegistered`、ほかは`targetExists`）
  * @param musicFolder - 音楽フォルダへ集める時は、音楽フォルダ（どの曲も、音楽フォルダからの書式どおりの
  *   場所へ移す）。nullなら、曲のあるライブラリフォルダの中で移す
  */
@@ -253,10 +254,15 @@ export function planOrganize(
   tracks: readonly Track[],
   libraryFolders: readonly string[],
   template: OrganizeTemplate,
-  allPaths: readonly string[],
+  libraryTracks: readonly Pick<Track, 'filePath' | 'isMissing'>[],
   musicFolder: string | null = null
 ): { entries: OrganizeEntry[]; moves: MockOrganizeMove[] } {
-  const occupied = new Set(allPaths.map(locationKey));
+  const occupied = new Set(
+    libraryTracks.filter((t) => !t.isMissing).map((t) => locationKey(t.filePath))
+  );
+  const registered = new Set(
+    libraryTracks.filter((t) => t.isMissing).map((t) => locationKey(t.filePath))
+  );
   const entries: OrganizeEntry[] = [];
   const candidates: {
     index: number;
@@ -310,6 +316,8 @@ export function planOrganize(
       entries[index].status = 'sameTarget';
     } else if (occupied.has(key) && key !== locationKey(from)) {
       entries[index].status = 'targetExists';
+    } else if (registered.has(key) && key !== locationKey(from)) {
+      entries[index].status = 'targetRegistered';
     } else {
       moves.push({ trackId, to, copy });
     }

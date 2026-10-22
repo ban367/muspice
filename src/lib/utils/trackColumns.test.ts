@@ -27,7 +27,7 @@ const track: Track = {
   discNumber: null,
   duration: 185,
   fileSize: 3 * 1024 * 1024,
-  format: 'flac',
+  format: 'FLAC',
   bitrate: 1411,
   sampleRate: 44100,
   isFavorite: true,

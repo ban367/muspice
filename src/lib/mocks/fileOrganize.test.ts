@@ -38,12 +38,7 @@ function track(id: string, filePath: string, overrides: Partial<Track> = {}): Tr
 }
 
 function plan(tracks: Track[], template = DEFAULT) {
-  return planOrganize(
-    tracks,
-    [LIBRARY],
-    parseOrganizeTemplate(template),
-    tracks.map((t) => t.filePath)
-  );
+  return planOrganize(tracks, [LIBRARY], parseOrganizeTemplate(template), tracks);
 }
 
 /** 1曲を整理した後の場所（ライブラリフォルダからの場所） */
@@ -128,6 +123,16 @@ describe('planOrganize', () => {
       'targetExists'
     ]);
     expect(result.entries[1]).toMatchObject({ currentPath: '/elsewhere/b.mp3', newPath: null });
+    expect(result.moves).toEqual([]);
+  });
+
+  it('移動先がライブラリの見つからない曲の場所なら、ファイルがある場合と理由を分ける', () => {
+    const result = plan([
+      track('gone', '/music/Artist/Album/01 Song.mp3', { isMissing: true }),
+      track('blocked', '/music/in/d.mp3')
+    ]);
+
+    expect(result.entries[1].status).toBe('targetRegistered');
     expect(result.moves).toEqual([]);
   });
 

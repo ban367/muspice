@@ -109,6 +109,17 @@ const TRACK_SEEDS: TrackSeed[] = [
 
 const BITRATE_BY_FORMAT = { mp3: 320, flac: 1411, m4a: 256 } as const;
 
+/**
+ * 拡張子から、記録する形式の名前を決める（Rustの`library::get_file_format`と同じ。大文字にし、
+ * `aif`は`AIFF`、`wv`は`WavPack`にそろえる）
+ */
+export function fileFormatName(extension: string): string {
+  const upper = extension.toUpperCase();
+  if (upper === 'AIF') return 'AIFF';
+  if (upper === 'WV') return 'WavPack';
+  return upper;
+}
+
 function toIso(time: number): string {
   return new Date(time).toISOString();
 }
@@ -141,7 +152,7 @@ function createTrack(seed: TrackSeed, index: number): Track {
     discNumber: seed.trackNumber === null ? null : 1,
     duration: seed.duration,
     fileSize: Math.round((seed.duration * bitrate * 1000) / 8),
-    format,
+    format: fileFormatName(format),
     bitrate,
     sampleRate: 44100,
     isFavorite: seed.isFavorite ?? false,
@@ -213,7 +224,7 @@ export function createBulkTracks(count: number): Track[] {
       discNumber: 1,
       duration,
       fileSize: Math.round((duration * BITRATE_BY_FORMAT.mp3 * 1000) / 8),
-      format: 'mp3',
+      format: 'MP3',
       bitrate: BITRATE_BY_FORMAT.mp3,
       sampleRate: 44100,
       isFavorite: false,

@@ -66,6 +66,7 @@ import {
   createFixturePlaylistFolders,
   createFixturePlaylists,
   createFixtureTracks,
+  fileFormatName,
   mockPlaylistId,
   mockTrackId
 } from './fixtures';
@@ -949,7 +950,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       inside,
       libraryFolders.map((folder) => folder.path),
       parseOrganizeTemplate(settings.musicFolderTemplate),
-      tracks.map((track) => track.filePath),
+      tracks,
       musicFolder.path
     );
     for (const move of moves) {
@@ -1293,7 +1294,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       discNumber: 1,
       duration,
       fileSize: duration * 40_000,
-      format: fileName.split('.').pop()!.toLowerCase(),
+      format: fileFormatName(fileName.split('.').pop()!),
       bitrate: 320,
       sampleRate: 44100,
       isFavorite: false,
@@ -1365,6 +1366,13 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     ) {
       const pending = pendingSummary(targets, musicFolder);
       if (pending.copyCount === 0) return (await runImport(targets, duplicateAction, null)).outcome;
+      // 実装と同じく、預かっている取り込みがあれば置き換えない
+      if (pendingImport) {
+        fail(
+          'VALIDATION',
+          '取り込み方（参照かコピーか）を選んでいるフォルダがあります。先に選ぶか、やめてから取り込んでください'
+        );
+      }
       pendingImport = targets;
       return { kind: 'chooseFolderMode', pending };
     }
@@ -1496,6 +1504,11 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       });
       if ((users.get(key(candidate.target)) ?? 0) > 1) {
         result.notCopied.push(notCopied('sameTarget'));
+      } else if (
+        tracks.some((track) => track.isMissing && key(track.filePath) === key(candidate.target))
+      ) {
+        // ファイルはないが、ライブラリの見つからない曲の場所（実装と同じく、コピー先にしない）
+        result.notCopied.push(notCopied('targetRegistered'));
       } else if (tracks.some((track) => key(track.filePath) === key(candidate.target))) {
         if (copiedFrom.get(candidate.target) === candidate.track.filePath) {
           // 同じファイルを前にコピーした: コピー先の曲を参照する
@@ -1564,7 +1577,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       if (!musicFolder) fail('NOT_FOUND', '音楽フォルダが設定されていません');
     }
     const { outcome } = await runImport(targets, duplicateAction, musicFolder);
-    if (outcome.kind !== 'imported') pendingImport = targets;
+    // 預かり直す（その間に新しく預かったものは置き換えない）
+    if (outcome.kind !== 'imported') pendingImport ??= targets;
     return outcome;
   }
 
@@ -1619,10 +1633,11 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     const template = parseOrganizeTemplate(convertOptions.template);
     const extension = `.${CONVERT_OUTPUTS[format].extension}`;
     const key = (path: string) => path.normalize('NFC').toLowerCase();
+    // 実装と同じく、可逆かどうかは拡張子で決める（形式の名前ではなく）
     const isLossless = (track: Track) => {
-      const sourceFormat = track.format.toLowerCase();
-      if (LOSSLESS_EXTENSIONS.includes(sourceFormat)) return true;
-      return sourceFormat === 'm4a' ? (track.bitrate ?? 0) > 500 : false;
+      const sourceExtension = track.fileName.split('.').pop()!.toLowerCase();
+      if (LOSSLESS_EXTENSIONS.includes(sourceExtension)) return true;
+      return sourceExtension === 'm4a' ? (track.bitrate ?? 0) > 500 : false;
     };
 
     const entries: ConvertEntry[] = [];
@@ -1715,7 +1730,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         const converted = {
           filePath: conversion.output,
           fileName: conversion.output.slice(conversion.output.lastIndexOf('/') + 1),
-          format: output.extension,
+          format: fileFormatName(output.extension),
           bitrate
         };
         if (mode === 'replace') {
@@ -1871,7 +1886,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       selected,
       libraryFolders.map((folder) => folder.path),
       template,
-      tracks.map((track) => track.filePath),
+      tracks,
       musicFolder?.path ?? null
     );
     const copies = plan.moves.filter((move) => move.copy);
@@ -3306,13 +3321,13 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       // 全角・小文字のタイトルで、形式の違う写し（整理すると、移せる）
       copy(overclock, `${downloads}/overclock.flac`, {
         title: 'ｏｖｅｒｃｌｏｃｋ',
-        format: 'flac',
+        format: 'FLAC',
         bitrate: 1411,
         duration: (overclock?.duration ?? 0) + 2
       });
       // 同じ曲の写しが2つ（整理すると、同じ移動先になる）
-      copy(neonRain, `${downloads}/a/neon.mp3`, { format: 'mp3', bitrate: 320 });
-      copy(neonRain, `${downloads}/b/neon.mp3`, { format: 'mp3', bitrate: 128 });
+      copy(neonRain, `${downloads}/a/neon.mp3`, { format: 'MP3', bitrate: 320 });
+      copy(neonRain, `${downloads}/b/neon.mp3`, { format: 'MP3', bitrate: 128 });
       options.emit('libraryChanged', null);
     },
     setExclusionFolder: (path) => {

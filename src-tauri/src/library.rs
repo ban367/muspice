@@ -396,13 +396,23 @@ pub fn modified_at_of(metadata: &fs::Metadata) -> Option<i64> {
     i64::try_from(seconds).ok()
 }
 
-/// ファイル形式を取得
+/// 拡張子の大文字のままでは、一般的なプレーヤーと表記が違う形式（変える前の名前, 一覧に出す名前）
+///
+/// 同じ形式の別の拡張子（`.aif`・`.aiff`）を1つの名前にそろえ、略称（`.wv`）を形式の名前にする。
+/// 以前の版が記録した値は、起動時に直す（`db::setup_connection`）。
+pub const FORMAT_RENAMES: &[(&str, &str)] = &[("AIF", "AIFF"), ("WV", "WavPack")];
+
+/// ファイル形式を取得（拡張子の大文字。`FORMAT_RENAMES`の形式は、その名前）
 pub fn get_file_format(file_path: &Path) -> String {
-    file_path
+    let upper = file_path
         .extension()
         .and_then(|s| s.to_str())
         .unwrap_or("unknown")
-        .to_uppercase()
+        .to_uppercase();
+    FORMAT_RENAMES
+        .iter()
+        .find(|(from, _)| *from == upper)
+        .map_or(upper, |(_, to)| (*to).to_string())
 }
 
 /// 件数（usize）をフロントエンドへ返すu32へ変換する
@@ -473,6 +483,10 @@ struct DiscardedTrack {
 /// ファイルはDBのロックの外で消す（遅いドライブでも、その間ほかのコマンドとアルバムアートの表示を
 /// 止めない）。ファイルを消せなかった曲は、ライブラリに残して`failed_tracks`に入れ、ほかの曲は続ける。
 ///
+/// 全体を、スキャンのロック（`lock_library_scan`）の中で行う。パスを求めてからファイルを消すまでの間に、
+/// ファイルの整理（同じロックを取る）が同じ曲を移すと、元の場所が見つからずに「消せた」ことになり、
+/// 移した先のファイルがライブラリの外に残るため。ロックの順序は「スキャン → 曲 → DB」。
+///
 /// 1. 曲ごとに、ファイルを書き換えている処理が終わるのを待ってから（`lock_track_file`）、DBのロックの
 ///    中でファイルのパスを求める（見つからないトラックは飛ばす）
 /// 2. DBのロックの外で、ファイルを消す（`discard`。普段は`discard_track_file`。ゴミ箱へ移した場合は、
@@ -486,6 +500,7 @@ pub fn delete_tracks_with_files(
     track_ids: &[String],
     discard: &dyn Fn(&Path) -> AppResult<Option<PathBuf>>,
 ) -> AppResult<DeleteResult> {
+    let _scan = state.lock_library_scan();
     let mut discarded: Vec<DiscardedTrack> = Vec::new();
     let mut failed_tracks: Vec<DeleteFailure> = Vec::new();
     for track_id in track_ids {
@@ -801,6 +816,11 @@ mod tests {
     fn test_get_file_format() {
         assert_eq!(get_file_format(Path::new("test.mp3")), "MP3");
         assert_eq!(get_file_format(Path::new("test.flac")), "FLAC");
+        // 同じ形式の別の拡張子は、1つの名前にそろえる。略称は、形式の名前にする
+        assert_eq!(get_file_format(Path::new("a.aif")), "AIFF");
+        assert_eq!(get_file_format(Path::new("a.AIFF")), "AIFF");
+        assert_eq!(get_file_format(Path::new("a.wv")), "WavPack");
+        assert_eq!(get_file_format(Path::new("a.ape")), "APE");
     }
 
     #[test]
@@ -941,6 +961,34 @@ mod tests {
             );
             assert!(a.is_file());
             drop(writing);
+            done.recv_timeout(std::time::Duration::from_secs(10))
+                .unwrap();
+        });
+        assert!(!a.exists());
+        assert!(fixture.track_ids().is_empty());
+    }
+
+    /// ファイルの整理・再スキャン（スキャンのロックを持つ処理）が終わるまで待ってから消す
+    #[test]
+    fn test_delete_tracks_with_files_waits_for_the_scan_lock() {
+        let fixture = DeleteFixture::new();
+        let a = fixture.add_track("a", true);
+        let trash = |path: &Path| fixture.trash(path);
+        let (sender, done) = std::sync::mpsc::channel();
+
+        std::thread::scope(|scope| {
+            let organizing = fixture.state.lock_library_scan();
+            let (state, trash) = (&fixture.state, &trash);
+            scope.spawn(move || {
+                delete_tracks_with_files(state, &ids(&["a"]), trash).unwrap();
+                sender.send(()).unwrap();
+            });
+            assert!(
+                done.recv_timeout(std::time::Duration::from_millis(200))
+                    .is_err()
+            );
+            assert!(a.is_file());
+            drop(organizing);
             done.recv_timeout(std::time::Duration::from_secs(10))
                 .unwrap();
         });

@@ -596,6 +596,8 @@ export const ja = {
       outsideLibrary: 'ライブラリフォルダの外にあります',
       missing: 'ファイルが見つかりません',
       targetExists: '移動先に、同じ名前のファイルがあります',
+      targetRegistered:
+        '移動先の場所を、ライブラリの見つからない曲が使っています（その曲を外すか、見つけてください）',
       sameTarget: '選んだ曲の中に、同じ移動先になる曲があります'
     },
     apply: '整理する',
@@ -774,6 +776,8 @@ export const ja = {
     notCopied: (count: number) => `コピーしなかった曲（${count}曲。取り込んでいません）:`,
     notCopiedReasons: {
       targetExists: 'コピー先に同じ名前のファイルがあります',
+      targetRegistered:
+        'コピー先の場所を、ライブラリの見つからない曲が使っています（その曲を外すか、見つけてください）',
       sameTarget: '同じコピー先になる曲がほかにあります'
     },
     selectFolder: 'フォルダを選んでインポート...',

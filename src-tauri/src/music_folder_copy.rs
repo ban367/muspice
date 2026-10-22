@@ -17,8 +17,8 @@
 use crate::album_art::is_folder_image;
 use crate::error::{AppError, AppResult};
 use crate::file_organize::{
-    DirCache, LYRICS_EXTENSION, Template, copy_no_replace, list_dir, location_key,
-    remove_empty_folders,
+    DirCache, LYRICS_EXTENSION, Template, copy_no_replace, create_target_folder, list_dir,
+    location_key, remove_created_folders, remove_empty_folders,
 };
 use crate::library::is_supported_audio_file;
 use crate::models::Track;
@@ -38,6 +38,8 @@ pub const COPY_BUFFER_SIZE: usize = 1024 * 1024;
 pub enum NotCopiedReason {
     /// コピー先に、同じ名前のファイルがある
     TargetExists,
+    /// コピー先の場所を、ライブラリの曲（ファイルが見つからない曲）が使っている（ファイルはない）
+    TargetRegistered,
     /// 取り込む曲の中に、同じコピー先になる曲がある
     SameTarget,
 }
@@ -170,18 +172,24 @@ pub fn plan(
                 .push(not_copied(NotCopiedReason::SameTarget));
             continue;
         }
-        let target_taken = fs::symlink_metadata(&planned.target).is_ok()
-            || planned
-                .target
-                .to_str()
-                .is_some_and(|to| registered_paths.contains(to));
-        if target_taken {
+        if fs::symlink_metadata(&planned.target).is_ok() {
             if is_same_content(&planned.source, &planned.target) {
                 plan.already_copied.push((planned.source, planned.target));
             } else {
                 plan.not_copied
                     .push(not_copied(NotCopiedReason::TargetExists));
             }
+            continue;
+        }
+        // ファイルはないが、ライブラリの曲（見つからない曲）の場所。その曲が見つかった時に重なるため、
+        // コピー先にしない（理由は、ファイルがある場合と分ける）
+        if planned
+            .target
+            .to_str()
+            .is_some_and(|to| registered_paths.contains(to))
+        {
+            plan.not_copied
+                .push(not_copied(NotCopiedReason::TargetRegistered));
             continue;
         }
         if planned
@@ -238,13 +246,21 @@ pub struct CopiedFiles {
 
 /// 1曲のファイル（と、同じ名前の歌詞ファイル）をコピーする
 ///
-/// コピー先のフォルダは、なければ作る。
+/// コピー先のフォルダは、なければ作る（コピーできなかった場合は、作ったフォルダを片付ける）。
 pub fn copy_files(planned: &PlannedCopy, buffer: &mut [u8]) -> AppResult<CopiedFiles> {
-    if let Some(parent) = planned.target.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| AppError::Io(format!("コピー先のフォルダを作れませんでした: {}", e)))?;
-    }
+    let created = match planned.target.parent() {
+        Some(parent) => Some((
+            parent,
+            create_target_folder(parent).map_err(|e| {
+                AppError::Io(format!("コピー先のフォルダを作れませんでした: {}", e))
+            })?,
+        )),
+        None => None,
+    };
     let size = copy_no_replace(&planned.source, &planned.target, buffer).map_err(|e| {
+        if let Some((parent, existing)) = &created {
+            remove_created_folders(parent, existing);
+        }
         AppError::Io(if e.kind() == io::ErrorKind::AlreadyExists {
             "コピー先に同じ名前のファイルがあります".to_string()
         } else {
@@ -541,7 +557,7 @@ mod tests {
                 NotCopied {
                     source: missing.to_str().unwrap().to_string(),
                     target: relative("Artist/Album/03 Missing.mp3"),
-                    reason: NotCopiedReason::TargetExists,
+                    reason: NotCopiedReason::TargetRegistered,
                 }
             ]
         );
