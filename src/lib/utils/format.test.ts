@@ -12,6 +12,13 @@ describe('formatDuration', () => {
     expect(formatDuration(null)).toBe('--:--');
     expect(formatDuration(0)).toBe('--:--');
   });
+
+  it('再生位置・残り時間は、値がない時を 0:00 にする', () => {
+    expect(formatDuration(0, '0:00')).toBe('0:00');
+    expect(formatDuration(NaN, '0:00')).toBe('0:00');
+    expect(formatDuration(65.9, '0:00')).toBe('1:05');
+    expect(formatDuration(NaN)).toBe('--:--');
+  });
 });
 
 describe('formatTotalDuration', () => {

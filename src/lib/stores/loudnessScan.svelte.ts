@@ -14,8 +14,13 @@ import {
 } from '#lib/queries/loudness.js';
 import { handleError, showSuccess, showWarning } from '#lib/stores/error.svelte.js';
 import { m } from '#lib/i18n/i18n.svelte.js';
+import { stopListening } from '#lib/utils/listen.js';
 
-/** 結果を、通知に出す文にする */
+/**
+ * 結果を、通知に出す文にする
+ *
+ * @internal テストのためにexportしている（アプリでは、このモジュールの中だけで使う）
+ */
 export function loudnessScanSummary(result: LoudnessScanResult): string {
   const message = result.cancelled ? m.loudnessScan.cancelledResult : m.loudnessScan.result;
   return message(result.writtenCount, result.unchangedCount, result.errorCount);
@@ -48,8 +53,7 @@ class LoudnessScanState {
     });
     void this.refresh();
     return () => {
-      void unlistenProgress.then((unlisten) => unlisten());
-      void unlistenFinished.then((unlisten) => unlisten());
+      stopListening(unlistenProgress, unlistenFinished);
     };
   }
 

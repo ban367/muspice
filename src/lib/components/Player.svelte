@@ -1,11 +1,13 @@
 <script lang="ts">
+  import { stopListening } from '#lib/utils/listen.js';
+  import { idSetOf } from '#lib/utils/collections.js';
   import {
     player,
-    formatTime,
     toggleShuffle,
     toggleRepeat,
     type RepeatMode
   } from '#lib/stores/player.svelte.js';
+  import { formatDuration } from '#lib/utils/format.js';
   import {
     createPlaybackController,
     type PlaybackController
@@ -64,7 +66,7 @@
     listening.catch((error) => console.error('再生の操作を購読できません:', error));
 
     return () => {
-      void listening.then((unlisten) => unlisten()).catch(() => {});
+      stopListening(listening);
       stopAutoDj();
       controller.destroy();
       playback = null;
@@ -77,7 +79,7 @@
   // 再生中の曲がお気に入りかどうか。再生キューの曲は、キューに入れた時点の内容のため、
   // お気に入りの一覧（変更のたびに取り直される）から調べる
   const favoritesQuery = useFavoriteTracksQuery();
-  const favoriteIds = $derived(new Set((favoritesQuery.data ?? []).map((track) => track.id)));
+  const favoriteIds = $derived(idSetOf(favoritesQuery.data ?? []));
 
   /**
    * バー上のマウス位置を0〜1の割合に変換
@@ -466,7 +468,7 @@
       <!-- 進行バー -->
       <div class="flex items-center gap-2 w-full max-w-[600px]">
         <span class="text-[0.7rem] text-text-secondary min-w-[35px] text-center"
-          >{formatTime(player.currentTime)}</span
+          >{formatDuration(player.currentTime, '0:00')}</span
         >
         <div
           bind:this={progressBar}
@@ -493,7 +495,7 @@
           <div class="progress-handle" style="left: {player.progress}%"></div>
         </div>
         <span class="text-[0.7rem] text-text-secondary min-w-[35px] text-center"
-          >{formatTime(player.duration)}</span
+          >{formatDuration(player.duration, '0:00')}</span
         >
       </div>
     </div>

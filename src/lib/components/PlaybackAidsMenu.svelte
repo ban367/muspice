@@ -13,7 +13,8 @@
 <script lang="ts">
   import { usePlaylistsQuery } from '#lib/queries/playlists.js';
   import { useSaveSettingsMutation, useSettingsQuery } from '#lib/queries/settings.js';
-  import { formatTime, player } from '#lib/stores/player.svelte.js';
+  import { player } from '#lib/stores/player.svelte.js';
+  import { formatDuration } from '#lib/utils/format.js';
   import {
     MAX_PLAYBACK_SPEED,
     MIN_PLAYBACK_SPEED,
@@ -160,7 +161,7 @@
           <span class="status" aria-live="polite">
             {playbackAids.isFadingOut
               ? m.playbackAids.fadingOut
-              : m.playbackAids.remaining(formatTime(sleepRemaining))}
+              : m.playbackAids.remaining(formatDuration(sleepRemaining, '0:00'))}
           </span>
         {/if}
       </div>
@@ -232,7 +233,7 @@
     </span>
   {/if}
   {#if sleepRemaining !== null}
-    <span class="remaining" aria-hidden="true">{formatTime(sleepRemaining)}</span>
+    <span class="remaining" aria-hidden="true">{formatDuration(sleepRemaining, '0:00')}</span>
   {/if}
 </div>
 

@@ -229,6 +229,8 @@ function parsePattern(pattern: string): FileNamePattern {
  * - `%名前%`が項目で、ほかの文字はそのまま一致させる。`%dummy%`は、読み飛ばす部分
  * - `/`で区切ると、上のフォルダの名前も使える（`%artist%/%album%/%track% - %title%`）
  * - 番号・年（`%track%`・`%disc%`・`%year%`）は数字だけに一致する
+ *
+ * @internal テストのためにexportしている（アプリでは、このモジュールの中だけで使う）
  */
 export function parseFileNamePattern(
   pattern: string

@@ -54,6 +54,8 @@ export function trackInfoTarget(track: Track): InfoTarget {
  *
  * 矢印キーを押し続けると、選択が毎秒十数回以上動く。そのたびに曲・ジャケット画像を取得しないよう、
  * この間隔より短く続いた呼び出しは、最後の1回だけを反映する。
+ *
+ * @internal テストのためにexportしている（アプリでは、このモジュールの中だけで使う）
  */
 export const FOLLOW_INFO_INTERVAL = 200;
 

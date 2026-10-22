@@ -5,7 +5,11 @@
  * WebViewに`dragover`・`drop`が届かないため、`tauri.conf.json`で無効にしている。
  */
 
-/** ドラッグ中のトラックIDを運ぶデータの種類（アプリの中だけで使う） */
+/**
+ * ドラッグ中のトラックIDを運ぶデータの種類（アプリの中だけで使う）
+ *
+ * @internal テストのためにexportしている（アプリでは、このモジュールの中だけで使う）
+ */
 export const TRACK_DRAG_TYPE = 'application/x-muspice-track-ids';
 
 /**

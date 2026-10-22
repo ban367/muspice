@@ -1,13 +1,8 @@
 import { QueryClient } from '@tanstack/svelte-query';
 import { describe, expect, it } from 'vitest';
 import type { AlbumGroup, Track } from '#lib/types/models.js';
-import { queryKeys } from './keys';
-import {
-  patchTrackData,
-  patchTrackInCache,
-  patchTracksData,
-  patchTracksInCache
-} from './trackCache';
+import { queryKeys } from './keys.js';
+import { patchTrackInCache, patchTracksData, patchTracksInCache } from './trackCache.js';
 
 function track(id: string, rating = 0): Track {
   return {
@@ -52,11 +47,11 @@ function album(name: string, tracks: Track[]): AlbumGroup {
   };
 }
 
-describe('patchTrackData', () => {
+describe('patchTracksData（1曲）', () => {
   it('曲の一覧の中の1曲を書き換える（元のデータは変えない）', () => {
     const tracks = [track('a'), track('b')];
 
-    const patched = patchTrackData(tracks, 'b', { rating: 5 });
+    const patched = patchTracksData(tracks, new Set(['b']), { rating: 5 });
 
     expect(patched.map((t) => t.rating)).toEqual([0, 5]);
     expect(tracks[1].rating).toBe(0);
@@ -67,7 +62,7 @@ describe('patchTrackData', () => {
   it('アルバムごとの曲の中の1曲を書き換える', () => {
     const albums = [album('X', [track('a')]), album('Y', [track('b'), track('c')])];
 
-    const patched = patchTrackData(albums, 'c', { isFavorite: true });
+    const patched = patchTracksData(albums, new Set(['c']), { isFavorite: true });
 
     expect(patched[1].tracks.map((t) => t.isFavorite)).toEqual([false, true]);
     expect(patched[1].name).toBe('Y');
@@ -80,10 +75,10 @@ describe('patchTrackData', () => {
     const albums = [album('X', [track('a')])];
     const empty: Track[] = [];
 
-    expect(patchTrackData(tracks, 'z', { rating: 5 })).toBe(tracks);
-    expect(patchTrackData(albums, 'z', { rating: 5 })).toBe(albums);
-    expect(patchTrackData(empty, 'z', { rating: 5 })).toBe(empty);
-    expect(patchTrackData(undefined, 'z', { rating: 5 })).toBeUndefined();
+    expect(patchTracksData(tracks, new Set(['z']), { rating: 5 })).toBe(tracks);
+    expect(patchTracksData(albums, new Set(['z']), { rating: 5 })).toBe(albums);
+    expect(patchTracksData(empty, new Set(['z']), { rating: 5 })).toBe(empty);
+    expect(patchTracksData(undefined, new Set(['z']), { rating: 5 })).toBeUndefined();
   });
 });
 

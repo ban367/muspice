@@ -19,7 +19,7 @@ vi.mock('#lib/bindings.js', () => ({
   }
 }));
 
-import { commands } from '#lib/bindings.js';
+import { commands, events } from '#lib/bindings.js';
 import { notifications } from './error.svelte.js';
 import { watchOpenedFiles } from './openedFiles.js';
 import { player, resetPlayer } from './player.svelte.js';
@@ -58,16 +58,29 @@ describe('watchOpenedFiles', () => {
     stop();
   });
 
-  it('聞き始める手続きの間に開かれた曲も、取りこぼさない', async () => {
-    // 始めた時にはまだなく、聞き始める手続きが済んだ時に届いている
-    vi.mocked(commands.takeOpenedFiles)
-      .mockResolvedValueOnce(opened())
-      .mockResolvedValueOnce(opened({ tracks: [makeTrack('late')] }));
+  it('聞き始める手続きの間に開かれた曲も、聞き始めた後の1回で受け取る（起動時に2回取りにいかない）', async () => {
+    let finishListening!: () => void;
+    vi.mocked(events.tracksOpened.listen).mockImplementationOnce(
+      (listener) =>
+        new Promise((resolve) => {
+          finishListening = () => {
+            listeners.add(listener as () => void);
+            resolve(() => listeners.delete(listener as () => void));
+          };
+        })
+    );
+    vi.mocked(commands.takeOpenedFiles).mockResolvedValueOnce(
+      opened({ tracks: [makeTrack('late')] })
+    );
 
     const stop = watchOpenedFiles();
     await flush();
+    // 聞き始める手続きが済むまでは、取りにいかない
+    expect(commands.takeOpenedFiles).not.toHaveBeenCalled();
 
-    expect(commands.takeOpenedFiles).toHaveBeenCalledTimes(2);
+    finishListening();
+    await flush();
+    expect(commands.takeOpenedFiles).toHaveBeenCalledTimes(1);
     expect(player.currentTrack?.id).toBe('late');
     stop();
   });

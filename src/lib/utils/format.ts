@@ -6,11 +6,12 @@ import { i18n, m } from '#lib/i18n/i18n.svelte.js';
 
 /**
  * 秒数を mm:ss 形式にフォーマット
- * @param seconds - 秒数（null/undefined/0の場合は '--:--' を返す）
+ * @param seconds - 秒数
+ * @param empty - 値がない（null・0・NaN）時の表示。曲の長さは`--:--`、再生位置・残り時間は`0:00`
  * @returns フォーマットされた文字列
  */
-export function formatDuration(seconds: number | null): string {
-  if (!seconds) return '--:--';
+export function formatDuration(seconds: number | null, empty = '--:--'): string {
+  if (!seconds || Number.isNaN(seconds)) return empty;
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
   return `${mins}:${secs.toString().padStart(2, '0')}`;

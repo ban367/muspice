@@ -8,8 +8,7 @@
 import { untrack } from 'svelte';
 import type { QueryClient } from '@tanstack/svelte-query';
 import { commands } from '#lib/bindings.js';
-import { queryKeys } from '#lib/queries/keys.js';
-import { CACHE_POLICY } from '#lib/queries/shared.js';
+import { tracksQueryOptions } from '#lib/queries/tracks.js';
 import type { Track } from '#lib/types/models.js';
 import { AUTO_DJ_BATCH_SIZE, pickAutoDjTracks } from '#lib/utils/autoDj.js';
 import { addToQueue, player } from './player.svelte.js';
@@ -41,14 +40,15 @@ export function watchAutoDj(options: AutoDjOptions): () => void {
     !playbackAids.stopAfterCurrent &&
     player.currentTrackIndex === player.playQueue.length - 1;
 
-  /** 曲の元の曲を取得する */
+  /**
+   * 曲の元の曲を取得する
+   *
+   * プレイリストの曲は、キャッシュを通さずに取得する（自動プレイリストは、足す時点で条件に合う曲を
+   * 使う。キャッシュへ入れると、開いているプレイリストの画面の曲が、聴いている途中で入れ替わる）。
+   */
   function fetchCandidates(playlistId: string | null): Promise<Track[]> {
     if (playlistId !== null) return commands.getPlaylistTracks(playlistId);
-    return options.queryClient.fetchQuery({
-      queryKey: queryKeys.tracks.list,
-      queryFn: () => commands.getAllTracks(),
-      staleTime: CACHE_POLICY.library.staleTime
-    });
+    return options.queryClient.fetchQuery(tracksQueryOptions());
   }
 
   async function fill(): Promise<void> {

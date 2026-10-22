@@ -7,6 +7,7 @@
   - 見出しと曲の行は同じ高さにする（VirtualListは、行の高さがすべて同じとして扱う）
 -->
 <script lang="ts">
+  import { idSetOf, indexById, setOf } from '#lib/utils/collections.js';
   import {
     addNextInQueue,
     addToQueue,
@@ -49,7 +50,7 @@
   const rows = $derived(entries && tracks ? buildPlayHistoryRows(entries, tracks) : []);
   const playRows = $derived(rows.filter((row): row is PlayHistoryPlayRow => row.kind === 'play'));
   /** 行のIDから、一覧の中の位置（見出しを含む）を引く */
-  const rowIndexes = $derived(new Map(rows.map((row, index) => [row.id, index])));
+  const rowIndexes = $derived(indexById(rows));
   /** 履歴に出てくる曲（重複なし・最近再生した順）。再生キューと、メニューの対象に使う */
   const historyTracks = $derived(distinctTracks(rows));
 
@@ -59,7 +60,7 @@
   const selection = new TrackSelection(() => playRows);
   /** 選択中の行の曲（重複なし・表示順） */
   const selectedTracks = $derived(distinctTracks(playRows.filter((row) => selection.has(row.id))));
-  const selectedTrackIds = $derived(new Set(selectedTracks.map((track) => track.id)));
+  const selectedTrackIds = $derived(idSetOf(selectedTracks));
 
   let showMetadataEditor = $state(false);
   let showDeleteDialog = $state(false);
@@ -111,7 +112,7 @@
 
   function handleDragStart(event: DragEvent, row: PlayHistoryPlayRow) {
     // 選択中の行の上で始めた場合は選択中の行すべて、そうでなければその行だけの曲を運ぶ
-    const rowIds = new Set(selection.beginDrag(row.id));
+    const rowIds = setOf(selection.beginDrag(row.id));
     const trackIds = distinctTracks(playRows.filter((candidate) => rowIds.has(candidate.id))).map(
       (track) => track.id
     );

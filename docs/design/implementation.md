@@ -150,6 +150,9 @@ src-tauri/src/
 ### 共有する状態（Runesのモジュール）
 
 - コンポーネントをまたいで共有する状態は`src/lib/stores/*.svelte.ts`に、`$state`のフィールドを持つクラスのインスタンスとして置く（例: `ui.svelte.ts`の`ui`、`error.svelte.ts`の`notifications`、`equalizer.svelte.ts`の`equalizer`、`player.svelte.ts`の`player`）。ユーティリティに付随する状態は、そのユーティリティの`*.svelte.ts`に置く（例: `#lib/utils/dialog.svelte.ts`のテキスト入力の要求`textPrompt`）。`svelte/store`（`writable`など）は使わない（ESLintの`no-restricted-imports`で禁止）
+- 再生コントローラー（`playback.svelte.ts`）の補助で、状態を持たない関数のモジュール（`nowPlaying.ts`・`playTracker.ts`・`openedFiles.ts`）も`stores/`に置く（再生の状態・コマンドと一緒に読むため）。拡張子は`.ts`（`$state`を使わない）
+- コンポーネント（`.svelte`）の中では`Map`・`Set`を作らない（`$derived`の中で作り直す集まりは、`#lib/utils/collections`の`setOf`・`idSetOf`・`mapById`・`indexById`で作る。書き換える集まりは`svelte/reactivity`の`SvelteSet`・`SvelteMap`）
+- イベントの購読（`events.xxx.listen()`・`onFocusChanged()`）は、`#lib/utils/listen`の`stopListening`で解除する（購読に失敗していた場合に、未処理の拒否にしない）
 - 読み書きはプロパティを直接使う（例: `ui.isSidebarOpen = false`）。`$`接頭辞や`get()`は不要で、コンポーネント外の`.ts`からも同じように読める
 - 配列・オブジェクトを丸ごと置き換える状態は`$state.raw`にし、中身を書き換えず代入で更新する（例: `notifications.items`、`ui.columnWidths`）
 - localStorageに保存する状態は、privateな`$state`とgetter/setterで実装し、setterで保存する（例: `ui.isRightSidebarPinned`）。保存値はモジュールの読み込み時に読み、localStorageが使えない環境でも例外にしない

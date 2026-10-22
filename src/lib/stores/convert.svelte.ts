@@ -8,8 +8,13 @@ import type { ConvertOptions, ConvertProgress, ConvertResult, Track } from '#lib
 import { cancelConversion, convertTracks } from '#lib/queries/convert.js';
 import { handleError, showSuccess, showWarning } from '#lib/stores/error.svelte.js';
 import { m } from '#lib/i18n/i18n.svelte.js';
+import { stopListening } from '#lib/utils/listen.js';
 
-/** 結果を、通知に出す文にする */
+/**
+ * 結果を、通知に出す文にする
+ *
+ * @internal テストのためにexportしている（アプリでは、このモジュールの中だけで使う）
+ */
 export function conversionSummary(result: ConvertResult): string {
   const message = result.cancelled ? m.convert.cancelledResult : m.convert.result;
   return message(result.convertedCount, result.skippedCount, result.failedCount);
@@ -32,7 +37,7 @@ class ConversionState {
       if (this.isRunning) this.progress = event.payload;
     });
     return () => {
-      void unlisten.then((stop) => stop());
+      stopListening(unlisten);
     };
   }
 

@@ -8,6 +8,7 @@
     曲の並べ替え・削除はできず、条件を編集する（ADR-042）
 -->
 <script lang="ts">
+  import { mapById, setOf } from '#lib/utils/collections.js';
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
@@ -60,9 +61,7 @@
   const tracksQuery = $derived(
     selectedPlaylistId === null ? null : usePlaylistTracksQuery(selectedPlaylistId, isSmart)
   );
-  const trackById = $derived(
-    new Map((tracksQuery?.data ?? []).map((track: Track) => [track.id, track]))
-  );
+  const trackById = $derived(mapById<Track>(tracksQuery?.data ?? []));
 
   // プレイリストのトラック（プレイリストの順）
   // 並びはプレイリストの一覧から取る（曲の削除を、曲の情報の取り直しを待たずに反映する）。
@@ -119,7 +118,7 @@
     if (!selectedPlaylist) return;
 
     // 一覧に出ていない曲（情報をまだ取得していない曲）の位置は変えず、出ている曲だけを入れ替える
-    const visible = new Set(trackIds);
+    const visible = setOf(trackIds);
     const reordered = trackIds[Symbol.iterator]();
     const newOrder = selectedPlaylist.tracks.map((pt) =>
       visible.has(pt.trackId) ? (reordered.next().value as string) : pt.trackId
@@ -353,7 +352,7 @@
 
   .playlist-icon {
     @apply w-20 h-20 shrink-0 flex items-center justify-center rounded-lg;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-accent-focus) 100%);
   }
 
   /* 自動プレイリストは、色を変えて見分ける */

@@ -14,9 +14,9 @@ import {
 import { commands } from '#lib/bindings.js';
 import { refreshAlbumArt } from '#lib/stores/albumArt.svelte.js';
 import { m } from '#lib/i18n/i18n.svelte.js';
-import { queryKeys } from './keys';
-import { withErrorToast } from './shared';
-import { invalidateTrackListQueries } from './tracks';
+import { queryKeys } from './keys.js';
+import { withErrorToast } from './shared.js';
+import { invalidateTrackListQueries } from './tracks.js';
 
 /**
  * 曲のアルバムアートの情報（埋め込みの画像か、フォルダの画像か・種類・大きさ）を取得するクエリ

@@ -13,7 +13,7 @@ import type { Metadata } from '#lib/types/models.js';
 import { m } from '#lib/i18n/i18n.svelte.js';
 
 /** 文字列の項目 */
-export const TEXT_FIELDS = [
+const TEXT_FIELDS = [
   'title',
   'artist',
   'album',
@@ -32,7 +32,7 @@ export const TEXT_FIELDS = [
 export type TextField = (typeof TEXT_FIELDS)[number];
 
 /** 数値の項目（入力欄の値は文字列で持つ。空は値なし） */
-export const NUMBER_FIELDS = [
+const NUMBER_FIELDS = [
   'year',
   'trackNumber',
   'trackTotal',

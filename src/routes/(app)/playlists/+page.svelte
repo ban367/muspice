@@ -150,7 +150,7 @@
 
   .playlist-icon {
     @apply w-14 h-14 flex items-center justify-center rounded-md;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-accent-focus) 100%);
   }
 
   /* 自動プレイリストは、色を変えて見分ける */

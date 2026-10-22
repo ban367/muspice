@@ -16,9 +16,9 @@ import type {
   TrackMetadataChange
 } from '#lib/types/models.js';
 import { handleError, showSuccess, showWarning } from '#lib/stores/error.svelte.js';
-import { queryKeys } from './keys';
-import { CACHE_POLICY, withErrorToast } from './shared';
-import { patchTrackInCache, patchTracksInCache } from './trackCache';
+import { queryKeys } from './keys.js';
+import { CACHE_POLICY, withErrorToast } from './shared.js';
+import { patchTrackInCache, patchTracksInCache } from './trackCache.js';
 import { sortByName, sortTracksByArtistAndAlbum } from '#lib/utils/nameSort.js';
 import { m } from '#lib/i18n/i18n.svelte.js';
 
@@ -47,7 +47,7 @@ export function invalidateTrackListQueries(queryClient: QueryClient) {
  *
  * トラックを削除するとプレイリストの中からも消えるため、プレイリストも無効化する。
  */
-export function invalidateAllTrackQueries(queryClient: QueryClient) {
+function invalidateAllTrackQueries(queryClient: QueryClient) {
   invalidateTrackListQueries(queryClient);
   queryClient.invalidateQueries({ queryKey: queryKeys.playlists });
 }
@@ -76,12 +76,22 @@ export function invalidateLibraryQueries(queryClient: QueryClient) {
  */
 export function useTracksQuery() {
   return createQuery(() => ({
-    queryKey: queryKeys.tracks.list,
-    queryFn: () => withErrorToast(m.operations.fetchTracks, () => commands.getAllTracks()),
-    ...CACHE_POLICY.library,
+    ...tracksQueryOptions(),
     refetchOnWindowFocus: false, // ウィンドウフォーカス時の自動再取得を無効化
     refetchOnMount: false // マウント時の自動再取得を無効化（キャッシュがあれば使用）
   }));
+}
+
+/**
+ * 全曲の一覧のクエリの定義（`useTracksQuery`と、コンポーネントの外で取得する所（Auto DJの
+ * `fetchQuery`）で、同じキャッシュを使う）
+ */
+export function tracksQueryOptions() {
+  return {
+    queryKey: queryKeys.tracks.list,
+    queryFn: () => withErrorToast(m.operations.fetchTracks, () => commands.getAllTracks()),
+    ...CACHE_POLICY.library
+  };
 }
 
 /**

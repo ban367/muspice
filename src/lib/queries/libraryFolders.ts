@@ -9,8 +9,8 @@
 
 import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
 import { commands } from '#lib/bindings.js';
-import { queryKeys } from './keys';
-import { withErrorToast } from './shared';
+import { queryKeys } from './keys.js';
+import { withErrorToast } from './shared.js';
 import { m } from '#lib/i18n/i18n.svelte.js';
 
 /**

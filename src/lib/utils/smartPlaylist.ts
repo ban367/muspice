@@ -93,7 +93,7 @@ export const ORDER_FIELDS: readonly SmartOrderField[] = [
 /** 条件の数の上限（Rustの`MAX_RULES`と同じ） */
 export const MAX_RULES = 50;
 /** 曲数の上限として指定できる最大の値（Rustの`MAX_LIMIT`と同じ） */
-export const MAX_LIMIT = 100_000;
+const MAX_LIMIT = 100_000;
 const MAX_NUMBER = 1_000_000;
 const MAX_DAYS = 36_500;
 const MAX_TEXT_LENGTH = 255;
@@ -172,7 +172,11 @@ function numberText(field: NumberField, value: number): string {
   return RULE_FIELDS[field].input === 'minutes' ? toMinutesText(value) : String(value);
 }
 
-/** 保存してある条件を、編集画面の条件にする */
+/**
+ * 保存してある条件を、編集画面の条件にする
+ *
+ * @internal テストのためにexportしている（アプリでは、このモジュールの中だけで使う）
+ */
 export function toRuleDrafts(rules: readonly SmartRule[]): RuleDraft[] {
   return rules.map((rule, key): RuleDraft => {
     switch (rule.kind) {

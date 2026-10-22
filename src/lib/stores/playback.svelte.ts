@@ -54,6 +54,7 @@ import {
 } from './player.svelte.js';
 import type { Track } from '#lib/types/models.js';
 import { m } from '#lib/i18n/i18n.svelte.js';
+import { stopListening } from '#lib/utils/listen.js';
 
 /** シークバーをドラッグしている間に、エンジンへシークを送る間隔（ms） */
 const SCRUB_SEEK_INTERVAL_MS = 80;
@@ -660,7 +661,7 @@ export function createPlaybackController(
       if (fadeTimer !== null) clearInterval(fadeTimer);
       fadeTimer = null;
       playbackAids.reset();
-      void listening.then((unlisten) => unlisten()).catch(() => {});
+      stopListening(listening);
       currentToken = null;
       tracker.reset();
       send(() => commands.playbackStop(), '再生の停止');

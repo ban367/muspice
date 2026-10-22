@@ -52,6 +52,7 @@ export type BuiltinPresetName =
 // プリセット名（ビルトイン + カスタム）
 export type PresetName = BuiltinPresetName | string;
 
+/** @internal テストのためにexportしている（アプリでは、このモジュールの中だけで使う） */
 export const BUILTIN_PRESETS: Record<BuiltinPresetName, EQBands> = {
   flat: { ...DEFAULT_BANDS },
   bass_boost: {
@@ -165,17 +166,64 @@ const DEFAULT_SETTINGS: EqualizerSettings = {
   customPresets: []
 };
 
-// localStorageから設定を読み込み
+/** 保存してあったバンドのゲイン（数でない値は0（フラット）、範囲の外の値は範囲の端にする） */
+function readBands(value: unknown): EQBands {
+  const stored =
+    typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
+  return Object.fromEntries(
+    EQ_FREQUENCIES.map((frequency) => {
+      const gain = stored[frequency];
+      return [
+        frequency,
+        typeof gain === 'number' && Number.isFinite(gain)
+          ? Math.max(MIN_GAIN, Math.min(MAX_GAIN, gain))
+          : DEFAULT_BANDS[frequency]
+      ];
+    })
+  ) as EQBands;
+}
+
+/** 保存してあったカスタムプリセット（名前のないものは除く。ゲインは`readBands`で補う） */
+function readCustomPresets(value: unknown): CustomPreset[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((preset: unknown) => {
+    const { name, bands } = (typeof preset === 'object' && preset !== null ? preset : {}) as {
+      name?: unknown;
+      bands?: unknown;
+    };
+    return typeof name === 'string' && name.trim() !== ''
+      ? [{ name, bands: readBands(bands) }]
+      : [];
+  });
+}
+
+/**
+ * localStorageから設定を読み込む
+ *
+ * 値ごとに形を確かめ、読めない値は既定値で補う（壊れた値を、そのまま再生エンジンへ送らない）。
+ * 選んでいたプリセットが、ビルトインにもカスタムにもなければ、選択なし（カスタムの状態）にする。
+ */
 function loadSettings(): EqualizerSettings {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
-      const parsed = JSON.parse(stored) as Partial<EqualizerSettings>;
+      const parsed: unknown = JSON.parse(stored);
+      const settings = (typeof parsed === 'object' && parsed !== null ? parsed : {}) as Record<
+        string,
+        unknown
+      >;
+      const customPresets = readCustomPresets(settings.customPresets);
+      const preset = settings.currentPreset;
+      const isKnownPreset =
+        typeof preset === 'string' &&
+        (isBuiltinPreset(preset) || customPresets.some((custom) => custom.name === preset));
       return {
-        enabled: parsed.enabled ?? DEFAULT_SETTINGS.enabled,
-        bands: parsed.bands ?? { ...DEFAULT_BANDS },
-        currentPreset: parsed.currentPreset ?? DEFAULT_SETTINGS.currentPreset,
-        customPresets: parsed.customPresets ?? []
+        enabled:
+          typeof settings.enabled === 'boolean' ? settings.enabled : DEFAULT_SETTINGS.enabled,
+        bands: 'bands' in settings ? readBands(settings.bands) : { ...DEFAULT_BANDS },
+        currentPreset:
+          preset === undefined ? DEFAULT_SETTINGS.currentPreset : isKnownPreset ? preset : null,
+        customPresets
       };
     }
   } catch (error) {

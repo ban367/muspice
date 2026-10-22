@@ -30,6 +30,8 @@
 </div>
 
 <style>
+  @reference "../../app.css";
+
   .redirect-page {
     display: flex;
     align-items: center;

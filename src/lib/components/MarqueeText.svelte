@@ -83,7 +83,6 @@
   :global(.grid-card:hover) .marquee-text.overflowing,
   :global(.track-card:hover) .marquee-text.overflowing,
   :global(.list-row:hover) .marquee-text.overflowing,
-  :global(.artist-card:hover) .marquee-text.overflowing,
   :global(.queue-track:hover) .marquee-text.overflowing,
   :global(.nav-item-base:hover) .marquee-text.overflowing {
     animation: marquee-scroll 4s ease-in-out infinite;
