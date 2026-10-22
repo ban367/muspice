@@ -345,6 +345,10 @@ impl ConvertJob<'_> {
                         else {
                             break;
                         };
+                        // 置き換えでは、変換の間に同じ曲のタグを書き換える処理と重ねない
+                        // （元のファイルから読んだタグを、変換したファイルへ写すため）
+                        let _file = (self.options.mode == ConvertMode::Replace)
+                            .then(|| self.state.lock_track_file(&planned.track_id));
                         let outcome = self.convert(planned);
                         // 守るのは集計だけのため、途中でパニックしたスレッドがあっても続ける
                         let mut result = result.lock().unwrap_or_else(|p| p.into_inner());
