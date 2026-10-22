@@ -211,6 +211,8 @@
                 class:active={isGenreExpanded}
                 onclick={toggleGenreExpand}
                 title={m.sidebar.expandGenres}
+                aria-label={m.sidebar.expandGenres}
+                aria-expanded={isGenreExpanded}
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -491,6 +493,8 @@
                 class="device-status"
                 class:connected={device.connected}
                 title={device.connected ? m.devices.connected : m.devices.disconnected}
+                role="img"
+                aria-label={device.connected ? m.devices.connected : m.devices.disconnected}
               ></span>
             </a>
           </li>

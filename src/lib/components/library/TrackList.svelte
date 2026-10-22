@@ -528,11 +528,18 @@
                   ondragend={handleColumnDragEnd}
                   data-column={column}
                 >
+                  <!-- 見出しは一覧（listbox）の中にあり、表の見出しの`aria-sort`を使えないため、
+                       並べ替えている向きは名前に含める -->
                   <button
                     class="sortable"
                     onclick={() => toggleSort(column)}
                     title={trackColumnLabel(column)}
-                    aria-label={trackColumnLabel(column)}
+                    aria-label={sort?.field === column
+                      ? m.trackList.sortedColumn(
+                          trackColumnLabel(column),
+                          sort.direction === 'desc'
+                        )
+                      : trackColumnLabel(column)}
                   >
                     <span class="truncate">
                       {column === 'favorite' ? '♥' : trackColumnLabel(column)}

@@ -193,7 +193,12 @@
       <button class="save-btn" onclick={savePreset} disabled={!newPresetName.trim()}
         >{m.common.save}</button
       >
-      <button class="cancel-btn" onclick={() => (showSaveDialog = false)}>×</button>
+      <button
+        class="cancel-btn"
+        onclick={() => (showSaveDialog = false)}
+        title={m.common.cancel}
+        aria-label={m.common.cancel}>×</button
+      >
     </div>
   {/if}
 

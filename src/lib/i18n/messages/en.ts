@@ -223,7 +223,9 @@ export const en: Messages = {
   trackList: {
     columns: 'Columns',
     resetSort: 'Reset Sort Order',
-    resetColumns: 'Reset Columns and Sort Order'
+    resetColumns: 'Reset Columns and Sort Order',
+    sortedColumn: (column, descending) =>
+      `${column} (sorted ${descending ? 'descending' : 'ascending'})`
   },
 
   player: {
@@ -245,6 +247,8 @@ export const en: Messages = {
     seek: 'Playback position',
     muteTitle: 'Mute (M)',
     mute: 'Mute',
+    unmuteTitle: 'Unmute (M)',
+    unmute: 'Unmute',
     volume: 'Volume'
   },
 
