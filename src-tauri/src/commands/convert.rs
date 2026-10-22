@@ -492,6 +492,9 @@ impl ConvertJob<'_> {
             restore(&trashed);
             return Err(e);
         }
+        // 置いたファイルは、曲の場所として記録した。ライブラリフォルダの監視が、この置き換えで
+        // 再スキャンしないように（元のファイルは、ゴミ箱へ移した時に記録してある。`own_writes`）
+        crate::own_writes::record(&planned.output);
         Ok(())
     }
 }

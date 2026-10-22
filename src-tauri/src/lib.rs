@@ -29,6 +29,7 @@ mod multi_value;
 mod music_folder_copy;
 mod ogg_flac;
 mod opened_files;
+mod own_writes;
 mod playback;
 mod playback_state;
 mod playlist;

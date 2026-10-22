@@ -242,6 +242,10 @@ fn write_atomically(file_path: &Path, write: impl FnOnce(&Path) -> AppResult<()>
     if result.is_err() {
         // 写しは消す（元のファイルは、そのまま）
         let _ = fs::remove_file(&temp);
+    } else {
+        // ライブラリフォルダの監視が、この書き込みで再スキャンしないように（`own_writes`）
+        crate::own_writes::record(&target);
+        crate::own_writes::record(file_path);
     }
     result
 }

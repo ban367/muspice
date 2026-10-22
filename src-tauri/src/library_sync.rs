@@ -309,8 +309,33 @@ fn is_change_in(folder: &FolderRecord, exclusions: &ScanExclusions, path: &Path)
     path.starts_with(root) && !exclusions.skips(root, path)
 }
 
+/// 通知を受けたパスから、アプリ自身が書いた変更（`own_writes`）を除く
+///
+/// アプリが書いた変更は、DBにも記録してあり、再スキャンしても変わらない（ラウドネスの解析・タグの
+/// 一括ツールのように続けて書く間、フォルダ全体の走査を繰り返さない）。
+fn external_changes(paths: &[PathBuf]) -> Vec<&PathBuf> {
+    let external: Vec<&PathBuf> = paths
+        .iter()
+        .filter(|path| !crate::own_writes::is_own_change(path))
+        .collect();
+    if external.len() < paths.len() {
+        log::debug!(
+            "アプリが書いた変更の通知を無視しました（{}件）",
+            paths.len() - external.len()
+        );
+    }
+    external
+}
+
 /// 変更の通知を受けたパスのうち、ライブラリに影響しうるものがあるフォルダを再スキャンする
+///
+/// 再スキャンは、変更のあったパスの下だけでなく、フォルダ全体を対象にする（移動・改名されたファイルを、
+/// 見つからない曲と対応付けるため。移動元と移動先の通知が別々にまとまることがある）。
 fn rescan_changed_folders(app: &AppHandle, paths: &[PathBuf], ignored: &[PathBuf]) {
+    let paths = external_changes(paths);
+    if paths.is_empty() {
+        return;
+    }
     // なくなったパスの判定（DBへの問い合わせ）は、読み飛ばす場所の外のものだけにする
     let has_tracks_under = |path: &Path| has_tracks_under(app, path);
     rescan_folders(app, "変更の通知", |folder, exclusions| {
@@ -418,6 +443,24 @@ mod tests {
         assert!(!change_in("/music/GarageBand/Song.band/Media/b.aif"));
         assert!(!change_in("/music/Artist/.DS_Store"));
         assert!(!change_in("/music/Artist/._01.mp3"));
+    }
+
+    /// アプリが書いた変更の通知は除き、ほかのアプリの変更は残す
+    #[test]
+    fn test_own_writes_are_not_rescanned() {
+        let dir = crate::device_manifest::test_support::TempDir::new();
+        let tagged = dir.path().join("tagged.mp3");
+        let external = dir.path().join("external.mp3");
+        std::fs::write(&tagged, "tags written by the app").unwrap();
+        std::fs::write(&external, "added by another app").unwrap();
+        crate::own_writes::record(&tagged);
+
+        let paths = vec![tagged.clone(), external.clone()];
+        assert_eq!(external_changes(&paths), vec![&external]);
+
+        // アプリが書いた後に、ほかのアプリが書き換えた場合は、再スキャンする
+        std::fs::write(&tagged, "edited again by another app").unwrap();
+        assert_eq!(external_changes(&paths), vec![&tagged, &external]);
     }
 
     #[test]
