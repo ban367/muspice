@@ -10,9 +10,10 @@ use lofty::picture::{MimeType, Picture, PictureInformation, PictureType};
 use lofty::probe::Probe;
 use lofty::tag::items::popularimeter::{Popularimeter, StarRating};
 use lofty::tag::{Accessor, ItemKey, ItemValue, Tag, TagExt, TagItem, TagType};
-use std::fs::File;
+use std::ffi::OsString;
+use std::fs::{self, File};
 use std::io::BufReader;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// アプリが扱う年の有効範囲
 const YEAR_RANGE: std::ops::RangeInclusive<i32> = 1000..=9999;
@@ -83,25 +84,85 @@ fn read_tagged_file(file_path: &Path, options: ParseOptions) -> AppResult<Tagged
 /// 置き換える（対応する項目がないものが、ファイルから消える）。この2つは、アプリが扱わない項目を
 /// 残して書き込む（`vorbis_tag::save_tag`・`ape_tag::save_tag`）。ID3v2・MP4は、loftyが
 /// 対応のない項目を残すため、そのまま保存する。
+///
+/// 書き込みは、元のファイルの写しに行ってから置き換える（`write_atomically`。ADR-074）。
 fn save_tagged_file(tagged_file: &TaggedFile, file_path: &Path) -> AppResult<()> {
     let file_type = tagged_file.file_type();
-    tagged_file
-        .tags()
-        .iter()
-        .try_for_each(|tag| match tag.tag_type() {
-            TagType::Ape if ape_tag::uses_ape_tag(file_type) => {
-                ape_tag::save_tag(file_path, file_type, tag)
-            }
-            TagType::VorbisComments if vorbis_tag::uses_vorbis_comments(file_type) => {
-                vorbis_tag::save_tag(file_path, file_type, tag)
-            }
-            // 読めるだけで書けない種類のタグ（FLACのID3v2など）は、そのままにする
-            tag_type if tagged_file.tag_support(tag_type).is_writable() => {
-                tag.save_to_path(file_path, WriteOptions::default())
-            }
-            _ => Ok(()),
+    write_atomically(file_path, |temp| {
+        tagged_file
+            .tags()
+            .iter()
+            .try_for_each(|tag| match tag.tag_type() {
+                TagType::Ape if ape_tag::uses_ape_tag(file_type) => {
+                    ape_tag::save_tag(temp, file_type, tag)
+                }
+                TagType::VorbisComments if vorbis_tag::uses_vorbis_comments(file_type) => {
+                    vorbis_tag::save_tag(temp, file_type, tag)
+                }
+                // 読めるだけで書けない種類のタグ（FLACのID3v2など）は、そのままにする
+                tag_type if tagged_file.tag_support(tag_type).is_writable() => {
+                    tag.save_to_path(temp, WriteOptions::default())
+                }
+                _ => Ok(()),
+            })
+            .map_err(|e| AppError::Metadata(format!("メタデータの保存に失敗しました: {}", e)))
+    })
+}
+
+/// 音楽ファイルを書き換える処理を、同じフォルダの写しで行い、終わってから元のファイルと置き換える
+///
+/// タグを書く処理（loftyと、Ogg FLACの自前の処理）は、ファイルを切り詰めてから全体を書き戻す。
+/// 元のファイルへ直接書くと、書いている途中でアプリが落ちる・ディスクが一杯になった時に、利用者の
+/// 音楽ファイルが壊れたまま残る。そのため、元のファイルを写した一時ファイルへ書き、ディスクへ
+/// 書き出してから、`rename`で置き換える（同じフォルダのため、置き換えは一度に行われる）。
+/// 途中で失敗した場合は一時ファイルを消し、元のファイルはそのまま残る（ADR-074）。
+///
+/// - 一時ファイルは、名前を`.`で始める（ライブラリの走査・フォルダの監視が読み飛ばす）。拡張子は
+///   元のまま（形式を拡張子で決める処理があるため）
+/// - 写すのは`fs::copy`（macOSのAPFSではクローンになり、大きなファイルでもすぐに終わる。権限・
+///   拡張属性も写すため、置き換えた後も元のファイルと同じ）
+/// - シンボリックリンクは、リンクの先のファイルを置き換える（リンクは残す）
+/// - ハードリンクは、置き換えたパスだけが新しい内容になる
+fn write_atomically(file_path: &Path, write: impl FnOnce(&Path) -> AppResult<()>) -> AppResult<()> {
+    let target = fs::canonicalize(file_path)
+        .map_err(|e| AppError::Io(format!("ファイルを開けません: {}", e)))?;
+    let temp = temp_path_for(&target);
+    let result = fs::copy(&target, &temp)
+        .map_err(|e| {
+            AppError::Io(format!(
+                "タグを書き込む前に、ファイルを写せません（空き容量・フォルダへの書き込みの権限を確かめてください）: {}",
+                e
+            ))
         })
-        .map_err(|e| AppError::Metadata(format!("メタデータの保存に失敗しました: {}", e)))
+        .and_then(|_| write(&temp))
+        .and_then(|()| {
+            // 置き換える前に、ディスクへ書き出す（電源が落ちても、置き換えた後のファイルが欠けない）
+            File::open(&temp)
+                .and_then(|file| file.sync_all())
+                .map_err(|e| AppError::Io(format!("書き込んだファイルを保存できません: {}", e)))
+        })
+        .and_then(|()| {
+            fs::rename(&temp, &target).map_err(|e| {
+                AppError::Io(format!("書き込んだファイルで置き換えられません: {}", e))
+            })
+        });
+    if result.is_err() {
+        // 写しは消す（元のファイルは、そのまま）
+        let _ = fs::remove_file(&temp);
+    }
+    result
+}
+
+/// 書き換える時の一時ファイル（同じフォルダの、`.`で始まる名前。拡張子は元のまま）
+fn temp_path_for(path: &Path) -> PathBuf {
+    let mut name = OsString::from(".");
+    name.push(path.file_stem().unwrap_or_default());
+    name.push(format!(".muspice-{}", uuid::Uuid::new_v4().simple()));
+    if let Some(extension) = path.extension() {
+        name.push(".");
+        name.push(extension);
+    }
+    path.with_file_name(name)
 }
 
 /// 列を追加する前に登録したトラックについて、後からファイルのタグを読む項目
@@ -2120,6 +2181,99 @@ mod tests {
         assert_eq!(after.metadata.artist.as_deref(), Some("Info Artist"));
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// フォルダの中のファイルの名前（並べ替えたもの）
+    fn file_names(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    /// タグは写しに書いてから置き換え、一時ファイルを残さない
+    #[test]
+    fn test_tags_are_written_to_a_copy_and_then_replace_the_file() {
+        let dir = std::env::temp_dir().join(format!("muspice-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.wav");
+        write_test_wav(&file);
+        #[cfg(unix)]
+        let before = std::os::unix::fs::MetadataExt::ino(&std::fs::metadata(&file).unwrap());
+
+        update_file_rating(&file, 3).unwrap();
+
+        assert_eq!(extract_all_file_info(&file).unwrap().rating, 3);
+        assert_eq!(file_names(&dir), ["a.wav"]);
+        // 元のファイルへ直接は書かず、書き込んだ写しで置き換えている
+        #[cfg(unix)]
+        assert_ne!(
+            std::os::unix::fs::MetadataExt::ino(&std::fs::metadata(&file).unwrap()),
+            before
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 書いている途中で失敗しても、元のファイルはそのまま残り、写しも残らない
+    #[test]
+    fn test_failed_write_leaves_the_original_file_and_no_copy() {
+        let dir = std::env::temp_dir().join(format!("muspice-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.wav");
+        write_test_wav(&file);
+        let original = std::fs::read(&file).unwrap();
+
+        let result = write_atomically(&file, |temp| {
+            // 書きかけの状態（切り詰めた後）で失敗する
+            std::fs::write(temp, b"partial").unwrap();
+            Err(AppError::Metadata("書き込みに失敗".to_string()))
+        });
+
+        assert!(matches!(result, Err(AppError::Metadata(_))));
+        assert_eq!(std::fs::read(&file).unwrap(), original);
+        assert_eq!(file_names(&dir), ["a.wav"]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// シンボリックリンクで登録した曲は、リンクの先のファイルを書き換え、リンクは残す
+    #[cfg(unix)]
+    #[test]
+    fn test_writing_through_a_symlink_keeps_the_link() {
+        let dir = std::env::temp_dir().join(format!("muspice-test-{}", uuid::Uuid::new_v4()));
+        let real = dir.join("real");
+        let links = dir.join("links");
+        std::fs::create_dir_all(&real).unwrap();
+        std::fs::create_dir_all(&links).unwrap();
+        let file = real.join("a.wav");
+        write_test_wav(&file);
+        let link = links.join("a.wav");
+        std::os::unix::fs::symlink(&file, &link).unwrap();
+
+        update_file_rating(&link, 4).unwrap();
+
+        assert!(
+            std::fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(extract_all_file_info(&file).unwrap().rating, 4);
+        assert_eq!(file_names(&real), ["a.wav"]);
+        assert_eq!(file_names(&links), ["a.wav"]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 書き換える時の一時ファイルは、同じフォルダの隠しファイルで、拡張子は元のまま
+    #[test]
+    fn test_temporary_copy_is_hidden_next_to_the_file() {
+        let temp = temp_path_for(Path::new("/music/Album/01 Song.flac"));
+        assert_eq!(temp.parent(), Some(Path::new("/music/Album")));
+        let name = temp.file_name().unwrap().to_str().unwrap();
+        assert!(name.starts_with(".01 Song.muspice-"), "{name}");
+        assert_eq!(temp.extension().and_then(|e| e.to_str()), Some("flac"));
+        assert!(crate::library::is_always_skipped(temp.file_name().unwrap()));
     }
 
     /// 拡張子と中身が違うファイルも、中身から形式を判定して読み書きできる
