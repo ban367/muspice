@@ -14,6 +14,8 @@
   import FavoriteButton from './FavoriteButton.svelte';
   import MarqueeText from '../MarqueeText.svelte';
   import AlbumArt from '../AlbumArt.svelte';
+  import ContextMenu from '../ContextMenu.svelte';
+  import GroupContextMenu from '../GroupContextMenu.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   // Props
@@ -95,6 +97,29 @@
     playTrackFromQueue(tracks, index);
   }
 
+  // ---- メニュー（行の右クリック・「その他」のボタン） ----
+
+  /** 開いている曲のメニュー */
+  let trackMenu = $state<{ x: number; y: number; track: Track } | null>(null);
+  /** アルバムのメニューを開いている位置 */
+  let albumMenu = $state<{ x: number; y: number } | null>(null);
+
+  /** メニューを開く位置（右クリックはその位置、ボタンはボタンの下） */
+  function menuPosition(event: MouseEvent): { x: number; y: number } {
+    if (event.type === 'contextmenu') return { x: event.clientX, y: event.clientY };
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    return { x: rect.left, y: rect.bottom + 4 };
+  }
+
+  /** 曲のメニューを開く（選択中の曲の上なら、選択中の曲すべてが対象） */
+  function openTrackMenu(event: MouseEvent, track: Track) {
+    event.preventDefault();
+    // 行のクリック（選択の変更）にしない
+    event.stopPropagation();
+    selection.ensureSelected(track.id);
+    trackMenu = { ...menuPosition(event), track };
+  }
+
   // グループ内のトラックインデックスを取得（全体のインデックス用）
   function getGlobalTrackIndex(discIndex: number, trackIndexInDisc: number): number {
     let index = 0;
@@ -151,7 +176,13 @@
           </svg>
           {m.common.shuffle}
         </button>
-        <button class="action-btn icon-only" title={m.common.more}>
+        <button
+          class="action-btn icon-only"
+          title={m.common.more}
+          aria-label={m.common.more}
+          aria-haspopup="menu"
+          onclick={(event) => (albumMenu = menuPosition(event))}
+        >
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
             <circle cx="12" cy="5" r="2" />
             <circle cx="12" cy="12" r="2" />
@@ -189,6 +220,7 @@
           draggable="true"
           ondragstart={(e) => handleDragStart(e, track.id)}
           onclick={(e) => handleTrackClick(track.id, e)}
+          oncontextmenu={(e) => openTrackMenu(e, track)}
           ondblclick={() =>
             handleTrackDoubleClick(getGlobalTrackIndex(discIndex, trackIndexInDisc))}
           role="option"
@@ -217,7 +249,14 @@
             />
           </div>
           <span class="track-duration">{formatDuration(track.duration)}</span>
-          <button class="track-action-btn" title={m.common.more}>
+          <button
+            class="track-action-btn"
+            title={m.common.more}
+            aria-label={m.common.more}
+            aria-haspopup="menu"
+            onclick={(e) => openTrackMenu(e, track)}
+            ondblclick={(e) => e.stopPropagation()}
+          >
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
               <circle cx="12" cy="5" r="2" />
               <circle cx="12" cy="12" r="2" />
@@ -229,6 +268,27 @@
     {/each}
   </div>
 </div>
+
+{#if trackMenu}
+  <ContextMenu
+    x={trackMenu.x}
+    y={trackMenu.y}
+    track={trackMenu.track}
+    {tracks}
+    selectedTrackIds={selection.ids}
+    onClose={() => (trackMenu = null)}
+  />
+{/if}
+
+{#if albumMenu}
+  <GroupContextMenu
+    x={albumMenu.x}
+    y={albumMenu.y}
+    group={album}
+    type="album"
+    onClose={() => (albumMenu = null)}
+  />
+{/if}
 
 <style>
   @reference "../../../app.css";
@@ -362,7 +422,8 @@
     @apply flex flex-col gap-0.5 min-w-0;
   }
 
-  :global(.track-title) {
+  /* 曲名（`MarqueeText`に渡したクラス）。ほかの部品の同じ名前のクラスに当たらないよう、行の中に限る */
+  .track-row :global(.track-title) {
     @apply text-[0.9375rem] text-text-primary;
   }
 
@@ -382,7 +443,8 @@
     @apply w-6 h-6 flex items-center justify-center border-none bg-transparent rounded-full cursor-pointer text-text-muted opacity-0 transition-all duration-150;
   }
 
-  .track-row:hover .track-action-btn {
+  .track-row:hover .track-action-btn,
+  .track-action-btn:focus-visible {
     @apply opacity-100;
   }
 

@@ -278,7 +278,7 @@
   <MenuSeparator />
 
   {#if onEditMetadata}
-    <MenuItem onSelect={handleEditMetadata} shortcut="Ctrl+I">
+    <MenuItem onSelect={handleEditMetadata}>
       {#snippet icon()}
         <svg
           xmlns="http://www.w3.org/2000/svg"

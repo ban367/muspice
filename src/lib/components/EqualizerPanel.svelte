@@ -200,7 +200,20 @@
   <!-- 選択中のカスタムプリセット名と削除ボタン -->
   {#if equalizer.currentPreset && !isBuiltinPreset(equalizer.currentPreset)}
     <div class="custom-preset-info">
-      <span class="preset-name">📁 {equalizer.currentPreset}</span>
+      <span class="preset-name">
+        <svg
+          class="preset-icon"
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          aria-hidden="true"
+        >
+          <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+        </svg>
+        {equalizer.currentPreset}
+      </span>
       <button
         class="delete-preset-btn"
         onclick={() => deletePreset(equalizer.currentPreset!)}
@@ -289,8 +302,9 @@
     @apply p-0 bg-transparent border-none cursor-pointer;
   }
 
+  /* オフの間は、テーマの文字の色のつまみを、少し濃い面に置く（白のつまみは、ライトテーマで見えない） */
   .toggle-track {
-    @apply relative block w-10 h-5 rounded-full bg-surface-active transition-colors duration-200;
+    @apply relative block w-10 h-5 rounded-full bg-surface-strong transition-colors duration-200;
   }
 
   .eq-toggle.active .toggle-track {
@@ -298,11 +312,12 @@
   }
 
   .toggle-thumb {
-    @apply absolute left-0.5 top-0.5 w-4 h-4 rounded-full bg-white transition-transform duration-200;
+    @apply absolute left-0.5 top-0.5 w-4 h-4 rounded-full bg-text-primary transition-transform duration-200;
   }
 
+  /* オンの間は、色の付いた面の上の白（どちらのテーマでも同じ） */
   .eq-toggle.active .toggle-thumb {
-    @apply translate-x-5;
+    @apply translate-x-5 bg-white;
   }
 
   /* コントロールエリア */
@@ -375,7 +390,11 @@
   }
 
   .preset-name {
-    @apply text-text-primary truncate;
+    @apply flex items-center gap-1 min-w-0 text-text-primary truncate;
+  }
+
+  .preset-icon {
+    @apply w-3.5 h-3.5 shrink-0 text-text-muted;
   }
 
   .delete-preset-btn {

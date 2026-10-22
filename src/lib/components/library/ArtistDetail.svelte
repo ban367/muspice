@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import type { ArtistSummary, AlbumGroup } from '#lib/types/models.js';
+  import type { ArtistSummary, AlbumGroup, Track } from '#lib/types/models.js';
   import {
     flattenAlbumTracks,
     useArtistAlbumsQuery,
@@ -16,6 +16,8 @@
   import FavoriteButton from './FavoriteButton.svelte';
   import MarqueeText from '../MarqueeText.svelte';
   import AlbumArt from '../AlbumArt.svelte';
+  import ContextMenu from '../ContextMenu.svelte';
+  import GroupContextMenu from '../GroupContextMenu.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   // Props
@@ -98,6 +100,29 @@
       playTrackFromQueue(album.tracks, 0);
     }
   }
+
+  // ---- メニュー（行の右クリック・「その他」のボタン） ----
+
+  /** 開いている曲のメニュー */
+  let trackMenu = $state<{ x: number; y: number; track: Track } | null>(null);
+  /** 開いているアーティスト・アルバムのメニュー（`album`がnullなら、アーティスト） */
+  let groupMenu = $state<{ x: number; y: number; album: AlbumGroup | null } | null>(null);
+
+  /** メニューを開く位置（右クリックはその位置、ボタンはボタンの下） */
+  function menuPosition(event: MouseEvent): { x: number; y: number } {
+    if (event.type === 'contextmenu') return { x: event.clientX, y: event.clientY };
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    return { x: rect.left, y: rect.bottom + 4 };
+  }
+
+  /** 曲のメニューを開く（選択中の曲の上なら、選択中の曲すべてが対象） */
+  function openTrackMenu(event: MouseEvent, track: Track) {
+    event.preventDefault();
+    // 行のクリック（選択の変更）にしない
+    event.stopPropagation();
+    selection.ensureSelected(track.id);
+    trackMenu = { ...menuPosition(event), track };
+  }
 </script>
 
 <div class="artist-detail">
@@ -125,7 +150,13 @@
           <line x1="4" y1="4" x2="9" y2="9" />
         </svg>
       </button>
-      <button class="action-btn" title={m.common.more}>
+      <button
+        class="action-btn"
+        title={m.common.more}
+        aria-label={m.common.more}
+        aria-haspopup="menu"
+        onclick={(event) => (groupMenu = { ...menuPosition(event), album: null })}
+      >
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
           <circle cx="12" cy="5" r="2" />
           <circle cx="12" cy="12" r="2" />
@@ -163,8 +194,9 @@
               <span class="album-meta">{album.artist}</span>
             {/if}
             <span class="album-meta"
-              >{album.tracks[0]?.genre || m.common.unknownGenre} · {album.tracks[0]?.year ||
-                ''}</span
+              >{[album.tracks[0]?.genre || m.common.unknownGenre, album.tracks[0]?.year]
+                .filter(Boolean)
+                .join(' · ')}</span
             >
           </div>
           <div class="album-actions">
@@ -177,7 +209,13 @@
                 <path d="M8 5v14l11-7z" />
               </svg>
             </button>
-            <button class="album-action-btn" title={m.common.more}>
+            <button
+              class="album-action-btn"
+              title={m.common.more}
+              aria-label={m.common.more}
+              aria-haspopup="menu"
+              onclick={(event) => (groupMenu = { ...menuPosition(event), album })}
+            >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
                 <circle cx="12" cy="5" r="2" />
                 <circle cx="12" cy="12" r="2" />
@@ -201,6 +239,7 @@
               draggable="true"
               ondragstart={(e) => handleDragStart(e, track.id)}
               onclick={(e) => handleTrackClick(track.id, e)}
+              oncontextmenu={(e) => openTrackMenu(e, track)}
               ondblclick={() => handleTrackDoubleClick(album, index)}
               role="option"
               aria-selected={selection.has(track.id)}
@@ -229,7 +268,14 @@
                 />
               </div>
               <span class="track-duration">{formatDuration(track.duration)}</span>
-              <button class="track-action-btn" title={m.common.more}>
+              <button
+                class="track-action-btn"
+                title={m.common.more}
+                aria-label={m.common.more}
+                aria-haspopup="menu"
+                onclick={(e) => openTrackMenu(e, track)}
+                ondblclick={(e) => e.stopPropagation()}
+              >
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
                   <circle cx="12" cy="5" r="2" />
                   <circle cx="12" cy="12" r="2" />
@@ -243,6 +289,37 @@
     {/each}
   </div>
 </div>
+
+{#if trackMenu}
+  <ContextMenu
+    x={trackMenu.x}
+    y={trackMenu.y}
+    track={trackMenu.track}
+    tracks={displayTracks}
+    selectedTrackIds={selection.ids}
+    onClose={() => (trackMenu = null)}
+  />
+{/if}
+
+{#if groupMenu}
+  {#if groupMenu.album}
+    <GroupContextMenu
+      x={groupMenu.x}
+      y={groupMenu.y}
+      group={groupMenu.album}
+      type="album"
+      onClose={() => (groupMenu = null)}
+    />
+  {:else}
+    <GroupContextMenu
+      x={groupMenu.x}
+      y={groupMenu.y}
+      group={artist}
+      type="artist"
+      onClose={() => (groupMenu = null)}
+    />
+  {/if}
+{/if}
 
 <style>
   @reference "../../../app.css";
@@ -378,7 +455,8 @@
     @apply flex flex-col gap-0.5 min-w-0;
   }
 
-  :global(.track-title) {
+  /* 曲名（`MarqueeText`に渡したクラス）。ほかの部品の同じ名前のクラスに当たらないよう、行の中に限る */
+  .track-row :global(.track-title) {
     @apply text-sm text-text-primary;
   }
 
@@ -398,7 +476,8 @@
     @apply w-6 h-6 flex items-center justify-center border-none bg-transparent rounded-full cursor-pointer text-text-muted opacity-0 transition-all duration-150;
   }
 
-  .track-row:hover .track-action-btn {
+  .track-row:hover .track-action-btn,
+  .track-action-btn:focus-visible {
     @apply opacity-100;
   }
 

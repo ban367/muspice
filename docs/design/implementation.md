@@ -257,6 +257,7 @@ src-tauri/src/
   - 再生中の曲へのジャンプは、`ui.revealTrackId`に曲のIDを入れる。その曲を含む`TrackList`が、行までスクロールして選び、nullに戻す。開いている画面の一覧にない場合は、プレーヤーが全曲の一覧（`isRevealFallback`を付けた`TrackList`）へ移動する
 - 曲の一覧（`TrackList`（プレイリストの画面を含む）、アルバム・アーティストの詳細、右サイドバーの情報パネル）は、一覧ごとに`#lib/utils/trackSelection.svelte`の`TrackSelection`を作り、行のクリックを`click()`へ、一覧の`onkeydown`を`handleTrackListKeydown`へ渡す
   - 矢印キーで選択を移し、Shift+矢印で範囲選択、Cmd/Ctrl+Aですべて選択、Enterで再生する
+  - Shift+クリックの範囲は、Shift+矢印と同じ起点（最後に修飾キーなし・Cmd/Ctrlでクリックした行、または矢印で移した行）から選ぶ（`computeClickSelection`に`TrackSelection`の起点を渡す）
   - 一覧の要素を`role="listbox"`・`tabindex="0"`にしてフォーカスを受け、行は`role="option"`・`data-track-id`を付けてフォーカスを受けない（行をクリックすると一覧の要素にフォーカスが移り、行が消えてもキー操作を続けられる）
   - 表示する一覧が別のものに変わった時（別のアルバムを選んだ等）は`reset()`で選択を消す
   - 仮想スクロールの一覧では、移動先の行の要素がないことがあるため、`handleTrackListKeydown`の`scrollTo`に`VirtualList`の`scrollToIndex`を渡す（渡さない場合は、`data-track-id`の付いた行の要素を探してスクロールする）
@@ -307,6 +308,7 @@ src-tauri/src/
 - コンポーネントの`<style>`先頭に、対象ファイルから`src/app.css`への相対パスで`@reference`を記述する
 - 色は`app.css`の変数（`bg-base-*`・`text-text-*`・`bg-surface-*`・`border-border`など）を使い、テーマで変わるべき色に`white`・`black`・`rgba(255, 255, 255, …)`などを直接書かない（ライトテーマで読めなくなるため）。アクセントカラーを薄くする場合は`bg-primary/15`か`color-mix(in oklab, var(--color-primary) 15%, transparent)`。オーバーレイ（`bg-black/50`）・影・色付きの面の上の白い文字は、どちらのテーマでも同じでよい
 - 配色はテーマ（`<html data-theme="dark|light">`）ごとに`app.css`で定義する。ダークの色は`@theme static`の値で、ライトの色は「配色（ダーク / ライト）」の`:root[data-theme='light']`で上書きする。`static`は、ユーティリティで使っていない変数も出力させるための指定（Tailwindは、使っていない変数を出力しない。コンポーネントの`<style>`やスクリプトから`var(--color-…)`で読めるようにする）。色の変数を追加したら、`@theme`とライトの配色の両方に書く
+- 子のコンポーネントに渡したクラス（`MarqueeText`の`class="track-title"`など）へ`:global`で書く時は、`.queue-track :global(.track-title)`のように親の要素で限定する。`:global(.track-title)`だけにすると、同じ名前のクラスを使うほかのコンポーネントにも当たり、どちらが勝つかがCSSの読み込み順で変わる（常駐する右サイドバーのスタイルが、後から開いた画面のスタイルに上書きされる）
 - 見た目は、Tailwindのユーティリティと`app.css`の独自クラス（`btn-primary`・`form-input`など）で作る。部品のクラス集（DaisyUIなど）は入れない（クラス名がコンポーネントの中のクラス名と重なり、意図しないスタイルが当たるため。ADR-055）
 - 右サイドバーのパネルの幅は、`app.css`の`--spacing-side-panel`（再生キュー・イコライザ）と`--spacing-info-panel`（情報パネル）。パネルを本文の横に並べる間（`ui.isRightSidebarDocked`: 固定した時と、情報パネルを開いている時）は、レイアウトが本文をその幅だけ寄せる（`.main-container`の`margin-right`）。幅を変える時は変数だけを変える
   - 本文が狭くなるため、ライブラリの見出し（`LibraryHeader`）は、見出しの文字・ボタンの文字を折り返さず、検索欄を縮め、それでも入らなければ項目を次の行へ送る

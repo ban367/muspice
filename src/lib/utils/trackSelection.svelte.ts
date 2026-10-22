@@ -54,9 +54,15 @@ export class TrackSelection {
     }
   }
 
-  /** クリックによる選択（修飾キーの扱いは`computeClickSelection`） */
+  /**
+   * クリックによる選択（修飾キーの扱いは`computeClickSelection`）
+   *
+   * Shift+クリックの範囲は、キーボード（Shift+矢印）と同じ起点から選ぶ。
+   */
   click(trackId: string, modifiers: SelectionModifiers): void {
-    this.#replace(computeClickSelection(this.#ids, this.#tracks(), trackId, modifiers));
+    this.#replace(
+      computeClickSelection(this.#ids, this.#tracks(), trackId, modifiers, this.#anchorId)
+    );
     this.#activeId = trackId;
     if (!modifiers.shiftKey) {
       this.#anchorId = trackId;

@@ -37,9 +37,19 @@ describe('computeClickSelection', () => {
 
   it('Shiftの範囲選択は表示順で上方向にも働き、既存の選択を残す', () => {
     const shift = { shiftKey: true, toggleKey: false };
-    // 起点は挿入順で最後の'd'
+    // 起点を渡さない場合は、挿入順で最後の'd'
     const next = computeClickSelection(new Set(['e', 'd']), tracks, 'b', shift);
     expect([...next]).toEqual(['e', 'd', 'b', 'c']);
+  });
+
+  it('Shiftの範囲は、渡した起点から選ぶ（起点が選択にない場合も）', () => {
+    const shift = { shiftKey: true, toggleKey: false };
+    // 'a'〜'c'を選んだ後に'b'の選択だけを外した（起点は'b'）
+    const next = computeClickSelection(new Set(['a', 'c']), tracks, 'd', shift, 'b');
+    expect([...next].sort()).toEqual(['a', 'b', 'c', 'd']);
+    // 起点が一覧にない場合は、最後に選択したトラックから
+    const fallback = computeClickSelection(new Set(['a', 'c']), tracks, 'd', shift, 'x');
+    expect([...fallback].sort()).toEqual(['a', 'c', 'd']);
   });
 
   it('Shiftでも選択が空なら単一選択になる', () => {

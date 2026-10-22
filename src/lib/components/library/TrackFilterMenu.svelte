@@ -83,7 +83,7 @@
         placeholder={m.library.filters.yearFrom}
         aria-label={m.library.filters.yearFrom}
       />
-      <span class="text-text-muted">〜</span>
+      <span class="text-text-muted">{m.common.rangeSeparator}</span>
       <input
         type="text"
         inputmode="numeric"

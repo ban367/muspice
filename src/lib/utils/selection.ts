@@ -2,8 +2,8 @@
  * 一覧の選択状態の計算
  *
  * トラック一覧の複数選択では、いずれの関数も引数のSetを変更せず、新しいSetを返す
- * （`$state`へ再代入して更新を伝える）。Setの挿入順は「最後に選択したトラック」の判定
- * （Shift+クリックの範囲選択の起点）に使う。
+ * （`$state`へ再代入して更新を伝える）。Shift+クリックの範囲選択の起点は、呼び出し側が持つ
+ * （`TrackSelection`。渡さない場合は、Setの挿入順で最後のトラック）。
  * 選択の状態とキーボードでの移動は`./trackSelection.svelte.ts`の`TrackSelection`が持つ。
  */
 
@@ -18,23 +18,28 @@ export interface SelectionModifiers {
 /**
  * クリックによる選択の更新
  *
- * - Shift: 最後に選択したトラックからクリックしたトラックまでを追加で選択
+ * - Shift: 範囲選択の起点（`anchorId`。キーボードの範囲選択と同じ起点）からクリックしたトラックまでを
+ *   追加で選択（起点を渡さない・一覧にない場合は、最後に選択したトラックから）
  * - Ctrl/Cmd: クリックしたトラックの選択を切り替え（他の選択は維持）
  * - 修飾キーなし: クリックしたトラックだけを選択（それが唯一の選択中トラックなら解除）
  * @param current - 現在の選択
  * @param orderedTracks - 表示順のトラック一覧（範囲選択に使用）
  * @param trackId - クリックしたトラックのID
  * @param modifiers - 修飾キーの状態
+ * @param anchorId - 範囲選択の起点（最後に修飾キーなし・Ctrl/Cmdでクリックしたトラック）
  */
 export function computeClickSelection(
   current: ReadonlySet<string>,
   orderedTracks: readonly { id: string }[] | null,
   trackId: string,
-  modifiers: SelectionModifiers
+  modifiers: SelectionModifiers,
+  anchorId: string | null = null
 ): Set<string> {
   if (modifiers.shiftKey && current.size > 0 && orderedTracks) {
+    const anchorIndex = anchorId === null ? -1 : orderedTracks.findIndex((t) => t.id === anchorId);
     const lastSelectedId = Array.from(current).pop();
-    const lastIndex = orderedTracks.findIndex((t) => t.id === lastSelectedId);
+    const lastIndex =
+      anchorIndex !== -1 ? anchorIndex : orderedTracks.findIndex((t) => t.id === lastSelectedId);
     const currentIndex = orderedTracks.findIndex((t) => t.id === trackId);
 
     if (lastIndex === -1 || currentIndex === -1) {

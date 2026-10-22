@@ -8,6 +8,8 @@ import type { AppError } from '#lib/types/models.js';
 
 export const ja = {
   common: {
+    /** 範囲の区切り（「1990 〜 1999」） */
+    rangeSeparator: '〜',
     ok: 'OK',
     cancel: 'キャンセル',
     close: '閉じる',
@@ -433,7 +435,7 @@ export const ja = {
     disc: 'ディスク',
     /** トラック番号・ディスク番号の、番号と総数の間の文字（例: 3 / 12） */
     of: '/',
-    compilationHint: '複数のアーティストの曲を集めたアルバム',
+    compilationHint: '（複数のアーティストの曲を集めたアルバム）',
     compilationOn: '印を付ける',
     compilationOff: '印を外す',
     lyricsPlaceholder: '歌詞を入力（ファイルに埋め込まれます）',
@@ -454,7 +456,7 @@ export const ja = {
       skipCount: 'スキップ回数',
       never: '未再生',
       kbps: (value: number) => `${value} kbps`,
-      hz: (value: number) => `${value.toLocaleString()} Hz`,
+      hz: (value: number) => `${value.toLocaleString('ja-JP')} Hz`,
       times: (count: number) => `${count}回`,
       missing: 'ファイルが見つかりません'
     }
@@ -806,7 +808,8 @@ export const ja = {
   about: {
     title: 'Muspice について',
     version: (version: string) => `バージョン ${version}`,
-    tagline: 'モダンな音楽プレイヤー'
+    tagline: 'モダンな音楽プレイヤー',
+    builtWith: 'Tauri + Svelte で作っています'
   },
 
   library: {
