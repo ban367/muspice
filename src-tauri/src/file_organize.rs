@@ -713,6 +713,10 @@ pub fn move_files(planned: &PlannedMove) -> AppResult<Option<String>> {
             .map_err(|e| AppError::Io(format!("移動先のフォルダを作れませんでした: {}", e)))?;
     }
     move_no_replace(&planned.from, &planned.to).map_err(failed)?;
+    // 移した曲は、この後でDBの場所を書き換える。ライブラリフォルダの監視が、この移動で再スキャン
+    // しないように（`own_writes`）
+    crate::own_writes::record(&planned.from);
+    crate::own_writes::record(&planned.to);
 
     Ok(planned.lyrics.as_ref().and_then(|(from, to)| {
         move_no_replace(from, to)
@@ -768,6 +772,8 @@ pub fn copy_for_move(planned: &PlannedMove, buffer: &mut [u8]) -> AppResult<Copi
             "コピーしたファイルの大きさが、元と違います".to_string(),
         ));
     }
+    // コピーした曲は、この後でDBの場所を書き換える（元は`discard_originals`で消す）
+    crate::own_writes::record(&planned.to);
 
     let lyrics = planned
         .lyrics

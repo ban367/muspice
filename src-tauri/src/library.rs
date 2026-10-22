@@ -445,13 +445,19 @@ pub fn delete_tracks(conn: &Connection, track_ids: &[String]) -> AppResult<u32> 
 ///
 /// @returns ゴミ箱の中での場所（完全に削除した場合と、分からない場合はNone）
 pub fn discard_track_file(path: &Path) -> AppResult<Option<PathBuf>> {
-    if crate::trash::is_available() {
+    let discarded = if crate::trash::is_available() {
         crate::trash::move_to_trash(path)
     } else {
         fs::remove_file(path)
             .map(|()| None)
             .map_err(|e| AppError::Io(format!("ファイルの削除に失敗しました: {}", e)))
+    };
+    // 消した曲は、DBからも外す（形式の変換・整理では場所を書き換える）。ライブラリフォルダの監視が、
+    // この削除で再スキャンしないように（`own_writes`）
+    if discarded.is_ok() {
+        crate::own_writes::record(path);
     }
+    discarded
 }
 
 /// ファイルを消せた曲

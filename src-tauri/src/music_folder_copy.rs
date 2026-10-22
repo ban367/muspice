@@ -251,6 +251,9 @@ pub fn copy_files(planned: &PlannedCopy, buffer: &mut [u8]) -> AppResult<CopiedF
             format!("ファイルをコピーできませんでした: {}", e)
         })
     })?;
+    // コピーした曲は、この後でライブラリへ登録する。音楽フォルダの監視が、このコピーで再スキャン
+    // しないように（`own_writes`）
+    crate::own_writes::record(&planned.target);
 
     let lyrics = planned
         .lyrics
