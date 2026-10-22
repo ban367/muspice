@@ -52,7 +52,7 @@
       },
       {
         "ext": ["ogg"],
-        "name": "Ogg Vorbis Audio",
+        "name": "Ogg Audio",
         "mimeType": "audio/ogg",
         "role": "Viewer",
         "rank": "Alternate"

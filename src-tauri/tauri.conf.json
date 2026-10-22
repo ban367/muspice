@@ -90,7 +90,7 @@
       },
       {
         "ext": ["ogg"],
-        "name": "Ogg Vorbis Audio",
+        "name": "Ogg Audio",
         "role": "Viewer",
         "rank": "Alternate"
       },

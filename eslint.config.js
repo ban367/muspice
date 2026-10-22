@@ -26,7 +26,6 @@ export default defineConfig(
     ignores: [
       'build/**',
       '.svelte-kit/**',
-      'dist/**',
       'node_modules/**',
       'src-tauri/target/**',
       // tauri-spectaによる生成物
