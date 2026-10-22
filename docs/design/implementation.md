@@ -215,6 +215,7 @@ src-tauri/src/
 - ミニプレーヤー（ADR-046）は、別のウィンドウを作らず、メインウィンドウを小さくして`MiniPlayer`をウィンドウいっぱいに重ねる（`#lib/stores/miniPlayer.svelte`の`miniPlayer.toggle()`。`set_mini_player`でウィンドウを切り替えてから、表示を切り替える）。通常の画面と`Player`（再生コントローラーを持つ）は、下で動き続ける。プレーヤーの外から再生を操作する時は、`#lib/stores/playback.svelte`の`togglePlayback`・`skipToNextTrack`・`skipToPreviousTrack`・`seekPlayback`を使う
 - メニューバーへの常駐・グローバルホットキー・曲が変わった時の通知（ADR-046）は、Rust側だけで行う（プラグインのJS APIはcapabilityに追加しない）。再生の操作は、どれも`PlaybackControl`イベントでフロントエンドへ送る（メニューバーの「再生」メニューと同じ）。再生中の曲は、フロントエンドが`set_now_playing`で伝えた内容から知る
   - メニューバーのアイコン（`NSStatusItem`）の作成・削除は、メインスレッドで行う（`tray::apply`が`run_on_main_thread`で渡す。コマンドのスレッドから直接行うと、macOSで異常終了する）
+  - メニューの文言の書き換え（再生中の曲・再生 / 一時停止）も、メインスレッドで行う（`tray::set_now_playing`が`run_on_main_thread`で渡し、終わるのを待たない）。トレイの状態（`TrayState`）はメインスレッドでだけ触る。Tauriのメニューの操作は、ほかのスレッドから呼ぶとメインスレッドの処理を待つため、ほかのスレッドがトレイの状態のロックを持ったまま呼ぶと、同じロックを取るメインスレッドと互いに待って止まる
   - ウィンドウを隠している間もキューの処理（フロントエンド）が動くよう、`tauri.conf.json`でメインウィンドウの`backgroundThrottling`を無効にしている
 - Now Playingの画面（`NowPlayingView`。ADR-045）は、`ui.isNowPlayingOpen`で開閉し、`(app)/+layout.svelte`がページの領域（`.main-area`）に重ねて表示する（ルートにはしない。開いていたページは、閉じると元の位置のまま戻る）。プレーヤーのアルバムアートで開閉し、Escキー・別の画面への移動・曲名のクリック（一覧で表示）で閉じる
   - 歌詞は`useTrackLyricsQuery(trackId)`で読み、`#lib/utils/lyrics`の`parseLyrics`で解釈する（時刻付きなら、行ごとの時刻。`findCurrentLine`で再生位置の行を求める）。タグを書き換えた時は、歌詞のキャッシュも無効にする（`invalidateTagQueries`）
