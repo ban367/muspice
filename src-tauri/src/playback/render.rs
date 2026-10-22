@@ -2,7 +2,8 @@
 //!
 //! エンジンのスレッドがリングバッファへ書いた音声（ステレオ・出力のサンプルレート）を、
 //! 出力デバイスのコールバックが取り出す。コールバックは、OSの音声のスレッドで決まった時間内に
-//! 終える必要があるため、ロックの取得・メモリの確保・ファイルの読み取りをしない。
+//! 終える必要があるため、ロックの取得・ファイルの読み取りをせず、メモリは作る時に確保した分だけを
+//! 使う（作業領域は1秒分。それより長いバッファを渡された時だけ、確保し直す）。
 //! エンジンとのやり取りは、リングバッファとアトミックな値（`RenderShared`）だけで行う。
 //!
 //! - 音量と一時停止は、ここで反映する（バッファにたまっている分を待たずに、すぐ効く）。
@@ -161,7 +162,8 @@ impl Renderer {
             gain: 0.0,
             gain_step: 1.0 / (GAIN_RAMP_SECONDS * sample_rate as f32),
             sample_rate,
-            stereo: Vec::new(),
+            // 作業領域は、作る時に確保しておく（コールバックの中で確保しない）
+            stereo: Vec::with_capacity(sample_rate as usize * OUTPUT_CHANNELS),
             effects: None,
         }
     }
@@ -215,7 +217,8 @@ impl Renderer {
         } else {
             frames
         };
-        // 取り出した音声をステレオのまま作業用のバッファへ移す（足りない分は無音。確保は最初だけ）
+        // 取り出した音声をステレオのまま作業用のバッファへ移す（足りない分は無音。作業領域は、作る時に
+        // 確保した1秒分の中で使う）
         self.stereo.resize(frames * OUTPUT_CHANNELS, 0.0);
         let speed = f32::from_bits(self.shared.speed.load(Ordering::Relaxed));
         let mut take = 0;
@@ -358,6 +361,22 @@ mod tests {
         let shared = RenderShared::new(1.0, false);
         let renderer = Renderer::new(consumer, shared.clone(), RATE);
         (producer, renderer, shared)
+    }
+
+    #[test]
+    fn test_render_does_not_grow_the_work_buffer() {
+        let (mut producer, mut renderer, shared) = setup(4_000);
+        let capacity = renderer.stereo.capacity();
+        assert!(capacity >= RATE as usize * OUTPUT_CHANNELS);
+
+        push(&mut producer, (0..2_000).map(|i| i as f32 / 2_000.0));
+        // 出力のバッファの長さが変わっても（ステレオ・6チャンネル）、1秒分までは確保し直さない
+        for (frames, channels) in [(64, 2), (512, 2), (1_000, 2), (300, 6)] {
+            renderer.render(&mut vec![0.0; frames * channels], channels);
+        }
+        shared.set_speed(1.5);
+        renderer.render(&mut [0.0; 1_000 * 2], 2);
+        assert_eq!(renderer.stereo.capacity(), capacity);
     }
 
     /// 左が`value`、右が`-value`のフレームを書く
