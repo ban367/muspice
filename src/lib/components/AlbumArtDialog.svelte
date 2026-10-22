@@ -8,6 +8,7 @@
   - ファイルが見つからない曲は、対象にしない
 -->
 <script lang="ts">
+  import { tick } from 'svelte';
   import type { BulkUpdateResult, Track } from '#lib/types/models.js';
   import {
     useAlbumArtInfoQuery,
@@ -64,6 +65,10 @@
   const canRemove = $derived(targets.length > 1 || info?.source === 'embedded');
 
   let isConfirmingRemove = $state(false);
+  // 確かめる欄を開いた時・閉じた時に、フォーカスを移す先（「削除」のボタンは確かめる間は押せない）
+  let chooseButton = $state<HTMLButtonElement>();
+  let removeButton = $state<HTMLButtonElement>();
+  let cancelRemoveButton = $state<HTMLButtonElement>();
   let notice = $state<string | null>(null);
   let warning = $state<string | null>(null);
   let error = $state<string | null>(null);
@@ -90,6 +95,21 @@
     }
   }
 
+  /** 取り除くかを確かめる欄を開き、フォーカスを「キャンセル」へ移す */
+  async function openRemoveConfirm() {
+    clearMessages();
+    isConfirmingRemove = true;
+    await tick();
+    cancelRemoveButton?.focus();
+  }
+
+  /** 確かめる欄を閉じ、フォーカスを「削除」へ戻す */
+  async function cancelRemove() {
+    isConfirmingRemove = false;
+    await tick();
+    removeButton?.focus();
+  }
+
   async function handleChoose() {
     clearMessages();
     isConfirmingRemove = false;
@@ -111,6 +131,10 @@
     } catch (e) {
       error = toErrorMessage(e);
     }
+    // 確かめる欄のボタンは消えたため、終わった後（ボタンが押せるようになった後）に
+    // フォーカスを「画像を選ぶ」へ移す
+    await tick();
+    chooseButton?.focus();
   }
 </script>
 
@@ -128,20 +152,20 @@
         <p class="sub">{m.albumArtDialog.previewOf(trackTitle(previewTrack))}</p>
       {/if}
 
-      <dl class="info" aria-live="polite">
+      <div class="info" aria-live="polite">
         {#if infoQuery.isPending}
-          <dd class="text-text-muted">{m.common.loading}</dd>
+          <p class="text-text-muted">{m.common.loading}</p>
         {:else if info}
-          <dd>
+          <p>
             {info.source === 'embedded'
               ? m.albumArtDialog.embedded
               : m.albumArtDialog.folder(info.fileName ?? '')}
-          </dd>
-          <dd class="text-text-muted tabular-nums">{details}</dd>
+          </p>
+          <p class="text-text-muted tabular-nums">{details}</p>
         {:else}
-          <dd class="text-text-muted">{m.albumArtDialog.none}</dd>
+          <p class="text-text-muted">{m.albumArtDialog.none}</p>
         {/if}
-      </dl>
+      </div>
 
       {#if info?.source === 'folder'}
         <p class="hint">{m.albumArtDialog.folderHint}</p>
@@ -157,15 +181,19 @@
     {/if}
 
     <div class="actions">
-      <button class="btn-primary" onclick={handleChoose} disabled={isWorking} data-autofocus>
+      <button
+        class="btn-primary"
+        bind:this={chooseButton}
+        onclick={handleChoose}
+        disabled={isWorking}
+        data-autofocus
+      >
         {m.albumArtDialog.choose}
       </button>
       <button
         class="btn-secondary"
-        onclick={() => {
-          clearMessages();
-          isConfirmingRemove = true;
-        }}
+        bind:this={removeButton}
+        onclick={openRemoveConfirm}
         disabled={isWorking || !canRemove || isConfirmingRemove}
       >
         {m.albumArtDialog.remove}
@@ -173,10 +201,17 @@
     </div>
 
     {#if isConfirmingRemove}
-      <div class="confirm" role="alertdialog" aria-label={m.albumArtDialog.remove}>
-        <p class="m-0 text-sm">{m.albumArtDialog.confirmRemove(targets.length)}</p>
+      <div
+        class="confirm"
+        role="alertdialog"
+        aria-label={m.albumArtDialog.remove}
+        aria-describedby="album-art-confirm-remove"
+      >
+        <p class="m-0 text-sm" id="album-art-confirm-remove">
+          {m.albumArtDialog.confirmRemove(targets.length)}
+        </p>
         <div class="flex gap-2 justify-end mt-3">
-          <button class="btn-secondary" onclick={() => (isConfirmingRemove = false)}>
+          <button class="btn-secondary" bind:this={cancelRemoveButton} onclick={cancelRemove}>
             {m.common.cancel}
           </button>
           <button class="btn-danger" onclick={handleRemove}>
@@ -233,11 +268,11 @@
     @apply mt-3 mb-0 text-sm text-text-primary;
   }
 
-  .info dd {
+  .info p {
     @apply m-0 break-words;
   }
 
-  .info dd + dd {
+  .info p + p {
     @apply mt-1;
   }
 

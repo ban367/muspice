@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { listSelectionTarget, navigationTarget, openableListAction } from './listNavigation.js';
+import {
+  listSelectionTarget,
+  navigationTarget,
+  openableListAction,
+  treeKeyAction
+} from './listNavigation.js';
 
 describe('navigationTarget（リスト）', () => {
   it('↑↓で前後の項目へ移る', () => {
@@ -175,5 +180,61 @@ describe('openableListAction', () => {
     expect(withShift.defaultPrevented).toBe(false);
     expect(openableListAction(keyEvent('Enter', { metaKey: true }), 1, 10, 4)).toBeNull();
     expect(openableListAction(keyEvent('Enter', { defaultPrevented: true }), 1, 10, 4)).toBeNull();
+  });
+});
+
+describe('treeKeyAction', () => {
+  // 1990年代（開いている）
+  //   1994
+  //   1999
+  // 1980年代（閉じている）
+  // 不明（子がない）
+  const rows = [
+    { depth: 0, hasChildren: true, isExpanded: true },
+    { depth: 1, hasChildren: false, isExpanded: false },
+    { depth: 1, hasChildren: false, isExpanded: false },
+    { depth: 0, hasChildren: true, isExpanded: false },
+    { depth: 0, hasChildren: false, isExpanded: false }
+  ];
+
+  it('↑↓・Home・Endで、前後・先頭・末尾の行を選ぶ（既定の動作を止める）', () => {
+    const down = keyEvent('ArrowDown');
+    expect(treeKeyAction(down, rows, 0)).toEqual({ type: 'select', index: 1 });
+    expect(down.defaultPrevented).toBe(true);
+    expect(treeKeyAction(keyEvent('ArrowUp'), rows, 3)).toEqual({ type: 'select', index: 2 });
+    expect(treeKeyAction(keyEvent('End'), rows, 0)).toEqual({ type: 'select', index: 4 });
+    expect(treeKeyAction(keyEvent('Home'), rows, 4)).toEqual({ type: 'select', index: 0 });
+  });
+
+  it('→で、閉じている項目は開き、開いている項目は最初の子を選ぶ', () => {
+    expect(treeKeyAction(keyEvent('ArrowRight'), rows, 3)).toEqual({ type: 'expand', index: 3 });
+    expect(treeKeyAction(keyEvent('ArrowRight'), rows, 0)).toEqual({ type: 'select', index: 1 });
+    // 子のない項目では何もしない
+    const leaf = keyEvent('ArrowRight');
+    expect(treeKeyAction(leaf, rows, 1)).toBeNull();
+    expect(leaf.defaultPrevented).toBe(false);
+  });
+
+  it('←で、開いている項目は閉じ、ほかの項目は親を選ぶ（根の項目では何もしない）', () => {
+    expect(treeKeyAction(keyEvent('ArrowLeft'), rows, 0)).toEqual({ type: 'collapse', index: 0 });
+    expect(treeKeyAction(keyEvent('ArrowLeft'), rows, 2)).toEqual({ type: 'select', index: 0 });
+    expect(treeKeyAction(keyEvent('ArrowLeft'), rows, 3)).toBeNull();
+    expect(treeKeyAction(keyEvent('ArrowLeft'), rows, 4)).toBeNull();
+  });
+
+  it('Enter・Spaceで現在位置の行を選び、何も選んでいない時は先頭の行を選ぶ', () => {
+    expect(treeKeyAction(keyEvent('Enter'), rows, 2)).toEqual({ type: 'select', index: 2 });
+    expect(treeKeyAction(keyEvent(' '), rows, -1)).toEqual({ type: 'select', index: 0 });
+    expect(treeKeyAction(keyEvent('ArrowRight'), rows, -1)).toEqual({ type: 'select', index: 0 });
+    expect(treeKeyAction(keyEvent('ArrowDown'), rows, -1)).toEqual({ type: 'select', index: 0 });
+  });
+
+  it('修飾キー・扱わないキー・行がない一覧では何もしない', () => {
+    const withShift = keyEvent('ArrowDown', { shiftKey: true });
+    expect(treeKeyAction(withShift, rows, 0)).toBeNull();
+    expect(withShift.defaultPrevented).toBe(false);
+    expect(treeKeyAction(keyEvent('a'), rows, 0)).toBeNull();
+    expect(treeKeyAction(keyEvent('ArrowDown', { defaultPrevented: true }), rows, 0)).toBeNull();
+    expect(treeKeyAction(keyEvent('ArrowDown'), [], -1)).toBeNull();
   });
 });

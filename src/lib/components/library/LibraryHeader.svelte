@@ -195,6 +195,7 @@
       <input
         type="text"
         placeholder={searchPlaceholder ?? m.library.search}
+        aria-label={searchPlaceholder ?? m.library.search}
         value={searchTerm}
         oninput={handleInput}
         class="search-input"

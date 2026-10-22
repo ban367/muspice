@@ -12,6 +12,7 @@
   import { promptText } from '#lib/utils/dialog.svelte.js';
   import { validatePlaylistName, toSafeString } from '#lib/utils/validation.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
+  import { openableListAction } from '#lib/utils/listNavigation.js';
   import { VirtualList } from '#lib/components/ui/index.js';
   import AlbumArt from './AlbumArt.svelte';
   import MarqueeText from './MarqueeText.svelte';
@@ -57,6 +58,48 @@
   // 行の中のボタン（キューから削除）の操作では再生しない
   function isRowButton(event: Event): boolean {
     return event.target instanceof Element && event.target.closest('button') !== null;
+  }
+
+  // ---- 「次に再生」のキーボード操作 ----
+  // 一覧（listbox）がフォーカスを受け、↑↓・Home・Endで現在位置を移し、Enterで再生し、
+  // Delete / Backspaceでキューから削除する。現在位置も、位置ではなくキューの要素のIDで持つ
+
+  let upcomingList = $state<VirtualList<(typeof player.upcomingEntries)[number]>>();
+  /** 現在位置の行の要素のID */
+  let activeEntryId = $state<number | null>(null);
+  /** 現在位置の行の、「次に再生」の一覧の中の位置（ない場合は-1） */
+  const activeIndex = $derived(
+    activeEntryId === null
+      ? -1
+      : player.upcomingEntries.findIndex((entry) => entry.entryId === activeEntryId)
+  );
+
+  function handleUpcomingKeydown(event: KeyboardEvent) {
+    const entries = player.upcomingEntries;
+    if (
+      (event.key === 'Delete' || event.key === 'Backspace') &&
+      !event.defaultPrevented &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.altKey
+    ) {
+      if (activeIndex === -1) return;
+      event.preventDefault();
+      // 現在位置は、消した行の次（最後の行なら前）の行へ移す
+      const next = entries[activeIndex + 1] ?? entries[activeIndex - 1] ?? null;
+      removeFromQueue(entries[activeIndex].entryId);
+      activeEntryId = next?.entryId ?? null;
+      return;
+    }
+
+    const action = openableListAction(event, activeIndex, entries.length, null);
+    if (action === null) return;
+    if (action.type === 'open') {
+      playUpcoming(action.index);
+    } else {
+      activeEntryId = entries[action.index].entryId;
+      upcomingList?.scrollToIndex(action.index);
+    }
   }
 
   // ---- 「次に再生」の並べ替え（行のドラッグ） ----
@@ -331,20 +374,31 @@
       <!-- 次に再生 -->
       <div class="upcoming-section">
         {#if player.upcomingEntries.length > 0}
-          <div class="section-label">{m.rightSidebar.upNext(player.upcomingEntries.length)}</div>
+          <div class="section-label" id="upcoming-label">
+            {m.rightSidebar.upNext(player.upcomingEntries.length)}
+          </div>
           <!-- 一覧の曲をすべてキューに入れた場合は数万曲になるため、見えている行だけを描画する -->
           <div class="upcoming-list">
             <!-- 同じ曲が何度も入ることがあるため、キーは曲のIDではなく要素のID -->
             <VirtualList
+              bind:this={upcomingList}
               items={player.upcomingEntries}
               getKey={(entry) => entry.entryId}
               estimatedRowHeight={ESTIMATED_QUEUE_ROW_HEIGHT}
               scrollerClass="px-2 pb-2"
+              class="upcoming-listbox"
+              role="listbox"
+              aria-labelledby="upcoming-label"
+              tabindex={0}
+              onkeydown={handleUpcomingKeydown}
             >
               {#snippet row({ entryId, track }, index)}
                 <!-- 行のドラッグで、「次に再生」の中の順を入れ替えられる -->
+                <!-- キー操作は一覧（listbox）で受けるため、行はフォーカスを受けない -->
+                <!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
                 <div
                   class="queue-track"
+                  class:active={activeEntryId === entryId}
                   class:dragging={draggedEntryId === entryId}
                   data-drop={dropWhere(entryId, index)}
                   draggable="true"
@@ -352,10 +406,10 @@
                   ondragover={(e) => handleQueueDragOver(e, entryId)}
                   ondrop={(e) => handleQueueDrop(e, entryId)}
                   ondragend={endQueueDrag}
+                  onclick={(e) => !isRowButton(e) && (activeEntryId = entryId)}
                   ondblclick={(e) => !isRowButton(e) && playUpcoming(index)}
-                  onkeydown={(e) => e.key === 'Enter' && !isRowButton(e) && playUpcoming(index)}
-                  role="button"
-                  tabindex="0"
+                  role="option"
+                  aria-selected={activeEntryId === entryId}
                 >
                   <span class="track-number">{index + 1}</span>
                   <div class="queue-art">
@@ -377,8 +431,20 @@
                     class="remove-btn"
                     onclick={() => removeFromQueue(entryId)}
                     title={m.rightSidebar.removeFromQueue}
+                    aria-label={m.rightSidebar.removeFromQueue}
                   >
-                    ✕
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      class="w-3 h-3"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.5"
+                      stroke-linecap="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M6 6l12 12M18 6L6 18" />
+                    </svg>
                   </button>
                 </div>
               {/snippet}
@@ -535,6 +601,19 @@
     @apply bg-surface;
   }
 
+  /* 現在位置の行（クリック・矢印キーで移す）。一覧にフォーカスがある間は、枠でも示す */
+  .queue-track.active {
+    @apply bg-surface-active;
+  }
+
+  :global(.upcoming-listbox) {
+    @apply outline-none;
+  }
+
+  :global(.upcoming-listbox:focus-visible) .queue-track.active {
+    box-shadow: inset 0 0 0 2px var(--color-primary);
+  }
+
   /* 並べ替えのドラッグ中の行と、落とす位置の線 */
   .queue-track.dragging {
     @apply opacity-50;
@@ -561,7 +640,10 @@
            opacity-0 transition-all duration-200 shrink-0;
   }
 
-  .queue-track:hover .remove-btn {
+  /* ポインタを置いた行・現在位置の行・キーボードでフォーカスした時に出す */
+  .queue-track:hover .remove-btn,
+  .queue-track.active .remove-btn,
+  .remove-btn:focus-visible {
     @apply opacity-100;
   }
 

@@ -359,6 +359,7 @@
           onclick={toggleShuffle}
           title={m.player.shuffleTitle}
           aria-label={m.player.shuffle}
+          aria-pressed={player.isShuffleEnabled}
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -445,6 +446,7 @@
           onclick={toggleRepeat}
           title={m.player.repeatTitle(m.player.repeatModes[player.repeatMode])}
           aria-label={m.player.repeat}
+          aria-pressed={player.repeatMode !== 'off'}
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -525,8 +527,8 @@
         <button
           class="control-button small"
           onclick={toggleMute}
-          title={m.player.muteTitle}
-          aria-label={m.player.mute}
+          title={player.volume === 0 ? m.player.unmuteTitle : m.player.muteTitle}
+          aria-label={player.volume === 0 ? m.player.unmute : m.player.mute}
         >
           {#if player.volume === 0}
             <svg

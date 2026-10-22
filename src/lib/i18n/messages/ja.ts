@@ -234,7 +234,10 @@ export const ja = {
   trackList: {
     columns: '表示する列',
     resetSort: '並び順を既定に戻す',
-    resetColumns: '列と並び順を既定に戻す'
+    resetColumns: '列と並び順を既定に戻す',
+    /** 並べ替えている列の見出しの名前（スクリーンリーダー向け） */
+    sortedColumn: (column: string, descending: boolean) =>
+      `${column}（${descending ? '降順' : '昇順'}で並べ替え中）`
   },
 
   player: {
@@ -256,6 +259,8 @@ export const ja = {
     seek: '再生位置',
     muteTitle: 'ミュート (M)',
     mute: 'ミュート',
+    unmuteTitle: 'ミュートを解除 (M)',
+    unmute: 'ミュートを解除',
     volume: '音量'
   },
 

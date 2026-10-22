@@ -131,3 +131,79 @@ export function openableListAction(
   event.preventDefault();
   return { type: 'move', index: target };
 }
+
+/** 木の一覧の行（`treeKeyAction`が使う分だけ） */
+export interface TreeKeyRow {
+  /** 字下げの段（根の項目が0） */
+  depth: number;
+  hasChildren: boolean;
+  isExpanded: boolean;
+}
+
+/** 木の一覧で、キーを押した時に行う操作（`treeKeyAction`の結果） */
+export type TreeKeyAction =
+  | { type: 'select'; index: number }
+  | { type: 'expand'; index: number }
+  | { type: 'collapse'; index: number };
+
+/**
+ * 木の一覧（フォルダ別・年代別の画面の左の一覧）のキーボード操作
+ *
+ * 一覧の要素の`onkeydown`から呼ぶ（WAI-ARIAの木の一覧の操作に合わせる）。
+ * - ↑↓・Home・End: 前後・先頭・末尾の行を選ぶ
+ * - →: 閉じている項目は開き、開いている項目は最初の子を選ぶ
+ * - ←: 開いている項目は閉じ、閉じている項目（子のない項目を含む）は親を選ぶ
+ * - Enter・Space: 現在位置の行を選ぶ（何も選んでいない時に、Tabで入った先頭の行を選ぶため）
+ *
+ * 修飾キーを押している場合・扱わないキーの場合は何もしない。扱うキーでは、既定の動作（一覧の
+ * スクロール）を止める。
+ * @param event - キーイベント
+ * @param rows - 表示している行（開いている項目の子だけを並べたもの）
+ * @param current - 現在位置（選んでいる行。ない場合は-1）
+ * @returns 行う操作（呼び出し側で、その行を選ぶ・開く・閉じる）。扱わないキーの場合はnull
+ */
+export function treeKeyAction(
+  event: KeyboardEvent,
+  rows: readonly TreeKeyRow[],
+  current: number
+): TreeKeyAction | null {
+  if (event.defaultPrevented) return null;
+  if (event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return null;
+  if (rows.length === 0) return null;
+
+  const action = treeKeyActionFor(event.key, rows, current);
+  if (action !== null) event.preventDefault();
+  return action;
+}
+
+function treeKeyActionFor(
+  key: string,
+  rows: readonly TreeKeyRow[],
+  current: number
+): TreeKeyAction | null {
+  const row = current >= 0 && current < rows.length ? rows[current] : null;
+  switch (key) {
+    case 'Enter':
+    case ' ':
+      return { type: 'select', index: row ? current : 0 };
+    case 'ArrowRight':
+      if (!row) return { type: 'select', index: 0 };
+      if (!row.hasChildren) return null;
+      return row.isExpanded
+        ? { type: 'select', index: current + 1 }
+        : { type: 'expand', index: current };
+    case 'ArrowLeft': {
+      if (!row) return { type: 'select', index: 0 };
+      if (row.isExpanded) return { type: 'collapse', index: current };
+      // 親は、上にある1段浅い行のうち、いちばん近いもの
+      for (let index = current - 1; index >= 0; index--) {
+        if (rows[index].depth < row.depth) return { type: 'select', index };
+      }
+      return null;
+    }
+    default: {
+      const target = navigationTarget(key, current, rows.length);
+      return target === null ? null : { type: 'select', index: target };
+    }
+  }
+}
