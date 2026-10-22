@@ -184,6 +184,8 @@ fn write_album_art(
         let mut written: Vec<(String, Option<i64>, Option<i64>)> = Vec::new();
 
         for track_id in chunk {
+            // 同じ曲を書き換えている処理が終わるまで待つ（1曲ずつ取り、書き込んだら外す）
+            let _file = state.lock_track_file(track_id);
             let file_path =
                 state.with_db(|db| crate::repository::find_file_path_by_track_id(db, track_id));
             let outcome = file_path.and_then(|file_path| {

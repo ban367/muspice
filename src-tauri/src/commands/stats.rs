@@ -7,7 +7,7 @@ use crate::models::{PlayCountUpdate, PlayHistoryEntry, Track};
 use crate::state::AppState;
 use crate::validation::validate_track_id;
 use std::path::Path;
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 
 /// トラックをお気に入りにする・お気に入りから外す（複数のトラックをまとめて指定できる）
 ///
@@ -32,41 +32,42 @@ pub async fn set_favorite(
 /// ファイルへ書き込めない場合はエラーにし、データベースも変えない。
 #[tauri::command]
 #[specta::specta]
-pub async fn set_rating(
-    track_id: String,
-    rating: i32,
-    state: State<'_, AppState>,
-) -> AppResult<()> {
+pub async fn set_rating(track_id: String, rating: i32, app: AppHandle) -> AppResult<()> {
     validate_track_id(&track_id)?;
     validate_rating(rating)?;
 
-    let file_path =
-        state.with_db(|db| crate::repository::find_file_path_by_track_id(db, &track_id))?;
-
     // ファイルへの書き込みはDBロックの外・ブロッキング処理用スレッドで行う。書き込み後のサイズと
-    // 更新日時も取得し、再スキャンで自分の書き込みを変更として検出しないようにする
-    let (file_size, file_modified_at) = run_blocking(move || {
+    // 更新日時も取得し、再スキャンで自分の書き込みを変更として検出しないようにする。
+    // 同じ曲を書き換えている処理（ラウドネスの解析など）とは、DBへの記録まで重ねない
+    run_blocking(move || {
+        let state = app.state::<AppState>();
+        let _file = state.lock_track_file(&track_id);
+        let file_path =
+            state.with_db(|db| crate::repository::find_file_path_by_track_id(db, &track_id))?;
         let path = Path::new(&file_path);
         update_file_rating(path, rating)?;
-        Ok((
-            crate::library::get_file_size(path).ok(),
-            crate::library::get_file_modified_at(path),
-        ))
-    })
-    .await?;
+        let file_size = crate::library::get_file_size(path).ok();
+        let file_modified_at = crate::library::get_file_modified_at(path);
 
-    state.with_db(|db| {
-        let tx = db.transaction().map_err(|e| {
-            AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
-        })?;
-        crate::repository::set_track_rating(&tx, &track_id, rating)?;
-        if let Some(file_size) = file_size {
-            crate::repository::set_track_file_state(&tx, &track_id, file_size, file_modified_at)?;
-        }
-        tx.commit().map_err(|e| {
-            AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
+        state.with_db(|db| {
+            let tx = db.transaction().map_err(|e| {
+                AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
+            })?;
+            crate::repository::set_track_rating(&tx, &track_id, rating)?;
+            if let Some(file_size) = file_size {
+                crate::repository::set_track_file_state(
+                    &tx,
+                    &track_id,
+                    file_size,
+                    file_modified_at,
+                )?;
+            }
+            tx.commit().map_err(|e| {
+                AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
+            })
         })
     })
+    .await
 }
 
 /// 再生回数をインクリメントし、再生履歴に追加する（新しい再生回数と、最後に再生した日時を返す）

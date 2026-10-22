@@ -130,35 +130,41 @@ pub async fn update_track_metadata(
     validate_track_id(&track_id)?;
     validate_metadata_input(&metadata)?;
     let metadata = normalize_multi_values(metadata);
-    let state = app.state::<AppState>();
 
-    // トラックのファイルパスを取得
-    let file_path =
-        state.with_db(|db| crate::repository::find_file_path_by_track_id(db, &track_id))?;
-
-    // ファイルのメタデータを更新（ファイルI/OのためDBロック外・ブロッキング処理用スレッドで実行）
-    let file_metadata = metadata.clone();
-    let (file_size, file_modified_at) = run_blocking(move || {
+    // ファイルへの書き込み（ファイルI/OのためDBロック外・ブロッキング処理用スレッドで実行）と、
+    // データベースへの記録を、同じ曲を書き換えている処理（ラウドネスの解析など）と重ねない
+    let writer = app.clone();
+    let written_id = track_id.clone();
+    run_blocking(move || {
+        let state = writer.state::<AppState>();
+        let _file = state.lock_track_file(&written_id);
+        let file_path =
+            state.with_db(|db| crate::repository::find_file_path_by_track_id(db, &written_id))?;
         let path = Path::new(&file_path);
-        update_file_metadata(path, &file_metadata, true)?;
-        Ok(file_state_of(path))
+        update_file_metadata(path, &metadata, true)?;
+        let (file_size, file_modified_at) = file_state_of(path);
+
+        // データベースのメタデータと、ファイルのサイズ・更新日時を1つのトランザクションで更新する
+        // （片方だけ反映されると、次の再スキャンで自分の書き込みを外部の変更として読み直すため）
+        state.with_db(|db| {
+            let tx = db.transaction().map_err(|e| {
+                AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
+            })?;
+            crate::repository::update_track_metadata(&tx, &written_id, &metadata)?;
+            if let Some(file_size) = file_size {
+                crate::repository::set_track_file_state(
+                    &tx,
+                    &written_id,
+                    file_size,
+                    file_modified_at,
+                )?;
+            }
+            tx.commit().map_err(|e| {
+                AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
+            })
+        })
     })
     .await?;
-
-    // データベースのメタデータと、ファイルのサイズ・更新日時を1つのトランザクションで更新する
-    // （片方だけ反映されると、次の再スキャンで自分の書き込みを外部の変更として読み直すため）
-    state.with_db(|db| {
-        let tx = db.transaction().map_err(|e| {
-            AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
-        })?;
-        crate::repository::update_track_metadata(&tx, &track_id, &metadata)?;
-        if let Some(file_size) = file_size {
-            crate::repository::set_track_file_state(&tx, &track_id, file_size, file_modified_at)?;
-        }
-        tx.commit().map_err(|e| {
-            AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
-        })
-    })?;
 
     // ファイルの移動はブロッキング処理用スレッドで行う
     run_blocking(move || Ok(keep_music_folder_organized(&app, &[track_id]))).await
@@ -283,6 +289,8 @@ fn update_each_blocking(
         let mut written: Vec<(&String, &Metadata, Option<i64>, Option<i64>)> = Vec::new();
 
         for &(track_id, metadata) in chunk {
+            // 同じ曲を書き換えている処理が終わるまで待つ（1曲ずつ取り、書き込んだら外す）
+            let _file = state.lock_track_file(track_id);
             let file_path =
                 state.with_db(|db| crate::repository::find_file_path_by_track_id(db, track_id));
             let outcome = file_path.and_then(|file_path| {
@@ -567,6 +575,8 @@ fn write_library_metadata_blocking(state: &AppState) -> AppResult<WriteMetadataR
                 continue;
             }
 
+            // 同じ曲を書き換えている処理（ラウドネスの解析など）が終わるまで待つ
+            let _file = state.lock_track_file(&values.id);
             match write_track_to_file(values, path) {
                 Ok((track, written)) => {
                     if written {
@@ -821,6 +831,45 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.dir);
         }
+    }
+
+    /// 同じ曲を書き換えている処理（ラウドネスの解析など）があれば、終わるまで待ってから書く
+    #[test]
+    fn test_update_each_waits_for_another_writer_of_the_same_track() {
+        let fixture = Fixture::new();
+        let path = fixture.add_track("a", true);
+        let id = "a".to_string();
+        let metadata = Metadata {
+            title: Some("Edited".to_string()),
+            ..Metadata::default()
+        };
+        let (sender, done) = std::sync::mpsc::channel();
+
+        std::thread::scope(|scope| {
+            let writing = fixture.state.lock_track_file("a");
+            let (state, id, metadata) = (&fixture.state, &id, &metadata);
+            scope.spawn(move || {
+                update_each_blocking(state, &[(id, metadata)]).unwrap();
+                sender.send(()).unwrap();
+            });
+            // 印を持っている間は、ファイルを読まずに待つ
+            assert!(
+                done.recv_timeout(std::time::Duration::from_millis(200))
+                    .is_err()
+            );
+            assert_eq!(crate::metadata::read_file_tags(&path).unwrap().title, None);
+            drop(writing);
+            done.recv_timeout(std::time::Duration::from_secs(10))
+                .unwrap();
+        });
+        assert_eq!(
+            crate::metadata::read_file_tags(&path)
+                .unwrap()
+                .title
+                .as_deref(),
+            Some("Edited")
+        );
+        assert_eq!(fixture.track("a").title.as_deref(), Some("Edited"));
     }
 
     /// 曲ごとに違う値を、ファイルのタグとDBへ書き込む（値のある項目だけを変える）

@@ -391,7 +391,12 @@ fn scan_unit(shared: &Shared<'_>, unit: &ScanUnit) {
 ///
 /// @returns ファイルへ書き込んだか（すでに同じ値が書かれていれば、書き込まない）
 fn write_track(state: &AppState, track: &ScanTrack, values: &ReplayGain) -> AppResult<bool> {
-    let path = Path::new(&track.file_path);
+    // 解析の間に同じ曲を編集していれば、終わるまで待ってから読み直して書く（編集を消さない）。
+    // 場所は、待った後にDBから読む（解析の間に、ファイルの整理で移ることがある）
+    let _file = state.lock_track_file(&track.id);
+    let file_path =
+        state.with_db(|db| crate::repository::find_file_path_by_track_id(db, &track.id))?;
+    let path = Path::new(&file_path);
     // データベースには、書き込んだ後にファイルから読める値を記録する（ファイルのタグを正とする）
     let (in_file, written) = update_file_replay_gain(path, values)?;
     if !written && in_file == track.replay_gain {
@@ -622,6 +627,17 @@ mod tests {
                 .unwrap()
         }
 
+        /// 解析する曲（解析を始めた時のライブラリの内容）
+        fn scan_track(&self, id: &str) -> ScanTrack {
+            let track = self.find(id);
+            ScanTrack {
+                id: track.id,
+                file_path: track.file_path,
+                replay_gain: track.replay_gain,
+                write_track_gain: true,
+            }
+        }
+
         fn find(&self, id: &str) -> Track {
             self.state
                 .with_db(|db| crate::repository::find_track_by_id(db, id))
@@ -645,6 +661,74 @@ mod tests {
 
     fn close(actual: Option<f64>, expected: f64) -> bool {
         actual.is_some_and(|actual| (actual - expected).abs() < 0.1)
+    }
+
+    fn gain() -> ReplayGain {
+        ReplayGain {
+            track_gain: Some(-3.0),
+            track_peak: Some(0.5),
+            album_gain: None,
+            album_peak: None,
+        }
+    }
+
+    /// 解析の間に同じ曲を編集していれば、編集が終わるまで待ってから書く（編集を消さない）
+    #[test]
+    fn test_write_waits_for_an_edit_of_the_same_track_and_keeps_it() {
+        let library = Library::new();
+        let id = library.add("a", None, -20.0);
+        let track = library.scan_track(&id);
+        let path = std::path::PathBuf::from(&track.file_path);
+        let (sender, done) = std::sync::mpsc::channel();
+
+        std::thread::scope(|scope| {
+            let editing = library.state.lock_track_file(&id);
+            let (state, track) = (&library.state, &track);
+            scope.spawn(move || {
+                write_track(state, track, &gain()).unwrap();
+                sender.send(()).unwrap();
+            });
+            assert!(
+                done.recv_timeout(std::time::Duration::from_millis(200))
+                    .is_err()
+            );
+            // 編集（解析の書き込みを待たせている間に、評価を書く）
+            crate::metadata::update_file_rating(&path, 4).unwrap();
+            drop(editing);
+            done.recv_timeout(std::time::Duration::from_secs(10))
+                .unwrap();
+        });
+        // 評価とゲインの両方が、ファイルに残る
+        let info = crate::metadata::extract_all_file_info(&path).unwrap();
+        assert_eq!(info.rating, 4);
+        assert!(close(info.replay_gain.track_gain, -3.0));
+        assert!(close(library.find(&id).replay_gain.track_gain, -3.0));
+    }
+
+    /// 解析の間にファイルが移った（ファイルの整理）場合は、移った先に書く
+    #[test]
+    fn test_write_uses_the_current_location_of_the_track() {
+        let library = Library::new();
+        let id = library.add("a", None, -20.0);
+        let track = library.scan_track(&id);
+        let moved = library.dir.path().join("moved.wav");
+        std::fs::rename(&track.file_path, &moved).unwrap();
+        library
+            .state
+            .with_db(|db| {
+                crate::repository::relink_track(db, &id, moved.to_str().unwrap(), "moved.wav", None)
+            })
+            .unwrap();
+
+        assert!(write_track(&library.state, &track, &gain()).unwrap());
+        assert!(close(
+            crate::metadata::extract_all_file_info(&moved)
+                .unwrap()
+                .replay_gain
+                .track_gain,
+            -3.0
+        ));
+        assert!(!Path::new(&track.file_path).exists());
     }
 
     #[test]

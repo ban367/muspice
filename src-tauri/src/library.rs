@@ -455,9 +455,9 @@ pub fn discard_track_file(path: &Path) -> AppResult<Option<PathBuf>> {
 }
 
 /// ファイルを消せた曲
-struct DiscardedTrack<'a> {
-    track_id: &'a str,
-    file_path: &'a str,
+struct DiscardedTrack {
+    track_id: String,
+    file_path: String,
     /// ゴミ箱の中での場所（元に戻す時に使う）
     trashed: Option<PathBuf>,
 }
@@ -467,8 +467,9 @@ struct DiscardedTrack<'a> {
 /// ファイルはDBのロックの外で消す（遅いドライブでも、その間ほかのコマンドとアルバムアートの表示を
 /// 止めない）。ファイルを消せなかった曲は、ライブラリに残して`failed_tracks`に入れ、ほかの曲は続ける。
 ///
-/// 1. ロックの中で、ファイルのパスを求める（見つからないトラックは飛ばす）
-/// 2. ロックの外で、ファイルを消す（`discard`。普段は`discard_track_file`。ゴミ箱へ移した場合は、
+/// 1. 曲ごとに、ファイルを書き換えている処理が終わるのを待ってから（`lock_track_file`）、DBのロックの
+///    中でファイルのパスを求める（見つからないトラックは飛ばす）
+/// 2. DBのロックの外で、ファイルを消す（`discard`。普段は`discard_track_file`。ゴミ箱へ移した場合は、
 ///    ゴミ箱の中の場所を返す）。ファイルがすでにない曲は、消せたものとして扱う
 /// 3. ファイルを消せた曲の行を、1つの短いトランザクションで削除する。削除できなかった場合は、
 ///    ゴミ箱へ移したファイルを元の場所へ戻してから、エラーを返す
@@ -479,20 +480,17 @@ pub fn delete_tracks_with_files(
     track_ids: &[String],
     discard: &dyn Fn(&Path) -> AppResult<Option<PathBuf>>,
 ) -> AppResult<DeleteResult> {
-    let targets: Vec<(String, String)> = state.with_db(|db| {
-        let mut targets = Vec::new();
-        for track_id in track_ids {
-            if let Some(path) = crate::repository::try_find_file_path_by_track_id(db, track_id)? {
-                targets.push((track_id.clone(), path));
-            }
-        }
-        Ok(targets)
-    })?;
-
     let mut discarded: Vec<DiscardedTrack> = Vec::new();
     let mut failed_tracks: Vec<DeleteFailure> = Vec::new();
-    for (track_id, file_path) in &targets {
-        let path = Path::new(file_path);
+    for track_id in track_ids {
+        // 同じ曲のタグを書き換えている処理が終わるまで待ち、場所はその後に読む
+        let _file = state.lock_track_file(track_id);
+        let Some(file_path) =
+            state.with_db(|db| crate::repository::try_find_file_path_by_track_id(db, track_id))?
+        else {
+            continue;
+        };
+        let path = Path::new(&file_path);
         // リンクはたどらずに確かめる（リンクの先がなくても、リンクそのものは消す）
         let result = match fs::symlink_metadata(path) {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -500,13 +498,13 @@ pub fn delete_tracks_with_files(
         };
         match result {
             Ok(trashed) => discarded.push(DiscardedTrack {
-                track_id,
+                track_id: track_id.clone(),
                 file_path,
                 trashed,
             }),
             Err(e) => failed_tracks.push(DeleteFailure {
                 track_id: track_id.clone(),
-                file_path: file_path.clone(),
+                file_path,
                 reason: e.to_string(),
             }),
         }
@@ -514,7 +512,7 @@ pub fn delete_tracks_with_files(
 
     let ids: Vec<String> = discarded
         .iter()
-        .map(|track| track.track_id.to_string())
+        .map(|track| track.track_id.clone())
         .collect();
     if let Err(e) = state.with_db(|db| delete_tracks(db, &ids)) {
         restore_discarded_files(&discarded);
@@ -534,7 +532,8 @@ fn restore_discarded_files(discarded: &[DiscardedTrack]) {
         let Some(trashed) = &track.trashed else {
             continue;
         };
-        if let Err(e) = crate::file_organize::move_no_replace(trashed, Path::new(track.file_path)) {
+        if let Err(e) = crate::file_organize::move_no_replace(trashed, Path::new(&track.file_path))
+        {
             log::error!(
                 "ファイルを、ゴミ箱から戻せませんでした: {}: {}",
                 track.file_path,
@@ -913,6 +912,34 @@ mod tests {
         assert!(!a.exists());
         assert!(fixture.trash_path(&a).is_file());
         assert!(locked.is_file());
+    }
+
+    /// 同じ曲のファイルを書き換えている処理があれば、終わるまで待ってから消す
+    #[test]
+    fn test_delete_tracks_with_files_waits_for_a_writer_of_the_same_track() {
+        let fixture = DeleteFixture::new();
+        let a = fixture.add_track("a", true);
+        let trash = |path: &Path| fixture.trash(path);
+        let (sender, done) = std::sync::mpsc::channel();
+
+        std::thread::scope(|scope| {
+            let writing = fixture.state.lock_track_file("a");
+            let (state, trash) = (&fixture.state, &trash);
+            scope.spawn(move || {
+                delete_tracks_with_files(state, &ids(&["a"]), trash).unwrap();
+                sender.send(()).unwrap();
+            });
+            assert!(
+                done.recv_timeout(std::time::Duration::from_millis(200))
+                    .is_err()
+            );
+            assert!(a.is_file());
+            drop(writing);
+            done.recv_timeout(std::time::Duration::from_secs(10))
+                .unwrap();
+        });
+        assert!(!a.exists());
+        assert!(fixture.track_ids().is_empty());
     }
 
     /// ファイルを消している間は、DBのロックを持たない

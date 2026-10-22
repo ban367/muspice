@@ -492,12 +492,15 @@ fn execute_plan(
                     .map(|name| name.to_string_lossy().into_owned())
                     .unwrap_or_default(),
             });
+            // 同じ曲のタグを書き換えている処理が終わるまで待つ（書いている途中のファイルを移さない）
+            let file = state.lock_track_file(&planned.track_id);
             let outcome = if planned.copy {
                 file_organize::copy_for_move(planned, &mut buffer)
                     .map(|copied| (copied.warning.clone(), Some(copied)))
             } else {
                 file_organize::move_files(planned).map(|warning| (warning, None))
             };
+            drop(file);
             match outcome {
                 Ok((warning, copied)) => {
                     if let Some(warning) = warning {
