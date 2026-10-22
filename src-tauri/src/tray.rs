@@ -86,6 +86,11 @@ struct ActiveTray<R: Runtime> {
 }
 
 /// トレイの状態（Tauriの管理状態）
+///
+/// `active`は、メインスレッドでだけ触る（`apply_on_main_thread`・`refresh_menu_on_main_thread`）。
+/// メニューの項目の書き換え（`MenuItem::set_text`）は、メインスレッド以外から呼ぶと、処理を
+/// メインスレッドへ送って終わるまで待つ。ほかのスレッドが`active`のロックを持ったまま待つと、
+/// 同じロックを取ろうとするメインスレッドと互いに待って止まるため。
 pub struct TrayState<R: Runtime> {
     active: Mutex<Option<ActiveTray<R>>>,
     /// 最後に伝えられた、再生中の曲（アイコンを出し直した時・言語を変えた時に、メニューへ出す）
@@ -247,6 +252,9 @@ fn apply_on_main_thread<R: Runtime>(app: &AppHandle<R>, enabled: bool, language:
 }
 
 /// 再生中の曲を、メニューへ反映する（`None`は、再生している曲がない）
+///
+/// どのスレッドからでも呼べる。メニューの書き換えはメインスレッドへ渡し、終わるのを待たない
+/// （`TrayState`の説明のとおり、ロックを持ったままメインスレッドを待たないため）。
 pub fn set_now_playing<R: Runtime>(app: &AppHandle<R>, now_playing: Option<TrayNowPlaying>) {
     let state = app.state::<TrayState<R>>();
     {
@@ -256,9 +264,25 @@ pub fn set_now_playing<R: Runtime>(app: &AppHandle<R>, now_playing: Option<TrayN
         if *current == now_playing {
             return;
         }
-        *current = now_playing.clone();
+        *current = now_playing;
     }
 
+    let handle = app.clone();
+    if let Err(e) = app.run_on_main_thread(move || refresh_menu_on_main_thread(&handle)) {
+        log::warn!("メニューバーのメニューを更新できませんでした: {}", e);
+    }
+}
+
+/// メニューの文言を、最後に伝えられた再生中の曲に合わせる（`set_now_playing`の本体。メインスレッドで呼ぶ）
+///
+/// 曲は、渡された時の値ではなく、実行する時の最新の値を読む（続けて伝えられた場合も、最後の曲になる）。
+fn refresh_menu_on_main_thread<R: Runtime>(app: &AppHandle<R>) {
+    let state = app.state::<TrayState<R>>();
+    let now_playing = state
+        .now_playing
+        .lock()
+        .ok()
+        .and_then(|guard| guard.clone());
     let Ok(active) = state.active.lock() else {
         return;
     };
