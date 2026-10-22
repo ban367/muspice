@@ -413,7 +413,73 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         conn.execute_batch(&format!("PRAGMA user_version = {FTS_SCHEMA_VERSION}"))?;
     }
 
+    rename_formats(conn)?;
+
     Ok(())
+}
+
+/// 以前の版が記録した形式の名前（`AIF`・`WV`）を、今の名前（`library::FORMAT_RENAMES`）に直す
+///
+/// 曲の形式と、自動プレイリストの「形式」の条件の値を直す（「形式がWV」の条件が、`WavPack`の曲に
+/// 合うように）。直すものがなければ、何も書かない。
+fn rename_formats(conn: &Connection) -> Result<()> {
+    for (from, to) in crate::library::FORMAT_RENAMES {
+        conn.execute(
+            "UPDATE tracks SET format = ?2 WHERE format = ?1",
+            [from, to],
+        )?;
+    }
+
+    let playlists: Vec<(String, String)> = conn
+        .prepare("SELECT id, rules FROM playlists WHERE rules LIKE '%\"format\"%'")?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<Result<_>>()?;
+    for (id, rules) in playlists {
+        let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&rules) else {
+            continue;
+        };
+        if rename_format_rules(&mut value) {
+            conn.execute(
+                "UPDATE playlists SET rules = ?1 WHERE id = ?2",
+                [value.to_string(), id],
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// 自動プレイリストの条件のうち、「形式」の文字列の条件の値を、今の名前にする
+/// @returns 直したか
+fn rename_format_rules(value: &mut serde_json::Value) -> bool {
+    match value {
+        // 途中で止めずに、すべての条件を直す（`any`は、最初に直した所で止まる）
+        serde_json::Value::Array(items) => {
+            let mut changed = false;
+            for item in items {
+                changed |= rename_format_rules(item);
+            }
+            changed
+        }
+        serde_json::Value::Object(fields) => {
+            let is_format_rule = fields.get("kind").and_then(|kind| kind.as_str()) == Some("text")
+                && fields.get("field").and_then(|field| field.as_str()) == Some("format");
+            if is_format_rule
+                && let Some(serde_json::Value::String(text)) = fields.get_mut("value")
+                && let Some((_, to)) = crate::library::FORMAT_RENAMES
+                    .iter()
+                    .find(|(from, _)| from.eq_ignore_ascii_case(text.trim()))
+            {
+                *text = (*to).to_string();
+                return true;
+            }
+            let mut changed = false;
+            for item in fields.values_mut() {
+                changed |= rename_format_rules(item);
+            }
+            changed
+        }
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -757,6 +823,55 @@ mod tests {
                 .map(|folder| folder.id),
             Some("f1".to_string())
         );
+    }
+
+    /// 以前の版が記録した形式の名前（`AIF`・`WV`）と、自動プレイリストの形式の条件を、起動時に直す
+    #[test]
+    fn test_migration_renames_formats_and_format_rules() {
+        let conn = open_in_memory();
+        conn.execute_batch(
+            "INSERT INTO tracks (id, file_path, file_name, format, file_size) VALUES
+                ('t1', '/m/a.aif', 'a.aif', 'AIF', 1),
+                ('t2', '/m/b.wv', 'b.wv', 'WV', 1),
+                ('t3', '/m/c.mp3', 'c.mp3', 'MP3', 1);",
+        )
+        .unwrap();
+        let rules = r#"{"match":"all","rules":[
+            {"kind":"text","field":"format","op":"is","value":"wv"},
+            {"kind":"text","field":"title","op":"is","value":"WV"},
+            {"kind":"text","field":"format","op":"is","value":"FLAC"}
+        ],"order":null,"limit":null}"#;
+        conn.execute(
+            "INSERT INTO playlists (id, name, rules) VALUES ('p1', '可逆', ?1)",
+            [rules],
+        )
+        .unwrap();
+
+        setup_connection(&conn).unwrap();
+        setup_connection(&conn).unwrap();
+
+        let formats: Vec<String> = conn
+            .prepare("SELECT format FROM tracks ORDER BY id")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<Result<_>>()
+            .unwrap();
+        assert_eq!(formats, ["AIFF", "WavPack", "MP3"]);
+        let stored: String = conn
+            .query_row("SELECT rules FROM playlists WHERE id = 'p1'", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        let stored: serde_json::Value = serde_json::from_str(&stored).unwrap();
+        let values: Vec<&str> = stored["rules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|rule| rule["value"].as_str().unwrap())
+            .collect();
+        // 形式の条件だけを直す（タイトルの「WV」は、そのまま）
+        assert_eq!(values, ["WavPack", "WV", "FLAC"]);
     }
 
     /// 上限を超える再生回数・スキップ回数が入ったDBも、起動時に直して読めるようにすること

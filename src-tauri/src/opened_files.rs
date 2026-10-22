@@ -186,6 +186,9 @@ fn import_opened(
             errors.extend(report.result.not_copied.into_iter().map(|skipped| {
                 let reason = match skipped.reason {
                     NotCopiedReason::TargetExists => "コピー先に同じ名前のファイルがあります",
+                    NotCopiedReason::TargetRegistered => {
+                        "コピー先の場所を、ライブラリの見つからない曲が使っています"
+                    }
                     NotCopiedReason::SameTarget => "同じコピー先になる曲があります",
                 };
                 format!("{}: {}（{}）", skipped.source, reason, skipped.target)

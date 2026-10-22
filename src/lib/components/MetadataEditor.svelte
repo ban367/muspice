@@ -378,7 +378,7 @@
               {/if}
             </dd>
             <dt>{m.metadataEditor.file.format}</dt>
-            <dd>{track.format.toUpperCase()}</dd>
+            <dd>{track.format}</dd>
             <dt>{m.metadataEditor.file.bitrate}</dt>
             <dd>{track.bitrate ? m.metadataEditor.file.kbps(track.bitrate) : '--'}</dd>
             <dt>{m.metadataEditor.file.sampleRate}</dt>

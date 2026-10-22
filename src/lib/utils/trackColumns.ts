@@ -161,7 +161,8 @@ export function trackCellText(track: Track, id: TrackColumnId): string {
     case 'duration':
       return formatDuration(track.duration);
     case 'format':
-      return track.format.toUpperCase();
+      // Rust側が、表示する名前（`MP3`・`AIFF`・`WavPack`など）で記録している
+      return track.format;
     case 'bitrate':
       return track.bitrate ? `${track.bitrate} kbps` : '';
     case 'sampleRate':

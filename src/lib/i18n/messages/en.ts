@@ -574,6 +574,8 @@ export const en: Messages = {
       outsideLibrary: 'Outside the library folders',
       missing: 'The file is missing',
       targetExists: 'A file with the same name is already there',
+      targetRegistered:
+        'A missing song in the library uses this place (remove it or locate its file first)',
       sameTarget: 'Another selected song would move to the same place'
     },
     apply: 'Organize',
@@ -747,6 +749,8 @@ export const en: Messages = {
     notCopied: (count) => `Not copied (${plural(count, 'song', 'songs')}, not imported):`,
     notCopiedReasons: {
       targetExists: 'A file with the same name is already there',
+      targetRegistered:
+        'A missing song in the library uses this place (remove it or locate its file first)',
       sameTarget: 'Another song would be copied to the same place'
     },
     selectFolder: 'Choose a Folder to Import...',

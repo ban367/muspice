@@ -333,6 +333,8 @@ pub enum OrganizeStatus {
     Missing,
     /// 移動先に、同じ名前のファイルがある
     TargetExists,
+    /// 移動先の場所を、ライブラリの曲（ファイルが見つからない曲）が使っている（ファイルはない）
+    TargetRegistered,
     /// 選んだ曲の中に、同じ移動先になる曲がある
     SameTarget,
 }
@@ -609,17 +611,20 @@ pub fn plan(
         let shared = candidate
             .targets()
             .any(|(_, to)| users.get(&location_key(to)).is_some_and(|u| u.len() > 1));
-        let occupied = candidate.targets().any(|(from, to)| is_occupied(to, from))
-            || candidate
-                .planned
-                .to
-                .to_str()
-                .is_some_and(|to| registered_paths.contains(to));
+        let occupied = candidate.targets().any(|(from, to)| is_occupied(to, from));
+        // ファイルはないが、ライブラリの曲（見つからない曲）の場所（その曲が見つかった時に重なる）
+        let registered = candidate
+            .planned
+            .to
+            .to_str()
+            .is_some_and(|to| registered_paths.contains(to));
 
         entries[candidate.index].status = if shared {
             OrganizeStatus::SameTarget
         } else if occupied {
             OrganizeStatus::TargetExists
+        } else if registered {
+            OrganizeStatus::TargetRegistered
         } else {
             moves.push(candidate.planned);
             OrganizeStatus::Move
@@ -695,10 +700,32 @@ pub(crate) fn copy_no_replace(from: &Path, to: &Path, buffer: &mut [u8]) -> io::
     written
 }
 
+/// 移動先・コピー先のフォルダを作る（なければ）
+///
+/// @returns 作る前からあった、いちばん近いフォルダ（移せなかった時に、作ったフォルダだけを片付ける
+///   `remove_created_folders`の上限）
+pub(crate) fn create_target_folder(dir: &Path) -> io::Result<PathBuf> {
+    let mut existing = dir;
+    while !existing.is_dir() {
+        let Some(parent) = existing.parent() else {
+            break;
+        };
+        existing = parent;
+    }
+    let existing = existing.to_path_buf();
+    fs::create_dir_all(dir)?;
+    Ok(existing)
+}
+
+/// 移せなかった時に、`create_target_folder`で作ったフォルダのうち、空のものを片付ける
+pub(crate) fn remove_created_folders(dir: &Path, existing: &Path) {
+    remove_empty_folders(dir, existing);
+}
+
 /// 1曲のファイル（と、同じ名前の歌詞ファイル）を移す
 ///
-/// 移動先のフォルダは、なければ作る。歌詞ファイルを移せなかった場合は、曲は移したままにして、
-/// 理由を返す（曲の移動は、成功として扱う）。
+/// 移動先のフォルダは、なければ作る（移せなかった場合は、作ったフォルダを片付ける）。歌詞ファイルを
+/// 移せなかった場合は、曲は移したままにして、理由を返す（曲の移動は、成功として扱う）。
 /// @returns 歌詞ファイルを移せなかった場合の理由
 pub fn move_files(planned: &PlannedMove) -> AppResult<Option<String>> {
     let failed = |e: io::Error| {
@@ -708,11 +735,20 @@ pub fn move_files(planned: &PlannedMove) -> AppResult<Option<String>> {
             format!("ファイルを移せませんでした: {}", e)
         })
     };
-    if let Some(parent) = planned.to.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| AppError::Io(format!("移動先のフォルダを作れませんでした: {}", e)))?;
+    let created = match planned.to.parent() {
+        Some(parent) => Some((
+            parent,
+            create_target_folder(parent)
+                .map_err(|e| AppError::Io(format!("移動先のフォルダを作れませんでした: {}", e)))?,
+        )),
+        None => None,
+    };
+    if let Err(e) = move_no_replace(&planned.from, &planned.to) {
+        if let Some((parent, existing)) = &created {
+            remove_created_folders(parent, existing);
+        }
+        return Err(failed(e));
     }
-    move_no_replace(&planned.from, &planned.to).map_err(failed)?;
     // 移した曲は、この後でDBの場所を書き換える。ライブラリフォルダの監視が、この移動で再スキャン
     // しないように（`own_writes`）
     crate::own_writes::record(&planned.from);
@@ -751,13 +787,24 @@ pub type Discard<'a> = dyn Fn(&Path) -> AppResult<Option<PathBuf>> + 'a;
 /// ボリュームをまたいで1曲を移す前半: 曲（と、同じ名前の歌詞ファイル）をコピーし、大きさを確かめる
 ///
 /// 元は、まだ消さない（データベースを書き換えてから、`discard_originals`で消す）。移動先のフォルダは、
-/// なければ作る。曲のコピーが元と同じ大きさでなければ、コピーを消してエラーにする。
+/// なければ作る。曲のコピーが元と同じ大きさでなければ、コピーを消してエラーにする（どちらの失敗でも、
+/// 作ったフォルダは片付ける）。
 pub fn copy_for_move(planned: &PlannedMove, buffer: &mut [u8]) -> AppResult<CopiedMove> {
-    if let Some(parent) = planned.to.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| AppError::Io(format!("移動先のフォルダを作れませんでした: {}", e)))?;
-    }
+    let created = match planned.to.parent() {
+        Some(parent) => Some((
+            parent,
+            create_target_folder(parent)
+                .map_err(|e| AppError::Io(format!("移動先のフォルダを作れませんでした: {}", e)))?,
+        )),
+        None => None,
+    };
+    let cleanup = || {
+        if let Some((parent, existing)) = &created {
+            remove_created_folders(parent, existing);
+        }
+    };
     let written = copy_no_replace(&planned.from, &planned.to, buffer).map_err(|e| {
+        cleanup();
         AppError::Io(if e.kind() == io::ErrorKind::AlreadyExists {
             "移動先に同じ名前のファイルがあります".to_string()
         } else {
@@ -768,6 +815,7 @@ pub fn copy_for_move(planned: &PlannedMove, buffer: &mut [u8]) -> AppResult<Copi
     let copied_size = fs::metadata(&planned.to).map(|metadata| metadata.len());
     if source_size.ok() != Some(written) || copied_size.ok() != Some(written) {
         fs::remove_file(&planned.to).ok();
+        cleanup();
         return Err(AppError::Io(
             "コピーしたファイルの大きさが、元と違います".to_string(),
         ));
@@ -970,6 +1018,33 @@ mod tests {
     use super::*;
     use crate::device_manifest::test_support::TempDir;
     use crate::models::ReplayGain;
+
+    /// 移せなかった・コピーできなかった時は、そのために作った空のフォルダを残さない（前からあるフォルダは残す）
+    #[test]
+    fn test_failed_moves_remove_the_folders_they_created() {
+        let dir = TempDir::new();
+        let library = dir.path().join("Music");
+        fs::create_dir_all(library.join("Existing")).unwrap();
+        let planned = |to: PathBuf, copy: bool| PlannedMove {
+            track_id: "t1".to_string(),
+            // 元のファイルがない（移す前に消された）
+            from: dir.path().join("gone.mp3"),
+            to,
+            lyrics: None,
+            library_folder: Some(library.clone()),
+            copy,
+        };
+
+        let to = library.join("Existing/New Artist/New Album/01 a.mp3");
+        assert!(move_files(&planned(to.clone(), false)).is_err());
+        assert!(!library.join("Existing/New Artist").exists());
+        assert!(library.join("Existing").is_dir());
+
+        let mut buffer = vec![0u8; 64];
+        assert!(copy_for_move(&planned(to, true), &mut buffer).is_err());
+        assert!(!library.join("Existing/New Artist").exists());
+        assert!(library.join("Existing").is_dir());
+    }
 
     fn track(id: &str, path: &Path) -> Track {
         Track {
@@ -1270,7 +1345,8 @@ mod tests {
             None,
         );
 
-        assert_eq!(statuses(&plan), [OrganizeStatus::TargetExists]);
+        // ファイルがある場合（`TargetExists`）と、理由を分ける
+        assert_eq!(statuses(&plan), [OrganizeStatus::TargetRegistered]);
     }
 
     #[test]

@@ -1056,7 +1056,8 @@ pub struct UnreadTagsTrack {
 /// 後から追加した項目をまだファイルから読んでいないトラックを、rowidの順に取得する
 ///
 /// `after_rowid`より後のトラックを、`limit`件まで返す（読めなかったトラックは未読のまま残るため、
-/// 件数ではなくrowidで続きを指定する）。
+/// 件数ではなくrowidで続きを指定する）。見つからない曲（外れた外付けドライブの曲など）は除く
+/// （読めないファイルを、起動のたびに読みに行かない。見つかった後の起動で読む）。
 pub fn find_tracks_with_unread_tags(
     conn: &Connection,
     after_rowid: i64,
@@ -1067,7 +1068,8 @@ pub fn find_tracks_with_unread_tags(
         "SELECT rowid, id, file_path, album_artist_read = 0, sort_tags_read = 0,
                 multi_values_read = 0, artist, genre
          FROM tracks
-         WHERE (album_artist_read = 0 OR sort_tags_read = 0 OR multi_values_read = 0) AND rowid > ?1
+         WHERE (album_artist_read = 0 OR sort_tags_read = 0 OR multi_values_read = 0)
+               AND missing_since IS NULL AND rowid > ?1
          ORDER BY rowid LIMIT ?2",
         &[&after_rowid, &limit],
         |row| {
@@ -3506,6 +3508,20 @@ mod tests {
         assert_eq!(
             again.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(),
             ["t2", "t3"]
+        );
+        // 見つからない曲は、見つかるまで含めない
+        conn.execute(
+            "UPDATE tracks SET missing_since = '2026-10-01T00:00:00+00:00' WHERE id = 't2'",
+            [],
+        )
+        .unwrap();
+        let without_missing = find_tracks_with_unread_tags(&conn, 0, 10).unwrap();
+        assert_eq!(
+            without_missing
+                .iter()
+                .map(|t| t.id.as_str())
+                .collect::<Vec<_>>(),
+            ["t3"]
         );
         assert_eq!(
             find_track_by_id(&conn, "t1")

@@ -92,7 +92,7 @@ export interface Playlist {
 ### インポート/削除結果型
 
 - `ImportResult`: `importedCount`, `skippedCount`, `relinkedCount`（見つからない曲を、移動・改名された先のファイルに結び付けた数）, `errorCount`, `errors[]`, `copiedCount`（音楽フォルダへコピーして取り込んだ数。`importedCount`・`relinkedCount`の内数）, `notCopied[]`（音楽フォルダへコピーしなかった曲。取り込んでいない）
-- `NotCopied`: `source`（元のファイルのパス）, `target`（コピー先。音楽フォルダからの場所）, `reason`（`targetExists`: コピー先に同じ名前のファイルがある | `sameTarget`: 取り込む曲の中に同じコピー先になる曲がある）
+- `NotCopied`: `source`（元のファイルのパス）, `target`（コピー先。音楽フォルダからの場所）, `reason`（`targetExists`: コピー先に同じ名前のファイルがある | `targetRegistered`: コピー先の場所を、ライブラリの見つからない曲が使っている（ファイルはない。その曲が見つかった時に重なるため、コピー先にしない） | `sameTarget`: 取り込む曲の中に同じコピー先になる曲がある）
 - `ImportOutcome`: `{ kind: 'imported', result: ImportResult }` | `{ kind: 'chooseFolderMode', pending: PendingFolderImport }`（フォルダを参照するかコピーするかを選ぶ。選ぶまで取り込まない） | `{ kind: 'musicFolderMissing', path }`（音楽フォルダが見つからないため、取り込まなかった） | `{ kind: 'notEnoughSpace', requiredBytes, freeBytes }`（音楽フォルダのドライブの空き容量が足りないため、取り込まなかった）
 - `PendingFolderImport`: `folders[]`（取り込むフォルダ）, `trackCount`・`totalBytes`（取り込む曲の数と大きさ。一緒にドロップしたファイルを含む）, `copyCount`・`copyBytes`（そのうちコピーする曲。ライブラリにある曲はコピーしない）, `musicFolder`, `musicFolderExists`, `freeBytes`（音楽フォルダのドライブの空き容量。取得できなければ`null`）
 - `FolderImportMode`: `reference`（今の場所のまま参照する。フォルダをライブラリフォルダとして記録する） | `copy`（音楽フォルダへコピーする。フォルダは記録しない）
@@ -141,6 +141,7 @@ export interface Playlist {
 - `playlist_tracks(playlist_id)`・`playlist_tracks(track_id)` にインデックス（`track_id`は、曲を削除する時に外部キーがその曲の行を探すため。主キーの`(playlist_id, track_id)`は使えない）
 - `play_history(track_id)`・`play_history(played_at)` にインデックス
 - `playlist_tracks`, `play_history` は `tracks` / `playlists` への外部キー（`ON DELETE CASCADE`）
+- `tracks.format`は、拡張子の大文字（`MP3`・`FLAC`・`M4A`など）。同じ形式の別の拡張子と略称は、一般的なプレーヤーの表記にそろえる（`.aif`・`.aiff`は`AIFF`、`.wv`は`WavPack`。`library::FORMAT_RENAMES`）。以前の版が記録した`AIF`・`WV`と、自動プレイリストの「形式」の条件の値は、起動時に直す
 - 外部キーは、DBを開く時（`db::setup_connection`）に`PRAGMA foreign_keys = ON`で有効にする。SQLiteの既定は無効で、接続ごとの設定のため、同梱のSQLiteのビルドの既定値に頼らない。テストの接続も同じ関数を通す（`db::open_in_memory`）
 - `playlists.folder_id` は `playlist_folders` を指すが、外部キーにはしない。フォルダを削除する時に、中のプレイリストの `folder_id` をNULLにする（プレイリストは消さない）
 - `tracks.file_modified_at` はファイルの更新日時（UNIX時間の秒）。再スキャンで、サイズとあわせて変更の検出に使う。列を追加する前に登録したトラックはNULLで、再スキャンで（ファイルを読み直さずに）記録する。サイズが同じで更新日時がちょうど1時間（±2秒）ずれた場合は、夏時間の切り替えによるずれ（更新日時をローカル時刻で記録するFAT32など）とみなし、読み直さずに日時だけ記録する
@@ -209,7 +210,7 @@ export interface Playlist {
 
 - 読み込むのは未読の項目だけで、ほかの項目と`updated_at`は変えない（`refresh_library_metadata`と違い、以前のバージョンでDBだけに保存した編集内容を失わない）
 - 200曲ずつ、ファイルの読み取りはDBロックの外で行い、1つのトランザクションで記録する。読み込んだトラックは`album_artist_read`・`sort_tags_read`を1にするため、対象がなくなれば次回以降の起動では何もしない
-- ファイルを読めなかったトラック（外付けドライブが外れているなど）は未読のまま残し、次回の起動で読み直す。途中でアプリを終了した場合も、次回の起動で続きから読み込む
+- 見つからない曲（`missing_since`のある曲）は読みに行かず、未読のまま残す（見つかった後の起動で読む）。ファイルを読めなかったトラック（外付けドライブが外れているなど）は未読のまま残し、次回の起動で読み直す。途中でアプリを終了した場合も、次回の起動で続きから読み込む
 - 未読だった項目にタグのあるトラックが1曲でもあれば、終わった時に`LibraryChanged`を送る（一覧のまとめ方・並びが変わるため）
 - 複数の値に対応する前に登録したトラック（`multi_values_read = 0`）は、アーティスト・ジャンルを読み直す。ファイルに複数の値があり、今の値がその最初の値と同じ場合だけ、すべての値（`; `でつないだ文字列）に置き換える（アプリで編集した値・もともと1つの値は変えない）
 
@@ -244,16 +245,17 @@ export interface Playlist {
   - アプリが起動していない状態で開かれたファイルは、起動の準備が済む前にOSから届くため、取っておいて、準備が済んでから開く
   - ファイルの関連付けは`tauri.conf.json`の`bundle.fileAssociations`に書く（対応する拡張子。役割は`Viewer`、順位は`Alternate`で、既定のアプリにはならない）。macOSでは、システムが種類（UTI）を宣言している形式は種類で、そうでない形式（Ogg・Opus・WavPack・APE）は拡張子で宣言する。Linuxのmimeの種類は`tauri.linux.conf.json`に書く（共通の設定に`mimeType`を書くと、Tauriが、macOSで「すべての音声」として宣言してしまうため）
 - 音楽フォルダへのコピー（`music_folder_copy.rs`・`commands/import.rs`の`import_with_copy`。ADR-069）: 音楽フォルダを設定し、設定`copyToMusicFolder`（既定はオン）がオンの時は、取り込む曲を音楽フォルダへ書式（`musicFolderTemplate`）どおりにコピーしてから、コピー先の曲を登録する
-  - ファイル（`import_files`・ドロップ・開かれたファイル）は、設定に従う。ライブラリフォルダの外のフォルダ（`import_folder`・ドロップ）は、走査して預かり（Tauriの管理状態`PendingImport`。多くても1つ）、`chooseFolderMode`を返す（外付けドライブの大きなフォルダを、誤ってコピーしないため）。ドロップは、選んだ方法で一緒にドロップしたファイルも取り込む。コピーする曲がない（空のフォルダ・ライブラリにある曲だけ）場合と、ライブラリフォルダの中のフォルダは、選ばせずに参照する。設定がオフなら、どれも参照する
+  - ファイル（`import_files`・ドロップ・開かれたファイル）は、設定に従う。ライブラリフォルダの外のフォルダ（`import_folder`・ドロップ）は、走査して預かり（Tauriの管理状態`PendingImport`。多くても1つ。預かっている間に、新しく預けようとした場合は、先に預かったものを置き換えずに`VALIDATION`）、`chooseFolderMode`を返す（外付けドライブの大きなフォルダを、誤ってコピーしないため）。ドロップは、選んだ方法で一緒にドロップしたファイルも取り込む。コピーする曲がない（空のフォルダ・ライブラリにある曲だけ）場合と、ライブラリフォルダの中のフォルダは、選ばせずに参照する。設定がオフなら、どれも参照する
   - コピーした時は、元のフォルダをライブラリフォルダとして記録しない。元のファイルは残す（移動はしない）
   - ライブラリにある曲（登録済みの曲・ライブラリフォルダの中の曲）は、コピーせずに参照する（登録済みの曲は`duplicateAction`に従う）
   - コピー先は、音楽フォルダからの書式どおりの場所（書式に`/`がなくても、音楽フォルダの直下）。置き方の決まり（値のない項目・ファイル名に使えない文字）は、ファイルの整理と同じ（`file_organize::Template`）
   - 上書きしない: コピー先に同じ名前のファイルがある曲（見つからない曲として登録されている場所を含む）・取り込む曲の中で同じコピー先になる曲（大文字と小文字・文字の形だけが違う場所を含む）は、取り込まずに`notCopied`で知らせる。「置き換え」でも、ファイルは置き換えない。コピー先のファイルが元と同じ内容なら、コピー済みとしてコピー先を参照する（同じファイルを2回取り込んだ場合。登録済みならスキップ）
-  - 曲と同じ名前の歌詞ファイル（`.lrc`）は一緒にコピーする（歌詞ファイルのコピー先にファイルがあれば、曲もコピーしない）。フォルダの画像（`cover.jpg`など）は、元のフォルダの曲がすべてコピーされ、コピー先が1つのフォルダで、そのフォルダへコピーされた曲がすべて同じフォルダから来た場合に、一緒にコピーする（同じ名前の画像があればコピーしない）
+  - 曲と同じ名前の歌詞ファイル（`.lrc`）は一緒にコピーする（歌詞ファイルのコピー先にファイルがあれば、曲もコピーしない）。フォルダの画像（`cover.jpg`など）は、元のフォルダの曲がすべてコピーされ、コピー先が1つのフォルダで、そのフォルダへコピーされた曲がすべて同じフォルダから来た場合に、一緒にコピーする（同じ名前の画像があればコピーしない）。登録が途中のバッチで失敗した場合も、それまでに登録した曲のフォルダの画像はコピーしてから、エラーを返す。コピーできなかった曲のために作ったフォルダは、空なら片付ける
   - コピーは別名（`.part`）に書いてから、上書きしない移動（ハードリンク。作れないファイルシステムでは、ないことを確かめてから名前を変える）で置く。一時ファイルの名前のリンクはたどらない。`std::fs::copy`は使わない（macOSの拡張属性をコピーしないため）。更新日時は元に合わせる。ドライブをまたいでもよい
   - 順序: `lock_library_scan`の中で、音楽フォルダがあるかを確かめ（なければ`musicFolderMissing`）、コピーする曲を読んでコピー先を決め、要る容量（曲と歌詞ファイル。64 MiBの余裕を足す）と空き容量を比べ（足りなければ`notEnoughSpace`）、どちらの場合も何も取り込まない。その後、ライブラリにある曲を参照して登録し、コピーしてから50件ずつ登録する（コピーはDBロックの外）。登録できなかった曲のコピーは消す。コピー先の曲が見つからない曲と同じ曲なら、その曲に結び付ける（`relinkedCount`）
   - `ImportProgress`の`phase`は、ファイルを読む間は`reading`、コピーする間は`copying`（段階ごとに数え直す）
 - 曲とファイルの削除（`delete_tracks_with_files_command`。`library::delete_tracks_with_files`。ADR-061）
+  - 全体を、スキャンのロック（`lock_library_scan`）の中で行う（パスを求めてから消すまでの間に、ファイルの整理が同じ曲を移すと、移した先のファイルがライブラリの外に残るため）
   - DBのロックの中でファイルのパスを求め（見つからないトラックは飛ばす）、ロックの外でファイルを消し、ファイルを消せた曲の行を1つの短いトランザクションで削除する。遅いドライブでも、ファイルを消している間、ほかのコマンドとアルバムアートの表示（`albumart://`）を止めない
   - ファイルは、macOSではゴミ箱へ移し（`trash.rs`）、ほかのOSでは完全に削除する（`library::discard_track_file`）。すでにファイルがない曲は、消せたものとして扱う（リンクはたどらずに確かめる）
   - ファイルを消せなかった曲（ゴミ箱のないボリューム・権限がないなど）は、ライブラリに残し、`failedTracks`に理由を入れる（ほかの曲は続ける）
@@ -580,7 +582,7 @@ ReplayGainのタグがない曲のラウドネスを解析して、ゲインと�
 
 - `destination`（`OrganizeDestination`）: `libraryFolder`（曲のあるライブラリフォルダの中。書式は`template`） | `musicFolder`（音楽フォルダへ集める。`template`は使わず、設定の音楽フォルダの書式`musicFolderTemplate`を使う。音楽フォルダが未設定・見つからない場合は`NOT_FOUND`）
 - `OrganizePlan`: `entries: OrganizeEntry[]`（選んだ順）, `copyCount`・`copyBytes`（ボリュームをまたぐため、コピーしてから元を消す曲の数と、要る容量。歌詞ファイルを含む。音楽フォルダへ集める時だけ）, `freeBytes`（音楽フォルダのドライブの空き容量。音楽フォルダへ集める時だけ。取得できなければ`null`）。`OrganizeEntry`: `{ trackId, currentPath, newPath: string | null, status }`。`currentPath`は曲のあるライブラリフォルダからの場所（表示用。フォルダの外の曲は、ファイルのパス）、`newPath`は移す先の基準のフォルダ（ライブラリフォルダか音楽フォルダ）からの場所
-- `status`（`OrganizeStatus`）: `move`（動かす）・`unchanged`（すでに書式どおりの場所にある）・`outsideLibrary`（ライブラリフォルダの外にある）・`missing`（ファイルが見つからない）・`targetExists`（移動先に同じ名前のファイルがある）・`sameTarget`（選んだ曲の中に、同じ移動先になる曲がある）。動かすのは`move`だけ
+- `status`（`OrganizeStatus`）: `move`（動かす）・`unchanged`（すでに書式どおりの場所にある）・`outsideLibrary`（ライブラリフォルダの外にある）・`missing`（ファイルが見つからない）・`targetExists`（移動先に同じ名前のファイルがある）・`targetRegistered`（移動先の場所を、ライブラリの見つからない曲が使っている。ファイルはない）・`sameTarget`（選んだ曲の中に、同じ移動先になる曲がある）。動かすのは`move`だけ。移せなかった曲のために作ったフォルダは、空なら片付ける
 - `OrganizeResult`: `movedCount`, `skippedCount`（`move`・`unchanged`以外の数）, `failedCount`, `errors[]`（`場所: 理由`。歌詞ファイルだけを移せなかった場合と、元のファイルを消せなかった場合も入る）, `cancelled`（途中で中止したか）
 - 入力の誤り（曲の指定がない・IDの形が違う・書式の誤り）は`VALIDATION`。書式の誤りは、理由をメッセージで返す（画面は、そのまま表示する）
 - 書式（`Template`。255文字まで）

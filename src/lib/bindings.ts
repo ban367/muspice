@@ -1578,6 +1578,8 @@ export type NotCopied = {
 export type NotCopiedReason = 
 /**  コピー先に、同じ名前のファイルがある */
 "targetExists" | 
+/**  コピー先の場所を、ライブラリの曲（ファイルが見つからない曲）が使っている（ファイルはない） */
+"targetRegistered" | 
 /**  取り込む曲の中に、同じコピー先になる曲がある */
 "sameTarget";
 
@@ -1686,6 +1688,8 @@ export type OrganizeStatus =
 "missing" | 
 /**  移動先に、同じ名前のファイルがある */
 "targetExists" | 
+/**  移動先の場所を、ライブラリの曲（ファイルが見つからない曲）が使っている（ファイルはない） */
+"targetRegistered" | 
 /**  選んだ曲の中に、同じ移動先になる曲がある */
 "sameTarget";
 

@@ -111,8 +111,32 @@ struct PendingTargets {
 }
 
 impl PendingImport {
-    fn hold(&self, targets: PendingTargets) {
-        if let Ok(mut pending) = self.0.lock() {
+    /// 新しく預かる（すでに預かっている取り込みがあれば、置き換えずに`VALIDATION`）
+    ///
+    /// 参照かコピーかを選ぶ画面を出している間に、別のフォルダをドロップ・選んだ場合に、先に預かった
+    /// フォルダを黙って手放さない（取り込まれずに消えてしまう）。
+    fn hold_new(&self, targets: PendingTargets) -> AppResult<()> {
+        let mut pending = self
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if pending.is_some() {
+            return Err(AppError::Validation(
+                "取り込み方（参照かコピーか）を選んでいるフォルダがあります。先に選ぶか、やめてから取り込んでください"
+                    .to_string(),
+            ));
+        }
+        *pending = Some(targets);
+        Ok(())
+    }
+
+    /// 取り出した取り込みを、預かり直す（コピーできなかった時。その間に新しく預かったものは置き換えない）
+    fn hold_again(&self, targets: PendingTargets) {
+        let mut pending = self
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if pending.is_none() {
             *pending = Some(targets);
         }
     }
@@ -262,7 +286,7 @@ pub async fn import_pending_folders(
             outcome,
             Ok(ImportOutcome::MusicFolderMissing { .. } | ImportOutcome::NotEnoughSpace { .. })
         ) {
-            pending.hold(targets);
+            pending.hold_again(targets);
         }
         outcome
     })
@@ -324,10 +348,12 @@ fn start_import(
             if summary.copy_count == 0 {
                 return run_import(app_handle, &targets.files, &folders, duplicate_action, None);
             }
-            app_handle.state::<PendingImport>().hold(PendingTargets {
-                files: targets.files,
-                folders,
-            });
+            app_handle
+                .state::<PendingImport>()
+                .hold_new(PendingTargets {
+                    files: targets.files,
+                    folders,
+                })?;
             return Ok(ImportOutcome::ChooseFolderMode { pending: summary });
         }
     }
@@ -767,16 +793,21 @@ fn import_with_copy(
 
     // 4. コピーして登録する
     let mut buffer = vec![0u8; COPY_BUFFER_SIZE];
-    let copied = copy_and_register(&plan.copies, &copy.folder, state, on_progress, &mut result)?;
+    let (copied, failure) =
+        copy_and_register(&plan.copies, &copy.folder, state, on_progress, &mut result)?;
     for planned in &copied {
         placed.insert(planned.source.clone(), planned.target.clone());
     }
+    // 途中で登録できなくなった場合も、登録できた曲のフォルダの画像はコピーする
     copy_folder_images(&copied, &mut buffer);
     // 見つからない曲に結び付けた曲は、アルバムアートを読み直させる
     if result.relinked_count > 0
         && let Ok(mut cache) = state.album_art_cache.lock()
     {
         cache.clear();
+    }
+    if let Some(e) = failure {
+        return Err(e);
     }
     result.copied_count = to_count(copied.len())?;
     result.not_copied = plan.not_copied;
@@ -788,14 +819,16 @@ fn import_with_copy(
 /// コピーはDBロックの外で行い、登録は50件ずつ、1つのトランザクションで行う。登録できなかった曲の
 /// コピーは消す（取り込まなかった曲のファイルを、音楽フォルダに残さない）。コピー先の曲が、見つからない
 /// 曲と同じ曲なら、新しい曲として登録せず、その曲に結び付ける（`relinked_count`）。
-/// @returns コピーして登録した曲
+/// バッチの登録（トランザクション）に失敗した場合は、そこでやめ、それまでに登録した曲と、失敗の理由を
+/// 返す（前のバッチで登録した曲は残る。呼び出し側は、その曲のフォルダの画像をコピーしてからエラーにする）。
+/// @returns コピーして登録した曲と、途中でやめた場合の理由
 fn copy_and_register<'a>(
     copies: &'a [PlannedCopy],
     music_folder: &Path,
     state: &AppState,
     on_progress: &dyn Fn(ImportProgress),
     result: &mut ImportResult,
-) -> AppResult<Vec<&'a PlannedCopy>> {
+) -> AppResult<(Vec<&'a PlannedCopy>, Option<AppError>)> {
     const BATCH_SIZE: usize = 50;
     let total = u32::try_from(copies.len())
         .map_err(|_| AppError::Validation("ファイル数が多すぎます".to_string()))?;
@@ -884,7 +917,7 @@ fn copy_and_register<'a>(
                 for (planned, lyrics_copied, ..) in &pending {
                     remove_copy(planned, *lyrics_copied, music_folder);
                 }
-                return Err(e);
+                return Ok((registered, Some(e)));
             }
         };
         for ((planned, lyrics_copied, _, action, _), outcome) in pending.into_iter().zip(outcomes) {
@@ -908,7 +941,7 @@ fn copy_and_register<'a>(
             total
         );
     }
-    Ok(registered)
+    Ok((registered, None))
 }
 
 /// コピー先の、登録するパス
@@ -1236,6 +1269,38 @@ mod tests {
         AppState::new(conn)
     }
 
+    fn pending_files(name: &str) -> PendingTargets {
+        PendingTargets {
+            files: vec![PathBuf::from(name)],
+            folders: Vec::new(),
+        }
+    }
+
+    /// 預かっている間に新しく預けようとしても、先に預かったものを置き換えない
+    #[test]
+    fn test_pending_import_is_not_replaced_silently() {
+        let pending = PendingImport::default();
+        pending.hold_new(pending_files("/first.mp3")).unwrap();
+
+        assert!(matches!(
+            pending.hold_new(pending_files("/second.mp3")),
+            Err(AppError::Validation(_))
+        ));
+        let taken = pending.take().unwrap();
+        assert_eq!(taken.files, [PathBuf::from("/first.mp3")]);
+
+        // 取り出してから預かり直すまでの間に新しく預かったものは、置き換えない
+        pending.hold_new(pending_files("/second.mp3")).unwrap();
+        pending.hold_again(taken);
+        assert_eq!(
+            pending.take().unwrap().files,
+            [PathBuf::from("/second.mp3")]
+        );
+        // 何も預かっていなければ、預かり直す
+        pending.hold_again(pending_files("/first.mp3"));
+        assert!(pending.take().is_some());
+    }
+
     /// 音楽ファイル（WAV）を2つ、フォルダ（中にWAVが1つ）を1つ、音楽ではないファイルを1つ作る
     fn fixture() -> (PathBuf, [PathBuf; 4]) {
         let dir = std::env::temp_dir().join(format!("muspice-test-{}", Uuid::new_v4()));
@@ -1505,6 +1570,68 @@ mod tests {
             *progress.borrow(),
             [(ImportPhase::Reading, 1, 1), (ImportPhase::Copying, 1, 1)]
         );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// 途中のバッチを登録できなかった場合も、それまでに登録した曲のフォルダの画像はコピーする
+    #[test]
+    fn test_folder_images_are_copied_for_tracks_registered_before_a_failure() {
+        let dir = std::env::temp_dir().join(format!("muspice-test-{}", Uuid::new_v4()));
+        let state = test_state();
+        let copy = music_folder(&state, &dir);
+        let tagged = |path: &Path, album: &str| {
+            write_wav(path);
+            let metadata = crate::models::Metadata {
+                artist: Some("Artist".to_string()),
+                album: Some(album.to_string()),
+                ..Default::default()
+            };
+            crate::metadata::update_file_metadata(path, &metadata, false).unwrap();
+        };
+        // アルバムA（1曲と画像。1つ目のバッチ）と、アルバムB（50曲。2つ目のバッチにかかる）
+        let album_a = dir.join("A");
+        let album_b = dir.join("B");
+        std::fs::create_dir_all(&album_a).unwrap();
+        std::fs::create_dir_all(&album_b).unwrap();
+        let mut files = vec![album_a.join("a.wav")];
+        tagged(&files[0], "Album A");
+        std::fs::write(
+            album_a.join("cover.jpg"),
+            crate::metadata::test_images::jpeg(4, 4),
+        )
+        .unwrap();
+        for index in 0..50 {
+            let file = album_b.join(format!("b{index:02}.wav"));
+            tagged(&file, "Album B");
+            files.push(file);
+        }
+
+        // 2つ目のバッチのコピーを始めた所で、トランザクションを開いておき、登録を失敗させる
+        let blocked = std::cell::Cell::new(false);
+        let folders: [ScannedImportFolder; 0] = [];
+        let imported = import_scanned(
+            &state,
+            &files,
+            &folders,
+            DuplicateAction::Skip,
+            Some(&copy),
+            &|event| {
+                if event.phase == ImportPhase::Copying && event.current == 51 && !blocked.get() {
+                    blocked.set(true);
+                    state
+                        .with_db(|db| Ok(db.execute_batch("BEGIN").unwrap()))
+                        .unwrap();
+                }
+            },
+        );
+
+        assert!(imported.is_err());
+        state
+            .with_db(|db| Ok(db.execute_batch("ROLLBACK").unwrap()))
+            .unwrap();
+        // 1つ目のバッチ（アルバムAとアルバムBの49曲）は登録したまま、アルバムAの画像もコピーした
+        assert_eq!(track_paths(&state).len(), 50);
+        assert!(copy.folder.join("Artist/Album A/cover.jpg").is_file());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

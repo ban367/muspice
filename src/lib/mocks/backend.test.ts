@@ -123,7 +123,7 @@ describe('形式の変換', () => {
     expect(tracks).toHaveLength(count + 1);
     expect(tracks.find((t) => t.filePath.startsWith('/Users/mock/Export/'))).toMatchObject({
       filePath: '/Users/mock/Export/Aoi Sora/Blue Horizon/02 Paper Planes.m4a',
-      format: 'm4a',
+      format: 'M4A',
       bitrate: 192,
       title: 'Paper Planes'
     });
@@ -156,7 +156,7 @@ describe('形式の変換', () => {
     expect(replaced).toMatchObject({
       filePath: track.filePath.replace(/\.mp3$/, '.flac'),
       fileName: '02 Paper Planes.flac',
-      format: 'flac',
+      format: 'FLAC',
       title: 'Paper Planes',
       isFavorite: true
     });
@@ -1656,7 +1656,7 @@ describe('インポート', () => {
       'Picked Song A.flac',
       'Picked Song B.mp3'
     ]);
-    expect(picked.map((track) => track.format).sort()).toEqual(['flac', 'mp3']);
+    expect(picked.map((track) => track.format).sort()).toEqual(['FLAC', 'MP3']);
     expect((await commands.getLibraryFolders()).folders).toHaveLength(folders);
     expect(events.map((e) => e.event)).toContain('library-changed');
 
