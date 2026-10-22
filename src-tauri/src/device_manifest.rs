@@ -13,7 +13,7 @@
 use crate::error::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::io::{self, Write};
+use std::io;
 use std::path::{Path, PathBuf};
 
 /// 管理ファイルを置くフォルダ（デバイスのフォルダの直下）
@@ -218,13 +218,12 @@ fn write_manifest_file(root: &Path, content: &[u8]) -> io::Result<()> {
         ));
     }
 
-    let temp_path = dir.join(MANIFEST_TEMP_FILE);
-    let mut file = create_temp_file(&temp_path)?;
-    file.write_all(content)?;
     // 置き換える前にディスクへ書き出す（取り外しで、空の管理ファイルが残らないようにする）
-    file.sync_all()?;
-    drop(file);
-    fs::rename(&temp_path, dir.join(MANIFEST_FILE))
+    crate::atomic_file::replace_file(
+        &dir.join(MANIFEST_FILE),
+        &dir.join(MANIFEST_TEMP_FILE),
+        content,
+    )
 }
 
 #[cfg(test)]

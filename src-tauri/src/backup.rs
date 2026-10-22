@@ -347,8 +347,12 @@ pub fn stage_restore(source: &Path, app_data_dir: &Path) -> AppResult<()> {
 
 /// 用意してある復元を当てる（起動時、DBと設定を開く前に呼ぶ）
 ///
-/// DBのファイル（と、前のDBの一時ファイル）を置き換え、設定を含む復元なら設定のファイルも置き換える。
-/// 用意が途中で終わっていた（DBがない）場合は、用意を消すだけ。
+/// 設定を含む復元なら設定のファイルを置き換えてから、DBのファイル（と、前のDBの一時ファイル）を
+/// 置き換える。用意が途中で終わっていた（DBがない）場合は、用意を消すだけ。
+///
+/// 用意したDBがあることを、復元を当てる印にしているため、DBを最後に置き換える（DBを先に
+/// 置き換えた後に落ちると、次の起動では印がなく、設定の復元が黙って失われる）。設定を置き換えた
+/// 後に落ちた場合は、次の起動でDBだけを置き換える。
 /// @returns 復元したか
 pub fn apply_staged_restore(app_data_dir: &Path) -> AppResult<bool> {
     let dir = restore_dir(app_data_dir);
@@ -358,17 +362,17 @@ pub fn apply_staged_restore(app_data_dir: &Path) -> AppResult<bool> {
     let staged_db = dir.join(DB_FILE_NAME);
     let applied = staged_db.is_file();
     if applied {
+        let staged_settings = dir.join(SETTINGS_FILE_NAME);
+        if staged_settings.is_file() {
+            fs::rename(&staged_settings, app_data_dir.join(SETTINGS_FILE_NAME))
+                .map_err(|e| AppError::Io(format!("設定を置き換えられません: {}", e)))?;
+        }
         // 前のDBのジャーナルが残っていると、置き換えたDBに当てられてしまうため、先に消す
         for suffix in ["-journal", "-wal", "-shm"] {
             remove_if_exists(&app_data_dir.join(format!("{DB_FILE_NAME}{suffix}")))?;
         }
         fs::rename(&staged_db, app_data_dir.join(DB_FILE_NAME))
             .map_err(|e| AppError::Io(format!("DBを置き換えられません: {}", e)))?;
-        let staged_settings = dir.join(SETTINGS_FILE_NAME);
-        if staged_settings.is_file() {
-            fs::rename(&staged_settings, app_data_dir.join(SETTINGS_FILE_NAME))
-                .map_err(|e| AppError::Io(format!("設定を置き換えられません: {}", e)))?;
-        }
     }
     fs::remove_dir_all(&dir).map_err(|e| AppError::Io(format!("復元の用意を消せません: {}", e)))?;
     Ok(applied)
@@ -700,6 +704,36 @@ mod tests {
             fs::read_to_string(dir.path().join(DB_FILE_NAME)).unwrap(),
             "current"
         );
+    }
+
+    /// 復元を当てている途中（設定を置き換えた後）で落ちても、次の起動でDBを置き換える
+    #[test]
+    fn test_restore_interrupted_after_settings_is_finished_next_time() {
+        let dir = TempDir::new();
+        let app_data = dir.path().join("app");
+        fs::create_dir_all(&app_data).unwrap();
+        fs::write(app_data.join(DB_FILE_NAME), "current").unwrap();
+        let backup = dir.path().join("a.muspicebackup");
+        write_backup(&library_db(), &backup, &meta(Some(SETTINGS))).unwrap();
+        stage_restore(&backup, &app_data).unwrap();
+        // 設定を置き換えたところで落ちた（用意したDBは、まだ残っている）
+        fs::rename(
+            restore_dir(&app_data).join(SETTINGS_FILE_NAME),
+            app_data.join(SETTINGS_FILE_NAME),
+        )
+        .unwrap();
+
+        assert!(apply_staged_restore(&app_data).unwrap());
+        assert!(!restore_dir(&app_data).exists());
+        assert_eq!(
+            fs::read_to_string(app_data.join(SETTINGS_FILE_NAME)).unwrap(),
+            SETTINGS
+        );
+        let restored = crate::db::init_db(app_data.join(DB_FILE_NAME)).unwrap();
+        let count: i64 = restored
+            .query_row("SELECT COUNT(*) FROM tracks", [], |row| row.get(0))
+            .unwrap();
+        assert!(count > 0);
     }
 
     /// アプリが作るバックアップは、種類ごとに新しい世代だけを残す

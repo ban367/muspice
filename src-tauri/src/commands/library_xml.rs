@@ -60,6 +60,9 @@ pub async fn import_library_xml(
 }
 
 /// ライブラリのXMLを読み、曲の値とプレイリストを取り込む
+///
+/// 曲の値とプレイリストは、1つのトランザクションで書く。途中で失敗した場合は何も変えない
+/// （取り込み直しても、途中まで作ったプレイリストの複製（` (2)`付き）ができない）。
 fn import_file(
     state: &AppState,
     path: &Path,
@@ -76,7 +79,7 @@ fn import_file(
     let matcher = TrackMatcher::new(state.with_db(|db| crate::repository::find_track_paths(db))?);
     let matched = library_xml::match_tracks(&library, &matcher);
 
-    let updated_count = state.with_db(|db| {
+    let (updated_count, playlist_count, skipped_playlist_count) = state.with_db(|db| {
         let current = crate::repository::find_track_stats(db)?;
         let tx = db.transaction().map_err(|e| {
             AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
@@ -92,29 +95,32 @@ fn import_file(
                 updated += 1;
             }
         }
+
+        let (mut created, mut skipped) = (0, 0);
+        if include_playlists {
+            for playlist in &library.playlists {
+                // 突き合わせた後に外された曲は入れない
+                let track_ids: Vec<String> =
+                    library_xml::playlist_track_ids(playlist, &matched.track_ids)
+                        .into_iter()
+                        .filter(|track_id| current.contains_key(track_id))
+                        .collect();
+                // 曲が1つも入らないプレイリストは作らない
+                if track_ids.is_empty() {
+                    skipped += 1;
+                    continue;
+                }
+                let name = m3u::sanitize_playlist_name(&playlist.name);
+                crate::playlist::insert_playlist_with_tracks(&tx, &name, &track_ids)?;
+                created += 1;
+            }
+        }
+
         tx.commit().map_err(|e| {
             AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
         })?;
-        Ok(updated)
+        Ok((updated, created, skipped))
     })?;
-
-    let mut playlist_count = 0;
-    let mut skipped_playlist_count = 0;
-    if include_playlists {
-        for playlist in &library.playlists {
-            let track_ids = library_xml::playlist_track_ids(playlist, &matched.track_ids);
-            // 曲が1つも入らないプレイリストは作らない
-            if track_ids.is_empty() {
-                skipped_playlist_count += 1;
-                continue;
-            }
-            let name = m3u::sanitize_playlist_name(&playlist.name);
-            state.with_db(|db| {
-                crate::playlist::create_playlist_with_tracks(db, &name, &track_ids)
-            })?;
-            playlist_count += 1;
-        }
-    }
 
     let unmatched_count = matched.unmatched.len() as u32;
     let mut unmatched = matched.unmatched;
@@ -286,6 +292,46 @@ mod tests {
             .collect();
         names.sort();
         assert_eq!(names, vec!["通勤".to_string(), "通勤 (2)".to_string()]);
+    }
+
+    /// プレイリストの作成で失敗した場合は、曲の値も、作ったプレイリストも残さない。取り込み直すと、
+    /// 番号の付かない名前で作る
+    #[test]
+    fn test_failed_import_changes_nothing() {
+        let state = test_state();
+        let path = write_sample(SAMPLE_XML);
+        let before = row(&state, "t1");
+        state
+            .with_db(|db| {
+                db.execute_batch(
+                    "CREATE TRIGGER fail_playlist BEFORE INSERT ON playlists
+                     BEGIN SELECT RAISE(ABORT, 'プレイリストを作れない'); END;",
+                )
+                .unwrap();
+                Ok(())
+            })
+            .unwrap();
+
+        assert!(import_file(&state, &path, true).is_err());
+        assert_eq!(row(&state, "t1"), before);
+        assert!(playlists(&state).is_empty());
+
+        state
+            .with_db(|db| {
+                db.execute_batch("DROP TRIGGER fail_playlist").unwrap();
+                Ok(())
+            })
+            .unwrap();
+        let result = import_file(&state, &path, true).unwrap();
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+        assert_eq!((result.updated_count, result.playlist_count), (2, 1));
+        assert_eq!(
+            playlists(&state)
+                .into_iter()
+                .map(|(name, _)| name)
+                .collect::<Vec<_>>(),
+            ["通勤"]
+        );
     }
 
     #[test]

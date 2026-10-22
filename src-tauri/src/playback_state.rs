@@ -267,14 +267,12 @@ fn load_state(path: &Path) -> StoredState {
 
 /// 再生状態をファイルに保存する
 ///
-/// 書き込み途中で中断してもファイルが壊れないよう、一時ファイルに書いてから置き換える。
+/// 書き込み途中で中断・停電してもファイルが壊れないよう、一時ファイルに書いてディスクへ書き出して
+/// から置き換える（`atomic_file::replace_file`）。
 fn write_state(path: &Path, state: &StoredState) -> AppResult<()> {
     let json = serde_json::to_string(state)
         .map_err(|e| AppError::Io(format!("再生状態の変換に失敗しました: {}", e)))?;
-    let temp_path = path.with_extension("json.tmp");
-    fs::write(&temp_path, json)
-        .map_err(|e| AppError::Io(format!("再生状態の保存に失敗しました: {}", e)))?;
-    fs::rename(&temp_path, path)
+    crate::atomic_file::replace_file(path, &path.with_extension("json.tmp"), json.as_bytes())
         .map_err(|e| AppError::Io(format!("再生状態の保存に失敗しました: {}", e)))
 }
 
