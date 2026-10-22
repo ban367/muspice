@@ -144,7 +144,7 @@ export interface Playlist {
 - 外部キーは、DBを開く時（`db::setup_connection`）に`PRAGMA foreign_keys = ON`で有効にする。SQLiteの既定は無効で、接続ごとの設定のため、同梱のSQLiteのビルドの既定値に頼らない。テストの接続も同じ関数を通す（`db::open_in_memory`）
 - `playlists.folder_id` は `playlist_folders` を指すが、外部キーにはしない。フォルダを削除する時に、中のプレイリストの `folder_id` をNULLにする（プレイリストは消さない）
 - `tracks.file_modified_at` はファイルの更新日時（UNIX時間の秒）。再スキャンで、サイズとあわせて変更の検出に使う。列を追加する前に登録したトラックはNULLで、再スキャンで（ファイルを読み直さずに）記録する。サイズが同じで更新日時がちょうど1時間（±2秒）ずれた場合は、夏時間の切り替えによるずれ（更新日時をローカル時刻で記録するFAT32など）とみなし、読み直さずに日時だけ記録する
-- `tracks.replay_gain_track_gain` / `replay_gain_track_peak` / `replay_gain_album_gain` / `replay_gain_album_peak`（REAL）はファイルのタグから読んだReplayGain。`REPLAYGAIN_*`を優先し、ゲインがない場合はOpusの`R128_*_GAIN`（Q7.8形式、基準が-23 LUFSのため+5 dBしてReplayGainの基準にそろえる）を使う。範囲外（ゲインは±60 dB、ピークは0以下）は読まない。列を追加する前に登録したトラックはNULLで、`refresh_library_metadata`か再スキャン（ファイルが変わった場合）で読み込む。タグのない曲は、音量の解析（`start_loudness_scan`）で、タグへ書き込んでから記録する（ADR-053）
+- `tracks.replay_gain_track_gain` / `replay_gain_track_peak` / `replay_gain_album_gain` / `replay_gain_album_peak`（REAL）はファイルのタグから読んだReplayGain。`REPLAYGAIN_*`を優先し、ゲインがない場合はOpusの`R128_*_GAIN`（Q7.8形式、基準が-23 LUFSのため+5 dBしてReplayGainの基準にそろえる）を使う。範囲外（ゲインは±60 dB、ピークは負の値）は読まない（無音の曲のピークは0）。タイトル・アルバムなどの文字列の項目は、空白だけの値をタグがないものとして読む（タイトルがない曲は、取り込みでファイル名をタイトルにする）。列を追加する前に登録したトラックはNULLで、`refresh_library_metadata`か再スキャン（ファイルが変わった場合）で読み込む。タグのない曲は、音量の解析（`start_loudness_scan`）で、タグへ書き込んでから記録する（ADR-053）
 - `library_folders` とトラックの対応は `tracks.file_path` の前方一致（フォルダのパス＋区切り文字）で判定する。`file_path >= 接頭辞 AND file_path < 上限`（接頭辞の最後の文字を次の文字にしたもの）の範囲で比較する（二分比較のため大文字・小文字を区別し、`file_path`のUNIQUEのインデックスを使える。`LIKE`はASCIIの大文字・小文字を区別しない）。フォルダ同士は入れ子にしない（中のフォルダはインポートしても登録せず、外のフォルダをインポートすると中のフォルダの記録をまとめる）
 - `library_folder_exclusions` は `library_folders` への外部キー（`ON DELETE CASCADE`。ライブラリフォルダの記録を消すと、読み込まないフォルダの記録も消える）。`path`はライブラリフォルダからの相対パスで持つ（ADR-062）
 - `library_folders.is_music_folder` は、音楽フォルダ（新しい曲を置く宛先）の印。部分一意インデックス（`WHERE is_music_folder = 1`）で、多くても1つにする。記録を消すと印も消える（未設定に戻る）。外のフォルダを登録して中のフォルダの記録をまとめる時、中に音楽フォルダがあれば、外のフォルダに印を移す（音楽フォルダは、いつもライブラリフォルダの一番上。ADR-068）
@@ -437,9 +437,9 @@ export interface Playlist {
 
 ### カスタムプロトコル
 
-| URL                                                                                | 応答                                                                                                                           | 備考                                                                                                                                                                                     |
-| ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `albumart://localhost/<trackId>`（Windowsは`http://albumart.localhost/<trackId>`） | 画像（埋め込みの画像。なければ同じフォルダの画像。`Content-Type`は画像のMIMEタイプ） / アートなし・未登録は404 / 不正なIDは400 | `<img>`から読み込む。フロントは`albumArtUrl(trackId)`でURLを作る（アプリで画像を書き換えた曲は、読み直させるために`?v=<版>`を付ける。Rust側はパスだけを見る）。`Cache-Control: no-store` |
+| URL                                                                                | 応答                                                                                                                                                                                                          | 備考                                                                                                                                                                                     |
+| ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `albumart://localhost/<trackId>`（Windowsは`http://albumart.localhost/<trackId>`） | 画像（埋め込みの画像。なければ同じフォルダの画像。`Content-Type`は画像のMIMEタイプ。埋め込みの画像は中身で判定し、JPEG・PNGでない画像だけタグに書かれた種類を使う） / アートなし・未登録は404 / 不正なIDは400 | `<img>`から読み込む。フロントは`albumArtUrl(trackId)`でURLを作る（アプリで画像を書き換えた曲は、読み直させるために`?v=<版>`を付ける。Rust側はパスだけを見る）。`Cache-Control: no-store` |
 
 ### イベント（バックエンド→フロントエンド）
 
@@ -470,6 +470,8 @@ export interface Playlist {
 メタデータ（タイトル・アーティスト・アルバムなど、編集画面の項目）と評価は、音楽ファイルのタグを正とする（ADR-019）。編集は常にファイルへ書き込み、DBには同じ値を記録する（一覧・検索のため）。ファイルへ書き込めない場合はエラーにし、DBも変えない。書き込み後のファイルのサイズ・更新日時も記録し、再スキャンで自分の書き込みを変更とみなさない。
 
 - ファイルへの書き込み（タグ・評価・アルバムアート・ラウドネス）は、元のファイルを同じフォルダの一時ファイル（`.<名前>.muspice-<ID>.<拡張子>`。ライブラリの走査とフォルダの監視は、`.`で始まる名前を読み飛ばす）へ写し、写しに書いてディスクへ書き出してから、`rename`で置き換える（`metadata::write_atomically`。ADR-074）。書いている途中でアプリが落ちる・ディスクが一杯になっても、元のファイルは壊れない。途中で失敗した場合は一時ファイルを消す。シンボリックリンクの曲は、リンクの先のファイルを置き換える
+- タグは、形式の既定のタグ（MP3・WAV・AIFF・AACはID3v2、FLAC・OggはVorbisコメント、WavPack・APEはAPEv2、M4AはMP4）に書き、ファイルにあるほかの書き込めるタグ（MP3のID3v1・APEv2、WAVのRIFF INFO、AIFFのテキストチャンク、WavPack・APEのID3v1）へも同じ内容を写す（`metadata::mirror_primary_tag`。ADR-075）。ほかのタグは、そのタグに書ける項目だけで作り直し、ファイルになかった種類のタグは作らない。複数の値を書く決まりがないタグ（ID3v2.3・ID3v1・RIFF INFO・AIFFのテキストチャンク）には、アーティスト・ジャンルを`; `でつないだ1つの値で書く
+- ID3v2は、ファイルにあったタグの版で書く（v2.3・v2.2はv2.3、なかった場合はv2.4）。v2.3にないフレーム（並び順の`TSOT`・`TSOP`・`TSOA`など）があるタグは、v2.3で書くと消えるため、v2.4で書く（ADR-075）
 - 同じ曲のファイルへ書く処理（編集・評価・アルバムアート・ラウドネスの解析・ファイルへのタグの書き出し・ファイルの整理・ファイルごとの削除・形式の変換の置き換え）は、曲ごとの印（`AppState::lock_track_file`）で1つずつ行う。あとから始めた処理は、前の処理が終わるのを待ってから、ファイルを読み直して書く（両方の変更が残る）。場所は、待った後にDBから読む
 
 | コマンド                          | 引数                             | 戻り値                        | 備考                                                                                                                                                                                                                                                                                                                                                                   |
@@ -514,7 +516,7 @@ export interface Playlist {
 | `convert_tracks`      | `trackIds`, `options` | `ConvertResult \| null` | 変換する。書き出しでは、書き出すフォルダを選ぶダイアログを開く（選ばなければ`null`）。終わるまで返らない（進捗は`ConvertProgress`で知らせる） |
 | `cancel_conversion`   | なし                  | `void`                  | 実行中の変換を中断する（実行中でなければ何もしない）                                                                                          |
 
-- `ConvertOptions`: `{ format: 'aac' | 'alac' | 'flac' | 'wav' | 'aiff', aacBitrateKbps: number, mode: 'export' | 'replace', template: string, addToLibrary: boolean }`。`aacBitrateKbps`は128・192・256・320のどれか（AACの時だけ確かめる。モノラルは半分にし、その音声で使えない値なら、エンコーダーの既定の値でやり直す）。`template`は、書き出す場所の書式（ファイルの整理と同じ書き方。書き出しだけで使う）
+- `ConvertOptions`: `{ format: 'aac' | 'alac' | 'flac' | 'wav' | 'aiff', aacBitrateKbps: number, mode: 'export' | 'replace', template: string, addToLibrary: boolean }`。`aacBitrateKbps`は128・192・256・320のどれか（AACの時だけ確かめる。モノラルは半分にし、その音声で使えない値（`afconvert`が使えない設定のエラーを出した場合）だけ、エンコーダーの既定の値でやり直してログに残す。ほかの理由の失敗はやり直さない）。`template`は、書き出す場所の書式（ファイルの整理と同じ書き方。書き出しだけで使う）
 - `ConvertPlan`: `entries: ConvertEntry[]`（選んだ順）。`ConvertEntry`: `{ trackId, sourceName, outputPath: string | null, status, sourceLossless: boolean | null }`。`outputPath`は、書き出しでは書き出すフォルダからの場所、置き換えではファイルの名前。`sourceLossless`は、元の曲が可逆の形式か（拡張子から決め、`.m4a`・`.ogg`は中のコーデックを読む）
 - `status`（`ConvertStatus`）: `convert`（変換する）・`missing`（ファイルが見つからない）・`targetExists`（出力先に同じ名前のファイルがある）・`sameTarget`（選んだ曲の中に、同じ出力先になる曲がある）。変換するのは`convert`だけ（上書きしない・連番も付けない。ファイルの整理と同じ）
 - `ConvertResult`: `{ convertedCount, skippedCount, failedCount, errors[], cancelled }`
