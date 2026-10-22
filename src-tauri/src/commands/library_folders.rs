@@ -351,8 +351,11 @@ pub async fn relocate_library_folder(
 /// 預かっている付け替え先を手放す（預かっていなければ、何もしない）
 #[tauri::command]
 #[specta::specta]
-pub fn cancel_library_folder_relocation(pending: tauri::State<'_, PendingRelocation>) {
+pub fn cancel_library_folder_relocation(
+    pending: tauri::State<'_, PendingRelocation>,
+) -> AppResult<()> {
     pending.take();
+    Ok(())
 }
 
 /// 付け替え先を確かめ、付け替えられるなら、新しい場所でファイルが見つかる曲を数える

@@ -309,8 +309,9 @@ pub async fn restore_library_backup(app_handle: AppHandle) -> AppResult<()> {
 /// 預かっている復元するファイルを手放す（預かっていなければ、何もしない）
 #[tauri::command]
 #[specta::specta]
-pub fn cancel_library_restore(pending: tauri::State<'_, PendingRestore>) {
+pub fn cancel_library_restore(pending: tauri::State<'_, PendingRestore>) -> AppResult<()> {
     pending.take();
+    Ok(())
 }
 
 #[cfg(test)]

@@ -2127,6 +2127,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     importPendingFolders,
     cancelPendingImport: () => {
       pendingImport = null;
+      return null;
     },
     takeOpenedFiles: () => {
       const taken = openedFiles;
@@ -2952,6 +2953,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     },
     cancelLibraryFolderRelocation: () => {
       pendingRelocation = null;
+      return null;
     },
     // 実装はRust側のダイアログで選び、DBを写す。モックは`setBackupFile`のファイルへ保存したことにする
     exportLibraryBackup: () => {
@@ -2987,6 +2989,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     },
     cancelLibraryRestore: () => {
       pendingRestore = null;
+      return null;
     },
     getMusicFolder: () => {
       const folder = libraryFolders.find((candidate) => candidate.isMusicFolder);

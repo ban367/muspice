@@ -32,8 +32,13 @@
 - WebViewの権限は最小限（ADR-005）
   - ファイルの読み書き・削除・フォルダ表示はすべてRust側のコマンドで行い、WebViewからは任意のパスを扱えない（パスはトラックIDからDBで解決する）
   - WebViewからファイル・フォルダのパスを受け取るコマンドはない。ファイル・フォルダを選ぶダイアログは、Rust側のコマンドが開き、選んだ後の処理まで行う（フォルダのインポート・ライブラリフォルダの読み込まないフォルダ・音楽フォルダ・デバイスの登録と転送先の変更・ファイルのインポート・M3U・XML・アルバムアートの画像・形式の変換の書き出し先。ADR-065）。WebViewへ渡すのは結果だけで、選ばずに閉じた場合は`null`
-  - capability（`src-tauri/capabilities/default.json`）は `core:default` と `dialog:allow-message`（確認のダイアログ）のみ。dialogプラグインの `open` / `save` はWebViewに許可せず、ESLint（`no-restricted-imports`）でも使えないようにしている。fs / opener / window-state / global-shortcut / notification プラグインはWebViewに公開しない（Rust側だけで使う）
-  - 設定ウィンドウ（`settings`）は別のcapability（`settings.json`）で `core:default` と `core:window:allow-close`（キャンセルボタンでウィンドウを閉じる）のみ
+  - capability（`src-tauri/capabilities/default.json`）は、フロントエンドが使う機能だけを許可する。`core:default`は使わない（メニューの作成・アプリのメニューの差し替え（`core:menu`）、トレイのアイコンの作成（`core:tray`）、ウィンドウの操作などを含むため。XSSが起きた場合に、偽のメニュー・トレイアイコンを作れてしまう）
+    - `core:app:allow-version`: Aboutダイアログの版（`getVersion`）
+    - `core:event:allow-listen`・`core:event:allow-unlisten`: Rust側からのイベント（`events.xxx.listen()`）と、ウィンドウのフォーカス（`onFocusChanged`）を受け取る
+    - `dialog:allow-message`: 確認のダイアログ（`confirmDestructive`）。dialogプラグインの `open` / `save` はWebViewに許可せず、ESLint（`no-restricted-imports`）でも使えないようにしている
+    - アプリのコマンド（`commands.xxx()`）は、capabilityなしで呼べる。メニュー・トレイ・ウィンドウはRust側だけで作る。fs / opener / window-state / global-shortcut / notification プラグインはWebViewに公開しない（Rust側だけで使う）
+  - 設定ウィンドウ（`settings`）は別のcapability（`settings.json`）で、`core:event:allow-listen`・`core:event:allow-unlisten`（設定の変更・フォーカス）、`core:window:allow-close`（キャンセルボタンでウィンドウを閉じる）、`dialog:allow-message`（音量の解析・タグの書き出しの確認）のみ
+  - 権限を変えた時は、実アプリ（デバッグビルド。capabilityは開発サーバーから読む画面にも効く）で、使う機能が許可され、外した機能が`not allowed`になることを確かめる（引数を渡さずに呼ぶと、許可されていれば引数のエラー、されていなければ`not allowed`が返り、ダイアログなどを開かずに見分けられる）
   - assetプロトコルは無効にしている。WebViewは音声ファイルを読まず、再生はRust側の再生エンジンが行う（ADR-027）。CSPでも、音声・動画の読み込み先を許可していない（`media-src 'none'`）
 - デバイスへの転送（ADR-020）
   - 転送先のフォルダは、登録と転送先の変更でRust側のダイアログから選ぶ（ADR-065）。同期などの操作はデバイスのIDで行う
@@ -51,6 +56,7 @@
     - `<base>`（`base-uri`）・フォームの送信先（`form-action`）: `default-src` を引き継がず、書かないとどこでも許す。アプリのフォームは、送信を `preventDefault` で止めてコマンドを呼ぶ（送信先へ移動しない）
   - 画像は`img-src`で`data:`と`albumart`プロトコルのみ許可する。`albumart`はDBに登録済みのトラックのアート（埋め込みの画像と、同じフォルダの決まった名前の画像）だけを配信し、任意のファイルは読めない
   - 本番は `script-src 'self'`（SvelteKitの起動用インラインscriptはTauriがビルド時にハッシュを付与）
+  - `style-src`は`'unsafe-inline'`を許す。Bits UIの浮く部品（メニュー・パネル）は、表示する位置を`style`の属性で渡し、Svelteはそれを`setAttribute('style', …)`で設定するため（`'unsafe-inline'`がないと、位置が付かずに出る）。値は表示するたびに変わるため、`'unsafe-hashes'`では許可できない。アプリの`.svelte`には静的な`style="…"`はなく、動的な`style="width: {…}%"`はSvelteが`style.cssText`で設定するため、CSPに掛からない
   - Vite開発サーバー（HMR）向けの許可は `devCsp` に分離
   - デバッグビルドが開発サーバー（`devUrl`）から画面を読む時は、CSPが付かない（TauriはCSPを、自分が配信するHTMLにだけ付ける）。CSPの確認は、フロントを埋め込んだビルド（`npx tauri build --debug --bundles app`など）で行う
 - `freezePrototype` を有効化
