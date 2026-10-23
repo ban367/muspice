@@ -3,26 +3,26 @@
  *
  * 一覧ごとに`TrackSelection`を1つ作り、行のクリックと一覧のキー操作をここへ渡す。
  * 選択中のトラックに加えて、キーボードで移動する時の現在位置（最後に選んだトラック）と
- * Shiftで範囲選択する時の起点を持つ。
+ * Shiftで範囲選択する時の起点を持つ。項目の型（`T`）は一覧の項目（曲、または再生履歴の行）で、`id`で見分ける。
  */
 
 import { SvelteSet } from 'svelte/reactivity';
 import { navigationTarget } from './listNavigation.js';
 import { computeClickSelection, type SelectionModifiers } from './selection.js';
 
-export class TrackSelection {
+export class TrackSelection<T extends { id: string } = { id: string }> {
   /** 選択中のトラックID（挿入順は選択した順） */
   readonly #ids = new SvelteSet<string>();
   /** キーボードで移動する時の現在位置 */
   #activeId = $state<string | null>(null);
   /** Shiftで範囲選択する時の起点 */
   #anchorId: string | null = null;
-  readonly #tracks: () => readonly { id: string }[];
+  readonly #tracks: () => readonly T[];
 
   /**
    * @param tracks - 表示順のトラック一覧を返す関数（並び替え・絞り込みに追随させる）
    */
-  constructor(tracks: () => readonly { id: string }[]) {
+  constructor(tracks: () => readonly T[]) {
     this.#tracks = tracks;
   }
 
@@ -34,6 +34,13 @@ export class TrackSelection {
   /** キーボードで移動する時の現在位置（最後に選んだトラック。選んでいなければnull） */
   get activeId(): string | null {
     return this.#activeId;
+  }
+
+  /** 最後に選んだトラックの項目（`activeId`の項目。選んでいない・一覧にない場合はnull） */
+  get active(): T | null {
+    const id = this.#activeId;
+    if (id === null) return null;
+    return this.#tracks().find((track) => track.id === id) ?? null;
   }
 
   get size(): number {

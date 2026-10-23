@@ -6,6 +6,7 @@
  * localStorageに保存する状態はsetterで保存するため、オブジェクトの中身を書き換えず代入する。
  */
 
+import { untrack } from 'svelte';
 import type { AlbumSummary, ArtistSummary, Track } from '#lib/types/models.js';
 import { groupArtist } from '#lib/utils/albumKey.js';
 import { TRACK_COLUMN_IDS, TRACK_COLUMNS, type TrackColumnId } from '#lib/utils/trackColumns.js';
@@ -19,7 +20,7 @@ export type RightSidebarPanel = 'queue' | 'equalizer' | 'info';
  * - album: グリッドで選んだアルバム、または曲の一覧で選んだ曲のアルバム（`trackId`はその曲。
  *   パネルの一覧の中で、その曲の行を選んで示す）
  * - artist: グリッドで選んだアーティスト
- * - track: 曲の一覧で選んだ、アルバムのない曲
+ * - track: 曲の一覧・最近追加した曲で選んだ、アルバムのない曲
  */
 export type InfoTarget =
   | { type: 'album'; album: AlbumSummary; trackId?: string }
@@ -275,6 +276,24 @@ class UiState {
 }
 
 export const ui = new UiState();
+
+/**
+ * 一覧で最後に選んだ曲を、情報パネルを開いている間だけパネルへ反映する（コンポーネントの初期化の中で呼ぶ）
+ *
+ * `track`は、最後に選んだ曲（`TrackSelection.active`の曲。まだ選んでいなければnull）を返す関数。
+ * 選んだ曲が変わった時と、パネルを開いた時に`followInfo`で反映する（閉じている時は開かない。まだ選んで
+ * いない時は、表示している項目をそのまま残す）。選択を解除した後（タグの編集を保存した後など）も、その曲の
+ * タグの変更に追随させる。曲の一覧（`TrackList`）・アルバムとアーティストの詳細・再生履歴で同じ動きにする（ADR-066）。
+ */
+export function followTrackInfo(track: () => Track | null): void {
+  // 曲が同じ（一覧を取り直しただけ）なら、反映し直さない
+  const selected = $derived.by(track);
+  $effect(() => {
+    if (selected === null || !ui.isInfoPanelOpen) return;
+    const target = trackInfoTarget(selected);
+    untrack(() => ui.followInfo(target));
+  });
+}
 
 // ---------- 前回開いていた画面（起動時の復元に使う） ----------
 

@@ -3,7 +3,7 @@
   （アルバムのない曲は、1曲で1枚のカード）。項目は、取得済みの全曲の一覧から計算する。
 
   - アルバムのカード: クリック・Enterで、右サイドバーの情報パネルに曲を表示する。ダブルクリック・再生ボタンでアルバムを再生する
-  - 曲のカード: ダブルクリック・Enter・再生ボタンで、その曲を再生する
+  - 曲のカード（アルバムのない曲）: クリックで、情報パネルにその曲を表示する。ダブルクリック・Enter・再生ボタンで、その曲を再生する
   - キーボード: ほかのグリッド（`LibraryGrid`）と同じく、矢印キー・Home・Endで現在位置を移す
 -->
 <script lang="ts">
@@ -11,7 +11,7 @@
   import type { AlbumSummary } from '#lib/types/models.js';
   import { useTracksQuery } from '#lib/queries/tracks.js';
   import { playSingleTrack } from '#lib/stores/player.svelte.js';
-  import { GRID_CARD_GAP, ui } from '#lib/stores/ui.svelte.js';
+  import { GRID_CARD_GAP, trackInfoTarget, ui, type InfoTarget } from '#lib/stores/ui.svelte.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import { formatDate } from '#lib/utils/format.js';
   import { playGroup } from '#lib/utils/groupPlayback.js';
@@ -49,8 +49,12 @@
     else void playGroup(queryClient, 'album', item.name, item.artist);
   }
 
+  /** 項目を、情報パネルに表示する項目にする（アルバム。曲の項目は、アルバムのない曲そのもの） */
+  const toInfoTarget = (item: RecentItem): InfoTarget =>
+    item.track ? trackInfoTarget(item.track) : { type: 'album', album: toAlbum(item) };
+
   function handleClick(item: RecentItem) {
-    if (item.kind === 'album') ui.showInfo({ type: 'album', album: toAlbum(item) });
+    ui.showInfo(toInfoTarget(item));
   }
 
   // 見えている項目だけを描画する一覧
@@ -64,7 +68,7 @@
    *
    * 矢印キー・Home・Endで現在位置を移し、Enterで開く。アルバムはクリックと同じく情報パネルに表示し、
    * 曲は（開く先がないため）曲の一覧のEnterと同じく再生する。
-   * 移した時は、情報パネルを開いている間だけ、表示するアルバムを移した先に入れ替える。
+   * 移した時は、情報パネルを開いている間だけ、表示する項目を移した先に入れ替える。
    */
   function handleKeydown(event: KeyboardEvent) {
     const current = items.findIndex((item) => item.key === activeKey);
@@ -81,7 +85,7 @@
     // 既定の動作（一覧のスクロール）は止めてあるため、移動先の項目を見える位置へ出す
     activeKey = item.key;
     virtualList?.scrollToIndex(action.index);
-    if (item.kind === 'album') ui.followInfo({ type: 'album', album: toAlbum(item) });
+    ui.followInfo(toInfoTarget(item));
   }
 
   function handleContextMenu(event: MouseEvent, item: RecentItem) {

@@ -18,7 +18,7 @@
     player,
     playTrackFromQueue
   } from '#lib/stores/player.svelte.js';
-  import { GRID_CARD_GAP, trackInfoTarget, ui } from '#lib/stores/ui.svelte.js';
+  import { GRID_CARD_GAP, followTrackInfo, ui } from '#lib/stores/ui.svelte.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import type { Track } from '#lib/types/models.js';
   import PlayingIndicator from './PlayingIndicator.svelte';
@@ -240,21 +240,9 @@
     return sortedTracks.filter((track) => selection.has(track.id));
   });
 
-  // 情報パネルに表示する曲（最後に選んだ曲。まだ選んでいなければnull）
-  // 選択を解除した後（タグの編集を保存した後など）も、その曲のタグの変更に追随させる
-  const infoTrack = $derived(
-    selection.activeId === null
-      ? null
-      : (sortedTracks?.find((track) => track.id === selection.activeId) ?? null)
-  );
-
-  // 情報パネルを開いている間だけ、選んだ曲のアルバムを表示する（閉じている時は開かない。
+  // 情報パネルを開いている間だけ、最後に選んだ曲のアルバムを表示する（閉じている時は開かない。
   // まだ選んでいない時は、表示している項目をそのまま残す）
-  $effect(() => {
-    if (infoTrack === null || !ui.isInfoPanelOpen) return;
-    const target = trackInfoTarget(infoTrack);
-    untrack(() => ui.followInfo(target));
-  });
+  followTrackInfo(() => selection.active);
 
   function handleTrackClick(trackId: string, event: MouseEvent) {
     selection.click(trackId, {

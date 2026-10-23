@@ -7,6 +7,7 @@
     useSetRatingMutation
   } from '#lib/queries/tracks.js';
   import { player, playTrackFromQueue, playShuffled } from '#lib/stores/player.svelte.js';
+  import { followTrackInfo } from '#lib/stores/ui.svelte.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import { formatDuration } from '#lib/utils/format.js';
   import { TrackSelection, handleTrackListKeydown } from '#lib/utils/trackSelection.svelte.js';
@@ -39,6 +40,9 @@
 
   // トラックの選択（クリック・キーボード。アルバムをまたいで選択できる）
   const selection = new TrackSelection(() => displayTracks);
+
+  // 情報パネルを開いている間だけ、最後に選んだ曲のアルバムをパネルに表示する（曲の一覧と同じ）
+  followTrackInfo(() => selection.active);
 
   // 別のアーティストに切り替わったら、選択を消す（データを取り直しただけでは消さない）
   $effect(() => {
