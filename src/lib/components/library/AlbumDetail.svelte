@@ -3,6 +3,7 @@
   import type { AlbumSummary, Track } from '#lib/types/models.js';
   import { useAlbumTracksQuery, useSetRatingMutation } from '#lib/queries/tracks.js';
   import { player, playTrackFromQueue, playShuffled } from '#lib/stores/player.svelte.js';
+  import { followTrackInfo } from '#lib/stores/ui.svelte.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import { albumArtDialog } from '#lib/stores/albumArt.svelte.js';
   import { groupByDisc } from '#lib/utils/albumDiscs.js';
@@ -41,6 +42,10 @@
 
   // トラックの選択（クリック・キーボード）
   const selection = new TrackSelection(() => tracks);
+
+  // 情報パネルを開いている間だけ、最後に選んだ曲をパネルに表示する（曲の一覧と同じ。パネルにも
+  // このアルバムが出て、その曲の行を選んで示す）
+  followTrackInfo(() => selection.active);
 
   // 別のアルバムに切り替わったら、選択を消す（データを取り直しただけでは消さない）
   $effect(() => {
