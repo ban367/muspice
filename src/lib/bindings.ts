@@ -414,6 +414,12 @@ includesSettings: boolean } |
 	getArtists: () => __TAURI_INVOKE<ArtistSummary[]>("get_artists"),
 	/**  アーティストのアルバムと曲を取得 */
 	getArtistAlbums: (artist: string) => __TAURI_INVOKE<AlbumGroup[]>("get_artist_albums", { artist }),
+	/**
+	 *  アルバムアーティストのアルバムと曲を取得（アルバムの画面のリスト表示）
+	 * 
+	 *  `artist`は、アルバムをまとめたアーティスト（`AlbumSummary`の`artist`）。
+	 */
+	getAlbumArtistAlbums: (artist: string | null) => __TAURI_INVOKE<AlbumGroup[]>("get_album_artist_albums", { artist }),
 	/**  ジャンルの一覧を取得（曲は含めない） */
 	getGenres: () => __TAURI_INVOKE<GenreSummary[]>("get_genres"),
 	/**  ジャンルの曲を取得 */
@@ -963,7 +969,7 @@ export type AlbumArtSource =
 /**  音楽ファイルと同じフォルダの画像（`cover.jpg`など） */
 "folder";
 
-/**  アルバムとその曲（アーティストの詳細で、アルバムごとに曲を表示するために使う） */
+/**  アルバムとその曲（アーティスト・アルバムアーティストの詳細で、アルバムごとに曲を表示するために使う） */
 export type AlbumGroup = {
 	name: string,
 	/**  並び順に使う値（`AlbumSummary::sort_name`と同じ） */
@@ -986,6 +992,12 @@ export type AlbumSummary = {
 	sortName: string | null,
 	/**  アルバムをまとめたアーティスト（アルバムアーティスト。なければ曲のアーティスト） */
 	artist: string | null,
+	/**
+	 *  まとめたアーティストの並び順に使う値（アルバムの曲のうち最初に見つかったもの。なければ値なし）
+	 * 
+	 *  アルバムの画面のリスト表示で、アルバムアーティストを並べるために使う。
+	 */
+	artistSortName: string | null,
 	trackCount: number,
 	totalDuration: number,
 	representativeTrackId: string,

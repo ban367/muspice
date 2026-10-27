@@ -863,7 +863,7 @@ export const ja = {
     searchGenres: 'ジャンルを検索...',
     search: '検索...',
     clearSearch: '検索をクリア',
-    selectAlbum: 'アルバムを選択してください',
+    selectAlbumArtist: 'アルバムアーティストを選択してください',
     selectArtist: 'アーティストを選択してください',
     listView: 'リスト表示',
     gridView: 'グリッド表示',

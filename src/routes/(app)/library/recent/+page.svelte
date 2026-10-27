@@ -37,6 +37,7 @@
     name: item.name,
     sortName: null,
     artist: item.artist,
+    artistSortName: null,
     trackCount: item.trackCount,
     totalDuration: item.totalDuration,
     representativeTrackId: item.representativeTrackId

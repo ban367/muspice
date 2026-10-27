@@ -460,7 +460,8 @@ fn query_rows<T>(
 /// 代表の曲は、アルバムの最初の曲（`ALBUM_TRACK_ORDER`の順）。
 pub fn find_album_summaries(conn: &Connection) -> AppResult<Vec<AlbumSummary>> {
     let sql = format!(
-        "SELECT album, {ALBUM_ARTIST} AS group_artist, id, duration, album_sort FROM tracks
+        "SELECT album, {ALBUM_ARTIST} AS group_artist, id, duration, album_sort, {ALBUM_ARTIST_SORT}
+         FROM tracks
          WHERE album IS NOT NULL
          ORDER BY album, group_artist, {ALBUM_TRACK_ORDER}"
     );
@@ -471,12 +472,13 @@ pub fn find_album_summaries(conn: &Connection) -> AppResult<Vec<AlbumSummary>> {
             row.get::<_, String>(2)?,
             row.get::<_, Option<i32>>(3)?,
             row.get::<_, Option<String>>(4)?,
+            row.get::<_, Option<String>>(5)?,
         ))
     })?;
 
     // 同じアルバムの曲は続けて並ぶため、前の行と比べてまとめる
     let mut albums: Vec<AlbumSummary> = Vec::new();
-    for (album, artist, id, duration, album_sort) in rows {
+    for (album, artist, id, duration, album_sort, artist_sort) in rows {
         match albums.last_mut() {
             Some(last) if last.name == album && last.artist == artist => {
                 last.track_count += 1;
@@ -485,11 +487,15 @@ pub fn find_album_summaries(conn: &Connection) -> AppResult<Vec<AlbumSummary>> {
                 if last.sort_name.is_none() {
                     last.sort_name = album_sort;
                 }
+                if last.artist_sort_name.is_none() {
+                    last.artist_sort_name = artist_sort;
+                }
             }
             _ => albums.push(AlbumSummary {
                 name: album,
                 sort_name: album_sort,
                 artist,
+                artist_sort_name: artist_sort,
                 track_count: 1,
                 total_duration: duration.unwrap_or(0),
                 representative_track_id: id,
@@ -646,8 +652,35 @@ pub fn find_artist_albums(conn: &Connection, artist: &str) -> AppResult<Vec<Albu
         TRACK_COLUMNS
     );
     let tracks = query_tracks(conn, &sql, &[&artist, &UNKNOWN_ALBUM])?;
+    Ok(group_album_tracks(tracks))
+}
 
-    // 同じアルバム（アルバム名・まとめるアーティストが同じ）の曲は続けて並ぶため、前の行と比べてまとめる
+/// アルバムアーティストのアルバムと曲を取得（アルバム名の順。曲は`ALBUM_TRACK_ORDER`の順）
+///
+/// `artist`は、アルバムをまとめたアーティスト（`AlbumSummary::artist`。アルバムアーティストも
+/// 曲のアーティストもないアルバムはNone）。アルバムの画面のリスト表示で使う。`find_artist_albums`と
+/// 違い、曲のアーティストが複数ある曲を分けず（`A; B`のアルバムは`A; B`だけに入る）、アルバムのない曲は
+/// 含めない。どのアルバムも、`find_album_summaries`の1件と同じく、まとめたアーティストの下に1回だけ入る。
+pub fn find_album_artist_albums(
+    conn: &Connection,
+    artist: Option<&str>,
+) -> AppResult<Vec<AlbumGroup>> {
+    let sql = format!(
+        "SELECT {} FROM tracks
+         WHERE album IS NOT NULL AND {ALBUM_ARTIST} IS ?1
+         ORDER BY album, {ALBUM_TRACK_ORDER}",
+        TRACK_COLUMNS
+    );
+    let tracks = query_tracks(conn, &sql, &[&artist])?;
+    Ok(group_album_tracks(tracks))
+}
+
+/// 曲を、アルバムごとにまとめる（アルバム名の順に並べ直す）
+///
+/// 曲は、同じアルバム（アルバム名・まとめるアーティストが同じ）の曲が続けて、アルバムの中の順に
+/// 並んでいること。アルバムのない曲は、`UNKNOWN_ALBUM`という名前のアルバムにまとめる。
+fn group_album_tracks(tracks: Vec<Track>) -> Vec<AlbumGroup> {
+    // 同じアルバムの曲は続けて並ぶため、前の行と比べてまとめる
     let mut albums: Vec<AlbumGroup> = Vec::new();
     for track in tracks {
         let album_name = track.album.as_deref().unwrap_or(UNKNOWN_ALBUM);
@@ -674,7 +707,7 @@ pub fn find_artist_albums(conn: &Connection, artist: &str) -> AppResult<Vec<Albu
     }
 
     albums.sort_by_cached_key(|a| sort_key(a.sort_name.as_deref(), &a.name));
-    Ok(albums)
+    albums
 }
 
 /// ジャンルの曲の並び（アルバムをまとめるアーティスト → アルバム → アルバムの中の並び）
@@ -2813,6 +2846,7 @@ mod tests {
                     name: "Alpha".to_string(),
                     sort_name: None,
                     artist: Some("アーティストY".to_string()),
+                    artist_sort_name: None,
                     track_count: 1,
                     total_duration: 0,
                     representative_track_id: "t3".to_string(),
@@ -2822,6 +2856,7 @@ mod tests {
                     name: "beta".to_string(),
                     sort_name: None,
                     artist: Some("アーティストY".to_string()),
+                    artist_sort_name: None,
                     track_count: 2,
                     total_duration: 150,
                     representative_track_id: "t2".to_string(),
@@ -2952,6 +2987,22 @@ mod tests {
                 ("宇多田ヒカル", Some("うただひかる")),
                 ("東京事変", Some("とうきょうじへん")),
                 ("中島みゆき", Some("なかじまみゆき")),
+            ]
+        );
+
+        // アルバムの一覧にも、まとめたアーティストの読みを同じ規則で入れる
+        let albums = find_album_summaries(&conn).unwrap();
+        let artist_sorts: Vec<(&str, Option<&str>)> = albums
+            .iter()
+            .map(|a| (a.name.as_str(), a.artist_sort_name.as_deref()))
+            .collect();
+        assert_eq!(
+            artist_sorts,
+            [
+                ("Compilation", None),
+                ("First Love", Some("うただひかる")),
+                ("アルバムK", Some("なかじまみゆき")),
+                ("教育", Some("とうきょうじへん")),
             ]
         );
     }
@@ -3131,6 +3182,44 @@ mod tests {
             find_album_tracks(&conn, "Compilation", Some("アーティストA"))
                 .unwrap()
                 .is_empty()
+        );
+
+        // アルバムアーティストのアルバム: アルバムの一覧の1件と同じまとまりで、まとめたアーティストの下に入る
+        let album_artist_albums = |artist: Option<&str>| -> Vec<(String, Vec<String>)> {
+            find_album_artist_albums(&conn, artist)
+                .unwrap()
+                .into_iter()
+                .map(|album| {
+                    let ids = album.tracks.iter().map(|track| track.id.clone()).collect();
+                    (album.name, ids)
+                })
+                .collect()
+        };
+        assert_eq!(
+            album_artist_albums(Some("アーティストA")),
+            [
+                (
+                    "Album".to_string(),
+                    vec!["f1".to_string(), "f2".to_string()]
+                ),
+                ("Greatest Hits".to_string(), vec!["a1".to_string()]),
+            ]
+        );
+        assert_eq!(
+            album_artist_albums(Some("Various Artists")),
+            [(
+                "Compilation".to_string(),
+                vec!["c1".to_string(), "c2".to_string()]
+            )]
+        );
+        assert_eq!(
+            album_artist_albums(None),
+            [("No Artist".to_string(), vec!["n1".to_string()])]
+        );
+        // コンピレーションに参加しただけのアーティストには入らない
+        assert_eq!(
+            album_artist_albums(Some("アーティストB")),
+            [("Greatest Hits".to_string(), vec!["b1".to_string()])]
         );
     }
 
@@ -3666,6 +3755,16 @@ mod tests {
         assert_eq!(
             find_artist_albums(&conn, "Various Artists").unwrap().len(),
             1
+        );
+
+        // アルバムアーティストのアルバムは、複数のアーティストを分けない（まとめたアーティストの文字列で取得する）
+        let duets = find_album_artist_albums(&conn, Some("アーティストX; ゲストY")).unwrap();
+        assert_eq!(duets.len(), 1);
+        assert_eq!(track_ids(&duets[0].tracks), ["t1"]);
+        assert!(
+            find_album_artist_albums(&conn, Some("ゲストY"))
+                .unwrap()
+                .is_empty()
         );
     }
 

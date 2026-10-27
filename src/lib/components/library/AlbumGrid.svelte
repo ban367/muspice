@@ -9,6 +9,7 @@
   import { useAlbumsQuery } from '#lib/queries/tracks.js';
   import { ui } from '#lib/stores/ui.svelte.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
+  import { albumSearchFields } from '#lib/utils/albumArtists.js';
   import { albumKey } from '#lib/utils/albumKey.js';
   import { formatDuration } from '#lib/utils/format.js';
   import { playGroup } from '#lib/utils/groupPlayback.js';
@@ -59,9 +60,6 @@
     event.stopPropagation();
     handleAlbumDoubleClick(album);
   }
-
-  // 絞り込みの対象（アルバム名・アーティスト）
-  const albumSearchFields = (album: AlbumSummary) => [album.name, album.artist];
 </script>
 
 <LibraryGrid

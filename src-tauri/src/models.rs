@@ -294,6 +294,10 @@ pub struct AlbumSummary {
     pub sort_name: Option<String>,
     /// アルバムをまとめたアーティスト（アルバムアーティスト。なければ曲のアーティスト）
     pub artist: Option<String>,
+    /// まとめたアーティストの並び順に使う値（アルバムの曲のうち最初に見つかったもの。なければ値なし）
+    ///
+    /// アルバムの画面のリスト表示で、アルバムアーティストを並べるために使う。
+    pub artist_sort_name: Option<String>,
     pub track_count: i32,
     pub total_duration: i32,
     pub representative_track_id: String,
@@ -324,7 +328,7 @@ pub struct GenreSummary {
     pub representative_track_id: String,
 }
 
-/// アルバムとその曲（アーティストの詳細で、アルバムごとに曲を表示するために使う）
+/// アルバムとその曲（アーティスト・アルバムアーティストの詳細で、アルバムごとに曲を表示するために使う）
 #[derive(Debug, Serialize, Deserialize, Clone, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AlbumGroup {

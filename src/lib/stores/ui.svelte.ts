@@ -9,6 +9,7 @@
 import { untrack } from 'svelte';
 import type { AlbumSummary, ArtistSummary, Track } from '#lib/types/models.js';
 import { groupArtist } from '#lib/utils/albumKey.js';
+import { groupArtistSortName } from '#lib/utils/nameSort.js';
 import { TRACK_COLUMN_IDS, TRACK_COLUMNS, type TrackColumnId } from '#lib/utils/trackColumns.js';
 
 // 右サイドバーのパネル（queue: 再生キュー, equalizer: イコライザ, info: 選んだアルバム・アーティストの曲）
@@ -17,8 +18,8 @@ export type RightSidebarPanel = 'queue' | 'equalizer' | 'info';
 /**
  * 情報パネルに表示する項目
  *
- * - album: グリッドで選んだアルバム、または曲の一覧で選んだ曲のアルバム（`trackId`はその曲。
- *   パネルの一覧の中で、その曲の行を選んで示す）
+ * - album: グリッド・アルバムの見出しで選んだアルバム、または曲の一覧で選んだ曲のアルバム（`trackId`は
+ *   その曲。パネルの一覧の中で、その曲の行を選んで示す）
  * - artist: グリッドで選んだアーティスト
  * - track: 曲の一覧・最近追加した曲で選んだ、アルバムのない曲
  */
@@ -42,6 +43,7 @@ export function trackInfoTarget(track: Track): InfoTarget {
       name: track.album,
       sortName: track.sortTags.album,
       artist: groupArtist(track),
+      artistSortName: groupArtistSortName(track),
       trackCount: 0,
       totalDuration: 0,
       representativeTrackId: track.id
@@ -169,7 +171,7 @@ class UiState {
   #pendingFollow: InfoTarget | null = null;
 
   /**
-   * 情報パネルを開き、項目を表示する（グリッドのカードを押した時）
+   * 情報パネルを開き、項目を表示する（グリッドのカード・アルバムの見出し・曲の行を押した時）
    */
   showInfo(target: InfoTarget): void {
     // まとめている追随は捨てる（押した項目を、後から古い追随で上書きしない）
@@ -180,8 +182,8 @@ class UiState {
   }
 
   /**
-   * 情報パネルを開いている時だけ、表示する項目を入れ替える（グリッドのキーボードでの移動・
-   * 曲の一覧の選択に追随させる。閉じている時は開かない）
+   * 情報パネルを開いている時だけ、表示する項目を入れ替える（グリッド・曲の一覧のキーボードでの移動などに
+   * 追随させる。閉じている時は開かない）
    *
    * 間を空けた呼び出しはすぐに反映する。`FOLLOW_INFO_INTERVAL`より短い間隔で続いた呼び出しは、
    * 続いている間は反映せず、止まった後に最後の項目だけを反映する（矢印キーを押し続けた時）。
@@ -278,21 +280,36 @@ class UiState {
 export const ui = new UiState();
 
 /**
- * 一覧で最後に選んだ曲を、情報パネルを開いている間だけパネルへ反映する（コンポーネントの初期化の中で呼ぶ）
+ * 一覧で最後に選んだ曲を、情報パネルへ反映する（コンポーネントの初期化の中で呼ぶ）
  *
  * `track`は、最後に選んだ曲（`TrackSelection.active`の曲。まだ選んでいなければnull）を返す関数。
- * 選んだ曲が変わった時と、パネルを開いた時に`followInfo`で反映する（閉じている時は開かない。まだ選んで
- * いない時は、表示している項目をそのまま残す）。選択を解除した後（タグの編集を保存した後など）も、その曲の
- * タグの変更に追随させる。曲の一覧（`TrackList`）・アルバムとアーティストの詳細・再生履歴で同じ動きにする（ADR-066）。
+ * 返す関数は、行をクリックして選んだ時に呼ぶ（パネルを閉じていても開き、その曲を表示する。グリッドの
+ * カードのクリックと同じ）。キーボードでの移動など、ほかの操作で選んだ曲が変わった時と、パネルを開いた時は、
+ * 開いている間だけ`followInfo`で反映する（まだ選んでいない時は、表示している項目をそのまま残す）。選択を
+ * 解除した後（タグの編集を保存した後など）も、その曲のタグの変更に追随させる。曲を選べるどの一覧でも
+ * 同じ動きにする（ADR-066・ADR-076）。
  */
-export function followTrackInfo(track: () => Track | null): void {
+export function followTrackInfo(track: () => Track | null): () => void {
   // 曲が同じ（一覧を取り直しただけ）なら、反映し直さない
   const selected = $derived.by(track);
+  // パネルへ最後に反映した曲（クリックで表示した曲を、追随でもう一度反映しないため。パネルを閉じたら
+  // 忘れ、開き直した時は反映し直す）。リアクティブにしない
+  let shown: Track | null = null;
   $effect(() => {
-    if (selected === null || !ui.isInfoPanelOpen) return;
+    if (!ui.isInfoPanelOpen) {
+      shown = null;
+      return;
+    }
+    if (selected === null || selected === shown) return;
+    shown = selected;
     const target = trackInfoTarget(selected);
     untrack(() => ui.followInfo(target));
   });
+  return () => {
+    if (selected === null) return;
+    shown = selected;
+    ui.showInfo(trackInfoTarget(selected));
+  };
 }
 
 // ---------- 前回開いていた画面（起動時の復元に使う） ----------

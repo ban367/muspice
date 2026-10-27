@@ -265,17 +265,17 @@ src-tauri/src/
   - 表示する列・列の順番・並び順は、画面ごとに`#lib/stores/trackListView.svelte`の`trackListView(viewId, defaults)`が覚える（localStorageの`muspice:trackListView:<viewId>`）。一覧を置く画面は、`TrackList`に`viewId`と、その画面の既定（`defaultColumns`・`defaultSort`）を渡す。列の幅は、どの画面でも共通で`ui.columnWidths`に持つ
   - プレイリストの画面も`TrackList`で表示する（ADR-039）。`onReorder`を渡すと、渡した順のまま並べている間（並び順がnullの間）だけ、行のドラッグで並べ替えられる（並べ替えの計算は`#lib/utils/reorder`の`moveItems`）。`onRemove`を渡すと、右クリックのメニューとDeleteキーで、選択した曲を一覧から外せる。列はどのプレイリストでも共通（`viewId="playlist"`）、並び順はプレイリストごと（`sortViewId`に`playlistSortViewId(id)`）に覚える
   - 再生中の曲へのジャンプは、`ui.revealTrackId`に曲のIDを入れる。その曲を含む`TrackList`が、行までスクロールして選び、nullに戻す。開いている画面の一覧にない場合は、プレーヤーが全曲の一覧（`isRevealFallback`を付けた`TrackList`）へ移動する
-- 曲の一覧（`TrackList`（プレイリストの画面を含む）、アルバム・アーティストの詳細、右サイドバーの情報パネル）は、一覧ごとに`#lib/utils/trackSelection.svelte`の`TrackSelection`を作り、行のクリックを`click()`へ、一覧の`onkeydown`を`handleTrackListKeydown`へ渡す
+- 曲の一覧（`TrackList`（プレイリストの画面を含む）、アーティスト・アルバムアーティストの詳細（`ArtistAlbumsView`）、右サイドバーの情報パネル）は、一覧ごとに`#lib/utils/trackSelection.svelte`の`TrackSelection`を作り、行のクリックを`click()`へ、一覧の`onkeydown`を`handleTrackListKeydown`へ渡す
   - 矢印キーで選択を移し、Shift+矢印で範囲選択、Cmd/Ctrl+Aですべて選択、Enterで再生する
   - Shift+クリックの範囲は、Shift+矢印と同じ起点（最後に修飾キーなし・Cmd/Ctrlでクリックした行、または矢印で移した行）から選ぶ（`computeClickSelection`に`TrackSelection`の起点を渡す）
   - 一覧の要素を`role="listbox"`・`tabindex="0"`にしてフォーカスを受け、行は`role="option"`・`data-track-id`を付けてフォーカスを受けない（行をクリックすると一覧の要素にフォーカスが移り、行が消えてもキー操作を続けられる）
   - 表示する一覧が別のものに変わった時（別のアルバムを選んだ等）は`reset()`で選択を消す
   - 仮想スクロールの一覧では、移動先の行の要素がないことがあるため、`handleTrackListKeydown`の`scrollTo`に`VirtualList`の`scrollToIndex`を渡す（渡さない場合は、`data-track-id`の付いた行の要素を探してスクロールする）
-- 1つだけ選択する一覧（2ペイン表示の左の`AlbumList`・`ArtistList`）は、`listSelectionTarget`で移動先を求めて選択し、その項目へフォーカスも移す（Tabでは選択中の項目だけに止まる）
+- 1つだけ選択する一覧（2ペイン表示の左の`ArtistList`。アーティストとアルバムアーティスト）は、`listSelectionTarget`で移動先を求めて選択し、その項目へフォーカスも移す（Tabでは選択中の項目だけに止まる）
 - グリッド表示（`LibraryGrid`: アルバム・アーティスト・ジャンル）は、現在位置の項目を枠で示し、Enterでクリックと同じ操作（`onOpen`）を行う
   - 矢印キーで現在位置を移すと`onNavigate`を呼ぶ。アルバム・アーティストのグリッドは、情報パネルを開いている間だけ、表示する項目を移した先に入れ替える（`ui.followInfo`。閉じている間は開かない）。カードのクリック・Enterは`ui.showInfo`で情報パネルを開く（ADR-063）
   - キーの扱い（移動・Enter・修飾キーやカードの中のボタンでは何もしない）は`#lib/utils/listNavigation`の`openableListAction`にまとめる。`LibraryGrid`を使わないグリッド（最近追加した曲。アルバムと曲のカードが混ざり、メニューもカードの種類で変わる）も、これと同じ形（一覧を`role="listbox"`、カードを包む項目を`role="option"`の`grid-item`）にする。最近追加した曲の曲のカード（アルバムのない曲）は、クリックでアルバムのカードと同じく情報パネルを開いて（`ui.showInfo`）その曲を表示し、Enterでは開く先がないため再生する（曲の一覧のEnterと同じ）。矢印キーでの追随（`ui.followInfo`）は、アルバムと曲のどちらのカードでも行う
-- 曲の一覧（`TrackList`・アルバムとアーティストの詳細・再生履歴）は、情報パネルを開いている間だけ、最後に選んだ曲（`TrackSelection.active`。選択を解除した後も、その曲。まだ選んでいなければ反映しない）をパネルへ反映する。一覧は、初期化の中で`#lib/stores/ui.svelte`の`followTrackInfo(() => 曲)`を呼ぶ。これが`ui.followInfo`を呼び、曲が同じ（一覧を取り直しただけ）なら反映し直さない。表示する項目は`trackInfoTarget(track)`（同じモジュール）で作る。アルバムのある曲は、アルバム（アルバムアーティスト。なければ曲のアーティスト（`#lib/utils/albumKey`の`groupArtist`）＋アルバム名）と、選んだ曲のID（`trackId`。パネルが、曲を取得した後にその行を選んで見える位置へ出す）。アルバムのない曲は、曲そのもの（`{ type: 'track' }`）（ADR-066）
+- 曲の一覧（`TrackList`・アーティストとアルバムアーティストの詳細・再生履歴）は、最後に選んだ曲（`TrackSelection.active`。選択を解除した後も、その曲。まだ選んでいなければ反映しない）を情報パネルへ反映する。一覧は、初期化の中で`#lib/stores/ui.svelte`の`followTrackInfo(() => 曲)`を呼び、返った関数を行のクリック（`selection.click()`の後）で呼ぶ。この関数は`ui.showInfo`でパネルを開いて表示し、ほかの操作（キーボード・右クリック・ドラッグ）で選んだ曲が変わった時と、パネルを開いた時は、開いている間だけ`ui.followInfo`で反映する。曲が同じ（一覧を取り直しただけ・クリックで表示したばかり）なら反映し直さない（ADR-076）。表示する項目は`trackInfoTarget(track)`（同じモジュール）で作る。アルバムのある曲は、アルバム（アルバムアーティスト。なければ曲のアーティスト（`#lib/utils/albumKey`の`groupArtist`）＋アルバム名）と、選んだ曲のID（`trackId`。パネルが、曲を取得した後にその行を選んで見える位置へ出す）。アルバムのない曲は、曲そのもの（`{ type: 'track' }`）（ADR-066）
   - `ui.followInfo`は、`FOLLOW_INFO_INTERVAL`（200ms）より短い間隔で続いた呼び出しをまとめる（最初の1回はすぐに反映し、続いている間は反映せず、止まった後に最後の項目を反映する）。矢印キーを押し続けた間に、項目ごとの曲・ジャケット画像を取得しないため。`ui.showInfo`は、まとめている項目を捨てる
   - パネルは、項目の名前（アルバム名・アーティスト）が変わった時だけ曲を取得する。同じアルバムの中で選び直した時は取得しない
 - 木の一覧（フォルダ別・年代別の画面の左の`TreeBrowser`）は、`role="tree"`の一覧で、Tabでは選んでいる項目（選んでいなければ先頭の項目）だけに止まる。↑↓・Home・Endで選ぶ項目を移し、→で開く（開いていれば最初の子へ）、←で閉じる（閉じていれば親へ）。キーの扱いは`#lib/utils/listNavigation`の`treeKeyAction`にまとめる。開閉の三角はポインタだけで押し、フォーカスを受けない
@@ -420,7 +420,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 
 ### 長い一覧の描画（仮想スクロール）
 
-- 件数が多くなる一覧は、`#lib/components/ui`の`VirtualList`で描画する（曲の一覧`TrackList`（プレイリストの画面を含む）、再生キュー、`AlbumList`・`ArtistList`、`LibraryGrid`）。見えている行とその前後の少しの行だけを描画するため、数万件でもDOMの要素は数十個に収まる
+- 件数が多くなる一覧は、`#lib/components/ui`の`VirtualList`で描画する（曲の一覧`TrackList`（プレイリストの画面を含む）、再生キュー、`ArtistList`、`LibraryGrid`）。見えている行とその前後の少しの行だけを描画するため、数万件でもDOMの要素は数十個に収まる
 - `VirtualList`がスクロールする領域になる（親で高さを決める）。列の見出しは`header`に渡すと上に固定される。`role`・`tabindex`・`onkeydown`などは、項目を並べる要素に渡される
   - 一覧のまわりの余白は、`scrollerClass`でスクロールする領域の中に付ける（外側に付けると、カードの影や選択の枠が端で切れる）。項目を並べる要素（フォーカスを受ける）は、見出しと上の余白の分だけ下から始まるため、`VirtualList`がその分の`scroll-margin`を付ける（付けないと、メニューを閉じた後などにフォーカスが戻った時、ブラウザーがその分だけスクロールする）
 - 行の高さはすべて同じとして扱う。高さは決め打ちにせず、描画した行を実測する（`estimatedRowHeight`は最初の描画だけに使う）。`minColumnWidth`を渡すとグリッドになり、幅に入るだけ列を並べる

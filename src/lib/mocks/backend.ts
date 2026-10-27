@@ -567,10 +567,35 @@ function toAlbumSummary(name: string, artist: string | null, tracks: Track[]): A
     name,
     sortName: firstSortName(tracks, (track) => track.sortTags.album),
     artist,
+    artistSortName: firstSortName(tracks, groupArtistSort),
     trackCount: tracks.length,
     totalDuration: sumDuration(tracks),
     representativeTrackId: tracks[0]?.id ?? ''
   };
+}
+
+/**
+ * 曲を、アルバムごとにまとめる（アルバム名の順。Rustの`group_album_tracks`と同じ）
+ *
+ * アルバムのない曲は、`UNKNOWN_ALBUM`という名前のアルバムにまとめる。
+ */
+function toAlbumGroups(items: Track[]): AlbumGroup[] {
+  const sorted = [...items].sort(
+    orderBy((t) => t.album ?? UNKNOWN_ALBUM, groupArtist, ...albumTrackOrder)
+  );
+  const keyOf = (track: Track) =>
+    JSON.stringify([track.album ?? UNKNOWN_ALBUM, groupArtist(track)]);
+  return [...groupBy(sorted, keyOf)]
+    .map(([, albumTracks]): AlbumGroup => {
+      // アルバムの曲の一覧（`AlbumGroup`）には、まとめたアーティストの読みを含めない
+      const { artistSortName: _, ...summary } = toAlbumSummary(
+        albumTracks[0].album ?? UNKNOWN_ALBUM,
+        groupArtist(albumTracks[0]),
+        albumTracks
+      );
+      return { ...summary, tracks: albumTracks };
+    })
+    .sort(bySortName);
 }
 
 export function createMockBackend(options: MockBackendOptions): MockBackend {
@@ -775,23 +800,6 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
    * アルバムは「アルバム名＋まとめるアーティスト」で分ける。アルバムの`artist`は、そのアルバムを
    * まとめるアーティスト（複数のアーティストの曲のアルバムでは、`A; B`の形）。
    */
-  function toArtistAlbums(items: Track[]): AlbumGroup[] {
-    const sorted = [...items].sort(
-      orderBy((t) => t.album ?? UNKNOWN_ALBUM, groupArtist, ...albumTrackOrder)
-    );
-    const keyOf = (track: Track) =>
-      JSON.stringify([track.album ?? UNKNOWN_ALBUM, groupArtist(track)]);
-    return [...groupBy(sorted, keyOf)]
-      .map(([, albumTracks]) => ({
-        ...toAlbumSummary(
-          albumTracks[0].album ?? UNKNOWN_ALBUM,
-          groupArtist(albumTracks[0]),
-          albumTracks
-        ),
-        tracks: albumTracks
-      }))
-      .sort(bySortName);
-  }
 
   /** ジャンルの曲を並べる（アルバムをまとめるアーティスト → アルバム → アルバムの中の並び） */
   const sortGenreTracks = (items: Track[]) =>
@@ -2226,7 +2234,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     getArtists: () =>
       [...tracksByValues(listedArtists)]
         .map(([name, items]): ArtistSummary => {
-          const albums = toArtistAlbums(items);
+          const albums = toAlbumGroups(items);
           return {
             name,
             // 読みは、アーティストが1つの曲のものを使う（複数ある曲の読みは、順に対応させる）
@@ -2240,7 +2248,12 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         })
         .sort(bySortName),
     getArtistAlbums: (artist) =>
-      toArtistAlbums(tracks.filter((track) => listedArtists(track).includes(artist))),
+      toAlbumGroups(tracks.filter((track) => listedArtists(track).includes(artist))),
+    // アルバムをまとめたアーティストで取得する（複数のアーティストの曲を分けない。アルバムのない曲は含めない）
+    getAlbumArtistAlbums: (artist) =>
+      toAlbumGroups(
+        tracks.filter((track) => track.album !== null && groupArtist(track) === artist)
+      ),
     // ジャンルが複数ある曲は、それぞれのジャンルに入る
     getGenres: () =>
       [...tracksByValues((track) => splitValues(track.genre))]

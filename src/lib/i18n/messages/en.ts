@@ -832,7 +832,7 @@ export const en: Messages = {
     searchGenres: 'Search genres...',
     search: 'Search...',
     clearSearch: 'Clear search',
-    selectAlbum: 'Select an album',
+    selectAlbumArtist: 'Select an album artist',
     selectArtist: 'Select an artist',
     listView: 'List view',
     gridView: 'Grid view',
