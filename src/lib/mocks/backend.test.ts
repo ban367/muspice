@@ -2645,6 +2645,33 @@ describe('再生状態の保存と復元', () => {
     expect(state.currentIndex).toBe(0);
   });
 
+  it('再生していた曲と後ろの曲がなくなっていたら、前に残っている最後の曲を指す', async () => {
+    const trackIds = [mockTrackId(1), mockTrackId(2), mockTrackId(3)];
+    await commands.savePlaybackState(
+      { ...cursor, currentIndex: 1 },
+      { trackIds, originalTrackIds: null }
+    );
+    await commands.deleteTracksCommand([mockTrackId(2), mockTrackId(3)]);
+
+    const state = await commands.getPlaybackState();
+
+    expect(state.queue.map((track) => track.id)).toEqual([mockTrackId(1)]);
+    expect(state.currentIndex).toBe(0);
+  });
+
+  it('何も再生していなかったキューは、再生していた曲の位置をnullで返す', async () => {
+    const trackIds = [mockTrackId(1), mockTrackId(2)];
+    await commands.savePlaybackState(
+      { ...cursor, currentIndex: null },
+      { trackIds, originalTrackIds: null }
+    );
+
+    const state = await commands.getPlaybackState();
+
+    expect(state.queue.map((track) => track.id)).toEqual(trackIds);
+    expect(state.currentIndex).toBeNull();
+  });
+
   it('保存先を渡すと、作り直した後も復元できる', async () => {
     const items = new Map<string, string>();
     const storage = {

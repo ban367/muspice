@@ -9,6 +9,7 @@ export { default as MenuSub } from './MenuSub.svelte';
 export { default as Modal } from './Modal.svelte';
 export { default as PlaylistSubmenu } from './PlaylistSubmenu.svelte';
 export { default as Popover } from './Popover.svelte';
+export { default as QueueMenuItems } from './QueueMenuItems.svelte';
 export { default as TabPanel } from './TabPanel.svelte';
 export { default as Tabs } from './Tabs.svelte';
 export { default as TextPromptDialog } from './TextPromptDialog.svelte';

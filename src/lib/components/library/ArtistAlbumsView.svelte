@@ -12,7 +12,7 @@
 <script lang="ts">
   import type { AlbumGroup, ArtistSummary, Track } from '#lib/types/models.js';
   import { flattenAlbumTracks, useSetRatingMutation } from '#lib/queries/tracks.js';
-  import { player, playTrackFromQueue, playShuffled } from '#lib/stores/player.svelte.js';
+  import { player, playNow, playShuffled } from '#lib/stores/player.svelte.js';
   import { followSelectedTrack } from '#lib/stores/ui.svelte.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import { albumGroupSummary } from '#lib/utils/albumArtists.js';
@@ -85,27 +85,20 @@
   }
 
   /**
-   * 一覧のキーボード操作（矢印キーで選択を移す・Enterでそのアルバムの曲として再生する）
+   * 一覧のキーボード操作（矢印キーで選択を移す・Enterで再生する）
    */
   function handleListKeydown(event: KeyboardEvent) {
     handleTrackListKeydown(event, selection, {
       onActivate: (trackId) => {
-        for (const album of albums) {
-          const index = album.tracks.findIndex((track) => track.id === trackId);
-          if (index !== -1) {
-            playAlbumFrom(album, index);
-            return;
-          }
-        }
+        const track = displayTracks.find((candidate) => candidate.id === trackId);
+        if (track) playTrack(track);
       }
     });
   }
 
-  // すべて再生
+  // すべて再生（再生中の曲の次に入れて再生する）
   function handlePlayAll() {
-    if (displayTracks.length > 0) {
-      playTrackFromQueue(displayTracks, 0);
-    }
+    playNow(displayTracks);
   }
 
   // シャッフル再生
@@ -113,16 +106,14 @@
     playShuffled(displayTracks);
   }
 
-  // アルバムの曲として、その曲から再生する（ダブルクリック・Enter）
-  function playAlbumFrom(album: AlbumGroup, index: number) {
-    playTrackFromQueue(album.tracks, index);
+  // その曲を、再生中の曲の次に入れて再生する（ダブルクリック・Enter）
+  function playTrack(track: Track) {
+    playNow([track]);
   }
 
-  // アルバム再生
+  // アルバムを、再生中の曲の次に入れて再生する（アルバムの見出しのダブルクリック・再生のボタン）
   function handleAlbumPlay(album: AlbumGroup) {
-    if (album.tracks.length > 0) {
-      playTrackFromQueue(album.tracks, 0);
-    }
+    playNow(album.tracks);
   }
 
   // ---- メニュー（行の右クリック・「その他」のボタン） ----
@@ -290,7 +281,7 @@
                 ondragstart={(e) => handleDragStart(e, track.id)}
                 onclick={(e) => handleTrackClick(track.id, e)}
                 oncontextmenu={(e) => openTrackMenu(e, track)}
-                ondblclick={() => playAlbumFrom(album, album.tracks.indexOf(track))}
+                ondblclick={() => playTrack(track)}
                 role="option"
                 aria-selected={selection.has(track.id)}
                 data-track-id={track.id}

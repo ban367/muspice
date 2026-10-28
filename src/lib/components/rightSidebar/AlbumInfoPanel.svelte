@@ -12,7 +12,7 @@
   import { untrack } from 'svelte';
   import type { Track } from '#lib/types/models.js';
   import { useAlbumTracksQuery, useSetRatingMutation } from '#lib/queries/tracks.js';
-  import { player, playTrackFromQueue, playShuffled } from '#lib/stores/player.svelte.js';
+  import { player, playNow, playShuffled } from '#lib/stores/player.svelte.js';
   import { groupArtist } from '#lib/utils/albumKey.js';
   import { groupByDisc } from '#lib/utils/albumDiscs.js';
   import { formatDuration, formatTotalDuration } from '#lib/utils/format.js';
@@ -43,24 +43,16 @@
     key: string;
     /** 見出し（ディスクが1枚だけのアルバムはnull） */
     heading: string | null;
-    /** 区切りの最初の曲の、一覧の全体（`tracks`）の中の位置 */
-    start: number;
     tracks: Track[];
   }
 
   const sections = $derived.by((): Section[] => {
     const discs = groupByDisc(albumTracksQuery?.data ?? []);
-    let start = 0;
-    return discs.map((disc) => {
-      const section = {
-        key: String(disc.discNumber),
-        heading: discs.length > 1 ? m.common.disc(disc.discNumber) : null,
-        start,
-        tracks: disc.tracks
-      };
-      start += disc.tracks.length;
-      return section;
-    });
+    return discs.map((disc) => ({
+      key: String(disc.discNumber),
+      heading: discs.length > 1 ? m.common.disc(disc.discNumber) : null,
+      tracks: disc.tracks
+    }));
   });
 
   // 表示順の曲（選択・再生はこの順で行う）
@@ -136,17 +128,15 @@
   function handleListKeydown(event: KeyboardEvent) {
     handleTrackListKeydown(event, selection, {
       onActivate: (trackId) => {
-        const index = tracks.findIndex((track) => track.id === trackId);
-        if (index !== -1) playTrackFromQueue(tracks, index);
+        const track = tracks.find((candidate) => candidate.id === trackId);
+        if (track) playNow([track]);
       }
     });
   }
 
-  // アルバムをすべて再生
+  // アルバムをすべて再生（再生中の曲の次に入れて再生する）
   function handlePlayAll() {
-    if (tracks.length > 0) {
-      playTrackFromQueue(tracks, 0);
-    }
+    playNow(tracks);
   }
 
   // アルバムをシャッフル再生
@@ -232,7 +222,7 @@
           {#if section.heading !== null}
             <div class="section-heading" title={section.heading}>{section.heading}</div>
           {/if}
-          {#each section.tracks as track, indexInSection (track.id)}
+          {#each section.tracks as track (track.id)}
             {@const isPlaying = current.id === track.id}
             <!-- キー操作は一覧（listbox）で受けるため、行はフォーカスを受けない -->
             <!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
@@ -245,7 +235,7 @@
               draggable="true"
               ondragstart={(e) => handleDragStart(e, track.id)}
               onclick={(e) => handleTrackClick(track.id, e)}
-              ondblclick={() => playTrackFromQueue(tracks, section.start + indexInSection)}
+              ondblclick={() => playNow([track])}
               role="option"
               aria-selected={selection.has(track.id)}
               data-track-id={track.id}

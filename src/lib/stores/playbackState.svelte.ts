@@ -44,12 +44,13 @@ export async function restorePlaybackState(options: RestorePlaybackStateOptions)
   player.isShuffleEnabled = state.shuffle;
   player.repeatMode = state.repeat;
 
-  const current = state.currentIndex === null ? undefined : state.queue[state.currentIndex];
-  // 再生していた曲がない（キューが空・その曲と後ろの曲がライブラリからなくなった）なら、キューは戻さない
-  if (!current || player.currentTrack || player.playQueue.length > 0) return;
+  // 復元を待つ間に、曲を再生した・キューへ入れた場合は、キューを戻さない
+  if (state.queue.length === 0 || player.currentTrack || player.playQueue.length > 0) return;
 
-  options.onTrackRestoring(current);
-  restoreQueue(state.queue, originalQueueOf(state), state.currentIndex ?? 0);
+  // 再生していた曲がない（キューへ入れただけで、何も再生していなかった）場合も、キューは戻す
+  const current = state.currentIndex === null ? undefined : state.queue[state.currentIndex];
+  if (current) options.onTrackRestoring(current);
+  restoreQueue(state.queue, originalQueueOf(state), state.currentIndex);
 }
 
 /** シャッフルする前の順のキュー（シャッフルが無効なら、再生する順と同じ） */

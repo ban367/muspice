@@ -10,7 +10,7 @@
   import { useQueryClient } from '@tanstack/svelte-query';
   import type { AlbumSummary } from '#lib/types/models.js';
   import { useTracksQuery } from '#lib/queries/tracks.js';
-  import { playSingleTrack } from '#lib/stores/player.svelte.js';
+  import { playNow } from '#lib/stores/player.svelte.js';
   import { GRID_CARD_GAP, ui } from '#lib/stores/ui.svelte.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import { formatDate } from '#lib/utils/format.js';
@@ -46,7 +46,7 @@
   let contextMenu = $state<{ x: number; y: number; item: RecentItem } | null>(null);
 
   function play(item: RecentItem) {
-    if (item.track) playSingleTrack(item.track);
+    if (item.track) playNow([item.track]);
     else void playGroup(queryClient, 'album', item.name, item.artist);
   }
 

@@ -162,7 +162,7 @@ src-tauri/src/
 - 配列・オブジェクトを丸ごと置き換える状態は`$state.raw`にし、中身を書き換えず代入で更新する（例: `notifications.items`、`ui.columnWidths`）
 - localStorageに保存する状態は、privateな`$state`とgetter/setterで実装し、setterで保存する（例: `ui.isRightSidebarPinned`）。保存値はモジュールの読み込み時に読み、localStorageが使えない環境でも例外にしない
 - 値から計算できるものは`$derived`のフィールドにする（例: `player.progress`・`player.upcomingEntries`）
-- 状態に付随する操作（追加・削除など）はクラスのメソッドか、モジュールの関数にする（例: `notifications.add()`、キュー操作の`playTrackFromQueue()`）。保存や外部への反映（例: イコライザのゲインを再生エンジンへ）が必要な状態は、getterだけを公開してメソッド経由で変更させる（例: `equalizer.setBandGain()`）
+- 状態に付随する操作（追加・削除など）はクラスのメソッドか、モジュールの関数にする（例: `notifications.add()`、キュー操作の`playNow()`）。保存や外部への反映（例: イコライザのゲインを再生エンジンへ）が必要な状態は、getterだけを公開してメソッド経由で変更させる（例: `equalizer.setBandGain()`）
 - 状態の変化を受け取る処理は`$effect`で書く。コンポーネントの外（例: 再生コントローラー）では`$effect.root`で作り、破棄時に止める。`$effect`は変更の直後ではなくマイクロタスクで実行されるため、同期的な反映を前提にしない（テストでは`flushSync()`で反映させる）
 
 ### SvelteKit 3
@@ -207,10 +207,10 @@ src-tauri/src/
 ### 再生制御
 
 - 再生エンジンの操作・キュー遷移・リピート・再生回数の記録・イコライザの設定の送信は`#lib/stores/playback.svelte`の`createPlaybackController(options)`が担う。`Player.svelte`は表示と操作の受付だけを行い、コントローラーのメソッドを呼ぶ
-- 再生コントローラーは、`player.currentTrack`のIDが、エンジンに再生させた曲と同じ間は再生し直さない。ただし、再生を始めずに置いてある曲（起動して復元した曲・「この曲が終わったら停止」で進めた曲・再生に失敗した曲）を、一覧・キューから選び直した場合は、頭から再生する。選び直したことは、`player.playRequestCount`（`playTrackFromQueue`・`playSingleTrack`・`playQueueIndex`が増やす）で見分ける（同じ曲では、IDもオブジェクトも変わらないことがあるため）
+- 再生コントローラーは、`player.currentTrack`のIDが、エンジンに再生させた曲と同じ間は再生し直さない。ただし、一覧・キューから同じ曲を選んで再生した場合は、頭から再生する（再生中・一時停止中の曲はシークで頭へ戻し、再生を始めずに置いてある曲（起動して復元した曲・キューの最後まで再生した曲・「この曲が終わったら停止」で進めた曲・再生に失敗した曲）は再生し始める。ADR-080）。選んで再生したことは、`player.playRequestCount`（`playNow`・`replaceQueueAndPlay`・`playQueueIndex`が増やす）で見分ける（同じ曲では、IDもオブジェクトも変わらないことがあるため）
 - 次・前のトラックの決定は`#lib/stores/player.svelte`のキュー操作（`playNextTrack`・`playPreviousTrack`）が担う。キュー操作の結果が再生中と同じトラックだった場合（1曲リピート、3秒以上再生中の「前へ」、1曲だけのキューの全曲リピート）はトラックIDが変わらず再生が始まらないため、コントローラーが頭から再生し直す
 - 再生状態の復元と保存は`#lib/stores/playbackState.svelte`が担い、再生コントローラーが作成時に呼ぶ（ADR-028）
-  - 復元（`restorePlaybackState`）は、音量・シャッフル・リピートと、キュー・再生していた曲を`player`へ戻す。再生コントローラーは`player.currentTrack`の変化で再生を始めるため、戻す直前に「この曲は再生を始めない」と記録する（復元した曲は、再生ボタンで頭から再生する）
+  - 復元（`restorePlaybackState`）は、音量・シャッフル・リピートと、キュー・再生していた曲を`player`へ戻す。再生コントローラーは`player.currentTrack`の変化で再生を始めるため、戻す直前に「この曲は再生を始めない」と記録する（復元した曲は、再生ボタンで頭から再生する）。何も再生していなかった（キューへ入れただけの）キューも戻し、すべてを「次に再生」に出す
   - 保存（`watchPlaybackState`）は、復元が済んでから始める（先に始めると、復元する前の空の状態で上書きする）。変更から0.3秒待ってまとめて送り、キューは、キューの配列が置き換わった時だけ送る
   - エンジンが曲を持っていない間（復元した直後・再生に失敗した後）は、シークしても位置を動かさない（再生ボタンで頭から再生するため）
 - 再生回数・スキップ回数に数えるかどうかは`#lib/stores/playTracker`が決める（ADR-030）。再生コントローラーが、曲の再生の始まり（`begin`）・再生位置の通知（`progress`）・曲の終わり（`finish`）・停止や失敗（`reset`）を伝え、数える時に`#lib/queries/tracks`の`recordPlay`・`recordSkip`が呼ばれる
@@ -219,6 +219,11 @@ src-tauri/src/
 - メニューバーの「再生」メニューと、OSのメディアキーなどからの操作（`PlaybackControl`イベント）は、`Player.svelte`が受け取り、ウィンドウの中のキー操作と同じ処理を行う
 - 再生キューの要素は、曲のIDではなくエントリID（`QueueEntry.entryId`）で見分ける（同じ曲が何度も入るため。ADR-059）。「次に再生」の`VirtualList`のキー、キューからの削除（`removeFromQueue(entryId)`）、並べ替えはエントリIDで指す
 - 再生キュー（右サイドバー）の「次に再生」は、行のドラッグで並べ替えられる（`moveUpcomingEntry(entryId, targetEntryId)`。ドラッグを始めた時の要素のIDで指すため、ドラッグしている間に曲が進んでも、ドラッグした曲を動かす。再生中の曲と、それより前の曲は動かさない。シャッフルする前の順は変えない）。キューの全体は、`create_playlist_with_tracks`でプレイリストとして保存できる（同じ曲は、最初の1回だけが入る）
+- 再生キューへの入れ方は、`#lib/stores/player.svelte`の4つの操作で行う（ADR-080）。曲・アルバムなど・プレイリストの右クリックのメニューは、共通の項目（`#lib/components/ui`の`QueueMenuItems`）でこの4つを出す
+  - `playNow(tracks)`（次のキューに追加して再生）: 再生中の曲の次に入れて、最初の曲を再生する（何も再生していなければキューの先頭）。一覧の曲・アルバム・アーティスト・ジャンルのダブルクリックとEnter、「再生」「すべて再生」のボタン、「このアプリで開く」で開いた曲は、これで再生する（一覧の曲は、その1曲だけを入れる）。シャッフル中は、最初の曲から再生し、残りをランダムな順に入れる。シャッフル再生（`playShuffled`）は、すべてをランダムな順に入れる（シャッフルモードは変えない）
+  - `addNextInQueue(tracks)`（次のキューに追加）・`addToQueue(tracks)`（キューの末尾に追加）: 再生は変えない
+  - `replaceQueueAndPlay(tracks, index)`（キューを置き換えて再生）: それまでのキューを外す。メニューから選んだ時だけ使う
+  - キューから曲が外れるのは、削除（`removeFromQueue`）・クリア（`clearQueue`）・置き換え（`replaceQueueAndPlay`）だけ。キューの最後の曲が終わった時（「この曲が終わったら停止」で止めた時も）は、再生を止め、キューと最後の曲を残す（再生ボタンで、その曲を頭から再生する。一覧から再生した曲は、その次に入る）
 - 再生キューのクリア（`clearQueue`）は、再生中の曲も外す（`resetPlayer`と同じ。再生コントローラーが、再生する曲がなくなったのを見てエンジンを止める）。右サイドバーの再生キューのクリアのボタンは、確認のダイアログ（`confirmDestructive`に、ボタンの文言として「クリア」を渡す）を出してからクリアする（ADR-078）
 - 再生キュー（右サイドバー）の曲をダブルクリックした時は、`playQueueIndex(index)`でキューの並びを変えずに再生位置だけを移す（指定した位置より前の曲もキューに残る）
 - 再生中かどうか（`isPlaying`）は、エンジンのコマンドの結果（再生を始めた・一時停止した）と通知（失敗）から更新する。再生位置（`currentTime`）は、エンジンの`position`の通知で更新する

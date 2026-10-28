@@ -1951,7 +1951,10 @@ export type RestoredPlaybackState = {
 	queue: Track[],
 	/**  シャッフルする前の順のトラックID（`queue`にある曲だけ。シャッフルが無効ならnull） */
 	originalTrackIds: string[] | null,
-	/**  `queue`の中の、再生していた曲の位置（その曲がなくなっていれば、次の曲の位置。なければnull） */
+	/**
+	 *  `queue`の中の、再生していた曲の位置（その曲がなくなっていれば次の曲、後ろの曲もなければ
+	 *  前に残っている最後の曲の位置。何も再生していなかった・キューが空ならnull）
+	 */
 	currentIndex: number | null,
 };
 

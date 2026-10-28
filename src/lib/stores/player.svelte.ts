@@ -10,6 +10,10 @@ import { showWarning } from './error.svelte.js';
  * キューの変更（再生するトラックの決定）は、下のキュー操作の関数を使う。
  * 再生エンジンとの同期は再生コントローラー（`./playback.svelte.ts`）が担う。
  *
+ * キューは、利用者が消す操作（キューからの削除・クリア・「キューを置き換えて再生」）でだけ
+ * 曲が外れる。曲を再生する操作（一覧のダブルクリック・「再生」）は、再生中の曲の次に曲を入れて
+ * 再生する（`playNow`）。キューの最後まで再生しても、キューと最後の曲は残る。
+ *
  * キューには同じ曲を何度でも入れられるため、キューの曲は要素（`QueueEntry`）ごとのID
  * （エントリID）か位置で扱う（曲のIDでは、同じ曲の別の要素と見分けられない）。
  */
@@ -111,22 +115,25 @@ export function resetPlayer(): void {
  * 順は、同じ曲の要素へ前から順に対応付ける。
  * @param queue - 再生する順のキュー
  * @param originalQueue - シャッフルする前の順のキュー（シャッフルが無効なら`queue`と同じ）
- * @param index - `queue`の中の、再生していたトラックの位置
+ * @param index - `queue`の中の、再生していたトラックの位置（nullは、何も再生していなかった。
+ *   キューへ入れただけの曲は、すべて「次に再生」に戻る）
  */
 export function restoreQueue(
   queue: readonly Track[],
   originalQueue: readonly Track[],
-  index: number
+  index: number | null
 ): void {
-  if (!Number.isInteger(index) || index < 0 || index >= queue.length) return;
+  if (queue.length === 0) return;
+  if (index !== null && (!Number.isInteger(index) || index < 0 || index >= queue.length)) return;
+  const current = index === null ? null : queue[index];
   const entries = toQueueEntries(queue);
   player.originalQueue = matchQueueEntries(originalQueue, entries);
   player.playQueue = entries;
-  player.currentTrackIndex = index;
-  player.currentTrack = queue[index];
+  player.currentTrackIndex = index ?? -1;
+  player.currentTrack = current;
   player.isPlaying = false;
   player.currentTime = 0;
-  player.duration = queue[index].duration ?? 0;
+  player.duration = current?.duration ?? 0;
 }
 
 /**
@@ -222,14 +229,14 @@ function playableTracks(tracks: readonly Track[]): Track[] {
 }
 
 /**
- * 再生キューを設定してトラックを再生
+ * 再生キューを置き換えて、トラックを再生（「キューを置き換えて再生」）
  *
- * ファイルが見つからない曲はキューに入れない。選んだ曲のファイルが見つからない場合は、
- * 再生せずに通知する。
+ * それまでのキューは外れる。ファイルが見つからない曲はキューに入れない。選んだ曲のファイルが
+ * 見つからない場合は、再生せずに通知する（キューも変えない）。
  * @param allTracks - キューにするトラック（表示順）
  * @param selectedIndex - その中の、再生するトラックの位置
  */
-export function playTrackFromQueue(allTracks: Track[], selectedIndex: number): void {
+export function replaceQueueAndPlay(allTracks: readonly Track[], selectedIndex = 0): void {
   if (selectedIndex < 0 || selectedIndex >= allTracks.length) {
     console.error('無効なトラックインデックス:', selectedIndex);
     return;
@@ -261,34 +268,72 @@ export function playTrackFromQueue(allTracks: Track[], selectedIndex: number): v
 }
 
 /**
- * トラック一覧をシャッフル再生
+ * 再生中の要素の次に要素を入れる（何も再生していなければ、キューの先頭）
  *
- * シャッフルモードを有効にして、ランダムに選んだトラックから再生する（残りはFisher-Yatesで
- * 並べ替えるため、並び全体が均等にランダムになる）。元の順序は保持し、シャッフルを解除すると戻る。
+ * シャッフルする前の順でも、再生中の要素の次に入れる（シャッフルを解除しても残るように。
+ * 元の順に再生中の要素がない場合は最後）。
+ * @param entries - シャッフルする前の順に入れる要素（渡された順）
+ * @param ordered - 再生する順に入れる要素（`entries`と同じ要素を、再生する順に並べたもの）
+ * @returns 再生する順のキューの中の、入れた要素の先頭の位置
  */
-export function playShuffled(allTracks: Track[]): void {
-  const tracks = playableTracks(allTracks);
-  if (tracks.length === 0) return;
-  player.isShuffleEnabled = true;
-  playTrackFromQueue(tracks, Math.floor(Math.random() * tracks.length));
+function insertNext(
+  entries: readonly QueueEntry[],
+  ordered: readonly QueueEntry[] = entries
+): number {
+  const queue = player.playQueue;
+  const position = player.currentTrackIndex + 1;
+  const current: QueueEntry | undefined = queue[player.currentTrackIndex];
+  const original = player.originalQueue;
+  let originalPosition = 0;
+  if (current) {
+    const originalIndex = indexOfEntry(original, current.entryId);
+    originalPosition = originalIndex === -1 ? original.length : originalIndex + 1;
+  }
+
+  player.playQueue = insertEntries(queue, position, ordered);
+  player.originalQueue = insertEntries(original, originalPosition, entries);
+  return position;
 }
 
 /**
- * 単一のトラックを再生（キューをクリア）
+ * 再生中の曲の次にトラックを入れて、そのまま再生する（「次に追加して再生」。一覧のダブルクリック・
+ * 「再生」のボタン）
  *
- * ファイルが見つからない曲は、再生せずに通知する。
+ * キューのほかの曲は残す（入れた曲を再生し終えたら、それまでの「次に再生」の曲へ続く）。何も
+ * 再生していなければ、キューの先頭に入れて再生する。ファイルが見つからない曲は入れない（どれも
+ * 見つからない場合は、再生せずに通知する）。
+ * シャッフル中は、最初の曲から再生し、残りをランダムな順に入れる。
+ * @param tracks - 入れるトラック（表示順。最初の曲から再生する）
+ * @param options.shuffle - すべてをランダムな順に入れる（シャッフル再生。シャッフルモードは変えない）
  */
-export function playSingleTrack(track: Track): void {
-  if (track.isMissing) {
-    showWarning(m.notices.trackFileMissing);
+export function playNow(tracks: readonly Track[], options: { shuffle?: boolean } = {}): void {
+  const playable = playableTracks(tracks);
+  if (playable.length === 0) {
+    if (tracks.length > 0) showWarning(m.notices.trackFileMissing);
     return;
   }
-  const entries = toQueueEntries([track]);
-  player.originalQueue = entries;
-  player.playQueue = entries;
-  player.currentTrackIndex = 0;
-  player.currentTrack = track;
+
+  const entries = toQueueEntries(playable);
+  let ordered = entries;
+  if (options.shuffle) {
+    ordered = shuffleArray(entries);
+  } else if (player.isShuffleEnabled) {
+    ordered = [entries[0], ...shuffleArray(entries.slice(1))];
+  }
+  const position = insertNext(entries, ordered);
+  player.currentTrackIndex = position;
+  player.currentTrack = ordered[0].track;
   player.playRequestCount++;
+}
+
+/**
+ * トラック一覧をシャッフル再生
+ *
+ * ランダムな順で再生中の曲の次に入れ、そのまま再生する（Fisher-Yatesで並べ替えるため、並び全体が
+ * 均等にランダムになる）。キューのほかの曲は残し、シャッフルモードも変えない。
+ */
+export function playShuffled(tracks: readonly Track[]): void {
+  playNow(tracks, { shuffle: true });
 }
 
 /**
@@ -403,7 +448,7 @@ export function playPreviousTrack(): boolean {
 }
 
 /**
- * キューの最後にトラックを追加（ファイルが見つからない曲は入れない）
+ * キューの最後にトラックを追加（「キューの末尾に追加」。ファイルが見つからない曲は入れない）
  *
  * シャッフルする前の順の最後にも入れる（シャッフルを解除しても残るように）。
  */
@@ -415,26 +460,14 @@ export function addToQueue(tracks: readonly Track[]): void {
 }
 
 /**
- * 再生中のトラックの次にトラックを追加（ファイルが見つからない曲は入れない）
+ * 再生中のトラックの次にトラックを追加（「次に追加」。ファイルが見つからない曲は入れない）
  *
- * シャッフルする前の順でも、再生中の要素の次に入れる（シャッフルを解除しても残るように）。
+ * 何も再生していなければ、キューの先頭に入れる。シャッフル中も、渡した順のまま入れる。
  */
 export function addNextInQueue(tracks: readonly Track[]): void {
   const entries = toQueueEntries(playableTracks(tracks));
   if (entries.length === 0) return;
-  const queue = player.playQueue;
-  const currentIndex = player.currentTrackIndex;
-  const current: QueueEntry | undefined = queue[currentIndex];
-  const original = player.originalQueue;
-  // 元の順では、再生中の要素の次へ入れる（再生していなければ先頭、元の順にない場合は最後）
-  let originalPosition = 0;
-  if (current) {
-    const originalIndex = indexOfEntry(original, current.entryId);
-    originalPosition = originalIndex === -1 ? original.length : originalIndex + 1;
-  }
-
-  player.playQueue = insertEntries(queue, currentIndex + 1, entries);
-  player.originalQueue = insertEntries(original, originalPosition, entries);
+  insertNext(entries);
 }
 
 /**

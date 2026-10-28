@@ -11,7 +11,8 @@ import { playbackAids, SLEEP_FADE_SECONDS } from './playbackAids.svelte.js';
 import {
   clearQueue,
   player,
-  playTrackFromQueue,
+  playNow,
+  replaceQueueAndPlay,
   removeFromQueue,
   resetPlayer,
   toggleRepeat,
@@ -153,7 +154,7 @@ afterEach(() => {
 
 describe('トラックの再生', () => {
   it('再生するトラックが決まるとエンジンで再生し、バックエンドへ通知する', async () => {
-    playTrackFromQueue(tracks, 1);
+    replaceQueueAndPlay(tracks, 1);
     await flush();
 
     expect(commands.playbackPlay).toHaveBeenCalledWith('t2', expect.any(Number));
@@ -167,7 +168,7 @@ describe('トラックの再生', () => {
   it('エンジンが曲の長さを返さない場合は、トラックの長さを使う', async () => {
     vi.mocked(commands.playbackPlay).mockResolvedValueOnce({ duration: null });
 
-    playTrackFromQueue(tracks, 0);
+    replaceQueueAndPlay(tracks, 0);
     await flush();
 
     expect(player.duration).toBe(180);
@@ -179,7 +180,7 @@ describe('トラックの再生', () => {
       message: '対応していない形式のファイルです'
     });
 
-    playTrackFromQueue(tracks, 0);
+    replaceQueueAndPlay(tracks, 0);
     await flush();
 
     expect(player.isPlaying).toBe(false);
@@ -198,9 +199,9 @@ describe('トラックの再生', () => {
       () => new Promise((resolve) => (resolveFirst = resolve))
     );
 
-    playTrackFromQueue(tracks, 0);
+    replaceQueueAndPlay(tracks, 0);
     flushSync();
-    playTrackFromQueue(tracks, 2);
+    replaceQueueAndPlay(tracks, 2);
     await flush();
     resolveFirst({ duration: 999 });
     await flush();
@@ -214,23 +215,46 @@ describe('トラックの再生', () => {
     expect(commands.setCurrentTrack).toHaveBeenCalledWith('t3');
   });
 
-  it('再生中と同じトラックを選び直しても、再生し直さない', async () => {
-    playTrackFromQueue(tracks, 0);
+  it('再生中と同じ曲を一覧から再生したら、頭から再生し直す', async () => {
+    replaceQueueAndPlay(tracks, 0);
+    await flush();
+    emit({ type: 'position', token: lastPlayToken(), position: 42 });
+    await controller.togglePlayPause(); // 一時停止
+
+    playNow([tracks[0]]);
     await flush();
 
-    playTrackFromQueue([...tracks], 0);
-    await flush();
-
+    // 開き直さずに、頭へシークして再開する
     expect(commands.playbackPlay).toHaveBeenCalledTimes(1);
+    expect(commands.playbackSeek).toHaveBeenLastCalledWith(0);
+    expect(commands.playbackResume).toHaveBeenCalledTimes(1);
+    expect(player.currentTime).toBe(0);
+    expect(player.isPlaying).toBe(true);
+  });
+
+  it('一覧から再生した曲は、再生中の曲の次に入れて再生し、終わったらキューの残りへ続ける', async () => {
+    replaceQueueAndPlay(tracks, 0);
+    await flush();
+
+    playNow([makeTrack('x')]);
+    await flush();
+    expect(commands.playbackPlay).toHaveBeenLastCalledWith('x', expect.any(Number));
+
+    emit({ type: 'ended', token: lastPlayToken() });
+    await flush();
+
+    expect(player.currentTrack?.id).toBe('t2');
+    expect(commands.playbackPlay).toHaveBeenLastCalledWith('t2', expect.any(Number));
+    expect(player.playQueue.map((entry) => entry.track.id)).toEqual(['t1', 'x', 't2', 't3']);
   });
 
   it('再生に失敗した曲を選び直したら、もう一度再生する', async () => {
     vi.mocked(commands.playbackPlay).mockRejectedValueOnce({ code: 'IO', message: '読めません' });
-    playTrackFromQueue(tracks, 0);
+    replaceQueueAndPlay(tracks, 0);
     await flush();
     expect(player.isPlaying).toBe(false);
 
-    playTrackFromQueue(tracks, 0);
+    replaceQueueAndPlay(tracks, 0);
     await flush();
 
     expect(commands.playbackPlay).toHaveBeenCalledTimes(2);
@@ -238,7 +262,7 @@ describe('トラックの再生', () => {
   });
 
   it('キューが空になったら再生を止める', async () => {
-    playTrackFromQueue([tracks[0]], 0);
+    replaceQueueAndPlay([tracks[0]], 0);
     await flush();
 
     removeFromQueue(entryIdOf('t1'));
@@ -249,7 +273,7 @@ describe('トラックの再生', () => {
   });
 
   it('キューをクリアしたら、再生中の曲も止める', async () => {
-    playTrackFromQueue(tracks, 1);
+    replaceQueueAndPlay(tracks, 1);
     await flush();
     expect(player.isPlaying).toBe(true);
 
@@ -287,7 +311,7 @@ describe('トラックの再生', () => {
 
 describe('エンジンからの通知', () => {
   it('再生位置を反映する（前の曲の通知・ドラッグ中の通知は無視する）', async () => {
-    playTrackFromQueue(tracks, 0);
+    replaceQueueAndPlay(tracks, 0);
     await flush();
     const token = lastPlayToken();
 
@@ -303,7 +327,7 @@ describe('エンジンからの通知', () => {
   });
 
   it('曲が終わったら、キューの次の曲を再生する', async () => {
-    playTrackFromQueue(tracks, 0);
+    replaceQueueAndPlay(tracks, 0);
     await flush();
 
     emit({ type: 'ended', token: lastPlayToken() });
@@ -314,20 +338,56 @@ describe('エンジンからの通知', () => {
     expect(commands.setCurrentTrack).toHaveBeenLastCalledWith('t2');
   });
 
-  it('キューの最後の曲が終わったら、再生を終える', async () => {
-    playTrackFromQueue(tracks, 2);
+  it('キューの最後の曲が終わったら、再生を止める（キューと最後の曲は残す）', async () => {
+    replaceQueueAndPlay(tracks, 2);
     await flush();
 
     emit({ type: 'ended', token: lastPlayToken() });
     await flush();
 
-    expect(player.currentTrack).toBeNull();
-    expect(player.playQueue).toEqual([]);
+    expect(player.isPlaying).toBe(false);
+    expect(player.currentTime).toBe(0);
+    expect(player.currentTrack?.id).toBe('t3');
+    expect(player.playQueue.map((entry) => entry.track.id)).toEqual(['t1', 't2', 't3']);
     expect(commands.playbackStop).toHaveBeenCalledTimes(1);
+
+    // 再生ボタンで、最後の曲を頭から再生する
+    await controller.togglePlayPause();
+    expect(commands.playbackPlay).toHaveBeenLastCalledWith('t3', expect.any(Number));
+    expect(player.isPlaying).toBe(true);
+  });
+
+  it('キューの最後まで再生した後に一覧から再生した曲は、最後の曲の次に入れて再生する', async () => {
+    replaceQueueAndPlay(tracks, 2);
+    await flush();
+    emit({ type: 'ended', token: lastPlayToken() });
+    await flush();
+
+    playNow([makeTrack('x')]);
+    await flush();
+
+    expect(player.playQueue.map((entry) => entry.track.id)).toEqual(['t1', 't2', 't3', 'x']);
+    expect(player.currentTrack?.id).toBe('x');
+    expect(commands.playbackPlay).toHaveBeenLastCalledWith('x', expect.any(Number));
+    expect(player.isPlaying).toBe(true);
+  });
+
+  it('キューの最後まで再生した後に、最後の曲を一覧から再生したら、頭から再生する', async () => {
+    replaceQueueAndPlay(tracks, 2);
+    await flush();
+    emit({ type: 'ended', token: lastPlayToken() });
+    await flush();
+
+    playNow([tracks[2]]);
+    await flush();
+
+    expect(commands.playbackPlay).toHaveBeenCalledTimes(2);
+    expect(commands.playbackPlay).toHaveBeenLastCalledWith('t3', expect.any(Number));
+    expect(player.isPlaying).toBe(true);
   });
 
   it('1曲リピートでは、曲が終わったら同じ曲を頭から再生し直す', async () => {
-    playTrackFromQueue(tracks, 0);
+    replaceQueueAndPlay(tracks, 0);
     await flush();
     toggleRepeat();
     toggleRepeat(); // 1曲リピート
@@ -341,10 +401,10 @@ describe('エンジンからの通知', () => {
   });
 
   it('前の曲についての終了の通知は無視する', async () => {
-    playTrackFromQueue(tracks, 0);
+    replaceQueueAndPlay(tracks, 0);
     await flush();
     const firstToken = lastPlayToken();
-    playTrackFromQueue(tracks, 2);
+    replaceQueueAndPlay(tracks, 2);
     await flush();
 
     emit({ type: 'ended', token: firstToken });
@@ -355,7 +415,7 @@ describe('エンジンからの通知', () => {
   });
 
   it('再生を続けられなくなったら通知し、再生ボタンで再生し直せる', async () => {
-    playTrackFromQueue(tracks, 0);
+    replaceQueueAndPlay(tracks, 0);
     await flush();
 
     emit({
@@ -386,7 +446,7 @@ describe('再生回数とスキップ回数', () => {
   }
 
   it('曲の半分を聴いた時に、再生回数に数える', async () => {
-    playTrackFromQueue(tracks, 0);
+    replaceQueueAndPlay(tracks, 0);
     await flush();
 
     // エンジンが返した曲の長さ（200秒）の半分
@@ -400,7 +460,7 @@ describe('再生回数とスキップ回数', () => {
   });
 
   it('シークで飛ばした分は、聴いた時間に含めない', async () => {
-    playTrackFromQueue(tracks, 0);
+    replaceQueueAndPlay(tracks, 0);
     await flush();
     const token = lastPlayToken();
 
@@ -416,7 +476,7 @@ describe('再生回数とスキップ回数', () => {
   });
 
   it('数える前に「次へ」で移ったら、スキップに数える', async () => {
-    playTrackFromQueue(tracks, 0);
+    replaceQueueAndPlay(tracks, 0);
     await flush();
     listen(lastPlayToken(), 0, 30);
 
@@ -429,7 +489,7 @@ describe('再生回数とスキップ回数', () => {
   });
 
   it('再生して2秒に満たない曲・数えた後の曲は、スキップに数えない', async () => {
-    playTrackFromQueue(tracks, 0);
+    replaceQueueAndPlay(tracks, 0);
     await flush();
     listen(lastPlayToken(), 0, 1.5);
     controller.next();
@@ -446,7 +506,7 @@ describe('再生回数とスキップ回数', () => {
   it('曲が終わって次の曲へ進んでも、スキップに数えない', async () => {
     gapless = true;
     flushSync();
-    playTrackFromQueue(tracks, 0);
+    replaceQueueAndPlay(tracks, 0);
     await flush();
     const token = lastPlayToken();
     // 終わりの近くへシークして、聴いた時間が足りないまま次の曲へ切り替わった
@@ -465,7 +525,7 @@ describe('再生回数とスキップ回数', () => {
   it('1曲リピートの繰り返しも、半分を聴くたびに数える', async () => {
     gapless = true;
     flushSync();
-    playTrackFromQueue(tracks, 0);
+    replaceQueueAndPlay(tracks, 0);
     await flush();
     toggleRepeat();
     toggleRepeat(); // 1曲リピート
@@ -486,7 +546,7 @@ describe('再生回数とスキップ回数', () => {
   });
 
   it('「前へ」での頭出しは、聴いた時間を数え直す（スキップには数えない）', async () => {
-    playTrackFromQueue(tracks, 0);
+    replaceQueueAndPlay(tracks, 0);
     await flush();
     const token = lastPlayToken();
     listen(token, 0, 60);
@@ -505,7 +565,7 @@ describe('再生回数とスキップ回数', () => {
   });
 
   it('再生を続けられなくなった曲・止めた曲は、スキップに数えない', async () => {
-    playTrackFromQueue(tracks, 0);
+    replaceQueueAndPlay(tracks, 0);
     await flush();
     listen(lastPlayToken(), 0, 30);
     emit({
@@ -514,12 +574,12 @@ describe('再生回数とスキップ回数', () => {
       error: { code: 'PLAYBACK', message: 'ファイルを読み取れません' }
     });
 
-    playTrackFromQueue(tracks, 1);
+    replaceQueueAndPlay(tracks, 1);
     await flush();
     listen(lastPlayToken(), 0, 30);
     resetPlayer();
     flushSync();
-    playTrackFromQueue(tracks, 2);
+    replaceQueueAndPlay(tracks, 2);
     await flush();
 
     expect(recordSkip).not.toHaveBeenCalled();
@@ -533,7 +593,7 @@ describe('再生回数とスキップ回数', () => {
     flushSync();
     await flush();
 
-    playTrackFromQueue(tracks, 0);
+    replaceQueueAndPlay(tracks, 0);
     await flush();
     listen(lastPlayToken(), 0, 100);
 
@@ -547,7 +607,7 @@ describe('ギャップレス再生', () => {
   });
 
   it('再生を始めたら、次の曲をエンジンに伝える', async () => {
-    playTrackFromQueue(tracks, 0);
+    replaceQueueAndPlay(tracks, 0);
     await flush();
 
     expect(commands.playbackSetNext).toHaveBeenCalledTimes(1);
@@ -558,7 +618,7 @@ describe('ギャップレス再生', () => {
   it('無効の間は、次の曲を伝えない', async () => {
     gapless = false;
 
-    playTrackFromQueue(tracks, 0);
+    replaceQueueAndPlay(tracks, 0);
     await flush();
 
     expect(commands.playbackSetNext).not.toHaveBeenCalled();
@@ -568,7 +628,7 @@ describe('ギャップレス再生', () => {
     gapless = false;
     crossfadeSeconds = 5;
 
-    playTrackFromQueue(tracks, 0);
+    replaceQueueAndPlay(tracks, 0);
     await flush();
 
     // 重ねる処理はエンジンが行う。重なりが鳴り始めた時点の通知で、キューを進める
@@ -580,7 +640,7 @@ describe('ギャップレス再生', () => {
   });
 
   it('キューの次の曲が変わったら伝え直し、次の曲がなくなったら取り消す', async () => {
-    playTrackFromQueue(tracks, 0);
+    replaceQueueAndPlay(tracks, 0);
     await flush();
 
     removeFromQueue(entryIdOf('t2'));
@@ -599,7 +659,7 @@ describe('ギャップレス再生', () => {
   });
 
   it('エンジンが次の曲へ切り替わったら、再生し直さずにキューを進める', async () => {
-    playTrackFromQueue(tracks, 0);
+    replaceQueueAndPlay(tracks, 0);
     await flush();
     const [, nextToken] = lastNext();
 
@@ -621,7 +681,7 @@ describe('ギャップレス再生', () => {
   });
 
   it('1曲リピートでは、同じ曲へ切り替わる', async () => {
-    playTrackFromQueue(tracks, 0);
+    replaceQueueAndPlay(tracks, 0);
     await flush();
     toggleRepeat();
     toggleRepeat(); // 1曲リピート
@@ -641,7 +701,7 @@ describe('ギャップレス再生', () => {
   });
 
   it('伝えた後でキューが変わり、エンジンが古い曲へ切り替わった場合は、キューの次の曲を再生する', async () => {
-    playTrackFromQueue(tracks, 0);
+    replaceQueueAndPlay(tracks, 0);
     await flush();
     const [, staleToken] = lastNext();
     // 次の曲（t2）を伝えた後でキューから外したが、エンジンはすでにt2を続けて再生し始めていた
@@ -660,7 +720,7 @@ describe('ギャップレス再生', () => {
       code: 'NOT_FOUND',
       message: 'ファイルが見つかりません'
     });
-    playTrackFromQueue(tracks, 0);
+    replaceQueueAndPlay(tracks, 0);
     await flush();
     expect(notifications.items).toHaveLength(0);
 
@@ -673,7 +733,7 @@ describe('ギャップレス再生', () => {
 
 describe('この曲が終わったら停止', () => {
   it('曲が終わったら、次の曲へ進めるが再生は始めず、指示を解除する', async () => {
-    playTrackFromQueue(tracks, 0);
+    replaceQueueAndPlay(tracks, 0);
     await flush();
     playbackAids.stopAfterCurrent = true;
     flushSync();
@@ -696,7 +756,7 @@ describe('この曲が終わったら停止', () => {
   });
 
   it('止めた後に、進めた先の曲を一覧から選び直したら、頭から再生する', async () => {
-    playTrackFromQueue(tracks, 0);
+    replaceQueueAndPlay(tracks, 0);
     await flush();
     playbackAids.stopAfterCurrent = true;
     flushSync();
@@ -706,7 +766,7 @@ describe('この曲が終わったら停止', () => {
     expect(commands.playbackPlay).toHaveBeenCalledTimes(1);
 
     // 同じ一覧（同じ曲のオブジェクト）から、進めた先の曲を選び直した
-    playTrackFromQueue(tracks, 1);
+    replaceQueueAndPlay(tracks, 1);
     await flush();
 
     expect(commands.playbackPlay).toHaveBeenCalledTimes(2);
@@ -716,7 +776,7 @@ describe('この曲が終わったら停止', () => {
 
   it('有効な間は、ギャップレス再生でも次の曲をエンジンに伝えない', async () => {
     gapless = true;
-    playTrackFromQueue(tracks, 0);
+    replaceQueueAndPlay(tracks, 0);
     await flush();
     expect(lastNext()[0]).toBe('t2');
 
@@ -732,7 +792,7 @@ describe('この曲が終わったら停止', () => {
 
   it('伝えた後で有効になり、エンジンが次の曲へ進んでいた場合も、止める', async () => {
     gapless = true;
-    playTrackFromQueue(tracks, 0);
+    replaceQueueAndPlay(tracks, 0);
     await flush();
     const [, nextToken] = lastNext();
     // 取り消しがエンジンに届く前に、次の曲へ切り替わった
@@ -748,8 +808,8 @@ describe('この曲が終わったら停止', () => {
     expect(commands.playbackPlay).toHaveBeenCalledTimes(1);
   });
 
-  it('キューの最後の曲では、通常の終わり方と同じにする', async () => {
-    playTrackFromQueue(tracks, 2);
+  it('キューの最後の曲では、通常の終わり方と同じにする（キューと最後の曲は残す）', async () => {
+    replaceQueueAndPlay(tracks, 2);
     await flush();
     playbackAids.stopAfterCurrent = true;
     flushSync();
@@ -757,8 +817,9 @@ describe('この曲が終わったら停止', () => {
     emit({ type: 'ended', token: lastPlayToken() });
     await flush();
 
-    expect(player.currentTrack).toBeNull();
-    expect(player.playQueue).toEqual([]);
+    expect(player.isPlaying).toBe(false);
+    expect(player.currentTrack?.id).toBe('t3');
+    expect(player.playQueue.map((entry) => entry.track.id)).toEqual(['t1', 't2', 't3']);
     expect(playbackAids.stopAfterCurrent).toBe(false);
   });
 
@@ -766,7 +827,7 @@ describe('この曲が終わったら停止', () => {
     toggleRepeat();
     toggleRepeat();
     expect(player.repeatMode).toBe('one');
-    playTrackFromQueue(tracks, 0);
+    replaceQueueAndPlay(tracks, 0);
     await flush();
     playbackAids.stopAfterCurrent = true;
     flushSync();
@@ -790,7 +851,7 @@ describe('スリープタイマー', () => {
     // `flush`（setTimeout）は実際のタイマーのまま、時刻と定期的な確認だけを進められるようにする
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
     player.volume = 0.8;
-    playTrackFromQueue(tracks, 0);
+    replaceQueueAndPlay(tracks, 0);
     await flush();
     vi.mocked(commands.playbackSetVolume).mockClear();
   });
@@ -958,7 +1019,7 @@ describe('イコライザ', () => {
 
 describe('操作', () => {
   beforeEach(async () => {
-    playTrackFromQueue(tracks, 1);
+    replaceQueueAndPlay(tracks, 1);
     await flush();
   });
 
@@ -1064,7 +1125,7 @@ describe('OSのNow Playing', () => {
   const lastNowPlaying = () => vi.mocked(commands.setNowPlaying).mock.lastCall?.[0];
 
   it('再生を始めたら、曲・再生中かどうか・位置・長さを伝える', async () => {
-    playTrackFromQueue(tracks, 1);
+    replaceQueueAndPlay(tracks, 1);
     await flush();
     flushSync();
     await flush();
@@ -1079,7 +1140,7 @@ describe('OSのNow Playing', () => {
   });
 
   it('再生速度を変えたら、その速度を伝える', async () => {
-    playTrackFromQueue(tracks, 0);
+    replaceQueueAndPlay(tracks, 0);
     await flush();
     flushSync();
     await flush();
@@ -1092,7 +1153,7 @@ describe('OSのNow Playing', () => {
   });
 
   it('一時停止・シーク・曲の切り替わりを伝え、再生が進むだけでは伝え直さない', async () => {
-    playTrackFromQueue(tracks, 0);
+    replaceQueueAndPlay(tracks, 0);
     await flush();
     flushSync();
     await flush();
@@ -1119,13 +1180,28 @@ describe('OSのNow Playing', () => {
     expect(lastNowPlaying()).toMatchObject({ trackId: 't2', playing: true, position: 0 });
   });
 
-  it('キューの最後の曲が終わったら、再生している曲がないことを伝える', async () => {
-    playTrackFromQueue(tracks, 2);
+  it('キューの最後の曲が終わったら、その曲を止めた状態で伝える', async () => {
+    replaceQueueAndPlay(tracks, 2);
     await flush();
     flushSync();
     await flush();
 
     emit({ type: 'ended', token: lastPlayToken() });
+    await flush();
+    flushSync();
+    await flush();
+
+    expect(lastNowPlaying()).toMatchObject({ trackId: 't3', playing: false, position: 0 });
+  });
+
+  it('キューをクリアしたら、再生している曲がないことを伝える', async () => {
+    replaceQueueAndPlay(tracks, 2);
+    await flush();
+    flushSync();
+    await flush();
+
+    clearQueue();
+    flushSync();
     await flush();
 
     expect(lastNowPlaying()).toBeNull();
@@ -1148,7 +1224,7 @@ describe('OSのNow Playing', () => {
   });
 
   it('破棄したら、再生している曲がないことを伝える', async () => {
-    playTrackFromQueue(tracks, 0);
+    replaceQueueAndPlay(tracks, 0);
     await flush();
     flushSync();
     await flush();
@@ -1204,7 +1280,7 @@ describe('再生状態の復元', () => {
     expect(commands.playbackPlay).not.toHaveBeenCalled();
 
     // 一覧で、復元した曲と同じ曲をダブルクリックした（曲のオブジェクトは一覧のもの）
-    playTrackFromQueue(['t1', 't2', 't3'].map(makeTrack), 1);
+    replaceQueueAndPlay(['t1', 't2', 't3'].map(makeTrack), 1);
     await flush();
 
     expect(commands.playbackPlay).toHaveBeenCalledTimes(1);
@@ -1253,7 +1329,7 @@ describe('再生状態の復元', () => {
     controller = createPlaybackController();
     flushSync();
 
-    playTrackFromQueue([tracks[2]], 0);
+    replaceQueueAndPlay([tracks[2]], 0);
     await flush();
     resolveState(savedState({ volume: 0.2, queue: tracks, currentIndex: 0 }));
     await flush();
@@ -1265,21 +1341,27 @@ describe('再生状態の復元', () => {
     expect(player.volume).toBe(0.2);
   });
 
-  it('再生していた曲がなければ（キューの終わりまで再生した後など）、何も戻さない', async () => {
+  it('再生していた曲がなければ（キューへ入れただけ）、キューを「次に再生」に戻す', async () => {
     vi.mocked(commands.getPlaybackState).mockResolvedValueOnce(
       savedState({ queue: tracks, currentIndex: null })
     );
     await recreateController();
 
     expect(player.currentTrack).toBeNull();
-    expect(player.playQueue).toEqual([]);
+    expect(player.upcomingEntries.map((entry) => entry.track.id)).toEqual(['t1', 't2', 't3']);
+    expect(commands.playbackPlay).not.toHaveBeenCalled();
+
+    // 「次へ」で、先頭の曲から再生する
+    controller.next();
+    await flush();
+    expect(commands.playbackPlay).toHaveBeenLastCalledWith('t1', expect.any(Number));
   });
 
   it('復元に失敗しても、再生はできる', async () => {
     vi.mocked(commands.getPlaybackState).mockRejectedValueOnce({ code: 'IO', message: 'x' });
     await recreateController();
 
-    playTrackFromQueue(tracks, 0);
+    replaceQueueAndPlay(tracks, 0);
     await flush();
 
     expect(commands.playbackPlay).toHaveBeenCalledWith('t1', expect.any(Number));
@@ -1299,7 +1381,7 @@ describe('再生状態の保存', () => {
   });
 
   it('キューが変わったら、少し待ってからキューと合わせて保存する', async () => {
-    playTrackFromQueue(tracks, 1);
+    replaceQueueAndPlay(tracks, 1);
     await flush();
     expect(commands.savePlaybackState).not.toHaveBeenCalled();
 
@@ -1314,7 +1396,7 @@ describe('再生状態の保存', () => {
   });
 
   it('曲の切り替わり・音量・リピートの変更では、キューを送らない', async () => {
-    playTrackFromQueue(tracks, 0);
+    replaceQueueAndPlay(tracks, 0);
     await new Promise((resolve) => setTimeout(resolve, 350));
     vi.mocked(commands.savePlaybackState).mockClear();
     vi.useFakeTimers();
@@ -1335,7 +1417,7 @@ describe('再生状態の保存', () => {
 
   it('キューを送った保存に失敗したら、次の保存でもキューを送る', async () => {
     vi.mocked(commands.savePlaybackState).mockRejectedValueOnce({ code: 'IO', message: 'x' });
-    playTrackFromQueue(tracks, 0);
+    replaceQueueAndPlay(tracks, 0);
     await new Promise((resolve) => setTimeout(resolve, 350));
     expect(saves()[0][1]?.trackIds).toEqual(['t1', 't2', 't3']);
     vi.mocked(commands.savePlaybackState).mockClear();
@@ -1364,7 +1446,7 @@ describe('再生状態の保存', () => {
   });
 
   it('シャッフルが有効な間は、シャッフルする前の順も保存する', async () => {
-    playTrackFromQueue(tracks, 0);
+    replaceQueueAndPlay(tracks, 0);
     await new Promise((resolve) => setTimeout(resolve, 350));
     vi.mocked(commands.savePlaybackState).mockClear();
     vi.useFakeTimers();
@@ -1381,7 +1463,7 @@ describe('再生状態の保存', () => {
   });
 
   it('破棄する時は、待っている変更をすぐに保存し、リセットした後の空の状態は保存しない', async () => {
-    playTrackFromQueue(tracks, 2);
+    replaceQueueAndPlay(tracks, 2);
     await flush();
 
     controller.destroy();

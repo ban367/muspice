@@ -5,12 +5,12 @@
  */
 import type { QueryClient } from '@tanstack/svelte-query';
 import { fetchGroupTracks, type GroupType } from '#lib/queries/tracks.js';
-import { playTrackFromQueue } from '#lib/stores/player.svelte.js';
+import { playNow } from '#lib/stores/player.svelte.js';
 
 /**
- * アルバム・アーティスト・ジャンルの曲を取得して、最初の曲から再生する
+ * アルバム・アーティスト・ジャンルの曲を取得して、再生中の曲の次に入れ、最初の曲から再生する
  *
- * 取得に失敗した場合は再生しない（失敗はクエリ側がトーストで通知する）。
+ * キューのほかの曲は残す。取得に失敗した場合は再生しない（失敗はクエリ側がトーストで通知する）。
  * @param albumArtist - アルバムの場合の、アルバムをまとめたアーティスト（`AlbumSummary`の`artist`）
  */
 export async function playGroup(
@@ -21,9 +21,7 @@ export async function playGroup(
 ): Promise<void> {
   try {
     const tracks = await fetchGroupTracks(queryClient, type, name, albumArtist);
-    if (tracks.length > 0) {
-      playTrackFromQueue(tracks, 0);
-    }
+    playNow(tracks);
   } catch (error) {
     console.error('曲の取得に失敗しました:', error);
   }
