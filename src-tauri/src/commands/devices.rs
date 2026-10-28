@@ -194,7 +194,7 @@ fn register_device(state: &AppState, folder: &Path, name: &str) -> AppResult<Str
         }
     };
 
-    log::info!("転送先デバイスを登録しました: {}", path);
+    log::info!("Registered sync device: {}", path);
     Ok(device_id)
 }
 
@@ -458,7 +458,7 @@ pub async fn run_device_sync(
                     current_file: progress.current_file,
                 };
                 if let Err(e) = event.emit(&app_handle) {
-                    log::warn!("同期の進捗イベントの送信に失敗しました: {}", e);
+                    log::warn!("Failed to emit sync progress event: {}", e);
                 }
             },
         )
@@ -498,7 +498,7 @@ fn sync_device(
         state.with_db(|db| crate::device::mark_synced(db, device_id))?;
     }
     log::info!(
-        "デバイスへ同期しました: {} コピー={}, 削除={}, リネーム={}, プレイリスト={}, エラー={}, 中止={}",
+        "Synced to device: {} copied={}, deleted={}, renamed={}, playlists={}, errors={}, cancelled={}",
         prepared.device.path,
         outcome.copied_count,
         outcome.deleted_count,

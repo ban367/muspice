@@ -148,12 +148,15 @@ impl BlockDecoder {
                 // 位置がずれないよう、ブロックの長さの無音にする
                 match result {
                     Err(e) => log::warn!(
-                        "ブロック{}をデコードできません（無音にします）: {}",
+                        "Cannot decode block {} (filling with silence): {}",
                         index,
                         e
                     ),
                     Ok(()) => {
-                        log::warn!("ブロック{}の長さが正しくありません（無音にします）", index)
+                        log::warn!(
+                            "Block {} has an invalid length (filling with silence)",
+                            index
+                        )
                     }
                 }
                 self.samples.clear();

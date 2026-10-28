@@ -99,7 +99,7 @@ impl OutputBackend for CpalBackend {
                 .and_then(|id| host.device_by_id(&id));
             if device.is_none() {
                 log::warn!(
-                    "選択した出力デバイスが見つからないため、既定のデバイスを使います: {}",
+                    "Selected output device not found; using the default device: {}",
                     id
                 );
             }
@@ -168,12 +168,12 @@ where
                 ErrorKind::DeviceChanged
                 | ErrorKind::DeviceNotAvailable
                 | ErrorKind::StreamInvalidated => {
-                    log::info!("出力デバイスが変わりました: {}", error);
+                    log::info!("Output device changed: {}", error);
                     on_event(OutputEvent::DeviceChanged);
                 }
                 // 音切れ（バッファの不足）は、続けて再生できる
                 ErrorKind::Xrun => {}
-                _ => log::warn!("音声の出力でエラーが発生しました: {}", error),
+                _ => log::warn!("Audio output error: {}", error),
             },
             Some(STREAM_BUILD_TIMEOUT),
         )

@@ -766,7 +766,7 @@ pub fn undo_move(planned: &PlannedMove) {
     let restore = |from: &Path, to: &Path| {
         if let Err(e) = move_no_replace(to, from) {
             log::error!(
-                "ファイルを元の場所へ戻せませんでした: {} → {}: {}",
+                "Failed to move file back to its original location: {} -> {}: {}",
                 to.display(),
                 from.display(),
                 e
@@ -849,11 +849,7 @@ pub struct CopiedMove {
 pub fn remove_copied(planned: &PlannedMove, copied: &CopiedMove) {
     let remove = |path: &Path| {
         if let Err(e) = fs::remove_file(path) {
-            log::error!(
-                "コピーしたファイルを消せませんでした: {}: {}",
-                path.display(),
-                e
-            );
+            log::error!("Failed to delete copied file: {}: {}", path.display(), e);
         }
     };
     remove(&planned.to);
@@ -968,11 +964,7 @@ fn move_folder_images(from_dir: &Path, to_dir: &Path, discard: Option<&Discard<'
             }
         };
         if let Err(e) = moved {
-            log::info!(
-                "フォルダの画像を移しませんでした: {}: {}",
-                image.display(),
-                e
-            );
+            log::info!("Did not move folder image: {}: {}", image.display(), e);
         }
     }
 }

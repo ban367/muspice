@@ -100,7 +100,7 @@ export function useRelocateLibraryFolderMutation() {
 /** 預かっている付け替え先を手放す（付け替えをやめた時。失敗しても画面は続ける） */
 export function cancelLibraryFolderRelocation(): void {
   commands.cancelLibraryFolderRelocation().catch((error: unknown) => {
-    console.error('預かった付け替え先を手放せませんでした:', error);
+    console.error('Failed to release the pending relocation target:', error);
   });
 }
 

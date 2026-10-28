@@ -50,7 +50,7 @@
       onClose();
     } catch (error) {
       // 失敗はトーストで通知される。画面は閉じずに、入力を残す
-      console.error('プレイリストの情報の変更に失敗しました:', error);
+      console.error('Failed to update playlist info:', error);
     }
   }
 </script>

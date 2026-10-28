@@ -143,7 +143,7 @@ pub fn read_manifest(root: &Path) -> AppResult<Option<Manifest>> {
     let dropped = file_count - manifest.files.len() - manifest.playlists.len();
     if dropped > 0 {
         log::warn!(
-            "デバイスの管理ファイルに不正なパスの記録が{}件あったため、無視しました: {}",
+            "Ignored {} invalid path entries in the device manifest: {}",
             dropped,
             path.display()
         );

@@ -75,7 +75,7 @@ fn read_lrc_file(track_path: &Path) -> AppResult<Option<String>> {
         .len();
     if size > MAX_LRC_FILE_BYTES {
         log::warn!(
-            "歌詞のファイルが大きすぎるため読みません: {}",
+            "Skipping lyrics file because it is too large: {}",
             path.display()
         );
         return Ok(None);
@@ -99,7 +99,7 @@ pub fn read_track_lyrics(track_path: &Path) -> AppResult<Option<TrackLyrics>> {
     }
 
     let embedded = crate::metadata::read_file_lyrics(track_path).unwrap_or_else(|e| {
-        log::warn!("埋め込みの歌詞を読めませんでした: {}", e);
+        log::warn!("Failed to read embedded lyrics: {}", e);
         None
     });
     Ok(embedded.map(|text| TrackLyrics {

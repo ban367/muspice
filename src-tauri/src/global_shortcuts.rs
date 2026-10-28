@@ -112,7 +112,7 @@ pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
             if let Some(action) = action_for(shortcut)
                 && let Err(e) = action.control().emit(app)
             {
-                log::warn!("再生の操作を送れませんでした: {}", e);
+                log::warn!("Failed to send playback control: {}", e);
             }
         })
         .build()
@@ -135,19 +135,11 @@ pub fn apply<R: Runtime>(app: &AppHandle<R>, enabled: bool) {
             match shortcuts.register(shortcut) {
                 Ok(()) => registered[index] = true,
                 // ほかのアプリが使っているなど（設定画面で知らせる）
-                Err(e) => log::warn!(
-                    "グローバルホットキー（{}）を登録できませんでした: {}",
-                    key,
-                    e
-                ),
+                Err(e) => log::warn!("Failed to register global hotkey ({}): {}", key, e),
             }
         } else {
             if let Err(e) = shortcuts.unregister(shortcut) {
-                log::warn!(
-                    "グローバルホットキー（{}）を解除できませんでした: {}",
-                    key,
-                    e
-                );
+                log::warn!("Failed to unregister global hotkey ({}): {}", key, e);
             }
             registered[index] = false;
         }

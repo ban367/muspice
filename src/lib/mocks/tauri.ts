@@ -169,11 +169,11 @@ export function setupTauriMock(): void {
         return null;
       case 'plugin:dialog|message': {
         const answer = answerMessageDialog(args.buttons, confirmResult);
-        console.info(`[mock] ダイアログ「${String(args.message)}」→ ${answer}`);
+        console.info(`[mock] Dialog "${String(args.message)}" -> ${answer}`);
         return answer;
       }
       case 'plugin:window|close':
-        console.info('[mock] ウィンドウを閉じる操作は無視しました');
+        console.info('[mock] Ignored closing the window');
         return null;
       case 'plugin:app|version':
         // 実アプリと同じく、tauri.conf.jsonの版を返す（ADR-067）
@@ -181,7 +181,7 @@ export function setupTauriMock(): void {
     }
 
     if (cmd.startsWith('plugin:')) {
-      console.warn(`[mock] 未対応のプラグインコマンドです: ${cmd}`, args);
+      console.warn(`[mock] Unsupported plugin command: ${cmd}`, args);
       return null;
     }
     return backend.invoke(cmd, args);
@@ -210,5 +210,5 @@ export function setupTauriMock(): void {
     setMusicFolderFreeBytes: (bytes) => backend.setMusicFolderFreeBytes(bytes)
   };
 
-  console.info('[mock] Tauri IPCをモックしています（npm run dev:mock）');
+  console.info('[mock] Mocking Tauri IPC (npm run dev:mock)');
 }

@@ -175,7 +175,7 @@ impl PlaybackEngine {
             });
         if let Err(e) = spawned {
             // スレッドがなければコマンドは届かず、各操作が「停止しています」のエラーを返す
-            log::error!("再生エンジンのスレッドを開始できません: {}", e);
+            log::error!("Cannot start the playback engine thread: {}", e);
         }
         Self { commands, effects }
     }
@@ -539,8 +539,8 @@ impl Engine {
                     Ok(_) => {}
                     // 新しい要求を先に受け取っていた（設計どおりの取り消し）
                     Err(e) if *e == superseded() => log::info!("{}", e),
-                    Err(AppError::NotFound(e)) => log::warn!("再生を開始できません: {}", e),
-                    Err(e) => log::error!("再生を開始できません: {}", e),
+                    Err(AppError::NotFound(e)) => log::warn!("Cannot start playback: {}", e),
+                    Err(e) => log::error!("Cannot start playback: {}", e),
                 }
                 let _ = reply.send(result);
             }
@@ -764,7 +764,7 @@ impl Engine {
         let decoder = match result {
             Ok(decoder) => decoder,
             Err(e) => {
-                log::warn!("続けて再生する曲を開けません: {}", e);
+                log::warn!("Cannot open the next track: {}", e);
                 opening.reply.send(Err(e));
                 return;
             }
@@ -805,7 +805,7 @@ impl Engine {
     /// `play`の途中なら、知らせずに`play`の結果として返す（`failure_in_play`）。
     fn fail(&mut self, error: AppError) {
         let token = self.segments.front().map(|segment| segment.token);
-        log::error!("再生を続けられません: {}", error);
+        log::error!("Cannot continue playback: {}", error);
         self.stop_playback();
         if self.in_play {
             self.failure_in_play.get_or_insert(error);
@@ -830,14 +830,14 @@ impl Engine {
                     .is_some_and(|front| front.token != token) =>
             {
                 log::warn!(
-                    "続けて再生する曲のデコードに失敗しました。前の曲は最後まで再生します: {}",
+                    "Failed to decode the next track; playing the current track to the end: {}",
                     error
                 );
                 // 変換器に残っている、失敗した曲の音声を出し切る
                 if let Some(converter) = &mut self.converter
                     && let Err(e) = converter.flush(&mut self.pending)
                 {
-                    log::warn!("曲の終わりの音声を変換できません: {}", e);
+                    log::warn!("Cannot flush the resampler at the end of the track: {}", e);
                 }
                 self.end_with_failure(token, error);
             }
@@ -980,7 +980,7 @@ impl Engine {
             Err(e) => {
                 // 続けて再生できない曲: 続きがないものとして再生中の曲を終える
                 // （フロントエンドが次の曲を通常の手順で再生し、そこでエラーを通知する）
-                log::warn!("続けて再生する曲を準備できません: {}", e);
+                log::warn!("Cannot prepare the next track: {}", e);
                 return;
             }
         };
@@ -1029,7 +1029,7 @@ impl Engine {
                 Err(e) if audible == Some(outgoing.token) => return Err(e),
                 Err(e) => {
                     log::warn!(
-                        "前の曲のデコードに失敗しました。重なりの残りは次の曲だけを鳴らします: {}",
+                        "Failed to decode the previous track; playing only the next track for the rest of the crossfade: {}",
                         e
                     );
                     fade.outgoing_finished = true;
@@ -1056,7 +1056,7 @@ impl Engine {
                 Err(e) if audible == Some(fade.incoming.token) => return Err(e),
                 Err(e) => {
                     log::warn!(
-                        "続けて再生する曲のデコードに失敗しました。前の曲は最後まで再生します: {}",
+                        "Failed to decode the next track; playing the current track to the end: {}",
                         e
                     );
                     fade.incoming_finished = true;
@@ -1134,7 +1134,7 @@ impl Engine {
         let underruns = output.shared.underruns();
         if underruns > output.reported_underruns {
             log::warn!(
-                "音声の出力にデコードが間に合わず、音が途切れました（{}回）",
+                "Audio output underrun: decoding could not keep up ({} times)",
                 underruns - output.reported_underruns
             );
             output.reported_underruns = underruns;
@@ -1159,7 +1159,7 @@ impl Engine {
                 if let Some(converter) = &mut self.converter
                     && let Err(e) = converter.flush(&mut self.pending)
                 {
-                    log::warn!("曲の終わりの音声を変換できません: {}", e);
+                    log::warn!("Cannot flush the resampler at the end of the track: {}", e);
                 }
                 self.decode_finished = true;
                 self.end_frame = Some(self.write_position());
@@ -1182,14 +1182,14 @@ impl Engine {
             if let Some(converter) = &mut self.converter
                 && let Err(e) = converter.flush(&mut self.pending)
             {
-                log::warn!("曲の終わりの音声を変換できません: {}", e);
+                log::warn!("Cannot flush the resampler at the end of the track: {}", e);
             }
             match Converter::new(rate, channels, output_rate) {
                 Ok(converter) => self.converter = Some(converter),
                 Err(e) => {
                     // 続けて再生できない曲: 続きがないものとして再生中の曲を終える
                     // （フロントエンドが次の曲を通常の手順で再生し、そこでエラーを通知する）
-                    log::warn!("続けて再生する曲を準備できません: {}", e);
+                    log::warn!("Cannot prepare the next track: {}", e);
                     self.decode_finished = true;
                     self.end_frame = Some(self.write_position());
                     return;
@@ -1398,7 +1398,7 @@ impl Engine {
     /// 出力を動かす。動かせなければ、出力を開き直してやり直す（デバイスが外れていた場合など）
     fn start_output(&mut self) {
         if let Err(e) = self.try_start_output() {
-            log::warn!("出力を開き直します: {}", e);
+            log::warn!("Reopening the audio output: {}", e);
             self.reopen_output();
         }
     }

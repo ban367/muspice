@@ -184,7 +184,7 @@ export function createPlaybackController(
 
   /** エンジンのコマンドを呼ぶ（結果を待たない操作用。失敗はログに残す） */
   function send(run: () => Promise<unknown>, description: string): void {
-    run().catch((error) => console.error(`${description}に失敗しました:`, error));
+    run().catch((error) => console.error(`Failed to ${description}:`, error));
   }
 
   /**
@@ -240,7 +240,7 @@ export function createPlaybackController(
     queuedNext = queued;
     commands.playbackSetNext(next?.id ?? null, token).catch((error) => {
       // 用意に失敗しても、曲の終わりで通常の手順で再生する（そこでエラーを通知する）
-      console.warn('次のトラックの準備に失敗しました:', error);
+      console.warn('Failed to prepare the next track:', error);
       if (queuedNext === queued) queuedNext = null;
     });
   }
@@ -257,10 +257,10 @@ export function createPlaybackController(
     player.currentTime = 0;
     // 頭から再生し直すため、聴いた時間を数え直す
     tracker.begin(track.id, player.duration);
-    send(() => commands.playbackSeek(0), 'シーク');
+    send(() => commands.playbackSeek(0), 'seek');
     if (!player.isPlaying) {
       player.isPlaying = true;
-      send(() => commands.playbackResume(), '再生の再開');
+      send(() => commands.playbackResume(), 'resume playback');
     }
   }
 
@@ -304,7 +304,7 @@ export function createPlaybackController(
   function stopAtQueueEnd(): void {
     player.isPlaying = false;
     // エンジンが、キューの次ではなくなった曲へ進んでいた場合（`onAdvanced`）に備えて、止めておく
-    send(() => commands.playbackStop(), '再生の停止');
+    send(() => commands.playbackStop(), 'stop playback');
   }
 
   /**
@@ -318,7 +318,7 @@ export function createPlaybackController(
     cancelFade();
     player.isPlaying = false;
     // 伝えた後で指示が有効になり、エンジンがもう次の曲へ進んでいた場合に備えて、止めておく
-    send(() => commands.playbackStop(), '再生の停止');
+    send(() => commands.playbackStop(), 'stop playback');
 
     const next = peekNextTrack();
     if (!next) return;
@@ -327,7 +327,7 @@ export function createPlaybackController(
       engineTrackId = next.id;
       playNextTrack();
       player.duration = next.duration ?? 0;
-      send(() => commands.setCurrentTrack(next.id), '再生中の曲の通知');
+      send(() => commands.setCurrentTrack(next.id), 'report the current track');
     }
   }
 
@@ -358,7 +358,7 @@ export function createPlaybackController(
     const step = () => {
       const progress = (Date.now() - startedAt) / (SLEEP_FADE_SECONDS * 1000);
       if (progress < 1) {
-        send(() => commands.playbackSetVolume(player.volume * (1 - progress)), '音量の設定');
+        send(() => commands.playbackSetVolume(player.volume * (1 - progress)), 'set volume');
       } else {
         finishFade();
       }
@@ -379,7 +379,7 @@ export function createPlaybackController(
     // 一時停止してから、音量を設定の値に戻す（戻してから止めると、止まる直前に音が大きくなる）
     commands
       .playbackPause()
-      .catch((error) => console.error('一時停止に失敗しました:', error))
+      .catch((error) => console.error('Failed to pause:', error))
       .finally(() => {
         cancelFade();
         playbackAids.cancelSleepTimer();
@@ -392,7 +392,7 @@ export function createPlaybackController(
     clearInterval(fadeTimer);
     fadeTimer = null;
     playbackAids.isFadingOut = false;
-    send(() => commands.playbackSetVolume(player.volume), '音量の設定');
+    send(() => commands.playbackSetVolume(player.volume), 'set volume');
   }
 
   /** エンジンが、続けて再生する曲へ切れ目なく切り替わった */
@@ -422,7 +422,7 @@ export function createPlaybackController(
     syncNext();
     // 同じ曲の繰り返しでは、再生中の曲は変わらないため通知しない
     if (track && !repeating) {
-      send(() => commands.setCurrentTrack(track.id), '再生中の曲の通知');
+      send(() => commands.setCurrentTrack(track.id), 'report the current track');
     }
   }
 
@@ -467,7 +467,7 @@ export function createPlaybackController(
     const position = pendingSeek;
     cancelPendingSeek();
     if (position !== null && loaded) {
-      send(() => commands.playbackSeek(position), 'シーク');
+      send(() => commands.playbackSeek(position), 'seek');
     }
   }
 
@@ -481,7 +481,7 @@ export function createPlaybackController(
 
     if (!scrubbing) {
       cancelPendingSeek();
-      send(() => commands.playbackSeek(clamped), 'シーク');
+      send(() => commands.playbackSeek(clamped), 'seek');
       return;
     }
     // ドラッグ中はマウスが動くたびに呼ばれる。そのたびにシークすると音が細切れになるため、
@@ -502,7 +502,7 @@ export function createPlaybackController(
     loaded = false;
     tracker.reset();
     cancelPendingSeek();
-    send(() => commands.playbackStop(), '再生の停止');
+    send(() => commands.playbackStop(), 'stop playback');
   }
 
   // ---------- 前回の再生状態 ----------
@@ -523,7 +523,7 @@ export function createPlaybackController(
         }
       });
     } catch (error) {
-      console.error('再生状態の復元に失敗しました:', error);
+      console.error('Failed to restore playback state:', error);
     }
     if (!destroyed) stopSaving = watchPlaybackState();
   }
@@ -532,7 +532,9 @@ export function createPlaybackController(
   // ---------- エンジンからの通知 ----------
 
   const listening = events.playbackEvent.listen((event) => onEvent(event.payload));
-  listening.catch((error) => console.error('再生エンジンの通知を購読できません:', error));
+  listening.catch((error) =>
+    console.error('Failed to subscribe to playback engine events:', error)
+  );
 
   // ---------- 再生状態の監視 ----------
 
@@ -574,13 +576,13 @@ export function createPlaybackController(
       const volume = player.volume;
       // スリープタイマーで音量を下げている間は、下げる処理が次の間隔で送る
       if (fadeTimer !== null) return;
-      send(() => commands.playbackSetVolume(volume), '音量の設定');
+      send(() => commands.playbackSetVolume(volume), 'set volume');
     });
 
     // 再生速度: エンジンは速度を保存しないため、起動時（1倍）と変更のたびに送る
     $effect(() => {
       const speed = playbackAids.speed;
-      send(() => commands.playbackSetSpeed(speed), '再生速度の設定');
+      send(() => commands.playbackSetSpeed(speed), 'set playback speed');
     });
 
     // スリープタイマー: 設定している間、時間が来たかを定期的に確かめる
@@ -600,7 +602,7 @@ export function createPlaybackController(
       const enabled = equalizer.enabled;
       const bands = equalizer.bands;
       const gains = EQ_FREQUENCIES.map((frequency) => bands[frequency]);
-      send(() => commands.playbackSetEqualizer(enabled, gains), 'イコライザの設定');
+      send(() => commands.playbackSetEqualizer(enabled, gains), 'set equalizer');
     });
 
     // OSのNow Playing: プレーヤーバーと同じ内容を伝える（伝え直すかどうかは`nowPlaying`が決める）。
@@ -673,7 +675,7 @@ export function createPlaybackController(
       stopListening(listening);
       currentToken = null;
       tracker.reset();
-      send(() => commands.playbackStop(), '再生の停止');
+      send(() => commands.playbackStop(), 'stop playback');
       nowPlaying.update(null);
       resetPlayer();
       if (activeController === controller) activeController = null;

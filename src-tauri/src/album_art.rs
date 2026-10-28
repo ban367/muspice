@@ -144,7 +144,7 @@ fn load_art(file_path: &Path) -> LoadedArt {
         Ok(None) => {}
         // 読めないファイル（見つからない曲など）は「埋め込みの画像なし」として扱う
         Err(e) => log::warn!(
-            "アルバムアートの抽出に失敗しました: {}: {}",
+            "Failed to extract album art: {}: {}",
             file_path.display(),
             e
         ),
@@ -366,7 +366,7 @@ fn load_picture(app: &AppHandle, track_id: &str, cached: Option<CachedArt>) -> R
             Ok(Some(path)) => path,
             Ok(None) => return empty_response(StatusCode::NOT_FOUND),
             Err(e) => {
-                log::error!("アルバムアートのパス取得に失敗しました: {}", e);
+                log::error!("Failed to get the album art path: {}", e);
                 return empty_response(StatusCode::INTERNAL_SERVER_ERROR);
             }
         };

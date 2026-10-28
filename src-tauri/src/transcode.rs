@@ -320,7 +320,7 @@ fn encode(
     ) {
         Err(error) if format == ConvertFormat::Aac && is_unsupported_setting(&error) => {
             log::info!(
-                "AACの{}bpsは、この音声（{}Hz・{}チャンネル）で使えないため、既定のビットレートでエンコードします",
+                "AAC at {} bps is not supported for this audio ({} Hz, {} channels); encoding at the default bitrate",
                 bitrate,
                 pcm.sample_rate,
                 pcm.channels

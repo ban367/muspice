@@ -111,7 +111,7 @@ impl MediaControls {
         let events = app.clone();
         let emit = move |control: PlaybackControl| {
             if let Err(e) = control.emit(&events) {
-                log::warn!("再生の操作をフロントエンドへ送れません: {}", e);
+                log::warn!("Cannot send playback control to the frontend: {}", e);
             }
         };
 

@@ -239,7 +239,7 @@ function playableTracks(tracks: readonly Track[]): Track[] {
  */
 export function replaceQueueAndPlay(allTracks: readonly Track[], selectedIndex = 0): void {
   if (selectedIndex < 0 || selectedIndex >= allTracks.length) {
-    console.error('無効なトラックインデックス:', selectedIndex);
+    console.error('Invalid track index:', selectedIndex);
     return;
   }
   const selected = allTracks[selectedIndex];

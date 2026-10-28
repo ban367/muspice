@@ -251,19 +251,21 @@ fn load_state(path: &Path) -> StoredState {
         Ok(json) => json,
         Err(e) if e.kind() == ErrorKind::NotFound => return StoredState::default(),
         Err(e) => {
-            log::warn!("再生状態のファイルを読み込めませんでした: {}", e);
+            log::warn!("Failed to read the playback state file: {}", e);
             return StoredState::default();
         }
     };
     match serde_json::from_str::<StoredState>(&json) {
         Ok(state) if validate_queue(&state.queue()).is_ok() => state.sanitized(),
         Ok(_) => {
-            log::warn!("再生状態のファイルの値が不正なため、保存してある再生状態を使いません");
+            log::warn!(
+                "Ignoring the saved playback state because the file contains invalid values"
+            );
             StoredState::default()
         }
         Err(e) => {
             log::warn!(
-                "再生状態のファイルを解析できないため、保存してある再生状態を使いません: {}",
+                "Ignoring the saved playback state because the file cannot be parsed: {}",
                 e
             );
             StoredState::default()

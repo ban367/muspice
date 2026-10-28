@@ -49,6 +49,6 @@ export function useRestoreLibraryBackupMutation() {
 /** 預かっている復元するファイルを手放す（復元をやめた時。失敗しても画面は続ける） */
 export function cancelLibraryRestore(): void {
   commands.cancelLibraryRestore().catch((error: unknown) => {
-    console.error('預かった復元するファイルを手放せませんでした:', error);
+    console.error('Failed to release the pending restore file:', error);
   });
 }

@@ -192,7 +192,7 @@ impl<R: Read + Seek> WavPackSource<R> {
             if header.block_index != start {
                 // 位置が続いていない（壊れたファイル）: その手前までを再生する
                 log::warn!(
-                    "WavPackのブロックの位置が続いていません（{}フレーム目のはずが{}）",
+                    "WavPack block position is not contiguous (expected frame {}, got {})",
                     start,
                     header.block_index
                 );

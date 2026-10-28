@@ -52,7 +52,7 @@ pub async fn import_library_xml(
         let result = import_file(&app.state::<AppState>(), &path, include_playlists)?;
         // ほかのウィンドウ（メインウィンドウ）の曲の一覧・プレイリストを取り直させる
         if let Err(e) = LibraryChanged.emit(&app) {
-            log::warn!("ライブラリの変更を通知できません: {}", e);
+            log::warn!("Failed to emit library change event: {}", e);
         }
         Ok(Some(result))
     })

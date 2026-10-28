@@ -490,7 +490,7 @@ impl SymphoniaDecoder {
                 // コンテナを読み進められない（壊れた・途中で切れたファイル）: そこで曲を終える
                 Err(SymphoniaError::DecodeError(message)) => {
                     log::warn!(
-                        "ファイルの続きを読み取れないため、曲を終えます（{}フレーム目）: {}",
+                        "Ending track because the rest of the file cannot be read (at frame {}): {}",
                         self.position,
                         message
                     );

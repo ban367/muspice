@@ -109,7 +109,7 @@ export function watchPlaybackState(): () => void {
       .then(() => {
         if (queue) savedQueueVersion = version;
       })
-      .catch((error) => console.error('再生状態の保存に失敗しました:', error));
+      .catch((error) => console.error('Failed to save playback state:', error));
   }
 
   function schedule(): void {

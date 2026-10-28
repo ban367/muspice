@@ -92,7 +92,7 @@ fn import_file(state: &AppState, matcher: &m3u::TrackMatcher, path: &Path) -> M3
     let read = match m3u::read_playlist(path, matcher) {
         Ok(read) => read,
         Err(e) => {
-            log::warn!("M3Uを読めません: {}: {}", path.display(), e);
+            log::warn!("Cannot read M3U: {}: {}", path.display(), e);
             result.error = Some(e.to_string());
             return result;
         }
@@ -116,7 +116,7 @@ fn import_file(state: &AppState, matcher: &m3u::TrackMatcher, path: &Path) -> M3
             result.playlist_name = Some(playlist.name);
         }
         Err(e) => {
-            log::error!("M3Uからプレイリストを作れません: {}: {}", path.display(), e);
+            log::error!("Cannot create playlist from M3U: {}: {}", path.display(), e);
             result.error = Some(e.to_string());
         }
     }

@@ -68,7 +68,7 @@ fn write_bounds(path: &PathBuf, bounds: &NormalBounds) {
         .and_then(|json| fs::write(path, json).map_err(|e| e.to_string()));
     if let Err(e) = result {
         log::warn!(
-            "ミニプレーヤーにする前の大きさを記録できませんでした: {}",
+            "Failed to record the window size before switching to the mini player: {}",
             e
         );
     }
@@ -165,7 +165,7 @@ pub fn recover<R: Runtime>(window: &WebviewWindow<R>, state: &MiniPlayerState) {
     };
     let _ = fs::remove_file(&state.path);
     if let Err(e) = restore(window, &bounds) {
-        log::warn!("ウィンドウを元の大きさに戻せませんでした: {}", e);
+        log::warn!("Failed to restore the window size: {}", e);
     }
 }
 

@@ -436,13 +436,13 @@ pub fn start(app: &AppHandle) {
             std::thread::sleep(AUTO_BACKUP_DELAY);
             loop {
                 if let Err(e) = run_auto_backup(&app) {
-                    log::warn!("自動のバックアップに失敗しました: {}", e);
+                    log::warn!("Automatic backup failed: {}", e);
                 }
                 std::thread::sleep(AUTO_BACKUP_CHECK_INTERVAL);
             }
         });
     if let Err(e) = spawned {
-        log::warn!("自動のバックアップを始められません: {}", e);
+        log::warn!("Cannot start automatic backup: {}", e);
     }
 }
 
@@ -474,7 +474,7 @@ fn run_auto_backup(app: &AppHandle) -> AppResult<()> {
         create_backup_in(&dir, BackupKind::Auto, db, &meta).map(Some)
     })?;
     if let Some(path) = created {
-        log::info!("自動のバックアップを作りました: {}", path.display());
+        log::info!("Created automatic backup: {}", path.display());
     }
     Ok(())
 }

@@ -80,7 +80,7 @@ pub fn notify_track_change<R: Runtime>(app: &AppHandle<R>, track: &Track) {
         notification = notification.body(body);
     }
     if let Err(e) = notification.show() {
-        log::warn!("曲の変更の通知を出せませんでした: {}", e);
+        log::warn!("Failed to show the track change notification: {}", e);
     }
 }
 

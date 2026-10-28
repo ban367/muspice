@@ -80,10 +80,10 @@ pub async fn save_settings(
     // 再生エンジンが使う設定（出力デバイス・音量の正規化・クロスフェード）を伝える
     // （出力デバイスが変わっていれば、再生中の曲を同じ位置から続ける）
     if let Err(e) = engine.apply_options(PlaybackOptions::from(&settings)) {
-        log::warn!("設定の変更を再生エンジンへ伝えられません: {}", e);
+        log::warn!("Cannot apply settings change to the playback engine: {}", e);
     }
     if let Err(e) = SettingsChanged(settings.clone()).emit(&app) {
-        log::warn!("設定変更の通知に失敗しました: {}", e);
+        log::warn!("Failed to emit settings change event: {}", e);
     }
 
     // ライブラリフォルダの自動反映に反映する。監視の開始はフォルダの数によって時間がかかるため、

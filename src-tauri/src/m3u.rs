@@ -365,7 +365,7 @@ pub fn unique_playlist_name(name: &str, existing: &[String]) -> String {
             format!("{}{}", base, suffix)
         })
         .find(|candidate| !existing.iter().any(|other| other == candidate))
-        .expect("番号を増やせば、重ならない名前が見つかる")
+        .expect("incrementing the number always yields a unique name")
 }
 
 /// プレイリストでの曲の表示名（`アーティスト - タイトル`。改行などの制御文字は空白にする）

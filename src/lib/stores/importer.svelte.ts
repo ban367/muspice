@@ -135,7 +135,7 @@ class Importer {
     if (this.pending) {
       this.pending = null;
       commands.cancelPendingImport().catch((error: unknown) => {
-        console.error('預かったフォルダの取り込みをやめられませんでした:', error);
+        console.error('Failed to cancel the pending folder import:', error);
       });
     }
     this.duplicateAction = 'Skip';
@@ -224,7 +224,7 @@ class Importer {
         this.progress = 0;
       }
     } catch (error) {
-      console.error('インポートエラー:', error);
+      console.error('Import failed:', error);
       this.errorMessage = m.importDialog.importFailed(toErrorMessage(error));
       this.progress = 0;
       showDialog();

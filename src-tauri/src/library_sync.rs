@@ -73,7 +73,7 @@ impl LibrarySync {
             Ok(settings) => settings,
             Err(e) => {
                 log::error!(
-                    "設定を読み込めないため、ライブラリフォルダの自動反映を変えません: {}",
+                    "Cannot load settings; leaving library folder auto-sync unchanged: {}",
                     e
                 );
                 return;
@@ -105,7 +105,7 @@ fn apply_settings(app: &AppHandle, inner: &mut Inner, settings: &Settings) {
             let interval = Duration::from_secs(u64::from(inner.interval_minutes) * 60);
             inner.timer = Some(spawn_timer(app.clone(), interval));
             log::info!(
-                "ライブラリフォルダを{}分ごとに再スキャンします",
+                "Rescanning library folders every {} minutes",
                 inner.interval_minutes
             );
         }
@@ -116,7 +116,7 @@ fn apply_settings(app: &AppHandle, inner: &mut Inner, settings: &Settings) {
         ensure_watching(app, inner);
     } else if inner.watcher.take().is_some() {
         inner.watched.clear();
-        log::info!("ライブラリフォルダの監視を止めました");
+        log::info!("Stopped watching library folders");
     }
 }
 
@@ -142,7 +142,7 @@ pub fn start(app: &AppHandle) {
             Ok(settings) => settings,
             Err(e) => {
                 log::error!(
-                    "設定を読み込めないため、ライブラリフォルダの自動反映を始めません: {}",
+                    "Cannot load settings; not starting library folder auto-sync: {}",
                     e
                 );
                 return;
@@ -151,7 +151,7 @@ pub fn start(app: &AppHandle) {
         app.state::<LibrarySync>().apply_saved_settings(&app);
         if settings.auto_sync_enabled() {
             thread::sleep(STARTUP_SCAN_DELAY);
-            rescan_all_folders(&app, "起動時");
+            rescan_all_folders(&app, "startup");
         }
     });
 }
@@ -159,7 +159,7 @@ pub fn start(app: &AppHandle) {
 /// 名前付きのスレッドを起動する（失敗はログに残す）
 fn spawn_named(name: &str, f: impl FnOnce() + Send + 'static) {
     if let Err(e) = thread::Builder::new().name(name.to_string()).spawn(f) {
-        log::error!("スレッド（{}）を起動できませんでした: {}", name, e);
+        log::error!("Failed to spawn thread ({}): {}", name, e);
     }
 }
 
@@ -171,7 +171,7 @@ fn spawn_timer(app: AppHandle, interval: Duration) -> mpsc::Sender<()> {
     spawn_named("library-scan-timer", move || {
         while let Err(RecvTimeoutError::Timeout) = stopped.recv_timeout(interval) {
             app.state::<LibrarySync>().refresh_watches(&app);
-            rescan_all_folders(&app, "定期");
+            rescan_all_folders(&app, "periodic");
         }
     });
     stop
@@ -186,16 +186,16 @@ fn create_watcher(app: &AppHandle) -> Option<Debouncer<RecommendedWatcher>> {
             let paths: Vec<PathBuf> = events.into_iter().map(|event| event.path).collect();
             rescan_changed_folders(&handler_app, &paths, &ignored);
         }
-        Err(e) => log::warn!("フォルダの監視でエラーが発生しました: {}", e),
+        Err(e) => log::warn!("Folder watcher error: {}", e),
     };
 
     match new_debouncer(WATCH_DEBOUNCE, handler) {
         Ok(watcher) => {
-            log::info!("ライブラリフォルダの監視を始めました");
+            log::info!("Started watching library folders");
             Some(watcher)
         }
         Err(e) => {
-            log::error!("フォルダの監視を始められませんでした: {}", e);
+            log::error!("Failed to start the folder watcher: {}", e);
             None
         }
     }
@@ -209,7 +209,7 @@ fn update_watches(app: &AppHandle, inner: &mut Inner) {
     let folders = match app.state::<AppState>().with_db(|db| find_all_folders(db)) {
         Ok(folders) => folders,
         Err(e) => {
-            log::error!("監視するライブラリフォルダを取得できませんでした: {}", e);
+            log::error!("Failed to get library folders to watch: {}", e);
             return;
         }
     };
@@ -222,11 +222,7 @@ fn update_watches(app: &AppHandle, inner: &mut Inner) {
     for path in inner.watched.difference(&wanted) {
         // 外れたドライブなどは、OSの側で監視が終わっていることがある
         if let Err(e) = watcher.watcher().unwatch(path) {
-            log::debug!(
-                "フォルダの監視を解除できませんでした: {}: {}",
-                path.display(),
-                e
-            );
+            log::debug!("Failed to unwatch folder: {}: {}", path.display(), e);
         }
     }
     let mut watched = HashSet::new();
@@ -237,10 +233,10 @@ fn update_watches(app: &AppHandle, inner: &mut Inner) {
         }
         match watcher.watcher().watch(&path, RecursiveMode::Recursive) {
             Ok(()) => {
-                log::info!("フォルダを監視します: {}", path.display());
+                log::info!("Watching folder: {}", path.display());
                 watched.insert(path);
             }
-            Err(e) => log::warn!("フォルダを監視できませんでした: {}: {}", path.display(), e),
+            Err(e) => log::warn!("Failed to watch folder: {}: {}", path.display(), e),
         }
     }
     inner.watched = watched;
@@ -320,7 +316,7 @@ fn external_changes(paths: &[PathBuf]) -> Vec<&PathBuf> {
         .collect();
     if external.len() < paths.len() {
         log::debug!(
-            "アプリが書いた変更の通知を無視しました（{}件）",
+            "Ignored {} change notifications for files written by the app",
             paths.len() - external.len()
         );
     }
@@ -338,7 +334,7 @@ fn rescan_changed_folders(app: &AppHandle, paths: &[PathBuf], ignored: &[PathBuf
     }
     // なくなったパスの判定（DBへの問い合わせ）は、読み飛ばす場所の外のものだけにする
     let has_tracks_under = |path: &Path| has_tracks_under(app, path);
-    rescan_folders(app, "変更の通知", |folder, exclusions| {
+    rescan_folders(app, "file change", |folder, exclusions| {
         paths.iter().any(|path| {
             is_change_in(folder, exclusions, path)
                 && is_relevant_change(path, ignored, has_tracks_under)
@@ -369,7 +365,7 @@ fn rescan_folders(
     let folders = match folders {
         Ok(folders) => folders,
         Err(e) => {
-            log::error!("ライブラリフォルダを取得できませんでした: {}", e);
+            log::error!("Failed to get library folders: {}", e);
             return;
         }
     };
@@ -385,7 +381,7 @@ fn rescan_folders(
 fn rescan_quietly(app: &AppHandle, folder: &FolderRecord, reason: &str) {
     if !Path::new(&folder.path).is_dir() {
         log::info!(
-            "フォルダが見つからないため再スキャンしませんでした（{}）: {}",
+            "Skipped rescan because the folder was not found ({}): {}",
             reason,
             folder.path
         );
@@ -394,7 +390,7 @@ fn rescan_quietly(app: &AppHandle, folder: &FolderRecord, reason: &str) {
     let state = app.state::<AppState>();
     if let Err(e) = rescan_folder(&folder.id, state.inner(), app, false) {
         log::warn!(
-            "ライブラリフォルダを自動で再スキャンできませんでした（{}）: {}: {}",
+            "Failed to auto-rescan library folder ({}): {}: {}",
             reason,
             folder.path,
             e

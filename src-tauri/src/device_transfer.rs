@@ -398,7 +398,7 @@ fn copy_files(
             unsaved = 0;
             if let Err(e) = device.save() {
                 device.ensure_connected()?;
-                log::warn!("同期の途中の管理ファイルの保存に失敗しました: {}", e);
+                log::warn!("Failed to save the device manifest during sync: {}", e);
             }
         }
     }

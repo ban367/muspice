@@ -154,7 +154,9 @@ fn id3v2_options(tag: &Tag) -> (Tag, WriteOptions) {
         .into_iter()
         .any(|frame| ID3V24_ONLY_FRAMES.contains(&frame.id_str()));
     if drops_frames {
-        log::info!("ID3v2.3にない項目（並び順など）があるため、タグをID3v2.4で書きます");
+        log::info!(
+            "Writing ID3v2.4 tags because some fields (such as sort order) are not supported by ID3v2.3"
+        );
         (tag.clone(), WriteOptions::default())
     } else {
         (joined, WriteOptions::default().use_id3v23(true))

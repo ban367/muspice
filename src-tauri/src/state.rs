@@ -141,13 +141,13 @@ impl AppState {
     /// `Transaction`を捨てた時に取り消されるが、残っていれば取り消してから使う（ログに残す）。
     pub fn with_db<T>(&self, f: impl FnOnce(&mut Connection) -> AppResult<T>) -> AppResult<T> {
         let mut db = self.db.lock().unwrap_or_else(|poisoned| {
-            log::error!("データベースを使う処理が途中で止まりました。ロックを回復して続けます");
+            log::error!("A database operation panicked; recovering the lock and continuing");
             let db = poisoned.into_inner();
             if !db.is_autocommit()
                 && let Err(e) = db.execute_batch("ROLLBACK")
             {
                 log::error!(
-                    "途中で止まった処理のトランザクションを取り消せませんでした: {}",
+                    "Failed to roll back the transaction left by the panicked operation: {}",
                     e
                 );
             }

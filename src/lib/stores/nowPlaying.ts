@@ -71,7 +71,7 @@ export function createNowPlayingReporter(
           await send(update);
         } catch (error) {
           // 表示だけの問題のため、再生は続ける
-          console.warn('再生中の曲をOSへ伝えられませんでした:', error);
+          console.warn('Failed to report the playing track to the OS:', error);
         }
       }
     } finally {
