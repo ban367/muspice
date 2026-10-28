@@ -6,10 +6,21 @@
  * localStorageに保存する状態はsetterで保存するため、オブジェクトの中身を書き換えず代入する。
  */
 
+import { untrack } from 'svelte';
+import type { Track } from '#lib/types/models.js';
 import { TRACK_COLUMN_IDS, TRACK_COLUMNS, type TrackColumnId } from '#lib/utils/trackColumns.js';
 
-// 右サイドバーのパネル（queue: 再生キュー, equalizer: イコライザ, info: 再生中の曲の情報とアルバム）
-export type RightSidebarPanel = 'queue' | 'equalizer' | 'info';
+// 右サイドバーのパネル（queue: 再生キュー, equalizer: イコライザ, album: 再生中の曲とそのアルバム,
+// track: 一覧で選んでいる曲の情報）
+export type RightSidebarPanel = 'queue' | 'equalizer' | 'album' | 'track';
+
+/** 一覧で選んでいる曲（曲情報パネルに出す） */
+export interface SelectedTrack {
+  /** 選んでいる曲のうち、最後に選んだ曲 */
+  track: Track;
+  /** 選んでいる曲の数 */
+  count: number;
+}
 
 // グリッドカードサイズの範囲（px）
 export const MIN_CARD_SIZE = 50;
@@ -125,6 +136,13 @@ class UiState {
    */
   revealTrackId = $state<string | null>(null);
 
+  /**
+   * 一覧で選んでいる曲（曲情報パネルに出す。選んでいなければnull）
+   *
+   * 曲を選べる一覧が、`followSelectedTrack`で書き換える。
+   */
+  selectedTrack = $state.raw<SelectedTrack | null>(null);
+
   #isRightSidebarPinned = $state(loadRightSidebarPinned());
   #columnWidths = $state.raw<ColumnWidths>(loadColumnWidths());
   #playlistExportRelative = $state(loadJson(PLAYLIST_EXPORT_RELATIVE_KEY) === true);
@@ -165,6 +183,52 @@ class UiState {
 }
 
 export const ui = new UiState();
+
+/** `ui.selectedTrack`を出している一覧（`followSelectedTrack`ごとの印。リアクティブにしない） */
+let selectedTrackOwner: symbol | null = null;
+
+/**
+ * 一覧で選んでいる曲を、曲情報パネルに出す（曲を選べる一覧のコンポーネントの初期化で呼ぶ。ADR-078）
+ *
+ * 最後に選択を変えた一覧の選択を出す。その一覧の選択が空になった時と、一覧がなくなった時（別の画面へ
+ * 移った時）は空にする。出している一覧の曲を取り直した時（タグの編集・評価の変更など）は、新しい内容に
+ * 入れ替える。ほかの一覧が出している間は、曲を取り直しただけ（選択は同じ）では上書きしない。
+ *
+ * パネルを閉じている間も書き換える（開いた時に、選んでいる曲がすぐ出るように）。
+ *
+ * @param selected - 選んでいる曲のうち最後に選んだ曲と、選んでいる曲の数を返す関数（選んでいなければnull）
+ */
+export function followSelectedTrack(selected: () => SelectedTrack | null): void {
+  const owner = Symbol('selectedTrack');
+  const current = $derived.by(selected);
+  /** 前に見た選択（曲と数。曲を取り直しただけか、選択を変えたかを見分ける） */
+  let lastKey: string | null = null;
+
+  $effect(() => {
+    const value = current;
+    const key = value === null ? null : `${value.track.id}:${value.count}`;
+    const isChanged = key !== lastKey;
+    lastKey = key;
+    untrack(() => {
+      if (value === null) {
+        if (selectedTrackOwner === owner) clearSelectedTrack();
+      } else if (isChanged || selectedTrackOwner === owner) {
+        selectedTrackOwner = owner;
+        ui.selectedTrack = value;
+      }
+    });
+  });
+
+  // 一覧がなくなったら、出していた曲を消す
+  $effect(() => () => {
+    if (selectedTrackOwner === owner) clearSelectedTrack();
+  });
+}
+
+function clearSelectedTrack(): void {
+  selectedTrackOwner = null;
+  ui.selectedTrack = null;
+}
 
 // ---------- 前回開いていた画面（起動時の復元に使う） ----------
 

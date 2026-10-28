@@ -36,6 +36,27 @@ export class TrackSelection<T extends { id: string } = { id: string }> {
     return this.#activeId;
   }
 
+  /**
+   * 選択中のトラックのうち、最後に選んだトラックの項目（選んでいない・一覧にない場合はnull）
+   *
+   * 現在位置のトラックを選択から外した時（Cmd/Ctrl+クリック）は、選択に残っているトラックのうち
+   * 最後に選んだもの。
+   */
+  get lastSelected(): T | null {
+    const tracks = this.#tracks();
+    const find = (id: string) => tracks.find((track) => track.id === id) ?? null;
+    if (this.#activeId !== null && this.#ids.has(this.#activeId)) {
+      const active = find(this.#activeId);
+      if (active !== null) return active;
+    }
+    const ids = [...this.#ids];
+    for (let i = ids.length - 1; i >= 0; i--) {
+      const item = find(ids[i]);
+      if (item !== null) return item;
+    }
+    return null;
+  }
+
   get size(): number {
     return this.#ids.size;
   }

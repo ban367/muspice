@@ -7,6 +7,7 @@
   - 列と並び順は、`viewId`ごとに覚える（`#lib/stores/trackListView.svelte`）。幅は、どの画面でも共通
   - `onReorder`を渡した一覧（プレイリスト）は、渡した順のまま並べている間、行のドラッグで並べ替えられる
   - 再生中の曲へのジャンプ（`ui.revealTrackId`）を受けて、その曲の行までスクロールして選ぶ
+  - 最後に選んだ曲を、右サイドバーの曲情報パネルに出す
 -->
 <script lang="ts">
   import { untrack, type Snippet } from 'svelte';
@@ -17,7 +18,7 @@
     player,
     playTrackFromQueue
   } from '#lib/stores/player.svelte.js';
-  import { GRID_CARD_GAP, ui } from '#lib/stores/ui.svelte.js';
+  import { GRID_CARD_GAP, followSelectedTrack, ui } from '#lib/stores/ui.svelte.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import type { Track } from '#lib/types/models.js';
   import PlayingIndicator from './PlayingIndicator.svelte';
@@ -237,6 +238,12 @@
   const selectedTracks = $derived.by(() => {
     if (!sortedTracks) return [];
     return sortedTracks.filter((track) => selection.has(track.id));
+  });
+
+  // 選んでいる曲を、曲情報パネルに出す
+  followSelectedTrack(() => {
+    const track = selection.lastSelected;
+    return track === null ? null : { track, count: selectedTracks.length };
   });
 
   function handleTrackClick(trackId: string, event: MouseEvent) {

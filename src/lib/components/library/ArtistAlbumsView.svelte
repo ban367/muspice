@@ -7,12 +7,13 @@
   - アルバムごとに見出し（ジャケット画像・名前・ジャンルと年・曲数と時間）を出し、その下に曲を並べる
     （ディスクが複数あるアルバムは、ディスクで区切る）
   - アルバムの見出しをダブルクリックすると、アルバムを再生する。右クリックでアルバムのメニューを開く
-  - 曲の選択はアルバムをまたいで行える
+  - 曲の選択はアルバムをまたいで行える。最後に選んだ曲を、右サイドバーの曲情報パネルに出す
 -->
 <script lang="ts">
   import type { AlbumGroup, ArtistSummary, Track } from '#lib/types/models.js';
   import { flattenAlbumTracks, useSetRatingMutation } from '#lib/queries/tracks.js';
   import { player, playTrackFromQueue, playShuffled } from '#lib/stores/player.svelte.js';
+  import { followSelectedTrack } from '#lib/stores/ui.svelte.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import { albumGroupSummary } from '#lib/utils/albumArtists.js';
   import { groupByDisc } from '#lib/utils/albumDiscs.js';
@@ -62,6 +63,13 @@
 
   // トラックの選択（クリック・キーボード。アルバムをまたいで選択できる）
   const selection = new TrackSelection(() => displayTracks);
+
+  // 選んでいる曲を、曲情報パネルに出す（数は、表示している曲のうち選んでいる曲）
+  followSelectedTrack(() => {
+    const track = selection.lastSelected;
+    if (track === null) return null;
+    return { track, count: displayTracks.filter((t) => selection.has(t.id)).length };
+  });
 
   function handleTrackClick(trackId: string, event: MouseEvent) {
     selection.click(trackId, {
