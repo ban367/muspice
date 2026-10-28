@@ -95,12 +95,12 @@ describe('右サイドバーの固定', () => {
     expect(localStorage.getItem('muspice:rightSidebarPinned')).toBe('false');
   });
 
-  it('固定している間だけ、どのパネルも本文の横に並べる（曲情報パネルも、固定していなければ重ねる）', async () => {
+  it('固定している間だけ、どのパネルも本文の横に並べる（アルバム情報・曲情報パネルも、固定していなければ重ねる）', async () => {
     localStorage.setItem('muspice:rightSidebarPinned', 'false');
     const ui = await importFreshUi();
     expect(ui.isRightSidebarDocked).toBe(false);
 
-    for (const panel of ['queue', 'equalizer', 'info'] as const) {
+    for (const panel of ['queue', 'equalizer', 'album', 'track'] as const) {
       ui.activeRightSidebarPanel = panel;
       ui.isRightSidebarPinned = false;
       ui.isRightSidebarExpanded = true;

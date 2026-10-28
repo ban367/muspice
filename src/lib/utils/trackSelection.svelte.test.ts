@@ -145,3 +145,47 @@ describe('TrackSelection（クリック・その他）', () => {
     expect(selection.move('ArrowDown', false)).toBe('t3');
   });
 });
+
+describe('TrackSelection.lastSelected', () => {
+  it('選択中のトラックのうち、最後に選んだトラックを返す（選んでいなければnull）', () => {
+    const selection = createSelection();
+    expect(selection.lastSelected).toBeNull();
+
+    selection.click('t2', plain);
+    expect(selection.lastSelected).toEqual({ id: 't2' });
+
+    // Shift+クリック・Cmd/Ctrl+クリックで足した時は、最後にクリックしたトラック
+    selection.click('t4', { shiftKey: true, toggleKey: false });
+    expect(selection.lastSelected).toEqual({ id: 't4' });
+    selection.click('t1', { shiftKey: false, toggleKey: true });
+    expect(selection.lastSelected).toEqual({ id: 't1' });
+
+    // 選択を解除すると、現在位置が残っていてもnull
+    selection.clear();
+    expect(selection.lastSelected).toBeNull();
+  });
+
+  it('現在位置のトラックを選択から外した時は、残っているトラックのうち最後に選んだものを返す', () => {
+    const selection = createSelection();
+    selection.click('t2', plain);
+    selection.click('t5', { shiftKey: false, toggleKey: true });
+    selection.click('t3', { shiftKey: false, toggleKey: true });
+
+    // t3を外す（現在位置はt3のまま）
+    selection.click('t3', { shiftKey: false, toggleKey: true });
+    expect(selection.lastSelected).toEqual({ id: 't5' });
+  });
+
+  it('一覧からなくなったトラックは返さない', () => {
+    let list = tracks;
+    const selection = new TrackSelection(() => list);
+    selection.click('t2', plain);
+    selection.click('t4', { shiftKey: false, toggleKey: true });
+
+    list = tracks.filter((track) => track.id !== 't4');
+    expect(selection.lastSelected).toEqual({ id: 't2' });
+
+    list = [];
+    expect(selection.lastSelected).toBeNull();
+  });
+});

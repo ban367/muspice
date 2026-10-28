@@ -304,8 +304,10 @@ export const en: Messages = {
     openQueue: 'Open the queue',
     equalizerTitle: 'Equalizer (E)',
     openEqualizer: 'Open the equalizer',
-    infoTitle: 'Track Info',
-    openInfo: 'Open track info',
+    albumInfoTitle: 'Album Info',
+    openAlbumInfo: 'Open album info',
+    trackInfoTitle: 'Track Info',
+    openTrackInfo: 'Open track info',
     pin: 'Pin the sidebar',
     unpin: 'Unpin',
     queue: 'Queue',
@@ -321,11 +323,19 @@ export const en: Messages = {
     save: 'Save'
   },
 
-  infoPanel: {
+  albumInfo: {
     empty: 'Play a track to see its details and album here',
     noAlbum: 'This track has no album information',
     notFound:
       'No tracks found. They may have been removed from the library, or their tags may have changed'
+  },
+
+  trackInfo: {
+    empty: 'Select a track to see its details here',
+    othersSelected: (count: number) => `${count} more selected`,
+    tags: 'Tags',
+    file: 'File',
+    history: 'Play History'
   },
 
   miniPlayer: {
