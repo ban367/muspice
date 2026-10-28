@@ -1,26 +1,28 @@
 <!--
   @component InfoPanel
-  右サイドバーの情報パネル。グリッドで選んだアルバム・アーティストの曲と、曲の一覧で選んだ曲の
-  アルバムを、一覧を見たまま表示する（曲の一覧で選んだ曲は、パネルの一覧の中でも選んで示す）。
-  アルバムはディスクごと、アーティストはアルバムごとに曲を区切る。アルバムのない曲は、曲だけを表示する。
-  曲の選択・キー操作・ダブルクリックでの再生・ドラッグ（プレイリストへの追加）は、ほかの曲の一覧と同じ。
+  右サイドバーの曲情報パネル。上部に再生中の曲の情報を固定して出し、その下に、その曲が入っているアルバムの
+  曲をスクロールして見られるように出す。再生中の曲が変わると追随する（一覧での選択には追随しない。ADR-078）。
+  アルバムは、アルバムの画面と同じく「アルバムアーティスト（なければ曲のアーティスト）＋アルバム名」でまとめ、
+  ディスクごとに曲を区切る。アルバムのない曲は、曲の情報だけを出す。
+  アルバムの曲の選択・キー操作・ダブルクリックでの再生・ドラッグ（プレイリストへの追加）は、ほかの曲の一覧と同じ。
   パネルの幅が狭いため、行には番号・曲名・時間だけを出し、お気に入りと評価は行にポインタを置いた時に出す。
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
   import type { Track } from '#lib/types/models.js';
-  import { ui, type InfoTarget } from '#lib/stores/ui.svelte.js';
   import {
     useAlbumTracksQuery,
-    useArtistAlbumsQuery,
-    useSetRatingMutation
+    useFavoriteTracksQuery,
+    useSetRatingMutation,
+    useTracksQuery
   } from '#lib/queries/tracks.js';
   import { player, playTrackFromQueue, playShuffled } from '#lib/stores/player.svelte.js';
   import { albumArtDialog } from '#lib/stores/albumArt.svelte.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
-  import { albumKey } from '#lib/utils/albumKey.js';
+  import { groupArtist } from '#lib/utils/albumKey.js';
   import { groupByDisc } from '#lib/utils/albumDiscs.js';
   import { formatDuration, formatTotalDuration } from '#lib/utils/format.js';
+  import { trackCellText } from '#lib/utils/trackColumns.js';
   import { TrackSelection, handleTrackListKeydown } from '#lib/utils/trackSelection.svelte.js';
   import { startTrackDrag } from '#lib/utils/trackDrag.js';
   import AlbumArt from './AlbumArt.svelte';
@@ -29,27 +31,43 @@
   import FavoriteButton from './library/FavoriteButton.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
-  interface Props {
-    /** 表示する項目（まだ選んでいなければnull） */
-    target: InfoTarget | null;
-  }
+  const current = $derived(player.currentTrack);
 
-  let { target }: Props = $props();
-
+  // 再生キューの曲は、キューに入れた時点の内容のため、評価は全曲の一覧（変更のたびに
+  // 書き換わる）から、お気に入りはお気に入りの一覧から調べる（Now Playingの画面と同じ）
+  const tracksQuery = useTracksQuery();
+  const favoritesQuery = useFavoriteTracksQuery();
   const setRatingMutation = useSetRatingMutation();
+  const rating = $derived(
+    tracksQuery.data?.find((track) => track.id === current?.id)?.rating ?? current?.rating ?? 0
+  );
+  const isFavorite = $derived(
+    (favoritesQuery.data ?? []).some((track) => track.id === current?.id)
+  );
 
-  // 表示する項目の名前（名前が変わった時だけ曲を取り直す。同じ項目を選び直しても取り直さない）
-  const albumName = $derived(target?.type === 'album' ? target.album.name : null);
-  const albumArtist = $derived(target?.type === 'album' ? target.album.artist : null);
-  const artistName = $derived(target?.type === 'artist' ? target.artist.name : null);
+  /** 曲の詳細（ジャンル・年・ファイルの形式・サンプルレート・ビットレート） */
+  const details = $derived(
+    current
+      ? [
+          current.genre,
+          current.year,
+          trackCellText(current, 'format'),
+          trackCellText(current, 'sampleRate'),
+          trackCellText(current, 'bitrate')
+        ]
+          .filter(Boolean)
+          .join(' · ')
+      : ''
+  );
 
-  // アルバムは曲を、アーティストはアルバムごとの曲を取得する
+  // 再生中の曲のアルバム（アルバムが変わった時だけ曲を取り直す。同じアルバムの次の曲へ進んでも取り直さない）
+  const albumName = $derived(current?.album ?? null);
+  const albumArtist = $derived(current ? groupArtist(current) : null);
   const albumTracksQuery = $derived(
     albumName === null ? null : useAlbumTracksQuery(albumName, albumArtist)
   );
-  const artistAlbumsQuery = $derived(artistName === null ? null : useArtistAlbumsQuery(artistName));
 
-  /** 曲の一覧の区切り（アルバムのディスク・アーティストのアルバム） */
+  /** 曲の一覧の区切り（アルバムのディスク） */
   interface Section {
     key: string;
     /** 見出し（ディスクが1枚だけのアルバムはnull） */
@@ -60,93 +78,55 @@
   }
 
   const sections = $derived.by((): Section[] => {
-    const groups = artistAlbumsQuery
-      ? (artistAlbumsQuery.data ?? []).map((album) => ({
-          key: albumKey(album),
-          heading: album.name,
-          tracks: album.tracks
-        }))
-      : groupByDisc(albumTracksQuery?.data ?? []).map((disc, _, discs) => ({
-          key: String(disc.discNumber),
-          heading: discs.length > 1 ? m.common.disc(disc.discNumber) : null,
-          tracks: disc.tracks
-        }));
+    const discs = groupByDisc(albumTracksQuery?.data ?? []);
     let start = 0;
-    return groups.map((group) => {
-      const section = { ...group, start };
-      start += group.tracks.length;
+    return discs.map((disc) => {
+      const section = {
+        key: String(disc.discNumber),
+        heading: discs.length > 1 ? m.common.disc(disc.discNumber) : null,
+        start,
+        tracks: disc.tracks
+      };
+      start += disc.tracks.length;
       return section;
     });
   });
 
-  // 表示順の曲（選択・再生はこの順で行う。アーティストは、アルバムをまたいで続けて再生する）
+  // 表示順の曲（選択・再生はこの順で行う）
   const tracks = $derived(sections.flatMap((section) => section.tracks));
+  const totalDuration = $derived(tracks.reduce((sum, track) => sum + (track.duration ?? 0), 0));
 
-  // 取得し終えて1曲もない（項目の曲が削除された、またはタグが変わって項目の名前が変わった）
-  const isNotFound = $derived(
-    (albumTracksQuery ?? artistAlbumsQuery)?.isSuccess === true && tracks.length === 0
-  );
-
-  // 見出しの値（曲を取得するまでは、一覧の項目の値を使う。取得した後は、曲の変更に追随させる）
-  const summary = $derived(
-    target?.type === 'album' ? target.album : target?.type === 'artist' ? target.artist : null
-  );
-  const trackCount = $derived(tracks.length > 0 ? tracks.length : (summary?.trackCount ?? 0));
-  const totalDuration = $derived(
-    tracks.length > 0
-      ? tracks.reduce((sum, track) => sum + (track.duration ?? 0), 0)
-      : (summary?.totalDuration ?? 0)
-  );
-  const artTrackId = $derived(tracks[0]?.id ?? summary?.representativeTrackId ?? null);
-
-  // 曲のアーティストを出すかの基準（アルバムはまとめたアーティスト、アーティストはその名前）
-  const groupArtist = $derived(
-    target?.type === 'album'
-      ? target.album.artist
-      : target?.type === 'artist'
-        ? target.artist.name
-        : null
-  );
-
-  // 曲の一覧で選んだ曲（アルバムの中で選んで示す。グリッドで選んだ項目はnull）
-  const chosenTrackId = $derived(target?.type === 'album' ? (target.trackId ?? null) : null);
+  // 取得し終えて1曲もない（ライブラリから削除された、またはタグが変わってアルバムが変わった）
+  const isNotFound = $derived(albumTracksQuery?.isSuccess === true && tracks.length === 0);
 
   // トラックの選択（クリック・キーボード）
   const selection = new TrackSelection(() => tracks);
 
-  /** スクロールする領域（項目を切り替えた時に先頭へ戻す） */
+  /** スクロールする領域（アルバムが替わった時に先頭へ戻す） */
   let body = $state<HTMLElement>();
 
-  /** 曲の一覧で選んだ曲のうち、パネルの一覧で選んだもの（選び直した時だけ選ぶため。リアクティブにしない） */
-  let shownChosenTrackId: string | null = null;
+  /** 見える位置へ出した、再生中の曲（曲が変わった時だけ出すため。リアクティブにしない） */
+  let revealedTrackId: string | null = null;
 
-  // 別の項目に切り替わったら、選択を消して先頭へ戻す（データを取り直しただけでは消さない）
+  // 別のアルバムに替わったら、選択を消して先頭へ戻す（同じアルバムの曲へ進んだ時・取り直しただけでは消さない）
   $effect(() => {
     void albumName;
     void albumArtist;
-    void artistName;
     // 選択の中身には反応させない（選択を変えるたびに消えてしまう）
     untrack(() => {
       selection.reset();
-      shownChosenTrackId = null;
+      revealedTrackId = null;
       body?.scrollTo({ top: 0 });
     });
   });
 
-  // 曲の一覧で選んだ曲を、曲を取得した後に選び、その行を見える位置へ出す。曲の一覧で選び直した時
-  // だけ行い、取り直しただけでは選び直さない（パネルの中で選んだ曲を残す）
+  // 再生中の曲が変わったら、アルバムの曲を取得した後に、その行を見える位置へ出す
   $effect(() => {
-    const trackId = chosenTrackId;
-    if (trackId === null) {
-      // グリッドで選んだ項目に替わった（後で同じ曲を選び直した時も、選び直す）
-      shownChosenTrackId = null;
-      return;
-    }
-    if (trackId === shownChosenTrackId) return;
+    const trackId = current?.id ?? null;
+    if (trackId === null || trackId === revealedTrackId) return;
     if (!tracks.some((track) => track.id === trackId)) return;
-    shownChosenTrackId = trackId;
+    revealedTrackId = trackId;
     untrack(() => {
-      selection.selectOnly(trackId);
       body
         ?.querySelector(`[data-track-id="${CSS.escape(trackId)}"]`)
         ?.scrollIntoView({ block: 'nearest' });
@@ -178,139 +158,106 @@
     });
   }
 
-  // すべて再生
+  // アルバムアートの画面を開く（アルバムの曲を取得するまでと、アルバムのない曲は、再生中の曲だけ）
+  function openAlbumArt(track: Track) {
+    albumArtDialog.open(tracks.length > 0 ? tracks : [track]);
+  }
+
+  // アルバムをすべて再生
   function handlePlayAll() {
     if (tracks.length > 0) {
       playTrackFromQueue(tracks, 0);
     }
   }
 
-  // シャッフル再生
+  // アルバムをシャッフル再生
   function handleShufflePlay() {
     playShuffled(tracks);
-  }
-
-  // パネルを閉じる（横に並べている間は、パネルの外を押しても閉じないため）
-  function close() {
-    ui.isRightSidebarExpanded = false;
   }
 </script>
 
 <div class="panel-header">
-  <h3>
-    {target?.type === 'album'
-      ? m.fields.album
-      : target?.type === 'artist'
-        ? m.fields.artist
-        : target?.type === 'track'
-          ? m.infoPanel.track
-          : m.rightSidebar.infoTitle}
-  </h3>
-  <button
-    class="close-button"
-    onclick={close}
-    title={m.infoPanel.close}
-    aria-label={m.infoPanel.close}
-  >
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="2"
-      aria-hidden="true"
-    >
-      <line x1="18" y1="6" x2="6" y2="18" />
-      <line x1="6" y1="6" x2="18" y2="18" />
-    </svg>
-  </button>
+  <h3>{m.rightSidebar.infoTitle}</h3>
 </div>
 
-<!-- 見出しも曲と一緒にスクロールする（狭いウィンドウでも曲の行を多く見せる） -->
-<div class="panel-body" bind:this={body}>
-  {#if target === null}
-    <p class="panel-message">{m.infoPanel.empty}</p>
-  {:else if target.type === 'track'}
-    <!-- アルバムのない曲: 曲だけを表示する -->
-    <div class="summary">
-      <div class="summary-art">
-        <AlbumArt
-          src={albumArtUrl(target.track.id)}
-          alt={target.track.title || target.track.fileName}
-          rounded="lg"
-          placeholderType="music"
+{#if current}
+  <!-- 再生中の曲（スクロールせず、常に見えるようにする） -->
+  <section class="now-playing" aria-label={m.rightSidebar.nowPlaying}>
+    <button
+      type="button"
+      class="now-playing-art"
+      title={m.albumArtDialog.open}
+      aria-label={m.albumArtDialog.open}
+      onclick={() => openAlbumArt(current)}
+    >
+      <AlbumArt
+        src={albumArtUrl(current.id)}
+        alt={m.common.albumArt}
+        rounded="lg"
+        placeholderType="music"
+      />
+    </button>
+    <div class="now-playing-text">
+      <h2 class="now-playing-title" title={current.title || current.fileName}>
+        {current.title || current.fileName}
+      </h2>
+      <p class="now-playing-artist" title={current.artist ?? undefined}>
+        {current.artist || m.common.unknownArtist}
+      </p>
+      {#if current.album}
+        <p class="now-playing-album" title={current.album}>{current.album}</p>
+      {/if}
+      {#if details}
+        <p class="now-playing-details">{details}</p>
+      {/if}
+      <div class="now-playing-actions">
+        <FavoriteButton trackId={current.id} {isFavorite} size="medium" />
+        <RatingStars
+          {rating}
+          onChange={(value) =>
+            setRatingMutation.mutateAsync({ trackId: current.id, rating: value })}
         />
       </div>
-      <h2 class="summary-name">{target.track.title || target.track.fileName}</h2>
-      <p class="summary-artist">{target.track.artist || m.common.unknownArtist}</p>
-      {#if target.track.genre || target.track.year}
-        <p class="summary-meta">
-          {[target.track.genre, target.track.year].filter(Boolean).join(' · ')}
-        </p>
-      {/if}
     </div>
-    <p class="panel-message">{m.infoPanel.noAlbum}</p>
-  {:else}
-    <div class="summary">
-      {#if target.type === 'album'}
-        <button
-          type="button"
-          class="summary-art"
-          title={m.albumArtDialog.open}
-          aria-label={m.albumArtDialog.open}
-          onclick={() => albumArtDialog.open(tracks)}
-          disabled={tracks.length === 0}
-        >
-          <AlbumArt
-            src={artTrackId === null ? null : albumArtUrl(artTrackId)}
-            alt={target.album.name}
-            rounded="lg"
-          />
-        </button>
-        <h2 class="summary-name">{target.album.name}</h2>
-        <p class="summary-artist">{target.album.artist || m.common.unknownArtist}</p>
-        {#if tracks[0]?.genre || tracks[0]?.year}
-          <p class="summary-meta">
-            {[tracks[0]?.genre, tracks[0]?.year].filter(Boolean).join(' · ')}
+  </section>
+
+  <!-- 再生中の曲のアルバム（スクロールする） -->
+  <div class="album-body" bind:this={body}>
+    {#if albumName === null}
+      <p class="panel-message">{m.infoPanel.noAlbum}</p>
+    {:else if isNotFound}
+      <p class="panel-message">{m.infoPanel.notFound}</p>
+    {:else}
+      <div class="album-heading">
+        <div class="album-heading-text">
+          <h3 class="album-name" title={albumName}>{albumName}</h3>
+          <p class="album-artist">{albumArtist || m.common.unknownArtist}</p>
+          <!-- 曲を取得するまでは、曲数がわからない（高さは変えずに空ける） -->
+          <p class="album-stats">
+            {tracks.length > 0
+              ? m.common.trackCountAndDuration(tracks.length, formatTotalDuration(totalDuration))
+              : ' '}
           </p>
-        {/if}
-      {:else}
-        <div class="summary-art">
-          <AlbumArt
-            src={artTrackId === null ? null : albumArtUrl(artTrackId)}
-            alt={target.artist.name}
-            rounded="lg"
-            placeholderType="person"
-          />
         </div>
-        <h2 class="summary-name">{target.artist.name}</h2>
-        {#if !isNotFound}
-          <p class="summary-meta">
-            {m.library.albumSummary(artistAlbumsQuery?.data?.length ?? target.artist.albumCount)}
-          </p>
-        {/if}
-      {/if}
-      <!-- 見つからない時は、曲数（一覧の項目の古い値）と操作を出さない -->
-      {#if !isNotFound}
-        <!-- 曲の一覧で選んだ曲のアルバムは、曲を取得するまで曲数がわからない（高さは変えずに空ける） -->
-        <p class="summary-stats">
-          {trackCount > 0
-            ? m.common.trackCountAndDuration(trackCount, formatTotalDuration(totalDuration))
-            : '\u00a0'}
-        </p>
-        <div class="summary-actions">
+        <div class="album-actions">
           <button
-            class="action-button primary"
+            class="album-action primary"
             onclick={handlePlayAll}
             disabled={tracks.length === 0}
             title={m.common.playAll}
+            aria-label={m.common.playAll}
           >
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
               <path d="M8 5v14l11-7z" />
             </svg>
-            {m.common.play}
           </button>
-          <button class="action-button" onclick={handleShufflePlay} disabled={tracks.length === 0}>
+          <button
+            class="album-action"
+            onclick={handleShufflePlay}
+            disabled={tracks.length === 0}
+            title={m.common.shuffle}
+            aria-label={m.common.shuffle}
+          >
             <svg
               xmlns="http://www.w3.org/2000/svg"
               viewBox="0 0 24 24"
@@ -324,21 +271,16 @@
               <line x1="15" y1="15" x2="21" y2="21" />
               <line x1="4" y1="4" x2="9" y2="9" />
             </svg>
-            {m.common.shuffle}
           </button>
         </div>
-      {/if}
-    </div>
+      </div>
 
-    {#if isNotFound}
-      <p class="panel-message">{m.infoPanel.notFound}</p>
-    {:else}
       <!-- 曲の一覧 -->
       <div
         class="track-list"
         role="listbox"
         aria-multiselectable="true"
-        aria-label={target.type === 'album' ? target.album.name : target.artist.name}
+        aria-label={albumName}
         tabindex="0"
         onkeydown={handleListKeydown}
       >
@@ -347,7 +289,7 @@
             <div class="section-heading" title={section.heading}>{section.heading}</div>
           {/if}
           {#each section.tracks as track, indexInSection (track.id)}
-            {@const isPlaying = player.currentTrack?.id === track.id}
+            {@const isPlaying = current.id === track.id}
             <!-- キー操作は一覧（listbox）で受けるため、行はフォーカスを受けない -->
             <!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
             <div
@@ -375,8 +317,8 @@
                 <span class="row-title" title={track.title || track.fileName}>
                   {track.title || track.fileName}
                 </span>
-                <!-- 曲のアーティストは、項目のアーティストと違う場合だけ表示する（コンピレーションなど） -->
-                {#if track.artist && track.artist !== groupArtist}
+                <!-- 曲のアーティストは、アルバムのアーティストと違う場合だけ表示する（コンピレーションなど） -->
+                {#if track.artist && track.artist !== albumArtist}
                   <span class="row-artist" title={track.artist}>{track.artist}</span>
                 {/if}
               </div>
@@ -386,8 +328,8 @@
                   <FavoriteButton trackId={track.id} isFavorite={track.isFavorite} />
                   <RatingStars
                     rating={track.rating}
-                    onChange={(rating) =>
-                      setRatingMutation.mutateAsync({ trackId: track.id, rating })}
+                    onChange={(value) =>
+                      setRatingMutation.mutateAsync({ trackId: track.id, rating: value })}
                   />
                 </div>
                 <span class="row-duration">{formatDuration(track.duration)}</span>
@@ -397,43 +339,29 @@
         {/each}
       </div>
     {/if}
-  {/if}
-</div>
+  </div>
+{:else}
+  <p class="panel-message">{m.infoPanel.empty}</p>
+{/if}
 
 <style>
   @reference "../../app.css";
 
   .panel-header {
-    @apply flex items-center justify-between px-4 py-3 border-b border-border shrink-0;
+    @apply flex items-center px-4 py-3 border-b border-border shrink-0;
   }
 
   .panel-header h3 {
     @apply m-0 text-sm font-semibold text-text-primary;
   }
 
-  .close-button {
-    @apply w-6 h-6 flex items-center justify-center border-none rounded-full bg-transparent cursor-pointer text-text-muted transition-all duration-150;
-  }
-
-  .close-button:hover {
-    @apply bg-surface-active text-text-primary;
-  }
-
-  .close-button svg {
-    @apply w-4 h-4;
-  }
-
-  .panel-body {
-    @apply flex-1 min-h-0 overflow-y-auto;
-  }
-
   .panel-message {
     @apply m-0 py-8 px-4 text-center text-sm text-text-dimmed;
   }
 
-  /* 見出し（ジャケット画像・名前・操作） */
-  .summary {
-    @apply flex flex-col items-center px-4 pt-4 pb-3 text-center;
+  /* 再生中の曲（ジャケット画像・曲名・アーティスト・アルバム・詳細・お気に入りと評価） */
+  .now-playing {
+    @apply flex flex-col items-center gap-3 px-4 pt-4 pb-3 text-center border-b border-border shrink-0;
     /* アクセントカラーを薄くした色から透明へ */
     background: linear-gradient(
       to bottom,
@@ -442,65 +370,109 @@
     );
   }
 
-  .summary-art {
-    @apply w-48 h-48 shrink-0 rounded-lg overflow-hidden p-0 border-none bg-transparent;
+  .now-playing-art {
+    @apply w-40 h-40 shrink-0 rounded-lg overflow-hidden p-0 border-none bg-transparent cursor-pointer transition-opacity;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
   }
 
-  button.summary-art {
-    @apply cursor-pointer transition-opacity;
-  }
-
-  button.summary-art:hover:not(:disabled) {
+  .now-playing-art:hover {
     @apply opacity-85;
   }
 
-  button.summary-art:disabled {
-    @apply cursor-default;
+  .now-playing-text {
+    @apply flex flex-col items-center w-full min-w-0;
   }
 
-  .summary-name {
-    @apply m-0 mt-3 text-lg font-bold leading-tight text-text-primary break-words;
+  .now-playing-title {
+    @apply m-0 max-w-full text-base font-bold leading-tight text-text-primary break-words line-clamp-2;
   }
 
-  .summary-artist {
-    @apply m-0 mt-1 text-sm text-text-secondary;
+  .now-playing-artist {
+    @apply m-0 mt-1 max-w-full text-sm text-text-secondary truncate;
   }
 
-  .summary-meta {
-    @apply m-0 mt-1 text-xs text-text-muted;
+  .now-playing-album {
+    @apply m-0 mt-0.5 max-w-full text-xs text-text-muted truncate;
   }
 
-  .summary-stats {
-    @apply m-0 mt-1 text-xs text-text-dimmed;
+  .now-playing-details {
+    @apply m-0 mt-0.5 text-[0.6875rem] text-text-dimmed;
   }
 
-  .summary-actions {
-    @apply flex items-center gap-2 mt-3;
+  .now-playing-actions {
+    @apply flex items-center gap-2 mt-2;
   }
 
-  .action-button {
-    @apply flex items-center gap-1.5 py-1.5 px-4 border-none rounded-full text-sm font-medium cursor-pointer transition-all duration-150;
+  /* 高さの低いウィンドウでは、下のアルバムの曲が見えるよう、ジャケット画像を小さくして横に並べる */
+  @media (max-height: 42rem) {
+    .now-playing {
+      @apply flex-row items-start pt-3 text-left;
+    }
+
+    .now-playing-art {
+      @apply w-18 h-18;
+    }
+
+    .now-playing-text {
+      @apply items-start;
+    }
+
+    .now-playing-actions {
+      @apply mt-1.5;
+    }
+  }
+
+  .album-body {
+    @apply flex-1 min-h-0 overflow-y-auto;
+  }
+
+  /* アルバムの見出し（名前・アーティスト・曲数と時間・再生の操作） */
+  .album-heading {
+    @apply flex items-center gap-2 px-4 pt-3 pb-1;
+  }
+
+  .album-heading-text {
+    @apply flex-1 min-w-0;
+  }
+
+  .album-name {
+    @apply m-0 text-sm font-semibold text-text-primary truncate;
+  }
+
+  .album-artist {
+    @apply m-0 mt-0.5 text-xs text-text-secondary truncate;
+  }
+
+  .album-stats {
+    @apply m-0 mt-0.5 text-xs text-text-dimmed;
+  }
+
+  .album-actions {
+    @apply flex items-center gap-1.5 shrink-0;
+  }
+
+  .album-action {
+    @apply w-8 h-8 flex items-center justify-center border-none rounded-full cursor-pointer transition-all duration-150;
     @apply bg-surface-active text-text-primary;
   }
 
-  .action-button:hover:not(:disabled) {
+  .album-action:hover:not(:disabled) {
     @apply bg-surface-strong;
   }
 
-  .action-button.primary {
+  .album-action.primary {
     @apply bg-secondary text-black;
   }
 
-  .action-button.primary:hover:not(:disabled) {
+  .album-action.primary:hover:not(:disabled) {
     @apply bg-secondary-focus;
   }
 
-  .action-button:disabled {
+  .album-action:disabled {
     @apply opacity-50 cursor-not-allowed;
   }
 
-  .action-button svg {
+  .album-action svg {
     @apply w-4 h-4;
   }
 

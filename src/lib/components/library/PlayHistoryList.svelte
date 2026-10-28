@@ -4,7 +4,6 @@
 
   - 行は履歴の1件ごとに見分ける（選択・キー操作は、曲ではなく行が単位）
   - 再生・キューへの追加・プレイリストへの追加などは、選んだ行の曲（重複なし）を対象にする
-  - 行をクリックして選んだ曲のアルバムを、右サイドバーの情報パネルに表示する（曲の一覧と同じ）
   - 見出しと曲の行は同じ高さにする（VirtualListは、行の高さがすべて同じとして扱う）
 -->
 <script lang="ts">
@@ -15,7 +14,6 @@
     player,
     playTrackFromQueue
   } from '#lib/stores/player.svelte.js';
-  import { followTrackInfo } from '#lib/stores/ui.svelte.js';
   import { formatDateWithWeekday, formatDuration, formatTime } from '#lib/utils/format.js';
   import type { PlayHistoryEntry, Track } from '#lib/types/models.js';
   import MetadataEditor from '../MetadataEditor.svelte';
@@ -64,9 +62,6 @@
   const selectedTracks = $derived(distinctTracks(playRows.filter((row) => selection.has(row.id))));
   const selectedTrackIds = $derived(idSetOf(selectedTracks));
 
-  // 最後に選んだ行の曲のアルバムを情報パネルに表示する（曲の一覧と同じ）
-  const showTrackInfo = followTrackInfo(() => selection.active?.track ?? null);
-
   let showMetadataEditor = $state(false);
   let showDeleteDialog = $state(false);
   let contextMenu = $state<{ x: number; y: number; track: Track } | null>(null);
@@ -85,7 +80,6 @@
       shiftKey: event.shiftKey,
       toggleKey: event.ctrlKey || event.metaKey
     });
-    showTrackInfo();
   }
 
   /** その行の曲から、履歴の曲（重複なし）を再生する */

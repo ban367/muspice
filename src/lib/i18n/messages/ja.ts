@@ -316,12 +316,13 @@ export const ja = {
     openQueue: '再生キューを開く',
     equalizerTitle: 'イコライザ (E)',
     openEqualizer: 'イコライザを開く',
-    infoTitle: '情報',
-    openInfo: '情報パネルを開く',
+    infoTitle: '曲情報',
+    openInfo: '曲情報を開く',
     pin: 'サイドバーを固定',
     unpin: '固定解除',
     queue: '再生キュー',
     clear: 'クリア',
+    clearConfirm: '再生キューをクリアしますか？再生中の曲も停止します。',
     nowPlaying: '再生中',
     upNext: (count: number) => `次に再生 (${count}曲)`,
     removeFromQueue: 'キューから削除',
@@ -332,11 +333,9 @@ export const ja = {
     save: '保存'
   },
 
-  /** 右サイドバーの情報パネル（グリッドで選んだアルバム・アーティストの曲） */
+  /** 右サイドバーの曲情報パネル（再生中の曲と、その曲のアルバム） */
   infoPanel: {
-    close: '情報パネルを閉じる',
-    empty: 'アルバムやアーティスト、曲を選ぶと、ここに曲を表示します',
-    track: '曲',
+    empty: '曲を再生すると、ここに曲の情報とアルバムを表示します',
     noAlbum: 'この曲にはアルバムの情報がありません',
     notFound: '曲が見つかりません。ライブラリから削除されたか、タグが変わった可能性があります'
   },

@@ -712,12 +712,17 @@ describe('シャッフルの解除で、シャッフルする前の順に再生�
 });
 
 describe('clearQueue', () => {
-  it('再生中のトラックだけを残す', () => {
+  it('再生中のトラックも含めて、キューを空にする', () => {
     playTrackFromQueue(tracks, 2);
+    toggleShuffle();
     clearQueue();
 
-    expect(ids(player.playQueue)).toEqual(['t3']);
-    expect(player.currentTrackIndex).toBe(0);
+    expect(player.playQueue).toEqual([]);
+    expect(player.originalQueue).toEqual([]);
+    expect(player.currentTrackIndex).toBe(-1);
+    expect(player.currentTrack).toBeNull();
+    expect(player.isPlaying).toBe(false);
+    expect(player.upcomingEntries).toEqual([]);
   });
 });
 

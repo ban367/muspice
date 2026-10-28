@@ -40,25 +40,15 @@
   // リスト表示の行の高さの見積もり
   const ESTIMATED_LIST_ROW_HEIGHT = 68;
 
-  // アルバムをクリック（右サイドバーの情報パネルに、アルバムの曲を表示する）
-  function handleAlbumClick(album: AlbumSummary) {
-    ui.showInfo({ type: 'album', album });
-  }
-
-  // キーボードで移動した時は、情報パネルを開いている間だけ追随させる
-  function handleAlbumNavigate(album: AlbumSummary) {
-    ui.followInfo({ type: 'album', album });
-  }
-
-  // アルバムをダブルクリック（すべて再生）
-  function handleAlbumDoubleClick(album: AlbumSummary) {
+  // アルバムを再生する（ダブルクリック・Enter）
+  function playAlbum(album: AlbumSummary) {
     void playGroup(queryClient, 'album', album.name, album.artist);
   }
 
   // 再生ボタンクリック
   function handlePlayClick(event: MouseEvent, album: AlbumSummary) {
     event.stopPropagation();
-    handleAlbumDoubleClick(album);
+    playAlbum(album);
   }
 </script>
 
@@ -78,8 +68,7 @@
   estimatedCardHeight={ui.gridCardSize + ESTIMATED_CARD_EXTRA_HEIGHT}
   estimatedRowHeight={ESTIMATED_LIST_ROW_HEIGHT}
   groupType="album"
-  onOpen={handleAlbumClick}
-  onNavigate={handleAlbumNavigate}
+  onOpen={playAlbum}
 >
   {#snippet emptyIcon()}
     <svg
@@ -96,12 +85,10 @@
 
   {#snippet gridCard(album)}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div
       class="grid-card"
       style="width: {ui.gridCardWidth}px;"
-      onclick={() => handleAlbumClick(album)}
-      ondblclick={() => handleAlbumDoubleClick(album)}
+      ondblclick={() => playAlbum(album)}
       oncontextmenu={(e) => libraryGrid.handleContextMenu(e, album)}
     >
       <div class="grid-card-art">
@@ -127,11 +114,9 @@
 
   {#snippet listRow(album)}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div
       class="list-row"
-      onclick={() => handleAlbumClick(album)}
-      ondblclick={() => handleAlbumDoubleClick(album)}
+      ondblclick={() => playAlbum(album)}
       oncontextmenu={(e) => libraryGrid.handleContextMenu(e, album)}
     >
       <div class="list-art">

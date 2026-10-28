@@ -144,26 +144,4 @@ describe('TrackSelection（クリック・その他）', () => {
     // 現在位置は残り、続けて移動できる
     expect(selection.move('ArrowDown', false)).toBe('t3');
   });
-
-  it('activeは、最後に選んだトラックの項目を返す（選択を解除しても残り、一覧から消えるとnull）', () => {
-    let list = tracks;
-    const selection = new TrackSelection(() => list);
-    expect(selection.active).toBeNull();
-
-    selection.click('t2', plain);
-    expect(selection.active).toBe(tracks[1]);
-    selection.move('ArrowDown', false);
-    expect(selection.active).toBe(tracks[2]);
-
-    // 選択を解除しても、最後に選んだトラックは残る
-    selection.clear();
-    expect(selection.active).toBe(tracks[2]);
-
-    // 一覧から消えた（絞り込んだ・削除した）トラックは返さない
-    list = tracks.filter((track) => track.id !== 't3');
-    expect(selection.active).toBeNull();
-
-    selection.reset();
-    expect(selection.active).toBeNull();
-  });
 });

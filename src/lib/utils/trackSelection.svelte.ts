@@ -36,13 +36,6 @@ export class TrackSelection<T extends { id: string } = { id: string }> {
     return this.#activeId;
   }
 
-  /** 最後に選んだトラックの項目（`activeId`の項目。選んでいない・一覧にない場合はnull） */
-  get active(): T | null {
-    const id = this.#activeId;
-    if (id === null) return null;
-    return this.#tracks().find((track) => track.id === id) ?? null;
-  }
-
   get size(): number {
     return this.#ids.size;
   }

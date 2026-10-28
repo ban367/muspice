@@ -9,6 +9,7 @@ import { equalizer } from './equalizer.svelte.js';
 import { createPlaybackController, type PlaybackController } from './playback.svelte.js';
 import { playbackAids, SLEEP_FADE_SECONDS } from './playbackAids.svelte.js';
 import {
+  clearQueue,
   player,
   playTrackFromQueue,
   removeFromQueue,
@@ -245,6 +246,19 @@ describe('トラックの再生', () => {
 
     expect(commands.playbackStop).toHaveBeenCalledTimes(1);
     expect(player.currentTrack).toBeNull();
+  });
+
+  it('キューをクリアしたら、再生中の曲も止める', async () => {
+    playTrackFromQueue(tracks, 1);
+    await flush();
+    expect(player.isPlaying).toBe(true);
+
+    clearQueue();
+    flushSync();
+
+    expect(commands.playbackStop).toHaveBeenCalledTimes(1);
+    expect(player.currentTrack).toBeNull();
+    expect(player.isPlaying).toBe(false);
   });
 
   it('音量をエンジンに伝える', () => {

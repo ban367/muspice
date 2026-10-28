@@ -2,8 +2,8 @@
   最近追加した曲の画面。追加した日時の新しい順に、アルバムのカードを並べる
   （アルバムのない曲は、1曲で1枚のカード）。項目は、取得済みの全曲の一覧から計算する。
 
-  - アルバムのカード: クリック・Enterで、右サイドバーの情報パネルに曲を表示する。ダブルクリック・再生ボタンでアルバムを再生する
-  - 曲のカード（アルバムのない曲）: クリックで、情報パネルにその曲を表示する。ダブルクリック・Enter・再生ボタンで、その曲を再生する
+  - アルバムのカード: ダブルクリック・Enter・再生ボタンでアルバムを再生する
+  - 曲のカード（アルバムのない曲）: ダブルクリック・Enter・再生ボタンで、その曲を再生する
   - キーボード: ほかのグリッド（`LibraryGrid`）と同じく、矢印キー・Home・Endで現在位置を移す
 -->
 <script lang="ts">
@@ -11,7 +11,7 @@
   import type { AlbumSummary } from '#lib/types/models.js';
   import { useTracksQuery } from '#lib/queries/tracks.js';
   import { playSingleTrack } from '#lib/stores/player.svelte.js';
-  import { GRID_CARD_GAP, trackInfoTarget, ui, type InfoTarget } from '#lib/stores/ui.svelte.js';
+  import { GRID_CARD_GAP, ui } from '#lib/stores/ui.svelte.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import { formatDate } from '#lib/utils/format.js';
   import { playGroup } from '#lib/utils/groupPlayback.js';
@@ -32,7 +32,7 @@
   const tracksQuery = useTracksQuery();
   const items = $derived(tracksQuery.data ? recentlyAdded(tracksQuery.data) : []);
 
-  /** アルバムの項目を、アルバムの一覧の1件と同じ形にする（情報パネル・メニューに渡す） */
+  /** アルバムの項目を、アルバムの一覧の1件と同じ形にする（メニューに渡す） */
   const toAlbum = (item: RecentItem): AlbumSummary => ({
     name: item.name,
     sortName: null,
@@ -50,14 +50,6 @@
     else void playGroup(queryClient, 'album', item.name, item.artist);
   }
 
-  /** 項目を、情報パネルに表示する項目にする（アルバム。曲の項目は、アルバムのない曲そのもの） */
-  const toInfoTarget = (item: RecentItem): InfoTarget =>
-    item.track ? trackInfoTarget(item.track) : { type: 'album', album: toAlbum(item) };
-
-  function handleClick(item: RecentItem) {
-    ui.showInfo(toInfoTarget(item));
-  }
-
   // 見えている項目だけを描画する一覧
   let virtualList = $state<VirtualList<RecentItem>>();
 
@@ -67,9 +59,7 @@
   /**
    * 一覧のキーボード操作（`LibraryGrid`と同じ）
    *
-   * 矢印キー・Home・Endで現在位置を移し、Enterで開く。アルバムはクリックと同じく情報パネルに表示し、
-   * 曲は（開く先がないため）曲の一覧のEnterと同じく再生する。
-   * 移した時は、情報パネルを開いている間だけ、表示する項目を移した先に入れ替える。
+   * 矢印キー・Home・Endで現在位置を移し、Enterでダブルクリックと同じく再生する。
    */
   function handleKeydown(event: KeyboardEvent) {
     const current = items.findIndex((item) => item.key === activeKey);
@@ -79,14 +69,12 @@
 
     const item = items[action.index];
     if (action.type === 'open') {
-      if (item.kind === 'album') handleClick(item);
-      else play(item);
+      play(item);
       return;
     }
     // 既定の動作（一覧のスクロール）は止めてあるため、移動先の項目を見える位置へ出す
     activeKey = item.key;
     virtualList?.scrollToIndex(action.index);
-    ui.followInfo(toInfoTarget(item));
   }
 
   function handleContextMenu(event: MouseEvent, item: RecentItem) {
@@ -162,12 +150,11 @@
             onpointerdown={() => (activeKey = item.key)}
           >
             <!-- キー操作は一覧（listbox）で受けるため、カードはフォーカスを受けない -->
-            <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
             <!-- 幅を決めておく（決めないと、長い名前の幅までカードが広がり、隣の列に重なる） -->
             <div
               class="grid-card"
               style="width: {ui.gridCardWidth}px;"
-              onclick={() => handleClick(item)}
               ondblclick={() => play(item)}
               oncontextmenu={(event) => handleContextMenu(event, item)}
             >

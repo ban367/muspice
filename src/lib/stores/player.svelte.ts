@@ -492,16 +492,9 @@ export function removeFromQueue(entryId: number): void {
 }
 
 /**
- * キューをクリア（現在再生中のトラックは残す）
+ * キューをクリア（再生中のトラックも外す。再生コントローラーが、再生するトラックがなくなったのを見て
+ * 再生を止める）
  */
 export function clearQueue(): void {
-  const current: QueueEntry | undefined = player.playQueue[player.currentTrackIndex];
-
-  if (current) {
-    player.playQueue = [current];
-    player.originalQueue = [current];
-    player.currentTrackIndex = 0;
-  } else {
-    resetPlayer();
-  }
+  resetPlayer();
 }

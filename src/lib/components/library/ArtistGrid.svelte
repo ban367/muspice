@@ -37,25 +37,15 @@
   // リスト表示の行の高さの見積もり
   const ESTIMATED_LIST_ROW_HEIGHT = 68;
 
-  // アーティストをクリック（右サイドバーの情報パネルに、アーティストの曲を表示する）
-  function handleArtistClick(artist: ArtistSummary) {
-    ui.showInfo({ type: 'artist', artist });
-  }
-
-  // キーボードで移動した時は、情報パネルを開いている間だけ追随させる
-  function handleArtistNavigate(artist: ArtistSummary) {
-    ui.followInfo({ type: 'artist', artist });
-  }
-
-  // アーティストをダブルクリック（すべて再生）
-  function handleArtistDoubleClick(artist: ArtistSummary) {
+  // アーティストを再生する（ダブルクリック・Enter）
+  function playArtist(artist: ArtistSummary) {
     void playGroup(queryClient, 'artist', artist.name);
   }
 
   // 再生ボタンクリック
   function handlePlayClick(event: MouseEvent, artist: ArtistSummary) {
     event.stopPropagation();
-    handleArtistDoubleClick(artist);
+    playArtist(artist);
   }
 
   // 絞り込みの対象（アーティスト名）
@@ -77,8 +67,7 @@
   estimatedCardHeight={ui.gridCardSize + ESTIMATED_CARD_EXTRA_HEIGHT}
   estimatedRowHeight={ESTIMATED_LIST_ROW_HEIGHT}
   groupType="artist"
-  onOpen={handleArtistClick}
-  onNavigate={handleArtistNavigate}
+  onOpen={playArtist}
 >
   {#snippet emptyIcon()}
     <svg
@@ -95,12 +84,10 @@
 
   {#snippet gridCard(artist)}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div
       class="grid-card"
       style="width: {ui.gridCardWidth}px;"
-      onclick={() => handleArtistClick(artist)}
-      ondblclick={() => handleArtistDoubleClick(artist)}
+      ondblclick={() => playArtist(artist)}
       oncontextmenu={(e) => libraryGrid.handleContextMenu(e, artist)}
     >
       <div class="artist-art">
@@ -134,11 +121,9 @@
 
   {#snippet listRow(artist)}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div
       class="list-row"
-      onclick={() => handleArtistClick(artist)}
-      ondblclick={() => handleArtistDoubleClick(artist)}
+      ondblclick={() => playArtist(artist)}
       oncontextmenu={(e) => libraryGrid.handleContextMenu(e, artist)}
     >
       <div class="list-art artist-list-art">
