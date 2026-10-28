@@ -305,7 +305,6 @@
   <aside
     class="side-panel"
     class:pinned={ui.isRightSidebarPinned}
-    class:wide={ui.isInfoPanelOpen}
     transition:fly={{ x: 200, duration: ui.isRightSidebarDocked ? 0 : 200 }}
   >
     {#if ui.activeRightSidebarPanel === 'queue'}
@@ -513,11 +512,6 @@
     right: 3rem; /* アイコンバーの幅 */
     width: var(--spacing-side-panel);
     padding-bottom: var(--spacing-player-height);
-  }
-
-  /* 情報パネル（曲名を読めるよう、ほかのパネルより広くする） */
-  .side-panel.wide {
-    width: var(--spacing-info-panel);
   }
 
   .queue-header {
