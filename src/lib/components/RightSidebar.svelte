@@ -17,7 +17,8 @@
   import AlbumArt from './AlbumArt.svelte';
   import MarqueeText from './MarqueeText.svelte';
   import EqualizerPanel from './EqualizerPanel.svelte';
-  import InfoPanel from './InfoPanel.svelte';
+  import AlbumInfoPanel from './AlbumInfoPanel.svelte';
+  import TrackInfoPanel from './TrackInfoPanel.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   // 「次に再生」の行の高さの見積もり（描画した後は、VirtualListが実測した高さを使う）
@@ -245,13 +246,13 @@
       </svg>
     </button>
 
-    <!-- 曲情報ボタン（再生中の曲の情報と、その曲のアルバム） -->
+    <!-- アルバム情報ボタン（再生中の曲と、その曲のアルバム。アルバムの画面と同じディスクの絵） -->
     <button
       class="icon-button"
-      class:active={ui.isRightSidebarExpanded && ui.activeRightSidebarPanel === 'info'}
-      onclick={() => openPanel('info')}
-      title={m.rightSidebar.infoTitle}
-      aria-label={m.rightSidebar.openInfo}
+      class:active={ui.isRightSidebarExpanded && ui.activeRightSidebarPanel === 'album'}
+      onclick={() => openPanel('album')}
+      title={m.rightSidebar.albumInfoTitle}
+      aria-label={m.rightSidebar.openAlbumInfo}
     >
       <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -263,8 +264,33 @@
         stroke-width="2"
       >
         <circle cx="12" cy="12" r="9" />
-        <line x1="12" y1="11" x2="12" y2="16" stroke-linecap="round" />
-        <line x1="12" y1="8" x2="12" y2="8" stroke-linecap="round" />
+        <circle cx="12" cy="12" r="2.5" />
+      </svg>
+    </button>
+
+    <!-- 曲情報ボタン（一覧で選んでいる曲の情報。音符に「i」を添えた絵） -->
+    <button
+      class="icon-button"
+      class:active={ui.isRightSidebarExpanded && ui.activeRightSidebarPanel === 'track'}
+      onclick={() => openPanel('track')}
+      title={m.rightSidebar.trackInfoTitle}
+      aria-label={m.rightSidebar.openTrackInfo}
+    >
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <path d="M8 17V5l8-2" />
+        <circle cx="5.5" cy="17" r="2.5" />
+        <line x1="19" y1="11" x2="19" y2="11" />
+        <line x1="19" y1="15" x2="19" y2="21" />
       </svg>
     </button>
   </div>
@@ -464,9 +490,12 @@
     {:else if ui.activeRightSidebarPanel === 'equalizer'}
       <!-- イコライザパネル -->
       <EqualizerPanel />
-    {:else if ui.activeRightSidebarPanel === 'info'}
+    {:else if ui.activeRightSidebarPanel === 'album'}
+      <!-- アルバム情報パネル -->
+      <AlbumInfoPanel />
+    {:else if ui.activeRightSidebarPanel === 'track'}
       <!-- 曲情報パネル -->
-      <InfoPanel />
+      <TrackInfoPanel />
     {/if}
   </aside>
 {/if}

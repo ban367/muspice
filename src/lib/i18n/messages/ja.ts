@@ -316,8 +316,10 @@ export const ja = {
     openQueue: '再生キューを開く',
     equalizerTitle: 'イコライザ (E)',
     openEqualizer: 'イコライザを開く',
-    infoTitle: '曲情報',
-    openInfo: '曲情報を開く',
+    albumInfoTitle: 'アルバム情報',
+    openAlbumInfo: 'アルバム情報を開く',
+    trackInfoTitle: '曲情報',
+    openTrackInfo: '曲情報を開く',
     pin: 'サイドバーを固定',
     unpin: '固定解除',
     queue: '再生キュー',
@@ -333,11 +335,21 @@ export const ja = {
     save: '保存'
   },
 
-  /** 右サイドバーの曲情報パネル（再生中の曲と、その曲のアルバム） */
-  infoPanel: {
+  /** 右サイドバーのアルバム情報パネル（再生中の曲と、その曲のアルバム） */
+  albumInfo: {
     empty: '曲を再生すると、ここに曲の情報とアルバムを表示します',
     noAlbum: 'この曲にはアルバムの情報がありません',
     notFound: '曲が見つかりません。ライブラリから削除されたか、タグが変わった可能性があります'
+  },
+
+  /** 右サイドバーの曲情報パネル（一覧で選んでいる曲） */
+  trackInfo: {
+    empty: '曲を選ぶと、ここに曲の情報を表示します',
+    /** 複数の曲を選んでいる時（最後に選んだ曲のほかに選んでいる曲の数） */
+    othersSelected: (count: number) => `ほか${count}曲を選択中`,
+    tags: 'タグ',
+    file: 'ファイル',
+    history: '再生の記録'
   },
 
   /** ミニプレーヤー（メインウィンドウの小さな表示） */

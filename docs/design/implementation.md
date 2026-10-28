@@ -266,7 +266,7 @@ src-tauri/src/
   - 表示する列・列の順番・並び順は、画面ごとに`#lib/stores/trackListView.svelte`の`trackListView(viewId, defaults)`が覚える（localStorageの`muspice:trackListView:<viewId>`）。一覧を置く画面は、`TrackList`に`viewId`と、その画面の既定（`defaultColumns`・`defaultSort`）を渡す。列の幅は、どの画面でも共通で`ui.columnWidths`に持つ
   - プレイリストの画面も`TrackList`で表示する（ADR-039）。`onReorder`を渡すと、渡した順のまま並べている間（並び順がnullの間）だけ、行のドラッグで並べ替えられる（並べ替えの計算は`#lib/utils/reorder`の`moveItems`）。`onRemove`を渡すと、右クリックのメニューとDeleteキーで、選択した曲を一覧から外せる。列はどのプレイリストでも共通（`viewId="playlist"`）、並び順はプレイリストごと（`sortViewId`に`playlistSortViewId(id)`）に覚える
   - 再生中の曲へのジャンプは、`ui.revealTrackId`に曲のIDを入れる。その曲を含む`TrackList`が、行までスクロールして選び、nullに戻す。開いている画面の一覧にない場合は、プレーヤーが全曲の一覧（`isRevealFallback`を付けた`TrackList`）へ移動する
-- 曲の一覧（`TrackList`（プレイリストの画面を含む）、アーティスト・アルバムアーティストの詳細（`ArtistAlbumsView`）、右サイドバーの曲情報パネル）は、一覧ごとに`#lib/utils/trackSelection.svelte`の`TrackSelection`を作り、行のクリックを`click()`へ、一覧の`onkeydown`を`handleTrackListKeydown`へ渡す
+- 曲の一覧（`TrackList`（プレイリストの画面を含む）、アーティスト・アルバムアーティストの詳細（`ArtistAlbumsView`）、再生履歴（`PlayHistoryList`）、右サイドバーのアルバム情報パネル）は、一覧ごとに`#lib/utils/trackSelection.svelte`の`TrackSelection`を作り、行のクリックを`click()`へ、一覧の`onkeydown`を`handleTrackListKeydown`へ渡す
   - 矢印キーで選択を移し、Shift+矢印で範囲選択、Cmd/Ctrl+Aですべて選択、Enterで再生する
   - Shift+クリックの範囲は、Shift+矢印と同じ起点（最後に修飾キーなし・Cmd/Ctrlでクリックした行、または矢印で移した行）から選ぶ（`computeClickSelection`に`TrackSelection`の起点を渡す）
   - 一覧の要素を`role="listbox"`・`tabindex="0"`にしてフォーカスを受け、行は`role="option"`・`data-track-id`を付けてフォーカスを受けない（行をクリックすると一覧の要素にフォーカスが移り、行が消えてもキー操作を続けられる）
@@ -275,7 +275,10 @@ src-tauri/src/
 - 1つだけ選択する一覧（2ペイン表示の左の`ArtistList`。アーティストとアルバムアーティスト）は、`listSelectionTarget`で移動先を求めて選択し、その項目へフォーカスも移す（Tabでは選択中の項目だけに止まる）
 - グリッド表示（`LibraryGrid`: アルバム・アーティスト・ジャンル）は、現在位置の項目を枠で示し、Enterで`onOpen`を行う（ジャンルはクリックと同じく画面を開き、アルバム・アーティストはダブルクリックと同じく再生する。カードのクリックは選ぶだけ。ADR-078）
   - キーの扱い（移動・Enter・修飾キーやカードの中のボタンでは何もしない）は`#lib/utils/listNavigation`の`openableListAction`にまとめる。`LibraryGrid`を使わないグリッド（最近追加した曲。アルバムと曲のカードが混ざり、メニューもカードの種類で変わる）も、これと同じ形（一覧を`role="listbox"`、カードを包む項目を`role="option"`の`grid-item`）にする。最近追加した曲のカードは、アルバムと曲（アルバムのない曲）のどちらも、Enterでダブルクリックと同じく再生する
-- 曲情報パネル（`InfoPanel`）は、再生中の曲のアルバムを、アルバム名とまとめるアーティスト（`#lib/utils/albumKey`の`groupArtist`）が変わった時だけ`useAlbumTracksQuery`で取得する（同じアルバムの次の曲へ進んでも取り直さない）。アルバムが替わった時は選択を消して先頭へ戻し、再生中の曲が変わった時は、曲を取得した後にその行を見える位置へ出す。上部の曲の情報はキューの曲（キューに入れた時点の内容）から出し、評価とお気に入りは、Now Playingの画面と同じく全曲の一覧・お気に入りの一覧から調べる（ADR-078）
+- アルバム情報パネル（`AlbumInfoPanel`）は、再生中の曲のアルバムを、アルバム名とまとめるアーティスト（`#lib/utils/albumKey`の`groupArtist`）が変わった時だけ`useAlbumTracksQuery`で取得する（同じアルバムの次の曲へ進んでも取り直さない）。アルバムが替わった時は選択を消して先頭へ戻し、再生中の曲が変わった時は、曲を取得した後にその行を見える位置へ出す。上部の曲の情報はキューの曲（キューに入れた時点の内容）から出し、評価とお気に入りは、Now Playingの画面と同じく全曲の一覧・お気に入りの一覧から調べる（ADR-078）
+- 曲情報パネル（`TrackInfoPanel`）は、`ui.selectedTrack`（最後に選んだ曲と、選んでいる曲の数）を出す（ADR-078）。曲を選べる一覧（`TrackList`・`ArtistAlbumsView`・`PlayHistoryList`）は、初期化で`followSelectedTrack`に、`TrackSelection.lastSelected`の曲と選んでいる曲の数を返す関数を渡す（右サイドバーのアルバム情報パネルの一覧は渡さない。同じサイドバーで切り替えるため、曲情報パネルを開くとなくなる）
+  - 最後に選択を変えた一覧が出す。その一覧の選択が空になった時と、一覧がなくなった時（画面を移った時）は空にする。出している一覧の曲を取り直した時は新しい内容に入れ替え、ほかの一覧は、曲を取り直しただけ（曲と数が同じ）では上書きしない
+  - 曲を選べる一覧を足す時は、`followSelectedTrack`も呼ぶ
 - 木の一覧（フォルダ別・年代別の画面の左の`TreeBrowser`）は、`role="tree"`の一覧で、Tabでは選んでいる項目（選んでいなければ先頭の項目）だけに止まる。↑↓・Home・Endで選ぶ項目を移し、→で開く（開いていれば最初の子へ）、←で閉じる（閉じていれば親へ）。キーの扱いは`#lib/utils/listNavigation`の`treeKeyAction`にまとめる。開閉の三角はポインタだけで押し、フォーカスを受けない
 - 右サイドバーの「次に再生」は、一覧（`role="listbox"`）がフォーカスを受け、↑↓・Home・Endで現在位置を移し、Enterで再生し、Delete / Backspaceでキューから削除する（`openableListAction`）。行の中の削除のボタンは、ポインタを置いた行・現在位置の行・フォーカスした時に出す
 - 操作の結果の通知（`Toast`）は、エラーを`role="alert"`、ほかを`role="status"`の領域に出す。スクリーンリーダーは、すでにある読み上げの領域に足した内容だけを読むため、領域は通知がない間も置いておく
@@ -321,7 +324,7 @@ src-tauri/src/
 - 配色はテーマ（`<html data-theme="dark|light">`）ごとに`app.css`で定義する。ダークの色は`@theme static`の値で、ライトの色は「配色（ダーク / ライト）」の`:root[data-theme='light']`で上書きする。`static`は、ユーティリティで使っていない変数も出力させるための指定（Tailwindは、使っていない変数を出力しない。コンポーネントの`<style>`やスクリプトから`var(--color-…)`で読めるようにする）。色の変数を追加したら、`@theme`とライトの配色の両方に書く
 - 子のコンポーネントに渡したクラス（`MarqueeText`の`class="track-title"`など）へ`:global`で書く時は、`.queue-track :global(.track-title)`のように親の要素で限定する。`:global(.track-title)`だけにすると、同じ名前のクラスを使うほかのコンポーネントにも当たり、どちらが勝つかがCSSの読み込み順で変わる（常駐する右サイドバーのスタイルが、後から開いた画面のスタイルに上書きされる）
 - 見た目は、Tailwindのユーティリティと`app.css`の独自クラス（`btn-primary`・`form-input`など）で作る。部品のクラス集（DaisyUIなど）は入れない（クラス名がコンポーネントの中のクラス名と重なり、意図しないスタイルが当たるため。ADR-055）
-- 右サイドバーのパネルの幅は、`app.css`の`--spacing-side-panel`。パネルを切り替えても幅が変わらないよう、再生キュー・イコライザ・曲情報パネルのどれも同じ幅にする（ADR-077）。パネルを本文の横に並べる間（`ui.isRightSidebarDocked`: 固定した時）は、レイアウトが本文をその幅だけ寄せる（`.main-container`の`margin-right`）。幅を変える時は変数だけを変える
+- 右サイドバーのパネルの幅は、`app.css`の`--spacing-side-panel`。パネルを切り替えても幅が変わらないよう、再生キュー・イコライザ・アルバム情報・曲情報のパネルのどれも同じ幅にする（ADR-077）。パネルを本文の横に並べる間（`ui.isRightSidebarDocked`: 固定した時）は、レイアウトが本文をその幅だけ寄せる（`.main-container`の`margin-right`）。幅を変える時は変数だけを変える
   - 本文が狭くなるため、ライブラリの見出し（`LibraryHeader`）は、見出しの文字・ボタンの文字を折り返さず、検索欄を縮め、それでも入らなければ項目を次の行へ送る
 - 再生バー（`Player`）は、画面の下の端に幅いっぱいで重ね、高さを`--spacing-player-height`に固定する（曲がある時・ない時で変えない）。下の端まである部品（左右のサイドバー・ページの領域・Now Playingの画面・モーダル）は、この変数の分だけ下を空ける（`pb-player-height`または`padding-bottom: var(--spacing-player-height)`）。再生バーの中身の高さを変えたら、変数の値も合わせる
 

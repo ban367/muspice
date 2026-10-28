@@ -1,7 +1,8 @@
 <!--
-  @component InfoPanel
-  右サイドバーの曲情報パネル。上部に再生中の曲の情報を固定して出し、その下に、その曲が入っているアルバムの
-  曲をスクロールして見られるように出す。再生中の曲が変わると追随する（一覧での選択には追随しない。ADR-078）。
+  @component AlbumInfoPanel
+  右サイドバーのアルバム情報パネル。上部に再生中の曲の情報を固定して出し、その下に、その曲が入っているアルバムの
+  曲をスクロールして見られるように出す。再生中の曲が変わると追随する（一覧で選んだ曲は、曲情報パネル
+  （`TrackInfoPanel`）に出す。ADR-078）。
   アルバムは、アルバムの画面と同じく「アルバムアーティスト（なければ曲のアーティスト）＋アルバム名」でまとめ、
   ディスクごとに曲を区切る。アルバムのない曲は、曲の情報だけを出す。
   アルバムの曲の選択・キー操作・ダブルクリックでの再生・ドラッグ（プレイリストへの追加）は、ほかの曲の一覧と同じ。
@@ -177,7 +178,7 @@
 </script>
 
 <div class="panel-header">
-  <h3>{m.rightSidebar.infoTitle}</h3>
+  <h3>{m.rightSidebar.albumInfoTitle}</h3>
 </div>
 
 {#if current}
@@ -224,9 +225,9 @@
   <!-- 再生中の曲のアルバム（スクロールする） -->
   <div class="album-body" bind:this={body}>
     {#if albumName === null}
-      <p class="panel-message">{m.infoPanel.noAlbum}</p>
+      <p class="panel-message">{m.albumInfo.noAlbum}</p>
     {:else if isNotFound}
-      <p class="panel-message">{m.infoPanel.notFound}</p>
+      <p class="panel-message">{m.albumInfo.notFound}</p>
     {:else}
       <div class="album-heading">
         <div class="album-heading-text">
@@ -341,7 +342,7 @@
     {/if}
   </div>
 {:else}
-  <p class="panel-message">{m.infoPanel.empty}</p>
+  <p class="panel-message">{m.albumInfo.empty}</p>
 {/if}
 
 <style>
