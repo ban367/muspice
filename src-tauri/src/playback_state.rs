@@ -83,7 +83,8 @@ pub struct RestoredPlaybackState {
     pub queue: Vec<Track>,
     /// シャッフルする前の順のトラックID（`queue`にある曲だけ。シャッフルが無効ならnull）
     pub original_track_ids: Option<Vec<String>>,
-    /// `queue`の中の、再生していた曲の位置（その曲がなくなっていれば、次の曲の位置。なければnull）
+    /// `queue`の中の、再生していた曲の位置（その曲がなくなっていれば次の曲、後ろの曲もなければ
+    /// 前に残っている最後の曲の位置。何も再生していなかった・キューが空ならnull）
     pub current_index: Option<u32>,
 }
 
@@ -205,6 +206,11 @@ impl PlaybackStateStore {
             if let Some(track) = playable(id) {
                 queue.push(track.clone());
             }
+        }
+        // 再生していた曲と、その後ろの曲がすべてなくなっていた: 前に残っている最後の曲を指す
+        // （キューの最後まで再生し終えた時と同じ。キューの曲が「次に再生」へ戻らないように）
+        if current_index.is_none() && stored.current_index.is_some() && !queue.is_empty() {
+            current_index = Some(queue.len() as u32 - 1);
         }
         let original_track_ids = stored.original_track_ids.as_ref().map(|ids| {
             ids.iter()
@@ -451,17 +457,34 @@ mod tests {
     }
 
     #[test]
-    fn test_restore_has_no_current_track_when_the_rest_of_the_queue_is_gone() {
+    fn test_restore_points_to_the_last_track_when_the_rest_of_the_queue_is_gone() {
         let conn = setup_db();
-        (1..=2).for_each(|n| insert_track(&conn, n));
+        (1..=3).for_each(|n| insert_track(&conn, n));
         let store = PlaybackStateStore::load(temp_state_path("tail"));
-        store.save(cursor(Some(1)), Some(queue(&[1, 2]))).unwrap();
-        conn.execute("DELETE FROM tracks WHERE id = ?1", [id(2)])
+        store
+            .save(cursor(Some(1)), Some(queue(&[1, 2, 3])))
+            .unwrap();
+        conn.execute("DELETE FROM tracks WHERE id IN (?1, ?2)", [id(2), id(3)])
             .unwrap();
 
         let state = store.restore(&conn).unwrap();
 
+        // 前に残っている最後の曲（1）を指す（キューの曲を「次に再生」へ戻さない）
         assert_eq!(queue_ids(&state), vec![id(1)]);
+        assert_eq!(state.current_index, Some(0));
+    }
+
+    #[test]
+    fn test_restore_keeps_the_queue_when_nothing_was_playing() {
+        let conn = setup_db();
+        (1..=2).for_each(|n| insert_track(&conn, n));
+        let store = PlaybackStateStore::load(temp_state_path("idle"));
+        store.save(cursor(None), Some(queue(&[1, 2]))).unwrap();
+
+        let state = store.restore(&conn).unwrap();
+
+        // キューへ入れただけで、何も再生していなかった
+        assert_eq!(queue_ids(&state), vec![id(1), id(2)]);
         assert_eq!(state.current_index, None);
     }
 

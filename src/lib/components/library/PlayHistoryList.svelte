@@ -9,12 +9,7 @@
 -->
 <script lang="ts">
   import { idSetOf, indexById, setOf } from '#lib/utils/collections.js';
-  import {
-    addNextInQueue,
-    addToQueue,
-    player,
-    playTrackFromQueue
-  } from '#lib/stores/player.svelte.js';
+  import { player, playNow } from '#lib/stores/player.svelte.js';
   import { followSelectedTrack } from '#lib/stores/ui.svelte.js';
   import { formatDateWithWeekday, formatDuration, formatTime } from '#lib/utils/format.js';
   import type { PlayHistoryEntry, Track } from '#lib/types/models.js';
@@ -90,14 +85,10 @@
     });
   }
 
-  /** その行の曲から、履歴の曲（重複なし）を再生する */
+  /** その行の曲を、再生中の曲の次に入れて再生する（ダブルクリック・Enter） */
   function playRow(rowId: string) {
     const row = playRows.find((candidate) => candidate.id === rowId);
-    if (!row) return;
-    playTrackFromQueue(
-      historyTracks,
-      historyTracks.findIndex((track) => track.id === row.track.id)
-    );
+    if (row) playNow([row.track]);
   }
 
   /** 一覧のキーボード操作（矢印キーで選択を移す・Enterで再生する） */
@@ -248,8 +239,6 @@
     {selectedTrackIds}
     onClose={() => (contextMenu = null)}
     onEditMetadata={() => (showMetadataEditor = selectedTracks.length > 0)}
-    onPlayNext={() => addNextInQueue(selectedTracks)}
-    onAddToQueue={() => addToQueue(selectedTracks)}
     onDelete={() => (showDeleteDialog = selectedTracks.length > 0)}
   />
 {/if}

@@ -1,7 +1,8 @@
 <!--
   @component ContextMenu
   トラック用コンテキストメニュー。
-  再生、キュー操作、プレイリスト追加、お気に入りの切り替え、メタデータ編集、タグの一括ツール、
+  再生キューへの追加（次のキューに追加して再生・次のキューに追加・キューの末尾に追加・キューを置き換えて
+  再生）、プレイリスト追加、お気に入りの切り替え、メタデータ編集、タグの一括ツール、
   ファイルの整理、形式の変換、音量の解析、アルバムアートの変更、削除などのアクションを提供する。
 -->
 <script lang="ts">
@@ -12,9 +13,9 @@
     MenuHeading,
     MenuItem,
     MenuSeparator,
-    PlaylistSubmenu
+    PlaylistSubmenu,
+    QueueMenuItems
   } from '#lib/components/ui/index.js';
-  import { addNextInQueue, addToQueue, playSingleTrack } from '#lib/stores/player.svelte.js';
   import { useSetFavoriteMutation, useShowInFolderMutation } from '#lib/queries/tracks.js';
   import { albumArtDialog } from '#lib/stores/albumArt.svelte.js';
   import { tagToolsDialog } from '#lib/stores/tagTools.svelte.js';
@@ -33,8 +34,6 @@
     selectedTrackIds?: ReadonlySet<string>;
     onClose: () => void;
     onEditMetadata?: () => void;
-    onAddToQueue?: () => void;
-    onPlayNext?: () => void;
     onDelete?: () => void;
     /** 選択した曲を、この一覧（プレイリスト）から外す操作（指定した一覧だけに項目を出す） */
     onRemoveFromList?: () => void;
@@ -50,8 +49,6 @@
     selectedTrackIds = EMPTY_ID_SET,
     onClose,
     onEditMetadata,
-    onAddToQueue,
-    onPlayNext,
     onDelete,
     onRemoveFromList,
     removeFromListLabel
@@ -73,41 +70,6 @@
     }
     return [track];
   });
-
-  /**
-   * トラックを再生
-   */
-  function handlePlay() {
-    if (selectedTracks.length > 0) {
-      playSingleTrack(selectedTracks[0]);
-    }
-    onClose();
-  }
-
-  /**
-   * 次に再生（キューの先頭に追加）
-   */
-  function handlePlayNext() {
-    if (onPlayNext) {
-      onPlayNext();
-    } else {
-      // デフォルト動作: キューの現在位置の次に挿入
-      addNextInQueue(selectedTracks);
-    }
-    onClose();
-  }
-
-  /**
-   * キューに追加（キューの最後に追加）
-   */
-  function handleAddToQueue() {
-    if (onAddToQueue) {
-      onAddToQueue();
-    } else {
-      addToQueue(selectedTracks);
-    }
-    onClose();
-  }
 
   // 選択した曲がすべてお気に入りなら「外す」、そうでなければ「追加」（まだの曲をまとめて追加する）
   const allFavorite = $derived(selectedTracks.every((selected) => selected.isFavorite));
@@ -198,59 +160,7 @@
     <MenuSeparator />
   {/if}
 
-  <MenuItem onSelect={handlePlay}>
-    {#snippet icon()}
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        class="menu-icon"
-        viewBox="0 0 24 24"
-        fill="currentColor"
-      >
-        <path d="M8 5v14l11-7z" />
-      </svg>
-    {/snippet}
-    {m.common.play}
-  </MenuItem>
-
-  <MenuItem onSelect={handlePlayNext}>
-    {#snippet icon()}
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        class="menu-icon"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-      >
-        <path
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="2"
-          d="M13 5l7 7-7 7M5 5l7 7-7 7"
-        />
-      </svg>
-    {/snippet}
-    {m.common.playNext}
-  </MenuItem>
-
-  <MenuItem onSelect={handleAddToQueue}>
-    {#snippet icon()}
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        class="menu-icon"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-      >
-        <path
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="2"
-          d="M4 6h16M4 10h16M4 14h16M4 18h7"
-        />
-      </svg>
-    {/snippet}
-    {m.common.addToQueue}
-  </MenuItem>
+  <QueueMenuItems tracks={selectedTracks} {onClose} />
 
   <MenuSeparator />
 

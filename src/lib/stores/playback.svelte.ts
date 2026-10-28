@@ -291,15 +291,27 @@ export function createPlaybackController(
       return;
     }
     if (!moveInQueue(playNextTrack)) {
-      resetPlayer();
+      stopAtQueueEnd();
     }
+  }
+
+  /**
+   * キューの最後の曲が終わった: 再生を止める
+   *
+   * キューは消さず、最後の曲を再生中の曲のまま残す（再生ボタンで、その曲を頭から再生する。
+   * 一覧から再生した曲は、その次に入る）。
+   */
+  function stopAtQueueEnd(): void {
+    player.isPlaying = false;
+    // エンジンが、キューの次ではなくなった曲へ進んでいた場合（`onAdvanced`）に備えて、止めておく
+    send(() => commands.playbackStop(), '再生の停止');
   }
 
   /**
    * 「この曲が終わったら停止」: キューを次の曲へ進めるが、再生は始めない
    *
    * 止めた後は、指示を解除する。次の曲がある場合は、再生ボタンでその曲を頭から再生できる。
-   * 次の曲がない場合は、通常の終わり方と同じにする。
+   * 次の曲がない場合は、通常の終わり方と同じにする（キューと、終わった曲を残す）。
    */
   function stopAfterTrackEnd(): void {
     playbackAids.stopAfterCurrent = false;
@@ -309,10 +321,7 @@ export function createPlaybackController(
     send(() => commands.playbackStop(), '再生の停止');
 
     const next = peekNextTrack();
-    if (!next) {
-      resetPlayer();
-      return;
-    }
+    if (!next) return;
     if (next.id !== player.currentTrack?.id) {
       // 下の`playNextTrack`による`player.currentTrack`の変更で、再生を始めないようにする
       engineTrackId = next.id;
@@ -542,10 +551,10 @@ export function createPlaybackController(
           return;
         }
         if (track.id === engineTrackId) {
-          // 再生を始めずに置いてあった曲（起動して復元した曲・「この曲が終わったら停止」で進めた曲・
-          // 再生に失敗した曲）を、一覧などから選び直した場合は、頭から再生する。
-          // 再生中・一時停止中の曲を選び直した場合は、再生し直さない
-          if (isRequested && !loaded && starting === 0) void start(track);
+          // 一覧・キューから同じ曲を選んで再生した場合は、頭から再生する（再生中・一時停止中の曲と、
+          // 再生を始めずに置いてあった曲（起動して復元した曲・キューの最後まで再生した曲・
+          // 「この曲が終わったら停止」で進めた曲・再生に失敗した曲）のどちらも）
+          if (isRequested && starting === 0) restart();
           return;
         }
         void start(track);

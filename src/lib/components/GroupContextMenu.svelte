@@ -1,7 +1,8 @@
 <!--
   @component GroupContextMenu
   アルバム/アーティスト/ジャンルグループ用コンテキストメニュー。
-  すべて再生、シャッフル再生、キュー操作、プレイリスト追加のアクションを提供する
+  再生キューへの追加（次のキューに追加して再生・次のキューに追加・キューの末尾に追加・キューを置き換えて
+  再生）、シャッフル再生、プレイリスト追加のアクションを提供する
   （アルバムでは、アルバムアートの変更も）。
   一覧の項目は曲を持たないため、メニューを開いた時にそのグループの曲を取得する。
 -->
@@ -11,15 +12,11 @@
     BaseContextMenu,
     MenuItem,
     MenuSeparator,
-    PlaylistSubmenu
+    PlaylistSubmenu,
+    QueueMenuItems
   } from '#lib/components/ui/index.js';
   import { useGroupTracksQuery, type GroupType } from '#lib/queries/tracks.js';
-  import {
-    addNextInQueue,
-    addToQueue,
-    playTrackFromQueue,
-    playShuffled
-  } from '#lib/stores/player.svelte.js';
+  import { playShuffled } from '#lib/stores/player.svelte.js';
   import { albumArtDialog } from '#lib/stores/albumArt.svelte.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
@@ -44,49 +41,11 @@
   const allTracks = $derived(tracksQuery.data ?? []);
   const isEmpty = $derived(allTracks.length === 0);
 
-  // タイプに応じたラベル
-  const typeLabel = $derived.by(() => {
-    switch (type) {
-      case 'album':
-        return m.fields.album;
-      case 'artist':
-        return m.fields.artist;
-      case 'genre':
-        return m.fields.genre;
-    }
-  });
-
-  /**
-   * すべて再生
-   */
-  function handlePlayAll() {
-    if (allTracks.length > 0) {
-      playTrackFromQueue(allTracks, 0);
-    }
-    onClose();
-  }
-
   /**
    * シャッフル再生
    */
   function handleShufflePlay() {
     playShuffled(allTracks);
-    onClose();
-  }
-
-  /**
-   * 次に再生（キューの先頭に追加）
-   */
-  function handlePlayNext() {
-    addNextInQueue(allTracks);
-    onClose();
-  }
-
-  /**
-   * キューに追加（キューの最後に追加）
-   */
-  function handleAddToQueue() {
-    addToQueue(allTracks);
     onClose();
   }
 
@@ -104,19 +63,7 @@
   <div class="menu-subtitle">{m.common.trackCount(group.trackCount)}</div>
   <MenuSeparator />
 
-  <MenuItem onSelect={handlePlayAll} disabled={isEmpty}>
-    {#snippet icon()}
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        class="menu-icon"
-        viewBox="0 0 24 24"
-        fill="currentColor"
-      >
-        <path d="M8 5v14l11-7z" />
-      </svg>
-    {/snippet}
-    {m.contextMenu.playGroup(typeLabel)}
-  </MenuItem>
+  <QueueMenuItems tracks={allTracks} disabled={isEmpty} {onClose} />
 
   <MenuItem onSelect={handleShufflePlay} disabled={isEmpty}>
     {#snippet icon()}
@@ -136,48 +83,6 @@
       </svg>
     {/snippet}
     {m.common.shufflePlay}
-  </MenuItem>
-
-  <MenuSeparator />
-
-  <MenuItem onSelect={handlePlayNext} disabled={isEmpty}>
-    {#snippet icon()}
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        class="menu-icon"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-      >
-        <path
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="2"
-          d="M13 5l7 7-7 7M5 5l7 7-7 7"
-        />
-      </svg>
-    {/snippet}
-    {m.common.playNext}
-  </MenuItem>
-
-  <MenuItem onSelect={handleAddToQueue} disabled={isEmpty}>
-    {#snippet icon()}
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        class="menu-icon"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-      >
-        <path
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="2"
-          d="M4 6h16M4 10h16M4 14h16M4 18h7"
-        />
-      </svg>
-    {/snippet}
-    {m.common.addToQueue}
   </MenuItem>
 
   <MenuSeparator />

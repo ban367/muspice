@@ -26,7 +26,7 @@
   import { playlistInfoDialog } from '#lib/stores/playlistSidebar.svelte.js';
   import { describeOrder, describeRule } from '#lib/utils/smartPlaylist.js';
   import type { Playlist, Track } from '#lib/types/models.js';
-  import { playTrackFromQueue } from '#lib/stores/player.svelte.js';
+  import { playNow } from '#lib/stores/player.svelte.js';
   import { formatTotalDuration } from '#lib/utils/format.js';
   import { confirmDestructive } from '#lib/utils/dialog.svelte.js';
   import { playlistSortViewId } from '#lib/stores/trackListView.svelte.js';
@@ -135,14 +135,6 @@
   }
 
   /**
-   * プレイリストの中の位置を指定して、その曲からプレイリストを再生
-   */
-  function playFromIndex(index: number) {
-    if (index < 0 || index >= playlistTracks.length) return;
-    playTrackFromQueue(playlistTracks, index);
-  }
-
-  /**
    * プレイリストの合計時間を計算
    */
   const totalDuration = $derived(
@@ -195,7 +187,7 @@
       <div class="playlist-actions">
         <button
           class="btn-play-all"
-          onclick={() => playFromIndex(0)}
+          onclick={() => playNow(playlistTracks)}
           disabled={playlistTracks.length === 0}
         >
           <svg

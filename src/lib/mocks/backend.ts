@@ -2732,6 +2732,10 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         }
         queue.push(track);
       });
+      // 再生していた曲と、その後ろの曲がすべてなくなっていた: 前に残っている最後の曲を指す
+      if (currentIndex === null && playbackState.currentIndex !== null && queue.length > 0) {
+        currentIndex = queue.length - 1;
+      }
       return {
         volume: playbackState.volume,
         shuffle: playbackState.shuffle,

@@ -10,7 +10,7 @@ import { playbackAids } from './playbackAids.svelte.js';
 import {
   player,
   playNextTrack,
-  playTrackFromQueue,
+  replaceQueueAndPlay,
   resetPlayer,
   toggleRepeat
 } from './player.svelte.js';
@@ -67,7 +67,7 @@ afterEach(() => {
 
 describe('watchAutoDj', () => {
   it('キューの最後の曲になったら、キューにない曲をライブラリから足す', async () => {
-    playTrackFromQueue([makeTrack('a'), makeTrack('b')], 0);
+    replaceQueueAndPlay([makeTrack('a'), makeTrack('b')], 0);
     await flush();
     // まだ次の曲がある
     expect(player.playQueue).toHaveLength(2);
@@ -87,7 +87,7 @@ describe('watchAutoDj', () => {
   });
 
   it('1曲だけを再生した場合も、すぐに足す', async () => {
-    playTrackFromQueue([makeTrack('a')], 0);
+    replaceQueueAndPlay([makeTrack('a')], 0);
     await flush();
 
     expect(player.playQueue).toHaveLength(1 + AUTO_DJ_BATCH_SIZE);
@@ -95,7 +95,7 @@ describe('watchAutoDj', () => {
   });
 
   it('足した曲の最後まで進んだら、また足す', async () => {
-    playTrackFromQueue([makeTrack('a')], 0);
+    replaceQueueAndPlay([makeTrack('a')], 0);
     await flush();
     for (let index = 0; index < AUTO_DJ_BATCH_SIZE; index++) playNextTrack();
     await flush();
@@ -106,7 +106,7 @@ describe('watchAutoDj', () => {
 
   it('プレイリストを元にした場合は、プレイリストの曲から足す', async () => {
     playlistId = 'playlist-1';
-    playTrackFromQueue([makeTrack('a')], 0);
+    replaceQueueAndPlay([makeTrack('a')], 0);
     await flush();
 
     expect(commands.getPlaylistTracks).toHaveBeenCalledWith('playlist-1');
@@ -116,7 +116,7 @@ describe('watchAutoDj', () => {
 
   it('無効・リピート中・「この曲が終わったら停止」の間・再生する曲がない間は、足さない', async () => {
     enabled = false;
-    playTrackFromQueue([makeTrack('a')], 0);
+    replaceQueueAndPlay([makeTrack('a')], 0);
     await flush();
     expect(player.playQueue).toHaveLength(1);
 
@@ -142,7 +142,7 @@ describe('watchAutoDj', () => {
 
   it('有効にした時に最後の曲を再生していたら、その場で足す', async () => {
     enabled = false;
-    playTrackFromQueue([makeTrack('a')], 0);
+    replaceQueueAndPlay([makeTrack('a')], 0);
     await flush();
 
     enabled = true;
@@ -156,11 +156,11 @@ describe('watchAutoDj', () => {
     vi.mocked(commands.getAllTracks).mockReturnValue(
       new Promise((resolve) => (resolveTracks = resolve))
     );
-    playTrackFromQueue([makeTrack('a')], 0);
+    replaceQueueAndPlay([makeTrack('a')], 0);
     flushSync();
 
     // 取得を待つ間に、別の曲を再生し始めた（最後の曲ではなくなった）
-    playTrackFromQueue([makeTrack('x'), makeTrack('y')], 0);
+    replaceQueueAndPlay([makeTrack('x'), makeTrack('y')], 0);
     resolveTracks(library);
     await flush();
 
@@ -169,12 +169,12 @@ describe('watchAutoDj', () => {
 
   it('選べる曲がない・取得に失敗した場合は、何も足さない', async () => {
     vi.mocked(commands.getAllTracks).mockResolvedValue([]);
-    playTrackFromQueue([makeTrack('a')], 0);
+    replaceQueueAndPlay([makeTrack('a')], 0);
     await flush();
     expect(player.playQueue).toHaveLength(1);
 
     vi.mocked(commands.getAllTracks).mockRejectedValue(new Error('failed'));
-    playTrackFromQueue([makeTrack('b')], 0);
+    replaceQueueAndPlay([makeTrack('b')], 0);
     await flush();
     expect(ids(player.playQueue)).toEqual(['b']);
     expect(console.error).toHaveBeenCalled();
@@ -182,7 +182,7 @@ describe('watchAutoDj', () => {
 
   it('止めた後は、足さない', async () => {
     stop();
-    playTrackFromQueue([makeTrack('a')], 0);
+    replaceQueueAndPlay([makeTrack('a')], 0);
     await flush();
 
     expect(player.playQueue).toHaveLength(1);

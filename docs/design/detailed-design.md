@@ -759,7 +759,7 @@ iTunes形式のライブラリXML（MusicBee・iTunes / ミュージックが書
 再生状態の保存と復元（ADR-028）:
 
 - `save_playback_state`は、再生状態をアプリデータ配下の`playback-state.json`に保存する。`PlaybackCursor`: `{ volume: number, shuffle: boolean, repeat: 'off' \| 'all' \| 'one', currentIndex: number \| null }`（音量は0〜1に収める。`currentIndex`は、キューの中の再生していた曲の位置。キューの範囲を外れていれば`null`として保存する）。`PlaybackQueue`: `{ trackIds: string[], originalTrackIds: string[] \| null }`（再生する順と、シャッフル中だけ、シャッフルする前の順）。`queue`が`null`なら、保存してあるキューを変えない。トラックIDの形式でない値・50万曲を超えるキューは`VALIDATION`
-- `get_playback_state`は、保存してある再生状態を今のライブラリに合わせて返す。`RestoredPlaybackState`: `{ volume, shuffle, repeat, queue: Track[], originalTrackIds: string[] \| null, currentIndex: number \| null }`。ライブラリからなくなった曲・ファイルが見つからない曲は`queue`・`originalTrackIds`から除き、`currentIndex`は除いた後の位置にする（再生していた曲がなくなっていれば、その次に残っている曲。なければ`null`）。ファイルがない・壊れている場合は、何も再生していない状態（音量1・キューは空）を返す
+- `get_playback_state`は、保存してある再生状態を今のライブラリに合わせて返す。`RestoredPlaybackState`: `{ volume, shuffle, repeat, queue: Track[], originalTrackIds: string[] \| null, currentIndex: number \| null }`。ライブラリからなくなった曲・ファイルが見つからない曲は`queue`・`originalTrackIds`から除き、`currentIndex`は除いた後の位置にする（再生していた曲がなくなっていれば、その次に残っている曲。後ろの曲もなくなっていれば、前に残っている最後の曲。何も再生していなかった・キューが空なら`null`）。ファイルがない・壊れている場合は、何も再生していない状態（音量1・キューは空）を返す
 - 再生位置は保存しない。フロントは、起動時に復元して（再生は始めない）、再生ボタンで復元した曲を頭から再生する
 
 ### 再生エンジン

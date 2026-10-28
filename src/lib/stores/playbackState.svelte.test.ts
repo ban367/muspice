@@ -12,7 +12,7 @@ vi.mock('#lib/bindings.js', () => ({
 
 import { commands } from '#lib/bindings.js';
 import { restorePlaybackState, watchPlaybackState } from './playbackState.svelte.js';
-import { addToQueue, player, playTrackFromQueue, resetPlayer } from './player.svelte.js';
+import { addToQueue, player, replaceQueueAndPlay, resetPlayer } from './player.svelte.js';
 
 function makeTrack(id: string): Track {
   return { id, title: id, duration: 180, isMissing: false } as Track;
@@ -92,13 +92,27 @@ describe('restorePlaybackState', () => {
 
   it('待つ間に再生を始めていたら、キューは戻さない（音量などは戻す）', async () => {
     vi.mocked(commands.getPlaybackState).mockResolvedValue(stored());
-    playTrackFromQueue([makeTrack('playing')], 0);
+    replaceQueueAndPlay([makeTrack('playing')], 0);
     const onTrackRestoring = vi.fn();
 
     await restorePlaybackState({ isCancelled: () => false, onTrackRestoring });
 
     expect(player.volume).toBe(0.5);
     expect(player.currentTrack?.id).toBe('playing');
+    expect(onTrackRestoring).not.toHaveBeenCalled();
+  });
+
+  it('何も再生していなかった（キューへ入れただけの）キューも戻す', async () => {
+    vi.mocked(commands.getPlaybackState).mockResolvedValue(
+      stored({ shuffle: false, originalTrackIds: null, currentIndex: null })
+    );
+    const onTrackRestoring = vi.fn();
+
+    await restorePlaybackState({ isCancelled: () => false, onTrackRestoring });
+
+    expect(ids(player.playQueue)).toEqual(['a', 'b', 'c']);
+    expect(player.currentTrackIndex).toBe(-1);
+    expect(player.currentTrack).toBeNull();
     expect(onTrackRestoring).not.toHaveBeenCalled();
   });
 });

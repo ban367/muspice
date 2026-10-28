@@ -12,12 +12,7 @@
 <script lang="ts">
   import { untrack, type Snippet } from 'svelte';
   import { useSetRatingMutation } from '#lib/queries/tracks.js';
-  import {
-    addNextInQueue,
-    addToQueue,
-    player,
-    playTrackFromQueue
-  } from '#lib/stores/player.svelte.js';
+  import { player, playNow } from '#lib/stores/player.svelte.js';
   import { GRID_CARD_GAP, followSelectedTrack, ui } from '#lib/stores/ui.svelte.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import type { Track } from '#lib/types/models.js';
@@ -274,7 +269,7 @@
     const indexOf = (trackId: string) => sortedTracks?.findIndex((t) => t.id === trackId) ?? -1;
     handleTrackListKeydown(event, selection, {
       columns: () => (displayMode === 'grid' ? (virtualList?.getColumns() ?? null) : null),
-      onActivate: (trackId) => playFromIndex(indexOf(trackId)),
+      onActivate: (trackId) => playAt(indexOf(trackId)),
       // 移動先の行は描画されていないことがあるため、一覧の中の位置でスクロールする
       scrollTo: (trackId) => virtualList?.scrollToIndex(indexOf(trackId))
     });
@@ -298,10 +293,10 @@
     clearSelection();
   }
 
-  /** 一覧の中の位置を指定して、その曲から一覧を再生する */
-  function playFromIndex(index: number) {
+  /** 一覧の中の位置を指定して、その曲を再生中の曲の次に入れて再生する（ダブルクリック・Enter） */
+  function playAt(index: number) {
     if (!sortedTracks || index < 0 || index >= sortedTracks.length) return;
-    playTrackFromQueue(sortedTracks, index);
+    playNow([sortedTracks[index]]);
   }
 
   function handleContextMenu(event: MouseEvent, track: Track) {
@@ -318,14 +313,6 @@
 
   function closeContextMenu() {
     contextMenu = null;
-  }
-
-  function handlePlayNext() {
-    addNextInQueue(selectedTracks);
-  }
-
-  function handleAddToQueue() {
-    addToQueue(selectedTracks);
   }
 
   /**
@@ -568,7 +555,7 @@
               ondragover={(e) => handleRowDragOver(e, track, index)}
               ondrop={(e) => handleRowDrop(e, track)}
               onclick={(e) => handleTrackClick(track.id, e)}
-              ondblclick={() => playFromIndex(index)}
+              ondblclick={() => playAt(index)}
               oncontextmenu={(e) => handleContextMenu(e, track)}
               role="option"
               aria-selected={selection.has(track.id)}
@@ -649,7 +636,7 @@
               ondragstart={(e) => handleDragStart(e, track)}
               ondragend={handleDragEnd}
               onclick={(e) => handleTrackClick(track.id, e)}
-              ondblclick={() => playFromIndex(index)}
+              ondblclick={() => playAt(index)}
               oncontextmenu={(e) => handleContextMenu(e, track)}
               role="option"
               aria-selected={selection.has(track.id)}
@@ -721,8 +708,6 @@
     selectedTrackIds={selection.ids}
     onClose={closeContextMenu}
     onEditMetadata={openMetadataEditor}
-    onPlayNext={handlePlayNext}
-    onAddToQueue={handleAddToQueue}
     onDelete={openDeleteDialog}
     onRemoveFromList={onRemove ? handleRemove : undefined}
     removeFromListLabel={removeLabel}

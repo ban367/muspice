@@ -1,7 +1,8 @@
 <!--
   @component PlaylistContextMenu
   プレイリスト用コンテキストメニュー。
-  再生、シャッフル再生、キュー操作、名前と説明の編集、フォルダへの移動、M3U8への書き出し、
+  再生キューへの追加（次のキューに追加して再生・次のキューに追加・キューの末尾に追加・キューを置き換えて
+  再生）、シャッフル再生、名前と説明の編集、フォルダへの移動、M3U8への書き出し、
   削除のアクションを提供する。自動プレイリストでは、条件の編集も選べる。
 -->
 <script lang="ts">
@@ -12,19 +13,15 @@
     MenuItem,
     MenuRadioGroup,
     MenuRadioItem,
-    MenuSeparator
+    MenuSeparator,
+    QueueMenuItems
   } from '#lib/components/ui/index.js';
   import {
     useDeletePlaylistMutation,
     usePlacePlaylistMutation,
     usePlaylistTracksQuery
   } from '#lib/queries/playlists.js';
-  import {
-    addNextInQueue,
-    addToQueue,
-    playTrackFromQueue,
-    playShuffled
-  } from '#lib/stores/player.svelte.js';
+  import { playShuffled } from '#lib/stores/player.svelte.js';
   import { confirmDestructive } from '#lib/utils/dialog.svelte.js';
   import { smartPlaylistDialog } from '#lib/stores/smartPlaylist.svelte.js';
   import { playlistInfoDialog } from '#lib/stores/playlistSidebar.svelte.js';
@@ -56,36 +53,10 @@
   const playlistTracks = $derived(tracksQuery.data ?? []);
 
   /**
-   * プレイリストを再生
-   */
-  function handlePlay() {
-    if (playlistTracks.length > 0) {
-      playTrackFromQueue(playlistTracks, 0);
-    }
-    onClose();
-  }
-
-  /**
    * シャッフル再生
    */
   function handleShufflePlay() {
     playShuffled(playlistTracks);
-    onClose();
-  }
-
-  /**
-   * キューに追加
-   */
-  function handleAddToQueue() {
-    addToQueue(playlistTracks);
-    onClose();
-  }
-
-  /**
-   * 次に再生
-   */
-  function handlePlayNext() {
-    addNextInQueue(playlistTracks);
     onClose();
   }
 
@@ -148,19 +119,7 @@
   </div>
   <MenuSeparator />
 
-  <MenuItem onSelect={handlePlay} disabled={playlistTracks.length === 0}>
-    {#snippet icon()}
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        class="menu-icon"
-        viewBox="0 0 24 24"
-        fill="currentColor"
-      >
-        <path d="M8 5v14l11-7z" />
-      </svg>
-    {/snippet}
-    {m.contextMenu.playPlaylist}
-  </MenuItem>
+  <QueueMenuItems tracks={playlistTracks} disabled={playlistTracks.length === 0} {onClose} />
 
   <MenuItem onSelect={handleShufflePlay} disabled={playlistTracks.length === 0}>
     {#snippet icon()}
@@ -180,48 +139,6 @@
       </svg>
     {/snippet}
     {m.common.shufflePlay}
-  </MenuItem>
-
-  <MenuSeparator />
-
-  <MenuItem onSelect={handlePlayNext} disabled={playlistTracks.length === 0}>
-    {#snippet icon()}
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        class="menu-icon"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-      >
-        <path
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="2"
-          d="M13 5l7 7-7 7M5 5l7 7-7 7"
-        />
-      </svg>
-    {/snippet}
-    {m.common.playNext}
-  </MenuItem>
-
-  <MenuItem onSelect={handleAddToQueue} disabled={playlistTracks.length === 0}>
-    {#snippet icon()}
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        class="menu-icon"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-      >
-        <path
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="2"
-          d="M4 6h16M4 10h16M4 14h16M4 18h7"
-        />
-      </svg>
-    {/snippet}
-    {m.common.addToQueue}
   </MenuItem>
 
   <MenuSeparator />
