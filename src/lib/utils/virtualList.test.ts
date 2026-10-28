@@ -98,6 +98,12 @@ describe('scrollTopToReveal', () => {
     expect(scrollTopToReveal({ ...base, index: 20, scrollTop: 100 })).toBe(440);
   });
 
+  it('startでは、下に隠れている項目も上端にそろえる（見えている項目は動かさない）', () => {
+    expect(scrollTopToReveal({ ...base, index: 20, scrollTop: 100, align: 'start' })).toBe(800);
+    expect(scrollTopToReveal({ ...base, index: 2, scrollTop: 100, align: 'start' })).toBe(80);
+    expect(scrollTopToReveal({ ...base, index: 5, scrollTop: 100, align: 'start' })).toBe(100);
+  });
+
   it('グリッドでは、項目のある行を見える位置へ出す（行の間隔は含めない）', () => {
     const grid = { columns: 4, rowStride: 212, gap: 12, viewportHeight: 500 };
     // 項目9は2行目（424〜624px）

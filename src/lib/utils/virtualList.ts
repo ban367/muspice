@@ -74,13 +74,21 @@ export interface RevealInput {
   gap: number;
   scrollTop: number;
   viewportHeight: number;
+  /**
+   * 隠れている項目の出し方。`nearest`（既定）は近い方の端、`start`は下に隠れている場合も上端に
+   * そろえる（その後ろの項目も見せる）
+   */
+  align?: RevealAlign;
 }
+
+/** 隠れている項目を見える位置へ出す時の、そろえる端 */
+export type RevealAlign = 'nearest' | 'start';
 
 /**
  * 項目が見える位置になるスクロール位置を求める
  *
  * すでに全体が見えている場合は、今の位置を返す。上に隠れている場合は上端に、
- * 下に隠れている場合は下端に、その項目の行がそろう位置を返す。
+ * 下に隠れている場合は下端（`align`が`start`なら上端）に、その項目の行がそろう位置を返す。
  */
 export function scrollTopToReveal(input: RevealInput): number {
   const row = Math.floor(Math.max(0, input.index) / Math.max(1, input.columns));
@@ -89,7 +97,7 @@ export function scrollTopToReveal(input: RevealInput): number {
 
   if (top < input.scrollTop) return top;
   if (bottom > input.scrollTop + input.viewportHeight) {
-    return Math.max(0, bottom - input.viewportHeight);
+    return input.align === 'start' ? top : Math.max(0, bottom - input.viewportHeight);
   }
   return input.scrollTop;
 }

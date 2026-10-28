@@ -10,13 +10,14 @@
   - そのほかの属性（`role`・`tabindex`・`onkeydown`など）は、項目を並べる要素に渡す
 -->
 <script lang="ts" generics="T">
-  import type { Snippet } from 'svelte';
+  import { untrack, type Snippet } from 'svelte';
   import type { HTMLAttributes } from 'svelte/elements';
   import {
     computeVirtualRange,
     countColumns,
     countRows,
-    scrollTopToReveal
+    scrollTopToReveal,
+    type RevealAlign
   } from '#lib/utils/virtualList.js';
 
   interface Props extends Omit<HTMLAttributes<HTMLDivElement>, 'children'> {
@@ -119,12 +120,34 @@
   });
 
   /**
+   * 大きさ（見える高さ・行の高さ）を測る前に、見える位置まで出すよう頼まれた項目の位置
+   *
+   * 表示した直後（測る前）に頼まれた場合は、測った後でスクロールする（見積もりの高さでは、
+   * 違う位置へ出してしまう）。
+   */
+  let pendingReveal: { index: number; align: RevealAlign } | null = null;
+
+  $effect(() => {
+    if (viewportHeight === 0 || measuredRowHeight === null || pendingReveal === null) return;
+    const { index, align } = pendingReveal;
+    pendingReveal = null;
+    untrack(() => scrollToIndex(index, align));
+  });
+
+  /**
    * 一覧の中の位置を指定して、その項目を見える位置までスクロールする
    *
-   * 呼び出した後の描画（`tick()`の後）で、その項目の要素がある状態になる。
+   * 呼び出した後の描画（`tick()`の後）で、その項目の要素がある状態になる。表示した直後で、一覧の
+   * 大きさを測っていない間は、測った後でスクロールする。
+   * @param align - 隠れている項目の出し方（`start`は、下に隠れている場合も上端にそろえる）
    */
-  export function scrollToIndex(index: number): void {
+  export function scrollToIndex(index: number, align: RevealAlign = 'nearest'): void {
     if (!scroller || index < 0 || index >= items.length) return;
+    if (viewportHeight === 0 || measuredRowHeight === null) {
+      pendingReveal = { index, align };
+      return;
+    }
+    pendingReveal = null;
     const current = scroller.scrollTop - paddingTop;
     const target = scrollTopToReveal({
       index,
@@ -132,7 +155,8 @@
       rowStride,
       gap,
       scrollTop: current,
-      viewportHeight
+      viewportHeight,
+      align
     });
     if (target !== current) {
       // 最初・最後の行では、領域の端までスクロールする（上下の余白も見える位置にする）
