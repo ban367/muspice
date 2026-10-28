@@ -1,65 +1,35 @@
 <!--
   @component AlbumInfoPanel
-  右サイドバーのアルバム情報パネル。上部に再生中の曲の情報を固定して出し、その下に、その曲が入っているアルバムの
-  曲をスクロールして見られるように出す。再生中の曲が変わると追随する（一覧で選んだ曲は、曲情報パネル
+  右サイドバーのアルバム情報パネル。上部に再生中の曲のカード（`SidePanelTrack`）を固定して出し、その下に、その曲が
+  入っているアルバムの曲をスクロールして見られるように出す。再生中の曲が変わると追随する（一覧で選んだ曲は、曲情報パネル
   （`TrackInfoPanel`）に出す。ADR-078）。
   アルバムは、アルバムの画面と同じく「アルバムアーティスト（なければ曲のアーティスト）＋アルバム名」でまとめ、
-  ディスクごとに曲を区切る。アルバムのない曲は、曲の情報だけを出す。
+  ディスクごとに曲を区切る。アルバムのない曲は、そのことを示す。
   アルバムの曲の選択・キー操作・ダブルクリックでの再生・ドラッグ（プレイリストへの追加）は、ほかの曲の一覧と同じ。
   パネルの幅が狭いため、行には番号・曲名・時間だけを出し、お気に入りと評価は行にポインタを置いた時に出す。
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
   import type { Track } from '#lib/types/models.js';
-  import {
-    useAlbumTracksQuery,
-    useFavoriteTracksQuery,
-    useSetRatingMutation,
-    useTracksQuery
-  } from '#lib/queries/tracks.js';
+  import { useAlbumTracksQuery, useSetRatingMutation } from '#lib/queries/tracks.js';
   import { player, playTrackFromQueue, playShuffled } from '#lib/stores/player.svelte.js';
-  import { albumArtDialog } from '#lib/stores/albumArt.svelte.js';
-  import { albumArtUrl } from '#lib/utils/albumArt.js';
   import { groupArtist } from '#lib/utils/albumKey.js';
   import { groupByDisc } from '#lib/utils/albumDiscs.js';
   import { formatDuration, formatTotalDuration } from '#lib/utils/format.js';
-  import { trackCellText } from '#lib/utils/trackColumns.js';
   import { TrackSelection, handleTrackListKeydown } from '#lib/utils/trackSelection.svelte.js';
   import { startTrackDrag } from '#lib/utils/trackDrag.js';
-  import AlbumArt from './AlbumArt.svelte';
-  import PlayingIndicator from './library/PlayingIndicator.svelte';
-  import RatingStars from './library/RatingStars.svelte';
-  import FavoriteButton from './library/FavoriteButton.svelte';
+  import PlayingIndicator from '../library/PlayingIndicator.svelte';
+  import RatingStars from '../library/RatingStars.svelte';
+  import FavoriteButton from '../library/FavoriteButton.svelte';
+  import SidePanel from './SidePanel.svelte';
+  import SidePanelMessage from './SidePanelMessage.svelte';
+  import SidePanelSection from './SidePanelSection.svelte';
+  import SidePanelTrack from './SidePanelTrack.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   const current = $derived(player.currentTrack);
 
-  // 再生キューの曲は、キューに入れた時点の内容のため、評価は全曲の一覧（変更のたびに
-  // 書き換わる）から、お気に入りはお気に入りの一覧から調べる（Now Playingの画面と同じ）
-  const tracksQuery = useTracksQuery();
-  const favoritesQuery = useFavoriteTracksQuery();
   const setRatingMutation = useSetRatingMutation();
-  const rating = $derived(
-    tracksQuery.data?.find((track) => track.id === current?.id)?.rating ?? current?.rating ?? 0
-  );
-  const isFavorite = $derived(
-    (favoritesQuery.data ?? []).some((track) => track.id === current?.id)
-  );
-
-  /** 曲の詳細（ジャンル・年・ファイルの形式・サンプルレート・ビットレート） */
-  const details = $derived(
-    current
-      ? [
-          current.genre,
-          current.year,
-          trackCellText(current, 'format'),
-          trackCellText(current, 'sampleRate'),
-          trackCellText(current, 'bitrate')
-        ]
-          .filter(Boolean)
-          .join(' · ')
-      : ''
-  );
 
   // 再生中の曲のアルバム（アルバムが変わった時だけ曲を取り直す。同じアルバムの次の曲へ進んでも取り直さない）
   const albumName = $derived(current?.album ?? null);
@@ -96,6 +66,19 @@
   // 表示順の曲（選択・再生はこの順で行う）
   const tracks = $derived(sections.flatMap((section) => section.tracks));
   const totalDuration = $derived(tracks.reduce((sum, track) => sum + (track.duration ?? 0), 0));
+
+  /** アルバムの見出しの3行目（ジャンル・年・曲数と時間。曲数と時間は、曲を取得してから足す） */
+  const albumStats = $derived(
+    [
+      current?.genre,
+      current?.year,
+      tracks.length > 0
+        ? m.common.trackCountAndDuration(tracks.length, formatTotalDuration(totalDuration))
+        : null
+    ]
+      .filter(Boolean)
+      .join(' · ')
+  );
 
   // 取得し終えて1曲もない（ライブラリから削除された、またはタグが変わってアルバムが変わった）
   const isNotFound = $derived(albumTracksQuery?.isSuccess === true && tracks.length === 0);
@@ -159,11 +142,6 @@
     });
   }
 
-  // アルバムアートの画面を開く（アルバムの曲を取得するまでと、アルバムのない曲は、再生中の曲だけ）
-  function openAlbumArt(track: Track) {
-    albumArtDialog.open(tracks.length > 0 ? tracks : [track]);
-  }
-
   // アルバムをすべて再生
   function handlePlayAll() {
     if (tracks.length > 0) {
@@ -177,68 +155,33 @@
   }
 </script>
 
-<div class="panel-header">
-  <h3>{m.rightSidebar.albumInfoTitle}</h3>
-</div>
+<SidePanel title={m.rightSidebar.albumInfoTitle} bind:body>
+  {#snippet top()}
+    <!-- 再生中の曲（スクロールせず、常に見えるようにする）。ジャケット画像からは、アルバムの曲の画像を見られる
+         （アルバムの曲を取得するまでと、アルバムのない曲は、再生中の曲だけ） -->
+    <SidePanelTrack
+      label={m.rightSidebar.nowPlaying}
+      track={current}
+      emptyText={m.rightSidebar.nothingPlaying}
+      artTracks={tracks}
+    />
+  {/snippet}
 
-{#if current}
-  <!-- 再生中の曲（スクロールせず、常に見えるようにする） -->
-  <section class="now-playing" aria-label={m.rightSidebar.nowPlaying}>
-    <button
-      type="button"
-      class="now-playing-art"
-      title={m.albumArtDialog.open}
-      aria-label={m.albumArtDialog.open}
-      onclick={() => openAlbumArt(current)}
-    >
-      <AlbumArt
-        src={albumArtUrl(current.id)}
-        alt={m.common.albumArt}
-        rounded="lg"
-        placeholderType="music"
-      />
-    </button>
-    <div class="now-playing-text">
-      <h2 class="now-playing-title" title={current.title || current.fileName}>
-        {current.title || current.fileName}
-      </h2>
-      <p class="now-playing-artist" title={current.artist ?? undefined}>
-        {current.artist || m.common.unknownArtist}
-      </p>
-      {#if current.album}
-        <p class="now-playing-album" title={current.album}>{current.album}</p>
-      {/if}
-      {#if details}
-        <p class="now-playing-details">{details}</p>
-      {/if}
-      <div class="now-playing-actions">
-        <FavoriteButton trackId={current.id} {isFavorite} size="medium" />
-        <RatingStars
-          {rating}
-          onChange={(value) =>
-            setRatingMutation.mutateAsync({ trackId: current.id, rating: value })}
-        />
-      </div>
-    </div>
-  </section>
-
-  <!-- 再生中の曲のアルバム（スクロールする） -->
-  <div class="album-body" bind:this={body}>
-    {#if albumName === null}
-      <p class="panel-message">{m.albumInfo.noAlbum}</p>
-    {:else if isNotFound}
-      <p class="panel-message">{m.albumInfo.notFound}</p>
-    {:else}
+  {#if !current}
+    <SidePanelMessage text={m.albumInfo.empty} />
+  {:else if albumName === null}
+    <SidePanelMessage text={m.albumInfo.noAlbum} />
+  {:else if isNotFound}
+    <SidePanelMessage text={m.albumInfo.notFound} />
+  {:else}
+    <!-- 再生中の曲のアルバム（スクロールする） -->
+    <SidePanelSection title={m.albumInfo.album} flush>
       <div class="album-heading">
         <div class="album-heading-text">
-          <h3 class="album-name" title={albumName}>{albumName}</h3>
+          <p class="album-name" title={albumName}>{albumName}</p>
           <p class="album-artist">{albumArtist || m.common.unknownArtist}</p>
           <!-- 曲を取得するまでは、曲数がわからない（高さは変えずに空ける） -->
-          <p class="album-stats">
-            {tracks.length > 0
-              ? m.common.trackCountAndDuration(tracks.length, formatTotalDuration(totalDuration))
-              : ' '}
-          </p>
+          <p class="album-stats">{albumStats || ' '}</p>
         </div>
         <div class="album-actions">
           <button
@@ -339,97 +282,16 @@
           {/each}
         {/each}
       </div>
-    {/if}
-  </div>
-{:else}
-  <p class="panel-message">{m.albumInfo.empty}</p>
-{/if}
+    </SidePanelSection>
+  {/if}
+</SidePanel>
 
 <style>
-  @reference "../../app.css";
+  @reference "../../../app.css";
 
-  .panel-header {
-    @apply flex items-center px-4 py-3 border-b border-border shrink-0;
-  }
-
-  .panel-header h3 {
-    @apply m-0 text-sm font-semibold text-text-primary;
-  }
-
-  .panel-message {
-    @apply m-0 py-8 px-4 text-center text-sm text-text-dimmed;
-  }
-
-  /* 再生中の曲（ジャケット画像・曲名・アーティスト・アルバム・詳細・お気に入りと評価） */
-  .now-playing {
-    @apply flex flex-col items-center gap-3 px-4 pt-4 pb-3 text-center border-b border-border shrink-0;
-    /* アクセントカラーを薄くした色から透明へ */
-    background: linear-gradient(
-      to bottom,
-      color-mix(in oklab, var(--color-primary) 15%, transparent),
-      transparent
-    );
-  }
-
-  .now-playing-art {
-    @apply w-40 h-40 shrink-0 rounded-lg overflow-hidden p-0 border-none bg-transparent cursor-pointer transition-opacity;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-  }
-
-  .now-playing-art:hover {
-    @apply opacity-85;
-  }
-
-  .now-playing-text {
-    @apply flex flex-col items-center w-full min-w-0;
-  }
-
-  .now-playing-title {
-    @apply m-0 max-w-full text-base font-bold leading-tight text-text-primary break-words line-clamp-2;
-  }
-
-  .now-playing-artist {
-    @apply m-0 mt-1 max-w-full text-sm text-text-secondary truncate;
-  }
-
-  .now-playing-album {
-    @apply m-0 mt-0.5 max-w-full text-xs text-text-muted truncate;
-  }
-
-  .now-playing-details {
-    @apply m-0 mt-0.5 text-[0.6875rem] text-text-dimmed;
-  }
-
-  .now-playing-actions {
-    @apply flex items-center gap-2 mt-2;
-  }
-
-  /* 高さの低いウィンドウでは、下のアルバムの曲が見えるよう、ジャケット画像を小さくして横に並べる */
-  @media (max-height: 42rem) {
-    .now-playing {
-      @apply flex-row items-start pt-3 text-left;
-    }
-
-    .now-playing-art {
-      @apply w-18 h-18;
-    }
-
-    .now-playing-text {
-      @apply items-start;
-    }
-
-    .now-playing-actions {
-      @apply mt-1.5;
-    }
-  }
-
-  .album-body {
-    @apply flex-1 min-h-0 overflow-y-auto;
-  }
-
-  /* アルバムの見出し（名前・アーティスト・曲数と時間・再生の操作） */
+  /* アルバムの見出し（名前・アーティスト・ジャンルと年と曲数と時間・再生の操作） */
   .album-heading {
-    @apply flex items-center gap-2 px-4 pt-3 pb-1;
+    @apply flex items-center gap-2 px-4 pb-1;
   }
 
   .album-heading-text {
@@ -437,15 +299,15 @@
   }
 
   .album-name {
-    @apply m-0 text-sm font-semibold text-text-primary truncate;
+    @apply m-0 h-5 leading-5 text-sm font-semibold text-text-primary truncate;
   }
 
   .album-artist {
-    @apply m-0 mt-0.5 text-xs text-text-secondary truncate;
+    @apply m-0 h-4 leading-4 text-xs text-text-secondary truncate;
   }
 
   .album-stats {
-    @apply m-0 mt-0.5 text-xs text-text-dimmed;
+    @apply m-0 h-4 leading-4 text-xs text-text-dimmed truncate;
   }
 
   .album-actions {

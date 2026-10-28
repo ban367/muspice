@@ -1,28 +1,11 @@
 <script lang="ts">
   import { fly } from 'svelte/transition';
   import { ui, type RightSidebarPanel } from '#lib/stores/ui.svelte.js';
-  import {
-    player,
-    removeFromQueue,
-    clearQueue,
-    moveUpcomingEntry,
-    playQueueIndex
-  } from '#lib/stores/player.svelte.js';
-  import { useCreatePlaylistWithTracksMutation } from '#lib/queries/playlists.js';
-  import { confirmDestructive, promptText } from '#lib/utils/dialog.svelte.js';
-  import { validatePlaylistName, toSafeString } from '#lib/utils/validation.js';
-  import { albumArtUrl } from '#lib/utils/albumArt.js';
-  import { openableListAction } from '#lib/utils/listNavigation.js';
-  import { VirtualList } from '#lib/components/ui/index.js';
-  import AlbumArt from './AlbumArt.svelte';
-  import MarqueeText from './MarqueeText.svelte';
-  import EqualizerPanel from './EqualizerPanel.svelte';
-  import AlbumInfoPanel from './AlbumInfoPanel.svelte';
-  import TrackInfoPanel from './TrackInfoPanel.svelte';
+  import QueuePanel from './rightSidebar/QueuePanel.svelte';
+  import SoundPanel from './rightSidebar/SoundPanel.svelte';
+  import AlbumInfoPanel from './rightSidebar/AlbumInfoPanel.svelte';
+  import TrackInfoPanel from './rightSidebar/TrackInfoPanel.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
-
-  // 「次に再生」の行の高さの見積もり（描画した後は、VirtualListが実測した高さを使う）
-  const ESTIMATED_QUEUE_ROW_HEIGHT = 50;
 
   // パネルを開く/切り替え
   function openPanel(panel: RightSidebarPanel) {
@@ -46,149 +29,6 @@
   // ピン状態をトグル
   function togglePin() {
     ui.isRightSidebarPinned = !ui.isRightSidebarPinned;
-  }
-
-  /**
-   * 「次に再生」の曲から再生する（キューの並びは変えない）
-   * @param upcomingIndex - 「次に再生」の一覧の中の位置
-   */
-  function playUpcoming(upcomingIndex: number) {
-    playQueueIndex(player.currentTrackIndex + 1 + upcomingIndex);
-  }
-
-  // 行の中のボタン（キューから削除）の操作では再生しない
-  function isRowButton(event: Event): boolean {
-    return event.target instanceof Element && event.target.closest('button') !== null;
-  }
-
-  // ---- 「次に再生」のキーボード操作 ----
-  // 一覧（listbox）がフォーカスを受け、↑↓・Home・Endで現在位置を移し、Enterで再生し、
-  // Delete / Backspaceでキューから削除する。現在位置も、位置ではなくキューの要素のIDで持つ
-
-  let upcomingList = $state<VirtualList<(typeof player.upcomingEntries)[number]>>();
-  /** 現在位置の行の要素のID */
-  let activeEntryId = $state<number | null>(null);
-  /** 現在位置の行の、「次に再生」の一覧の中の位置（ない場合は-1） */
-  const activeIndex = $derived(
-    activeEntryId === null
-      ? -1
-      : player.upcomingEntries.findIndex((entry) => entry.entryId === activeEntryId)
-  );
-
-  function handleUpcomingKeydown(event: KeyboardEvent) {
-    const entries = player.upcomingEntries;
-    if (
-      (event.key === 'Delete' || event.key === 'Backspace') &&
-      !event.defaultPrevented &&
-      !event.metaKey &&
-      !event.ctrlKey &&
-      !event.altKey
-    ) {
-      if (activeIndex === -1) return;
-      event.preventDefault();
-      // 現在位置は、消した行の次（最後の行なら前）の行へ移す
-      const next = entries[activeIndex + 1] ?? entries[activeIndex - 1] ?? null;
-      removeFromQueue(entries[activeIndex].entryId);
-      activeEntryId = next?.entryId ?? null;
-      return;
-    }
-
-    const action = openableListAction(event, activeIndex, entries.length, null);
-    if (action === null) return;
-    if (action.type === 'open') {
-      playUpcoming(action.index);
-    } else {
-      activeEntryId = entries[action.index].entryId;
-      upcomingList?.scrollToIndex(action.index);
-    }
-  }
-
-  // ---- 「次に再生」の並べ替え（行のドラッグ） ----
-  // 行は位置ではなくキューの要素のID（エントリID）で指す。ドラッグしている間に曲が進んで
-  // 位置がずれても、ドラッグした曲を動かす
-
-  /** ドラッグ中の行の要素のIDを運ぶデータの種類（アプリの中だけで使う） */
-  const QUEUE_DRAG_TYPE = 'application/x-muspice-queue-entry';
-
-  /** ドラッグしている行の要素のID */
-  let draggedEntryId = $state<number | null>(null);
-  /** 落とそうとしている行の要素のID */
-  let dropEntryId = $state<number | null>(null);
-  /** ドラッグしている行の、「次に再生」の一覧の中の今の位置（ない場合は-1） */
-  const draggedIndex = $derived(
-    draggedEntryId === null
-      ? -1
-      : player.upcomingEntries.findIndex((entry) => entry.entryId === draggedEntryId)
-  );
-
-  const isQueueDrag = (event: DragEvent) =>
-    event.dataTransfer?.types.includes(QUEUE_DRAG_TYPE) ?? false;
-
-  function handleQueueDragStart(event: DragEvent, entryId: number) {
-    if (!event.dataTransfer) return;
-    event.dataTransfer.effectAllowed = 'move';
-    event.dataTransfer.setData(QUEUE_DRAG_TYPE, String(entryId));
-    draggedEntryId = entryId;
-  }
-
-  function handleQueueDragOver(event: DragEvent, entryId: number) {
-    if (!isQueueDrag(event)) return;
-    event.preventDefault();
-    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
-    dropEntryId = entryId;
-  }
-
-  function handleQueueDrop(event: DragEvent, targetEntryId: number) {
-    if (!isQueueDrag(event)) return;
-    event.preventDefault();
-    const entryId = Number(event.dataTransfer?.getData(QUEUE_DRAG_TYPE));
-    endQueueDrag();
-    moveUpcomingEntry(entryId, targetEntryId);
-  }
-
-  function endQueueDrag() {
-    draggedEntryId = null;
-    dropEntryId = null;
-  }
-
-  /**
-   * 落とそうとしている行の、目印の出し方（動かした曲は、落とした行の位置に来る。
-   * 下へ動かす時は行の下、上へ動かす時は行の上に線を出す）
-   * @param entryId - 行の要素のID
-   * @param index - 行の、「次に再生」の一覧の中の位置
-   */
-  function dropWhere(entryId: number, index: number): 'before' | 'after' | undefined {
-    if (dropEntryId !== entryId || draggedIndex === -1 || draggedIndex === index) return undefined;
-    return draggedIndex < index ? 'after' : 'before';
-  }
-
-  // 再生キューをクリアする（再生中の曲も外して止めるため、確かめてから）
-  async function handleClearQueue() {
-    if (!(await confirmDestructive(m.rightSidebar.clearConfirm, m.rightSidebar.clear))) return;
-    clearQueue();
-  }
-
-  // ---- 再生キューを、プレイリストとして保存 ----
-
-  const savePlaylistMutation = useCreatePlaylistWithTracksMutation();
-
-  async function handleSaveAsPlaylist() {
-    // 再生し終えた曲を含む、キューの全体を保存する（同じ曲は、最初の1回だけが入る）
-    const trackIds = player.playQueue.map((entry) => entry.track.id);
-    if (trackIds.length === 0) return;
-
-    // 日付は、プレイリスト名に使えない「/」を含まない形にする
-    const today = new Date().toLocaleDateString('sv-SE');
-    const name = await promptText({
-      title: m.rightSidebar.saveAsPlaylistTitle,
-      label: m.sidebar.playlistName,
-      defaultValue: m.rightSidebar.saveAsPlaylistDefaultName(today),
-      confirmLabel: m.rightSidebar.save,
-      validate: (value) => validatePlaylistName(value).error ?? null
-    });
-    if (name === null) return;
-
-    savePlaylistMutation.mutate({ name: toSafeString(name.trim(), 100), trackIds });
   }
 </script>
 
@@ -217,13 +57,13 @@
       </svg>
     </button>
 
-    <!-- イコライザボタン -->
+    <!-- サウンドボタン（イコライザなど、音の加工の設定） -->
     <button
       class="icon-button"
-      class:active={ui.isRightSidebarExpanded && ui.activeRightSidebarPanel === 'equalizer'}
-      onclick={() => openPanel('equalizer')}
-      title={m.rightSidebar.equalizerTitle}
-      aria-label={m.rightSidebar.openEqualizer}
+      class:active={ui.isRightSidebarExpanded && ui.activeRightSidebarPanel === 'sound'}
+      onclick={() => openPanel('sound')}
+      title={m.rightSidebar.soundTitle}
+      aria-label={m.rightSidebar.openSound}
     >
       <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -339,162 +179,14 @@
     class:pinned={ui.isRightSidebarPinned}
     transition:fly={{ x: 200, duration: ui.isRightSidebarDocked ? 0 : 200 }}
   >
+    <!-- 中身は、どのパネルも共通の枠（`rightSidebar/SidePanel`）で作る -->
     {#if ui.activeRightSidebarPanel === 'queue'}
-      <!-- 再生キューパネル -->
-      <!-- ヘッダー -->
-      <div class="queue-header">
-        <h3>{m.rightSidebar.queue}</h3>
-        <div class="queue-actions">
-          {#if player.playQueue.length > 0}
-            <button
-              class="clear-btn icon"
-              onclick={handleSaveAsPlaylist}
-              disabled={savePlaylistMutation.isPending}
-              title={m.rightSidebar.saveAsPlaylist}
-              aria-label={m.rightSidebar.saveAsPlaylist}
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                class="w-4 h-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M4 6h16M4 10h16M4 14h8m4 0v6m-3-3h6"
-                />
-              </svg>
-            </button>
-          {/if}
-          {#if player.playQueue.length > 0}
-            <button class="clear-btn" onclick={handleClearQueue}>{m.rightSidebar.clear}</button>
-          {/if}
-        </div>
-      </div>
-
-      <!-- 再生中 -->
-      {#if player.currentTrack}
-        <div class="now-playing">
-          <div class="section-label">{m.rightSidebar.nowPlaying}</div>
-          <div class="now-playing-track">
-            <div class="queue-art">
-              <AlbumArt
-                src={albumArtUrl(player.currentTrack.id)}
-                alt={m.common.albumArt}
-                rounded="sm"
-                placeholderType="music"
-              />
-            </div>
-            <div class="track-details">
-              <MarqueeText
-                text={player.currentTrack.title || player.currentTrack.fileName}
-                class="track-title"
-              />
-              <MarqueeText
-                text={player.currentTrack.artist || m.common.unknownArtist}
-                class="track-artist"
-              />
-            </div>
-          </div>
-        </div>
-      {/if}
-
-      <!-- 次に再生 -->
-      <div class="upcoming-section">
-        {#if player.upcomingEntries.length > 0}
-          <div class="section-label" id="upcoming-label">
-            {m.rightSidebar.upNext(player.upcomingEntries.length)}
-          </div>
-          <!-- 一覧の曲をすべてキューに入れた場合は数万曲になるため、見えている行だけを描画する -->
-          <div class="upcoming-list">
-            <!-- 同じ曲が何度も入ることがあるため、キーは曲のIDではなく要素のID -->
-            <VirtualList
-              bind:this={upcomingList}
-              items={player.upcomingEntries}
-              getKey={(entry) => entry.entryId}
-              estimatedRowHeight={ESTIMATED_QUEUE_ROW_HEIGHT}
-              scrollerClass="px-2 pb-2"
-              class="upcoming-listbox"
-              role="listbox"
-              aria-labelledby="upcoming-label"
-              tabindex={0}
-              onkeydown={handleUpcomingKeydown}
-            >
-              {#snippet row({ entryId, track }, index)}
-                <!-- 行のドラッグで、「次に再生」の中の順を入れ替えられる -->
-                <!-- キー操作は一覧（listbox）で受けるため、行はフォーカスを受けない -->
-                <!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
-                <div
-                  class="queue-track"
-                  class:active={activeEntryId === entryId}
-                  class:dragging={draggedEntryId === entryId}
-                  data-drop={dropWhere(entryId, index)}
-                  draggable="true"
-                  ondragstart={(e) => handleQueueDragStart(e, entryId)}
-                  ondragover={(e) => handleQueueDragOver(e, entryId)}
-                  ondrop={(e) => handleQueueDrop(e, entryId)}
-                  ondragend={endQueueDrag}
-                  onclick={(e) => !isRowButton(e) && (activeEntryId = entryId)}
-                  ondblclick={(e) => !isRowButton(e) && playUpcoming(index)}
-                  role="option"
-                  aria-selected={activeEntryId === entryId}
-                >
-                  <span class="track-number">{index + 1}</span>
-                  <div class="queue-art">
-                    <AlbumArt
-                      src={albumArtUrl(track.id)}
-                      alt={m.common.albumArt}
-                      rounded="sm"
-                      placeholderType="music"
-                    />
-                  </div>
-                  <div class="track-details">
-                    <MarqueeText text={track.title || track.fileName} class="track-title" />
-                    <MarqueeText
-                      text={track.artist || m.common.unknownArtist}
-                      class="track-artist"
-                    />
-                  </div>
-                  <button
-                    class="remove-btn"
-                    onclick={() => removeFromQueue(entryId)}
-                    title={m.rightSidebar.removeFromQueue}
-                    aria-label={m.rightSidebar.removeFromQueue}
-                  >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      class="w-3 h-3"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2.5"
-                      stroke-linecap="round"
-                      aria-hidden="true"
-                    >
-                      <path d="M6 6l12 12M18 6L6 18" />
-                    </svg>
-                  </button>
-                </div>
-              {/snippet}
-            </VirtualList>
-          </div>
-        {:else if player.currentTrack}
-          <div class="empty-queue">{m.rightSidebar.noUpcoming}</div>
-        {:else}
-          <div class="empty-queue">{m.player.noTrack}</div>
-        {/if}
-      </div>
-    {:else if ui.activeRightSidebarPanel === 'equalizer'}
-      <!-- イコライザパネル -->
-      <EqualizerPanel />
+      <QueuePanel />
+    {:else if ui.activeRightSidebarPanel === 'sound'}
+      <SoundPanel />
     {:else if ui.activeRightSidebarPanel === 'album'}
-      <!-- アルバム情報パネル -->
       <AlbumInfoPanel />
     {:else if ui.activeRightSidebarPanel === 'track'}
-      <!-- 曲情報パネル -->
       <TrackInfoPanel />
     {/if}
   </aside>
@@ -547,140 +239,5 @@
     right: 3rem; /* アイコンバーの幅 */
     width: var(--spacing-side-panel);
     padding-bottom: var(--spacing-player-height);
-  }
-
-  .queue-header {
-    @apply flex items-center justify-between px-4 py-3 border-b border-border;
-  }
-
-  .queue-header h3 {
-    @apply m-0 text-sm font-semibold text-text-primary;
-  }
-
-  .clear-btn {
-    @apply px-2 py-1 bg-transparent border border-border-light rounded
-           text-text-secondary text-xs cursor-pointer transition-all duration-200;
-  }
-
-  .clear-btn:hover:not(:disabled) {
-    @apply bg-surface-active text-text-primary;
-  }
-
-  .clear-btn:disabled {
-    @apply opacity-50 cursor-not-allowed;
-  }
-
-  .clear-btn.icon {
-    @apply flex items-center justify-center px-1.5;
-  }
-
-  .queue-actions {
-    @apply flex items-center gap-1.5;
-  }
-
-  /* 再生中セクション */
-  .now-playing {
-    @apply px-4 py-3 bg-secondary/10 border-b border-border;
-  }
-
-  .section-label {
-    @apply text-[0.625rem] font-semibold uppercase text-text-muted mb-1.5;
-  }
-
-  .now-playing-track {
-    @apply flex items-center gap-2;
-  }
-
-  /* ジャケット画像（再生中・次に再生の各行） */
-  .queue-art {
-    @apply w-9 h-9 shrink-0 rounded-sm overflow-hidden;
-  }
-
-  /* 曲名・アーティスト（`MarqueeText`に渡したクラス）。ほかの画面の同じ名前のクラスに当たらないよう、
-     再生中の曲とキューの行の中に限る（限らないと、読み込んだ順で、ほかの画面の大きさに上書きされる） */
-  .now-playing-track :global(.track-title),
-  .queue-track :global(.track-title) {
-    @apply text-[0.8rem] text-text-primary;
-  }
-
-  .now-playing-track :global(.track-artist),
-  .queue-track :global(.track-artist) {
-    @apply text-[0.7rem] text-text-muted;
-  }
-
-  /* 次に再生セクション */
-  .upcoming-section {
-    @apply flex-1 flex flex-col overflow-hidden;
-  }
-
-  .upcoming-section .section-label {
-    @apply pt-3 pb-1.5 px-4;
-  }
-
-  /* スクロールはVirtualListが行う */
-  .upcoming-list {
-    @apply flex-1 min-h-0;
-  }
-
-  .queue-track {
-    @apply flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer select-none transition-colors duration-200;
-  }
-
-  .queue-track:hover {
-    @apply bg-surface;
-  }
-
-  /* 現在位置の行（クリック・矢印キーで移す）。一覧にフォーカスがある間は、枠でも示す */
-  .queue-track.active {
-    @apply bg-surface-active;
-  }
-
-  :global(.upcoming-listbox) {
-    @apply outline-none;
-  }
-
-  :global(.upcoming-listbox:focus-visible) .queue-track.active {
-    box-shadow: inset 0 0 0 2px var(--color-primary);
-  }
-
-  /* 並べ替えのドラッグ中の行と、落とす位置の線 */
-  .queue-track.dragging {
-    @apply opacity-50;
-  }
-
-  .queue-track[data-drop='before'] {
-    box-shadow: inset 0 2px 0 var(--color-primary);
-  }
-
-  .queue-track[data-drop='after'] {
-    box-shadow: inset 0 -2px 0 var(--color-primary);
-  }
-
-  .track-number {
-    @apply text-xs text-text-dimmed w-5 text-center shrink-0;
-  }
-
-  .track-details {
-    @apply flex-1 min-w-0 flex flex-col gap-0.5;
-  }
-
-  .remove-btn {
-    @apply bg-transparent border-none text-text-dimmed text-xs cursor-pointer p-1
-           opacity-0 transition-all duration-200 shrink-0;
-  }
-
-  /* ポインタを置いた行・現在位置の行・キーボードでフォーカスした時に出す */
-  .queue-track:hover .remove-btn,
-  .queue-track.active .remove-btn,
-  .remove-btn:focus-visible {
-    @apply opacity-100;
-  }
-
-  .remove-btn:hover {
-    @apply text-error;
-  }
-
-  .empty-queue {
-    @apply py-8 px-4 text-center text-text-dimmed text-sm;
   }
 </style>

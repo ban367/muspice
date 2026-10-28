@@ -10,9 +10,9 @@ import { untrack } from 'svelte';
 import type { Track } from '#lib/types/models.js';
 import { TRACK_COLUMN_IDS, TRACK_COLUMNS, type TrackColumnId } from '#lib/utils/trackColumns.js';
 
-// 右サイドバーのパネル（queue: 再生キュー, equalizer: イコライザ, album: 再生中の曲とそのアルバム,
-// track: 一覧で選んでいる曲の情報）
-export type RightSidebarPanel = 'queue' | 'equalizer' | 'album' | 'track';
+// 右サイドバーのパネル（queue: 再生キュー, sound: イコライザなどの音の加工の設定,
+// album: 再生中の曲とそのアルバム, track: 一覧で選んでいる曲の情報）
+export type RightSidebarPanel = 'queue' | 'sound' | 'album' | 'track';
 
 /** 一覧で選んでいる曲（曲情報パネルに出す） */
 export interface SelectedTrack {

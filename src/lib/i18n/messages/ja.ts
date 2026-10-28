@@ -311,21 +311,28 @@ export const ja = {
     noDevices: 'デバイスがありません'
   },
 
+  /** 右サイドバー（パネルの名前は、右端のアイコンのツールチップとパネルの見出しの両方に使う） */
   rightSidebar: {
-    queueTitle: '再生キュー (Q)',
+    queueTitle: '再生キュー',
     openQueue: '再生キューを開く',
-    equalizerTitle: 'イコライザ (E)',
-    openEqualizer: 'イコライザを開く',
+    /** イコライザなど、音の加工の設定のパネル */
+    soundTitle: 'サウンド',
+    openSound: 'サウンドの設定を開く',
     albumInfoTitle: 'アルバム情報',
     openAlbumInfo: 'アルバム情報を開く',
     trackInfoTitle: '曲情報',
     openTrackInfo: '曲情報を開く',
     pin: 'サイドバーを固定',
     unpin: '固定解除',
-    queue: '再生キュー',
     clear: 'クリア',
+    clearQueue: '再生キューをクリア',
     clearConfirm: '再生キューをクリアしますか？再生中の曲も停止します。',
+    /** 曲のカードの見出し */
     nowPlaying: '再生中',
+    selectedTrack: '選択中の曲',
+    /** 曲のカードに出す曲がない時 */
+    nothingPlaying: '再生していません',
+    nothingSelected: '曲を選んでいません',
     upNext: (count: number) => `次に再生 (${count}曲)`,
     removeFromQueue: 'キューから削除',
     noUpcoming: 'キューに他のトラックはありません',
@@ -337,7 +344,8 @@ export const ja = {
 
   /** 右サイドバーのアルバム情報パネル（再生中の曲と、その曲のアルバム） */
   albumInfo: {
-    empty: '曲を再生すると、ここに曲の情報とアルバムを表示します',
+    album: 'アルバム',
+    empty: '曲を再生すると、ここに曲のアルバムを表示します',
     noAlbum: 'この曲にはアルバムの情報がありません',
     notFound: '曲が見つかりません。ライブラリから削除されたか、タグが変わった可能性があります'
   },
@@ -345,8 +353,8 @@ export const ja = {
   /** 右サイドバーの曲情報パネル（一覧で選んでいる曲） */
   trackInfo: {
     empty: '曲を選ぶと、ここに曲の情報を表示します',
-    /** 複数の曲を選んでいる時（最後に選んだ曲のほかに選んでいる曲の数） */
-    othersSelected: (count: number) => `ほか${count}曲を選択中`,
+    /** 複数の曲を選んでいる時（最後に選んだ曲のほかに選んでいる曲の数。曲のカードの「選択中の曲」に添える） */
+    othersSelected: (count: number) => `ほか${count}曲`,
     tags: 'タグ',
     file: 'ファイル',
     history: '再生の記録'
@@ -400,6 +408,7 @@ export const ja = {
     turnOff: 'イコライザをオフ',
     turnOn: 'イコライザをオン',
     custom: 'カスタム',
+    preset: 'プリセット',
     builtIn: 'ビルトイン',
     /** ビルトインのプリセットの名前 */
     presets: {
@@ -417,7 +426,7 @@ export const ja = {
     savePresetHint: 'プリセットを変更すると保存可能',
     reset: 'リセット',
     resetLabel: 'イコライザをリセット',
-    presetNamePlaceholder: 'プリセット名を入力',
+    presetName: 'プリセット名',
     deletePreset: 'プリセットを削除',
     confirmDeletePreset: (name: string) => `"${name}" を削除しますか？`
   },
