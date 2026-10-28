@@ -1,19 +1,33 @@
+<!--
+  アルバムの画面。グリッド表示はアルバムのカード、リスト表示はアルバムアーティストごとのアルバムと曲
+  （左にアルバムアーティスト、右にそのアルバムアーティストのアルバムと曲。アーティストの画面と同じ形）。
+  どのアルバムも、まとめたアーティスト（アルバムアーティスト。なければ曲のアーティスト）の下に1回だけ出る。
+-->
 <script lang="ts">
-  import type { AlbumSummary } from '#lib/types/models.js';
   import AlbumGrid from '#lib/components/library/AlbumGrid.svelte';
-  import AlbumList from '#lib/components/library/AlbumList.svelte';
-  import AlbumDetail from '#lib/components/library/AlbumDetail.svelte';
+  import ArtistList from '#lib/components/library/ArtistList.svelte';
+  import AlbumArtistDetail from '#lib/components/library/AlbumArtistDetail.svelte';
   import LibraryBrowsePage from '#lib/components/library/LibraryBrowsePage.svelte';
   import { useAlbumsQuery } from '#lib/queries/tracks.js';
-  import { albumKey } from '#lib/utils/albumKey.js';
+  import { ui } from '#lib/stores/ui.svelte.js';
+  import { albumSearchFields, groupAlbumsByArtist } from '#lib/utils/albumArtists.js';
+  import { matchesSearchTerms, searchTerms } from '#lib/utils/searchText.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   // クエリ
   const albumsQuery = useAlbumsQuery();
   const allAlbums = $derived(albumsQuery.data ?? []);
 
-  // 絞り込みの対象（アルバム名・アーティスト）
-  const albumSearchFields = (album: AlbumSummary) => [album.name, album.artist];
+  // リスト表示の左の一覧（検索語に合うアルバムのある、アルバムアーティスト）
+  // アルバム名でも探せるよう、アルバムを絞り込んでから分ける（右のペインも、合うアルバムだけを出す）
+  const albumArtists = $derived.by(() => {
+    const terms = searchTerms(ui.browseSearchQuery);
+    const albums =
+      terms.length === 0
+        ? allAlbums
+        : allAlbums.filter((album) => matchesSearchTerms(albumSearchFields(album), terms));
+    return groupAlbumsByArtist(albums);
+  });
 </script>
 
 <LibraryBrowsePage
@@ -21,10 +35,11 @@
   formatCount={m.library.albumCount}
   formatCountSummary={m.library.albumSummary}
   searchPlaceholder={m.library.searchAlbums}
-  emptyPrompt={m.library.selectAlbum}
-  items={allAlbums}
-  searchFields={albumSearchFields}
-  getItemKey={albumKey}
+  emptyPrompt={m.library.selectAlbumArtist}
+  items={albumArtists}
+  count={allAlbums.length}
+  getItemKey={(albumArtist) => albumArtist.key}
+  listPaneWidth="16rem"
 >
   {#snippet emptyIcon()}
     <svg
@@ -43,11 +58,17 @@
     <AlbumGrid {displayMode} />
   {/snippet}
 
-  {#snippet listView(albums, selectedAlbum, onSelect)}
-    <AlbumList {albums} {selectedAlbum} {onSelect} />
+  {#snippet listView(albumArtists, selectedAlbumArtist, onSelect)}
+    <ArtistList
+      artists={albumArtists}
+      selectedArtist={selectedAlbumArtist}
+      {onSelect}
+      getKey={(albumArtist) => albumArtist.key}
+      label={m.fields.albumArtist}
+    />
   {/snippet}
 
-  {#snippet detailView(album)}
-    <AlbumDetail {album} />
+  {#snippet detailView(albumArtist)}
+    <AlbumArtistDetail {albumArtist} />
   {/snippet}
 </LibraryBrowsePage>

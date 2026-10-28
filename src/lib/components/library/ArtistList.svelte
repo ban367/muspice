@@ -1,6 +1,10 @@
-<script lang="ts">
+<!--
+  @component ArtistList
+  アーティストの一覧（2ペイン表示の左のペイン）。アーティストの画面のアーティストと、アルバムの画面の
+  アルバムアーティストで使う。1つだけ選び、↑↓・Home・Endで選択を移す。
+-->
+<script lang="ts" generics="T extends { name: string | null; representativeTrackId: string }">
   import { tick } from 'svelte';
-  import type { ArtistSummary } from '#lib/types/models.js';
   import { VirtualList } from '#lib/components/ui/index.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import { listSelectionTarget } from '#lib/utils/listNavigation.js';
@@ -10,23 +14,36 @@
 
   // Props
   interface Props {
-    artists: ArtistSummary[];
-    selectedArtist: ArtistSummary | null;
-    onSelect: (artist: ArtistSummary) => void;
+    artists: T[];
+    selectedArtist: T | null;
+    onSelect: (artist: T) => void;
+    /** 項目を識別するキー（省略時は名前。名前のない項目がある一覧では渡す） */
+    getKey?: (artist: T) => string;
+    /** 一覧の名前（スクリーンリーダー向け。省略時は「アーティスト」） */
+    label?: string;
   }
 
-  let { artists, selectedArtist, onSelect }: Props = $props();
+  let {
+    artists,
+    selectedArtist,
+    onSelect,
+    getKey = (artist) => artist.name ?? '',
+    label = m.library.artists
+  }: Props = $props();
 
   // 行の高さの見積もり（描画した後は、VirtualListが実測した高さを使う）
   const ESTIMATED_ROW_HEIGHT = 44;
 
   // 見えている行だけを描画する一覧
-  let virtualList = $state<VirtualList<ArtistSummary>>();
+  let virtualList = $state<VirtualList<T>>();
+
+  // 選択中のアーティストのキー
+  const selectedKey = $derived(selectedArtist ? getKey(selectedArtist) : null);
 
   // ↑↓・Home・Endで、選択中のアーティストから前後のアーティストへ選択を移す
   async function handleKeydown(event: KeyboardEvent) {
     const list = event.currentTarget;
-    const current = artists.findIndex((artist) => artist.name === selectedArtist?.name);
+    const current = artists.findIndex((artist) => getKey(artist) === selectedKey);
     const target = listSelectionTarget(event, current, artists.length);
     if (target === null) return;
 
@@ -44,33 +61,33 @@
 <VirtualList
   bind:this={virtualList}
   items={artists}
-  getKey={(artist) => artist.name}
+  {getKey}
   estimatedRowHeight={ESTIMATED_ROW_HEIGHT}
   scrollerClass="py-1"
   class="outline-none"
   role="listbox"
-  aria-label={m.library.artists}
+  aria-label={label}
   tabindex={-1}
   onkeydown={handleKeydown}
 >
   {#snippet row(artist)}
     <button
       class="artist-item"
-      class:active={selectedArtist?.name === artist.name}
+      class:active={getKey(artist) === selectedKey}
       onclick={() => onSelect(artist)}
       role="option"
-      aria-selected={selectedArtist?.name === artist.name}
-      tabindex={selectedArtist?.name === artist.name ? 0 : -1}
+      aria-selected={getKey(artist) === selectedKey}
+      tabindex={getKey(artist) === selectedKey ? 0 : -1}
     >
       <div class="artist-avatar">
         <AlbumArt
           src={albumArtUrl(artist.representativeTrackId)}
-          alt={artist.name}
+          alt={artist.name ?? m.common.unknownArtist}
           rounded="full"
           placeholderType="person"
         />
       </div>
-      <MarqueeText text={artist.name} class="artist-name" />
+      <MarqueeText text={artist.name ?? m.common.unknownArtist} class="artist-name" />
     </button>
   {/snippet}
 </VirtualList>

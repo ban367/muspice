@@ -61,9 +61,10 @@ pub use devices::{
 
 // トラック取得・検索・フィルタリング・一覧（アルバム・アーティスト・ジャンル）・削除
 pub use tracks::{
-    can_move_to_trash, delete_tracks_command, delete_tracks_with_files_command, get_album_tracks,
-    get_albums, get_all_tracks, get_artist_albums, get_artists, get_genre_tracks, get_genres,
-    get_unique_albums, get_unique_artists, get_unique_genres, search_tracks,
+    can_move_to_trash, delete_tracks_command, delete_tracks_with_files_command,
+    get_album_artist_albums, get_album_tracks, get_albums, get_all_tracks, get_artist_albums,
+    get_artists, get_genre_tracks, get_genres, get_unique_albums, get_unique_artists,
+    get_unique_genres, search_tracks,
 };
 
 // メタデータ編集

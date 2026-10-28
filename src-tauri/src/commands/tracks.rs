@@ -87,6 +87,18 @@ pub async fn get_artist_albums(
     state.with_db(|db| crate::repository::find_artist_albums(db, &artist))
 }
 
+/// アルバムアーティストのアルバムと曲を取得（アルバムの画面のリスト表示）
+///
+/// `artist`は、アルバムをまとめたアーティスト（`AlbumSummary`の`artist`）。
+#[tauri::command]
+#[specta::specta]
+pub async fn get_album_artist_albums(
+    artist: Option<String>,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<AlbumGroup>> {
+    state.with_db(|db| crate::repository::find_album_artist_albums(db, artist.as_deref()))
+}
+
 /// ジャンルの一覧を取得（曲は含めない）
 #[tauri::command]
 #[specta::specta]

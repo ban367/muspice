@@ -49,6 +49,8 @@ describe('followTrackInfo', () => {
   let list = $state.raw<Track[]>([]);
   /** 一覧で最後に選んだ曲のID */
   let activeId = $state<string | null>(null);
+  /** 行をクリックした時に呼ぶ関数（`followTrackInfo`が返す） */
+  let showClicked: () => void;
   let cleanup: () => void;
 
   beforeEach(() => {
@@ -59,7 +61,7 @@ describe('followTrackInfo', () => {
     ui.isRightSidebarExpanded = false;
     ui.activeRightSidebarPanel = 'queue';
     cleanup = $effect.root(() => {
-      followTrackInfo(() => list.find((track) => track.id === activeId) ?? null);
+      showClicked = followTrackInfo(() => list.find((track) => track.id === activeId) ?? null);
     });
     flushSync();
   });
@@ -75,7 +77,7 @@ describe('followTrackInfo', () => {
     ui.isRightSidebarExpanded = true;
   }
 
-  it('情報パネルを開いている間だけ、選んだ曲のアルバムを反映する（閉じている間は開かない）', () => {
+  it('クリック以外で選んだ曲は、情報パネルを開いている間だけ反映する（閉じている間は開かない）', () => {
     list = [track('t1'), track('t2', null)];
     activeId = 't1';
     flushSync();
@@ -92,6 +94,40 @@ describe('followTrackInfo', () => {
     activeId = 't2';
     flushSync();
     expect(ui.infoTarget).toEqual({ type: 'track', track: track('t2', null) });
+  });
+
+  it('クリックで選んだ曲は、情報パネルを閉じていても開いて表示し、追随で反映し直さない', () => {
+    const follow = vi.spyOn(ui, 'followInfo');
+    list = [track('t1'), track('t2')];
+    activeId = 't1';
+    showClicked();
+    flushSync();
+    expect(ui.isInfoPanelOpen).toBe(true);
+    expect(ui.infoTarget).toEqual(trackInfoTarget(track('t1')));
+    expect(follow).not.toHaveBeenCalled();
+
+    // 開いている間に別の曲をクリックした時も、すぐに入れ替える
+    activeId = 't2';
+    showClicked();
+    flushSync();
+    expect(ui.infoTarget).toEqual(trackInfoTarget(track('t2')));
+    expect(follow).not.toHaveBeenCalled();
+
+    // 閉じて開き直した時は、選んでいる曲を反映し直す（間にほかの項目に替わっていることがある）
+    ui.isRightSidebarExpanded = false;
+    flushSync();
+    ui.infoTarget = { type: 'artist', artist };
+    openInfoPanel();
+    flushSync();
+    expect(follow).toHaveBeenCalledTimes(1);
+    expect(ui.infoTarget).toEqual(trackInfoTarget(track('t2')));
+  });
+
+  it('まだ選んでいない時にクリックしても、何もしない', () => {
+    showClicked();
+    flushSync();
+    expect(ui.isRightSidebarExpanded).toBe(false);
+    expect(ui.infoTarget).toBeNull();
   });
 
   it('まだ選んでいない時・一覧から選んだ曲がなくなった時は、表示している項目を残す', () => {

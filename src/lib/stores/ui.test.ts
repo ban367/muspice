@@ -94,6 +94,7 @@ describe('情報パネル', () => {
     name: 'Album',
     sortName: null,
     artist: 'Artist',
+    artistSortName: null,
     trackCount: 10,
     totalDuration: 2400,
     representativeTrackId: 't1'
@@ -253,6 +254,7 @@ describe('trackInfoTarget', () => {
         name: 'Album',
         sortName: null,
         artist: 'Artist',
+        artistSortName: null,
         // 曲数・時間は、パネルが曲を取得するまでわからない
         trackCount: 0,
         totalDuration: 0,
@@ -264,6 +266,15 @@ describe('trackInfoTarget', () => {
     // コンピレーションは、曲のアーティストではなくアルバムアーティストでまとめる
     const target = trackInfoTarget(track({ albumArtist: 'Various Artists' }));
     expect(target.type === 'album' && target.album.artist).toBe('Various Artists');
+
+    // まとめたアーティストの読みは、アルバムの一覧と同じ規則（アルバムアーティストの読み）
+    const sorted = trackInfoTarget(
+      track({
+        albumArtist: 'Various Artists',
+        sortTags: { title: null, artist: 'あーてぃすと', album: null, albumArtist: 'ゔぁりあす' }
+      })
+    );
+    expect(sorted.type === 'album' && sorted.album.artistSortName).toBe('ゔぁりあす');
 
     // アーティストのない曲のアルバムは、アーティストなし
     const noArtist = trackInfoTarget(track({ artist: null }));

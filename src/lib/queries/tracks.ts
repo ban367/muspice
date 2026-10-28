@@ -275,6 +275,21 @@ export function useArtistAlbumsQuery(artist: string) {
 }
 
 /**
+ * アルバムアーティストのアルバムと曲を取得（アルバムの画面のリスト表示）
+ * @param artist - アルバムをまとめたアーティスト（`AlbumSummary`の`artist`）
+ */
+export function useAlbumArtistAlbumsQuery(artist: string | null) {
+  return createQuery(() => ({
+    queryKey: queryKeys.tracks.albumArtistAlbums(artist),
+    queryFn: () =>
+      withErrorToast(m.operations.fetchAlbums, async () =>
+        sortByName(await commands.getAlbumArtistAlbums(artist))
+      ),
+    ...CACHE_POLICY.detail
+  }));
+}
+
+/**
  * ジャンルの一覧を取得（曲は含まない）
  */
 export function useGenresQuery() {

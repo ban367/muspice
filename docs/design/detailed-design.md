@@ -171,7 +171,7 @@ export interface Playlist {
 - アルバムの中の曲の並びは、ディスク番号（ない場合は1） → トラック番号 → タイトルの順（`ALBUM_TRACK_ORDER`）
 - 名前の順の並び（アルバム・アーティスト・ジャンルの一覧、アーティストのアルバム、ジャンルの曲、曲の一覧のタイトル・アーティスト・アルバムでの並び替え）は、並び順に使う値（ソート用のタグ）があればその値で、なければ表示用の名前で並べる（ADR-036）
   - 比較は、フロントエンドが言語に合わせて行う（`#lib/utils/nameSort`の`Intl.Collator('ja')`。五十音順。ひらがなとカタカナ・大文字と小文字・全角と半角の違いは、ほかが同じ時の順にだけ使う）。先頭の冠詞（The など）は無視しない
-  - 一覧（`AlbumSummary`・`ArtistSummary`・`AlbumGroup`）は、並び順に使う値を`sortName`で返す。アルバムは、アルバムの曲の`album_sort`のうち最初に見つかったもの。アーティストは、まとめたアーティストの読み（アルバムアーティストでまとめた曲は`album_artist_sort`、なければ曲のアーティストが同じ名前の時の`artist_sort`。曲のアーティストでまとめた曲は`artist_sort`）のうち最初に見つかったもの
+  - 一覧（`AlbumSummary`・`ArtistSummary`・`AlbumGroup`）は、並び順に使う値を`sortName`で返す。アルバムは、アルバムの曲の`album_sort`のうち最初に見つかったもの。アーティストは、まとめたアーティストの読み（アルバムアーティストでまとめた曲は`album_artist_sort`、なければ曲のアーティストが同じ名前の時の`artist_sort`。曲のアーティストでまとめた曲は`artist_sort`）のうち最初に見つかったもの。アルバムの一覧は、まとめたアーティストの読みも同じ規則で`artistSortName`に返す（アルバムの画面のリスト表示で、アルバムアーティストを並べる。ADR-076）
   - コマンドが返す一覧の順は、Rust側で正規化（NFKC → 小文字 → カタカナをひらがなに）した値の文字コード順（代表の曲を選ぶ時の順でもある）。画面に出す順は、フロントエンドが上の比較で並べ直したもの
 
 ### 検索
@@ -197,10 +197,11 @@ export interface Playlist {
 | `get_album_tracks`                 | `album: string`, `artist: string \| null` | `Track[]`         | アルバムの曲（ディスク番号 → トラック番号 → タイトル）。`artist`には`AlbumSummary`の`artist`を渡す                                                                                                                                                                                                                                                                                   |
 | `get_artists`                      | なし                                      | `ArtistSummary[]` | アーティストの一覧（アルバムアーティストでまとめる。アルバムアーティストがなく、曲のアーティストが複数ある曲は、それぞれのアーティストに入る。名前の順）。代表の曲は、名前の順で最初のアルバムの最初の曲                                                                                                                                                                             |
 | `get_artist_albums`                | `artist: string`                          | `AlbumGroup[]`    | アルバムアーティスト（なければ、曲のアーティストのどれか）が一致する曲を、アルバムごとに返す（アルバム名順。曲ごとのアーティストが違う曲も含む）。アルバムは「アルバム名＋まとめるアーティスト」で分け、`artist`は、そのアルバムをまとめるアーティスト（複数のアーティストの曲のアルバムでは`A; B`の形。`get_album_tracks`に渡す値）。アルバムのない曲は「不明なアルバム」にまとめる |
+| `get_album_artist_albums`          | `artist: string \| null`                  | `AlbumGroup[]`    | アルバムをまとめたアーティスト（`AlbumSummary`の`artist`）が一致するアルバムと曲（アルバム名順。アルバムの画面のリスト表示）。`get_artist_albums`と違い、複数のアーティストの曲を分けず、アルバムのない曲は含めない（どのアルバムも、`get_albums`の1件と同じまとまりで1回だけ入る）。`null`は、アルバムアーティストも曲のアーティストもないアルバム                                  |
 | `get_genres`                       | なし                                      | `GenreSummary[]`  | ジャンルの一覧（名前順。ジャンルが複数ある曲は、それぞれのジャンルに入る）。代表の曲は、ジャンルの最初の曲                                                                                                                                                                                                                                                                           |
 | `get_genre_tracks`                 | `genre: string`                           | `Track[]`         | ジャンルの曲（ジャンルが複数ある曲は、そのどれかが一致する曲。アルバムをまとめるアーティスト → アルバム → アルバムの中の並び）                                                                                                                                                                                                                                                       |
 
-一覧（`AlbumSummary`・`ArtistSummary`・`GenreSummary`）は`name`・`trackCount`・`totalDuration`・`representativeTrackId`（アルバムアートの取得に使う）を持ち、曲は含まない（アルバムは`artist`と`sortName`、アーティストは`albumCount`と`sortName`も持つ）。見つからないアルバムなどの曲は、空の一覧を返す。
+一覧（`AlbumSummary`・`ArtistSummary`・`GenreSummary`）は`name`・`trackCount`・`totalDuration`・`representativeTrackId`（アルバムアートの取得に使う）を持ち、曲は含まない（アルバムは`artist`・`sortName`・`artistSortName`、アーティストは`albumCount`と`sortName`も持つ）。見つからないアルバムなどの曲は、空の一覧を返す。
 
 アルバムは名前だけでは決まらないため、フロントは`name`と`artist`の組（`#lib/utils/albumKey`の`albumKey`）で識別する。
 

@@ -721,6 +721,33 @@ describe('トラック', () => {
     expect(await commands.searchTracks('various artists')).toHaveLength(3);
   });
 
+  it('アルバムアーティストのアルバムは、アルバムの一覧の1件と同じまとまりで、まとめたアーティストの下に入る', async () => {
+    const albums = await commands.getAlbums();
+    // どのアルバムも、まとめたアーティストのアルバムに1回だけ入る（アルバムのない曲は含めない）
+    const artists = [...new Set(albums.map((album) => album.artist))];
+    const groups = (
+      await Promise.all(artists.map((artist) => commands.getAlbumArtistAlbums(artist)))
+    ).flat();
+    expect(groups.map((group) => [group.name, group.artist]).sort()).toEqual(
+      albums.map((album) => [album.name, album.artist]).sort()
+    );
+    expect(groups.map((group) => group.name)).not.toContain('不明なアルバム');
+
+    // コンピレーションは、アルバムアーティストの下だけに入る（参加アーティストの下には入らない）
+    const various = await commands.getAlbumArtistAlbums('Various Artists');
+    expect(various.map((album) => album.name)).toEqual(['City Nights Collection']);
+    expect(various[0].tracks.map((t) => t.artist)).toEqual([
+      'ネオン通り',
+      'Aoi Sora',
+      'Mika Hayashi'
+    ]);
+    expect(
+      (await commands.getAlbumArtistAlbums('Aoi Sora')).map((album) => album.name)
+    ).not.toContain('City Nights Collection');
+    // アルバムの曲の一覧には、まとめたアーティストの読みを含めない（Rustの`AlbumGroup`と同じ）
+    expect(various[0]).not.toHaveProperty('artistSortName');
+  });
+
   it('アーティストのアルバムでは、アルバム未設定のトラックを「不明なアルバム」にまとめる', async () => {
     const artist = (await commands.getArtists()).find((a) => a.name === 'The Voltage');
     const albums = await commands.getArtistAlbums('The Voltage');
@@ -761,6 +788,15 @@ describe('トラック', () => {
       (await commands.getAlbumTracks(track.album!, 'Duo One; Duo Two')).map((t) => t.id)
     ).toEqual([track.id]);
     expect(await commands.getArtistAlbums('Duo One; Duo Two')).toEqual([]);
+    // アルバムアーティストのアルバムは、つないだ文字列で取得する（それぞれのアーティストでは取得しない）
+    const duo = await commands.getAlbumArtistAlbums('Duo One; Duo Two');
+    expect(duo.map((album) => album.tracks.map((t) => t.id))).toEqual([[track.id]]);
+    expect(await commands.getAlbumArtistAlbums('Duo Two')).toEqual([]);
+    // アルバムの一覧には、まとめたアーティストの読みを入れる
+    const duoAlbum = (await commands.getAlbums()).find(
+      (album) => album.artist === 'Duo One; Duo Two'
+    );
+    expect(duoAlbum?.artistSortName).toBe('でゅお わん; でゅお つー');
 
     // ジャンル
     const genres = (await commands.getGenres()).map((genre) => genre.name);
