@@ -300,20 +300,23 @@ export const en: Messages = {
   },
 
   rightSidebar: {
-    queueTitle: 'Queue (Q)',
+    queueTitle: 'Queue',
     openQueue: 'Open the queue',
-    equalizerTitle: 'Equalizer (E)',
-    openEqualizer: 'Open the equalizer',
+    soundTitle: 'Sound',
+    openSound: 'Open sound settings',
     albumInfoTitle: 'Album Info',
     openAlbumInfo: 'Open album info',
     trackInfoTitle: 'Track Info',
     openTrackInfo: 'Open track info',
     pin: 'Pin the sidebar',
     unpin: 'Unpin',
-    queue: 'Queue',
     clear: 'Clear',
+    clearQueue: 'Clear the queue',
     clearConfirm: 'Clear the queue? The current track will also stop.',
     nowPlaying: 'Now Playing',
+    selectedTrack: 'Selected Track',
+    nothingPlaying: 'Nothing playing',
+    nothingSelected: 'No track selected',
     upNext: (count) => `Up Next (${plural(count, 'track', 'tracks')})`,
     removeFromQueue: 'Remove from queue',
     noUpcoming: 'No other tracks in the queue',
@@ -324,7 +327,8 @@ export const en: Messages = {
   },
 
   albumInfo: {
-    empty: 'Play a track to see its details and album here',
+    album: 'Album',
+    empty: 'Play a track to see its album here',
     noAlbum: 'This track has no album information',
     notFound:
       'No tracks found. They may have been removed from the library, or their tags may have changed'
@@ -332,7 +336,7 @@ export const en: Messages = {
 
   trackInfo: {
     empty: 'Select a track to see its details here',
-    othersSelected: (count: number) => `${count} more selected`,
+    othersSelected: (count: number) => `${count} more`,
     tags: 'Tags',
     file: 'File',
     history: 'Play History'
@@ -383,6 +387,7 @@ export const en: Messages = {
     turnOff: 'Turn off the equalizer',
     turnOn: 'Turn on the equalizer',
     custom: 'Custom',
+    preset: 'Preset',
     builtIn: 'Built-in',
     presets: {
       flat: 'Flat',
@@ -399,7 +404,7 @@ export const en: Messages = {
     savePresetHint: 'Change the preset to save it',
     reset: 'Reset',
     resetLabel: 'Reset the equalizer',
-    presetNamePlaceholder: 'Preset name',
+    presetName: 'Preset name',
     deletePreset: 'Delete preset',
     confirmDeletePreset: (name) => `Delete "${name}"?`
   },

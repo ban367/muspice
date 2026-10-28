@@ -100,7 +100,7 @@ describe('右サイドバーの固定', () => {
     const ui = await importFreshUi();
     expect(ui.isRightSidebarDocked).toBe(false);
 
-    for (const panel of ['queue', 'equalizer', 'album', 'track'] as const) {
+    for (const panel of ['queue', 'sound', 'album', 'track'] as const) {
       ui.activeRightSidebarPanel = panel;
       ui.isRightSidebarPinned = false;
       ui.isRightSidebarExpanded = true;
