@@ -59,7 +59,7 @@ mod tests {
 
         let trashed = move_to_trash(&file)
             .unwrap()
-            .expect("ゴミ箱の中の場所が分かるはず");
+            .expect("the location in the trash should be known");
 
         assert!(!file.exists());
         assert_eq!(std::fs::read(&trashed).unwrap(), b"trash me");

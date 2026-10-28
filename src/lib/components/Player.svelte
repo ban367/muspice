@@ -63,7 +63,7 @@
     const listening = events.playbackControl.listen((event) =>
       handlePlaybackControl(event.payload)
     );
-    listening.catch((error) => console.error('再生の操作を購読できません:', error));
+    listening.catch((error) => console.error('Failed to subscribe to playback controls:', error));
 
     return () => {
       stopListening(listening);

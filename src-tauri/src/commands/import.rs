@@ -411,7 +411,7 @@ pub(crate) fn import_and_notify(
         copy,
         &|progress| {
             if let Err(e) = progress.emit(app_handle) {
-                log::warn!("進捗イベントの送信に失敗しました: {}", e);
+                log::warn!("Failed to emit progress event: {}", e);
             }
         },
     )?;
@@ -423,7 +423,7 @@ pub(crate) fn import_and_notify(
             .refresh_watches(app_handle);
         // 曲の一覧と、設定ウィンドウのライブラリフォルダの一覧に反映させる
         if let Err(e) = LibraryChanged.emit(app_handle) {
-            log::warn!("ライブラリの変更の通知に失敗しました: {}", e);
+            log::warn!("Failed to emit library change event: {}", e);
         }
     }
     Ok(run)
@@ -936,7 +936,7 @@ fn copy_and_register<'a>(
             registered.push(planned);
         }
         log::info!(
-            "音楽フォルダへのコピー: {}/{} ファイル処理完了",
+            "Copying to music folder: {}/{} files processed",
             processed,
             total
         );
@@ -1018,7 +1018,7 @@ fn import_scanned_folder(
         // 記録に失敗してもインポート自体は成功しているため、結果は返す
         FolderRegistration::IfTracksFound if !audio_files.is_empty() => {
             register().unwrap_or_else(|e| {
-                log::error!("ライブラリフォルダの記録に失敗しました: {}", e);
+                log::error!("Failed to record library folder: {}", e);
                 None
             })
         }
@@ -1167,7 +1167,7 @@ fn import_audio_files(
 
         // 進行状況をログ出力
         log::info!(
-            "インポート進行状況: {}/{} ファイル処理完了",
+            "Import progress: {}/{} files processed",
             processed_count,
             total_files
         );

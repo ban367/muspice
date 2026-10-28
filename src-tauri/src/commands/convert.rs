@@ -244,7 +244,7 @@ pub async fn convert_tracks(
             export_folder.as_deref(),
             &|progress| {
                 if let Err(e) = progress.emit(&app) {
-                    log::warn!("変換の進捗イベントの送信に失敗しました: {}", e);
+                    log::warn!("Failed to emit conversion progress event: {}", e);
                 }
             },
         )?;
@@ -256,15 +256,15 @@ pub async fn convert_tracks(
             let targets = ImportTargets::from_paths(&outputs);
             match import_targets(state.inner(), &targets, DuplicateAction::Skip, &|_| {}) {
                 Ok(imported) => library_changed |= imported.imported_count > 0,
-                Err(e) => log::warn!("書き出した曲を、ライブラリに加えられませんでした: {}", e),
+                Err(e) => log::warn!("Failed to add converted tracks to the library: {}", e),
             }
         }
         if library_changed && let Err(e) = LibraryChanged.emit(&app) {
-            log::warn!("ライブラリの変更の通知に失敗しました: {}", e);
+            log::warn!("Failed to emit library change event: {}", e);
         }
 
         log::info!(
-            "形式を変換しました: 変換={}, 変換しない={}, 失敗={}, 中断={}",
+            "Converted formats: converted={}, skipped={}, failed={}, cancelled={}",
             result.converted_count,
             result.skipped_count,
             result.failed_count,
@@ -456,7 +456,7 @@ impl ConvertJob<'_> {
                 .is_some_and(|trashed| move_no_replace(trashed, &planned.source).is_ok());
             if !restored {
                 log::error!(
-                    "元のファイルを、ゴミ箱から戻せませんでした: {}",
+                    "Failed to restore the original file from the trash: {}",
                     planned.source.display()
                 );
             }

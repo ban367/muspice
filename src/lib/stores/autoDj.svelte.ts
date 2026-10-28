@@ -65,7 +65,7 @@ export function watchAutoDj(options: AutoDjOptions): () => void {
       if (picked.length > 0) addToQueue(picked);
     } catch (error) {
       // 足せなくても、再生は続ける（キューの終わりで止まる）
-      console.error('Auto DJの曲の取得に失敗しました:', error);
+      console.error('Failed to fetch Auto DJ tracks:', error);
     } finally {
       isFilling = false;
     }

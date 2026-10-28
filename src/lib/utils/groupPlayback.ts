@@ -23,6 +23,6 @@ export async function playGroup(
     const tracks = await fetchGroupTracks(queryClient, type, name, albumArtist);
     playNow(tracks);
   } catch (error) {
-    console.error('曲の取得に失敗しました:', error);
+    console.error('Failed to fetch tracks:', error);
   }
 }

@@ -293,11 +293,7 @@ pub fn copy_files(planned: &PlannedCopy, buffer: &mut [u8]) -> AppResult<CopiedF
 pub fn remove_copy(planned: &PlannedCopy, lyrics_copied: bool, music_folder: &Path) {
     let remove = |path: &Path| {
         if let Err(e) = fs::remove_file(path) {
-            log::error!(
-                "コピーしたファイルを消せませんでした: {}: {}",
-                path.display(),
-                e
-            );
+            log::error!("Failed to delete copied file: {}: {}", path.display(), e);
         }
     };
     remove(&planned.target);
@@ -358,11 +354,7 @@ pub fn copy_folder_images(copied: &[&PlannedCopy], buffer: &mut [u8]) {
                 continue;
             };
             if let Err(e) = copy_no_replace(image, &to_dir.join(name), buffer) {
-                log::info!(
-                    "フォルダの画像をコピーしませんでした: {}: {}",
-                    image.display(),
-                    e
-                );
+                log::info!("Did not copy folder image: {}: {}", image.display(), e);
             }
         }
     }

@@ -110,19 +110,19 @@ pub fn open_paths(app: &AppHandle, paths: Vec<PathBuf>) {
         .spawn(move || {
             let (tracks, errors) = import_and_find(&app, &paths);
             log::info!(
-                "開かれたファイル: {}曲を再生します（エラー{}件）",
+                "Opened files: playing {} tracks ({} errors)",
                 tracks.len(),
                 errors.len()
             );
             app.state::<OpenedFilesState>().add(tracks, errors);
             if let Err(e) = TracksOpened.emit(&app) {
-                log::warn!("開かれたファイルの通知に失敗しました: {}", e);
+                log::warn!("Failed to emit opened files event: {}", e);
             }
             // メニューバーに常駐して隠れている・最小化している場合も、ウィンドウを出す
             crate::tray::show_main_window(&app);
         });
     if let Err(e) = spawned {
-        log::error!("開かれたファイルを処理できません: {}", e);
+        log::error!("Cannot process opened files: {}", e);
     }
 }
 
@@ -162,7 +162,7 @@ fn import_and_find(app: &AppHandle, paths: &[PathBuf]) -> (Vec<Track>, Vec<Strin
         .state::<AppState>()
         .with_db(|db| crate::repository::find_tracks_by_file_paths(db, &file_paths))
         .unwrap_or_else(|e| {
-            log::error!("開かれたファイルの曲を取得できません: {}", e);
+            log::error!("Cannot get tracks for opened files: {}", e);
             Vec::new()
         });
     (tracks, errors)

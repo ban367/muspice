@@ -156,7 +156,7 @@ pub async fn set_music_folder(
 
         let change = change_music_folder(state.inner(), &folder, &|progress| {
             if let Err(e) = progress.emit(&app_handle) {
-                log::warn!("進捗イベントの送信に失敗しました: {}", e);
+                log::warn!("Failed to emit progress event: {}", e);
             }
         })?;
         if matches!(change, MusicFolderChange::Set { .. }) {

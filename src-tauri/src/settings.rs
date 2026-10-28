@@ -238,7 +238,7 @@ pub fn load_settings(path: &Path) -> Settings {
         Ok(json) => json,
         Err(e) if e.kind() == ErrorKind::NotFound => return Settings::default(),
         Err(e) => {
-            log::warn!("設定ファイルを読み込めませんでした: {}", e);
+            log::warn!("Failed to read the settings file: {}", e);
             return Settings::default();
         }
     };
@@ -246,11 +246,14 @@ pub fn load_settings(path: &Path) -> Settings {
     match parse_with_defaults(&json) {
         Ok(settings) if validate_settings(&settings).is_ok() => settings,
         Ok(_) => {
-            log::warn!("設定ファイルの値が不正なため既定値を使います");
+            log::warn!("Using default settings because the settings file contains invalid values");
             Settings::default()
         }
         Err(e) => {
-            log::warn!("設定ファイルを解析できないため既定値を使います: {}", e);
+            log::warn!(
+                "Using default settings because the settings file cannot be parsed: {}",
+                e
+            );
             Settings::default()
         }
     }
@@ -276,7 +279,10 @@ fn parse_with_defaults(json: &str) -> serde_json::Result<Settings> {
             if is_readable_value(&defaults, &key, &value) {
                 merged.insert(key, value);
             } else {
-                log::warn!("設定の{}の値を読めないため、既定値を使います", key);
+                log::warn!(
+                    "Using the default for setting {} because its value cannot be read",
+                    key
+                );
             }
         }
     }

@@ -224,15 +224,15 @@ pub fn apply_language<R: Runtime>(app: &AppHandle<R>, language: Language) {
     match build_menu(app, language) {
         Ok(menu) => {
             if let Err(e) = app.set_menu(menu) {
-                log::error!("メニューバーを作り直せませんでした: {}", e);
+                log::error!("Failed to rebuild the menu bar: {}", e);
             }
         }
-        Err(e) => log::error!("メニューバーを作れませんでした: {}", e),
+        Err(e) => log::error!("Failed to build the menu bar: {}", e),
     }
     if let Some(window) = app.get_webview_window(SETTINGS_WINDOW)
         && let Err(e) = window.set_title(settings_window_title(language))
     {
-        log::warn!("設定ウィンドウのタイトルを変えられませんでした: {}", e);
+        log::warn!("Failed to change the settings window title: {}", e);
     }
 }
 

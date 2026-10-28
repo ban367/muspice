@@ -400,7 +400,7 @@ export async function recordPlay(trackId: string, queryClient?: QueryClient): Pr
     void queryClient.invalidateQueries({ queryKey: queryKeys.playHistory });
     void queryClient.invalidateQueries({ queryKey: queryKeys.tracks.mostPlayedAll });
   } catch (error) {
-    console.debug('再生回数の記録に失敗しました:', error);
+    console.debug('Failed to record play count:', error);
   }
 }
 
@@ -415,7 +415,7 @@ export async function recordSkip(trackId: string, queryClient?: QueryClient): Pr
     const skipCount = await commands.incrementSkipCount(trackId);
     if (queryClient) patchTrackInCache(queryClient, trackId, { skipCount });
   } catch (error) {
-    console.debug('スキップ回数の記録に失敗しました:', error);
+    console.debug('Failed to record skip count:', error);
   }
 }
 

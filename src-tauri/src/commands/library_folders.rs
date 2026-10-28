@@ -320,7 +320,7 @@ pub async fn relocate_library_folder(
             relocate_folder_paths(state.inner(), &folder_id, &held.path)?
         };
         log::info!(
-            "ライブラリフォルダを付け替えました: {} 曲={}",
+            "Relocated library folder: {} tracks={}",
             held.path,
             relocated_count
         );
@@ -709,7 +709,7 @@ pub(crate) fn rescan_folder(
 
     // 失敗した場合も、それまでに書き込んだバッチはライブラリに反映されているため、通知する
     log::info!(
-        "ライブラリフォルダを再スキャンしました: {} 追加={}, 更新={}, 移動={}, 見つからない={}, 見つかった={}, エラー={}",
+        "Rescanned library folder: {} added={}, updated={}, relinked={}, missing={}, restored={}, errors={}",
         folder.path,
         result.added_count,
         result.updated_count,
@@ -833,7 +833,7 @@ fn read_and_write_tracks(
                         .to_string(),
                 };
                 if let Err(e) = event.emit(app_handle) {
-                    log::warn!("再スキャンの進捗イベントの送信に失敗しました: {}", e);
+                    log::warn!("Failed to emit rescan progress event: {}", e);
                 }
             }
 
@@ -908,7 +908,7 @@ fn read_and_write_tracks(
 /// ライブラリが変わったことを他のウィンドウに知らせる
 pub(super) fn notify_library_changed(app_handle: &AppHandle) {
     if let Err(e) = LibraryChanged.emit(app_handle) {
-        log::warn!("ライブラリの変更の通知に失敗しました: {}", e);
+        log::warn!("Failed to emit library change event: {}", e);
     }
 }
 

@@ -61,7 +61,7 @@ impl MacBackend {
 impl Backend for MacBackend {
     fn set_now_playing(&self, now_playing: Option<NowPlaying>) {
         if let Err(e) = self.app.run_on_main_thread(move || apply(now_playing)) {
-            log::warn!("Now Playingを更新できません: {}", e);
+            log::warn!("Cannot update Now Playing: {}", e);
         }
     }
 }

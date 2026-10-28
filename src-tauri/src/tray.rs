@@ -203,7 +203,7 @@ pub fn apply<R: Runtime>(app: &AppHandle<R>, enabled: bool, language: Language) 
     let handle = app.clone();
     if let Err(e) = app.run_on_main_thread(move || apply_on_main_thread(&handle, enabled, language))
     {
-        log::error!("メニューバーのアイコンを切り替えられませんでした: {}", e);
+        log::error!("Failed to toggle the tray icon: {}", e);
     }
 }
 
@@ -216,7 +216,7 @@ fn apply_on_main_thread<R: Runtime>(app: &AppHandle<R>, enabled: bool, language:
     // 作り直す場合も、いったん消す（メニューの文言を、今の言語にする）
     if active.take().is_some() {
         let _ = app.remove_tray_by_id(TRAY_ID);
-        log::info!("メニューバーのアイコンを消しました");
+        log::info!("Removed the tray icon");
     }
     if !enabled {
         return;
@@ -245,9 +245,9 @@ fn apply_on_main_thread<R: Runtime>(app: &AppHandle<R>, enabled: bool, language:
     match built {
         Ok(tray) => {
             *active = Some(tray);
-            log::info!("メニューバーのアイコンを表示しました");
+            log::info!("Showed the tray icon");
         }
-        Err(e) => log::error!("メニューバーのアイコンを作れませんでした: {}", e),
+        Err(e) => log::error!("Failed to create the tray icon: {}", e),
     }
 }
 
@@ -269,7 +269,7 @@ pub fn set_now_playing<R: Runtime>(app: &AppHandle<R>, now_playing: Option<TrayN
 
     let handle = app.clone();
     if let Err(e) = app.run_on_main_thread(move || refresh_menu_on_main_thread(&handle)) {
-        log::warn!("メニューバーのメニューを更新できませんでした: {}", e);
+        log::warn!("Failed to update the tray menu: {}", e);
     }
 }
 
@@ -330,7 +330,7 @@ pub fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, id: &str) -> bool {
         _ => return false,
     };
     if let Err(e) = control.emit(app) {
-        log::warn!("再生の操作を送れませんでした: {}", e);
+        log::warn!("Failed to send playback control: {}", e);
     }
     true
 }

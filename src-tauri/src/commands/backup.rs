@@ -173,7 +173,7 @@ fn save_backup(app: &AppHandle, path: &Path) -> AppResult<BackupSaved> {
         .with_db(|db| write_backup(db, path, &meta))?;
     let info = inspect_backup(path)
         .map_err(|_| AppError::Io("保存したバックアップを読めません".to_string()))?;
-    log::info!("バックアップを保存しました: {}", path.display());
+    log::info!("Saved backup: {}", path.display());
     Ok(BackupSaved {
         path: path.to_string_lossy().into_owned(),
         track_count: info.track_count,
@@ -294,11 +294,14 @@ pub async fn restore_library_backup(app_handle: AppHandle) -> AppResult<()> {
                     &meta,
                 )
             })?;
-            log::info!("復元する前のライブラリを退避しました: {}", saved.display());
+            log::info!(
+                "Moved the current library aside before restoring: {}",
+                saved.display()
+            );
             stage_restore(&source, &app_data)?;
         }
         log::info!(
-            "バックアップからの復元を用意しました。再起動します: {}",
+            "Prepared restore from backup; restarting: {}",
             source.display()
         );
         app_handle.request_restart();

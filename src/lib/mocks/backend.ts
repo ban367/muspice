@@ -2811,7 +2811,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     },
     showInFolder: (trackId) => {
       validateTrackId(trackId);
-      console.info(`[mock] ファイルマネージャーで表示: ${findTrack(trackId).filePath}`);
+      console.info(`[mock] Reveal in file manager: ${findTrack(trackId).filePath}`);
       return null;
     },
     getSettings: () => settings,
@@ -2870,7 +2870,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       return null;
     },
     openProjectPage: () => {
-      console.info('[mock] プロジェクトのページを開く操作は無視しました');
+      console.info('[mock] Ignored opening the project page');
       return null;
     },
     setFavorite: (trackIds, favorite) => {

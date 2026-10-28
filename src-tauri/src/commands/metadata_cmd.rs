@@ -381,7 +381,7 @@ fn refresh_library_metadata_blocking(state: &AppState) -> AppResult<RefreshMetad
     let tracks = state.with_db(|db| crate::repository::find_track_paths(db))?;
 
     let total_tracks = tracks.len();
-    log::info!("メタデータ更新を開始: {} トラック", total_tracks);
+    log::info!("Starting metadata update: {} tracks", total_tracks);
 
     // バッチ処理で更新
     //
@@ -435,14 +435,14 @@ fn refresh_library_metadata_blocking(state: &AppState) -> AppResult<RefreshMetad
 
         let processed = batch_idx * BATCH_SIZE + chunk.len();
         log::info!(
-            "メタデータ更新進行状況: {}/{} トラック処理完了",
+            "Metadata update progress: {}/{} tracks processed",
             processed,
             total_tracks
         );
     }
 
     log::info!(
-        "メタデータ更新完了: 更新={}, スキップ={}, エラー={}",
+        "Metadata update finished: updated={}, skipped={}, errors={}",
         updated_count,
         skipped_count,
         error_count
@@ -550,7 +550,7 @@ pub async fn write_library_metadata_to_files(app: AppHandle) -> AppResult<WriteM
         };
         // 他のウィンドウの一覧にも反映させる
         if let Err(e) = LibraryChanged.emit(&app) {
-            log::warn!("ライブラリの変更の通知に失敗しました: {}", e);
+            log::warn!("Failed to emit library change event: {}", e);
         }
         Ok(result)
     })
@@ -561,7 +561,7 @@ pub async fn write_library_metadata_to_files(app: AppHandle) -> AppResult<WriteM
 fn write_library_metadata_blocking(state: &AppState) -> AppResult<WriteMetadataResult> {
     let mut result = WriteMetadataResult::default();
     let tracks = state.with_db(|db| crate::repository::find_all_track_tag_values(db))?;
-    log::info!("メタデータの書き出しを開始: {} トラック", tracks.len());
+    log::info!("Starting metadata write: {} tracks", tracks.len());
 
     for chunk in tracks.chunks(BATCH_SIZE) {
         // 1. ロック外: ファイルと比べ、違う値を書き込んで読み直す
@@ -612,7 +612,7 @@ fn write_library_metadata_blocking(state: &AppState) -> AppResult<WriteMetadataR
     }
 
     log::info!(
-        "メタデータの書き出し完了: 書き込み={}, 変更なし={}, スキップ={}, エラー={}",
+        "Metadata write finished: written={}, unchanged={}, skipped={}, errors={}",
         result.written_count,
         result.unchanged_count,
         result.skipped_count,

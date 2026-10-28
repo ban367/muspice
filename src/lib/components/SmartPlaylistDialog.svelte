@@ -126,7 +126,7 @@
       onClose();
     } catch (error) {
       // 失敗はトーストで通知される。画面は閉じずに、入力を残す
-      console.error('自動プレイリストの保存に失敗しました:', error);
+      console.error('Failed to save smart playlist:', error);
     }
   }
 </script>

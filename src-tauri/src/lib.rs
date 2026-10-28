@@ -327,7 +327,7 @@ pub fn run() {
     #[cfg(debug_assertions)]
     builder
         .export(typescript_exporter(), bindings_path())
-        .expect("TypeScriptバインディングのエクスポートに失敗しました");
+        .expect("Failed to export TypeScript bindings");
 
     // WebViewに公開するプラグインはdialogのみ。ファイルアクセスやURL/フォルダを開く処理は
     // Rust側のコマンドで行い、WebViewから任意のパスやURLを扱えないようにする
@@ -354,28 +354,28 @@ pub fn run() {
             let app_data_dir = app
                 .path()
                 .app_data_dir()
-                .expect("アプリケーションデータディレクトリの取得に失敗しました");
+                .expect("Failed to get the app data directory");
 
             // ディレクトリが存在しない場合は作成
             std::fs::create_dir_all(&app_data_dir)
-                .expect("アプリケーションデータディレクトリの作成に失敗しました");
+                .expect("Failed to create the app data directory");
 
-            log::info!("アプリケーションを起動しました");
+            log::info!("Application started");
 
             // バックアップからの復元を用意してあれば、DBと設定を開く前に置き換える（ADR-073）
             match backup::apply_staged_restore(&app_data_dir) {
-                Ok(true) => log::info!("バックアップからライブラリのデータを復元しました"),
+                Ok(true) => log::info!("Restored library data from backup"),
                 Ok(false) => {}
-                Err(e) => log::error!("バックアップからの復元に失敗しました: {}", e),
+                Err(e) => log::error!("Failed to restore from backup: {}", e),
             }
 
             // データベースファイルのパスを設定
             let db_path: PathBuf = app_data_dir.join("muspice.db");
 
             // データベースを初期化
-            let conn = db::init_db(db_path).expect("データベースの初期化に失敗しました");
+            let conn = db::init_db(db_path).expect("Failed to initialize the database");
 
-            log::info!("データベースを初期化しました");
+            log::info!("Database initialized");
 
             // アプリケーション状態を作成して管理
             let app_state = AppState::new(conn);
@@ -417,7 +417,7 @@ pub fn run() {
                 playback_options,
                 move |event| {
                     if let Err(e) = event.emit(&playback_events) {
-                        log::warn!("再生エンジンの通知を送れません: {}", e);
+                        log::warn!("Cannot emit playback engine event: {}", e);
                     }
                 },
             ));
@@ -457,7 +457,7 @@ pub fn run() {
             let menu = menu::build_menu(app.handle(), menu::current_language(app.handle()))?;
             app.set_menu(menu)?;
 
-            log::info!("メニューバーを初期化しました");
+            log::info!("Menu bar initialized");
 
             Ok(())
         })
@@ -536,7 +536,7 @@ pub fn run() {
             }
         })
         .build(tauri::generate_context!())
-        .expect("Tauriアプリケーションの構築に失敗しました")
+        .expect("Failed to build the Tauri application")
         .run(|app, event| {
             #[cfg(target_os = "macos")]
             match event {
@@ -569,6 +569,6 @@ mod tests {
     fn export_typescript_bindings() {
         super::specta_builder()
             .export(super::typescript_exporter(), super::bindings_path())
-            .expect("TypeScriptバインディングのエクスポートに失敗しました");
+            .expect("Failed to export TypeScript bindings");
     }
 }

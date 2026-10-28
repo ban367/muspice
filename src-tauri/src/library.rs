@@ -304,7 +304,7 @@ fn scan_entries(
     scanned: &mut ScannedFolder,
 ) {
     let mark_unreadable = |scanned: &mut ScannedFolder, dir: &Path, e: std::io::Error| {
-        log::warn!("フォルダを読み取れませんでした: {}: {}", dir.display(), e);
+        log::warn!("Failed to read folder: {}: {}", dir.display(), e);
         if !scanned.is_in_unreadable_dir(dir) {
             scanned.unreadable_dirs.push(dir.to_path_buf());
         }
@@ -329,7 +329,7 @@ fn scan_entries(
             Some(EntryKind::Dir { real_path }) => {
                 if ancestors.contains(&real_path) {
                     log::warn!(
-                        "たどっている途中のフォルダへ戻るリンクのため、たどりません: {}",
+                        "Skipping link back to a folder already being traversed: {}",
                         path.display()
                     );
                     continue;
@@ -556,7 +556,7 @@ fn restore_discarded_files(discarded: &[DiscardedTrack]) {
         if let Err(e) = crate::file_organize::move_no_replace(trashed, Path::new(&track.file_path))
         {
             log::error!(
-                "ファイルを、ゴミ箱から戻せませんでした: {}: {}",
+                "Failed to restore file from the trash: {}: {}",
                 track.file_path,
                 e
             );

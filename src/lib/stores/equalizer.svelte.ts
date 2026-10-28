@@ -228,7 +228,7 @@ function loadSettings(): EqualizerSettings {
     }
   } catch (error) {
     // localStorageが使えない・パースエラー時はデフォルト値を使用
-    console.warn('イコライザ設定の読み込みに失敗しました:', error);
+    console.warn('Failed to load equalizer settings:', error);
   }
   return { ...DEFAULT_SETTINGS };
 }
@@ -239,7 +239,7 @@ function saveSettings(settings: EqualizerSettings): void {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
   } catch (error) {
     // 保存エラーをログに記録（プライベートブラウジングモードや容量制限など）
-    console.warn('イコライザ設定の保存に失敗しました:', error);
+    console.warn('Failed to save equalizer settings:', error);
   }
 }
 

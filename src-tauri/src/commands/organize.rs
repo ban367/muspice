@@ -245,7 +245,7 @@ pub async fn organize_files(
                 cancel: &organize.cancel,
                 on_progress: &|progress| {
                     if let Err(e) = progress.emit(&app) {
-                        log::warn!("整理の進捗イベントの送信に失敗しました: {}", e);
+                        log::warn!("Failed to emit organize progress event: {}", e);
                     }
                 },
                 discard: &crate::library::discard_track_file,
@@ -257,7 +257,7 @@ pub async fn organize_files(
                 cache.clear();
             }
             if let Err(e) = LibraryChanged.emit(&app) {
-                log::warn!("ライブラリの変更の通知に失敗しました: {}", e);
+                log::warn!("Failed to emit library change event: {}", e);
             }
         }
         Ok(result)
@@ -304,7 +304,7 @@ pub(super) fn keep_music_folder_organized(
         Ok(settings) if settings.keep_music_folder_organized => settings,
         Ok(_) => return None,
         Err(e) => {
-            log::error!("音楽フォルダの整理の設定を読めませんでした: {}", e);
+            log::error!("Failed to read music folder organize settings: {}", e);
             return None;
         }
     };
@@ -313,7 +313,7 @@ pub(super) fn keep_music_folder_organized(
         Ok(Some(folder)) => PathBuf::from(folder.path),
         Ok(None) => return None,
         Err(e) => {
-            log::error!("音楽フォルダを読めませんでした: {}", e);
+            log::error!("Failed to read music folder: {}", e);
             return None;
         }
     };
@@ -323,7 +323,7 @@ pub(super) fn keep_music_folder_organized(
     let template = match Template::parse(&settings.music_folder_template) {
         Ok(template) => template,
         Err(e) => {
-            log::error!("音楽フォルダの書式を読めませんでした: {}", e);
+            log::error!("Failed to parse music folder template: {}", e);
             return None;
         }
     };
@@ -337,7 +337,7 @@ pub(super) fn keep_music_folder_organized(
             cache.clear();
         }
         if let Err(e) = LibraryChanged.emit(app) {
-            log::warn!("ライブラリの変更の通知に失敗しました: {}", e);
+            log::warn!("Failed to emit library change event: {}", e);
         }
     }
     result
@@ -354,7 +354,7 @@ fn organize_saved_tracks(
     let paths = match state.with_db(|db| crate::repository::find_tracks_by_ids(db, track_ids)) {
         Ok(tracks) => tracks,
         Err(e) => {
-            log::error!("整理し直す曲を読めませんでした: {}", e);
+            log::error!("Failed to read tracks to reorganize: {}", e);
             return None;
         }
     };
@@ -393,7 +393,7 @@ fn organize_saved_tracks(
             errors: result.errors,
         },
         Err(e) => {
-            log::error!("音楽フォルダの曲を整理し直せませんでした: {}", e);
+            log::error!("Failed to reorganize tracks in the music folder: {}", e);
             KeepOrganizedResult {
                 moved_count: 0,
                 not_moved_count: to_count(inside.len()).unwrap_or(u32::MAX),
@@ -568,7 +568,7 @@ fn execute_plan(
     result.moved_count = to_count(moved.len())?;
 
     log::info!(
-        "ファイルを整理しました: 移動={}, 動かさない={}, 失敗={}, 中止={}",
+        "Organized files: moved={}, skipped={}, failed={}, cancelled={}",
         result.moved_count,
         result.skipped_count,
         result.failed_count,

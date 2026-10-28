@@ -53,7 +53,7 @@ pub fn start(app: &AppHandle) {
                 Ok(result) if result.read_count == 0 && result.failed_count == 0 => {}
                 Ok(result) => {
                     log::info!(
-                        "既存のトラックのアルバムアーティスト・ソート用のタグを読み込みました（読み込み: {}曲、タグあり: {}曲、読めなかったファイル: {}曲）",
+                        "Backfilled album artist and sort tags for existing tracks (read: {}, with tags: {}, unreadable: {})",
                         result.read_count,
                         result.found_count,
                         result.failed_count
@@ -63,14 +63,11 @@ pub fn start(app: &AppHandle) {
                         let _ = LibraryChanged.emit(&app);
                     }
                 }
-                Err(e) => log::error!("既存のトラックのタグの読み込みに失敗しました: {}", e),
+                Err(e) => log::error!("Failed to backfill tags for existing tracks: {}", e),
             }
         });
     if let Err(e) = spawned {
-        log::error!(
-            "既存のトラックのタグの読み込みのスレッドを開始できません: {}",
-            e
-        );
+        log::error!("Cannot start the tag backfill thread: {}", e);
     }
 }
 

@@ -94,7 +94,7 @@
       await deletePlaylistMutation.mutateAsync(selectedPlaylist.id);
       goto(resolve('playlists'));
     } catch (error) {
-      console.error('プレイリストの削除に失敗しました:', error);
+      console.error('Failed to delete playlist:', error);
     }
   }
 
@@ -130,7 +130,7 @@
         trackIds: newOrder
       });
     } catch (error) {
-      console.error('トラックの並び替えに失敗しました:', error);
+      console.error('Failed to reorder tracks:', error);
     }
   }
 

@@ -257,7 +257,7 @@ src-tauri/src/
 
 - 画面に表示する文言は、コンポーネントに直接書かず`src/lib/i18n/messages/ja.ts`（正）と`en.ts`に定義し、`#lib/i18n/i18n.svelte`の`m`から読む（例: `m.common.cancel`、`m.common.trackCount(3)`）。英語は`Messages`型（`typeof ja`）にするため、キーの過不足は型チェックで分かる
   - 引数のある文言は関数にし、語順や単数形・複数形は言語ごとの関数で決める（文字列をつなげて文を作らない）
-  - コンソールのログ（`console.*`）・Rustのログは日本語のまま（利用者に表示しない）
+  - コンソールのログ（`console.*`）・Rustのログは英語で書き、言語の設定では切り替えない（利用者に表示しない）
 - `m`は読むたびに今の言語のメッセージを返す。テンプレート・`$derived`・イベント処理の中で読む。スクリプトの初期化時に文字列として取り出すと、言語を切り替えても変わらない（選択肢は値の配列にして、ラベルをテンプレートで`m`から読む。propsの既定値に文言を書かず、テンプレートで`??`で補う）
   - 項目の名前は、項目のIDから表示名への対応表をコンポーネントに作らず、`m.fields[id]`をテンプレートで読む（曲の一覧の列は`#lib/utils/trackColumns`の`trackColumnLabel`）。イコライザのビルトインのプリセットの名前も、表示の言語に合わせる（`m.equalizer.presets`）
 - 日付・数値の書式は`i18n.locale`（例: `ja-JP`）を使う（`#lib/utils/format`）
@@ -359,6 +359,7 @@ src-tauri/src/
 - 自動プレイリストの条件からSQLを作る時は、項目・比べ方を列挙型から決まった式へ対応させ、値はすべてプレースホルダーで渡す（入力した文字列をSQLへ埋め込まない）。項目を足す時は、Rustの列挙型（`TextField`など）と、フロントの`#lib/utils/smartPlaylist`の`RULE_FIELDS`、モックの`#lib/mocks/smartPlaylist`に足す
 - ログは `log` クレートのマクロ（`log::info!` / `log::warn!` / `log::error!`）で出力する。`lib.rs` の `log_plugin()` が `tauri-plugin-log` を `log` のロガーとして登録しており、Tauriや依存クレートのログも同じ出力先に記録される
   - プラグインのJS API（`log:default` 等）はcapabilityに追加しない。WebViewからログを書き込ませない（ADR-005）
+  - ログの文言は英語で書く（フロントの`console.*`、panicのメッセージ（`expect`など）も同じ）。ログにだけ渡す引数（再スキャンの理由など）も英語にする。`AppError`のメッセージ（利用者に表示する）は日本語のため、ログに埋め込んだエラーの部分は日本語になる
 
 ### 型共有（tauri-specta）
 

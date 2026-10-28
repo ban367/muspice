@@ -93,12 +93,12 @@ pub async fn start_loudness_scan(
                 current_file: progress.current_file,
             };
             if let Err(e) = event.emit(&app) {
-                log::warn!("音量の解析の進捗イベントの送信に失敗しました: {}", e);
+                log::warn!("Failed to emit loudness analysis progress event: {}", e);
             }
         })?;
 
         log::info!(
-            "音量を解析しました: 書き込み={}, 変更なし={}, エラー={}, 中断={}",
+            "Analyzed loudness: written={}, unchanged={}, errors={}, cancelled={}",
             result.written_count,
             result.unchanged_count,
             result.error_count,
@@ -107,10 +107,10 @@ pub async fn start_loudness_scan(
         if result.written_count > 0
             && let Err(e) = LibraryChanged.emit(&app)
         {
-            log::warn!("ライブラリの変更の通知に失敗しました: {}", e);
+            log::warn!("Failed to emit library change event: {}", e);
         }
         if let Err(e) = LoudnessScanFinished(result.clone()).emit(&app) {
-            log::warn!("音量の解析の完了の通知に失敗しました: {}", e);
+            log::warn!("Failed to emit loudness analysis completion event: {}", e);
         }
         Ok(result)
     })
