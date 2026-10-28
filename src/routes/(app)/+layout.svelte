@@ -154,11 +154,7 @@
     </div>
 
     <!-- メインコンテンツ（右サイドバーのパネルを横に並べる間は、パネルの幅だけ寄せる） -->
-    <div
-      class="main-container"
-      class:sidebar-docked={ui.isRightSidebarDocked}
-      class:info-panel={ui.isInfoPanelOpen}
-    >
+    <div class="main-container" class:sidebar-docked={ui.isRightSidebarDocked}>
       <!-- モバイル用ヘッダー -->
       <header class="mobile-header">
         <button class="menu-button" aria-label={m.sidebar.openMenu} onclick={toggleSidebar}>
@@ -284,10 +280,6 @@
   /* パネルの幅のみ（アイコンバーは常に表示し、本文の右の余白で避ける） */
   .main-container.sidebar-docked {
     margin-right: var(--spacing-side-panel);
-  }
-
-  .main-container.sidebar-docked.info-panel {
-    margin-right: var(--spacing-info-panel);
   }
 
   .mobile-header {

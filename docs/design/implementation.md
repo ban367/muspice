@@ -323,7 +323,7 @@ src-tauri/src/
 - 配色はテーマ（`<html data-theme="dark|light">`）ごとに`app.css`で定義する。ダークの色は`@theme static`の値で、ライトの色は「配色（ダーク / ライト）」の`:root[data-theme='light']`で上書きする。`static`は、ユーティリティで使っていない変数も出力させるための指定（Tailwindは、使っていない変数を出力しない。コンポーネントの`<style>`やスクリプトから`var(--color-…)`で読めるようにする）。色の変数を追加したら、`@theme`とライトの配色の両方に書く
 - 子のコンポーネントに渡したクラス（`MarqueeText`の`class="track-title"`など）へ`:global`で書く時は、`.queue-track :global(.track-title)`のように親の要素で限定する。`:global(.track-title)`だけにすると、同じ名前のクラスを使うほかのコンポーネントにも当たり、どちらが勝つかがCSSの読み込み順で変わる（常駐する右サイドバーのスタイルが、後から開いた画面のスタイルに上書きされる）
 - 見た目は、Tailwindのユーティリティと`app.css`の独自クラス（`btn-primary`・`form-input`など）で作る。部品のクラス集（DaisyUIなど）は入れない（クラス名がコンポーネントの中のクラス名と重なり、意図しないスタイルが当たるため。ADR-055）
-- 右サイドバーのパネルの幅は、`app.css`の`--spacing-side-panel`（再生キュー・イコライザ）と`--spacing-info-panel`（情報パネル）。パネルを本文の横に並べる間（`ui.isRightSidebarDocked`: 固定した時と、情報パネルを開いている時）は、レイアウトが本文をその幅だけ寄せる（`.main-container`の`margin-right`）。幅を変える時は変数だけを変える
+- 右サイドバーのパネルの幅は、`app.css`の`--spacing-side-panel`。パネルを切り替えても幅が変わらないよう、再生キュー・イコライザ・情報パネルのどれも同じ幅にする（ADR-077）。パネルを本文の横に並べる間（`ui.isRightSidebarDocked`: 固定した時と、情報パネルを開いている時）は、レイアウトが本文をその幅だけ寄せる（`.main-container`の`margin-right`）。幅を変える時は変数だけを変える
   - 本文が狭くなるため、ライブラリの見出し（`LibraryHeader`）は、見出しの文字・ボタンの文字を折り返さず、検索欄を縮め、それでも入らなければ項目を次の行へ送る
 - 再生バー（`Player`）は、画面の下の端に幅いっぱいで重ね、高さを`--spacing-player-height`に固定する（曲がある時・ない時で変えない）。下の端まである部品（左右のサイドバー・ページの領域・Now Playingの画面・モーダル）は、この変数の分だけ下を空ける（`pb-player-height`または`padding-bottom: var(--spacing-player-height)`）。再生バーの中身の高さを変えたら、変数の値も合わせる
 
