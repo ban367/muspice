@@ -6,16 +6,13 @@
   - 見出しにアーティストの名前と、すべて再生・シャッフルのボタンを出す
   - アルバムごとに見出し（ジャケット画像・名前・ジャンルと年・曲数と時間）を出し、その下に曲を並べる
     （ディスクが複数あるアルバムは、ディスクで区切る）
-  - アルバムの見出しをクリックすると、右サイドバーの情報パネルにそのアルバムを出す（グリッドのカードと同じ）。
-    ダブルクリックでアルバムを再生する
-  - 曲の選択はアルバムをまたいで行える。曲の行をクリックすると、その曲のアルバムを情報パネルに出す
-    （曲の一覧と同じ）
+  - アルバムの見出しをダブルクリックすると、アルバムを再生する。右クリックでアルバムのメニューを開く
+  - 曲の選択はアルバムをまたいで行える
 -->
 <script lang="ts">
   import type { AlbumGroup, ArtistSummary, Track } from '#lib/types/models.js';
   import { flattenAlbumTracks, useSetRatingMutation } from '#lib/queries/tracks.js';
   import { player, playTrackFromQueue, playShuffled } from '#lib/stores/player.svelte.js';
-  import { followTrackInfo, ui } from '#lib/stores/ui.svelte.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import { albumGroupSummary } from '#lib/utils/albumArtists.js';
   import { groupByDisc } from '#lib/utils/albumDiscs.js';
@@ -66,15 +63,11 @@
   // トラックの選択（クリック・キーボード。アルバムをまたいで選択できる）
   const selection = new TrackSelection(() => displayTracks);
 
-  // 最後に選んだ曲のアルバムを情報パネルに表示する（クリックで選んだ時は開く。曲の一覧と同じ）
-  const showTrackInfo = followTrackInfo(() => selection.active);
-
   function handleTrackClick(trackId: string, event: MouseEvent) {
     selection.click(trackId, {
       shiftKey: event.shiftKey,
       toggleKey: event.ctrlKey || event.metaKey
     });
-    showTrackInfo();
   }
 
   // 選択中の曲の上で始めた場合は選択中の曲すべて、そうでなければその曲だけを運ぶ
@@ -122,21 +115,6 @@
     if (album.tracks.length > 0) {
       playTrackFromQueue(album.tracks, 0);
     }
-  }
-
-  /**
-   * アルバムの見出しを押せるか
-   *
-   * アーティストの一覧では、アルバムのない曲を1つのアルバム（「不明なアルバム」）にまとめる。
-   * そのまとまりはアルバムの一覧にないため、情報パネルには出せない。
-   */
-  function isRealAlbum(album: AlbumGroup): boolean {
-    return album.tracks[0]?.album != null;
-  }
-
-  // アルバムの見出しをクリック（右サイドバーの情報パネルに、アルバムの曲を表示する）
-  function handleAlbumClick(album: AlbumGroup) {
-    ui.showInfo({ type: 'album', album: albumGroupSummary(album) });
   }
 
   // ---- メニュー（行の右クリック・「その他」のボタン） ----
@@ -226,7 +204,13 @@
       <div class="album-section">
         <!-- アルバムヘッダー -->
         <div class="album-header">
-          {#snippet albumSummary()}
+          <!-- 再生とメニューは、横のボタンからも使える -->
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div
+            class="album-summary"
+            ondblclick={() => handleAlbumPlay(album)}
+            oncontextmenu={(e) => openAlbumMenu(e, album)}
+          >
             <div class="album-art">
               <AlbumArt
                 src={albumArtUrl(album.representativeTrackId)}
@@ -252,22 +236,7 @@
                 )}</span
               >
             </div>
-          {/snippet}
-          {#if isRealAlbum(album)}
-            <button
-              type="button"
-              class="album-open"
-              onclick={() => handleAlbumClick(album)}
-              ondblclick={() => handleAlbumPlay(album)}
-              oncontextmenu={(e) => openAlbumMenu(e, album)}
-            >
-              {@render albumSummary()}
-            </button>
-          {:else}
-            <div class="album-open">
-              {@render albumSummary()}
-            </div>
-          {/if}
+          </div>
           <div class="album-actions">
             <button
               class="album-action-btn"
@@ -459,17 +428,9 @@
     @apply flex items-center gap-2 px-4 mb-2;
   }
 
-  /* ジャケット画像と名前（押すと、情報パネルにアルバムを出す） */
-  .album-open {
-    @apply flex-1 flex items-center gap-4 min-w-0 p-2 border-none bg-transparent rounded-lg text-left;
-  }
-
-  button.album-open {
-    @apply cursor-pointer transition-colors duration-100;
-  }
-
-  button.album-open:hover {
-    @apply bg-surface-hover;
+  /* ジャケット画像と名前 */
+  .album-summary {
+    @apply flex-1 flex items-center gap-4 min-w-0 p-2;
   }
 
   .album-art {

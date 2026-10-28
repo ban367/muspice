@@ -9,7 +9,7 @@
     playQueueIndex
   } from '#lib/stores/player.svelte.js';
   import { useCreatePlaylistWithTracksMutation } from '#lib/queries/playlists.js';
-  import { promptText } from '#lib/utils/dialog.svelte.js';
+  import { confirmDestructive, promptText } from '#lib/utils/dialog.svelte.js';
   import { validatePlaylistName, toSafeString } from '#lib/utils/validation.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import { openableListAction } from '#lib/utils/listNavigation.js';
@@ -37,7 +37,7 @@
 
   // 閉じる（バックドロップクリック時）
   function closeByBackdrop() {
-    // 横に並べている間（固定時・情報パネル）は、バックドロップを出さない
+    // 横に並べている間（固定時）は、バックドロップを出さない
     if (ui.isRightSidebarDocked) return;
     ui.isRightSidebarExpanded = false;
   }
@@ -161,6 +161,12 @@
     return draggedIndex < index ? 'after' : 'before';
   }
 
+  // 再生キューをクリアする（再生中の曲も外して止めるため、確かめてから）
+  async function handleClearQueue() {
+    if (!(await confirmDestructive(m.rightSidebar.clearConfirm, m.rightSidebar.clear))) return;
+    clearQueue();
+  }
+
   // ---- 再生キューを、プレイリストとして保存 ----
 
   const savePlaylistMutation = useCreatePlaylistWithTracksMutation();
@@ -239,10 +245,10 @@
       </svg>
     </button>
 
-    <!-- 情報パネルボタン（グリッドで選んだアルバム・アーティストの曲） -->
+    <!-- 曲情報ボタン（再生中の曲の情報と、その曲のアルバム） -->
     <button
       class="icon-button"
-      class:active={ui.isInfoPanelOpen}
+      class:active={ui.isRightSidebarExpanded && ui.activeRightSidebarPanel === 'info'}
       onclick={() => openPanel('info')}
       title={m.rightSidebar.infoTitle}
       aria-label={m.rightSidebar.openInfo}
@@ -294,13 +300,13 @@
   </div>
 </div>
 
-<!-- バックドロップ（横に並べている間（固定時・情報パネル）は表示しない） -->
+<!-- バックドロップ（横に並べている間（固定時）は表示しない） -->
 {#if ui.isRightSidebarExpanded && !ui.isRightSidebarDocked}
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
   <div class="backdrop" onclick={closeByBackdrop}></div>
 {/if}
 
-<!-- パネル（展開時のみ表示、横に並べる時（固定時・情報パネル）はアニメーションなし） -->
+<!-- パネル（展開時のみ表示、横に並べる時（固定時）はアニメーションなし） -->
 {#if ui.isRightSidebarExpanded}
   <aside
     class="side-panel"
@@ -337,8 +343,8 @@
               </svg>
             </button>
           {/if}
-          {#if player.playQueue.length > 1}
-            <button class="clear-btn" onclick={clearQueue}>{m.rightSidebar.clear}</button>
+          {#if player.playQueue.length > 0}
+            <button class="clear-btn" onclick={handleClearQueue}>{m.rightSidebar.clear}</button>
           {/if}
         </div>
       </div>
@@ -459,8 +465,8 @@
       <!-- イコライザパネル -->
       <EqualizerPanel />
     {:else if ui.activeRightSidebarPanel === 'info'}
-      <!-- 情報パネル -->
-      <InfoPanel target={ui.infoTarget} />
+      <!-- 曲情報パネル -->
+      <InfoPanel />
     {/if}
   </aside>
 {/if}

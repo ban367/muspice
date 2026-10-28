@@ -14,13 +14,14 @@ import { m } from '#lib/i18n/i18n.svelte.js';
  * 同期的に呼ぶと戻り値のPromiseが常にtrue扱いになる（回答を待たずに処理が進む）。
  * 確認が必要な箇所では必ずこの関数をawaitして使う。
  * @param message - ダイアログに表示するメッセージ
- * @returns 「削除」が押された場合はtrue
+ * @param okLabel - 実行するボタンの文言（省略時は「削除」）
+ * @returns 実行するボタンが押された場合はtrue
  */
-export function confirmDestructive(message: string): Promise<boolean> {
+export function confirmDestructive(message: string, okLabel = m.common.delete): Promise<boolean> {
   return confirm(message, {
     title: m.dialog.confirmTitle,
     kind: 'warning',
-    okLabel: m.common.delete,
+    okLabel,
     cancelLabel: m.common.cancel
   });
 }

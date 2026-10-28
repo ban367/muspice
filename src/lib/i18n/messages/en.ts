@@ -304,12 +304,13 @@ export const en: Messages = {
     openQueue: 'Open the queue',
     equalizerTitle: 'Equalizer (E)',
     openEqualizer: 'Open the equalizer',
-    infoTitle: 'Info',
-    openInfo: 'Open the info panel',
+    infoTitle: 'Track Info',
+    openInfo: 'Open track info',
     pin: 'Pin the sidebar',
     unpin: 'Unpin',
     queue: 'Queue',
     clear: 'Clear',
+    clearConfirm: 'Clear the queue? The current track will also stop.',
     nowPlaying: 'Now Playing',
     upNext: (count) => `Up Next (${plural(count, 'track', 'tracks')})`,
     removeFromQueue: 'Remove from queue',
@@ -321,9 +322,7 @@ export const en: Messages = {
   },
 
   infoPanel: {
-    close: 'Close the info panel',
-    empty: 'Select an album, artist, or track to see its tracks here',
-    track: 'Track',
+    empty: 'Play a track to see its details and album here',
     noAlbum: 'This track has no album information',
     notFound:
       'No tracks found. They may have been removed from the library, or their tags may have changed'
