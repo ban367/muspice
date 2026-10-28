@@ -335,9 +335,8 @@ export const ja = {
     /** 曲のカードに出す曲がない時 */
     nothingPlaying: '再生していません',
     nothingSelected: '曲を選んでいません',
-    upNext: (count: number) => `次に再生 (${count}曲)`,
+    queueTracks: (count: number) => `曲リスト (${count}曲)`,
     removeFromQueue: 'キューから削除',
-    noUpcoming: 'キューに他のトラックはありません',
     saveAsPlaylist: 'プレイリストとして保存',
     saveAsPlaylistTitle: '再生キューをプレイリストとして保存',
     saveAsPlaylistDefaultName: (date: string) => `再生キュー ${date}`,

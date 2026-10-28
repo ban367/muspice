@@ -10,8 +10,9 @@ import { showWarning } from './error.svelte.js';
  * キューの変更（再生するトラックの決定）は、下のキュー操作の関数を使う。
  * 再生エンジンとの同期は再生コントローラー（`./playback.svelte.ts`）が担う。
  *
- * キューは、利用者が消す操作（キューからの削除・クリア・「キューを置き換えて再生」）でだけ
- * 曲が外れる。曲を再生する操作（一覧のダブルクリック・「再生」）は、再生中の曲の次に曲を入れて
+ * キューは、再生する曲のリスト（再生する順）。再生位置（`currentTrackIndex`）が進んでも、再生し終えた
+ * 曲はリストに残る。曲は、利用者が消す操作（キューからの削除・クリア・「キューを置き換えて再生」）でだけ
+ * 外れる。曲を再生する操作（一覧のダブルクリック・「再生」）は、再生中の曲の次に曲を入れて
  * 再生する（`playNow`）。キューの最後まで再生しても、キューと最後の曲は残る。
  *
  * キューには同じ曲を何度でも入れられるため、キューの曲は要素（`QueueEntry`）ごとのID
@@ -83,7 +84,7 @@ class Player {
   );
 
   /**
-   * 「次に再生」のキュー（再生中のトラックより後ろの要素）
+   * キューの中の、これから再生する要素（再生中のトラックより後ろ。Now Playingの画面の「次に再生」）
    *
    * 何も再生していない間（何も再生していない時に、キューへ追加した曲）は、キューのすべて
    * （「次へ」・再生で、先頭から再生する）。
@@ -116,7 +117,7 @@ export function resetPlayer(): void {
  * @param queue - 再生する順のキュー
  * @param originalQueue - シャッフルする前の順のキュー（シャッフルが無効なら`queue`と同じ）
  * @param index - `queue`の中の、再生していたトラックの位置（nullは、何も再生していなかった。
- *   キューへ入れただけの曲は、すべて「次に再生」に戻る）
+ *   キューへ入れただけの曲は、「次へ」で先頭から再生する）
  */
 export function restoreQueue(
   queue: readonly Track[],
@@ -299,7 +300,7 @@ function insertNext(
  * 再生中の曲の次にトラックを入れて、そのまま再生する（「次に追加して再生」。一覧のダブルクリック・
  * 「再生」のボタン）
  *
- * キューのほかの曲は残す（入れた曲を再生し終えたら、それまでの「次に再生」の曲へ続く）。何も
+ * キューのほかの曲は残す（入れた曲を再生し終えたら、キューのその後ろの曲へ続く）。何も
  * 再生していなければ、キューの先頭に入れて再生する。ファイルが見つからない曲は入れない（どれも
  * 見つからない場合は、再生せずに通知する）。
  * シャッフル中は、最初の曲から再生し、残りをランダムな順に入れる。
@@ -471,27 +472,28 @@ export function addNextInQueue(tracks: readonly Track[]): void {
 }
 
 /**
- * 「次に再生」の曲を、別の曲の位置へ動かす（再生中の曲と、それより前の曲は動かさない）
+ * キューの曲を、別の曲の位置へ動かす（再生中の曲・再生し終えた曲も動かせる）
  *
  * 動かした曲が、落とした曲の位置に来る（下へ動かす時は落とした曲の後ろ、上へ動かす時は前）。
+ * 再生中の曲は変えず、再生位置を、動かした後の再生中の曲の位置に合わせる（その次の曲から続ける）。
  * 位置ではなく要素で指定するため、ドラッグしている間に曲が進んでも、ドラッグした曲を動かす。
  * シャッフルする前の順（`originalQueue`）は変えない。
  * @param entryId - 動かす曲の要素のID
  * @param targetEntryId - 落とした曲の要素のID
  */
-export function moveUpcomingEntry(entryId: number, targetEntryId: number): void {
+export function moveQueueEntry(entryId: number, targetEntryId: number): void {
   const queue = player.playQueue;
-  const start = player.currentTrackIndex + 1;
   const from = indexOfEntry(queue, entryId);
   const to = indexOfEntry(queue, targetEntryId);
-  // 「次に再生」にない要素（再生し終えた・再生中・キューから消えた）は動かさない
-  // （何も再生していない間は、キューのすべてが「次に再生」）
-  if (from < start || to < start || from === to) return;
+  // キューから消えた要素・同じ要素では、何もしない
+  if (from === -1 || to === -1 || from === to) return;
 
+  const current: QueueEntry | undefined = queue[player.currentTrackIndex];
   const next = [...queue];
   const [moved] = next.splice(from, 1);
   next.splice(to, 0, moved);
   player.playQueue = next;
+  if (current) player.currentTrackIndex = indexOfEntry(next, current.entryId);
 }
 
 /**

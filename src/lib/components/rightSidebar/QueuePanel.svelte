@@ -1,15 +1,17 @@
 <!--
   @component QueuePanel
-  右サイドバーの再生キューのパネル。上部に再生中の曲を固定して出し、その下に「次に再生」の曲を出す。
-  「次に再生」の曲は、ダブルクリック・Enterで再生し、ドラッグで並べ替え、Delete / Backspaceでキューから外せる。
+  右サイドバーの再生キューのパネル。上部に再生中の曲を固定して出し、その下にキューの曲のリストを
+  出す（再生し終えた曲も含めて、再生する順に並べ、再生中の曲の行を強調する）。
+  リストの曲は、ダブルクリック・Enterで再生し、ドラッグで並べ替え、Delete / Backspaceでキューから外せる。
   キューの全体は、プレイリストとして保存できる。
 -->
 <script lang="ts">
+  import { untrack } from 'svelte';
   import {
     player,
     removeFromQueue,
     clearQueue,
-    moveUpcomingEntry,
+    moveQueueEntry,
     playQueueIndex
   } from '#lib/stores/player.svelte.js';
   import { useCreatePlaylistWithTracksMutation } from '#lib/queries/playlists.js';
@@ -20,6 +22,7 @@
   import { VirtualList } from '#lib/components/ui/index.js';
   import AlbumArt from '../AlbumArt.svelte';
   import MarqueeText from '../MarqueeText.svelte';
+  import PlayingIndicator from '../library/PlayingIndicator.svelte';
   import SidePanel from './SidePanel.svelte';
   import SidePanelButton from './SidePanelButton.svelte';
   import SidePanelMessage from './SidePanelMessage.svelte';
@@ -27,38 +30,49 @@
   import SidePanelTrack from './SidePanelTrack.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
-  // 「次に再生」の行の高さの見積もり（描画した後は、VirtualListが実測した高さを使う）
+  // キューの行の高さの見積もり（描画した後は、VirtualListが実測した高さを使う）
   const ESTIMATED_QUEUE_ROW_HEIGHT = 50;
-
-  /**
-   * 「次に再生」の曲から再生する（キューの並びは変えない）
-   * @param upcomingIndex - 「次に再生」の一覧の中の位置
-   */
-  function playUpcoming(upcomingIndex: number) {
-    playQueueIndex(player.currentTrackIndex + 1 + upcomingIndex);
-  }
 
   // 行の中のボタン（キューから削除）の操作では再生しない
   function isRowButton(event: Event): boolean {
     return event.target instanceof Element && event.target.closest('button') !== null;
   }
 
-  // ---- 「次に再生」のキーボード操作 ----
+  let queueList = $state<VirtualList<(typeof player.playQueue)[number]>>();
+
+  // ---- 再生中の曲の行 ----
+
+  /** 再生中の曲の要素のID（何も再生していなければnull） */
+  const playingEntryId = $derived(player.playQueue[player.currentTrackIndex]?.entryId ?? null);
+
+  // パネルを開いた時と、再生中の曲が変わった時に、その行を見える位置へ出す。隠れていれば上端に
+  // そろえ、この後に再生する曲も見せる（見えていれば動かさない。並べ替え・削除で位置だけが
+  // 変わった時は、スクロールしない）
+  $effect(() => {
+    const entryId = playingEntryId;
+    const list = queueList;
+    if (entryId === null || !list) return;
+    untrack(() => {
+      // ドラッグ中は、落とす先の行を動かさない
+      if (draggedEntryId === null) list.scrollToIndex(player.currentTrackIndex, 'start');
+    });
+  });
+
+  // ---- キーボード操作 ----
   // 一覧（listbox）がフォーカスを受け、↑↓・Home・Endで現在位置を移し、Enterで再生し、
   // Delete / Backspaceでキューから削除する。現在位置も、位置ではなくキューの要素のIDで持つ
 
-  let upcomingList = $state<VirtualList<(typeof player.upcomingEntries)[number]>>();
   /** 現在位置の行の要素のID */
   let activeEntryId = $state<number | null>(null);
-  /** 現在位置の行の、「次に再生」の一覧の中の位置（ない場合は-1） */
+  /** 現在位置の行の、キューの中の位置（ない場合は-1） */
   const activeIndex = $derived(
     activeEntryId === null
       ? -1
-      : player.upcomingEntries.findIndex((entry) => entry.entryId === activeEntryId)
+      : player.playQueue.findIndex((entry) => entry.entryId === activeEntryId)
   );
 
-  function handleUpcomingKeydown(event: KeyboardEvent) {
-    const entries = player.upcomingEntries;
+  function handleQueueKeydown(event: KeyboardEvent) {
+    const entries = player.playQueue;
     if (
       (event.key === 'Delete' || event.key === 'Backspace') &&
       !event.defaultPrevented &&
@@ -78,14 +92,14 @@
     const action = openableListAction(event, activeIndex, entries.length, null);
     if (action === null) return;
     if (action.type === 'open') {
-      playUpcoming(action.index);
+      playQueueIndex(action.index);
     } else {
       activeEntryId = entries[action.index].entryId;
-      upcomingList?.scrollToIndex(action.index);
+      queueList?.scrollToIndex(action.index);
     }
   }
 
-  // ---- 「次に再生」の並べ替え（行のドラッグ） ----
+  // ---- 並べ替え（行のドラッグ） ----
   // 行は位置ではなくキューの要素のID（エントリID）で指す。ドラッグしている間に曲が進んで
   // 位置がずれても、ドラッグした曲を動かす
 
@@ -96,11 +110,11 @@
   let draggedEntryId = $state<number | null>(null);
   /** 落とそうとしている行の要素のID */
   let dropEntryId = $state<number | null>(null);
-  /** ドラッグしている行の、「次に再生」の一覧の中の今の位置（ない場合は-1） */
+  /** ドラッグしている行の、キューの中の今の位置（ない場合は-1） */
   const draggedIndex = $derived(
     draggedEntryId === null
       ? -1
-      : player.upcomingEntries.findIndex((entry) => entry.entryId === draggedEntryId)
+      : player.playQueue.findIndex((entry) => entry.entryId === draggedEntryId)
   );
 
   const isQueueDrag = (event: DragEvent) =>
@@ -125,7 +139,7 @@
     event.preventDefault();
     const entryId = Number(event.dataTransfer?.getData(QUEUE_DRAG_TYPE));
     endQueueDrag();
-    moveUpcomingEntry(entryId, targetEntryId);
+    moveQueueEntry(entryId, targetEntryId);
   }
 
   function endQueueDrag() {
@@ -137,7 +151,7 @@
    * 落とそうとしている行の、目印の出し方（動かした曲は、落とした行の位置に来る。
    * 下へ動かす時は行の下、上へ動かす時は行の上に線を出す）
    * @param entryId - 行の要素のID
-   * @param index - 行の、「次に再生」の一覧の中の位置
+   * @param index - 行の、キューの中の位置
    */
   function dropWhere(entryId: number, index: number): 'before' | 'after' | undefined {
     if (dropEntryId !== entryId || draggedIndex === -1 || draggedIndex === index) return undefined;
@@ -223,29 +237,31 @@
     />
   {/snippet}
 
-  {#if player.upcomingEntries.length > 0}
-    <SidePanelSection title={m.rightSidebar.upNext(player.upcomingEntries.length)} flush fill>
+  {#if player.playQueue.length > 0}
+    <SidePanelSection title={m.rightSidebar.queueTracks(player.playQueue.length)} flush fill>
       <!-- 一覧の曲をすべてキューに入れた場合は数万曲になるため、見えている行だけを描画する -->
       <!-- 同じ曲が何度も入ることがあるため、キーは曲のIDではなく要素のID -->
       <VirtualList
-        bind:this={upcomingList}
-        items={player.upcomingEntries}
+        bind:this={queueList}
+        items={player.playQueue}
         getKey={(entry) => entry.entryId}
         estimatedRowHeight={ESTIMATED_QUEUE_ROW_HEIGHT}
         scrollerClass="px-2 pb-2"
-        class="upcoming-listbox"
+        class="queue-listbox"
         role="listbox"
-        aria-label={m.rightSidebar.upNext(player.upcomingEntries.length)}
+        aria-label={m.rightSidebar.queueTracks(player.playQueue.length)}
         tabindex={0}
-        onkeydown={handleUpcomingKeydown}
+        onkeydown={handleQueueKeydown}
       >
         {#snippet row({ entryId, track }, index)}
-          <!-- 行のドラッグで、「次に再生」の中の順を入れ替えられる -->
+          {@const isPlaying = entryId === playingEntryId}
+          <!-- 行のドラッグで、キューの中の順を入れ替えられる -->
           <!-- キー操作は一覧（listbox）で受けるため、行はフォーカスを受けない -->
           <!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
           <div
             class="queue-track"
             class:active={activeEntryId === entryId}
+            class:playing={isPlaying}
             class:dragging={draggedEntryId === entryId}
             data-drop={dropWhere(entryId, index)}
             draggable="true"
@@ -254,11 +270,18 @@
             ondrop={(e) => handleQueueDrop(e, entryId)}
             ondragend={endQueueDrag}
             onclick={(e) => !isRowButton(e) && (activeEntryId = entryId)}
-            ondblclick={(e) => !isRowButton(e) && playUpcoming(index)}
+            ondblclick={(e) => !isRowButton(e) && playQueueIndex(index)}
             role="option"
             aria-selected={activeEntryId === entryId}
+            aria-current={isPlaying ? 'true' : undefined}
           >
-            <span class="track-number">{index + 1}</span>
+            <span class="track-number">
+              {#if isPlaying}
+                <PlayingIndicator size="small" />
+              {:else}
+                {index + 1}
+              {/if}
+            </span>
             <div class="queue-art">
               <AlbumArt
                 src={albumArtUrl(track.id)}
@@ -294,8 +317,6 @@
         {/snippet}
       </VirtualList>
     </SidePanelSection>
-  {:else if player.currentTrack}
-    <SidePanelMessage text={m.rightSidebar.noUpcoming} />
   {:else}
     <SidePanelMessage text={m.player.noTrack} />
   {/if}
@@ -317,11 +338,11 @@
     @apply bg-surface-active;
   }
 
-  :global(.upcoming-listbox) {
+  :global(.queue-listbox) {
     @apply outline-none;
   }
 
-  :global(.upcoming-listbox:focus-visible) .queue-track.active {
+  :global(.queue-listbox:focus-visible) .queue-track.active {
     box-shadow: inset 0 0 0 2px var(--color-primary);
   }
 
@@ -339,10 +360,10 @@
   }
 
   .track-number {
-    @apply text-xs text-text-dimmed w-5 text-center shrink-0;
+    @apply flex justify-center text-xs text-text-dimmed w-5 shrink-0;
   }
 
-  /* ジャケット画像（次に再生の各行） */
+  /* ジャケット画像（キューの各行） */
   .queue-art {
     @apply w-9 h-9 shrink-0 rounded-sm overflow-hidden;
   }
@@ -359,6 +380,16 @@
 
   .queue-track :global(.track-artist) {
     @apply text-[0.7rem] text-text-muted;
+  }
+
+  /* 再生中の曲の行（番号の代わりに、再生中の印を出す。色はほかの曲の一覧と同じ） */
+  .queue-track.playing {
+    @apply bg-secondary/15;
+  }
+
+  .queue-track.playing .track-number,
+  .queue-track.playing :global(.track-title) {
+    @apply text-secondary;
   }
 
   .remove-btn {
