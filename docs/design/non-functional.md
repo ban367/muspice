@@ -68,17 +68,18 @@
 - `.github/workflows/audit.yml` が毎週と、lockfile・`audit.yml` を変更するPRで `npm audit`（moderate以上で失敗）と `cargo-audit`（脆弱性で失敗、unmaintained・unsoundは警告）を実行する。下の表の受容済みのアドバイザリは、`audit.yml` の `--ignore` に書いて除く（表を変えたら、`--ignore` も合わせる）
 - Dependabotはminor/patchをエコシステムごとに1つのPRへまとめる（メジャー更新は個別PR）。GitHub Actionsだけは、メジャー更新も含めてすべてを1つのPRへまとめる（`dependabot.yml`の`github-actions`のグループに`update-types`を書かない。Actionsのメジャー更新は、使い方が変わらないことが多いため）。毎週月曜 09:00（Asia/Tokyo）に実行し、PRにはban367をアサインして `dependencies` とエコシステムのラベル（`npm`・`rust`・`ci`）を付ける。Rustのツールチェーン（`rust-toolchain.toml`）も、同じ曜日・時刻に上げる（ラベルは `rust`。ADR-060）
 - 周辺のツールが対応するまで見送るメジャー更新は、`.github/dependabot.yml` の `ignore` に理由と外す条件を添えて書く（現在は TypeScript 7。svelte-check・typescript-eslint・@sveltejs/kit が対応したら外す）
-- 依存の依存の脆弱性で、直した版があるのに上流が上げていないものは、`package.json` の `overrides` で直した版にする（現在は markdownlint-cli の `js-yaml`・`katex`・`smol-toml`。markdownlint-cli が直した版を使うようになったら外す。ADR-060）
+- 依存の依存の脆弱性で、直した版があるのに上流が上げていないものは、`package.json` の `overrides` で直した版にする（現在は markdownlint-cli の `katex`・`re2js` と、eslint・typescript-eslint・markdownlint-cli が使う `minimatch`。上流が直した版を使うようになったら外す。ADR-060）。`minimatch` は直した版が11系だけのためメジャーが上がるが、どの利用側も `new Minimatch(...).match()` と `minimatch()` だけを使い、11系で消えたAPIには触れない（eslint・markdownlintの対象ファイルと結果が変わらないことを確かめた）
 - 上流の対応待ちで受容しているアドバイザリ（解消条件を満たしたら再確認する。追跡は #113）
 
-| 対象                    | アドバイザリ                      | 経路                                                    | 受容理由・解消条件         |
-| ----------------------- | --------------------------------- | ------------------------------------------------------- | -------------------------- |
-| Rust `glib 0.18`        | RUSTSEC-2024-0429（unsound）      | Tauri → muda → gtk（Linux）                             | TauriのGTK4移行待ち        |
-| Rust `proc-macro-error` | RUSTSEC-2024-0370（unmaintained） | glib-macros（同上）                                     | 同上                       |
-| Rust `paste`            | RUSTSEC-2024-0436（unmaintained） | lofty / specta のproc-macro                             | 上流の置き換え待ち         |
-| Rust `zvariant`         | RUSTSEC-2026-0370（unmaintained） | Tauriのnotification・openerプラグイン → zbus 5（Linux） | プラグインのzbus 6移行待ち |
-| Rust `zbus_names`       | RUSTSEC-2026-0371（unmaintained） | 同上                                                    | 同上                       |
-| Rust `zvariant_derive`  | RUSTSEC-2026-0372（unmaintained） | 同上                                                    | 同上                       |
+| 対象                    | アドバイザリ                      | 経路                                                             | 受容理由・解消条件                                                       |
+| ----------------------- | --------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| Rust `glib 0.18`        | RUSTSEC-2024-0429（unsound）      | Tauri → muda → gtk（Linux）                                      | TauriのGTK4移行待ち                                                      |
+| Rust `proc-macro-error` | RUSTSEC-2024-0370（unmaintained） | glib-macros（同上）                                              | 同上                                                                     |
+| Rust `paste`            | RUSTSEC-2024-0436（unmaintained） | lofty / specta のproc-macro                                      | 上流の置き換え待ち                                                       |
+| Rust `zvariant`         | RUSTSEC-2026-0370（unmaintained） | Tauriのnotification・openerプラグイン → zbus 5（Linux）          | プラグインのzbus 6移行待ち                                               |
+| Rust `zbus_names`       | RUSTSEC-2026-0371（unmaintained） | 同上                                                             | 同上                                                                     |
+| Rust `zvariant_derive`  | RUSTSEC-2026-0372（unmaintained） | 同上                                                             | 同上                                                                     |
+| npm `deepmerge`         | GHSA-gcqx-w48m-w2h4（low）        | @sveltejs/vite-plugin-svelte（開発時だけで、アプリには入らない） | 直した版がない。lowのため`npm audit`は失敗せず、`--ignore`の対象でもない |
 
 ## 可用性・運用
 
