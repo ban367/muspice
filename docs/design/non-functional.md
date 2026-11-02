@@ -67,6 +67,7 @@
 
 - `.github/workflows/audit.yml` が毎週と、lockfile・`audit.yml` を変更するPRで `npm audit`（moderate以上で失敗）と `cargo-audit`（脆弱性で失敗、unmaintained・unsoundは警告）を実行する。下の表の受容済みのアドバイザリは、`audit.yml` の `--ignore` に書いて除く（表を変えたら、`--ignore` も合わせる）
 - Dependabotはminor/patchをエコシステムごとに1つのPRへまとめる（メジャー更新は個別PR）。GitHub Actionsだけは、メジャー更新も含めてすべてを1つのPRへまとめる（`dependabot.yml`の`github-actions`のグループに`update-types`を書かない。Actionsのメジャー更新は、使い方が変わらないことが多いため）。毎週月曜 09:00（Asia/Tokyo）に実行し、PRにはban367をアサインして `dependencies` とエコシステムのラベル（`npm`・`rust`・`ci`）を付ける。Rustのツールチェーン（`rust-toolchain.toml`）も、同じ曜日・時刻に上げる（ラベルは `rust`。ADR-060）
+- 不具合のある版は、`.github/dependabot.yml` の `ignore` でその版だけを飛ばす（現在は lofty 0.25.5。MP4のタグがちょうど8バイト縮むと書き込みでpanicするため、0.25.4に留める（[lofty-rs#758](https://github.com/Serial-ATA/lofty-rs/issues/758)。修正はマージ済みで未リリース）。次の版が出たら外す）
 - 周辺のツールが対応するまで見送るメジャー更新は、`.github/dependabot.yml` の `ignore` に理由と外す条件を添えて書く（現在は TypeScript 7。svelte-check・typescript-eslint・@sveltejs/kit が対応したら外す）
 - 依存の依存の脆弱性で、直した版があるのに上流が上げていないものは、`package.json` の `overrides` で直した版にする（現在は markdownlint-cli の `js-yaml`・`katex`・`smol-toml`。markdownlint-cli が直した版を使うようになったら外す。ADR-060）
 - 上流の対応待ちで受容しているアドバイザリ（解消条件を満たしたら再確認する。追跡は #113）

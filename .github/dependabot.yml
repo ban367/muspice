@@ -50,6 +50,12 @@ updates:
         update-types:
           - 'minor'
           - 'patch'
+    ignore:
+      # lofty 0.25.5は、MP4のタグがちょうど8バイト縮むと、書き込みでpanicする（lofty-rsの#758）。
+      # 修正は上流でマージ済みだが未リリースのため、この版だけ飛ばす。次の版が出たら、この指定を外す
+      - dependency-name: 'lofty'
+        versions:
+          - '0.25.5'
 
   # Rustのツールチェーン（rust-toolchain.tomlのchannel）の更新
   # 新しい版でclippyのlintが増えて落ちたら、このPRで直す
