@@ -34,7 +34,8 @@ export function smartRulesError(rules: SmartRules): string | null {
         break;
       }
       case 'number': {
-        const max = rule.field === 'rating' ? 5 : 1_000_000;
+        // 評価は半分の星の単位（0〜10。ADR-082）
+        const max = rule.field === 'rating' ? 10 : 1_000_000;
         const inRange = (value: number) => Number.isInteger(value) && value >= 0 && value <= max;
         if (!inRange(rule.value)) return '条件の数値が範囲の外です';
         if (rule.op === 'between') {

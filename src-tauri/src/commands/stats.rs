@@ -27,8 +27,9 @@ pub async fn set_favorite(
     state.with_db(|db| crate::repository::set_tracks_favorite(db, &track_ids, favorite))
 }
 
-/// レーティングを設定（ファイルのタグへ書き込み、同じ値をデータベースに記録する）
+/// 評価を設定（ファイルのタグへ書き込み、同じ値をデータベースに記録する）
 ///
+/// `rating`は半分の星の単位（0〜10。0は評価を外す。7は星3.5。ADR-082）。
 /// ファイルへ書き込めない場合はエラーにし、データベースも変えない。
 #[tauri::command]
 #[specta::specta]

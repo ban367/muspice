@@ -7,6 +7,7 @@
   import { Popover } from '#lib/components/ui/index.js';
   import { EMPTY_FILTERS, countActiveFilters, type TrackFilters } from '#lib/utils/trackFilter.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
+  import { RATING_VALUES, formatRatingStars } from '#lib/utils/rating.js';
 
   interface Props {
     filters: TrackFilters;
@@ -16,8 +17,6 @@
   let { filters, onChange }: Props = $props();
 
   const activeCount = $derived(countActiveFilters(filters));
-
-  const ratings = [1, 2, 3, 4, 5];
 
   /** 年の入力欄の値を読む（空・4桁までの数字でなければ、指定なし） */
   function parseYear(value: string): number | null {
@@ -65,8 +64,8 @@
       onchange={(e) => onChange({ ...filters, minRating: Number(e.currentTarget.value) })}
     >
       <option value={0}>{m.library.filters.anyRating}</option>
-      {#each ratings as rating (rating)}
-        <option value={rating}>{m.library.filters.ratingAtLeast(rating)}</option>
+      {#each RATING_VALUES as rating (rating)}
+        <option value={rating}>{m.library.filters.ratingAtLeast(formatRatingStars(rating))}</option>
       {/each}
     </select>
   </div>

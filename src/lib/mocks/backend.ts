@@ -2891,8 +2891,9 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     },
     setRating: (trackId, rating) => {
       validateTrackId(trackId);
-      if (rating < 0 || rating > 5) {
-        fail('VALIDATION', 'レーティングは0から5の間で指定してください');
+      // 評価は半分の星の単位（0〜10。ADR-082）
+      if (!Number.isInteger(rating) || rating < 0 || rating > 10) {
+        fail('VALIDATION', '評価は、星0から5までを0.5刻みで指定してください');
       }
       // 実装と同じく、存在しないトラックはエラーにせず無視する
       const track = tracks.find((t) => t.id === trackId);

@@ -50,7 +50,8 @@ describe('newRuleDraft・changeRuleField', () => {
       key: 3,
       field: 'rating',
       op: 'atLeast',
-      value: '4',
+      // 評価は半分の星の単位（星4は8）
+      value: '8',
       valueTo: ''
     });
     expect(newRuleDraft(0, 'lastPlayedAt').op).toBe('inLast');
@@ -69,7 +70,7 @@ describe('newRuleDraft・changeRuleField', () => {
 
   it('入力の形が違う数値の項目へ変える場合は、値を作り直す', () => {
     const before = draft({ field: 'year', op: 'between', value: '1990', valueTo: '1999' });
-    expect(changeRuleField(before, 'rating')).toMatchObject({ op: 'between', value: '4' });
+    expect(changeRuleField(before, 'rating')).toMatchObject({ op: 'between', value: '8' });
   });
 
   it('選べない比べ方は、最初の比べ方にする', () => {
@@ -146,7 +147,7 @@ describe('toSmartRules', () => {
     ['負の数', { field: 'playCount', op: 'atLeast', value: '-1' }, 'numberInvalid'],
     ['小数の回数', { field: 'playCount', op: 'atLeast', value: '1.5' }, 'numberInvalid'],
     ['大きすぎる数', { field: 'year', op: 'is', value: '1000001' }, 'numberInvalid'],
-    ['範囲の外の評価', { field: 'rating', op: 'atLeast', value: '6' }, 'ratingInvalid'],
+    ['範囲の外の評価', { field: 'rating', op: 'atLeast', value: '11' }, 'ratingInvalid'],
     ['上の値のない範囲', { field: 'year', op: 'between', value: '1990' }, 'valueRequired'],
     ['逆の範囲', { field: 'year', op: 'between', value: '1999', valueTo: '1990' }, 'rangeInvalid'],
     ['0日', { field: 'createdAt', op: 'inLast', value: '0' }, 'daysInvalid'],
@@ -236,7 +237,8 @@ describe('describeRule・describeOrder', () => {
   it.each<[SmartRule, string]>([
     [{ kind: 'text', field: 'genre', op: 'contains', value: 'Jazz' }, 'ジャンル: 「Jazz」を含む'],
     [{ kind: 'text', field: 'path', op: 'isEmpty', value: '' }, 'ファイルの場所: 空'],
-    [{ kind: 'number', field: 'rating', op: 'atLeast', value: 4, valueTo: null }, '評価: ★★★★以上'],
+    [{ kind: 'number', field: 'rating', op: 'atLeast', value: 8, valueTo: null }, '評価: ★★★★以上'],
+    [{ kind: 'number', field: 'rating', op: 'atLeast', value: 7, valueTo: null }, '評価: ★★★½以上'],
     [{ kind: 'number', field: 'rating', op: 'is', value: 0, valueTo: null }, '評価: 評価なし'],
     [
       { kind: 'number', field: 'year', op: 'between', value: 1990, valueTo: 1999 },

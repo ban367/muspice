@@ -337,7 +337,7 @@ mod tests {
             // アプリの読み取りでも、同じ値を読む（BPMは整数に丸める）
             assert_eq!(read_file_tags(&file).unwrap().bpm, Some(128), "{name}");
             let info = extract_all_file_info(&file).unwrap();
-            assert_eq!(info.rating, 4, "{name}");
+            assert_eq!(info.rating, 8, "{name}");
             assert_eq!(info.replay_gain.track_gain, Some(-3.5), "{name}");
             let art = extract_album_art(&file).unwrap().unwrap();
             assert_eq!(art.data, jpeg(20, 20), "{name}");
@@ -357,7 +357,7 @@ mod tests {
                 .unwrap();
 
             // 評価: 星の数で書かれていたので、その付け方のまま書く（項目は増やさない）
-            update_file_rating(&file, 5).unwrap();
+            update_file_rating(&file, 10).unwrap();
             let ape = read_ape_tag(&file, file_type);
             assert_eq!(item_text(&ape, "RATING").as_deref(), Some("5"), "{name}");
             let rating_items = (&ape)
@@ -431,7 +431,7 @@ mod tests {
                 ..Default::default()
             };
             update_file_metadata(&file, &metadata, true).unwrap();
-            update_file_rating(&file, 4).unwrap();
+            update_file_rating(&file, 8).unwrap();
             let art = EmbeddedPicture {
                 data: jpeg(40, 40),
                 mime_type: "image/jpeg".to_string(),
@@ -440,7 +440,7 @@ mod tests {
 
             let ape = read_ape_tag(&file, file_type);
             assert_eq!(item_text(&ape, "BPM").as_deref(), Some("128"), "{name}");
-            // 評価は20刻み（MusicBeeなど）
+            // 評価は0〜100（MusicBeeなど）
             assert_eq!(item_text(&ape, "RATING").as_deref(), Some("80"), "{name}");
             let mut front = b"Cover Art (Front).jpg\0".to_vec();
             front.extend_from_slice(&jpeg(40, 40));

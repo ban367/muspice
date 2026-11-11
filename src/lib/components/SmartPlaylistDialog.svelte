@@ -40,6 +40,7 @@
   import { validatePlaylistName, toSafeString } from '#lib/utils/validation.js';
   import { Modal } from '#lib/components/ui/index.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
+  import { RATING_VALUES, formatRatingStars } from '#lib/utils/rating.js';
 
   interface Props {
     /** 条件を変えるプレイリスト（nullなら、新しく作る） */
@@ -52,7 +53,8 @@
   /** 条件に合う曲数を数え直すまでの、入力の待ち時間（ミリ秒） */
   const COUNT_DEBOUNCE_MS = 300;
   const matchModes: MatchMode[] = ['all', 'any'];
-  const ratings = [0, 1, 2, 3, 4, 5];
+  /** 評価の条件で選べる値（評価なしと、星0.5から星5まで） */
+  const ratings = [0, ...RATING_VALUES];
 
   // 入力は、開いた時点の内容から始める（開いている間に一覧が更新されても変えない）
   // svelte-ignore state_referenced_locally
@@ -221,7 +223,7 @@
               >
                 {#each ratings as rating (rating)}
                   <option value={String(rating)}>
-                    {rating === 0 ? m.smartPlaylist.noRating : '★'.repeat(rating)}
+                    {rating === 0 ? m.smartPlaylist.noRating : formatRatingStars(rating)}
                   </option>
                 {/each}
               </select>
@@ -235,7 +237,7 @@
                 >
                   {#each ratings as rating (rating)}
                     <option value={String(rating)}>
-                      {rating === 0 ? m.smartPlaylist.noRating : '★'.repeat(rating)}
+                      {rating === 0 ? m.smartPlaylist.noRating : formatRatingStars(rating)}
                     </option>
                   {/each}
                 </select>

@@ -414,8 +414,91 @@ fn run_migrations(conn: &Connection) -> Result<()> {
     }
 
     rename_formats(conn)?;
+    migrate_to_half_star_ratings(conn)?;
 
     Ok(())
+}
+
+/// カラムがあるか
+fn has_column(conn: &Connection, table: &str, column: &str) -> Result<bool> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({})", table))?;
+    let found = stmt
+        .query_map([], |row| row.get::<_, String>(1))?
+        .any(|name| name.map(|n| n == column).unwrap_or(false));
+    Ok(found)
+}
+
+/// 評価を、半分の星の単位（0〜10）にする（ADR-082）
+///
+/// 以前の版は評価を星の数（0〜5）で持っていた。`tracks.rating_read`がないDB（以前の版のDB・
+/// 以前の版のバックアップから復元したDB）だけ、曲の評価と、自動プレイリストの評価の条件の値を
+/// 2倍にし、`rating_read`を足す（1回だけ行う）。足した時の`rating_read`は0で、起動時に
+/// バックグラウンドでファイルの評価を読み直し、半分の星を読む（`tag_backfill`）。
+fn migrate_to_half_star_ratings(conn: &Connection) -> Result<()> {
+    if has_column(conn, "tracks", "rating_read")? {
+        return Ok(());
+    }
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
+        "UPDATE tracks SET rating = MIN(rating, 5) * 2 WHERE rating > 0",
+        [],
+    )?;
+
+    let playlists: Vec<(String, String)> = tx
+        .prepare("SELECT id, rules FROM playlists WHERE rules LIKE '%\"rating\"%'")?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<Result<_>>()?;
+    for (id, rules) in playlists {
+        let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&rules) else {
+            continue;
+        };
+        if double_rating_rules(&mut value) {
+            tx.execute(
+                "UPDATE playlists SET rules = ?1 WHERE id = ?2",
+                [value.to_string(), id],
+            )?;
+        }
+    }
+
+    // 評価を半分の星として読んだか。足す前に登録した曲は0（`tag_backfill`が読み直す）
+    tx.execute(
+        "ALTER TABLE tracks ADD COLUMN rating_read INTEGER NOT NULL DEFAULT 0",
+        [],
+    )?;
+    tx.commit()
+}
+
+/// 自動プレイリストの条件のうち、評価の数値の条件の値（`value`・`valueTo`）を2倍にする
+/// @returns 直したか
+fn double_rating_rules(value: &mut serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::Array(items) => {
+            let mut changed = false;
+            for item in items {
+                changed |= double_rating_rules(item);
+            }
+            changed
+        }
+        serde_json::Value::Object(fields) => {
+            let is_rating_rule = fields.get("kind").and_then(|kind| kind.as_str())
+                == Some("number")
+                && fields.get("field").and_then(|field| field.as_str()) == Some("rating");
+            if is_rating_rule {
+                for key in ["value", "valueTo"] {
+                    if let Some(number) = fields.get(key).and_then(serde_json::Value::as_i64) {
+                        fields.insert(key.to_string(), (number.clamp(0, 5) * 2).into());
+                    }
+                }
+                return true;
+            }
+            let mut changed = false;
+            for item in fields.values_mut() {
+                changed |= double_rating_rules(item);
+            }
+            changed
+        }
+        _ => false,
+    }
 }
 
 /// 以前の版が記録した形式の名前（`AIF`・`WV`）を、今の名前（`library::FORMAT_RENAMES`）に直す
@@ -872,6 +955,64 @@ mod tests {
             .collect();
         // 形式の条件だけを直す（タイトルの「WV」は、そのまま）
         assert_eq!(values, ["WavPack", "WV", "FLAC"]);
+    }
+
+    /// 評価を星の数（0〜5）で持っていたDBは、評価と自動プレイリストの評価の条件を、1回だけ2倍にする
+    #[test]
+    fn test_migration_doubles_ratings_once() {
+        let conn = open_in_memory();
+        // 評価を半分の星で持つ前の版のDB（`rating_read`がない）
+        conn.execute_batch(
+            "ALTER TABLE tracks DROP COLUMN rating_read;
+             INSERT INTO tracks (id, file_path, file_name, format, file_size, rating) VALUES
+                ('none', '/m/a.mp3', 'a.mp3', 'MP3', 1, 0),
+                ('four', '/m/b.mp3', 'b.mp3', 'MP3', 1, 4),
+                ('five', '/m/c.mp3', 'c.mp3', 'MP3', 1, 5);",
+        )
+        .unwrap();
+        let rules = r#"{"matchMode":"all","rules":[
+            {"kind":"number","field":"rating","op":"atLeast","value":4,"valueTo":null},
+            {"kind":"number","field":"rating","op":"between","value":2,"valueTo":3},
+            {"kind":"number","field":"year","op":"atLeast","value":4,"valueTo":null}
+        ],"order":{"field":"rating","descending":true},"limit":null}"#;
+        conn.execute(
+            "INSERT INTO playlists (id, name, rules) VALUES ('p1', '星4以上', ?1)",
+            [rules],
+        )
+        .unwrap();
+
+        setup_connection(&conn).unwrap();
+        // 次の起動では、もう2倍にしない
+        setup_connection(&conn).unwrap();
+
+        let ratings: Vec<(i32, i32)> = conn
+            .prepare("SELECT rating, rating_read FROM tracks ORDER BY id")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .collect::<Result<_>>()
+            .unwrap();
+        // 並びはid順（five・four・none）。足す前に登録した曲は、ファイルから読み直す（0）
+        assert_eq!(ratings, [(10, 0), (8, 0), (0, 0)]);
+
+        let stored: String = conn
+            .query_row("SELECT rules FROM playlists WHERE id = 'p1'", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        let stored: crate::smart_playlist::SmartRules = serde_json::from_str(&stored).unwrap();
+        let values: Vec<(i32, Option<i32>)> = stored
+            .rules
+            .iter()
+            .map(|rule| match rule {
+                crate::smart_playlist::SmartRule::Number {
+                    value, value_to, ..
+                } => (*value, *value_to),
+                _ => unreachable!(),
+            })
+            .collect();
+        // 評価の条件だけを2倍にする（年の条件は、そのまま）
+        assert_eq!(values, [(8, None), (4, Some(6)), (4, None)]);
     }
 
     /// 上限を超える再生回数・スキップ回数が入ったDBも、起動時に直して読めるようにすること

@@ -24,6 +24,7 @@ pub struct Track {
     pub bitrate: Option<i32>,
     pub sample_rate: Option<i32>,
     pub is_favorite: bool,
+    /// 評価（半分の星の単位。0は評価なし、7は星3.5、10は星5つ。ADR-082）
     pub rating: i32,
     /// 再生回数（曲の半分か4分を聴いた回数）
     pub play_count: i32,

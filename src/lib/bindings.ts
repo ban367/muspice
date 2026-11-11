@@ -744,6 +744,7 @@ includesSettings: boolean } |
 	bitrate: number | null,
 	sampleRate: number | null,
 	isFavorite: boolean,
+	/**  評価（半分の星の単位。0は評価なし、7は星3.5、10は星5つ。ADR-082） */
 	rating: number,
 	/**  再生回数（曲の半分か4分を聴いた回数） */
 	playCount: number,
@@ -856,8 +857,9 @@ includesSettings: boolean } |
 	 */
 	setFavorite: (trackIds: string[], favorite: boolean) => __TAURI_INVOKE<null>("set_favorite", { trackIds, favorite }),
 	/**
-	 *  レーティングを設定（ファイルのタグへ書き込み、同じ値をデータベースに記録する）
+	 *  評価を設定（ファイルのタグへ書き込み、同じ値をデータベースに記録する）
 	 * 
+	 *  `rating`は半分の星の単位（0〜10。0は評価を外す。7は星3.5。ADR-082）。
 	 *  ファイルへ書き込めない場合はエラーにし、データベースも変えない。
 	 */
 	setRating: (trackId: string, rating: number) => __TAURI_INVOKE<null>("set_rating", { trackId, rating }),
@@ -1611,7 +1613,7 @@ export type NowPlayingUpdate = {
 
 /**  数値の項目 */
 export type NumberField = 
-/**  評価（星の数。0は評価なし） */
+/**  評価（半分の星の単位。0は評価なし、7は星3.5。ADR-082） */
 "rating" | "year" | "playCount" | "skipCount" | 
 /**  長さ（秒） */
 "duration" | "trackNumber" | "discNumber" | 
@@ -2155,6 +2157,7 @@ export type Track = {
 	bitrate: number | null,
 	sampleRate: number | null,
 	isFavorite: boolean,
+	/**  評価（半分の星の単位。0は評価なし、7は星3.5、10は星5つ。ADR-082） */
 	rating: number,
 	/**  再生回数（曲の半分か4分を聴いた回数） */
 	playCount: number,

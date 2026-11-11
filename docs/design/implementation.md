@@ -115,6 +115,7 @@ src-tauri/src/
 │   └── output.rs          # 出力デバイスの一覧と、出力のストリーム（cpal）
 ├── playback_state.rs      # 再生状態（音量・キュー・再生していた曲）の保存と復元（playback-state.json）
 ├── playlist.rs
+├── rating_tag.rs          # 評価（半分の星）のタグの読み書き（ID3v2の`POPM`・MP4の`rate`を、loftyが丸める前の値で読み書きする。ADR-082）
 ├── smart_playlist.rs      # 自動プレイリストの条件（検証・条件からのSQLの組み立て・ランダムな並び。ADR-042）
 ├── metadata.rs
 ├── mini_player.rs         # ミニプレーヤー（メインウィンドウの大きさの切り替えと、元の大きさの記録。ADR-046）
@@ -125,7 +126,7 @@ src-tauri/src/
 ├── own_writes.rs          # アプリ自身が曲のファイルへ書いた変更の記録（ライブラリフォルダの監視が、その通知で再スキャンしない）
 ├── opened_files.rs        # 「このアプリで開く」・Dockのアイコンへのドロップで開かれたファイルの受け取り（インポートして、再生する曲として預かる。ADR-050）
 ├── settings.rs
-├── tag_backfill.rs        # 既存のトラックの、後から追加した項目（アルバムアーティスト・ソート用のタグ）の読み込み（起動時）
+├── tag_backfill.rs        # 既存のトラックの、後から追加した項目（アルバムアーティスト・ソート用のタグ・複数の値・半分の星の評価）の読み込み（起動時）
 ├── track_notification.rs  # 曲が変わった時の通知（ADR-046）
 ├── track_relink.rs        # 移動・改名されたファイルと、見つからない曲の対応付け
 ├── transcode.rs           # 形式の変換（デコードした音声の一時ファイル・afconvertでのエンコード・出力先の計画。ADR-054）
@@ -196,6 +197,7 @@ src-tauri/src/
 - ファイルの整理（`FileOrganizeDialog`。曲の右クリックのメニューから`fileOrganizeDialog.open(tracks)`で開く）は、整理後の場所をRust側（`file_organize.rs`）だけが決める。画面は、書式を変えるたびに`plan_file_organize`を呼び（入力が止まってから300ms。後から始めた取得の結果だけを使う）、返った計画を`#lib/utils/fileOrganize`の`summarizeOrganizePlan`で、動かす曲・動かさない曲・そのままの曲に分けて出す。書式の候補（`FILE_ORGANIZE_PRESETS`）と、前回の書式の記憶（localStorage）も同じモジュールにある。モックは、`src/lib/mocks/fileOrganize.ts`が同じ規則で場所を決める（書式を変えたら、両方を直す）
 - 重複した曲の画面（`/library/duplicates`）は、`#lib/utils/duplicates`の`findDuplicateGroups`で全曲の一覧からまとまりを作り、`TrackList`にまとまりの順で渡す（`defaultSort={null}`）。`TrackList`の`groupOf`に、曲からまとまりのキーを返す関数を渡すと、渡した順で並べている間、まとまりの間に線を引く。場所の列（`filePath`）は、どの一覧でも選べる
 - アーティスト・ジャンルを値ごとに扱う時（一覧の集計・絞り込み）は、`#lib/utils/multiValue`の`splitValues`・`hasValue`・`listedArtists`で値に分ける（`track.artist === ...`で比べない。`A; B`のように複数の値を持つ曲があるため。ADR-051）
+- 評価は、半分の星の単位（0〜10）の整数で持つ（ADR-082）。星の文字・選べる値・星の塗り方は`#lib/utils/rating`（`formatRatingStars`・`RATING_VALUES`・`starFill`）を使い、`'★'.repeat`などで各所に書かない。星を選ぶ部品は`RatingStars`（星の左半分で半分の星を選ぶ）
 - 名前の順に並べる時は、`#lib/utils/nameSort`の`compareNames`・`sortByName`を使う（`localeCompare`・`toLowerCase`での比較を各所に書かない）。アルバム・アーティストなどは、並び順に使う値（`sortName`）があればその値で並べる。曲の一覧の並び替え（`trackSort`）も、タイトル・アーティスト・アルバムは`track.sortTags`の値を優先する
 - お気に入りのハートは`FavoriteButton`（`#lib/components/library`）を使う。曲のIDと今の状態を渡すと、押した時に`useSetFavoriteMutation`で切り替え、キャッシュにあるその曲を書き換える（`patchTracksInCache`。複数の曲をまとめて書き換えられる）
   - 再生キューの曲（`player.currentTrack`）は、キューに入れた時点の内容のまま。プレーヤーのハートは、お気に入りの一覧（`useFavoriteTracksQuery`）から状態を調べる

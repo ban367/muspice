@@ -604,9 +604,9 @@ describe('大量のトラック', () => {
 
 describe('エラー', () => {
   it('Rust側と同じ{ code, message }形式でrejectする', async () => {
-    await expect(commands.setRating(mockTrackId(1), 6)).rejects.toEqual({
+    await expect(commands.setRating(mockTrackId(1), 11)).rejects.toEqual({
       code: 'VALIDATION',
-      message: 'レーティングは0から5の間で指定してください'
+      message: '評価は、星0から5までを0.5刻みで指定してください'
     });
     await expect(commands.setFavorite(['invalid'], true)).rejects.toMatchObject({
       code: 'VALIDATION'
@@ -1086,7 +1086,7 @@ describe('プレイリスト', () => {
 
     const tracks = await commands.getPlaylistTracks(smart.id);
     expect(tracks.length).toBeGreaterThan(0);
-    expect(tracks.every((track) => track.rating >= 4)).toBe(true);
+    expect(tracks.every((track) => track.rating >= 8)).toBe(true);
     // 評価の高い順
     expect(tracks.map((track) => track.rating)).toEqual(
       tracks.map((track) => track.rating).sort((a, b) => b - a)

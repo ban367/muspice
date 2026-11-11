@@ -3,6 +3,7 @@ use crate::error::{AppError, AppResult};
 use crate::models::{Metadata, ReplayGain, SortTags};
 use crate::multi_value;
 use crate::ogg_flac;
+use crate::rating_tag;
 use crate::vorbis_tag;
 use lofty::aac::AacFile;
 use lofty::config::{ParseOptions, WriteOptions};
@@ -13,8 +14,7 @@ use lofty::iff::wav::WavFile;
 use lofty::mpeg::MpegFile;
 use lofty::picture::{MimeType, Picture, PictureInformation, PictureType};
 use lofty::probe::Probe;
-use lofty::tag::items::popularimeter::{Popularimeter, StarRating};
-use lofty::tag::{Accessor, ItemKey, ItemValue, Tag, TagExt, TagItem, TagType};
+use lofty::tag::{Accessor, ItemKey, ItemValue, Tag, TagItem, TagType};
 use std::ffi::OsString;
 use std::fs::{self, File};
 use std::io::BufReader;
@@ -53,7 +53,8 @@ fn extract_album_artist(tag: &Tag) -> Option<String> {
 /// たとえば`.ogg`の中がOpusのファイルも読めるようにする）。
 ///
 /// APEv2タグを持つ形式（WavPack・Monkey's Audio）は、汎用タグで読めない項目（BPM・評価・画像）を
-/// 足して返す（`ape_tag`）。Oggの中のFLACは、loftyが判定できないため、先に確かめてFLACとして
+/// 足して返す（`ape_tag`）。ID3v2・MP4の形式は、評価をloftyが丸める前の値で読む（`rating_tag`。
+/// 半分の星。ADR-082）。Oggの中のFLACは、loftyが判定できないため、先に確かめてFLACとして
 /// 読む（`ogg_flac`）。
 fn read_tagged_file(file_path: &Path, options: ParseOptions) -> AppResult<TaggedFile> {
     let read_error = |e: &dyn std::fmt::Display| {
@@ -78,6 +79,9 @@ fn read_tagged_file(file_path: &Path, options: ParseOptions) -> AppResult<Tagged
         Some(file_type) if ape_tag::uses_ape_tag(file_type) => {
             ape_tag::read_file(&mut probe.into_inner(), file_type, options)
         }
+        Some(file_type) if rating_tag::reads_raw_rating(file_type) => {
+            rating_tag::read_file(&mut probe.into_inner(), file_type, options)
+        }
         _ => probe.read(),
     }
     .map_err(|e| read_error(&e))
@@ -91,6 +95,9 @@ fn read_tagged_file(file_path: &Path, options: ParseOptions) -> AppResult<Tagged
 /// 対応のない項目を残すため、そのまま保存する。
 ///
 /// ID3v2は、ファイルにあったタグの版で書く（`id3v2_options`。ADR-075）。
+///
+/// 半分の星の評価は、loftyの汎用タグでは書けないため、`rating_tag::save_tag`が形式ごとのタグで
+/// 書く（ADR-082）。
 ///
 /// 書き込みは、元のファイルの写しに行ってから置き換える（`write_atomically`。ADR-074）。
 fn save_tagged_file(tagged_file: &TaggedFile, file_path: &Path) -> AppResult<()> {
@@ -109,11 +116,11 @@ fn save_tagged_file(tagged_file: &TaggedFile, file_path: &Path) -> AppResult<()>
                 }
                 TagType::Id3v2 if keeps_id3v23 => {
                     let (tag, options) = id3v2_options(tag);
-                    tag.save_to_path(temp, options)
+                    rating_tag::save_tag(&tag, temp, options)
                 }
                 // 読めるだけで書けない種類のタグ（FLACのID3v2など）は、そのままにする
                 tag_type if tagged_file.tag_support(tag_type).is_writable() => {
-                    tag.save_to_path(temp, WriteOptions::default())
+                    rating_tag::save_tag(tag, temp, WriteOptions::default())
                 }
                 _ => Ok(()),
             })
@@ -149,7 +156,8 @@ const ID3V24_ONLY_FRAMES: &[&str] = &[
 fn id3v2_options(tag: &Tag) -> (Tag, WriteOptions) {
     let mut joined = tag.clone();
     join_multiple_values(&mut joined);
-    let frames = Id3v2Tag::from(joined.clone());
+    // 書くフレームを調べるだけのため、評価は除く（半分の星は、loftyが読めずに警告を出す）
+    let frames = Id3v2Tag::from(rating_tag::without_ratings(&joined));
     let drops_frames = (&frames)
         .into_iter()
         .any(|frame| ID3V24_ONLY_FRAMES.contains(&frame.id_str()));
@@ -274,9 +282,11 @@ pub struct BackfillTags {
     /// アーティスト・ジャンル（複数ある場合は、`; `でつないだ文字列）
     pub artist: Option<String>,
     pub genre: Option<String>,
+    /// 評価（半分の星の単位。0は評価なし）
+    pub rating: i32,
 }
 
-/// 音楽ファイルのタグから、アルバムアーティスト・ソート用のタグ・アーティスト・ジャンルだけを読む
+/// 音楽ファイルのタグから、アルバムアーティスト・ソート用のタグ・アーティスト・ジャンル・評価だけを読む
 ///
 /// それらの列を追加する前に登録したトラックの読み込み（`tag_backfill`）に使う。
 /// 長さ・ビットレートなどは読まない（全ファイルを読むため、1ファイルあたりの時間を抑える）。
@@ -293,6 +303,7 @@ pub fn read_backfill_tags(file_path: &Path) -> AppResult<BackfillTags> {
                 album_artist: metadata.album_artist,
                 artist: metadata.artist,
                 genre: metadata.genre,
+                rating: rating_tag::read_rating(tag),
             }
         })
         .unwrap_or_default())
@@ -352,130 +363,6 @@ fn extract_replay_gain(tag: &Tag) -> ReplayGain {
             .get_string(ItemKey::ReplayGainAlbumPeak)
             .and_then(parse_peak),
     }
-}
-
-/// 評価として受け付ける範囲（0は評価なし）
-pub const RATING_RANGE: std::ops::RangeInclusive<i32> = 0..=5;
-
-/// 数値だけの`RATING`（Vorbisコメント・APEv2タグ）の値の付け方
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum PlainRatingScale {
-    /// 星の数をそのまま書く（1〜5）
-    Stars,
-    /// 20刻みで書く（20〜100。MusicBee・MediaMonkeyなど。こちらが多い）
-    Percent,
-}
-
-/// `RATING`の値（数値だけの文字列）を、星の数と付け方に解釈する
-///
-/// - 1〜5: 星の数
-/// - 6〜100: 20刻み（半分の星は切り上げる。例: 90 → 5）
-/// - 0より大きく1未満の小数: 0〜1の割合（例: 0.8 → 4）
-///
-/// 0・範囲外・数値でない値はNone（評価なし）。
-fn parse_plain_rating(value: &str) -> Option<(i32, PlainRatingScale)> {
-    let number: f64 = value.trim().parse().ok()?;
-    if !number.is_finite() || number <= 0.0 || number > 100.0 {
-        return None;
-    }
-    if number < 1.0 {
-        let stars = (number * 5.0).round().clamp(1.0, 5.0);
-        return Some((stars as i32, PlainRatingScale::Percent));
-    }
-    if number <= 5.0 {
-        return Some((number.round() as i32, PlainRatingScale::Stars));
-    }
-    let stars = (number / 20.0).ceil().clamp(1.0, 5.0);
-    Some((stars as i32, PlainRatingScale::Percent))
-}
-
-/// 評価を、数値だけの`RATING`として読み書きするタグの種類か
-///
-/// Vorbisコメント（FLAC・Oggなど）とAPEv2タグ（WavPack・Monkey's Audio）。どちらも、多くのアプリが
-/// 書き手を付けない`RATING=80`の形で書く。
-fn uses_plain_rating(tag_type: TagType) -> bool {
-    matches!(tag_type, TagType::VorbisComments | TagType::Ape)
-}
-
-/// 数値だけの`RATING`を読む
-///
-/// lofty（0.25）は、Vorbisコメントの`RATING`を汎用タグへ文字列のまま入れるだけで、
-/// `Tag::ratings()`では読めない（読めるのは`RATING:書き手`の形だけ）。APEv2タグの`RATING`は、
-/// `ape_tag`が同じ形で汎用タグへ入れる。
-fn plain_rating(tag: &Tag) -> Option<(i32, PlainRatingScale)> {
-    if !uses_plain_rating(tag.tag_type()) {
-        return None;
-    }
-    tag.get_strings(ItemKey::Popularimeter)
-        .find_map(parse_plain_rating)
-}
-
-/// タグから評価（星の数。1〜5）を読み取る。評価のタグがない場合は0
-///
-/// 評価の数値の付け方は書き込んだアプリごとに違うため、loftyが書き手（POPMのemailなど）に
-/// 応じて星の数へ直したものを使う。複数ある場合は最初の評価を使う。
-/// 数値だけの`RATING`（Vorbisコメント・APEv2タグ）は、`plain_rating`で読む。
-fn extract_rating(tag: &Tag) -> i32 {
-    tag.ratings()
-        .next()
-        .map(|popularimeter| popularimeter.rating as i32)
-        .or_else(|| plain_rating(tag).map(|(stars, _)| stars))
-        .unwrap_or(0)
-}
-
-/// 星の数（1〜5）をloftyの評価にする（0・範囲外は評価なし）
-fn star_rating(rating: i32) -> Option<StarRating> {
-    match rating {
-        1 => Some(StarRating::One),
-        2 => Some(StarRating::Two),
-        3 => Some(StarRating::Three),
-        4 => Some(StarRating::Four),
-        5 => Some(StarRating::Five),
-        _ => None,
-    }
-}
-
-/// タグの評価を書き換える（0は評価のタグを取り除く）
-///
-/// すでに評価がある場合は、その書き手と再生回数を引き継ぎ、星の数だけを変える
-/// （書き込んだアプリが、自分の付け方のまま読めるようにする）。ない場合は、対応するアプリが
-/// 多いMusicBeeの付け方で書く（ID3v2は1・64・128・196・255、それ以外は20刻み）。
-///
-/// Vorbisコメント（FLACなど）とAPEv2タグは、書き手を付けない`RATING`に数値だけを書く。
-/// lofty（0.25）は汎用タグの評価をVorbisコメントへ変換せずに書き出すため、loftyの形の
-/// まま入れると、他のアプリが読めない値（`RATING=MusicBee|4|0`）がファイルに書かれる。
-/// APEv2タグは、loftyに対応する項目がないため、検査なしで入れる（保存時に`ape_tag`が書く）。
-fn set_tag_rating(tag: &mut Tag, rating: i32) {
-    if uses_plain_rating(tag.tag_type()) {
-        // すでに星の数（1〜5）で書かれている場合はその付け方を保ち、それ以外は20刻みで書く
-        let scale = plain_rating(tag).map(|(_, scale)| scale);
-        tag.remove_key(ItemKey::Popularimeter);
-        if star_rating(rating).is_some() {
-            let value = match scale {
-                Some(PlainRatingScale::Stars) => rating,
-                _ => rating * 20,
-            };
-            tag.insert_unchecked(TagItem::new(
-                ItemKey::Popularimeter,
-                ItemValue::Text(value.to_string()),
-            ));
-        }
-        return;
-    }
-
-    let existing = tag.ratings().next();
-    tag.remove_key(ItemKey::Popularimeter);
-
-    let Some(star) = star_rating(rating) else {
-        return;
-    };
-    let popularimeter = match existing {
-        Some(current) => {
-            Popularimeter::custom(current.email().to_string(), star, current.play_counter)
-        }
-        None => Popularimeter::musicbee(star, 0),
-    };
-    tag.insert_text(ItemKey::Popularimeter, popularimeter.to_string());
 }
 
 /// タグから、空でない文字列の値を取得する（空白だけの値は、タグがないものとして扱う）
@@ -630,7 +517,7 @@ pub struct FileInfo {
     pub bitrate: Option<i32>,
     pub sample_rate: Option<i32>,
     pub replay_gain: ReplayGain,
-    /// 評価（星の数。0は評価なし）
+    /// 評価（半分の星の単位。0は評価なし、7は星3.5）
     pub rating: i32,
 }
 
@@ -647,7 +534,7 @@ pub fn extract_all_file_info(file_path: &Path) -> AppResult<FileInfo> {
     let metadata = tag.map(library_metadata).unwrap_or_default();
 
     let replay_gain = tag.map(extract_replay_gain).unwrap_or_default();
-    let rating = tag.map(extract_rating).unwrap_or(0);
+    let rating = tag.map(rating_tag::read_rating).unwrap_or(0);
 
     // オーディオプロパティ抽出
     let properties = tagged_file.properties();
@@ -1069,14 +956,14 @@ pub fn copy_file_tags(source: &Path, destination: &Path) -> AppResult<()> {
         return Ok(());
     };
     let metadata = editor_metadata(tag);
-    let rating = extract_rating(tag);
+    let rating = rating_tag::read_rating(tag);
     let replay_gain = extract_replay_gain(tag);
     let pictures = tag.pictures();
     let picture = displayed_picture_index(pictures).map(|index| pictures[index].clone());
 
     modify_file_tag_of_type(destination, |tag, file_type| {
         apply_metadata(tag, &metadata, false);
-        set_tag_rating(tag, rating);
+        rating_tag::set_rating(tag, rating);
         set_tag_replay_gain(tag, file_type, &replay_gain)?;
         if let Some(picture) = picture {
             tag.push_picture(picture);
@@ -1315,7 +1202,7 @@ pub fn update_file_metadata(
 pub fn update_file_rating(file_path: &Path, rating: i32) -> AppResult<()> {
     validate_rating(rating)?;
 
-    modify_file_tag(file_path, |tag| set_tag_rating(tag, rating))
+    modify_file_tag(file_path, |tag| rating_tag::set_rating(tag, rating))
 }
 
 /// 音楽ファイルのメタデータと評価を、1回の保存でまとめて更新する
@@ -1334,16 +1221,16 @@ pub fn update_file_metadata_and_rating(
     modify_file_tag(file_path, |tag| {
         apply_metadata(tag, metadata, false);
         if let Some(rating) = rating {
-            set_tag_rating(tag, rating);
+            rating_tag::set_rating(tag, rating);
         }
     })
 }
 
 /// 評価をバリデーション
 pub fn validate_rating(rating: i32) -> AppResult<()> {
-    if !RATING_RANGE.contains(&rating) {
+    if !rating_tag::RATING_RANGE.contains(&rating) {
         return Err(AppError::Validation(
-            "レーティングは0から5の間で指定してください".to_string(),
+            "評価は、星0から5までを0.5刻みで指定してください".to_string(),
         ));
     }
     Ok(())
@@ -1472,135 +1359,6 @@ mod tests {
     }
 
     #[test]
-    fn test_tag_rating_round_trip() {
-        for tag_type in [
-            TagType::Id3v2,
-            TagType::VorbisComments,
-            TagType::Mp4Ilst,
-            TagType::RiffInfo,
-        ] {
-            let mut tag = Tag::new(tag_type);
-            assert_eq!(extract_rating(&tag), 0);
-
-            for rating in 1..=5 {
-                set_tag_rating(&mut tag, rating);
-                assert_eq!(extract_rating(&tag), rating);
-                // 書き直しても評価は1つだけ
-                assert_eq!(tag.get_strings(ItemKey::Popularimeter).count(), 1);
-            }
-
-            // 0は評価のタグを取り除く
-            set_tag_rating(&mut tag, 0);
-            assert_eq!(extract_rating(&tag), 0);
-            assert_eq!(tag.get_strings(ItemKey::Popularimeter).count(), 0);
-        }
-    }
-
-    /// 他のアプリが書いた評価は、書き手と再生回数を引き継いで星の数だけを変える
-    #[test]
-    fn test_set_tag_rating_keeps_existing_writer_and_play_counter() {
-        let mut tag = Tag::new(TagType::Id3v2);
-        tag.insert_text(
-            ItemKey::Popularimeter,
-            Popularimeter::windows_media_player(StarRating::Two, 7).to_string(),
-        );
-
-        set_tag_rating(&mut tag, 4);
-
-        let rating = tag.ratings().next().expect("評価が残っていること");
-        assert_eq!(rating.rating as i32, 4);
-        assert_eq!(rating.play_counter, 7);
-        assert_eq!(rating.email(), "Windows Media Player 9 Series");
-    }
-
-    #[test]
-    fn test_parse_plain_rating() {
-        use PlainRatingScale::{Percent, Stars};
-
-        // 20刻み（半分の星は切り上げる）
-        assert_eq!(parse_plain_rating("20"), Some((1, Percent)));
-        assert_eq!(parse_plain_rating("80"), Some((4, Percent)));
-        assert_eq!(parse_plain_rating("90"), Some((5, Percent)));
-        assert_eq!(parse_plain_rating("100"), Some((5, Percent)));
-        assert_eq!(parse_plain_rating("10"), Some((1, Percent)));
-        // 星の数
-        assert_eq!(parse_plain_rating("1"), Some((1, Stars)));
-        assert_eq!(parse_plain_rating(" 4 "), Some((4, Stars)));
-        assert_eq!(parse_plain_rating("5"), Some((5, Stars)));
-        // 0〜1の割合
-        assert_eq!(parse_plain_rating("0.8"), Some((4, Percent)));
-        assert_eq!(parse_plain_rating("0.1"), Some((1, Percent)));
-        // 評価なし・不正な値
-        assert_eq!(parse_plain_rating("0"), None);
-        assert_eq!(parse_plain_rating("101"), None);
-        assert_eq!(parse_plain_rating("-1"), None);
-        assert_eq!(parse_plain_rating("MusicBee|4|0"), None);
-        assert_eq!(parse_plain_rating(""), None);
-    }
-
-    /// Vorbisコメントには、他のアプリが読める数値だけの`RATING`を書く
-    #[test]
-    fn test_vorbis_rating_is_written_as_plain_number() {
-        use lofty::tag::TagExt;
-
-        let dump = |tag: &Tag| {
-            let mut bytes = Vec::new();
-            tag.dump_to(&mut bytes, WriteOptions::default()).unwrap();
-            String::from_utf8_lossy(&bytes).into_owned()
-        };
-
-        let mut tag = Tag::new(TagType::VorbisComments);
-        set_tag_rating(&mut tag, 4);
-        let written = dump(&tag);
-        assert!(written.contains("RATING=80"), "{written:?}");
-        assert!(!written.contains("MusicBee"), "{written:?}");
-        assert_eq!(extract_rating(&tag), 4);
-
-        // 評価を外すと、RATINGそのものがなくなる
-        set_tag_rating(&mut tag, 0);
-        assert!(!dump(&tag).contains("RATING"));
-    }
-
-    /// 他のアプリが書いた数値だけの`RATING`を読み、星の数で書かれていればその付け方を保つ
-    #[test]
-    fn test_vorbis_rating_reads_plain_values_and_keeps_star_scale() {
-        // 20刻み（MusicBeeなど）
-        let mut tag = Tag::new(TagType::VorbisComments);
-        tag.insert_text(ItemKey::Popularimeter, "60".to_string());
-        assert_eq!(extract_rating(&tag), 3);
-        set_tag_rating(&mut tag, 5);
-        assert_eq!(
-            tag.get_string(ItemKey::Popularimeter),
-            Some("100"),
-            "20刻みのまま書く"
-        );
-
-        // 星の数
-        let mut tag = Tag::new(TagType::VorbisComments);
-        tag.insert_text(ItemKey::Popularimeter, "4".to_string());
-        assert_eq!(extract_rating(&tag), 4);
-        set_tag_rating(&mut tag, 2);
-        assert_eq!(
-            tag.get_string(ItemKey::Popularimeter),
-            Some("2"),
-            "星の数のまま書く"
-        );
-        assert_eq!(extract_rating(&tag), 2);
-
-        // 以前のバージョンが書いたloftyの形も読め、書き直すと数値だけになる
-        let mut tag = Tag::new(TagType::VorbisComments);
-        tag.insert_text(ItemKey::Popularimeter, "MusicBee|3|0".to_string());
-        assert_eq!(extract_rating(&tag), 3);
-        set_tag_rating(&mut tag, 3);
-        assert_eq!(tag.get_string(ItemKey::Popularimeter), Some("60"));
-
-        // 数値だけの値の解釈は、VorbisコメントとAPEv2タグだけに使う
-        let mut id3 = Tag::new(TagType::Id3v2);
-        id3.insert_text(ItemKey::Popularimeter, "80".to_string());
-        assert_eq!(extract_rating(&id3), 0);
-    }
-
-    #[test]
     fn test_apply_metadata_clears_missing_fields_only_when_asked() {
         let mut tag = Tag::new(TagType::Id3v2);
         tag.set_title("Old Title".to_string());
@@ -1719,6 +1477,7 @@ mod tests {
                     },
                     artist: Some("アーティスト".to_string()),
                     genre: Some("Jazz".to_string()),
+                    rating: 0,
                 },
                 "{name}"
             );
@@ -1917,15 +1676,27 @@ mod tests {
             update_file_metadata(&file, &metadata, true).unwrap();
             assert_eq!(extract_all_file_info(&file).unwrap().rating, 0, "{name}");
 
-            for rating in [4, 2, 0] {
+            // 評価は半分の星の単位（7は星3.5）
+            for rating in [8, 7, 1, 3, 5, 9, 10, 2, 0] {
                 update_file_rating(&file, rating).unwrap();
                 assert_eq!(
                     extract_all_file_info(&file).unwrap().rating,
                     rating,
-                    "{name}"
+                    "{name} {rating}"
                 );
                 assert_eq!(read_file_tags(&file).unwrap(), metadata, "{name}");
             }
+
+            // 半分の星の評価は、ほかの項目だけを保存しても変わらない（loftyの汎用タグでは、
+            // 整数の星に書き換わっていた）
+            update_file_rating(&file, 7).unwrap();
+            let title_only = Metadata {
+                title: Some("別のタイトル".to_string()),
+                ..Default::default()
+            };
+            update_file_metadata(&file, &title_only, false).unwrap();
+            assert_eq!(extract_all_file_info(&file).unwrap().rating, 7, "{name}");
+            update_file_metadata(&file, &metadata, true).unwrap();
 
             // ほかの項目と一緒に書いても、同じ値を読む
             let partial = Metadata {
@@ -1937,6 +1708,97 @@ mod tests {
             assert_eq!(info.rating, 5, "{name}");
             assert_eq!(info.metadata.genre.as_deref(), Some("Rock"), "{name}");
         }
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// 半分の星を、MusicBee・MediaMonkeyと同じ値でファイルに書く（ADR-082）
+    #[test]
+    fn test_half_star_ratings_are_written_like_musicbee() {
+        use lofty::mp4::{AtomData, AtomIdent, Mp4File};
+
+        let dir = std::env::temp_dir().join(format!("muspice-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/playback");
+        let options = ParseOptions::new().read_properties(false);
+
+        // MP3: `POPM`に186（MusicBeeの書き手）。ほかの項目を保存しても変わらない
+        let mp3 = dir.join("lame.mp3");
+        std::fs::copy(fixtures.join("lame.mp3"), &mp3).unwrap();
+        update_file_rating(&mp3, 7).unwrap();
+        update_file_metadata(
+            &mp3,
+            &Metadata {
+                title: Some("タイトル".to_string()),
+                ..Default::default()
+            },
+            false,
+        )
+        .unwrap();
+        let popm = |path: &Path| {
+            let file = MpegFile::read_from(&mut BufReader::new(File::open(path).unwrap()), options)
+                .unwrap();
+            file.id3v2()
+                .unwrap()
+                .into_iter()
+                .find_map(|frame| match frame {
+                    lofty::id3::v2::Frame::Popularimeter(popm) => {
+                        Some((popm.email.to_string(), popm.rating))
+                    }
+                    _ => None,
+                })
+        };
+        assert_eq!(popm(&mp3), Some(("MusicBee".to_string(), 186)));
+        // 整数の星は、今までと同じ値（Windows Media Playerと同じ）
+        update_file_rating(&mp3, 8).unwrap();
+        assert_eq!(popm(&mp3), Some(("MusicBee".to_string(), 196)));
+
+        // ID3v2.3のタグも、v2.3のまま半分の星を書く
+        let mp3_v23 = dir.join("v23.mp3");
+        std::fs::copy(fixtures.join("lame.mp3"), &mp3_v23).unwrap();
+        {
+            let mut tagged = read_tagged_file(&mp3_v23, ParseOptions::new()).unwrap();
+            let mut tag = Tag::new(TagType::Id3v2);
+            tag.set_title("v2.3".to_string());
+            tagged.insert_tag(tag);
+            let tag = tagged.tag(TagType::Id3v2).unwrap().clone();
+            lofty::tag::TagExt::save_to_path(
+                &tag,
+                &mp3_v23,
+                WriteOptions::default().use_id3v23(true),
+            )
+            .unwrap();
+        }
+        update_file_rating(&mp3_v23, 9).unwrap();
+        assert_eq!(
+            id3v2_version(&mp3_v23, FileType::Mpeg),
+            Some(Id3v2Version::V3)
+        );
+        assert_eq!(popm(&mp3_v23), Some(("MusicBee".to_string(), 242)));
+        assert_eq!(extract_all_file_info(&mp3_v23).unwrap().rating, 9);
+
+        // M4A: `rate`に70（文字列。loftyと同じ）
+        let m4a = dir.join("apple_aac.m4a");
+        std::fs::copy(fixtures.join("apple_aac.m4a"), &m4a).unwrap();
+        update_file_rating(&m4a, 7).unwrap();
+        update_file_metadata(
+            &m4a,
+            &Metadata {
+                title: Some("タイトル".to_string()),
+                ..Default::default()
+            },
+            false,
+        )
+        .unwrap();
+        let file =
+            Mp4File::read_from(&mut BufReader::new(File::open(&m4a).unwrap()), options).unwrap();
+        let rate = file
+            .ilst()
+            .unwrap()
+            .get(&AtomIdent::Fourcc(*b"rate"))
+            .and_then(|atom| atom.data().next().cloned());
+        assert_eq!(rate, Some(AtomData::UTF8("70".to_string())));
+        assert_eq!(extract_all_file_info(&m4a).unwrap().rating, 7);
 
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -2515,9 +2377,10 @@ mod tests {
     #[test]
     fn test_validate_rating() {
         assert!(validate_rating(0).is_ok());
-        assert!(validate_rating(5).is_ok());
+        assert!(validate_rating(7).is_ok());
+        assert!(validate_rating(10).is_ok());
         assert!(validate_rating(-1).is_err());
-        assert!(validate_rating(6).is_err());
+        assert!(validate_rating(11).is_err());
     }
 
     #[test]

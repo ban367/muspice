@@ -8,9 +8,13 @@
 //! タグの、最初の値だけを読んでいる。ファイルに複数の値があり、今の値がその最初の値のままなら、
 //! すべての値に置き換える（アプリで編集した値は、変えない）。
 //!
+//! 評価を半分の星で持つ前（ADR-082）に登録したトラックは、半分の星を切り上げた星の数で読んでいる
+//! （DBの移行で2倍にしてある）。ファイルの評価が半分の星で、今の評価がそれを切り上げた値のままなら、
+//! 半分の星に置き換える。
+//!
 //! - 読み込むのは未読の項目だけで、ほかの項目は変えない（「メタデータを更新」と違い、
 //!   以前のバージョンでDBだけに保存した編集内容を失わない）
-//! - 読み込んだトラックは`album_artist_read`・`sort_tags_read`・`multi_values_read`を1にする。
+//! - 読み込んだトラックは`album_artist_read`・`sort_tags_read`・`multi_values_read`・`rating_read`を1にする。
 //!   対象がなくなれば、次回以降の起動では何もしない
 //! - ファイルを読めなかったトラック（外付けドライブが外れているなど）は未読のまま残し、次回の起動で読み直す
 //! - 途中でアプリを終了した場合は、次回の起動で続きから読み込む
@@ -53,7 +57,7 @@ pub fn start(app: &AppHandle) {
                 Ok(result) if result.read_count == 0 && result.failed_count == 0 => {}
                 Ok(result) => {
                     log::info!(
-                        "Backfilled album artist and sort tags for existing tracks (read: {}, with tags: {}, unreadable: {})",
+                        "Backfilled album artist, sort tags and ratings for existing tracks (read: {}, with tags: {}, unreadable: {})",
                         result.read_count,
                         result.found_count,
                         result.failed_count
@@ -121,6 +125,13 @@ fn backfill(
                         all_values(track.genre.as_deref(), tags.genre.as_deref()),
                     )?;
                 }
+                if track.needs_rating {
+                    crate::repository::set_track_rating_read(
+                        &tx,
+                        &track.id,
+                        half_star_rating(track.rating, tags.rating),
+                    )?;
+                }
             }
             tx.commit().map_err(|e| {
                 AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
@@ -136,11 +147,21 @@ fn backfill(
                     || (track.needs_multi_values
                         && (all_values(track.artist.as_deref(), tags.artist.as_deref()).is_some()
                             || all_values(track.genre.as_deref(), tags.genre.as_deref()).is_some()))
+                    || (track.needs_rating && half_star_rating(track.rating, tags.rating).is_some())
             })
             .count();
     }
 
     Ok(result)
+}
+
+/// 半分の星を切り上げて読んでいた評価なら、ファイルの半分の星の評価を返す
+///
+/// `current`は今の評価、`from_file`はファイルから半分の星として読んだ評価（どちらも半分の星の単位）。
+/// ファイルの評価が半分の星で、今の評価がそれを切り上げた値の場合だけ、置き換える値を返す
+/// （アプリで変えた評価・整数の星の評価は、変えない）。
+fn half_star_rating(current: i32, from_file: i32) -> Option<i32> {
+    (from_file % 2 == 1 && current == from_file + 1).then_some(from_file)
 }
 
 /// 最初の値だけを読んでいた項目なら、ファイルにあるすべての値（`; `でつないだ文字列）を返す
@@ -232,6 +253,65 @@ mod tests {
             artist: Some(reading.to_string()),
             ..Default::default()
         }
+    }
+
+    /// 半分の星を切り上げて読んでいた評価を、ファイルの半分の星に置き換える（ADR-082）
+    #[test]
+    fn test_backfill_reads_half_star_ratings() {
+        let state = setup_state();
+        // t1: 星3.5を星4（8）で読んでいた曲。t2: アプリで評価を変えた曲。t3: 整数の星の曲
+        for (id, rating) in [("t1", 8), ("t2", 6), ("t3", 8)] {
+            insert_unread_track(&state, id, "曲");
+            state
+                .with_db(|db| {
+                    db.execute(
+                        "UPDATE tracks SET rating = ?2 WHERE id = ?1",
+                        rusqlite::params![id, rating],
+                    )
+                    .unwrap();
+                    Ok(())
+                })
+                .unwrap();
+        }
+        let file_ratings = [("t1", 7), ("t2", 7), ("t3", 8)];
+
+        let result = backfill(&state, |path| {
+            let rating = file_ratings
+                .iter()
+                .find(|(id, _)| path.ends_with(format!("{id}.mp3")))
+                .map(|(_, rating)| *rating)
+                .unwrap();
+            Ok(BackfillTags {
+                rating,
+                ..Default::default()
+            })
+        })
+        .unwrap();
+
+        assert_eq!(result.read_count, 3);
+        assert_eq!(result.found_count, 1);
+        let ratings: Vec<(i32, bool)> = state
+            .with_db(|db| {
+                Ok(db
+                    .prepare("SELECT rating, rating_read FROM tracks ORDER BY id")
+                    .unwrap()
+                    .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                    .unwrap()
+                    .collect::<rusqlite::Result<_>>()
+                    .unwrap())
+            })
+            .unwrap();
+        assert_eq!(ratings, [(7, true), (6, true), (8, true)]);
+    }
+
+    #[test]
+    fn test_half_star_rating() {
+        assert_eq!(half_star_rating(8, 7), Some(7));
+        assert_eq!(half_star_rating(2, 1), Some(1));
+        assert_eq!(half_star_rating(6, 7), None);
+        assert_eq!(half_star_rating(8, 8), None);
+        assert_eq!(half_star_rating(0, 0), None);
+        assert_eq!(half_star_rating(0, 7), None);
     }
 
     /// 最初の値だけを読んでいたアーティスト・ジャンルを、ファイルのすべての値に置き換える
