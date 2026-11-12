@@ -252,6 +252,14 @@ export interface MockBackend {
    */
   setMusicFolderFileCount(count: number): void;
   /**
+   * 登録済みのライブラリフォルダに、音楽フォルダの印だけを付ける（ライブラリを置き換えない）
+   *
+   * 音楽フォルダを設定した後に、ほかのフォルダを参照で取り込んだ状態（音楽フォルダの外にも曲がある
+   * ライブラリ）を作る。音楽フォルダを選ぶ操作（`setMusicFolder`）は、外に曲があると置き換えの確認に
+   * なるため、整理・コピー・外の曲の印の確認はこれで用意する。
+   */
+  markMusicFolder(path: string): void;
+  /**
    * 音楽フォルダのドライブの空き容量（バイト）を切り替える（取り込む曲のコピーで、空き容量が足りない
    * 場合の確認用）
    *
@@ -309,7 +317,8 @@ const IMPORT_FILE_COUNT = 6;
 const MUSIC_FOLDER_FREE_BYTES = 200 * 1024 ** 3;
 /** コピーの後に残す、音楽フォルダのドライブの空き容量（Rustの`SPACE_MARGIN_BYTES`と同じ） */
 const COPY_SPACE_MARGIN_BYTES = 64 * 1024 ** 2;
-/** OSの音楽フォルダ（Rustの`audio_dir`の代わり。ライブラリフォルダとして登録してある） */
+/** OSの音楽フォルダ（Rustの`audio_dir`の代わり。ライブラリフォルダとして登録してある。既定の音楽
+ * フォルダは、この中に作る） */
 const SYSTEM_MUSIC_FOLDER = '/Users/demo/Music';
 /** 既定の音楽フォルダ（OSの音楽フォルダの中の`Muspice`。ADR-083） */
 const DEFAULT_MUSIC_FOLDER = `${SYSTEM_MUSIC_FOLDER}/Muspice`;
@@ -694,6 +703,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   // ライブラリフォルダの場所の変更で、選んだことにするフォルダと、預かっている付け替え先
   let relocationFolder: string | null = DEFAULT_RELOCATION_FOLDER;
   let pendingRelocation: { folderId: string; path: string } | null = null;
+  // ライブラリの置き換えを確かめる間、預かっている音楽フォルダ（ADR-086）
+  let pendingMusicFolder: string | null = null;
   // バックアップの保存・復元で選んだことにするファイルと、預かっている復元するファイル
   let backupFile: string | null = DEFAULT_BACKUP_FILE;
   let pendingRestore: string | null = null;
@@ -1164,36 +1175,82 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     );
 
   /**
-   * 音楽フォルダを選ぶ（Rustの`commands/music_folder.rs`の`change_music_folder`）
+   * 音楽フォルダを選ぶ（Rustの`commands/music_folder.rs`の`set_music_folder`。ADR-086）
    *
-   * 既定のフォルダは`DEFAULT_MUSIC_FOLDER`、OSの音楽フォルダは`SYSTEM_MUSIC_FOLDER`、ほかのフォルダは
-   * `setFolderResult`で選んだことにしたもの（nullなら、選ばずに閉じた）。登録済みのライブラリフォルダなら印を移すだけ、その中のフォルダなら
-   * 外側のフォルダを返す。新しいフォルダは、`setMusicFolderFileCount`の数の曲を読み込んで登録する
-   * （0なら空のフォルダ）。
+   * 既定のフォルダは`DEFAULT_MUSIC_FOLDER`、ほかのフォルダは`setFolderResult`で選んだことにしたもの
+   * （nullなら、選ばずに閉じた）。新しいフォルダの外に曲があれば、置き換えずに確認を求める（フォルダを
+   * 預かる）。なければ、そのまま音楽フォルダにする（`changeMusicFolder`）。
    */
   async function setMusicFolder(source: MusicFolderSource): Promise<MusicFolderChange | null> {
-    const selected =
-      source === 'default'
-        ? DEFAULT_MUSIC_FOLDER
-        : source === 'system'
-          ? SYSTEM_MUSIC_FOLDER
-          : folderResult;
+    pendingMusicFolder = null;
+    const selected = source === 'default' ? DEFAULT_MUSIC_FOLDER : folderResult;
     if (selected === null) return null;
     const path = normalizeFolderPath(selected);
-    const registered = libraryFolders.find((folder) => folder.path === path);
-    const enclosing = libraryFolders.find(
-      (folder) => folder.path !== path && isSameOrWithin(path, folder.path)
+    if (libraryFolders.some((folder) => folder.isMusicFolder && folder.path === path)) {
+      return { kind: 'set', path, imported: null, replaced: null };
+    }
+    const kept = tracksUnder(path).length;
+    const removed = tracks.length - kept;
+    if (removed > 0) {
+      pendingMusicFolder = path;
+      return {
+        kind: 'confirmReplace',
+        path,
+        removedTrackCount: removed,
+        keptTrackCount: kept,
+        playlistCount: playlists.filter((playlist) => playlist.rules === null).length
+      };
+    }
+    return changeMusicFolder(path, false);
+  }
+
+  /**
+   * 預かっている音楽フォルダで、ライブラリを置き換える（Rustの`confirm_music_folder_change`）
+   *
+   * バックアップは、書き出したことにして、`backups/`の中の場所を返す。
+   */
+  async function confirmMusicFolderChange(backup: boolean): Promise<MusicFolderChange> {
+    const path = pendingMusicFolder;
+    pendingMusicFolder = null;
+    if (path === null) fail('NOT_FOUND', '置き換える音楽フォルダが選ばれていません');
+    const change = await changeMusicFolder(path, true);
+    if (change.kind === 'set' && change.replaced && backup) {
+      change.replaced.backupPath = `/Users/demo/Library/Application Support/com.ban367.muspice/backups/before-music-folder-${now().slice(0, 19).replace(/[-:]/g, '').replace('T', '-')}.muspicebackup`;
+    }
+    return change;
+  }
+
+  /**
+   * ライブラリを`path`の中身にする（Rustの`change_music_folder`の後半）
+   *
+   * 新しいフォルダの外の曲と、ほかのライブラリフォルダを外し、`replace`なら通常のプレイリスト（と、
+   * 空になったプレイリストのフォルダ）も消す。登録済みのライブラリフォルダなら印を付けるだけ、
+   * 新しいフォルダは`setMusicFolderFileCount`の数の曲を読み込んで登録する（0なら空のフォルダ）。
+   */
+  async function changeMusicFolder(path: string, replace: boolean): Promise<MusicFolderChange> {
+    const inside = new Set(tracksUnder(path).map((track) => track.id));
+    const removedTrackCount = removeTracks(
+      tracks.filter((track) => !inside.has(track.id)).map((track) => track.id)
     );
+    let removedPlaylistCount = 0;
+    if (replace) {
+      removedPlaylistCount = playlists.filter((playlist) => playlist.rules === null).length;
+      playlists = playlists.filter((playlist) => playlist.rules !== null);
+      playlistFolders = playlistFolders.filter((folder) =>
+        playlists.some((playlist) => playlist.folderId === folder.id)
+      );
+    }
+    libraryFolders = libraryFolders.filter((folder) => folder.path === path);
+    const replaced = replace ? { removedTrackCount, removedPlaylistCount, backupPath: null } : null;
+    const registered = libraryFolders[0];
     let change: MusicFolderChange;
     if (registered) {
       markMusicFolder(registered);
-      change = { kind: 'set', path, imported: null };
-    } else if (enclosing) {
-      return { kind: 'insideLibraryFolder', path, libraryFolderPath: enclosing.path };
+      change = { kind: 'set', path, imported: null, replaced };
     } else {
       const imported = await importAudioFiles(path, mockFileNames(musicFolderFileCount), 'Skip');
       markMusicFolder(registerLibraryFolder(path)!);
-      change = { kind: 'set', path, imported };
+      change = { kind: 'set', path, imported, replaced };
     }
     options.emit('libraryChanged', null);
     return change;
@@ -3087,12 +3144,16 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       const folder = libraryFolders.find((candidate) => candidate.isMusicFolder);
       return {
         folder: folder ? { id: folder.id, path: folder.path, exists: folder.exists } : null,
-        systemFolder: SYSTEM_MUSIC_FOLDER,
         defaultFolder: DEFAULT_MUSIC_FOLDER
       };
     },
     // 実装はRust側のダイアログで選ぶ。モックは`setFolderResult`のフォルダを選んだことにする
     setMusicFolder: (source) => setMusicFolder(source),
+    confirmMusicFolderChange: (backup) => confirmMusicFolderChange(backup),
+    cancelMusicFolderChange: () => {
+      pendingMusicFolder = null;
+      return null;
+    },
     clearMusicFolder: () => {
       for (const folder of libraryFolders) folder.isMusicFolder = false;
       options.emit('libraryChanged', null);
@@ -3386,6 +3447,14 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     },
     setMusicFolderFileCount: (count) => {
       musicFolderFileCount = count;
+    },
+    markMusicFolder: (path) => {
+      const folder = libraryFolders.find(
+        (candidate) => candidate.path === normalizeFolderPath(path)
+      );
+      if (!folder) throw new Error(`Not a library folder: ${path}`);
+      markMusicFolder(folder);
+      options.emit('libraryChanged', null);
     },
     setMusicFolderFreeBytes: (bytes) => {
       musicFolderFreeBytes = bytes;

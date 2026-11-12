@@ -2,8 +2,8 @@
   @component MusicFolderSetup
   ライブラリが空の画面の、音楽フォルダ（新しい曲を置く宛先）の選択。
 
-  既定のフォルダ（OSの音楽フォルダの中の`Muspice`。なければ作る。ADR-083）か、OSの音楽フォルダか、
-  ほかのフォルダ（Rust側のダイアログ）を選ぶ。中の曲の読み込みは、
+  既定のフォルダ（OSの音楽フォルダの中の`Muspice`。なければ作る。ADR-083）か、音楽を置いている
+  フォルダ（Rust側のダイアログ）を選ぶ。中の曲の読み込みは、
   インポートダイアログに表示する（`importer.setMusicFolder`）。音楽フォルダを設定してあれば、
   そのフォルダと、曲を足す方法を出す。
 -->
@@ -37,20 +37,9 @@
           {m.musicFolder.useDefault}
         </button>
       {/if}
-      {#if info.systemFolder}
-        <button
-          type="button"
-          class="btn-secondary"
-          onclick={() => importer.setMusicFolder('system')}
-          disabled={importer.isImporting}
-          title={info.systemFolder}
-        >
-          {m.musicFolder.useSystem}
-        </button>
-      {/if}
       <button
         type="button"
-        class={info.defaultFolder || info.systemFolder ? 'btn-secondary' : 'btn-primary'}
+        class={info.defaultFolder ? 'btn-secondary' : 'btn-primary'}
         onclick={() => importer.setMusicFolder('pick')}
         disabled={importer.isImporting}
       >

@@ -1273,11 +1273,10 @@ export const en: Messages = {
 
   musicFolder: {
     title: 'Music folder',
-    hint: 'The folder where new music goes (one of the library folders). Changing it does not move any files.',
+    hint: 'The folder where new music goes (one of the library folders). Changing it replaces the library with the contents of the new folder (no files are moved).',
     notSet: 'Not set',
     missing: 'Folder not found',
     useDefault: 'Use the default folder (Muspice)',
-    useSystem: 'Use the system Music folder',
     pick: 'Choose a Folder...',
     clear: 'Unset',
     badge: 'Music folder',
@@ -1286,12 +1285,31 @@ export const en: Messages = {
     setWithTracks: (path, count) =>
       `Set the music folder to "${path}" and added ${plural(count, 'track', 'tracks')}`,
     cleared: 'Unset the music folder (the folder stays as a library folder)',
-    insideLibraryFolder: (path, libraryFolderPath) =>
-      `"${path}" is inside the library folder "${libraryFolderPath}", so it can't be the music folder. Choose the outer folder (${libraryFolderPath}) instead.`,
+    replaceTitle: 'Replace the Library',
+    replaceIntro: (path) =>
+      `Changing the music folder to "${path}" replaces the library with the contents of this folder.`,
+    replaceRemovedTracks: (count) =>
+      `${plural(count, 'track', 'tracks')} outside this folder will be removed from the library (no files are deleted)`,
+    replaceKeptTracks: (count) =>
+      `${plural(count, 'track', 'tracks')} in this folder will keep their play counts and other history`,
+    replacePlaylists: (count) =>
+      `${plural(count, 'playlist', 'playlists')} and the playlist folders will be deleted (smart playlists are kept)`,
+    replaceLostInfo:
+      'Play counts, play history, favorites and other information of the removed tracks are lost (ratings are read again if they are in the tags). To keep playlists, export them first and bring them back with "Import M3U" after replacing.',
+    replaceBackup: 'Back up before replacing',
+    replaceBackupHint:
+      'The library data is saved to "backups" in the app data folder. You can restore it from Settings > Backup.',
+    replaceConfirm: 'Replace',
+    replacing: 'Replacing the library...',
+    replaced: (path, removedCount, playlistCount) =>
+      `Set the music folder to "${path}" and replaced the library (removed ${plural(removedCount, 'track', 'tracks')} and deleted ${plural(playlistCount, 'playlist', 'playlists')})`,
+    replacedBackup: (path) => `Backed up the library before replacing it to "${path}"`,
+    replaceFromSettings:
+      'The library has music, so change the music folder in Settings > Library (you will be asked before the library is replaced).',
     removeHint: 'This is the music folder. Removing it also unsets the music folder.',
     setupTitle: 'Start with a music folder',
     setupHint:
-      'Choose the folder where new music goes. By default, a "Muspice" folder is created in the system Music folder. Music already in the folder is added. You can change it later in Settings > Library.',
+      'Choose the folder where new music goes. By default, a "Muspice" folder is created in the system Music folder. You can also choose the folder where you keep your music. Music already in the folder is added. You can change it later in Settings > Library (changing it replaces the library with the contents of the new folder).',
     emptyFolder: (path) => `The music folder (${path}) has no music yet`,
     emptyFolderHint:
       'Put music in the folder, then rescan it in Settings > Library. You can also add music from other folders with "Import Folder..." in the menu.',

@@ -27,7 +27,8 @@ import type {
   PendingFolderImport
 } from '#lib/types/models.js';
 import { formatFileSize } from '#lib/utils/format.js';
-import { musicFolderNotice } from '#lib/utils/musicFolder.js';
+import { cancelMusicFolderChange } from '#lib/queries/musicFolder.js';
+import { musicFolderMessage } from '#lib/utils/musicFolder.js';
 import { showSuccess, showWarning, toErrorMessage } from './error.svelte.js';
 import { ui } from './ui.svelte.js';
 import { m } from '#lib/i18n/i18n.svelte.js';
@@ -103,20 +104,25 @@ class Importer {
   /**
    * 音楽フォルダを選び、中の曲を読み込む（ライブラリが空の画面から始める）
    *
-   * フォルダは、OSの音楽フォルダか、Rust側が開くダイアログで選ぶ。曲があれば、インポート
-   * ダイアログに進み具合と結果を表示する。どの場合も、音楽フォルダにしたこと（できなかった
-   * 場合は、その理由）をトーストで知らせる（空のフォルダでは、ダイアログを開かない）。
+   * フォルダは、既定のフォルダか、Rust側が開くダイアログで選ぶ。曲があれば、インポート
+   * ダイアログに進み具合と結果を表示する。どの場合も、音楽フォルダにしたことをトーストで知らせる
+   * （空のフォルダでは、ダイアログを開かない）。ライブラリの置き換えの確認（ADR-086）は、設定の
+   * 「ライブラリ」でだけ行う。この画面はライブラリが空の時に出るため、外す曲は普通はないが、
+   * 確認を求められた場合は、預けたフォルダを手放して、設定で変えるよう知らせる。
    */
   setMusicFolder(source: MusicFolderSource): Promise<void> {
     return this.run(
       async () => {
         const change = await commands.setMusicFolder(source);
         if (!change) return null;
-        const notice = musicFolderNotice(change);
-        if (notice.kind === 'success') showSuccess(notice.message);
-        else showWarning(notice.message);
+        if (change.kind === 'confirmReplace') {
+          cancelMusicFolderChange();
+          showWarning(m.musicFolder.replaceFromSettings);
+          return null;
+        }
+        showSuccess(musicFolderMessage(change));
         // 曲を読み込んだ（読めなかったファイルがあった）場合だけ、結果をダイアログに出す
-        const imported = change.kind === 'set' ? change.imported : null;
+        const imported = change.imported;
         return imported && imported.importedCount + imported.relinkedCount + imported.errorCount > 0
           ? imported
           : null;

@@ -658,6 +658,36 @@ pub fn delete_playlist(conn: &Connection, playlist_id: &str) -> AppResult<()> {
     tx.commit().map_err(database)
 }
 
+/// 通常のプレイリスト（条件のない、曲を入れたもの）の数
+pub fn count_regular_playlists(conn: &Connection) -> AppResult<u32> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM playlists WHERE rules IS NULL",
+        [],
+        |row| row.get(0),
+    )
+    .map_err(database("プレイリストの数の取得"))
+}
+
+/// 通常のプレイリストをすべて削除し、空になったプレイリストのフォルダも削除する
+///
+/// 音楽フォルダを変えて、ライブラリを置き換える時に、曲の削除と同じトランザクションの中で呼ぶ
+/// （ADR-086）。自動プレイリストは、条件で曲が決まり、曲に結び付かないため残す（自動プレイリストが
+/// 入っているフォルダも残す）。削除したプレイリストの数を返す。
+pub fn delete_regular_playlists(conn: &Connection) -> AppResult<u32> {
+    let database = database("プレイリストの削除");
+    // 曲の行・転送先デバイスの選択は、外部キーのCASCADEで消える
+    let removed = conn
+        .execute("DELETE FROM playlists WHERE rules IS NULL", [])
+        .map_err(database)?;
+    conn.execute(
+        "DELETE FROM playlist_folders
+         WHERE NOT EXISTS (SELECT 1 FROM playlists WHERE playlists.folder_id = playlist_folders.id)",
+        [],
+    )
+    .map_err(database)?;
+    u32::try_from(removed).map_err(|_| AppError::Database("プレイリストの数が多すぎます".into()))
+}
+
 /// プレイリスト内のトラックを並び替え（渡した順に、位置を振り直す）
 pub fn reorder_playlist_tracks(
     conn: &Connection,

@@ -1313,12 +1313,11 @@ export const ja = {
   /** 音楽フォルダ（新しい曲を置く宛先。ライブラリフォルダの1つ） */
   musicFolder: {
     title: '音楽フォルダ',
-    hint: '新しい曲を置くフォルダです（ライブラリフォルダの1つ）。変えても、ファイルは動かしません。',
+    hint: '新しい曲を置くフォルダです（ライブラリフォルダの1つ）。変えると、ライブラリをそのフォルダの中身に置き換えます（ファイルは動かしません）。',
     notSet: '設定していません',
     missing: 'フォルダが見つかりません',
     /** 既定の音楽フォルダ（OSの音楽フォルダの中の`Muspice`。なければ作る） */
     useDefault: '既定のフォルダ（Muspice）を使う',
-    useSystem: 'OSの音楽フォルダを使う',
     pick: 'フォルダを選ぶ...',
     clear: '解除',
     badge: '音楽フォルダ',
@@ -1327,13 +1326,33 @@ export const ja = {
     setWithTracks: (path: string, count: number) =>
       `音楽フォルダを「${path}」にし、${count}曲を読み込みました`,
     cleared: '音楽フォルダの設定を解除しました（フォルダは、ライブラリフォルダとして残ります）',
-    insideLibraryFolder: (path: string, libraryFolderPath: string) =>
-      `「${path}」はライブラリフォルダ「${libraryFolderPath}」の中にあるため、音楽フォルダにできません。外側のフォルダ（${libraryFolderPath}）を選んでください`,
+    /** 音楽フォルダを変えて、ライブラリを置き換える（ADR-086） */
+    replaceTitle: 'ライブラリの置き換え',
+    replaceIntro: (path: string) =>
+      `音楽フォルダを「${path}」に変えると、ライブラリをこのフォルダの中身に置き換えます。`,
+    replaceRemovedTracks: (count: number) =>
+      `このフォルダの外にある${count}曲を、ライブラリから外します（ファイルは消しません）`,
+    replaceKeptTracks: (count: number) =>
+      `このフォルダの中にある${count}曲は、再生回数などの記録を残します`,
+    replacePlaylists: (count: number) =>
+      `通常のプレイリスト${count}件と、プレイリストのフォルダを消します（自動プレイリストは残します）`,
+    replaceLostInfo:
+      '外した曲の再生回数・再生履歴・お気に入りなどは消えます（評価は、タグに書いてあれば読み直します）。残したいプレイリストは、先に書き出しておくと、置き換えた後に「M3Uの読み込み」で取り込めます。',
+    replaceBackup: '置き換える前にバックアップする',
+    replaceBackupHint:
+      'ライブラリのデータを、アプリのデータのフォルダの「backups」に書き出します。設定の「バックアップ」の復元で戻せます。',
+    replaceConfirm: '置き換える',
+    replacing: 'ライブラリを置き換えています...',
+    replaced: (path: string, removedCount: number, playlistCount: number) =>
+      `音楽フォルダを「${path}」にし、ライブラリを置き換えました（${removedCount}曲を外し、プレイリスト${playlistCount}件を消しました）`,
+    replacedBackup: (path: string) => `置き換える前のライブラリを「${path}」にバックアップしました`,
+    replaceFromSettings:
+      'ライブラリに曲があるため、音楽フォルダは設定の「ライブラリ」で変えてください（ライブラリの置き換えを確かめます）',
     removeHint: 'このフォルダは音楽フォルダです。削除すると、音楽フォルダの設定も解除されます',
     /** ライブラリが空の画面 */
     setupTitle: '音楽フォルダを選んで始める',
     setupHint:
-      '新しい曲を置くフォルダを選びます。既定では、OSの音楽フォルダの中に「Muspice」フォルダを作って使います。フォルダの中の曲は読み込みます。あとから設定の「ライブラリ」で変えられます',
+      '新しい曲を置くフォルダを選びます。既定では、OSの音楽フォルダの中に「Muspice」フォルダを作って使います。音楽を置いているフォルダも選べます。フォルダの中の曲は読み込みます。あとから設定の「ライブラリ」で変えられます（変えると、ライブラリをそのフォルダの中身に置き換えます）',
     emptyFolder: (path: string) => `音楽フォルダ（${path}）に曲がありません`,
     emptyFolderHint:
       '曲をフォルダに入れてから、設定の「ライブラリ」で再スキャンしてください。メニューの「フォルダをインポート...」で、ほかのフォルダの曲も取り込めます',

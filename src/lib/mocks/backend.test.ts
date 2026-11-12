@@ -413,7 +413,7 @@ describe('音楽フォルダへ集める', () => {
 
   it('音楽フォルダの書式で、別のドライブの曲はコピーとして計画する', async () => {
     const backup = await importFromBackup();
-    await commands.setMusicFolder('system');
+    backend.markMusicFolder('/Users/demo/Music');
 
     // 画面の書式は使わない
     const plan = await commands.planFileOrganize(
@@ -434,7 +434,7 @@ describe('音楽フォルダへ集める', () => {
 
   it('集めた曲は音楽フォルダへ移り、IDは変えない', async () => {
     const backup = await importFromBackup();
-    await commands.setMusicFolder('system');
+    backend.markMusicFolder('/Users/demo/Music');
     const ids = backup.map((track) => track.id);
 
     const result = await commands.organizeFiles(ids, '', 'musicFolder');
@@ -446,7 +446,7 @@ describe('音楽フォルダへ集める', () => {
 
   it('空き容量が足りなければ、何も移さない', async () => {
     const backup = await importFromBackup();
-    await commands.setMusicFolder('system');
+    backend.markMusicFolder('/Users/demo/Music');
     backend.setMusicFolderFreeBytes(1024);
 
     await expect(
@@ -470,7 +470,7 @@ describe('音楽フォルダへ集める', () => {
       sleep: (ms) => (ms === 200 ? gate : Promise.resolve())
     });
     const backup = await importFromBackup();
-    await commands.setMusicFolder('system');
+    backend.markMusicFolder('/Users/demo/Music');
     events = [];
 
     const running = commands.organizeFiles(
@@ -499,7 +499,7 @@ describe('音楽フォルダを整理された状態に保つ', () => {
     )!;
 
   it('設定がオフなら、タグを保存しても移さない', async () => {
-    await commands.setMusicFolder('system');
+    backend.markMusicFolder('/Users/demo/Music');
     const track = await inMusicFolder();
 
     const organized = await commands.updateTrackMetadata(track.id, {
@@ -515,7 +515,7 @@ describe('音楽フォルダを整理された状態に保つ', () => {
   });
 
   it('オンなら、音楽フォルダの曲を書式どおりの場所へ移し直す', async () => {
-    await commands.setMusicFolder('system');
+    backend.markMusicFolder('/Users/demo/Music');
     const settings = await commands.getSettings();
     await commands.saveSettings({ ...settings, keepMusicFolderOrganized: true });
     const track = await inMusicFolder();
@@ -1755,7 +1755,7 @@ describe('音楽フォルダへのコピー', () => {
       .sort();
 
   beforeEach(async () => {
-    await commands.setMusicFolder('system');
+    backend.markMusicFolder('/Users/demo/Music');
   });
 
   it('ファイルは、音楽フォルダへ書式どおりにコピーし、同じファイルをもう一度取り込むとスキップする', async () => {
@@ -1862,8 +1862,8 @@ describe('音楽フォルダへのコピー', () => {
   });
 
   it('音楽フォルダが見つからなければ、何も取り込まない', async () => {
-    backend.setFolderResult('/Volumes/External/Music');
-    await commands.setMusicFolder('pick');
+    // 外れたドライブのライブラリフォルダ（モックの`/Volumes/External/Music`）を音楽フォルダにした状態
+    backend.markMusicFolder('/Volumes/External/Music');
 
     expect(await commands.importFiles('Skip')).toEqual({
       kind: 'musicFolderMissing',
@@ -2206,77 +2206,104 @@ describe('音楽フォルダ', () => {
   const markedPaths = async () =>
     (await commands.getLibraryFolders()).folders.filter((f) => f.isMusicFolder).map((f) => f.path);
 
-  it('はじめは設定しておらず、既定のフォルダとOSの音楽フォルダを候補に返す', async () => {
+  const trackCount = async () => (await commands.getAllTracks()).length;
+  const regularPlaylistNames = async () =>
+    (await commands.getPlaylists())
+      .filter((playlist) => playlist.rules === null)
+      .map((playlist) => playlist.name);
+
+  it('はじめは設定しておらず、既定のフォルダを候補に返す', async () => {
     expect(await commands.getMusicFolder()).toEqual({
       folder: null,
-      systemFolder: '/Users/demo/Music',
       defaultFolder: '/Users/demo/Music/Muspice'
     });
   });
 
-  it('既定のフォルダがライブラリフォルダの中にある場合は、外側のフォルダを返す', async () => {
-    // モックでは、OSの音楽フォルダそのものがライブラリフォルダになっている
-    await expect(commands.setMusicFolder('default')).resolves.toEqual({
-      kind: 'insideLibraryFolder',
+  it('外す曲がある時は、置き換えずに確認を求め、やめると何も変えない', async () => {
+    const total = await trackCount();
+    const playlists = (await regularPlaylistNames()).length;
+
+    const change = await commands.setMusicFolder('default');
+
+    expect(change).toEqual({
+      kind: 'confirmReplace',
       path: '/Users/demo/Music/Muspice',
-      libraryFolderPath: '/Users/demo/Music'
+      removedTrackCount: total,
+      keptTrackCount: 0,
+      playlistCount: playlists
     });
-    expect(await markedPaths()).toEqual([]);
+    await commands.cancelMusicFolderChange();
+    expect(await musicFolderPath()).toBeNull();
+    expect(await trackCount()).toBe(total);
+    await expect(commands.confirmMusicFolderChange(true)).rejects.toMatchObject({
+      code: 'NOT_FOUND'
+    });
   });
 
-  it('登録済みのライブラリフォルダを選ぶと、印を移すだけで読み込み直さない', async () => {
-    const total = (await commands.getAllTracks()).length;
+  it('置き換えると、外の曲・ほかのライブラリフォルダ・通常のプレイリストを外し、新しいフォルダを読み込む', async () => {
+    const smart = (await commands.getPlaylists()).filter((playlist) => playlist.rules !== null);
+    backend.setMusicFolderFileCount(3);
+    await commands.setMusicFolder('default');
+    events = [];
 
-    await expect(commands.setMusicFolder('system')).resolves.toEqual({
+    const change = await commands.confirmMusicFolderChange(true);
+
+    expect(change).toMatchObject({
+      kind: 'set',
+      path: '/Users/demo/Music/Muspice',
+      imported: { importedCount: 3 },
+      replaced: { removedPlaylistCount: expect.any(Number) }
+    });
+    expect(change.kind === 'set' && change.replaced?.backupPath).toMatch(
+      /backups\/before-music-folder-\d{8}-\d{6}\.muspicebackup$/
+    );
+    expect(await trackCount()).toBe(3);
+    expect((await commands.getLibraryFolders()).folders.map((f) => f.path)).toEqual([
+      '/Users/demo/Music/Muspice'
+    ]);
+    expect(await markedPaths()).toEqual(['/Users/demo/Music/Muspice']);
+    expect(await regularPlaylistNames()).toEqual([]);
+    // 自動プレイリストは残す
+    expect((await commands.getPlaylists()).filter((p) => p.rules !== null)).toHaveLength(
+      smart.length
+    );
+    expect(events.map((e) => e.event)).toContain('library-changed');
+  });
+
+  it('外す曲がない時は、確かめずに音楽フォルダにし、プレイリストを残す', async () => {
+    const playlists = await regularPlaylistNames();
+    // すべての曲を含むフォルダ（モックの曲は、どれもルートの下にある）
+    backend.setMusicFolderFileCount(0);
+    backend.setFolderResult('/');
+
+    await expect(commands.setMusicFolder('pick')).resolves.toMatchObject({
+      kind: 'set',
+      path: '/',
+      replaced: null
+    });
+    expect(await markedPaths()).toEqual(['/']);
+    expect(await regularPlaylistNames()).toEqual(playlists);
+  });
+
+  it('今の音楽フォルダを選んだ場合は、何もしない', async () => {
+    backend.markMusicFolder('/Users/demo/Music');
+    backend.setFolderResult('/Users/demo/Music');
+    const total = await trackCount();
+
+    await expect(commands.setMusicFolder('pick')).resolves.toEqual({
       kind: 'set',
       path: '/Users/demo/Music',
-      imported: null
+      imported: null,
+      replaced: null
     });
-    expect(await markedPaths()).toEqual(['/Users/demo/Music']);
-    expect(await commands.getAllTracks()).toHaveLength(total);
-    expect(events.map((e) => e.event)).toContain('library-changed');
-
-    backend.setFolderResult('/Volumes/External/Music');
-    await commands.setMusicFolder('pick');
-    expect(await markedPaths()).toEqual(['/Volumes/External/Music']);
-  });
-
-  it('新しいフォルダは、空でも登録し、曲があれば読み込む', async () => {
-    backend.setMusicFolderFileCount(0);
-    backend.setFolderResult('/Users/demo/Empty/');
-    await expect(commands.setMusicFolder('pick')).resolves.toMatchObject({
-      kind: 'set',
-      path: '/Users/demo/Empty',
-      imported: { importedCount: 0 }
-    });
-    expect(await musicFolderPath()).toBe('/Users/demo/Empty');
-
-    backend.setMusicFolderFileCount(3);
-    backend.setFolderResult('/Users/demo/New Music');
-    await expect(commands.setMusicFolder('pick')).resolves.toMatchObject({
-      imported: { importedCount: 3 }
-    });
-    expect(await markedPaths()).toEqual(['/Users/demo/New Music']);
-    // 前の音楽フォルダは、ライブラリフォルダとして残る
-    const paths = (await commands.getLibraryFolders()).folders.map((f) => f.path);
-    expect(paths).toContain('/Users/demo/Empty');
-  });
-
-  it('ライブラリフォルダの中のフォルダは、音楽フォルダにせず外側のフォルダを返す', async () => {
-    backend.setFolderResult('/Users/demo/Music/Muspice');
-    await expect(commands.setMusicFolder('pick')).resolves.toEqual({
-      kind: 'insideLibraryFolder',
-      path: '/Users/demo/Music/Muspice',
-      libraryFolderPath: '/Users/demo/Music'
-    });
-    expect(await musicFolderPath()).toBeNull();
+    expect(await trackCount()).toBe(total);
 
     backend.setFolderResult(null);
     await expect(commands.setMusicFolder('pick')).resolves.toBeNull();
   });
 
   it('外側のフォルダをインポートすると、印は外側のフォルダへ移る', async () => {
-    await commands.setMusicFolder('system');
+    backend.markMusicFolder('/Users/demo/Music');
     // 取り込む曲をコピーする設定（既定）では、参照するかコピーするかを選ぶ
     expect(await importFolder('/Users/demo')).toMatchObject({ kind: 'chooseFolderMode' });
     await commands.importPendingFolders('reference', 'Skip');
@@ -2284,15 +2311,14 @@ describe('音楽フォルダ', () => {
   });
 
   it('解除・ライブラリフォルダの削除で、未設定に戻る', async () => {
-    await commands.setMusicFolder('system');
+    backend.markMusicFolder('/Users/demo/Music');
     await commands.clearMusicFolder();
     expect(await musicFolderPath()).toBeNull();
     expect((await commands.getLibraryFolders()).folders.map((f) => f.path)).toContain(
       '/Users/demo/Music'
     );
 
-    const folder = (await commands.setMusicFolder('system'))!;
-    expect(folder.kind).toBe('set');
+    backend.markMusicFolder('/Users/demo/Music');
     const music = (await commands.getMusicFolder()).folder!;
     events = [];
     await commands.removeLibraryFolder(music.id, false);

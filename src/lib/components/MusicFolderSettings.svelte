@@ -3,20 +3,24 @@
   設定の「ライブラリ」の、音楽フォルダ（新しい曲を置く宛先。ライブラリフォルダの1つ）の表示・変更・解除。
 
   操作はすぐに反映する（設定の「適用」は不要）。フォルダは、既定のフォルダ（OSの音楽フォルダの中の
-  `Muspice`。なければ作る）か、OSの音楽フォルダか、Rust側のダイアログ（設定ウィンドウの上に出す）で選ぶ。新しく登録するフォルダの曲を読み込む間は、進み具合を出す。
-  変えても、ファイルは動かさない（前の音楽フォルダは、ライブラリフォルダとして残る）。
+  `Muspice`。なければ作る）か、Rust側のダイアログ（設定ウィンドウの上に出す）で選ぶ。変えると、ライブラリを
+  新しいフォルダの中身に置き換える（ADR-086）。外す曲がある時は、確認（`MusicFolderReplaceDialog`）を出す。
+  新しく登録するフォルダの曲を読み込む間は、進み具合を出す。ファイルは動かさない。
   クエリの読み直し（`LibraryChanged`・ウィンドウに戻った時）は、`LibraryFolderSettings`が行う。
 -->
 <script lang="ts">
   import { events } from '#lib/bindings.js';
+  import MusicFolderReplaceDialog from '#lib/components/MusicFolderReplaceDialog.svelte';
   import {
+    cancelMusicFolderChange,
     useClearMusicFolderMutation,
+    useConfirmMusicFolderChangeMutation,
     useMusicFolderQuery,
     useSetMusicFolderMutation
   } from '#lib/queries/musicFolder.js';
   import { showSuccess, showWarning } from '#lib/stores/error.svelte.js';
-  import type { MusicFolderSource } from '#lib/types/models.js';
-  import { musicFolderNotice } from '#lib/utils/musicFolder.js';
+  import type { MusicFolderChange, MusicFolderSource } from '#lib/types/models.js';
+  import { musicFolderMessage, type MusicFolderReplacement } from '#lib/utils/musicFolder.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   interface Props {
@@ -28,6 +32,7 @@
 
   const musicFolderQuery = useMusicFolderQuery();
   const setMutation = useSetMusicFolderMutation();
+  const confirmMutation = useConfirmMusicFolderChangeMutation();
   const clearMutation = useClearMusicFolderMutation();
 
   const info = $derived(musicFolderQuery.data);
@@ -36,34 +41,77 @@
   const defaultFolder = $derived(
     info?.defaultFolder && info.defaultFolder !== folder?.path ? info.defaultFolder : null
   );
-  /** OSの音楽フォルダ（すでに音楽フォルダにしてあれば、出さない） */
-  const systemFolder = $derived(
-    info?.systemFolder && info.systemFolder !== folder?.path ? info.systemFolder : null
+  /** 確かめている置き換え（確認を出していなければnull） */
+  let replacement = $state<MusicFolderReplacement | null>(null);
+  const isBusy = $derived(
+    disabled ||
+      setMutation.isPending ||
+      confirmMutation.isPending ||
+      clearMutation.isPending ||
+      replacement !== null
   );
-  const isBusy = $derived(disabled || setMutation.isPending || clearMutation.isPending);
 
   /** 新しく登録するフォルダの曲の読み込みの進み具合（届くまでは出さない。ダイアログを開いている間も） */
   let progress = $state<{ current: number; total: number; currentFile: string } | null>(null);
+  const progressStatus = $derived(
+    progress
+      ? m.libraryFolders.progress(progress.current, progress.total, progress.currentFile)
+      : null
+  );
 
-  async function choose(source: MusicFolderSource) {
+  /** 音楽フォルダの変更（読み込みを含む）の間、進み具合を受け取る */
+  async function withProgress<T>(run: () => Promise<T>): Promise<T> {
     progress = null;
     const unlisten = await events.importProgress.listen((event) => {
       progress = event.payload;
     });
     try {
-      const change = await setMutation.mutateAsync(source);
-      if (!change) return;
-      const notice = musicFolderNotice(change);
-      if (notice.kind === 'success') showSuccess(notice.message);
-      else showWarning(notice.message);
-      const errorCount = change.kind === 'set' ? (change.imported?.errorCount ?? 0) : 0;
-      if (errorCount > 0) showWarning(m.libraryFolders.readErrors(errorCount));
-    } catch {
-      // 失敗はミューテーション内でトースト通知済み
+      return await run();
     } finally {
       unlisten();
       progress = null;
     }
+  }
+
+  /** 音楽フォルダにした結果を知らせる */
+  function notifySet(change: MusicFolderChange) {
+    if (change.kind !== 'set') return;
+    showSuccess(musicFolderMessage(change));
+    if (change.replaced?.backupPath) {
+      showSuccess(m.musicFolder.replacedBackup(change.replaced.backupPath));
+    }
+    const errorCount = change.imported?.errorCount ?? 0;
+    if (errorCount > 0) showWarning(m.libraryFolders.readErrors(errorCount));
+  }
+
+  async function choose(source: MusicFolderSource) {
+    try {
+      const change = await withProgress(() => setMutation.mutateAsync(source));
+      if (!change) return;
+      if (change.kind === 'confirmReplace') {
+        replacement = change;
+        return;
+      }
+      notifySet(change);
+    } catch {
+      // 失敗はミューテーション内でトースト通知済み
+    }
+  }
+
+  async function confirmReplace(backup: boolean) {
+    try {
+      const change = await withProgress(() => confirmMutation.mutateAsync(backup));
+      notifySet(change);
+    } catch {
+      // 失敗はミューテーション内でトースト通知済み
+    } finally {
+      replacement = null;
+    }
+  }
+
+  function cancelReplace() {
+    replacement = null;
+    cancelMusicFolderChange();
   }
 
   async function clear() {
@@ -103,17 +151,6 @@
           {m.musicFolder.useDefault}
         </button>
       {/if}
-      {#if systemFolder}
-        <button
-          type="button"
-          class="btn-secondary text-xs"
-          onclick={() => choose('system')}
-          disabled={isBusy}
-          title={systemFolder}
-        >
-          {m.musicFolder.useSystem}
-        </button>
-      {/if}
       <button
         type="button"
         class="btn-secondary text-xs"
@@ -130,12 +167,18 @@
     </div>
   </div>
 
-  {#if progress}
-    <p class="scan-progress" role="status">
-      {m.libraryFolders.progress(progress.current, progress.total, progress.currentFile)}
-    </p>
+  {#if progressStatus && replacement === null}
+    <p class="scan-progress" role="status">{progressStatus}</p>
   {/if}
 </div>
+
+<MusicFolderReplaceDialog
+  {replacement}
+  isReplacing={confirmMutation.isPending}
+  {progressStatus}
+  onCancel={cancelReplace}
+  onConfirm={confirmReplace}
+/>
 
 <style>
   @reference "../../app.css";
