@@ -6,7 +6,7 @@ import {
 } from '@tanstack/svelte-query';
 import { commands } from '#lib/bindings.js';
 import type { Playlist, PlaylistFolder, SmartRules } from '#lib/types/models.js';
-import { showSuccess } from '#lib/stores/error.svelte.js';
+import { showSuccess, showWarning } from '#lib/stores/error.svelte.js';
 import { queryKeys } from './keys.js';
 import { CACHE_POLICY, withErrorToast } from './shared.js';
 import { m } from '#lib/i18n/i18n.svelte.js';
@@ -548,6 +548,23 @@ export function useExportPlaylistM3uMutation() {
       ),
     onSuccess: (result) => {
       if (result) showSuccess(m.notices.m3uExported(result.fileName, result.trackCount));
+    }
+  }));
+}
+
+/**
+ * 通常のプレイリストを、まとめてM3U8へ書き出すミューテーション（ADR-087）
+ *
+ * 書き出すフォルダは、Rust側が開くダイアログで選ぶ（選ばなかった場合は何も知らせない）。
+ */
+export function useExportAllPlaylistsMutation() {
+  return createMutation(() => ({
+    mutationFn: (relativePaths: boolean) =>
+      withErrorToast(m.operations.exportM3u, () => commands.exportAllPlaylistsM3u(relativePaths)),
+    onSuccess: (result) => {
+      if (!result) return;
+      if (result.playlistCount === 0) showWarning(m.notices.noPlaylistsToExport);
+      else showSuccess(m.notices.playlistsExported(result.folder, result.playlistCount));
     }
   }));
 }

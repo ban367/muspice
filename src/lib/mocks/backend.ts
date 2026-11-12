@@ -669,7 +669,6 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     musicFolderTemplate: DEFAULT_MUSIC_FOLDER_TEMPLATE,
     copyToMusicFolder: true,
     keepMusicFolderOrganized: false,
-    exportPlaylistsToMusicFolder: true,
     autoBackup: true
   };
   // ライブラリフォルダ（existsは「フォルダが見つかるか」。外付けドライブが外れた状態を再現する）
@@ -2758,6 +2757,15 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       const playlist = findPlaylist(playlistId);
       // 保存先を選ぶダイアログ（Rust側が開く）の代わりに、プレイリスト名のファイルへ書いたことにする
       return { fileName: `${playlist.name}.m3u8`, trackCount: playlistTracks(playlist).length };
+    },
+    // フォルダを選ぶダイアログ（Rust側が開く）の代わりに、`setFolderResult`のフォルダへ、通常の
+    // プレイリストを書いたことにする（nullなら、選ばずに閉じた）
+    exportAllPlaylistsM3u: () => {
+      if (folderResult === null) return null;
+      return {
+        folder: normalizeFolderPath(folderResult),
+        playlistCount: playlists.filter((playlist) => playlist.rules === null).length
+      };
     },
     setCurrentTrack: (trackId) => {
       currentTrackId = trackId;

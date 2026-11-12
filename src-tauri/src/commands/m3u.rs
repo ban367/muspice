@@ -3,10 +3,11 @@
 //! 読み書きするファイルは、Rust側で開くダイアログで選ぶ。WebViewからはパスを受け取らないため、
 //! WebViewの権限（ファイルを保存するダイアログなど）を増やさずに済む（ADR-005・ADR-032）。
 
-use super::{completed_save_path, file_dialog, run_blocking};
+use super::{completed_save_path, file_dialog, pick_folder, run_blocking};
 use crate::error::{AppError, AppResult};
 use crate::m3u;
 use crate::models::{M3uExportResult, M3uImportResult};
+use crate::playlist_export::PlaylistsExportResult;
 use crate::settings::Language;
 use crate::state::AppState;
 use crate::validation::validate_playlist_id;
@@ -17,6 +18,7 @@ use tauri::{AppHandle, Manager};
 struct Labels {
     import_title: &'static str,
     export_title: &'static str,
+    export_all_title: &'static str,
     filter: &'static str,
 }
 
@@ -26,11 +28,13 @@ impl Labels {
             Language::Ja => Self {
                 import_title: "プレイリスト（M3U）を読み込む",
                 export_title: "プレイリストを書き出す",
+                export_all_title: "プレイリストを書き出すフォルダを選択",
                 filter: "プレイリスト",
             },
             Language::En => Self {
                 import_title: "Import Playlists (M3U)",
                 export_title: "Export Playlist",
+                export_all_title: "Select a Folder to Export Playlists",
                 filter: "Playlists",
             },
         }
@@ -58,11 +62,7 @@ pub async fn import_m3u_playlists(app: AppHandle) -> AppResult<Vec<M3uImportResu
             .into_iter()
             .filter_map(|file| file.into_path().ok())
             .collect();
-        let results = import_files(&app.state::<AppState>(), &paths);
-        // 作ったプレイリストを、音楽フォルダの`Playlists`へ書き出す（ADR-085）
-        app.state::<crate::playlist_export::PlaylistExport>()
-            .request();
-        results
+        import_files(&app.state::<AppState>(), &paths)
     })
     .await
 }
@@ -159,6 +159,34 @@ pub async fn export_playlist_m3u(
 
         let path = completed_save_path(&path, with_m3u_extension(path.clone()))?;
         export_playlist(&state, &playlist_id, &path, relative_paths).map(Some)
+    })
+    .await
+}
+
+/// 通常のプレイリストを、書き出すフォルダを選んで、まとめてM3U8へ書き出す（ADR-087）
+///
+/// プレイリストのフォルダは、選んだフォルダの中のフォルダにする。同じ名前のファイルは置き換える。
+/// `relative_paths`がtrueなら、曲の場所を書き出したファイルのフォルダからの相対パスで書く（falseは
+/// 絶対パス）。フォルダを選ばなかった場合はnullを返す。
+#[tauri::command]
+#[specta::specta]
+pub async fn export_all_playlists_m3u(
+    relative_paths: bool,
+    app: AppHandle,
+) -> AppResult<Option<PlaylistsExportResult>> {
+    run_blocking(move || {
+        let labels = Labels::for_language(crate::menu::current_language(&app));
+        let Some(folder) = pick_folder(file_dialog(&app).set_title(labels.export_all_title))?
+        else {
+            return Ok(None);
+        };
+        let state = app.state::<AppState>();
+        let playlist_count =
+            crate::playlist_export::export_all_playlists(&state, &folder, relative_paths)?;
+        Ok(Some(PlaylistsExportResult {
+            folder: folder.to_string_lossy().into_owned(),
+            playlist_count,
+        }))
     })
     .await
 }

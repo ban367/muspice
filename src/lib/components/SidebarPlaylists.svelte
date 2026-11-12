@@ -85,7 +85,7 @@
   let folderMenu = $state<{ x: number; y: number; folder: PlaylistFolder } | null>(null);
   let sectionMenu = $state<{ x: number; y: number } | null>(null);
   // M3U8へ書き出すプレイリスト（書き方を選ぶダイアログを表示する）
-  let exportingPlaylist = $state.raw<Playlist | null>(null);
+  let exportingPlaylist = $state.raw<Playlist | 'all' | null>(null);
 
   function openPlaylistMenu(event: MouseEvent, playlist: Playlist) {
     event.preventDefault();
@@ -344,6 +344,27 @@
     </h2>
     <div class="flex items-center gap-1">
       <PlaylistImportButton />
+      <button
+        class="btn-icon w-6 h-6 p-0"
+        title={m.playlists.exportAll}
+        aria-label={m.playlists.exportAll}
+        onclick={() => (exportingPlaylist = 'all')}
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          class="w-4 h-4"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
+          />
+        </svg>
+      </button>
       <button
         class="btn-icon w-6 h-6 p-0"
         title={m.sidebar.newSmartPlaylistTitle}

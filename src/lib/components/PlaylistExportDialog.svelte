@@ -1,24 +1,30 @@
 <!--
   @component PlaylistExportDialog
   プレイリストをM3U8へ書き出す前に、曲の場所の書き方（絶対パス・相対パス）を選ぶダイアログ。
-  「保存先を選ぶ」を押すと、Rust側が保存先のダイアログを開いて書き出す。
+  1つのプレイリストでは、「保存先を選ぶ」を押すと、Rust側が保存先のダイアログを開いて書き出す。
+  すべてのプレイリスト（`'all'`。ADR-087）では、「書き出すフォルダを選ぶ」を押すと、Rust側がフォルダを
+  選ぶダイアログを開き、通常のプレイリストをまとめて書き出す。
 -->
 <script lang="ts">
   import type { Playlist } from '#lib/types/models.js';
   import { Modal } from '#lib/components/ui/index.js';
-  import { useExportPlaylistM3uMutation } from '#lib/queries/playlists.js';
+  import {
+    useExportAllPlaylistsMutation,
+    useExportPlaylistM3uMutation
+  } from '#lib/queries/playlists.js';
   import { ui } from '#lib/stores/ui.svelte.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   interface Props {
-    /** 書き出すプレイリスト（nullなら表示しない） */
-    playlist: Playlist | null;
+    /** 書き出すプレイリスト（`'all'`は、通常のプレイリストすべて。nullなら表示しない） */
+    playlist: Playlist | 'all' | null;
     onClose: () => void;
   }
 
   let { playlist, onClose }: Props = $props();
 
   const exportMutation = useExportPlaylistM3uMutation();
+  const exportAllMutation = useExportAllPlaylistsMutation();
 
   // 前回の選択を初期値にする
   let pathStyle = $state<'absolute' | 'relative'>(
@@ -30,14 +36,24 @@
     const relativePaths = pathStyle === 'relative';
     ui.playlistExportRelative = relativePaths;
     // 保存先のダイアログは、このダイアログを閉じてから開く（結果は通知で知らせる）
-    exportMutation.mutate({ playlistId: playlist.id, relativePaths });
+    if (playlist === 'all') exportAllMutation.mutate(relativePaths);
+    else exportMutation.mutate({ playlistId: playlist.id, relativePaths });
     onClose();
   }
 </script>
 
-<Modal open={playlist !== null} {onClose} title={m.playlists.exportTitle} class="max-w-lg">
+<Modal
+  open={playlist !== null}
+  {onClose}
+  title={playlist === 'all' ? m.playlists.exportAllTitle : m.playlists.exportTitle}
+  class="max-w-lg"
+>
   {#if playlist}
-    <p class="mt-0 mb-4 text-text-secondary">{m.playlists.exportDescription(playlist.name)}</p>
+    <p class="mt-0 mb-4 text-text-secondary">
+      {playlist === 'all'
+        ? m.playlists.exportAllDescription
+        : m.playlists.exportDescription(playlist.name)}
+    </p>
 
     <fieldset class="m-0 p-0 border-none">
       <legend class="mb-2 text-sm font-semibold text-text-primary">
@@ -65,7 +81,7 @@
   {#snippet footer()}
     <button onclick={onClose} class="btn-secondary">{m.common.cancel}</button>
     <button onclick={startExport} class="btn-primary" data-autofocus>
-      {m.playlists.exportConfirm}
+      {playlist === 'all' ? m.playlists.exportAllConfirm : m.playlists.exportConfirm}
     </button>
   {/snippet}
 </Modal>

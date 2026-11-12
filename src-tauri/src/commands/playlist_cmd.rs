@@ -2,7 +2,6 @@
 
 use crate::error::{AppError, AppResult};
 use crate::models::PlaylistFolder;
-use crate::playlist_export::PlaylistExport;
 use crate::smart_playlist::{SmartRules, validate_rules};
 use crate::state::AppState;
 use crate::validation::{
@@ -12,28 +11,18 @@ use crate::validation::{
 use chrono::Utc;
 use tauri::State;
 
-/// 変更できた場合に、プレイリストの書き出しを依頼する（音楽フォルダの`Playlists`。ADR-085）
-fn request_export<T>(export: &PlaylistExport, result: AppResult<T>) -> AppResult<T> {
-    if result.is_ok() {
-        export.request();
-    }
-    result
-}
-
 /// プレイリストを作成
 #[tauri::command]
 #[specta::specta]
 pub async fn create_playlist(
     name: String,
     state: State<'_, AppState>,
-    export: State<'_, PlaylistExport>,
 ) -> AppResult<crate::models::Playlist> {
     // 前後の空白は除く（ほかの名前を付けるコマンドと同じ）
     let name = name.trim().to_string();
     validate_playlist_name(&name)?;
 
-    let result = state.with_db(|db| crate::playlist::create_playlist(db, &name));
-    request_export(&export, result)
+    state.with_db(|db| crate::playlist::create_playlist(db, &name))
 }
 
 /// 自動プレイリスト（条件で曲を集めるプレイリスト）を作成
@@ -118,7 +107,6 @@ pub async fn add_tracks_to_playlist(
     playlist_id: String,
     track_ids: Vec<String>,
     state: State<'_, AppState>,
-    export: State<'_, PlaylistExport>,
 ) -> AppResult<u32> {
     // IDをバリデーション
     validate_playlist_id(&playlist_id)?;
@@ -135,7 +123,6 @@ pub async fn add_tracks_to_playlist(
         crate::playlist::ensure_manual_playlist(db, &playlist_id)?;
         crate::playlist::add_tracks_to_playlist(db, &playlist_id, &track_ids)
     })?;
-    export.request();
     crate::library::to_count(added)
 }
 
@@ -148,7 +135,6 @@ pub async fn remove_tracks_from_playlist(
     playlist_id: String,
     track_ids: Vec<String>,
     state: State<'_, AppState>,
-    export: State<'_, PlaylistExport>,
 ) -> AppResult<u32> {
     // IDをバリデーション
     validate_playlist_id(&playlist_id)?;
@@ -165,7 +151,6 @@ pub async fn remove_tracks_from_playlist(
         crate::playlist::ensure_manual_playlist(db, &playlist_id)?;
         crate::playlist::remove_tracks_from_playlist(db, &playlist_id, &track_ids)
     })?;
-    export.request();
     crate::library::to_count(removed)
 }
 
@@ -178,7 +163,6 @@ pub async fn create_playlist_with_tracks(
     name: String,
     track_ids: Vec<String>,
     state: State<'_, AppState>,
-    export: State<'_, PlaylistExport>,
 ) -> AppResult<crate::models::Playlist> {
     let name = name.trim().to_string();
     validate_playlist_name(&name)?;
@@ -186,9 +170,7 @@ pub async fn create_playlist_with_tracks(
         validate_track_id(track_id)?;
     }
 
-    let result =
-        state.with_db(|db| crate::playlist::create_playlist_from_tracks(db, &name, &track_ids));
-    request_export(&export, result)
+    state.with_db(|db| crate::playlist::create_playlist_from_tracks(db, &name, &track_ids))
 }
 
 /// プレイリストの説明を変更（値なし・空の文字列は、説明なし）
@@ -236,14 +218,12 @@ pub async fn rename_playlist_folder(
     folder_id: String,
     name: String,
     state: State<'_, AppState>,
-    export: State<'_, PlaylistExport>,
 ) -> AppResult<()> {
     validate_playlist_folder_id(&folder_id)?;
     let name = name.trim().to_string();
     validate_playlist_folder_name(&name)?;
 
-    let result = state.with_db(|db| crate::playlist::rename_playlist_folder(db, &folder_id, &name));
-    request_export(&export, result)
+    state.with_db(|db| crate::playlist::rename_playlist_folder(db, &folder_id, &name))
 }
 
 /// プレイリストのフォルダを削除（中のプレイリストは消さず、フォルダの外へ出す）
@@ -252,12 +232,10 @@ pub async fn rename_playlist_folder(
 pub async fn delete_playlist_folder(
     folder_id: String,
     state: State<'_, AppState>,
-    export: State<'_, PlaylistExport>,
 ) -> AppResult<()> {
     validate_playlist_folder_id(&folder_id)?;
 
-    let result = state.with_db(|db| crate::playlist::delete_playlist_folder(db, &folder_id));
-    request_export(&export, result)
+    state.with_db(|db| crate::playlist::delete_playlist_folder(db, &folder_id))
 }
 
 /// プレイリストを、フォルダへ移す（`folder_id`が値なしなら、フォルダの外へ出す）
@@ -269,16 +247,13 @@ pub async fn move_playlist(
     playlist_id: String,
     folder_id: Option<String>,
     state: State<'_, AppState>,
-    export: State<'_, PlaylistExport>,
 ) -> AppResult<()> {
     validate_playlist_id(&playlist_id)?;
     if let Some(folder_id) = &folder_id {
         validate_playlist_folder_id(folder_id)?;
     }
 
-    let result =
-        state.with_db(|db| crate::playlist::move_playlist(db, &playlist_id, folder_id.as_deref()));
-    request_export(&export, result)
+    state.with_db(|db| crate::playlist::move_playlist(db, &playlist_id, folder_id.as_deref()))
 }
 
 /// プレイリストの手動の並び順を変更（渡した順に並べる）
@@ -318,7 +293,6 @@ pub async fn rename_playlist(
     playlist_id: String,
     name: String,
     state: State<'_, AppState>,
-    export: State<'_, PlaylistExport>,
 ) -> AppResult<()> {
     // プレイリストIDをバリデーション
     validate_playlist_id(&playlist_id)?;
@@ -327,23 +301,17 @@ pub async fn rename_playlist(
     let name = name.trim().to_string();
     validate_playlist_name(&name)?;
 
-    let result = state.with_db(|db| crate::playlist::rename_playlist(db, &playlist_id, &name));
-    request_export(&export, result)
+    state.with_db(|db| crate::playlist::rename_playlist(db, &playlist_id, &name))
 }
 
 /// プレイリストを削除
 #[tauri::command]
 #[specta::specta]
-pub async fn delete_playlist(
-    playlist_id: String,
-    state: State<'_, AppState>,
-    export: State<'_, PlaylistExport>,
-) -> AppResult<()> {
+pub async fn delete_playlist(playlist_id: String, state: State<'_, AppState>) -> AppResult<()> {
     // プレイリストIDをバリデーション
     validate_playlist_id(&playlist_id)?;
 
-    let result = state.with_db(|db| crate::playlist::delete_playlist(db, &playlist_id));
-    request_export(&export, result)
+    state.with_db(|db| crate::playlist::delete_playlist(db, &playlist_id))
 }
 
 /// プレイリスト内のトラックを並び替え
@@ -353,7 +321,6 @@ pub async fn reorder_playlist_tracks(
     playlist_id: String,
     track_ids: Vec<String>,
     state: State<'_, AppState>,
-    export: State<'_, PlaylistExport>,
 ) -> AppResult<()> {
     // プレイリストIDをバリデーション
     validate_playlist_id(&playlist_id)?;
@@ -363,9 +330,8 @@ pub async fn reorder_playlist_tracks(
         validate_track_id(track_id)?;
     }
 
-    let result = state.with_db(|db| {
+    state.with_db(|db| {
         crate::playlist::ensure_manual_playlist(db, &playlist_id)?;
         crate::playlist::reorder_playlist_tracks(db, &playlist_id, &track_ids)
-    });
-    request_export(&export, result)
+    })
 }

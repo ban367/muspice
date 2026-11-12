@@ -1609,6 +1609,19 @@ describe('M3Uの読み込み・書き出し', () => {
       code: 'NOT_FOUND'
     });
   });
+
+  it('まとめて書き出すと、選んだフォルダと通常のプレイリストの数を返す', async () => {
+    const regular = (await commands.getPlaylists()).filter((playlist) => playlist.rules === null);
+    backend.setFolderResult('/Users/demo/Playlists/');
+
+    expect(await commands.exportAllPlaylistsM3u(true)).toEqual({
+      folder: '/Users/demo/Playlists',
+      playlistCount: regular.length
+    });
+
+    backend.setFolderResult(null);
+    expect(await commands.exportAllPlaylistsM3u(false)).toBeNull();
+  });
 });
 
 describe('ライブラリのXMLの取り込み', () => {
