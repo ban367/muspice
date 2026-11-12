@@ -1307,6 +1307,9 @@ export const en: Messages = {
       'When you save tags in this app, songs in the music folder are moved to the place given by its format (songs whose new name is taken are not moved). If other apps (MusicBee, Plex, playlist files, and so on) refer to the same folder by path, they may lose renamed songs.',
     keepOrganizedNotMoved: (count) =>
       `${plural(count, 'song', 'songs')} could not be moved to the place given by the music folder format (for example, a file with the same name is already there). Check them with Organize Files`,
+    exportPlaylists: 'Export playlists to the music folder',
+    exportPlaylistsHint:
+      'Regular playlists are written as M3U8 files to the "Playlists" folder in the music folder and rewritten whenever they change (smart playlists are not exported). Songs in the music folder use relative paths and songs outside it use absolute paths. Editing the files does not change the playlists in this app. Only files written by this app are removed or renamed.',
     copyOnImport: 'Copy imported songs to the music folder',
     copyOnImportHint:
       'Songs you choose, drop, or open with this app are copied into the music folder using its format before they are added (the original files are kept, and files with the same name are never overwritten). When you import a folder, you choose each time whether to copy it or use it where it is. Without a music folder, songs are added where they are.'

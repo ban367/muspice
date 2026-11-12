@@ -2028,6 +2028,11 @@ export type Settings = {
 	 */
 	keepMusicFolderOrganized: boolean,
 	/**
+	 *  通常のプレイリストを、音楽フォルダの`Playlists`へM3U8で書き出す（音楽フォルダが未設定の時は
+	 *  書かない。`playlist_export`。ADR-085）
+	 */
+	exportPlaylistsToMusicFolder: boolean,
+	/**
 	 *  ライブラリのデータ（DB・設定）を、1日に1回、アプリのデータのフォルダへ自動でバックアップする
 	 *  （新しい世代だけを残す。`backup`）
 	 */

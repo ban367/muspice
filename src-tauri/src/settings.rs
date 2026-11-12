@@ -146,6 +146,9 @@ pub struct Settings {
     /// 音楽フォルダを整理された状態に保つ（このアプリでタグを保存した、音楽フォルダの中の曲を、
     /// 書式どおりの場所へ移し直す）
     pub keep_music_folder_organized: bool,
+    /// 通常のプレイリストを、音楽フォルダの`Playlists`へM3U8で書き出す（音楽フォルダが未設定の時は
+    /// 書かない。`playlist_export`。ADR-085）
+    pub export_playlists_to_music_folder: bool,
     /// ライブラリのデータ（DB・設定）を、1日に1回、アプリのデータのフォルダへ自動でバックアップする
     /// （新しい世代だけを残す。`backup`）
     pub auto_backup: bool,
@@ -181,6 +184,7 @@ impl Default for Settings {
             music_folder_template: DEFAULT_MUSIC_FOLDER_TEMPLATE.to_string(),
             copy_to_music_folder: true,
             keep_music_folder_organized: false,
+            export_playlists_to_music_folder: true,
             auto_backup: true,
         }
     }
@@ -424,6 +428,7 @@ mod tests {
             music_folder_template: "%artist%/%album%/%track% %title%".to_string(),
             copy_to_music_folder: false,
             keep_music_folder_organized: true,
+            export_playlists_to_music_folder: false,
             auto_backup: false,
         };
 

@@ -391,7 +391,7 @@ fn track_label(track: &Track) -> String {
 /// 書き出し先のフォルダから見た、曲のファイルの相対パス（区切りは`/`）
 ///
 /// 共通するフォルダがない（別のボリュームなど）場合は、絶対パスのまま返す。
-fn relative_path(file_path: &str, base: &Path) -> String {
+pub(crate) fn relative_path(file_path: &str, base: &Path) -> String {
     let file: Vec<&str> = file_path
         .split('/')
         .filter(|part| !part.is_empty())
@@ -417,12 +417,17 @@ fn relative_path(file_path: &str, base: &Path) -> String {
 ///
 /// - `base`: 書き出し先のフォルダ。渡すと、曲の場所をそこからの相対パスで書く（`None`は絶対パス）
 pub fn build_m3u8(tracks: &[Track], base: Option<&Path>) -> String {
+    build_m3u8_with(tracks, |track| match base {
+        Some(base) => relative_path(&track.file_path, base),
+        None => track.file_path.clone(),
+    })
+}
+
+/// プレイリストのファイル（拡張M3U、UTF-8）の内容を作る（曲の場所の書き方を、曲ごとに決める）
+pub fn build_m3u8_with(tracks: &[Track], location: impl Fn(&Track) -> String) -> String {
     let mut content = String::from("#EXTM3U\r\n");
     for track in tracks {
-        let path = match base {
-            Some(base) => relative_path(&track.file_path, base),
-            None => track.file_path.clone(),
-        };
+        let path = location(track);
         content.push_str(&format!(
             "#EXTINF:{},{}\r\n{}\r\n",
             track.duration.unwrap_or(-1),

@@ -34,6 +34,7 @@ mod own_writes;
 mod playback;
 mod playback_state;
 mod playlist;
+mod playlist_export;
 mod rating_tag;
 mod repository;
 mod search_text;
@@ -432,6 +433,8 @@ pub fn run() {
             // ライブラリフォルダの変更の自動反映（設定に応じて、起動時の再スキャン・定期的な
             // 再スキャン・フォルダの監視を別スレッドで始める）
             app.manage(library_sync::LibrarySync::default());
+            // プレイリストの、音楽フォルダへの書き出し（ライブラリ・設定の変更で書き直す）
+            app.manage(playlist_export::PlaylistExport::start(app.handle()));
             library_sync::start(app.handle());
 
             // アルバムアーティストの列を追加する前に登録したトラックがあれば、別スレッドで
