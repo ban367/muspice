@@ -43,6 +43,7 @@ import type {
   LoudnessScanResult,
   Metadata,
   MusicFolderChange,
+  MusicFolderSource,
   NotCopied,
   NowPlayingUpdate,
   OrganizeDestination,
@@ -310,6 +311,8 @@ const MUSIC_FOLDER_FREE_BYTES = 200 * 1024 ** 3;
 const COPY_SPACE_MARGIN_BYTES = 64 * 1024 ** 2;
 /** OSの音楽フォルダ（Rustの`audio_dir`の代わり。ライブラリフォルダとして登録してある） */
 const SYSTEM_MUSIC_FOLDER = '/Users/demo/Music';
+/** 既定の音楽フォルダ（OSの音楽フォルダの中の`Muspice`。ADR-083） */
+const DEFAULT_MUSIC_FOLDER = `${SYSTEM_MUSIC_FOLDER}/Muspice`;
 /** 音楽フォルダの書式の例に出す曲の数（Rustの`TEMPLATE_EXAMPLE_COUNT`と同じ） */
 const TEMPLATE_EXAMPLE_COUNT = 5;
 /** インポートの1ファイルあたりの処理時間（進捗表示の確認用） */
@@ -1155,13 +1158,18 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   /**
    * 音楽フォルダを選ぶ（Rustの`commands/music_folder.rs`の`change_music_folder`）
    *
-   * OSの音楽フォルダは`SYSTEM_MUSIC_FOLDER`、ほかのフォルダは`setFolderResult`で選んだことにしたもの
-   * （nullなら、選ばずに閉じた）。登録済みのライブラリフォルダなら印を移すだけ、その中のフォルダなら
+   * 既定のフォルダは`DEFAULT_MUSIC_FOLDER`、OSの音楽フォルダは`SYSTEM_MUSIC_FOLDER`、ほかのフォルダは
+   * `setFolderResult`で選んだことにしたもの（nullなら、選ばずに閉じた）。登録済みのライブラリフォルダなら印を移すだけ、その中のフォルダなら
    * 外側のフォルダを返す。新しいフォルダは、`setMusicFolderFileCount`の数の曲を読み込んで登録する
    * （0なら空のフォルダ）。
    */
-  async function setMusicFolder(source: 'system' | 'pick'): Promise<MusicFolderChange | null> {
-    const selected = source === 'system' ? SYSTEM_MUSIC_FOLDER : folderResult;
+  async function setMusicFolder(source: MusicFolderSource): Promise<MusicFolderChange | null> {
+    const selected =
+      source === 'default'
+        ? DEFAULT_MUSIC_FOLDER
+        : source === 'system'
+          ? SYSTEM_MUSIC_FOLDER
+          : folderResult;
     if (selected === null) return null;
     const path = normalizeFolderPath(selected);
     const registered = libraryFolders.find((folder) => folder.path === path);
@@ -3069,7 +3077,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       const folder = libraryFolders.find((candidate) => candidate.isMusicFolder);
       return {
         folder: folder ? { id: folder.id, path: folder.path, exists: folder.exists } : null,
-        systemFolder: SYSTEM_MUSIC_FOLDER
+        systemFolder: SYSTEM_MUSIC_FOLDER,
+        defaultFolder: DEFAULT_MUSIC_FOLDER
       };
     },
     // 実装はRust側のダイアログで選ぶ。モックは`setFolderResult`のフォルダを選んだことにする

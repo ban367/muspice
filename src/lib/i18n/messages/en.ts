@@ -1263,6 +1263,7 @@ export const en: Messages = {
     hint: 'The folder where new music goes (one of the library folders). Changing it does not move any files.',
     notSet: 'Not set',
     missing: 'Folder not found',
+    useDefault: 'Use the default folder (Muspice)',
     useSystem: 'Use the system Music folder',
     pick: 'Choose a Folder...',
     clear: 'Unset',
@@ -1277,7 +1278,7 @@ export const en: Messages = {
     removeHint: 'This is the music folder. Removing it also unsets the music folder.',
     setupTitle: 'Start with a music folder',
     setupHint:
-      'Choose the folder where new music goes. Music already in the folder is added. You can change it later in Settings > Library.',
+      'Choose the folder where new music goes. By default, a "Muspice" folder is created in the system Music folder. Music already in the folder is added. You can change it later in Settings > Library.',
     emptyFolder: (path) => `The music folder (${path}) has no music yet`,
     emptyFolderHint:
       'Put music in the folder, then rescan it in Settings > Library. You can also add music from other folders with "Import Folder..." in the menu.',

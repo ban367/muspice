@@ -197,8 +197,8 @@ foundCount: number } |
 	/**
 	 *  音楽フォルダを選ぶ
 	 * 
-	 *  OSの音楽フォルダか、ダイアログ（Rust側で、呼び出したウィンドウの上に出す。ADR-065）で選んだ
-	 *  フォルダを、音楽フォルダにする。
+	 *  既定の音楽フォルダ（なければ作る）か、OSの音楽フォルダか、ダイアログ（Rust側で、呼び出した
+	 *  ウィンドウの上に出す。ADR-065）で選んだフォルダを、音楽フォルダにする。
 	 * 
 	 *  - 登録済みのライブラリフォルダなら、印を移すだけ（読み込み直さない）
 	 *  - 登録済みのライブラリフォルダの中のフォルダなら、音楽フォルダにせず`InsideLibraryFolder`を返す
@@ -1570,10 +1570,17 @@ export type MusicFolderInfo = {
 	folder: MusicFolder | null,
 	/**  OSの音楽フォルダ（音楽フォルダの候補。見つからなければnull） */
 	systemFolder: string | null,
+	/**
+	 *  既定の音楽フォルダ（OSの音楽フォルダの中の`Muspice`。まだないこともある。OSの音楽フォルダが
+	 *  見つからなければnull）
+	 */
+	defaultFolder: string | null,
 };
 
 /**  音楽フォルダにするフォルダの選び方 */
 export type MusicFolderSource = 
+/**  既定の音楽フォルダ（`~/Music/Muspice`。なければ作る。パスはRust側で求める） */
+"default" | 
 /**  OSの音楽フォルダ（macOSは`~/Music`。パスはRust側で求める） */
 "system" | 
 /**  ダイアログで選ぶ */

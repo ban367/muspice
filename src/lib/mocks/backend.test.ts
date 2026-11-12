@@ -2206,11 +2206,22 @@ describe('音楽フォルダ', () => {
   const markedPaths = async () =>
     (await commands.getLibraryFolders()).folders.filter((f) => f.isMusicFolder).map((f) => f.path);
 
-  it('はじめは設定しておらず、OSの音楽フォルダを候補に返す', async () => {
+  it('はじめは設定しておらず、既定のフォルダとOSの音楽フォルダを候補に返す', async () => {
     expect(await commands.getMusicFolder()).toEqual({
       folder: null,
-      systemFolder: '/Users/demo/Music'
+      systemFolder: '/Users/demo/Music',
+      defaultFolder: '/Users/demo/Music/Muspice'
     });
+  });
+
+  it('既定のフォルダがライブラリフォルダの中にある場合は、外側のフォルダを返す', async () => {
+    // モックでは、OSの音楽フォルダそのものがライブラリフォルダになっている
+    await expect(commands.setMusicFolder('default')).resolves.toEqual({
+      kind: 'insideLibraryFolder',
+      path: '/Users/demo/Music/Muspice',
+      libraryFolderPath: '/Users/demo/Music'
+    });
+    expect(await markedPaths()).toEqual([]);
   });
 
   it('登録済みのライブラリフォルダを選ぶと、印を移すだけで読み込み直さない', async () => {
