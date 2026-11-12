@@ -721,6 +721,19 @@ includesSettings: boolean } |
 	trackCount: number,
 } | null>("export_playlist_m3u", { playlistId, relativePaths }),
 	/**
+	 *  通常のプレイリストを、書き出すフォルダを選んで、まとめてM3U8へ書き出す（ADR-087）
+	 * 
+	 *  プレイリストのフォルダは、選んだフォルダの中のフォルダにする。同じ名前のファイルは置き換える。
+	 *  `relative_paths`がtrueなら、曲の場所を書き出したファイルのフォルダからの相対パスで書く（falseは
+	 *  絶対パス）。フォルダを選ばなかった場合はnullを返す。
+	 */
+	exportAllPlaylistsM3u: (relativePaths: boolean) => __TAURI_INVOKE<{
+	/**  書き出したフォルダ */
+	folder: string,
+	/**  書き出したプレイリスト（ファイル）の数 */
+	playlistCount: number,
+} | null>("export_all_playlists_m3u", { relativePaths }),
+	/**
 	 *  ライブラリのXML（iTunes形式）を選んで取り込む
 	 * 
 	 *  曲は、XMLの場所とライブラリの曲のパスで突き合わせる（M3Uの読み込みと同じ）。対応が付いた曲の
@@ -1916,6 +1929,14 @@ export type PlaylistTrack = {
 	addedAt: string,
 };
 
+/**  プレイリストをまとめて書き出した結果 */
+export type PlaylistsExportResult = {
+	/**  書き出したフォルダ */
+	folder: string,
+	/**  書き出したプレイリスト（ファイル）の数 */
+	playlistCount: number,
+};
+
 /**  メタデータ更新の結果 */
 export type RefreshMetadataResult = {
 	updatedCount: number,
@@ -2058,11 +2079,6 @@ export type Settings = {
 	 *  書式どおりの場所へ移し直す）
 	 */
 	keepMusicFolderOrganized: boolean,
-	/**
-	 *  通常のプレイリストを、音楽フォルダの`Playlists`へM3U8で書き出す（音楽フォルダが未設定の時は
-	 *  書かない。`playlist_export`。ADR-085）
-	 */
-	exportPlaylistsToMusicFolder: boolean,
 	/**
 	 *  ライブラリのデータ（DB・設定）を、1日に1回、アプリのデータのフォルダへ自動でバックアップする
 	 *  （新しい世代だけを残す。`backup`）

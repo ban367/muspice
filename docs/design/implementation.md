@@ -115,7 +115,7 @@ src-tauri/src/
 │   └── output.rs          # 出力デバイスの一覧と、出力のストリーム（cpal）
 ├── playback_state.rs      # 再生状態（音量・キュー・再生していた曲）の保存と復元（playback-state.json）
 ├── playlist.rs
-├── playlist_export.rs     # プレイリストの、音楽フォルダの`Playlists`へのM3U8の書き出し（書いたファイルの記録・変わったファイルだけ書く。ADR-085）
+├── playlist_export.rs     # 通常のプレイリストの、選んだフォルダへのM3U8の一括書き出し（フォルダの構成のまま。ADR-087）
 ├── rating_tag.rs          # 評価（半分の星）のタグの読み書き（ID3v2の`POPM`・MP4の`rate`を、loftyが丸める前の値で読み書きする。ADR-082）
 ├── smart_playlist.rs      # 自動プレイリストの条件（検証・条件からのSQLの組み立て・ランダムな並び。ADR-042）
 ├── metadata.rs
