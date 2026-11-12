@@ -12,9 +12,11 @@
   interface Props {
     filters: TrackFilters;
     onChange: (filters: TrackFilters) => void;
+    /** 音楽フォルダを設定しているか（していなければ「音楽フォルダの外の曲のみ」を出さない） */
+    hasMusicFolder?: boolean;
   }
 
-  let { filters, onChange }: Props = $props();
+  let { filters, onChange, hasMusicFolder = false }: Props = $props();
 
   const activeCount = $derived(countActiveFilters(filters));
 
@@ -104,6 +106,18 @@
     />
     {m.library.filters.favoritesOnly}
   </label>
+
+  {#if hasMusicFolder}
+    <label class="flex items-center gap-2 mt-2 text-sm text-text-secondary cursor-pointer">
+      <input
+        type="checkbox"
+        class="w-4 h-4"
+        checked={filters.outsideMusicFolderOnly}
+        onchange={(e) => onChange({ ...filters, outsideMusicFolderOnly: e.currentTarget.checked })}
+      />
+      {m.library.filters.outsideMusicFolderOnly}
+    </label>
+  {/if}
 
   <div class="flex justify-end mt-4">
     <button

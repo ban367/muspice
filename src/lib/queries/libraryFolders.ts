@@ -45,6 +45,21 @@ export function useRescanLibraryFolderMutation() {
 }
 
 /**
+ * ライブラリフォルダの外の曲のファイルを確かめるミューテーション（ADR-084）
+ *
+ * 登録済みの曲だけを確かめる（そのフォルダの新しいファイルは取り込まない）。
+ */
+export function useRescanOutsideTracksMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: () =>
+      withErrorToast(m.operations.rescanOutsideTracks, () => commands.rescanOutsideTracks()),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.libraryFolders })
+  }));
+}
+
+/**
  * ライブラリフォルダの記録を削除するミューテーション
  *
  * `removeTracks`がtrueなら、フォルダ内の曲もライブラリから外す（ファイルは消さない）。

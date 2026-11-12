@@ -74,11 +74,12 @@ use commands::{
     remove_library_folder, remove_library_folder_exclusion, remove_missing_tracks,
     remove_sync_device, remove_tracks_from_playlist, rename_playlist, rename_playlist_folder,
     reorder_playlist_folders, reorder_playlist_tracks, reorder_playlists, rescan_library_folder,
-    reshuffle_smart_playlists, restore_library_backup, run_device_sync, save_playback_state,
-    save_settings, search_tracks, set_album_art, set_current_track, set_favorite, set_mini_player,
-    set_music_folder, set_now_playing, set_playlist_description, set_rating, show_in_folder,
-    start_loudness_scan, take_opened_files, update_multiple_tracks_metadata, update_smart_playlist,
-    update_sync_device, update_track_metadata, write_library_metadata_to_files,
+    rescan_outside_tracks, reshuffle_smart_playlists, restore_library_backup, run_device_sync,
+    save_playback_state, save_settings, search_tracks, set_album_art, set_current_track,
+    set_favorite, set_mini_player, set_music_folder, set_now_playing, set_playlist_description,
+    set_rating, show_in_folder, start_loudness_scan, take_opened_files,
+    update_multiple_tracks_metadata, update_smart_playlist, update_sync_device,
+    update_track_metadata, write_library_metadata_to_files,
 };
 use state::AppState;
 use std::path::PathBuf;
@@ -107,6 +108,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             relocate_library_folder,
             cancel_library_folder_relocation,
             rescan_library_folder,
+            rescan_outside_tracks,
             remove_missing_tracks,
             add_library_folder_exclusion,
             remove_excluded_tracks,

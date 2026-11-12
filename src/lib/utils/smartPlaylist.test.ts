@@ -36,6 +36,7 @@ describe('opsFor', () => {
     expect(opsFor('artist')).toContain('contains');
     expect(opsFor('year')).toEqual(['is', 'isNot', 'atLeast', 'atMost', 'between']);
     expect(opsFor('favorite')).toEqual(['is', 'isNot']);
+    expect(opsFor('inMusicFolder')).toEqual(['is', 'isNot']);
     expect(opsFor('lastPlayedAt')).toEqual(['inLast', 'notInLast', 'isEmpty', 'isNotEmpty']);
   });
 
@@ -84,6 +85,7 @@ describe('needsValue', () => {
     expect(needsValue({ field: 'genre', op: 'isEmpty' })).toBe(false);
     expect(needsValue({ field: 'lastPlayedAt', op: 'isNotEmpty' })).toBe(false);
     expect(needsValue({ field: 'favorite', op: 'is' })).toBe(false);
+    expect(needsValue({ field: 'inMusicFolder', op: 'isNot' })).toBe(false);
     expect(needsValue({ field: 'genre', op: 'is' })).toBe(true);
   });
 });
@@ -258,7 +260,9 @@ describe('describeRule・describeOrder', () => {
     ],
     [{ kind: 'date', field: 'lastPlayedAt', op: 'isEmpty', days: 0 }, '最終再生日: なし'],
     [{ kind: 'favorite', value: true }, 'お気に入り'],
-    [{ kind: 'favorite', value: false }, 'お気に入りではない']
+    [{ kind: 'favorite', value: false }, 'お気に入りではない'],
+    [{ kind: 'inMusicFolder', value: true }, '音楽フォルダの中にある'],
+    [{ kind: 'inMusicFolder', value: false }, '音楽フォルダの外にある']
   ])('条件を説明する', (rule, expected) => {
     expect(describeRule(rule)).toBe(expected);
   });

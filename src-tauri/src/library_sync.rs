@@ -10,12 +10,18 @@
 //!
 //! フォルダが見つからない場合（外付けドライブが外れているなど）は何もしない。
 //! ライブラリが変わった場合は、再スキャンの処理が`LibraryChanged`イベントを送る。
+//!
+//! どのライブラリフォルダにも属さない曲（ファイルを選んで取り込んだ曲など）も、同じタイミングで
+//! ファイルを確かめる（`rescan_outside`。ADR-084）。監視は、それらの曲のフォルダを、中のフォルダを
+//! 含めずに行う。確かめるのは登録済みの曲だけで、そのフォルダの新しいファイルは取り込まない。
 
-use crate::commands::rescan_folder;
+use crate::commands::{rescan_folder, rescan_outside};
 use crate::error::AppResult;
 use crate::library::{ScanExclusions, is_supported_audio_file};
-use crate::library_folder::{FolderRecord, find_all_folders, scan_exclusions, track_path_prefix};
-use crate::repository::count_tracks_under;
+use crate::library_folder::{
+    FolderRecord, find_all_folders, outside_tracks, scan_exclusions, track_path_prefix,
+};
+use crate::repository::{count_tracks_under, find_all_track_file_states};
 use crate::settings::{Settings, SettingsState};
 use crate::state::AppState;
 use notify_debouncer_mini::notify::{RecommendedWatcher, RecursiveMode};
@@ -50,8 +56,10 @@ struct Inner {
     watch_enabled: bool,
     /// フォルダの監視（落とすと止まる。有効でも、作れなかった場合はない）
     watcher: Option<Debouncer<RecommendedWatcher>>,
-    /// 監視しているフォルダ
+    /// 監視しているフォルダ（ライブラリフォルダ。中のフォルダも含めて監視する）
     watched: HashSet<PathBuf>,
+    /// 監視している、ライブラリフォルダの外の曲のフォルダ（中のフォルダは含めない）
+    watched_outside: HashSet<PathBuf>,
 }
 
 impl LibrarySync {
@@ -128,6 +136,7 @@ fn ensure_watching(app: &AppHandle, inner: &mut Inner) {
     if inner.watcher.is_none() {
         inner.watcher = create_watcher(app);
         inner.watched.clear();
+        inner.watched_outside.clear();
     }
     update_watches(app, inner);
 }
@@ -240,6 +249,56 @@ fn update_watches(app: &AppHandle, inner: &mut Inner) {
         }
     }
     inner.watched = watched;
+
+    // ライブラリフォルダの外の曲のフォルダ（中のフォルダは含めない）
+    let wanted_outside = outside_track_folders(app);
+    for path in inner.watched_outside.difference(&wanted_outside) {
+        if let Err(e) = watcher.watcher().unwatch(path) {
+            log::debug!("Failed to unwatch folder: {}: {}", path.display(), e);
+        }
+    }
+    let mut watched_outside = HashSet::new();
+    for path in wanted_outside {
+        if inner.watched_outside.contains(&path) {
+            watched_outside.insert(path);
+            continue;
+        }
+        match watcher.watcher().watch(&path, RecursiveMode::NonRecursive) {
+            Ok(()) => {
+                log::debug!(
+                    "Watching folder of tracks outside library folders: {}",
+                    path.display()
+                );
+                watched_outside.insert(path);
+            }
+            Err(e) => log::warn!("Failed to watch folder: {}: {}", path.display(), e),
+        }
+    }
+    inner.watched_outside = watched_outside;
+}
+
+/// ライブラリフォルダの外の曲がある、今見つかるフォルダ
+fn outside_track_folders(app: &AppHandle) -> HashSet<PathBuf> {
+    let tracks = app.state::<AppState>().with_db(|db| {
+        let folders = find_all_folders(db)?;
+        Ok(outside_tracks(find_all_track_file_states(db)?, &folders))
+    });
+    match tracks {
+        Ok(tracks) => tracks
+            .iter()
+            .filter_map(|track| Path::new(&track.file_path).parent().map(Path::to_path_buf))
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .filter(|path| path.is_dir())
+            .collect(),
+        Err(e) => {
+            log::error!(
+                "Failed to get tracks outside library folders to watch: {}",
+                e
+            );
+            HashSet::new()
+        }
+    }
 }
 
 /// アプリのデータ（DB・ログなど）のフォルダ
@@ -340,11 +399,48 @@ fn rescan_changed_folders(app: &AppHandle, paths: &[PathBuf], ignored: &[PathBuf
                 && is_relevant_change(path, ignored, has_tracks_under)
         })
     });
+
+    // ライブラリフォルダの外の音楽ファイルの変更（外の曲のフォルダの監視から届く）
+    let folders = match app.state::<AppState>().with_db(|db| find_all_folders(db)) {
+        Ok(folders) => folders,
+        Err(e) => {
+            log::error!("Failed to get library folders: {}", e);
+            return;
+        }
+    };
+    if paths
+        .iter()
+        .any(|path| is_outside_change(&folders, ignored, path))
+    {
+        rescan_outside_quietly(app, "file change");
+    }
 }
 
-/// すべてのライブラリフォルダを再スキャンする
+/// ライブラリフォルダの外の、音楽ファイルの変更か（アプリのデータのフォルダの中は除く）
+fn is_outside_change(folders: &[FolderRecord], ignored: &[PathBuf], path: &Path) -> bool {
+    is_supported_audio_file(path)
+        && !ignored.iter().any(|dir| path.starts_with(dir))
+        && !folders
+            .iter()
+            .any(|folder| path.starts_with(Path::new(&folder.path)))
+}
+
+/// すべてのライブラリフォルダと、ライブラリフォルダの外の曲を再スキャンする
 fn rescan_all_folders(app: &AppHandle, reason: &str) {
     rescan_folders(app, reason, |_, _| true);
+    rescan_outside_quietly(app, reason);
+}
+
+/// ライブラリフォルダの外の曲を確かめる（失敗はログに残す）
+fn rescan_outside_quietly(app: &AppHandle, reason: &str) {
+    let state = app.state::<AppState>();
+    if let Err(e) = rescan_outside(state.inner(), app) {
+        log::warn!(
+            "Failed to rescan tracks outside library folders ({}): {}",
+            reason,
+            e
+        );
+    }
 }
 
 /// 条件に合うライブラリフォルダを再スキャンする（条件には、フォルダの読み飛ばす場所も渡す）
@@ -439,6 +535,19 @@ mod tests {
         assert!(!change_in("/music/GarageBand/Song.band/Media/b.aif"));
         assert!(!change_in("/music/Artist/.DS_Store"));
         assert!(!change_in("/music/Artist/._01.mp3"));
+    }
+
+    /// ライブラリフォルダの外の音楽ファイルの変更だけを、外の曲の確認のきっかけにする
+    #[test]
+    fn test_is_outside_change() {
+        let folders = [folder("/music")];
+        let ignored = [PathBuf::from("/app/data")];
+        let outside = |path: &str| is_outside_change(&folders, &ignored, Path::new(path));
+
+        assert!(outside("/Users/me/Downloads/new.mp3"));
+        assert!(!outside("/Users/me/Downloads/notes.txt"));
+        assert!(!outside("/music/Artist/01.mp3"));
+        assert!(!outside("/app/data/backup.flac"));
     }
 
     /// アプリが書いた変更の通知は除き、ほかのアプリの変更は残す

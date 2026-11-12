@@ -136,6 +136,13 @@ foundCount: number } |
 	 */
 	rescanLibraryFolder: (folderId: string) => __TAURI_INVOKE<RescanResult>("rescan_library_folder", { folderId }),
 	/**
+	 *  どのライブラリフォルダにも属さない曲のファイルを確かめ、変更をライブラリに反映する（ADR-084）
+	 * 
+	 *  登録済みの曲だけを確かめる（そのフォルダの新しいファイルは追加しない）。消えたファイルの曲は
+	 *  見つからない曲にし、変わったファイルは読み直す。曲のフォルダが見つからない曲は、そのままにする。
+	 */
+	rescanOutsideTracks: () => __TAURI_INVOKE<RescanResult>("rescan_outside_tracks"),
+	/**
 	 *  見つからない曲（ファイルが見つからなくなったトラック）を、すべてライブラリから外す
 	 * 
 	 *  外したトラック数を返す。ファイルには触れない。
@@ -1392,6 +1399,8 @@ export type LibraryFolderList = {
 	unregisteredTrackCount: number,
 	/**  見つからない曲の数（ファイルが見つからなくなり、利用者が外すまで残しているトラック） */
 	missingTrackCount: number,
+	/**  音楽フォルダの外にある曲の数（音楽フォルダが未設定ならnull。ADR-084） */
+	outsideMusicFolderTrackCount: number | null,
 };
 
 /**  ライブラリフォルダの再スキャンの進捗 */
@@ -2057,7 +2066,9 @@ export type SmartRule =
 /**  日付の項目の条件（`IsEmpty`・`IsNotEmpty`では、`days`を使わない） */
 { kind: "date"; field: DateField; op: DateOp; days: number } | 
 /**  お気に入りかどうか */
-{ kind: "favorite"; value: boolean };
+{ kind: "favorite"; value: boolean } | 
+/**  音楽フォルダの中にあるか（音楽フォルダが未設定なら、どの曲も中にない。ADR-084） */
+{ kind: "inMusicFolder"; value: boolean };
 
 /**  自動プレイリストの条件 */
 export type SmartRules = {

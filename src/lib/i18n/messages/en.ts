@@ -146,6 +146,7 @@ export const en: Messages = {
     openProjectPage: 'Opening the page',
     fetchLibraryFolders: 'Loading library folders',
     rescanLibraryFolder: 'Rescanning',
+    rescanOutsideTracks: 'Checking tracks outside library folders',
     removeLibraryFolder: 'Removing the library folder',
     planLibraryFolderRelocation: 'Checking the new location',
     relocateLibraryFolder: 'Changing the location of the library folder',
@@ -223,6 +224,7 @@ export const en: Messages = {
   },
 
   trackList: {
+    outsideMusicFolder: 'Outside the music folder',
     columns: 'Columns',
     resetSort: 'Reset Sort Order',
     resetColumns: 'Reset Columns and Sort Order',
@@ -834,6 +836,7 @@ export const en: Messages = {
       yearFrom: 'From',
       yearTo: 'To',
       favoritesOnly: 'Favorites only',
+      outsideMusicFolderOnly: 'Outside the music folder only',
       clear: 'Clear'
     },
     noMatches: 'No songs match',
@@ -968,6 +971,7 @@ export const en: Messages = {
     descending: 'Descending',
     random: 'Random',
     pathField: 'File Location',
+    inMusicFolderField: 'Music folder',
     noRating: 'No rating',
     days: 'days',
     minutesUnit: 'min',
@@ -999,6 +1003,10 @@ export const en: Messages = {
       favorite: {
         is: 'is true',
         isNot: 'is false'
+      },
+      inMusicFolder: {
+        is: 'contains the track',
+        isNot: 'does not contain the track'
       }
     },
     describe: {
@@ -1027,6 +1035,8 @@ export const en: Messages = {
         isNotEmpty: () => 'any'
       },
       favorite: (value: boolean) => (value ? 'Favorite' : 'Not a favorite'),
+      inMusicFolder: (value: boolean) =>
+        value ? 'In the music folder' : 'Outside the music folder',
       order: (field: string, descending: boolean) =>
         `${field}, ${descending ? 'descending' : 'ascending'}`,
       limited: (order: string, limit: number) =>
@@ -1169,7 +1179,10 @@ export const en: Messages = {
     relocateConflicts: (path, count) =>
       `In "${path}", ${plural(count, 'track would have', 'tracks would have')} the same location as other tracks in the library (such as tracks imported from outside the folder), so the location cannot be changed to it. Remove those tracks from the library and choose the folder again`,
     unregistered: (count) =>
-      `${plural(count, 'track is', 'tracks are')} not in any library folder (such as tracks imported before folders were recorded). Import the same folder again to register it as a library folder (registered tracks are not read again).`,
+      `${plural(count, 'track is', 'tracks are')} not in any library folder (such as files you chose to import). Changes to these files are also picked up by automatic updates and by "Check" (new files in their folders are not added). Import the same folder again to register it as a library folder.`,
+    checkOutside: 'Check',
+    outsideMusicFolder: (count) =>
+      `${plural(count, 'track is', 'tracks are')} outside the music folder. Find them by the mark in the track list or with the "Outside the music folder only" filter, and move them with "Gather into the Music Folder" in Organize Files.`,
     removeTitle: 'Remove Library Folder',
     removeConfirm: (path) => `Remove "${path}" from the library folders?`,
     removeTracks: (count) =>

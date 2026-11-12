@@ -35,3 +35,15 @@ export function musicFolderNotice(change: MusicFolderChange): MusicFolderNotice 
         : m.musicFolder.set(change.path)
   };
 }
+
+/**
+ * 曲が音楽フォルダの外にあるか（音楽フォルダが未設定なら、外の曲とはしない。ADR-084）
+ *
+ * 印はDBに持たず、曲の場所から求める（ファイルの整理・場所の付け替えでずれない）。
+ * パスの要素の単位で比べる（`/Music/A`は`/Music/AB/…`を含まない）。
+ */
+export function isOutsideMusicFolder(filePath: string, musicFolderPath: string | null): boolean {
+  if (musicFolderPath === null) return false;
+  const prefix = musicFolderPath.endsWith('/') ? musicFolderPath : `${musicFolderPath}/`;
+  return !filePath.startsWith(prefix);
+}

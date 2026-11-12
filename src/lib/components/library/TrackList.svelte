@@ -12,6 +12,9 @@
 <script lang="ts">
   import { untrack, type Snippet } from 'svelte';
   import { useSetRatingMutation } from '#lib/queries/tracks.js';
+  import { useMusicFolderQuery } from '#lib/queries/musicFolder.js';
+  import { isOutsideMusicFolder } from '#lib/utils/musicFolder.js';
+  import OutsideMusicFolderMark from './OutsideMusicFolderMark.svelte';
   import { player, playNow } from '#lib/stores/player.svelte.js';
   import { GRID_CARD_GAP, followSelectedTrack, ui } from '#lib/stores/ui.svelte.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
@@ -187,6 +190,9 @@
 
   // レーティングミューテーション
   const setRatingMutation = useSetRatingMutation();
+  const musicFolderQuery = useMusicFolderQuery();
+  /** 音楽フォルダ（外の曲に印を付ける。未設定なら印を付けない。ADR-084） */
+  const musicFolderPath = $derived(musicFolderQuery.data?.folder?.path ?? null);
 
   // ソートされたトラック
   const sortTracks = createTrackSorter();
@@ -572,7 +578,12 @@
               </div>
               {#each columns as column (column)}
                 {#if column === 'title'}
-                  <MarqueeText text={track.title || track.fileName} class="text-text-primary" />
+                  <div class="title-cell">
+                    {#if isOutsideMusicFolder(track.filePath, musicFolderPath)}
+                      <OutsideMusicFolderMark />
+                    {/if}
+                    <MarqueeText text={track.title || track.fileName} class="text-text-primary" />
+                  </div>
                 {:else if column === 'artist'}
                   <MarqueeText
                     text={track.artist || m.common.unknownArtist}
@@ -652,6 +663,9 @@
                   <div class="absolute inset-0 bg-black/50 flex items-center justify-center">
                     <PlayingIndicator size="large" />
                   </div>
+                {/if}
+                {#if isOutsideMusicFolder(track.filePath, musicFolderPath)}
+                  <span class="card-outside-mark"><OutsideMusicFolderMark /></span>
                 {/if}
               </div>
               <div class="text-center">
@@ -795,6 +809,16 @@
 
   .track-row:hover {
     @apply bg-surface;
+  }
+
+  /* タイトルの前に、音楽フォルダの外の曲の印を出す */
+  .title-cell {
+    @apply flex items-center gap-1 min-w-0 text-text-muted;
+  }
+
+  /* カードの画像の右上に、音楽フォルダの外の曲の印を出す */
+  .card-outside-mark {
+    @apply absolute top-1 right-1 p-0.5 rounded bg-black/60 text-white;
   }
 
   /* ファイルが見つからない曲（再生できない）は薄く表示する */

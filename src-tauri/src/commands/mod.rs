@@ -43,10 +43,10 @@ pub use library_folders::{
     PendingRelocation, add_library_folder_exclusion, cancel_library_folder_relocation,
     get_library_folders, plan_library_folder_relocation, relocate_library_folder,
     remove_excluded_tracks, remove_library_folder, remove_library_folder_exclusion,
-    remove_missing_tracks, rescan_library_folder,
+    remove_missing_tracks, rescan_library_folder, rescan_outside_tracks,
 };
 // 自動の再スキャン（`library_sync`）が使う
-pub(crate) use library_folders::rescan_folder;
+pub(crate) use library_folders::{rescan_folder, rescan_outside};
 
 // 音楽フォルダ（新しい曲を置く宛先）の設定と、書式の例
 pub use music_folder::{
