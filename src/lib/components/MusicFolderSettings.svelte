@@ -2,8 +2,8 @@
   @component MusicFolderSettings
   設定の「ライブラリ」の、音楽フォルダ（新しい曲を置く宛先。ライブラリフォルダの1つ）の表示・変更・解除。
 
-  操作はすぐに反映する（設定の「適用」は不要）。フォルダは、OSの音楽フォルダか、Rust側のダイアログ
-  （設定ウィンドウの上に出す）で選ぶ。新しく登録するフォルダの曲を読み込む間は、進み具合を出す。
+  操作はすぐに反映する（設定の「適用」は不要）。フォルダは、既定のフォルダ（OSの音楽フォルダの中の
+  `Muspice`。なければ作る）か、OSの音楽フォルダか、Rust側のダイアログ（設定ウィンドウの上に出す）で選ぶ。新しく登録するフォルダの曲を読み込む間は、進み具合を出す。
   変えても、ファイルは動かさない（前の音楽フォルダは、ライブラリフォルダとして残る）。
   クエリの読み直し（`LibraryChanged`・ウィンドウに戻った時）は、`LibraryFolderSettings`が行う。
 -->
@@ -32,6 +32,10 @@
 
   const info = $derived(musicFolderQuery.data);
   const folder = $derived(info?.folder ?? null);
+  /** 既定のフォルダ（すでに音楽フォルダにしてあれば、出さない） */
+  const defaultFolder = $derived(
+    info?.defaultFolder && info.defaultFolder !== folder?.path ? info.defaultFolder : null
+  );
   /** OSの音楽フォルダ（すでに音楽フォルダにしてあれば、出さない） */
   const systemFolder = $derived(
     info?.systemFolder && info.systemFolder !== folder?.path ? info.systemFolder : null
@@ -88,6 +92,17 @@
       {/if}
     </div>
     <div class="music-folder-actions">
+      {#if defaultFolder}
+        <button
+          type="button"
+          class="btn-secondary text-xs"
+          onclick={() => choose('default')}
+          disabled={isBusy}
+          title={defaultFolder}
+        >
+          {m.musicFolder.useDefault}
+        </button>
+      {/if}
       {#if systemFolder}
         <button
           type="button"

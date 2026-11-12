@@ -2,7 +2,8 @@
   @component MusicFolderSetup
   ライブラリが空の画面の、音楽フォルダ（新しい曲を置く宛先）の選択。
 
-  OSの音楽フォルダか、ほかのフォルダ（Rust側のダイアログ）を選ぶ。中の曲の読み込みは、
+  既定のフォルダ（OSの音楽フォルダの中の`Muspice`。なければ作る。ADR-083）か、OSの音楽フォルダか、
+  ほかのフォルダ（Rust側のダイアログ）を選ぶ。中の曲の読み込みは、
   インポートダイアログに表示する（`importer.setMusicFolder`）。音楽フォルダを設定してあれば、
   そのフォルダと、曲を足す方法を出す。
 -->
@@ -25,10 +26,21 @@
     <p class="setup-title">{m.musicFolder.setupTitle}</p>
     <p class="setup-hint">{m.musicFolder.setupHint}</p>
     <div class="setup-actions">
-      {#if info.systemFolder}
+      {#if info.defaultFolder}
         <button
           type="button"
           class="btn-primary"
+          onclick={() => importer.setMusicFolder('default')}
+          disabled={importer.isImporting}
+          title={info.defaultFolder}
+        >
+          {m.musicFolder.useDefault}
+        </button>
+      {/if}
+      {#if info.systemFolder}
+        <button
+          type="button"
+          class="btn-secondary"
           onclick={() => importer.setMusicFolder('system')}
           disabled={importer.isImporting}
           title={info.systemFolder}
@@ -38,15 +50,15 @@
       {/if}
       <button
         type="button"
-        class={info.systemFolder ? 'btn-secondary' : 'btn-primary'}
+        class={info.defaultFolder || info.systemFolder ? 'btn-secondary' : 'btn-primary'}
         onclick={() => importer.setMusicFolder('pick')}
         disabled={importer.isImporting}
       >
         {m.musicFolder.pick}
       </button>
     </div>
-    {#if info.systemFolder}
-      <p class="system-folder">{info.systemFolder}</p>
+    {#if info.defaultFolder}
+      <p class="default-folder">{info.defaultFolder}</p>
     {/if}
   </div>
 {/if}
@@ -70,8 +82,8 @@
     @apply flex flex-wrap gap-2 mt-4;
   }
 
-  /* OSの音楽フォルダの場所（「OSの音楽フォルダを使う」で選ぶフォルダ） */
-  .system-folder {
+  /* 既定のフォルダの場所（最初の選択肢で作る・使うフォルダ） */
+  .default-folder {
     @apply mt-2 mb-0 text-xs text-text-muted font-mono truncate;
   }
 </style>

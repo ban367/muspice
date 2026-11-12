@@ -3,6 +3,9 @@
 //! 音楽フォルダは、ライブラリフォルダの1つに付けた印（`library_folders.is_music_folder`。ADR-068）。
 //! 選んだフォルダは、空でもライブラリフォルダとして登録し、曲があれば読み込む。変えた時は印を移すだけで、
 //! ファイルは動かさない。音楽フォルダの書式は、設定（`Settings::music_folder_template`）に持つ。
+//!
+//! 既定の音楽フォルダは、OSの音楽フォルダの中の専用のフォルダ（`~/Music/Muspice`）。利用者が選んだ時に
+//! 作る（ADR-083）。
 
 use super::import::{FolderRegistration, import_folder_blocking};
 use super::library_folders::notify_library_changed;
@@ -28,6 +31,9 @@ use tauri_specta::Event;
 /// 書式の例に出す曲の数
 const TEMPLATE_EXAMPLE_COUNT: u32 = 5;
 
+/// 既定の音楽フォルダの名前（OSの音楽フォルダの中に作る。ADR-083）
+const DEFAULT_MUSIC_FOLDER_NAME: &str = "Muspice";
+
 /// 音楽フォルダ（印を付けたライブラリフォルダ）
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -47,12 +53,17 @@ pub struct MusicFolderInfo {
     pub folder: Option<MusicFolder>,
     /// OSの音楽フォルダ（音楽フォルダの候補。見つからなければnull）
     pub system_folder: Option<String>,
+    /// 既定の音楽フォルダ（OSの音楽フォルダの中の`Muspice`。まだないこともある。OSの音楽フォルダが
+    /// 見つからなければnull）
+    pub default_folder: Option<String>,
 }
 
 /// 音楽フォルダにするフォルダの選び方
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum MusicFolderSource {
+    /// 既定の音楽フォルダ（`~/Music/Muspice`。なければ作る。パスはRust側で求める）
+    Default,
     /// OSの音楽フォルダ（macOSは`~/Music`。パスはRust側で求める）
     System,
     /// ダイアログで選ぶ
@@ -97,6 +108,8 @@ pub async fn get_music_folder(app_handle: AppHandle) -> AppResult<MusicFolderInf
             }),
             system_folder: system_music_folder(&app_handle)
                 .and_then(|path| path.to_str().map(str::to_string)),
+            default_folder: default_music_folder(&app_handle)
+                .and_then(|path| path.to_str().map(str::to_string)),
         })
     })
     .await
@@ -104,8 +117,8 @@ pub async fn get_music_folder(app_handle: AppHandle) -> AppResult<MusicFolderInf
 
 /// 音楽フォルダを選ぶ
 ///
-/// OSの音楽フォルダか、ダイアログ（Rust側で、呼び出したウィンドウの上に出す。ADR-065）で選んだ
-/// フォルダを、音楽フォルダにする。
+/// 既定の音楽フォルダ（なければ作る）か、OSの音楽フォルダか、ダイアログ（Rust側で、呼び出した
+/// ウィンドウの上に出す。ADR-065）で選んだフォルダを、音楽フォルダにする。
 ///
 /// - 登録済みのライブラリフォルダなら、印を移すだけ（読み込み直さない）
 /// - 登録済みのライブラリフォルダの中のフォルダなら、音楽フォルダにせず`InsideLibraryFolder`を返す
@@ -125,7 +138,16 @@ pub async fn set_music_folder(
 ) -> AppResult<Option<MusicFolderChange>> {
     run_blocking(move || {
         let state = app_handle.state::<AppState>();
+        // 既定の音楽フォルダを、このために作ったか（音楽フォルダにしなかった時は、消す）
+        let mut created = false;
         let folder = match source {
+            MusicFolderSource::Default => {
+                let folder = default_music_folder(&app_handle).ok_or_else(|| {
+                    AppError::NotFound("OSの音楽フォルダが見つかりません".to_string())
+                })?;
+                created = create_default_folder(&folder)?;
+                folder
+            }
             MusicFolderSource::System => system_music_folder(&app_handle).ok_or_else(|| {
                 AppError::NotFound("OSの音楽フォルダが見つかりません".to_string())
             })?,
@@ -154,7 +176,7 @@ pub async fn set_music_folder(
             }
         };
 
-        let change = change_music_folder(state.inner(), &folder, &|progress| {
+        let change = change_music_folder_created(state.inner(), &folder, created, &|progress| {
             if let Err(e) = progress.emit(&app_handle) {
                 log::warn!("Failed to emit progress event: {}", e);
             }
@@ -205,6 +227,45 @@ pub async fn preview_music_folder_template(
 /// OSの音楽フォルダ（見つからなければNone）
 fn system_music_folder(app: &AppHandle) -> Option<PathBuf> {
     app.path().audio_dir().ok().filter(|path| path.is_dir())
+}
+
+/// 既定の音楽フォルダ（OSの音楽フォルダの中の`Muspice`。OSの音楽フォルダが見つからなければNone）
+fn default_music_folder(app: &AppHandle) -> Option<PathBuf> {
+    system_music_folder(app).map(|folder| folder.join(DEFAULT_MUSIC_FOLDER_NAME))
+}
+
+/// 既定の音楽フォルダを作る
+///
+/// @returns 新しく作ったか（すでにあれば false）
+fn create_default_folder(folder: &Path) -> AppResult<bool> {
+    if folder.is_dir() {
+        return Ok(false);
+    }
+    std::fs::create_dir(folder).map_err(|e| {
+        AppError::Io(format!(
+            "音楽フォルダ（{}）を作れませんでした: {}",
+            folder.display(),
+            e
+        ))
+    })?;
+    Ok(true)
+}
+
+/// フォルダを音楽フォルダにする（`created`は、このために作ったフォルダか）
+///
+/// 作ったフォルダを音楽フォルダにしなかった場合（ライブラリフォルダの中にあった・失敗した）は、
+/// 空のフォルダを残さない（中にファイルがあれば、消えない）。
+fn change_music_folder_created(
+    state: &AppState,
+    folder: &Path,
+    created: bool,
+    on_progress: &dyn Fn(ImportProgress),
+) -> AppResult<MusicFolderChange> {
+    let change = change_music_folder(state, folder, on_progress);
+    if created && !matches!(change, Ok(MusicFolderChange::Set { .. })) {
+        let _ = std::fs::remove_dir(folder);
+    }
+    change
 }
 
 /// フォルダを音楽フォルダにする（同期処理。`set_music_folder`のダイアログの後の処理）
@@ -302,6 +363,46 @@ mod tests {
 
     fn path_str(path: &Path) -> String {
         path.to_str().unwrap().to_string()
+    }
+
+    /// 既定の音楽フォルダは、なければ作って音楽フォルダにする（すでにあれば、そのまま使う）
+    #[test]
+    fn test_default_folder_is_created_and_set() {
+        let dir = TempDir::new();
+        let state = test_state();
+        let folder = dir.path().join(DEFAULT_MUSIC_FOLDER_NAME);
+
+        let created = create_default_folder(&folder).unwrap();
+        assert!(created && folder.is_dir());
+        let change = change_music_folder_created(&state, &folder, created, &|_| {}).unwrap();
+        assert!(matches!(change, MusicFolderChange::Set { .. }));
+        assert_eq!(music_folder_path(&state), Some(path_str(&folder)));
+        // 2回目は作らない（中のファイルも、そのまま）
+        fs::write(folder.join("memo.txt"), b"memo").unwrap();
+        assert!(!create_default_folder(&folder).unwrap());
+        assert!(folder.join("memo.txt").exists());
+    }
+
+    /// 作った既定の音楽フォルダが、登録済みのライブラリフォルダの中にあった場合は、作ったフォルダを消す
+    #[test]
+    fn test_created_default_folder_inside_library_folder_is_removed() {
+        let dir = TempDir::new();
+        let state = test_state();
+        // OSの音楽フォルダ（`~/Music`）そのものを、ライブラリフォルダにしてある
+        state
+            .with_db(|db| register_folder(db, &path_str(dir.path()), &[]))
+            .unwrap();
+        let folder = dir.path().join(DEFAULT_MUSIC_FOLDER_NAME);
+
+        let created = create_default_folder(&folder).unwrap();
+        let change = change_music_folder_created(&state, &folder, created, &|_| {}).unwrap();
+
+        assert!(matches!(
+            change,
+            MusicFolderChange::InsideLibraryFolder { .. }
+        ));
+        assert!(!folder.exists());
+        assert_eq!(music_folder_path(&state), None);
     }
 
     /// 空のフォルダも、ライブラリフォルダとして登録して音楽フォルダにする
