@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import type { ImportResult } from '#lib/types/models.js';
-import { musicFolderNotice } from './musicFolder.js';
+import { isOutsideMusicFolder, musicFolderNotice } from './musicFolder.js';
+
+describe('isOutsideMusicFolder', () => {
+  it('音楽フォルダの外の曲か（パスの要素の単位で比べる）', () => {
+    expect(isOutsideMusicFolder('/Music/Muspice/A/01.mp3', '/Music/Muspice')).toBe(false);
+    expect(isOutsideMusicFolder('/Music/MuspiceOld/01.mp3', '/Music/Muspice')).toBe(true);
+    expect(isOutsideMusicFolder('/Users/me/Downloads/01.mp3', '/Music/Muspice')).toBe(true);
+    // 音楽フォルダが未設定なら、外の曲とはしない
+    expect(isOutsideMusicFolder('/Users/me/Downloads/01.mp3', null)).toBe(false);
+  });
+});
 
 const imported = (counts: Partial<ImportResult>): ImportResult => ({
   importedCount: 0,

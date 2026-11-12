@@ -11,10 +11,11 @@
  */
 import type { Track } from '#lib/types/models.js';
 import { albumKey, groupArtist } from './albumKey.js';
+import { isOutsideMusicFolder } from './musicFolder.js';
 import { listedArtists, splitValues } from './multiValue.js';
 import { compareNames, groupArtistSortName } from './nameSort.js';
 
-// ---------- フィルタ（評価・年・お気に入り） ----------
+// ---------- フィルタ（評価・年・お気に入り・音楽フォルダの外） ----------
 
 export interface TrackFilters {
   /** 評価の下限（半分の星の単位。7は星3.5。0は絞り込まない） */
@@ -24,13 +25,16 @@ export interface TrackFilters {
   yearTo: number | null;
   /** お気に入りの曲だけにする */
   favoritesOnly: boolean;
+  /** 音楽フォルダの外の曲だけにする（音楽フォルダが未設定なら、絞り込まない。ADR-084） */
+  outsideMusicFolderOnly: boolean;
 }
 
 export const EMPTY_FILTERS: TrackFilters = {
   minRating: 0,
   yearFrom: null,
   yearTo: null,
-  favoritesOnly: false
+  favoritesOnly: false,
+  outsideMusicFolderOnly: false
 };
 
 /** 有効な条件の数（ボタンの印に出す。年の範囲は、片方だけでも1つと数える） */
@@ -38,23 +42,31 @@ export function countActiveFilters(filters: TrackFilters): number {
   return (
     (filters.minRating > 0 ? 1 : 0) +
     (filters.yearFrom !== null || filters.yearTo !== null ? 1 : 0) +
-    (filters.favoritesOnly ? 1 : 0)
+    (filters.favoritesOnly ? 1 : 0) +
+    (filters.outsideMusicFolderOnly ? 1 : 0)
   );
 }
 
 /**
  * 条件に合う曲だけにする（条件がなければ、渡した配列をそのまま返す）
  *
- * 年の範囲を指定した場合、年のない曲は含めない。
+ * 年の範囲を指定した場合、年のない曲は含めない。`musicFolderPath`は音楽フォルダ（未設定ならnull。
+ * 「音楽フォルダの外の曲だけ」は、未設定なら絞り込まない）。
  */
-export function applyTrackFilters(tracks: readonly Track[], filters: TrackFilters): Track[] {
+export function applyTrackFilters(
+  tracks: readonly Track[],
+  filters: TrackFilters,
+  musicFolderPath: string | null = null
+): Track[] {
   if (countActiveFilters(filters) === 0) return tracks as Track[];
   const { minRating, yearFrom, yearTo, favoritesOnly } = filters;
   const hasYearRange = yearFrom !== null || yearTo !== null;
+  const outsideOnly = filters.outsideMusicFolderOnly && musicFolderPath !== null;
 
   return tracks.filter((track) => {
     if (track.rating < minRating) return false;
     if (favoritesOnly && !track.isFavorite) return false;
+    if (outsideOnly && !isOutsideMusicFolder(track.filePath, musicFolderPath)) return false;
     if (hasYearRange) {
       if (track.year === null) return false;
       if (yearFrom !== null && track.year < yearFrom) return false;

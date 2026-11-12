@@ -170,6 +170,24 @@ describe('findSmartPlaylistTracks', () => {
     expect(date('lastPlayedAt', 'isNotEmpty', 0)).toEqual(['a', 'c']);
   });
 
+  it('音楽フォルダの中にあるか（音楽フォルダが未設定なら、どの曲も中にない）', () => {
+    const library = [
+      ...LIBRARY.slice(0, 2),
+      { ...LIBRARY[2], filePath: '/Users/me/Downloads/c.mp3' }
+    ];
+    const inside = (value: boolean, musicFolderPath: string | null) =>
+      findSmartPlaylistTracks(library, rules({ rules: [{ kind: 'inMusicFolder', value }] }), {
+        now: NOW,
+        shuffleSeed: 1,
+        musicFolderPath
+      }).map((t) => t.id);
+
+    expect(inside(true, '/music')).toEqual(['a', 'b']);
+    expect(inside(false, '/music')).toEqual(['c']);
+    expect(inside(true, null)).toEqual([]);
+    expect(inside(false, null)).toEqual(['a', 'b', 'c']);
+  });
+
   it('お気に入りと、条件の組み合わせ方', () => {
     const favorite: SmartRule = { kind: 'favorite', value: true };
     const jazz: SmartRule = { kind: 'text', field: 'genre', op: 'is', value: 'Jazz' };

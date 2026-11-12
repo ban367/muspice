@@ -7,6 +7,7 @@
 import type { SmartOrder, SmartRule, SmartRules, Track } from '#lib/types/models.js';
 import { normalizeSearchText } from '#lib/utils/searchText.js';
 import { splitValues } from '#lib/utils/multiValue.js';
+import { isOutsideMusicFolder } from '#lib/utils/musicFolder.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -16,6 +17,8 @@ export interface SmartPlaylistContext {
   now: number;
   /** ランダムな並びの種（同じ種なら、同じ並びになる） */
   shuffleSeed: number;
+  /** 音楽フォルダ（「音楽フォルダの中にある」の条件に使う。未設定ならnull。ADR-084） */
+  musicFolderPath?: string | null;
 }
 
 /** 条件の誤りを説明する文（誤りがなければnull。Rustの`validate_rules`に対応） */
@@ -53,6 +56,7 @@ export function smartRulesError(rules: SmartRules): string | null {
         break;
       }
       case 'favorite':
+      case 'inMusicFolder':
         break;
     }
   }
@@ -131,8 +135,13 @@ function matchesDate(track: Track, rule: DateRule, now: number): boolean {
   }
 }
 
-/** 曲が、1つの条件に合うか */
-export function matchesSmartRule(track: Track, rule: SmartRule, now: number): boolean {
+/** 曲が、1つの条件に合うか（`musicFolderPath`は音楽フォルダ。未設定ならnull） */
+export function matchesSmartRule(
+  track: Track,
+  rule: SmartRule,
+  now: number,
+  musicFolderPath: string | null = null
+): boolean {
   switch (rule.kind) {
     case 'text':
       return matchesText(track, rule);
@@ -142,6 +151,12 @@ export function matchesSmartRule(track: Track, rule: SmartRule, now: number): bo
       return matchesDate(track, rule, now);
     case 'favorite':
       return track.isFavorite === rule.value;
+    case 'inMusicFolder':
+      // 音楽フォルダが未設定なら、どの曲も中にない（Rust側と同じ）
+      return (
+        (musicFolderPath !== null && !isOutsideMusicFolder(track.filePath, musicFolderPath)) ===
+        rule.value
+      );
   }
 }
 
@@ -206,12 +221,19 @@ function shuffleKey(seed: number, trackId: string): number {
 }
 
 /** 条件に合う曲（並び順・上限は付けない） */
-function matchingTracks(tracks: readonly Track[], rules: SmartRules, now: number): Track[] {
+function matchingTracks(
+  tracks: readonly Track[],
+  rules: SmartRules,
+  now: number,
+  musicFolderPath: string | null
+): Track[] {
+  const matches = (track: Track, rule: SmartRule) =>
+    matchesSmartRule(track, rule, now, musicFolderPath);
   // 「すべてを満たす」で条件がなければすべての曲、「いずれかを満たす」で条件がなければ曲なし
   return tracks.filter((track) =>
     rules.matchMode === 'all'
-      ? rules.rules.every((rule) => matchesSmartRule(track, rule, now))
-      : rules.rules.some((rule) => matchesSmartRule(track, rule, now))
+      ? rules.rules.every((rule) => matches(track, rule))
+      : rules.rules.some((rule) => matches(track, rule))
   );
 }
 
@@ -221,7 +243,7 @@ export function findSmartPlaylistTracks(
   rules: SmartRules,
   context: SmartPlaylistContext
 ): Track[] {
-  const matched = matchingTracks(tracks, rules, context.now);
+  const matched = matchingTracks(tracks, rules, context.now, context.musicFolderPath ?? null);
   const { field, descending } = rules.order;
 
   if (field === 'random') {
@@ -245,8 +267,9 @@ export function findSmartPlaylistTracks(
 export function countSmartPlaylistTracks(
   tracks: readonly Track[],
   rules: SmartRules,
-  now: number
+  now: number,
+  musicFolderPath: string | null = null
 ): number {
-  const count = matchingTracks(tracks, rules, now).length;
+  const count = matchingTracks(tracks, rules, now, musicFolderPath).length;
   return rules.limit === null ? count : Math.min(count, rules.limit);
 }

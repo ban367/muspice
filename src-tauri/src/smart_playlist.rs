@@ -154,6 +154,8 @@ pub enum SmartRule {
     },
     /// お気に入りかどうか
     Favorite { value: bool },
+    /// 音楽フォルダの中にあるか（音楽フォルダが未設定なら、どの曲も中にない。ADR-084）
+    InMusicFolder { value: bool },
 }
 
 /// 並び順に使う項目
@@ -278,7 +280,7 @@ pub fn validate_rules(rules: &SmartRules) -> AppResult<()> {
                     return invalid("日数は1から36500の範囲で指定してください");
                 }
             }
-            SmartRule::Favorite { .. } => {}
+            SmartRule::Favorite { .. } | SmartRule::InMusicFolder { .. } => {}
         }
     }
     Ok(())
@@ -449,8 +451,18 @@ fn rule_condition(rule: &SmartRule, now: DateTime<Utc>) -> Condition {
             "COALESCE(is_favorite, 0) = ?",
             vec![Box::new(i32::from(*value))],
         ),
+        // 曲の場所が、音楽フォルダのパス＋区切り文字で始まるか（印はDBに持たず、場所から求める）
+        SmartRule::InMusicFolder { value } => Condition::new(
+            format!("{IN_MUSIC_FOLDER_SQL} = ?"),
+            vec![Box::new(i32::from(*value))],
+        ),
     }
 }
+
+/// 曲（`tracks`の行）が音楽フォルダの中にあるか（1か0）を求めるSQLの式（ADR-084）
+const IN_MUSIC_FOLDER_SQL: &str = "EXISTS (SELECT 1 FROM library_folders AS music
+     WHERE music.is_music_folder = 1
+       AND substr(tracks.file_path, 1, length(music.path) + 1) = music.path || '/')";
 
 /// 条件の一覧を、1つのSQLの条件式にまとめる
 fn where_condition(rules: &SmartRules, now: DateTime<Utc>) -> Condition {
@@ -845,6 +857,29 @@ mod tests {
             find(DateField::LastPlayedAt, DateOp::IsNotEmpty, 0),
             ["a", "c"]
         );
+    }
+
+    /// 音楽フォルダの中にあるか（音楽フォルダが未設定なら、どの曲も中にない）
+    #[test]
+    fn test_in_music_folder_rule() {
+        let conn = library();
+        let inside = |value| {
+            ids(
+                &conn,
+                &rules(MatchMode::All, vec![SmartRule::InMusicFolder { value }]),
+            )
+        };
+        assert!(inside(true).is_empty());
+        assert_eq!(inside(false), ["a", "b", "c", "d"]);
+
+        // 音楽フォルダ（`/music/ZARD`）と、名前の先頭が同じだけのフォルダ（`/music/ZARD2`）
+        let folder_id = crate::library_folder::register_folder(&conn, "/music/ZARD", &[])
+            .unwrap()
+            .unwrap();
+        crate::library_folder::set_music_folder(&conn, &folder_id).unwrap();
+        set(&conn, "c", "file_path", &"/music/ZARD2/c.mp3");
+        assert_eq!(inside(true), ["b"]);
+        assert_eq!(inside(false), ["a", "c", "d"]);
     }
 
     #[test]

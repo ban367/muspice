@@ -10,6 +10,7 @@
   import { onDestroy } from 'svelte';
   import { createSearchDebounce } from '#lib/utils/debounce.js';
   import { useTracksQuery, useSearchQuery } from '#lib/queries/tracks.js';
+  import { useMusicFolderQuery } from '#lib/queries/musicFolder.js';
   import TrackList from '#lib/components/library/TrackList.svelte';
   import LibraryHeader from '#lib/components/library/LibraryHeader.svelte';
   import ColumnBrowser from '#lib/components/library/ColumnBrowser.svelte';
@@ -37,6 +38,9 @@
 
   // クエリ
   const tracksQuery = useTracksQuery();
+  const musicFolderQuery = useMusicFolderQuery();
+  /** 音楽フォルダ（「音楽フォルダの外の曲のみ」の絞り込みに使う。未設定ならnull） */
+  const musicFolderPath = $derived(musicFolderQuery.data?.folder?.path ?? null);
 
   // 検索クエリ
   const searchQuery = $derived.by(() => {
@@ -55,7 +59,9 @@
   // 絞り込み: 検索に合う曲 → フィルタ → カラムブラウザの選択
   const searchedTracks = $derived(activeQuery.data ?? null);
   const filteredTracks = $derived(
-    searchedTracks ? applyTrackFilters(searchedTracks, libraryBrowser.filters) : null
+    searchedTracks
+      ? applyTrackFilters(searchedTracks, libraryBrowser.filters, musicFolderPath)
+      : null
   );
   // カラムブラウザを隠している間は、選択がない（隠す時に解除する）ため、集計を省く
   const browsed = $derived(
@@ -158,6 +164,7 @@
       <TrackFilterMenu
         filters={libraryBrowser.filters}
         onChange={(filters) => (libraryBrowser.filters = filters)}
+        hasMusicFolder={musicFolderPath !== null}
       />
     {/snippet}
   </LibraryHeader>

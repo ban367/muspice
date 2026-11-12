@@ -850,7 +850,14 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
 
   // 自動プレイリストの、ランダムな並びの種（「選び直す」で変える）
   let shuffleSeed = 1;
-  const smartContext = (): SmartPlaylistContext => ({ now: Date.now(), shuffleSeed });
+  /** 音楽フォルダのパス（未設定ならnull。自動プレイリストの「音楽フォルダの中にある」に使う） */
+  const musicFolderPath = (): string | null =>
+    libraryFolders.find((folder) => folder.isMusicFolder)?.path ?? null;
+  const smartContext = (): SmartPlaylistContext => ({
+    now: Date.now(),
+    shuffleSeed,
+    musicFolderPath: musicFolderPath()
+  });
 
   function validateSmartRules(rules: SmartRules): void {
     const error = smartRulesError(rules);
@@ -2566,7 +2573,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     },
     countSmartPlaylistTracks: (rules) => {
       validateSmartRules(rules);
-      return countSmartPlaylistTracks(tracks, rules, Date.now());
+      return countSmartPlaylistTracks(tracks, rules, Date.now(), musicFolderPath());
     },
     reshuffleSmartPlaylists: () => {
       shuffleSeed++;
@@ -2970,10 +2977,12 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
             }))
         }));
       const registered = folders.reduce((sum, folder) => sum + folder.trackCount, 0);
+      const musicFolder = folders.find((folder) => folder.isMusicFolder);
       return {
         folders,
         unregisteredTrackCount: tracks.length - registered,
-        missingTrackCount: tracks.filter((track) => track.isMissing).length
+        missingTrackCount: tracks.filter((track) => track.isMissing).length,
+        outsideMusicFolderTrackCount: musicFolder ? tracks.length - musicFolder.trackCount : null
       };
     },
     // 見つからない曲を、すべてライブラリから外す
@@ -3127,6 +3136,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       return unchangedRescanResult();
     },
     // 実ファイルは存在しないため、見つかるフォルダは「変更なし」として扱う
+    // ライブラリフォルダの外の曲を確かめる（モックのファイルは変わらないため、変更なし）
+    rescanOutsideTracks: () => unchangedRescanResult(),
     rescanLibraryFolder: async (folderId) => {
       const folder = findLibraryFolder(folderId);
       if (!folder.exists) {

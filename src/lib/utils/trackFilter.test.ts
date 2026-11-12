@@ -87,8 +87,25 @@ describe('applyTrackFilters', () => {
     ]);
   });
 
+  it('音楽フォルダの外の曲だけにする（音楽フォルダが未設定なら、絞り込まない）', () => {
+    const filters = { ...EMPTY_FILTERS, outsideMusicFolderOnly: true };
+    const mixed = [
+      track('in', { filePath: '/music/in.mp3' }),
+      track('out', { filePath: '/Users/me/Downloads/out.mp3' })
+    ];
+    expect(ids(applyTrackFilters(mixed, filters, '/music'))).toEqual(['out']);
+    expect(ids(applyTrackFilters(mixed, filters, null))).toEqual(['in', 'out']);
+    expect(countActiveFilters(filters)).toBe(1);
+  });
+
   it('すべての条件に合う曲だけにする', () => {
-    const filters = { minRating: 4, yearFrom: 2000, yearTo: null, favoritesOnly: true };
+    const filters = {
+      minRating: 4,
+      yearFrom: 2000,
+      yearTo: null,
+      favoritesOnly: true,
+      outsideMusicFolderOnly: false
+    };
 
     expect(ids(applyTrackFilters(tracks, filters))).toEqual(['a']);
     expect(countActiveFilters(filters)).toBe(3);

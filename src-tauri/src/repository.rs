@@ -1294,6 +1294,24 @@ fn prefix_upper_bound(prefix: &str) -> String {
     chars.into_iter().collect()
 }
 
+/// すべてのトラックの、ファイルの状態（ライブラリフォルダの外の曲の再スキャンに使う。ADR-084）
+pub fn find_all_track_file_states(conn: &Connection) -> AppResult<Vec<TrackFileState>> {
+    query_rows(
+        conn,
+        "SELECT id, file_path, file_size, file_modified_at, missing_since IS NOT NULL FROM tracks",
+        &[],
+        |row| {
+            Ok(TrackFileState {
+                id: row.get(0)?,
+                file_path: row.get(1)?,
+                file_size: row.get(2)?,
+                file_modified_at: row.get(3)?,
+                is_missing: row.get(4)?,
+            })
+        },
+    )
+}
+
 /// 指定した接頭辞（フォルダのパス＋区切り文字）で始まるパスのトラックを取得する
 pub fn find_track_file_states_under(
     conn: &Connection,

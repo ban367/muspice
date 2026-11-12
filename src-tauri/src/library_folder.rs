@@ -71,6 +71,8 @@ pub struct LibraryFolderList {
     pub unregistered_track_count: u32,
     /// 見つからない曲の数（ファイルが見つからなくなり、利用者が外すまで残しているトラック）
     pub missing_track_count: u32,
+    /// 音楽フォルダの外にある曲の数（音楽フォルダが未設定ならnull。ADR-084）
+    pub outside_music_folder_track_count: Option<u32>,
 }
 
 /// 再スキャンの結果
@@ -745,6 +747,93 @@ pub fn plan_rescan(disk_files: Vec<DiskFile>, tracks: Vec<TrackFileState>) -> Re
     }
 
     plan
+}
+
+/// どのライブラリフォルダにも属さない曲（ファイルを選ぶ・ドロップ・「このアプリで開く」で、コピーせずに
+/// 取り込んだ曲など）だけにする
+pub fn outside_tracks(
+    tracks: Vec<TrackFileState>,
+    folders: &[FolderRecord],
+) -> Vec<TrackFileState> {
+    let prefixes: Vec<String> = folders
+        .iter()
+        .map(|folder| track_path_prefix(&folder.path))
+        .collect();
+    tracks
+        .into_iter()
+        .filter(|track| {
+            !prefixes
+                .iter()
+                .any(|prefix| track.file_path.starts_with(prefix.as_str()))
+        })
+        .collect()
+}
+
+/// ライブラリフォルダの外の曲の、ファイルの状態
+#[derive(Debug, Clone, PartialEq)]
+pub enum OutsideFile {
+    /// ファイルがある（サイズ・更新日時は、取得できなかった場合はNone）
+    Present {
+        size: Option<i64>,
+        modified_at: Option<i64>,
+    },
+    /// 曲のフォルダはあるが、ファイルがない
+    Missing,
+    /// 曲のフォルダが見つからない（外れたドライブなど。ファイルがあるかを確かめられない）
+    Unknown,
+}
+
+/// ライブラリフォルダの外の曲を確かめて、再スキャンで行う処理を決める（ADR-084）
+///
+/// 登録済みの曲のファイルだけを確かめる（そのフォルダにある新しいファイルは追加しない。ダウンロード
+/// フォルダなどの、関係のないファイルを取り込まないため）。変わったファイルは読み直し、見つからない
+/// ファイルは見つからない曲にし、同じ場所に戻ったファイルは元に戻す（ライブラリフォルダの再スキャンと
+/// 同じ決まり。`plan_rescan`）。曲のフォルダが見つからない曲は比べない（見つからない曲にもしない）。
+/// ライブラリフォルダと違い、確かめられる曲のファイルが1つもなくても、見つからない曲にする
+/// （フォルダがあることは確かめてある）。
+pub fn plan_outside_rescan(
+    tracks: Vec<TrackFileState>,
+    file_of: impl Fn(&Path) -> OutsideFile,
+) -> RescanPlan {
+    let mut disk_files = Vec::new();
+    let mut checked = Vec::new();
+    for track in tracks {
+        match file_of(Path::new(&track.file_path)) {
+            OutsideFile::Present { size, modified_at } => {
+                disk_files.push(DiskFile {
+                    path: track.file_path.clone(),
+                    size,
+                    modified_at,
+                });
+                checked.push(track);
+            }
+            OutsideFile::Missing => checked.push(track),
+            OutsideFile::Unknown => {}
+        }
+    }
+    let disk_paths: HashSet<String> = disk_files.iter().map(|f| f.path.clone()).collect();
+    let mut plan = plan_rescan(disk_files, checked.clone());
+    if plan.missing_skipped {
+        plan.missing_skipped = false;
+        plan.to_mark_missing = checked
+            .iter()
+            .filter(|t| !t.is_missing && !disk_paths.contains(&t.file_path))
+            .map(|t| t.id.clone())
+            .collect();
+    }
+    plan
+}
+
+/// ライブラリフォルダの外の曲の、ファイルの状態を調べる
+pub fn outside_file_state(path: &Path) -> OutsideFile {
+    match fs::metadata(path) {
+        Ok(metadata) => OutsideFile::Present {
+            size: Some(metadata.len() as i64),
+            modified_at: crate::library::modified_at_of(&metadata),
+        },
+        Err(_) if path.parent().is_some_and(Path::is_dir) => OutsideFile::Missing,
+        Err(_) => OutsideFile::Unknown,
+    }
 }
 
 #[cfg(test)]
@@ -1527,6 +1616,95 @@ mod tests {
         // すでに見つからない曲だけの場合も、何もしない
         let plan = plan_rescan(vec![], vec![missing_track("a", "/m/a.mp3", 100, Some(1))]);
         assert_eq!(plan, RescanPlan::default());
+    }
+
+    /// どのライブラリフォルダにも属さない曲だけにする（名前の先頭が同じだけのフォルダの曲も外の曲）
+    #[test]
+    fn test_outside_tracks() {
+        let folders = [FolderRecord {
+            id: "f".to_string(),
+            path: "/music".to_string(),
+            added_at: String::new(),
+            last_scanned_at: None,
+            is_music_folder: true,
+        }];
+        let tracks = vec![
+            track("in", "/music/a.mp3", 1, None),
+            track("sibling", "/music2/b.mp3", 1, None),
+            track("downloads", "/Users/me/Downloads/c.mp3", 1, None),
+        ];
+        let ids: Vec<String> = outside_tracks(tracks, &folders)
+            .into_iter()
+            .map(|t| t.id)
+            .collect();
+        assert_eq!(ids, ["sibling", "downloads"]);
+    }
+
+    /// ライブラリフォルダの外の曲は、登録済みの曲のファイルだけを確かめる
+    #[test]
+    fn test_plan_outside_rescan() {
+        let tracks = vec![
+            track("same", "/d/same.mp3", 100, Some(1)),
+            track("changed", "/d/changed.mp3", 100, Some(1)),
+            track("gone", "/d/gone.mp3", 100, Some(1)),
+            track("unplugged", "/Volumes/USB/x.mp3", 100, Some(1)),
+            missing_track("back", "/d/back.mp3", 100, Some(1)),
+        ];
+        let plan = plan_outside_rescan(tracks, |path| match path.to_str().unwrap() {
+            "/d/same.mp3" | "/d/back.mp3" => OutsideFile::Present {
+                size: Some(100),
+                modified_at: Some(1),
+            },
+            "/d/changed.mp3" => OutsideFile::Present {
+                size: Some(200),
+                modified_at: Some(2),
+            },
+            "/d/gone.mp3" => OutsideFile::Missing,
+            _ => OutsideFile::Unknown,
+        });
+
+        assert!(plan.to_add.is_empty());
+        assert_eq!(
+            plan.to_update
+                .iter()
+                .map(|f| f.path.as_str())
+                .collect::<Vec<_>>(),
+            ["/d/changed.mp3"]
+        );
+        // フォルダの見つからない曲（外れたドライブ）は、見つからない曲にしない
+        assert_eq!(plan.to_mark_missing, ["gone"]);
+        assert_eq!(plan.to_restore, ["back"]);
+        assert!(!plan.missing_skipped);
+    }
+
+    /// 確かめられるファイルが1つもなくても、フォルダがあれば見つからない曲にする
+    #[test]
+    fn test_plan_outside_rescan_marks_missing_without_any_file() {
+        let plan = plan_outside_rescan(vec![track("gone", "/d/gone.mp3", 100, Some(1))], |_| {
+            OutsideFile::Missing
+        });
+        assert_eq!(plan.to_mark_missing, ["gone"]);
+        assert!(!plan.missing_skipped);
+    }
+
+    /// ファイルの状態: ある・フォルダはあるがファイルがない・フォルダもない
+    #[test]
+    fn test_outside_file_state() {
+        let dir = TempDir::new();
+        let file = dir.path().join("a.mp3");
+        fs::write(&file, b"abc").unwrap();
+        assert!(matches!(
+            outside_file_state(&file),
+            OutsideFile::Present { size: Some(3), .. }
+        ));
+        assert_eq!(
+            outside_file_state(&dir.path().join("b.mp3")),
+            OutsideFile::Missing
+        );
+        assert_eq!(
+            outside_file_state(&dir.path().join("gone/c.mp3")),
+            OutsideFile::Unknown
+        );
     }
 
     #[test]

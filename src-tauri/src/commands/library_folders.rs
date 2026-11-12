@@ -96,10 +96,15 @@ fn list_folders(state: &AppState) -> AppResult<LibraryFolderList> {
 
     // フォルダ同士は入れ子にしないため、各フォルダのトラック数の合計は重複しない
     let registered: u32 = counts.iter().sum();
+    let outside_music_folder_track_count = folders
+        .iter()
+        .find(|folder| folder.is_music_folder)
+        .map(|music_folder| total.saturating_sub(music_folder.track_count));
     Ok(LibraryFolderList {
         folders,
         unregistered_track_count: total.saturating_sub(registered),
         missing_track_count,
+        outside_music_folder_track_count,
     })
 }
 
@@ -633,6 +638,67 @@ pub async fn rescan_library_folder(
         rescan_folder(&folder_id, state.inner(), &app_handle, true)
     })
     .await
+}
+
+/// どのライブラリフォルダにも属さない曲のファイルを確かめ、変更をライブラリに反映する（ADR-084）
+///
+/// 登録済みの曲だけを確かめる（そのフォルダの新しいファイルは追加しない）。消えたファイルの曲は
+/// 見つからない曲にし、変わったファイルは読み直す。曲のフォルダが見つからない曲は、そのままにする。
+#[tauri::command]
+#[specta::specta]
+pub async fn rescan_outside_tracks(app_handle: AppHandle) -> AppResult<RescanResult> {
+    run_blocking(move || {
+        let state = app_handle.state::<AppState>();
+        rescan_outside(state.inner(), &app_handle)
+    })
+    .await
+}
+
+/// `rescan_outside_tracks`の本体（同期処理。自動の再スキャンも使う）
+pub(crate) fn rescan_outside(state: &AppState, app_handle: &AppHandle) -> AppResult<RescanResult> {
+    let _scan = state.lock_library_scan();
+    let tracks = state.with_db(|db| {
+        let folders = find_all_folders(db)?;
+        Ok(crate::library_folder::outside_tracks(
+            crate::repository::find_all_track_file_states(db)?,
+            &folders,
+        ))
+    })?;
+    if tracks.is_empty() {
+        return Ok(RescanResult::default());
+    }
+    // ファイルの状態の確認は、DBロックの外で行う
+    let plan = crate::library_folder::plan_outside_rescan(
+        tracks,
+        crate::library_folder::outside_file_state,
+    );
+
+    let mut result = RescanResult::default();
+    let outcome = record_file_states(state, &plan, &mut result).and_then(|newly_missing| {
+        read_and_write_tracks(&plan, state, None, newly_missing, &mut result)
+    });
+    if result.updated_count > 0
+        || result.missing_count > 0
+        || result.restored_count > 0
+        || !plan.to_record_modified_at.is_empty()
+    {
+        log::info!(
+            "Rescanned tracks outside library folders: updated={}, missing={}, restored={}, errors={}",
+            result.updated_count,
+            result.missing_count,
+            result.restored_count,
+            result.error_count
+        );
+    }
+    if (result.updated_count > 0 || result.restored_count > 0)
+        && let Ok(mut cache) = state.album_art_cache.lock()
+    {
+        cache.clear();
+    }
+    if result.updated_count > 0 || result.missing_count > 0 || result.restored_count > 0 {
+        notify_library_changed(app_handle);
+    }
+    outcome.map(|()| result)
 }
 
 /// ライブラリフォルダを再スキャンする（同期処理。`rescan_library_folder`と自動の再スキャンが使う）

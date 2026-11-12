@@ -23,7 +23,8 @@
     useRemoveLibraryFolderExclusionMutation,
     useRemoveLibraryFolderMutation,
     useRemoveMissingTracksMutation,
-    useRescanLibraryFolderMutation
+    useRescanLibraryFolderMutation,
+    useRescanOutsideTracksMutation
   } from '#lib/queries/libraryFolders.js';
   import { showSuccess, showWarning } from '#lib/stores/error.svelte.js';
   import type { FolderExclusion, LibraryFolder, RescanResult } from '#lib/types/models.js';
@@ -45,11 +46,15 @@
 
   const foldersQuery = useLibraryFoldersQuery();
   const rescanMutation = useRescanLibraryFolderMutation();
+  const rescanOutsideMutation = useRescanOutsideTracksMutation();
   const removeMutation = useRemoveLibraryFolderMutation();
   const removeMissingMutation = useRemoveMissingTracksMutation();
   const removeExclusionMutation = useRemoveLibraryFolderExclusionMutation();
   const planRelocationMutation = usePlanLibraryFolderRelocationMutation();
   const relocateMutation = useRelocateLibraryFolderMutation();
+
+  /** ライブラリフォルダの外の曲を確かめている間の、`scanningFolderId`の値 */
+  const OUTSIDE_SCAN_ID = 'outside';
 
   /** 再スキャン中のフォルダ（複数の場合は順番に処理する） */
   let scanningFolderId = $state<string | null>(null);
@@ -113,8 +118,12 @@
     };
   });
 
-  /** フォルダを順番に再スキャンし、結果をまとめて通知する */
-  async function rescan(targets: LibraryFolder[]) {
+  /**
+   * フォルダを順番に再スキャンし、結果をまとめて通知する
+   *
+   * `includeOutside`なら、最後にライブラリフォルダの外の曲も確かめる（「すべて再スキャン」・「確かめる」）。
+   */
+  async function rescan(targets: LibraryFolder[], includeOutside = false) {
     const results: { path: string; result: RescanResult }[] = [];
     for (const folder of targets) {
       scanningFolderId = folder.id;
@@ -123,6 +132,15 @@
         results.push({ path: folder.path, result: await rescanMutation.mutateAsync(folder.id) });
       } catch {
         // 失敗はミューテーション内でトースト通知済み。残りのフォルダは続ける
+      }
+    }
+    if (includeOutside && (foldersQuery.data?.unregisteredTrackCount ?? 0) > 0) {
+      scanningFolderId = OUTSIDE_SCAN_ID;
+      scanProgress = null;
+      try {
+        results.push({ path: '', result: await rescanOutsideMutation.mutateAsync() });
+      } catch {
+        // 失敗はミューテーション内でトースト通知済み
       }
     }
     scanningFolderId = null;
@@ -265,7 +283,7 @@
     <button
       type="button"
       class="btn-secondary text-sm shrink-0"
-      onclick={() => rescan(scannableFolders)}
+      onclick={() => rescan(scannableFolders, true)}
       disabled={isScanning || scannableFolders.length === 0}
     >
       {m.libraryFolders.rescanAll}
@@ -357,8 +375,24 @@
   {/if}
 
   {#if foldersQuery.data && foldersQuery.data.unregisteredTrackCount > 0}
+    <div class="missing-tracks">
+      <p class="setting-description">
+        {m.libraryFolders.unregistered(foldersQuery.data.unregisteredTrackCount)}
+      </p>
+      <button
+        type="button"
+        class="btn-secondary text-xs shrink-0"
+        onclick={() => rescan([], true)}
+        disabled={isScanning}
+      >
+        {m.libraryFolders.checkOutside}
+      </button>
+    </div>
+  {/if}
+
+  {#if foldersQuery.data?.outsideMusicFolderTrackCount}
     <p class="setting-description mt-3">
-      {m.libraryFolders.unregistered(foldersQuery.data.unregisteredTrackCount)}
+      {m.libraryFolders.outsideMusicFolder(foldersQuery.data.outsideMusicFolderTrackCount)}
     </p>
   {/if}
 

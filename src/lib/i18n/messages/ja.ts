@@ -156,6 +156,7 @@ export const ja = {
     openProjectPage: 'ページを開く',
     fetchLibraryFolders: 'ライブラリフォルダの取得',
     rescanLibraryFolder: '再スキャン',
+    rescanOutsideTracks: 'ライブラリフォルダの外の曲の確認',
     removeLibraryFolder: 'ライブラリフォルダの削除',
     planLibraryFolderRelocation: '新しい場所の確認',
     relocateLibraryFolder: 'ライブラリフォルダの場所の変更',
@@ -234,6 +235,8 @@ export const ja = {
 
   /** 曲の一覧（列を選ぶメニュー） */
   trackList: {
+    /** 音楽フォルダの外にある曲の印（ADR-084） */
+    outsideMusicFolder: '音楽フォルダの外にあります',
     columns: '表示する列',
     resetSort: '並び順を既定に戻す',
     resetColumns: '列と並び順を既定に戻す',
@@ -871,6 +874,7 @@ export const ja = {
       yearFrom: '開始',
       yearTo: '終了',
       favoritesOnly: 'お気に入りのみ',
+      outsideMusicFolderOnly: '音楽フォルダの外の曲のみ',
       clear: 'クリア'
     },
     /** 絞り込み（検索・フィルタ・カラムブラウザ）に合う曲がない時 */
@@ -1004,6 +1008,8 @@ export const ja = {
     descending: '降順',
     random: 'ランダム',
     pathField: 'ファイルの場所',
+    /** 音楽フォルダの中にあるかの条件（ADR-084） */
+    inMusicFolderField: '音楽フォルダ',
     noRating: '評価なし',
     days: '日',
     minutesUnit: '分',
@@ -1035,6 +1041,10 @@ export const ja = {
       favorite: {
         is: 'である',
         isNot: 'でない'
+      },
+      inMusicFolder: {
+        is: 'の中にある',
+        isNot: 'の外にある'
       }
     },
     /** 条件の説明（プレイリストの画面に出す） */
@@ -1064,6 +1074,8 @@ export const ja = {
         isNotEmpty: () => 'あり'
       },
       favorite: (value: boolean): string => (value ? 'お気に入り' : 'お気に入りではない'),
+      inMusicFolder: (value: boolean): string =>
+        value ? '音楽フォルダの中にある' : '音楽フォルダの外にある',
       order: (field: string, descending: boolean) => `${field}の${descending ? '降順' : '昇順'}`,
       limited: (order: string, limit: number) => `${order}で${limit}曲まで`
     },
@@ -1204,7 +1216,11 @@ export const ja = {
     relocateConflicts: (path: string, count: number) =>
       `「${path}」では、ライブラリにあるほかの曲と同じ場所になる曲が${count}曲あるため、付け替えられません（フォルダの外から取り込んだ曲など）。それらの曲をライブラリから外してから、もう一度選んでください`,
     unregistered: (count: number) =>
-      `どのライブラリフォルダにも含まれない曲が${count}曲あります（フォルダの記録を始める前にインポートした曲など）。同じフォルダをもう一度インポートすると、ライブラリフォルダとして登録されます（登録済みの曲は読み直しません）。`,
+      `どのライブラリフォルダにも含まれない曲が${count}曲あります（ファイルを選んで取り込んだ曲など）。これらの曲のファイルの変化も、自動の反映と「確かめる」で反映します（そのフォルダの新しいファイルは取り込みません）。同じフォルダをもう一度インポートすると、ライブラリフォルダとして登録されます。`,
+    checkOutside: '確かめる',
+    /** 音楽フォルダの外にある曲（ADR-084） */
+    outsideMusicFolder: (count: number) =>
+      `音楽フォルダの外にある曲が${count}曲あります。曲の一覧の印と、フィルタの「音楽フォルダの外の曲のみ」で確かめられます。「ファイルの整理」の「音楽フォルダへ集める」で、音楽フォルダへ移せます。`,
     removeTitle: 'ライブラリフォルダの削除',
     removeConfirm: (path: string) => `「${path}」をライブラリフォルダから外しますか？`,
     removeTracks: (count: number) => `フォルダ内の${count}曲もライブラリから外す`,

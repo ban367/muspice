@@ -21,12 +21,12 @@ import { m } from '#lib/i18n/i18n.svelte.js';
 import { MAX_RATING, formatRatingStars } from './rating.js';
 
 /** 条件にできる項目 */
-export type RuleField = TextField | NumberField | DateField | 'favorite';
+export type RuleField = TextField | NumberField | DateField | 'favorite' | 'inMusicFolder';
 
 /** 項目の種類（比べ方・値の入力の形が決まる） */
 export type RuleKind = SmartRule['kind'];
 
-/** お気に入りの比べ方（保存する条件では、`value`の真偽にする） */
+/** お気に入り・音楽フォルダの中にあるかの比べ方（保存する条件では、`value`の真偽にする） */
 export type FavoriteOp = 'is' | 'isNot';
 
 export type RuleOp = TextOp | NumberOp | DateOp | FavoriteOp;
@@ -59,7 +59,8 @@ export const RULE_FIELDS: Record<RuleField, RuleFieldDefinition> = {
   discNumber: { kind: 'number', input: 'integer' },
   format: { kind: 'text' },
   bitrate: { kind: 'number', input: 'integer' },
-  path: { kind: 'text' }
+  path: { kind: 'text' },
+  inMusicFolder: { kind: 'inMusicFolder' }
 };
 export const RULE_FIELD_IDS = Object.keys(RULE_FIELDS) as RuleField[];
 
@@ -110,6 +111,7 @@ export function opsFor(field: RuleField): readonly RuleOp[] {
       // 追加日はどの曲にもあるため、「なし・あり」は出さない
       return field === 'createdAt' ? DATE_OPS.slice(0, 2) : DATE_OPS;
     case 'favorite':
+    case 'inMusicFolder':
       return FAVORITE_OPS;
   }
 }
@@ -128,7 +130,8 @@ export interface RuleDraft {
 
 /** 値の入力がいらない比べ方か（空かどうか・お気に入りかどうか） */
 export function needsValue(draft: Pick<RuleDraft, 'field' | 'op'>): boolean {
-  if (RULE_FIELDS[draft.field].kind === 'favorite') return false;
+  const kind = RULE_FIELDS[draft.field].kind;
+  if (kind === 'favorite' || kind === 'inMusicFolder') return false;
   return draft.op !== 'isEmpty' && draft.op !== 'isNotEmpty';
 }
 
@@ -201,6 +204,14 @@ export function toRuleDrafts(rules: readonly SmartRule[]): RuleDraft[] {
         };
       case 'favorite':
         return { key, field: 'favorite', op: rule.value ? 'is' : 'isNot', value: '', valueTo: '' };
+      case 'inMusicFolder':
+        return {
+          key,
+          field: 'inMusicFolder',
+          op: rule.value ? 'is' : 'isNot',
+          value: '',
+          valueTo: ''
+        };
     }
   });
 }
@@ -272,6 +283,8 @@ function toRule(draft: RuleDraft): SmartRule | SmartRuleError {
     }
     case 'favorite':
       return { kind: 'favorite', value: draft.op === 'is' };
+    case 'inMusicFolder':
+      return { kind: 'inMusicFolder', value: draft.op === 'is' };
   }
 }
 
@@ -361,7 +374,9 @@ export function toSmartRulesForm(rules: SmartRules): SmartRulesForm {
 
 /** 項目の表示名 */
 export function ruleFieldLabel(field: RuleField): string {
-  return field === 'path' ? m.smartPlaylist.pathField : m.fields[field];
+  if (field === 'path') return m.smartPlaylist.pathField;
+  if (field === 'inMusicFolder') return m.smartPlaylist.inMusicFolderField;
+  return m.fields[field];
 }
 
 /** 並び順の項目の表示名 */
@@ -402,6 +417,8 @@ export function describeRule(rule: SmartRule): string {
       return describe.rule(ruleFieldLabel(rule.field), describe.date[rule.op](rule.days));
     case 'favorite':
       return describe.favorite(rule.value);
+    case 'inMusicFolder':
+      return describe.inMusicFolder(rule.value);
   }
 }
 
