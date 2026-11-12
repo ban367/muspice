@@ -82,6 +82,11 @@ interface MuspiceMockHandle {
    * （0は、空のフォルダ。既定はフォルダのインポートと同じ数）
    */
   setMusicFolderFileCount(count: number): void;
+  /**
+   * 登録済みのライブラリフォルダに、音楽フォルダの印だけを付ける（ライブラリを置き換えない。
+   * 音楽フォルダの外にも曲があるライブラリの確認用。例: `markMusicFolder('/Users/demo/Music')`）
+   */
+  markMusicFolder(path: string): void;
   /** 音楽フォルダのドライブの空き容量（バイト）を切り替える（取り込む曲のコピーの確認用） */
   setMusicFolderFreeBytes(bytes: number): void;
 }
@@ -207,6 +212,7 @@ export function setupTauriMock(): void {
     setConvertExportFolder: (path) => backend.setConvertExportFolder(path),
     setExclusionFolder: (path) => backend.setExclusionFolder(path),
     setMusicFolderFileCount: (count) => backend.setMusicFolderFileCount(count),
+    markMusicFolder: (path) => backend.markMusicFolder(path),
     setMusicFolderFreeBytes: (bytes) => backend.setMusicFolderFreeBytes(bytes)
   };
 

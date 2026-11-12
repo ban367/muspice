@@ -62,6 +62,8 @@ function invalidateAllTrackQueries(queryClient: QueryClient) {
  */
 export function invalidateLibraryQueries(queryClient: QueryClient) {
   invalidateAllTrackQueries(queryClient);
+  // 音楽フォルダを変えてライブラリを置き換えると、プレイリストのフォルダも消える（ADR-086）
+  void queryClient.invalidateQueries({ queryKey: queryKeys.playlistFolders });
   void queryClient.invalidateQueries({ queryKey: queryKeys.libraryFolders });
   void queryClient.invalidateQueries({ queryKey: queryKeys.musicFolder });
 }

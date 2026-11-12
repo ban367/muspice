@@ -195,7 +195,7 @@ foundCount: number } |
 	missingSkipped: boolean,
 } | null>("remove_library_folder_exclusion", { exclusionId }),
 	/**
-	 *  音楽フォルダの設定と、OSの音楽フォルダ（候補）を取得
+	 *  音楽フォルダの設定と、既定の音楽フォルダ（候補）を取得
 	 * 
 	 *  フォルダの存在確認は、外れたネットワークドライブなどで時間がかかることがあるため、
 	 *  ブロッキング処理用スレッドで行う。
@@ -204,16 +204,15 @@ foundCount: number } |
 	/**
 	 *  音楽フォルダを選ぶ
 	 * 
-	 *  既定の音楽フォルダ（なければ作る）か、OSの音楽フォルダか、ダイアログ（Rust側で、呼び出した
-	 *  ウィンドウの上に出す。ADR-065）で選んだフォルダを、音楽フォルダにする。
+	 *  既定の音楽フォルダ（なければ作る）か、ダイアログ（Rust側で、呼び出したウィンドウの上に出す。
+	 *  ADR-065）で選んだフォルダを、音楽フォルダにし、ライブラリをそのフォルダの中身に置き換える（ADR-086）。
 	 * 
-	 *  - 登録済みのライブラリフォルダなら、印を移すだけ（読み込み直さない）
-	 *  - 登録済みのライブラリフォルダの中のフォルダなら、音楽フォルダにせず`InsideLibraryFolder`を返す
-	 *  - それ以外は、空でもライブラリフォルダとして登録し、中の曲を読み込む（`ImportProgress`を送る）。
-	 *    直下の既知のアプリのフォルダは、読み込まないフォルダに入れる（ADR-062）。中にあるライブラリ
-	 *    フォルダの記録は、まとめる
-	 * 
-	 *  ファイルは動かさない（前の音楽フォルダは、ライブラリフォルダとして残る）。
+	 *  - 新しいフォルダの外に曲があれば、置き換えずに`ConfirmReplace`を返す（フォルダを預かる）
+	 *  - なければ、ほかのライブラリフォルダの記録を外し、新しいフォルダを音楽フォルダにする。登録済みの
+	 *    ライブラリフォルダなら印を付けるだけ（読み込み直さない）。それ以外は、空でもライブラリフォルダと
+	 *    して登録し、中の曲を読み込む（`ImportProgress`を送る）。直下の既知のアプリのフォルダは、読み込まない
+	 *    フォルダに入れる（ADR-062）
+	 *  - 今の音楽フォルダを選んだ場合は、何もしない
 	 * 
 	 *  @returns 結果（ダイアログで選ばずに閉じた場合はnull）
 	 */
@@ -221,12 +220,30 @@ foundCount: number } |
 /**  音楽フォルダにした */
 { kind: "set"; path: string; 
 /**  中の曲を読み込んだ結果（登録済みのライブラリフォルダに、印を移しただけの場合はnull） */
-imported: ImportResult | null } | 
+imported: ImportResult | null; 
+/**  ライブラリを置き換えた結果（外す曲がなく、確かめずに音楽フォルダにした場合はnull） */
+replaced: LibraryReplaced | null } | 
 /**
- *  ライブラリフォルダの中のフォルダを選んだ（フォルダは入れ子にできないため、音楽フォルダには
- *  していない。画面は、外側のフォルダを案内する）
+ *  外す曲があるため、置き換える前に確かめる（選んだフォルダを預かった。置き換えるなら
+ *  `confirm_music_folder_change`、やめるなら`cancel_music_folder_change`）
  */
-{ kind: "insideLibraryFolder"; path: string; libraryFolderPath: string } | null>("set_music_folder", { source }),
+{ kind: "confirmReplace"; path: string; 
+/**  ライブラリから外す曲の数（新しいフォルダの外の曲） */
+removedTrackCount: number; 
+/**  残る曲の数（新しいフォルダの中にある登録済みの曲） */
+keptTrackCount: number; 
+/**  消す通常のプレイリストの数 */
+playlistCount: number } | null>("set_music_folder", { source }),
+	/**
+	 *  預かっている音楽フォルダで、ライブラリを置き換える（`set_music_folder`が`ConfirmReplace`を返した後）
+	 * 
+	 *  `backup`がtrueなら、置き換える前に、ライブラリのデータ（DB・設定）を`backups/`へ書き出す
+	 *  （設定の「バックアップ」の復元で戻せる）。新しいフォルダの外の曲・ほかのライブラリフォルダの記録・
+	 *  通常のプレイリストを外し、新しいフォルダを音楽フォルダにして中の曲を読み込む。
+	 */
+	confirmMusicFolderChange: (backup: boolean) => __TAURI_INVOKE<MusicFolderChange>("confirm_music_folder_change", { backup }),
+	/**  預かっている音楽フォルダを手放す（置き換えをやめた） */
+	cancelMusicFolderChange: () => __TAURI_INVOKE<null>("cancel_music_folder_change"),
 	/**  音楽フォルダの設定を外す（ライブラリフォルダの記録・ファイルは、そのまま） */
 	clearMusicFolder: () => __TAURI_INVOKE<null>("clear_music_folder"),
 	/**
@@ -1403,6 +1420,16 @@ export type LibraryFolderList = {
 	outsideMusicFolderTrackCount: number | null,
 };
 
+/**  ライブラリを置き換えた結果（ADR-086） */
+export type LibraryReplaced = {
+	/**  ライブラリから外した曲の数（ファイルは消していない） */
+	removedTrackCount: number,
+	/**  消した通常のプレイリストの数 */
+	removedPlaylistCount: number,
+	/**  置き換える前に書き出したバックアップ（書き出さなかった場合はnull） */
+	backupPath: string | null,
+};
+
 /**  ライブラリフォルダの再スキャンの進捗 */
 export type LibraryScanProgress = {
 	/**  読み込み済みファイル数（追加・変更のあったファイルのみ数える） */
@@ -1566,19 +1593,25 @@ export type MusicFolderChange =
 /**  音楽フォルダにした */
 { kind: "set"; path: string; 
 /**  中の曲を読み込んだ結果（登録済みのライブラリフォルダに、印を移しただけの場合はnull） */
-imported: ImportResult | null } | 
+imported: ImportResult | null; 
+/**  ライブラリを置き換えた結果（外す曲がなく、確かめずに音楽フォルダにした場合はnull） */
+replaced: LibraryReplaced | null } | 
 /**
- *  ライブラリフォルダの中のフォルダを選んだ（フォルダは入れ子にできないため、音楽フォルダには
- *  していない。画面は、外側のフォルダを案内する）
+ *  外す曲があるため、置き換える前に確かめる（選んだフォルダを預かった。置き換えるなら
+ *  `confirm_music_folder_change`、やめるなら`cancel_music_folder_change`）
  */
-{ kind: "insideLibraryFolder"; path: string; libraryFolderPath: string };
+{ kind: "confirmReplace"; path: string; 
+/**  ライブラリから外す曲の数（新しいフォルダの外の曲） */
+removedTrackCount: number; 
+/**  残る曲の数（新しいフォルダの中にある登録済みの曲） */
+keptTrackCount: number; 
+/**  消す通常のプレイリストの数 */
+playlistCount: number };
 
 /**  音楽フォルダの設定（画面に出す） */
 export type MusicFolderInfo = {
 	/**  音楽フォルダ（設定していなければnull） */
 	folder: MusicFolder | null,
-	/**  OSの音楽フォルダ（音楽フォルダの候補。見つからなければnull） */
-	systemFolder: string | null,
 	/**
 	 *  既定の音楽フォルダ（OSの音楽フォルダの中の`Muspice`。まだないこともある。OSの音楽フォルダが
 	 *  見つからなければnull）
@@ -1590,8 +1623,6 @@ export type MusicFolderInfo = {
 export type MusicFolderSource = 
 /**  既定の音楽フォルダ（`~/Music/Muspice`。なければ作る。パスはRust側で求める） */
 "default" | 
-/**  OSの音楽フォルダ（macOSは`~/Music`。パスはRust側で求める） */
-"system" | 
 /**  ダイアログで選ぶ */
 "pick";
 

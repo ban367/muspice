@@ -255,17 +255,6 @@ pub fn find_folder_by_path(
     Ok(find_all_folders(conn)?.into_iter().find(|f| f.path == path))
 }
 
-/// `folder_path`を中に含む、ライブラリフォルダ（`folder_path`と同じフォルダは除く）
-pub fn find_enclosing_folder(
-    conn: &Connection,
-    folder_path: &str,
-) -> AppResult<Option<FolderRecord>> {
-    let path = normalize_folder_path(folder_path);
-    Ok(find_all_folders(conn)?
-        .into_iter()
-        .find(|f| f.path != path && is_same_or_within(&path, &f.path)))
-}
-
 /// 音楽フォルダ（印を付けたライブラリフォルダ。設定していなければNone）
 pub fn find_music_folder(conn: &Connection) -> AppResult<Option<FolderRecord>> {
     conn.query_row(
@@ -1358,7 +1347,7 @@ mod tests {
     }
 
     #[test]
-    fn test_find_folder_by_path_and_enclosing_folder() {
+    fn test_find_folder_by_path() {
         let conn = setup_test_db();
         register_folder(&conn, "/music", &[]).unwrap();
 
@@ -1369,22 +1358,6 @@ mod tests {
             Some("/music".to_string())
         );
         assert_eq!(find_folder_by_path(&conn, "/music/jazz").unwrap(), None);
-
-        assert_eq!(
-            find_enclosing_folder(&conn, "/music/jazz")
-                .unwrap()
-                .map(|f| f.path),
-            Some("/music".to_string())
-        );
-        // 同じフォルダ・名前の先頭が同じだけのフォルダ・外のフォルダは、含むフォルダではない
-        for path in ["/music", "/music/", "/music2", "/"] {
-            assert_eq!(
-                find_enclosing_folder(&conn, path).unwrap(),
-                None,
-                "{}",
-                path
-            );
-        }
     }
 
     #[test]

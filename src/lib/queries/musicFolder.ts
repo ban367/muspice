@@ -13,7 +13,7 @@ import { withErrorToast } from './shared.js';
 import { m } from '#lib/i18n/i18n.svelte.js';
 
 /**
- * 音楽フォルダの設定と、OSの音楽フォルダ（候補）を取得するクエリ
+ * 音楽フォルダの設定と、既定の音楽フォルダ（候補）を取得するクエリ
  *
  * ライブラリが空の画面は、曲がある間は表示しない（クエリを使う部品がない）。その間に無効化された
  * 場合も、次に表示した時に読み直す（メインウィンドウの既定は、表示した時に読み直さない）。
@@ -29,8 +29,9 @@ export function useMusicFolderQuery() {
 /**
  * 音楽フォルダを選ぶミューテーション（設定ウィンドウ）
  *
- * フォルダは、OSの音楽フォルダか、Rust側のダイアログで選ぶ（WebViewからパスを渡さない）。
- * 結果を返し、ダイアログで選ばずに閉じた場合はnullを返す。
+ * フォルダは、既定のフォルダか、Rust側のダイアログで選ぶ（WebViewからパスを渡さない）。
+ * 結果を返し、ダイアログで選ばずに閉じた場合はnullを返す。新しいフォルダの外に曲がある場合は、
+ * ライブラリを置き換えずに`confirmReplace`を返す（Rust側がフォルダを預かる。ADR-086）。
  */
 export function useSetMusicFolderMutation() {
   const queryClient = useQueryClient();
@@ -44,6 +45,36 @@ export function useSetMusicFolderMutation() {
       void queryClient.invalidateQueries({ queryKey: queryKeys.libraryFolders });
     }
   }));
+}
+
+/**
+ * 預かっている音楽フォルダで、ライブラリを置き換えるミューテーション（設定ウィンドウ。ADR-086）
+ *
+ * `backup`がtrueなら、置き換える前にライブラリのデータを`backups/`へ書き出す。
+ */
+export function useConfirmMusicFolderChangeMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: (backup: boolean) =>
+      withErrorToast(m.operations.setMusicFolder, () => commands.confirmMusicFolderChange(backup)),
+    // 途中で失敗した場合も、外した曲・読み込んだ曲があるため、読み直す
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.musicFolder });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.libraryFolders });
+    }
+  }));
+}
+
+/**
+ * 預かっている音楽フォルダを手放す（ライブラリの置き換えをやめた）
+ *
+ * 失敗しても、次に音楽フォルダを選んだ時に手放すため、ログに残すだけにする。
+ */
+export function cancelMusicFolderChange(): void {
+  commands.cancelMusicFolderChange().catch((error: unknown) => {
+    console.error('Failed to cancel the music folder change:', error);
+  });
 }
 
 /**

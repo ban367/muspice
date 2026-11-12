@@ -1470,6 +1470,18 @@ pub fn delete_tracks_under(conn: &Connection, path_prefix: &str) -> AppResult<us
     .map_err(|e| AppError::Database(format!("トラックの削除に失敗しました: {}", e)))
 }
 
+/// 指定した接頭辞（フォルダのパス＋区切り文字）で始まらないパスのトラックを削除する
+///
+/// 音楽フォルダを変えて、ライブラリをそのフォルダの中身に置き換える時に使う（ADR-086）。
+/// 削除した件数を返す。プレイリスト・再生履歴の関連レコードは外部キーのCASCADEで消える。
+pub fn delete_tracks_outside(conn: &Connection, path_prefix: &str) -> AppResult<usize> {
+    conn.execute(
+        "DELETE FROM tracks WHERE NOT (file_path >= ?1 AND file_path < ?2)",
+        [path_prefix, &prefix_upper_bound(path_prefix)],
+    )
+    .map_err(|e| AppError::Database(format!("トラックの削除に失敗しました: {}", e)))
+}
+
 /// 接頭辞（フォルダのパス＋区切り文字）で始まるパスのトラックの、パスの先頭を`to_prefix`に付け替える
 ///
 /// ライブラリフォルダの場所の付け替えに使う。パスだけを変え、トラックのID・お気に入り・再生回数・

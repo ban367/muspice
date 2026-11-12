@@ -37,6 +37,9 @@ pub const AUTO_BACKUP_KEEP: u32 = 7;
 /// 復元する前に退避したバックアップを残す数
 const BEFORE_RESTORE_KEEP: u32 = 3;
 
+/// 音楽フォルダを変える前（ライブラリを置き換える前）のバックアップを残す数
+const BEFORE_MUSIC_FOLDER_CHANGE_KEEP: u32 = 3;
+
 /// 自動のバックアップを確かめる間隔
 const AUTO_BACKUP_CHECK_INTERVAL: Duration = Duration::from_secs(60 * 60);
 
@@ -66,6 +69,8 @@ pub enum BackupKind {
     Auto,
     /// 復元する前に退避した、その時のライブラリのデータ
     BeforeRestore,
+    /// 音楽フォルダを変えてライブラリを置き換える前の、その時のライブラリのデータ（ADR-086）
+    BeforeMusicFolderChange,
 }
 
 impl BackupKind {
@@ -73,6 +78,7 @@ impl BackupKind {
         match self {
             Self::Auto => "auto",
             Self::BeforeRestore => "before-restore",
+            Self::BeforeMusicFolderChange => "before-music-folder",
         }
     }
 
@@ -81,6 +87,7 @@ impl BackupKind {
         let keep = match self {
             Self::Auto => AUTO_BACKUP_KEEP,
             Self::BeforeRestore => BEFORE_RESTORE_KEEP,
+            Self::BeforeMusicFolderChange => BEFORE_MUSIC_FOLDER_CHANGE_KEEP,
         };
         keep as usize
     }

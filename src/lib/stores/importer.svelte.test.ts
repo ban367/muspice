@@ -18,7 +18,8 @@ vi.mock('#lib/bindings.js', () => ({
     importDroppedFiles: vi.fn(),
     importPendingFolders: vi.fn(),
     cancelPendingImport: vi.fn(async () => {}),
-    setMusicFolder: vi.fn()
+    setMusicFolder: vi.fn(),
+    cancelMusicFolderChange: vi.fn(async () => null)
   },
   events: {
     importProgress: {
@@ -175,12 +176,13 @@ describe('importer', () => {
     vi.mocked(commands.setMusicFolder).mockResolvedValue({
       kind: 'set',
       path: '/Users/a/Music',
-      imported: { ...RESULT, importedCount: 0, skippedCount: 0 }
+      imported: { ...RESULT, importedCount: 0, skippedCount: 0 },
+      replaced: null
     });
 
-    await importer.setMusicFolder('system');
+    await importer.setMusicFolder('default');
 
-    expect(commands.setMusicFolder).toHaveBeenCalledWith('system');
+    expect(commands.setMusicFolder).toHaveBeenCalledWith('default');
     expect(ui.isImportDialogOpen).toBe(false);
     expect(importer.result).toBeNull();
     expect(notifications.items.map((n) => [n.type, n.message])).toEqual([
@@ -205,7 +207,7 @@ describe('importer', () => {
     }
     expect(ui.isImportDialogOpen).toBe(true);
 
-    finish({ kind: 'set', path: '/Volumes/Music', imported: RESULT });
+    finish({ kind: 'set', path: '/Volumes/Music', imported: RESULT, replaced: null });
     await running;
     expect(importer.result).toEqual(RESULT);
     expect(notifications.items[0].message).toBe(
@@ -213,18 +215,21 @@ describe('importer', () => {
     );
   });
 
-  it('ライブラリフォルダの中のフォルダを選んだら、外側のフォルダを案内する', async () => {
+  it('ライブラリの置き換えの確認を求められたら、預けたフォルダを手放し、設定で変えるよう知らせる', async () => {
     vi.mocked(commands.setMusicFolder).mockResolvedValue({
-      kind: 'insideLibraryFolder',
-      path: '/Users/a/Music/New',
-      libraryFolderPath: '/Users/a/Music'
+      kind: 'confirmReplace',
+      path: '/Users/a/Music/Muspice',
+      removedTrackCount: 3,
+      keptTrackCount: 0,
+      playlistCount: 1
     });
 
-    await importer.setMusicFolder('pick');
+    await importer.setMusicFolder('default');
 
+    expect(commands.cancelMusicFolderChange).toHaveBeenCalled();
     expect(ui.isImportDialogOpen).toBe(false);
     expect(notifications.items.map((n) => n.type)).toEqual(['warning']);
-    expect(notifications.items[0].message).toContain('/Users/a/Music');
+    expect(notifications.items[0].message).toContain('設定の「ライブラリ」');
   });
 
   it('インポートの途中では、別のインポートを始めない', async () => {
