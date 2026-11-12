@@ -259,7 +259,7 @@ mod tests {
                 "{name}"
             );
             assert_eq!(comments.get("RATING"), None, "{name}");
-            assert_eq!(extract_all_file_info(&file).unwrap().rating, 4, "{name}");
+            assert_eq!(extract_all_file_info(&file).unwrap().rating, 8, "{name}");
 
             // 画像の埋め込みと取り除き
             let art = EmbeddedPicture {
@@ -291,10 +291,10 @@ mod tests {
             assert_eq!(picture_count(&file, file_type), 0, "{name}");
             assert_eq!(custom(&comments), expected_custom, "{name}");
 
-            // 評価を付けると、数値だけの`RATING`になる（書き手の付いた評価は置き換える）
-            update_file_rating(&file, 5).unwrap();
+            // 評価を付けると、数値だけの`RATING`になる（書き手の付いた評価は置き換える。星3.5は70）
+            update_file_rating(&file, 7).unwrap();
             let comments = read_file_comments(&file, file_type);
-            assert_eq!(comments.get("RATING"), Some("100"), "{name}");
+            assert_eq!(comments.get("RATING"), Some("70"), "{name}");
             assert_eq!(comments.get("RATING:someone@example.com"), None, "{name}");
             assert_eq!(custom(&comments), expected_custom, "{name}");
             assert_eq!(comments.vendor(), vendor, "{name}");
@@ -309,7 +309,9 @@ mod tests {
             assert_eq!(read_file_tags(&file).unwrap(), cleared, "{name}");
             assert_eq!(comments.get("ARTIST"), None, "{name}");
             assert_eq!(comments.get("BPM"), None, "{name}");
-            assert_eq!(comments.get("RATING"), Some("100"), "{name}");
+            // 半分の星の評価は、ほかの項目の保存でも変わらない
+            assert_eq!(comments.get("RATING"), Some("70"), "{name}");
+            assert_eq!(extract_all_file_info(&file).unwrap().rating, 7, "{name}");
             assert_eq!(custom(&comments), expected_custom, "{name}");
         }
         std::fs::remove_dir_all(&dir).unwrap();
@@ -326,7 +328,7 @@ mod tests {
             comments.insert("encoder".to_string(), "Some Encoder 1.0".to_string());
             save_file_comments(&file, &comments);
 
-            update_file_rating(&file, 3).unwrap();
+            update_file_rating(&file, 6).unwrap();
             let comments = read_file_comments(&file, file_type);
             assert_eq!(comments.get("ENCODER"), Some("Some Encoder 1.0"), "{name}");
             assert_eq!(comments.vendor(), vendor, "{name}");

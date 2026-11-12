@@ -80,7 +80,7 @@ pub enum TextOp {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum NumberField {
-    /// 評価（星の数。0は評価なし）
+    /// 評価（半分の星の単位。0は評価なし、7は星3.5。ADR-082）
     Rating,
     Year,
     PlayCount,
@@ -253,7 +253,7 @@ pub fn validate_rules(rules: &SmartRules) -> AppResult<()> {
                 value_to,
             } => {
                 let max = if *field == NumberField::Rating {
-                    5
+                    *crate::rating_tag::RATING_RANGE.end()
                 } else {
                     MAX_NUMBER
                 };
@@ -760,21 +760,27 @@ mod tests {
     #[test]
     fn test_number_rules() {
         let conn = library();
-        set(&conn, "a", "rating", &5);
-        set(&conn, "b", "rating", &4);
-        set(&conn, "c", "rating", &2);
+        // 評価は半分の星の単位（bは星3.5）
+        set(&conn, "a", "rating", &10);
+        set(&conn, "b", "rating", &7);
+        set(&conn, "c", "rating", &4);
         set(&conn, "a", "year", &1999);
         set(&conn, "c", "year", &1959);
         set(&conn, "a", "play_count", &30);
         let find = |rule| ids(&conn, &rules(MatchMode::All, vec![rule]));
 
         assert_eq!(
-            find(number(NumberField::Rating, NumberOp::AtLeast, 4)),
+            find(number(NumberField::Rating, NumberOp::AtLeast, 7)),
             ["a", "b"]
+        );
+        // 星3.5と星4を分ける
+        assert_eq!(
+            find(number(NumberField::Rating, NumberOp::AtLeast, 8)),
+            ["a"]
         );
         // 評価のない曲は、0として扱う
         assert_eq!(
-            find(number(NumberField::Rating, NumberOp::AtMost, 2)),
+            find(number(NumberField::Rating, NumberOp::AtMost, 4)),
             ["c", "d"]
         );
         assert_eq!(find(number(NumberField::Rating, NumberOp::Is, 0)), ["d"]);
@@ -985,8 +991,8 @@ mod tests {
             &"あ".repeat(256)
         )));
 
-        assert!(valid(number(NumberField::Rating, NumberOp::AtLeast, 5)));
-        assert!(!valid(number(NumberField::Rating, NumberOp::AtLeast, 6)));
+        assert!(valid(number(NumberField::Rating, NumberOp::AtLeast, 10)));
+        assert!(!valid(number(NumberField::Rating, NumberOp::AtLeast, 11)));
         assert!(!valid(number(NumberField::Year, NumberOp::Is, -1)));
         let between = |value, value_to| SmartRule::Number {
             field: NumberField::Year,

@@ -1,14 +1,16 @@
 <!--
   @component RatingStars
-  評価（0〜5）の星。星にポインタを置くと、その星までを塗って選んだ結果を示す
-  （3つ目に置くと、1つ目から3つ目までが塗られる）。
-  星を選ぶとその数の評価にし、今の評価と同じ星を選ぶと評価を外す。
+  評価（半分の星の単位。0〜10）の星。星にポインタを置くと、その位置までを塗って選んだ結果を示す
+  （3つ目の星の左半分に置くと、星2.5まで、右半分に置くと星3までが塗られる。ADR-082）。
+  星を選ぶとその評価にし、今の評価と同じ位置を選ぶと評価を外す。キーボードで押した時は、
+  その星までの評価にする。
 -->
 <script lang="ts">
   import { m } from '#lib/i18n/i18n.svelte.js';
+  import { ratingAt, starFill } from '#lib/utils/rating.js';
 
   interface Props {
-    /** 評価（0〜5。0は評価なし） */
+    /** 評価（半分の星の単位。0〜10。0は評価なし） */
     rating: number;
     /**
      * 評価を選んだ時に呼ぶ（0は評価を外す）
@@ -22,7 +24,7 @@
 
   const STARS = [1, 2, 3, 4, 5] as const;
 
-  /** ポインタを置いている星（その星までを塗る） */
+  /** ポインタを置いている位置の評価（その位置までを塗る） */
   let hovered = $state<number | null>(null);
 
   /** 選んだ評価と、選んだ時点の評価（保存した結果が`rating`に届くまで、選んだ方を表示する） */
@@ -30,7 +32,7 @@
 
   // 保存した結果が届く（`rating`が選んだ時点の値から変わる）までは、選んだ評価を表示する
   const current = $derived(pending !== null && pending.from === rating ? pending.to : rating);
-  const filledCount = $derived(hovered ?? current);
+  const shown = $derived(hovered ?? current);
 
   // 結果が届いたら、選んだ評価は捨てる（後で`rating`が元の値に戻った時に、古い選択を表示しない）
   $effect(() => {
@@ -39,13 +41,21 @@
     }
   });
 
+  /** ポインタの位置から、選ぶ評価を求める（キーボードで押した時は、その星まで） */
+  function valueAt(star: number, event: MouseEvent): number {
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    if (event.detail === 0 || rect.width === 0) return star * 2;
+    return ratingAt(star, (event.clientX - rect.left) / rect.width);
+  }
+
   async function select(star: number, event: MouseEvent) {
     // 行のクリック（選択）として扱わせない
     event.stopPropagation();
 
-    const next = current === star ? 0 : star;
+    const value = valueAt(star, event);
+    const next = current === value ? 0 : value;
     pending = { from: rating, to: next };
-    // 選んだ結果を見せるため、別の星へ移るまでポインタの位置では塗らない
+    // 選んだ結果を見せるため、ポインタを動かすまでポインタの位置では塗らない
     hovered = null;
 
     try {
@@ -54,6 +64,12 @@
       // 保存できなかった（通知は呼び出し側が行う）ので、元の評価の表示に戻す
       pending = null;
     }
+  }
+
+  /** 読み上げる押下の状態（半分だけ塗った星は`mixed`） */
+  function pressed(star: number): boolean | 'mixed' {
+    const fill = starFill(star, current);
+    return fill === 'half' ? 'mixed' : fill === 'full';
   }
 </script>
 
@@ -66,15 +82,17 @@
   ondblclick={(e) => e.stopPropagation()}
 >
   {#each STARS as star (star)}
+    {@const fill = starFill(star, shown)}
     <button
       type="button"
       class="star"
-      class:filled={star <= filledCount}
-      onmouseenter={() => (hovered = star)}
+      class:filled={fill === 'full'}
+      class:half={fill === 'half'}
+      onmousemove={(e) => (hovered = valueAt(star, e))}
       onclick={(e) => select(star, e)}
       title={m.library.stars(star)}
       aria-label={m.library.stars(star)}
-      aria-pressed={star <= current}
+      aria-pressed={pressed(star)}
     >
       ★
     </button>
@@ -95,6 +113,11 @@
 
   .star.filled {
     @apply text-warning;
+  }
+
+  /* 半分の星: 左半分だけを塗る（文字の形で背景の色を切り抜く） */
+  .star.half {
+    @apply bg-linear-to-r from-warning from-50% to-base-400 to-50% bg-clip-text text-transparent;
   }
 
   .star:hover {

@@ -233,7 +233,7 @@ describe('smartRulesError', () => {
   it('誤りのある条件は、説明を返す', () => {
     expect(error({ kind: 'text', field: 'genre', op: 'is', value: ' ' })).not.toBeNull();
     expect(
-      error({ kind: 'number', field: 'rating', op: 'atLeast', value: 6, valueTo: null })
+      error({ kind: 'number', field: 'rating', op: 'atLeast', value: 11, valueTo: null })
     ).not.toBeNull();
     expect(
       error({ kind: 'number', field: 'year', op: 'between', value: 1999, valueTo: 1990 })

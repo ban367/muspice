@@ -59,6 +59,7 @@ interface TrackSeed {
   duration: number;
   format?: 'mp3' | 'flac' | 'm4a';
   isFavorite?: boolean;
+  /** 評価（半分の星の単位。7は星3.5） */
   rating?: number;
   playCount?: number;
   skipCount?: number;
@@ -68,31 +69,31 @@ interface TrackSeed {
 // prettier-ignore
 const TRACK_SEEDS: TrackSeed[] = [
   // 複数アルバムを持つアーティスト
-  { title: '青い地平線', titleSort: 'あおいちへいせん', artist: 'Aoi Sora', album: 'Blue Horizon', genre: 'J-Pop', year: 2021, trackNumber: 1, duration: 214, isFavorite: true, rating: 5, playCount: 42 },
-  { title: 'Paper Planes', artist: 'Aoi Sora', album: 'Blue Horizon', genre: 'J-Pop', year: 2021, trackNumber: 2, duration: 198, rating: 4, playCount: 18 },
+  { title: '青い地平線', titleSort: 'あおいちへいせん', artist: 'Aoi Sora', album: 'Blue Horizon', genre: 'J-Pop', year: 2021, trackNumber: 1, duration: 214, isFavorite: true, rating: 10, playCount: 42 },
+  { title: 'Paper Planes', artist: 'Aoi Sora', album: 'Blue Horizon', genre: 'J-Pop', year: 2021, trackNumber: 2, duration: 198, rating: 8, playCount: 18 },
   { title: '雨上がりのメロディ', titleSort: 'あめあがりのめろでぃ', artist: 'Aoi Sora', album: 'Blue Horizon', genre: 'J-Pop', year: 2021, trackNumber: 3, duration: 245, playCount: 7 },
   { title: 'Summer Letter', artist: 'Aoi Sora', album: 'Blue Horizon', genre: 'J-Pop', year: 2021, trackNumber: 4, duration: 231 },
-  { title: 'Morning Walk', artist: 'Aoi Sora', album: 'Field Notes', genre: 'J-Pop', year: 2024, trackNumber: 1, duration: 187, format: 'flac', rating: 3, playCount: 3 },
+  { title: 'Morning Walk', artist: 'Aoi Sora', album: 'Field Notes', genre: 'J-Pop', year: 2024, trackNumber: 1, duration: 187, format: 'flac', rating: 7, playCount: 3 },
   { title: '観察日記', titleSort: 'かんさつにっき', artist: 'Aoi Sora', album: 'Field Notes', genre: 'J-Pop', year: 2024, trackNumber: 2, duration: 263, format: 'flac' },
   // 日本語アーティスト・アルバム
-  { title: '夜明けのシグナル', titleSort: 'よあけのしぐなる', artist: 'ネオン通り', artistSort: 'ねおんどおり', album: '夜明けのシグナル', albumSort: 'よあけのしぐなる', genre: 'City Pop', year: 2019, trackNumber: 1, duration: 276, isFavorite: true, rating: 5, playCount: 31 },
+  { title: '夜明けのシグナル', titleSort: 'よあけのしぐなる', artist: 'ネオン通り', artistSort: 'ねおんどおり', album: '夜明けのシグナル', albumSort: 'よあけのしぐなる', genre: 'City Pop', year: 2019, trackNumber: 1, duration: 276, isFavorite: true, rating: 10, playCount: 31 },
   { title: 'ミッドナイト・ドライブ', titleSort: 'みっどないとどらいぶ', artist: 'ネオン通り', artistSort: 'ねおんどおり', album: '夜明けのシグナル', albumSort: 'よあけのしぐなる', genre: 'City Pop', year: 2019, trackNumber: 2, duration: 302, isFavorite: true, playCount: 25 },
   { title: '港の灯り', titleSort: 'みなとのあかり', artist: 'ネオン通り', artistSort: 'ねおんどおり', album: '夜明けのシグナル', albumSort: 'よあけのしぐなる', genre: 'City Pop', year: 2019, trackNumber: 3, duration: 254, playCount: 2 },
   // エレクトロニック
-  { title: 'Overclock', artist: 'The Voltage', album: 'Midnight Circuit', genre: 'Electronic', year: 2023, trackNumber: 1, duration: 341, format: 'm4a', rating: 4, playCount: 12 },
+  { title: 'Overclock', artist: 'The Voltage', album: 'Midnight Circuit', genre: 'Electronic', year: 2023, trackNumber: 1, duration: 341, format: 'm4a', rating: 8, playCount: 12 },
   { title: 'Signal Lost', artist: 'The Voltage', album: 'Midnight Circuit', genre: 'Electronic', year: 2023, trackNumber: 2, duration: 289, format: 'm4a' },
   { title: 'Neon Rain', artist: 'The Voltage', album: 'Midnight Circuit', genre: 'Electronic', year: 2023, trackNumber: 3, duration: 412, format: 'm4a', isFavorite: true, playCount: 9 },
   // アルバム未設定（アーティスト表示では「不明なアルバム」に入る）
   { title: 'Untitled Demo', artist: 'The Voltage', album: null, genre: 'Electronic', year: null, trackNumber: null, duration: 95 },
   // アルバムアートなし（プレースホルダ表示の確認用）
-  { title: 'Blue in Green Room', artist: 'Mika Hayashi', album: 'Quiet Rooms', genre: 'Jazz', year: 2018, trackNumber: 1, duration: 368, format: 'flac', rating: 4, playCount: 5 },
+  { title: 'Blue in Green Room', artist: 'Mika Hayashi', album: 'Quiet Rooms', genre: 'Jazz', year: 2018, trackNumber: 1, duration: 368, format: 'flac', rating: 8, playCount: 5 },
   { title: 'Late Night Coffee', artist: 'Mika Hayashi', album: 'Quiet Rooms', genre: 'Jazz', year: 2018, trackNumber: 2, duration: 301, format: 'flac' },
   { title: 'Soft Landing', artist: 'Mika Hayashi', album: 'Quiet Rooms', genre: 'Jazz', year: 2018, trackNumber: 3, duration: 279, format: 'flac', playCount: 1, skipCount: 4 },
   // ジャンル未設定
   { title: 'Field Recording #7', artist: 'Kenji Mori', album: 'Sketches', genre: null, year: 2025, trackNumber: 1, duration: 133 },
   { title: 'Field Recording #8', artist: 'Kenji Mori', album: 'Sketches', genre: null, year: 2025, trackNumber: 2, duration: 156 },
   // 長いタイトル（プレイヤーのマーキー表示の確認用）
-  { title: 'A Remarkably Long Song Title That Should Scroll Smoothly Across The Player Bar', artist: 'The Long Names Orchestra', album: 'Extended Play', genre: 'Classical', year: 2020, trackNumber: 1, duration: 524, rating: 2 },
+  { title: 'A Remarkably Long Song Title That Should Scroll Smoothly Across The Player Bar', artist: 'The Long Names Orchestra', album: 'Extended Play', genre: 'Classical', year: 2020, trackNumber: 1, duration: 524, rating: 4 },
   // メタデータなし（ファイル名で表示される）
   { title: null, artist: null, album: null, genre: null, year: null, trackNumber: null, duration: 61 },
   // コンピレーション（曲ごとのアーティストが違い、アルバムアーティストでまとめる）
@@ -228,7 +229,7 @@ export function createBulkTracks(count: number): Track[] {
       bitrate: BITRATE_BY_FORMAT.mp3,
       sampleRate: 44100,
       isFavorite: false,
-      rating: index % 6,
+      rating: (index % 6) * 2,
       playCount: 0,
       skipCount: 0,
       lastPlayedAt: null,
@@ -356,7 +357,7 @@ export function createFixturePlaylists(): Playlist[] {
     // 自動プレイリスト（条件で曲を集める。曲は持たない）
     playlist(4, '高評価の曲', [], {
       matchMode: 'all',
-      rules: [{ kind: 'number', field: 'rating', op: 'atLeast', value: 4, valueTo: null }],
+      rules: [{ kind: 'number', field: 'rating', op: 'atLeast', value: 8, valueTo: null }],
       order: { field: 'rating', descending: true },
       limit: null
     })

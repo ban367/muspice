@@ -966,9 +966,10 @@ pub fn insert_track(
             file_modified_at,
             replay_gain_track_gain, replay_gain_track_peak, replay_gain_album_gain, replay_gain_album_peak,
             rating, album_artist, album_artist_read,
-            title_sort, artist_sort, album_sort, album_artist_sort, sort_tags_read, multi_values_read
+            title_sort, artist_sort, album_sort, album_artist_sort, sort_tags_read, multi_values_read,
+            rating_read
         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, 1,
-                  ?25, ?26, ?27, ?28, 1, 1)",
+                  ?25, ?26, ?27, ?28, 1, 1, 1)",
         rusqlite::params![
             track.id,
             track.file_path,
@@ -1024,7 +1025,7 @@ pub fn update_track_by_file_path(
             replay_gain_album_gain = ?19, replay_gain_album_peak = ?20,
             rating = ?21, album_artist = ?22, album_artist_read = 1,
             title_sort = ?23, artist_sort = ?24, album_sort = ?25, album_artist_sort = ?26,
-            sort_tags_read = 1, multi_values_read = 1,
+            sort_tags_read = 1, multi_values_read = 1, rating_read = 1,
             missing_since = NULL
         WHERE file_path = ?1",
         rusqlite::params![
@@ -1084,6 +1085,10 @@ pub struct UnreadTagsTrack {
     /// 今のアーティスト・ジャンル（複数の値として読み直す時に、最初の値だけを読んだものかを確かめる）
     pub artist: Option<String>,
     pub genre: Option<String>,
+    /// 評価を、半分の星として読んでいない（評価を星の数で持っていた版で登録した。ADR-082）
+    pub needs_rating: bool,
+    /// 今の評価（半分の星の単位。星の数で読んだ値を2倍にしたもの）
+    pub rating: i32,
 }
 
 /// 後から追加した項目をまだファイルから読んでいないトラックを、rowidの順に取得する
@@ -1099,9 +1104,10 @@ pub fn find_tracks_with_unread_tags(
     query_rows(
         conn,
         "SELECT rowid, id, file_path, album_artist_read = 0, sort_tags_read = 0,
-                multi_values_read = 0, artist, genre
+                multi_values_read = 0, artist, genre, rating_read = 0, COALESCE(rating, 0)
          FROM tracks
-         WHERE (album_artist_read = 0 OR sort_tags_read = 0 OR multi_values_read = 0)
+         WHERE (album_artist_read = 0 OR sort_tags_read = 0 OR multi_values_read = 0
+                OR rating_read = 0)
                AND missing_since IS NULL AND rowid > ?1
          ORDER BY rowid LIMIT ?2",
         &[&after_rowid, &limit],
@@ -1115,9 +1121,27 @@ pub fn find_tracks_with_unread_tags(
                 needs_multi_values: row.get(5)?,
                 artist: row.get(6)?,
                 genre: row.get(7)?,
+                needs_rating: row.get(8)?,
+                rating: row.get(9)?,
             })
         },
     )
+}
+
+/// 評価を半分の星として読み込み済みにする（`rating`が`Some`なら、その評価にする）
+///
+/// ほかの項目（更新日時を含む）は変えない。
+pub fn set_track_rating_read(
+    conn: &Connection,
+    track_id: &str,
+    rating: Option<i32>,
+) -> AppResult<()> {
+    conn.execute(
+        "UPDATE tracks SET rating = COALESCE(?2, rating), rating_read = 1 WHERE id = ?1",
+        rusqlite::params![track_id, rating],
+    )
+    .map_err(|e| AppError::Database(format!("評価の記録に失敗しました: {}", e)))?;
+    Ok(())
 }
 
 /// ファイルから読んだアルバムアーティストを記録し、読み込み済みにする
@@ -3566,7 +3590,8 @@ mod tests {
         );
         assert_eq!(first[0].file_path, "/test/t1.mp3");
         assert!(first[0].needs_album_artist && first[0].needs_sort_tags);
-        assert!(first[0].needs_multi_values);
+        assert!(first[0].needs_multi_values && first[0].needs_rating);
+        assert_eq!(first[0].rating, 0);
         assert_eq!(first[0].artist.as_deref(), Some("アーティスト"));
         assert_eq!(first[0].genre.as_deref(), Some("ロック"));
 
@@ -3587,6 +3612,10 @@ mod tests {
         };
         set_track_sort_tags(&conn, "t1", &sort_tags).unwrap();
         assert_eq!(find_track_by_id(&conn, "t1").unwrap().sort_tags, sort_tags);
+        // 評価だけが未読のまま残る（読み直した評価を渡すと、その評価になる）
+        assert!(find_tracks_with_unread_tags(&conn, 0, 1).unwrap()[0].needs_rating);
+        set_track_rating_read(&conn, "t1", Some(7)).unwrap();
+        assert_eq!(find_track_by_id(&conn, "t1").unwrap().rating, 7);
         let rest = find_tracks_with_unread_tags(&conn, first[1].rowid, 2).unwrap();
         assert_eq!(
             rest.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(),

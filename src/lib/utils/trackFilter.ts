@@ -17,7 +17,7 @@ import { compareNames, groupArtistSortName } from './nameSort.js';
 // ---------- フィルタ（評価・年・お気に入り） ----------
 
 export interface TrackFilters {
-  /** 評価の下限（星の数。0は絞り込まない） */
+  /** 評価の下限（半分の星の単位。7は星3.5。0は絞り込まない） */
   minRating: number;
   /** 年の範囲（どちらもその年を含む。nullは指定なし） */
   yearFrom: number | null;

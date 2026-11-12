@@ -34,6 +34,7 @@ mod own_writes;
 mod playback;
 mod playback_state;
 mod playlist;
+mod rating_tag;
 mod repository;
 mod search_text;
 mod settings;

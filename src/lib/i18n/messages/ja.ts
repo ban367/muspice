@@ -866,7 +866,8 @@ export const ja = {
     filters: {
       button: 'フィルタ',
       anyRating: 'すべて',
-      ratingAtLeast: (rating: number) => `${'★'.repeat(rating)} 以上`,
+      /** `stars`は、星の文字（`★★★½`） */
+      ratingAtLeast: (stars: string) => `${stars} 以上`,
       yearFrom: '開始',
       yearTo: '終了',
       favoritesOnly: 'お気に入りのみ',
@@ -1073,7 +1074,7 @@ export const ja = {
       valueRequired: '条件の値を入力してください',
       valueTooLong: '条件の値が長すぎます（255文字まで）',
       numberInvalid: '条件の数値は、0以上の数で入力してください',
-      ratingInvalid: '評価は、0から5で指定してください',
+      ratingInvalid: '評価は、星0から5で指定してください',
       rangeInvalid: '範囲の条件は、小さい値と大きい値の順に入力してください',
       daysInvalid: '日数は、1から36500で入力してください',
       limitInvalid: '曲数の上限は、1から100000で入力してください',

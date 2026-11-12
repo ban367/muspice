@@ -18,6 +18,7 @@ import type {
   TextOp
 } from '#lib/types/models.js';
 import { m } from '#lib/i18n/i18n.svelte.js';
+import { MAX_RATING, formatRatingStars } from './rating.js';
 
 /** 条件にできる項目 */
 export type RuleField = TextField | NumberField | DateField | 'favorite';
@@ -131,8 +132,8 @@ export function needsValue(draft: Pick<RuleDraft, 'field' | 'op'>): boolean {
   return draft.op !== 'isEmpty' && draft.op !== 'isNotEmpty';
 }
 
-/** 項目を選んだ直後の値（評価は星の数を選ぶため、最初から値を入れておく） */
-const initialValue = (field: RuleField) => (RULE_FIELDS[field].input === 'rating' ? '4' : '');
+/** 項目を選んだ直後の値（評価は星を選ぶため、最初から値（星4）を入れておく） */
+const initialValue = (field: RuleField) => (RULE_FIELDS[field].input === 'rating' ? '8' : '');
 
 /** 新しい条件（項目の最初の比べ方・空の値） */
 export function newRuleDraft(key: number, field: RuleField = 'artist'): RuleDraft {
@@ -247,7 +248,7 @@ function toRule(draft: RuleDraft): SmartRule | SmartRuleError {
     case 'number': {
       const field = draft.field as NumberField;
       const op = draft.op as NumberOp;
-      const max = definition.input === 'rating' ? 5 : MAX_NUMBER;
+      const max = definition.input === 'rating' ? MAX_RATING : MAX_NUMBER;
       const invalid = definition.input === 'rating' ? 'ratingInvalid' : 'numberInvalid';
       if (draft.value.trim() === '') return 'valueRequired';
       const value = parseNumber(field, draft.value);
@@ -378,7 +379,7 @@ export function ruleOpLabel(field: RuleField, op: RuleOp): string {
 function describeNumber(field: NumberField, value: number): string {
   switch (RULE_FIELDS[field].input) {
     case 'rating':
-      return value === 0 ? m.smartPlaylist.noRating : '★'.repeat(value);
+      return value === 0 ? m.smartPlaylist.noRating : formatRatingStars(value);
     case 'minutes':
       return m.smartPlaylist.minutes(toMinutesText(value));
     default:

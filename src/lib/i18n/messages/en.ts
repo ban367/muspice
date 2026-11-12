@@ -830,7 +830,7 @@ export const en: Messages = {
     filters: {
       button: 'Filter',
       anyRating: 'Any',
-      ratingAtLeast: (rating) => `${'★'.repeat(rating)} and up`,
+      ratingAtLeast: (stars) => `${stars} and up`,
       yearFrom: 'From',
       yearTo: 'To',
       favoritesOnly: 'Favorites only',
@@ -1039,7 +1039,7 @@ export const en: Messages = {
       valueRequired: 'Enter a value for the rule',
       valueTooLong: 'The rule value is too long (up to 255 characters)',
       numberInvalid: 'Enter a number of 0 or more',
-      ratingInvalid: 'Choose a rating from 0 to 5',
+      ratingInvalid: 'Choose a rating from 0 to 5 stars',
       rangeInvalid: 'Enter the range from the smaller value to the larger value',
       daysInvalid: 'Enter a number of days from 1 to 36500',
       limitInvalid: 'Enter a limit from 1 to 100000',
