@@ -58,7 +58,11 @@ pub async fn import_m3u_playlists(app: AppHandle) -> AppResult<Vec<M3uImportResu
             .into_iter()
             .filter_map(|file| file.into_path().ok())
             .collect();
-        import_files(&app.state::<AppState>(), &paths)
+        let results = import_files(&app.state::<AppState>(), &paths);
+        // 作ったプレイリストを、音楽フォルダの`Playlists`へ書き出す（ADR-085）
+        app.state::<crate::playlist_export::PlaylistExport>()
+            .request();
+        results
     })
     .await
 }

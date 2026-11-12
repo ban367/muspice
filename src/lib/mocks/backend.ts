@@ -660,6 +660,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     musicFolderTemplate: DEFAULT_MUSIC_FOLDER_TEMPLATE,
     copyToMusicFolder: true,
     keepMusicFolderOrganized: false,
+    exportPlaylistsToMusicFolder: true,
     autoBackup: true
   };
   // ライブラリフォルダ（existsは「フォルダが見つかるか」。外付けドライブが外れた状態を再現する）
