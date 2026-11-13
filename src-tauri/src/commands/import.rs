@@ -603,6 +603,32 @@ impl ScannedImportFolder {
             scanned,
         })
     }
+
+    /// ほかのライブラリフォルダがないものとして、新しく登録するフォルダを走査する
+    ///
+    /// 音楽フォルダを変えてライブラリを置き換える時に、何かを消す前に呼ぶ（ADR-086）。ほかの
+    /// ライブラリフォルダの記録は置き換えで消すため、読み込まないフォルダは、直下の既知のアプリの
+    /// フォルダ（`default_exclusions`）だけにする。フォルダを読めなければエラー。
+    pub(super) fn scan_as_only_folder(path: &Path) -> AppResult<Self> {
+        let exclusions = match path.to_str() {
+            Some(folder_path) => crate::library_folder::new_folder_exclusions(
+                folder_path,
+                crate::library_folder::default_exclusions(path),
+            ),
+            None => ImportExclusions::default(),
+        };
+        let scanned = scan_directory(path, &exclusions.scan)?;
+        Ok(Self {
+            path: path.to_path_buf(),
+            exclusions,
+            scanned,
+        })
+    }
+
+    /// 新しく登録する時に記録する、読み込まないフォルダ（フォルダからの相対パス）
+    pub(super) fn exclusions_to_register(&self) -> &[String] {
+        &self.exclusions.to_register
+    }
 }
 
 /// 取り込みの結果
@@ -971,25 +997,13 @@ pub(super) enum FolderRegistration {
     Always,
 }
 
-/// フォルダの中の音楽ファイルをインポートし、フォルダをライブラリフォルダとして記録する（同期処理）
+/// 走査したフォルダの音楽ファイルをインポートし、フォルダをライブラリフォルダとして記録する（同期処理）
 ///
 /// 呼び出し側が`lock_library_scan`を持って呼ぶ。
 ///
 /// @returns インポートの結果と、記録したライブラリフォルダのID（記録しなかった・登録済みのフォルダの
 ///   中だった場合はNone）
-pub(super) fn import_folder_blocking(
-    path: &Path,
-    duplicate_action: DuplicateAction,
-    state: &AppState,
-    on_progress: &dyn Fn(ImportProgress),
-    registration: FolderRegistration,
-) -> AppResult<(ImportResult, Option<String>)> {
-    let folder = ScannedImportFolder::scan(state, path)?;
-    import_scanned_folder(&folder, duplicate_action, state, on_progress, registration)
-}
-
-/// 走査したフォルダの音楽ファイルをインポートし、フォルダをライブラリフォルダとして記録する（同期処理）
-fn import_scanned_folder(
+pub(super) fn import_scanned_folder(
     folder: &ScannedImportFolder,
     duplicate_action: DuplicateAction,
     state: &AppState,
