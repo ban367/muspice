@@ -752,8 +752,6 @@ iTunes形式のライブラリXML（MusicBee・iTunes / ミュージックが書
 
 | コマンド                 | 引数                                                     | 戻り値                  |
 | ------------------------ | -------------------------------------------------------- | ----------------------- |
-| `set_current_track`      | `trackId: string \| null`                                | `void`                  |
-| `get_current_track`      | なし                                                     | `Track \| null`         |
 | `save_playback_state`    | `cursor: PlaybackCursor`, `queue: PlaybackQueue \| null` | `void`                  |
 | `get_playback_state`     | なし                                                     | `RestoredPlaybackState` |
 | `set_favorite`           | `trackIds: string[]`, `favorite: boolean`                | `void`                  |
@@ -829,7 +827,7 @@ iTunes形式のライブラリXML（MusicBee・iTunes / ミュージックが書
 - 曲の頭と終わりの余分（エンコーダーの遅延・パディング）は取り除く。MP3（LAMEのタグ）・Ogg Vorbis・Opus・M4AのAAC（`iTunSMPB`か編集リストがある場合）が対象で、ADTSのAAC・MP2はファイルに情報がないため取り除けない
 - 再生速度（`playback_set_speed`。ADR-049）: 出力のコールバックが、リングバッファから取り出した音声の長さを、音程を保ったまま変える（時間伸縮。`playback/stretch.rs`）。エンジンが扱う位置（`position`・`advanced`・`ended`・シーク・クロスフェードの長さ）は、どれも元の曲の時間のままで、速度を変えると、その進み方だけが変わる（2倍なら、`position`は0.25秒ごとに0.5秒ずつ進み、6秒のクロスフェードは3秒で終わる）。1倍の間は時間伸縮を通さず、音声を変えない。速度は、エンジンが動いている間だけ保つ（保存しない。フロントが、起動時と変更のたびに送る）
 - WavPack（`.wv`）とAPE（`.ape`）は、`symphonia`ではなく専用のデコーダーで読む（拡張子で振り分ける。ADR-047）。どちらも可逆で、元の音源と同じサンプルを返す（余分はもともとない）。WavPackは、ブロックをファイルから順に読む（開く時に読むのは最初のブロックまで。曲の長さは、最初のブロックに書かれた値。ADR-064）。再生できないファイル（ハイブリッド（非可逆）・DSD・3チャンネル以上のWavPack、Monkey's Audio 3.95より前のAPE、中身が違うファイル）は、`playback_play`がその種類を伝えるエラーを返す。デコードの途中で壊れたブロックは無音にして続け（ログに残す）、続けて4つ壊れていたら`failed`にする
-- 再生回数・スキップ回数の記録（`increment_play_count`・`increment_skip_count`）と再生中のトラックの通知（`set_current_track`）は、フロントが行う（数える条件は、上の「再生回数・スキップ回数・再生履歴」）
+- 再生回数・スキップ回数の記録（`increment_play_count`・`increment_skip_count`）は、フロントが行う（数える条件は、上の「再生回数・スキップ回数・再生履歴」）
 - 音量の正規化: `playback_play` / `playback_set_next`の時に、Rust側がトラックのReplayGain（DB）と設定の`volumeNormalization`から倍率を決める（計算は`playback/normalization.rs`。ADR-012）。ゲインのある曲には、設定の`normalizationPreampDb`（プリアンプ）を足してから、ピークがフルスケールを超えない倍率に抑える（ゲインのない曲・正規化がオフの時は、プリアンプもかけない）。設定を変えると、再生中の曲・続けて再生する曲の倍率も決め直す
 - クロスフェード: 設定の`crossfadeSeconds`が1以上で、続けて再生する曲（`playback_set_next`）があれば、エンジンが前の曲の終わりと重ねる。重ねる長さは、設定の秒数を上限に、どちらの曲も長さの半分まで、かつ前の曲の残りまで。同じ曲の繰り返し（同じファイル）と、長さの分からない曲からは、重ねずに切れ目なく続ける。前の曲がファイルの長さの情報より早く終わっても、次の曲のフェードインは重なりの終わりまで続ける。`advanced`は、重なりが鳴り始めた時点で届く
 - イコライザとリミッターは、出力の直前にかける（ADR-026）。イコライザの設定は、エンジンを使う再生コントローラーが、起動時と変更のたびに`playback_set_equalizer`で送る。リミッターは常に有効で、設定はない

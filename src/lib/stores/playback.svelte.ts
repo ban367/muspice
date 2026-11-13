@@ -215,7 +215,6 @@ export function createPlaybackController(
       tracker.setDuration(player.duration);
       player.isPlaying = true;
       syncNext();
-      await commands.setCurrentTrack(track.id);
     } catch (error) {
       if (token !== currentToken || destroyed) return;
       reportPlaybackError(error);
@@ -327,7 +326,6 @@ export function createPlaybackController(
       engineTrackId = next.id;
       playNextTrack();
       player.duration = next.duration ?? 0;
-      send(() => commands.setCurrentTrack(next.id), 'report the current track');
     }
   }
 
@@ -405,7 +403,6 @@ export function createPlaybackController(
       return;
     }
 
-    const repeating = queued.trackId === player.currentTrack?.id;
     // 前の曲は最後まで再生された
     tracker.finish();
     currentToken = token;
@@ -420,10 +417,6 @@ export function createPlaybackController(
     // 同じ曲の繰り返し（1曲リピート）も、聴いた時間を数え直す
     if (track) tracker.begin(track.id, player.duration);
     syncNext();
-    // 同じ曲の繰り返しでは、再生中の曲は変わらないため通知しない
-    if (track && !repeating) {
-      send(() => commands.setCurrentTrack(track.id), 'report the current track');
-    }
   }
 
   function onEvent(event: PlaybackEvent): void {

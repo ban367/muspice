@@ -1,15 +1,14 @@
-//! 再生中のトラックの記録と、再生状態の保存・復元
+//! 再生状態の保存・復元
 //!
 //! 再生そのものは、再生エンジンのコマンド（`playback.rs`）で行う。
 
 use super::run_blocking;
-use crate::error::{AppError, AppResult};
-use crate::models::Track;
+use crate::error::AppResult;
 use crate::playback_state::{
     PlaybackCursor, PlaybackQueue, PlaybackStateStore, RestoredPlaybackState,
 };
 use crate::state::AppState;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Manager};
 
 /// 再生状態（音量・シャッフル・リピート・再生キュー・再生していた曲）を保存する
 ///
@@ -37,46 +36,4 @@ pub async fn get_playback_state(app: AppHandle) -> AppResult<RestoredPlaybackSta
         app.state::<AppState>().with_db(|db| store.restore(db))
     })
     .await
-}
-
-/// 現在再生中のトラックIDを設定
-#[tauri::command]
-#[specta::specta]
-pub async fn set_current_track(
-    track_id: Option<String>,
-    state: State<'_, AppState>,
-) -> AppResult<()> {
-    let mut current_track = state
-        .current_track_id
-        .lock()
-        .map_err(|e| AppError::Lock(format!("ステートロックの取得に失敗しました: {}", e)))?;
-
-    *current_track = track_id;
-
-    Ok(())
-}
-
-/// 現在再生中のトラック情報を取得
-#[tauri::command]
-#[specta::specta]
-pub async fn get_current_track(state: State<'_, AppState>) -> AppResult<Option<Track>> {
-    let track_id = {
-        let current_track_id = state.current_track_id.lock().map_err(|e| {
-            AppError::Lock(format!("現在のトラック情報の取得に失敗しました: {}", e))
-        })?;
-
-        match current_track_id.as_ref() {
-            Some(id) => id.clone(),
-            None => return Ok(None),
-        }
-    };
-
-    // 削除された曲は、再生中の曲なし。DBの失敗などは、そのまま返す
-    state.with_db(
-        |db| match crate::repository::find_track_by_id(db, &track_id) {
-            Ok(track) => Ok(Some(track)),
-            Err(AppError::NotFound(_)) => Ok(None),
-            Err(e) => Err(e),
-        },
-    )
 }

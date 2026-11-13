@@ -1,7 +1,7 @@
 {
   "name": "muspice",
   "private": true,
-  "description": "",
+  "description": "A desktop music library manager and player for macOS, built with Tauri and SvelteKit",
   "type": "module",
   "imports": {
     "#lib/*": "./src/lib/*"

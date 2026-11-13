@@ -774,45 +774,6 @@ includesSettings: boolean } |
 	/**  対応する曲が1つもなく、作らなかったプレイリストの数 */
 	skippedPlaylistCount: number,
 } | null>("import_library_xml", { includePlaylists }),
-	/**  現在再生中のトラックIDを設定 */
-	setCurrentTrack: (trackId: string | null) => __TAURI_INVOKE<null>("set_current_track", { trackId }),
-	/**  現在再生中のトラック情報を取得 */
-	getCurrentTrack: () => __TAURI_INVOKE<{
-	id: string,
-	filePath: string,
-	fileName: string,
-	title: string | null,
-	artist: string | null,
-	album: string | null,
-	/**  アルバムアーティスト（タグにない曲は値なし。一覧では、ない場合に`artist`でまとめる） */
-	albumArtist: string | null,
-	genre: string | null,
-	year: number | null,
-	trackNumber: number | null,
-	discNumber: number | null,
-	duration: number | null,
-	fileSize: number,
-	format: string,
-	bitrate: number | null,
-	sampleRate: number | null,
-	isFavorite: boolean,
-	/**  評価（半分の星の単位。0は評価なし、7は星3.5、10は星5つ。ADR-082） */
-	rating: number,
-	/**  再生回数（曲の半分か4分を聴いた回数） */
-	playCount: number,
-	/**  スキップ回数（再生回数に数える前に、別の曲へ移った回数） */
-	skipCount: number,
-	/**  最後に再生回数に数えた日時 */
-	lastPlayedAt: string | null,
-	createdAt: string,
-	updatedAt: string,
-	/**  音量の正規化に使うゲイン（タグにない項目は値なし） */
-	replayGain: ReplayGain,
-	/**  並び順に使う値（読みなど。タグにない項目は値なし） */
-	sortTags: SortTags,
-	/**  ファイルが見つからない（再スキャンで見つからなくなった曲。利用者が外すまで残す） */
-	isMissing: boolean,
-} | null>("get_current_track"),
 	/**
 	 *  再生状態（音量・シャッフル・リピート・再生キュー・再生していた曲）を保存する
 	 * 

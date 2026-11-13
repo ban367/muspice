@@ -512,6 +512,7 @@ Linuxでは、Tauriの依存に加えて、再生エンジンの出力（`cpal`�
 
 ## 版とリリース
 
+- アプリの名前は、`tauri.conf.json`の`productName`（`Muspice`）。macOSのアプリの名前（`Muspice.app`）・Dock・メニューバーの左端・通知の送り主に使われる。実行ファイルの名前はクレートの名前（`muspice`）のままで、アプリのデータ・ログの場所は`identifier`（`com.ban367.muspice`）で決まるため、`productName`を変えても変わらない
 - **アプリの版は`src-tauri/tauri.conf.json`の`version`だけに書く**（ADR-067）。Tauriはこの値を、バンドルの`Info.plist`（`CFBundleShortVersionString`・`CFBundleVersion`）、実行ファイルに埋め込む`Info.plist`、Windowsの実行ファイルの版の情報、`PackageInfo`（`app.package_info().version`）に使う。版を上げる時は、ここだけを書き換える
   - `src-tauri/Cargo.toml`と`package.json`には`version`を書かない。クレートの版は既定の0.0.0になる（`cargo`の表示も0.0.0）。`package.json`は`private`にして、npmへ公開できないようにしている
   - Rust側で版が要る時は、`env!("CARGO_PKG_VERSION")`（0.0.0）ではなく`app.package_info().version`を使う。フロントは`@tauri-apps/api/app`の`getVersion()`で読む（「Muspiceについて」のダイアログ。capabilityの`core:default`に含まれる`core:app:allow-version`で許可されている）。モックのブラウザでは、`tauri.ts`が`tauri.conf.json`の`version`を返す
