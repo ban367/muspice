@@ -128,9 +128,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # 対応するOSはmacOSだけ（ADR-090）。Linuxは、ビルドが通ることだけを確かめる
+        # （tauri.linux.conf.jsonで、配布物を.debだけにしている）。macOSの配布物のビルドは、
+        # リリース用のワークフロー（#303）で行う
         platform: [ubuntu-latest]
-        # 将来的にmacOS/Windowsを追加可能
-        # platform: [ubuntu-latest, macos-latest, windows-latest]
 
     runs-on: ${{ matrix.platform }}
     steps:
