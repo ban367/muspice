@@ -636,7 +636,6 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   );
   // 再生履歴（新しい順）
   let playHistory: PlayHistoryEntry[] = createFixturePlayHistory(tracks, Date.now());
-  let currentTrackId: string | null = null;
   let nowPlaying: NowPlayingUpdate | null = null;
   // ファイルのタグだけにある項目（作曲者・コメント・歌詞など。トラックID → 値）
   const fileOnlyTags = new Map<string, Metadata>();
@@ -2787,11 +2786,6 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         playlistCount: playlists.filter((playlist) => playlist.rules === null).length
       };
     },
-    setCurrentTrack: (trackId) => {
-      currentTrackId = trackId;
-      return null;
-    },
-    getCurrentTrack: () => tracks.find((track) => track.id === currentTrackId) ?? null,
     savePlaybackState: (cursor, queue) => {
       if (queue) {
         [...queue.trackIds, ...(queue.originalTrackIds ?? [])].forEach(validateTrackId);

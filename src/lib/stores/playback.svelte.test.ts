@@ -35,7 +35,6 @@ vi.mock('#lib/bindings.js', () => ({
     playbackSetEqualizer: vi.fn(async () => null),
     playbackStop: vi.fn(async () => null),
     setNowPlaying: vi.fn(async () => null),
-    setCurrentTrack: vi.fn(async () => null),
     getPlaybackState: vi.fn(async () => ({
       volume: 1,
       shuffle: false,
@@ -153,14 +152,13 @@ afterEach(() => {
 });
 
 describe('トラックの再生', () => {
-  it('再生するトラックが決まるとエンジンで再生し、バックエンドへ通知する', async () => {
+  it('再生するトラックが決まるとエンジンで再生する', async () => {
     replaceQueueAndPlay(tracks, 1);
     await flush();
 
     expect(commands.playbackPlay).toHaveBeenCalledWith('t2', expect.any(Number));
     expect(player.isPlaying).toBe(true);
     expect(player.duration).toBe(200);
-    expect(commands.setCurrentTrack).toHaveBeenCalledWith('t2');
     // 再生を始めただけでは、再生回数に数えない
     expect(recordPlay).not.toHaveBeenCalled();
   });
@@ -211,8 +209,6 @@ describe('トラックの再生', () => {
     expect([first[0], second[0]]).toEqual(['t1', 't3']);
     expect(second[1]).toBeGreaterThan(first[1]);
     expect(player.duration).toBe(200);
-    expect(commands.setCurrentTrack).toHaveBeenCalledTimes(1);
-    expect(commands.setCurrentTrack).toHaveBeenCalledWith('t3');
   });
 
   it('再生中と同じ曲を一覧から再生したら、頭から再生し直す', async () => {
@@ -335,7 +331,6 @@ describe('エンジンからの通知', () => {
 
     expect(player.currentTrack?.id).toBe('t2');
     expect(commands.playbackPlay).toHaveBeenLastCalledWith('t2', expect.any(Number));
-    expect(commands.setCurrentTrack).toHaveBeenLastCalledWith('t2');
   });
 
   it('キューの最後の曲が終わったら、再生を止める（キューと最後の曲は残す）', async () => {
@@ -671,7 +666,6 @@ describe('ギャップレス再生', () => {
     expect(player.duration).toBe(240);
     expect(player.isPlaying).toBe(true);
     expect(commands.playbackPlay).toHaveBeenCalledTimes(1);
-    expect(commands.setCurrentTrack).toHaveBeenLastCalledWith('t2');
     // その次の曲を伝える
     expect(lastNext()[0]).toBe('t3');
 
@@ -693,8 +687,6 @@ describe('ギャップレス再生', () => {
 
     expect(player.currentTrack?.id).toBe('t1');
     expect(commands.playbackPlay).toHaveBeenCalledTimes(1);
-    // 再生中の曲は変わらないため、もう一度は通知しない
-    expect(commands.setCurrentTrack).toHaveBeenCalledTimes(1);
     // 次も同じ曲を伝える（番号は新しくする）
     expect(lastNext()[0]).toBe('t1');
     expect(commands.playbackSetNext).toHaveBeenCalledTimes(3);
@@ -746,7 +738,6 @@ describe('この曲が終わったら停止', () => {
     expect(player.isPlaying).toBe(false);
     expect(player.currentTime).toBe(0);
     expect(commands.playbackPlay).toHaveBeenCalledTimes(1);
-    expect(commands.setCurrentTrack).toHaveBeenLastCalledWith('t2');
     expect(playbackAids.stopAfterCurrent).toBe(false);
 
     // 再生ボタンで、次の曲を頭から再生する
@@ -1269,7 +1260,6 @@ describe('再生状態の復元', () => {
 
     expect(commands.playbackPlay).toHaveBeenCalledWith('t2', expect.any(Number));
     expect(player.isPlaying).toBe(true);
-    expect(commands.setCurrentTrack).toHaveBeenCalledWith('t2');
   });
 
   it('復元した曲を一覧から選び直したら、頭から再生する', async () => {

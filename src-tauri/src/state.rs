@@ -17,8 +17,6 @@ const ALBUM_ART_CONCURRENCY: usize = 4;
 pub struct AppState {
     /// データベース接続
     pub db: Mutex<Connection>,
-    /// 現在再生中のトラックID
-    pub current_track_id: Mutex<Option<String>>,
     /// アルバムアート抽出の同時実行数を制限するセマフォ
     pub album_art_limiter: Semaphore,
     /// 抽出済みアルバムアートのキャッシュ（`albumart`プロトコルが使う）
@@ -73,7 +71,6 @@ impl AppState {
     pub fn new(db: Connection) -> Self {
         Self {
             db: Mutex::new(db),
-            current_track_id: Mutex::new(None),
             album_art_limiter: Semaphore::new(ALBUM_ART_CONCURRENCY),
             album_art_cache: Mutex::new(AlbumArtCache::default()),
             library_scan_lock: Mutex::new(()),

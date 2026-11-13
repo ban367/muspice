@@ -65,7 +65,7 @@ graph TD
 ## バックエンド構成
 
 - エントリーポイント: `src-tauri/src/lib.rs`
-- アプリ状態: `AppState { db: Mutex<Connection>, current_track_id: Mutex<Option<String>>, album_art_limiter: Semaphore, album_art_cache: Mutex<AlbumArtCache>, library_scan_lock: Mutex<()>, track_file_locks: TrackFileLocks, shuffle_seed: AtomicU64 }`（`track_file_locks`は、曲のファイルを書き換える処理を曲ごとに1つずつにする印。`shuffle_seed`は、自動プレイリストのランダムな並びの種）。ほかに設定（`SettingsState`）・前回の再生状態（`PlaybackStateStore`）・再生エンジン（`PlaybackEngine`）・OSのメディアキー / Now Playing（`MediaControls`）・ライブラリフォルダの自動反映（`LibrarySync`）を管理する
+- アプリ状態: `AppState { db: Mutex<Connection>, album_art_limiter: Semaphore, album_art_cache: Mutex<AlbumArtCache>, library_scan_lock: Mutex<()>, track_file_locks: TrackFileLocks, shuffle_seed: AtomicU64 }`（`track_file_locks`は、曲のファイルを書き換える処理を曲ごとに1つずつにする印。`shuffle_seed`は、自動プレイリストのランダムな並びの種）。ほかに設定（`SettingsState`）・前回の再生状態（`PlaybackStateStore`）・再生エンジン（`PlaybackEngine`）・OSのメディアキー / Now Playing（`MediaControls`）・ライブラリフォルダの自動反映（`LibrarySync`）を管理する
 - 不具合の記録: 画面（WebView）で起きたエラー（`handleError`に渡ったもの・受け止められなかったもの・描画の例外）は、`#lib/utils/errorLog`がコマンド`log_frontend_message`でRust側へ送り、`diagnostics.rs`が量を制限してアプリのログに書く。Rustのpanicも、panicフックでログに書く。描画の例外は、エラー境界（ウィンドウ全体と、メインウィンドウのページの領域）が受け止めて、`ErrorScreen`を出す（ADR-089）
 - 起動時のDBの開き方: `startup.rs` が、アプリのデータのフォルダのDBを開く。壊れている・移行に失敗したDBは別の名前で残して空のライブラリで起動し、新しい版のDB・環境の問題で開けないDBは、触らずに理由のダイアログを出して終了する（アプリを落とさない）。起動の途中で起きた問題は、メインウィンドウが受け取ってダイアログで知らせる（ADR-088）
 - 既存のトラックの、後から追加した項目の読み込み: `tag_backfill.rs` が、アルバムアーティスト・ソート用のタグの列を追加する前に登録したトラックの分と、複数の値に対応する前に最初の値だけを読んだアーティスト・ジャンルを、起動時に別スレッドでファイルのタグから読み込む（対象がなければ何もしない。ADR-022・ADR-036・ADR-051）

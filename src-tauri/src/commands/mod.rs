@@ -104,8 +104,8 @@ pub use library_xml::import_library_xml;
 // プレイリストのM3Uの読み込み・書き出し
 pub use m3u::{export_all_playlists_m3u, export_playlist_m3u, import_m3u_playlists};
 
-// 再生中のトラックの記録と、再生状態の保存・復元
-pub use player::{get_current_track, get_playback_state, save_playback_state, set_current_track};
+// 再生状態の保存・復元
+pub use player::{get_playback_state, save_playback_state};
 
 // 再生エンジンと、OSのNow Playing
 pub use playback::{
