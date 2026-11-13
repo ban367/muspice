@@ -8,6 +8,7 @@ mod device;
 mod device_manifest;
 mod device_sync;
 mod device_transfer;
+mod diagnostics;
 mod dropped_files;
 mod error;
 mod events;
@@ -68,21 +69,21 @@ use commands::{
     get_sync_devices, get_track_lyrics, get_track_tags, get_unique_albums, get_unique_artists,
     get_unique_genres, import_dropped_files, import_files, import_folder, import_library_xml,
     import_m3u_playlists, import_pending_folders, increment_play_count, increment_skip_count,
-    move_playlist, open_project_page, organize_files, plan_conversion, plan_device_sync,
-    plan_file_organize, plan_library_folder_relocation, plan_library_restore, playback_pause,
-    playback_play, playback_resume, playback_seek, playback_set_equalizer, playback_set_next,
-    playback_set_speed, playback_set_volume, playback_stop, preview_music_folder_template,
-    refresh_library_metadata, register_sync_device, relink_sync_device, relocate_library_folder,
-    remove_album_art, remove_excluded_tracks, remove_library_folder,
-    remove_library_folder_exclusion, remove_missing_tracks, remove_sync_device,
-    remove_tracks_from_playlist, rename_playlist, rename_playlist_folder, reorder_playlist_folders,
-    reorder_playlist_tracks, reorder_playlists, rescan_library_folder, rescan_outside_tracks,
-    reshuffle_smart_playlists, restore_library_backup, run_device_sync, save_playback_state,
-    save_settings, search_tracks, set_album_art, set_current_track, set_favorite, set_mini_player,
-    set_music_folder, set_now_playing, set_playlist_description, set_rating, show_in_folder,
-    start_loudness_scan, take_opened_files, take_startup_notices, update_multiple_tracks_metadata,
-    update_smart_playlist, update_sync_device, update_track_metadata,
-    write_library_metadata_to_files,
+    log_frontend_message, move_playlist, open_project_page, organize_files, plan_conversion,
+    plan_device_sync, plan_file_organize, plan_library_folder_relocation, plan_library_restore,
+    playback_pause, playback_play, playback_resume, playback_seek, playback_set_equalizer,
+    playback_set_next, playback_set_speed, playback_set_volume, playback_stop,
+    preview_music_folder_template, refresh_library_metadata, register_sync_device,
+    relink_sync_device, relocate_library_folder, remove_album_art, remove_excluded_tracks,
+    remove_library_folder, remove_library_folder_exclusion, remove_missing_tracks,
+    remove_sync_device, remove_tracks_from_playlist, rename_playlist, rename_playlist_folder,
+    reorder_playlist_folders, reorder_playlist_tracks, reorder_playlists, rescan_library_folder,
+    rescan_outside_tracks, reshuffle_smart_playlists, restore_library_backup, run_device_sync,
+    save_playback_state, save_settings, search_tracks, set_album_art, set_current_track,
+    set_favorite, set_mini_player, set_music_folder, set_now_playing, set_playlist_description,
+    set_rating, show_in_folder, start_loudness_scan, take_opened_files, take_startup_notices,
+    update_multiple_tracks_metadata, update_smart_playlist, update_sync_device,
+    update_track_metadata, write_library_metadata_to_files,
 };
 use state::AppState;
 use std::path::PathBuf;
@@ -106,6 +107,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             cancel_pending_import,
             take_opened_files,
             take_startup_notices,
+            log_frontend_message,
             get_library_folders,
             remove_library_folder,
             plan_library_folder_relocation,
@@ -342,6 +344,9 @@ fn bindings_path() -> PathBuf {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // panicの内容を、ログファイルにも残す（ログのプラグインを登録した後のpanicが対象。ADR-089）
+    diagnostics::install_panic_hook();
+
     let builder = specta_builder();
 
     // デバッグビルド時にTypeScriptバインディングを自動生成する
@@ -416,6 +421,8 @@ pub fn run() {
                 }
             };
             app.manage(startup::StartupNotices::new(startup_notices));
+            // 画面（WebView）で起きたエラーを、ログファイルに残す時の、量の制限
+            app.manage(diagnostics::FrontendLogLimiter::default());
 
             log::info!("Database initialized");
 
@@ -555,6 +562,12 @@ pub fn run() {
                 "open_github" => {
                     // GitHubを開く
                     let _ = tauri_plugin_opener::open_url(commands::PROJECT_URL, None::<&str>);
+                }
+                "open_log_folder" => {
+                    // ログのフォルダを開く（不具合の報告に、ログを添えられるようにする）
+                    if let Err(e) = commands::open_log_folder(app) {
+                        log::warn!("Cannot open the log folder: {}", e);
+                    }
                 }
                 _ => {
                     // メニューバーのアイコンのメニュー

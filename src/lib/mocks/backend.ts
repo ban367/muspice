@@ -2283,6 +2283,11 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       openedFiles = { tracks: [], errors: [] };
       return taken;
     },
+    // 実装は、アプリのログファイルに書く。モックは、コンソールに出す
+    logFrontendMessage: (level, message) => {
+      console.info(`[mock] Frontend log (${level}): ${message}`);
+      return null;
+    },
     takeStartupNotices: () => {
       const taken = startupNotices;
       startupNotices = [];

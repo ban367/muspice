@@ -27,8 +27,10 @@
 
 ```text
 src/
-├── hooks.client.ts        # dev:mock時のみTauri IPCモックを初期化
+├── hooks.client.ts        # dev:mock時のみTauri IPCモックを初期化。受け止められなかったエラーをログファイルに残す（ADR-089）
 ├── routes/
+│   ├── +layout.svelte     # すべてのウィンドウの土台（描画の例外を受け止めるエラー境界。ADR-089）
+│   ├── +error.svelte      # 読み込み・移動の間のエラーと、存在しない画面の表示
 │   ├── (app)/
 │   │   ├── devices/       # 転送先デバイスのページ
 │   │   ├── library/
@@ -80,6 +82,7 @@ src-tauri/src/
 ├── device_manifest.rs     # デバイス側の管理ファイル（.muspice/manifest.json）
 ├── device_sync.rs         # デバイス上の配置と差分の計算（ファイルシステムに触れない）
 ├── device_transfer.rs     # 同期の実行（削除・リネーム・コピー・プレイリストの書き出し）
+├── diagnostics.rs         # panicと、画面で起きたエラーを、ログファイルに残す（panicフック・量の制限。ADR-089）
 ├── dropped_files.rs       # ウィンドウへドロップされたファイルのパスの受け取り（OSのドラッグ用のペーストボードから読む。macOS。ADR-050）
 ├── error.rs
 ├── events.rs
@@ -355,6 +358,8 @@ src-tauri/src/
 - Rustコマンドは `AppResult<T>`（`error.rs` の `AppError`）を返す。エラーは `{ code, message }` 形式でシリアライズされ、messageは日本語のユーザー向け文言とする（英語の表示ではcodeごとの汎用メッセージを使う。「多言語化」参照）
 - エラーコード: `LOCK` / `DATABASE` / `NOT_FOUND` / `VALIDATION` / `IO` / `METADATA` / `PLAYBACK`
 - フロントエンドでは `handleError` を必ず経由し、codeでエラーを分類する（部分文字列マッチは行わない）
+  - `handleError`は、トーストで知らせ、元のエラーをログファイルに残す（`#lib/utils/errorLog`の`reportError`。ADR-089）。利用者には見せないが、後から調べたい失敗（裏で行う処理の失敗など）は、`console.error`だけにせず、`reportError(error, '英語の文脈')`を呼ぶ
+  - 描画・`$effect`の中の例外は、エラー境界（`<svelte:boundary>`）が受け止める。ウィンドウ全体は`routes/+layout.svelte`、メインウィンドウのページの領域は`routes/(app)/+layout.svelte`（サイドバー・プレイヤーは動かし続け、別の画面へ移ると元に戻す）。代わりに出す画面は`ErrorScreen`
 - DBアクセスはコマンド層で `AppState::with_db` を経由し、ロック取得エラーの処理を一元化する
   - DBを使う処理がパニックした後も、`with_db`はロックを回復して続ける（回復しないと、再起動するまですべてのDBの操作が`LOCK`で失敗する）。途中で止まった処理のトランザクションが残っていれば取り消し、ログに残す
 - ファイルI/O・タグ解析・大量のDB書き込みなど重い同期処理は `commands::run_blocking` で実行する（asyncコマンド内で直接行うと非同期ランタイムのワーカーを占有する）。状態が必要な場合は `AppHandle` を受け取り、クロージャ内で `app.state::<AppState>()` から取得する

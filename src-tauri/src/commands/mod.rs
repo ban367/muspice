@@ -124,7 +124,10 @@ pub use stats::{
 pub use settings::{get_global_shortcuts, get_settings, save_settings, set_mini_player};
 
 // システム
-pub use system::{PROJECT_URL, open_project_page, show_in_folder, take_startup_notices};
+pub use system::{
+    PROJECT_URL, log_frontend_message, open_log_folder, open_project_page, show_in_folder,
+    take_startup_notices,
+};
 
 // ライブラリのデータ（DB・設定）のバックアップと復元
 pub use backup::{

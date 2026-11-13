@@ -4,6 +4,9 @@
   import { events } from '#lib/bindings.js';
   import { onMount } from 'svelte';
   import { afterNavigate } from '$app/navigation';
+  import { page } from '$app/state';
+  import ErrorScreen from '#lib/components/ErrorScreen.svelte';
+  import { reportError } from '#lib/utils/errorLog.js';
   import { TextPromptDialog, Toast } from '#lib/components/ui/index.js';
   import Player from '#lib/components/Player.svelte';
   import Sidebar from '#lib/components/Sidebar.svelte';
@@ -140,6 +143,20 @@
   });
 
   let { children } = $props();
+
+  /** 表示できなかったページを、作り直す関数（ページの描画で例外が起きている間だけ持つ） */
+  let resetFailedPage: (() => void) | null = null;
+
+  function onPageError(error: unknown, reset: () => void) {
+    resetFailedPage = reset;
+    reportError(error, `Rendering error (${page.url.pathname})`);
+  }
+
+  // 別の画面へ移ったら、表示できなかったページの表示をやめて、移った先を描く
+  afterNavigate(() => {
+    resetFailedPage?.();
+    resetFailedPage = null;
+  });
 </script>
 
 <QueryClientProvider client={queryClient}>
@@ -179,7 +196,14 @@
       <div class="main-area">
         <!-- ページコンテンツ -->
         <main class="main-content">
-          {@render children()}
+          <!-- ページの描画で例外が起きても、サイドバー・プレイヤーは動かし続ける（ADR-089） -->
+          <svelte:boundary onerror={onPageError}>
+            {@render children()}
+
+            {#snippet failed(error, reset)}
+              <ErrorScreen {error} onRetry={reset} />
+            {/snippet}
+          </svelte:boundary>
         </main>
 
         <!-- Now Playingの画面（ページの領域に重ねる。プレーヤーのアルバムアートから開く） -->

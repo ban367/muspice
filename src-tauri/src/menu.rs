@@ -57,6 +57,7 @@ struct MenuLabels {
     help: &'static str,
     about: &'static str,
     open_github: &'static str,
+    open_log_folder: &'static str,
 }
 
 impl MenuLabels {
@@ -86,6 +87,7 @@ impl MenuLabels {
                 help: "ヘルプ",
                 about: "Muspice について",
                 open_github: "GitHub を開く",
+                open_log_folder: "ログのフォルダを開く",
             },
             Language::En => Self {
                 settings: "Settings...",
@@ -111,6 +113,7 @@ impl MenuLabels {
                 help: "Help",
                 about: "About Muspice",
                 open_github: "Open GitHub",
+                open_log_folder: "Show Log Folder",
             },
         }
     }
@@ -205,6 +208,7 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>, language: Language) -> tauri::
         .item(&MenuItemBuilder::with_id("about", labels.about).build(app)?)
         .separator()
         .item(&MenuItemBuilder::with_id("open_github", labels.open_github).build(app)?)
+        .item(&MenuItemBuilder::with_id("open_log_folder", labels.open_log_folder).build(app)?)
         .build()?;
 
     MenuBuilder::new(app)

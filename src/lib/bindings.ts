@@ -82,6 +82,14 @@ export const commands = {
 	 */
 	takeStartupNotices: () => __TAURI_INVOKE<StartupNotice[]>("take_startup_notices"),
 	/**
+	 *  画面（WebView）で起きたエラー・警告を、ログファイルに残す（ADR-089）
+	 * 
+	 *  リリースビルドでは、WebViewのコンソールを見られないため、画面の`handleError`・受け止められなかった
+	 *  エラーなどを、ここへ送る。文は1行にして切り、短い時間に多すぎる分は書かない
+	 *  （`diagnostics::FrontendLogLimiter`）。書き込む先は、アプリのログだけ（WebViewから場所を選べない）。
+	 */
+	logFrontendMessage: (level: FrontendLogLevel, message: string) => __TAURI_INVOKE<null>("log_frontend_message", { level, message }),
+	/**
 	 *  ライブラリフォルダの一覧を取得
 	 * 
 	 *  フォルダの存在確認は、外れたネットワークドライブなどで時間がかかることがあるため、
@@ -1310,6 +1318,9 @@ foundCount: number } |
 { kind: "overlapsDevice"; path: string; deviceName: string } | 
 /**  付け替えると、ライブラリにあるほかの曲と同じ場所になる曲がある（フォルダの外から取り込んだ曲など） */
 { kind: "conflicts"; path: string; conflictCount: number };
+
+/**  画面から受け取るログの重さ */
+export type FrontendLogLevel = "error" | "warn";
 
 /**  ジャンルの一覧の1件（曲は含めない。曲は`get_genre_tracks`で取得する） */
 export type GenreSummary = {
