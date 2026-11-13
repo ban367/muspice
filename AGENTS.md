@@ -16,6 +16,7 @@ Tauri 2 + SvelteKit で構築されたmacOS向けのデスクトップ音楽管�
 - `src/` - SvelteKitフロントエンド（`routes/`, `lib/components/`, `lib/queries/`, `lib/stores/`, `lib/types/`, `lib/utils/`, `lib/i18n/`, `lib/mocks/`）
 - `src-tauri/` - Tauri + Rustバックエンド（`src/commands/`, `db.rs`, `repository.rs`, `models.rs`, `library.rs`, `library_folder.rs`, `metadata.rs`, `playlist.rs`, `smart_playlist.rs`, `playback/`（再生エンジン）, `media_controls/`（OSのメディアキー・Now Playing）, `validation.rs`, `settings.rs`, `state.rs`, `menu.rs` 等）
 - `static/` - 静的アセット
+- `scripts/` - ビルドで使うスクリプト（依存ライブラリのライセンスの一覧）
 - `docs/` - 詳細ドキュメント
 
 ## 開発コマンド

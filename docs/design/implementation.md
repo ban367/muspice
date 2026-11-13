@@ -26,6 +26,12 @@
 ## ディレクトリ構成
 
 ```text
+scripts/
+├── third-party-licenses.mjs  # 依存ライブラリのライセンスの一覧を作る（Rustは`cargo metadata`、npmはバンドルに入ったモジュールから。受け入れるライセンスの検査も行う。ADR-091）
+└── spdx/                     # ライセンスの文が入っていない依存を補う、標準のライセンス文
+```
+
+```text
 src/
 ├── hooks.client.ts        # dev:mock時のみTauri IPCモックを初期化。受け止められなかったエラーをログファイルに残す（ADR-089）
 ├── routes/

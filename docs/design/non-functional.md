@@ -82,6 +82,16 @@
 | Rust `zvariant_derive`  | RUSTSEC-2026-0372（unmaintained） | 同上                                                             | 同上                                                                     |
 | npm `deepmerge`         | GHSA-gcqx-w48m-w2h4（low）        | @sveltejs/vite-plugin-svelte（開発時だけで、アプリには入らない） | 直した版がない。lowのため`npm audit`は失敗せず、`--ignore`の対象でもない |
 
+### 依存ライブラリのライセンス
+
+- アプリ（MIT）に組み込む依存ライブラリの著作権表示とライセンスの文を、アプリに入れて配る（ADR-091）。一覧は、フロントのビルド（`npm run build`）の時に作って、成果物の`third-party-licenses.json`に置き、「Muspice について」の「オープンソースのライセンス」で表示する
+  - Rust: `cargo metadata`で、配布するOS・CPU向けに解決した依存クレート（ビルド用の依存・手続きマクロを含む）
+  - npm: クライアントのバンドルに入ったモジュールのパッケージと、CSSに入る`tailwindcss`
+  - パッケージに入っているライセンスの文（`LICENSE*`・`COPYING*`・`NOTICE*`など）を載せる。入っていないパッケージは、表記から選んだライセンスの標準の文（`scripts/spdx/`）に、作者の名前を入れて補う。入手先（リポジトリ）も載せる（MPL-2.0のソースの入手先を兼ねる）
+- **受け入れるライセンスは、`scripts/third-party-licenses.mjs`の`ACCEPTED_LICENSES`に並べる**（MIT・Apache-2.0・BSD・ISC・Zlib・Unicode・MPL-2.0・CC0-1.0など）。「A OR B」は、受け入れるものを1つ選べればよい。一覧にないライセンス（GPLなど）の依存、ライセンスを宣言していない依存が入ると、ビルドが失敗する（新しい依存を足す時・Dependabotの更新で気付く）。宣言がなく、ライセンスの文で確かめたものは、`UNDECLARED_LICENSES`に書く
+- Tauriのビルド（`TAURI_ENV_PLATFORM`がある）とCI（`CI`がある）では、`cargo`を呼べないとビルドを失敗にする。手元でフロントだけをビルドした時は、警告して、Rustの分がない一覧にする（画面に、その旨が出る）
+- 開発サーバー（`npm run dev`・`dev:mock`・`tauri dev`）には一覧がなく、画面は「ビルドしたアプリに入ります」と出す
+
 ## 可用性・運用
 
 - 対応するOSはmacOSだけ（ADR-090）。Linuxは、CIでチェックと配布物（`.deb`）のビルドを通すが、動作は保証しない。Windowsには対応しない

@@ -77,8 +77,8 @@ export default defineConfig(
     }
   },
   {
-    // 設定ファイル（vite.config.js・eslint.config.js）はNode.jsで動く
-    files: ['*.config.js'],
+    // 設定ファイル（vite.config.js・eslint.config.js）と、ビルドで使うスクリプトはNode.jsで動く
+    files: ['*.config.js', 'scripts/**/*.mjs'],
     languageOptions: {
       globals: {
         ...globals.node
