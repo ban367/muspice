@@ -13,7 +13,7 @@
 //! 既定の音楽フォルダは、OSの音楽フォルダの中の専用のフォルダ（`~/Music/Muspice`）。音楽フォルダに
 //! する時に作る（ADR-083）。
 
-use super::import::{FolderRegistration, import_folder_blocking};
+use super::import::{FolderRegistration, ScannedImportFolder, import_scanned_folder};
 use super::library_folders::notify_library_changed;
 use super::{pick_folder, run_blocking};
 use crate::backup::{BackupKind, BackupMeta, backups_dir, create_backup_in, settings_json};
@@ -22,8 +22,7 @@ use crate::events::ImportProgress;
 use crate::file_organize::Template;
 use crate::library::{DuplicateAction, ImportResult};
 use crate::library_folder::{
-    find_all_folders, find_folder_by_path, find_music_folder, normalize_folder_path,
-    track_path_prefix,
+    find_folder_by_path, find_music_folder, normalize_folder_path, track_path_prefix,
 };
 use crate::library_sync::LibrarySync;
 use crate::models::Track;
@@ -450,6 +449,14 @@ fn change_music_folder(
         ChangeMode::AskIfRemoving => None,
         ChangeMode::Replace { backup } => Some(backup),
     };
+    // 選んだ後に見つからなくなったフォルダ（外れたドライブなど）へは、置き換えない（バックアップも
+    // 書かない）。既定のフォルダは、なければこの後で作る
+    if !is_default && !folder.is_dir() {
+        return Err(AppError::NotFound(format!(
+            "音楽フォルダにするフォルダ（{}）が見つかりません",
+            folder.display()
+        )));
+    }
     let replace = backup.is_some();
     let backup_path = match backup.flatten() {
         Some(write) => Some(state.with_db(|db| write(db))?),
@@ -479,6 +486,11 @@ fn change_music_folder(
 /// `delete_playlists`なら通常のプレイリストも消す。新しいフォルダが登録済みなら印を付け、なければ登録して
 /// 中の曲を読み込む（登録済みの曲は読み飛ばし、記録を残す）。
 ///
+/// 未登録のフォルダは、**何かを消す前に**走査する。読めなければ（外れたドライブなど）、ライブラリを
+/// 変えずにエラーを返す。曲・プレイリスト・ライブラリフォルダの削除と、新しいフォルダの登録・音楽
+/// フォルダの印は、1つのトランザクションで行う。その後の曲の読み込みが途中で失敗しても、新しい
+/// フォルダは音楽フォルダとして残り、再スキャンで続きを読み込める。
+///
 /// @returns 読み込んだ結果・外した曲の数・消したプレイリストの数
 fn apply_change(
     state: &AppState,
@@ -486,10 +498,28 @@ fn apply_change(
     delete_playlists: bool,
     on_progress: &dyn Fn(ImportProgress),
 ) -> AppResult<(Option<ImportResult>, u32, u32)> {
-    let (removed_tracks, removed_playlists, registered) = state.with_db(|db| {
+    let is_registered = state.with_db(|db| Ok(find_folder_by_path(db, path)?.is_some()))?;
+    let scanned = if is_registered {
+        None
+    } else {
+        Some(ScannedImportFolder::scan_as_only_folder(Path::new(path))?)
+    };
+    let exclusions = scanned
+        .as_ref()
+        .map(ScannedImportFolder::exclusions_to_register)
+        .unwrap_or_default();
+
+    let (removed_tracks, removed_playlists) = state.with_db(|db| {
         let tx = db.transaction().map_err(|e| {
             AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
         })?;
+        // 走査していないのに、登録が外れていた（確かめた後に、ほかの操作で記録が消えた）場合は、
+        // 中の曲を読み込めないため、何も変えずにやめる（トランザクションは取り消される）
+        if scanned.is_none() && find_folder_by_path(&tx, path)?.is_none() {
+            return Err(AppError::NotFound(
+                "ライブラリフォルダが見つかりません。もう一度選び直してください".to_string(),
+            ));
+        }
         let removed_tracks =
             crate::repository::delete_tracks_outside(&tx, &track_path_prefix(path))?;
         let removed_playlists = if delete_playlists {
@@ -497,34 +527,25 @@ fn apply_change(
         } else {
             0
         };
-        for folder in find_all_folders(&tx)? {
-            if folder.path != path {
-                crate::library_folder::delete_folder(&tx, &folder.id)?;
-            }
-        }
-        let registered = find_folder_by_path(&tx, path)?;
+        crate::library_folder::replace_folders_with_music_folder(&tx, path, exclusions)?;
         tx.commit().map_err(|e| {
             AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
         })?;
         let removed_tracks = u32::try_from(removed_tracks)
             .map_err(|_| AppError::Database("曲の数が多すぎます".to_string()))?;
-        Ok((removed_tracks, removed_playlists, registered))
+        Ok((removed_tracks, removed_playlists))
     })?;
 
-    if let Some(registered) = registered {
-        state.with_db(|db| crate::library_folder::set_music_folder(db, &registered.id))?;
+    let Some(scanned) = scanned else {
         return Ok((None, removed_tracks, removed_playlists));
-    }
-    let (imported, folder_id) = import_folder_blocking(
-        Path::new(path),
+    };
+    let (imported, _) = import_scanned_folder(
+        &scanned,
         DuplicateAction::Skip,
         state,
         on_progress,
         FolderRegistration::Always,
     )?;
-    let folder_id = folder_id
-        .ok_or_else(|| AppError::Database("音楽フォルダを登録できませんでした".to_string()))?;
-    state.with_db(|db| crate::library_folder::set_music_folder(db, &folder_id))?;
     Ok((Some(imported), removed_tracks, removed_playlists))
 }
 
@@ -544,7 +565,7 @@ fn template_examples(template: &Template, tracks: &[Track]) -> Vec<String> {
 mod tests {
     use super::*;
     use crate::device_manifest::test_support::TempDir;
-    use crate::library_folder::{find_exclusions, register_folder};
+    use crate::library_folder::{find_all_folders, find_exclusions, register_folder};
     use crate::metadata::test_images::write_wav;
     use std::fs;
 
@@ -762,6 +783,142 @@ mod tests {
             .unwrap();
         assert_eq!(folders.len(), 1);
         assert!(old.join("a.wav").exists());
+    }
+
+    /// 確かめた後に新しいフォルダが読めなくなった（外れたドライブなど）場合は、何も消さない
+    #[test]
+    fn test_replace_keeps_the_library_when_the_new_folder_is_gone() {
+        let dir = TempDir::new();
+        let old = dir.path().join("old");
+        let other = dir.path().join("other");
+        let new = dir.path().join("new");
+        for folder in [&old, &other, &new] {
+            fs::create_dir_all(folder).unwrap();
+        }
+        write_wav(&old.join("a.wav"));
+        let state = test_state();
+        change(&state, &old);
+        state
+            .with_db(|db| register_folder(db, &path_str(&other), &["Podcasts".to_string()]))
+            .unwrap();
+        create_playlist_with_all_tracks(&state, "Drive");
+        assert!(matches!(
+            change(&state, &new),
+            MusicFolderChange::ConfirmReplace { .. }
+        ));
+        fs::remove_dir_all(&new).unwrap();
+        let backups = dir.path().join("backups");
+        let write_backup = |db: &Connection| {
+            let meta = BackupMeta {
+                app_version: "test",
+                settings_json: None,
+            };
+            create_backup_in(&backups, BackupKind::BeforeMusicFolderChange, db, &meta)
+        };
+
+        let result = change_music_folder(
+            &state,
+            &new,
+            false,
+            ChangeMode::Replace {
+                backup: Some(&write_backup),
+            },
+            &|_| {},
+        );
+
+        assert!(matches!(result, Err(AppError::NotFound(_))), "{result:?}");
+        assert_eq!(tracks(&state), [("a.wav".to_string(), 0)]);
+        assert_eq!(folder_paths(&state), [path_str(&old), path_str(&other)]);
+        assert_eq!(music_folder_path(&state), Some(path_str(&old)));
+        assert_eq!(playlist_names(&state), ["Drive"]);
+        // 読み込まないフォルダの記録も残り、バックアップは書かない
+        let exclusions = state
+            .with_db(|db| {
+                let other = find_folder_by_path(db, &path_str(&other))?.unwrap();
+                find_exclusions(db, &other.id)
+            })
+            .unwrap();
+        assert_eq!(exclusions.len(), 1);
+        assert!(!backups.exists());
+    }
+
+    /// 新しいフォルダを走査できない場合（フォルダではなくファイルだった・読めない）も、何も消さない。
+    /// 外す曲がなく、確かめずに音楽フォルダにする経路でも同じ
+    #[test]
+    fn test_unreadable_new_folder_changes_nothing() {
+        let dir = TempDir::new();
+        let old = dir.path().join("old");
+        fs::create_dir_all(&old).unwrap();
+        write_wav(&old.join("a.wav"));
+        let state = test_state();
+        change(&state, &old);
+        create_playlist_with_all_tracks(&state, "Drive");
+        let missing = dir.path().join("missing");
+
+        // 走査が失敗する（`apply_change`を直接呼び、フォルダがあるかの確認を通さない）
+        for delete_playlists in [true, false] {
+            let result = apply_change(&state, &path_str(&missing), delete_playlists, &|_| {});
+            assert!(matches!(result, Err(AppError::Io(_))), "{result:?}");
+            assert_eq!(tracks(&state), [("a.wav".to_string(), 0)]);
+            assert_eq!(folder_paths(&state), [path_str(&old)]);
+            assert_eq!(music_folder_path(&state), Some(path_str(&old)));
+            assert_eq!(playlist_names(&state), ["Drive"]);
+        }
+
+        // 確かめずに音楽フォルダにする経路（ライブラリが空）でも、ほかのライブラリフォルダの記録を消さない
+        let empty = test_state();
+        empty
+            .with_db(|db| register_folder(db, &path_str(&old), &[]))
+            .unwrap();
+        let result =
+            change_music_folder(&empty, &missing, false, ChangeMode::AskIfRemoving, &|_| {});
+        assert!(matches!(result, Err(AppError::NotFound(_))), "{result:?}");
+        assert_eq!(folder_paths(&empty), [path_str(&old)]);
+    }
+
+    /// 置き換えの後、新しいフォルダは、曲を読み込む前から音楽フォルダとして登録されている
+    /// （読み込みが途中で失敗しても、再スキャンで続きを読み込める）
+    #[test]
+    fn test_new_folder_is_registered_with_the_mark_in_one_step() {
+        let dir = TempDir::new();
+        let new = dir.path().join("new");
+        fs::create_dir_all(new.join("MusicBee")).unwrap();
+        write_wav(&new.join("b.wav"));
+        let state = test_state();
+        let conn = crate::db::open_in_memory();
+        conn.execute(
+            "INSERT INTO library_folders (id, path, added_at, is_music_folder)
+             VALUES ('f1', '/elsewhere', '2026-01-01T00:00:00Z', 1)",
+            [],
+        )
+        .unwrap();
+
+        let id = crate::library_folder::replace_folders_with_music_folder(
+            &conn,
+            &path_str(&new),
+            &["MusicBee".to_string()],
+        )
+        .unwrap();
+
+        let folders = find_all_folders(&conn).unwrap();
+        assert_eq!(folders.len(), 1);
+        assert_eq!(folders[0].id, id);
+        assert!(folders[0].is_music_folder);
+        assert_eq!(find_exclusions(&conn, &id).unwrap().len(), 1);
+
+        // アプリの経路でも、既知のアプリのフォルダを読み込まないフォルダとして記録する
+        let MusicFolderChange::Set { imported, .. } = change(&state, &new) else {
+            panic!("音楽フォルダにしていない");
+        };
+        assert_eq!(imported.unwrap().imported_count, 1);
+        let exclusions = state
+            .with_db(|db| {
+                let folder = find_music_folder(db)?.unwrap();
+                find_exclusions(db, &folder.id)
+            })
+            .unwrap();
+        assert_eq!(exclusions.len(), 1);
+        assert_eq!(exclusions[0].path, "MusicBee");
     }
 
     /// 前のライブラリフォルダの中のフォルダに変えると、中の曲は記録（再生回数など）を残す

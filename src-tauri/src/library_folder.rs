@@ -205,7 +205,6 @@ pub fn register_folder(
     exclusions: &[String],
 ) -> AppResult<Option<String>> {
     let path = normalize_folder_path(folder_path);
-    let now = Utc::now().to_rfc3339();
     let existing = find_all_folders(conn)?;
 
     if let Some(same) = existing.iter().find(|f| f.path == path) {
@@ -229,21 +228,72 @@ pub fn register_folder(
         delete_folder(&tx, &nested.id)?;
     }
 
+    let folder_id = insert_folder(&tx, &path, is_music_folder, exclusions)?;
+
+    tx.commit().map_err(|e| {
+        AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
+    })?;
+    Ok(Some(folder_id))
+}
+
+/// ライブラリフォルダの記録を足す（スキャンした日時は今。`exclusions`は、読み込まないフォルダとして記録する）
+///
+/// 呼び出し側のトランザクションの中で使う。`path`は`normalize_folder_path`を通したもの。
+/// @returns 足した記録のID
+fn insert_folder(
+    conn: &Connection,
+    path: &str,
+    is_music_folder: bool,
+    exclusions: &[String],
+) -> AppResult<String> {
     let folder_id = Uuid::new_v4().to_string();
-    tx.execute(
+    let now = Utc::now().to_rfc3339();
+    conn.execute(
         "INSERT INTO library_folders (id, path, added_at, last_scanned_at, is_music_folder)
          VALUES (?1, ?2, ?3, ?3, ?4)",
         rusqlite::params![folder_id, path, now, is_music_folder],
     )
     .map_err(|e| AppError::Database(format!("ライブラリフォルダの登録に失敗しました: {}", e)))?;
     for exclusion in exclusions {
-        insert_exclusion(&tx, &folder_id, exclusion)?;
+        insert_exclusion(conn, &folder_id, exclusion)?;
     }
+    Ok(folder_id)
+}
 
-    tx.commit().map_err(|e| {
-        AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
-    })?;
-    Ok(Some(folder_id))
+/// ライブラリフォルダの記録を、音楽フォルダにする`folder_path`だけにする（ADR-086）
+///
+/// ほかのライブラリフォルダの記録（読み込まないフォルダを含む）を消し、`folder_path`が未登録なら
+/// `exclusions`（フォルダからの相対パス）と一緒に登録して、音楽フォルダの印を付ける。登録済みなら、
+/// 記録（読み込まないフォルダを含む）はそのままで、印だけを付ける。
+///
+/// 途中で失敗した時に記録を半端に残さないよう、呼び出し側のトランザクションの中で使う
+/// （この中では、トランザクションを始めない）。
+/// @returns 音楽フォルダのID
+pub fn replace_folders_with_music_folder(
+    conn: &Connection,
+    folder_path: &str,
+    exclusions: &[String],
+) -> AppResult<String> {
+    let path = normalize_folder_path(folder_path);
+    let mut registered = None;
+    for folder in find_all_folders(conn)? {
+        if folder.path == path {
+            registered = Some(folder.id);
+        } else {
+            delete_folder(conn, &folder.id)?;
+        }
+    }
+    match registered {
+        Some(folder_id) => {
+            conn.execute(
+                "UPDATE library_folders SET is_music_folder = 1 WHERE id = ?1",
+                [&folder_id],
+            )
+            .map_err(|e| AppError::Database(format!("音楽フォルダの設定に失敗しました: {}", e)))?;
+            Ok(folder_id)
+        }
+        None => insert_folder(conn, &path, true, exclusions),
+    }
 }
 
 /// パスで、ライブラリフォルダを取得する（末尾の区切り文字は区別しない）
@@ -267,6 +317,10 @@ pub fn find_music_folder(conn: &Connection) -> AppResult<Option<FolderRecord>> {
 }
 
 /// ライブラリフォルダを音楽フォルダにする（ほかのフォルダの印は外す。ファイルは動かさない）
+///
+/// アプリは、音楽フォルダを変える時にライブラリを置き換えるため（`replace_folders_with_music_folder`。
+/// ADR-086）、印だけを移す操作は持たない。テストで、音楽フォルダの印がある状態を作るのに使う。
+#[cfg(test)]
 pub fn set_music_folder(conn: &Connection, folder_id: &str) -> AppResult<()> {
     let tx = conn
         .unchecked_transaction()
@@ -627,7 +681,16 @@ pub fn import_exclusions(
     relative.sort();
     relative.dedup();
 
-    Ok(ImportExclusions {
+    Ok(new_folder_exclusions(&path, relative))
+}
+
+/// 新しく登録するフォルダの、読み込まないフォルダ（`relative`は、フォルダからの相対パス）
+///
+/// ほかのライブラリフォルダの記録を見ない。音楽フォルダを変えてライブラリを置き換える時は、ほかの
+/// ライブラリフォルダの記録を消すため、`default_exclusions`だけを渡して使う（ADR-086）。
+pub fn new_folder_exclusions(folder_path: &str, relative: Vec<String>) -> ImportExclusions {
+    let path = normalize_folder_path(folder_path);
+    ImportExclusions {
         scan: ScanExclusions::new(
             relative
                 .iter()
@@ -635,7 +698,7 @@ pub fn import_exclusions(
                 .collect(),
         ),
         to_register: relative,
-    })
+    }
 }
 
 /// ディスク上の音楽ファイル（再スキャンで見つかったもの）
