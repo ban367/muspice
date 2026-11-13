@@ -127,6 +127,7 @@ src-tauri/src/
 ├── own_writes.rs          # アプリ自身が曲のファイルへ書いた変更の記録（ライブラリフォルダの監視が、その通知で再スキャンしない）
 ├── opened_files.rs        # 「このアプリで開く」・Dockのアイコンへのドロップで開かれたファイルの受け取り（インポートして、再生する曲として預かる。ADR-050）
 ├── settings.rs
+├── startup.rs             # 起動時のDBの開き方（壊れたDBを残して空で起動・起動を続けられない時の知らせ）と、起動時の知らせ（ADR-088）
 ├── tag_backfill.rs        # 既存のトラックの、後から追加した項目（アルバムアーティスト・ソート用のタグ・複数の値・半分の星の評価）の読み込み（起動時）
 ├── track_notification.rs  # 曲が変わった時の通知（ADR-046）
 ├── track_relink.rs        # 移動・改名されたファイルと、見つからない曲の対応付け
@@ -470,6 +471,7 @@ Tauriのウィンドウ（macOSではWKWebView）はブラウザ自動化ツー�
   - `window.__MUSPICE_MOCK__.emit('open-import-dialog')`（`import-files-requested` / `toggle-sidebar` / `toggle-mini-player` / `show-about-dialog`も同様）
   - `window.__MUSPICE_MOCK__.emit('playback-control', { type: 'next' })`で、「再生」メニュー・OSのメディアキーの操作を再現する
   - `window.__MUSPICE_MOCK__.nowPlaying()`で、OSのNow Playingへ伝えた内容を確認する（ブラウザにはOSの表示がないため）
+  - `window.__MUSPICE_MOCK__.setStartupNotices([{ kind: 'databaseQuarantined', quarantinedPath: '/data/muspice-unreadable-20261113-093000.db', hasBackups: true }])`で、起動時の知らせ（ADR-088）を用意する。画面は起動した時にだけ受け取るため、用意した後に`#lib/stores/startupNotices`の`showStartupNotices()`を呼んで確かめる
   - `window.__MUSPICE_MOCK__.setM3uImportMode('clean')`で、M3Uの読み込みで選んだことにするファイルを切り替える（`partial`: 対応が付かない行がある（既定）・`clean`: すべて対応が付く・`cancel`: 選ばなかった）。ファイルを選ぶダイアログはRust側が開くため、モックは決まった結果を返す
   - `window.__MUSPICE_MOCK__.setFileImportMode('cancel')`で、ファイルを選ぶインポートで選ばなかったことにする（`pick`: 2つの音楽ファイルを選んだ（既定））。`window.__MUSPICE_MOCK__.openFiles(['a.flac'])`で、Finderの「このアプリで開く」でファイルが開かれたことにする（インポートして再生される）。ウィンドウへのドロップは、`DataTransfer`に`File`を入れた`dragover`・`drop`を`window`へ送ると確かめられる（パスの読み取りは再現せず、名前のファイルがあることにする。拡張子のない名前は、6曲のあるフォルダとする）
   - 形式の変換は、どの環境でも変換できることにし、1曲を300msで変換したことにする（書き出しは場所を覚えるだけ、置き換えは曲の場所と形式を書き換える）。`window.__MUSPICE_MOCK__.setConvertExportFolder(null)`で、書き出すフォルダを選ばなかったことにする（既定は`/Users/mock/Export`）

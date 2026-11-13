@@ -41,3 +41,15 @@ pub async fn open_project_page() -> AppResult<()> {
     tauri_plugin_opener::open_url(PROJECT_URL, None::<&str>)
         .map_err(|e| AppError::Io(format!("ブラウザを開けませんでした: {}", e)))
 }
+
+/// 起動の途中で起きた、画面で知らせる問題を受け取る（受け取った分は、Rust側が手放す）
+///
+/// ライブラリのDBを開けずに空のライブラリで起動した・用意してあった復元を当てられなかった、など
+/// （ADR-088）。メインウィンドウが、起動した時に1回呼ぶ。
+#[tauri::command]
+#[specta::specta]
+pub fn take_startup_notices(
+    notices: State<'_, crate::startup::StartupNotices>,
+) -> AppResult<Vec<crate::startup::StartupNotice>> {
+    Ok(notices.take())
+}

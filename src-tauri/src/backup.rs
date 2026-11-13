@@ -11,6 +11,7 @@
 
 use crate::error::{AppError, AppResult};
 use crate::settings::SettingsState;
+use crate::startup::DB_FILE_NAME;
 use crate::state::AppState;
 use chrono::{Local, Utc};
 use rusqlite::{Connection, ErrorCode, OpenFlags, OptionalExtension};
@@ -45,9 +46,6 @@ const AUTO_BACKUP_CHECK_INTERVAL: Duration = Duration::from_secs(60 * 60);
 
 /// 起動してから、最初に自動のバックアップを確かめるまでの時間（起動時の再スキャンなどと重ねない）
 const AUTO_BACKUP_DELAY: Duration = Duration::from_secs(60);
-
-/// アプリデータの中の、DBのファイル名
-const DB_FILE_NAME: &str = "muspice.db";
 
 /// アプリデータの中の、設定のファイル名
 const SETTINGS_FILE_NAME: &str = "settings.json";
@@ -271,6 +269,13 @@ pub fn inspect_backup(path: &Path) -> Result<BackupInfo, BackupProblem> {
     {
         return Err(BackupProblem::NewerFormat);
     }
+    // 新しい版のアプリのDB（表の作りの版が新しい）は、復元しても起動時に開けない（ADR-088）
+    if crate::db::stored_schema_version(&conn)
+        .map_err(problem)?
+        .is_some_and(|version| version > crate::db::DB_SCHEMA_VERSION)
+    {
+        return Err(BackupProblem::NewerFormat);
+    }
 
     let count = |table: &str| -> Result<u32, BackupProblem> {
         conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
@@ -381,8 +386,26 @@ pub fn apply_staged_restore(app_data_dir: &Path) -> AppResult<bool> {
         fs::rename(&staged_db, app_data_dir.join(DB_FILE_NAME))
             .map_err(|e| AppError::Io(format!("DBを置き換えられません: {}", e)))?;
     }
-    fs::remove_dir_all(&dir).map_err(|e| AppError::Io(format!("復元の用意を消せません: {}", e)))?;
+    // 用意のフォルダを消せなくても、復元は済んでいる（次の起動で、もう一度消す。DBは残っていない
+    // ため、当て直さない）。失敗にすると、復元できたのに「復元できなかった」と知らせてしまう
+    if let Err(e) = fs::remove_dir_all(&dir) {
+        log::warn!("Cannot remove the staged restore folder: {}", e);
+    }
     Ok(applied)
+}
+
+/// アプリのバックアップのフォルダに、バックアップのファイルがあるか
+///
+/// DBを開けずに空のライブラリで起動した時に、復元を案内できるかを決める（ADR-088）。
+pub fn has_backups(app_data_dir: &Path) -> bool {
+    fs::read_dir(backups_dir(app_data_dir)).is_ok_and(|entries| {
+        entries.filter_map(Result::ok).any(|entry| {
+            entry
+                .path()
+                .extension()
+                .is_some_and(|extension| extension == BACKUP_EXTENSION)
+        })
+    })
 }
 
 /// アプリが作るバックアップを、`backups/`へ作り、古い世代を消す
@@ -608,6 +631,39 @@ mod tests {
             )
             .unwrap();
         assert_eq!(inspect_backup(&path), Err(BackupProblem::NewerFormat));
+    }
+
+    /// 新しい版のアプリのDB（表の作りの版が新しい）も、復元しない
+    #[test]
+    fn test_inspect_backup_rejects_newer_schema() {
+        let dir = TempDir::new();
+        let path = dir.path().join("new.muspicebackup");
+        write_backup(&library_db(), &path, &meta(None)).unwrap();
+        assert!(inspect_backup(&path).is_ok());
+        Connection::open(&path)
+            .unwrap()
+            .execute(
+                "UPDATE app_meta SET value = ?1 WHERE key = 'schema_version'",
+                [(crate::db::DB_SCHEMA_VERSION + 1).to_string()],
+            )
+            .unwrap();
+        assert_eq!(inspect_backup(&path), Err(BackupProblem::NewerFormat));
+    }
+
+    /// バックアップのフォルダに、バックアップのファイルがあるかを調べる
+    #[test]
+    fn test_has_backups() {
+        let dir = TempDir::new();
+        assert!(!has_backups(dir.path()));
+        fs::create_dir_all(backups_dir(dir.path())).unwrap();
+        fs::write(backups_dir(dir.path()).join("notes.txt"), "x").unwrap();
+        assert!(!has_backups(dir.path()));
+        fs::write(
+            backups_dir(dir.path()).join("auto-20261113-093000.muspicebackup"),
+            "x",
+        )
+        .unwrap();
+        assert!(has_backups(dir.path()));
     }
 
     /// 用意した復元は、次の起動でDBと設定を置き換える（前のDBのジャーナルは消す）

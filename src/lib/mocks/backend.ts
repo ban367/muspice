@@ -54,6 +54,7 @@ import type {
   RescanResult,
   Settings,
   SmartRules,
+  StartupNotice,
   SyncDevice,
   Track
 } from '#lib/types/models.js';
@@ -266,6 +267,13 @@ export interface MockBackend {
    * 既定は`MUSIC_FOLDER_FREE_BYTES`。
    */
   setMusicFolderFreeBytes(bytes: number): void;
+  /**
+   * 起動の途中で起きた問題の知らせ（ADR-088）を用意する（次に読み込んだ時の`takeStartupNotices`で渡す）
+   *
+   * 画面は起動した時にだけ受け取るため、用意した後に`showStartupNotices`（`#lib/stores/startupNotices`）を
+   * 呼んで確かめる。既定は、知らせなし。
+   */
+  setStartupNotices(notices: StartupNotice[]): void;
   /** `albumart`プロトコルの代わりに、トラックのアルバムアートをdata URLで返す（アートがなければnull） */
   albumArtUrl(trackId: string): string | null;
 }
@@ -636,6 +644,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   let fileImportMode: MockFileImportMode = 'pick';
   /** 「このアプリで開く」で開かれ、フロントエンドがまだ受け取っていないもの */
   let openedFiles: { tracks: Track[]; errors: string[] } = { tracks: [], errors: [] };
+  /** 起動時の知らせ（`setStartupNotices`で入れたものを、次の`takeStartupNotices`で渡す） */
+  let startupNotices: StartupNotice[] = [];
   // アプリで書き換えたアルバムアート（トラックID → 埋め込んだ画像の番号。nullは取り除いた）
   const embeddedArt = new Map<string, number | null>();
   let albumArtPickMode: MockAlbumArtPickMode = 'pick';
@@ -2273,6 +2283,11 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       openedFiles = { tracks: [], errors: [] };
       return taken;
     },
+    takeStartupNotices: () => {
+      const taken = startupNotices;
+      startupNotices = [];
+      return taken;
+    },
     getAllTracks: () => tracksWhere(() => true),
     // 実装と同じく、空白で区切った語をすべて含む曲を返す（途中の一致。大文字と小文字・
     // 全角と半角・ひらがなとカタカナを同じとみなす）
@@ -3469,6 +3484,9 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     },
     setM3uImportMode: (mode) => {
       m3uImportMode = mode;
+    },
+    setStartupNotices: (notices) => {
+      startupNotices = notices;
     },
     miniPlayer: () => miniPlayerWindow,
     setAlbumArtPickMode: (mode) => {
