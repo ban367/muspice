@@ -40,6 +40,7 @@ mod repository;
 mod search_text;
 mod settings;
 mod smart_playlist;
+mod startup;
 mod state;
 mod tag_backfill;
 mod track_notification;
@@ -79,8 +80,9 @@ use commands::{
     reshuffle_smart_playlists, restore_library_backup, run_device_sync, save_playback_state,
     save_settings, search_tracks, set_album_art, set_current_track, set_favorite, set_mini_player,
     set_music_folder, set_now_playing, set_playlist_description, set_rating, show_in_folder,
-    start_loudness_scan, take_opened_files, update_multiple_tracks_metadata, update_smart_playlist,
-    update_sync_device, update_track_metadata, write_library_metadata_to_files,
+    start_loudness_scan, take_opened_files, take_startup_notices, update_multiple_tracks_metadata,
+    update_smart_playlist, update_sync_device, update_track_metadata,
+    write_library_metadata_to_files,
 };
 use state::AppState;
 use std::path::PathBuf;
@@ -103,6 +105,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             import_pending_folders,
             cancel_pending_import,
             take_opened_files,
+            take_startup_notices,
             get_library_folders,
             remove_library_folder,
             plan_library_folder_relocation,
@@ -312,6 +315,17 @@ fn window_state_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
         .build()
 }
 
+/// アプリケーションデータディレクトリを用意する（なければ作る）
+fn prepare_app_data_dir(app: &tauri::AppHandle) -> Result<PathBuf, startup::StartupFailure> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| startup::StartupFailure::DataDir(e.to_string()))?;
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| startup::StartupFailure::DataDir(format!("{}: {}", dir.display(), e)))?;
+    Ok(dir)
+}
+
 /// TypeScriptエクスポート設定
 fn typescript_exporter() -> specta_typescript::Typescript {
     specta_typescript::Typescript::default()
@@ -357,30 +371,51 @@ pub fn run() {
             // 型付きイベントを登録する（未登録のイベントをemitするとパニックする）
             builder.mount_events(app);
 
-            // アプリケーションデータディレクトリを取得
-            let app_data_dir = app
-                .path()
-                .app_data_dir()
-                .expect("Failed to get the app data directory");
-
-            // ディレクトリが存在しない場合は作成
-            std::fs::create_dir_all(&app_data_dir)
-                .expect("Failed to create the app data directory");
-
             log::info!("Application started");
+
+            // アプリケーションデータディレクトリを用意する（なければ作る）。用意できない・DBを
+            // 開けない時は、落とさずに、理由をダイアログで知らせて終了する（ADR-088）
+            let app_data_dir = match prepare_app_data_dir(app.handle()) {
+                Ok(dir) => dir,
+                Err(failure) => {
+                    startup::report_failure(app.handle(), &failure, None, Default::default());
+                    return Ok(());
+                }
+            };
+            let mut startup_notices = Vec::new();
 
             // バックアップからの復元を用意してあれば、DBと設定を開く前に置き換える（ADR-073）
             match backup::apply_staged_restore(&app_data_dir) {
                 Ok(true) => log::info!("Restored library data from backup"),
                 Ok(false) => {}
-                Err(e) => log::error!("Failed to restore from backup: {}", e),
+                Err(e) => {
+                    log::error!("Failed to restore from backup: {}", e);
+                    startup_notices.push(startup::StartupNotice::RestoreFailed {
+                        detail: e.to_string(),
+                    });
+                }
             }
 
-            // データベースファイルのパスを設定
-            let db_path: PathBuf = app_data_dir.join("muspice.db");
-
-            // データベースを初期化
-            let conn = db::init_db(db_path).expect("Failed to initialize the database");
+            // データベースを開く。壊れていれば別の名前で残し、空のライブラリで起動して知らせる
+            let conn = match startup::open_database(&app_data_dir) {
+                Ok(opened) => {
+                    if let Some(quarantined) = opened.quarantined {
+                        startup_notices.push(startup::StartupNotice::DatabaseQuarantined {
+                            quarantined_path: quarantined.to_string_lossy().into_owned(),
+                            has_backups: backup::has_backups(&app_data_dir),
+                        });
+                    }
+                    opened.conn
+                }
+                Err(failure) => {
+                    // 設定は、まだ読んでいない（管理状態にない）ため、言語だけファイルから読む
+                    let language =
+                        settings::load_settings(&app_data_dir.join("settings.json")).language;
+                    startup::report_failure(app.handle(), &failure, Some(&app_data_dir), language);
+                    return Ok(());
+                }
+            };
+            app.manage(startup::StartupNotices::new(startup_notices));
 
             log::info!("Database initialized");
 

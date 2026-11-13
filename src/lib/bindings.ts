@@ -75,6 +75,13 @@ export const commands = {
 	 */
 	takeOpenedFiles: () => __TAURI_INVOKE<OpenedFiles>("take_opened_files"),
 	/**
+	 *  起動の途中で起きた、画面で知らせる問題を受け取る（受け取った分は、Rust側が手放す）
+	 * 
+	 *  ライブラリのDBを開けずに空のライブラリで起動した・用意してあった復元を当てられなかった、など
+	 *  （ADR-088）。メインウィンドウが、起動した時に1回呼ぶ。
+	 */
+	takeStartupNotices: () => __TAURI_INVOKE<StartupNotice[]>("take_startup_notices"),
+	/**
 	 *  ライブラリフォルダの一覧を取得
 	 * 
 	 *  フォルダの存在確認は、外れたネットワークドライブなどで時間がかかることがあるため、
@@ -2143,6 +2150,22 @@ export type SortTags = {
 	album: string | null,
 	albumArtist: string | null,
 };
+
+/**  起動の途中で起きた、画面で知らせる問題（起動は続けた） */
+export type StartupNotice = 
+/**  ライブラリのDBを開けなかったため、別の名前で残して、空のライブラリで起動した */
+{ kind: "databaseQuarantined"; 
+/**  残したDBの場所 */
+quarantinedPath: string; 
+/**  アプリのバックアップのフォルダに、復元できるバックアップがあるか */
+hasBackups: boolean } | 
+/**
+ *  用意してあった復元（「復元して再起動」）を当てられなかった（ライブラリは復元の前のまま。
+ *  用意は残してあり、次の起動でもう一度試す）
+ */
+{ kind: "restoreFailed"; 
+/**  失敗の内容（ログと同じ文） */
+detail: string };
 
 /**  起動時に開く画面 */
 export type StartupPage = 

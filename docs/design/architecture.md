@@ -66,6 +66,7 @@ graph TD
 
 - エントリーポイント: `src-tauri/src/lib.rs`
 - アプリ状態: `AppState { db: Mutex<Connection>, current_track_id: Mutex<Option<String>>, album_art_limiter: Semaphore, album_art_cache: Mutex<AlbumArtCache>, library_scan_lock: Mutex<()>, track_file_locks: TrackFileLocks, shuffle_seed: AtomicU64 }`（`track_file_locks`は、曲のファイルを書き換える処理を曲ごとに1つずつにする印。`shuffle_seed`は、自動プレイリストのランダムな並びの種）。ほかに設定（`SettingsState`）・前回の再生状態（`PlaybackStateStore`）・再生エンジン（`PlaybackEngine`）・OSのメディアキー / Now Playing（`MediaControls`）・ライブラリフォルダの自動反映（`LibrarySync`）を管理する
+- 起動時のDBの開き方: `startup.rs` が、アプリのデータのフォルダのDBを開く。壊れている・移行に失敗したDBは別の名前で残して空のライブラリで起動し、新しい版のDB・環境の問題で開けないDBは、触らずに理由のダイアログを出して終了する（アプリを落とさない）。起動の途中で起きた問題は、メインウィンドウが受け取ってダイアログで知らせる（ADR-088）
 - 既存のトラックの、後から追加した項目の読み込み: `tag_backfill.rs` が、アルバムアーティスト・ソート用のタグの列を追加する前に登録したトラックの分と、複数の値に対応する前に最初の値だけを読んだアーティスト・ジャンルを、起動時に別スレッドでファイルのタグから読み込む（対象がなければ何もしない。ADR-022・ADR-036・ADR-051）
 - 複数の値を持つ項目（アーティスト・ジャンル）: データベースには、値を`; `でつないだ文字列で持つ（表示・検索・並べ替えはそのまま使う）。一覧の集計と絞り込みの時に、値に分ける（Rust側は`multi_value.rs`と、そのSQLの関数。フロントエンドは`#lib/utils/multiValue`。ADR-051）
 - ライブラリフォルダの自動反映: `library_sync.rs` が、設定に応じて起動時・定期（専用スレッド）・フォルダの監視（`notify-debouncer-mini`）で再スキャンする。インポート・再スキャン・ライブラリフォルダの削除・音楽フォルダの設定は`library_scan_lock`で1つずつ行い、ロックの順序は「スキャン → DB」。ファイルの整理・ファイルへのタグの書き出し・ファイルからのメタデータの読み直し（`refresh_library_metadata`）も、同じロックを取って再スキャンと重ならないようにする。アプリ自身が曲のファイルへ書いた変更の通知では、再スキャンしない（`own_writes.rs`に、書いたファイルと書いた直後の状態を記録する）
@@ -158,7 +159,7 @@ sequenceDiagram
 1. 設定ウィンドウの「ライブラリ」（`LibraryBackupSettings`）で「バックアップを保存...」を押すと、`export_library_backup`がRust側の保存のダイアログで選んだファイルへ、DBを`VACUUM INTO`で写し、設定を足す（`backup.rs`。ADR-073）
 2. 「バックアップから復元...」を押すと、`plan_library_restore`がRust側のダイアログで選んだファイルを調べ、復元できるファイルを預かって（`PendingRestore`）件数を返す。画面が内容を見せて確かめる（復元できないファイルは、理由をトーストで知らせる）
 3. 「復元して再起動」で`restore_library_backup`を呼ぶ。Rust側は、今のDBと設定をアプリのデータの`backups/`へ退避し、復元するDBと設定を`restore/`へ用意してから、アプリを再起動する
-4. 起動時（`lib.rs`の`setup`）に、DBと設定を開く前に、用意してある復元を当てる（`backup::apply_staged_restore`）。別のMacで復元してライブラリフォルダが見つからない場合は、上の「ライブラリフォルダの場所の付け替え」で新しい場所へ付け替える
+4. 起動時（`lib.rs`の`setup`）に、DBと設定を開く前に、用意してある復元を当てる（`backup::apply_staged_restore`）。当てられなかった時は、起動を続けて、画面で知らせる（`startup::StartupNotice`。ADR-088）。別のMacで復元してライブラリフォルダが見つからない場合は、上の「ライブラリフォルダの場所の付け替え」で新しい場所へ付け替える
 5. 自動のバックアップ（設定`autoBackup`）は、別スレッド（`backup::start`）が1時間ごとに確かめ、その日の分がなければ`backups/`へ作る
 
 ### デバイスへの転送

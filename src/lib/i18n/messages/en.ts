@@ -804,6 +804,19 @@ export const en: Messages = {
         : `The file could not be opened: ${error}`
   },
 
+  startup: {
+    context: 'Startup notices',
+    title: 'Library data',
+    databaseQuarantined: (path, hasBackups) =>
+      `The library data could not be opened, so Muspice started with an empty library.\n\nThe data that could not be opened is kept at:\n${path}\n\n${
+        hasBackups
+          ? 'To go back to your previous library, choose an automatic backup with "Restore from Backup..." in the Backup settings.'
+          : 'No backup to restore was found. Set the music folder again to load your tracks again (information only this app had, such as play counts and playlists, will not come back).'
+      }`,
+    restoreFailed: (detail) =>
+      `Restoring from the backup failed. The library is as it was before the restore.\nMuspice will try the restore again the next time it starts.\n\nDetails: ${detail}`
+  },
+
   about: {
     title: 'About Muspice',
     version: (version) => `Version ${version}`,

@@ -4,7 +4,7 @@
  * 確認ダイアログはOSのネイティブダイアログ（dialogプラグイン）、テキスト入力は
  * アプリ内のダイアログ（`TextPromptDialog`）で表示する。
  */
-import { confirm } from '@tauri-apps/plugin-dialog';
+import { confirm, message } from '@tauri-apps/plugin-dialog';
 import { m } from '#lib/i18n/i18n.svelte.js';
 
 /**
@@ -24,6 +24,17 @@ export function confirmDestructive(message: string, okLabel = m.common.delete): 
     okLabel,
     cancelLabel: m.common.cancel
   });
+}
+
+/**
+ * 知らせのダイアログ（OKだけ）を表示し、閉じるまで待つ
+ *
+ * トーストは数秒で消えるため、利用者に必ず読んでほしい知らせ（起動時の問題など）に使う。
+ * @param text - ダイアログに表示する文
+ * @param title - ダイアログの題
+ */
+export async function showNotice(text: string, title: string): Promise<void> {
+  await message(text, { title, kind: 'warning' });
 }
 
 /** テキスト入力ダイアログの表示内容 */

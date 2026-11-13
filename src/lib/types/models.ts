@@ -89,6 +89,7 @@ export type {
   SmartRule,
   SmartRules,
   SortTags,
+  StartupNotice,
   StartupPage,
   SyncDevice,
   SyncDeviceConfig,

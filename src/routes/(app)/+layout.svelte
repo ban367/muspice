@@ -25,6 +25,8 @@
   import { ui, saveLastPage } from '#lib/stores/ui.svelte.js';
   import { importer } from '#lib/stores/importer.svelte.js';
   import { watchOpenedFiles } from '#lib/stores/openedFiles.js';
+  import { showStartupNotices } from '#lib/stores/startupNotices.js';
+  import { handleError } from '#lib/stores/error.svelte.js';
   import { albumArtDialog } from '#lib/stores/albumArt.svelte.js';
   import { tagToolsDialog } from '#lib/stores/tagTools.svelte.js';
   import { fileOrganizeDialog } from '#lib/stores/fileOrganize.svelte.js';
@@ -61,6 +63,9 @@
 
   // メニューバーからのイベントをリッスン
   onMount(() => {
+    // 起動の途中で起きた問題（DBを開けずに空のライブラリで起動した、など）を知らせる
+    showStartupNotices().catch((error) => handleError(error, m.startup.context));
+
     // インポートダイアログを開くイベント
     const unlistenImport = events.openImportDialog.listen(() => {
       ui.isImportDialogOpen = true;

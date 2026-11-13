@@ -1,11 +1,74 @@
-use rusqlite::{Connection, Result};
+use rusqlite::{Connection, OptionalExtension, Result};
 use std::path::PathBuf;
 
+/// DBの表の作りの版（`app_meta`の`schema_version`に記録する。ADR-088）
+///
+/// 前の版のアプリが、このDBを正しく扱えなくなる変更をした時に上げる（列・表を足すだけで、前の版が
+/// そのまま読み書きできる変更では上げない）。記録が新しい版のDBは開かない（`DbOpenError::NewerSchema`）。
+/// 全文検索の表の版（`FTS_SCHEMA_VERSION`。`PRAGMA user_version`）とは別に持つ。
+pub const DB_SCHEMA_VERSION: i64 = 1;
+
+/// DBの情報を持つ表（キーと値）
+const APP_META_TABLE: &str = "app_meta";
+
+/// DBを開けなかった理由
+#[derive(Debug, thiserror::Error)]
+pub enum DbOpenError {
+    /// 新しい版のアプリが作ったDB（この版では扱えない。DBには触らない）
+    #[error(
+        "the database was written by a newer version of the app (schema version {found}, supported up to {supported})"
+    )]
+    NewerSchema { found: i64, supported: i64 },
+    #[error(transparent)]
+    Sqlite(#[from] rusqlite::Error),
+}
+
 /// データベース接続を初期化
-pub fn init_db(db_path: PathBuf) -> Result<Connection> {
+///
+/// 新しい版のアプリが作ったDBは、移行を始める前に断る（何も書き換えない）。
+pub fn init_db(db_path: PathBuf) -> std::result::Result<Connection, DbOpenError> {
     let conn = Connection::open(db_path)?;
+    if let Some(found) = stored_schema_version(&conn)?
+        && found > DB_SCHEMA_VERSION
+    {
+        return Err(DbOpenError::NewerSchema {
+            found,
+            supported: DB_SCHEMA_VERSION,
+        });
+    }
     setup_connection(&conn)?;
     Ok(conn)
+}
+
+/// DBに記録してある表の作りの版（記録する前の版のアプリが作ったDB・ほかのDBはNone）
+///
+/// バックアップのファイルを調べる時にも使う（新しい版のDBは復元しない）。
+pub fn stored_schema_version(conn: &Connection) -> Result<Option<i64>> {
+    let has_table: bool = conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1)",
+        [APP_META_TABLE],
+        |row| row.get(0),
+    )?;
+    if !has_table {
+        return Ok(None);
+    }
+    let value: Option<String> = conn
+        .query_row(
+            &format!("SELECT value FROM {APP_META_TABLE} WHERE key = 'schema_version'"),
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(value.and_then(|value| value.parse().ok()))
+}
+
+/// 表の作りの版を記録する（移行の最後に呼ぶ）
+fn record_schema_version(conn: &Connection) -> Result<()> {
+    conn.execute_batch(&format!(
+        "CREATE TABLE IF NOT EXISTS {APP_META_TABLE} (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+         INSERT INTO {APP_META_TABLE} (key, value) VALUES ('schema_version', '{DB_SCHEMA_VERSION}')
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value;"
+    ))
 }
 
 /// 開いた接続を使える状態にする（接続ごとの設定と、スキーマの作成・移行）
@@ -415,6 +478,7 @@ fn run_migrations(conn: &Connection) -> Result<()> {
 
     rename_formats(conn)?;
     migrate_to_half_star_ratings(conn)?;
+    record_schema_version(conn)?;
 
     Ok(())
 }
@@ -955,6 +1019,59 @@ mod tests {
             .collect();
         // 形式の条件だけを直す（タイトルの「WV」は、そのまま）
         assert_eq!(values, ["WavPack", "WV", "FLAC"]);
+    }
+
+    /// 表の作りの版を記録し、新しい版のアプリが作ったDBは、何も書き換えずに断る
+    #[test]
+    fn test_newer_schema_is_refused_without_changes() {
+        let dir = crate::device_manifest::test_support::TempDir::new();
+        let path = dir.path().join("muspice.db");
+
+        // 初めて開いたDBには、今の版を記録する
+        let conn = init_db(path.clone()).unwrap();
+        assert_eq!(
+            stored_schema_version(&conn).unwrap(),
+            Some(DB_SCHEMA_VERSION)
+        );
+        // 新しい版のアプリが、版を上げて、この版の知らない形にした（ここでは、表を1つなくす）
+        conn.execute_batch(&format!(
+            "UPDATE app_meta SET value = '{}' WHERE key = 'schema_version';
+             DROP TABLE play_history;",
+            DB_SCHEMA_VERSION + 1
+        ))
+        .unwrap();
+        drop(conn);
+
+        let error = init_db(path.clone()).unwrap_err();
+        assert!(
+            matches!(error, DbOpenError::NewerSchema { found, supported }
+                if found == DB_SCHEMA_VERSION + 1 && supported == DB_SCHEMA_VERSION),
+            "{error:?}"
+        );
+        // 移行を始めていない（消した表を作り直していない）
+        let conn = Connection::open(&path).unwrap();
+        let has_history: bool = conn
+            .query_row(
+                "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE name = 'play_history')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(!has_history);
+    }
+
+    /// 版を記録する前の版のアプリが作ったDBは、そのまま開いて、今の版を記録する
+    #[test]
+    fn test_database_without_schema_version_is_opened() {
+        let conn = open_in_memory();
+        conn.execute_batch("DROP TABLE app_meta").unwrap();
+        assert_eq!(stored_schema_version(&conn).unwrap(), None);
+
+        setup_connection(&conn).unwrap();
+        assert_eq!(
+            stored_schema_version(&conn).unwrap(),
+            Some(DB_SCHEMA_VERSION)
+        );
     }
 
     /// 評価を星の数（0〜5）で持っていたDBは、評価と自動プレイリストの評価の条件を、1回だけ2倍にする
