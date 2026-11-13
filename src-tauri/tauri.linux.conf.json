@@ -1,5 +1,6 @@
 {
   "bundle": {
+    "targets": ["deb"],
     "fileAssociations": [
       {
         "ext": ["mp3"],

@@ -1,6 +1,10 @@
 # Muspice
 
-PC向けデスクトップ音楽管理アプリケーション
+macOS向けのデスクトップ音楽管理アプリケーション
+
+## 対応するOS
+
+macOSだけに対応しています。Linuxは、CIでビルドとテストを通していますが、動作は保証しません。Windowsには対応していません（[設計判断](docs/design/decisions.md)のADR-090）。
 
 ## 技術スタック
 
@@ -16,7 +20,7 @@ PC向けデスクトップ音楽管理アプリケーション
 - npm 11以上（Node.js 24に同梱）
 - Rust（`rust-toolchain.toml`の版。rustupが自動で入れる）
 - CコンパイラとCMake（Opusのデコーダーの`symphonia-adapter-libopus`が、同梱のlibopusをビルドするため。macOSではXcodeのCommand Line Toolsと、Homebrewなどで入れたCMake）
-- Linuxでは、Tauri（WebKitGTK・GTK・トレイ）と音声の出力（ALSA）に要るシステムのパッケージ（CIの`.github/workflows/ci.yml`で入れているものと同じ）。Ubuntuの場合（`build-essential`・`cmake`は、上のCコンパイラとCMake）:
+- Linux（対応の対象外。ビルドとテストだけを通す）では、Tauri（WebKitGTK・GTK・トレイ）と音声の出力（ALSA）に要るシステムのパッケージ（CIの`.github/workflows/ci.yml`で入れているものと同じ）。Ubuntuの場合（`build-essential`・`cmake`は、上のCコンパイラとCMake）:
 
 ```bash
 sudo apt-get install -y build-essential cmake \

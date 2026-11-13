@@ -504,6 +504,8 @@ Tauriのウィンドウ（macOSではWKWebView）はブラウザ自動化ツー�
 
 ジョブ名（`name:`）は、mainのルールセット「Main Branch Protection」の必須チェックに登録する（`Frontend Check`・`Backend Check`・`Backend Check (macOS)`・`Build Test (ubuntu-latest)`）。名前を変える時は、ルールセットも合わせて直す（直さないと、すべてのPRがマージできなくなる）。
 
+対応するOSはmacOSだけ（ADR-090）で、配布の対象（`tauri.conf.json`の`bundle.targets`）は`app`・`dmg`。CIのビルドテストはLinuxで行うため、`tauri.linux.conf.json`で、Linuxの配布物を`.deb`だけにしている（ビルドが通ることの確認。macOSの配布物のビルドは、リリース用のワークフロー（#303）で行う）。
+
 Linuxでは、Tauriの依存に加えて、再生エンジンの出力（`cpal`のALSA）のために`libasound2-dev`を入れる。libopusのビルドにはcmakeが要る（GitHubのランナーには入っている。手元のmacOSでは`brew install cmake`）。
 
 `.github/workflows/audit.yml` で依存関係の脆弱性を検査する（毎週・lockfile変更PR時。詳細は `non-functional.md`）。
