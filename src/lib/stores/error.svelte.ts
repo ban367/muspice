@@ -1,5 +1,6 @@
 import { m } from '#lib/i18n/i18n.svelte.js';
 import type { AppError } from '#lib/types/models.js';
+import { reportError } from '#lib/utils/errorLog.js';
 
 export interface ErrorNotification {
   id: string;
@@ -84,7 +85,7 @@ export function toErrorMessage(error: unknown): string {
 /**
  * グローバルエラーハンドラー
  *
- * `toErrorMessage`で変換したメッセージをトーストで通知する。
+ * `toErrorMessage`で変換したメッセージをトーストで通知し、元のエラーをログファイルに残す。
  */
 export function handleError(error: unknown, context?: string): void {
   let message = toErrorMessage(error);
@@ -99,6 +100,8 @@ export function handleError(error: unknown, context?: string): void {
 
   // コンソールにも出力（開発用）
   console.error('[Error]', context || '', error);
+  // ログファイルにも残す（リリースビルドでは、コンソールを見られない。ADR-089）
+  reportError(error, context);
 }
 
 /**

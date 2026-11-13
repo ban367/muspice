@@ -765,6 +765,9 @@ iTunes形式のライブラリXML（MusicBee・iTunes / ミュージックが書
 | `get_play_history`       | なし                                                     | `PlayHistoryEntry[]`    |
 | `show_in_folder`         | `trackId`                                                | `void`                  |
 | `open_project_page`      | なし                                                     | `void`                  |
+| `log_frontend_message`   | `level: 'error' \| 'warn'`, `message`                    | `void`                  |
+
+`log_frontend_message`は、画面（WebView）で起きたエラー・警告を、アプリのログファイルに残す（ADR-089）。文は1行にして（改行は`|`に、ほかの制御文字は空白にする）4000文字で切り、1分に30件を超えた分は書かない。書き込む先はアプリのログだけで、WebViewから場所は選べない。メニューの「ヘルプ」→「ログのフォルダを開く」（`open_log_folder`）は、Rust側でログのフォルダを開く（コマンドではない）。
 
 `set_rating`は、評価をファイルのタグへ書き込み、同じ値をDBに記録する（0は評価のタグを取り除く）。評価は半分の星の単位（0〜10。7は星3.5）で持つ（ADR-082）。評価は`ItemKey::Popularimeter`（ID3v2 `POPM` / Vorbis `RATING` / MP4 `rate` / RIFF `IRTD`）で読み書きし、インポート・再スキャン・`refresh_library_metadata`でタグから読み込む（読み書きは`rating_tag.rs`）。
 

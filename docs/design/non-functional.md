@@ -90,6 +90,9 @@
 - ログは `tauri-plugin-log` が標準出力とOS標準のログフォルダに出力する（ファイル名は `muspice.log`、レベルはInfo以上、時刻はローカル時刻）
   - macOS: `~/Library/Logs/com.ban367.muspice`、Windows: `%LOCALAPPDATA%\com.ban367.muspice\logs`、Linux: `~/.local/share/com.ban367.muspice/logs`
   - 5MiBを超えたら日時付きの名前に変えて新しいファイルに切り替え、古いファイルは4つまで残す（最大で約25MiB）
+  - Rustのpanicは、panicフック（`diagnostics::install_panic_hook`）がログにも書く（スレッドの名前・場所・メッセージ。標準エラーへの出力は、そのまま）。裏のスレッドのpanicは、そのスレッドが止まるだけでアプリは動き続けるため、ログがないと気付けない（ADR-089）
+  - 画面（WebView）で起きたエラーも、ログに残す（出どころは`frontend`）。`handleError`に渡ったエラー・受け止められなかったエラー（`error`・`unhandledrejection`）・描画の例外を、コマンド`log_frontend_message`で受け取る。文は1行にして4000文字で切り、1分に30件を超えた分は書かない（書かなかった数を、次の1分の最初に1行で残す）。ログのプラグインのJSのAPIは、WebViewに公開しない（ADR-005）
+  - 利用者は、「ヘルプ」メニューの「ログのフォルダを開く」で、ログのフォルダを開ける（不具合の報告に添える）
   - 再生エンジンのデコーダー（symphonia）のログは、エラーだけを残す（曲を開くたびに形式の情報などを出すため）。出力が開き直された・デコードが間に合わず音が途切れたことは、再生エンジンがログに残す
   - アプリデータ配下（以前の出力先）ではなくOS標準の場所にしているのは、macOSのコンソールアプリで参照でき、WindowsではRoamingプロファイルに含まれないため
 

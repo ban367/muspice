@@ -53,3 +53,30 @@ pub fn take_startup_notices(
 ) -> AppResult<Vec<crate::startup::StartupNotice>> {
     Ok(notices.take())
 }
+
+/// 画面（WebView）で起きたエラー・警告を、ログファイルに残す（ADR-089）
+///
+/// リリースビルドでは、WebViewのコンソールを見られないため、画面の`handleError`・受け止められなかった
+/// エラーなどを、ここへ送る。文は1行にして切り、短い時間に多すぎる分は書かない
+/// （`diagnostics::FrontendLogLimiter`）。書き込む先は、アプリのログだけ（WebViewから場所を選べない）。
+#[tauri::command]
+#[specta::specta]
+pub fn log_frontend_message(
+    level: crate::diagnostics::FrontendLogLevel,
+    message: String,
+    limiter: State<'_, crate::diagnostics::FrontendLogLimiter>,
+) -> AppResult<()> {
+    limiter.log(level, &message);
+    Ok(())
+}
+
+/// ログのフォルダを、システムのファイルマネージャーで開く（メニューの「ログのフォルダを開く」）
+pub fn open_log_folder<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> AppResult<()> {
+    use tauri::Manager;
+    let dir = app
+        .path()
+        .app_log_dir()
+        .map_err(|e| AppError::Io(format!("ログのフォルダを取得できません: {}", e)))?;
+    tauri_plugin_opener::open_path(&dir, None::<&str>)
+        .map_err(|e| AppError::Io(format!("ログのフォルダを開けませんでした: {}", e)))
+}

@@ -98,7 +98,15 @@ export const en: Messages = {
     },
     unknown: 'An error occurred',
     withContext: (context, message) => `${context}: ${message}`,
-    playbackFailed: 'Failed to play the track'
+    playbackFailed: 'Failed to play the track',
+    screen: {
+      title: 'This screen could not be shown',
+      hint: 'If trying again does not help, restart the app. The details of the error are in the log, which you can open with "Show Log Folder" in the Help menu.',
+      notFound: 'This screen was not found',
+      retry: 'Try Again',
+      reload: 'Reload',
+      home: 'Back to Songs'
+    }
   },
 
   operations: {
