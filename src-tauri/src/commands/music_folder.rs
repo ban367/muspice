@@ -122,8 +122,20 @@ pub struct PendingMusicFolder(Mutex<Option<PendingChange>>);
 /// 預かっている音楽フォルダ
 struct PendingChange {
     folder: PathBuf,
-    /// 既定の音楽フォルダか（なければ、置き換える時に作る）
-    is_default: bool,
+    /// 置き換える時に、フォルダを作るか（預かった時になかった、既定の音楽フォルダ）。預かった時に
+    /// あったフォルダは、置き換える時になくなっていたら、作り直さずにやめる
+    create_if_missing: bool,
+}
+
+impl PendingChange {
+    /// 確認を求めた時の、フォルダの状態を覚える
+    fn new(folder: PathBuf, is_default: bool) -> Self {
+        let create_if_missing = is_default && !folder.is_dir();
+        Self {
+            folder,
+            create_if_missing,
+        }
+    }
 }
 
 impl PendingMusicFolder {
@@ -240,7 +252,7 @@ pub async fn set_music_folder(
         )?;
         match &change {
             MusicFolderChange::ConfirmReplace { .. } => {
-                pending.hold(PendingChange { folder, is_default });
+                pending.hold(PendingChange::new(folder, is_default));
             }
             MusicFolderChange::Set { .. } => after_change(&app_handle),
         }
@@ -271,7 +283,7 @@ pub async fn confirm_music_folder_change(
         let change = change_music_folder(
             app_handle.state::<AppState>().inner(),
             &pending.folder,
-            pending.is_default,
+            pending.create_if_missing,
             ChangeMode::Replace {
                 backup: backup.then_some(&write_backup as BackupWriter),
             },
@@ -413,12 +425,13 @@ fn plan_replacement(conn: &Connection, path: &str) -> AppResult<ReplacementPlan>
 
 /// フォルダを音楽フォルダにし、ライブラリをそのフォルダの中身に置き換える（同期処理）
 ///
-/// `is_default`なら、既定の音楽フォルダとして、なければ作る（確認を求める場合は作らない。音楽
-/// フォルダにできなかった場合は、空のフォルダを残さない）。
+/// `create_if_missing`なら、フォルダがなければ作る（既定の音楽フォルダを、初めて選んだ時。確認を
+/// 求める場合は作らない。音楽フォルダにできなかった場合は、空のフォルダを残さない）。それ以外は、
+/// フォルダがなければ`NOT_FOUND`（選んだ後・確認を求めた後に、なくなったフォルダへは置き換えない）。
 fn change_music_folder(
     state: &AppState,
     folder: &Path,
-    is_default: bool,
+    create_if_missing: bool,
     mode: ChangeMode,
     on_progress: &dyn Fn(ImportProgress),
 ) -> AppResult<MusicFolderChange> {
@@ -449,9 +462,9 @@ fn change_music_folder(
         ChangeMode::AskIfRemoving => None,
         ChangeMode::Replace { backup } => Some(backup),
     };
-    // 選んだ後に見つからなくなったフォルダ（外れたドライブなど）へは、置き換えない（バックアップも
-    // 書かない）。既定のフォルダは、なければこの後で作る
-    if !is_default && !folder.is_dir() {
+    // 選んだ後・確認を求めた後に見つからなくなったフォルダ（外れたドライブ・動かしたフォルダなど）へは、
+    // 置き換えない（バックアップも書かない）。初めて選んだ既定のフォルダは、この後で作る
+    if !create_if_missing && !folder.is_dir() {
         return Err(AppError::NotFound(format!(
             "音楽フォルダにするフォルダ（{}）が見つかりません",
             folder.display()
@@ -463,7 +476,7 @@ fn change_music_folder(
         None => None,
     };
 
-    let created = is_default && create_default_folder(folder)?;
+    let created = create_if_missing && create_default_folder(folder)?;
     let applied = apply_change(state, &path, replace, on_progress);
     if created && applied.is_err() {
         let _ = std::fs::remove_dir(folder);
@@ -842,6 +855,58 @@ mod tests {
         assert!(!backups.exists());
     }
 
+    /// 確認を求めた時にあった既定の音楽フォルダが、置き換える時になくなっていたら、作り直さずに
+    /// やめる（何も消さない）。確認を求めた時になかった既定のフォルダは、置き換える時に作る
+    #[test]
+    fn test_default_folder_is_recreated_only_when_it_was_missing_at_first() {
+        let dir = TempDir::new();
+        let music = dir.path().join("Music");
+        let folder = music.join(DEFAULT_MUSIC_FOLDER_NAME);
+        fs::create_dir_all(&folder).unwrap();
+        write_wav(&music.join("a.wav"));
+        write_wav(&folder.join("b.wav"));
+        let state = test_state();
+        change(&state, &music);
+        create_playlist_with_all_tracks(&state, "Drive");
+
+        // 預かった時にあったフォルダ（中に曲がある）が、確かめている間になくなった
+        let pending = PendingChange::new(folder.clone(), true);
+        assert!(!pending.create_if_missing);
+        fs::remove_dir_all(&folder).unwrap();
+        let result = change_music_folder(
+            &state,
+            &pending.folder,
+            pending.create_if_missing,
+            ChangeMode::Replace { backup: None },
+            &|_| {},
+        );
+
+        assert!(matches!(result, Err(AppError::NotFound(_))), "{result:?}");
+        assert!(!folder.exists());
+        assert_eq!(tracks(&state).len(), 2);
+        assert_eq!(folder_paths(&state), [path_str(&music)]);
+        assert_eq!(music_folder_path(&state), Some(path_str(&music)));
+        assert_eq!(playlist_names(&state), ["Drive"]);
+
+        // 預かった時になかった既定のフォルダ（初めて選んだ）は、置き換える時に作る
+        let pending = PendingChange::new(folder.clone(), true);
+        assert!(pending.create_if_missing);
+        let result = change_music_folder(
+            &state,
+            &pending.folder,
+            pending.create_if_missing,
+            ChangeMode::Replace { backup: None },
+            &|_| {},
+        )
+        .unwrap();
+
+        assert!(matches!(result, MusicFolderChange::Set { .. }));
+        assert!(folder.is_dir());
+        assert_eq!(music_folder_path(&state), Some(path_str(&folder)));
+        // ダイアログで選んだフォルダは、なくても作らない
+        assert!(!PendingChange::new(dir.path().join("picked"), false).create_if_missing);
+    }
+
     /// 新しいフォルダを走査できない場合（フォルダではなくファイルだった・読めない）も、何も消さない。
     /// 外す曲がなく、確かめずに音楽フォルダにする経路でも同じ
     #[test]
@@ -1106,10 +1171,7 @@ mod tests {
     #[test]
     fn test_pending_music_folder_is_taken_once() {
         let pending = PendingMusicFolder::default();
-        pending.hold(PendingChange {
-            folder: PathBuf::from("/m"),
-            is_default: false,
-        });
+        pending.hold(PendingChange::new(PathBuf::from("/m"), false));
         assert!(pending.take().is_some());
         assert!(pending.take().is_none());
     }
