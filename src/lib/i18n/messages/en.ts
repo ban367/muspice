@@ -832,6 +832,17 @@ export const en: Messages = {
     builtWith: 'Built with Tauri + Svelte'
   },
 
+  licenses: {
+    open: 'Open Source Licenses',
+    title: 'Open Source Licenses',
+    intro:
+      'Muspice (MIT License) includes the following open source software. Select a name to show its license text.',
+    count: (count) => plural(count, 'package', 'packages'),
+    unavailable:
+      'The license list is included in built apps (it is not available in development screens).',
+    rustMissing: 'This list does not include the Rust libraries (frontend-only build).'
+  },
+
   library: {
     songs: 'Songs',
     albums: 'Albums',

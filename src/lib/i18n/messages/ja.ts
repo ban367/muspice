@@ -869,6 +869,18 @@ export const ja = {
     builtWith: 'Tauri + Svelte で作っています'
   },
 
+  /** 依存ライブラリのライセンスの一覧（ADR-091） */
+  licenses: {
+    open: 'オープンソースのライセンス',
+    title: 'オープンソースのライセンス',
+    intro:
+      'Muspice（MITライセンス）は、次のオープンソースのソフトウェアを組み込んでいます。名前を押すと、ライセンスの文を表示します。',
+    count: (count: number) => `${count}件`,
+    unavailable:
+      'ライセンスの一覧は、ビルドしたアプリに入ります（開発中の画面には、一覧がありません）。',
+    rustMissing: 'この一覧には、Rustのライブラリが入っていません（フロントエンドだけのビルド）。'
+  },
+
   library: {
     songs: '曲',
     albums: 'アルバム',

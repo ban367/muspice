@@ -110,6 +110,10 @@ npm test
 cd src-tauri && cargo test
 ```
 
+## ライセンス
+
+Muspiceは[MITライセンス](LICENSE)で公開しています。アプリに組み込んでいる依存ライブラリのライセンスは、アプリの「Muspice について」→「オープンソースのライセンス」で確認できます（一覧は、ビルドの時に`scripts/third-party-licenses.mjs`が作ります）。
+
 ## Recommended IDE Setup
 
 [VS Code](https://code.visualstudio.com/) + [Svelte](https://marketplace.visualstudio.com/items?itemName=svelte.svelte-vscode) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer) + [ESLint](https://marketplace.visualstudio.com/items?itemName=dbaeumer.vscode-eslint) + [Prettier](https://marketplace.visualstudio.com/items?itemName=esbenp.prettier-vscode) + [markdownlint](https://marketplace.visualstudio.com/items?itemName=DavidAnson.vscode-markdownlint)

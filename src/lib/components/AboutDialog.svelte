@@ -3,6 +3,7 @@
   import { ui } from '#lib/stores/ui.svelte.js';
   import { useOpenProjectPageMutation } from '#lib/queries/system.js';
   import { Modal } from '#lib/components/ui/index.js';
+  import ThirdPartyLicensesDialog from '#lib/components/ThirdPartyLicensesDialog.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   const openProjectPage = useOpenProjectPageMutation();
@@ -10,8 +11,17 @@
   // 版はtauri.conf.jsonだけに書くため（ADR-067）、実行中のアプリから読む
   const appVersion = getVersion();
 
+  /** 依存ライブラリのライセンスの一覧を開いているか */
+  let isLicensesOpen = $state(false);
+
   function closeDialog() {
     ui.isAboutDialogOpen = false;
+  }
+
+  /** ライセンスの一覧を開く（ダイアログを重ねないよう、このダイアログは閉じる） */
+  function openLicenses() {
+    closeDialog();
+    isLicensesOpen = true;
   }
 </script>
 
@@ -64,10 +74,15 @@
       </svg>
       GitHub
     </button>
+    <button type="button" class="about-link" onclick={openLicenses}>
+      {m.licenses.open}
+    </button>
   </div>
 
   <button class="btn-primary about-close-btn" onclick={closeDialog}>{m.common.close}</button>
 </Modal>
+
+<ThirdPartyLicensesDialog open={isLicensesOpen} onClose={() => (isLicensesOpen = false)} />
 
 <style>
   @reference "../../app.css";
@@ -93,7 +108,7 @@
   }
 
   .about-links {
-    @apply mb-6;
+    @apply mb-6 flex flex-col items-center gap-2;
   }
 
   .about-link {
