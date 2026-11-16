@@ -120,6 +120,8 @@ export const MOCK_EVENT_NAMES = {
   showAboutDialog: 'show-about-dialog',
   toggleMiniPlayer: 'toggle-mini-player',
   toggleSidebar: 'toggle-sidebar',
+  trackEditorChanged: 'track-editor-changed',
+  tracksEdited: 'tracks-edited',
   tracksOpened: 'tracks-opened'
 } as const satisfies Record<MockEventName, string>;
 type CommandResult<K extends CommandName> = Awaited<ReturnType<Commands[K]>>;
@@ -148,12 +150,17 @@ export interface MockBackendOptions {
    * （ブラウザでは`sessionStorage`を渡す。省略時は、メモリ上にだけ持つ）
    */
   storage?: Pick<Storage, 'getItem' | 'setItem'>;
+  /**
+   * 曲の情報の編集画面のウィンドウを開く（`openTrackEditor`。ブラウザでは、別のウィンドウで
+   * `/track-editor`を開く。編集する曲は`storage`で渡す）
+   */
+  openWindow?: (path: string) => void;
 }
 
 /** M3Uの読み込みで、選んだことにするファイル */
 export type MockM3uImportMode = 'partial' | 'clean' | 'cancel';
 
-/** アルバムアートの埋め込み（`setAlbumArt`）で、選んだことにする画像 */
+/** アルバムアートの画像を選ぶ（`pickAlbumArt`）時に、選んだことにする画像 */
 export type MockAlbumArtPickMode = 'pick' | 'cancel' | 'tooLarge';
 
 export interface MockBackend {
@@ -174,7 +181,7 @@ export interface MockBackend {
    */
   setM3uImportMode(mode: MockM3uImportMode): void;
   /**
-   * アルバムアートの埋め込み（`setAlbumArt`）で、選んだことにする画像を切り替える
+   * アルバムアートの画像を選ぶ（`pickAlbumArt`）時に、選んだことにする画像を切り替える
    *
    * - `pick`（既定）: 埋め込める画像（選ぶたびに、違う色の画像になる）
    * - `cancel`: 画像を選ばなかった
@@ -378,6 +385,8 @@ interface MockSyncDevice extends Omit<SyncDevice, 'freeBytes' | 'totalBytes'> {
 
 /** 再生状態を保存するキー（`storage`を渡した場合） */
 const PLAYBACK_STATE_KEY = 'muspice-mock:playback-state';
+/** 編集画面で扱う曲（`openTrackEditor`で預け、`getTrackEditorTracks`で受け取る）の保存先のキー */
+const TRACK_EDITOR_KEY = 'muspice-mock:track-editor';
 
 /** 保存する再生状態（Rustの`playback_state.rs`の`StoredState`と同じ内容） */
 interface StoredPlaybackState {
@@ -648,6 +657,10 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   const embeddedArt = new Map<string, number | null>();
   let albumArtPickMode: MockAlbumArtPickMode = 'pick';
   let pickedArtCount = 0;
+  /** 選んで、まだ書き込んでいない画像（Rustの`PendingAlbumArt`。印と画像の番号） */
+  let pendingArt: { token: string; picture: number } | null = null;
+  /** 編集画面で扱う曲（ブラウザでは`storage`にも置き、別のウィンドウで受け取る） */
+  let editorTrackIds: string[] = [];
   // 前回の再生状態（保存先に壊れた内容があれば使わない）
   let playbackState: StoredPlaybackState = EMPTY_PLAYBACK_STATE;
   try {
@@ -969,6 +982,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     track.updatedAt = now();
     // データベースに保存しない項目（作曲者・歌詞など）は、ファイルのタグの代わりに持っておく
     fileOnlyTags.set(trackId, pickFileOnlyTags(metadata));
+    options.emit('tracksEdited', { trackIds: [trackId], albumArt: false });
     return keepMusicFolderOrganized([trackId]);
   }
 
@@ -1115,6 +1129,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       errors: [],
       organized: null
     };
+    const updatedIds: string[] = [];
     for (const trackId of trackIds) {
       const track = tracks.find((t) => t.id === trackId);
       if (!track || track.isMissing) {
@@ -1131,6 +1146,11 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       // 画像の分だけ、ファイルのサイズが変わる
       track.fileSize += embeddedArtSize(track) - sizeBefore;
       result.updatedCount++;
+      updatedIds.push(track.id);
+    }
+    // ほかのウィンドウ（メインウィンドウ）に、書き換えた曲の画像を読み直させる
+    if (updatedIds.length > 0) {
+      options.emit('tracksEdited', { trackIds: updatedIds, albumArt: true });
     }
     return result;
   }
@@ -2382,6 +2402,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       });
       const timestamp = now();
       for (const track of targets) applyPartialMetadata(track, metadata, timestamp);
+      options.emit('tracksEdited', { trackIds, albumArt: false });
       // モックではファイルへの書き込みに失敗しない
       return {
         updatedCount: targets.length,
@@ -2521,16 +2542,53 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       if (!track) fail('NOT_FOUND', `トラックが見つかりません: ${trackId}`);
       return albumArtOf(track).info;
     },
-    setAlbumArt: (trackIds) => {
-      // 画像を選ぶダイアログ（Rust側が開く）の代わりに、決まった画像を選んだことにする
-      validateAlbumArtTargets(trackIds);
+    pickAlbumArt: () => {
+      // 画像を選ぶダイアログ（Rust側が開く）の代わりに、決まった画像を選んだことにする（書き込まずに預かる）
       if (albumArtPickMode === 'cancel') return null;
       if (albumArtPickMode === 'tooLarge') fail('VALIDATION', '画像が大きすぎます（10MBまで）');
       const picture = ++pickedArtCount;
+      pendingArt = { token: `mock-album-art-${picture}`, picture };
+      return {
+        token: pendingArt.token,
+        dataUrl: createAlbumArt(`picked-${picture}`),
+        mimeType: 'image/png',
+        size: 512_000 + picture * 1_000,
+        width: 1200,
+        height: 1200
+      };
+    },
+    setAlbumArt: (trackIds, token) => {
+      validateAlbumArtTargets(trackIds);
+      const held = pendingArt;
+      if (!held || held.token !== token) {
+        fail('VALIDATION', '画像が見つかりません。もう一度選んでください');
+      }
       return writeAlbumArt(trackIds, (track) => {
-        embeddedArt.set(track.id, picture);
+        embeddedArt.set(track.id, held.picture);
         return true;
       });
+    },
+    openTrackEditor: (trackIds) => {
+      if (trackIds.length === 0) fail('VALIDATION', 'トラックIDが指定されていません');
+      trackIds.forEach(validateTrackId);
+      editorTrackIds = trackIds;
+      pendingArt = null;
+      options.storage?.setItem(TRACK_EDITOR_KEY, JSON.stringify(trackIds));
+      // ブラウザでは、開いたページを閉じたことが分からないため、開いた知らせ（`trackEditorChanged`。
+      // メインウィンドウの覆い）は送らない（覆いは`__MUSPICE_MOCK__.emit`で確かめる）
+      options.openWindow?.('/track-editor');
+      return null;
+    },
+    getTrackEditorTracks: () => {
+      // 別のウィンドウ（ブラウザでは別のページ）では、保存先から受け取る
+      let ids = editorTrackIds;
+      try {
+        const stored = options.storage?.getItem(TRACK_EDITOR_KEY);
+        if (ids.length === 0 && stored) ids = JSON.parse(stored) as string[];
+      } catch {
+        ids = editorTrackIds;
+      }
+      return ids.flatMap((id) => tracks.filter((track) => track.id === id));
     },
     removeAlbumArt: (trackIds) => {
       validateAlbumArtTargets(trackIds);

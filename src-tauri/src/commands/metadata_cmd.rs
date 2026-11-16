@@ -165,9 +165,24 @@ pub async fn update_track_metadata(
         })
     })
     .await?;
+    notify_tracks_edited(&app, std::slice::from_ref(&track_id));
 
     // ファイルの移動はブロッキング処理用スレッドで行う
     run_blocking(move || Ok(keep_music_folder_organized(&app, &[track_id]))).await
+}
+
+/// タグを書き換えた曲を、ほかのウィンドウ（メインウィンドウの一覧）に知らせる（ADR-094）
+fn notify_tracks_edited(app: &AppHandle, track_ids: &[String]) {
+    if track_ids.is_empty() {
+        return;
+    }
+    let event = crate::events::TracksEdited {
+        track_ids: track_ids.to_vec(),
+        album_art: false,
+    };
+    if let Err(e) = event.emit(app) {
+        log::warn!("Failed to emit the tag edit event: {}", e);
+    }
 }
 
 /// 一括編集の結果
@@ -218,6 +233,7 @@ pub async fn update_multiple_tracks_metadata(
         let updates: Vec<(&String, &Metadata)> =
             track_ids.iter().map(|id| (id, &metadata)).collect();
         let mut result = update_each_blocking(app.state::<AppState>().inner(), &updates)?;
+        notify_tracks_edited(&app, &result.updated_track_ids);
         result.organized = keep_music_folder_organized(&app, &result.updated_track_ids);
         Ok(result)
     })

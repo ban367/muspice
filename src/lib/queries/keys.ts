@@ -69,6 +69,9 @@ export const queryKeys = {
     track: (trackId: string) => ['trackLyrics', trackId] as const
   },
 
+  /** 曲の情報の編集画面で扱う曲（編集画面のウィンドウで、開いた時に受け取る） */
+  trackEditorTracks: ['trackEditorTracks'] as const,
+
   /** 曲のアルバムアートの情報（どこの画像か・種類・大きさ。ファイルから読む） */
   albumArtInfo: {
     all: ['albumArtInfo'] as const,

@@ -151,7 +151,14 @@ export function setupTauriMock(): void {
     emit: (event, payload) => emit(MOCK_EVENT_NAMES[event], payload),
     extraTrackCount: requestedExtraTrackCount(),
     // 再生状態は、再読み込みの後の復元を確認できるよう、タブを閉じるまで保持する
-    storage: sessionStorage
+    storage: sessionStorage,
+    // 曲の情報の編集画面は、別のウィンドウで開く（sessionStorageは開いたウィンドウへ写される。
+    // 開いたページのモックは別のメモリのため、そこで保存した内容はこのページに届かない）
+    openWindow: (path) => {
+      if (!window.open(path, 'track-editor', 'popup,width=720,height=680')) {
+        console.info(`[mock] Open ${path} to see the editor window`);
+      }
+    }
   });
 
   mockWindows('main');

@@ -2,8 +2,8 @@
   @component ContextMenu
   トラック用コンテキストメニュー。
   再生キューへの追加（次のキューに追加して再生・次のキューに追加・キューの末尾に追加・キューを置き換えて
-  再生）、プレイリスト追加、お気に入りの切り替え、メタデータ編集、タグの一括ツール、
-  ファイルの整理、形式の変換、音量の解析、アルバムアートの変更、削除などのアクションを提供する。
+  再生）、プレイリスト追加、お気に入りの切り替え、曲の情報の編集（別のウィンドウ。アルバムアートの変更も
+  そこで行う）、タグの一括ツール、ファイルの整理、形式の変換、音量の解析、削除などのアクションを提供する。
 -->
 <script lang="ts">
   import { EMPTY_ID_SET } from '#lib/utils/collections.js';
@@ -17,7 +17,7 @@
     QueueMenuItems
   } from '#lib/components/ui/index.js';
   import { useSetFavoriteMutation, useShowInFolderMutation } from '#lib/queries/tracks.js';
-  import { albumArtDialog } from '#lib/stores/albumArt.svelte.js';
+  import { useOpenTrackEditorMutation } from '#lib/queries/trackEditor.js';
   import { tagToolsDialog } from '#lib/stores/tagTools.svelte.js';
   import { fileOrganizeDialog } from '#lib/stores/fileOrganize.svelte.js';
   import { loudnessScanDialog } from '#lib/stores/loudnessScan.svelte.js';
@@ -33,7 +33,6 @@
     tracks?: Track[];
     selectedTrackIds?: ReadonlySet<string>;
     onClose: () => void;
-    onEditMetadata?: () => void;
     onDelete?: () => void;
     /** 選択した曲を、この一覧（プレイリスト）から外す操作（指定した一覧だけに項目を出す） */
     onRemoveFromList?: () => void;
@@ -48,7 +47,6 @@
     tracks = [],
     selectedTrackIds = EMPTY_ID_SET,
     onClose,
-    onEditMetadata,
     onDelete,
     onRemoveFromList,
     removeFromListLabel
@@ -59,6 +57,7 @@
   const convertFormatsQuery = useConvertFormatsQuery();
   const canConvert = $derived((convertFormatsQuery.data?.length ?? 0) > 0);
   const setFavoriteMutation = useSetFavoriteMutation();
+  const openTrackEditorMutation = useOpenTrackEditorMutation();
 
   // 選択されたトラックの数
   const selectedCount = $derived(selectedTrackIds.size > 0 ? selectedTrackIds.size : 1);
@@ -86,12 +85,10 @@
   }
 
   /**
-   * メタデータを編集
+   * 選択した曲（一覧の順）の、曲の情報の編集画面を開く（別のウィンドウ。失敗はトースト通知する）
    */
   function handleEditMetadata() {
-    if (onEditMetadata) {
-      onEditMetadata();
-    }
+    openTrackEditorMutation.mutate(selectedTracks.map((selected) => selected.id));
     onClose();
   }
 
@@ -124,14 +121,6 @@
    */
   function handleLoudnessScan() {
     loudnessScanDialog.open(selectedTracks);
-    onClose();
-  }
-
-  /**
-   * 選択した曲のアルバムアートの画面を開く
-   */
-  function handleAlbumArt() {
-    albumArtDialog.open(selectedTracks);
     onClose();
   }
 
@@ -188,27 +177,25 @@
 
   <MenuSeparator />
 
-  {#if onEditMetadata}
-    <MenuItem onSelect={handleEditMetadata}>
-      {#snippet icon()}
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          class="menu-icon"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-          />
-        </svg>
-      {/snippet}
-      {m.contextMenu.editMetadata}
-    </MenuItem>
-  {/if}
+  <MenuItem onSelect={handleEditMetadata}>
+    {#snippet icon()}
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="menu-icon"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+        />
+      </svg>
+    {/snippet}
+    {m.contextMenu.editMetadata}
+  </MenuItem>
 
   <MenuItem onSelect={handleTagTools}>
     {#snippet icon()}
@@ -290,26 +277,6 @@
       </svg>
     {/snippet}
     {m.contextMenu.loudnessScan}
-  </MenuItem>
-
-  <MenuItem onSelect={handleAlbumArt}>
-    {#snippet icon()}
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        class="menu-icon"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-      >
-        <path
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="2"
-          d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-        />
-      </svg>
-    {/snippet}
-    {m.contextMenu.albumArt}
   </MenuItem>
 
   <MenuItem onSelect={handleShowInFolder}>

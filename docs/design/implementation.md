@@ -191,13 +191,15 @@ src-tauri/src/
   - キャッシュに影響しない操作（例: ファイルの場所を開く）も、失敗を通知するためミューテーションとして定義する
   - 画面内にエラーを表示する場合は`String(error)`ではなく`toErrorMessage(error)`を使う（`AppError`はオブジェクトのため"[object Object]"になる）
   - 再生制御（再生エンジンのコマンド・`setCurrentTrack`）はクエリではなく`#lib/stores/playback.svelte`の再生コントローラーが呼ぶ
-  - `QueryClient`（メインウィンドウと設定ウィンドウの2つ）は、クエリ・ミューテーションの既定値に`#lib/queries/shared`の`LOCAL_NETWORK_MODE`（`networkMode: 'always'`）を入れる。呼ぶのはローカルのコマンドだけのため、ネットワークの状態によらず実行する（既定の`online`では、Wi-Fiが切れた時に取得も保存も止まったままになる）
+  - `QueryClient`（メインウィンドウ・設定ウィンドウ・曲の情報の編集画面のウィンドウの3つ）は、クエリ・ミューテーションの既定値に`#lib/queries/shared`の`LOCAL_NETWORK_MODE`（`networkMode: 'always'`）を入れる。呼ぶのはローカルのコマンドだけのため、ネットワークの状態によらず実行する（既定の`online`では、Wi-Fiが切れた時に取得も保存も止まったままになる）
   - メインウィンドウの`QueryClient`は`#lib/queries/shared`の`createMainQueryClient`で作る。表示した時に取り直すのは、無効化されたクエリだけ（`refetchOnMount: refetchInvalidatedOnMount`）。`invalidateQueries`がすぐに取り直すのは表示しているクエリだけのため、表示していない画面の一覧は、次に開いた時に取り直す。無効化していないキャッシュは、`staleTime`を過ぎても取り直さない（ADR-092）。クエリごとに`refetchOnMount`を指定しない
   - 複数のクエリの状態（読み込み中・エラー）を合わせる時は、`#lib/queries/shared`の`combineQueryStates`を使う。TanStack Queryは、読んだことのあるプロパティが変わった時だけ通知するため、`a.isLoading || b.isLoading`のような短絡評価では、読まなかった側が先に終わった時の通知を取りこぼす（読み込み中の表示のまま止まる）
 - アルバムアートは`#lib/utils/albumArt`の`albumArtUrl(trackId)`をそのまま`<img>`（`AlbumArt`コンポーネント）に渡す。画像データをフロントエンドで取得・保持しない。アートがない場合は読み込みエラーになり、`AlbumArt`がプレースホルダーを表示する
   - `albumArtUrl`は、アプリで画像を書き換えた曲の版（`#lib/stores/albumArt.svelte`）を読んでURLに付ける。版の変更に追随させるため、テンプレートか`$derived`の中で呼ぶ（値を変数に取っておくと、書き換えた後も古い画像のままになる）
-  - アルバムアートの画面は、`albumArtDialog.open(tracks)`で開く（`(app)/+layout.svelte`が1つだけ表示する。開く側にダイアログを置かない）
-- メタデータの編集画面（`MetadataEditor`）は、入力欄の値と`Metadata`の変換・検証を`#lib/utils/metadataForm`に分けている（1曲の編集はすべての項目を渡し、一括編集は入力した項目だけを渡す）。1曲の編集は、開いた時に`useTrackTagsQuery`でファイルのタグを読み、読めるまで・読めない場合は保存できない（ADR-034）
+- 曲の情報の編集画面（`MetadataEditor`。別のウィンドウ`/track-editor`の中身。ADR-094）は、`#lib/queries/trackEditor`の`useOpenTrackEditorMutation`で開く（曲のIDを渡す。開く側に画面を置かない）。編集画面のウィンドウは`useTrackEditorTracksQuery`で曲を受け取る。入力欄の値と`Metadata`の変換・検証は`#lib/utils/metadataForm`に分けている（1曲の編集はすべての項目を渡し、一括編集は入力した項目だけを渡す）。1曲の編集は、開いた時に`useTrackTagsQuery`でファイルのタグを読み、読めるまで・読めない場合は保存できない（ADR-034）
+  - アルバムアートの変更は、編集画面の「アルバムアート」のタブ（`AlbumArtEditor`）で選び、「保存」でタグの後に書き込む。選んだ画像は`usePickAlbumArtMutation`でRust側に預け、保存で`useSetAlbumArtMutation`に印（`token`）を渡す
+  - 保存した内容は、Rustが送る`TracksEdited`をメインウィンドウ（`(app)/+layout.svelte`）が受け取り、`applyTracksEdited`で一覧・タグ・アルバムアートに反映する。編集画面を開いている間は、`TrackEditorChanged`で`ui.isTrackEditorOpen`を立て、メインウィンドウに覆いを重ねる
+  - モック（`dev:mock`）の`openTrackEditor`は、曲を`sessionStorage`に置き、別のウィンドウ（ブラウザのポップアップ）で`/track-editor`を開く。開いたページのモックは別のメモリのため、そこで保存した内容は元のページに届かない。閉じたことが分からないため、`trackEditorChanged`は送らない（覆いは`__MUSPICE_MOCK__.emit`で確かめる）
 - 左サイドバー（`Sidebar`）は、上から「ブラウズ・ライブラリ・プレイリスト・デバイス」の順に並べる。プレイリストの一覧が残りの高さを使い、デバイスは一覧のスクロールの外に置いて、いつも下の端に出す。高さが足りない時は、プレイリストの一覧を最小の高さで止めて、デバイスより上の全体をスクロールする。項目の見た目は`app.css`の`nav-item-base`・`nav-icon`・`nav-section-header`・`nav-message`でそろえる（1行の高さは28px）
 - サイドバーのプレイリストの一覧は`SidebarPlaylists`が表示する（ADR-043）。フォルダ分けと並び順は`#lib/utils/playlistTree`の純粋な関数（`buildPlaylistTree`・`sortPlaylistItems`・`placeRelative`）で求め、並び順（名前・作成日・手動）と閉じているフォルダは`#lib/stores/playlistSidebar.svelte`がlocalStorageに保存する。プレイリスト・フォルダのドラッグは、専用の種類のデータ（`application/x-muspice-playlist-id`など）で運び、曲のドラッグ（`#lib/utils/trackDrag`）と見分ける。プレイリストの名前と説明は`PlaylistInfoDialog`（`playlistInfoDialog.open(id)`）で編集する
 - 自動プレイリスト（ADR-042）の編集画面（`SmartPlaylistDialog`。`smartPlaylistDialog.openNew()`・`openEdit(playlist)`で開く）は、入力（文字列のままの値。`RuleDraft`）と保存する条件（`SmartRules`）の変換・検証・説明文を`#lib/utils/smartPlaylist`の純粋な関数に分けている。条件に合う曲は、フロントエンドでは求めない（バックエンドの`get_playlist_tracks`・`count_smart_playlist_tracks`を使う。`#lib/mocks/smartPlaylist`は、モックのバックエンドが同じ規則で求めるためのもの）。自動プレイリストの曲のクエリは、開くたびに取り直す（`usePlaylistTracksQuery(id, true)`）

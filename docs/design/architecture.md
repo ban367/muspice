@@ -29,7 +29,7 @@ graph TD
 
 ## フロントエンド構成
 
-- ルート: `src/routes/(app)` 配下にライブラリ・プレイリスト・転送先デバイス（`devices/[id]`）、`src/routes/settings` に設定画面（メニューから開く別ウィンドウ。独自のQueryClientを持つ）
+- ルート: `src/routes/(app)` 配下にライブラリ・プレイリスト・転送先デバイス（`devices/[id]`）、`src/routes/settings` に設定画面（メニューから開く別ウィンドウ。独自のQueryClientを持つ）、`src/routes/track-editor` に曲の情報の編集画面（曲のメニュー・曲情報のパネルから開く別ウィンドウ。メインウィンドウを親にし、開いている間はメインウィンドウを操作させない。独自のQueryClientを持つ。ADR-094）
 - 設定: Rust側（`settings.rs`）がアプリデータ配下の`settings.json`に保存する。設定ウィンドウで保存するとRustが`SettingsChanged`イベントを送り、メインウィンドウの`SettingsSync`がキャッシュ・テーマ・アクセントカラー（CSS変数`--color-primary`）を更新する
 - ウィンドウの状態: メインウィンドウのサイズ・位置・最大化・フルスクリーンは、`tauri-plugin-window-state`が終了時にアプリの設定フォルダの`.window-state.json`へ保存し、次回の起動時に復元する（`lib.rs`の`window_state_plugin()`）。記憶がない初回は`tauri.conf.json`の大きさ（1280×800）で開く。設定ウィンドウは対象外で、毎回同じ大きさ（900×680。`menu.rs`の`SETTINGS_WINDOW_SIZE`）で開く
 - ウィンドウの外からの操作: 設定でオンにすると、メニューバー（トレイ）に常駐し（`tray.rs`。ウィンドウを閉じても、隠すだけで再生を続ける）、グローバルホットキー（`global_shortcuts.rs`）で再生を操作でき、曲が変わった時にOSの通知を出す（`track_notification.rs`）。ミニプレーヤーは、メインウィンドウを小さな表示に切り替える（`mini_player.rs`と`MiniPlayer`）。再生キューはフロントエンドが持つため、どの操作も`PlaybackControl`イベントでフロントエンドへ送り、ウィンドウを隠している間もWebViewを動かし続ける（ADR-046）
@@ -48,7 +48,7 @@ graph TD
 - ライブラリの絞り込み: 曲の画面は、検索・フィルタ（評価・年・お気に入り）・カラムブラウザ（ジャンル → アーティスト → アルバム）のすべてに合う曲を出す。絞り込みは、取得済みの曲の一覧（検索している間は、検索の結果）に対してフロントエンドで行う（`#lib/utils/trackFilter`。ADR-040）
 - 右サイドバー: 再生キュー・サウンド（イコライザなど、音の加工の設定）・アルバム情報パネル・曲情報パネルを切り替えて表示する（`RightSidebar.svelte`。パネルは`rightSidebar/`）。どのパネルも共通の枠（`SidePanel`: 見出し・常に見える上部・スクロールする本文）に中身を渡して作り、本文は見出しの付いたまとまり（`SidePanelSection`）で区切る。再生キュー・アルバム情報・曲情報パネルの上部には、同じ曲のカード（`SidePanelTrack`。高さは中身によらず一定）を出す（ADR-079）。アルバム情報パネル（`AlbumInfoPanel.svelte`）は、上部に再生中の曲（`player.currentTrack`）の情報を固定して出し、その下に、その曲のアルバムの曲（`get_album_tracks`）をスクロールして出す。曲情報パネル（`TrackInfoPanel.svelte`）は、一覧で選んでいる曲（`ui.selectedTrack`。曲を選べる一覧が`followSelectedTrack`で書き換える）のタグ・ファイル・再生の記録を出し、選択に追随する（ADR-078）。どのパネルも、固定した時だけ本文の横に並べ、固定していない時は本文に重ねる（パネルの外を押すと閉じる）。固定は既定でオン（解除した時だけ、localStorageに`false`を保存する）
 - 長い一覧の描画: `src/lib/components/ui/VirtualList.svelte` が、見えている行（とその前後の少しの行）だけを描画する（`implementation.md` 参照）
-- アルバムアート: `#lib/utils/albumArt` の `albumArtUrl(trackId)` が返す `albumart://` のURLを `<img>` に指定し、Rust側のカスタムプロトコルから直接読み込む（フロントエンドに画像データを保持しない）。アルバムアートの画面（`AlbumArtDialog.svelte`。曲・アルバムの右クリックのメニューと、アルバムの画面・アルバム情報と曲情報のパネルの絵から開く）で画像を埋め込む・取り除くと、その曲の版（`#lib/stores/albumArt.svelte`）を進めてURLを変え、表示中の画像を読み直させる（ADR-035）
+- アルバムアート: `#lib/utils/albumArt` の `albumArtUrl(trackId)` が返す `albumart://` のURLを `<img>` に指定し、Rust側のカスタムプロトコルから直接読み込む（フロントエンドに画像データを保持しない）。画像の変更は、曲の情報の編集画面（別のウィンドウ）の「アルバムアート」のタブで選び、「保存」で書き込む（ADR-094）。書き込むと、Rustが`TracksEdited`を送り、メインウィンドウがその曲の版（`#lib/stores/albumArt.svelte`）を進めてURLを変え、表示中の画像を読み直させる（ADR-035）
 - 再生: 再生コントローラー（`src/lib/stores/playback.svelte.ts`）が、再生状態（`player.svelte.ts` の `player`）を `$effect` で監視してRust側の再生エンジン（`src-tauri/src/playback/`）をコマンドで操作し、エンジンからの通知（`PlaybackEvent`。再生位置・曲の切り替わり・終了）を再生状態へ反映する。`Player.svelte` は表示と操作の受付に専念する
   - 再生キュー（次の曲の決定・シャッフル・リピート）は、フロントエンド（`player.svelte.ts`）が持つ。エンジンへは「再生する曲」と「続けて再生する曲」だけを伝える（ADR-025）
   - 再生キューには同じ曲を何度でも入れられる。キューの要素（`#lib/utils/playQueue`の`QueueEntry`）は、曲と、要素ごとに一意なID（エントリID）を持ち、右サイドバーの曲のリストのキー・削除・並べ替え・シャッフルの切り替えは、曲のIDではなくエントリIDか位置で行う。シャッフル中は、キューへの追加・削除をシャッフルする前の順（`originalQueue`）にも行い、解除するとその順の、再生中の要素の位置へ戻る（その順に再生中の要素がなければ、再生中の位置へ入れる）。エントリIDは保存せず、復元する時に振り直す（ADR-059）。何も再生していない間にキューへ追加した曲は、「次へ」で先頭から再生し、シャッフルはキュー全体を並べ替える。キューは、利用者が消す操作（削除・クリア・置き換え）でだけ曲が外れ、曲を再生する操作は、再生中の曲の次に入れて再生する（ADR-080）。キューは再生する曲のリストで、再生位置が進んでも、再生し終えた曲は残る。右サイドバーの再生キューは、キューの全体を再生する順に並べ、再生中の曲の行を強調する（ADR-081）

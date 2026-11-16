@@ -112,6 +112,27 @@ pub struct DeviceSyncProgress {
 #[derive(Debug, Clone, Serialize, Type, Event)]
 pub struct LibraryChanged;
 
+/// 曲のタグ・アルバムアートを書き換えた（編集画面のウィンドウでの保存。ADR-094）
+///
+/// 編集画面は別のウィンドウのため、メインウィンドウの一覧（Queryのキャッシュ）と、表示中の
+/// アルバムアートに反映させる。曲の場所が変わった場合（音楽フォルダの整理）は、`LibraryChanged`も送る。
+#[derive(Debug, Clone, Serialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+pub struct TracksEdited {
+    /// 書き換えた曲
+    pub track_ids: Vec<String>,
+    /// アルバムアートを書き換えたか（表示中の画像を読み直させる）
+    pub album_art: bool,
+}
+
+/// 曲の情報の編集画面（別のウィンドウ）を開いた・閉じた（ADR-094）
+///
+/// 開いている間、メインウィンドウは画面に覆いを重ねて、操作を受け付けない。
+#[derive(Debug, Clone, Serialize, Type, Event)]
+pub struct TrackEditorChanged {
+    pub open: bool,
+}
+
 /// メニュー「Muspice について」: Aboutダイアログを表示する
 #[derive(Debug, Clone, Serialize, Type, Event)]
 pub struct ShowAboutDialog;

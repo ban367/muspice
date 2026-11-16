@@ -22,7 +22,6 @@
   import PlayingIndicator from './PlayingIndicator.svelte';
   import RatingStars from './RatingStars.svelte';
   import FavoriteButton from './FavoriteButton.svelte';
-  import MetadataEditor from '../MetadataEditor.svelte';
   import ContextMenu from '../ContextMenu.svelte';
   import DeleteTrackDialog from '../DeleteTrackDialog.svelte';
   import MarqueeText from '../MarqueeText.svelte';
@@ -159,7 +158,6 @@
 
   // トラックの選択（クリック・キーボード）
   const selection = new TrackSelection(() => sortedTracks ?? []);
-  let showMetadataEditor = $state(false);
   let showDeleteDialog = $state(false);
 
   // コンテキストメニュー状態
@@ -283,20 +281,6 @@
 
   function clearSelection() {
     selection.clear();
-  }
-
-  function openMetadataEditor() {
-    if (selection.size > 0) {
-      showMetadataEditor = true;
-    }
-  }
-
-  function closeMetadataEditor() {
-    showMetadataEditor = false;
-  }
-
-  function handleMetadataSaved() {
-    clearSelection();
   }
 
   /** 一覧の中の位置を指定して、その曲を再生中の曲の次に入れて再生する（ダブルクリック・Enter） */
@@ -703,15 +687,6 @@
   </div>
 </div>
 
-<!-- メタデータエディタ -->
-{#if showMetadataEditor}
-  <MetadataEditor
-    tracks={selectedTracks}
-    onClose={closeMetadataEditor}
-    onSave={handleMetadataSaved}
-  />
-{/if}
-
 <!-- コンテキストメニュー -->
 {#if contextMenu}
   <ContextMenu
@@ -721,7 +696,6 @@
     tracks={sortedTracks || []}
     selectedTrackIds={selection.ids}
     onClose={closeContextMenu}
-    onEditMetadata={openMetadataEditor}
     onDelete={openDeleteDialog}
     onRemoveFromList={onRemove ? handleRemove : undefined}
     removeFromListLabel={removeLabel}

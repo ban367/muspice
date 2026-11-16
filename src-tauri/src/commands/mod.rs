@@ -26,6 +26,7 @@ mod playlist_cmd;
 mod settings;
 mod stats;
 mod system;
+mod track_editor;
 mod tracks;
 
 // インポート関連
@@ -85,8 +86,16 @@ pub use loudness::{cancel_loudness_scan, get_loudness_scan_status, start_loudnes
 // ファイルの整理（タグに基づくリネーム・移動）
 pub use organize::{OrganizeState, cancel_file_organize, organize_files, plan_file_organize};
 
-// アルバムアートの編集（埋め込み・取り除き）と、情報の取得
-pub use album_art::{get_album_art_info, remove_album_art, set_album_art};
+// アルバムアートの編集（画像の選択・埋め込み・取り除き）と、情報の取得
+pub use album_art::{
+    PendingAlbumArt, get_album_art_info, pick_album_art, remove_album_art, set_album_art,
+};
+
+// 曲の情報の編集画面（別のウィンドウ。ADR-094）
+pub use track_editor::{
+    TRACK_EDITOR_WINDOW, TrackEditorState, focus_track_editor, get_track_editor_tracks,
+    on_track_editor_closed, open_track_editor,
+};
 
 // プレイリスト管理
 pub use playlist_cmd::{

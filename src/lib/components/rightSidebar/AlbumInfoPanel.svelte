@@ -147,13 +147,11 @@
 
 <SidePanel title={m.rightSidebar.albumInfoTitle} bind:body>
   {#snippet top()}
-    <!-- 再生中の曲（スクロールせず、常に見えるようにする）。ジャケット画像からは、アルバムの曲の画像を見られる
-         （アルバムの曲を取得するまでと、アルバムのない曲は、再生中の曲だけ） -->
+    <!-- 再生中の曲（スクロールせず、常に見えるようにする） -->
     <SidePanelTrack
       label={m.rightSidebar.nowPlaying}
       track={current}
       emptyText={m.rightSidebar.nothingPlaying}
-      artTracks={tracks}
     />
   {/snippet}
 

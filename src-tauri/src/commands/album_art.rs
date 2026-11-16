@@ -1,12 +1,15 @@
 //! アルバムアートの編集（埋め込み・取り除き）と、情報の取得のコマンド
 //!
 //! 埋め込む画像は、Rust側で開くダイアログで選ぶ。WebViewからはパスも画像データも受け取らない
-//! （ADR-005・ADR-035）。画像は音楽ファイルのタグへ書き込み、書き込み後のファイルのサイズと
-//! 更新日時を記録する（再スキャンで、自分の書き込みを外部の変更として読み直さないため）。
+//! （ADR-005・ADR-035）。編集画面（ADR-094）は、選んだ画像を「保存」まで書き込まないため、選んだ画像を
+//! Rust側が預かり（`PendingAlbumArt`）、画面には見本の画像（data URL）と、預かった画像を指す印を返す。
+//! 画像は音楽ファイルのタグへ書き込み、書き込み後のファイルのサイズと更新日時を記録する
+//! （再スキャンで、自分の書き込みを外部の変更として読み直さないため）。
 
 use super::metadata_cmd::{BulkUpdateResult, file_state_of};
 use super::{file_dialog, run_blocking};
 use crate::error::{AppError, AppResult};
+use crate::events::TracksEdited;
 use crate::library::to_count;
 use crate::media_controls::MediaControls;
 use crate::metadata::{
@@ -17,8 +20,12 @@ use crate::models::AlbumArtInfo;
 use crate::settings::Language;
 use crate::state::AppState;
 use crate::validation::validate_track_id;
+use serde::Serialize;
+use specta::Type;
 use std::path::Path;
+use std::sync::Mutex;
 use tauri::{AppHandle, Manager, State};
+use tauri_specta::Event;
 
 /// 1回のトランザクションで記録するトラック数（メタデータの一括編集と同じ）
 const BATCH_SIZE: usize = 50;
@@ -44,6 +51,53 @@ impl Labels {
     }
 }
 
+/// 編集画面で選んだ、まだ書き込んでいない画像（編集画面を閉じると捨てる）
+#[derive(Default)]
+pub struct PendingAlbumArt {
+    /// （画像を指す印, 画像）。選び直すと置き換える
+    picture: Mutex<Option<(String, EmbeddedPicture)>>,
+}
+
+impl PendingAlbumArt {
+    fn hold(&self, picture: EmbeddedPicture) -> String {
+        let token = uuid::Uuid::new_v4().to_string();
+        if let Ok(mut current) = self.picture.lock() {
+            *current = Some((token.clone(), picture));
+        }
+        token
+    }
+
+    /// 印の画像を返す（違う印・預かっていない時はNone）
+    fn get(&self, token: &str) -> Option<EmbeddedPicture> {
+        let current = self.picture.lock().ok()?;
+        current
+            .as_ref()
+            .filter(|(held, _)| held == token)
+            .map(|(_, picture)| picture.clone())
+    }
+
+    pub fn clear(&self) {
+        if let Ok(mut current) = self.picture.lock() {
+            *current = None;
+        }
+    }
+}
+
+/// 編集画面で選んだ画像（まだ書き込んでいない）
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PickedAlbumArt {
+    /// 預かった画像を指す印（保存する時に`set_album_art`へ渡す）
+    pub token: String,
+    /// 見本に出す画像（`data:`のURL）
+    pub data_url: String,
+    pub mime_type: String,
+    /// 大きさ（バイト）
+    pub size: u32,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+}
+
 /// トラックのアルバムアートの情報（埋め込みの画像か、フォルダの画像か・種類・大きさ）を取得する
 ///
 /// アートがなければNone。
@@ -61,19 +115,13 @@ pub async fn get_album_art_info(
     run_blocking(move || Ok(crate::album_art::info_for_file(Path::new(&file_path)))).await
 }
 
-/// 画像ファイルを選び、トラックのファイルにアルバムアートとして埋め込む
+/// アルバムアートにする画像ファイルを選び、書き込まずに預かる（編集画面の「画像を選ぶ」）
 ///
-/// 画像（JPEG・PNG）は縮小せず、そのまま埋め込む。表示している画像（フロントカバー）を
-/// 置き換える。書き込めなかったトラックは、結果の`errors`へ理由を入れて残りを続ける。
+/// 画像（JPEG・PNG、10MBまで）を確かめて預かり、見本の画像と印を返す。選び直すと、前の画像は捨てる。
 /// 画像を選ばなかった場合はNoneを返す。
 #[tauri::command]
 #[specta::specta]
-pub async fn set_album_art(
-    track_ids: Vec<String>,
-    app: AppHandle,
-) -> AppResult<Option<BulkUpdateResult>> {
-    validate_track_ids(&track_ids)?;
-
+pub async fn pick_album_art(app: AppHandle) -> AppResult<Option<PickedAlbumArt>> {
     run_blocking(move || {
         let labels = Labels::for_language(crate::menu::current_language(&app));
         let Some(file) = file_dialog(&app)
@@ -87,11 +135,53 @@ pub async fn set_album_art(
             .into_path()
             .map_err(|e| AppError::Io(format!("選んだファイルを扱えません: {}", e)))?;
         let picture = read_picture_file(&path)?;
+        Ok(Some(hold_picture(&app.state::<PendingAlbumArt>(), picture)))
+    })
+    .await
+}
 
+/// 画像を預かり、画面に返す情報を作る
+fn hold_picture(pending: &PendingAlbumArt, picture: EmbeddedPicture) -> PickedAlbumArt {
+    let dimensions = crate::metadata::image_dimensions(&picture.data);
+    let data_url = format!(
+        "data:{};base64,{}",
+        picture.mime_type,
+        encode_base64(&picture.data)
+    );
+    let size = u32::try_from(picture.data.len()).unwrap_or(u32::MAX);
+    let mime_type = picture.mime_type.clone();
+    PickedAlbumArt {
+        token: pending.hold(picture),
+        data_url,
+        mime_type,
+        size,
+        width: dimensions.map(|(width, _)| width),
+        height: dimensions.map(|(_, height)| height),
+    }
+}
+
+/// 預かった画像（`pick_album_art`の印）を、トラックのファイルにアルバムアートとして埋め込む
+///
+/// 画像は縮小せず、そのまま埋め込む。表示している画像（フロントカバー）を置き換える。
+/// 書き込めなかったトラックは、結果の`errors`へ理由を入れて残りを続ける。預かっていない印は`VALIDATION`。
+#[tauri::command]
+#[specta::specta]
+pub async fn set_album_art(
+    track_ids: Vec<String>,
+    token: String,
+    app: AppHandle,
+) -> AppResult<BulkUpdateResult> {
+    validate_track_ids(&track_ids)?;
+    let picture = app.state::<PendingAlbumArt>().get(&token).ok_or_else(|| {
+        AppError::Validation("画像が見つかりません。もう一度選んでください".to_string())
+    })?;
+
+    run_blocking(move || {
         let state = app.state::<AppState>();
         let result = embed_album_art(&state, &track_ids, &picture)?;
         forget_now_playing_artwork(&app, &track_ids);
-        Ok(Some(result))
+        notify_album_art_edited(&app, &result);
+        Ok(result)
     })
     .await
 }
@@ -111,6 +201,7 @@ pub async fn remove_album_art(
         let state = app.state::<AppState>();
         let result = strip_album_art(&state, &track_ids)?;
         forget_now_playing_artwork(&app, &track_ids);
+        notify_album_art_edited(&app, &result);
         Ok(result)
     })
     .await
@@ -130,6 +221,43 @@ fn forget_now_playing_artwork(app: &AppHandle, track_ids: &[String]) {
     if let Some(media_controls) = app.try_state::<MediaControls>() {
         media_controls.forget_artwork(track_ids);
     }
+}
+
+/// 書き換えた曲の画像を、ほかのウィンドウ（メインウィンドウの一覧）に読み直させる
+fn notify_album_art_edited(app: &AppHandle, result: &BulkUpdateResult) {
+    if result.updated_track_ids.is_empty() {
+        return;
+    }
+    let event = TracksEdited {
+        track_ids: result.updated_track_ids.clone(),
+        album_art: true,
+    };
+    if let Err(e) = event.emit(app) {
+        log::warn!("Failed to emit the album art edit event: {}", e);
+    }
+}
+
+/// バイト列をBase64（RFC 4648。パディングあり）の文字列にする（見本の画像のdata URLに使う）
+fn encode_base64(data: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut encoded = String::with_capacity(data.len().div_ceil(3) * 4);
+    for chunk in data.chunks(3) {
+        let bytes = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
+        let group = (u32::from(bytes[0]) << 16) | (u32::from(bytes[1]) << 8) | u32::from(bytes[2]);
+        for position in 0..4 {
+            if position <= chunk.len() {
+                let index = (group >> (18 - 6 * position)) & 0x3f;
+                encoded.push(char::from(ALPHABET[index as usize]));
+            } else {
+                encoded.push('=');
+            }
+        }
+    }
+    encoded
 }
 
 /// 選んだ画像ファイルを読む（JPEG・PNGで、大きすぎないこと）
@@ -236,6 +364,7 @@ fn write_album_art(
             })
         })?;
         result.updated_count += to_count(written.len())?;
+        result.updated_track_ids.extend(written_ids);
     }
 
     Ok(result)
@@ -420,6 +549,45 @@ mod tests {
         strip_album_art(&fixture.state, &ids(&["a"])).unwrap();
         assert!(cached("a").is_none());
         assert!(picture_for_track(&fixture.state, "a", &path(&a)).is_none());
+    }
+
+    #[test]
+    fn test_encode_base64_matches_rfc4648() {
+        // RFC 4648の例
+        for (input, expected) in [
+            ("", ""),
+            ("f", "Zg=="),
+            ("fo", "Zm8="),
+            ("foo", "Zm9v"),
+            ("foob", "Zm9vYg=="),
+            ("fooba", "Zm9vYmE="),
+            ("foobar", "Zm9vYmFy"),
+        ] {
+            assert_eq!(encode_base64(input.as_bytes()), expected, "{input}");
+        }
+        assert_eq!(encode_base64(&[0xff, 0xfe, 0xfd]), "//79");
+    }
+
+    /// 選んだ画像は、印で取り出せる。選び直すと前の印は使えなくなり、編集画面を閉じると捨てる
+    #[test]
+    fn test_pending_album_art_holds_the_latest_picture() {
+        let pending = PendingAlbumArt::default();
+        let first = hold_picture(&pending, picture(png(4, 3)));
+        assert!(first.data_url.starts_with("data:image/png;base64,"));
+        assert_eq!((first.width, first.height), (Some(4), Some(3)));
+        assert_eq!(first.mime_type, "image/png");
+        assert!(pending.get(&first.token).is_some());
+
+        let second = hold_picture(&pending, picture(jpeg(8, 8)));
+        assert_ne!(first.token, second.token);
+        assert!(pending.get(&first.token).is_none());
+        assert_eq!(
+            pending.get(&second.token).map(|p| p.mime_type),
+            Some("image/jpeg".to_string())
+        );
+
+        pending.clear();
+        assert!(pending.get(&second.token).is_none());
     }
 
     #[test]

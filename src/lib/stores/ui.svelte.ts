@@ -130,6 +130,12 @@ class UiState {
   isNowPlayingOpen = $state(false);
 
   /**
+   * 曲の情報の編集画面（別のウィンドウ）を開いているか（開いている間は、画面に覆いを重ねて操作させない。
+   * Rustが送る`TrackEditorChanged`で書き換える。ADR-094）
+   */
+  isTrackEditorOpen = $state(false);
+
+  /**
    * 一覧の中の位置へ移動させたい曲（再生中の曲へのジャンプ。なければnull）
    *
    * その曲を含む曲の一覧（`TrackList`）が、その行までスクロールして選び、nullに戻す。

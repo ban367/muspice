@@ -639,6 +639,11 @@ body {
   @apply p-3 bg-secondary/20 text-secondary rounded-md text-sm;
 }
 
+/* 元に戻せない操作の前の知らせ（保存すると取り除く、など） */
+.message-warning {
+  @apply p-3 bg-warning/20 text-warning rounded-md text-sm;
+}
+
 /* ================================
    トラックのドラッグ中に表示する画像（#lib/utils/trackDrag）
    画面の外に置いて、ドラッグの画像として写し取らせる

@@ -421,10 +421,11 @@ export async function recordSkip(trackId: string, queryClient?: QueryClient): Pr
 // ========== メタデータ更新ミューテーション ==========
 
 /**
- * 単一トラックのメタデータを更新するミューテーション
+ * 単一トラックのメタデータを更新するミューテーション（曲の情報の編集画面）
  *
  * 常にファイルのタグへ書き込み、同じ内容をDBに記録する。
- * 失敗は編集画面の中に表示するため、トースト通知はしない。
+ * 失敗と、音楽フォルダの書式どおりの場所へ移せなかったこと（結果）は、編集画面の中に表示するため、
+ * トースト通知はしない。メインウィンドウの一覧は、Rustが送る`TracksEdited`で更新する。
  */
 export function useUpdateTrackMetadataMutation() {
   const queryClient = useQueryClient();
@@ -432,10 +433,9 @@ export function useUpdateTrackMetadataMutation() {
   return createMutation(() => ({
     mutationFn: ({ trackId, metadata }: { trackId: string; metadata: Metadata }) =>
       commands.updateTrackMetadata(trackId, metadata),
-    onSuccess: (organized) => {
+    onSuccess: () => {
       invalidateTrackListQueries(queryClient);
       invalidateTagQueries(queryClient);
-      notifyNotOrganized(organized);
     }
   }));
 }
@@ -453,7 +453,7 @@ function notifyNotOrganized(organized: KeepOrganizedResult | null) {
 /**
  * タグを書き換えた後に、ファイルから読んだタグのキャッシュを捨て、歌詞を読み直す
  */
-function invalidateTagQueries(queryClient: QueryClient) {
+export function invalidateTagQueries(queryClient: QueryClient) {
   queryClient.removeQueries({ queryKey: queryKeys.trackTags.all });
   queryClient.invalidateQueries({ queryKey: queryKeys.trackLyrics.all });
 }
@@ -491,10 +491,10 @@ export function useTrackTagsQuery(trackId: string) {
 }
 
 /**
- * 複数トラックのメタデータを一括更新するミューテーション
+ * 複数トラックのメタデータを一括更新するミューテーション（曲の情報の編集画面）
  *
  * 値がある項目だけを、各トラックのファイルのタグへ書き込む。書き込めなかったトラックは
- * 結果の`failedCount`・`errors`で返る（残りのトラックは更新される）。
+ * 結果の`failedCount`・`errors`で返る（残りのトラックは更新される）。結果は、編集画面の中に表示する。
  */
 export function useUpdateMultipleTracksMutation() {
   const queryClient = useQueryClient();
@@ -502,10 +502,9 @@ export function useUpdateMultipleTracksMutation() {
   return createMutation(() => ({
     mutationFn: ({ trackIds, metadata }: { trackIds: string[]; metadata: Metadata }) =>
       commands.updateMultipleTracksMetadata(trackIds, metadata),
-    onSuccess: (result) => {
+    onSuccess: () => {
       invalidateTrackListQueries(queryClient);
       invalidateTagQueries(queryClient);
-      notifyNotOrganized(result.organized);
     }
   }));
 }
