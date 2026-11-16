@@ -35,6 +35,7 @@ function track(id: string, overrides: Partial<Track> = {}): Track {
     replayGain: { trackGain: null, trackPeak: null, albumGain: null, albumPeak: null },
     sortTags: { title: null, artist: null, album: null, albumArtist: null },
     isMissing: false,
+    compilation: false,
     ...overrides
   };
 }

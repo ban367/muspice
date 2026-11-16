@@ -650,6 +650,7 @@ mod tests {
             replay_gain: ReplayGain::default(),
             sort_tags: Default::default(),
             is_missing: false,
+            compilation: false,
         }
     }
 

@@ -40,6 +40,27 @@ pub struct Track {
     pub sort_tags: SortTags,
     /// ファイルが見つからない（再スキャンで見つからなくなった曲。利用者が外すまで残す）
     pub is_missing: bool,
+    /// コンピレーション（複数のアーティストの曲を集めたアルバム）の印。アルバムアーティストがない曲は、
+    /// 「Various Artists」のアルバムにまとめる（`group_artist`。ADR-093）
+    pub compilation: bool,
+}
+
+/// コンピレーションの印があり、アルバムアーティストのない曲をまとめるアルバムアーティスト
+///
+/// アルバムの識別（`get_album_tracks`に渡す値）に使うため、表示の言語によらず固定にする。
+pub const VARIOUS_ARTISTS: &str = "Various Artists";
+
+impl Track {
+    /// アルバム・アーティストの一覧で、この曲をまとめるアーティスト（ADR-022・ADR-093）
+    ///
+    /// アルバムアーティスト。なければ、コンピレーションの曲は`VARIOUS_ARTISTS`、ほかの曲は曲のアーティスト。
+    /// `repository::ALBUM_ARTIST`（SQLの式）と同じ規則にする。
+    pub fn group_artist(&self) -> Option<&str> {
+        self.album_artist
+            .as_deref()
+            .or_else(|| self.compilation.then_some(VARIOUS_ARTISTS))
+            .or(self.artist.as_deref())
+    }
 }
 
 /// 再生回数・スキップ回数の上限（`Track`の`play_count`・`skip_count`が`i32`のため）

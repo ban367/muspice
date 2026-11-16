@@ -46,6 +46,8 @@ interface TrackSeed {
   album: string | null;
   /** アルバムアーティストのタグ（ない曲は、曲のアーティストでまとめられる） */
   albumArtist?: string;
+  /** コンピレーションの印（アルバムアーティストのない曲は「Various Artists」でまとめられる） */
+  compilation?: boolean;
   /** ファイルが見つからない曲（薄い表示・再生できない曲の確認用） */
   isMissing?: boolean;
   /** 並び順に使う値（読み仮名。ソート用のタグ） */
@@ -147,6 +149,7 @@ function createTrack(seed: TrackSeed, index: number): Track {
     artist: seed.artist,
     album: seed.album,
     albumArtist: seed.albumArtist ?? null,
+    compilation: seed.compilation ?? false,
     genre: seed.genre,
     year: seed.year,
     trackNumber: seed.trackNumber,
@@ -237,7 +240,8 @@ export function createBulkTracks(count: number): Track[] {
       updatedAt: createdAt,
       replayGain: { trackGain: null, trackPeak: null, albumGain: null, albumPeak: null },
       sortTags: { title: null, artist: null, album: null, albumArtist: null },
-      isMissing: false
+      isMissing: false,
+      compilation: false
     };
   });
 }

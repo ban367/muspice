@@ -7,10 +7,20 @@
 import type { AlbumSummary, Track } from '#lib/types/models.js';
 
 /**
- * 曲をまとめるアーティスト（アルバムアーティスト。なければ曲のアーティスト。Rustの`ALBUM_ARTIST`と同じ）
+ * コンピレーションの印があり、アルバムアーティストのない曲をまとめるアルバムアーティスト
+ * （Rustの`models::VARIOUS_ARTISTS`と同じ。アルバムの識別に使うため、表示の言語によらず固定）
  */
-export function groupArtist(track: Pick<Track, 'albumArtist' | 'artist'>): string | null {
-  return track.albumArtist ?? track.artist;
+export const VARIOUS_ARTISTS = 'Various Artists';
+
+/**
+ * 曲をまとめるアーティスト（Rustの`Track::group_artist`・`ALBUM_ARTIST`と同じ。ADR-093）
+ *
+ * アルバムアーティスト。なければ、コンピレーションの曲は`VARIOUS_ARTISTS`、ほかの曲は曲のアーティスト。
+ */
+export function groupArtist(
+  track: Pick<Track, 'albumArtist' | 'artist' | 'compilation'>
+): string | null {
+  return track.albumArtist ?? (track.compilation ? VARIOUS_ARTISTS : track.artist);
 }
 
 /**

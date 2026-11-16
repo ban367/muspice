@@ -284,9 +284,11 @@ pub struct BackfillTags {
     pub genre: Option<String>,
     /// 評価（半分の星の単位。0は評価なし）
     pub rating: i32,
+    /// コンピレーションの印
+    pub compilation: bool,
 }
 
-/// 音楽ファイルのタグから、アルバムアーティスト・ソート用のタグ・アーティスト・ジャンル・評価だけを読む
+/// 音楽ファイルのタグから、アルバムアーティスト・ソート用のタグ・アーティスト・ジャンル・評価・コンピレーションの印だけを読む
 ///
 /// それらの列を追加する前に登録したトラックの読み込み（`tag_backfill`）に使う。
 /// 長さ・ビットレートなどは読まない（全ファイルを読むため、1ファイルあたりの時間を抑える）。
@@ -304,6 +306,7 @@ pub fn read_backfill_tags(file_path: &Path) -> AppResult<BackfillTags> {
                 artist: metadata.artist,
                 genre: metadata.genre,
                 rating: rating_tag::read_rating(tag),
+                compilation: metadata.compilation == Some(true),
             }
         })
         .unwrap_or_default())
@@ -424,8 +427,19 @@ fn library_metadata(tag: &Tag) -> Metadata {
         artist_sort: extract_sort_text(tag, ItemKey::TrackArtistSortOrder),
         album_sort: extract_sort_text(tag, ItemKey::AlbumTitleSortOrder),
         album_artist_sort: extract_sort_text(tag, ItemKey::AlbumArtistSortOrder),
+        // アルバムアーティストのないコンピレーションを、1つのアルバムにまとめるために使う（ADR-093）
+        compilation: extract_compilation(tag),
         ..Default::default()
     }
+}
+
+/// タグからコンピレーションの印を取得する（印がある時だけ`Some(true)`。ない・外してある時はNone）
+///
+/// ID3v2は`TCMP`、MP4は`cpil`、Vorbisコメント・APEv2タグは`COMPILATION`。
+fn extract_compilation(tag: &Tag) -> Option<bool> {
+    tag.get_string(ItemKey::FlagCompilation)
+        .map(|value| matches!(value.trim(), "1" | "true" | "TRUE" | "True"))
+        .filter(|&compilation| compilation)
 }
 
 /// タグから、編集画面で扱うすべての項目を取り出す
@@ -438,17 +452,11 @@ fn editor_metadata(tag: &Tag) -> Metadata {
         .and_then(|value| value.trim().parse::<f64>().ok())
         .map(|bpm| bpm.round() as i32)
         .filter(|bpm| BPM_RANGE.contains(bpm));
-    let compilation = tag
-        .get_string(ItemKey::FlagCompilation)
-        .map(|value| matches!(value.trim(), "1" | "true" | "TRUE" | "True"))
-        .filter(|&compilation| compilation);
-
     Metadata {
         track_total: tag.track_total().map(|t| t as i32),
         disc_total: tag.disk_total().map(|t| t as i32),
         grouping: extract_text(tag, ItemKey::ContentGroup),
         bpm,
-        compilation,
         comment: tag
             .comment()
             .map(|s| s.to_string())
@@ -1464,6 +1472,8 @@ mod tests {
                 "{name}"
             );
             assert_eq!(library.sort_tags(), metadata.sort_tags(), "{name}");
+            // コンピレーションの印も、取り込みで読む（アルバムのまとめ方に使う。ADR-093）
+            assert_eq!(library.compilation, Some(true), "{name}");
             // 列を追加する前に登録したトラックの読み込みでも、同じ値を読む
             assert_eq!(
                 read_backfill_tags(&file).unwrap(),
@@ -1478,6 +1488,7 @@ mod tests {
                     artist: Some("アーティスト".to_string()),
                     genre: Some("Jazz".to_string()),
                     rating: 0,
+                    compilation: true,
                 },
                 "{name}"
             );

@@ -151,8 +151,7 @@ pub struct ScanProgress {
 /// 曲の、アルバムのまとまりのキー（アルバムのタグがない曲はNone）
 fn album_key(track: &Track) -> Option<(String, Option<String>)> {
     let album = track.album.as_deref().filter(|album| !album.is_empty())?;
-    let artist = track.album_artist.clone().or_else(|| track.artist.clone());
-    Some((album.to_string(), artist))
+    Some((album.to_string(), track.group_artist().map(str::to_string)))
 }
 
 /// 解析するまとまりを決める
@@ -459,6 +458,7 @@ mod tests {
             },
             sort_tags: Default::default(),
             is_missing: false,
+            compilation: false,
         }
     }
 

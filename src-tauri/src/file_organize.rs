@@ -26,7 +26,7 @@ use crate::device_sync::{
 };
 use crate::error::{AppError, AppResult};
 use crate::library::is_supported_audio_file;
-use crate::models::Track;
+use crate::models::{Track, VARIOUS_ARTISTS};
 use serde::Serialize;
 use specta::Type;
 use std::collections::{HashMap, HashSet};
@@ -101,7 +101,10 @@ impl Field {
             Self::Title => text(&track.title).or_else(stem),
             Self::Artist => text(&track.artist),
             Self::Album => text(&track.album),
-            Self::AlbumArtist => text(&track.album_artist).or_else(|| text(&track.artist)),
+            // アルバムアーティストのないコンピレーションは「Various Artists」（一覧のまとめ方と同じ。ADR-093）
+            Self::AlbumArtist => text(&track.album_artist)
+                .or_else(|| track.compilation.then(|| VARIOUS_ARTISTS.to_string()))
+                .or_else(|| text(&track.artist)),
             Self::Genre => text(&track.genre),
             Self::Year => positive(track.year).map(|year| year.to_string()),
             Self::Track => positive(track.track_number).map(|number| format!("{:02}", number)),
@@ -1066,6 +1069,7 @@ mod tests {
             replay_gain: ReplayGain::default(),
             sort_tags: Default::default(),
             is_missing: false,
+            compilation: false,
         }
     }
 
@@ -1178,6 +1182,16 @@ mod tests {
             rendered("%artist%/%genre%/%title%", &untagged),
             "Unknown Artist/Unknown Genre/original name.flac"
         );
+
+        // アルバムアーティストのないコンピレーションは「Various Artists」（一覧のまとめ方と同じ。ADR-093）
+        let mut compilation = track("t3", Path::new("/music/in/song.mp3"));
+        compilation.compilation = true;
+        assert_eq!(
+            rendered(DEFAULT, &compilation),
+            "Various Artists/Album/01 Song.mp3"
+        );
+        compilation.album_artist = Some("DJ X".to_string());
+        assert_eq!(rendered(DEFAULT, &compilation), "DJ X/Album/01 Song.mp3");
     }
 
     #[test]

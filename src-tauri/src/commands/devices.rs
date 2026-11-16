@@ -580,6 +580,7 @@ mod tests {
                 album: Some(album.to_string()),
                 album_artist: None,
                 is_missing: false,
+                compilation: false,
                 genre: None,
                 year: None,
                 track_number: Some(number),

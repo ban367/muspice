@@ -20,16 +20,27 @@ const ALBUM_TRACK_ORDER: &str = "COALESCE(disc_number, 1), track_number, title";
 /// アーティストの詳細で、アルバムのない曲をまとめるアルバムの名前
 const UNKNOWN_ALBUM: &str = "不明なアルバム";
 
-/// アルバム・アーティストの一覧をまとめるアーティスト（アルバムアーティスト。なければ曲のアーティスト）
+/// 曲のアーティストより先に使う、まとめるアルバムアーティスト（アルバムアーティスト。なければ、
+/// コンピレーションの曲は「Various Artists」（`models::VARIOUS_ARTISTS`）。ADR-093）
 ///
-/// `db.rs`のインデックス（`idx_tracks_album_artist`）と同じ式にする。
-const ALBUM_ARTIST: &str = "COALESCE(album_artist, artist)";
+/// これがNULLの曲は、曲のアーティストでまとめる（アーティストの一覧では、複数のアーティストに分ける）。
+const GROUP_ALBUM_ARTIST: &str =
+    "COALESCE(album_artist, CASE WHEN compilation = 1 THEN 'Various Artists' END)";
+
+/// アルバム・アーティストの一覧をまとめるアーティスト（`GROUP_ALBUM_ARTIST`。なければ曲のアーティスト）
+///
+/// `Track::group_artist`と同じ規則にする。`db.rs`のインデックス（`idx_tracks_group_artist`）も、
+/// この式で作る（式が同じでないと、インデックスが使われない）。
+pub(crate) const ALBUM_ARTIST: &str =
+    "COALESCE(album_artist, CASE WHEN compilation = 1 THEN 'Various Artists' END, artist)";
 
 /// まとめたアーティスト（`ALBUM_ARTIST`）の、並び順に使う値
 ///
 /// アルバムアーティストでまとめた曲は、アルバムアーティストの読み（なければ、同じ名前の
-/// 曲のアーティストの読み）。曲のアーティストでまとめた曲は、曲のアーティストの読み。
+/// 曲のアーティストの読み）。コンピレーションとしてまとめた曲は、なし（「Various Artists」の名前で並べる）。
+/// 曲のアーティストでまとめた曲は、曲のアーティストの読み。
 const ALBUM_ARTIST_SORT: &str = "CASE
+        WHEN album_artist IS NULL AND compilation = 1 THEN NULL
         WHEN album_artist IS NULL THEN artist_sort
         ELSE COALESCE(album_artist_sort, CASE WHEN artist = album_artist THEN artist_sort END)
     END";
@@ -60,7 +71,7 @@ pub const TRACK_COLUMNS: &str = "id, file_path, file_name, title, artist, album,
     last_played_at, COALESCE(created_at, ''), COALESCE(updated_at, ''),
     replay_gain_track_gain, replay_gain_track_peak, replay_gain_album_gain, replay_gain_album_peak,
     album_artist, missing_since IS NOT NULL, COALESCE(skip_count, 0),
-    title_sort, artist_sort, album_sort, album_artist_sort";
+    title_sort, artist_sort, album_sort, album_artist_sort, COALESCE(compilation, 0)";
 
 /// SQLiteの行からTrack構造体にマッピングする
 ///
@@ -103,6 +114,7 @@ pub fn map_track_row(row: &Row) -> rusqlite::Result<Track> {
             album_artist: row.get(31)?,
         },
         is_missing: row.get(26)?,
+        compilation: row.get::<_, i32>(32)? != 0,
     })
 }
 
@@ -528,12 +540,13 @@ pub fn find_album_tracks(
 /// アーティストの一覧を取得（アーティスト名の順。アルバムと曲は含めない）
 ///
 /// アルバムアーティスト（なければ曲のアーティスト）でまとめる。コンピレーションの曲は、
-/// 曲ごとのアーティストではなく、アルバムアーティスト（「Various Artists」など）に入る。
+/// 曲ごとのアーティストではなく、アルバムアーティスト（「Various Artists」など。アルバムアーティストの
+/// ないコンピレーションの曲は「Various Artists」）に入る。
 /// 曲のアーティストが複数ある曲（アルバムアーティストなし）は、それぞれのアーティストに入る。
 /// 代表の曲は、詳細で最初に表示するアルバム（名前の順で最初）の最初の曲。
 pub fn find_artist_summaries(conn: &Connection) -> AppResult<Vec<ArtistSummary>> {
     let sql = format!(
-        "SELECT album_artist, artist, {ALBUM_ARTIST} AS group_artist, COALESCE(album, ?1) AS album_name,
+        "SELECT {GROUP_ALBUM_ARTIST}, artist, {ALBUM_ARTIST} AS group_artist, COALESCE(album, ?1) AS album_name,
                 id, duration, {ALBUM_ARTIST_SORT}, album_sort
          FROM tracks
          WHERE {ALBUM_ARTIST} IS NOT NULL
@@ -639,7 +652,8 @@ pub fn find_artist_summaries(conn: &Connection) -> AppResult<Vec<ArtistSummary>>
 
 /// アーティストのアルバムと曲を取得（アルバム名の順。曲は`ALBUM_TRACK_ORDER`の順）
 ///
-/// `artist`は、アルバムアーティスト（なければ曲のアーティスト。複数ある曲は、そのどれか）。
+/// `artist`は、アルバムアーティスト（なければ、コンピレーションの曲は「Various Artists」、ほかの曲は
+/// 曲のアーティスト。複数ある曲は、そのどれか）。
 /// 曲ごとのアーティストが違う曲も、アルバムアーティストが一致すれば含める。
 /// アルバムのない曲は、`UNKNOWN_ALBUM`という名前のアルバムにまとめる。
 /// アルバムの`artist`は、そのアルバムをまとめるアーティスト（複数のアーティストの曲のアルバムでは、
@@ -647,7 +661,8 @@ pub fn find_artist_summaries(conn: &Connection) -> AppResult<Vec<ArtistSummary>>
 pub fn find_artist_albums(conn: &Connection, artist: &str) -> AppResult<Vec<AlbumGroup>> {
     let sql = format!(
         "SELECT {} FROM tracks
-         WHERE album_artist = ?1 OR (album_artist IS NULL AND multi_value_contains(artist, ?1))
+         WHERE {GROUP_ALBUM_ARTIST} = ?1
+            OR ({GROUP_ALBUM_ARTIST} IS NULL AND multi_value_contains(artist, ?1))
          ORDER BY COALESCE(album, ?2), {ALBUM_ARTIST}, {ALBUM_TRACK_ORDER}",
         TRACK_COLUMNS
     );
@@ -684,9 +699,9 @@ fn group_album_tracks(tracks: Vec<Track>) -> Vec<AlbumGroup> {
     let mut albums: Vec<AlbumGroup> = Vec::new();
     for track in tracks {
         let album_name = track.album.as_deref().unwrap_or(UNKNOWN_ALBUM);
-        let group_artist = track.album_artist.as_ref().or(track.artist.as_ref());
+        let group_artist = track.group_artist().map(str::to_string);
         match albums.last_mut() {
-            Some(last) if last.name == album_name && last.artist.as_ref() == group_artist => {
+            Some(last) if last.name == album_name && last.artist == group_artist => {
                 last.track_count += 1;
                 last.total_duration += track.duration.unwrap_or(0);
                 if last.sort_name.is_none() {
@@ -697,7 +712,7 @@ fn group_album_tracks(tracks: Vec<Track>) -> Vec<AlbumGroup> {
             _ => albums.push(AlbumGroup {
                 name: album_name.to_string(),
                 sort_name: track.sort_tags.album.clone(),
-                artist: group_artist.cloned(),
+                artist: group_artist,
                 track_count: 1,
                 total_duration: track.duration.unwrap_or(0),
                 representative_track_id: track.id.clone(),
@@ -769,7 +784,7 @@ pub fn find_genre_tracks(conn: &Connection, genre: &str) -> AppResult<Vec<Track>
     query_tracks(conn, &sql, &[&genre])
 }
 
-/// トラックのメタデータ（title/artist/album/genre/year）を更新
+/// トラックのメタデータ（一覧・検索・並び替え・まとめ方に使う項目）を、編集画面の値で更新
 ///
 /// 対象トラックが存在しない場合はエラーを返す。
 pub fn update_track_metadata(
@@ -795,8 +810,9 @@ pub fn update_track_metadata(
                 artist_sort = ?10,
                 album_sort = ?11,
                 album_artist_sort = ?12,
-                updated_at = ?13
-             WHERE id = ?14",
+                compilation = ?13,
+                updated_at = ?14
+             WHERE id = ?15",
             rusqlite::params![
                 stored_text(&metadata.title),
                 stored_text(&metadata.artist),
@@ -810,6 +826,7 @@ pub fn update_track_metadata(
                 stored_text(&metadata.artist_sort),
                 stored_text(&metadata.album_sort),
                 stored_text(&metadata.album_artist_sort),
+                metadata.compilation == Some(true),
                 now,
                 track_id,
             ],
@@ -876,6 +893,12 @@ pub fn update_track_metadata_partial(
             update_parts.push(column);
             params.push(Box::new(value));
         }
+    }
+
+    // コンピレーションの印: 付ける・外すを選んだ時だけ変える
+    if let Some(compilation) = metadata.compilation {
+        update_parts.push("compilation = ?");
+        params.push(Box::new(compilation));
     }
 
     if update_parts.is_empty() {
@@ -967,9 +990,9 @@ pub fn insert_track(
             replay_gain_track_gain, replay_gain_track_peak, replay_gain_album_gain, replay_gain_album_peak,
             rating, album_artist, album_artist_read,
             title_sort, artist_sort, album_sort, album_artist_sort, sort_tags_read, multi_values_read,
-            rating_read
+            rating_read, compilation, compilation_read
         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, 1,
-                  ?25, ?26, ?27, ?28, 1, 1, 1)",
+                  ?25, ?26, ?27, ?28, 1, 1, 1, ?29, 1)",
         rusqlite::params![
             track.id,
             track.file_path,
@@ -999,6 +1022,7 @@ pub fn insert_track(
             track.sort_tags.artist,
             track.sort_tags.album,
             track.sort_tags.album_artist,
+            track.compilation,
         ],
     )
     .map_err(|e| AppError::Database(format!("トラックの保存に失敗しました: {}", e)))?;
@@ -1026,6 +1050,7 @@ pub fn update_track_by_file_path(
             rating = ?21, album_artist = ?22, album_artist_read = 1,
             title_sort = ?23, artist_sort = ?24, album_sort = ?25, album_artist_sort = ?26,
             sort_tags_read = 1, multi_values_read = 1, rating_read = 1,
+            compilation = ?27, compilation_read = 1,
             missing_since = NULL
         WHERE file_path = ?1",
         rusqlite::params![
@@ -1055,6 +1080,7 @@ pub fn update_track_by_file_path(
             track.sort_tags.artist,
             track.sort_tags.album,
             track.sort_tags.album_artist,
+            track.compilation,
         ],
     )
     .map_err(|e| AppError::Database(format!("トラックの更新に失敗しました: {}", e)))?;
@@ -1089,6 +1115,8 @@ pub struct UnreadTagsTrack {
     pub needs_rating: bool,
     /// 今の評価（半分の星の単位。星の数で読んだ値を2倍にしたもの）
     pub rating: i32,
+    /// コンピレーションの印を読んでいない（印をDBに持つ前の版で登録した。ADR-093）
+    pub needs_compilation: bool,
 }
 
 /// 後から追加した項目をまだファイルから読んでいないトラックを、rowidの順に取得する
@@ -1104,10 +1132,11 @@ pub fn find_tracks_with_unread_tags(
     query_rows(
         conn,
         "SELECT rowid, id, file_path, album_artist_read = 0, sort_tags_read = 0,
-                multi_values_read = 0, artist, genre, rating_read = 0, COALESCE(rating, 0)
+                multi_values_read = 0, artist, genre, rating_read = 0, COALESCE(rating, 0),
+                compilation_read = 0
          FROM tracks
          WHERE (album_artist_read = 0 OR sort_tags_read = 0 OR multi_values_read = 0
-                OR rating_read = 0)
+                OR rating_read = 0 OR compilation_read = 0)
                AND missing_since IS NULL AND rowid > ?1
          ORDER BY rowid LIMIT ?2",
         &[&after_rowid, &limit],
@@ -1123,6 +1152,7 @@ pub fn find_tracks_with_unread_tags(
                 genre: row.get(7)?,
                 needs_rating: row.get(8)?,
                 rating: row.get(9)?,
+                needs_compilation: row.get(10)?,
             })
         },
     )
@@ -1141,6 +1171,22 @@ pub fn set_track_rating_read(
         rusqlite::params![track_id, rating],
     )
     .map_err(|e| AppError::Database(format!("評価の記録に失敗しました: {}", e)))?;
+    Ok(())
+}
+
+/// ファイルから読んだコンピレーションの印を記録し、読み込み済みにする
+///
+/// ほかの項目（更新日時を含む）は変えない。
+pub fn set_track_compilation(
+    conn: &Connection,
+    track_id: &str,
+    compilation: bool,
+) -> AppResult<()> {
+    conn.execute(
+        "UPDATE tracks SET compilation = ?2, compilation_read = 1 WHERE id = ?1",
+        rusqlite::params![track_id, compilation],
+    )
+    .map_err(|e| AppError::Database(format!("コンピレーションの印の記録に失敗しました: {}", e)))?;
     Ok(())
 }
 
@@ -1843,6 +1889,7 @@ fn find_unique_values(conn: &Connection, column: &str) -> AppResult<Vec<String>>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::VARIOUS_ARTISTS;
     use rusqlite::Connection;
 
     /// テスト用のインメモリDBを作成してスキーマを適用
@@ -2919,6 +2966,97 @@ mod tests {
         );
     }
 
+    fn set_compilation(conn: &Connection, id: &str) {
+        conn.execute(
+            "UPDATE tracks SET compilation = 1 WHERE id = ?1",
+            rusqlite::params![id],
+        )
+        .unwrap();
+    }
+
+    /// コンピレーションの印があり、アルバムアーティストのない曲は「Various Artists」のアルバムにまとめる（ADR-093）
+    #[test]
+    fn test_compilation_tracks_are_grouped_as_various_artists() {
+        let conn = setup_test_db();
+        // 曲のアーティストが違うコンピレーション（アルバムアーティストなし）
+        insert_test_track(&conn, "c1", "曲1", "アーティストA", "ベスト", "ポップ");
+        insert_test_track(&conn, "c2", "曲2", "アーティストB", "ベスト", "ポップ");
+        set_compilation(&conn, "c1");
+        set_compilation(&conn, "c2");
+        set_sort_tags(&conn, "c1", Some("あーてぃすとえー"), None, None);
+        set_track_position(&conn, "c1", None, Some(1), Some(100));
+        set_track_position(&conn, "c2", None, Some(2), Some(200));
+        // 印があっても、アルバムアーティストのある曲は、アルバムアーティストでまとめる
+        insert_test_track(&conn, "d1", "曲1", "アーティストA", "ミックス", "ポップ");
+        insert_test_track(&conn, "d2", "曲2", "アーティストB", "ミックス", "ポップ");
+        for id in ["d1", "d2"] {
+            set_compilation(&conn, id);
+            set_album_artist(&conn, id, "DJ X");
+        }
+        // 印のない曲は、これまでどおり曲のアーティストでまとめる
+        insert_test_track(&conn, "s1", "曲1", "アーティストA", "ソロ", "ポップ");
+
+        let albums = find_album_summaries(&conn).unwrap();
+        let summary: Vec<(&str, Option<&str>, i32, Option<&str>)> = albums
+            .iter()
+            .map(|a| {
+                (
+                    a.name.as_str(),
+                    a.artist.as_deref(),
+                    a.track_count,
+                    a.artist_sort_name.as_deref(),
+                )
+            })
+            .collect();
+        // コンピレーションの読みは、曲のアーティストの読みを使わない
+        assert_eq!(
+            summary,
+            [
+                ("ソロ", Some("アーティストA"), 1, None),
+                ("ベスト", Some(VARIOUS_ARTISTS), 2, None),
+                ("ミックス", Some("DJ X"), 2, None),
+            ]
+        );
+
+        assert_eq!(
+            track_ids(&find_album_tracks(&conn, "ベスト", Some(VARIOUS_ARTISTS)).unwrap()),
+            ["c1", "c2"]
+        );
+        let groups = find_album_artist_albums(&conn, Some(VARIOUS_ARTISTS)).unwrap();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].artist.as_deref(), Some(VARIOUS_ARTISTS));
+        assert_eq!(track_ids(&groups[0].tracks), ["c1", "c2"]);
+
+        // アーティストの一覧: コンピレーションの曲は、曲のアーティストではなく「Various Artists」に入る
+        let artists = find_artist_summaries(&conn).unwrap();
+        let counts: Vec<(&str, i32, i32)> = artists
+            .iter()
+            .map(|a| (a.name.as_str(), a.album_count, a.track_count))
+            .collect();
+        assert_eq!(
+            counts,
+            [
+                ("DJ X", 1, 2),
+                ("Various Artists", 1, 2),
+                ("アーティストA", 1, 1),
+            ]
+        );
+        let various = find_artist_albums(&conn, VARIOUS_ARTISTS).unwrap();
+        assert_eq!(various.len(), 1);
+        assert_eq!(various[0].artist.as_deref(), Some(VARIOUS_ARTISTS));
+        assert_eq!(
+            track_ids(&find_artist_albums(&conn, "アーティストA").unwrap()[0].tracks),
+            ["s1"]
+        );
+    }
+
+    /// まとめるアーティストのSQLの式は、`Track::group_artist`・`VARIOUS_ARTISTS`と同じ規則にする
+    #[test]
+    fn test_album_artist_expression_uses_the_various_artists_name() {
+        assert!(ALBUM_ARTIST.contains(&format!("'{VARIOUS_ARTISTS}'")));
+        assert!(GROUP_ALBUM_ARTIST.contains(&format!("'{VARIOUS_ARTISTS}'")));
+    }
+
     #[test]
     fn test_find_album_tracks_orders_by_disc_and_track_number() {
         let conn = setup_test_db();
@@ -3368,6 +3506,7 @@ mod tests {
             replay_gain: ReplayGain::default(),
             sort_tags: Default::default(),
             is_missing: false,
+            compilation: false,
         };
         track.sort_tags = SortTags {
             title: Some("きょく".to_string()),
@@ -3621,6 +3760,7 @@ mod tests {
         assert_eq!(first[0].file_path, "/test/t1.mp3");
         assert!(first[0].needs_album_artist && first[0].needs_sort_tags);
         assert!(first[0].needs_multi_values && first[0].needs_rating);
+        assert!(first[0].needs_compilation);
         assert_eq!(first[0].rating, 0);
         assert_eq!(first[0].artist.as_deref(), Some("アーティスト"));
         assert_eq!(first[0].genre.as_deref(), Some("ロック"));
@@ -3646,6 +3786,10 @@ mod tests {
         assert!(find_tracks_with_unread_tags(&conn, 0, 1).unwrap()[0].needs_rating);
         set_track_rating_read(&conn, "t1", Some(7)).unwrap();
         assert_eq!(find_track_by_id(&conn, "t1").unwrap().rating, 7);
+        // コンピレーションの印だけが未読のまま残る
+        assert!(find_tracks_with_unread_tags(&conn, 0, 1).unwrap()[0].needs_compilation);
+        set_track_compilation(&conn, "t1", true).unwrap();
+        assert!(find_track_by_id(&conn, "t1").unwrap().compilation);
         let rest = find_tracks_with_unread_tags(&conn, first[1].rowid, 2).unwrap();
         assert_eq!(
             rest.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(),
@@ -4069,6 +4213,48 @@ mod tests {
         assert_eq!(track.album, Some("アルバム1".to_string()));
         assert_eq!(track.genre, Some("ロック".to_string()));
         assert_eq!(track.updated_at, "2026-01-01T00:00:00+00:00");
+    }
+
+    /// コンピレーションの印: 1曲の編集は渡した値（ないものは外す）、一括編集は選んだ時だけ変える
+    #[test]
+    fn test_update_track_metadata_records_the_compilation_flag() {
+        let conn = setup_test_db();
+        insert_test_track(&conn, "t1", "曲", "アーティストA", "アルバム", "ロック");
+        let compilation = |conn: &Connection| find_track_by_id(conn, "t1").unwrap().compilation;
+
+        let metadata = Metadata {
+            title: Some("曲".to_string()),
+            compilation: Some(true),
+            ..Default::default()
+        };
+        update_track_metadata(&conn, "t1", &metadata).unwrap();
+        assert!(compilation(&conn));
+        // 一括編集で、印を選んでいない時は変えない
+        let partial = Metadata {
+            genre: Some("ポップ".to_string()),
+            ..empty_metadata()
+        };
+        update_track_metadata_partial(&conn, "t1", &partial, "2026-01-01T00:00:00+00:00").unwrap();
+        assert!(compilation(&conn));
+        let off = Metadata {
+            compilation: Some(false),
+            ..empty_metadata()
+        };
+        update_track_metadata_partial(&conn, "t1", &off, "2026-01-01T00:00:00+00:00").unwrap();
+        assert!(!compilation(&conn));
+        let on = Metadata {
+            compilation: Some(true),
+            ..empty_metadata()
+        };
+        update_track_metadata_partial(&conn, "t1", &on, "2026-01-01T00:00:00+00:00").unwrap();
+        assert!(compilation(&conn));
+        // 1曲の編集で印を外す（編集画面は、外した印をNoneで渡す）
+        let cleared = Metadata {
+            title: Some("曲".to_string()),
+            ..Default::default()
+        };
+        update_track_metadata(&conn, "t1", &cleared).unwrap();
+        assert!(!compilation(&conn));
     }
 
     /// 文字列の項目に空の値を渡すと、その項目を空（NULL）にする

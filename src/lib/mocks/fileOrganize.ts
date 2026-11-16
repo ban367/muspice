@@ -6,6 +6,7 @@
  * フォルダの画像・空になったフォルダの扱いは再現しない。
  */
 import type { AppError, OrganizeEntry, Track } from '#lib/types/models.js';
+import { VARIOUS_ARTISTS } from '#lib/utils/albumKey.js';
 
 const MAX_TEMPLATE_LENGTH = 255;
 const MAX_COMPONENT_CHARS = 80;
@@ -134,7 +135,8 @@ function fieldValue(field: Field, track: Track, stem: string): string | null {
     case 'album':
       return text(track.album);
     case 'albumartist':
-      return text(track.albumArtist) ?? text(track.artist);
+      // アルバムアーティストのないコンピレーションは「Various Artists」（Rustと同じ。ADR-093）
+      return text(track.albumArtist) ?? (track.compilation ? VARIOUS_ARTISTS : text(track.artist));
     case 'genre':
       return text(track.genre);
     case 'year':
