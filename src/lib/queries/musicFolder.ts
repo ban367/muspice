@@ -16,13 +16,12 @@ import { m } from '#lib/i18n/i18n.svelte.js';
  * 音楽フォルダの設定と、既定の音楽フォルダ（候補）を取得するクエリ
  *
  * ライブラリが空の画面は、曲がある間は表示しない（クエリを使う部品がない）。その間に無効化された
- * 場合も、次に表示した時に読み直す（メインウィンドウの既定は、表示した時に読み直さない）。
+ * 場合は、次に表示した時に読み直す（どちらのウィンドウも、無効化されたクエリは表示した時に取り直す）。
  */
 export function useMusicFolderQuery() {
   return createQuery(() => ({
     queryKey: queryKeys.musicFolder,
-    queryFn: () => withErrorToast(m.operations.fetchMusicFolder, () => commands.getMusicFolder()),
-    refetchOnMount: true
+    queryFn: () => withErrorToast(m.operations.fetchMusicFolder, () => commands.getMusicFolder())
   }));
 }
 

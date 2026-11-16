@@ -1,6 +1,6 @@
 <script lang="ts">
   import { stopListening } from '#lib/utils/listen.js';
-  import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
+  import { QueryClientProvider } from '@tanstack/svelte-query';
   import { events } from '#lib/bindings.js';
   import { onMount } from 'svelte';
   import { afterNavigate } from '$app/navigation';
@@ -37,7 +37,7 @@
   import { conversion } from '#lib/stores/convert.svelte.js';
   import { smartPlaylistDialog } from '#lib/stores/smartPlaylist.svelte.js';
   import { invalidateLibraryQueries } from '#lib/queries/tracks.js';
-  import { LOCAL_NETWORK_MODE } from '#lib/queries/shared.js';
+  import { createMainQueryClient } from '#lib/queries/shared.js';
   import { restoreTheme } from '#lib/utils/theme.js';
   import { restoreLanguage } from '#lib/i18n/i18n.svelte.js';
   import '../../app.css';
@@ -123,24 +123,8 @@
     };
   });
 
-  // パフォーマンス最適化されたQueryClient設定
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: {
-        staleTime: 10 * 60 * 1000, // 10分間キャッシュを新鮮とみなす
-        gcTime: 30 * 60 * 1000, // 30分間メモリに保持
-        retry: 1, // 失敗時に1回だけリトライ
-        refetchOnWindowFocus: false, // ウィンドウフォーカス時の自動再取得を無効化
-        refetchOnMount: false, // マウント時の自動再取得を無効化（キャッシュがあれば使用）
-        refetchOnReconnect: false, // ネットワークの再接続では再取得しない（外部と通信しないため）
-        ...LOCAL_NETWORK_MODE
-      },
-      mutations: {
-        retry: 0, // ミューテーションは失敗時にリトライしない
-        ...LOCAL_NETWORK_MODE
-      }
-    }
-  });
+  // 表示した時は、無効化されたキャッシュだけを取り直す（`createMainQueryClient`）
+  const queryClient = createMainQueryClient();
 
   let { children } = $props();
 

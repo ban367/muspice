@@ -192,6 +192,7 @@ src-tauri/src/
   - 画面内にエラーを表示する場合は`String(error)`ではなく`toErrorMessage(error)`を使う（`AppError`はオブジェクトのため"[object Object]"になる）
   - 再生制御（再生エンジンのコマンド・`setCurrentTrack`）はクエリではなく`#lib/stores/playback.svelte`の再生コントローラーが呼ぶ
   - `QueryClient`（メインウィンドウと設定ウィンドウの2つ）は、クエリ・ミューテーションの既定値に`#lib/queries/shared`の`LOCAL_NETWORK_MODE`（`networkMode: 'always'`）を入れる。呼ぶのはローカルのコマンドだけのため、ネットワークの状態によらず実行する（既定の`online`では、Wi-Fiが切れた時に取得も保存も止まったままになる）
+  - メインウィンドウの`QueryClient`は`#lib/queries/shared`の`createMainQueryClient`で作る。表示した時に取り直すのは、無効化されたクエリだけ（`refetchOnMount: refetchInvalidatedOnMount`）。`invalidateQueries`がすぐに取り直すのは表示しているクエリだけのため、表示していない画面の一覧は、次に開いた時に取り直す。無効化していないキャッシュは、`staleTime`を過ぎても取り直さない（ADR-092）。クエリごとに`refetchOnMount`を指定しない
   - 複数のクエリの状態（読み込み中・エラー）を合わせる時は、`#lib/queries/shared`の`combineQueryStates`を使う。TanStack Queryは、読んだことのあるプロパティが変わった時だけ通知するため、`a.isLoading || b.isLoading`のような短絡評価では、読まなかった側が先に終わった時の通知を取りこぼす（読み込み中の表示のまま止まる）
 - アルバムアートは`#lib/utils/albumArt`の`albumArtUrl(trackId)`をそのまま`<img>`（`AlbumArt`コンポーネント）に渡す。画像データをフロントエンドで取得・保持しない。アートがない場合は読み込みエラーになり、`AlbumArt`がプレースホルダーを表示する
   - `albumArtUrl`は、アプリで画像を書き換えた曲の版（`#lib/stores/albumArt.svelte`）を読んでURLに付ける。版の変更に追随させるため、テンプレートか`$derived`の中で呼ぶ（値を変数に取っておくと、書き換えた後も古い画像のままになる）
