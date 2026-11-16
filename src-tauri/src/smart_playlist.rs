@@ -14,7 +14,7 @@
 use crate::error::{AppError, AppResult};
 use crate::models::Track;
 use crate::multi_value::MatchOp;
-use crate::repository::{TRACK_COLUMNS, query_tracks};
+use crate::repository::{ALBUM_ARTIST, TRACK_COLUMNS, query_tracks};
 use chrono::{DateTime, Duration, Utc};
 use rusqlite::{Connection, ToSql};
 use serde::{Deserialize, Serialize};
@@ -506,7 +506,7 @@ fn order_sql(order: SmartOrder) -> String {
     };
     let direction = if order.descending { "DESC" } else { "ASC" };
     format!(
-        "{expression} {direction}, COALESCE(album_artist, artist), album,
+        "{expression} {direction}, {ALBUM_ARTIST}, album,
          COALESCE(disc_number, 1), track_number, title, id"
     )
 }

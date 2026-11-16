@@ -635,6 +635,7 @@ mod tests {
                     replay_gain: ReplayGain::default(),
                     sort_tags: Default::default(),
                     is_missing: false,
+                    compilation: false,
                 };
                 self.state
                     .with_db(|db| crate::repository::insert_track(db, &track, Some(1)))

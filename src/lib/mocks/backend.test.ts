@@ -997,6 +997,29 @@ describe('曲のタグ（編集画面）', () => {
     expect((await commands.getTrackTags(ids[1])).compilation).toBeUndefined();
   });
 
+  it('アルバムアーティストのないコンピレーションは「Various Artists」のアルバムにまとめる', async () => {
+    const tracks = await commands.getAllTracks();
+    // 曲のアーティストが違う2曲を、同じアルバムのコンピレーションにする
+    const picked = [
+      tracks.find((t) => t.artist === 'Aoi Sora' && t.albumArtist === null)!,
+      tracks.find((t) => t.artist === 'Kenji Mori' && t.albumArtist === null)!
+    ];
+    const ids = picked.map((t) => t.id);
+    await commands.updateMultipleTracksMetadata(ids, { album: 'Mixed Tape', compilation: true });
+
+    const albums = await commands.getAlbums();
+    const mixed = albums.filter((album) => album.name === 'Mixed Tape');
+    expect(mixed).toMatchObject([{ artist: 'Various Artists', trackCount: 2 }]);
+    expect(
+      (await commands.getAlbumTracks('Mixed Tape', 'Various Artists')).map((t) => t.id)
+    ).toEqual(expect.arrayContaining(ids));
+    expect((await commands.getAllTracks()).find((t) => t.id === ids[0])?.compilation).toBe(true);
+    // 印を外すと、曲のアーティストごとのアルバムに戻る
+    await commands.updateMultipleTracksMetadata(ids, { compilation: false });
+    const split = (await commands.getAlbums()).filter((album) => album.name === 'Mixed Tape');
+    expect(split.map((album) => album.artist).sort()).toEqual(['Aoi Sora', 'Kenji Mori']);
+  });
+
   it('範囲の外の値・長すぎる値はエラーにする（文字数で数える）', async () => {
     await expect(commands.updateTrackMetadata(trackId, { bpm: 1000 })).rejects.toMatchObject({
       code: 'VALIDATION'

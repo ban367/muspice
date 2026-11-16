@@ -2238,6 +2238,11 @@ export type Track = {
 	sortTags: SortTags,
 	/**  ファイルが見つからない（再スキャンで見つからなくなった曲。利用者が外すまで残す） */
 	isMissing: boolean,
+	/**
+	 *  コンピレーション（複数のアーティストの曲を集めたアルバム）の印。アルバムアーティストがない曲は、
+	 *  「Various Artists」のアルバムにまとめる（`group_artist`。ADR-093）
+	 */
+	compilation: boolean,
 };
 
 /**  曲の歌詞 */

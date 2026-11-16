@@ -7,6 +7,7 @@
 import type { SmartOrder, SmartRule, SmartRules, Track } from '#lib/types/models.js';
 import { normalizeSearchText } from '#lib/utils/searchText.js';
 import { splitValues } from '#lib/utils/multiValue.js';
+import { groupArtist } from '#lib/utils/albumKey.js';
 import { isOutsideMusicFolder } from '#lib/utils/musicFolder.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -201,7 +202,7 @@ function orderKey(track: Track, field: SmartOrder['field']): OrderKey {
 /** 同じ値の曲の並び（アーティスト → アルバム → アルバムの中の並び） */
 function compareWithinSameKey(a: Track, b: Track): number {
   return (
-    compareKeys(a.albumArtist ?? a.artist, b.albumArtist ?? b.artist) ||
+    compareKeys(groupArtist(a), groupArtist(b)) ||
     compareKeys(a.album, b.album) ||
     compareKeys(a.discNumber ?? 1, b.discNumber ?? 1) ||
     compareKeys(a.trackNumber, b.trackNumber) ||

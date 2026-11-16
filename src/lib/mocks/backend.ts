@@ -73,6 +73,8 @@ import {
   mockTrackId
 } from './fixtures';
 import { matchesSearchTerms, normalizeSearchText, searchTerms } from '#lib/utils/searchText.js';
+import { groupArtist, VARIOUS_ARTISTS } from '#lib/utils/albumKey.js';
+import { groupArtistSortName } from '#lib/utils/nameSort.js';
 import {
   countSmartPlaylistTracks,
   findSmartPlaylistTracks,
@@ -544,15 +546,12 @@ function groupBy<T>(items: T[], key: (item: T) => string): Map<string, T[]> {
 /** アーティストの詳細で、アルバムのない曲をまとめるアルバムの名前（Rustの`UNKNOWN_ALBUM`と同じ） */
 const UNKNOWN_ALBUM = '不明なアルバム';
 
-/** アルバム・アーティストの一覧をまとめるアーティスト（Rustの`ALBUM_ARTIST`と同じ） */
-const groupArtist = (track: Track) => track.albumArtist ?? track.artist;
-
 /** まとめたアーティストの、並び順に使う値（Rustの`ALBUM_ARTIST_SORT`と同じ） */
-const groupArtistSort = (track: Track) =>
-  track.albumArtist === null
-    ? track.sortTags.artist
-    : (track.sortTags.albumArtist ??
-      (track.artist === track.albumArtist ? track.sortTags.artist : null));
+const groupArtistSort = (track: Track) => groupArtistSortName(track);
+
+/** 曲のアーティストより先に使う、まとめるアルバムアーティスト（Rustの`GROUP_ALBUM_ARTIST`と同じ） */
+const groupAlbumArtist = (track: Track) =>
+  track.albumArtist ?? (track.compilation ? VARIOUS_ARTISTS : null);
 
 /**
  * 一覧でまとめるアーティスト（`name`）の、並び順に使う値
@@ -561,7 +560,7 @@ const groupArtistSort = (track: Track) =>
  * （Rustの`find_artist_summaries`と同じ）。
  */
 function listedArtistSort(track: Track, name: string): string | null {
-  if (track.albumArtist !== null) return groupArtistSort(track);
+  if (groupAlbumArtist(track) !== null) return groupArtistSort(track);
   const names = splitValues(track.artist);
   const sortNames = splitValues(track.sortTags.artist);
   return sortNames.length === names.length ? (sortNames[names.indexOf(name)] ?? null) : null;
@@ -960,6 +959,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     track.albumArtist = metadata.albumArtist ?? null;
     track.trackNumber = metadata.trackNumber ?? null;
     track.discNumber = metadata.discNumber ?? null;
+    track.compilation = metadata.compilation === true;
     track.sortTags = {
       title: metadata.titleSort ?? null,
       artist: metadata.artistSort ?? null,
@@ -1026,6 +1026,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     if (year != null) track.year = year;
     if (trackNumber != null) track.trackNumber = trackNumber;
     if (discNumber != null) track.discNumber = discNumber;
+    if (metadata.compilation != null) track.compilation = metadata.compilation;
     track.sortTags = {
       title: text(metadata.titleSort, track.sortTags.title),
       artist: text(metadata.artistSort, track.sortTags.artist),
@@ -1038,17 +1039,13 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     const fileOnly = Object.fromEntries(
       Object.entries(pickFileOnlyTags(metadata)).filter(([, value]) => value != null)
     );
-    const merged: Metadata = { ...fileOnlyTags.get(track.id), ...fileOnly };
-    // コンピレーションの印を外す指定は、項目ごと取り除く
-    if (merged.compilation === false) delete merged.compilation;
-    fileOnlyTags.set(track.id, merged);
+    fileOnlyTags.set(track.id, { ...fileOnlyTags.get(track.id), ...fileOnly });
   }
 
   /** ファイルのタグだけにある項目（データベースに保存しない項目）を取り出す */
   function pickFileOnlyTags(metadata: Metadata): Metadata {
-    const { composer, trackTotal, discTotal, grouping, bpm, compilation, comment, lyrics } =
-      metadata;
-    return { composer, trackTotal, discTotal, grouping, bpm, compilation, comment, lyrics };
+    const { composer, trackTotal, discTotal, grouping, bpm, comment, lyrics } = metadata;
+    return { composer, trackTotal, discTotal, grouping, bpm, comment, lyrics };
   }
 
   /** 曲のタグ（編集画面で扱うすべての項目）。モックでは、曲の情報と、編集で入れた値から作る */
@@ -1151,6 +1148,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     if (track.year !== null) tags.year = track.year;
     if (track.trackNumber !== null) tags.trackNumber = track.trackNumber;
     if (track.discNumber !== null) tags.discNumber = track.discNumber;
+    if (track.compilation) tags.compilation = true;
     tags.titleSort = track.sortTags.title;
     tags.artistSort = track.sortTags.artist;
     tags.albumSort = track.sortTags.album;
@@ -1280,7 +1278,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     const order = (track: Track) =>
       [track.discNumber ?? -1, track.trackNumber ?? -1, track.filePath] as const;
     for (const track of tracks.filter((track) => !track.isMissing)) {
-      const key = JSON.stringify([track.album, track.albumArtist ?? track.artist]);
+      const key = JSON.stringify([track.album, groupArtist(track)]);
       const album = albums.get(key);
       if (!album) {
         albums.set(key, { first: track, addedAt: track.createdAt });
@@ -1395,7 +1393,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       updatedAt: timestamp,
       replayGain: { trackGain: null, trackPeak: null, albumGain: null, albumPeak: null },
       sortTags: { title: null, artist: null, album: null, albumArtist: null },
-      isMissing: false
+      isMissing: false,
+      compilation: false
     };
   }
 
@@ -1859,7 +1858,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
 
   /** 音量の解析で、曲をまとめるアルバムのキー（Rustの`loudness_scan::album_key`。アルバムのない曲はnull） */
   const loudnessAlbumKey = (track: Track) =>
-    track.album ? `${track.album}\n${track.albumArtist ?? track.artist ?? ''}` : null;
+    track.album ? `${track.album}\n${groupArtist(track) ?? ''}` : null;
 
   /**
    * 音量を解析して、ゲインとピークを曲に記録する（Rustの`loudness_scan`の、まとまりごとの解析）

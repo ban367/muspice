@@ -1,4 +1,5 @@
-//! 既存のトラックの、後から追加した項目（アルバムアーティスト・ソート用のタグ・複数の値）の読み込み
+//! 既存のトラックの、後から追加した項目（アルバムアーティスト・ソート用のタグ・複数の値・
+//! コンピレーションの印）の読み込み
 //!
 //! これらの列（`tracks.album_artist`・`tracks.title_sort`など）を追加する前に登録したトラックは、
 //! 値が空になっている。そのままでは、コンピレーションが曲のアーティストごとの別のアルバムに
@@ -12,9 +13,13 @@
 //! （DBの移行で2倍にしてある）。ファイルの評価が半分の星で、今の評価がそれを切り上げた値のままなら、
 //! 半分の星に置き換える。
 //!
+//! コンピレーションの印をDBに持つ前（ADR-093）に登録したトラックは、印がない。アルバムアーティストの
+//! ないコンピレーションが、曲のアーティストごとの別のアルバムに分かれて見えるため、ファイルから読む。
+//!
 //! - 読み込むのは未読の項目だけで、ほかの項目は変えない（「メタデータを更新」と違い、
 //!   以前のバージョンでDBだけに保存した編集内容を失わない）
-//! - 読み込んだトラックは`album_artist_read`・`sort_tags_read`・`multi_values_read`・`rating_read`を1にする。
+//! - 読み込んだトラックは`album_artist_read`・`sort_tags_read`・`multi_values_read`・`rating_read`・
+//!   `compilation_read`を1にする。
 //!   対象がなくなれば、次回以降の起動では何もしない
 //! - ファイルを読めなかったトラック（外付けドライブが外れているなど）は未読のまま残し、次回の起動で読み直す
 //! - 途中でアプリを終了した場合は、次回の起動で続きから読み込む
@@ -57,7 +62,7 @@ pub fn start(app: &AppHandle) {
                 Ok(result) if result.read_count == 0 && result.failed_count == 0 => {}
                 Ok(result) => {
                     log::info!(
-                        "Backfilled album artist, sort tags and ratings for existing tracks (read: {}, with tags: {}, unreadable: {})",
+                        "Backfilled album artist, sort tags, ratings and compilation flags for existing tracks (read: {}, with tags: {}, unreadable: {})",
                         result.read_count,
                         result.found_count,
                         result.failed_count
@@ -132,6 +137,9 @@ fn backfill(
                         half_star_rating(track.rating, tags.rating),
                     )?;
                 }
+                if track.needs_compilation {
+                    crate::repository::set_track_compilation(&tx, &track.id, tags.compilation)?;
+                }
             }
             tx.commit().map_err(|e| {
                 AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
@@ -148,6 +156,7 @@ fn backfill(
                         && (all_values(track.artist.as_deref(), tags.artist.as_deref()).is_some()
                             || all_values(track.genre.as_deref(), tags.genre.as_deref()).is_some()))
                     || (track.needs_rating && half_star_rating(track.rating, tags.rating).is_some())
+                    || (track.needs_compilation && tags.compilation)
             })
             .count();
     }
@@ -449,6 +458,39 @@ mod tests {
         assert!(album_artist_of(&state, "t2").1);
         assert_eq!(sort_tags_of(&state, "t2"), (SortTags::default(), true));
 
+        // 2回目は読むトラックがない
+        let again = backfill(&state, |_| panic!("読み込み済みのトラックを読んだ")).unwrap();
+        assert_eq!(again, BackfillResult::default());
+    }
+
+    /// コンピレーションの印を読み、アルバムアーティストのないコンピレーションを1つのアルバムにまとめる（ADR-093）
+    #[test]
+    fn test_backfill_reads_compilation_flags() {
+        let state = setup_state();
+        insert_unread_track(&state, "t1", "曲1");
+        insert_unread_track(&state, "t2", "曲2");
+
+        let result = backfill(&state, |path| {
+            Ok(BackfillTags {
+                compilation: path.ends_with("t1.mp3"),
+                ..Default::default()
+            })
+        })
+        .unwrap();
+
+        assert_eq!(result.read_count, 2);
+        assert_eq!(result.found_count, 1);
+        let track = |id| {
+            state
+                .with_db(|db| crate::repository::find_track_by_id(db, id))
+                .unwrap()
+        };
+        assert!(track("t1").compilation);
+        assert_eq!(
+            track("t1").group_artist(),
+            Some(crate::models::VARIOUS_ARTISTS)
+        );
+        assert!(!track("t2").compilation);
         // 2回目は読むトラックがない
         let again = backfill(&state, |_| panic!("読み込み済みのトラックを読んだ")).unwrap();
         assert_eq!(again, BackfillResult::default());

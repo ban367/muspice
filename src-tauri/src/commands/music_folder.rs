@@ -1205,6 +1205,7 @@ mod tests {
             replay_gain: crate::models::ReplayGain::default(),
             sort_tags: Default::default(),
             is_missing: false,
+            compilation: false,
         };
         let template = Template::parse(crate::settings::DEFAULT_MUSIC_FOLDER_TEMPLATE).unwrap();
 

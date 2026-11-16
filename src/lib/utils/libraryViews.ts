@@ -17,6 +17,17 @@ function compareAlbumOrder(a: Track, b: Track): number {
 }
 
 /**
+ * 曲を並べる時の、アーティストの比べる値（読みがあれば読み。なければ、まとめるアーティストの名前）
+ *
+ * アルバムアーティストのないコンピレーションは「Various Artists」でまとめるため、曲のアーティストの
+ * 読みを使わない（ADR-093）。
+ */
+function browseArtistKey(track: Track): string {
+  const artistSort = track.albumArtist === null && track.compilation ? null : track.sortTags.artist;
+  return track.sortTags.albumArtist || artistSort || groupArtist(track) || '';
+}
+
+/**
  * 曲を、アーティスト → アルバム → アルバムの中の並びの順に並べる（元の配列は変えない）
  *
  * フォルダ・年代の画面で、曲を渡す順に使う（名前は、読みがあれば読みの順）。
@@ -26,10 +37,7 @@ function compareAlbumOrder(a: Track, b: Track): number {
 export function sortTracksForBrowsing(tracks: readonly Track[]): Track[] {
   return [...tracks].sort(
     (a, b) =>
-      compareNames(
-        a.sortTags.albumArtist || a.sortTags.artist || groupArtist(a) || '',
-        b.sortTags.albumArtist || b.sortTags.artist || groupArtist(b) || ''
-      ) ||
+      compareNames(browseArtistKey(a), browseArtistKey(b)) ||
       compareNames(groupArtist(a) ?? '', groupArtist(b) ?? '') ||
       compareNames(a.sortTags.album || a.album || '', b.sortTags.album || b.album || '') ||
       compareNames(a.album ?? '', b.album ?? '') ||

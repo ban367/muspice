@@ -42,10 +42,11 @@ function groupArtist(track: Track): string {
  * 曲のアーティストの読み）。曲のアーティストでまとめる曲は、曲のアーティストの読み。
  */
 export function groupArtistSortName(
-  track: Pick<Track, 'albumArtist' | 'artist' | 'sortTags'>
+  track: Pick<Track, 'albumArtist' | 'artist' | 'compilation' | 'sortTags'>
 ): string | null {
   const { sortTags } = track;
-  if (track.albumArtist === null) return sortTags.artist;
+  // アルバムアーティストのないコンピレーションは「Various Artists」でまとめるため、曲のアーティストの読みは使わない
+  if (track.albumArtist === null) return track.compilation ? null : sortTags.artist;
   return sortTags.albumArtist ?? (track.artist === track.albumArtist ? sortTags.artist : null);
 }
 

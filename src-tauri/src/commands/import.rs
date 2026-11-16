@@ -1269,6 +1269,7 @@ pub(super) fn create_track_from_file(file_path: &Path) -> AppResult<Track> {
         replay_gain: file_info.replay_gain,
         sort_tags,
         is_missing: false,
+        compilation: file_info.metadata.compilation == Some(true),
     })
 }
 

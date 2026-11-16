@@ -231,6 +231,18 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         "INTEGER NOT NULL DEFAULT 0",
     )?;
 
+    // コンピレーション（複数のアーティストの曲を集めたアルバム）の印（ファイルのタグから読む）。
+    // アルバムアーティストのないコンピレーションの曲は、「Various Artists」のアルバムにまとめる（ADR-093）
+    add_column_if_not_exists(conn, "tracks", "compilation", "INTEGER NOT NULL DEFAULT 0")?;
+    // コンピレーションの印をファイルから読んだか。列を追加する前に登録したトラックは0で、
+    // 起動時にバックグラウンドで読み込む（`tag_backfill`）
+    add_column_if_not_exists(
+        conn,
+        "tracks",
+        "compilation_read",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+
     // ファイルが見つからなくなった日時（見つかる間はNULL）。再スキャンでファイルが見つからなく
     // なったトラックはすぐには外さず、「見つからない曲」として残す。移動・改名されたファイルが
     // 見つかれば同じ曲として結び付け、外すのは利用者の操作にする（`track_relink`）
@@ -395,12 +407,15 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         [],
     )?;
 
-    // アーティストの詳細（アルバムアーティストでの絞り込み）用。式は`repository::ALBUM_ARTIST`と同じにする
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_tracks_album_artist
-         ON tracks(COALESCE(album_artist, artist))",
-        [],
-    )?;
+    // アルバムの曲・アルバムアーティストのアルバムの取得（まとめるアーティストでの絞り込み）用。
+    // 式は`repository::ALBUM_ARTIST`と同じにする（違うと使われない）。コンピレーションの印をまとめ方に
+    // 加える前（ADR-093）の式のインデックス（`idx_tracks_album_artist`）は、使われないため消す
+    conn.execute_batch(&format!(
+        "DROP INDEX IF EXISTS idx_tracks_album_artist;
+         CREATE INDEX IF NOT EXISTS idx_tracks_group_artist
+         ON tracks({});",
+        crate::repository::ALBUM_ARTIST
+    ))?;
 
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_playlist_tracks_playlist_id ON playlist_tracks(playlist_id)",
@@ -714,6 +729,35 @@ mod tests {
             plan.contains("idx_playlist_tracks_track_id"),
             "索引を使っていない: {plan}"
         );
+    }
+
+    /// アルバムの曲の取得で、まとめるアーティストの式の索引を使うこと（式が`repository::ALBUM_ARTIST`と同じ）
+    #[test]
+    fn test_tracks_have_an_index_on_the_grouping_artist() {
+        let conn = open_in_memory();
+        let plan: String = conn
+            .query_row(
+                &format!(
+                    "EXPLAIN QUERY PLAN SELECT 1 FROM tracks WHERE {} IS 'Various Artists'",
+                    crate::repository::ALBUM_ARTIST
+                ),
+                [],
+                |row| row.get(3),
+            )
+            .unwrap();
+        assert!(
+            plan.contains("idx_tracks_group_artist"),
+            "索引を使っていない: {plan}"
+        );
+        // 前の式の索引は残さない
+        let old: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE name = 'idx_tracks_album_artist'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(old, 0);
     }
 
     /// FTS5インデックスがトラックのINSERT/UPDATE/DELETEに追随することを検証

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { albumKey, groupArtist } from './albumKey.js';
+import { albumKey, groupArtist, VARIOUS_ARTISTS } from './albumKey.js';
 
 describe('albumKey', () => {
   it('同じ名前でもアーティストが違うアルバムを区別する', () => {
@@ -19,8 +19,19 @@ describe('albumKey', () => {
 
 describe('groupArtist', () => {
   it('アルバムアーティストがあればそれを、なければ曲のアーティストを返す', () => {
-    expect(groupArtist({ albumArtist: 'Various Artists', artist: 'A' })).toBe('Various Artists');
-    expect(groupArtist({ albumArtist: null, artist: 'A' })).toBe('A');
-    expect(groupArtist({ albumArtist: null, artist: null })).toBeNull();
+    const track = { compilation: false };
+    expect(groupArtist({ ...track, albumArtist: 'Various Artists', artist: 'A' })).toBe(
+      'Various Artists'
+    );
+    expect(groupArtist({ ...track, albumArtist: null, artist: 'A' })).toBe('A');
+    expect(groupArtist({ ...track, albumArtist: null, artist: null })).toBeNull();
+  });
+
+  it('アルバムアーティストのないコンピレーションは「Various Artists」にまとめる（ADR-093）', () => {
+    const compilation = { compilation: true };
+    expect(groupArtist({ ...compilation, albumArtist: null, artist: 'A' })).toBe(VARIOUS_ARTISTS);
+    expect(groupArtist({ ...compilation, albumArtist: null, artist: null })).toBe(VARIOUS_ARTISTS);
+    // アルバムアーティストがあれば、印があってもアルバムアーティストでまとめる
+    expect(groupArtist({ ...compilation, albumArtist: 'DJ X', artist: 'A' })).toBe('DJ X');
   });
 });
