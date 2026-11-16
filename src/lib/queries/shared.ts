@@ -2,6 +2,7 @@
  * クエリ／ミューテーション共通のヘルパーとキャッシュ方針
  */
 
+import { QueryClient } from '@tanstack/svelte-query';
 import { handleError } from '#lib/stores/error.svelte.js';
 
 const MINUTE = 60 * 1000;
@@ -33,6 +34,42 @@ export const CACHE_POLICY = {
  * 止まったままになる（まだ取得していない一覧は、空として表示される）。
  */
 export const LOCAL_NETWORK_MODE = { networkMode: 'always' } as const;
+
+/**
+ * 表示した時に取り直すか（`refetchOnMount`）: 無効化されたクエリだけを取り直す
+ *
+ * `invalidateQueries`がすぐに取り直すのは、表示している（使う部品がある）クエリだけ。表示していない
+ * クエリは印が付くだけで、次に表示した時に取り直すかは`refetchOnMount`で決まる。`false`では、
+ * 再スキャンなどの間に開いていなかった画面（アルバムの一覧など）が、古いキャッシュを出し続ける。
+ * `true`（TanStack Queryの既定）では、`staleTime`を過ぎただけのキャッシュも取り直すため、
+ * 全曲の一覧（数万曲）を画面を移るたびに取り直しかねない。変更は無効化で知らせるため、無効化された
+ * キャッシュだけを取り直せば足りる。
+ */
+export const refetchInvalidatedOnMount = (query: { state: { isInvalidated: boolean } }) =>
+  query.state.isInvalidated;
+
+/**
+ * メインウィンドウの`QueryClient`を作る（`(app)/+layout.svelte`が1つだけ作る）
+ */
+export function createMainQueryClient(): QueryClient {
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        staleTime: 10 * MINUTE, // 10分間キャッシュを新鮮とみなす
+        gcTime: 30 * MINUTE, // 30分間メモリに保持
+        retry: 1, // 失敗時に1回だけリトライ
+        refetchOnWindowFocus: false, // ウィンドウフォーカス時の自動再取得を無効化
+        refetchOnMount: refetchInvalidatedOnMount, // 表示した時は、無効化されたキャッシュだけを取り直す
+        refetchOnReconnect: false, // ネットワークの再接続では再取得しない（外部と通信しないため）
+        ...LOCAL_NETWORK_MODE
+      },
+      mutations: {
+        retry: 0, // ミューテーションは失敗時にリトライしない
+        ...LOCAL_NETWORK_MODE
+      }
+    }
+  });
+}
 
 /**
  * コマンド呼び出しのエラーをトースト通知しつつ、Queryへ再スローする

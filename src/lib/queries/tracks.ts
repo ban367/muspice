@@ -75,13 +75,10 @@ export function invalidateLibraryQueries(queryClient: QueryClient) {
  *
  * 件数の上限はなく、ライブラリの全曲を1回で取得する（一覧は見えている行だけを描画する）。
  * 評価・お気に入りの変更では取り直さず、キャッシュの該当曲を書き換える（`./trackCache.ts`）。
+ * 表示した時に取り直すのは、無効化された時だけ（メインウィンドウの既定。`createMainQueryClient`）。
  */
 export function useTracksQuery() {
-  return createQuery(() => ({
-    ...tracksQueryOptions(),
-    refetchOnWindowFocus: false, // ウィンドウフォーカス時の自動再取得を無効化
-    refetchOnMount: false // マウント時の自動再取得を無効化（キャッシュがあれば使用）
-  }));
+  return createQuery(() => tracksQueryOptions());
 }
 
 /**
