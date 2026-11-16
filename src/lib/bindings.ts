@@ -625,28 +625,44 @@ includesSettings: boolean } |
 	height: number | null,
 } | null>("get_album_art_info", { trackId }),
 	/**
-	 *  画像ファイルを選び、トラックのファイルにアルバムアートとして埋め込む
+	 *  アルバムアートにする画像ファイルを選び、書き込まずに預かる（編集画面の「画像を選ぶ」）
 	 * 
-	 *  画像（JPEG・PNG）は縮小せず、そのまま埋め込む。表示している画像（フロントカバー）を
-	 *  置き換える。書き込めなかったトラックは、結果の`errors`へ理由を入れて残りを続ける。
+	 *  画像（JPEG・PNG、10MBまで）を確かめて預かり、見本の画像と印を返す。選び直すと、前の画像は捨てる。
 	 *  画像を選ばなかった場合はNoneを返す。
 	 */
-	setAlbumArt: (trackIds: string[]) => __TAURI_INVOKE<{
-	/**  ファイルとデータベースを更新できたトラック数 */
-	updatedCount: number,
-	/**  更新できなかったトラック数（ファイルが見つからない・書き込めないなど） */
-	failedCount: number,
-	/**  更新できなかったトラックの理由（ファイルごと） */
-	errors: string[],
-	/**  音楽フォルダの曲を、書式どおりの場所へ移し直した結果（移し直さない場合はnull。ADR-071） */
-	organized: KeepOrganizedResult | null,
-} | null>("set_album_art", { trackIds }),
+	pickAlbumArt: () => __TAURI_INVOKE<{
+	/**  預かった画像を指す印（保存する時に`set_album_art`へ渡す） */
+	token: string,
+	/**  見本に出す画像（`data:`のURL） */
+	dataUrl: string,
+	mimeType: string,
+	/**  大きさ（バイト） */
+	size: number,
+	width: number | null,
+	height: number | null,
+} | null>("pick_album_art"),
+	/**
+	 *  預かった画像（`pick_album_art`の印）を、トラックのファイルにアルバムアートとして埋め込む
+	 * 
+	 *  画像は縮小せず、そのまま埋め込む。表示している画像（フロントカバー）を置き換える。
+	 *  書き込めなかったトラックは、結果の`errors`へ理由を入れて残りを続ける。預かっていない印は`VALIDATION`。
+	 */
+	setAlbumArt: (trackIds: string[], token: string) => __TAURI_INVOKE<BulkUpdateResult>("set_album_art", { trackIds, token }),
 	/**
 	 *  トラックのファイルから、埋め込みの画像をすべて取り除く
 	 * 
 	 *  埋め込みの画像がないトラックは書き換えず、結果の件数にも数えない。
 	 */
 	removeAlbumArt: (trackIds: string[]) => __TAURI_INVOKE<BulkUpdateResult>("remove_album_art", { trackIds }),
+	/**
+	 *  曲の情報の編集画面を、別のウィンドウで開く
+	 * 
+	 *  開いている間は、メインウィンドウを操作できないようにする（`TrackEditorChanged`）。すでに開いている
+	 *  場合は、編集中の内容を失わないよう、曲を入れ替えずに前面へ出す。
+	 */
+	openTrackEditor: (trackIds: string[]) => __TAURI_INVOKE<null>("open_track_editor", { trackIds }),
+	/**  編集画面で扱う曲を、開いた時の順に返す（ライブラリから外された曲は除く） */
+	getTrackEditorTracks: () => __TAURI_INVOKE<Track[]>("get_track_editor_tracks"),
 	/**  プレイリストを作成 */
 	createPlaylist: (name: string) => __TAURI_INVOKE<Playlist>("create_playlist", { name }),
 	/**  自動プレイリスト（条件で曲を集めるプレイリスト）を作成 */
@@ -942,6 +958,8 @@ export const events = {
 	showAboutDialog: makeEvent<ShowAboutDialog>("show-about-dialog"),
 	toggleMiniPlayer: makeEvent<ToggleMiniPlayer>("toggle-mini-player"),
 	toggleSidebar: makeEvent<ToggleSidebar>("toggle-sidebar"),
+	trackEditorChanged: makeEvent<TrackEditorChanged>("track-editor-changed"),
+	tracksEdited: makeEvent<TracksEdited>("tracks-edited"),
 	tracksOpened: makeEvent<TracksOpened>("tracks-opened"),
 };
 
@@ -1777,6 +1795,19 @@ export type PendingFolderImport = {
 	freeBytes: number | null,
 };
 
+/**  編集画面で選んだ画像（まだ書き込んでいない） */
+export type PickedAlbumArt = {
+	/**  預かった画像を指す印（保存する時に`set_album_art`へ渡す） */
+	token: string,
+	/**  見本に出す画像（`data:`のURL） */
+	dataUrl: string,
+	mimeType: string,
+	/**  大きさ（バイト） */
+	size: number,
+	width: number | null,
+	height: number | null,
+};
+
 /**
  *  再生回数に数えた結果（新しい再生回数と、記録した最後に再生した日時）
  * 
@@ -2245,6 +2276,15 @@ export type Track = {
 	compilation: boolean,
 };
 
+/**
+ *  曲の情報の編集画面（別のウィンドウ）を開いた・閉じた（ADR-094）
+ * 
+ *  開いている間、メインウィンドウは画面に覆いを重ねて、操作を受け付けない。
+ */
+export type TrackEditorChanged = {
+	open: boolean,
+};
+
 /**  曲の歌詞 */
 export type TrackLyrics = {
 	/**  歌詞（時刻付きの場合は、LRC形式のまま） */
@@ -2257,6 +2297,19 @@ export type TrackMetadataChange = {
 	trackId: string,
 	/**  変える項目（値がある項目だけを変える。文字列の項目は、空の値で項目を取り除く） */
 	metadata: Metadata,
+};
+
+/**
+ *  曲のタグ・アルバムアートを書き換えた（編集画面のウィンドウでの保存。ADR-094）
+ * 
+ *  編集画面は別のウィンドウのため、メインウィンドウの一覧（Queryのキャッシュ）と、表示中の
+ *  アルバムアートに反映させる。曲の場所が変わった場合（音楽フォルダの整理）は、`LibraryChanged`も送る。
+ */
+export type TracksEdited = {
+	/**  書き換えた曲 */
+	trackIds: string[],
+	/**  アルバムアートを書き換えたか（表示中の画像を読み直させる） */
+	albumArt: boolean,
 };
 
 /**

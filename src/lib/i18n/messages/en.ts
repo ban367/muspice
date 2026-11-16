@@ -354,7 +354,8 @@ export const en: Messages = {
     othersSelected: (count: number) => `${count} more`,
     tags: 'Tags',
     file: 'File',
-    history: 'Play History'
+    history: 'Play History',
+    edit: 'Edit Song Info'
   },
 
   miniPlayer: {
@@ -425,8 +426,13 @@ export const en: Messages = {
   },
 
   metadataEditor: {
-    editTitle: 'Edit Metadata',
-    bulkEditTitle: (count) => `Edit ${plural(count, 'track', 'tracks')}`,
+    bulkEditTitle: (count) => `Edit ${plural(count, 'song', 'songs')} together`,
+    savedWithWarnings: 'Saved. Please check the following',
+    tagsSavedArtFailed: (reason) =>
+      `The tags were saved, but the album art could not be written: ${reason}`,
+    openFailed: 'Opening the editor',
+    loadingTracks: 'Loading songs...',
+    noTracks: 'The songs to edit were not found. They may have been removed from the library',
     bulkHint:
       'Empty fields are left unchanged. Fill in only the fields you want to change. The title (and its sort name), track number and lyrics are edited one track at a time.',
     bulkPartiallyFailed: (updated, failed) =>
@@ -441,7 +447,13 @@ export const en: Messages = {
     yearPlaceholder: 'e.g. 2023',
     writesToFile: 'Changes are written to the tags of the music files',
     /** タブ */
-    tabs: { tags: 'Tags', sort: 'Sorting', lyrics: 'Lyrics', file: 'File Info' },
+    tabs: {
+      tags: 'Tags',
+      sort: 'Sorting',
+      lyrics: 'Lyrics',
+      albumArt: 'Album Art',
+      file: 'File Info'
+    },
     sortHint:
       'Enter the names used for ordering (for example, a phonetic reading). Empty fields are ordered by the displayed name.',
     sortHeading: 'Sorting',
@@ -674,9 +686,7 @@ export const en: Messages = {
     }
   },
 
-  albumArtDialog: {
-    title: 'Album Art',
-    open: 'Change album art',
+  albumArtEditor: {
     target: (count) => `Applies to ${plural(count, 'track', 'tracks')}`,
     previewOf: (title) => `Showing the art of "${title}"`,
     embedded: 'Image embedded in the file',
@@ -685,22 +695,23 @@ export const en: Messages = {
     dimensions: (width, height) => `${width} × ${height}`,
     folderHint:
       'Folder images are shown for tracks without an embedded image. An embedded image takes priority.',
-    choose: 'Choose an Image to Embed...',
+    choose: 'Choose an Image...',
     remove: 'Remove Embedded Images',
+    undo: 'Undo Change',
+    picked: 'New image',
+    willEmbed: (count) =>
+      `When you save, this image is embedded into ${plural(count, 'file', 'files')} (replacing the image shown).`,
+    willRemove: (count) =>
+      `When you save, all embedded images are removed from ${plural(count, 'file', 'files')}. This cannot be undone.`,
     writesToFile:
       'The image (JPEG or PNG, up to 10 MB) is embedded into the music files as is, without resizing.',
-    confirmRemove: (count) =>
-      `All embedded images will be removed from ${plural(count, 'file', 'files')}. This cannot be undone.`,
-    confirmRemoveAction: 'Remove',
-    working: 'Writing to the files...',
     missingExcluded: (count) =>
       `${plural(count, 'track', 'tracks')} with a missing file will be left out`,
     allMissing: 'The file is missing, so the art cannot be changed',
-    embeddedResult: (count) => `Embedded the image into ${plural(count, 'track', 'tracks')}`,
-    removedResult: (count) => `Removed the images from ${plural(count, 'track', 'tracks')}`,
     nothingToRemove: 'None of the tracks had an embedded image',
-    partiallyFailed: (failed) => `${plural(failed, 'file', 'files')} could not be written`,
-    allFailed: (reason) => `Could not write to the files: ${reason}`
+    partiallyFailed: (failed) =>
+      `The album art could not be written to ${plural(failed, 'file', 'files')}`,
+    allFailed: (reason) => `Could not write the album art: ${reason}`
   },
 
   libraryXmlImport: {
@@ -727,8 +738,7 @@ export const en: Messages = {
 
   contextMenu: {
     selectedCount: (count) => `${plural(count, 'track', 'tracks')} selected`,
-    editMetadata: 'Edit Metadata',
-    albumArt: 'Album Art...',
+    editMetadata: 'Edit Song Info...',
     tagTools: 'Tag Tools...',
     fileOrganize: 'Organize Files...',
     loudnessScan: 'Analyze Loudness...',

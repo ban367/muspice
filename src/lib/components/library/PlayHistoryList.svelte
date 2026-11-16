@@ -13,7 +13,6 @@
   import { followSelectedTrack } from '#lib/stores/ui.svelte.js';
   import { formatDateWithWeekday, formatDuration, formatTime } from '#lib/utils/format.js';
   import type { PlayHistoryEntry, Track } from '#lib/types/models.js';
-  import MetadataEditor from '../MetadataEditor.svelte';
   import ContextMenu from '../ContextMenu.svelte';
   import DeleteTrackDialog from '../DeleteTrackDialog.svelte';
   import MarqueeText from '../MarqueeText.svelte';
@@ -65,7 +64,6 @@
     return row === null ? null : { track: row.track, count: selectedTracks.length };
   });
 
-  let showMetadataEditor = $state(false);
   let showDeleteDialog = $state(false);
   let contextMenu = $state<{ x: number; y: number; track: Track } | null>(null);
   let isDragging = $state(false);
@@ -222,14 +220,6 @@
   </div>
 </div>
 
-{#if showMetadataEditor}
-  <MetadataEditor
-    tracks={selectedTracks}
-    onClose={() => (showMetadataEditor = false)}
-    onSave={() => selection.clear()}
-  />
-{/if}
-
 {#if contextMenu}
   <ContextMenu
     x={contextMenu.x}
@@ -238,7 +228,6 @@
     tracks={historyTracks}
     {selectedTrackIds}
     onClose={() => (contextMenu = null)}
-    onEditMetadata={() => (showMetadataEditor = selectedTracks.length > 0)}
     onDelete={() => (showDeleteDialog = selectedTracks.length > 0)}
   />
 {/if}

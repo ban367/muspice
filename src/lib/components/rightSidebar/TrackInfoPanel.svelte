@@ -4,13 +4,16 @@
   選択に追随し、選んでいない時は何も出さない（`ui.selectedTrack`。ADR-078）。
   上部に曲のカード（`SidePanelTrack`。複数選んでいる時は、ほかに選んでいる曲の数を添える）を固定して出し、その下に、
   タグ・ファイル・再生の記録の項目をスクロールして見られるように出す（値のない項目も、ないことがわかるよう「—」で出す）。
+  見出しの「曲の情報を編集」で、出している曲を編集画面（別のウィンドウ。ADR-094）で開く。
 -->
 <script lang="ts">
   import type { Track } from '#lib/types/models.js';
   import { useShowInFolderMutation } from '#lib/queries/tracks.js';
+  import { useOpenTrackEditorMutation } from '#lib/queries/trackEditor.js';
   import { ui } from '#lib/stores/ui.svelte.js';
   import { trackCellText, trackColumnLabel, type TrackColumnId } from '#lib/utils/trackColumns.js';
   import SidePanel from './SidePanel.svelte';
+  import SidePanelButton from './SidePanelButton.svelte';
   import SidePanelMessage from './SidePanelMessage.svelte';
   import SidePanelSection from './SidePanelSection.svelte';
   import SidePanelTrack from './SidePanelTrack.svelte';
@@ -41,6 +44,7 @@
   const selected = $derived(ui.selectedTrack);
 
   const showInFolderMutation = useShowInFolderMutation();
+  const openTrackEditorMutation = useOpenTrackEditorMutation();
 
   /** 項目の値（値がなければ「—」。タイトルは、ファイル名で補わずにタグの値を出す） */
   function fieldText(track: Track, field: TrackColumnId): string {
@@ -50,6 +54,27 @@
 </script>
 
 <SidePanel title={m.rightSidebar.trackInfoTitle}>
+  {#snippet actions()}
+    <SidePanelButton
+      label={m.trackInfo.edit}
+      onclick={() => selected && openTrackEditorMutation.mutate([selected.track.id])}
+      disabled={!selected || openTrackEditorMutation.isPending}
+    >
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M12 20h9" />
+        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
+      </svg>
+    </SidePanelButton>
+  {/snippet}
   {#snippet top()}
     <!-- 選んでいる曲（スクロールせず、常に見えるようにする） -->
     <SidePanelTrack

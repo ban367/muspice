@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "track-editor",
+  "description": "Capability for the song info editor window. It reads and writes tags and album art through backend commands (images are chosen in a backend dialog) and closes itself.",
+  "windows": ["track-editor"],
+  "permissions": ["core:window:allow-close"]
+}

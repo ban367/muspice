@@ -338,7 +338,7 @@
       <p class="hint mt-2">{m.tagTools.unmatched(result.unmatchedCount)}</p>
     {/if}
     {#if missingCount > 0}
-      <p class="hint mt-2">{m.albumArtDialog.missingExcluded(missingCount)}</p>
+      <p class="hint mt-2">{m.albumArtEditor.missingExcluded(missingCount)}</p>
     {/if}
   </section>
 

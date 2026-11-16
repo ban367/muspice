@@ -38,6 +38,7 @@
     - `dialog:allow-message`: 確認のダイアログ（`confirmDestructive`）。dialogプラグインの `open` / `save` はWebViewに許可せず、ESLint（`no-restricted-imports`）でも使えないようにしている
     - アプリのコマンド（`commands.xxx()`）は、capabilityなしで呼べる。メニュー・トレイ・ウィンドウはRust側だけで作る。fs / opener / window-state / global-shortcut / notification プラグインはWebViewに公開しない（Rust側だけで使う）
   - 設定ウィンドウ（`settings`）は別のcapability（`settings.json`）で、`core:event:allow-listen`・`core:event:allow-unlisten`（設定の変更・フォーカス）、`core:window:allow-close`（キャンセルボタンでウィンドウを閉じる）、`dialog:allow-message`（音量の解析・タグの書き出しの確認）のみ
+  - 曲の情報の編集画面（`track-editor`）は別のcapability（`track-editor.json`）で、`core:window:allow-close`（キャンセル・保存の後にウィンドウを閉じる）のみ。編集する曲はRust側が預かり、画像はRust側のダイアログで選ぶ（WebViewからパス・画像データを受け取らない）
   - 権限を変えた時は、実アプリ（デバッグビルド。capabilityは開発サーバーから読む画面にも効く）で、使う機能が許可され、外した機能が`not allowed`になることを確かめる（引数を渡さずに呼ぶと、許可されていれば引数のエラー、されていなければ`not allowed`が返り、ダイアログなどを開かずに見分けられる）
   - assetプロトコルは無効にしている。WebViewは音声ファイルを読まず、再生はRust側の再生エンジンが行う（ADR-027）。CSPでも、音声・動画の読み込み先を許可していない（`media-src 'none'`）
 - デバイスへの転送（ADR-020）

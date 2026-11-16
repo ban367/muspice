@@ -1513,12 +1513,40 @@ describe('アルバムアート', () => {
     });
   });
 
+  /** 画像を選んで（預けて）、印を返す */
+  async function pickArt(): Promise<string> {
+    const picked = await commands.pickAlbumArt();
+    return picked!.token;
+  }
+
+  it('画像を選んだだけでは書き込まず、保存（印を渡す）で埋め込む', async () => {
+    const [track] = await albumTracks('Midnight Circuit');
+    const urlBefore = backend.albumArtUrl(track.id);
+
+    const picked = await commands.pickAlbumArt();
+
+    expect(picked).toMatchObject({ mimeType: 'image/png', width: 1200, height: 1200 });
+    expect(picked!.dataUrl).toMatch(/^data:image/);
+    expect(backend.albumArtUrl(track.id)).toBe(urlBefore);
+    // 違う印は、書き込まない
+    await expect(commands.setAlbumArt([track.id], 'other-token')).rejects.toMatchObject({
+      code: 'VALIDATION'
+    });
+    // 選び直すと、前の印は使えない
+    const second = await pickArt();
+    await expect(commands.setAlbumArt([track.id], picked!.token)).rejects.toMatchObject({
+      code: 'VALIDATION'
+    });
+    await commands.setAlbumArt([track.id], second);
+    expect(backend.albumArtUrl(track.id)).not.toBe(urlBefore);
+  });
+
   it('画像を埋め込むと、埋め込みの画像が優先され、ファイルのサイズが増える', async () => {
     const tracks = await albumTracks('Midnight Circuit');
     const ids = tracks.map((track) => track.id);
     const urlBefore = backend.albumArtUrl(ids[0]);
 
-    const result = await commands.setAlbumArt(ids);
+    const result = await commands.setAlbumArt(ids, await pickArt());
 
     expect(result).toEqual({
       updatedCount: ids.length,
@@ -1536,7 +1564,7 @@ describe('アルバムアート', () => {
 
     // 選び直すと、別の画像に置き換わる
     const urlFirst = backend.albumArtUrl(ids[0]);
-    await commands.setAlbumArt([ids[0]]);
+    await commands.setAlbumArt([ids[0]], await pickArt());
     expect(backend.albumArtUrl(ids[0])).not.toBe(urlFirst);
     expect(backend.albumArtUrl(ids[1])).toBe(urlFirst);
   });
@@ -1545,7 +1573,7 @@ describe('アルバムアート', () => {
     const [folder] = await albumTracks('Midnight Circuit');
     const [embedded] = await albumTracks('Blue Horizon');
     const folderUrl = backend.albumArtUrl(folder.id);
-    await commands.setAlbumArt([folder.id]);
+    await commands.setAlbumArt([folder.id], await pickArt());
 
     const result = await commands.removeAlbumArt([folder.id, embedded.id]);
 
@@ -1570,10 +1598,10 @@ describe('アルバムアート', () => {
     const missing = tracks.find((track) => track.isMissing)!;
     const [present] = await albumTracks('Blue Horizon');
 
-    const result = await commands.setAlbumArt([missing.id, present.id]);
+    const result = await commands.setAlbumArt([missing.id, present.id], await pickArt());
 
     expect(result).toMatchObject({ updatedCount: 1, failedCount: 1 });
-    expect(result!.errors[0]).toContain(missing.filePath);
+    expect(result.errors[0]).toContain(missing.filePath);
   });
 
   it('選んだことにする画像を切り替えられる', async () => {
@@ -1581,13 +1609,44 @@ describe('アルバムアート', () => {
     const url = backend.albumArtUrl(track.id);
 
     backend.setAlbumArtPickMode('cancel');
-    expect(await commands.setAlbumArt([track.id])).toBeNull();
+    expect(await commands.pickAlbumArt()).toBeNull();
     backend.setAlbumArtPickMode('tooLarge');
-    await expect(commands.setAlbumArt([track.id])).rejects.toMatchObject({ code: 'VALIDATION' });
+    await expect(commands.pickAlbumArt()).rejects.toMatchObject({ code: 'VALIDATION' });
 
     expect(backend.albumArtUrl(track.id)).toBe(url);
-    await expect(commands.setAlbumArt([])).rejects.toMatchObject({ code: 'VALIDATION' });
+    backend.setAlbumArtPickMode('pick');
+    await expect(commands.setAlbumArt([], await pickArt())).rejects.toMatchObject({
+      code: 'VALIDATION'
+    });
     await expect(commands.removeAlbumArt([])).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+});
+
+describe('曲の情報の編集画面', () => {
+  it('開いた曲を、編集画面のウィンドウが開いた順に受け取る', async () => {
+    const tracks = await commands.getAllTracks();
+    const ids = [tracks[2].id, tracks[0].id];
+
+    await commands.openTrackEditor(ids);
+
+    expect((await commands.getTrackEditorTracks()).map((track) => track.id)).toEqual(ids);
+    await expect(commands.openTrackEditor([])).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+
+  it('タグ・アルバムアートを書き換えると、ほかのウィンドウへ知らせる', async () => {
+    const [first, second] = await commands.getAllTracks();
+    events.length = 0;
+
+    await commands.updateTrackMetadata(first.id, { title: first.title ?? 'x' });
+    await commands.updateMultipleTracksMetadata([first.id, second.id], { genre: 'Jazz' });
+    const picked = await commands.pickAlbumArt();
+    await commands.setAlbumArt([second.id], picked!.token);
+
+    expect(events.filter((e) => e.event === 'tracks-edited').map((e) => e.payload)).toEqual([
+      { trackIds: [first.id], albumArt: false },
+      { trackIds: [first.id, second.id], albumArt: false },
+      { trackIds: [second.id], albumArt: true }
+    ]);
   });
 });
 

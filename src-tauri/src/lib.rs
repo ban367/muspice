@@ -66,10 +66,11 @@ use commands::{
     get_global_shortcuts, get_library_folders, get_loudness_scan_status, get_most_played_tracks,
     get_music_folder, get_output_devices, get_play_history, get_playback_state,
     get_playlist_folders, get_playlist_tracks, get_playlists, get_settings, get_sync_devices,
-    get_track_lyrics, get_track_tags, get_unique_albums, get_unique_artists, get_unique_genres,
-    import_dropped_files, import_files, import_folder, import_library_xml, import_m3u_playlists,
-    import_pending_folders, increment_play_count, increment_skip_count, log_frontend_message,
-    move_playlist, open_project_page, organize_files, plan_conversion, plan_device_sync,
+    get_track_editor_tracks, get_track_lyrics, get_track_tags, get_unique_albums,
+    get_unique_artists, get_unique_genres, import_dropped_files, import_files, import_folder,
+    import_library_xml, import_m3u_playlists, import_pending_folders, increment_play_count,
+    increment_skip_count, log_frontend_message, move_playlist, open_project_page,
+    open_track_editor, organize_files, pick_album_art, plan_conversion, plan_device_sync,
     plan_file_organize, plan_library_folder_relocation, plan_library_restore, playback_pause,
     playback_play, playback_resume, playback_seek, playback_set_equalizer, playback_set_next,
     playback_set_speed, playback_set_volume, playback_stop, preview_music_folder_template,
@@ -170,8 +171,11 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             start_loudness_scan,
             cancel_loudness_scan,
             get_album_art_info,
+            pick_album_art,
             set_album_art,
             remove_album_art,
+            open_track_editor,
+            get_track_editor_tracks,
             create_playlist,
             create_smart_playlist,
             update_smart_playlist,
@@ -233,6 +237,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::LoudnessScanFinished,
             events::DeviceSyncProgress,
             events::LibraryChanged,
+            events::TracksEdited,
+            events::TrackEditorChanged,
             events::ShowAboutDialog,
             events::OpenImportDialog,
             events::ImportFilesRequested,
@@ -489,6 +495,9 @@ pub fn run() {
             app.manage(commands::OrganizeState::default());
             // ライブラリフォルダの付け替え先（選んでから、付け替えるかを決めるまで預かる）
             app.manage(commands::PendingRelocation::default());
+            // 曲の情報の編集画面（別のウィンドウ）で扱う曲と、選んだまだ書き込んでいない画像
+            app.manage(commands::TrackEditorState::default());
+            app.manage(commands::PendingAlbumArt::default());
             // 音楽フォルダの変更先（選んでから、ライブラリを置き換えるかを決めるまで預かる）
             app.manage(commands::PendingMusicFolder::default());
             // 復元するバックアップ（選んでから、復元するかを決めるまで預かる）と、自動のバックアップ
@@ -580,6 +589,19 @@ pub fn run() {
             }
         })
         .on_window_event(|window, event| {
+            // 曲の情報の編集画面を閉じたら、メインウィンドウを操作できるように戻す
+            if let tauri::WindowEvent::Destroyed = event
+                && window.label() == commands::TRACK_EDITOR_WINDOW
+            {
+                commands::on_track_editor_closed(window.app_handle());
+            }
+            // 編集画面を開いている間に、メインウィンドウを押した・アプリを前面に出した時は、
+            // 編集画面へ戻す（編集画面を閉じるまで、メインウィンドウを操作させない）
+            if let tauri::WindowEvent::Focused(true) = event
+                && window.label() == tray::MAIN_WINDOW
+            {
+                commands::focus_track_editor(window.app_handle());
+            }
             // メニューバーに常駐している間は、メインウィンドウを閉じても終了せず、隠すだけにする
             // （再生を続ける。アイコンのメニューから、もう一度表示できる）
             if let tauri::WindowEvent::CloseRequested { api, .. } = event

@@ -70,6 +70,7 @@ export type {
   OrganizeStatus,
   OutputDevice,
   PendingFolderImport,
+  PickedAlbumArt,
   PlayCountUpdate,
   PlayHistoryEntry,
   PlaybackControl,
@@ -98,6 +99,7 @@ export type {
   Theme,
   Track,
   TrackMetadataChange,
+  TracksEdited,
   VolumeNormalization,
   WriteMetadataResult
 } from '#lib/bindings.js';

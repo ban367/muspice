@@ -54,7 +54,7 @@
   {/if}
 
   {#if missingCount > 0}
-    <p class="hint">{m.albumArtDialog.missingExcluded(missingCount)}</p>
+    <p class="hint">{m.albumArtEditor.missingExcluded(missingCount)}</p>
   {/if}
 
   {#if errors.length > 0}

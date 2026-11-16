@@ -3,7 +3,7 @@
   アルバム/アーティスト/ジャンルグループ用コンテキストメニュー。
   再生キューへの追加（次のキューに追加して再生・次のキューに追加・キューの末尾に追加・キューを置き換えて
   再生）、シャッフル再生、プレイリスト追加のアクションを提供する
-  （アルバムでは、アルバムアートの変更も）。
+  （アルバムでは、アルバムの曲の情報の編集（別のウィンドウ。アルバムアートの変更もそこで行う）も）。
   一覧の項目は曲を持たないため、メニューを開いた時にそのグループの曲を取得する。
 -->
 <script lang="ts">
@@ -17,7 +17,7 @@
   } from '#lib/components/ui/index.js';
   import { useGroupTracksQuery, type GroupType } from '#lib/queries/tracks.js';
   import { playShuffled } from '#lib/stores/player.svelte.js';
-  import { albumArtDialog } from '#lib/stores/albumArt.svelte.js';
+  import { useOpenTrackEditorMutation } from '#lib/queries/trackEditor.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   type Group = AlbumSummary | ArtistSummary | GenreSummary;
@@ -49,11 +49,13 @@
     onClose();
   }
 
+  const openTrackEditorMutation = useOpenTrackEditorMutation();
+
   /**
-   * アルバムの全曲のアルバムアートの画面を開く
+   * アルバムの全曲を、曲の情報の編集画面でまとめて編集する（別のウィンドウ）
    */
-  function handleAlbumArt() {
-    albumArtDialog.open(allTracks);
+  function handleEditTracks() {
+    openTrackEditorMutation.mutate(allTracks.map((track) => track.id));
     onClose();
   }
 </script>
@@ -92,7 +94,7 @@
   {#if type === 'album'}
     <MenuSeparator />
 
-    <MenuItem onSelect={handleAlbumArt} disabled={isEmpty}>
+    <MenuItem onSelect={handleEditTracks} disabled={isEmpty}>
       {#snippet icon()}
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -105,11 +107,11 @@
             stroke-linecap="round"
             stroke-linejoin="round"
             stroke-width="2"
-            d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+            d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
           />
         </svg>
       {/snippet}
-      {m.contextMenu.albumArt}
+      {m.contextMenu.editMetadata}
     </MenuItem>
   {/if}
 </BaseContextMenu>

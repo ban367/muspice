@@ -374,7 +374,9 @@ export const ja = {
     othersSelected: (count: number) => `ほか${count}曲`,
     tags: 'タグ',
     file: 'ファイル',
-    history: '再生の記録'
+    history: '再生の記録',
+    /** 曲の情報の編集画面を開くボタン */
+    edit: '曲の情報を編集'
   },
 
   /** ミニプレーヤー（メインウィンドウの小さな表示） */
@@ -449,8 +451,14 @@ export const ja = {
   },
 
   metadataEditor: {
-    editTitle: 'メタデータを編集',
-    bulkEditTitle: (count: number) => `${count}件のトラックを一括編集`,
+    bulkEditTitle: (count: number) => `${count}曲をまとめて編集`,
+    /** 保存した後に、知らせることがある時（画面を閉じずに出す） */
+    savedWithWarnings: '保存しました。次のことを確かめてください',
+    tagsSavedArtFailed: (reason: string) =>
+      `タグは保存しましたが、アルバムアートを書き込めませんでした: ${reason}`,
+    openFailed: '編集画面を開く',
+    loadingTracks: '曲を読み込み中...',
+    noTracks: '編集する曲が見つかりません。ライブラリから外された可能性があります',
     bulkHint:
       '空欄のフィールドは変更されません。変更したいフィールドのみ入力してください。タイトル（とその読み）・トラック番号・歌詞は、1曲ずつ編集します。',
     bulkPartiallyFailed: (updated: number, failed: number) =>
@@ -466,7 +474,13 @@ export const ja = {
     yearPlaceholder: '例: 2023',
     writesToFile: '変更は音楽ファイルのタグに書き込まれます',
     /** タブ */
-    tabs: { tags: 'タグ', sort: '並び順', lyrics: '歌詞', file: 'ファイル情報' },
+    tabs: {
+      tags: 'タグ',
+      sort: '並び順',
+      lyrics: '歌詞',
+      albumArt: 'アルバムアート',
+      file: 'ファイル情報'
+    },
     /** 並び順に使う値（読み）の説明 */
     sortHint:
       '並び順に使う読み（ひらがな・カタカナなど）を入力します。空の項目は、表示用の名前で並べます。',
@@ -708,10 +722,8 @@ export const ja = {
     }
   },
 
-  albumArtDialog: {
-    title: 'アルバムアート',
-    /** アルバムの絵をクリックして開く操作の名前 */
-    open: 'アルバムアートを変更',
+  /** 編集画面の「アルバムアート」のタブ（画像は、保存した時にファイルへ書き込む。ADR-094） */
+  albumArtEditor: {
     target: (count: number) => `${count}曲が対象`,
     /** 複数の曲を選んだ時の、表示している画像の説明 */
     previewOf: (title: string) => `表示しているのは「${title}」の画像です`,
@@ -721,20 +733,22 @@ export const ja = {
     dimensions: (width: number, height: number) => `${width} × ${height}`,
     folderHint:
       'フォルダの画像は、埋め込みの画像がない曲に表示されます。画像を埋め込むと、そちらが優先されます。',
-    choose: '画像を選んで埋め込む...',
+    choose: '画像を選ぶ...',
     remove: '埋め込みの画像を取り除く',
+    undo: '変更を取り消す',
+    /** 選んだ画像（まだ書き込んでいない） */
+    picked: '新しい画像',
+    willEmbed: (count: number) =>
+      `保存すると、この画像を${count}曲のファイルへ埋め込みます（表示している画像を置き換えます）。`,
+    willRemove: (count: number) =>
+      `保存すると、${count}曲のファイルから埋め込みの画像をすべて取り除きます。元に戻せません。`,
     writesToFile: '画像（JPEG・PNG、10MBまで）は、縮小せずにそのまま音楽ファイルへ埋め込まれます。',
-    confirmRemove: (count: number) =>
-      `${count}曲のファイルから、埋め込みの画像をすべて取り除きます。元に戻せません。`,
-    confirmRemoveAction: '取り除く',
-    working: 'ファイルに書き込み中...',
     missingExcluded: (count: number) => `ファイルが見つからない${count}曲は、対象になりません`,
     allMissing: 'ファイルが見つからないため、変更できません',
-    embeddedResult: (count: number) => `${count}曲に画像を埋め込みました`,
-    removedResult: (count: number) => `${count}曲から画像を取り除きました`,
     nothingToRemove: '埋め込みの画像がある曲はありませんでした',
-    partiallyFailed: (failed: number) => `${failed}曲はファイルに書き込めませんでした`,
-    allFailed: (reason: string) => `ファイルに書き込めませんでした: ${reason}`
+    partiallyFailed: (failed: number) =>
+      `アルバムアートは、${failed}曲のファイルに書き込めませんでした`,
+    allFailed: (reason: string) => `アルバムアートを書き込めませんでした: ${reason}`
   },
 
   libraryXmlImport: {
@@ -760,8 +774,7 @@ export const ja = {
 
   contextMenu: {
     selectedCount: (count: number) => `${count}曲を選択中`,
-    editMetadata: 'メタデータを編集',
-    albumArt: 'アルバムアート...',
+    editMetadata: '曲の情報を編集...',
     tagTools: 'タグの一括ツール...',
     fileOrganize: 'ファイルを整理...',
     loudnessScan: '音量を解析...',
