@@ -132,8 +132,8 @@ sequenceDiagram
 
 ライブラリフォルダの1つに「音楽フォルダ」（新しい曲を置く宛先）の印を付けられる（`library_folders.is_music_folder`。多くても1つで、設定しなくてもよい。ADR-068）。ほかのライブラリフォルダは、今どおりその場の参照。音楽フォルダの書式（置き方）は設定（`settings.json`の`musicFolderTemplate`）に持つ。
 
-1. 入口は2か所: ライブラリが空の画面（曲の画面の`MusicFolderSetup`）と、設定の「ライブラリ」（`MusicFolderSettings`）。どちらも「既定のフォルダ（Muspice）を使う」（OSの音楽フォルダの中の`Muspice`。なければ作る。ライブラリが空の画面の最初の選択肢。ADR-083）か「フォルダを選ぶ...」（Rust側のダイアログを、呼び出したウィンドウの上に出す）で`set_music_folder`を呼ぶ
-2. Rust側（`commands/music_folder.rs`）は、`lock_library_scan`の中で、新しいフォルダの外に曲があれば、フォルダを預かって`confirmReplace`を返す（何も変えない）。設定の「ライブラリ」は確認（`MusicFolderReplaceDialog`。外す曲・残る曲・消すプレイリストの数と「置き換える前にバックアップする」）を出し、置き換えるなら`confirm_music_folder_change`、やめるなら`cancel_music_folder_change`を呼ぶ。外に曲がなければ、確かめずに次へ進む（ADR-086）
+1. 入口は2か所: ライブラリが空の画面（曲の画面の`MusicFolderSetup`）と、設定の「ライブラリ」（`MusicFolderSettings`）。どちらも「既定のフォルダ（Muspice）を使う」（OSの音楽フォルダの中の`Muspice`。なければ作る。ライブラリが空の画面の最初の選択肢。ADR-083）と、フォルダを選ぶ操作（Rust側のダイアログを、呼び出したウィンドウの上に出す）を持つ。ライブラリが空の画面は、選ぶとすぐに`set_music_folder`を呼ぶ。設定の「ライブラリ」は、選ぶだけ（「フォルダを変更...」は`pick_music_folder`でRust側に預ける）で、設定の「適用」で`set_music_folder`（`default`か`picked`）を呼ぶ（`MusicFolderDraft`。#408）。音楽フォルダの設定を外すだけの操作（「解除」）は持たない
+2. Rust側（`commands/music_folder.rs`）は、`lock_library_scan`の中で、新しいフォルダの外に曲があれば、フォルダを預かって`confirmReplace`を返す（何も変えない）。設定の「ライブラリ」は確認（`MusicFolderReplaceDialog`。外す曲・残る曲・消すプレイリストの数と「置き換える前にバックアップする」）を出し、置き換えるなら`confirm_music_folder_change`、やめるなら`cancel_music_folder_change`を呼ぶ（やめた時は、選んだフォルダのまま残り、もう一度「適用」できる）。外に曲がなければ、確かめずに次へ進む（ADR-086）
 3. 置き換えでは、新しいフォルダが未登録なら先に走査し（読めなければ、何も変えずにエラーにする）、（選ばれれば`backups/`へ書き出してから）新しいフォルダの外の曲・ほかのライブラリフォルダの記録・通常のプレイリストを外す。新しいフォルダが登録済みのライブラリフォルダなら印を付けるだけ、それ以外は空でもライブラリフォルダとして登録して中の曲を読み込み（`import_folder`と同じ処理。`ImportProgress`を送る。登録済みの曲は記録を残す）、印を付ける
 4. `LibraryChanged`を送り、メインウィンドウ（曲・プレイリストの一覧と空の画面）と設定ウィンドウ（ライブラリフォルダの一覧と音楽フォルダ）が読み直す。メインウィンドウでは、曲を読み込んだ場合だけインポートダイアログに進み具合と結果を出す（`importer.setMusicFolder`）
 5. ファイルは動かさない・消さない。音楽フォルダのライブラリフォルダを削除すると、印も消えて未設定に戻る。音楽フォルダを含むフォルダをインポートして記録をまとめた場合は、外側のフォルダに印を移す

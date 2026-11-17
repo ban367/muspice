@@ -31,6 +31,7 @@
   import LibraryXmlImportSettings from '#lib/components/LibraryXmlImportSettings.svelte';
   import LoudnessScanSettings from '#lib/components/LoudnessScanSettings.svelte';
   import LibraryBackupSettings from '#lib/components/LibraryBackupSettings.svelte';
+  import { MusicFolderDraft } from '#lib/stores/musicFolderDraft.svelte.js';
 
   type SettingsSection = 'general' | 'playback' | 'library' | 'appearance';
 
@@ -100,7 +101,10 @@
       !outputDevicesQuery.data.some((device) => device.id === pending?.outputDeviceId)
   );
 
-  const hasChanges = $derived.by(() => {
+  // 選んで、「適用」を待っている音楽フォルダ（音楽フォルダは`settings.json`ではなく、ライブラリに持つ。#408）
+  const musicFolderDraft = new MusicFolderDraft();
+
+  const hasSettingsChanges = $derived.by(() => {
     const saved = settingsQuery.data;
     if (pending === null || saved === undefined) return false;
     const current = pending;
@@ -109,6 +113,9 @@
       (key) => JSON.stringify(current[key]) !== JSON.stringify(saved[key])
     );
   });
+  const hasChanges = $derived(hasSettingsChanges || musicFolderDraft.choice !== null);
+  // 音楽フォルダを変えている間（置き換えの確認・曲の読み込みを含む）
+  let isApplyingMusicFolder = $state(false);
 
   /** サイドバーの項目の、表示・非表示を切り替える（隠す項目の一覧を、作り直して入れる） */
   function setSidebarItemShown(item: SidebarItem, shown: boolean) {
@@ -136,14 +143,30 @@
     if (theme) return applyTheme(theme);
   });
 
+  /**
+   * 変えた設定を保存し、選んだ音楽フォルダに変える
+   *
+   * 設定の保存に失敗した時は、音楽フォルダも変えない。音楽フォルダの置き換えの確認でやめた時は、
+   * 選んだフォルダのまま残る（保存した設定は、そのまま）。
+   */
   async function applySettings() {
     if (!pending) return;
+    if (hasSettingsChanges) {
+      try {
+        await saveMutation.mutateAsync({ ...pending });
+        // 保存でグローバルホットキーを登録し直すため、登録できたかを読み直す
+        void globalShortcutsQuery.refetch();
+      } catch {
+        // 失敗はミューテーション内でトースト通知済み
+        return;
+      }
+    }
+    if (musicFolderDraft.choice === null) return;
+    isApplyingMusicFolder = true;
     try {
-      await saveMutation.mutateAsync({ ...pending });
-      // 保存でグローバルホットキーを登録し直すため、登録できたかを読み直す
-      void globalShortcutsQuery.refetch();
-    } catch {
-      // 失敗はミューテーション内でトースト通知済み
+      await musicFolderDraft.apply();
+    } finally {
+      isApplyingMusicFolder = false;
     }
   }
 
@@ -240,10 +263,11 @@
   <!-- メインコンテンツ -->
   <div class="settings-main">
     <div class="settings-content">
-      <!-- ライブラリフォルダの操作はすぐに反映する（下の「適用」の対象外）。
+      <!-- ライブラリフォルダの操作（再スキャン・削除など）はすぐに反映する（下の「適用」の対象外）。
+           音楽フォルダの変更は、選ぶだけで、下の「適用」で反映する（#408）。
            再スキャンの途中で別のセクションへ移っても進捗を保つよう、常に置いて表示だけを切り替える -->
       <div hidden={activeSection !== 'library'}>
-        <LibraryFolderSettings>
+        <LibraryFolderSettings musicFolder={musicFolderDraft}>
           <!-- 音楽フォルダの書式・取り込む曲のコピー・整理された状態に保つは、ほかの設定と同じく
                「適用」で保存する -->
           {#if pending}
@@ -570,9 +594,9 @@
       <button
         class="btn-primary"
         onclick={applySettings}
-        disabled={!hasChanges || saveMutation.isPending}
+        disabled={!hasChanges || saveMutation.isPending || isApplyingMusicFolder}
       >
-        {saveMutation.isPending ? m.common.saving : m.common.apply}
+        {saveMutation.isPending || isApplyingMusicFolder ? m.common.saving : m.common.apply}
       </button>
     </footer>
   </div>

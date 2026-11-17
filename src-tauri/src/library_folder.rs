@@ -341,7 +341,10 @@ pub fn set_music_folder(conn: &Connection, folder_id: &str) -> AppResult<()> {
         .map_err(|e| AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e)))
 }
 
-/// 音楽フォルダの設定を外す（ライブラリフォルダの記録は残す）
+/// 音楽フォルダの設定を外す（ライブラリフォルダの記録は残す。テストで、印を付け替えるのに使う）
+///
+/// アプリには、音楽フォルダの設定を外すだけの操作はない（#408。変える操作だけを持つ）。
+#[cfg(test)]
 pub fn clear_music_folder(conn: &Connection) -> AppResult<()> {
     conn.execute(
         "UPDATE library_folders SET is_music_folder = 0 WHERE is_music_folder = 1",

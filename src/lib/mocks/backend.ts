@@ -725,6 +725,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   let pendingRelocation: { folderId: string; path: string } | null = null;
   // ライブラリの置き換えを確かめる間、預かっている音楽フォルダ（ADR-086）
   let pendingMusicFolder: string | null = null;
+  /** 設定の「フォルダを変更...」で選んで、「適用」を待っているフォルダ（Rustの`PickedMusicFolder`） */
+  let pickedMusicFolder: string | null = null;
   // バックアップの保存・復元で選んだことにするファイルと、預かっている復元するファイル
   let backupFile: string | null = DEFAULT_BACKUP_FILE;
   let pendingRestore: string | null = null;
@@ -1209,7 +1211,21 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
    */
   async function setMusicFolder(source: MusicFolderSource): Promise<MusicFolderChange | null> {
     pendingMusicFolder = null;
-    const selected = source === 'default' ? DEFAULT_MUSIC_FOLDER : folderResult;
+    let selected: string | null;
+    switch (source) {
+      case 'default':
+        selected = DEFAULT_MUSIC_FOLDER;
+        break;
+      case 'pick':
+        selected = folderResult;
+        break;
+      case 'picked':
+        if (pickedMusicFolder === null) {
+          fail('VALIDATION', '音楽フォルダにするフォルダが選ばれていません');
+        }
+        selected = pickedMusicFolder;
+        break;
+    }
     if (selected === null) return null;
     const path = normalizeFolderPath(selected);
     if (libraryFolders.some((folder) => folder.isMusicFolder && folder.path === path)) {
@@ -3227,15 +3243,20 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       };
     },
     // 実装はRust側のダイアログで選ぶ。モックは`setFolderResult`のフォルダを選んだことにする
-    setMusicFolder: (source) => setMusicFolder(source),
+    pickMusicFolder: () => {
+      if (folderResult === null) return null;
+      pickedMusicFolder = normalizeFolderPath(folderResult);
+      return pickedMusicFolder;
+    },
+    setMusicFolder: async (source) => {
+      const change = await setMusicFolder(source);
+      // 音楽フォルダにしたら、選んだフォルダを手放す（置き換えの確認では、もう一度「適用」できるよう残す）
+      if (change?.kind === 'set') pickedMusicFolder = null;
+      return change;
+    },
     confirmMusicFolderChange: (backup) => confirmMusicFolderChange(backup),
     cancelMusicFolderChange: () => {
       pendingMusicFolder = null;
-      return null;
-    },
-    clearMusicFolder: () => {
-      for (const folder of libraryFolders) folder.isMusicFolder = false;
-      options.emit('libraryChanged', null);
       return null;
     },
     previewMusicFolderTemplate: (template) => previewMusicFolderTemplate(template),

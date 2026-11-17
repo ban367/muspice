@@ -5,6 +5,10 @@
 //! 曲と、ほかのライブラリフォルダの記録を外し（ファイルは消さない）、新しいフォルダを登録して中の曲を
 //! 読み込む。新しいフォルダの中にある登録済みの曲は、記録（再生回数など）を残す。
 //!
+//! 設定ウィンドウでは、フォルダを選ぶだけでは変えず、設定の「適用」で変える（#408）。「フォルダを変更...」は
+//! `pick_music_folder`でダイアログを開いて選んだフォルダを預かり（`PickedMusicFolder`）、「適用」で
+//! `set_music_folder(Picked)`を呼ぶ。
+//!
 //! 外す曲がある時は、選んだフォルダを預かり（`PendingMusicFolder`）、画面で確かめてから置き換える。
 //! その時は、通常のプレイリストも消し、選ばれれば、ライブラリのデータを`backups/`へ書き出してから
 //! 置き換える。外す曲がない時（新しいフォルダが今の曲をすべて含む時）は、確かめずに音楽フォルダにする。
@@ -71,8 +75,10 @@ pub struct MusicFolderInfo {
 pub enum MusicFolderSource {
     /// 既定の音楽フォルダ（`~/Music/Muspice`。なければ作る。パスはRust側で求める）
     Default,
-    /// ダイアログで選ぶ
+    /// ダイアログで選ぶ（ライブラリが空の画面。選んだらすぐに変える）
     Pick,
+    /// `pick_music_folder`で選んで預かったフォルダ（設定ウィンドウの「適用」）
+    Picked,
 }
 
 /// ライブラリを置き換えた結果（ADR-086）
@@ -118,6 +124,30 @@ pub enum MusicFolderChange {
 /// 置き換えを確かめる間、預かっている音楽フォルダ（Tauriの管理状態。多くても1つ）
 #[derive(Default)]
 pub struct PendingMusicFolder(Mutex<Option<PendingChange>>);
+
+/// 設定ウィンドウの「フォルダを変更...」で選んで、「適用」を待っているフォルダ（Tauriの管理状態）
+///
+/// 置き換えの確認でやめた後も、もう一度「適用」できるよう、音楽フォルダにするか、選び直すまで持つ。
+#[derive(Default)]
+pub struct PickedMusicFolder(Mutex<Option<PathBuf>>);
+
+impl PickedMusicFolder {
+    fn hold(&self, folder: PathBuf) {
+        if let Ok(mut picked) = self.0.lock() {
+            *picked = Some(folder);
+        }
+    }
+
+    fn get(&self) -> Option<PathBuf> {
+        self.0.lock().ok().and_then(|picked| picked.clone())
+    }
+
+    fn clear(&self) {
+        if let Ok(mut picked) = self.0.lock() {
+            *picked = None;
+        }
+    }
+}
 
 /// 預かっている音楽フォルダ
 struct PendingChange {
@@ -219,28 +249,22 @@ pub async fn set_music_folder(
                 true,
             ),
             MusicFolderSource::Pick => {
-                let title = match crate::menu::current_language(&app_handle) {
-                    Language::Ja => "音楽フォルダを選択",
-                    Language::En => "Select a Music Folder",
-                };
-                // 今の音楽フォルダ（なければOSの音楽フォルダ）を開いた状態で出す
-                let current = state
-                    .with_db(|db| find_music_folder(db))?
-                    .map(|folder| PathBuf::from(folder.path))
-                    .filter(|path| path.is_dir());
-                let mut dialog = app_handle
-                    .dialog()
-                    .file()
-                    .set_parent(&window)
-                    .set_title(title);
-                if let Some(directory) = current.or_else(|| system_music_folder(&app_handle)) {
-                    dialog = dialog.set_directory(directory);
-                }
-                let Some(folder) = pick_folder(dialog)? else {
+                let Some(folder) = pick_folder_with_dialog(&app_handle, &window)? else {
                     return Ok(None);
                 };
                 (folder, false)
             }
+            MusicFolderSource::Picked => (
+                app_handle
+                    .state::<PickedMusicFolder>()
+                    .get()
+                    .ok_or_else(|| {
+                        AppError::Validation(
+                            "音楽フォルダにするフォルダが選ばれていません".to_string(),
+                        )
+                    })?,
+                false,
+            ),
         };
 
         let change = change_music_folder(
@@ -254,11 +278,66 @@ pub async fn set_music_folder(
             MusicFolderChange::ConfirmReplace { .. } => {
                 pending.hold(PendingChange::new(folder, is_default));
             }
-            MusicFolderChange::Set { .. } => after_change(&app_handle),
+            MusicFolderChange::Set { .. } => {
+                app_handle.state::<PickedMusicFolder>().clear();
+                after_change(&app_handle);
+            }
         }
         Ok(Some(change))
     })
     .await
+}
+
+/// 音楽フォルダにするフォルダを、ダイアログで選んで預かる（設定ウィンドウの「フォルダを変更...」。#408）
+///
+/// まだ音楽フォルダにはしない（設定の「適用」で`set_music_folder(Picked)`を呼ぶ）。選び直すと置き換える。
+///
+/// @returns 選んだフォルダ（画面に出す。ダイアログで選ばずに閉じた場合はnull）
+#[tauri::command]
+#[specta::specta]
+pub async fn pick_music_folder(
+    window: WebviewWindow,
+    app_handle: AppHandle,
+) -> AppResult<Option<String>> {
+    run_blocking(move || {
+        let Some(folder) = pick_folder_with_dialog(&app_handle, &window)? else {
+            return Ok(None);
+        };
+        let path = folder
+            .to_str()
+            .map(normalize_folder_path)
+            .ok_or_else(|| AppError::Validation("フォルダの名前を扱えません".to_string()))?;
+        app_handle.state::<PickedMusicFolder>().hold(folder);
+        Ok(Some(path))
+    })
+    .await
+}
+
+/// 音楽フォルダにするフォルダを選ぶダイアログ（呼び出したウィンドウの上に出す。ADR-065）
+///
+/// 今の音楽フォルダ（なければOSの音楽フォルダ）を開いた状態で出す。選ばずに閉じた場合はNone。
+fn pick_folder_with_dialog(
+    app_handle: &AppHandle,
+    window: &WebviewWindow,
+) -> AppResult<Option<PathBuf>> {
+    let title = match crate::menu::current_language(app_handle) {
+        Language::Ja => "音楽フォルダを選択",
+        Language::En => "Select a Music Folder",
+    };
+    let current = app_handle
+        .state::<AppState>()
+        .with_db(|db| find_music_folder(db))?
+        .map(|folder| PathBuf::from(folder.path))
+        .filter(|path| path.is_dir());
+    let mut dialog = app_handle
+        .dialog()
+        .file()
+        .set_parent(window)
+        .set_title(title);
+    if let Some(directory) = current.or_else(|| system_music_folder(app_handle)) {
+        dialog = dialog.set_directory(directory);
+    }
+    pick_folder(dialog)
 }
 
 /// 預かっている音楽フォルダで、ライブラリを置き換える（`set_music_folder`が`ConfirmReplace`を返した後）
@@ -301,17 +380,6 @@ pub async fn confirm_music_folder_change(
 #[specta::specta]
 pub fn cancel_music_folder_change(pending: tauri::State<'_, PendingMusicFolder>) -> AppResult<()> {
     pending.take();
-    Ok(())
-}
-
-/// 音楽フォルダの設定を外す（ライブラリフォルダの記録・ファイルは、そのまま）
-#[tauri::command]
-#[specta::specta]
-pub async fn clear_music_folder(app_handle: AppHandle) -> AppResult<()> {
-    app_handle
-        .state::<AppState>()
-        .with_db(|db| crate::library_folder::clear_music_folder(db))?;
-    notify_library_changed(&app_handle);
     Ok(())
 }
 
@@ -1165,6 +1233,19 @@ mod tests {
             }
         );
         assert_eq!(folder_paths(&state).len(), 2);
+    }
+
+    /// 選んだフォルダは、もう一度「適用」できるよう、手放すまで持つ（選び直すと置き換える）
+    #[test]
+    fn test_picked_music_folder_is_kept_until_cleared() {
+        let picked = PickedMusicFolder::default();
+        assert!(picked.get().is_none());
+        picked.hold(PathBuf::from("/a"));
+        picked.hold(PathBuf::from("/b"));
+        assert_eq!(picked.get(), Some(PathBuf::from("/b")));
+        assert_eq!(picked.get(), Some(PathBuf::from("/b")));
+        picked.clear();
+        assert!(picked.get().is_none());
     }
 
     /// 預かった音楽フォルダは、取り出すと手放す

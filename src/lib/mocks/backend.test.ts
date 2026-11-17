@@ -2405,14 +2405,27 @@ describe('音楽フォルダ', () => {
     expect(await markedPaths()).toEqual(['/Users/demo']);
   });
 
-  it('解除・ライブラリフォルダの削除で、未設定に戻る', async () => {
+  it('設定の「フォルダを変更...」は選んで預かるだけで、「適用」（picked）で変える', async () => {
     backend.markMusicFolder('/Users/demo/Music');
-    await commands.clearMusicFolder();
-    expect(await musicFolderPath()).toBeNull();
-    expect((await commands.getLibraryFolders()).folders.map((f) => f.path)).toContain(
-      '/Users/demo/Music'
-    );
+    backend.setFolderResult('/Users/demo/Music/');
 
+    expect(await commands.pickMusicFolder()).toBe('/Users/demo/Music');
+    expect(await musicFolderPath()).toBe('/Users/demo/Music');
+    // ダイアログを閉じた時は、null（前に選んだフォルダのまま）
+    backend.setFolderResult(null);
+    expect(await commands.pickMusicFolder()).toBeNull();
+
+    const outer = '/Users/demo';
+    backend.setFolderResult(outer);
+    await commands.pickMusicFolder();
+    expect(await musicFolderPath()).toBe('/Users/demo/Music');
+    expect(await commands.setMusicFolder('picked')).toMatchObject({ kind: 'set', path: outer });
+    expect(await musicFolderPath()).toBe(outer);
+    // 音楽フォルダにしたら、選んだフォルダは手放す
+    await expect(commands.setMusicFolder('picked')).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+
+  it('ライブラリフォルダの削除で、未設定に戻る', async () => {
     backend.markMusicFolder('/Users/demo/Music');
     const music = (await commands.getMusicFolder()).folder!;
     events = [];

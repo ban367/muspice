@@ -51,8 +51,8 @@ pub(crate) use library_folders::{rescan_folder, rescan_outside};
 
 // 音楽フォルダ（新しい曲を置く宛先）の設定と、書式の例
 pub use music_folder::{
-    PendingMusicFolder, cancel_music_folder_change, clear_music_folder,
-    confirm_music_folder_change, get_music_folder, preview_music_folder_template, set_music_folder,
+    PendingMusicFolder, PickedMusicFolder, cancel_music_folder_change, confirm_music_folder_change,
+    get_music_folder, pick_music_folder, preview_music_folder_template, set_music_folder,
 };
 
 // 転送先デバイス（SDカードなどのフォルダ）の登録・設定・同期
