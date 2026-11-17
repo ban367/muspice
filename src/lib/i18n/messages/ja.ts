@@ -178,7 +178,7 @@ export const ja = {
     removeExcludedTracks: '読み込まないフォルダの曲の削除',
     fetchMusicFolder: '音楽フォルダの取得',
     setMusicFolder: '音楽フォルダの設定',
-    clearMusicFolder: '音楽フォルダの解除',
+    pickMusicFolder: '音楽フォルダの選択',
     previewMusicFolderTemplate: '書式の例の取得',
     fetchDevices: 'デバイスの取得',
     registerDevice: 'デバイスの追加',
@@ -1377,13 +1377,17 @@ export const ja = {
     /** 既定の音楽フォルダ（OSの音楽フォルダの中の`Muspice`。なければ作る） */
     useDefault: '既定のフォルダ（Muspice）を使う',
     pick: 'フォルダを選ぶ...',
-    clear: '解除',
+    /** 設定の「ライブラリ」で、音楽フォルダを選び直す（「適用」で変える） */
+    change: 'フォルダを変更...',
+    /** 選んで、「適用」を待っている音楽フォルダ */
+    pendingLabel: '適用すると、このフォルダに変えます',
+    pendingHint:
+      '「適用」を押すと、音楽フォルダを変え、ライブラリをこのフォルダの中身に置き換えます（外す曲がある時は、置き換える前に確かめます）。',
     badge: '音楽フォルダ',
     setting: '音楽フォルダを設定しています...',
     set: (path: string) => `音楽フォルダを「${path}」にしました`,
     setWithTracks: (path: string, count: number) =>
       `音楽フォルダを「${path}」にし、${count}曲を読み込みました`,
-    cleared: '音楽フォルダの設定を解除しました（フォルダは、ライブラリフォルダとして残ります）',
     /** 音楽フォルダを変えて、ライブラリを置き換える（ADR-086） */
     replaceTitle: 'ライブラリの置き換え',
     replaceIntro: (path: string) =>

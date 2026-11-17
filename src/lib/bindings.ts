@@ -259,8 +259,14 @@ playlistCount: number } | null>("set_music_folder", { source }),
 	confirmMusicFolderChange: (backup: boolean) => __TAURI_INVOKE<MusicFolderChange>("confirm_music_folder_change", { backup }),
 	/**  預かっている音楽フォルダを手放す（置き換えをやめた） */
 	cancelMusicFolderChange: () => __TAURI_INVOKE<null>("cancel_music_folder_change"),
-	/**  音楽フォルダの設定を外す（ライブラリフォルダの記録・ファイルは、そのまま） */
-	clearMusicFolder: () => __TAURI_INVOKE<null>("clear_music_folder"),
+	/**
+	 *  音楽フォルダにするフォルダを、ダイアログで選んで預かる（設定ウィンドウの「フォルダを変更...」。#408）
+	 * 
+	 *  まだ音楽フォルダにはしない（設定の「適用」で`set_music_folder(Picked)`を呼ぶ）。選び直すと置き換える。
+	 * 
+	 *  @returns 選んだフォルダ（画面に出す。ダイアログで選ばずに閉じた場合はnull）
+	 */
+	pickMusicFolder: () => __TAURI_INVOKE<string | null>("pick_music_folder"),
 	/**
 	 *  音楽フォルダの書式の例（最近追加したアルバムの最初の曲を、書式に当てはめた、音楽フォルダからの場所）
 	 * 
@@ -1633,8 +1639,10 @@ export type MusicFolderInfo = {
 export type MusicFolderSource = 
 /**  既定の音楽フォルダ（`~/Music/Muspice`。なければ作る。パスはRust側で求める） */
 "default" | 
-/**  ダイアログで選ぶ */
-"pick";
+/**  ダイアログで選ぶ（ライブラリが空の画面。選んだらすぐに変える） */
+"pick" | 
+/**  `pick_music_folder`で選んで預かったフォルダ（設定ウィンドウの「適用」） */
+"picked";
 
 /**  コピーしなかった曲（インポートの結果に出す。曲は取り込んでいない） */
 export type NotCopied = {

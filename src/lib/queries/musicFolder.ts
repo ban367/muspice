@@ -26,9 +26,23 @@ export function useMusicFolderQuery() {
 }
 
 /**
- * 音楽フォルダを選ぶミューテーション（設定ウィンドウ）
+ * 音楽フォルダにするフォルダを、Rust側のダイアログで選んで預けるミューテーション（設定ウィンドウの
+ * 「フォルダを変更...」。#408）
  *
- * フォルダは、既定のフォルダか、Rust側のダイアログで選ぶ（WebViewからパスを渡さない）。
+ * まだ音楽フォルダにはしない（設定の「適用」で`useSetMusicFolderMutation`に`picked`を渡す）。
+ * 選んだフォルダの場所（画面に出す）を返し、選ばずに閉じた場合はnullを返す。
+ */
+export function usePickMusicFolderMutation() {
+  return createMutation(() => ({
+    mutationFn: () => withErrorToast(m.operations.pickMusicFolder, () => commands.pickMusicFolder())
+  }));
+}
+
+/**
+ * 音楽フォルダを変えるミューテーション（設定ウィンドウの「適用」と、ライブラリが空の画面）
+ *
+ * フォルダは、既定のフォルダ・Rust側のダイアログで選ぶ（`pick`）・預けたフォルダ（`picked`）のどれか
+ * （WebViewからパスを渡さない）。
  * 結果を返し、ダイアログで選ばずに閉じた場合はnullを返す。新しいフォルダの外に曲がある場合は、
  * ライブラリを置き換えずに`confirmReplace`を返す（Rust側がフォルダを預かる。ADR-086）。
  */
@@ -74,22 +88,6 @@ export function cancelMusicFolderChange(): void {
   commands.cancelMusicFolderChange().catch((error: unknown) => {
     console.error('Failed to cancel the music folder change:', error);
   });
-}
-
-/**
- * 音楽フォルダの設定を外すミューテーション（ライブラリフォルダの記録は残る）
- */
-export function useClearMusicFolderMutation() {
-  const queryClient = useQueryClient();
-
-  return createMutation(() => ({
-    mutationFn: () =>
-      withErrorToast(m.operations.clearMusicFolder, () => commands.clearMusicFolder()),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.musicFolder });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.libraryFolders });
-    }
-  }));
 }
 
 /**

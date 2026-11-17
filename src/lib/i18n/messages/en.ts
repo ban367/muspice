@@ -167,7 +167,7 @@ export const en: Messages = {
     removeExcludedTracks: 'Removing the tracks in the excluded folder',
     fetchMusicFolder: 'Loading the music folder',
     setMusicFolder: 'Setting the music folder',
-    clearMusicFolder: 'Unsetting the music folder',
+    pickMusicFolder: 'Choosing the music folder',
     previewMusicFolderTemplate: 'Loading the format examples',
     fetchDevices: 'Loading devices',
     registerDevice: 'Adding the device',
@@ -1329,13 +1329,15 @@ export const en: Messages = {
     missing: 'Folder not found',
     useDefault: 'Use the default folder (Muspice)',
     pick: 'Choose a Folder...',
-    clear: 'Unset',
+    change: 'Change Folder...',
+    pendingLabel: 'Changes to this folder when you apply',
+    pendingHint:
+      'When you click Apply, the music folder changes and the library is replaced with the contents of this folder (you are asked before any tracks are removed).',
     badge: 'Music folder',
     setting: 'Setting the music folder...',
     set: (path) => `Set the music folder to "${path}"`,
     setWithTracks: (path, count) =>
       `Set the music folder to "${path}" and added ${plural(count, 'track', 'tracks')}`,
-    cleared: 'Unset the music folder (the folder stays as a library folder)',
     replaceTitle: 'Replace the Library',
     replaceIntro: (path) =>
       `Changing the music folder to "${path}" replaces the library with the contents of this folder.`,
