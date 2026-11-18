@@ -494,7 +494,9 @@ export const ja = {
     turnOffCrossfade: 'クロスフェードをオフ',
     crossfadeDuration: '時間',
     crossfadeSeconds: (seconds: number) => `${seconds}秒`,
-    crossfadeHint: '曲の終わりと次の曲の頭を重ねます。「次へ」などで曲を変えた時は重ねません'
+    crossfadeHint: '曲の終わりと次の曲の頭を重ねます。「次へ」などで曲を変えた時は重ねません',
+    crossfadeSkipAlbumTracks: '同じアルバムの続きの曲では重ねない',
+    crossfadeSkipAlbumTracksHint: 'アルバムを曲順に聴く時は、曲間を切れ目なく続けます'
   },
 
   metadataEditor: {

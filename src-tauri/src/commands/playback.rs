@@ -8,21 +8,33 @@ use super::run_blocking;
 use crate::error::{AppError, AppResult};
 use crate::media_controls::{MediaControls, NowPlayingUpdate};
 use crate::playback::{
-    MAX_SPEED, MIN_SPEED, OutputDevice, PlayRequest, PlaybackEngine, PlaybackTrackInfo,
+    AlbumPosition, MAX_SPEED, MIN_SPEED, OutputDevice, PlayRequest, PlaybackEngine,
+    PlaybackTrackInfo,
 };
 use crate::state::AppState;
 use crate::validation::validate_track_id;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager, State};
 
-/// トラックIDから、再生するファイルと、音量の正規化に使う値を決める
+/// トラックIDから、再生するファイルと、音量の正規化・クロスフェードの判断に使う値を決める
 fn play_request(state: &AppState, track_id: &str, token: u32) -> AppResult<PlayRequest> {
     validate_track_id(track_id)?;
     let track = state.with_db(|db| crate::repository::find_track_by_id(db, track_id))?;
+    let album = track
+        .album
+        .as_deref()
+        .filter(|name| !name.trim().is_empty())
+        .map(|name| AlbumPosition {
+            artist: track.group_artist().map(str::to_string),
+            name: name.to_string(),
+            disc_number: track.disc_number,
+            track_number: track.track_number,
+        });
     Ok(PlayRequest {
         token,
         path: PathBuf::from(track.file_path),
         replay_gain: track.replay_gain,
+        album,
     })
 }
 

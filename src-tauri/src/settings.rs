@@ -133,6 +133,8 @@ pub struct Settings {
     pub crossfade_enabled: bool,
     /// クロスフェードの秒数（1〜12。オフの間も覚えておく）
     pub crossfade_seconds: u8,
+    /// 同じアルバムの続きの曲（曲順が続く曲）では、クロスフェードせずに切れ目なく続ける
+    pub crossfade_skip_album_tracks: bool,
     /// 出力デバイスのID（nullはOSの既定のデバイス）
     pub output_device_id: Option<String>,
     /// ライブラリフォルダを監視し、ファイルの変更を自動で反映する
@@ -186,6 +188,7 @@ impl Default for Settings {
             gapless_playback: true,
             crossfade_enabled: false,
             crossfade_seconds: DEFAULT_CROSSFADE_SECONDS,
+            crossfade_skip_album_tracks: true,
             output_device_id: None,
             watch_library_folders: false,
             library_scan_interval_minutes: 0,
@@ -456,6 +459,7 @@ mod tests {
             gapless_playback: false,
             crossfade_enabled: true,
             crossfade_seconds: 7,
+            crossfade_skip_album_tracks: false,
             output_device_id: Some("coreaudio:BuiltInSpeakerDevice".to_string()),
             watch_library_folders: true,
             library_scan_interval_minutes: 60,
@@ -496,6 +500,7 @@ mod tests {
         assert!(settings.gapless_playback);
         assert!(!settings.crossfade_enabled);
         assert_eq!(settings.crossfade_seconds, DEFAULT_CROSSFADE_SECONDS);
+        assert!(settings.crossfade_skip_album_tracks);
         assert_eq!(settings.output_device_id, None);
         assert!(!settings.auto_sync_enabled());
         assert!(settings.hidden_sidebar_items.is_empty());

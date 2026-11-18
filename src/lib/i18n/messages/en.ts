@@ -462,7 +462,9 @@ export const en: Messages = {
     crossfadeDuration: 'Duration',
     crossfadeSeconds: (seconds) => `${seconds} s`,
     crossfadeHint:
-      'Overlaps the end of a track with the start of the next. Not used when you change tracks with "Next" and the like.'
+      'Overlaps the end of a track with the start of the next. Not used when you change tracks with "Next" and the like.',
+    crossfadeSkipAlbumTracks: 'Not between consecutive album tracks',
+    crossfadeSkipAlbumTracksHint: 'Plays an album in track order without breaks between tracks.'
   },
 
   metadataEditor: {

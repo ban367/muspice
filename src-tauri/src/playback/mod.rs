@@ -34,6 +34,6 @@ pub(crate) use decoder::TrackDecoder;
 #[cfg(test)]
 pub(crate) use decoder::tests as test_audio;
 pub use effects::EQ_BANDS;
-pub use engine::{PlayRequest, PlaybackEngine, PlaybackOptions, PlaybackTrackInfo};
+pub use engine::{AlbumPosition, PlayRequest, PlaybackEngine, PlaybackOptions, PlaybackTrackInfo};
 pub use output::{OutputDevice, list_output_devices};
 pub use stretch::{MAX_SPEED, MIN_SPEED};
