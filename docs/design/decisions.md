@@ -3372,7 +3372,7 @@ ADR-063・ADR-066で、グリッドで選んだ項目と、曲の一覧で選ん
 
 - 利点: Swiftのコードと、それを呼ぶRustのコードが、PRごとにビルド・テストされる。実際の解析（MusicUnderstanding）が動くこともCIで確かめられる
 - 欠点: 必須ではないため、落ちたままでもマージできる（PRの画面で確かめる）。macOSのジョブが1つ増え、CIの時間（macOSのランナー）が増える。Xcode 27.2がイメージから外れた時と、イメージの名前（`xcode-27`）が変わった時は、ワークフローを直す
-- 確認: このジョブ（PR #N）のログで、Xcode 27.2のSDKが使われ、build.rsの警告（`Music analysis is not built in`）が出ず、テストの実行ファイルにSwiftの関数があり、実際の解析のテストが通ること。手元で、`MUSPICE_SKIP_MUSIC_ANALYSIS=1`の時にSwiftの関数がなく、確かめる手順が失敗になること
+- 確認: PR #440のこのジョブのログで、Xcode 27.2（`MacOSX27.2.sdk`）が使われ、build.rsの警告（`Music analysis is not built in`）が出ず、テストの実行ファイルにSwiftの関数（`_muspice_music_analysis_analyze`・`_muspice_music_analysis_available`）があり、実際の解析のテストが、ランナー（VMのmacOS 27）でも解析を使えて通ること（約3秒）。手元で、`MUSPICE_SKIP_MUSIC_ANALYSIS=1`の時にSwiftの関数がなく、確かめる手順が失敗になること
 
 ## 参考資料
 
