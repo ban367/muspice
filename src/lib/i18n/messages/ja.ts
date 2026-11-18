@@ -354,6 +354,8 @@ export const ja = {
     nothingSelected: '曲を選んでいません',
     queueTracks: (count: number) => `曲リスト (${count}曲)`,
     removeFromQueue: 'キューから削除',
+    /** キューの行の左端の目印（ドラッグで並べ替えられることを示す）のツールチップ */
+    dragToReorder: 'ドラッグで並べ替え',
     saveAsPlaylist: 'プレイリストとして保存',
     saveAsPlaylistTitle: '再生キューをプレイリストとして保存',
     saveAsPlaylistDefaultName: (date: string) => `再生キュー ${date}`,
