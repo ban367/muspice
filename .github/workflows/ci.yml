@@ -120,6 +120,62 @@ jobs:
             exit 1
           fi
 
+  # 曲の解析のSwiftのコード（swift/music_analysis.swift）と、それを呼ぶRustのコード
+  # （cfg(music_understanding)）のチェック。MusicUnderstandingはmacOS 27のSDK（Xcode 27）に
+  # しかないため、Backend Check (macOS)のランナー（Xcode 26）ではbuild.rsが組み込まない
+  # Xcode 27のイメージはプレビューのため、このジョブは必須のチェックにしない（ADR-106）
+  backend-macos-xcode27:
+    name: Backend Check (macOS, Xcode 27)
+    runs-on: xcode-27
+    env:
+      # 手元と同じXcode 27.2を使う（イメージの既定は27.1で、macOSのSDKは27.0）
+      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Show Xcode version
+        run: |
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-path
+
+      # rust-toolchain.tomlの版とコンポーネントを入れる
+      - name: Setup Rust
+        run: rustup toolchain install
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: src-tauri
+
+      - name: Clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
+
+      - name: Run tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      # build.rsがSwiftのコードをビルドしてリンクしたこと（組み込めない時は、警告だけを出して
+      # ビルドを続ける）を、テストの実行ファイルにSwiftの関数があることで確かめる
+      - name: Check music analysis is built in
+        run: |
+          executable=$(cargo test --manifest-path src-tauri/Cargo.toml --lib --no-run --message-format=json \
+            | jq -r 'select(.reason == "compiler-artifact" and .target.name == "muspice_lib" and .profile.test) | .executable')
+          echo "Test executable: $executable"
+          if ! nm "$executable" | grep '_muspice_music_analysis_'; then
+            echo "::error::曲の解析のSwiftのコードが組み込まれていません。上のビルドのログのbuild.rsの警告（Music analysis is not built in）を確かめてください。"
+            exit 1
+          fi
+
+      # MusicUnderstandingで実際に解析する（ランナーのmacOSは27のため、解析を使える）
+      - name: Run music analysis tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib music_analysis -- --ignored --nocapture
+
+      - name: Check generated bindings are up to date
+        run: |
+          if ! git diff --exit-code -- src/lib/bindings.ts; then
+            echo "::error::src/lib/bindings.ts が古くなっています。'cargo test --manifest-path src-tauri/Cargo.toml' を実行して再生成し、コミットしてください。"
+            exit 1
+          fi
+
   # ビルドテスト（PRのみ）
   build:
     name: Build Test
