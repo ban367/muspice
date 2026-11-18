@@ -294,8 +294,9 @@ impl PlaybackEngine {
         self.send(Command::SetShuffle(shuffle))
     }
 
-    /// イコライザの設定を変える（`gains`は、バンドごとのゲイン（dB）。すぐに効く）
-    pub fn set_equalizer(&self, enabled: bool, gains: &[f32; EQ_BANDS]) {
+    /// イコライザの設定を変える（`gains`は、バンドごとのゲイン（dB）、`preamp_db`は全体の音量（dB）。すぐに効く）
+    pub fn set_equalizer(&self, enabled: bool, gains: &[f32; EQ_BANDS], preamp_db: f32) {
+        self.effects.set_equalizer_preamp(preamp_db);
         self.effects.set_equalizer(enabled, gains);
     }
 

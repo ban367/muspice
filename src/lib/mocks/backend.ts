@@ -2976,6 +2976,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     },
     // 音量の正規化は鳴らさないため、何もしない
     playbackSetShuffle: () => null,
+    // ゲインとプリアンプは、範囲の外の値も受け取る（Rust側が範囲に収める）
     playbackSetEqualizer: (_enabled, gains) => {
       if (gains.length !== EQ_BAND_COUNT) {
         fail('VALIDATION', `イコライザのゲインは${EQ_BAND_COUNT}個で指定してください`);

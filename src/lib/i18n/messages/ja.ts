@@ -460,7 +460,10 @@ export const ja = {
     resetLabel: 'イコライザをリセット',
     presetName: 'プリセット名',
     deletePreset: 'プリセットを削除',
-    confirmDeletePreset: (name: string) => `"${name}" を削除しますか？`
+    confirmDeletePreset: (name: string) => `"${name}" を削除しますか？`,
+    /** 全体の音量 */
+    preamp: 'プリアンプ',
+    preampHint: '全体の音量を上げ下げします。バンドを持ち上げた分だけ下げると、音割れを防げます'
   },
 
   /** 右サイドバーのサウンドのパネル（イコライザは`equalizer`） */

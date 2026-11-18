@@ -2703,11 +2703,11 @@ describe('再生エンジン', () => {
     await expect(commands.playbackSetSpeed(1.5)).resolves.toBeNull();
     await expect(commands.playbackSetSpeed(1)).resolves.toBeNull();
     // イコライザのゲインは、バンドの数（10個）で渡す
-    await expect(commands.playbackSetEqualizer(true, [0, 0, 0])).rejects.toMatchObject({
+    await expect(commands.playbackSetEqualizer(true, [0, 0, 0], 0)).rejects.toMatchObject({
       code: 'VALIDATION'
     });
     await expect(
-      commands.playbackSetEqualizer(true, [0, 0, 0, 0, 0, 6, 0, 0, 0, 0])
+      commands.playbackSetEqualizer(true, [0, 0, 0, 0, 0, 6, 0, 0, 0, 0], -3)
     ).resolves.toBeNull();
   });
 

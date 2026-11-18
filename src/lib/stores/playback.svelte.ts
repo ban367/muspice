@@ -600,8 +600,9 @@ export function createPlaybackController(
     $effect(() => {
       const enabled = equalizer.enabled;
       const bands = equalizer.bands;
+      const preamp = equalizer.preamp;
       const gains = EQ_FREQUENCIES.map((frequency) => bands[frequency]);
-      send(() => commands.playbackSetEqualizer(enabled, gains), 'set equalizer');
+      send(() => commands.playbackSetEqualizer(enabled, gains, preamp), 'set equalizer');
     });
 
     // OSのNow Playing: プレーヤーバーと同じ内容を伝える（伝え直すかどうかは`nowPlaying`が決める）。
