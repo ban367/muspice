@@ -60,7 +60,8 @@ impl From<&Settings> for Normalization {
 /// - ゲインに、プリアンプ（dB）を足す
 /// - クリップ防止がオンで、ピークがある場合は、補正後にピークがフルスケール（1.0）を超えない
 ///   倍率に抑える（音割れを防ぐ。オフでも、出力のリミッターは効く）
-/// - ゲインのタグがない曲は、ゲインのない曲の設定（dB）だけをかける（0なら補正しない）
+/// - ゲインのタグがない曲は、ゲインのない曲の設定（dB）だけをかける（0なら補正しない）。クリップ防止が
+///   オンで、ピークがある場合は、持ち上げてもピークがフルスケールを超えない倍率に抑える（下げはしない）
 /// - 正規化がオフの場合は補正しない（1。プリアンプもかけない）
 ///
 /// サウンドのパネルの表示（フロントエンドの`#lib/utils/replayGain`の`appliedReplayGain`）も、同じ計算をする。
@@ -80,7 +81,12 @@ pub fn normalization_gain(
     };
     let (gain_db, peak) = match (preferred, fallback) {
         ((Some(gain), peak), _) | ((None, _), (Some(gain), peak)) => (gain, peak),
-        _ => return finite_or_one(from_db(normalization.untagged_preamp_db)),
+        ((None, preferred_peak), (None, fallback_peak)) => {
+            return finite_or_one(untagged_gain(
+                normalization,
+                preferred_peak.or(fallback_peak),
+            ));
+        }
     };
 
     let gain = from_db(gain_db + normalization.preamp_db);
@@ -89,6 +95,20 @@ pub fn normalization_gain(
         _ => gain,
     };
     finite_or_one(limited)
+}
+
+/// ゲインのない曲の倍率（ゲインのない曲の設定（dB）をかける）
+///
+/// クリップ防止がオンで、ピークがある場合は、持ち上げてもピークがフルスケールを超えない倍率に抑える。
+/// 抑えるのは持ち上げた分だけで、ピークがもともと最大を超えている曲も、下げはしない（設定が0なら補正しない）。
+fn untagged_gain(normalization: Normalization, peak: Option<f64>) -> f64 {
+    let gain = from_db(normalization.untagged_preamp_db);
+    match peak {
+        Some(peak) if normalization.prevent_clipping && peak > 0.0 => {
+            gain.min((1.0 / peak).max(1.0))
+        }
+        _ => gain,
+    }
 }
 
 /// dBを倍率にする
@@ -278,6 +298,33 @@ mod tests {
             ..normalization
         };
         assert!(close(gain(&tagged(), louder), from_db(-6.0)));
+    }
+
+    #[test]
+    fn test_untagged_boost_is_limited_by_the_peak() {
+        let boost = |untagged_preamp_db, prevent_clipping| Normalization {
+            untagged_preamp_db,
+            prevent_clipping,
+            ..Normalization::from(VolumeNormalization::Track)
+        };
+        // ピーク0.5の曲を+12dB（約4倍）上げると最大を超えるため、2倍に抑える
+        let half = ReplayGain {
+            album_peak: Some(0.5),
+            ..ReplayGain::default()
+        };
+        assert!(close(gain(&half, boost(12.0, true)), 2.0));
+        // 超えない量なら、そのまま上げる
+        assert!(close(gain(&half, boost(3.0, true)), from_db(3.0)));
+        // クリップ防止がオフなら、抑えない
+        assert!(close(gain(&half, boost(12.0, false)), from_db(12.0)));
+        // 抑えるのは持ち上げた分だけ: 最大を超えている曲も、下げない（0dBなら補正しない）
+        let loud = ReplayGain {
+            track_peak: Some(1.2),
+            ..ReplayGain::default()
+        };
+        assert_eq!(gain(&loud, boost(0.0, true)), 1.0);
+        assert_eq!(gain(&loud, boost(6.0, true)), 1.0);
+        assert!(close(gain(&loud, boost(-6.0, true)), from_db(-6.0)));
     }
 
     #[test]
