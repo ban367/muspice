@@ -1,14 +1,16 @@
 <!--
   @component TrackInfoPanel
-  右サイドバーの曲情報パネル。一覧で選んでいる曲（複数選んでいる時は、最後に選んだ曲）の情報を出す。
-  選択に追随し、選んでいない時は何も出さない（`ui.selectedTrack`。ADR-078）。
+  右サイドバーの選択中の曲のパネル。一覧で選んだ曲（複数選んでいる時は、最後に選んだ曲）の情報を出す。
+  選択に追随し、選択を外した後・別の画面へ移った後も、最後に選んだ曲を出し続ける（`ui.selectedTrack`。
+  ADR-078・ADR-096）。曲の内容は、全曲の一覧から最新のものを引く（ライブラリから消えた曲は出さない）。
   上部に曲のカード（`SidePanelTrack`。複数選んでいる時は、ほかに選んでいる曲の数を添える）を固定して出し、その下に、
   タグ・ファイル・再生の記録の項目をスクロールして見られるように出す（値のない項目も、ないことがわかるよう「—」で出す）。
-  見出しの「曲の情報を編集」で、出している曲を編集画面（別のウィンドウ。ADR-094）で開く。
+  見出しには、メインビューで曲を選んだらこのパネルに切り替えるかのスイッチ（`ui.autoShowSelectedTrack`）と、
+  出している曲を編集画面（別のウィンドウ。ADR-094）で開く「曲の情報を編集」を置く。
 -->
 <script lang="ts">
   import type { Track } from '#lib/types/models.js';
-  import { useShowInFolderMutation } from '#lib/queries/tracks.js';
+  import { useShowInFolderMutation, useTracksQuery } from '#lib/queries/tracks.js';
   import { useOpenTrackEditorMutation } from '#lib/queries/trackEditor.js';
   import { ui } from '#lib/stores/ui.svelte.js';
   import { trackCellText, trackColumnLabel, type TrackColumnId } from '#lib/utils/trackColumns.js';
@@ -16,6 +18,7 @@
   import SidePanelButton from './SidePanelButton.svelte';
   import SidePanelMessage from './SidePanelMessage.svelte';
   import SidePanelSection from './SidePanelSection.svelte';
+  import SidePanelSwitch from './SidePanelSwitch.svelte';
   import SidePanelTrack from './SidePanelTrack.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
@@ -41,7 +44,29 @@
     { heading: 'history', fields: ['playCount', 'skipCount', 'lastPlayedAt', 'createdAt'] }
   ];
 
+  const tracksQuery = useTracksQuery();
+
   const selected = $derived(ui.selectedTrack);
+
+  /**
+   * 出す曲（全曲の一覧の最新の内容。一覧を取得する前は、選んだ時の内容。ライブラリから消えた曲はnull）
+   *
+   * 選択を外した後は、選んだ一覧が曲を取り直しても届かないため、全曲の一覧から引く。
+   */
+  const track = $derived.by(() => {
+    if (!selected) return null;
+    const all = tracksQuery.data;
+    if (!all) return selected.track;
+    const id = selected.track.id;
+    return all.find((item) => item.id === id) ?? null;
+  });
+
+  /** 曲のカードの見出し（選択を外した後は「最後に選んだ曲」） */
+  const cardLabel = $derived(
+    selected && selected.count === 0
+      ? m.rightSidebar.lastSelectedTrack
+      : m.rightSidebar.selectedTrack
+  );
 
   const showInFolderMutation = useShowInFolderMutation();
   const openTrackEditorMutation = useOpenTrackEditorMutation();
@@ -55,10 +80,15 @@
 
 <SidePanel title={m.rightSidebar.trackInfoTitle}>
   {#snippet actions()}
+    <SidePanelSwitch
+      label={m.trackInfo.autoShow}
+      hint={m.trackInfo.autoShowHint}
+      bind:checked={ui.autoShowSelectedTrack}
+    />
     <SidePanelButton
       label={m.trackInfo.edit}
-      onclick={() => selected && openTrackEditorMutation.mutate([selected.track.id])}
-      disabled={!selected || openTrackEditorMutation.isPending}
+      onclick={() => track && openTrackEditorMutation.mutate([track.id])}
+      disabled={!track || openTrackEditorMutation.isPending}
     >
       <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -78,17 +108,16 @@
   {#snippet top()}
     <!-- 選んでいる曲（スクロールせず、常に見えるようにする） -->
     <SidePanelTrack
-      label={m.rightSidebar.selectedTrack}
-      note={selected && selected.count > 1
+      label={track ? cardLabel : m.rightSidebar.selectedTrack}
+      note={track && selected && selected.count > 1
         ? m.trackInfo.othersSelected(selected.count - 1)
         : undefined}
-      track={selected?.track ?? null}
+      {track}
       emptyText={m.rightSidebar.nothingSelected}
     />
   {/snippet}
 
-  {#if selected}
-    {@const track = selected.track}
+  {#if track}
     <!-- 曲の項目（スクロールする） -->
     {#each SECTIONS as section (section.heading)}
       <SidePanelSection title={m.trackInfo[section.heading]}>

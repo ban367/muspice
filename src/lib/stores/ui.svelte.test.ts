@@ -70,9 +70,12 @@ describe('followSelectedTrack', () => {
 
   afterEach(() => {
     for (const list of lists.splice(0)) list.destroy();
+    ui.autoShowSelectedTrack = false;
+    ui.isRightSidebarExpanded = false;
+    ui.activeRightSidebarPanel = 'queue';
   });
 
-  it('選んでいる曲と数を出し、選択が空になったら消す', () => {
+  it('選んでいる曲と数を出し、選択が空になったら最後に選んだ曲を残して数を0にする', () => {
     const list = createList();
     expect(ui.selectedTrack).toBeNull();
 
@@ -83,7 +86,7 @@ describe('followSelectedTrack', () => {
     expect(ui.selectedTrack).toEqual({ track: track('t2'), count: 3 });
 
     list.select(null);
-    expect(ui.selectedTrack).toBeNull();
+    expect(ui.selectedTrack).toEqual({ track: track('t2'), count: 0 });
   });
 
   it('最後に選択を変えた一覧の曲を出す（ほかの一覧は、曲を取り直しただけでは上書きしない）', () => {
@@ -115,15 +118,64 @@ describe('followSelectedTrack', () => {
     expect(ui.selectedTrack?.track.title).toBe('Edited');
   });
 
-  it('出している一覧がなくなったら消す（ほかの一覧が出している時は消さない）', () => {
+  it('出している一覧がなくなったら、曲を残して数を0にする（ほかの一覧が出している時は変えない）', () => {
     const first = createList();
     const second = createList();
 
-    first.select({ track: track('t1'), count: 1 });
+    first.select({ track: track('t1'), count: 2 });
     second.destroy();
-    expect(ui.selectedTrack?.track.id).toBe('t1');
+    expect(ui.selectedTrack).toEqual({ track: track('t1'), count: 2 });
 
     first.destroy();
-    expect(ui.selectedTrack).toBeNull();
+    expect(ui.selectedTrack).toEqual({ track: track('t1'), count: 0 });
+  });
+
+  it('手放した曲は、ほかの一覧が曲を取り直しただけでは上書きしない', () => {
+    const first = createList();
+    const second = createList();
+    second.select({ track: track('t2'), count: 1 });
+    first.select({ track: track('t1'), count: 1 });
+    first.destroy();
+
+    second.select({ track: track('t2', 'Edited'), count: 1 });
+    expect(ui.selectedTrack?.track.id).toBe('t1');
+  });
+
+  describe('選択中の曲のパネルへの切り替え', () => {
+    it('オンで右サイドバーを開いている時は、選択を変えたら切り替える', () => {
+      ui.autoShowSelectedTrack = true;
+      ui.isRightSidebarExpanded = true;
+      const list = createList();
+
+      list.select({ track: track('t1'), count: 1 });
+      expect(ui.activeRightSidebarPanel).toBe('track');
+    });
+
+    it('曲を取り直しただけ・選択を外しただけでは切り替えない', () => {
+      ui.autoShowSelectedTrack = true;
+      ui.isRightSidebarExpanded = true;
+      const list = createList();
+      list.select({ track: track('t1'), count: 1 });
+      ui.activeRightSidebarPanel = 'queue';
+
+      list.select({ track: track('t1', 'Edited'), count: 1 });
+      expect(ui.activeRightSidebarPanel).toBe('queue');
+
+      list.select(null);
+      expect(ui.activeRightSidebarPanel).toBe('queue');
+    });
+
+    it('オフの時・右サイドバーを閉じている時は切り替えない（閉じていれば開かない）', () => {
+      ui.isRightSidebarExpanded = true;
+      const list = createList();
+      list.select({ track: track('t1'), count: 1 });
+      expect(ui.activeRightSidebarPanel).toBe('queue');
+
+      ui.autoShowSelectedTrack = true;
+      ui.isRightSidebarExpanded = false;
+      list.select({ track: track('t2'), count: 1 });
+      expect(ui.activeRightSidebarPanel).toBe('queue');
+      expect(ui.isRightSidebarExpanded).toBe(false);
+    });
   });
 });
