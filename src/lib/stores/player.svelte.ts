@@ -305,9 +305,8 @@ function insertNext(
  * 見つからない場合は、再生せずに通知する）。
  * シャッフル中は、最初の曲から再生し、残りをランダムな順に入れる。
  * @param tracks - 入れるトラック（表示順。最初の曲から再生する）
- * @param options.shuffle - すべてをランダムな順に入れる（シャッフル再生。シャッフルモードは変えない）
  */
-export function playNow(tracks: readonly Track[], options: { shuffle?: boolean } = {}): void {
+export function playNow(tracks: readonly Track[]): void {
   const playable = playableTracks(tracks);
   if (playable.length === 0) {
     if (tracks.length > 0) showWarning(m.notices.trackFileMissing);
@@ -315,26 +314,13 @@ export function playNow(tracks: readonly Track[], options: { shuffle?: boolean }
   }
 
   const entries = toQueueEntries(playable);
-  let ordered = entries;
-  if (options.shuffle) {
-    ordered = shuffleArray(entries);
-  } else if (player.isShuffleEnabled) {
-    ordered = [entries[0], ...shuffleArray(entries.slice(1))];
-  }
+  const ordered = player.isShuffleEnabled
+    ? [entries[0], ...shuffleArray(entries.slice(1))]
+    : entries;
   const position = insertNext(entries, ordered);
   player.currentTrackIndex = position;
   player.currentTrack = ordered[0].track;
   player.playRequestCount++;
-}
-
-/**
- * トラック一覧をシャッフル再生
- *
- * ランダムな順で再生中の曲の次に入れ、そのまま再生する（Fisher-Yatesで並べ替えるため、並び全体が
- * 均等にランダムになる）。キューのほかの曲は残し、シャッフルモードも変えない。
- */
-export function playShuffled(tracks: readonly Track[]): void {
-  playNow(tracks, { shuffle: true });
 }
 
 /**

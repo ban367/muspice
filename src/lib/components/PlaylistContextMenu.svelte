@@ -2,7 +2,7 @@
   @component PlaylistContextMenu
   プレイリスト用コンテキストメニュー。
   再生キューへの追加（次のキューに追加して再生・次のキューに追加・キューの末尾に追加・キューを置き換えて
-  再生）、シャッフル再生、名前と説明の編集、フォルダへの移動、M3U8への書き出し、
+  再生）、名前と説明の編集、フォルダへの移動、M3U8への書き出し、
   削除のアクションを提供する。自動プレイリストでは、条件の編集も選べる。
 -->
 <script lang="ts">
@@ -21,7 +21,6 @@
     usePlacePlaylistMutation,
     usePlaylistTracksQuery
   } from '#lib/queries/playlists.js';
-  import { playShuffled } from '#lib/stores/player.svelte.js';
   import { confirmDestructive } from '#lib/utils/dialog.svelte.js';
   import { smartPlaylistDialog } from '#lib/stores/smartPlaylist.svelte.js';
   import { playlistInfoDialog } from '#lib/stores/playlistSidebar.svelte.js';
@@ -51,14 +50,6 @@
   const isSmart = $derived(playlist.rules !== null);
   const tracksQuery = $derived(usePlaylistTracksQuery(playlistId, isSmart));
   const playlistTracks = $derived(tracksQuery.data ?? []);
-
-  /**
-   * シャッフル再生
-   */
-  function handleShufflePlay() {
-    playShuffled(playlistTracks);
-    onClose();
-  }
 
   /**
    * プレイリストの名前と説明を編集する
@@ -120,26 +111,6 @@
   <MenuSeparator />
 
   <QueueMenuItems tracks={playlistTracks} disabled={playlistTracks.length === 0} {onClose} />
-
-  <MenuItem onSelect={handleShufflePlay} disabled={playlistTracks.length === 0}>
-    {#snippet icon()}
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        class="menu-icon"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-      >
-        <path
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="2"
-          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-        />
-      </svg>
-    {/snippet}
-    {m.common.shufflePlay}
-  </MenuItem>
 
   <MenuSeparator />
 

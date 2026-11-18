@@ -3,7 +3,7 @@
   アーティスト（アルバムアーティスト）のアルバムごとの曲。アーティストとアルバムアーティストの画面の
   リスト表示の右のペインと、グリッド表示の下の中身の領域（`compact`。閉じるボタンを出す。ADR-097）で使う。
 
-  - 見出しにアーティストの名前と、すべて再生・シャッフルのボタンを出す
+  - 見出しにアーティストの名前と、すべて再生のボタンを出す
   - アルバムごとに見出し（ジャケット画像・名前・ジャンルと年・曲数と時間）を出し、その下に曲を並べる
     （ディスクが複数あるアルバムは、ディスクで区切る）
   - アルバムの見出しをダブルクリックすると、アルバムを再生する。右クリックでアルバムのメニューを開く
@@ -12,7 +12,7 @@
 <script lang="ts">
   import type { AlbumGroup, ArtistSummary, Track } from '#lib/types/models.js';
   import { flattenAlbumTracks, useSetRatingMutation } from '#lib/queries/tracks.js';
-  import { player, playNow, playShuffled } from '#lib/stores/player.svelte.js';
+  import { player, playNow } from '#lib/stores/player.svelte.js';
   import { followSelectedTrack } from '#lib/stores/ui.svelte.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import { albumGroupSummary } from '#lib/utils/albumArtists.js';
@@ -105,11 +105,6 @@
     playNow(displayTracks);
   }
 
-  // シャッフル再生
-  function handleShufflePlay() {
-    playShuffled(displayTracks);
-  }
-
   // その曲を、再生中の曲の次に入れて再生する（ダブルクリック・Enter）
   function playTrack(track: Track) {
     playNow([track]);
@@ -158,21 +153,6 @@
       <button class="action-btn play" onclick={handlePlayAll} title={m.common.playAll}>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
           <path d="M8 5v14l11-7z" />
-        </svg>
-      </button>
-      <button class="action-btn" onclick={handleShufflePlay} title={m.common.shuffle}>
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-        >
-          <polyline points="16 3 21 3 21 8" />
-          <line x1="4" y1="20" x2="21" y2="3" />
-          <polyline points="21 16 21 21 16 21" />
-          <line x1="15" y1="15" x2="21" y2="21" />
-          <line x1="4" y1="4" x2="9" y2="9" />
         </svg>
       </button>
       {#if menuArtist}

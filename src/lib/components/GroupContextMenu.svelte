@@ -2,7 +2,7 @@
   @component GroupContextMenu
   アルバム/アーティスト/ジャンルグループ用コンテキストメニュー。
   再生キューへの追加（次のキューに追加して再生・次のキューに追加・キューの末尾に追加・キューを置き換えて
-  再生）、シャッフル再生、プレイリスト追加のアクションを提供する
+  再生）、プレイリスト追加のアクションを提供する
   （アルバムでは、アルバムの曲の情報の編集（別のウィンドウ。アルバムアートの変更もそこで行う）も）。
   一覧の項目は曲を持たないため、メニューを開いた時にそのグループの曲を取得する。
 -->
@@ -16,7 +16,6 @@
     QueueMenuItems
   } from '#lib/components/ui/index.js';
   import { useGroupTracksQuery, type GroupType } from '#lib/queries/tracks.js';
-  import { playShuffled } from '#lib/stores/player.svelte.js';
   import { useOpenTrackEditorMutation } from '#lib/queries/trackEditor.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
@@ -41,14 +40,6 @@
   const allTracks = $derived(tracksQuery.data ?? []);
   const isEmpty = $derived(allTracks.length === 0);
 
-  /**
-   * シャッフル再生
-   */
-  function handleShufflePlay() {
-    playShuffled(allTracks);
-    onClose();
-  }
-
   const openTrackEditorMutation = useOpenTrackEditorMutation();
 
   /**
@@ -66,26 +57,6 @@
   <MenuSeparator />
 
   <QueueMenuItems tracks={allTracks} disabled={isEmpty} {onClose} />
-
-  <MenuItem onSelect={handleShufflePlay} disabled={isEmpty}>
-    {#snippet icon()}
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        class="menu-icon"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-      >
-        <path
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="2"
-          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-        />
-      </svg>
-    {/snippet}
-    {m.common.shufflePlay}
-  </MenuItem>
 
   <MenuSeparator />
 

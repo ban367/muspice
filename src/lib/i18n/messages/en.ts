@@ -29,8 +29,6 @@ export const en: Messages = {
     more: 'More',
     play: 'Play',
     playAll: 'Play All',
-    shuffle: 'Shuffle',
-    shufflePlay: 'Shuffle Play',
     playNow: 'Play Now',
     playNext: 'Play Next',
     addToQueue: 'Add to End of Queue',

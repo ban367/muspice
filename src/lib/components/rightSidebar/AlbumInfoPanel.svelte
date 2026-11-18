@@ -12,7 +12,7 @@
   import { untrack } from 'svelte';
   import type { Track } from '#lib/types/models.js';
   import { useAlbumTracksQuery, useSetRatingMutation } from '#lib/queries/tracks.js';
-  import { player, playNow, playShuffled } from '#lib/stores/player.svelte.js';
+  import { player, playNow } from '#lib/stores/player.svelte.js';
   import { groupArtist } from '#lib/utils/albumKey.js';
   import { groupByDisc } from '#lib/utils/albumDiscs.js';
   import { formatDuration, formatTotalDuration } from '#lib/utils/format.js';
@@ -157,11 +157,6 @@
   function handlePlayAll() {
     playNow(tracks);
   }
-
-  // アルバムをシャッフル再生
-  function handleShufflePlay() {
-    playShuffled(tracks);
-  }
 </script>
 
 <SidePanel title={m.rightSidebar.albumInfoTitle} bind:body>
@@ -194,40 +189,17 @@
           <!-- 曲を取得するまでは、曲数がわからない（高さは変えずに空ける） -->
           <p class="album-stats">{albumStats || ' '}</p>
         </div>
-        <div class="album-actions">
-          <button
-            class="album-action primary"
-            onclick={handlePlayAll}
-            disabled={tracks.length === 0}
-            title={m.common.playAll}
-            aria-label={m.common.playAll}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M8 5v14l11-7z" />
-            </svg>
-          </button>
-          <button
-            class="album-action"
-            onclick={handleShufflePlay}
-            disabled={tracks.length === 0}
-            title={m.common.shuffle}
-            aria-label={m.common.shuffle}
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-            >
-              <polyline points="16 3 21 3 21 8" />
-              <line x1="4" y1="20" x2="21" y2="3" />
-              <polyline points="21 16 21 21 16 21" />
-              <line x1="15" y1="15" x2="21" y2="21" />
-              <line x1="4" y1="4" x2="9" y2="9" />
-            </svg>
-          </button>
-        </div>
+        <button
+          class="album-play"
+          onclick={handlePlayAll}
+          disabled={tracks.length === 0}
+          title={m.common.playAll}
+          aria-label={m.common.playAll}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M8 5v14l11-7z" />
+          </svg>
+        </button>
       </div>
 
       <!-- 曲の一覧 -->
@@ -321,32 +293,20 @@
     @apply m-0 h-4 leading-4 text-xs text-text-dimmed truncate;
   }
 
-  .album-actions {
-    @apply flex items-center gap-1.5 shrink-0;
-  }
-
-  .album-action {
-    @apply w-8 h-8 flex items-center justify-center border-none rounded-full cursor-pointer transition-all duration-150;
-    @apply bg-surface-active text-text-primary;
-  }
-
-  .album-action:hover:not(:disabled) {
-    @apply bg-surface-strong;
-  }
-
-  .album-action.primary {
+  .album-play {
+    @apply w-8 h-8 flex items-center justify-center shrink-0 border-none rounded-full cursor-pointer transition-all duration-150;
     @apply bg-secondary text-black;
   }
 
-  .album-action.primary:hover:not(:disabled) {
+  .album-play:hover:not(:disabled) {
     @apply bg-secondary-focus;
   }
 
-  .album-action:disabled {
+  .album-play:disabled {
     @apply opacity-50 cursor-not-allowed;
   }
 
-  .album-action svg {
+  .album-play svg {
     @apply w-4 h-4;
   }
 
