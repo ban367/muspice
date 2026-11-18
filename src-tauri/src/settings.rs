@@ -18,8 +18,14 @@ use std::sync::Mutex;
 /// 既定のアクセントカラー（`app.css`の`--color-primary`と同じ）
 pub const DEFAULT_ACCENT_COLOR: &str = "#3b82f6";
 
+/// クロスフェードの最小の秒数（オフは、秒数ではなく`crossfade_enabled`で表す）
+pub const MIN_CROSSFADE_SECONDS: u8 = 1;
+
 /// クロスフェードの最大の秒数
 pub const MAX_CROSSFADE_SECONDS: u8 = 12;
+
+/// クロスフェードの既定の秒数
+pub const DEFAULT_CROSSFADE_SECONDS: u8 = 5;
 
 /// 音量の正規化のプリアンプの上限（dB。下限は、符号を変えた値）
 pub const MAX_NORMALIZATION_PREAMP_DB: i8 = 12;
@@ -117,7 +123,9 @@ pub struct Settings {
     pub normalization_preamp_db: i8,
     /// ギャップレス再生（次の曲を先読みし、曲間に無音を入れずに続ける）
     pub gapless_playback: bool,
-    /// クロスフェードの秒数（0でクロスフェードしない）
+    /// クロスフェードする（曲の終わりと次の曲の頭を重ねる）
+    pub crossfade_enabled: bool,
+    /// クロスフェードの秒数（1〜12。オフの間も覚えておく）
     pub crossfade_seconds: u8,
     /// 出力デバイスのID（nullはOSの既定のデバイス）
     pub output_device_id: Option<String>,
@@ -168,7 +176,8 @@ impl Default for Settings {
             volume_normalization: VolumeNormalization::default(),
             normalization_preamp_db: 0,
             gapless_playback: true,
-            crossfade_seconds: 0,
+            crossfade_enabled: false,
+            crossfade_seconds: DEFAULT_CROSSFADE_SECONDS,
             output_device_id: None,
             watch_library_folders: false,
             library_scan_interval_minutes: 0,
@@ -197,10 +206,10 @@ pub fn validate_settings(settings: &Settings) -> AppResult<()> {
             "アクセントカラーは#rrggbb形式で指定してください".to_string(),
         ));
     }
-    if settings.crossfade_seconds > MAX_CROSSFADE_SECONDS {
+    if !(MIN_CROSSFADE_SECONDS..=MAX_CROSSFADE_SECONDS).contains(&settings.crossfade_seconds) {
         return Err(AppError::Validation(format!(
-            "クロスフェードは0〜{}秒で指定してください",
-            MAX_CROSSFADE_SECONDS
+            "クロスフェードは{}〜{}秒で指定してください",
+            MIN_CROSSFADE_SECONDS, MAX_CROSSFADE_SECONDS
         )));
     }
     if settings.normalization_preamp_db.unsigned_abs() > MAX_NORMALIZATION_PREAMP_DB.unsigned_abs()
@@ -267,9 +276,10 @@ pub fn load_settings(path: &Path) -> Settings {
 fn parse_with_defaults(json: &str) -> serde_json::Result<Settings> {
     let defaults = serde_json::to_value(Settings::default())?;
     let mut merged = defaults.clone();
-    if let (Value::Object(merged), Value::Object(stored)) =
+    if let (Value::Object(merged), Value::Object(mut stored)) =
         (&mut merged, serde_json::from_str::<Value>(json)?)
     {
+        migrate_crossfade(&mut stored);
         for (key, mut value) in stored {
             match key.as_str() {
                 "hiddenSidebarItems" => keep_known_sidebar_items(&mut value),
@@ -287,6 +297,23 @@ fn parse_with_defaults(json: &str) -> serde_json::Result<Settings> {
         }
     }
     serde_json::from_value(merged)
+}
+
+/// クロスフェードのオン・オフを、秒数とは別の項目にする前のファイルを読めるようにする
+///
+/// 以前は秒数の0がオフだった。オン・オフの項目がなければ、秒数が1以上ならオンにし、
+/// 0の秒数は既定の秒数に戻す（オンにした時に使う秒数）。
+fn migrate_crossfade(stored: &mut serde_json::Map<String, Value>) {
+    if stored.contains_key("crossfadeEnabled") {
+        return;
+    }
+    let Some(seconds) = stored.get("crossfadeSeconds").and_then(Value::as_u64) else {
+        return;
+    };
+    stored.insert("crossfadeEnabled".to_string(), Value::Bool(seconds > 0));
+    if seconds == 0 {
+        stored.remove("crossfadeSeconds");
+    }
 }
 
 /// 既定値の設定の1項目だけを`value`にした時に、設定として読めて、正しい値か
@@ -411,7 +438,8 @@ mod tests {
             volume_normalization: VolumeNormalization::Album,
             normalization_preamp_db: -6,
             gapless_playback: false,
-            crossfade_seconds: 5,
+            crossfade_enabled: true,
+            crossfade_seconds: 7,
             output_device_id: Some("coreaudio:BuiltInSpeakerDevice".to_string()),
             watch_library_folders: true,
             library_scan_interval_minutes: 60,
@@ -447,7 +475,8 @@ mod tests {
         assert_eq!(settings.language, Language::Ja);
         assert_eq!(settings.volume_normalization, VolumeNormalization::Off);
         assert!(settings.gapless_playback);
-        assert_eq!(settings.crossfade_seconds, 0);
+        assert!(!settings.crossfade_enabled);
+        assert_eq!(settings.crossfade_seconds, DEFAULT_CROSSFADE_SECONDS);
         assert_eq!(settings.output_device_id, None);
         assert!(!settings.auto_sync_enabled());
         assert!(settings.hidden_sidebar_items.is_empty());
@@ -535,8 +564,37 @@ mod tests {
             crossfade_seconds,
             ..Settings::default()
         };
+        assert!(state.save(settings(MIN_CROSSFADE_SECONDS)).is_ok());
         assert!(state.save(settings(MAX_CROSSFADE_SECONDS)).is_ok());
         assert!(state.save(settings(MAX_CROSSFADE_SECONDS + 1)).is_err());
+        // オフは秒数ではなく`crossfade_enabled`で表す
+        assert!(state.save(settings(0)).is_err());
+    }
+
+    /// クロスフェードのオン・オフの項目がない（秒数の0がオフだった）ファイルを読む
+    #[test]
+    fn test_crossfade_without_enabled_field_is_migrated() {
+        let path = temp_settings_path("crossfade-migration");
+        let load = |json: &str| {
+            fs::write(&path, json).unwrap();
+            let settings = load_settings(&path);
+            (settings.crossfade_enabled, settings.crossfade_seconds)
+        };
+        assert_eq!(load(r#"{ "crossfadeSeconds": 3 }"#), (true, 3));
+        assert_eq!(
+            load(r#"{ "crossfadeSeconds": 0 }"#),
+            (false, DEFAULT_CROSSFADE_SECONDS)
+        );
+        // オン・オフの項目があれば、そのまま使う
+        assert_eq!(
+            load(r#"{ "crossfadeEnabled": false, "crossfadeSeconds": 3 }"#),
+            (false, 3)
+        );
+        assert_eq!(
+            load(r#"{ "crossfadeEnabled": true, "crossfadeSeconds": 0 }"#),
+            (true, DEFAULT_CROSSFADE_SECONDS)
+        );
+        fs::remove_dir_all(path.parent().unwrap()).ok();
     }
 
     #[test]

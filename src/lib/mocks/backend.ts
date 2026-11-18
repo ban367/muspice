@@ -15,6 +15,8 @@ import {
   AAC_BITRATES_KBPS,
   LIBRARY_SCAN_INTERVALS,
   MAX_CROSSFADE_SECONDS,
+  MIN_CROSSFADE_SECONDS,
+  DEFAULT_CROSSFADE_SECONDS,
   MAX_NORMALIZATION_PREAMP_DB,
   type commands,
   type events
@@ -684,7 +686,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     volumeNormalization: 'off',
     normalizationPreampDb: 0,
     gaplessPlayback: true,
-    crossfadeSeconds: 0,
+    crossfadeEnabled: false,
+    crossfadeSeconds: DEFAULT_CROSSFADE_SECONDS,
     outputDeviceId: null,
     watchLibraryFolders: false,
     libraryScanIntervalMinutes: 0,
@@ -813,7 +816,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   // 再生エンジン（音は鳴らさず、再生位置と曲の切り替わりを時計に合わせて進める）
   const playbackEngine = createMockPlaybackEngine({
     emit: (event) => options.emit('playbackEvent', event),
-    crossfadeSeconds: () => settings.crossfadeSeconds,
+    crossfadeSeconds: () => (settings.crossfadeEnabled ? settings.crossfadeSeconds : 0),
     durationOf: (trackId) => {
       validateTrackId(trackId);
       const track = findTrack(trackId);
@@ -3022,10 +3025,13 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       }
       if (
         !Number.isInteger(next.crossfadeSeconds) ||
-        next.crossfadeSeconds < 0 ||
+        next.crossfadeSeconds < MIN_CROSSFADE_SECONDS ||
         next.crossfadeSeconds > MAX_CROSSFADE_SECONDS
       ) {
-        fail('VALIDATION', `クロスフェードは0〜${MAX_CROSSFADE_SECONDS}秒で指定してください`);
+        fail(
+          'VALIDATION',
+          `クロスフェードは${MIN_CROSSFADE_SECONDS}〜${MAX_CROSSFADE_SECONDS}秒で指定してください`
+        );
       }
       if (next.outputDeviceId !== null && next.outputDeviceId.length === 0) {
         fail('VALIDATION', '出力デバイスの指定が正しくありません');

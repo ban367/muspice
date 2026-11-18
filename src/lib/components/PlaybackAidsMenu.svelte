@@ -12,7 +12,7 @@
 -->
 <script lang="ts">
   import { usePlaylistsQuery } from '#lib/queries/playlists.js';
-  import { useSaveSettingsMutation, useSettingsQuery } from '#lib/queries/settings.js';
+  import { useUpdateSettings } from '#lib/queries/settings.js';
   import { player } from '#lib/stores/player.svelte.js';
   import { formatDuration } from '#lib/utils/format.js';
   import {
@@ -30,10 +30,9 @@
   /** 曲の元の選択肢で、ライブラリ全体を表す値 */
   const LIBRARY_SOURCE = '';
 
-  const settingsQuery = useSettingsQuery();
-  const saveSettingsMutation = useSaveSettingsMutation();
+  const settingsUpdater = useUpdateSettings();
   const playlistsQuery = usePlaylistsQuery();
-  const settings = $derived(settingsQuery.data ?? null);
+  const settings = $derived(settingsUpdater.current);
   const playlists = $derived(playlistsQuery.data ?? []);
   // 曲を選ぶプレイリストが削除されている場合は、ライブラリ全体として表示する
   const autoDjSource = $derived(
@@ -62,7 +61,7 @@
   );
 
   function saveSettings(patch: Partial<Settings>) {
-    if (settings) saveSettingsMutation.mutate({ ...settings, ...patch });
+    settingsUpdater.update(patch);
   }
 
   function toggleSleepWaitForTrackEnd(checked: boolean) {

@@ -258,7 +258,7 @@ src-tauri/src/
 - 再生の補助（ADR-044）は、状態を`#lib/stores/playbackAids.svelte`（`stopAfterCurrent`・`sleepTimer`・`isFadingOut`。保存しない）に持ち、再生コントローラーが読んで再生を止める。画面は`PlaybackAidsMenu`（プレーヤーのボタンから開く）
   - 「この曲が終わったら停止」が有効な間は、`syncNext`が次の曲をエンジンへ伝えない（先読みを取り消す）。曲の終わり（`ended`）で、`engineTrackId`を次の曲にしてからキューを進め（再生は始まらない）、指示を解除する。次の曲がなければ、通常の終わり方と同じ
   - スリープタイマーは、時間が来たかを、1秒ごとのタイマーと再生位置の通知（`position`）の両方で確かめる（ウィンドウが隠れている間は、タイマーが間引かれるため）。時間が来たら、`playbackSetVolume`で音量を少しずつ下げ（`SLEEP_FADE_SECONDS`）、一時停止してから、エンジンの音量を設定の値（`player.volume`）に戻す。`player.volume`は変えない。「曲の終わりまで再生する」場合は、時間が来た時点で「この曲が終わったら停止」にする
-  - Auto DJは`#lib/stores/autoDj.svelte`の`watchAutoDj`が行う（`Player`が、再生コントローラーと一緒に始める）。キューの最後の曲を再生している間に、`#lib/utils/autoDj`の`pickAutoDjTracks`で選んだ曲を`addToQueue`で足す（先読みの対象になる）。リピート中・「この曲が終わったら停止」の間は足さない。Auto DJの設定（`autoDj`・`autoDjPlaylistId`）は、プレーヤーのメニューから`save_settings`で保存する（設定ウィンドウは、開いている間に変えられた値を編集中の設定へ取り込む）
+  - Auto DJは`#lib/stores/autoDj.svelte`の`watchAutoDj`が行う（`Player`が、再生コントローラーと一緒に始める）。キューの最後の曲を再生している間に、`#lib/utils/autoDj`の`pickAutoDjTracks`で選んだ曲を`addToQueue`で足す（先読みの対象になる）。リピート中・「この曲が終わったら停止」の間は足さない。Auto DJの設定（`autoDj`・`autoDjPlaylistId`）は、プレーヤーのメニューから`useUpdateSettings`で保存する（設定ウィンドウは、開いている間に変えられた値を編集中の設定へ取り込む）
 - ギャップレス再生・クロスフェードでは、キューの次の曲（`#lib/stores/player.svelte`の`peekNextTrack()`。`playNextTrack`の進む先を、状態を変えずに返す）を、先にエンジンへ伝える（`playbackSetNext`）。キュー・リピート・シャッフル・設定が変わると`$effect`で伝え直す
   - エンジンは、再生中の曲の終わりから切れ目なく（クロスフェードでは、終わりと重ねて）次の曲を続け、鳴っている曲が切り替わった時点で`advanced`を送る。コントローラーは、再生し直さずに`playNextTrack()`でキューを進める
   - 伝えてあった曲が、もうキューの次の曲でない場合（伝えた後でキューを変えた場合）は、キューの次の曲を再生し直す
@@ -354,7 +354,7 @@ src-tauri/src/
   - 見出しのボタンは`actions`のスニペットに`SidePanelButton`（アイコンのボタン。説明は、ツールチップと読み上げに使う）を並べる。常に見せる領域（曲のカード`SidePanelTrack`）は`top`のスニペット、残りは本文に置く
   - 本文は`SidePanelSection`（小さな見出しと、見出しの右端の操作。イコライザのオン・オフなど）で区切る。中身がない時は`SidePanelMessage`を出す。仮想スクロールの一覧は、`SidePanel`の`scroll={false}`と`SidePanelSection`の`fill`で残りの高さに広げ、`flush`で左右の余白を行に任せる
   - 中身によって並びが動かないよう、見出し・曲のカード・まとまりの見出しは高さを固定し、文字は1行に収めて省略する（値のない行も高さを空ける）。ボタンは、使えない間も消さずに`disabled`にする
-  - サウンドのパネル（`SoundPanel`）は、音の加工の設定を、まとまりのコンポーネント（`EqualizerSection`）で並べる。同じ種類の設定（再生速度・音量の正規化など）をパネルに足す時は、まとまりのコンポーネントを作って並べる
+  - サウンドのパネル（`SoundPanel`）は、音の設定を、まとまりのコンポーネント（`ReplayGainSection`・`CrossfadeSection`・`EqualizerSection`）で、音を処理する順に並べる。設定を足す時は、まとまりのコンポーネントを作って並べる。まとまりの中の操作は、見出しのオン・オフのスイッチ（`SidePanelToggle`）・選択肢のボタンの並び（`SidePanelOptions`）・名前と値の付いたスライダー（`SidePanelSlider`。離した時に`onchange`）を使う（ADR-099）
   - 本文が狭くなるため、ライブラリの見出し（`LibraryHeader`）は、見出しの文字・ボタンの文字を折り返さず、検索欄を縮め、それでも入らなければ項目を次の行へ送る
 - 再生バー（`Player`）は、画面の下の端に幅いっぱいで重ね、高さを`--spacing-player-height`に固定する（曲がある時・ない時で変えない）。下の端まである部品（左右のサイドバー・ページの領域・Now Playingの画面・モーダル）は、この変数の分だけ下を空ける（`pb-player-height`または`padding-bottom: var(--spacing-player-height)`）。再生バーの中身の高さを変えたら、変数の値も合わせる
 

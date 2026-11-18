@@ -331,7 +331,7 @@ export const ja = {
   rightSidebar: {
     queueTitle: '再生キュー',
     openQueue: '再生キューを開く',
-    /** イコライザなど、音の加工の設定のパネル */
+    /** リプレイゲイン・クロスフェード・イコライザなど、音の設定のパネル */
     soundTitle: 'サウンド',
     openSound: 'サウンドの設定を開く',
     albumInfoTitle: 'アルバム情報',
@@ -461,6 +461,28 @@ export const ja = {
     presetName: 'プリセット名',
     deletePreset: 'プリセットを削除',
     confirmDeletePreset: (name: string) => `"${name}" を削除しますか？`
+  },
+
+  /** 右サイドバーのサウンドのパネル（イコライザは`equalizer`） */
+  soundPanel: {
+    replayGain: 'リプレイゲイン',
+    /** 補正に使うゲインの単位 */
+    replayGainModes: { off: 'オフ', track: 'トラック', album: 'アルバム' },
+    replayGainHint:
+      'タグで曲ごとの音量をそろえます。アルバムでは、アルバム内の曲の差を残します。タグのない曲は、設定の「音量の解析」で書き込めます',
+    preamp: 'プリアンプ',
+    preampValue: (db: number) => `${db > 0 ? '+' : ''}${db} dB`,
+    preampHint: '補正する曲の音量を、まとめて上げ下げします',
+    gapless: 'ギャップレス再生',
+    turnOnGapless: 'ギャップレス再生をオン',
+    turnOffGapless: 'ギャップレス再生をオフ',
+    gaplessHint: '曲と曲の間に無音を入れずに続けます',
+    crossfade: 'クロスフェード',
+    turnOnCrossfade: 'クロスフェードをオン',
+    turnOffCrossfade: 'クロスフェードをオフ',
+    crossfadeDuration: '時間',
+    crossfadeSeconds: (seconds: number) => `${seconds}秒`,
+    crossfadeHint: '曲の終わりと次の曲の頭を重ねます。「次へ」などで曲を変えた時は重ねません'
   },
 
   metadataEditor: {
@@ -598,7 +620,7 @@ export const ja = {
   loudnessScan: {
     title: '音量の解析',
     description:
-      '音量の情報（ReplayGainのタグ）がない曲の音量を解析して、ファイルのタグへ書き込みます。「再生」の「音量の正規化」で使われます。アルバムの音量は、ライブラリにあるそのアルバムの全曲から求めます。解析はバックグラウンドで進み、中断しても、次は残りの曲から続けられます',
+      '音量の情報（ReplayGainのタグ）がない曲の音量を解析して、ファイルのタグへ書き込みます。右サイドバーのサウンドの「リプレイゲイン」で使われます。アルバムの音量は、ライブラリにあるそのアルバムの全曲から求めます。解析はバックグラウンドで進み、中断しても、次は残りの曲から続けられます',
     pending: (count: number) => `音量の情報がない曲: ${count}曲`,
     noPending: 'すべての曲に、音量の情報があります',
     startMissing: 'タグのない曲を解析',
@@ -1204,20 +1226,9 @@ export const ja = {
       previous: '前の曲'
     },
     globalShortcutUnavailable: 'ほかのアプリが使っているため、登録できませんでした',
-    volumeNormalization: '音量の正規化',
-    volumeNormalizations: { off: 'オフ', track: 'トラック単位', album: 'アルバム単位' },
-    volumeNormalizationHint:
-      '曲ごとの音量の差を、ファイルのReplayGainのタグを使ってそろえます。アルバム単位では、アルバム内の曲の音量の差はそのまま残します。タグのない曲は補正しません（「ライブラリ」の「音量の解析」で、タグのない曲に音量の情報を書き込めます）',
-    normalizationPreamp: 'プリアンプ',
-    normalizationPreampValue: (db: number) => `${db > 0 ? '+' : ''}${db} dB`,
-    normalizationPreampHint:
-      '音量の正規化で補正する曲の音量を、まとめて上げ下げします。正規化で全体が小さく聞こえる場合に上げます（音割れしない範囲に抑えます）。音量の情報のない曲には、かかりません',
-    gaplessPlayback: 'ギャップレス再生',
-    gaplessPlaybackHint: '次の曲を先に読み込んでおき、曲と曲の間に無音を入れずに続けて再生します',
-    crossfade: 'クロスフェード',
-    crossfadeSeconds: (seconds: number) => `${seconds}秒`,
-    crossfadeHint:
-      '曲の終わりを設定した秒数でフェードアウトしながら、次の曲をフェードインします。短い曲では曲の長さの半分までにします。「次へ」などの操作で曲を変えたときと、1曲リピートではクロスフェードしません',
+    /** 再生の設定の見出しの下（音の設定は、右サイドバーのパネルにある） */
+    soundPanelNote:
+      'リプレイゲイン・ギャップレス再生・クロスフェード・イコライザは、右サイドバーの「サウンド」で変えます',
     outputDevice: '出力デバイス',
     outputDeviceDefault: 'システムの既定',
     /** 選んであるデバイスが一覧にない（接続されていない）場合の表示 */
