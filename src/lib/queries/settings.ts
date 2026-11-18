@@ -78,7 +78,8 @@ export const SETTINGS_EDITED_IN_MAIN_WINDOW = [
   'normalizationPreventClipping',
   'gaplessPlayback',
   'crossfadeEnabled',
-  'crossfadeSeconds'
+  'crossfadeSeconds',
+  'crossfadeSkipAlbumTracks'
 ] as const satisfies readonly (keyof Settings)[];
 
 /**

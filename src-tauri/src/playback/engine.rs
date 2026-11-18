@@ -77,6 +77,8 @@ pub struct PlaybackOptions {
     pub normalization: Normalization,
     /// クロスフェードの秒数（0でクロスフェードしない）
     pub crossfade_seconds: u8,
+    /// 同じアルバムの続きの曲では、クロスフェードせずに切れ目なく続ける
+    pub crossfade_skip_album_tracks: bool,
 }
 
 impl From<&Settings> for PlaybackOptions {
@@ -89,6 +91,7 @@ impl From<&Settings> for PlaybackOptions {
             } else {
                 0
             },
+            crossfade_skip_album_tracks: settings.crossfade_skip_album_tracks,
         }
     }
 }
@@ -105,6 +108,35 @@ pub struct PlayRequest {
     pub path: PathBuf,
     /// 音量の正規化に使うゲインとピーク（タグから読んだもの）
     pub replay_gain: ReplayGain,
+    /// アルバムの中の位置（アルバム名のない曲はNone。同じアルバムの続きの曲を見分ける）
+    pub album: Option<AlbumPosition>,
+}
+
+/// アルバムの中の、曲の位置
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AlbumPosition {
+    /// アルバムをまとめるアーティスト（`Track::group_artist`）
+    pub artist: Option<String>,
+    /// アルバム名
+    pub name: String,
+    pub disc_number: Option<i32>,
+    pub track_number: Option<i32>,
+}
+
+impl AlbumPosition {
+    /// `next`が、同じアルバムの曲順の次の曲か（同じディスクの次の番号、または次のディスクの1曲目）
+    ///
+    /// 曲番号のない曲は、続きかどうかが分からないため、続きとしない。ディスク番号のない曲は1枚目とする。
+    pub fn is_followed_by(&self, next: &AlbumPosition) -> bool {
+        if (&self.artist, &self.name) != (&next.artist, &next.name) {
+            return false;
+        }
+        let (Some(track), Some(next_track)) = (self.track_number, next.track_number) else {
+            return false;
+        };
+        let (disc, next_disc) = (self.disc_number.unwrap_or(1), next.disc_number.unwrap_or(1));
+        (next_disc == disc && next_track == track + 1) || (next_disc == disc + 1 && next_track == 1)
+    }
 }
 
 /// 再生を始めた曲の情報
@@ -141,6 +173,8 @@ enum Command {
     /// シャッフルモードか（音量の正規化の自動で、トラック単位とアルバム単位を選ぶ）
     SetShuffle(bool),
     SetCrossfade(u8),
+    /// 同じアルバムの続きの曲では、クロスフェードしない
+    SetCrossfadeSkipAlbumTracks(bool),
     /// 出力からの通知（`generation`は、通知した出力を開いたときの番号）
     Output {
         generation: u64,
@@ -240,7 +274,10 @@ impl PlaybackEngine {
     pub fn apply_options(&self, options: PlaybackOptions) -> AppResult<()> {
         self.send(Command::SetOutputDevice(options.output_device_id))?;
         self.send(Command::SetNormalization(options.normalization))?;
-        self.send(Command::SetCrossfade(options.crossfade_seconds))
+        self.send(Command::SetCrossfade(options.crossfade_seconds))?;
+        self.send(Command::SetCrossfadeSkipAlbumTracks(
+            options.crossfade_skip_album_tracks,
+        ))
     }
 
     /// シャッフルモードかを伝える（音量の正規化が自動の時に、トラック単位とアルバム単位を選ぶのに使う。
@@ -318,6 +355,7 @@ struct Deck {
     path: PathBuf,
     decoder: TrackDecoder,
     replay_gain: ReplayGain,
+    album: Option<AlbumPosition>,
     /// 音量の正規化の倍率（設定と`replay_gain`から決まる）
     gain: f32,
     /// 最後に書いた音声にかけた倍率（`gain`が変わった直後は、ここから滑らかに変える）
@@ -361,6 +399,7 @@ struct Segment {
     token: u32,
     path: PathBuf,
     replay_gain: ReplayGain,
+    album: Option<AlbumPosition>,
     /// この曲の音声を書き始めた位置（リングバッファへ書いたフレーム数の合計）
     start_frame: u64,
     /// 書き始めた位置の、曲の中での位置（秒。シークした場合は0以外）
@@ -455,6 +494,8 @@ struct Engine {
     shuffle: bool,
     /// クロスフェードの秒数（0でクロスフェードしない）
     crossfade_seconds: f64,
+    /// 同じアルバムの続きの曲では、クロスフェードしない
+    crossfade_skip_album_tracks: bool,
 }
 
 impl Engine {
@@ -474,6 +515,7 @@ impl Engine {
             normalization: options.normalization,
             shuffle: false,
             crossfade_seconds: f64::from(options.crossfade_seconds.min(MAX_CROSSFADE_SECONDS)),
+            crossfade_skip_album_tracks: options.crossfade_skip_album_tracks,
             fade: None,
             volume: 1.0,
             speed: 1.0,
@@ -619,6 +661,9 @@ impl Engine {
             }
             Command::SetCrossfade(seconds) => {
                 self.crossfade_seconds = f64::from(seconds.min(MAX_CROSSFADE_SECONDS));
+            }
+            Command::SetCrossfadeSkipAlbumTracks(skip) => {
+                self.crossfade_skip_album_tracks = skip;
             }
             Command::Output { generation, event } => {
                 if generation == self.output_generation {
@@ -973,12 +1018,19 @@ impl Engine {
     ///
     /// 重ねる長さは、設定の秒数を上限に、どちらの曲も長さの半分まで、かつ前の曲の残りまで。
     /// 同じ曲の繰り返し（1曲リピート）と、長さの分からない曲は、クロスフェードせずに切れ目なく続ける。
+    /// 設定がオンなら、同じアルバムの続きの曲（`AlbumPosition::is_followed_by`）も、切れ目なく続ける。
     fn crossfade_plan(&self) -> Option<(f64, u64)> {
         if self.crossfade_seconds <= 0.0 {
             return None;
         }
         let (current, next) = (self.current.as_ref()?, self.next.as_ref()?);
         if current.path == next.path {
+            return None;
+        }
+        if self.crossfade_skip_album_tracks
+            && let (Some(album), Some(next_album)) = (&current.album, &next.album)
+            && album.is_followed_by(next_album)
+        {
             return None;
         }
         let duration = current.decoder.duration_seconds()?;
@@ -1287,6 +1339,7 @@ impl Engine {
                     token: front.token,
                     path: front.path.clone(),
                     replay_gain: front.replay_gain.clone(),
+                    album: front.album.clone(),
                 };
                 let decoder = (self.open_decoder)(&front.path)?;
                 let gain = self.gain_of(&request.replay_gain);
@@ -1506,6 +1559,7 @@ impl Deck {
             path: request.path,
             decoder,
             replay_gain: request.replay_gain,
+            album: request.album,
             gain,
             applied_gain: gain,
         }
@@ -1517,6 +1571,7 @@ impl Deck {
             token: self.token,
             path: self.path.clone(),
             replay_gain: self.replay_gain.clone(),
+            album: self.album.clone(),
             start_frame,
             base_seconds,
             duration: self.decoder.duration_seconds(),
@@ -1678,6 +1733,7 @@ mod tests {
             output_device_id: None,
             normalization: Normalization::OFF,
             crossfade_seconds: 0,
+            crossfade_skip_album_tracks: true,
         }
     }
 
@@ -1686,6 +1742,7 @@ mod tests {
             token,
             path: path.to_path_buf(),
             replay_gain: ReplayGain::default(),
+            album: None,
         }
     }
 
@@ -3092,6 +3149,74 @@ mod tests {
         );
     }
 
+    fn album_track(disc_number: Option<i32>, track_number: Option<i32>) -> AlbumPosition {
+        AlbumPosition {
+            artist: Some("Artist".to_string()),
+            name: "Album".to_string(),
+            disc_number,
+            track_number,
+        }
+    }
+
+    #[test]
+    fn test_album_position_is_followed_by_the_next_track_in_order() {
+        let first = album_track(Some(1), Some(3));
+        assert!(first.is_followed_by(&album_track(Some(1), Some(4))));
+        // 次のディスクの1曲目も続き
+        assert!(first.is_followed_by(&album_track(Some(2), Some(1))));
+        // ディスク番号のない曲は1枚目
+        assert!(album_track(None, Some(3)).is_followed_by(&album_track(Some(1), Some(4))));
+        // 番号が飛ぶ・戻る・同じ曲は続きではない
+        assert!(!first.is_followed_by(&album_track(Some(1), Some(5))));
+        assert!(!first.is_followed_by(&album_track(Some(1), Some(2))));
+        assert!(!first.is_followed_by(&album_track(Some(2), Some(2))));
+        // 曲番号のない曲は、分からないため続きとしない
+        assert!(!album_track(Some(1), None).is_followed_by(&album_track(Some(1), None)));
+        // 別のアルバム（名前・アーティストの違い）
+        let other_name = AlbumPosition {
+            name: "Other".to_string(),
+            ..album_track(Some(1), Some(4))
+        };
+        let other_artist = AlbumPosition {
+            artist: None,
+            ..album_track(Some(1), Some(4))
+        };
+        assert!(!first.is_followed_by(&other_name));
+        assert!(!first.is_followed_by(&other_artist));
+    }
+
+    #[test]
+    fn test_crossfade_is_skipped_between_consecutive_album_tracks() {
+        let play_album_tracks = |skip: bool| {
+            let mut harness = Harness::with_options(PlaybackOptions {
+                crossfade_seconds: 1,
+                crossfade_skip_album_tracks: skip,
+                ..options()
+            });
+            let first = harness.track("a.wav", 16_000); // 2秒
+            let second = harness.track("b.wav", 24_000); // 3秒
+            harness
+                .engine
+                .play(PlayRequest {
+                    album: Some(album_track(Some(1), Some(1))),
+                    ..request(1, &first)
+                })
+                .unwrap();
+            harness.engine.tick();
+            harness
+                .set_next_request(Some(PlayRequest {
+                    album: Some(album_track(Some(1), Some(2))),
+                    ..request(2, &second)
+                }))
+                .unwrap();
+            harness.render(60_000).len()
+        };
+        // 続きの曲は重ねず、切れ目なく続ける（全体の長さは2曲の合計）
+        assert_eq!(play_album_tracks(true), 16_000 + 24_000);
+        // 設定がオフなら、ほかの曲と同じく重ねる（重なった1秒だけ短くなる）
+        assert_eq!(play_album_tracks(false), 16_000 + 24_000 - 8_000);
+    }
+
     #[test]
     fn test_seek_while_three_tracks_are_buffered_moves_within_the_playing_track() {
         // 2曲目が短い（0.25秒）ため、1曲目が鳴っている間に、2曲目から3曲目への重なりまで書かれる
@@ -3443,6 +3568,7 @@ mod tests {
                     prevent_clipping: false,
                 },
                 crossfade_seconds: 7,
+                crossfade_skip_album_tracks: true,
             }
         );
         // オフの間は、覚えている秒数を使わない
