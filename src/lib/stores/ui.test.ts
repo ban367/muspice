@@ -66,6 +66,22 @@ async function importFreshUi() {
   return (await import('./ui.svelte.js')).ui;
 }
 
+describe('選択中の曲のパネルへの切り替えの設定', () => {
+  it('保存がなければオフで、変えると保存する', async () => {
+    let ui = await importFreshUi();
+    expect(ui.autoShowSelectedTrack).toBe(false);
+
+    ui.autoShowSelectedTrack = true;
+    expect(localStorage.getItem('muspice:autoShowSelectedTrack')).toBe('true');
+    ui = await importFreshUi();
+    expect(ui.autoShowSelectedTrack).toBe(true);
+
+    // 壊れた値は、保存がない時と同じ
+    localStorage.setItem('muspice:autoShowSelectedTrack', '{');
+    expect((await importFreshUi()).autoShowSelectedTrack).toBe(false);
+  });
+});
+
 describe('右サイドバーの固定', () => {
   it('保存がなければ固定し、解除を保存した時だけ固定しない', async () => {
     expect((await importFreshUi()).isRightSidebarPinned).toBe(true);

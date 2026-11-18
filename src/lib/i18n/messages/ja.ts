@@ -338,8 +338,9 @@ export const ja = {
     openSound: 'サウンドの設定を開く',
     albumInfoTitle: 'アルバム情報',
     openAlbumInfo: 'アルバム情報を開く',
-    trackInfoTitle: '曲情報',
-    openTrackInfo: '曲情報を開く',
+    /** 一覧で選んだ曲のパネル */
+    trackInfoTitle: '選択中の曲',
+    openTrackInfo: '選択中の曲を開く',
     pin: 'サイドバーを固定',
     unpin: '固定解除',
     clear: 'クリア',
@@ -348,6 +349,8 @@ export const ja = {
     /** 曲のカードの見出し */
     nowPlaying: '再生中',
     selectedTrack: '選択中の曲',
+    /** 選択を外した後も残している曲 */
+    lastSelectedTrack: '最後に選んだ曲',
     /** 曲のカードに出す曲がない時 */
     nothingPlaying: '再生していません',
     nothingSelected: '曲を選んでいません',
@@ -364,12 +367,24 @@ export const ja = {
     album: 'アルバム',
     empty: '曲を再生すると、ここに曲のアルバムを表示します',
     noAlbum: 'この曲にはアルバムの情報がありません',
-    notFound: '曲が見つかりません。ライブラリから削除されたか、タグが変わった可能性があります'
+    notFound: '曲が見つかりません。ライブラリから削除されたか、タグが変わった可能性があります',
+    /** ジャケット画像のカードと、アルバムの曲の間に出す、曲の情報 */
+    trackDetails: '曲の情報',
+    /** 曲の情報に出している曲（再生中の曲か、パネルの中で選んだ曲か） */
+    playing: '再生中',
+    selected: '選択中',
+    trackNumber: (number: number) => `トラック ${number}`,
+    playCount: (count: number) => `再生 ${count}回`,
+    lastPlayed: (date: string) => `最終再生 ${date}`
   },
 
-  /** 右サイドバーの曲情報パネル（一覧で選んでいる曲） */
+  /** 右サイドバーの選択中の曲のパネル（一覧で選んだ曲） */
   trackInfo: {
     empty: '曲を選ぶと、ここに曲の情報を表示します',
+    /** メインビューで曲を選んだら、このパネルに切り替えるかのトグル */
+    autoShow: '選択で切り替え',
+    autoShowHint:
+      'メインビューで曲を選んだら、このパネルに切り替えます（右サイドバーを開いている時）',
     /** 複数の曲を選んでいる時（最後に選んだ曲のほかに選んでいる曲の数。曲のカードの「選択中の曲」に添える） */
     othersSelected: (count: number) => `ほか${count}曲`,
     tags: 'タグ',

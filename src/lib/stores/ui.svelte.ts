@@ -11,14 +11,14 @@ import type { Track } from '#lib/types/models.js';
 import { TRACK_COLUMN_IDS, TRACK_COLUMNS, type TrackColumnId } from '#lib/utils/trackColumns.js';
 
 // 右サイドバーのパネル（queue: 再生キュー, sound: イコライザなどの音の加工の設定,
-// album: 再生中の曲とそのアルバム, track: 一覧で選んでいる曲の情報）
+// album: 再生中の曲とそのアルバム, track: 一覧で選んだ曲の情報（選択中の曲））
 export type RightSidebarPanel = 'queue' | 'sound' | 'album' | 'track';
 
-/** 一覧で選んでいる曲（曲情報パネルに出す） */
+/** 一覧で選んだ曲（選択中の曲のパネルに出す） */
 export interface SelectedTrack {
-  /** 選んでいる曲のうち、最後に選んだ曲 */
+  /** 選んでいる曲のうち、最後に選んだ曲（選択を外した後は、最後に選んでいた曲） */
   track: Track;
-  /** 選んでいる曲の数 */
+  /** 選んでいる曲の数（選択を外した・一覧がなくなった後は0） */
   count: number;
 }
 
@@ -49,6 +49,7 @@ function defaultColumnWidth(column: WidthColumn): number {
 }
 
 const RIGHT_SIDEBAR_PINNED_KEY = 'muspice:rightSidebarPinned';
+const AUTO_SHOW_SELECTED_TRACK_KEY = 'muspice:autoShowSelectedTrack';
 const COLUMN_WIDTHS_KEY = 'muspice:columnWidths';
 const PLAYLIST_EXPORT_RELATIVE_KEY = 'muspice:playlistExportRelative';
 
@@ -143,13 +144,14 @@ class UiState {
   revealTrackId = $state<string | null>(null);
 
   /**
-   * 一覧で選んでいる曲（曲情報パネルに出す。選んでいなければnull）
+   * 一覧で最後に選んだ曲（選択中の曲のパネルに出す。まだ選んでいなければnull）
    *
-   * 曲を選べる一覧が、`followSelectedTrack`で書き換える。
+   * 曲を選べる一覧が、`followSelectedTrack`で書き換える。選択を外した後も、最後に選んでいた曲を残す。
    */
   selectedTrack = $state.raw<SelectedTrack | null>(null);
 
   #isRightSidebarPinned = $state(loadRightSidebarPinned());
+  #autoShowSelectedTrack = $state(loadJson(AUTO_SHOW_SELECTED_TRACK_KEY) === true);
   #columnWidths = $state.raw<ColumnWidths>(loadColumnWidths());
   #playlistExportRelative = $state(loadJson(PLAYLIST_EXPORT_RELATIVE_KEY) === true);
 
@@ -177,6 +179,19 @@ class UiState {
     }
   }
 
+  /**
+   * メインビューで曲を選んだら、右サイドバーを選択中の曲のパネルに切り替えるか（既定はオフ。
+   * localStorageに保存）
+   */
+  get autoShowSelectedTrack(): boolean {
+    return this.#autoShowSelectedTrack;
+  }
+
+  set autoShowSelectedTrack(value: boolean) {
+    this.#autoShowSelectedTrack = value;
+    saveJson(AUTO_SHOW_SELECTED_TRACK_KEY, value);
+  }
+
   /** トラック一覧の列幅（localStorageに保存。変更は列を書き換えず、オブジェクトごと代入する） */
   get columnWidths(): ColumnWidths {
     return this.#columnWidths;
@@ -194,13 +209,16 @@ export const ui = new UiState();
 let selectedTrackOwner: symbol | null = null;
 
 /**
- * 一覧で選んでいる曲を、曲情報パネルに出す（曲を選べる一覧のコンポーネントの初期化で呼ぶ。ADR-078）
+ * 一覧で選んだ曲を、選択中の曲のパネルに出す（曲を選べる一覧のコンポーネントの初期化で呼ぶ。ADR-078・ADR-096）
  *
  * 最後に選択を変えた一覧の選択を出す。その一覧の選択が空になった時と、一覧がなくなった時（別の画面へ
- * 移った時）は空にする。出している一覧の曲を取り直した時（タグの編集・評価の変更など）は、新しい内容に
- * 入れ替える。ほかの一覧が出している間は、曲を取り直しただけ（選択は同じ）では上書きしない。
+ * 移った時）は、最後に選んでいた曲を残し、選んでいる数を0にする。出している一覧の曲を取り直した時
+ * （タグの編集・評価の変更など）は、新しい内容に入れ替える。ほかの一覧が出している間は、曲を取り直した
+ * だけ（選択は同じ）では上書きしない。
  *
- * パネルを閉じている間も書き換える（開いた時に、選んでいる曲がすぐ出るように）。
+ * パネルを閉じている間も書き換える（開いた時に、選んだ曲がすぐ出るように）。選択を変えた時、
+ * `ui.autoShowSelectedTrack`がオンで右サイドバーを開いていれば、選択中の曲のパネルに切り替える
+ * （閉じていれば開かない）。
  *
  * @param selected - 選んでいる曲のうち最後に選んだ曲と、選んでいる曲の数を返す関数（選んでいなければnull）
  */
@@ -217,23 +235,34 @@ export function followSelectedTrack(selected: () => SelectedTrack | null): void 
     lastKey = key;
     untrack(() => {
       if (value === null) {
-        if (selectedTrackOwner === owner) clearSelectedTrack();
+        if (selectedTrackOwner === owner) releaseSelectedTrack();
       } else if (isChanged || selectedTrackOwner === owner) {
         selectedTrackOwner = owner;
         ui.selectedTrack = value;
+        if (isChanged) showSelectedTrackPanel();
       }
     });
   });
 
-  // 一覧がなくなったら、出していた曲を消す
+  // 一覧がなくなったら、出していた曲を残したまま手放す
   $effect(() => () => {
-    if (selectedTrackOwner === owner) clearSelectedTrack();
+    if (selectedTrackOwner === owner) releaseSelectedTrack();
   });
 }
 
-function clearSelectedTrack(): void {
+/** 出していた曲を残したまま、一覧から手放す（選んでいる数を0にする） */
+function releaseSelectedTrack(): void {
   selectedTrackOwner = null;
-  ui.selectedTrack = null;
+  if (ui.selectedTrack !== null && ui.selectedTrack.count !== 0) {
+    ui.selectedTrack = { track: ui.selectedTrack.track, count: 0 };
+  }
+}
+
+/** 選択を変えた時に、右サイドバーを選択中の曲のパネルに切り替える（設定がオンで、開いている時だけ） */
+function showSelectedTrackPanel(): void {
+  if (ui.autoShowSelectedTrack && ui.isRightSidebarExpanded) {
+    ui.activeRightSidebarPanel = 'track';
+  }
 }
 
 // ---------- 前回開いていた画面（起動時の復元に使う） ----------

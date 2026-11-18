@@ -25,6 +25,7 @@
   import SidePanelMessage from './SidePanelMessage.svelte';
   import SidePanelSection from './SidePanelSection.svelte';
   import SidePanelTrack from './SidePanelTrack.svelte';
+  import SidePanelTrackDetails from './SidePanelTrackDetails.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   const current = $derived(player.currentTrack);
@@ -77,6 +78,24 @@
 
   // トラックの選択（クリック・キーボード）
   const selection = new TrackSelection(() => tracks);
+
+  /**
+   * 曲の情報に出す曲（パネルの中で選んだ曲があれば最後に選んだ曲、なければ再生中の曲）
+   *
+   * 再生中の曲は、キューに入れた時点の内容のため、取得したアルバムの曲があればそちらを使う（再生回数など）。
+   */
+  const detailsTrack = $derived.by(() => {
+    const picked = selection.lastSelected;
+    if (picked) return picked;
+    if (!current) return null;
+    const id = current.id;
+    return tracks.find((track) => track.id === id) ?? current;
+  });
+
+  /** 曲の情報の見出しに添える文（再生中の曲か、パネルの中で選んだ別の曲か） */
+  const detailsNote = $derived(
+    detailsTrack && detailsTrack.id !== current?.id ? m.albumInfo.selected : m.albumInfo.playing
+  );
 
   /** スクロールする領域（アルバムが替わった時に先頭へ戻す） */
   let body = $state<HTMLElement>();
@@ -153,6 +172,10 @@
       track={current}
       emptyText={m.rightSidebar.nothingPlaying}
     />
+    <!-- 曲の情報（再生中の曲、またはパネルの中で選んだ曲） -->
+    {#if detailsTrack}
+      <SidePanelTrackDetails track={detailsTrack} note={detailsNote} />
+    {/if}
   {/snippet}
 
   {#if !current}

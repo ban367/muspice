@@ -322,8 +322,8 @@ export const en: Messages = {
     openSound: 'Open sound settings',
     albumInfoTitle: 'Album Info',
     openAlbumInfo: 'Open album info',
-    trackInfoTitle: 'Track Info',
-    openTrackInfo: 'Open track info',
+    trackInfoTitle: 'Selected Track',
+    openTrackInfo: 'Open the selected track',
     pin: 'Pin the sidebar',
     unpin: 'Unpin',
     clear: 'Clear',
@@ -331,6 +331,7 @@ export const en: Messages = {
     clearConfirm: 'Clear the queue? The current track will also stop.',
     nowPlaying: 'Now Playing',
     selectedTrack: 'Selected Track',
+    lastSelectedTrack: 'Last Selected',
     nothingPlaying: 'Nothing playing',
     nothingSelected: 'No track selected',
     queueTracks: (count) => `Track List (${plural(count, 'track', 'tracks')})`,
@@ -346,11 +347,20 @@ export const en: Messages = {
     empty: 'Play a track to see its album here',
     noAlbum: 'This track has no album information',
     notFound:
-      'No tracks found. They may have been removed from the library, or their tags may have changed'
+      'No tracks found. They may have been removed from the library, or their tags may have changed',
+    trackDetails: 'Track Info',
+    playing: 'Playing',
+    selected: 'Selected',
+    trackNumber: (number: number) => `Track ${number}`,
+    playCount: (count: number) => `Played ${plural(count, 'time', 'times')}`,
+    lastPlayed: (date: string) => `Last played ${date}`
   },
 
   trackInfo: {
     empty: 'Select a track to see its details here',
+    autoShow: 'Show on select',
+    autoShowHint:
+      'Switch to this panel when you select a track in the main view (while the sidebar is open)',
     othersSelected: (count: number) => `${count} more`,
     tags: 'Tags',
     file: 'File',

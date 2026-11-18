@@ -108,7 +108,7 @@
       </svg>
     </button>
 
-    <!-- 曲情報ボタン（一覧で選んでいる曲の情報。音符に「i」を添えた絵） -->
+    <!-- 選択中の曲ボタン（一覧で選んだ曲の情報。音符に「i」を添えた絵） -->
     <button
       class="icon-button"
       class:active={ui.isRightSidebarExpanded && ui.activeRightSidebarPanel === 'track'}
