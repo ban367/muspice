@@ -7,6 +7,7 @@
  * `cargo test export_typescript_bindings`で実行される。
  */
 export type {
+  AiShuffleMode,
   AlbumArtInfo,
   AlbumArtSource,
   AlbumGroup,
@@ -50,6 +51,7 @@ export type {
   LoudnessScanProgress,
   LoudnessScanResult,
   LoudnessScanStatus,
+  MusicAnalysisStatus,
   M3uExportResult,
   M3uImportResult,
   MatchMode,

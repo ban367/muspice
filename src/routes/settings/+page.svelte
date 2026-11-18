@@ -8,7 +8,14 @@
     useSaveSettingsMutation,
     useSettingsQuery
   } from '#lib/queries/settings.js';
-  import type { Language, Settings, SidebarItem, StartupPage, Theme } from '#lib/types/models.js';
+  import type {
+    AiShuffleMode,
+    Language,
+    Settings,
+    SidebarItem,
+    StartupPage,
+    Theme
+  } from '#lib/types/models.js';
   import { applyAccentColor, applyTheme } from '#lib/utils/theme.js';
   import { applyLanguage, m } from '#lib/i18n/i18n.svelte.js';
   // 設定の値の範囲はRust側（settings.rs）の定数をtauri-spectaで共有する
@@ -19,12 +26,15 @@
   import LibraryXmlImportSettings from '#lib/components/LibraryXmlImportSettings.svelte';
   import LoudnessScanSettings from '#lib/components/LoudnessScanSettings.svelte';
   import LibraryBackupSettings from '#lib/components/LibraryBackupSettings.svelte';
+  import MusicAnalysisSettings from '#lib/components/MusicAnalysisSettings.svelte';
   import { MusicFolderDraft } from '#lib/stores/musicFolderDraft.svelte.js';
 
-  type SettingsSection = 'general' | 'playback' | 'library' | 'appearance';
+  type SettingsSection = 'general' | 'playback' | 'library' | 'ai' | 'appearance';
 
   // 選択肢の値（ラベルは表示の言語に合わせてテンプレートで`m`から読む）
-  const sections: SettingsSection[] = ['general', 'playback', 'library', 'appearance'];
+  const sections: SettingsSection[] = ['general', 'playback', 'library', 'ai', 'appearance'];
+  // AIシャッフルの選び方
+  const aiShuffleModes: AiShuffleMode[] = ['similar', 'frequentlyPlayed', 'rarelyPlayed'];
   const startupPages: StartupPage[] = ['lastOpened', 'songs'];
   // サイドバーの項目（サイドバーに並ぶ順）
   const sidebarItems: SidebarItem[] = [
@@ -229,6 +239,18 @@
                   stroke-linecap="round"
                   stroke-linejoin="round"
                   d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"
+                />
+              </svg>
+            {:else if section === 'ai'}
+              <!-- AIシャッフルのボタンと同じ、きらめきの形 -->
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="nav-icon"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+              >
+                <path
+                  d="M10 3l1.9 5.1L17 10l-5.1 1.9L10 17l-1.9-5.1L3 10l5.1-1.9L10 3zm8 10l.95 2.05L21 16l-2.05.95L18 19l-.95-2.05L15 16l2.05-.95L18 13zM18 2l.7 1.3L20 4l-1.3.7L18 6l-.7-1.3L16 4l1.3-.7L18 2z"
                 />
               </svg>
             {:else}
@@ -465,6 +487,23 @@
             </p>
           </div>
         </section>
+      {:else if activeSection === 'ai'}
+        <section class="settings-section">
+          <h3 class="settings-title">{m.settings.sections.ai}</h3>
+          <p class="setting-description section-note">{m.settings.aiNote}</p>
+          <!-- AIシャッフルの選び方は、ほかの設定と同じく「適用」で保存する -->
+          <div class="setting-item">
+            <label class="setting-label" for="ai-shuffle-mode">{m.settings.aiShuffleMode}</label>
+            <select id="ai-shuffle-mode" class="setting-select" bind:value={pending.aiShuffleMode}>
+              {#each aiShuffleModes as mode (mode)}
+                <option value={mode}>{m.settings.aiShuffleModes[mode]}</option>
+              {/each}
+            </select>
+            <p class="setting-description">{m.settings.aiShuffleModeHint}</p>
+          </div>
+        </section>
+        <!-- 曲の解析の操作は、すぐに反映する（「適用」の対象外） -->
+        <MusicAnalysisSettings />
       {:else}
         <section class="settings-section">
           <h3 class="settings-title">{m.settings.sections.appearance}</h3>

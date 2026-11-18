@@ -84,6 +84,7 @@ graph TD
 - プレイリストの整理: プレイリストは、1階層のフォルダ（`playlist_folders`）に分けられる。並び順（名前・作成日・手動）はフロントエンドが選び、手動の順だけをDB（`position`）に持つ。サイドバー（`SidebarPlaylists`）とプレイリストの一覧の画面は、同じ並びで表示する（ADR-043）
 - 自動プレイリスト: `smart_playlist.rs`が、条件（項目・比べ方・値の組の一覧と、組み合わせ方・並び順・曲数の上限）の検証と、条件に合う曲の取得を担う。条件は`playlists.rules`にJSONで保存し、曲は開くたび・転送するたびに条件から求める（曲の一覧は保存しない）。条件の編集はフロントエンド（`SmartPlaylistDialog`）で行い、合う曲はバックエンドがSQLで求める（ADR-042）
 - プレイリストのM3U: `m3u.rs`が、読み込み（文字コードの判定・曲の場所とライブラリの曲の対応付け）と書き出し（拡張M3U）を担う。ファイルの選択は、コマンド（`commands/m3u.rs`）がRust側でダイアログを開いて行い、WebViewからパスを受け取らない（ADR-032）
+- 曲の解析とAIシャッフル: `music_analysis.rs`が、macOS 27のMusicUnderstanding（`swift/music_analysis.swift`をbuild.rsがビルドしてリンクする）で曲のテンポ・キーを求め、`track_analysis`に保存する（設定画面から始め、バックグラウンドで1曲ずつ。途中なら次の起動で再開する）。AIシャッフルは、フロントエンドの`aiShuffle.svelte.ts`が、再生中の曲が変わるたびに`pick_ai_shuffle_track`（`ai_shuffle.rs`）で1曲選ばせ、再生中の曲の次に足す（ADR-104）
 - OSのメディアキー・Now Playing: `media_controls/`。`set_now_playing`で届いた曲のIDから、曲の情報とアルバムアート（`album_art.rs`のキャッシュ）を読んでOSへ渡し、OSからの操作を`PlaybackControl`イベントでフロントエンドへ送る。macOSだけに対応し（`macos.rs`。MediaPlayerフレームワーク）、ほかのOSでは何もしない。MediaPlayerのオブジェクトはメインスレッドだけで扱う（ADR-029）
 - メニューバー: `menu.rs`（設定の言語に合わせる）。「再生」メニューの項目は、`PlaybackControl`イベントを送る（キーは割り当てない）
 - コマンド登録: `tauri_specta::collect_commands!` でインポート/検索/編集/再生/統計/システム操作を公開（同じ一覧から、TypeScriptのバインディングも生成する）

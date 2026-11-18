@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::{DialogExt, FileDialogBuilder};
 
+mod ai;
 mod album_art;
 mod backup;
 mod convert;
@@ -82,6 +83,12 @@ pub use convert::{
 
 // 音量（ラウドネス）の解析
 pub use loudness::{cancel_loudness_scan, get_loudness_scan_status, start_loudness_scan};
+
+// 曲の解析（テンポ・キー）と、AIシャッフルの選曲
+pub use ai::{
+    delete_music_analysis, get_music_analysis_status, pick_ai_shuffle_track, start_music_analysis,
+    stop_music_analysis,
+};
 
 // ファイルの整理（タグに基づくリネーム・移動）
 pub use organize::{OrganizeState, cancel_file_organize, organize_files, plan_file_organize};

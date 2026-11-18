@@ -75,6 +75,10 @@ pub struct LoudnessScanProgress {
 #[derive(Debug, Clone, Serialize, Type, Event)]
 pub struct LoudnessScanFinished(pub crate::loudness_scan::LoudnessScanResult);
 
+/// 曲の解析（テンポ・キー）の状態が変わった（始めた・1曲を解析した・終わった・止めた）
+#[derive(Debug, Clone, Serialize, Type, Event)]
+pub struct MusicAnalysisProgress(pub crate::music_analysis::MusicAnalysisStatus);
+
 /// ライブラリフォルダの再スキャンの進捗
 #[derive(Debug, Clone, Serialize, Type, Event)]
 #[serde(rename_all = "camelCase")]

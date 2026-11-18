@@ -39,6 +39,7 @@ vi.mock('#lib/bindings.js', () => ({
     getPlaybackState: vi.fn(async () => ({
       volume: 1,
       shuffle: false,
+      aiShuffle: false,
       repeat: 'off',
       queue: [],
       originalTrackIds: null,
@@ -99,6 +100,7 @@ function savedState(overrides: Partial<RestoredPlaybackState> = {}): RestoredPla
   return {
     volume: 1,
     shuffle: false,
+    aiShuffle: false,
     repeat: 'off',
     queue: [],
     originalTrackIds: null,
@@ -1400,7 +1402,7 @@ describe('再生状態の保存', () => {
 
     expect(saves()).toEqual([
       [
-        { volume: 1, shuffle: false, repeat: 'off', currentIndex: 1 },
+        { volume: 1, shuffle: false, aiShuffle: false, repeat: 'off', currentIndex: 1 },
         { trackIds: ['t1', 't2', 't3'], originalTrackIds: null }
       ]
     ]);
@@ -1422,7 +1424,7 @@ describe('再生状態の保存', () => {
     vi.advanceTimersByTime(300);
 
     expect(saves()).toEqual([
-      [{ volume: 0.3, shuffle: false, repeat: 'all', currentIndex: 1 }, null]
+      [{ volume: 0.3, shuffle: false, aiShuffle: false, repeat: 'all', currentIndex: 1 }, null]
     ]);
   });
 
@@ -1440,7 +1442,7 @@ describe('再生状態の保存', () => {
     vi.advanceTimersByTime(300);
     expect(saves()).toEqual([
       [
-        { volume: 1, shuffle: false, repeat: 'off', currentIndex: 1 },
+        { volume: 1, shuffle: false, aiShuffle: false, repeat: 'off', currentIndex: 1 },
         { trackIds: ['t1', 't2', 't3'], originalTrackIds: null }
       ]
     ]);
@@ -1451,7 +1453,7 @@ describe('再生状態の保存', () => {
     flushSync();
     vi.advanceTimersByTime(300);
     expect(saves()[1]).toEqual([
-      { volume: 1, shuffle: false, repeat: 'off', currentIndex: 2 },
+      { volume: 1, shuffle: false, aiShuffle: false, repeat: 'off', currentIndex: 2 },
       null
     ]);
   });

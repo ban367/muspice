@@ -17,7 +17,12 @@ import {
   resetPlayer,
   restoreQueue,
   toggleRepeat,
-  toggleShuffle
+  toggleShuffle,
+  aiShuffleExcludedTrackIds,
+  aiShuffleTarget,
+  queueAiShuffleTrack,
+  setAiShuffleEnabled,
+  toggleAiShuffle
 } from './player.svelte.js';
 
 /** キュー操作の検証に必要なidだけを持つトラック */
@@ -36,6 +41,7 @@ beforeEach(() => {
   // ストアはモジュール単位のシングルトンのため、テストごとに初期化する
   resetPlayer();
   player.isShuffleEnabled = false;
+  player.isAiShuffleEnabled = false;
   player.repeatMode = 'off';
 });
 
@@ -821,5 +827,129 @@ describe('派生ストア', () => {
   it('upcomingEntries は再生中より後ろの要素を返す', () => {
     replaceQueueAndPlay(tracks, 1);
     expect(ids(player.upcomingEntries)).toEqual(['t3', 't4']);
+  });
+});
+
+describe('AIシャッフル', () => {
+  const picked = makeTrack('ai1');
+  const picked2 = makeTrack('ai2');
+
+  it('有効にすると、シャッフルを解除してキューを元の順に戻す', () => {
+    player.isShuffleEnabled = true;
+    replaceQueueAndPlay(tracks, 1);
+    expect(ids(player.playQueue)[0]).toBe('t2');
+
+    setAiShuffleEnabled(true);
+
+    expect(player.isAiShuffleEnabled).toBe(true);
+    expect(player.isShuffleEnabled).toBe(false);
+    expect(ids(player.playQueue)).toEqual(['t1', 't2', 't3', 't4']);
+    expect(player.currentTrack?.id).toBe('t2');
+    expect(player.isShuffling).toBe(true);
+  });
+
+  it('再生中の曲の次に、選んだ曲を足す（同じ曲の再生中は、足し直さない）', () => {
+    replaceQueueAndPlay(tracks, 1);
+    setAiShuffleEnabled(true);
+    const current = aiShuffleTarget();
+    expect(current?.entryId).toBe(entryIdAt(1));
+
+    expect(queueAiShuffleTrack(picked, current!.entryId)).toBe(true);
+    expect(ids(player.playQueue)).toEqual(['t1', 't2', 'ai1', 't3', 't4']);
+    expect(player.playQueue[2].autoAddedAfter).toBe(current!.entryId);
+    expect(ids(player.originalQueue)).toEqual(['t1', 't2', 'ai1', 't3', 't4']);
+    // 足した曲がある間は、もう足さない
+    expect(aiShuffleTarget()).toBeNull();
+    expect(queueAiShuffleTrack(picked2, current!.entryId)).toBe(false);
+    expect(ids(player.playQueue)).toEqual(['t1', 't2', 'ai1', 't3', 't4']);
+  });
+
+  it('足した曲の再生中は、その次に足す（利用者が入れた曲は、後ろへずれる）', () => {
+    replaceQueueAndPlay(tracks, 0);
+    setAiShuffleEnabled(true);
+    queueAiShuffleTrack(picked, entryIdAt(0));
+    playNextTrack();
+
+    const current = aiShuffleTarget();
+    expect(current?.track.id).toBe('ai1');
+    queueAiShuffleTrack(picked2, current!.entryId);
+    expect(ids(player.playQueue)).toEqual(['t1', 'ai1', 'ai2', 't2', 't3', 't4']);
+  });
+
+  it('次が別の曲のために足した曲なら、外してから足し直す', () => {
+    replaceQueueAndPlay(tracks, 0);
+    setAiShuffleEnabled(true);
+    queueAiShuffleTrack(picked, entryIdAt(0));
+    // 一覧から曲を選んで割り込ませた
+    playNow([makeTrack('u1')]);
+    expect(ids(player.playQueue)).toEqual(['t1', 'u1', 'ai1', 't2', 't3', 't4']);
+
+    const current = aiShuffleTarget();
+    expect(current?.track.id).toBe('u1');
+    queueAiShuffleTrack(picked2, current!.entryId);
+    expect(ids(player.playQueue)).toEqual(['t1', 'u1', 'ai2', 't2', 't3', 't4']);
+    expect(ids(player.originalQueue)).toEqual(['t1', 'u1', 'ai2', 't2', 't3', 't4']);
+  });
+
+  it('選んでいる間に再生中の曲が変わったら、足さない', () => {
+    replaceQueueAndPlay(tracks, 0);
+    setAiShuffleEnabled(true);
+    const target = aiShuffleTarget()!;
+    playNextTrack();
+
+    expect(queueAiShuffleTrack(picked, target.entryId)).toBe(false);
+    expect(ids(player.playQueue)).toEqual(['t1', 't2', 't3', 't4']);
+  });
+
+  it('無効の間・1曲リピートの間・見つからない曲は、足さない', () => {
+    replaceQueueAndPlay(tracks, 0);
+    expect(aiShuffleTarget()).toBeNull();
+
+    setAiShuffleEnabled(true);
+    player.repeatMode = 'one';
+    expect(aiShuffleTarget()).toBeNull();
+    expect(queueAiShuffleTrack(picked, entryIdAt(0))).toBe(false);
+
+    player.repeatMode = 'off';
+    expect(queueAiShuffleTrack({ ...picked, isMissing: true }, entryIdAt(0))).toBe(false);
+    expect(ids(player.playQueue)).toEqual(['t1', 't2', 't3', 't4']);
+  });
+
+  it('無効にすると、まだ再生していない足した曲を外す（再生した曲は残す）', () => {
+    replaceQueueAndPlay(tracks, 0);
+    setAiShuffleEnabled(true);
+    queueAiShuffleTrack(picked, entryIdAt(0));
+    playNextTrack();
+    queueAiShuffleTrack(picked2, entryIdAt(1));
+    expect(ids(player.playQueue)).toEqual(['t1', 'ai1', 'ai2', 't2', 't3', 't4']);
+
+    toggleAiShuffle();
+
+    expect(player.isAiShuffleEnabled).toBe(false);
+    expect(ids(player.playQueue)).toEqual(['t1', 'ai1', 't2', 't3', 't4']);
+    expect(ids(player.originalQueue)).toEqual(['t1', 'ai1', 't2', 't3', 't4']);
+    expect(player.currentTrack?.id).toBe('ai1');
+    expect(player.currentTrackIndex).toBe(1);
+  });
+
+  it('シャッフルを有効にすると、AIシャッフルを無効にして足した曲を外す', () => {
+    replaceQueueAndPlay(tracks, 0);
+    setAiShuffleEnabled(true);
+    queueAiShuffleTrack(picked, entryIdAt(0));
+
+    toggleShuffle();
+
+    expect(player.isShuffleEnabled).toBe(true);
+    expect(player.isAiShuffleEnabled).toBe(false);
+    expect(ids(player.playQueue)).not.toContain('ai1');
+    expect(ids(player.playQueue)).toHaveLength(4);
+    expect(player.currentTrack?.id).toBe('t1');
+  });
+
+  it('避ける曲は、再生中の位置の前後の曲（重複なし）', () => {
+    replaceQueueAndPlay([...tracks, makeTrack('t1'), makeTrack('t5')], 2);
+
+    expect(aiShuffleExcludedTrackIds(1)).toEqual(['t2', 't3', 't4']);
+    expect(aiShuffleExcludedTrackIds(10)).toEqual(['t1', 't2', 't3', 't4', 't5']);
   });
 });

@@ -30,7 +30,7 @@
   const applied = $derived.by(() => {
     const track = player.currentTrack;
     if (current === null || track === null) return null;
-    return appliedReplayGain(track.replayGain, current, player.isShuffleEnabled);
+    return appliedReplayGain(track.replayGain, current, player.isShuffling);
   });
 
   /** 補正の量の表示（小数1桁。-0.0にしない） */

@@ -315,6 +315,89 @@ describe('音量の解析', () => {
   });
 });
 
+describe('曲の解析とAIシャッフル', () => {
+  /** 解析が終わるのを待つ（バックグラウンドで進むため） */
+  async function waitForAnalysis() {
+    for (let i = 0; i < 100; i++) {
+      if (!(await commands.getMusicAnalysisStatus()).running) return;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    throw new Error('the analysis did not finish');
+  }
+
+  it('解析していない曲を解析し、読めない形式の曲は解析できなかった曲にする', async () => {
+    const tracks = await commands.getAllTracks();
+    const present = tracks.filter((track) => !track.isMissing);
+    const unsupported = present.filter((track) =>
+      ['ogg', 'opus', 'wv', 'ape'].includes(track.format.toLowerCase())
+    );
+    expect(await commands.getMusicAnalysisStatus()).toEqual({
+      available: true,
+      running: false,
+      total: present.length,
+      analyzed: 0,
+      failed: 0
+    });
+
+    await commands.startMusicAnalysis();
+    await waitForAnalysis();
+
+    expect(await commands.getMusicAnalysisStatus()).toMatchObject({
+      running: false,
+      analyzed: present.length - unsupported.length,
+      failed: unsupported.length
+    });
+    expect(events.filter((e) => e.event === 'music-analysis-progress').length).toBeGreaterThan(0);
+
+    // 削除すると、解析していない状態に戻る
+    expect(await commands.deleteMusicAnalysis()).toMatchObject({ analyzed: 0, failed: 0 });
+  });
+
+  it('実行中は削除できず、止めると途中で終わる', async () => {
+    let release!: () => void;
+    backend = createMockBackend({
+      emit: () => {},
+      sleep: () => new Promise((resolve) => (release = () => resolve()))
+    });
+    mockIPC((cmd, payload) => backend.invoke(cmd, payload as Record<string, unknown>));
+
+    await commands.startMusicAnalysis();
+    expect((await commands.getMusicAnalysisStatus()).running).toBe(true);
+    await expect(commands.deleteMusicAnalysis()).rejects.toMatchObject({ code: 'LOCK' });
+
+    await commands.stopMusicAnalysis();
+    release();
+    await waitForAnalysis();
+    const status = await commands.getMusicAnalysisStatus();
+    expect(status.analyzed + status.failed).toBeLessThanOrEqual(1);
+  });
+
+  it('AIシャッフルは、今の曲・避ける曲・見つからない曲を選ばない', async () => {
+    const tracks = await commands.getAllTracks();
+    const present = tracks.filter((track) => !track.isMissing);
+    const [current, ...others] = present;
+    const allowed = others[0];
+    const excluded = others.slice(1).map((track) => track.id);
+
+    for (let i = 0; i < 10; i++) {
+      const picked = await commands.pickAiShuffleTrack(current.id, excluded);
+      expect(picked?.id).toBe(allowed.id);
+    }
+    // すべて避けると、今の曲だけを避けて選ぶ
+    const fallback = await commands.pickAiShuffleTrack(
+      current.id,
+      others.map((track) => track.id)
+    );
+    expect(fallback).not.toBeNull();
+    expect(fallback?.id).not.toBe(current.id);
+    expect(fallback?.isMissing).toBe(false);
+
+    await expect(commands.pickAiShuffleTrack('x', [])).rejects.toMatchObject({
+      code: 'VALIDATION'
+    });
+  });
+});
+
 describe('ファイルの整理', () => {
   const DEFAULT = '%albumartist%/%album%/%track% %title%';
 
@@ -2368,7 +2451,7 @@ describe('音楽フォルダ', () => {
   it('置き換えると、保存してある再生キューを空にし、メインウィンドウにクリアさせる', async () => {
     const [first, second] = await commands.getAllTracks();
     await commands.savePlaybackState(
-      { volume: 0.5, shuffle: true, repeat: 'all', currentIndex: 1 },
+      { volume: 0.5, shuffle: true, aiShuffle: false, repeat: 'all', currentIndex: 1 },
       { trackIds: [first.id, second.id], originalTrackIds: [second.id, first.id] }
     );
     backend.setMusicFolderFileCount(3);
@@ -2767,12 +2850,19 @@ describe('OSのNow Playing', () => {
 });
 
 describe('再生状態の保存と復元', () => {
-  const cursor = { volume: 0.4, shuffle: false, repeat: 'all' as const, currentIndex: 1 };
+  const cursor = {
+    volume: 0.4,
+    shuffle: false,
+    aiShuffle: false,
+    repeat: 'all' as const,
+    currentIndex: 1
+  };
 
   it('保存していなければ、何も再生していない状態を返す', async () => {
     expect(await commands.getPlaybackState()).toEqual({
       volume: 1,
       shuffle: false,
+      aiShuffle: false,
       repeat: 'off',
       queue: [],
       originalTrackIds: null,

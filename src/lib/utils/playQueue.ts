@@ -13,6 +13,13 @@ export interface QueueEntry {
   readonly entryId: number;
   /** 曲（キューに入れた時点の内容） */
   readonly track: Track;
+  /**
+   * AIシャッフルが足した要素の場合、足した時に再生していた要素のID（利用者が入れた要素にはない）
+   *
+   * AIシャッフルを無効にした時に、まだ再生していない足した要素を外すのと、同じ曲の再生中に
+   * 足し直さないために使う。保存はしない（復元したキューでは、利用者が入れた要素と同じ扱い）。
+   */
+  readonly autoAddedAfter?: number;
 }
 
 /** 最後に振ったエントリID */
@@ -21,6 +28,15 @@ let lastEntryId = 0;
 /** 曲を、キューの要素にする（要素ごとに新しいエントリIDを振る） */
 export function toQueueEntries(tracks: readonly Track[]): QueueEntry[] {
   return tracks.map((track) => ({ entryId: ++lastEntryId, track }));
+}
+
+/**
+ * AIシャッフルが足す曲を、キューの要素にする
+ * @param track - 足す曲
+ * @param afterEntryId - 足した時に再生している要素のID
+ */
+export function toAutoAddedEntry(track: Track, afterEntryId: number): QueueEntry {
+  return { entryId: ++lastEntryId, track, autoAddedAfter: afterEntryId };
 }
 
 /**

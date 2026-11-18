@@ -25,6 +25,7 @@ function stored(overrides: Partial<RestoredPlaybackState> = {}): RestoredPlaybac
   return {
     volume: 0.5,
     shuffle: true,
+    aiShuffle: false,
     repeat: 'all',
     queue: [a, b, c],
     originalTrackIds: ['c', 'a', 'b'],
@@ -53,6 +54,7 @@ beforeEach(() => {
   // `resetPlayer`は、キュー以外（音量・シャッフル・リピート）を戻さない
   player.volume = 1;
   player.isShuffleEnabled = false;
+  player.isAiShuffleEnabled = false;
   player.repeatMode = 'off';
   vi.mocked(commands.savePlaybackState).mockResolvedValue(null);
   vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -65,6 +67,23 @@ afterEach(() => {
 });
 
 describe('restorePlaybackState', () => {
+  it('AIシャッフルを戻す（シャッフルと両方が保存してあれば、シャッフルを残す）', async () => {
+    const options = { isCancelled: () => false, onTrackRestoring: vi.fn() };
+    vi.mocked(commands.getPlaybackState).mockResolvedValue(
+      stored({ shuffle: false, aiShuffle: true, queue: [], originalTrackIds: null })
+    );
+    await restorePlaybackState(options);
+    expect(player.isAiShuffleEnabled).toBe(true);
+    expect(player.isShuffleEnabled).toBe(false);
+
+    vi.mocked(commands.getPlaybackState).mockResolvedValue(
+      stored({ shuffle: true, aiShuffle: true, queue: [], originalTrackIds: null })
+    );
+    await restorePlaybackState(options);
+    expect(player.isAiShuffleEnabled).toBe(false);
+    expect(player.isShuffleEnabled).toBe(true);
+  });
+
   it('音量・シャッフル・リピートと、キューと再生していた曲を戻す（再生は始めない）', async () => {
     vi.mocked(commands.getPlaybackState).mockResolvedValue(stored());
     const onTrackRestoring = vi.fn();
@@ -141,7 +160,7 @@ describe('watchPlaybackState', () => {
 
     await vi.advanceTimersByTimeAsync(1);
     expect(commands.savePlaybackState).toHaveBeenCalledExactlyOnceWith(
-      { volume: 0.2, shuffle: false, repeat: 'one', currentIndex: null },
+      { volume: 0.2, shuffle: false, aiShuffle: false, repeat: 'one', currentIndex: null },
       null
     );
     stop();

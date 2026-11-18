@@ -4,6 +4,7 @@
   import {
     player,
     toggleShuffle,
+    toggleAiShuffle,
     toggleRepeat,
     type RepeatMode
   } from '#lib/stores/player.svelte.js';
@@ -15,6 +16,7 @@
   import { useQueryClient } from '@tanstack/svelte-query';
   import { useSettingsQuery } from '#lib/queries/settings.js';
   import { watchAutoDj } from '#lib/stores/autoDj.svelte.js';
+  import { watchAiShuffle } from '#lib/stores/aiShuffle.svelte.js';
   import PlaybackAidsMenu from './PlaybackAidsMenu.svelte';
   import { miniPlayer } from '#lib/stores/miniPlayer.svelte.js';
   import { useFavoriteTracksQuery } from '#lib/queries/tracks.js';
@@ -59,6 +61,8 @@
       playlistId: () => settingsQuery.data?.autoDjPlaylistId ?? null,
       queryClient
     });
+    // AIシャッフル（曲が始まるたびに、選び方に合う曲を次に足す）
+    const stopAiShuffle = watchAiShuffle();
 
     // メニューバーの「再生」メニューと、OSのメディアキー・コントロールセンターなどからの操作
     const listening = events.playbackControl.listen((event) =>
@@ -69,6 +73,7 @@
     return () => {
       stopListening(listening);
       stopAutoDj();
+      stopAiShuffle();
       controller.destroy();
       playback = null;
     };
@@ -355,45 +360,70 @@
 
     <!-- 再生コントロール -->
     <div class="flex flex-col items-center gap-2">
-      <div class="flex justify-center items-center gap-3">
-        <button
-          class="control-button"
-          class:active={player.isShuffleEnabled}
-          onclick={toggleShuffle}
-          title={m.player.shuffleTitle}
-          aria-label={m.player.shuffle}
-          aria-pressed={player.isShuffleEnabled}
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="currentColor"
+      <!-- 再生ボタンを真ん中に置き、左右にほかのボタンを並べる（左右のボタンの数は違う） -->
+      <div class="controls-row">
+        <div class="controls-side justify-end">
+          <button
+            class="control-button"
+            class:active={player.isAiShuffleEnabled}
+            onclick={toggleAiShuffle}
+            title={m.player.aiShuffleTitle}
+            aria-label={m.player.aiShuffle}
+            aria-pressed={player.isAiShuffleEnabled}
           >
-            <path
-              d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"
-            />
-          </svg>
-        </button>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <path
+                d="M10 3l1.9 5.1L17 10l-5.1 1.9L10 17l-1.9-5.1L3 10l5.1-1.9L10 3zm8 10l.95 2.05L21 16l-2.05.95L18 19l-.95-2.05L15 16l2.05-.95L18 13zM18 2l.7 1.3L20 4l-1.3.7L18 6l-.7-1.3L16 4l1.3-.7L18 2z"
+              />
+            </svg>
+          </button>
 
-        <button
-          class="control-button"
-          onclick={() => playback?.previous()}
-          disabled={!player.hasPreviousTrack}
-          title={m.player.previousTitle}
-          aria-label={m.player.previous}
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="currentColor"
+          <button
+            class="control-button"
+            class:active={player.isShuffleEnabled}
+            onclick={toggleShuffle}
+            title={m.player.shuffleTitle}
+            aria-label={m.player.shuffle}
+            aria-pressed={player.isShuffleEnabled}
           >
-            <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z" />
-          </svg>
-        </button>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+            >
+              <path
+                d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"
+              />
+            </svg>
+          </button>
+
+          <button
+            class="control-button"
+            onclick={() => playback?.previous()}
+            disabled={!player.hasPreviousTrack}
+            title={m.player.previousTitle}
+            aria-label={m.player.previous}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+            >
+              <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z" />
+            </svg>
+          </button>
+        </div>
 
         <button
           class="play-pause-button"
@@ -425,45 +455,47 @@
           {/if}
         </button>
 
-        <button
-          class="control-button"
-          onclick={() => playback?.next()}
-          disabled={!player.hasNextTrack}
-          title={m.player.nextTitle}
-          aria-label={m.player.next}
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="currentColor"
+        <div class="controls-side justify-start">
+          <button
+            class="control-button"
+            onclick={() => playback?.next()}
+            disabled={!player.hasNextTrack}
+            title={m.player.nextTitle}
+            aria-label={m.player.next}
           >
-            <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
-          </svg>
-        </button>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+            >
+              <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
+            </svg>
+          </button>
 
-        <button
-          class="control-button"
-          class:active={player.repeatMode !== 'off'}
-          onclick={toggleRepeat}
-          title={m.player.repeatTitle(m.player.repeatModes[player.repeatMode])}
-          aria-label={m.player.repeat}
-          aria-pressed={player.repeatMode !== 'off'}
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="currentColor"
+          <button
+            class="control-button"
+            class:active={player.repeatMode !== 'off'}
+            onclick={toggleRepeat}
+            title={m.player.repeatTitle(m.player.repeatModes[player.repeatMode])}
+            aria-label={m.player.repeat}
+            aria-pressed={player.repeatMode !== 'off'}
           >
-            <path d={getRepeatIcon(player.repeatMode)} />
-          </svg>
-          {#if player.repeatMode === 'one'}
-            <span class="absolute bottom-0.5 right-0.5 text-[0.5rem] font-bold">1</span>
-          {/if}
-        </button>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+            >
+              <path d={getRepeatIcon(player.repeatMode)} />
+            </svg>
+            {#if player.repeatMode === 'one'}
+              <span class="absolute bottom-0.5 right-0.5 text-[0.5rem] font-bold">1</span>
+            {/if}
+          </button>
+        </div>
       </div>
 
       <!-- 進行バー -->
@@ -641,6 +673,16 @@
 
   .album-art:hover {
     @apply opacity-80;
+  }
+
+  /* 再生ボタンの行（再生ボタンを真ん中にし、左右のまとまりを、それぞれ再生ボタンの側へ寄せる） */
+  .controls-row {
+    @apply grid items-center gap-3;
+    grid-template-columns: 1fr auto 1fr;
+  }
+
+  .controls-side {
+    @apply flex items-center gap-3;
   }
 
   /* コントロールボタン */

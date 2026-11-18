@@ -613,6 +613,66 @@ includesSettings: boolean } |
 	 *  解析の途中のアルバムには何も書かずに終わる。次に解析すると、残りの曲から続く。
 	 */
 	cancelLoudnessScan: () => __TAURI_INVOKE<null>("cancel_loudness_scan"),
+	/**  曲の解析の状態を取得する（このMacで使えるか・実行中か・解析した曲の数） */
+	getMusicAnalysisStatus: () => __TAURI_INVOKE<MusicAnalysisStatus>("get_music_analysis_status"),
+	/**
+	 *  曲の解析を、バックグラウンドで始める（解析していない曲を1曲ずつ。実行中なら何もしない）
+	 * 
+	 *  すぐに返る。進み具合と終わりは`MusicAnalysisProgress`で知らせる。止めるまでに終わらなければ、
+	 *  次の起動で続きから再開する。このMacで使えない時（macOS 27より古い）は`VALIDATION`。
+	 */
+	startMusicAnalysis: () => __TAURI_INVOKE<null>("start_music_analysis"),
+	/**  実行中の曲の解析を止める（解析中の曲が終わってから止まる）。次の起動でも再開しない */
+	stopMusicAnalysis: () => __TAURI_INVOKE<null>("stop_music_analysis"),
+	/**  曲の解析の結果をすべて消す（実行中は`LOCK`） */
+	deleteMusicAnalysis: () => __TAURI_INVOKE<MusicAnalysisStatus>("delete_music_analysis"),
+	/**
+	 *  AIシャッフルで、今の曲の次に足す曲を選ぶ（選び方は設定の`aiShuffleMode`）
+	 * 
+	 *  `excluded_track_ids`の曲（キューの今の位置の前後の曲）は選ばない。ほかに選べる曲がなければ、
+	 *  今の曲だけを避けて選ぶ。選べる曲がない（ライブラリに今の曲しかない）時はnull。
+	 */
+	pickAiShuffleTrack: (currentTrackId: string, excludedTrackIds: string[]) => __TAURI_INVOKE<{
+	id: string,
+	filePath: string,
+	fileName: string,
+	title: string | null,
+	artist: string | null,
+	album: string | null,
+	/**  アルバムアーティスト（タグにない曲は値なし。一覧では、ない場合に`artist`でまとめる） */
+	albumArtist: string | null,
+	genre: string | null,
+	year: number | null,
+	trackNumber: number | null,
+	discNumber: number | null,
+	duration: number | null,
+	fileSize: number,
+	format: string,
+	bitrate: number | null,
+	sampleRate: number | null,
+	isFavorite: boolean,
+	/**  評価（半分の星の単位。0は評価なし、7は星3.5、10は星5つ。ADR-082） */
+	rating: number,
+	/**  再生回数（曲の半分か4分を聴いた回数） */
+	playCount: number,
+	/**  スキップ回数（再生回数に数える前に、別の曲へ移った回数） */
+	skipCount: number,
+	/**  最後に再生回数に数えた日時 */
+	lastPlayedAt: string | null,
+	createdAt: string,
+	updatedAt: string,
+	/**  音量の正規化に使うゲイン（タグにない項目は値なし） */
+	replayGain: ReplayGain,
+	/**  並び順に使う値（読みなど。タグにない項目は値なし） */
+	sortTags: SortTags,
+	/**  ファイルが見つからない（再スキャンで見つからなくなった曲。利用者が外すまで残す） */
+	isMissing: boolean,
+	/**
+	 *  コンピレーション（複数のアーティストの曲を集めたアルバム）の印。アルバムアーティストがない曲は、
+	 *  「Various Artists」のアルバムにまとめる（`group_artist`。ADR-093）
+	 */
+	compilation: boolean,
+} | null>("pick_ai_shuffle_track", { currentTrackId, excludedTrackIds }),
 	/**
 	 *  トラックのアルバムアートの情報（埋め込みの画像か、フォルダの画像か・種類・大きさ）を取得する
 	 * 
@@ -964,6 +1024,7 @@ export const events = {
 	libraryScanProgress: makeEvent<LibraryScanProgress>("library-scan-progress"),
 	loudnessScanFinished: makeEvent<LoudnessScanFinished>("loudness-scan-finished"),
 	loudnessScanProgress: makeEvent<LoudnessScanProgress>("loudness-scan-progress"),
+	musicAnalysisProgress: makeEvent<MusicAnalysisProgress>("music-analysis-progress"),
 	openImportDialog: makeEvent<OpenImportDialog>("open-import-dialog"),
 	organizeProgress: makeEvent<OrganizeProgress>("organize-progress"),
 	playbackControl: makeEvent<PlaybackControl>("playback-control"),
@@ -979,6 +1040,8 @@ export const events = {
 
 /* Constants */
 export const AAC_BITRATES_KBPS = [128,192,256,320] as const;
+
+export const AI_SHUFFLE_EXCLUSION_WINDOW = 100 as const;
 
 export const AUTO_BACKUP_KEEP = 7 as const;
 
@@ -999,6 +1062,15 @@ export const MAX_NORMALIZATION_PREAMP_DB = 12 as const;
 export const MIN_CROSSFADE_SECONDS = 1 as const;
 
 /* Types */
+/**  AIシャッフルの選び方 */
+export type AiShuffleMode = 
+/**  今の曲に、テンポ・キー（曲の解析）とジャンル・アーティスト・年が近い曲 */
+"similar" | 
+/**  再生回数が多い曲 */
+"frequentlyPlayed" | 
+/**  再生回数が少なく、しばらく再生していない曲 */
+"rarelyPlayed";
+
 /**  トラックのアルバムアートの情報（アルバムアートの画面に出す） */
 export type AlbumArtInfo = {
 	source: AlbumArtSource,
@@ -1617,6 +1689,23 @@ export type Metadata = {
 	albumArtistSort?: string | null,
 };
 
+/**  曲の解析（テンポ・キー）の状態が変わった（始めた・1曲を解析した・終わった・止めた） */
+export type MusicAnalysisProgress = MusicAnalysisStatus;
+
+/**  解析の状態（画面に出す） */
+export type MusicAnalysisStatus = {
+	/**  このMacで解析を使えるか（macOS 27以降） */
+	available: boolean,
+	/**  解析を実行中か */
+	running: boolean,
+	/**  曲の数（見つからない曲を除く） */
+	total: number,
+	/**  解析した曲の数 */
+	analyzed: number,
+	/**  解析できなかった曲の数 */
+	failed: number,
+};
+
 /**  音楽フォルダ（印を付けたライブラリフォルダ） */
 export type MusicFolder = {
 	/**  ライブラリフォルダのID */
@@ -1897,6 +1986,8 @@ export type PlaybackCursor = {
 	volume: number | null,
 	/**  シャッフルが有効か */
 	shuffle: boolean,
+	/**  AIシャッフル（曲が始まるたびに、選び方に合う曲を次に足す）が有効か */
+	aiShuffle: boolean,
 	repeat: RepeatMode,
 	/**  キューの中の、再生していた曲の位置（何も再生していなければnull） */
 	currentIndex: number | null,
@@ -2056,6 +2147,7 @@ includesSettings: boolean } |
 export type RestoredPlaybackState = {
 	volume: number | null,
 	shuffle: boolean,
+	aiShuffle: boolean,
 	repeat: RepeatMode,
 	/**  再生キュー（再生する順。ライブラリからなくなった曲・ファイルが見つからない曲は除く） */
 	queue: Track[],
@@ -2110,6 +2202,8 @@ export type Settings = {
 	autoDj: boolean,
 	/**  Auto DJが曲を選ぶプレイリスト（nullはライブラリ全体） */
 	autoDjPlaylistId: string | null,
+	/**  AIシャッフル（曲が始まるたびに、選び方に合う曲を次に足す）の選び方 */
+	aiShuffleMode: AiShuffleMode,
 	/**  メニューバー（トレイ）に常駐する（アイコンを出し、ウィンドウを閉じても再生を続ける） */
 	stayInMenuBar: boolean,
 	/**  グローバルホットキー（ほかのアプリを使っている間も効くショートカット）を使う */
