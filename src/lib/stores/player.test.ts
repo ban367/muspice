@@ -12,7 +12,6 @@ import {
   playPreviousTrack,
   playNow,
   playQueueIndex,
-  playShuffled,
   replaceQueueAndPlay,
   removeFromQueue,
   resetPlayer,
@@ -306,35 +305,6 @@ describe('playNow', () => {
   });
 });
 
-describe('playShuffled', () => {
-  it('ランダムな順で再生中の曲の次に入れて再生する（キューのほかの曲は残す）', () => {
-    replaceQueueAndPlay([makeTrack('x'), makeTrack('y')], 0);
-    // Math.random() = 0.6 → 4曲を並べ替える（Fisher-Yates）
-    vi.spyOn(Math, 'random').mockReturnValue(0.6);
-    playShuffled(tracks);
-
-    const queue = ids(player.playQueue);
-    expect(queue[0]).toBe('x');
-    expect(queue[queue.length - 1]).toBe('y');
-    expect([...queue.slice(1, 5)].sort()).toEqual(['t1', 't2', 't3', 't4']);
-    expect(player.currentTrackIndex).toBe(1);
-    expect(player.currentTrack?.id).toBe(queue[1]);
-  });
-
-  it('シャッフルモードは変えない。シャッフルする前の順には、渡した順で入れる', () => {
-    playShuffled(tracks);
-
-    expect(player.isShuffleEnabled).toBe(false);
-    expect(ids(player.originalQueue)).toEqual(['t1', 't2', 't3', 't4']);
-  });
-
-  it('空の一覧では何もしない', () => {
-    playShuffled([]);
-    expect(player.currentTrack).toBeNull();
-    expect(player.playQueue).toEqual([]);
-  });
-});
-
 describe('toggleRepeat', () => {
   it('off → all → one → off の順に切り替わる', () => {
     toggleRepeat();
@@ -461,18 +431,11 @@ describe('ファイルが見つからない曲', () => {
     expect(player.currentTrack?.id).toBe('t1');
   });
 
-  it('キューへの追加・シャッフル再生でも入れない', () => {
+  it('キューへの追加でも入れない', () => {
     replaceQueueAndPlay(tracks, 0);
     addToQueue([missing, makeTrack('x')]);
     addNextInQueue([missing, makeTrack('y')]);
     expect(ids(player.playQueue)).toEqual(['t1', 'y', 't2', 't3', 't4', 'x']);
-
-    playShuffled([missing, makeTrack('only')]);
-    expect(ids(player.playQueue)).toEqual(['t1', 'only', 'y', 't2', 't3', 't4', 'x']);
-    // 再生できる曲がなければ何もしない
-    playShuffled([missing]);
-    expect(ids(player.playQueue)).toEqual(['t1', 'only', 'y', 't2', 't3', 't4', 'x']);
-    expect(player.currentTrack?.id).toBe('only');
   });
 
   it('次のキューに追加して再生でも入れず、どれも見つからなければ再生もキューの変更もしない', () => {
@@ -530,10 +493,9 @@ describe('playRequestCount', () => {
     replaceQueueAndPlay(tracks, 0);
     replaceQueueAndPlay(tracks, 0);
     playQueueIndex(2);
-    playShuffled(tracks);
     playNow([tracks[0]]);
 
-    expect(player.playRequestCount).toBe(before + 5);
+    expect(player.playRequestCount).toBe(before + 4);
   });
 
   it('次へ・前へ・復元・範囲の外の指定では増えない', () => {

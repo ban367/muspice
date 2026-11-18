@@ -28,8 +28,6 @@ export const ja = {
     more: 'その他',
     play: '再生',
     playAll: 'すべて再生',
-    shuffle: 'シャッフル',
-    shufflePlay: 'シャッフル再生',
     playNow: '次のキューに追加して再生',
     playNext: '次のキューに追加',
     addToQueue: 'キューの末尾に追加',
