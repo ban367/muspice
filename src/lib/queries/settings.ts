@@ -65,7 +65,7 @@ export function useGlobalShortcutsQuery(enabled: () => boolean) {
  * メインウィンドウで変える設定（設定ウィンドウには項目がない）
  *
  * - Auto DJ（プレーヤーの再生の補助のメニュー）
- * - リプレイゲイン・ギャップレス再生・クロスフェード（右サイドバーのサウンドのパネル）
+ * - リプレイゲイン・ギャップレス再生・クロスフェード・クロスフィード（右サイドバーのサウンドのパネル）
  *
  * 設定ウィンドウは、開いている間にこれらが変えられたら、編集中の設定へ取り込む（「適用」で元に戻さない）。
  */
@@ -79,7 +79,9 @@ export const SETTINGS_EDITED_IN_MAIN_WINDOW = [
   'gaplessPlayback',
   'crossfadeEnabled',
   'crossfadeSeconds',
-  'crossfadeSkipAlbumTracks'
+  'crossfadeSkipAlbumTracks',
+  'crossfeedEnabled',
+  'crossfeedLevel'
 ] as const satisfies readonly (keyof Settings)[];
 
 /**

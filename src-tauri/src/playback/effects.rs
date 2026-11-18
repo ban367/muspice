@@ -1,17 +1,21 @@
-//! 出力の直前にかける音の加工: イコライザとリミッター
+//! 出力の直前にかける音の加工: イコライザ・クロスフィード・リミッター
 //!
-//! どちらも出力のコールバック（`render`）の中で動く。リングバッファより後ろにあるため、
+//! どれも出力のコールバック（`render`）の中で動く。リングバッファより後ろにあるため、
 //! イコライザのスライダーを動かした結果が、たまっている音声（約0.5秒）を待たずに聞こえる。
 //! 設定は`EffectParams`（アトミックな値）でエンジンのスレッドから渡し、ロックを取らない。
 //!
 //! - イコライザ: 10バンドのピーキングフィルター。周波数・Q・係数の式は、Web Audioの
 //!   `BiquadFilterNode`（`peaking`）と同じにしてある（以前のaudio要素での再生と、同じ設定で同じ特性になる）
+//! - クロスフィード: ヘッドホン向けに、左右の音を少し混ぜる。bs2b（Bauer stereophonic-to-binaural）の方式で、
+//!   反対側のチャンネルの低い音を少し遅らせて足し、同じ側の高い音をその分だけ持ち上げる（1次のフィルター）。
+//!   左右に同じ音（モノラル）の低い音は、音量が変わらない
 //! - リミッター: 出力が最大（0dBFS）を超えそうな時だけ、一時的に音量を下げる。イコライザでの
 //!   持ち上げのほか、音量の正規化・クロスフェードの重なり・非可逆の形式のデコード結果・
 //!   サンプルレートの変換で最大を超える場合にも効く。超えない音には何もしない
 
 use super::convert::OUTPUT_CHANNELS;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use crate::settings::CrossfeedLevel;
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering};
 
 /// イコライザのバンドの周波数（Hz。フロントエンドの`EQ_FREQUENCIES`と同じ）
 pub const EQ_FREQUENCIES: [f64; EQ_BANDS] = [
@@ -42,12 +46,17 @@ const LIMITER_RELEASE_SECONDS: f64 = 0.2;
 /// リミッターの音量がここまで戻ったら、戻りきったものとして1にする（差は0.001dB未満）
 const LIMITER_RESTORED_GAIN: f64 = 0.9999;
 
+/// クロスフィードのオン・オフを切り替える時に、元の音と混ぜた音を入れ替える時間（秒）
+const CROSSFEED_FADE_SECONDS: f32 = 0.02;
+
 /// エンジンのスレッドから出力のコールバックへ渡す、加工の設定
 #[derive(Debug)]
 pub struct EffectParams {
     equalizer_enabled: AtomicBool,
     /// バンドごとのゲイン（dBのf32のビット列）
     equalizer_gains: [AtomicU32; EQ_BANDS],
+    /// クロスフィードの強さ（0はオフ。`crossfeed_code`）
+    crossfeed: AtomicU8,
     /// 設定を変えるたびに増やす番号（コールバックは、番号が変わった時だけ設定を読み直す）
     version: AtomicU64,
 }
@@ -57,6 +66,7 @@ impl Default for EffectParams {
         Self {
             equalizer_enabled: AtomicBool::new(false),
             equalizer_gains: std::array::from_fn(|_| AtomicU32::new(0.0f32.to_bits())),
+            crossfeed: AtomicU8::new(0),
             version: AtomicU64::new(0),
         }
     }
@@ -75,6 +85,29 @@ impl EffectParams {
             slot.store(gain.to_bits(), Ordering::Relaxed);
         }
         self.version.fetch_add(1, Ordering::Release);
+    }
+
+    /// クロスフィードの強さを変える（Noneは、クロスフィードしない）
+    pub fn set_crossfeed(&self, level: Option<CrossfeedLevel>) {
+        let code = match level {
+            None => 0,
+            Some(CrossfeedLevel::Weak) => 1,
+            Some(CrossfeedLevel::Medium) => 2,
+            Some(CrossfeedLevel::Strong) => 3,
+        };
+        if self.crossfeed.swap(code, Ordering::Relaxed) != code {
+            self.version.fetch_add(1, Ordering::Release);
+        }
+    }
+
+    /// クロスフィードの強さ（オフの間はNone）
+    fn crossfeed_level(&self) -> Option<CrossfeedLevel> {
+        match self.crossfeed.load(Ordering::Relaxed) {
+            1 => Some(CrossfeedLevel::Weak),
+            2 => Some(CrossfeedLevel::Medium),
+            3 => Some(CrossfeedLevel::Strong),
+            _ => None,
+        }
     }
 
     /// イコライザが実際にかけるゲイン（無効の間は、すべて0dB）
@@ -213,6 +246,151 @@ impl Equalizer {
     }
 }
 
+/// クロスフィードのフィルターの係数（bs2bの方式）
+#[derive(Debug, Clone, Copy)]
+struct CrossfeedCoefficients {
+    /// 反対側へ足す、低い音のフィルター（1次のローパス）
+    a0_lo: f64,
+    b1_lo: f64,
+    /// 同じ側の、高い音を持ち上げるフィルター（1次のハイシェルフ）
+    a0_hi: f64,
+    a1_hi: f64,
+    b1_hi: f64,
+    /// 全体の音量（低い音のモノラルの音量を変えない）
+    gain: f64,
+}
+
+impl CrossfeedCoefficients {
+    /// 強さごとのカットオフ周波数（Hz）と、反対側へ足す量（dB。小さいほど多く混ぜる）
+    ///
+    /// bs2bでよく使われる組（弱: Jan Meier、中: Chu Moy、強: bs2bの既定）。
+    fn parameters(level: CrossfeedLevel) -> (f64, f64) {
+        match level {
+            CrossfeedLevel::Weak => (650.0, 9.5),
+            CrossfeedLevel::Medium => (700.0, 6.0),
+            CrossfeedLevel::Strong => (700.0, 4.5),
+        }
+    }
+
+    fn new(level: CrossfeedLevel, sample_rate: f64) -> Self {
+        let (cutoff, feed_db) = Self::parameters(level);
+        let low_gain_db = -feed_db * 5.0 / 6.0 - 3.0;
+        let high_gain_db = feed_db / 6.0 - 3.0;
+        let low_gain = 10f64.powf(low_gain_db / 20.0);
+        let high_gain = 1.0 - 10f64.powf(high_gain_db / 20.0);
+        let high_cutoff = cutoff * 2f64.powf((low_gain_db - 20.0 * high_gain.log10()) / 12.0);
+
+        let x_lo = (-2.0 * std::f64::consts::PI * cutoff / sample_rate).exp();
+        let x_hi = (-2.0 * std::f64::consts::PI * high_cutoff / sample_rate).exp();
+        Self {
+            a0_lo: low_gain * (1.0 - x_lo),
+            b1_lo: x_lo,
+            a0_hi: 1.0 - high_gain * (1.0 - x_hi),
+            a1_hi: -x_hi,
+            b1_hi: x_hi,
+            gain: 1.0 / (1.0 - high_gain + low_gain),
+        }
+    }
+}
+
+/// クロスフィード
+///
+/// オン・オフを切り替える時は、元の音と混ぜた音を短い時間（`CROSSFEED_FADE_SECONDS`）で入れ替える
+/// （急に切り替えると、音が跳ねる）。オフの間は、音声に触れない。
+pub struct Crossfeed {
+    sample_rate: f64,
+    /// 読み込んだ設定の番号
+    version: u64,
+    coefficients: Option<CrossfeedCoefficients>,
+    /// 混ぜた音の割合（0で元の音、1で混ぜた音）と、その目標
+    mix: f32,
+    target_mix: f32,
+    mix_step: f32,
+    /// フィルターの内部状態（チャンネルごと）: ローパスの出力・ハイシェルフの出力・前の入力
+    low: [f64; OUTPUT_CHANNELS],
+    high: [f64; OUTPUT_CHANNELS],
+    previous: [f64; OUTPUT_CHANNELS],
+}
+
+impl Crossfeed {
+    pub fn new(sample_rate: u32) -> Self {
+        Self {
+            sample_rate: f64::from(sample_rate),
+            // 最初のコールバックで、必ず設定を読む
+            version: u64::MAX,
+            coefficients: None,
+            mix: 0.0,
+            target_mix: 0.0,
+            mix_step: 1.0 / (CROSSFEED_FADE_SECONDS * sample_rate as f32),
+            low: [0.0; OUTPUT_CHANNELS],
+            high: [0.0; OUTPUT_CHANNELS],
+            previous: [0.0; OUTPUT_CHANNELS],
+        }
+    }
+
+    /// フィルターの内部状態を消す（続きではない音声へ切り替わる時）
+    pub fn reset(&mut self) {
+        self.low = [0.0; OUTPUT_CHANNELS];
+        self.high = [0.0; OUTPUT_CHANNELS];
+        self.previous = [0.0; OUTPUT_CHANNELS];
+        self.mix = self.target_mix;
+    }
+
+    /// サンプル（ステレオのインターリーブ）にクロスフィードをかける
+    pub fn process(&mut self, samples: &mut [f32], params: &EffectParams) {
+        let version = params.version.load(Ordering::Acquire);
+        if version != self.version {
+            self.version = version;
+            match params.crossfeed_level() {
+                Some(level) => {
+                    self.coefficients = Some(CrossfeedCoefficients::new(level, self.sample_rate));
+                    self.target_mix = 1.0;
+                }
+                // 係数は、元の音へ戻しきるまで使う
+                None => self.target_mix = 0.0,
+            }
+        }
+        let Some(c) = self.coefficients else {
+            return;
+        };
+        if self.mix == 0.0 && self.target_mix == 0.0 {
+            return;
+        }
+
+        for frame in samples.as_chunks_mut::<OUTPUT_CHANNELS>().0 {
+            let input = [f64::from(frame[0]), f64::from(frame[1])];
+            let channels = self
+                .low
+                .iter_mut()
+                .zip(&mut self.high)
+                .zip(&self.previous)
+                .zip(input);
+            for (((low, high), previous), input) in channels {
+                *low = c.a0_lo * input + c.b1_lo * *low;
+                *high = c.a0_hi * input + c.a1_hi * previous + c.b1_hi * *high;
+            }
+            self.previous = input;
+            let mixed = [
+                ((self.high[0] + self.low[1]) * c.gain) as f32,
+                ((self.high[1] + self.low[0]) * c.gain) as f32,
+            ];
+
+            self.mix = if self.mix < self.target_mix {
+                (self.mix + self.mix_step).min(self.target_mix)
+            } else {
+                (self.mix - self.mix_step).max(self.target_mix)
+            };
+            for (sample, wet) in frame.iter_mut().zip(mixed) {
+                *sample += (wet - *sample) * self.mix;
+            }
+        }
+        if self.mix == 0.0 && self.target_mix == 0.0 {
+            // 元の音へ戻しきった: 次にオンにする時のために、状態を消す
+            self.reset();
+        }
+    }
+}
+
 /// 先読みするリミッター
 ///
 /// 音声を少し（`LIMITER_LOOKAHEAD_SECONDS`）遅らせ、その間に来る音声の最大の振幅を先に見て、
@@ -323,6 +501,102 @@ mod tests {
     use super::*;
 
     const RATE: u32 = 48_000;
+
+    /// 左右で別の音（左右の振幅を指定した正弦波）
+    fn panned_sine(frequency: f64, left: f32, right: f32, frames: usize) -> Vec<f32> {
+        (0..frames)
+            .flat_map(|i| {
+                let value = (2.0 * std::f64::consts::PI * frequency * i as f64 / f64::from(RATE))
+                    .sin() as f32;
+                [value * left, value * right]
+            })
+            .collect()
+    }
+
+    /// 後ろ半分（フィルター・切り替えが落ち着いた後）の、チャンネルごとの最大の振幅
+    fn settled_peaks(samples: &[f32]) -> [f32; 2] {
+        let half = &samples[samples.len() / 2..];
+        let mut peaks = [0.0f32; 2];
+        for frame in half.as_chunks::<OUTPUT_CHANNELS>().0 {
+            for (peak, sample) in peaks.iter_mut().zip(frame) {
+                *peak = peak.max(sample.abs());
+            }
+        }
+        peaks
+    }
+
+    fn make_crossfeed(level: Option<CrossfeedLevel>) -> (Crossfeed, EffectParams) {
+        let params = EffectParams::default();
+        params.set_crossfeed(level);
+        (Crossfeed::new(RATE), params)
+    }
+
+    #[test]
+    fn test_crossfeed_off_leaves_the_audio_untouched() {
+        let (mut crossfeed, params) = make_crossfeed(None);
+        let original = panned_sine(200.0, 0.5, 0.0, 4_800);
+        let mut samples = original.clone();
+        crossfeed.process(&mut samples, &params);
+        assert_eq!(samples, original);
+    }
+
+    #[test]
+    fn test_crossfeed_feeds_low_sounds_to_the_other_side() {
+        let (mut crossfeed, params) = make_crossfeed(Some(CrossfeedLevel::Medium));
+        // 左だけの低い音: 右にも出る（反対側へ足す量は、左の音より小さい）
+        let mut samples = panned_sine(100.0, 0.5, 0.0, 48_000);
+        crossfeed.process(&mut samples, &params);
+        let [left, right] = settled_peaks(&samples);
+        assert!(right > 0.05 && right < left, "{left} {right}");
+
+        // 強いほど、多く混ぜる
+        let ratio = |level| {
+            let (mut crossfeed, params) = make_crossfeed(Some(level));
+            let mut samples = panned_sine(100.0, 0.5, 0.0, 48_000);
+            crossfeed.process(&mut samples, &params);
+            let [left, right] = settled_peaks(&samples);
+            right / left
+        };
+        assert!(ratio(CrossfeedLevel::Weak) < ratio(CrossfeedLevel::Medium));
+        assert!(ratio(CrossfeedLevel::Medium) < ratio(CrossfeedLevel::Strong));
+    }
+
+    #[test]
+    fn test_crossfeed_keeps_the_volume_of_low_mono_sounds() {
+        let (mut crossfeed, params) = make_crossfeed(Some(CrossfeedLevel::Strong));
+        let mut samples = panned_sine(50.0, 0.5, 0.5, 48_000);
+        crossfeed.process(&mut samples, &params);
+        let [left, right] = settled_peaks(&samples);
+        assert!(
+            (left - 0.5).abs() < 0.02 && (right - 0.5).abs() < 0.02,
+            "{left} {right}"
+        );
+    }
+
+    #[test]
+    fn test_crossfeed_switches_smoothly_and_stops_touching_the_audio() {
+        let (mut crossfeed, params) = make_crossfeed(Some(CrossfeedLevel::Strong));
+        let mut samples = panned_sine(100.0, 0.5, 0.0, 9_600);
+        crossfeed.process(&mut samples, &params);
+        // オンにした直後は、元の音から少しずつ混ぜた音へ変わる（右は0から始まる）
+        assert_eq!(samples[1], 0.0);
+        assert!(
+            samples
+                .as_chunks::<OUTPUT_CHANNELS>()
+                .0
+                .windows(2)
+                .all(|pair| (pair[1][1] - pair[0][1]).abs() < 0.02)
+        );
+
+        // オフにすると元の音へ戻し、戻しきった後は音声に触れない
+        params.set_crossfeed(None);
+        let mut fading = panned_sine(100.0, 0.5, 0.0, 9_600);
+        crossfeed.process(&mut fading, &params);
+        let original = panned_sine(100.0, 0.5, 0.0, 4_800);
+        let mut after = original.clone();
+        crossfeed.process(&mut after, &params);
+        assert_eq!(after, original);
+    }
 
     /// 指定した周波数・振幅の正弦波（ステレオ。左右は同じ）
     fn sine(frequency: f64, amplitude: f32, frames: usize) -> Vec<f32> {

@@ -464,7 +464,14 @@ export const en: Messages = {
     crossfadeHint:
       'Overlaps the end of a track with the start of the next. Not used when you change tracks with "Next" and the like.',
     crossfadeSkipAlbumTracks: 'Not between consecutive album tracks',
-    crossfadeSkipAlbumTracksHint: 'Plays an album in track order without breaks between tracks.'
+    crossfadeSkipAlbumTracksHint: 'Plays an album in track order without breaks between tracks.',
+    crossfeed: 'Crossfeed',
+    turnOnCrossfeed: 'Turn on crossfeed',
+    turnOffCrossfeed: 'Turn off crossfeed',
+    crossfeedLevel: 'Strength',
+    crossfeedLevels: { weak: 'Weak', medium: 'Medium', strong: 'Strong' },
+    crossfeedHint:
+      'Mixes a little of each channel into the other for headphones, closer to listening on speakers. Makes recordings with wide stereo separation easier to listen to.'
   },
 
   metadataEditor: {
@@ -1189,7 +1196,7 @@ export const en: Messages = {
     },
     globalShortcutUnavailable: 'Could not be registered because another app is using it',
     soundPanelNote:
-      'ReplayGain, gapless playback, crossfade and the equalizer are in the Sound panel of the right sidebar.',
+      'ReplayGain, gapless playback, crossfade, the equalizer and crossfeed are in the Sound panel of the right sidebar.',
     outputDevice: 'Output device',
     outputDeviceDefault: 'System default',
     outputDeviceDisconnected: 'Disconnected device',

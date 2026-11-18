@@ -14,11 +14,12 @@
 //! - シーク・曲の切り替えでは、エンジンが「この位置より前は捨てる」（`discard_until`）を書き、
 //!   ここでバッファにたまっている古い音声を読み捨てる
 //! - 取り出したフレーム数（`frames_read`）から、エンジンが再生位置と曲の切り替わりを求める
-//! - 取り出した音声に、再生速度 → イコライザ → 音量・一時停止 → リミッターの順でかけて出す（`effects`）。
+//! - 取り出した音声に、再生速度 → イコライザ → クロスフィード → 音量・一時停止 → リミッターの順でかけて出す
+//!   （`effects`）。
 //!   リミッターを最後に置くのは、音量を下げていて最大を超えない時に、余計に抑えないため
 
 use super::convert::OUTPUT_CHANNELS;
-use super::effects::{EffectParams, Equalizer, Limiter};
+use super::effects::{Crossfeed, EffectParams, Equalizer, Limiter};
 use super::stretch::{FrameSource, MAX_SPEED, MIN_SPEED, TimeStretcher};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
@@ -139,7 +140,7 @@ pub struct Renderer {
     sample_rate: u32,
     /// 取り出した音声（ステレオ）を加工するための作業用のバッファ
     stereo: Vec<f32>,
-    /// イコライザとリミッター（`with_effects`でつなぐ）
+    /// イコライザ・クロスフィード・リミッター（`with_effects`でつなぐ）
     effects: Option<Effects>,
 }
 
@@ -147,6 +148,7 @@ pub struct Renderer {
 struct Effects {
     params: Arc<EffectParams>,
     equalizer: Equalizer,
+    crossfeed: Crossfeed,
     limiter: Limiter,
 }
 
@@ -173,6 +175,7 @@ impl Renderer {
         self.effects = Some(Effects {
             params,
             equalizer: Equalizer::new(self.sample_rate),
+            crossfeed: Crossfeed::new(self.sample_rate),
             limiter: Limiter::new(self.sample_rate),
         });
         self
@@ -254,6 +257,7 @@ impl Renderer {
 
         if let Some(effects) = &mut self.effects {
             effects.equalizer.process(&mut self.stereo, &effects.params);
+            effects.crossfeed.process(&mut self.stereo, &effects.params);
         }
 
         // 音量・一時停止（目標の値へ、少しずつ近づける）
@@ -332,6 +336,7 @@ impl Renderer {
         self.gain = 0.0;
         if let Some(effects) = &mut self.effects {
             effects.equalizer.reset();
+            effects.crossfeed.reset();
             effects.limiter.reset();
         }
     }

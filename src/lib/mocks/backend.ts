@@ -691,6 +691,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     crossfadeEnabled: false,
     crossfadeSeconds: DEFAULT_CROSSFADE_SECONDS,
     crossfadeSkipAlbumTracks: true,
+    crossfeedEnabled: false,
+    crossfeedLevel: 'medium',
     outputDeviceId: null,
     watchLibraryFolders: false,
     libraryScanIntervalMinutes: 0,

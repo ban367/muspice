@@ -7,7 +7,7 @@
 //! コマンド → [エンジンのスレッド] デコード → 変換（ステレオ・出力のレート）
 //!                                   → 音量の正規化・クロスフェード → リングバッファ
 //!                                                                     ↓
-//!   [出力のコールバック] 再生速度 → イコライザ → 音量・一時停止 → リミッター → デバイス
+//!   [出力のコールバック] 再生速度 → イコライザ → クロスフィード → 音量・一時停止 → リミッター → デバイス
 //! ```
 //!
 //! 再生キューはフロントエンドが持つ。エンジンが持つのは「再生中の曲」と「続けて再生する曲」
@@ -23,8 +23,8 @@
 //! （`RenderShared::frames_read`）と、曲ごとの書き始めの位置（`Segment`）から求める。
 //!
 //! 音量の正規化（曲ごとの倍率）とクロスフェード（前の曲の終わりと次の曲の頭を重ねる）は、
-//! リングバッファへ書く前にここでかける。イコライザとリミッターは、出力のコールバックでかける
-//! （`effects`）。
+//! リングバッファへ書く前にここでかける。イコライザ・クロスフィード・リミッターは、出力のコールバックで
+//! かける（`effects`）。
 
 use super::block_decoder::catch_panic;
 use super::convert::{Converter, OUTPUT_CHANNELS};
@@ -37,7 +37,7 @@ use super::stretch::{MAX_SPEED, MIN_SPEED};
 use crate::error::{AppError, AppResult};
 use crate::events::PlaybackEvent;
 use crate::models::ReplayGain;
-use crate::settings::{MAX_CROSSFADE_SECONDS, Settings};
+use crate::settings::{CrossfeedLevel, MAX_CROSSFADE_SECONDS, Settings};
 use serde::Serialize;
 use specta::Type;
 use std::collections::VecDeque;
@@ -79,6 +79,8 @@ pub struct PlaybackOptions {
     pub crossfade_seconds: u8,
     /// 同じアルバムの続きの曲では、クロスフェードせずに切れ目なく続ける
     pub crossfade_skip_album_tracks: bool,
+    /// クロスフィードの強さ（Noneは、クロスフィードしない）
+    pub crossfeed: Option<CrossfeedLevel>,
 }
 
 impl From<&Settings> for PlaybackOptions {
@@ -92,6 +94,9 @@ impl From<&Settings> for PlaybackOptions {
                 0
             },
             crossfade_skip_album_tracks: settings.crossfade_skip_album_tracks,
+            crossfeed: settings
+                .crossfeed_enabled
+                .then_some(settings.crossfeed_level),
         }
     }
 }
@@ -186,7 +191,7 @@ enum Command {
 /// 再生エンジン（エンジンのスレッドへコマンドを送る窓口）
 pub struct PlaybackEngine {
     commands: Sender<Command>,
-    /// イコライザの設定（出力のコールバックが直接読む）
+    /// イコライザ・クロスフィードの設定（出力のコールバックが直接読む）
     effects: Arc<EffectParams>,
 }
 
@@ -206,6 +211,7 @@ impl PlaybackEngine {
     ) -> Self {
         let (commands, receiver) = mpsc::channel();
         let effects = Arc::new(EffectParams::default());
+        effects.set_crossfeed(options.crossfeed);
         let engine_commands = commands.clone();
         let engine_effects = effects.clone();
         let spawned = thread::Builder::new()
@@ -267,11 +273,13 @@ impl PlaybackEngine {
         self.send(Command::SetOutputDevice(device_id))
     }
 
-    /// 設定の変更を反映する（出力デバイス・音量の正規化・クロスフェード）
+    /// 設定の変更を反映する（出力デバイス・音量の正規化・クロスフェード・クロスフィード）
     ///
     /// 出力デバイスが変わっていれば、再生中の曲を同じ位置から続ける。音量の正規化は、
     /// 再生中の曲にもすぐに（バッファにたまっている分の後から）効く。
     pub fn apply_options(&self, options: PlaybackOptions) -> AppResult<()> {
+        // クロスフィードは、出力のコールバックが直接読む（すぐに効く）
+        self.effects.set_crossfeed(options.crossfeed);
         self.send(Command::SetOutputDevice(options.output_device_id))?;
         self.send(Command::SetNormalization(options.normalization))?;
         self.send(Command::SetCrossfade(options.crossfade_seconds))?;
@@ -1734,6 +1742,7 @@ mod tests {
             normalization: Normalization::OFF,
             crossfade_seconds: 0,
             crossfade_skip_album_tracks: true,
+            crossfeed: None,
         }
     }
 
@@ -3569,7 +3578,18 @@ mod tests {
                 },
                 crossfade_seconds: 7,
                 crossfade_skip_album_tracks: true,
+                crossfeed: None,
             }
+        );
+        // クロスフィードは、オンの時だけ強さを渡す
+        let crossfeed = Settings {
+            crossfeed_enabled: true,
+            crossfeed_level: CrossfeedLevel::Strong,
+            ..Settings::default()
+        };
+        assert_eq!(
+            PlaybackOptions::from(&crossfeed).crossfeed,
+            Some(CrossfeedLevel::Strong)
         );
         // オフの間は、覚えている秒数を使わない
         let disabled = Settings {
