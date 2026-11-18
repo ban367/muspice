@@ -4,7 +4,7 @@
 //! イコライザのスライダーを動かした結果が、たまっている音声（約0.5秒）を待たずに聞こえる。
 //! 設定は`EffectParams`（アトミックな値）でエンジンのスレッドから渡し、ロックを取らない。
 //!
-//! - イコライザ: 10バンドのピーキングフィルター。周波数・Q・係数の式は、Web Audioの
+//! - イコライザ: 10バンドのピーキングフィルターと、全体の音量（プリアンプ）。周波数・Q・係数の式は、Web Audioの
 //!   `BiquadFilterNode`（`peaking`）と同じにしてある（以前のaudio要素での再生と、同じ設定で同じ特性になる）
 //! - クロスフィード: ヘッドホン向けに、左右の音を少し混ぜる。bs2b（Bauer stereophonic-to-binaural）の方式で、
 //!   反対側のチャンネルの低い音を少し遅らせて足し、同じ側の高い音をその分だけ持ち上げる（1次のフィルター）。
@@ -55,6 +55,8 @@ pub struct EffectParams {
     equalizer_enabled: AtomicBool,
     /// バンドごとのゲイン（dBのf32のビット列）
     equalizer_gains: [AtomicU32; EQ_BANDS],
+    /// プリアンプ（全体の音量。dBのf32のビット列）
+    equalizer_preamp: AtomicU32,
     /// クロスフィードの強さ（0はオフ。`crossfeed_code`）
     crossfeed: AtomicU8,
     /// 設定を変えるたびに増やす番号（コールバックは、番号が変わった時だけ設定を読み直す）
@@ -66,6 +68,7 @@ impl Default for EffectParams {
         Self {
             equalizer_enabled: AtomicBool::new(false),
             equalizer_gains: std::array::from_fn(|_| AtomicU32::new(0.0f32.to_bits())),
+            equalizer_preamp: AtomicU32::new(0.0f32.to_bits()),
             crossfeed: AtomicU8::new(0),
             version: AtomicU64::new(0),
         }
@@ -85,6 +88,26 @@ impl EffectParams {
             slot.store(gain.to_bits(), Ordering::Relaxed);
         }
         self.version.fetch_add(1, Ordering::Release);
+    }
+
+    /// イコライザのプリアンプ（全体の音量。dB）を変える（範囲に収める）
+    pub fn set_equalizer_preamp(&self, preamp_db: f32) {
+        let preamp = if preamp_db.is_finite() {
+            preamp_db.clamp(-EQ_MAX_GAIN_DB, EQ_MAX_GAIN_DB)
+        } else {
+            0.0
+        };
+        self.equalizer_preamp
+            .store(preamp.to_bits(), Ordering::Relaxed);
+        self.version.fetch_add(1, Ordering::Release);
+    }
+
+    /// イコライザが実際にかけるプリアンプ（無効の間は0dB）
+    fn equalizer_preamp_target(&self) -> f32 {
+        if !self.equalizer_enabled.load(Ordering::Relaxed) {
+            return 0.0;
+        }
+        f32::from_bits(self.equalizer_preamp.load(Ordering::Relaxed))
     }
 
     /// クロスフィードの強さを変える（Noneは、クロスフィードしない）
@@ -162,7 +185,7 @@ impl Biquad {
     }
 }
 
-/// 10バンドのイコライザ
+/// 10バンドのイコライザ（プリアンプを含む）
 pub struct Equalizer {
     sample_rate: f64,
     /// 読み込んだ設定の番号
@@ -170,6 +193,9 @@ pub struct Equalizer {
     /// 目標のゲイン（dB）と、今かけているゲイン（目標へ少しずつ近づける）
     targets: [f32; EQ_BANDS],
     gains: [f32; EQ_BANDS],
+    /// プリアンプ（dB）の目標と、今かけている値（バンドと同じ速さで近づける）
+    preamp_target: f32,
+    preamp: f32,
     filters: [Biquad; EQ_BANDS],
     /// フィルターの内部状態（バンド × チャンネル × 2）
     state: [[[f64; 2]; OUTPUT_CHANNELS]; EQ_BANDS],
@@ -183,6 +209,8 @@ impl Equalizer {
             version: u64::MAX,
             targets: [0.0; EQ_BANDS],
             gains: [0.0; EQ_BANDS],
+            preamp_target: 0.0,
+            preamp: 0.0,
             filters: [Biquad::IDENTITY; EQ_BANDS],
             state: [[[0.0; 2]; OUTPUT_CHANNELS]; EQ_BANDS],
         }
@@ -199,8 +227,14 @@ impl Equalizer {
         if version != self.version {
             self.version = version;
             self.targets = params.equalizer_targets();
+            self.preamp_target = params.equalizer_preamp_target();
         }
-        self.approach_targets(samples.len() / OUTPUT_CHANNELS);
+        let frames = samples.len() / OUTPUT_CHANNELS;
+        self.approach_targets(frames);
+        let (preamp_start, preamp_end) = (self.preamp, self.approach_preamp(frames));
+        if preamp_start != 0.0 || preamp_end != 0.0 {
+            self.apply_preamp(samples, preamp_start, preamp_end);
+        }
 
         // すべて0dBなら、音声に触れない（イコライザが無効の間は、元の音声のまま出す）
         if self.gains.iter().all(|&gain| gain == 0.0) {
@@ -219,6 +253,34 @@ impl Equalizer {
                     state[1] = filter.b2 * input - filter.a2 * output;
                     *sample = output as f32;
                 }
+            }
+        }
+    }
+
+    /// 今かけているプリアンプを、`frames`フレーム分の時間だけ目標へ近づける（近づけた後の値を返す）
+    fn approach_preamp(&mut self, frames: usize) -> f32 {
+        let step = EQ_SLEW_DB_PER_SECOND * frames as f32 / self.sample_rate as f32;
+        let (preamp, target) = (self.preamp, self.preamp_target);
+        self.preamp = if (target - preamp).abs() <= step {
+            target
+        } else {
+            preamp + step.copysign(target - preamp)
+        };
+        self.preamp
+    }
+
+    /// プリアンプをかける（ブロックの中で、`start_db`から`end_db`の倍率へ1フレームずつ滑らかに変える）
+    ///
+    /// フィルターより前にかける（下げる時は、フィルターで持ち上げる前に下げておく）。
+    fn apply_preamp(&self, samples: &mut [f32], start_db: f32, end_db: f32) {
+        let frames = samples.as_chunks_mut::<OUTPUT_CHANNELS>().0;
+        let start = 10f32.powf(start_db / 20.0);
+        let end = 10f32.powf(end_db / 20.0);
+        let step = (end - start) / frames.len().max(1) as f32;
+        for (index, frame) in frames.iter_mut().enumerate() {
+            let factor = start + step * (index + 1) as f32;
+            for sample in frame.iter_mut() {
+                *sample *= factor;
             }
         }
     }
@@ -728,12 +790,52 @@ mod tests {
     }
 
     #[test]
+    fn test_equalizer_preamp_changes_the_whole_volume_while_enabled() {
+        let params = EffectParams::default();
+        params.set_equalizer(true, &gains(&[]));
+        params.set_equalizer_preamp(-6.0);
+        // どの周波数も、同じだけ下がる
+        assert!((equalized_gain_db(&params, 100.0) + 6.0).abs() < 0.05);
+        assert!((equalized_gain_db(&params, 4000.0) + 6.0).abs() < 0.05);
+        // バンドのゲインと足し合わさる（1kHzを+6dB、プリアンプ-6dB）
+        params.set_equalizer(true, &gains(&[(5, 6.0)]));
+        assert!(equalized_gain_db(&params, 1000.0).abs() < 0.05);
+
+        // 無効の間は、プリアンプもかけない
+        params.set_equalizer(false, &gains(&[(5, 6.0)]));
+        let original = sine(1000.0, 0.5, 4_800);
+        let mut samples = original.clone();
+        Equalizer::new(RATE).process(&mut samples, &params);
+        assert_eq!(samples, original);
+    }
+
+    #[test]
+    fn test_equalizer_preamp_changes_gradually() {
+        let params = EffectParams::default();
+        let mut equalizer = Equalizer::new(RATE);
+        params.set_equalizer(true, &gains(&[]));
+        params.set_equalizer_preamp(-12.0);
+
+        // 10ms（480フレーム）では、1.2dBまでしか変わらず、ブロックの中でも1フレームずつ変わる
+        let mut block = vec![0.5f32; 960];
+        equalizer.process(&mut block, &params);
+        assert!((equalizer.preamp + 1.2).abs() < 1e-3);
+        assert!(block.windows(2).all(|pair| pair[1] <= pair[0]));
+        assert!((block[959] - 0.5 * 10f32.powf(-1.2 / 20.0)).abs() < 1e-4);
+    }
+
+    #[test]
     fn test_equalizer_params_are_clamped() {
         let params = EffectParams::default();
         params.set_equalizer(true, &gains(&[(0, 40.0), (1, -40.0), (2, f32::NAN)]));
 
         let targets = params.equalizer_targets();
         assert_eq!(&targets[..3], &[12.0, -12.0, 0.0]);
+
+        params.set_equalizer_preamp(-40.0);
+        assert_eq!(params.equalizer_preamp_target(), -12.0);
+        params.set_equalizer_preamp(f32::NAN);
+        assert_eq!(params.equalizer_preamp_target(), 0.0);
     }
 
     #[test]

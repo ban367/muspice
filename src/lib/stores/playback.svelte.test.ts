@@ -986,7 +986,8 @@ describe('イコライザ', () => {
     // 作成した時点で送る（無効・すべて0dB）
     expect(commands.playbackSetEqualizer).toHaveBeenLastCalledWith(
       false,
-      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      0
     );
 
     equalizer.setEnabled(true);
@@ -994,7 +995,8 @@ describe('イコライザ', () => {
     flushSync();
     expect(commands.playbackSetEqualizer).toHaveBeenLastCalledWith(
       true,
-      [0, 0, 0, 0, 0, 6, 0, 0, 0, 0]
+      [0, 0, 0, 0, 0, 6, 0, 0, 0, 0],
+      0
     );
 
     // プリセットは、31Hzから16kHzの順に送る
@@ -1002,7 +1004,17 @@ describe('イコライザ', () => {
     flushSync();
     expect(commands.playbackSetEqualizer).toHaveBeenLastCalledWith(
       true,
-      [8, 6, 4, 2, 0, 0, 0, 0, 0, 0]
+      [8, 6, 4, 2, 0, 0, 0, 0, 0, 0],
+      0
+    );
+
+    // プリアンプも送る
+    equalizer.setPreamp(-4);
+    flushSync();
+    expect(commands.playbackSetEqualizer).toHaveBeenLastCalledWith(
+      true,
+      [8, 6, 4, 2, 0, 0, 0, 0, 0, 0],
+      -4
     );
   });
 

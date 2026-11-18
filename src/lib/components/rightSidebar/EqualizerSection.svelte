@@ -1,7 +1,7 @@
 <!--
   @component EqualizerSection
   サウンドのパネル（`SoundPanel`）のイコライザのまとまり。見出しの右端でオン・オフを切り替え、
-  プリセットの選択・保存・削除・リセットと、10バンドのゲインのスライダーを出す。
+  プリセットの選択・保存・削除・リセットと、10バンドのゲインのスライダー、プリアンプ（全体の音量）を出す。
   どのプリセットを選んでいても、並びと高さは変えない（保存はテキスト入力のダイアログで名前を聞き、
   削除のボタンは、保存したプリセットを選んでいる時だけ使える）。
 -->
@@ -12,6 +12,8 @@
     EQ_FREQUENCY_LABELS,
     MIN_GAIN,
     MAX_GAIN,
+    MIN_PREAMP,
+    MAX_PREAMP,
     isBuiltinPreset,
     type BuiltinPresetName,
     type EQFrequency
@@ -19,6 +21,7 @@
   import { confirmDestructive, promptText } from '#lib/utils/dialog.svelte.js';
   import SidePanelSection from './SidePanelSection.svelte';
   import SidePanelToggle from './SidePanelToggle.svelte';
+  import SidePanelSlider from './SidePanelSlider.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   // ビルトインプリセットの選択肢（名前は、表示の言語に合わせてテンプレートで`m`から読む）
@@ -269,6 +272,19 @@
         </div>
       {/each}
     </div>
+
+    <div class="preamp">
+      <SidePanelSlider
+        label={m.equalizer.preamp}
+        value={equalizer.preamp}
+        min={MIN_PREAMP}
+        max={MAX_PREAMP}
+        disabled={!equalizer.enabled}
+        format={(db) => `${formatGain(db)} dB`}
+        hint={m.equalizer.preampHint}
+        onchange={(preamp) => equalizer.setPreamp(preamp)}
+      />
+    </div>
   </div>
 </SidePanelSection>
 
@@ -380,6 +396,10 @@
 
   .native-slider:disabled {
     @apply cursor-not-allowed;
+  }
+
+  .preamp {
+    @apply mt-1;
   }
 
   /* 周波数ラベル行 */

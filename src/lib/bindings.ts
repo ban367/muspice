@@ -846,9 +846,10 @@ includesSettings: boolean } |
 	 *  イコライザの設定を変える（再生中の音にすぐに効く）
 	 * 
 	 *  `gains`は、バンドごとのゲイン（dB。31Hz〜16kHzの10個。範囲外の値は-12〜12に収める）。
+	 *  `preamp`は、全体の音量（dB。範囲外の値は-12〜12に収める）。
 	 *  設定はフロントエンドが保存しており（`equalizer.svelte.ts`）、起動時と変更のたびに送る。
 	 */
-	playbackSetEqualizer: (enabled: boolean, gains: (number | null)[]) => __TAURI_INVOKE<null>("playback_set_equalizer", { enabled, gains }),
+	playbackSetEqualizer: (enabled: boolean, gains: (number | null)[], preamp: number | null) => __TAURI_INVOKE<null>("playback_set_equalizer", { enabled, gains, preamp }),
 	/**
 	 *  シャッフルモードかを伝える（音量の正規化が自動の時に、トラック単位とアルバム単位を選ぶのに使う）
 	 * 

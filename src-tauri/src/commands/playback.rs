@@ -150,12 +150,14 @@ pub async fn playback_set_shuffle(
 /// イコライザの設定を変える（再生中の音にすぐに効く）
 ///
 /// `gains`は、バンドごとのゲイン（dB。31Hz〜16kHzの10個。範囲外の値は-12〜12に収める）。
+/// `preamp`は、全体の音量（dB。範囲外の値は-12〜12に収める）。
 /// 設定はフロントエンドが保存しており（`equalizer.svelte.ts`）、起動時と変更のたびに送る。
 #[tauri::command]
 #[specta::specta]
 pub async fn playback_set_equalizer(
     enabled: bool,
     gains: Vec<f32>,
+    preamp: f32,
     engine: State<'_, PlaybackEngine>,
 ) -> AppResult<()> {
     let gains: [f32; crate::playback::EQ_BANDS] = gains.try_into().map_err(|_| {
@@ -164,7 +166,7 @@ pub async fn playback_set_equalizer(
             crate::playback::EQ_BANDS
         ))
     })?;
-    engine.set_equalizer(enabled, &gains);
+    engine.set_equalizer(enabled, &gains, preamp);
     Ok(())
 }
 

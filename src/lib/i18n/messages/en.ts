@@ -430,7 +430,10 @@ export const en: Messages = {
     resetLabel: 'Reset the equalizer',
     presetName: 'Preset name',
     deletePreset: 'Delete preset',
-    confirmDeletePreset: (name) => `Delete "${name}"?`
+    confirmDeletePreset: (name) => `Delete "${name}"?`,
+    preamp: 'Preamp',
+    preampHint:
+      'Raises or lowers the overall volume. Lower it by as much as you boost the bands to avoid clipping.'
   },
 
   soundPanel: {

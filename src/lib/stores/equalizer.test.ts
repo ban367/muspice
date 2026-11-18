@@ -62,6 +62,7 @@ describe('初期化', () => {
     expect(equalizer.enabled).toBe(false);
     expect(equalizer.currentPreset).toBe('flat');
     expect(equalizer.bands).toEqual(FLAT);
+    expect(equalizer.preamp).toBe(0);
     expect(equalizer.customPresets).toEqual([]);
   });
 
@@ -72,6 +73,7 @@ describe('初期化', () => {
       JSON.stringify({
         enabled: true,
         bands,
+        preamp: -3,
         currentPreset: 'mine',
         customPresets: [{ name: 'mine', bands }]
       })
@@ -80,6 +82,7 @@ describe('初期化', () => {
     const { equalizer } = await importFreshEqualizer();
     expect(equalizer.enabled).toBe(true);
     expect(equalizer.bands).toEqual(bands);
+    expect(equalizer.preamp).toBe(-3);
     expect(equalizer.currentPreset).toBe('mine');
     expect(equalizer.customPresets).toEqual([{ name: 'mine', bands }]);
   });
@@ -97,6 +100,7 @@ describe('初期化', () => {
       JSON.stringify({
         enabled: 'yes',
         bands: { 31: 'loud', 62: 99, 125: -99, 250: null, 500: 3 },
+        preamp: -99,
         currentPreset: 'gone',
         customPresets: [{ name: 'mine', bands: { 31: 6 } }, { bands: FLAT }, 'broken', null]
       })
@@ -105,6 +109,7 @@ describe('初期化', () => {
     const { equalizer } = await importFreshEqualizer();
     expect(equalizer.enabled).toBe(false);
     expect(equalizer.bands).toEqual({ ...FLAT, 62: 12, 125: -12, 500: 3 });
+    expect(equalizer.preamp).toBe(-12);
     // ないプリセットを選んでいた場合は、選択なし（カスタム）
     expect(equalizer.currentPreset).toBeNull();
     expect(equalizer.customPresets).toEqual([{ name: 'mine', bands: { ...FLAT, 31: 6 } }]);
@@ -200,6 +205,21 @@ describe('バンド・プリセットの操作', () => {
     equalizer.deleteCustomPreset('B');
     expect(equalizer.customPresets).toEqual([]);
     expect(equalizer.currentPreset).toBeNull();
+  });
+
+  it('プリアンプは範囲内に制限し、プリセットの選択を変えない。リセットで0dBに戻す', async () => {
+    const { equalizer } = await importFreshEqualizer();
+    equalizer.applyPreset('rock');
+    equalizer.setPreamp(-20);
+    expect(equalizer.preamp).toBe(-12);
+    expect(equalizer.currentPreset).toBe('rock');
+    // プリセットを選び直しても、プリアンプは変えない
+    equalizer.applyPreset('pop');
+    expect(equalizer.preamp).toBe(-12);
+
+    equalizer.reset();
+    expect(equalizer.preamp).toBe(0);
+    expect(equalizer.currentPreset).toBe('flat');
   });
 
   it('変更を保存し、次回の起動時に復元する', async () => {
