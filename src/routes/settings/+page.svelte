@@ -3,28 +3,16 @@
   import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
   import {
     useGlobalShortcutsQuery,
+    SETTINGS_EDITED_IN_MAIN_WINDOW,
     useOutputDevicesQuery,
     useSaveSettingsMutation,
     useSettingsQuery
   } from '#lib/queries/settings.js';
-  import type {
-    Language,
-    Settings,
-    SidebarItem,
-    StartupPage,
-    Theme,
-    VolumeNormalization
-  } from '#lib/types/models.js';
+  import type { Language, Settings, SidebarItem, StartupPage, Theme } from '#lib/types/models.js';
   import { applyAccentColor, applyTheme } from '#lib/utils/theme.js';
   import { applyLanguage, m } from '#lib/i18n/i18n.svelte.js';
   // 設定の値の範囲はRust側（settings.rs）の定数をtauri-spectaで共有する
-  import {
-    AUTO_BACKUP_KEEP,
-    DEFAULT_ACCENT_COLOR,
-    LIBRARY_SCAN_INTERVALS,
-    MAX_CROSSFADE_SECONDS,
-    MAX_NORMALIZATION_PREAMP_DB
-  } from '#lib/bindings.js';
+  import { AUTO_BACKUP_KEEP, DEFAULT_ACCENT_COLOR, LIBRARY_SCAN_INTERVALS } from '#lib/bindings.js';
   import LibraryFolderSettings from '#lib/components/LibraryFolderSettings.svelte';
   import MusicFolderTemplateSetting from '#lib/components/MusicFolderTemplateSetting.svelte';
   import MetadataExportSettings from '#lib/components/MetadataExportSettings.svelte';
@@ -53,7 +41,6 @@
     'duplicates'
   ];
   const themes: Theme[] = ['dark', 'light', 'system'];
-  const volumeNormalizations: VolumeNormalization[] = ['off', 'track', 'album'];
 
   // 言語の名前は、その言語で表示する（どの言語を表示中でも選べるように）
   const languages: { value: Language; label: string }[] = [
@@ -74,17 +61,23 @@
     }
   });
 
-  // Auto DJは、メインウィンドウのプレーヤーのメニューで変える（この画面には項目がない）。
-  // この画面を開いている間に変えられた値を、編集中の設定へ取り込む（適用で元に戻さないため）
+  // メインウィンドウで変える設定（この画面には項目がない）は、この画面を開いている間に変えられた値を、
+  // 編集中の設定へ取り込む（適用で元に戻さないため）
   $effect(() => {
     const saved = settingsQuery.data;
     if (!saved) return;
     untrack(() => {
       if (pending === null) return;
-      pending.autoDj = saved.autoDj;
-      pending.autoDjPlaylistId = saved.autoDjPlaylistId;
+      for (const key of SETTINGS_EDITED_IN_MAIN_WINDOW) {
+        copySetting(pending, saved, key);
+      }
     });
   });
+
+  /** 設定の1項目を写す */
+  function copySetting<K extends keyof Settings>(to: Settings, from: Settings, key: K) {
+    to[key] = from[key];
+  }
 
   // グローバルホットキーの割り当てと、登録できているか（保存した設定がオンの間だけ、登録されている）
   const globalShortcutsQuery = useGlobalShortcutsQuery(() => activeSection === 'general');
@@ -452,82 +445,7 @@
       {:else if activeSection === 'playback'}
         <section class="settings-section">
           <h3 class="section-title">{m.settings.sections.playback}</h3>
-          <div class="setting-item">
-            <label class="setting-label" for="normalization">{m.settings.volumeNormalization}</label
-            >
-            <select
-              id="normalization"
-              class="setting-select"
-              bind:value={pending.volumeNormalization}
-            >
-              {#each volumeNormalizations as mode (mode)}
-                <option value={mode}>{m.settings.volumeNormalizations[mode]}</option>
-              {/each}
-            </select>
-            <p class="setting-description">
-              {m.settings.volumeNormalizationHint}
-            </p>
-          </div>
-
-          <div class="setting-item">
-            <label class="setting-label" for="preamp">{m.settings.normalizationPreamp}</label>
-            <div class="setting-slider-row">
-              <input
-                type="range"
-                id="preamp"
-                class="setting-slider"
-                min={-MAX_NORMALIZATION_PREAMP_DB}
-                max={MAX_NORMALIZATION_PREAMP_DB}
-                step="1"
-                bind:value={pending.normalizationPreampDb}
-                disabled={pending.volumeNormalization === 'off'}
-              />
-              <span class="setting-slider-value">
-                {m.settings.normalizationPreampValue(pending.normalizationPreampDb)}
-              </span>
-            </div>
-            <p class="setting-description">
-              {m.settings.normalizationPreampHint}
-            </p>
-          </div>
-
-          <div class="setting-item">
-            <label class="setting-checkbox-label">
-              <input
-                type="checkbox"
-                class="setting-checkbox"
-                bind:checked={pending.gaplessPlayback}
-              />
-              {m.settings.gaplessPlayback}
-            </label>
-            <p class="setting-description">
-              {m.settings.gaplessPlaybackHint}
-            </p>
-          </div>
-
-          <div class="setting-item">
-            <label class="setting-label" for="crossfade">{m.settings.crossfade}</label>
-            <div class="setting-slider-row">
-              <input
-                type="range"
-                id="crossfade"
-                class="setting-slider"
-                min="0"
-                max={MAX_CROSSFADE_SECONDS}
-                step="1"
-                bind:value={pending.crossfadeSeconds}
-              />
-              <span class="setting-slider-value">
-                {pending.crossfadeSeconds === 0
-                  ? m.common.off
-                  : m.settings.crossfadeSeconds(pending.crossfadeSeconds)}
-              </span>
-            </div>
-            <p class="setting-description">
-              {m.settings.crossfadeHint}
-            </p>
-          </div>
-
+          <p class="setting-description section-note">{m.settings.soundPanelNote}</p>
           <div class="setting-item">
             <label class="setting-label" for="output-device">{m.settings.outputDevice}</label>
             <select id="output-device" class="setting-select" bind:value={pending.outputDeviceId}>
@@ -701,6 +619,11 @@
     @apply text-xs text-text-muted mt-1 m-0;
   }
 
+  /* 見出しの下の、まとまり全体についての説明 */
+  .section-note {
+    @apply -mt-4 mb-6;
+  }
+
   .setting-select {
     @apply w-full max-w-xs py-2 px-3 bg-base-400 border border-border rounded-md
            text-sm text-text-primary cursor-pointer;
@@ -716,18 +639,6 @@
 
   .setting-checkbox {
     @apply w-4 h-4 mr-2 accent-primary cursor-pointer;
-  }
-
-  .setting-slider-row {
-    @apply flex items-center gap-4;
-  }
-
-  .setting-slider {
-    @apply flex-1 max-w-xs h-2 accent-primary cursor-pointer;
-  }
-
-  .setting-slider-value {
-    @apply text-sm text-text-secondary w-12;
   }
 
   .setting-color-row {

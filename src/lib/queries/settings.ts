@@ -62,6 +62,58 @@ export function useGlobalShortcutsQuery(enabled: () => boolean) {
 }
 
 /**
+ * メインウィンドウで変える設定（設定ウィンドウには項目がない）
+ *
+ * - Auto DJ（プレーヤーの再生の補助のメニュー）
+ * - リプレイゲイン・ギャップレス再生・クロスフェード（右サイドバーのサウンドのパネル）
+ *
+ * 設定ウィンドウは、開いている間にこれらが変えられたら、編集中の設定へ取り込む（「適用」で元に戻さない）。
+ */
+export const SETTINGS_EDITED_IN_MAIN_WINDOW = [
+  'autoDj',
+  'autoDjPlaylistId',
+  'volumeNormalization',
+  'normalizationPreampDb',
+  'gaplessPlayback',
+  'crossfadeEnabled',
+  'crossfadeSeconds'
+] as const satisfies readonly (keyof Settings)[];
+
+/**
+ * 設定の一部を変えて、すぐに保存する（右サイドバーのサウンドのパネル・プレーヤーの再生の補助のメニュー。
+ * 設定ウィンドウは、編集してから「適用」で保存する）
+ *
+ * 続けて変えた時に前の変更を消さないよう、キャッシュを先に書き換えてから保存し、保存は順に1つずつ行う
+ * （後に送った保存が先に終わって、古い内容で上書きされないようにする）。保存に失敗したら（トーストで
+ * 知らせる）、保存済みの設定を取り直して表示を戻す。
+ */
+export function useUpdateSettings() {
+  const queryClient = useQueryClient();
+  const settingsQuery = useSettingsQuery();
+  const mutation = createMutation(() => ({
+    mutationFn: (settings: Settings) =>
+      withErrorToast(m.operations.saveSettings, () => commands.saveSettings(settings)),
+    scope: { id: 'update-settings' },
+    onError: () => queryClient.invalidateQueries({ queryKey: queryKeys.settings })
+  }));
+
+  return {
+    /** 保存済みの設定（読み込み前はnull） */
+    get current(): Settings | null {
+      return settingsQuery.data ?? null;
+    },
+    /** 設定の一部を変えて保存する（読み込み前は何もしない） */
+    update(patch: Partial<Settings>) {
+      const current = queryClient.getQueryData<Settings>(queryKeys.settings);
+      if (!current) return;
+      const next = { ...current, ...patch };
+      queryClient.setQueryData(queryKeys.settings, next);
+      mutation.mutate(next);
+    }
+  };
+}
+
+/**
  * 設定を保存するミューテーション
  */
 export function useSaveSettingsMutation() {

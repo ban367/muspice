@@ -433,6 +433,27 @@ export const en: Messages = {
     confirmDeletePreset: (name) => `Delete "${name}"?`
   },
 
+  soundPanel: {
+    replayGain: 'ReplayGain',
+    replayGainModes: { off: 'Off', track: 'Track', album: 'Album' },
+    replayGainHint:
+      'Evens out loudness using the tags. Album keeps the differences within an album. Add tags with "Loudness analysis" in Settings.',
+    preamp: 'Preamp',
+    preampValue: (db) => `${db > 0 ? '+' : ''}${db} dB`,
+    preampHint: 'Raises or lowers the volume of all adjusted tracks.',
+    gapless: 'Gapless playback',
+    turnOnGapless: 'Turn on gapless playback',
+    turnOffGapless: 'Turn off gapless playback',
+    gaplessHint: 'Plays tracks without silence between them.',
+    crossfade: 'Crossfade',
+    turnOnCrossfade: 'Turn on crossfade',
+    turnOffCrossfade: 'Turn off crossfade',
+    crossfadeDuration: 'Duration',
+    crossfadeSeconds: (seconds) => `${seconds} s`,
+    crossfadeHint:
+      'Overlaps the end of a track with the start of the next. Not used when you change tracks with "Next" and the like.'
+  },
+
   metadataEditor: {
     bulkEditTitle: (count) => `Edit ${plural(count, 'song', 'songs')} together`,
     savedWithWarnings: 'Saved. Please check the following',
@@ -564,7 +585,7 @@ export const en: Messages = {
   loudnessScan: {
     title: 'Loudness analysis',
     description:
-      'Analyzes the loudness of tracks that have no loudness information (ReplayGain tags) and writes it to the tags in the files. It is used by "Volume normalization" under Playback. Album loudness is calculated from all tracks of the album in the library. The analysis runs in the background; if you stop it, the next run continues with the remaining tracks.',
+      'Analyzes the loudness of tracks that have no loudness information (ReplayGain tags) and writes it to the tags in the files. It is used by "ReplayGain" in the Sound panel of the right sidebar. Album loudness is calculated from all tracks of the album in the library. The analysis runs in the background; if you stop it, the next run continues with the remaining tracks.',
     pending: (count) => `Tracks without loudness information: ${count}`,
     noPending: 'All tracks have loudness information',
     startMissing: 'Analyze tracks without tags',
@@ -1154,21 +1175,8 @@ export const en: Messages = {
       previous: 'Previous track'
     },
     globalShortcutUnavailable: 'Could not be registered because another app is using it',
-    volumeNormalization: 'Volume normalization',
-    volumeNormalizations: { off: 'Off', track: 'Per track', album: 'Per album' },
-    volumeNormalizationHint:
-      'Evens out the loudness of tracks using the ReplayGain tags in the files. Per album keeps the differences between tracks on the same album. Tracks without tags are not adjusted (use "Loudness analysis" under Library to add the information to tracks without tags).',
-    normalizationPreamp: 'Preamp',
-    normalizationPreampValue: (db) => `${db > 0 ? '+' : ''}${db} dB`,
-    normalizationPreampHint:
-      'Raises or lowers the volume of all normalized tracks. Raise it if normalization makes everything too quiet (the level is kept below clipping). It does not apply to tracks without loudness information.',
-    gaplessPlayback: 'Gapless playback',
-    gaplessPlaybackHint:
-      'Loads the next track in advance and plays it without silence between tracks.',
-    crossfade: 'Crossfade',
-    crossfadeSeconds: (seconds) => `${seconds} s`,
-    crossfadeHint:
-      'Fades out the end of a track over the set time while fading in the next one. Short tracks are crossfaded for at most half of their length. Tracks changed with "Next" and the like, and repeat one, are not crossfaded.',
+    soundPanelNote:
+      'ReplayGain, gapless playback, crossfade and the equalizer are in the Sound panel of the right sidebar.',
     outputDevice: 'Output device',
     outputDeviceDefault: 'System default',
     outputDeviceDisconnected: 'Disconnected device',

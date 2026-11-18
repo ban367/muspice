@@ -979,6 +979,8 @@ export const DEFAULT_AAC_BITRATE_KBPS = 256 as const;
 
 export const DEFAULT_ACCENT_COLOR = "#3b82f6" as const;
 
+export const DEFAULT_CROSSFADE_SECONDS = 5 as const;
+
 export const DEFAULT_MUSIC_FOLDER_TEMPLATE = "%albumartist%/%album%/[%disc%-]%track% %title%" as const;
 
 export const LIBRARY_SCAN_INTERVALS = [0,15,30,60,360] as const;
@@ -986,6 +988,8 @@ export const LIBRARY_SCAN_INTERVALS = [0,15,30,60,360] as const;
 export const MAX_CROSSFADE_SECONDS = 12 as const;
 
 export const MAX_NORMALIZATION_PREAMP_DB = 12 as const;
+
+export const MIN_CROSSFADE_SECONDS = 1 as const;
 
 /* Types */
 /**  トラックのアルバムアートの情報（アルバムアートの画面に出す） */
@@ -2070,7 +2074,9 @@ export type Settings = {
 	normalizationPreampDb: number,
 	/**  ギャップレス再生（次の曲を先読みし、曲間に無音を入れずに続ける） */
 	gaplessPlayback: boolean,
-	/**  クロスフェードの秒数（0でクロスフェードしない） */
+	/**  クロスフェードする（曲の終わりと次の曲の頭を重ねる） */
+	crossfadeEnabled: boolean,
+	/**  クロスフェードの秒数（1〜12。オフの間も覚えておく） */
 	crossfadeSeconds: number,
 	/**  出力デバイスのID（nullはOSの既定のデバイス） */
 	outputDeviceId: string | null,

@@ -84,7 +84,11 @@ impl From<&Settings> for PlaybackOptions {
         Self {
             output_device_id: settings.output_device_id.clone(),
             normalization: Normalization::from(settings),
-            crossfade_seconds: settings.crossfade_seconds,
+            crossfade_seconds: if settings.crossfade_enabled {
+                settings.crossfade_seconds
+            } else {
+                0
+            },
         }
     }
 }
@@ -3362,6 +3366,7 @@ mod tests {
             output_device_id: Some("usb-dac".to_string()),
             volume_normalization: VolumeNormalization::Album,
             normalization_preamp_db: -3,
+            crossfade_enabled: true,
             crossfade_seconds: 7,
             ..Settings::default()
         };
@@ -3377,6 +3382,12 @@ mod tests {
                 crossfade_seconds: 7,
             }
         );
+        // オフの間は、覚えている秒数を使わない
+        let disabled = Settings {
+            crossfade_enabled: false,
+            ..settings
+        };
+        assert_eq!(PlaybackOptions::from(&disabled).crossfade_seconds, 0);
     }
 
     /// 実際の出力デバイスで再生する（手動の確認用。音量を0にするため、音は出ない）

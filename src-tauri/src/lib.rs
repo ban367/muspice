@@ -251,7 +251,12 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         ])
         // 設定の値の範囲（フロントの設定画面・モックと共有する）
         .constant("DEFAULT_ACCENT_COLOR", settings::DEFAULT_ACCENT_COLOR)
+        .constant("MIN_CROSSFADE_SECONDS", settings::MIN_CROSSFADE_SECONDS)
         .constant("MAX_CROSSFADE_SECONDS", settings::MAX_CROSSFADE_SECONDS)
+        .constant(
+            "DEFAULT_CROSSFADE_SECONDS",
+            settings::DEFAULT_CROSSFADE_SECONDS,
+        )
         .constant("AAC_BITRATES_KBPS", transcode::AAC_BITRATES_KBPS)
         .constant(
             "DEFAULT_AAC_BITRATE_KBPS",
