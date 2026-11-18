@@ -2365,11 +2365,29 @@ describe('音楽フォルダ', () => {
     expect(events.map((e) => e.event)).toContain('library-changed');
   });
 
+  it('置き換えると、保存してある再生キューを空にし、メインウィンドウにクリアさせる', async () => {
+    const [first, second] = await commands.getAllTracks();
+    await commands.savePlaybackState(
+      { volume: 0.5, shuffle: true, repeat: 'all', currentIndex: 1 },
+      { trackIds: [first.id, second.id], originalTrackIds: [second.id, first.id] }
+    );
+    backend.setMusicFolderFileCount(3);
+    await commands.setMusicFolder('default');
+    events = [];
+
+    await commands.confirmMusicFolderChange(false);
+
+    expect(events.map((e) => e.event)).toContain('clear-play-queue');
+    const state = await commands.getPlaybackState();
+    expect(state).toMatchObject({ queue: [], currentIndex: null, volume: 0.5, shuffle: true });
+  });
+
   it('外す曲がない時は、確かめずに音楽フォルダにし、プレイリストを残す', async () => {
     const playlists = await regularPlaylistNames();
     // すべての曲を含むフォルダ（モックの曲は、どれもルートの下にある）
     backend.setMusicFolderFileCount(0);
     backend.setFolderResult('/');
+    events = [];
 
     await expect(commands.setMusicFolder('pick')).resolves.toMatchObject({
       kind: 'set',
@@ -2378,6 +2396,8 @@ describe('音楽フォルダ', () => {
     });
     expect(await markedPaths()).toEqual(['/']);
     expect(await regularPlaylistNames()).toEqual(playlists);
+    // ライブラリの中身は変わらないため、再生キューは残す
+    expect(events.map((e) => e.event)).not.toContain('clear-play-queue');
   });
 
   it('今の音楽フォルダを選んだ場合は、何もしない', async () => {

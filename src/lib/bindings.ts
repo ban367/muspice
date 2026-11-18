@@ -948,6 +948,7 @@ includesSettings: boolean } |
 
 /** Events */
 export const events = {
+	clearPlayQueue: makeEvent<ClearPlayQueue>("clear-play-queue"),
 	convertProgress: makeEvent<ConvertProgress>("convert-progress"),
 	deviceSyncProgress: makeEvent<DeviceSyncProgress>("device-sync-progress"),
 	importFilesRequested: makeEvent<ImportFilesRequested>("import-files-requested"),
@@ -1099,6 +1100,13 @@ export type BulkUpdateResult = {
 	/**  音楽フォルダの曲を、書式どおりの場所へ移し直した結果（移し直さない場合はnull。ADR-071） */
 	organized: KeepOrganizedResult | null,
 };
+
+/**
+ *  ライブラリを置き換えた（音楽フォルダの変更。ADR-086）: メインウィンドウの再生キューをクリアさせる
+ * 
+ *  前のライブラリの曲がキューに残らないよう、再生中の曲も止める（キューの「クリア」と同じ。#412）。
+ */
+export type ClearPlayQueue = null;
 
 /**  1曲の計画（一覧に表示する） */
 export type ConvertEntry = {

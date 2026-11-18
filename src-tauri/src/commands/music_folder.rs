@@ -22,7 +22,7 @@ use super::library_folders::notify_library_changed;
 use super::{pick_folder, run_blocking};
 use crate::backup::{BackupKind, BackupMeta, backups_dir, create_backup_in, settings_json};
 use crate::error::{AppError, AppResult};
-use crate::events::ImportProgress;
+use crate::events::{ClearPlayQueue, ImportProgress};
 use crate::file_organize::Template;
 use crate::library::{DuplicateAction, ImportResult};
 use crate::library_folder::{
@@ -370,9 +370,33 @@ pub async fn confirm_music_folder_change(
         );
         // 途中で失敗した場合も、外した曲・読み込んだ曲があるため、画面に反映させる
         after_change(&app_handle);
+        if matches!(
+            change,
+            Ok(MusicFolderChange::Set {
+                replaced: Some(_),
+                ..
+            })
+        ) {
+            clear_play_queue(&app_handle);
+        }
         change
     })
     .await
+}
+
+/// ライブラリを置き換えた後に、再生キューを空にする（前のライブラリの曲を残さない。#412）
+///
+/// 保存してあるキューを空にし、メインウィンドウに`ClearPlayQueue`を送って、再生中の曲も止めさせる。
+fn clear_play_queue(app: &AppHandle) {
+    if let Err(e) = app
+        .state::<crate::playback_state::PlaybackStateStore>()
+        .clear_queue()
+    {
+        log::warn!("Failed to clear the saved play queue: {}", e);
+    }
+    if let Err(e) = ClearPlayQueue.emit(app) {
+        log::warn!("Failed to emit the clear play queue event: {}", e);
+    }
 }
 
 /// 預かっている音楽フォルダを手放す（置き換えをやめた）
