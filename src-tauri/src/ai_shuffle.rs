@@ -9,7 +9,7 @@
 //!   選び方に合う曲がない（解析も再生履歴もない）時は、ライブラリからランダムに選ぶ
 //! - 見つからない曲と、避ける曲（キューの前後の曲）は選ばない
 
-use crate::error::{AppError, AppResult};
+use crate::error::AppResult;
 use crate::music_analysis::{MusicFeatures, MusicKey, load_features};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
@@ -22,10 +22,6 @@ pub const CANDIDATE_LIMIT: usize = 20;
 
 /// フロントエンドが避ける曲として渡す、キューの今の位置の前後の件数
 pub const EXCLUSION_WINDOW: u32 = 100;
-
-fn db_error(e: rusqlite::Error) -> AppError {
-    AppError::Database(format!("AIシャッフルの曲の読み込みに失敗しました: {}", e))
-}
 
 /// AIシャッフルの選び方
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, Type)]
@@ -53,36 +49,22 @@ pub struct Candidate {
     pub features: MusicFeatures,
 }
 
-/// 候補の曲（見つからない曲を除くライブラリの全曲）を読む
+/// 候補の曲（見つからない曲を除くライブラリの全曲）を読む（トラックの項目は`repository`、
+/// 解析の結果は`music_analysis`から）
 pub fn load_candidates(conn: &Connection) -> AppResult<Vec<Candidate>> {
     let mut features = load_features(conn)?;
-    let mut stmt = conn
-        .prepare(
-            "SELECT id, artist, genre, year, COALESCE(play_count, 0), last_played_at FROM tracks
-         WHERE missing_since IS NULL",
-        )
-        .map_err(db_error)?;
-    let rows = stmt
-        .query_map([], |row| {
-            Ok(Candidate {
-                id: row.get(0)?,
-                artists: normalized_values(row.get::<_, Option<String>>(1)?.as_deref()),
-                genres: normalized_values(row.get::<_, Option<String>>(2)?.as_deref()),
-                year: row.get(3)?,
-                play_count: row.get(4)?,
-                last_played_at: row.get(5)?,
-                features: MusicFeatures::default(),
-            })
+    let candidates = crate::repository::find_selection_fields(conn)?
+        .into_iter()
+        .map(|track| Candidate {
+            artists: normalized_values(track.artist.as_deref()),
+            genres: normalized_values(track.genre.as_deref()),
+            year: track.year,
+            play_count: track.play_count,
+            last_played_at: track.last_played_at,
+            features: features.remove(&track.id).unwrap_or_default(),
+            id: track.id,
         })
-        .map_err(db_error)?;
-    let mut candidates = rows
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(db_error)?;
-    for candidate in &mut candidates {
-        if let Some(found) = features.remove(&candidate.id) {
-            candidate.features = found;
-        }
-    }
+        .collect();
     Ok(candidates)
 }
 
@@ -515,6 +497,50 @@ mod tests {
             );
         }
         assert_eq!(seen, excluded(&["a", "b"]));
+    }
+
+    #[test]
+    fn test_load_candidates_reads_tags_and_analysis() {
+        use crate::music_analysis::{AnalyzeOutcome, save_outcome};
+        let conn = crate::db::open_in_memory();
+        for (id, artist, genre, missing) in [
+            ("a", "Artist A; Artist B", "Rock", false),
+            ("b", "Artist C", "Jazz", false),
+            ("gone", "Artist A", "Rock", true),
+        ] {
+            conn.execute(
+                "INSERT INTO tracks (id, file_path, file_name, artist, genre, year, duration, play_count, last_played_at, missing_since)
+                 VALUES (?1, ?2, ?1, ?3, ?4, 2001, 200, 3, '2026-01-01 00:00:00',
+                         CASE WHEN ?5 THEN datetime('now') END)",
+                rusqlite::params![id, format!("/music/{id}.flac"), artist, genre, missing],
+            )
+            .unwrap();
+        }
+        let features = MusicFeatures {
+            bpm: Some(128.0),
+            key: Some(MusicKey {
+                pitch_class: 2,
+                minor: true,
+            }),
+            pace: None,
+        };
+        save_outcome(&conn, "a", Some(200), &AnalyzeOutcome::Analyzed(features)).unwrap();
+
+        let mut candidates = load_candidates(&conn).unwrap();
+        candidates.sort_by(|x, y| x.id.cmp(&y.id));
+        // 見つからない曲は候補にしない
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(candidates[0].id, "a");
+        assert_eq!(candidates[0].artists, vec!["artist a", "artist b"]);
+        assert_eq!(candidates[0].genres, vec!["rock"]);
+        assert_eq!(candidates[0].year, Some(2001));
+        assert_eq!(candidates[0].play_count, 3);
+        assert_eq!(
+            candidates[0].last_played_at.as_deref(),
+            Some("2026-01-01 00:00:00")
+        );
+        assert_eq!(candidates[0].features, features);
+        assert_eq!(candidates[1].features, MusicFeatures::default());
     }
 
     #[test]

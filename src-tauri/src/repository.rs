@@ -370,6 +370,40 @@ pub fn find_track_paths(conn: &Connection) -> AppResult<Vec<(String, String)>> {
         .map_err(|e| AppError::Database(format!("トラックの読み取りに失敗しました: {}", e)))
 }
 
+/// AIシャッフルの選曲に使う、トラックの項目（`ai_shuffle::load_candidates`）
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SelectionFields {
+    pub id: String,
+    pub artist: Option<String>,
+    pub genre: Option<String>,
+    pub year: Option<i32>,
+    pub play_count: i32,
+    pub last_played_at: Option<String>,
+}
+
+/// 見つからない曲を除くすべてのトラックの、選曲に使う項目を取得する（AIシャッフル）
+pub fn find_selection_fields(conn: &Connection) -> AppResult<Vec<SelectionFields>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, artist, genre, year, COALESCE(play_count, 0), last_played_at FROM tracks
+             WHERE missing_since IS NULL",
+        )
+        .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
+    stmt.query_map([], |row| {
+        Ok(SelectionFields {
+            id: row.get(0)?,
+            artist: row.get(1)?,
+            genre: row.get(2)?,
+            year: row.get(3)?,
+            play_count: row.get(4)?,
+            last_played_at: row.get(5)?,
+        })
+    })
+    .map_err(|e| AppError::Database(format!("トラックの取得に失敗しました: {}", e)))?
+    .collect::<rusqlite::Result<Vec<_>>>()
+    .map_err(|e| AppError::Database(format!("トラックの読み取りに失敗しました: {}", e)))
+}
+
 /// すべてのトラックの、ライブラリのXMLから取り込む項目（再生回数・日時など）の今の値を取得する
 pub fn find_track_stats(
     conn: &Connection,
