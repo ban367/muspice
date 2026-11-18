@@ -4,7 +4,7 @@
   import { restoreTheme } from '#lib/utils/theme.js';
   import { restoreLanguage } from '#lib/i18n/i18n.svelte.js';
   import { LOCAL_NETWORK_MODE } from '#lib/queries/shared.js';
-  import { queryKeys } from '#lib/queries/keys.js';
+  import { receiveSavedSettings } from '#lib/queries/settings.js';
   import { events } from '#lib/bindings.js';
   import { stopListening } from '#lib/utils/listen.js';
   import '../../app.css';
@@ -28,7 +28,7 @@
   // （`SETTINGS_EDITED_IN_MAIN_WINDOW`。「適用」で古い値に戻さない）
   $effect(() => {
     const listening = events.settingsChanged.listen((event) => {
-      queryClient.setQueryData(queryKeys.settings, event.payload);
+      void receiveSavedSettings(queryClient, event.payload);
     });
     return () => stopListening(listening);
   });

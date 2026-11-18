@@ -7,8 +7,7 @@
   import { stopListening } from '#lib/utils/listen.js';
   import { useQueryClient } from '@tanstack/svelte-query';
   import { events } from '#lib/bindings.js';
-  import { queryKeys } from '#lib/queries/keys.js';
-  import { useSettingsQuery } from '#lib/queries/settings.js';
+  import { receiveSavedSettings, useSettingsQuery } from '#lib/queries/settings.js';
   import { applyAccentColor, applyTheme } from '#lib/utils/theme.js';
   import { applyLanguage } from '#lib/i18n/i18n.svelte.js';
 
@@ -35,7 +34,7 @@
 
   $effect(() => {
     const unlisten = events.settingsChanged.listen((event) => {
-      queryClient.setQueryData(queryKeys.settings, event.payload);
+      void receiveSavedSettings(queryClient, event.payload);
     });
     return () => {
       stopListening(unlisten);

@@ -30,7 +30,7 @@ graph TD
 ## フロントエンド構成
 
 - ルート: `src/routes/(app)` 配下にライブラリ・プレイリスト・転送先デバイス（`devices/[id]`）、`src/routes/settings` に設定画面（メニューから開く別ウィンドウ。独自のQueryClientを持つ）、`src/routes/track-editor` に曲の情報の編集画面（曲のメニュー・曲情報のパネルから開く別ウィンドウ。メインウィンドウを親にし、開いている間はメインウィンドウを操作させない。独自のQueryClientを持つ。ADR-094）
-- 設定: Rust側（`settings.rs`）がアプリデータ配下の`settings.json`に保存する。設定ウィンドウで保存するとRustが`SettingsChanged`イベントを送り、メインウィンドウの`SettingsSync`がキャッシュ・テーマ・アクセントカラー（CSS変数`--color-primary`）を更新する。メインウィンドウ（サウンドのパネルなど）で保存した時は、設定ウィンドウのレイアウトも同じイベントでキャッシュを更新し、設定画面が編集中の設定へ取り込む（`SETTINGS_EDITED_IN_MAIN_WINDOW`の項目だけ）
+- 設定: Rust側（`settings.rs`）がアプリデータ配下の`settings.json`に保存する。設定ウィンドウで保存するとRustが`SettingsChanged`イベントを送り、メインウィンドウの`SettingsSync`がキャッシュ・テーマ・アクセントカラー（CSS変数`--color-primary`）を更新する。メインウィンドウ（サウンドのパネルなど）で保存した時は、設定ウィンドウのレイアウトも同じイベントでキャッシュを更新し（どちらのウィンドウも、取得中の設定を取り消してから入れる。`receiveSavedSettings`）、設定画面が編集中の設定へ取り込む（`SETTINGS_EDITED_IN_MAIN_WINDOW`の項目だけ）
 - ウィンドウの状態: メインウィンドウのサイズ・位置・最大化・フルスクリーンは、`tauri-plugin-window-state`が終了時にアプリの設定フォルダの`.window-state.json`へ保存し、次回の起動時に復元する（`lib.rs`の`window_state_plugin()`）。記憶がない初回は`tauri.conf.json`の大きさ（1280×800）で開く。設定ウィンドウは対象外で、毎回同じ大きさ（900×680。`menu.rs`の`SETTINGS_WINDOW_SIZE`）で開く
 - ウィンドウの外からの操作: 設定でオンにすると、メニューバー（トレイ）に常駐し（`tray.rs`。ウィンドウを閉じても、隠すだけで再生を続ける）、グローバルホットキー（`global_shortcuts.rs`）で再生を操作でき、曲が変わった時にOSの通知を出す（`track_notification.rs`）。ミニプレーヤーは、メインウィンドウを小さな表示に切り替える（`mini_player.rs`と`MiniPlayer`）。再生キューはフロントエンドが持つため、どの操作も`PlaybackControl`イベントでフロントエンドへ送り、ウィンドウを隠している間もWebViewを動かし続ける（ADR-046）
 - 多言語化: 画面の文言は`src/lib/i18n/messages`（日本語・英語）に定義し、`#lib/i18n/i18n.svelte`の`m`から読む。言語は`$state`のため、切り替えるとコンポーネントを作り直さずに文言が変わる（再生は止まらない）。メニューバーと設定ウィンドウのタイトルはRust側（`menu.rs`）が言語に合わせて作り直す
