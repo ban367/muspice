@@ -1,7 +1,7 @@
 <!--
   @component ArtistAlbumsView
   アーティスト（アルバムアーティスト）のアルバムごとの曲。アーティストとアルバムアーティストの画面の
-  リスト表示の右のペインで使う。
+  リスト表示の右のペインと、グリッド表示の下の中身の領域（`compact`。閉じるボタンを出す。ADR-097）で使う。
 
   - 見出しにアーティストの名前と、すべて再生・シャッフルのボタンを出す
   - アルバムごとに見出し（ジャケット画像・名前・ジャンルと年・曲数と時間）を出し、その下に曲を並べる
@@ -44,9 +44,13 @@
     artist: string | null;
     /** 見出しの「その他」のメニューで扱うアーティスト（なければ、ボタンを出さない） */
     menuArtist?: ArtistSummary;
+    /** 見出しを低くするか（グリッドの下の、高さの限られた領域） */
+    compact?: boolean;
+    /** 見出しの右端に閉じるボタンを出し、押した時に呼ぶ */
+    onClose?: () => void;
   }
 
-  let { title, albums, artist, menuArtist }: Props = $props();
+  let { title, albums, artist, menuArtist, compact = false, onClose }: Props = $props();
 
   const setRatingMutation = useSetRatingMutation();
 
@@ -146,7 +150,7 @@
   }
 </script>
 
-<div class="artist-albums">
+<div class="artist-albums" class:compact>
   <!-- ヘッダー -->
   <div class="detail-header">
     <h1 class="artist-name">{title}</h1>
@@ -183,6 +187,26 @@
             <circle cx="12" cy="5" r="2" />
             <circle cx="12" cy="12" r="2" />
             <circle cx="12" cy="19" r="2" />
+          </svg>
+        </button>
+      {/if}
+      {#if onClose}
+        <button
+          class="action-btn close"
+          onclick={onClose}
+          title={m.library.closeDetail}
+          aria-label={m.library.closeDetail}
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+          >
+            <line x1="6" y1="6" x2="18" y2="18" />
+            <line x1="18" y1="6" x2="6" y2="18" />
           </svg>
         </button>
       {/if}
@@ -408,6 +432,36 @@
 
   .action-btn svg {
     @apply w-5 h-5;
+  }
+
+  /* 閉じるボタンは、再生の操作と区別して背景を付けない */
+  .action-btn.close {
+    @apply bg-transparent;
+  }
+
+  .action-btn.close:hover {
+    @apply bg-surface-active;
+  }
+
+  /* 高さの限られた領域（グリッドの下）では、見出しを低くする */
+  .artist-albums.compact .detail-header {
+    @apply px-4 py-2.5;
+  }
+
+  .artist-albums.compact .artist-name {
+    @apply text-lg;
+  }
+
+  .artist-albums.compact .action-btn {
+    @apply w-8 h-8;
+  }
+
+  .artist-albums.compact .action-btn svg {
+    @apply w-4 h-4;
+  }
+
+  .artist-albums.compact .album-section {
+    @apply py-2;
   }
 
   /* 一覧はフォーカスを受けてキー操作を扱う（枠は出さず、選択中の行の色で示す） */

@@ -520,16 +520,22 @@ body {
   color: var(--color-text-dimmed);
 }
 
+/* ジャケット画像に重ねる再生ボタンの覆い。ボタンの大きさを画像の大きさから求めるため、覆いの大きさを基準にする
+   （`cqmin`。覆いは画像と同じ大きさ） */
 .play-overlay {
   @apply absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 transition-opacity duration-200;
+  container-type: size;
 }
 
 .grid-card:hover .play-overlay {
   opacity: 1;
 }
 
+/* 画像の40%（20〜48px）。カードを小さくしても、画像に対して大きくなりすぎないようにする */
 .play-button-circle {
-  @apply w-12 h-12 border-none rounded-full bg-secondary text-black flex items-center justify-center cursor-pointer transition-transform duration-150;
+  @apply border-none rounded-full bg-secondary text-black flex items-center justify-center cursor-pointer transition-transform duration-150;
+  width: clamp(1.25rem, 40cqmin, 3rem);
+  height: clamp(1.25rem, 40cqmin, 3rem);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
@@ -537,8 +543,11 @@ body {
   @apply scale-110;
 }
 
+/* 三角は、ボタンの半分の大きさで、見た目の中心へ少し右に寄せる */
 .play-button-circle svg {
-  @apply w-6 h-6 ml-0.5;
+  width: 50%;
+  height: 50%;
+  margin-left: 6%;
 }
 
 /* 状態表示（ローディング/エラー/空） */

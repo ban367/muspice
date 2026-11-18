@@ -32,6 +32,10 @@ const GRID_CARD_PADDING = 6;
 /** グリッドカードの間隔（px） */
 export const GRID_CARD_GAP = 8;
 
+/** グリッドの下に出す、選んだ項目の中身の領域の高さ（px。既定値と最小値。ADR-097） */
+export const DEFAULT_GRID_DETAIL_HEIGHT = 320;
+export const MIN_GRID_DETAIL_HEIGHT = 120;
+
 /** 幅を持つ列（番号の列と、曲の一覧に出せる列） */
 type WidthColumn = 'number' | TrackColumnId;
 
@@ -50,6 +54,7 @@ function defaultColumnWidth(column: WidthColumn): number {
 
 const RIGHT_SIDEBAR_PINNED_KEY = 'muspice:rightSidebarPinned';
 const AUTO_SHOW_SELECTED_TRACK_KEY = 'muspice:autoShowSelectedTrack';
+const GRID_DETAIL_HEIGHT_KEY = 'muspice:gridDetailHeight';
 const COLUMN_WIDTHS_KEY = 'muspice:columnWidths';
 const PLAYLIST_EXPORT_RELATIVE_KEY = 'muspice:playlistExportRelative';
 
@@ -75,6 +80,14 @@ function saveJson(key: string, value: unknown): void {
 /** 右サイドバーの固定（既定は固定。解除した時だけfalseを保存してある） */
 function loadRightSidebarPinned(): boolean {
   return loadJson(RIGHT_SIDEBAR_PINNED_KEY) !== false;
+}
+
+/** 保存済みの、グリッドの下の中身の領域の高さ（ない・不正な値は既定値） */
+function loadGridDetailHeight(): number {
+  const stored = loadJson(GRID_DETAIL_HEIGHT_KEY);
+  return typeof stored === 'number' && Number.isFinite(stored) && stored >= MIN_GRID_DETAIL_HEIGHT
+    ? stored
+    : DEFAULT_GRID_DETAIL_HEIGHT;
 }
 
 /** 保存済みの列幅を読み込む（古いキーは捨て、ない列・不正な値は既定値で補う） */
@@ -152,6 +165,7 @@ class UiState {
 
   #isRightSidebarPinned = $state(loadRightSidebarPinned());
   #autoShowSelectedTrack = $state(loadJson(AUTO_SHOW_SELECTED_TRACK_KEY) === true);
+  #gridDetailHeight = $state(loadGridDetailHeight());
   #columnWidths = $state.raw<ColumnWidths>(loadColumnWidths());
   #playlistExportRelative = $state(loadJson(PLAYLIST_EXPORT_RELATIVE_KEY) === true);
 
@@ -190,6 +204,21 @@ class UiState {
   set autoShowSelectedTrack(value: boolean) {
     this.#autoShowSelectedTrack = value;
     saveJson(AUTO_SHOW_SELECTED_TRACK_KEY, value);
+  }
+
+  /**
+   * グリッドの下に出す、選んだ項目の中身の領域の高さ（px。境目のドラッグで変える。localStorageに保存）
+   *
+   * 画面に入らない高さの時は、表示する側が収まる高さに縮めて出す（保存した値は変えない）。
+   */
+  get gridDetailHeight(): number {
+    return this.#gridDetailHeight;
+  }
+
+  set gridDetailHeight(value: number) {
+    const height = Math.max(MIN_GRID_DETAIL_HEIGHT, Math.round(value));
+    this.#gridDetailHeight = height;
+    saveJson(GRID_DETAIL_HEIGHT_KEY, height);
   }
 
   /** トラック一覧の列幅（localStorageに保存。変更は列を書き換えず、オブジェクトごと代入する） */

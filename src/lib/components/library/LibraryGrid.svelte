@@ -5,17 +5,20 @@
   displayMode切替、コンテキストメニュー、キーボード操作（矢印キーでの移動）を共通化する。
   項目を押した時の操作（ジャンルの画面を開く・再生するなど）は、使う側が渡す。
   一覧は、見えている項目だけを描画する（VirtualList）。
+  `detail`を渡すと、グリッド表示で選んだ項目（現在位置の項目）の中身を、グリッドの下の領域に出す
+  （`GridDetailSplit`。閉じると現在位置を外す。ADR-097）。
 
   カードの見た目はSnippetでカスタマイズ可能。
 -->
 <script lang="ts" generics="T extends AlbumSummary | ArtistSummary | GenreSummary">
-  import type { Snippet } from 'svelte';
+  import { tick, type Snippet } from 'svelte';
   import type { AlbumSummary, ArtistSummary, GenreSummary } from '#lib/types/models.js';
   import { VirtualList } from '#lib/components/ui/index.js';
   import { GRID_CARD_GAP, ui } from '#lib/stores/ui.svelte.js';
   import { openableListAction } from '#lib/utils/listNavigation.js';
   import { matchesSearchTerms, searchTerms } from '#lib/utils/searchText.js';
   import GroupContextMenu from '../GroupContextMenu.svelte';
+  import GridDetailSplit from './GridDetailSplit.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   // Props
@@ -70,6 +73,10 @@
      * アルバム・アーティストはダブルクリックと同じく再生する）
      */
     onOpen?: (_item: T) => void;
+    /**
+     * グリッド表示で選んだ項目の中身（グリッドの下の領域に出す。項目と、領域を閉じる関数を受け取る）
+     */
+    detail?: Snippet<[T, () => void]>;
   }
 
   let {
@@ -91,7 +98,8 @@
     estimatedRowHeight,
     virtualized = true,
     groupType,
-    onOpen
+    onOpen,
+    detail
   }: Props = $props();
 
   // 検索でフィルタリングされたアイテム（曲の検索と同じく、大文字と小文字・全角と半角・
@@ -131,6 +139,41 @@
     activeKey = getKey(item);
     virtualList?.scrollToIndex(action.index);
   }
+
+  /**
+   * グリッドの下に中身を出す項目（グリッド表示で選んだ項目。検索で絞り込んで一覧から外れても出し続け、
+   * ライブラリからなくなったら閉じる）
+   */
+  const detailItem = $derived(
+    displayMode === 'grid' && detail && activeKey !== null
+      ? (items.find((item) => getKey(item) === activeKey) ?? null)
+      : null
+  );
+
+  /** 中身の領域を閉じる（現在位置を外す） */
+  function closeDetail() {
+    activeKey = null;
+  }
+
+  // 中身の領域を開いた時は、グリッドが低くなった後に、選んだ項目を見える位置へ出す
+  // （下の方の項目を選ぶと、領域の下に隠れるため）
+  let isDetailOpen = false;
+  $effect(() => {
+    const isOpen = detailItem !== null;
+    if (isOpen === isDetailOpen) return;
+    isDetailOpen = isOpen;
+    if (!isOpen) return;
+    const key = activeKey;
+    void tick().then(() => {
+      // 高さが変わったのを一覧が測ってから（ResizeObserver）スクロールする
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          const index = filteredItems.findIndex((item) => getKey(item) === key);
+          if (index >= 0) virtualList?.scrollToIndex(index);
+        })
+      );
+    });
+  });
 
   // コンテキストメニュー
   let contextMenu = $state<{ x: number; y: number; item: T } | null>(null);
@@ -182,34 +225,38 @@
   {:else if filteredItems.length > 0}
     <!-- 一覧がフォーカスを受けてキー操作を扱い、現在位置の項目を枠・背景で示す -->
     {#if displayMode === 'grid'}
-      <VirtualList
-        bind:this={virtualList}
-        items={filteredItems}
-        {getKey}
-        estimatedRowHeight={estimatedCardHeight}
-        minColumnWidth={minCardWidth}
-        gap={GRID_CARD_GAP}
-        overscan={virtualized ? GRID_OVERSCAN_ROWS : Infinity}
-        scrollerClass="p-2"
-        class="outline-none {centerCards ? 'justify-items-center' : ''}"
-        role="listbox"
-        aria-label={itemLabel}
-        tabindex={0}
-        onkeydown={handleKeydown}
-      >
-        {#snippet row(item)}
-          <!-- svelte-ignore a11y_interactive_supports_focus -->
-          <div
-            class="grid-item"
-            class:active={getKey(item) === activeKey}
-            role="option"
-            aria-selected={getKey(item) === activeKey}
-            onpointerdown={() => (activeKey = getKey(item))}
+      <GridDetailSplit detail={detailItem ? detailPane : undefined}>
+        {#snippet grid()}
+          <VirtualList
+            bind:this={virtualList}
+            items={filteredItems}
+            {getKey}
+            estimatedRowHeight={estimatedCardHeight}
+            minColumnWidth={minCardWidth}
+            gap={GRID_CARD_GAP}
+            overscan={virtualized ? GRID_OVERSCAN_ROWS : Infinity}
+            scrollerClass="p-2"
+            class="outline-none {centerCards ? 'justify-items-center' : ''}"
+            role="listbox"
+            aria-label={itemLabel}
+            tabindex={0}
+            onkeydown={handleKeydown}
           >
-            {@render gridCard(item)}
-          </div>
+            {#snippet row(item)}
+              <!-- svelte-ignore a11y_interactive_supports_focus -->
+              <div
+                class="grid-item"
+                class:active={getKey(item) === activeKey}
+                role="option"
+                aria-selected={getKey(item) === activeKey}
+                onpointerdown={() => (activeKey = getKey(item))}
+              >
+                {@render gridCard(item)}
+              </div>
+            {/snippet}
+          </VirtualList>
         {/snippet}
-      </VirtualList>
+      </GridDetailSplit>
     {:else}
       <VirtualList
         bind:this={virtualList}
@@ -246,6 +293,13 @@
     </div>
   {/if}
 </div>
+
+<!-- グリッドの下に出す、選んだ項目の中身 -->
+{#snippet detailPane()}
+  {#if detailItem && detail}
+    {@render detail(detailItem, closeDetail)}
+  {/if}
+{/snippet}
 
 <!-- コンテキストメニュー -->
 {#if contextMenu}
