@@ -67,7 +67,8 @@ export function useGlobalShortcutsQuery(enabled: () => boolean) {
  * - Auto DJ（プレーヤーの再生の補助のメニュー）
  * - リプレイゲイン・ギャップレス再生・クロスフェード・クロスフィード（右サイドバーのサウンドのパネル）
  *
- * 設定ウィンドウは、開いている間にこれらが変えられたら、編集中の設定へ取り込む（「適用」で元に戻さない）。
+ * 設定ウィンドウは、開いている間にこれらが変えられたら（`SettingsChanged`でキャッシュが更新される）、
+ * 編集中の設定へ取り込む（「適用」で元に戻さない）。
  */
 export const SETTINGS_EDITED_IN_MAIN_WINDOW = [
   'autoDj',
