@@ -33,6 +33,7 @@ vi.mock('#lib/bindings.js', () => ({
     playbackSetVolume: vi.fn(async () => null),
     playbackSetSpeed: vi.fn(async () => null),
     playbackSetEqualizer: vi.fn(async () => null),
+    playbackSetShuffle: vi.fn(async () => null),
     playbackStop: vi.fn(async () => null),
     setNowPlaying: vi.fn(async () => null),
     getPlaybackState: vi.fn(async () => ({
@@ -302,6 +303,14 @@ describe('トラックの再生', () => {
     playbackAids.setSpeed(1.5);
     flushSync();
     expect(commands.playbackSetSpeed).toHaveBeenCalledTimes(calls);
+  });
+
+  it('シャッフルモードをエンジンに伝える（音量の正規化の自動で使う）', () => {
+    expect(commands.playbackSetShuffle).toHaveBeenLastCalledWith(false);
+
+    player.isShuffleEnabled = true;
+    flushSync();
+    expect(commands.playbackSetShuffle).toHaveBeenLastCalledWith(true);
   });
 });
 

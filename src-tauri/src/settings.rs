@@ -85,6 +85,8 @@ pub enum VolumeNormalization {
     Track,
     /// アルバム単位のゲインで補正する（ない場合はトラック単位）
     Album,
+    /// シャッフルモードの間はトラック単位、それ以外はアルバム単位で補正する
+    Auto,
 }
 
 /// サイドバーの項目（表示するかどうかを選べるもの）
@@ -121,6 +123,10 @@ pub struct Settings {
     pub volume_normalization: VolumeNormalization,
     /// 音量の正規化のプリアンプ（dB。正規化で補正する曲の音量を、まとめて上げ下げする）
     pub normalization_preamp_db: i8,
+    /// 音量の正規化で、ゲインのない曲（ReplayGainのタグがない曲）にかける音量の変化（dB）
+    pub normalization_untagged_preamp_db: i8,
+    /// 音量の正規化で、ピークがフルスケールを超えない倍率に抑える（クリップ防止）
+    pub normalization_prevent_clipping: bool,
     /// ギャップレス再生（次の曲を先読みし、曲間に無音を入れずに続ける）
     pub gapless_playback: bool,
     /// クロスフェードする（曲の終わりと次の曲の頭を重ねる）
@@ -175,6 +181,8 @@ impl Default for Settings {
             accent_color: DEFAULT_ACCENT_COLOR.to_string(),
             volume_normalization: VolumeNormalization::default(),
             normalization_preamp_db: 0,
+            normalization_untagged_preamp_db: 0,
+            normalization_prevent_clipping: true,
             gapless_playback: true,
             crossfade_enabled: false,
             crossfade_seconds: DEFAULT_CROSSFADE_SECONDS,
@@ -212,7 +220,13 @@ pub fn validate_settings(settings: &Settings) -> AppResult<()> {
             MIN_CROSSFADE_SECONDS, MAX_CROSSFADE_SECONDS
         )));
     }
-    if settings.normalization_preamp_db.unsigned_abs() > MAX_NORMALIZATION_PREAMP_DB.unsigned_abs()
+    let preamps = [
+        settings.normalization_preamp_db,
+        settings.normalization_untagged_preamp_db,
+    ];
+    if preamps
+        .iter()
+        .any(|db| db.unsigned_abs() > MAX_NORMALIZATION_PREAMP_DB.unsigned_abs())
     {
         return Err(AppError::Validation(format!(
             "プリアンプは-{0}〜{0} dBで指定してください",
@@ -435,8 +449,10 @@ mod tests {
             startup_page: StartupPage::Songs,
             theme: Theme::System,
             accent_color: "#ff8800".to_string(),
-            volume_normalization: VolumeNormalization::Album,
+            volume_normalization: VolumeNormalization::Auto,
             normalization_preamp_db: -6,
+            normalization_untagged_preamp_db: -4,
+            normalization_prevent_clipping: false,
             gapless_playback: false,
             crossfade_enabled: true,
             crossfade_seconds: 7,
@@ -474,6 +490,9 @@ mod tests {
         assert_eq!(settings.theme, Theme::Dark);
         assert_eq!(settings.language, Language::Ja);
         assert_eq!(settings.volume_normalization, VolumeNormalization::Off);
+        // ゲインのない曲は補正せず、クリップ防止はオン（項目を足す前と同じ動き）
+        assert_eq!(settings.normalization_untagged_preamp_db, 0);
+        assert!(settings.normalization_prevent_clipping);
         assert!(settings.gapless_playback);
         assert!(!settings.crossfade_enabled);
         assert_eq!(settings.crossfade_seconds, DEFAULT_CROSSFADE_SECONDS);
@@ -617,6 +636,18 @@ mod tests {
                 .is_err()
         );
         assert!(state.save(settings(i8::MIN)).is_err());
+
+        // ゲインのない曲のプリアンプも、同じ範囲
+        let untagged = |normalization_untagged_preamp_db| Settings {
+            normalization_untagged_preamp_db,
+            ..Settings::default()
+        };
+        assert!(state.save(untagged(-MAX_NORMALIZATION_PREAMP_DB)).is_ok());
+        assert!(
+            state
+                .save(untagged(MAX_NORMALIZATION_PREAMP_DB + 1))
+                .is_err()
+        );
     }
 
     #[test]

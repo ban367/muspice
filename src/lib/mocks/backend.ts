@@ -685,6 +685,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     accentColor: DEFAULT_ACCENT_COLOR,
     volumeNormalization: 'off',
     normalizationPreampDb: 0,
+    normalizationUntaggedPreampDb: 0,
+    normalizationPreventClipping: true,
     gaplessPlayback: true,
     crossfadeEnabled: false,
     crossfadeSeconds: DEFAULT_CROSSFADE_SECONDS,
@@ -2969,6 +2971,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       playbackEngine.setSpeed(speed);
       return null;
     },
+    // 音量の正規化は鳴らさないため、何もしない
+    playbackSetShuffle: () => null,
     playbackSetEqualizer: (_enabled, gains) => {
       if (gains.length !== EQ_BAND_COUNT) {
         fail('VALIDATION', `イコライザのゲインは${EQ_BAND_COUNT}個で指定してください`);
@@ -3037,8 +3041,9 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         fail('VALIDATION', '出力デバイスの指定が正しくありません');
       }
       if (
-        !Number.isInteger(next.normalizationPreampDb) ||
-        Math.abs(next.normalizationPreampDb) > MAX_NORMALIZATION_PREAMP_DB
+        [next.normalizationPreampDb, next.normalizationUntaggedPreampDb].some(
+          (db) => !Number.isInteger(db) || Math.abs(db) > MAX_NORMALIZATION_PREAMP_DB
+        )
       ) {
         fail(
           'VALIDATION',
