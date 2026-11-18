@@ -1196,6 +1196,9 @@ export type ConvertStatus =
 /**  選んだ曲の中に、同じ出力先になる曲がある */
 "sameTarget";
 
+/**  クロスフィードの強さ（左右の音を混ぜる量。強いほど多く混ぜる） */
+export type CrossfeedLevel = "weak" | "medium" | "strong";
+
 /**  日付の項目 */
 export type DateField = 
 /**  追加した日時 */
@@ -2090,6 +2093,10 @@ export type Settings = {
 	crossfadeSeconds: number,
 	/**  同じアルバムの続きの曲（曲順が続く曲）では、クロスフェードせずに切れ目なく続ける */
 	crossfadeSkipAlbumTracks: boolean,
+	/**  クロスフィード（ヘッドホン向けに、左右の音を少し混ぜる） */
+	crossfeedEnabled: boolean,
+	/**  クロスフィードの強さ（オフの間も覚えておく） */
+	crossfeedLevel: CrossfeedLevel,
 	/**  出力デバイスのID（nullはOSの既定のデバイス） */
 	outputDeviceId: string | null,
 	/**  ライブラリフォルダを監視し、ファイルの変更を自動で反映する */

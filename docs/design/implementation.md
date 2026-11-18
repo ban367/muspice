@@ -354,7 +354,7 @@ src-tauri/src/
   - 見出しのボタンは`actions`のスニペットに`SidePanelButton`（アイコンのボタン。説明は、ツールチップと読み上げに使う）を並べる。常に見せる領域（曲のカード`SidePanelTrack`）は`top`のスニペット、残りは本文に置く
   - 本文は`SidePanelSection`（小さな見出しと、見出しの右端の操作。イコライザのオン・オフなど）で区切る。中身がない時は`SidePanelMessage`を出す。仮想スクロールの一覧は、`SidePanel`の`scroll={false}`と`SidePanelSection`の`fill`で残りの高さに広げ、`flush`で左右の余白を行に任せる
   - 中身によって並びが動かないよう、見出し・曲のカード・まとまりの見出しは高さを固定し、文字は1行に収めて省略する（値のない行も高さを空ける）。ボタンは、使えない間も消さずに`disabled`にする
-  - サウンドのパネル（`SoundPanel`）は、音の設定を、まとまりのコンポーネント（`ReplayGainSection`・`CrossfadeSection`・`EqualizerSection`）で、音を処理する順に並べる。設定を足す時は、まとまりのコンポーネントを作って並べる。まとまりの中の操作は、見出しのオン・オフのスイッチ（`SidePanelToggle`）・選択肢のボタンの並び（`SidePanelOptions`）・名前と値の付いたスライダー（`SidePanelSlider`。離した時に`onchange`）を使う（ADR-099）
+  - サウンドのパネル（`SoundPanel`）は、音の設定を、まとまりのコンポーネント（`ReplayGainSection`・`CrossfadeSection`・`EqualizerSection`・`CrossfeedSection`）で、音を処理する順に並べる。設定を足す時は、まとまりのコンポーネントを作って並べる。まとまりの中の操作は、見出しのオン・オフのスイッチ（`SidePanelToggle`）・選択肢のボタンの並び（`SidePanelOptions`）・名前と値の付いたスライダー（`SidePanelSlider`。離した時に`onchange`）を使う（ADR-099）
   - 本文が狭くなるため、ライブラリの見出し（`LibraryHeader`）は、見出しの文字・ボタンの文字を折り返さず、検索欄を縮め、それでも入らなければ項目を次の行へ送る
 - 再生バー（`Player`）は、画面の下の端に幅いっぱいで重ね、高さを`--spacing-player-height`に固定する（曲がある時・ない時で変えない）。下の端まである部品（左右のサイドバー・ページの領域・Now Playingの画面・モーダル）は、この変数の分だけ下を空ける（`pb-player-height`または`padding-bottom: var(--spacing-player-height)`）。再生バーの中身の高さを変えたら、変数の値も合わせる
 

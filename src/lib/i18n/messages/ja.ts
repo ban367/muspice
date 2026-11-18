@@ -331,7 +331,7 @@ export const ja = {
   rightSidebar: {
     queueTitle: '再生キュー',
     openQueue: '再生キューを開く',
-    /** リプレイゲイン・クロスフェード・イコライザなど、音の設定のパネル */
+    /** リプレイゲイン・クロスフェード・イコライザ・クロスフィードなど、音の設定のパネル */
     soundTitle: 'サウンド',
     openSound: 'サウンドの設定を開く',
     albumInfoTitle: 'アルバム情報',
@@ -496,7 +496,14 @@ export const ja = {
     crossfadeSeconds: (seconds: number) => `${seconds}秒`,
     crossfadeHint: '曲の終わりと次の曲の頭を重ねます。「次へ」などで曲を変えた時は重ねません',
     crossfadeSkipAlbumTracks: '同じアルバムの続きの曲では重ねない',
-    crossfadeSkipAlbumTracksHint: 'アルバムを曲順に聴く時は、曲間を切れ目なく続けます'
+    crossfadeSkipAlbumTracksHint: 'アルバムを曲順に聴く時は、曲間を切れ目なく続けます',
+    crossfeed: 'クロスフィード',
+    turnOnCrossfeed: 'クロスフィードをオン',
+    turnOffCrossfeed: 'クロスフィードをオフ',
+    crossfeedLevel: '強さ',
+    crossfeedLevels: { weak: '弱', medium: '中', strong: '強' },
+    crossfeedHint:
+      'ヘッドホン向けに左右の音を少し混ぜて、スピーカーで聴く時に近い広がりにします。左右に大きく分かれた録音が聴きやすくなります'
   },
 
   metadataEditor: {
@@ -1242,7 +1249,7 @@ export const ja = {
     globalShortcutUnavailable: 'ほかのアプリが使っているため、登録できませんでした',
     /** 再生の設定の見出しの下（音の設定は、右サイドバーのパネルにある） */
     soundPanelNote:
-      'リプレイゲイン・ギャップレス再生・クロスフェード・イコライザは、右サイドバーの「サウンド」で変えます',
+      'リプレイゲイン・ギャップレス再生・クロスフェード・イコライザ・クロスフィードは、右サイドバーの「サウンド」で変えます',
     outputDevice: '出力デバイス',
     outputDeviceDefault: 'システムの既定',
     /** 選んであるデバイスが一覧にない（接続されていない）場合の表示 */

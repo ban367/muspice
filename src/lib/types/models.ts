@@ -23,6 +23,7 @@ export type {
   ConvertProgress,
   ConvertResult,
   ConvertStatus,
+  CrossfeedLevel,
   DateField,
   DateOp,
   DeleteFailure,
