@@ -82,6 +82,27 @@ describe('選択中の曲のパネルへの切り替えの設定', () => {
   });
 });
 
+describe('グリッドの下の中身の領域の高さ', () => {
+  it('保存がない・不正な値なら既定値で、変えると最小値より小さくせずに保存する', async () => {
+    let ui = await importFreshUi();
+    expect(ui.gridDetailHeight).toBe(320);
+
+    ui.gridDetailHeight = 250.4;
+    expect(ui.gridDetailHeight).toBe(250);
+    expect(localStorage.getItem('muspice:gridDetailHeight')).toBe('250');
+    ui = await importFreshUi();
+    expect(ui.gridDetailHeight).toBe(250);
+
+    ui.gridDetailHeight = 10;
+    expect(ui.gridDetailHeight).toBe(120);
+
+    localStorage.setItem('muspice:gridDetailHeight', '"tall"');
+    expect((await importFreshUi()).gridDetailHeight).toBe(320);
+    localStorage.setItem('muspice:gridDetailHeight', '50');
+    expect((await importFreshUi()).gridDetailHeight).toBe(320);
+  });
+});
+
 describe('右サイドバーの固定', () => {
   it('保存がなければ固定し、解除を保存した時だけ固定しない', async () => {
     expect((await importFreshUi()).isRightSidebarPinned).toBe(true);

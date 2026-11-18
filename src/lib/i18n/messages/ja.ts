@@ -910,6 +910,9 @@ export const ja = {
   },
 
   library: {
+    /** グリッドの下に出す、選んだ項目の中身の領域（境目の名前と、閉じるボタン） */
+    detailResize: '中身の領域の高さ',
+    closeDetail: '中身の領域を閉じる',
     songs: '曲',
     albums: 'アルバム',
     artists: 'アーティスト',

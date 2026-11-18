@@ -864,6 +864,8 @@ export const en: Messages = {
   },
 
   library: {
+    detailResize: 'Height of the details area',
+    closeDetail: 'Close the details area',
     songs: 'Songs',
     albums: 'Albums',
     artists: 'Artists',

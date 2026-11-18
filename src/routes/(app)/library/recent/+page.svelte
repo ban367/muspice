@@ -5,8 +5,11 @@
   - アルバムのカード: ダブルクリック・Enter・再生ボタンでアルバムを再生する
   - 曲のカード（アルバムのない曲）: ダブルクリック・Enter・再生ボタンで、その曲を再生する
   - キーボード: ほかのグリッド（`LibraryGrid`）と同じく、矢印キー・Home・Endで現在位置を移す
+  - 選んだアルバムの曲は、グリッドの下の領域に出す（`AlbumDetail`。ほかのグリッドと同じ。ADR-097）。
+    曲のカード（アルバムのない曲）は、中身がないため出さない
 -->
 <script lang="ts">
+  import { tick } from 'svelte';
   import { useQueryClient } from '@tanstack/svelte-query';
   import type { AlbumSummary } from '#lib/types/models.js';
   import { useTracksQuery } from '#lib/queries/tracks.js';
@@ -23,6 +26,8 @@
   import GroupContextMenu from '#lib/components/GroupContextMenu.svelte';
   import MarqueeText from '#lib/components/MarqueeText.svelte';
   import CardSizeSlider from '#lib/components/library/CardSizeSlider.svelte';
+  import AlbumDetail from '#lib/components/library/AlbumDetail.svelte';
+  import GridDetailSplit from '#lib/components/library/GridDetailSplit.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   // カードの、アルバムアートを除いた高さの見積もり（描画した後は、実測した高さを使う）
@@ -77,6 +82,31 @@
     virtualList?.scrollToIndex(action.index);
   }
 
+  /** グリッドの下に曲を出すアルバム（選んだアルバムのカード。曲のカードは出さない） */
+  const detailItem = $derived(
+    activeKey === null
+      ? null
+      : (items.find((item) => item.key === activeKey && item.kind === 'album') ?? null)
+  );
+
+  // 中身の領域を開いた時は、グリッドが低くなった後に、選んだカードを見える位置へ出す（`LibraryGrid`と同じ）
+  let isDetailOpen = false;
+  $effect(() => {
+    const isOpen = detailItem !== null;
+    if (isOpen === isDetailOpen) return;
+    isDetailOpen = isOpen;
+    if (!isOpen) return;
+    const key = activeKey;
+    void tick().then(() => {
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          const index = items.findIndex((item) => item.key === key);
+          if (index >= 0) virtualList?.scrollToIndex(index);
+        })
+      );
+    });
+  });
+
   function handleContextMenu(event: MouseEvent, item: RecentItem) {
     event.preventDefault();
     contextMenu = { x: event.clientX, y: event.clientY, item };
@@ -124,76 +154,91 @@
         <p class="text-sm text-text-dimmed">{m.library.emptyLibraryHint}</p>
       </div>
     {:else}
-      <!-- 一覧がフォーカスを受けてキー操作を扱い、現在位置のカードを枠で示す -->
-      <VirtualList
-        bind:this={virtualList}
-        {items}
-        getKey={(item) => item.key}
-        estimatedRowHeight={ui.gridCardSize + ESTIMATED_CARD_EXTRA_HEIGHT}
-        minColumnWidth={ui.gridCardWidth}
-        gap={GRID_CARD_GAP}
-        overscan={2}
-        scrollerClass="p-3"
-        class="outline-none justify-items-center"
-        role="listbox"
-        aria-label={m.library.recentlyAdded}
-        tabindex={0}
-        onkeydown={handleKeydown}
-      >
-        {#snippet row(item)}
-          <!-- svelte-ignore a11y_interactive_supports_focus -->
-          <div
-            class="grid-item"
-            class:active={item.key === activeKey}
-            role="option"
-            aria-selected={item.key === activeKey}
-            onpointerdown={() => (activeKey = item.key)}
+      <GridDetailSplit detail={detailItem ? detailPane : undefined}>
+        {#snippet grid()}
+          <!-- 一覧がフォーカスを受けてキー操作を扱い、現在位置のカードを枠で示す -->
+          <VirtualList
+            bind:this={virtualList}
+            {items}
+            getKey={(item) => item.key}
+            estimatedRowHeight={ui.gridCardSize + ESTIMATED_CARD_EXTRA_HEIGHT}
+            minColumnWidth={ui.gridCardWidth}
+            gap={GRID_CARD_GAP}
+            overscan={2}
+            scrollerClass="p-3"
+            class="outline-none justify-items-center"
+            role="listbox"
+            aria-label={m.library.recentlyAdded}
+            tabindex={0}
+            onkeydown={handleKeydown}
           >
-            <!-- キー操作は一覧（listbox）で受けるため、カードはフォーカスを受けない -->
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <!-- 幅を決めておく（決めないと、長い名前の幅までカードが広がり、隣の列に重なる） -->
-            <div
-              class="grid-card"
-              style="width: {ui.gridCardWidth}px;"
-              ondblclick={() => play(item)}
-              oncontextmenu={(event) => handleContextMenu(event, item)}
-            >
-              <div class="grid-card-art">
-                <AlbumArt
-                  src={albumArtUrl(item.representativeTrackId)}
-                  alt={item.name}
-                  placeholderType={item.kind === 'album' ? 'disc' : 'music'}
-                />
-                <div class="play-overlay">
-                  <button
-                    class="play-button-circle"
-                    onclick={(event) => {
-                      event.stopPropagation();
-                      play(item);
-                    }}
-                    title={item.kind === 'album' ? m.library.playAlbum : m.common.play}
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M8 5v14l11-7z" />
-                    </svg>
-                  </button>
+            {#snippet row(item)}
+              <!-- svelte-ignore a11y_interactive_supports_focus -->
+              <div
+                class="grid-item"
+                class:active={item.key === activeKey}
+                role="option"
+                aria-selected={item.key === activeKey}
+                onpointerdown={() => (activeKey = item.key)}
+              >
+                <!-- キー操作は一覧（listbox）で受けるため、カードはフォーカスを受けない -->
+                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                <!-- 幅を決めておく（決めないと、長い名前の幅までカードが広がり、隣の列に重なる） -->
+                <div
+                  class="grid-card"
+                  style="width: {ui.gridCardWidth}px;"
+                  ondblclick={() => play(item)}
+                  oncontextmenu={(event) => handleContextMenu(event, item)}
+                >
+                  <div class="grid-card-art">
+                    <AlbumArt
+                      src={albumArtUrl(item.representativeTrackId)}
+                      alt={item.name}
+                      placeholderType={item.kind === 'album' ? 'disc' : 'music'}
+                    />
+                    <div class="play-overlay">
+                      <button
+                        class="play-button-circle"
+                        onclick={(event) => {
+                          event.stopPropagation();
+                          play(item);
+                        }}
+                        title={item.kind === 'album' ? m.library.playAlbum : m.common.play}
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          viewBox="0 0 24 24"
+                          fill="currentColor"
+                        >
+                          <path d="M8 5v14l11-7z" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                  <div class="text-center">
+                    <MarqueeText text={item.name} class="grid-card-title" />
+                    <MarqueeText
+                      text={item.artist || m.common.unknownArtist}
+                      class="grid-card-subtitle"
+                    />
+                    <p class="added-at">{formatDate(item.addedAt)}</p>
+                  </div>
                 </div>
               </div>
-              <div class="text-center">
-                <MarqueeText text={item.name} class="grid-card-title" />
-                <MarqueeText
-                  text={item.artist || m.common.unknownArtist}
-                  class="grid-card-subtitle"
-                />
-                <p class="added-at">{formatDate(item.addedAt)}</p>
-              </div>
-            </div>
-          </div>
+            {/snippet}
+          </VirtualList>
         {/snippet}
-      </VirtualList>
+      </GridDetailSplit>
     {/if}
   </div>
 </div>
+
+<!-- グリッドの下に出す、選んだアルバムの曲 -->
+{#snippet detailPane()}
+  {#if detailItem}
+    <AlbumDetail album={toAlbum(detailItem)} onClose={() => (activeKey = null)} />
+  {/if}
+{/snippet}
 
 {#if contextMenu?.item.kind === 'album'}
   <GroupContextMenu
