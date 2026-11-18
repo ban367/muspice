@@ -7,7 +7,12 @@
  * （`SettingsSync`コンポーネント）。
  */
 
-import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
+import {
+  createMutation,
+  createQuery,
+  useQueryClient,
+  type QueryClient
+} from '@tanstack/svelte-query';
 import { commands } from '#lib/bindings.js';
 import type { Settings } from '#lib/types/models.js';
 import { queryKeys } from './keys.js';
@@ -62,12 +67,27 @@ export function useGlobalShortcutsQuery(enabled: () => boolean) {
 }
 
 /**
+ * ほかのウィンドウで保存された設定（`SettingsChanged`の値）を、キャッシュへ入れる
+ *
+ * 取得中の設定は取り消してから入れる。通知より前の値を読んだ取得（ウィンドウを開いた直後の、最初の取得
+ * など）が後から終わって、古い値で上書きしないようにする。
+ */
+export async function receiveSavedSettings(
+  queryClient: QueryClient,
+  settings: Settings
+): Promise<void> {
+  await queryClient.cancelQueries({ queryKey: queryKeys.settings });
+  queryClient.setQueryData(queryKeys.settings, settings);
+}
+
+/**
  * メインウィンドウで変える設定（設定ウィンドウには項目がない）
  *
  * - Auto DJ（プレーヤーの再生の補助のメニュー）
  * - リプレイゲイン・ギャップレス再生・クロスフェード・クロスフィード（右サイドバーのサウンドのパネル）
  *
- * 設定ウィンドウは、開いている間にこれらが変えられたら、編集中の設定へ取り込む（「適用」で元に戻さない）。
+ * 設定ウィンドウは、開いている間にこれらが変えられたら（`SettingsChanged`でキャッシュが更新される）、
+ * 編集中の設定へ取り込む（「適用」で元に戻さない）。
  */
 export const SETTINGS_EDITED_IN_MAIN_WINDOW = [
   'autoDj',

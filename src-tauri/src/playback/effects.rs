@@ -357,13 +357,19 @@ impl CrossfeedCoefficients {
 
 /// クロスフィード
 ///
-/// オン・オフを切り替える時は、元の音と混ぜた音を短い時間（`CROSSFEED_FADE_SECONDS`）で入れ替える
-/// （急に切り替えると、音が跳ねる）。オフの間は、音声に触れない。
+/// オン・オフと強さを切り替える時は、元の音と混ぜた音を短い時間（`CROSSFEED_FADE_SECONDS`）で入れ替える
+/// （急に切り替えると、音が跳ねる）。強さを変える時は、いったん元の音へ戻してから、新しい強さの係数で
+/// 混ぜ直す（混ぜている途中で係数を差し替えると、フィルターの状態と合わずに音が跳ねる）。
+/// オフの間は、音声に触れない。
 pub struct Crossfeed {
     sample_rate: f64,
     /// 読み込んだ設定の番号
     version: u64,
+    /// 今の係数と、その強さ
     coefficients: Option<CrossfeedCoefficients>,
+    level: Option<CrossfeedLevel>,
+    /// 元の音へ戻しきったら切り替える強さ（混ぜている間に強さが変わった時）
+    pending: Option<CrossfeedLevel>,
     /// 混ぜた音の割合（0で元の音、1で混ぜた音）と、その目標
     mix: f32,
     target_mix: f32,
@@ -381,6 +387,8 @@ impl Crossfeed {
             // 最初のコールバックで、必ず設定を読む
             version: u64::MAX,
             coefficients: None,
+            level: None,
+            pending: None,
             mix: 0.0,
             target_mix: 0.0,
             mix_step: 1.0 / (CROSSFEED_FADE_SECONDS * sample_rate as f32),
@@ -392,9 +400,7 @@ impl Crossfeed {
 
     /// フィルターの内部状態を消す（続きではない音声へ切り替わる時）
     pub fn reset(&mut self) {
-        self.low = [0.0; OUTPUT_CHANNELS];
-        self.high = [0.0; OUTPUT_CHANNELS];
-        self.previous = [0.0; OUTPUT_CHANNELS];
+        self.clear_state();
         self.mix = self.target_mix;
     }
 
@@ -403,21 +409,19 @@ impl Crossfeed {
         let version = params.version.load(Ordering::Acquire);
         if version != self.version {
             self.version = version;
-            match params.crossfeed_level() {
-                Some(level) => {
-                    self.coefficients = Some(CrossfeedCoefficients::new(level, self.sample_rate));
-                    self.target_mix = 1.0;
-                }
-                // 係数は、元の音へ戻しきるまで使う
-                None => self.target_mix = 0.0,
-            }
+            self.follow_level(params.crossfeed_level());
         }
-        let Some(c) = self.coefficients else {
-            return;
-        };
+        if self.mix == 0.0
+            && let Some(level) = self.pending.take()
+        {
+            self.switch_to(level);
+        }
         if self.mix == 0.0 && self.target_mix == 0.0 {
             return;
         }
+        let Some(mut c) = self.coefficients else {
+            return;
+        };
 
         for frame in samples.as_chunks_mut::<OUTPUT_CHANNELS>().0 {
             let input = [f64::from(frame[0]), f64::from(frame[1])];
@@ -445,11 +449,56 @@ impl Crossfeed {
             for (sample, wet) in frame.iter_mut().zip(mixed) {
                 *sample += (wet - *sample) * self.mix;
             }
+            // 元の音へ戻しきった: 待っていた強さの係数で、混ぜ直す
+            if self.mix == 0.0
+                && let Some(level) = self.pending.take()
+            {
+                c = self.switch_to(level);
+            }
         }
         if self.mix == 0.0 && self.target_mix == 0.0 {
             // 元の音へ戻しきった: 次にオンにする時のために、状態を消す
-            self.reset();
+            self.clear_state();
         }
+    }
+
+    /// 設定の強さ（Noneはオフ）に合わせて、混ぜる割合の目標と、切り替える強さを決める
+    fn follow_level(&mut self, wanted: Option<CrossfeedLevel>) {
+        match wanted {
+            // 係数は、元の音へ戻しきるまで使う
+            None => {
+                self.pending = None;
+                self.target_mix = 0.0;
+            }
+            Some(level) if self.level == Some(level) => {
+                self.pending = None;
+                self.target_mix = 1.0;
+            }
+            Some(level) if self.mix == 0.0 => {
+                self.switch_to(level);
+            }
+            // 混ぜている間に強さが変わった: いったん元の音へ戻してから切り替える
+            Some(level) => {
+                self.pending = Some(level);
+                self.target_mix = 0.0;
+            }
+        }
+    }
+
+    /// 強さの係数に切り替えて、混ぜ始める（元の音を出している間だけ呼ぶ。フィルターの状態は消す）
+    fn switch_to(&mut self, level: CrossfeedLevel) -> CrossfeedCoefficients {
+        let coefficients = CrossfeedCoefficients::new(level, self.sample_rate);
+        self.coefficients = Some(coefficients);
+        self.level = Some(level);
+        self.clear_state();
+        self.target_mix = 1.0;
+        coefficients
+    }
+
+    fn clear_state(&mut self) {
+        self.low = [0.0; OUTPUT_CHANNELS];
+        self.high = [0.0; OUTPUT_CHANNELS];
+        self.previous = [0.0; OUTPUT_CHANNELS];
     }
 }
 
@@ -633,6 +682,40 @@ mod tests {
             (left - 0.5).abs() < 0.02 && (right - 0.5).abs() < 0.02,
             "{left} {right}"
         );
+    }
+
+    #[test]
+    fn test_crossfeed_strength_change_goes_through_the_dry_sound() {
+        let (mut crossfeed, params) = make_crossfeed(Some(CrossfeedLevel::Medium));
+        // 100Hzの1秒分は、ちょうど100周期（続けて流しても、音が途切れない）
+        let mut samples = panned_sine(100.0, 0.5, 0.0, 48_000);
+        crossfeed.process(&mut samples, &params);
+        let mut rights: Vec<f32> = samples.iter().skip(1).step_by(2).copied().collect();
+
+        // 同じ強さのままの設定の変更（イコライザの変更など）では、混ぜた音のまま
+        params.set_equalizer(false, &[0.0; EQ_BANDS]);
+        let mut block = panned_sine(100.0, 0.5, 0.0, 480);
+        crossfeed.process(&mut block, &params);
+        assert_eq!(crossfeed.mix, 1.0);
+        rights.extend(block.iter().skip(1).step_by(2));
+
+        // 強さを変えると、いったん元の音へ戻してから、新しい強さで混ぜ直す
+        params.set_crossfeed(Some(CrossfeedLevel::Strong));
+        let mut dipped = false;
+        for _ in 0..10 {
+            let mut block = panned_sine(100.0, 0.5, 0.0, 480);
+            crossfeed.process(&mut block, &params);
+            dipped |= crossfeed.mix < 0.5;
+            rights.extend(block.iter().skip(1).step_by(2));
+        }
+        assert!(dipped);
+        assert_eq!(crossfeed.level, Some(CrossfeedLevel::Strong));
+        assert_eq!(crossfeed.mix, 1.0);
+        // 右（混ぜた音）は、切り替えの間も跳ねない
+        let jump = rights
+            .windows(2)
+            .fold(0.0f32, |max, pair| max.max((pair[1] - pair[0]).abs()));
+        assert!(jump < 0.01, "{jump}");
     }
 
     #[test]

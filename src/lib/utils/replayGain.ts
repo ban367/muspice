@@ -55,7 +55,7 @@ export function appliedReplayGain(
   const [preferred, fallback] = useTrack ? [track, album] : [album, track];
   const chosen = preferred.gain !== null ? preferred : fallback.gain !== null ? fallback : null;
   if (chosen === null || chosen.gain === null) {
-    return { source: 'untagged', gainDb: settings.normalizationUntaggedPreampDb, limited: false };
+    return untaggedGain(settings, preferred.peak ?? fallback.peak);
   }
 
   const gainDb = chosen.gain + settings.normalizationPreampDb;
@@ -65,4 +65,19 @@ export function appliedReplayGain(
     if (gainDb > limitDb) return { source: chosen.source, gainDb: limitDb, limited: true };
   }
   return { source: chosen.source, gainDb, limited: false };
+}
+
+/**
+ * ゲインのない曲の補正（ゲインのない曲の設定をかける）
+ *
+ * クリップ防止がオンで、ピークがある場合は、持ち上げてもピークがフルスケールを超えない量に抑える。
+ * 抑えるのは持ち上げた分だけで、ピークがもともと最大を超えている曲も、下げはしない。
+ */
+function untaggedGain(settings: ReplayGainSettings, peak: number | null): AppliedReplayGain {
+  const gainDb = settings.normalizationUntaggedPreampDb;
+  if (settings.normalizationPreventClipping && peak !== null && peak > 0) {
+    const limitDb = Math.max(-20 * Math.log10(peak), 0);
+    if (gainDb > limitDb) return { source: 'untagged', gainDb: limitDb, limited: true };
+  }
+  return { source: 'untagged', gainDb, limited: false };
 }

@@ -65,6 +65,34 @@ describe('appliedReplayGain', () => {
     ).toEqual({ source: 'untagged', gainDb: -6, limited: false });
   });
 
+  it('ゲインのない曲も、持ち上げた分はピークがフルスケールを超えない量に抑える', () => {
+    const half: ReplayGain = { ...NO_GAIN, albumPeak: 0.5 };
+    const limited = appliedReplayGain(half, settings({ normalizationUntaggedPreampDb: 12 }), false);
+    expect(limited?.source).toBe('untagged');
+    expect(limited?.limited).toBe(true);
+    expect(limited?.gainDb).toBeCloseTo(-20 * Math.log10(0.5));
+    // クリップ防止がオフなら抑えない
+    expect(
+      appliedReplayGain(
+        half,
+        settings({ normalizationUntaggedPreampDb: 12, normalizationPreventClipping: false }),
+        false
+      )
+    ).toEqual({ source: 'untagged', gainDb: 12, limited: false });
+    // 最大を超えている曲も、下げはしない
+    const loud: ReplayGain = { ...NO_GAIN, trackPeak: 1.2 };
+    expect(appliedReplayGain(loud, settings({ normalizationUntaggedPreampDb: 6 }), false)).toEqual({
+      source: 'untagged',
+      gainDb: 0,
+      limited: true
+    });
+    expect(appliedReplayGain(loud, settings(), false)).toEqual({
+      source: 'untagged',
+      gainDb: 0,
+      limited: false
+    });
+  });
+
   it('クリップ防止がオンなら、ピークがフルスケールを超えない量に抑える', () => {
     const loud: ReplayGain = { ...NO_GAIN, trackGain: 6, trackPeak: 0.8 };
     const limited = appliedReplayGain(loud, settings(), false);
