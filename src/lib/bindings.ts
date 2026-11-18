@@ -849,6 +849,12 @@ includesSettings: boolean } |
 	 *  設定はフロントエンドが保存しており（`equalizer.svelte.ts`）、起動時と変更のたびに送る。
 	 */
 	playbackSetEqualizer: (enabled: boolean, gains: (number | null)[]) => __TAURI_INVOKE<null>("playback_set_equalizer", { enabled, gains }),
+	/**
+	 *  シャッフルモードかを伝える（音量の正規化が自動の時に、トラック単位とアルバム単位を選ぶのに使う）
+	 * 
+	 *  シャッフルモードはフロントエンドが持っており、起動時と切り替えのたびに送る。
+	 */
+	playbackSetShuffle: (shuffle: boolean) => __TAURI_INVOKE<null>("playback_set_shuffle", { shuffle }),
 	/**  再生を止める（再生中の曲・続けて再生する曲を手放す） */
 	playbackStop: () => __TAURI_INVOKE<null>("playback_stop"),
 	/**  出力デバイスの一覧を取得する */
@@ -2072,6 +2078,10 @@ export type Settings = {
 	volumeNormalization: VolumeNormalization,
 	/**  音量の正規化のプリアンプ（dB。正規化で補正する曲の音量を、まとめて上げ下げする） */
 	normalizationPreampDb: number,
+	/**  音量の正規化で、ゲインのない曲（ReplayGainのタグがない曲）にかける音量の変化（dB） */
+	normalizationUntaggedPreampDb: number,
+	/**  音量の正規化で、ピークがフルスケールを超えない倍率に抑える（クリップ防止） */
+	normalizationPreventClipping: boolean,
 	/**  ギャップレス再生（次の曲を先読みし、曲間に無音を入れずに続ける） */
 	gaplessPlayback: boolean,
 	/**  クロスフェードする（曲の終わりと次の曲の頭を重ねる） */
@@ -2348,7 +2358,9 @@ export type VolumeNormalization =
 /**  トラック単位のゲインで補正する（ない場合はアルバム単位） */
 "track" | 
 /**  アルバム単位のゲインで補正する（ない場合はトラック単位） */
-"album";
+"album" | 
+/**  シャッフルモードの間はトラック単位、それ以外はアルバム単位で補正する */
+"auto";
 
 /**  アプリ内の値をファイルへ書き出した結果 */
 export type WriteMetadataResult = {

@@ -435,12 +435,23 @@ export const en: Messages = {
 
   soundPanel: {
     replayGain: 'ReplayGain',
-    replayGainModes: { off: 'Off', track: 'Track', album: 'Album' },
+    replayGainModes: { off: 'Off', track: 'Track', album: 'Album', auto: 'Auto' },
     replayGainHint:
       'Evens out loudness using the tags. Album keeps the differences within an album. Add tags with "Loudness analysis" in Settings.',
     preamp: 'Preamp',
     preampValue: (db) => `${db > 0 ? '+' : ''}${db} dB`,
+    replayGainAutoHint: 'Auto uses track gain in shuffle mode and album gain otherwise.',
     preampHint: 'Raises or lowers the volume of all adjusted tracks.',
+    untaggedPreamp: 'Tracks without tags',
+    untaggedPreampHint: 'Raises or lowers the volume of tracks without ReplayGain tags.',
+    preventClipping: 'Prevent clipping',
+    preventClippingHint:
+      'Keeps the adjustment below the peak of the track so that it does not clip.',
+    currentGain: 'Now playing',
+    gainValue: (db) => `${db > 0 ? '+' : ''}${db.toFixed(1)} dB`,
+    gainDetail: (value, source) => `${value} (${source})`,
+    gainSources: { track: 'Track', album: 'Album', untagged: 'No tags' },
+    gainLimited: 'Limited to prevent clipping',
     gapless: 'Gapless playback',
     turnOnGapless: 'Turn on gapless playback',
     turnOffGapless: 'Turn off gapless playback',

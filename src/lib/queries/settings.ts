@@ -74,6 +74,8 @@ export const SETTINGS_EDITED_IN_MAIN_WINDOW = [
   'autoDjPlaylistId',
   'volumeNormalization',
   'normalizationPreampDb',
+  'normalizationUntaggedPreampDb',
+  'normalizationPreventClipping',
   'gaplessPlayback',
   'crossfadeEnabled',
   'crossfadeSeconds'

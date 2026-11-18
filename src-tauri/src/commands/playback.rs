@@ -123,6 +123,18 @@ pub async fn playback_stop(engine: State<'_, PlaybackEngine>) -> AppResult<()> {
     engine.stop()
 }
 
+/// シャッフルモードかを伝える（音量の正規化が自動の時に、トラック単位とアルバム単位を選ぶのに使う）
+///
+/// シャッフルモードはフロントエンドが持っており、起動時と切り替えのたびに送る。
+#[tauri::command]
+#[specta::specta]
+pub async fn playback_set_shuffle(
+    shuffle: bool,
+    engine: State<'_, PlaybackEngine>,
+) -> AppResult<()> {
+    engine.set_shuffle(shuffle)
+}
+
 /// イコライザの設定を変える（再生中の音にすぐに効く）
 ///
 /// `gains`は、バンドごとのゲイン（dB。31Hz〜16kHzの10個。範囲外の値は-12〜12に収める）。

@@ -138,6 +138,8 @@ enum Command {
     Stop,
     SetOutputDevice(Option<String>),
     SetNormalization(Normalization),
+    /// シャッフルモードか（音量の正規化の自動で、トラック単位とアルバム単位を選ぶ）
+    SetShuffle(bool),
     SetCrossfade(u8),
     /// 出力からの通知（`generation`は、通知した出力を開いたときの番号）
     Output {
@@ -239,6 +241,12 @@ impl PlaybackEngine {
         self.send(Command::SetOutputDevice(options.output_device_id))?;
         self.send(Command::SetNormalization(options.normalization))?;
         self.send(Command::SetCrossfade(options.crossfade_seconds))
+    }
+
+    /// シャッフルモードかを伝える（音量の正規化が自動の時に、トラック単位とアルバム単位を選ぶのに使う。
+    /// 再生中の曲にも、すぐに（バッファにたまっている分の後から）効く）
+    pub fn set_shuffle(&self, shuffle: bool) -> AppResult<()> {
+        self.send(Command::SetShuffle(shuffle))
     }
 
     /// イコライザの設定を変える（`gains`は、バンドごとのゲイン（dB）。すぐに効く）
@@ -443,6 +451,8 @@ struct Engine {
     /// イコライザの設定（開いた出力の`Renderer`へ渡す）
     effects: Arc<EffectParams>,
     normalization: Normalization,
+    /// シャッフルモードか（フロントエンドが伝える。音量の正規化の自動で使う）
+    shuffle: bool,
     /// クロスフェードの秒数（0でクロスフェードしない）
     crossfade_seconds: f64,
 }
@@ -462,6 +472,7 @@ impl Engine {
             device_id: options.output_device_id,
             effects,
             normalization: options.normalization,
+            shuffle: false,
             crossfade_seconds: f64::from(options.crossfade_seconds.min(MAX_CROSSFADE_SECONDS)),
             fade: None,
             volume: 1.0,
@@ -598,14 +609,12 @@ impl Engine {
             }
             Command::SetNormalization(normalization) => {
                 self.normalization = normalization;
-                // 開いている曲の倍率を決め直す（次に書く音声から、滑らかに変わる）
-                let decks = [
-                    self.current.as_mut(),
-                    self.next.as_mut(),
-                    self.fade.as_mut().map(|fade| &mut fade.incoming),
-                ];
-                for deck in decks.into_iter().flatten() {
-                    deck.gain = normalization_gain(&deck.replay_gain, normalization);
+                self.update_gains();
+            }
+            Command::SetShuffle(shuffle) => {
+                if shuffle != self.shuffle {
+                    self.shuffle = shuffle;
+                    self.update_gains();
                 }
             }
             Command::SetCrossfade(seconds) => {
@@ -664,7 +673,8 @@ impl Engine {
             Some(deck) => deck.decoder,
             None => (self.open_decoder)(&request.path)?,
         };
-        let deck = Deck::new(request, decoder, self.normalization);
+        let gain = self.gain_of(&request.replay_gain);
+        let deck = Deck::new(request, decoder, gain);
         if self.output.is_none() {
             self.open_output()?;
         }
@@ -773,7 +783,8 @@ impl Engine {
                 return;
             }
         };
-        let deck = Deck::new(opening.request, decoder, self.normalization);
+        let gain = self.gain_of(&opening.request.replay_gain);
+        let deck = Deck::new(opening.request, decoder, gain);
         if self.decode_finished && self.deferred_failure.is_none() {
             // 再生中の曲のデコードは終わっている（鳴り終わるのを待っている）ため、すぐに続ける
             self.start_next(deck);
@@ -938,6 +949,24 @@ impl Engine {
     }
 
     // ---------- クロスフェード ----------
+
+    /// 曲の音量を補正する倍率（設定と、シャッフルモードかから決める）
+    fn gain_of(&self, replay_gain: &ReplayGain) -> f32 {
+        normalization_gain(replay_gain, self.normalization, self.shuffle)
+    }
+
+    /// 開いている曲の倍率を決め直す（次に書く音声から、滑らかに変わる）
+    fn update_gains(&mut self) {
+        let (normalization, shuffle) = (self.normalization, self.shuffle);
+        let decks = [
+            self.current.as_mut(),
+            self.next.as_mut(),
+            self.fade.as_mut().map(|fade| &mut fade.incoming),
+        ];
+        for deck in decks.into_iter().flatten() {
+            deck.gain = normalization_gain(&deck.replay_gain, normalization, shuffle);
+        }
+    }
 
     /// 次の曲へクロスフェードする場合に、重ねる長さ（秒）と、始めるまでに書く前の曲のフレーム数
     /// （前の曲のサンプルレートでの数。0なら、今から始める）を返す
@@ -1260,7 +1289,8 @@ impl Engine {
                     replay_gain: front.replay_gain.clone(),
                 };
                 let decoder = (self.open_decoder)(&front.path)?;
-                (Deck::new(request, decoder, self.normalization), None)
+                let gain = self.gain_of(&request.replay_gain);
+                (Deck::new(request, decoder, gain), None)
             }
         };
         let position = deck.decoder.seek(seconds)?;
@@ -1469,9 +1499,8 @@ fn superseded() -> AppError {
 }
 
 impl Deck {
-    /// デコーダーを開いた曲から、デッキを作る（`normalization`は、音量の正規化の設定）
-    fn new(request: PlayRequest, decoder: TrackDecoder, normalization: Normalization) -> Self {
-        let gain = normalization_gain(&request.replay_gain, normalization);
+    /// デコーダーを開いた曲から、デッキを作る（`gain`は、音量の正規化の倍率）
+    fn new(request: PlayRequest, decoder: TrackDecoder, gain: f32) -> Self {
         Self {
             token: request.token,
             path: request.path,
@@ -2974,6 +3003,36 @@ mod tests {
         assert_sample(&played, 400, 4_400);
     }
 
+    #[test]
+    fn test_auto_normalization_follows_the_shuffle_mode() {
+        let mut harness = Harness::with_options(PlaybackOptions {
+            normalization: VolumeNormalization::Auto.into(),
+            ..options()
+        });
+        let path = harness.track("a.wav", 16_000);
+        harness
+            .engine
+            .play(PlayRequest {
+                replay_gain: ReplayGain {
+                    track_gain: Some(-6.0),
+                    album_gain: Some(-12.0),
+                    ..ReplayGain::default()
+                },
+                ..request(1, &path)
+            })
+            .unwrap();
+        // シャッフルモードでない間は、アルバム単位
+        let played = harness.render(1_000);
+        let scaled = played[999] / expected(999);
+        assert!((scaled - from_db(-12.0)).abs() < 1e-3, "{scaled}");
+
+        // シャッフルモードにすると、バッファにたまっていた分の後から、トラック単位になる
+        harness.send(Command::SetShuffle(true));
+        let played = harness.render(9_000);
+        let scaled = played[8_999] / expected(9_999);
+        assert!((scaled - from_db(-6.0)).abs() < 1e-3, "{scaled}");
+    }
+
     // ---------- クロスフェード ----------
 
     /// クロスフェードの秒数を指定したハーネス
@@ -3366,6 +3425,8 @@ mod tests {
             output_device_id: Some("usb-dac".to_string()),
             volume_normalization: VolumeNormalization::Album,
             normalization_preamp_db: -3,
+            normalization_untagged_preamp_db: -5,
+            normalization_prevent_clipping: false,
             crossfade_enabled: true,
             crossfade_seconds: 7,
             ..Settings::default()
@@ -3378,6 +3439,8 @@ mod tests {
                 normalization: Normalization {
                     mode: VolumeNormalization::Album,
                     preamp_db: -3.0,
+                    untagged_preamp_db: -5.0,
+                    prevent_clipping: false,
                 },
                 crossfade_seconds: 7,
             }

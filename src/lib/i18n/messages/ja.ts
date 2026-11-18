@@ -467,12 +467,24 @@ export const ja = {
   soundPanel: {
     replayGain: 'リプレイゲイン',
     /** 補正に使うゲインの単位 */
-    replayGainModes: { off: 'オフ', track: 'トラック', album: 'アルバム' },
+    replayGainModes: { off: 'オフ', track: 'トラック', album: 'アルバム', auto: '自動' },
     replayGainHint:
       'タグで曲ごとの音量をそろえます。アルバムでは、アルバム内の曲の差を残します。タグのない曲は、設定の「音量の解析」で書き込めます',
     preamp: 'プリアンプ',
     preampValue: (db: number) => `${db > 0 ? '+' : ''}${db} dB`,
+    replayGainAutoHint: '自動では、シャッフルモードの間はトラック、それ以外はアルバムで補正します',
     preampHint: '補正する曲の音量を、まとめて上げ下げします',
+    untaggedPreamp: 'タグのない曲',
+    untaggedPreampHint: 'ReplayGainのタグがない曲の音量を上げ下げします',
+    preventClipping: 'クリップ防止',
+    preventClippingHint: '補正で音割れしないよう、曲のピークに合わせて抑えます',
+    /** 再生中の曲にかけている補正 */
+    currentGain: '再生中の曲',
+    gainValue: (db: number) => `${db > 0 ? '+' : ''}${db.toFixed(1)} dB`,
+    /** 補正の量と、使ったゲイン */
+    gainDetail: (value: string, source: string) => `${value}（${source}）`,
+    gainSources: { track: 'トラック', album: 'アルバム', untagged: 'タグなし' },
+    gainLimited: 'クリップ防止で抑えています',
     gapless: 'ギャップレス再生',
     turnOnGapless: 'ギャップレス再生をオン',
     turnOffGapless: 'ギャップレス再生をオフ',
