@@ -6,6 +6,8 @@
   - 見出しにアーティストの名前と、すべて再生のボタンを出す
   - アルバムごとに見出し（ジャケット画像・名前・ジャンルと年・曲数と時間）を出し、その下に曲を並べる
     （ディスクが複数あるアルバムは、ディスクで区切る）
+  - グリッド表示の下の領域（`compact`）で幅が広い時は、曲をディスクごとに2列に分けて並べる
+    （左の列を上から下へ、続きを右の列へ。ADR-105）
   - アルバムの見出しをダブルクリックすると、アルバムを再生する。右クリックでアルバムのメニューを開く
   - 曲の選択はアルバムをまたいで行える。最後に選んだ曲を、右サイドバーの曲情報パネルに出す
 -->
@@ -44,7 +46,11 @@
     artist: string | null;
     /** 見出しの「その他」のメニューで扱うアーティスト（なければ、ボタンを出さない） */
     menuArtist?: ArtistSummary;
-    /** 見出しを低くするか（グリッドの下の、高さの限られた領域） */
+    /**
+     * グリッドの下の、高さの限られた領域に出すか
+     *
+     * 見出しを低くし、幅が広い時は曲を2列に分けて並べる。
+     */
     compact?: boolean;
     /** 見出しの右端に閉じるボタンを出し、押した時に呼ぶ */
     onClose?: () => void;
@@ -272,66 +278,69 @@
             {#if hasMultipleDiscs}
               <div class="disc-header">{m.common.disc(disc.discNumber)}</div>
             {/if}
-            {#each disc.tracks as track (track.id)}
-              <!-- キー操作は一覧（listbox）で受けるため、行はフォーカスを受けない -->
-              <!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
-              <div
-                class="track-row"
-                class:selected={selection.has(track.id)}
-                class:missing={track.isMissing}
-                title={track.isMissing ? m.common.fileMissing : undefined}
-                class:playing={player.currentTrack?.id === track.id}
-                draggable="true"
-                ondragstart={(e) => handleDragStart(e, track.id)}
-                onclick={(e) => handleTrackClick(track.id, e)}
-                oncontextmenu={(e) => openTrackMenu(e, track)}
-                ondblclick={() => playTrack(track)}
-                role="option"
-                aria-selected={selection.has(track.id)}
-                data-track-id={track.id}
-              >
-                <span class="track-number" class:playing={player.currentTrack?.id === track.id}>
-                  {#if player.currentTrack?.id === track.id}
-                    <PlayingIndicator size="small" />
-                  {:else}
-                    {track.trackNumber ?? ''}
-                  {/if}
-                </span>
-                <div class="track-info">
-                  <MarqueeText text={track.title || track.fileName} class="track-title" />
-                  <!-- 曲のアーティストは、一覧のアーティストと違う場合だけ表示する（フィーチャリング・コンピレーションなど） -->
-                  {#if track.artist && track.artist !== artist}
-                    <span class="track-artist">{track.artist}</span>
-                  {/if}
-                </div>
-                <div class="row-end">
-                  <!-- 幅が狭い時は、ポインタを置いた時・中のボタンにフォーカスがある時だけ、時間の代わりに出す -->
-                  <div class="row-actions">
-                    <FavoriteButton trackId={track.id} isFavorite={track.isFavorite} />
-                    <RatingStars
-                      rating={track.rating}
-                      onChange={(rating) =>
-                        setRatingMutation.mutateAsync({ trackId: track.id, rating })}
-                    />
-                  </div>
-                  <span class="track-duration">{formatDuration(track.duration)}</span>
-                </div>
-                <button
-                  class="track-action-btn"
-                  title={m.common.more}
-                  aria-label={m.common.more}
-                  aria-haspopup="menu"
-                  onclick={(e) => openTrackMenu(e, track)}
-                  ondblclick={(e) => e.stopPropagation()}
+            <!-- 2列に分ける時の、左の列の曲数（多い方を左に。下の`@container artist-albums`） -->
+            <div class="disc-tracks" style:--track-rows={Math.ceil(disc.tracks.length / 2)}>
+              {#each disc.tracks as track (track.id)}
+                <!-- キー操作は一覧（listbox）で受けるため、行はフォーカスを受けない -->
+                <!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
+                <div
+                  class="track-row"
+                  class:selected={selection.has(track.id)}
+                  class:missing={track.isMissing}
+                  title={track.isMissing ? m.common.fileMissing : undefined}
+                  class:playing={player.currentTrack?.id === track.id}
+                  draggable="true"
+                  ondragstart={(e) => handleDragStart(e, track.id)}
+                  onclick={(e) => handleTrackClick(track.id, e)}
+                  oncontextmenu={(e) => openTrackMenu(e, track)}
+                  ondblclick={() => playTrack(track)}
+                  role="option"
+                  aria-selected={selection.has(track.id)}
+                  data-track-id={track.id}
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-                    <circle cx="12" cy="5" r="2" />
-                    <circle cx="12" cy="12" r="2" />
-                    <circle cx="12" cy="19" r="2" />
-                  </svg>
-                </button>
-              </div>
-            {/each}
+                  <span class="track-number" class:playing={player.currentTrack?.id === track.id}>
+                    {#if player.currentTrack?.id === track.id}
+                      <PlayingIndicator size="small" />
+                    {:else}
+                      {track.trackNumber ?? ''}
+                    {/if}
+                  </span>
+                  <div class="track-info">
+                    <MarqueeText text={track.title || track.fileName} class="track-title" />
+                    <!-- 曲のアーティストは、一覧のアーティストと違う場合だけ表示する（フィーチャリング・コンピレーションなど） -->
+                    {#if track.artist && track.artist !== artist}
+                      <span class="track-artist">{track.artist}</span>
+                    {/if}
+                  </div>
+                  <div class="row-end">
+                    <!-- 幅が狭い時は、ポインタを置いた時・中のボタンにフォーカスがある時だけ、時間の代わりに出す -->
+                    <div class="row-actions">
+                      <FavoriteButton trackId={track.id} isFavorite={track.isFavorite} />
+                      <RatingStars
+                        rating={track.rating}
+                        onChange={(rating) =>
+                          setRatingMutation.mutateAsync({ trackId: track.id, rating })}
+                      />
+                    </div>
+                    <span class="track-duration">{formatDuration(track.duration)}</span>
+                  </div>
+                  <button
+                    class="track-action-btn"
+                    title={m.common.more}
+                    aria-label={m.common.more}
+                    aria-haspopup="menu"
+                    onclick={(e) => openTrackMenu(e, track)}
+                    ondblclick={(e) => e.stopPropagation()}
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                      <circle cx="12" cy="5" r="2" />
+                      <circle cx="12" cy="12" r="2" />
+                      <circle cx="12" cy="19" r="2" />
+                    </svg>
+                  </button>
+                </div>
+              {/each}
+            </div>
           {/each}
         </div>
       </div>
@@ -373,10 +382,10 @@
 <style>
   @reference "../../../app.css";
 
-  /* 行の幅に合わせて、お気に入りと評価の出し方を変える（下の`@container`） */
+  /* 幅に合わせて、曲を2列に分けるかを決める（下の`@container artist-albums`） */
   .artist-albums {
     @apply flex flex-col h-full overflow-hidden;
-    container-type: inline-size;
+    container: artist-albums / inline-size;
   }
 
   .detail-header {
@@ -513,9 +522,20 @@
     @apply border-b border-border;
   }
 
+  /* 2列に分ける時は、左の列を上から下へ埋めてから、右の列へ続ける（同じ段の行は、高さを左右でそろえる）。
+     各列は、曲名を読める幅（22rem程度）を残す */
+  @container artist-albums (min-width: 48rem) {
+    .artist-albums.compact .disc-tracks {
+      @apply grid grid-cols-2 grid-flow-col gap-x-6;
+      grid-template-rows: repeat(var(--track-rows), auto);
+    }
+  }
+
+  /* 行の幅に合わせて、お気に入りと評価の出し方を変える（下の`@container track-row`） */
   .track-row {
     @apply grid gap-3 py-2 px-2 items-center rounded-md cursor-pointer transition-colors duration-100 select-none;
     grid-template-columns: 2rem 1fr auto 2rem;
+    container: track-row / inline-size;
   }
 
   .track-row:hover {
@@ -576,9 +596,9 @@
     @apply w-12 text-sm text-text-dimmed text-right tabular-nums;
   }
 
-  /* 幅が狭い時（情報パネルを開いて本文が狭くなった時など）は、曲名を読めるよう、お気に入りと評価を
-     ポインタを置いた時だけ時間の代わりに出す（情報パネルの行と同じ） */
-  @container (max-width: 40rem) {
+  /* 行の幅が狭い時（情報パネルを開いて本文が狭くなった時・曲を2列に分けた時など）は、曲名を読めるよう、
+     お気に入りと評価をポインタを置いた時だけ時間の代わりに出す（情報パネルの行と同じ） */
+  @container track-row (max-width: 38rem) {
     .row-end {
       @apply gap-0;
     }
