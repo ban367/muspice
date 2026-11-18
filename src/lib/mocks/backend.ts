@@ -43,6 +43,7 @@ import type {
   ImportResult,
   LibraryFolder,
   LoudnessScanResult,
+  MusicAnalysisStatus,
   Metadata,
   MusicFolderChange,
   MusicFolderSource,
@@ -115,6 +116,7 @@ export const MOCK_EVENT_NAMES = {
   libraryScanProgress: 'library-scan-progress',
   loudnessScanFinished: 'loudness-scan-finished',
   loudnessScanProgress: 'loudness-scan-progress',
+  musicAnalysisProgress: 'music-analysis-progress',
   openImportDialog: 'open-import-dialog',
   organizeProgress: 'organize-progress',
   playbackControl: 'playback-control',
@@ -373,6 +375,12 @@ const LOSSLESS_EXTENSIONS = ['flac', 'wav', 'aiff', 'aif', 'wv', 'ape'];
 
 /** 音量の解析で、1曲を読むのにかかることにする時間（進捗と中断を目視できるようにする） */
 const LOUDNESS_SCAN_STEP_MS = 250;
+/** 曲の解析（テンポ・キー）で、1曲の解析にかける時間（ms） */
+const MUSIC_ANALYSIS_STEP_MS = 400;
+/** 曲の解析で、AVFoundationが読めない（解析できない）ことにする形式（Rustでは、開けずに記録する） */
+const MUSIC_ANALYSIS_UNSUPPORTED_FORMATS = ['ogg', 'opus', 'wv', 'ape'];
+/** AIシャッフルの候補にする、選び方に合う上位の曲の数（Rustの`ai_shuffle::CANDIDATE_LIMIT`） */
+const AI_SHUFFLE_CANDIDATE_LIMIT = 20;
 /** 空き容量の判定で残しておく容量（Rustの`SPACE_MARGIN_BYTES`と同じ） */
 const SYNC_SPACE_MARGIN_BYTES = 1024 * 1024;
 const GIB = 1024 ** 3;
@@ -395,6 +403,7 @@ const TRACK_EDITOR_KEY = 'muspice-mock:track-editor';
 interface StoredPlaybackState {
   volume: number;
   shuffle: boolean;
+  aiShuffle: boolean;
   repeat: 'off' | 'all' | 'one';
   currentIndex: number | null;
   trackIds: string[];
@@ -404,6 +413,7 @@ interface StoredPlaybackState {
 const EMPTY_PLAYBACK_STATE: StoredPlaybackState = {
   volume: 1,
   shuffle: false,
+  aiShuffle: false,
   repeat: 'off',
   currentIndex: null,
   trackIds: [],
@@ -699,6 +709,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     hiddenSidebarItems: [],
     autoDj: false,
     autoDjPlaylistId: null,
+    aiShuffleMode: 'similar',
     stayInMenuBar: false,
     globalShortcuts: false,
     notifyTrackChange: false,
@@ -806,6 +817,12 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   const exportedPaths = new Set<string>();
   // 音量の解析の実行の状態（同時に実行できる解析は1つ）
   const loudnessScan = { running: false, cancelled: false, current: 0, total: 0 };
+  /**
+   * 曲の解析（テンポ・キー）の実行の状態と結果（Rustの`music_analysis`。曲のID → 結果。
+   * nullは解析できなかった曲）
+   */
+  const musicAnalysis = { running: false, cancelled: false };
+  const musicFeatures = new Map<string, { bpm: number; key: number } | null>();
 
   const now = () => new Date().toISOString();
   const newestFirst = (a: Track, b: Track) => compareAsc(b.createdAt, a.createdAt);
@@ -2000,6 +2017,95 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     return result;
   }
 
+  /** 曲の解析の状態（Rustの`music_analysis::status`） */
+  function musicAnalysisStatus(): MusicAnalysisStatus {
+    const present = tracks.filter((track) => !track.isMissing);
+    const results = present.map((track) => musicFeatures.get(track.id));
+    return {
+      available: true,
+      running: musicAnalysis.running,
+      total: present.length,
+      analyzed: results.filter((result) => result).length,
+      failed: results.filter((result) => result === null).length
+    };
+  }
+
+  /**
+   * 曲の解析を、バックグラウンドで進める（Rustの`music_analysis::run`。実ファイルはないため、
+   * テンポとキーは曲の長さから決まる値にする）
+   */
+  async function runMusicAnalysis(): Promise<void> {
+    const pending = tracks
+      .filter((track) => !track.isMissing && !musicFeatures.has(track.id))
+      .sort((a, b) => b.playCount - a.playCount);
+    try {
+      for (const track of pending) {
+        if (musicAnalysis.cancelled) break;
+        await sleep(MUSIC_ANALYSIS_STEP_MS);
+        if (!tracks.includes(track)) continue;
+        const duration = track.duration ?? 0;
+        musicFeatures.set(
+          track.id,
+          MUSIC_ANALYSIS_UNSUPPORTED_FORMATS.includes(track.format.toLowerCase())
+            ? null
+            : { bpm: 80 + (duration % 80), key: duration % 24 }
+        );
+        options.emit('musicAnalysisProgress', musicAnalysisStatus());
+      }
+    } finally {
+      musicAnalysis.running = false;
+      options.emit('musicAnalysisProgress', musicAnalysisStatus());
+    }
+  }
+
+  /**
+   * AIシャッフルで、今の曲の次に足す曲を選ぶ（Rustの`ai_shuffle::pick`を簡単にしたもの。選び方は
+   * 設定の`aiShuffleMode`。テンポとキーは、曲の解析の結果があれば使う）
+   */
+  function pickAiShuffleTrack(currentTrackId: string, excludedTrackIds: string[]): Track | null {
+    validateTrackId(currentTrackId);
+    excludedTrackIds.forEach(validateTrackId);
+    const current = tracks.find((track) => track.id === currentTrackId);
+    const choose = (excluded: Set<string>): Track | null => {
+      const pool = tracks
+        .filter(
+          (track) => !track.isMissing && track.id !== currentTrackId && !excluded.has(track.id)
+        )
+        .sort(() => Math.random() - 0.5);
+      if (pool.length === 0) return null;
+      const scoreOf = (track: Track): number => {
+        switch (settings.aiShuffleMode) {
+          case 'frequentlyPlayed':
+            return track.playCount;
+          case 'rarelyPlayed':
+            return -track.playCount;
+          case 'similar': {
+            if (!current) return 0;
+            const a = musicFeatures.get(current.id);
+            const b = musicFeatures.get(track.id);
+            let score = 0;
+            if (a && b && Math.abs(a.bpm - b.bpm) / a.bpm < 0.1) score += 2;
+            if (a && b && a.key === b.key) score += 1.5;
+            if (current.genre && current.genre === track.genre) score += 1.5;
+            if (current.artist && current.artist === track.artist) score += 1;
+            if (current.year && track.year && Math.abs(current.year - track.year) <= 5)
+              score += 0.5;
+            return score;
+          }
+        }
+      };
+      const ranked = pool
+        .map((track) => ({ track, score: scoreOf(track) }))
+        .filter(({ score }) => settings.aiShuffleMode === 'rarelyPlayed' || score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, AI_SHUFFLE_CANDIDATE_LIMIT)
+        .map(({ track }) => track);
+      const choices = ranked.length > 0 ? ranked : pool;
+      return choices[Math.floor(Math.random() * choices.length)];
+    };
+    return choose(new Set(excludedTrackIds)) ?? choose(new Set());
+  }
+
   /**
    * 選んだ曲（選んだ順）の、ファイルの整理の計画（Rustの`commands/organize.rs`の`build_plan`）
    *
@@ -2507,6 +2613,26 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       if (loudnessScan.running) loudnessScan.cancelled = true;
       return null;
     },
+    getMusicAnalysisStatus: () => musicAnalysisStatus(),
+    startMusicAnalysis: () => {
+      if (musicAnalysis.running) return null;
+      Object.assign(musicAnalysis, { running: true, cancelled: false });
+      options.emit('musicAnalysisProgress', musicAnalysisStatus());
+      void runMusicAnalysis();
+      return null;
+    },
+    stopMusicAnalysis: () => {
+      if (musicAnalysis.running) musicAnalysis.cancelled = true;
+      return null;
+    },
+    deleteMusicAnalysis: () => {
+      if (musicAnalysis.running) {
+        fail('LOCK', '曲の解析を実行中です。止めてから削除してください');
+      }
+      musicFeatures.clear();
+      return musicAnalysisStatus();
+    },
+    pickAiShuffleTrack,
     planFileOrganize: (trackIds, template, organizeDestination) => {
       const plan = organizePlan(trackIds, template, organizeDestination);
       return {
@@ -2888,6 +3014,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       playbackState = {
         volume: volume !== null && Number.isFinite(volume) ? Math.max(0, Math.min(volume, 1)) : 1,
         shuffle: cursor.shuffle,
+        aiShuffle: cursor.aiShuffle,
         repeat: cursor.repeat,
         // キューの外を指す位置は「何も再生していない」にする
         currentIndex:
@@ -2927,6 +3054,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       return {
         volume: playbackState.volume,
         shuffle: playbackState.shuffle,
+        aiShuffle: playbackState.aiShuffle ?? false,
         repeat: playbackState.repeat,
         queue,
         originalTrackIds: playbackState.originalTrackIds?.filter((id) => playable.has(id)) ?? null,

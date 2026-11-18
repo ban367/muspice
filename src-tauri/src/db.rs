@@ -379,6 +379,24 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         [],
     )?;
 
+    // 曲の解析（テンポ・キー・ペース）の結果（`music_analysis`。ADR-104）。解析した時の曲の長さを持ち、
+    // 長さが変わった曲（ファイルを差し替えた）は解析し直す。解析できなかった曲は`failed`を1にする
+    // （値のない行。解析し直さない）。キーは、主音のピッチクラス（0〜11）と長調（0）・短調（1）
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS track_analysis (
+            track_id TEXT PRIMARY KEY,
+            duration INTEGER,
+            bpm REAL,
+            key_pitch_class INTEGER,
+            key_mode INTEGER,
+            pace REAL,
+            failed INTEGER NOT NULL DEFAULT 0,
+            analyzed_at TEXT NOT NULL,
+            FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
+
     // パフォーマンス向上のためのインデックス作成
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_tracks_artist ON tracks(artist)",

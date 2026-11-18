@@ -254,7 +254,7 @@
         tabindex={0}
         onkeydown={handleQueueKeydown}
       >
-        {#snippet row({ entryId, track }, index)}
+        {#snippet row({ entryId, track, autoAddedAfter }, index)}
           {@const isPlaying = entryId === playingEntryId}
           <!-- 行のドラッグで、キューの中の順を入れ替えられる -->
           <!-- キー操作は一覧（listbox）で受けるため、行はフォーカスを受けない -->
@@ -306,6 +306,22 @@
               <MarqueeText text={track.title || track.fileName} class="track-title" />
               <MarqueeText text={track.artist || m.common.unknownArtist} class="track-artist" />
             </div>
+            {#if autoAddedAfter !== undefined}
+              <!-- AIシャッフルが足した曲の印 -->
+              <span class="ai-added" title={m.rightSidebar.addedByAiShuffle}>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M10 3l1.9 5.1L17 10l-5.1 1.9L10 17l-1.9-5.1L3 10l5.1-1.9L10 3zm8 10l.95 2.05L21 16l-2.05.95L18 19l-.95-2.05L15 16l2.05-.95L18 13z"
+                  />
+                </svg>
+                <span class="sr-only">{m.rightSidebar.addedByAiShuffle}</span>
+              </span>
+            {/if}
             <button
               class="remove-btn"
               onclick={() => removeFromQueue(entryId)}
@@ -418,6 +434,15 @@
   .queue-track.playing .track-number,
   .queue-track.playing :global(.track-title) {
     @apply text-secondary;
+  }
+
+  /* AIシャッフルが足した曲の印 */
+  .ai-added {
+    @apply flex items-center shrink-0 text-secondary;
+  }
+
+  .ai-added svg {
+    @apply w-3 h-3;
   }
 
   .remove-btn {

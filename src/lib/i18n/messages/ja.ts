@@ -134,6 +134,7 @@ export const ja = {
     refreshMetadata: 'メタデータの更新',
     writeMetadataToFiles: 'メタデータの書き出し',
     loudnessScan: '音量の解析',
+    musicAnalysis: '曲の解析',
     convert: '形式の変換',
     showInFolder: 'ファイルの場所を開く',
     fetchPlaylists: 'プレイリスト一覧の取得',
@@ -261,6 +262,8 @@ export const ja = {
     revealCurrentTrack: '再生中の曲を一覧で表示 (Ctrl+L)',
     shuffleTitle: 'シャッフル (S)',
     shuffle: 'シャッフル',
+    aiShuffleTitle: 'AIシャッフル（曲が始まるたびに、今の曲に合う曲を選んで次に足します）',
+    aiShuffle: 'AIシャッフル',
     previousTitle: '前へ (Ctrl+←)',
     previous: '前のトラック',
     playTitle: '再生 (Space)',
@@ -354,6 +357,8 @@ export const ja = {
     nothingSelected: '曲を選んでいません',
     queueTracks: (count: number) => `曲リスト (${count}曲)`,
     removeFromQueue: 'キューから削除',
+    /** キューの行の、AIシャッフルが足した曲の印 */
+    addedByAiShuffle: 'AIシャッフルで足した曲',
     /** キューの行の左端の目印（ドラッグで並べ替えられることを示す）のツールチップ */
     dragToReorder: 'ドラッグで並べ替え',
     saveAsPlaylist: 'プレイリストとして保存',
@@ -641,6 +646,24 @@ export const ja = {
       `形式の変換が終わりました（変換: ${converted}曲、変換しない: ${skipped}曲、失敗: ${failed}曲）`,
     cancelledResult: (converted: number, skipped: number, failed: number) =>
       `形式の変換を中断しました（変換: ${converted}曲、変換しない: ${skipped}曲、失敗: ${failed}曲）`
+  },
+
+  /** 曲の解析（テンポ・キー。設定の「AI機能」） */
+  musicAnalysis: {
+    title: '曲の解析（テンポ・キー）',
+    description:
+      'このMacの中で曲のテンポ（BPM）とキーを解析し、AIシャッフルの「似た曲」に使います（ファイルは書き換えず、外部にも送りません）。解析はバックグラウンドで1曲ずつ進み、止めるまでに終わらなければ、次の起動で続きから再開します',
+    unavailable:
+      'このMacでは使えません（macOS 27以降が必要です）。AIシャッフルは、タグと再生回数で曲を選びます',
+    analyzedCount: (analyzed: number, total: number) => `${analyzed} / ${total}曲を解析済み`,
+    failedCount: (count: number) => `解析できなかった曲: ${count}曲`,
+    running: '解析しています。アプリを使いながら待てます',
+    stopping: '解析中の曲が終わったら止めます...',
+    start: '解析を始める',
+    stop: '解析を止める',
+    delete: '解析データを削除',
+    deleteConfirm:
+      '曲の解析のデータを削除しますか？AIシャッフルの「似た曲」は、タグだけで選ぶようになります。'
   },
 
   loudnessScan: {
@@ -1229,8 +1252,19 @@ export const ja = {
       general: '一般',
       playback: '再生',
       library: 'ライブラリ',
+      ai: 'AI機能',
       appearance: '外観'
     },
+    /** 設定の「AI機能」 */
+    aiNote: '曲の解析とAIシャッフルは、このMacの中だけで行います',
+    aiShuffleMode: 'AIシャッフルの選び方',
+    aiShuffleModes: {
+      similar: '似た曲',
+      frequentlyPlayed: 'よく再生する曲',
+      rarelyPlayed: 'あまり再生していない曲'
+    },
+    aiShuffleModeHint:
+      'プレーヤーのAIシャッフルのボタンを押すと、曲が始まるたびに、この選び方に合う曲を選んで次に足します。「似た曲」は、テンポ・キー（曲の解析）とジャンル・アーティスト・年が近い曲を選びます',
     loadFailed: '設定を読み込めませんでした',
     language: '言語',
     startupPage: '起動時に開く画面',

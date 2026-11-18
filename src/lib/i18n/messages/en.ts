@@ -123,6 +123,7 @@ export const en: Messages = {
     refreshMetadata: 'Refreshing metadata',
     writeMetadataToFiles: 'Writing metadata to files',
     loudnessScan: 'Analyzing loudness',
+    musicAnalysis: 'Analyzing tracks',
     convert: 'Converting',
     showInFolder: 'Showing the file',
     fetchPlaylists: 'Loading playlists',
@@ -247,6 +248,8 @@ export const en: Messages = {
     revealCurrentTrack: 'Show the current track in the list (Ctrl+L)',
     shuffleTitle: 'Shuffle (S)',
     shuffle: 'Shuffle',
+    aiShuffleTitle: 'AI Shuffle (adds a track that suits the current one each time a track starts)',
+    aiShuffle: 'AI Shuffle',
     previousTitle: 'Previous (Ctrl+←)',
     previous: 'Previous track',
     playTitle: 'Play (Space)',
@@ -334,6 +337,7 @@ export const en: Messages = {
     nothingSelected: 'No track selected',
     queueTracks: (count) => `Track List (${plural(count, 'track', 'tracks')})`,
     removeFromQueue: 'Remove from queue',
+    addedByAiShuffle: 'Added by AI Shuffle',
     dragToReorder: 'Drag to reorder',
     saveAsPlaylist: 'Save as Playlist',
     saveAsPlaylistTitle: 'Save the Queue as a Playlist',
@@ -604,6 +608,23 @@ export const en: Messages = {
       `Conversion finished (converted: ${converted}, not converted: ${skipped}, failed: ${failed})`,
     cancelledResult: (converted, skipped, failed) =>
       `Conversion stopped (converted: ${converted}, not converted: ${skipped}, failed: ${failed})`
+  },
+
+  musicAnalysis: {
+    title: 'Track Analysis (Tempo and Key)',
+    description:
+      'Analyzes the tempo (BPM) and key of your tracks on this Mac and uses them for "Similar Tracks" in AI Shuffle (files are not changed and nothing is sent anywhere). Analysis runs in the background one track at a time and resumes on the next launch if it has not finished',
+    unavailable:
+      'Not available on this Mac (requires macOS 27 or later). AI Shuffle picks tracks by tags and play counts',
+    analyzedCount: (analyzed, total) => `${analyzed} of ${total} tracks analyzed`,
+    failedCount: (count) => `Could not analyze: ${plural(count, 'track', 'tracks')}`,
+    running: 'Analyzing. You can keep using the app',
+    stopping: 'Stopping after the current track...',
+    start: 'Start Analysis',
+    stop: 'Stop Analysis',
+    delete: 'Delete Analysis Data',
+    deleteConfirm:
+      'Delete the track analysis data? "Similar Tracks" in AI Shuffle will use tags only.'
   },
 
   loudnessScan: {
@@ -1176,8 +1197,18 @@ export const en: Messages = {
       general: 'General',
       playback: 'Playback',
       library: 'Library',
+      ai: 'AI Features',
       appearance: 'Appearance'
     },
+    aiNote: 'Track analysis and AI Shuffle run only on this Mac',
+    aiShuffleMode: 'AI Shuffle picks',
+    aiShuffleModes: {
+      similar: 'Similar tracks',
+      frequentlyPlayed: 'Frequently played tracks',
+      rarelyPlayed: 'Rarely played tracks'
+    },
+    aiShuffleModeHint:
+      'When AI Shuffle is on in the player, each time a track starts, a track of this kind is picked and added next. "Similar tracks" are close in tempo and key (from track analysis), genre, artist, and year',
     loadFailed: 'Could not load the settings',
     language: 'Language',
     startupPage: 'Open at startup',

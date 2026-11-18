@@ -578,9 +578,10 @@ export function createPlaybackController(
       send(() => commands.playbackSetSpeed(speed), 'set playback speed');
     });
 
-    // シャッフルモード: 音量の正規化が自動の時に、エンジンがトラック単位とアルバム単位を選ぶのに使う
+    // シャッフルモード（AIシャッフルを含む）: 音量の正規化が自動の時に、エンジンがトラック単位と
+    // アルバム単位を選ぶのに使う
     $effect(() => {
-      const shuffle = player.isShuffleEnabled;
+      const shuffle = player.isShuffling;
       send(() => commands.playbackSetShuffle(shuffle), 'set shuffle');
     });
 

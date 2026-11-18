@@ -1,3 +1,4 @@
+mod ai_shuffle;
 mod album_art;
 mod ape_tag;
 mod atomic_file;
@@ -28,6 +29,7 @@ mod metadata;
 mod mini_player;
 mod models;
 mod multi_value;
+mod music_analysis;
 mod music_folder_copy;
 mod ogg_flac;
 mod opened_files;
@@ -85,6 +87,10 @@ use commands::{
     show_in_folder, start_loudness_scan, take_opened_files, take_startup_notices,
     update_multiple_tracks_metadata, update_smart_playlist, update_sync_device,
     update_track_metadata, write_library_metadata_to_files,
+};
+use commands::{
+    delete_music_analysis, get_music_analysis_status, pick_ai_shuffle_track, start_music_analysis,
+    stop_music_analysis,
 };
 use state::AppState;
 use std::path::PathBuf;
@@ -170,6 +176,11 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             get_loudness_scan_status,
             start_loudness_scan,
             cancel_loudness_scan,
+            get_music_analysis_status,
+            start_music_analysis,
+            stop_music_analysis,
+            delete_music_analysis,
+            pick_ai_shuffle_track,
             get_album_art_info,
             pick_album_art,
             set_album_art,
@@ -236,6 +247,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::OrganizeProgress,
             events::LoudnessScanProgress,
             events::LoudnessScanFinished,
+            events::MusicAnalysisProgress,
             events::DeviceSyncProgress,
             events::LibraryChanged,
             events::ClearPlayQueue,
@@ -274,6 +286,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             settings::DEFAULT_MUSIC_FOLDER_TEMPLATE,
         )
         .constant("AUTO_BACKUP_KEEP", backup::AUTO_BACKUP_KEEP)
+        // AIシャッフルで避ける曲（キューの今の位置の前後の件数。フロントが渡す）
+        .constant("AI_SHUFFLE_EXCLUSION_WINDOW", ai_shuffle::EXCLUSION_WINDOW)
 }
 
 /// ログファイル1つあたりの上限（超えたら日時付きの名前に変えて新しいファイルに切り替える）
@@ -506,6 +520,9 @@ pub fn run() {
             // デバイスへの同期の実行状態（同時に実行する同期は1つだけ）
             app.manage(device::DeviceSyncState::default());
             app.manage(loudness_scan::LoudnessScanState::default());
+            // 曲の解析（テンポ・キー）の実行状態。前回の起動で途中だったら、続きから再開する
+            app.manage(music_analysis::MusicAnalysisState::default());
+            music_analysis::resume(app.handle());
             app.manage(commands::ConvertState::default());
             app.manage(commands::OrganizeState::default());
             // ライブラリフォルダの付け替え先（選んでから、付け替えるかを決めるまで預かる）

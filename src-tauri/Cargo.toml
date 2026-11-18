@@ -19,6 +19,8 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+# 曲の解析のSwiftのビルド（build.rs）: Swiftの実行環境の場所（`swiftc -print-target-info`）を読む
+serde_json = "1"
 
 [dependencies]
 # tray-icon: メニューバー（トレイ）のアイコン（設定でオンにした時だけ作る）

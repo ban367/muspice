@@ -22,6 +22,7 @@
 | ライブラリのXML        | plist                                                                           | 1.10                                               | iTunes形式のライブラリXML（プロパティリスト）の読み込み。Tauriが使っているものと同じ                                                                                                                                         |
 | 再生エンジン           | symphonia / cpal / rubato / rtrb                                                | 0.6 / 0.18 / 5 / 0.4                               | デコード / 出力 / サンプルレートの変換 / リングバッファ。Opusは`symphonia-adapter-libopus` 0.3（libopusを同梱。ビルドにCコンパイラとcmakeが要る）。WavPackは`wavicle` 0.1、APEは`ape-decoder` 0.3（どちらも純Rust。ADR-047） |
 | メディアキー           | objc2-media-player（objc2）                                                     | 0.3（objc2 0.6）                                   | macOSのNow Playing・リモートコマンド（MediaPlayerフレームワーク）。macOSだけの依存で、Tauriが使っているobjc2系のクレートとそろえる                                                                                           |
+| 曲の解析               | MusicUnderstanding（Swift。`swift/music_analysis.swift`）                       | macOS 27のSDK（Xcode 27）                          | 曲のテンポ・キー・ペースの解析（AIシャッフルの「似た曲」。ADR-104）。`build.rs`が`swiftc`で静的ライブラリにビルドしてリンクする。SDKにない時は組み込まず、解析を使えないものとして動く                                       |
 
 ## ディレクトリ構成
 
@@ -55,6 +56,9 @@ src/
     ├── types/
     └── utils/
 
+src-tauri/swift/
+└── music_analysis.swift   # 曲の解析（MusicUnderstanding）をC言語の関数として公開する（build.rsがビルドする。ADR-104）
+
 src-tauri/src/
 ├── commands/
 │   ├── mod.rs             # コマンドの公開（re-export）と、共通の処理（ダイアログ・`run_blocking`）
@@ -79,6 +83,7 @@ src-tauri/src/
 │   └── tracks.rs
 ├── main.rs
 ├── lib.rs
+├── ai_shuffle.rs          # AIシャッフルの選曲（選び方・近さ・候補・乱数。ADR-104）
 ├── album_art.rs           # アルバムアートの配信（albumartプロトコル）・フォルダの画像の検索・キャッシュ
 ├── atomic_file.rs         # 小さなファイル（設定・再生状態・デバイスの管理ファイル）を、ディスクへ書き出してから置き換える
 ├── ape_tag.rs             # APEv2タグ（WavPack・APE）の読み書き（BPM・評価・画像と、アプリが扱わない項目の保持。ADR-047）
@@ -131,6 +136,7 @@ src-tauri/src/
 ├── mini_player.rs         # ミニプレーヤー（メインウィンドウの大きさの切り替えと、元の大きさの記録。ADR-046）
 ├── models.rs
 ├── multi_value.rs         # 複数の値を持つ項目（アーティスト・ジャンル）を値に分ける・比べる（SQLの関数を含む。ADR-051）
+├── music_analysis.rs      # 曲の解析（Swiftの呼び出し・`track_analysis`のSQL・バックグラウンドでの実行と再開。ADR-104）
 ├── music_folder_copy.rs   # 取り込む曲の、音楽フォルダへのコピー（コピー先の計画・上書きしないコピー・歌詞ファイルとフォルダの画像。ADR-069）
 ├── ogg_flac.rs            # Oggの中のFLACの読み書き（loftyが対応していない。ヘッダーのページの作り直し。ADR-058）
 ├── own_writes.rs          # アプリ自身が曲のファイルへ書いた変更の記録（ライブラリフォルダの監視が、その通知で再スキャンしない）
@@ -258,6 +264,7 @@ src-tauri/src/
 - 再生の補助（ADR-044）は、状態を`#lib/stores/playbackAids.svelte`（`stopAfterCurrent`・`sleepTimer`・`isFadingOut`。保存しない）に持ち、再生コントローラーが読んで再生を止める。画面は`PlaybackAidsMenu`（プレーヤーのボタンから開く）
   - 「この曲が終わったら停止」が有効な間は、`syncNext`が次の曲をエンジンへ伝えない（先読みを取り消す）。曲の終わり（`ended`）で、`engineTrackId`を次の曲にしてからキューを進め（再生は始まらない）、指示を解除する。次の曲がなければ、通常の終わり方と同じ
   - スリープタイマーは、時間が来たかを、1秒ごとのタイマーと再生位置の通知（`position`）の両方で確かめる（ウィンドウが隠れている間は、タイマーが間引かれるため）。時間が来たら、`playbackSetVolume`で音量を少しずつ下げ（`SLEEP_FADE_SECONDS`）、一時停止してから、エンジンの音量を設定の値（`player.volume`）に戻す。`player.volume`は変えない。「曲の終わりまで再生する」場合は、時間が来た時点で「この曲が終わったら停止」にする
+  - AIシャッフルは`#lib/stores/aiShuffle.svelte`の`watchAiShuffle`が行う（`Player`が始める）。再生中の曲が変わるたびに、`pickAiShuffleTrack`で選んだ曲を`queueAiShuffleTrack`で再生中の曲の次に足す（足した要素は`autoAddedAfter`を持つ）。有効・無効とシャッフルとの関係は`setAiShuffleEnabled`（ADR-104）
   - Auto DJは`#lib/stores/autoDj.svelte`の`watchAutoDj`が行う（`Player`が、再生コントローラーと一緒に始める）。キューの最後の曲を再生している間に、`#lib/utils/autoDj`の`pickAutoDjTracks`で選んだ曲を`addToQueue`で足す（先読みの対象になる）。リピート中・「この曲が終わったら停止」の間は足さない。Auto DJの設定（`autoDj`・`autoDjPlaylistId`）は、プレーヤーのメニューから`useUpdateSettings`で保存する（設定ウィンドウは、開いている間に変えられた値を編集中の設定へ取り込む）
 - ギャップレス再生・クロスフェードでは、キューの次の曲（`#lib/stores/player.svelte`の`peekNextTrack()`。`playNextTrack`の進む先を、状態を変えずに返す）を、先にエンジンへ伝える（`playbackSetNext`）。キュー・リピート・シャッフル・設定が変わると`$effect`で伝え直す
   - エンジンは、再生中の曲の終わりから切れ目なく（クロスフェードでは、終わりと重ねて）次の曲を続け、鳴っている曲が切り替わった時点で`advanced`を送る。コントローラーは、再生し直さずに`playNextTrack()`でキューを進める
@@ -509,7 +516,7 @@ Tauriのウィンドウ（macOSではWKWebView）はブラウザ自動化ツー�
 
 1. Frontend Check（type-check, lint, format:check, markdownlint, test）
 2. Backend Check（ubuntu。fmt --check, clippy, test, `bindings.ts`が最新か）
-3. Backend Check (macOS)（macOS。clippy, test, `bindings.ts`が最新か）: macOSだけのコード（`cfg(target_os = "macos")`。メディアキー・ゴミ箱・ドロップしたファイル・形式の変換・グローバルホットキーなど）とobjc2系の依存を確かめる。fmtはOSによらずすべてのファイルを見るため、Backend Checkだけで行う。バンドルは作らない
+3. Backend Check (macOS)（macOS。clippy, test, `bindings.ts`が最新か）: macOSだけのコード（`cfg(target_os = "macos")`。メディアキー・ゴミ箱・ドロップしたファイル・形式の変換・グローバルホットキーなど）とobjc2系の依存を確かめる。fmtはOSによらずすべてのファイルを見るため、Backend Checkだけで行う。バンドルは作らない。ランナーのXcode（26）にはMusicUnderstandingがないため、曲の解析のSwiftのコードはビルドしない（`music_understanding`の印のない側を確かめる。Swiftのコードは手元のXcode 27でビルドし、`cargo test music_analysis -- --ignored`で実際の解析を確かめる。組み込まない側は、手元でも`MUSPICE_SKIP_MUSIC_ANALYSIS=1`を付けたclippy・testで確かめられる。ADR-104）
 4. Build Test（PR時のみ、ubuntuでTauri build）
 
 ジョブ名（`name:`）は、mainのルールセット「Main Branch Protection」の必須チェックに登録する（`Frontend Check`・`Backend Check`・`Backend Check (macOS)`・`Build Test (ubuntu-latest)`）。名前を変える時は、ルールセットも合わせて直す（直さないと、すべてのPRがマージできなくなる）。

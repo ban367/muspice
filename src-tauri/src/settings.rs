@@ -161,6 +161,8 @@ pub struct Settings {
     pub auto_dj: bool,
     /// Auto DJが曲を選ぶプレイリスト（nullはライブラリ全体）
     pub auto_dj_playlist_id: Option<String>,
+    /// AIシャッフル（曲が始まるたびに、選び方に合う曲を次に足す）の選び方
+    pub ai_shuffle_mode: crate::ai_shuffle::AiShuffleMode,
     /// メニューバー（トレイ）に常駐する（アイコンを出し、ウィンドウを閉じても再生を続ける）
     pub stay_in_menu_bar: bool,
     /// グローバルホットキー（ほかのアプリを使っている間も効くショートカット）を使う
@@ -211,6 +213,7 @@ impl Default for Settings {
             hidden_sidebar_items: Vec::new(),
             auto_dj: false,
             auto_dj_playlist_id: None,
+            ai_shuffle_mode: crate::ai_shuffle::AiShuffleMode::default(),
             stay_in_menu_bar: false,
             global_shortcuts: false,
             notify_track_change: false,
@@ -484,6 +487,7 @@ mod tests {
             hidden_sidebar_items: vec![SidebarItem::Years, SidebarItem::PlayHistory],
             auto_dj: true,
             auto_dj_playlist_id: Some("b2000000-0000-4000-8000-000000000001".to_string()),
+            ai_shuffle_mode: crate::ai_shuffle::AiShuffleMode::RarelyPlayed,
             stay_in_menu_bar: true,
             global_shortcuts: true,
             notify_track_change: true,
@@ -721,6 +725,40 @@ mod tests {
         let loaded = load_settings(&path);
         assert!(!loaded.gapless_playback);
         assert!(!loaded.auto_dj);
+        fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn test_ai_shuffle_mode_setting() {
+        // 既定は「似た曲」
+        assert_eq!(
+            Settings::default().ai_shuffle_mode,
+            crate::ai_shuffle::AiShuffleMode::Similar
+        );
+
+        let path = temp_settings_path("ai-shuffle");
+        // 項目がない（前のバージョンの）ファイルと、知らない選び方は、既定値で補う（ほかの項目は残す）
+        fs::write(&path, r#"{ "gaplessPlayback": false }"#).unwrap();
+        assert_eq!(
+            load_settings(&path).ai_shuffle_mode,
+            crate::ai_shuffle::AiShuffleMode::Similar
+        );
+        fs::write(
+            &path,
+            r#"{ "gaplessPlayback": false, "aiShuffleMode": "mood" }"#,
+        )
+        .unwrap();
+        let loaded = load_settings(&path);
+        assert!(!loaded.gapless_playback);
+        assert_eq!(
+            loaded.ai_shuffle_mode,
+            crate::ai_shuffle::AiShuffleMode::Similar
+        );
+        fs::write(&path, r#"{ "aiShuffleMode": "rarelyPlayed" }"#).unwrap();
+        assert_eq!(
+            load_settings(&path).ai_shuffle_mode,
+            crate::ai_shuffle::AiShuffleMode::RarelyPlayed
+        );
         fs::remove_dir_all(path.parent().unwrap()).ok();
     }
 
