@@ -334,6 +334,7 @@ export const en: Messages = {
     nothingSelected: 'No track selected',
     queueTracks: (count) => `Track List (${plural(count, 'track', 'tracks')})`,
     removeFromQueue: 'Remove from queue',
+    dragToReorder: 'Drag to reorder',
     saveAsPlaylist: 'Save as Playlist',
     saveAsPlaylistTitle: 'Save the Queue as a Playlist',
     saveAsPlaylistDefaultName: (date) => `Queue ${date}`,
