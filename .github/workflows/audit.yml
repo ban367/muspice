@@ -17,6 +17,7 @@ on:
       - 'src-tauri/Cargo.toml'
       - 'src-tauri/Cargo.lock'
       - '.github/workflows/audit.yml'
+      - 'scripts/npm-audit.mjs'
   workflow_dispatch:
 
 permissions:
@@ -34,9 +35,10 @@ jobs:
         with:
           node-version-file: '.node-version'
 
-      # moderate以上で失敗させる
+      # moderate以上で失敗させる。受容済みのアドバイザリ（docs/design/non-functional.md の一覧）は、
+      # スクリプトの一覧で除く（npm auditには、指定して除く仕組みがない）。一覧を変えたら、ここも合わせる
       - name: Audit npm dependencies
-        run: npm audit --audit-level=moderate
+        run: node scripts/npm-audit.mjs
 
   cargo:
     name: cargo audit
