@@ -112,6 +112,12 @@ pub struct DeviceSyncProgress {
 #[derive(Debug, Clone, Serialize, Type, Event)]
 pub struct LibraryChanged;
 
+/// ライブラリを置き換えた（音楽フォルダの変更。ADR-086）: メインウィンドウの再生キューをクリアさせる
+///
+/// 前のライブラリの曲がキューに残らないよう、再生中の曲も止める（キューの「クリア」と同じ。#412）。
+#[derive(Debug, Clone, Serialize, Type, Event)]
+pub struct ClearPlayQueue;
+
 /// 曲のタグ・アルバムアートを書き換えた（編集画面のウィンドウでの保存。ADR-094）
 ///
 /// 編集画面は別のウィンドウのため、メインウィンドウの一覧（Queryのキャッシュ）と、表示中の

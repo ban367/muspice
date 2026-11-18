@@ -179,6 +179,29 @@ impl PlaybackStateStore {
         Ok(())
     }
 
+    /// 保存してある再生キューと再生していた曲を空にする（音量・シャッフル・リピートは残す）
+    ///
+    /// ライブラリを置き換えた時（音楽フォルダの変更・バックアップからの復元）に、前のライブラリの曲を
+    /// キューに残さないために使う（#412）。
+    pub fn clear_queue(&self) -> AppResult<()> {
+        let mut current = self
+            .current
+            .lock()
+            .map_err(|e| AppError::Lock(format!("再生状態の保存に失敗しました: {}", e)))?;
+        let next = StoredState {
+            current_index: None,
+            track_ids: Vec::new(),
+            original_track_ids: None,
+            ..current.clone()
+        };
+        if *current == next {
+            return Ok(());
+        }
+        write_state(&self.path, &next)?;
+        *current = next;
+        Ok(())
+    }
+
     /// 保存してある再生状態を、今のライブラリに合わせて返す
     pub fn restore(&self, conn: &Connection) -> AppResult<RestoredPlaybackState> {
         let stored = self
@@ -387,6 +410,37 @@ mod tests {
         assert_eq!(state.original_track_ids, Some(vec![id(1), id(2), id(3)]));
         assert_eq!(state.current_index, Some(1));
         assert!(!path.with_extension("json.tmp").exists());
+    }
+
+    #[test]
+    fn test_clear_queue_keeps_the_other_settings() {
+        let conn = setup_db();
+        (1..=3).for_each(|n| insert_track(&conn, n));
+        let path = temp_state_path("clear-queue");
+        let store = PlaybackStateStore::load(path.clone());
+        store
+            .save(
+                PlaybackCursor {
+                    shuffle: true,
+                    ..cursor(Some(1))
+                },
+                Some(PlaybackQueue {
+                    track_ids: vec![id(1), id(2), id(3)],
+                    original_track_ids: Some(vec![id(3), id(2), id(1)]),
+                }),
+            )
+            .unwrap();
+
+        store.clear_queue().unwrap();
+
+        // 読み込み直しても、キューは空で、音量・シャッフル・リピートは残る
+        let state = PlaybackStateStore::load(path).restore(&conn).unwrap();
+        assert!(state.queue.is_empty());
+        assert_eq!(state.current_index, None);
+        assert_eq!(state.original_track_ids, None);
+        assert_eq!(state.volume, 0.4);
+        assert!(state.shuffle);
+        assert_eq!(state.repeat, RepeatMode::All);
     }
 
     #[test]

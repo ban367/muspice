@@ -26,6 +26,7 @@
   import SettingsSync from '#lib/components/SettingsSync.svelte';
   import { ui, saveLastPage } from '#lib/stores/ui.svelte.js';
   import { importer } from '#lib/stores/importer.svelte.js';
+  import { clearQueue } from '#lib/stores/player.svelte.js';
   import { watchOpenedFiles } from '#lib/stores/openedFiles.js';
   import { showStartupNotices } from '#lib/stores/startupNotices.js';
   import { handleError } from '#lib/stores/error.svelte.js';
@@ -114,6 +115,9 @@
     const unlistenEditor = events.trackEditorChanged.listen(({ payload }) => {
       ui.isTrackEditorOpen = payload.open;
     });
+    // 設定ウィンドウで音楽フォルダを変え、ライブラリを置き換えた（前のライブラリの曲をキューに残さない。
+    // 再生中の曲も止める）
+    const unlistenClearQueue = events.clearPlayQueue.listen(() => clearQueue());
 
     return () => {
       stopListening(
@@ -124,7 +128,8 @@
         unlistenMiniPlayer,
         unlistenLibrary,
         unlistenEdited,
-        unlistenEditor
+        unlistenEditor,
+        unlistenClearQueue
       );
       stopWatchingOpenedFiles();
       stopWatchingLoudnessScan();

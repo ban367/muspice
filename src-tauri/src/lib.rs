@@ -236,6 +236,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::LoudnessScanFinished,
             events::DeviceSyncProgress,
             events::LibraryChanged,
+            events::ClearPlayQueue,
             events::TracksEdited,
             events::TrackEditorChanged,
             events::ShowAboutDialog,
@@ -393,16 +394,20 @@ pub fn run() {
             let mut startup_notices = Vec::new();
 
             // バックアップからの復元を用意してあれば、DBと設定を開く前に置き換える（ADR-073）
-            match backup::apply_staged_restore(&app_data_dir) {
-                Ok(true) => log::info!("Restored library data from backup"),
-                Ok(false) => {}
+            let restored_from_backup = match backup::apply_staged_restore(&app_data_dir) {
+                Ok(true) => {
+                    log::info!("Restored library data from backup");
+                    true
+                }
+                Ok(false) => false,
                 Err(e) => {
                     log::error!("Failed to restore from backup: {}", e);
                     startup_notices.push(startup::StartupNotice::RestoreFailed {
                         detail: e.to_string(),
                     });
+                    false
                 }
-            }
+            };
 
             // データベースを開く。壊れていれば別の名前で残し、空のライブラリで起動して知らせる
             let conn = match startup::open_database(&app_data_dir) {
@@ -459,9 +464,13 @@ pub fn run() {
             app.manage(mini_player);
 
             // 前回の再生状態（音量・再生キューなど）を読み込む（ない・壊れている場合は空）
-            app.manage(playback_state::PlaybackStateStore::load(
-                app_data_dir.join("playback-state.json"),
-            ));
+            let playback_state =
+                playback_state::PlaybackStateStore::load(app_data_dir.join("playback-state.json"));
+            // バックアップから復元した時は、前のライブラリの曲をキューに残さない（#412）
+            if restored_from_backup && let Err(e) = playback_state.clear_queue() {
+                log::warn!("Failed to clear the play queue after restoring: {}", e);
+            }
+            app.manage(playback_state);
 
             // 再生エンジン（スレッドを始めるだけで、出力は最初に再生するときに開く）
             let playback_events = app.handle().clone();

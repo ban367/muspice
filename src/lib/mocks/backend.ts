@@ -104,6 +104,7 @@ export type MockEventPayload<K extends MockEventName> = Parameters<
  * `satisfies`で、`events`のすべてのキーがあることを確かめる（名前が合っているかは、テストで確かめる）。
  */
 export const MOCK_EVENT_NAMES = {
+  clearPlayQueue: 'clear-play-queue',
   convertProgress: 'convert-progress',
   deviceSyncProgress: 'device-sync-progress',
   importFilesRequested: 'import-files-requested',
@@ -668,6 +669,12 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     if (stored) playbackState = { ...EMPTY_PLAYBACK_STATE, ...JSON.parse(stored) };
   } catch {
     playbackState = EMPTY_PLAYBACK_STATE;
+  }
+
+  /** 保存してある再生キューを空にする（Rustの`PlaybackStateStore::clear_queue`。音量などは残す） */
+  function clearSavedQueue(): void {
+    playbackState = { ...playbackState, currentIndex: null, trackIds: [], originalTrackIds: null };
+    options.storage?.setItem(PLAYBACK_STATE_KEY, JSON.stringify(playbackState));
   }
   let settings: Settings = {
     language: 'ja',
@@ -1258,6 +1265,11 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     const change = await changeMusicFolder(path, true);
     if (change.kind === 'set' && change.replaced && backup) {
       change.replaced.backupPath = `/Users/demo/Library/Application Support/com.ban367.muspice/backups/before-music-folder-${now().slice(0, 19).replace(/[-:]/g, '').replace('T', '-')}.muspicebackup`;
+    }
+    // 前のライブラリの曲をキューに残さない（保存してあるキューを空にし、メインウィンドウにクリアさせる）
+    if (change.kind === 'set' && change.replaced) {
+      clearSavedQueue();
+      options.emit('clearPlayQueue', null);
     }
     return change;
   }
