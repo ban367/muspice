@@ -172,18 +172,19 @@
   <!-- サイドバー -->
   <nav class="settings-sidebar">
     <h2 class="settings-header">{m.settings.title}</h2>
+    <!-- 幅・項目の大きさ・文字の大きさは、メインウィンドウの左サイドバーとそろえる（#432） -->
     <ul class="settings-nav">
       {#each sections as section (section)}
         <li>
           <button
-            class="settings-nav-item"
+            class="nav-item-base settings-nav-item"
             class:active={activeSection === section}
             onclick={() => (activeSection = section)}
           >
             {#if section === 'general'}
               <svg
                 xmlns="http://www.w3.org/2000/svg"
-                class="icon"
+                class="nav-icon"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -203,7 +204,7 @@
             {:else if section === 'playback'}
               <svg
                 xmlns="http://www.w3.org/2000/svg"
-                class="icon"
+                class="nav-icon"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -218,7 +219,7 @@
             {:else if section === 'library'}
               <svg
                 xmlns="http://www.w3.org/2000/svg"
-                class="icon"
+                class="nav-icon"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -233,7 +234,7 @@
             {:else}
               <svg
                 xmlns="http://www.w3.org/2000/svg"
-                class="icon"
+                class="nav-icon"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -348,7 +349,7 @@
         </p>
       {:else if activeSection === 'general'}
         <section class="settings-section">
-          <h3 class="section-title">{m.settings.sections.general}</h3>
+          <h3 class="settings-title">{m.settings.sections.general}</h3>
 
           <div class="setting-item">
             <label class="setting-label" for="language">{m.settings.language}</label>
@@ -444,7 +445,7 @@
         </section>
       {:else if activeSection === 'playback'}
         <section class="settings-section">
-          <h3 class="section-title">{m.settings.sections.playback}</h3>
+          <h3 class="settings-title">{m.settings.sections.playback}</h3>
           <p class="setting-description section-note">{m.settings.soundPanelNote}</p>
           <div class="setting-item">
             <label class="setting-label" for="output-device">{m.settings.outputDevice}</label>
@@ -466,7 +467,7 @@
         </section>
       {:else}
         <section class="settings-section">
-          <h3 class="section-title">{m.settings.sections.appearance}</h3>
+          <h3 class="settings-title">{m.settings.sections.appearance}</h3>
 
           <div class="setting-item">
             <label class="setting-label" for="theme">{m.settings.theme}</label>
@@ -527,34 +528,22 @@
     @apply flex h-full;
   }
 
+  /* 幅・見出し・項目は、メインウィンドウの左サイドバー（`Sidebar`）と同じ値にする */
   .settings-sidebar {
-    @apply w-48 bg-base-200 border-r border-border flex flex-col;
+    @apply w-64 shrink-0 bg-base-200 border-r border-border flex flex-col text-text-secondary;
   }
 
   .settings-header {
-    @apply text-lg font-semibold p-4 m-0;
+    @apply text-xl font-bold text-text-primary m-0 px-4 pt-3 pb-2;
   }
 
   .settings-nav {
-    @apply list-none m-0 p-0 flex-1;
+    @apply list-none m-0 px-3 py-0 flex-1;
   }
 
+  /* 見た目は共通の`nav-item-base`。ボタンのため、幅いっぱいにして左にそろえる */
   .settings-nav-item {
-    @apply flex items-center gap-3 w-full px-4 py-2.5 text-left text-sm
-           bg-transparent border-none cursor-pointer text-text-secondary
-           transition-colors duration-150;
-  }
-
-  .settings-nav-item:hover {
-    @apply bg-surface-hover text-text-primary;
-  }
-
-  .settings-nav-item.active {
-    @apply bg-primary/20 text-primary;
-  }
-
-  .settings-nav-item .icon {
-    @apply w-5 h-5 shrink-0;
+    @apply w-full text-left cursor-pointer;
   }
 
   /* グローバルホットキーの割り当ての一覧 */
@@ -599,7 +588,8 @@
     @apply max-w-xl;
   }
 
-  .section-title {
+  /* 区分の見出し（「一般」など）。メインウィンドウのサイドバーの見出しの共通クラス（`section-title`）とは別の名前にする */
+  .settings-title {
     @apply text-xl font-semibold mb-6 m-0;
   }
 

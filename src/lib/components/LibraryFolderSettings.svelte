@@ -272,7 +272,7 @@
 </script>
 
 <section class="settings-section">
-  <h3 class="section-title">{m.libraryFolders.title}</h3>
+  <h3 class="settings-title">{m.libraryFolders.title}</h3>
 
   <MusicFolderSettings draft={musicFolder} disabled={isScanning} />
   {@render children?.()}
@@ -524,7 +524,8 @@
     @apply flex items-start justify-between gap-4 mt-3;
   }
 
-  .section-title {
+  /* 設定画面の区分の見出し（共通クラスの`section-title`とは別の名前にする） */
+  .settings-title {
     @apply text-xl font-semibold mb-6 m-0;
   }
 
