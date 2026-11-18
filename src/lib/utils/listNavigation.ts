@@ -68,6 +68,30 @@ export function navigationTarget(
 }
 
 /**
+ * 2列に分けた一覧で、←→を押した時の移動先の位置を求める
+ *
+ * 一覧は、左の列を上から下へ埋めてから右の列へ続ける並び（左の列に、項目の数の半分の切り上げが入る）。
+ * - 隣の列の、同じ段の項目へ移る
+ * - 右の列が短く、同じ段に項目がない時（項目の数が奇数で、左の列の最後の段）は、右の列の最後の項目へ移る
+ * - 外側に列がない時（左の列で←、右の列で→）は、その場にとどまる
+ * @param key - 押したキー（`KeyboardEvent.key`）
+ * @param current - 現在の位置
+ * @param count - 項目の数
+ * @returns 移動先の位置（動けない場合は現在の位置）。←→以外のキー・現在の位置が範囲外の場合はnull
+ */
+export function twoColumnSideTarget(key: string, current: number, count: number): number | null {
+  if (key !== 'ArrowLeft' && key !== 'ArrowRight') return null;
+  if (current < 0 || current >= count) return null;
+
+  const leftCount = Math.ceil(count / 2);
+  const isLeft = current < leftCount;
+  if (key === 'ArrowRight') {
+    return isLeft ? Math.min(current + leftCount, count - 1) : current;
+  }
+  return isLeft ? current : current - leftCount;
+}
+
+/**
  * 1つだけ選択する一覧（2ペイン表示の左のアルバム・アーティストの一覧など）のキーボード操作
  *
  * 一覧の要素の`onkeydown`から呼ぶ。修飾キーを押している場合・扱わないキーの場合は何もしない。

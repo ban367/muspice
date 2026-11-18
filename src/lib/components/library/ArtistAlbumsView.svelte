@@ -7,7 +7,7 @@
   - アルバムごとに見出し（ジャケット画像・名前・ジャンルと年・曲数と時間）を出し、その下に曲を並べる
     （ディスクが複数あるアルバムは、ディスクで区切る）
   - グリッド表示の下の領域（`compact`）で幅が広い時は、曲をディスクごとに2列に分けて並べる
-    （左の列を上から下へ、続きを右の列へ。ADR-105）
+    （左の列を上から下へ、続きを右の列へ。↑↓は曲の順に、←→は隣の列の同じ段へ移る。ADR-105）
   - アルバムの見出しをダブルクリックすると、アルバムを再生する。右クリックでアルバムのメニューを開く
   - 曲の選択はアルバムをまたいで行える。最後に選んだ曲を、右サイドバーの曲情報パネルに出す
 -->
@@ -20,6 +20,7 @@
   import { albumGroupSummary } from '#lib/utils/albumArtists.js';
   import { groupByDisc } from '#lib/utils/albumDiscs.js';
   import { formatDuration, formatTotalDuration } from '#lib/utils/format.js';
+  import { twoColumnSideTarget } from '#lib/utils/listNavigation.js';
   import { TrackSelection, handleTrackListKeydown } from '#lib/utils/trackSelection.svelte.js';
   import { startTrackDrag } from '#lib/utils/trackDrag.js';
   import PlayingIndicator from './PlayingIndicator.svelte';
@@ -94,15 +95,42 @@
     startTrackDrag(event, trackIds, m.common.trackCount(trackIds.length));
   }
 
+  /** 一覧の要素（キー操作で、移動先の行を探す） */
+  let listElement: HTMLElement | undefined;
+
   /**
-   * 一覧のキーボード操作（矢印キーで選択を移す・Enterで再生する）
+   * 曲を2列に分けて並べている時の、←→の移動先（隣の列の、同じ段の曲。ディスクの中だけで移る）
+   *
+   * 2列にするかは領域の幅でCSSが決める（`@container artist-albums`）ため、現在位置の曲の入れ物
+   * （`.disc-tracks`）がグリッドになっているかで見分ける。1列の時はnull（←→は扱わない）。
+   */
+  function sideTarget(key: 'ArrowLeft' | 'ArrowRight', activeId: string | null): string | null {
+    if (!compact || activeId === null || !listElement) return null;
+    const row = listElement.querySelector(`[data-track-id="${CSS.escape(activeId)}"]`);
+    const discTracks = row?.parentElement;
+    if (!discTracks || getComputedStyle(discTracks).display !== 'grid') return null;
+
+    for (const { discs } of sections) {
+      for (const disc of discs) {
+        const index = disc.tracks.findIndex((track) => track.id === activeId);
+        if (index === -1) continue;
+        const target = twoColumnSideTarget(key, index, disc.tracks.length);
+        return target === null ? null : disc.tracks[target].id;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * 一覧のキーボード操作（矢印キーで選択を移す・Enterで再生する。2列の時は←→で隣の列へ）
    */
   function handleListKeydown(event: KeyboardEvent) {
     handleTrackListKeydown(event, selection, {
       onActivate: (trackId) => {
         const track = displayTracks.find((candidate) => candidate.id === trackId);
         if (track) playTrack(track);
-      }
+      },
+      sideTarget
     });
   }
 
@@ -201,6 +229,7 @@
 
   <!-- アルバム一覧 -->
   <div
+    bind:this={listElement}
     class="albums-container"
     role="listbox"
     aria-multiselectable="true"

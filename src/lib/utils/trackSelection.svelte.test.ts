@@ -90,6 +90,37 @@ describe('TrackSelection.move', () => {
   });
 });
 
+describe('TrackSelection.moveTo', () => {
+  it('指定したトラックへ現在位置を移し、そのトラックだけを選択する', () => {
+    const selection = createSelection();
+    selection.click('t1', plain);
+
+    expect(selection.moveTo('t4', false)).toBe('t4');
+    expect([...selection.ids]).toEqual(['t4']);
+    expect(selection.activeId).toBe('t4');
+    // 続く↑↓は、移った位置から
+    expect(selection.move('ArrowUp', false)).toBe('t3');
+  });
+
+  it('Shiftありでは、起点から移動先までを表示順で選択する', () => {
+    const selection = createSelection();
+    selection.click('t2', plain);
+
+    expect(selection.moveTo('t4', true)).toBe('t4');
+    expect([...selection.ids]).toEqual(['t2', 't3', 't4']);
+    // 起点は変わらない
+    expect(selection.moveTo('t1', true)).toBe('t1');
+    expect([...selection.ids]).toEqual(['t2', 't1']);
+  });
+
+  it('一覧にないトラックでは何もしない', () => {
+    const selection = createSelection();
+    selection.click('t2', plain);
+    expect(selection.moveTo('missing', false)).toBeNull();
+    expect([...selection.ids]).toEqual(['t2']);
+  });
+});
+
 describe('TrackSelection（クリック・その他）', () => {
   it('Shift+クリックの後も、キーボードの移動はクリックした位置から続く', () => {
     const selection = createSelection();
