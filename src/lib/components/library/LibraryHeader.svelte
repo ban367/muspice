@@ -192,8 +192,10 @@
           d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
         />
       </svg>
+      <!-- メニューバーの「検索」（⌘F）は、この欄へ移る（`stores/menuCommands.ts`） -->
       <input
         type="text"
+        data-library-search
         placeholder={searchPlaceholder ?? m.library.search}
         aria-label={searchPlaceholder ?? m.library.search}
         value={searchTerm}

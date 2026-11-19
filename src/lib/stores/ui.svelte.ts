@@ -20,6 +20,12 @@ export interface SelectedTrack {
   track: Track;
   /** 選んでいる曲の数（選択を外した・一覧がなくなった後は0） */
   count: number;
+  /**
+   * 選んでいる曲（一覧の順。メニューバーの「曲」メニューが使う。ADR-109）
+   *
+   * 選択を外した・一覧がなくなった後（`count`が0）は持たない。
+   */
+  tracks?: readonly Track[];
 }
 
 // グリッドカードサイズの範囲（px）

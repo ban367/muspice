@@ -21,16 +21,22 @@ import { invalidateTagQueries, invalidateTrackListQueries } from './tracks.js';
  */
 export function useOpenTrackEditorMutation() {
   return createMutation(() => ({
-    // 再生履歴など、同じ曲が何度も入る一覧から開く時は、1回にまとめる（開いた順は保つ）
-    mutationFn: (trackIds: string[]) =>
-      withErrorToast(m.metadataEditor.openFailed, () =>
-        commands.openTrackEditor([...new Set(trackIds)])
-      ),
-    // 開いたら、すぐに覆いを重ねる（Rustの`TrackEditorChanged`も同じ値にする。閉じた時は、それで外す）
-    onSuccess: () => {
-      ui.isTrackEditorOpen = true;
-    }
+    mutationFn: openTrackEditor
   }));
+}
+
+/**
+ * 曲の情報の編集画面を開く（右クリックのメニューと、メニューバーの「曲の情報を編集...」が使う）
+ *
+ * 失敗はトーストで知らせてから、エラーを投げ直す。
+ */
+export async function openTrackEditor(trackIds: string[]): Promise<void> {
+  // 再生履歴など、同じ曲が何度も入る一覧から開く時は、1回にまとめる（開いた順は保つ）
+  await withErrorToast(m.metadataEditor.openFailed, () =>
+    commands.openTrackEditor([...new Set(trackIds)])
+  );
+  // 開いたら、すぐに覆いを重ねる（Rustの`TrackEditorChanged`も同じ値にする。閉じた時は、それで外す）
+  ui.isTrackEditorOpen = true;
 }
 
 /**

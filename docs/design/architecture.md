@@ -86,7 +86,7 @@ graph TD
 - プレイリストのM3U: `m3u.rs`が、読み込み（文字コードの判定・曲の場所とライブラリの曲の対応付け）と書き出し（拡張M3U）を担う。ファイルの選択は、コマンド（`commands/m3u.rs`）がRust側でダイアログを開いて行い、WebViewからパスを受け取らない（ADR-032）
 - 曲の解析とAIシャッフル: `music_analysis.rs`が、macOS 27のMusicUnderstanding（`swift/music_analysis.swift`をbuild.rsがビルドしてリンクする）で曲のテンポ・キーを求め、`track_analysis`に保存する（設定画面から始め、バックグラウンドで1曲ずつ。途中なら次の起動で再開する）。AIシャッフルは、フロントエンドの`aiShuffle.svelte.ts`が、再生中の曲が変わるたびに`pick_ai_shuffle_track`（`ai_shuffle.rs`）で1曲選ばせ、再生中の曲の次に足す（ADR-104）
 - OSのメディアキー・Now Playing: `media_controls/`。`set_now_playing`で届いた曲のIDから、曲の情報とアルバムアート（`album_art.rs`のキャッシュ）を読んでOSへ渡し、OSからの操作を`PlaybackControl`イベントでフロントエンドへ送る。macOSだけに対応し（`macos.rs`。MediaPlayerフレームワーク）、ほかのOSでは何もしない。MediaPlayerのオブジェクトはメインスレッドだけで扱う（ADR-029）
-- メニューバー: `menu.rs`（設定の言語に合わせる）。「再生」メニューの項目は、`PlaybackControl`イベントを送る（キーは割り当てない）
+- メニューバー: `menu.rs`（設定の言語に合わせる。項目とキーはmacOSの慣習にそろえる。ADR-109）。「再生」メニューの項目は、`PlaybackControl`イベントを送る（キーは割り当てない）。新規プレイリスト・検索・「曲」メニューなど、メインウィンドウで行う操作は`MenuCommand`イベントを送り、フロントエンドの`stores/menuCommands.ts`が行う
 - コマンド登録: `tauri_specta::collect_commands!` でインポート/検索/編集/再生/統計/システム操作を公開（同じ一覧から、TypeScriptのバインディングも生成する）
 - DB初期化: `db.rs` のマイグレーションでテーブル・インデックス・FTS5・トリガーを作成
 

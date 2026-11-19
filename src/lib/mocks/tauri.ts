@@ -9,7 +9,8 @@
  *
  * ネイティブメニューは存在しないため、メニュー由来のイベントは開発者ツールから
  * `window.__MUSPICE_MOCK__.emit('toggle-sidebar')`のように発火させる。「再生」メニューと
- * OSのメディアキーの操作は、`emit('playback-control', { type: 'next' })`のように発火させる。
+ * OSのメディアキーの操作は、`emit('playback-control', { type: 'next' })`のように、新規プレイリスト・検索・
+ * 「曲」メニューなどは、`emit('menu-command', { type: 'find' })`のように発火させる。
  * OSのNow Playingの表示もないため、フロントエンドが伝えた内容は`nowPlaying()`で確認する。
  *
  * 数万曲のライブラリでの動作は、URLに`?mockTracks=50000`を付けて開くと確認できる

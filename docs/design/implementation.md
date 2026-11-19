@@ -112,7 +112,7 @@ src-tauri/src/
 │   ├── mod.rs             # OSへ渡す内容の組み立て（曲の情報・アルバムアート）
 │   └── macos.rs           # macOSのMediaPlayerフレームワークの呼び出し（macOSだけでコンパイルする）
 ├── global_shortcuts.rs    # グローバルホットキーの登録と、押された時の操作の送信（ADR-046）
-├── menu.rs                # メニューバー（「再生」メニューを含む）と設定ウィンドウのタイトル（言語に合わせる）
+├── menu.rs                # メニューバー（「再生」・「曲」メニューを含む。ADR-109）と設定ウィンドウのタイトル（言語に合わせる）
 ├── playback/              # 再生エンジン（ADR-025・ADR-026）
 │   ├── mod.rs             # エンジンの公開（コマンド・通知の型と、エンジンを動かすスレッド）
 │   ├── engine.rs          # エンジン本体（コマンドの処理・曲の切り替え・再生位置の通知）
@@ -173,7 +173,7 @@ src-tauri/src/
 ### 共有する状態（Runesのモジュール）
 
 - コンポーネントをまたいで共有する状態は`src/lib/stores/*.svelte.ts`に、`$state`のフィールドを持つクラスのインスタンスとして置く（例: `ui.svelte.ts`の`ui`、`error.svelte.ts`の`notifications`、`equalizer.svelte.ts`の`equalizer`、`player.svelte.ts`の`player`）。ユーティリティに付随する状態は、そのユーティリティの`*.svelte.ts`に置く（例: `#lib/utils/dialog.svelte.ts`のテキスト入力の要求`textPrompt`）。`svelte/store`（`writable`など）は使わない（ESLintの`no-restricted-imports`で禁止）
-- 再生コントローラー（`playback.svelte.ts`）の補助で、状態を持たない関数のモジュール（`nowPlaying.ts`・`playTracker.ts`・`openedFiles.ts`）も`stores/`に置く（再生の状態・コマンドと一緒に読むため）。拡張子は`.ts`（`$state`を使わない）
+- 再生コントローラー（`playback.svelte.ts`）の補助で、状態を持たない関数のモジュール（`nowPlaying.ts`・`playTracker.ts`・`openedFiles.ts`）と、メニューバーの操作を受け取る`menuCommands.ts`も`stores/`に置く（状態・コマンドと一緒に読むため）。拡張子は`.ts`（`$state`を使わない）
 - コンポーネント（`.svelte`）の中では`Map`・`Set`を作らない（`$derived`の中で作り直す集まりは、`#lib/utils/collections`の`setOf`・`idSetOf`・`mapById`・`indexById`で作る。書き換える集まりは`svelte/reactivity`の`SvelteSet`・`SvelteMap`）
 - イベントの購読（`events.xxx.listen()`・`onFocusChanged()`）は、`#lib/utils/listen`の`stopListening`で解除する（購読に失敗していた場合に、未処理の拒否にしない）
 - 読み書きはプロパティを直接使う（例: `ui.isSidebarOpen = false`）。`$`接頭辞や`get()`は不要で、コンポーネント外の`.ts`からも同じように読める
@@ -318,6 +318,7 @@ src-tauri/src/
 - 右サイドバーの再生キューの曲のリストは、一覧（`role="listbox"`）がフォーカスを受け、↑↓・Home・Endで現在位置を移し、Enterで再生し、Delete / Backspaceでキューから削除する（`openableListAction`）。行の中の削除のボタンは、ポインタを置いた行・現在位置の行・フォーカスした時に出す
 - 操作の結果の通知（`Toast`）は、エラーを`role="alert"`、ほかを`role="status"`の領域に出す。スクリーンリーダーは、すでにある読み上げの領域に足した内容だけを読むため、領域は通知がない間も置いておく
 - 修飾キーなしの矢印キーは一覧が使う。プレーヤーのショートカット（`Player.svelte`）はCmd/Ctrl+矢印（前へ・次へ・音量）・Cmd/Ctrl+L（再生中の曲を表示）と、Space（再生・一時停止）・S（シャッフル）・R（リピート）・M（ミュート）
+  - ⌘N・⌘F・⌘Iなど、メニューの項目にしたキーは、メニューバー（`menu.rs`）が受け取る（ウィンドウの中では扱わない。ADR-109）。画面に出すキーの表記は、macOSの記号（⌘・⌥・⇧・⌃）で書く
   - プレーヤーはウィンドウでキーを受け取るため、フォーカスのある要素がキーを使う場合はショートカットを行わない。条件は`#lib/utils/globalShortcuts`の`isGlobalShortcutBlocked`にまとめる
   - ほかの処理が処理したキー（`defaultPrevented`）と、入力の部品（input・textarea・select）・編集できる要素の中、モーダル（`<dialog open>`）が開いている間は、どのショートカットも行わない（モーダルの間は背面の画面と同じく操作できなくする。Cmd/Ctrl+Lで背面の画面を移動しないように）
   - Cmd/Ctrlなしのキー（Space・S・R・M）は、ボタン（Spaceで押す）と、メニュー（`role="menu"`。頭文字で項目を選ぶ）・ボタンから開くパネル（`role="dialog"`）の中では行わない。一覧（`role="listbox"`の要素と、ボタンで作った`role="option"`の項目）では、Spaceで再生・一時停止する
