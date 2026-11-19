@@ -679,6 +679,7 @@ mod tests {
             sample_rate: None,
             replay_gain: ReplayGain::default(),
             rating,
+            details: Default::default(),
         }
     }
 

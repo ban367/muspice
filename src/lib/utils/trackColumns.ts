@@ -7,6 +7,7 @@
 import type { Track } from '#lib/types/models.js';
 import { m } from '#lib/i18n/i18n.svelte.js';
 import { formatDate, formatDuration, formatFileSize } from './format.js';
+import { formatMusicKey } from './musicKey.js';
 
 /** 列のID（この並びが、列を選ぶメニューの順と、列を足した時の位置の基準になる） */
 export const TRACK_COLUMN_IDS = [
@@ -15,9 +16,14 @@ export const TRACK_COLUMN_IDS = [
   'album',
   'albumArtist',
   'genre',
+  'composer',
+  'grouping',
   'year',
   'trackNumber',
   'discNumber',
+  'bpm',
+  'analyzedBpm',
+  'analyzedKey',
   'favorite',
   'rating',
   'playCount',
@@ -28,8 +34,11 @@ export const TRACK_COLUMN_IDS = [
   'format',
   'bitrate',
   'sampleRate',
+  'bitDepth',
+  'channels',
   'fileSize',
-  'filePath'
+  'filePath',
+  'comment'
 ] as const;
 export type TrackColumnId = (typeof TRACK_COLUMN_IDS)[number];
 
@@ -50,9 +59,14 @@ export const TRACK_COLUMNS: Record<TrackColumnId, TrackColumn> = {
   album: { width: 165, minWidth: 60, align: 'left' },
   albumArtist: { width: 180, minWidth: 60, align: 'left' },
   genre: { width: 110, minWidth: 50, align: 'left' },
+  composer: { width: 160, minWidth: 60, align: 'left' },
+  grouping: { width: 120, minWidth: 50, align: 'left' },
   year: { width: 56, minWidth: 44, align: 'right' },
   trackNumber: { width: 64, minWidth: 44, align: 'right' },
   discNumber: { width: 64, minWidth: 44, align: 'right' },
+  bpm: { width: 56, minWidth: 44, align: 'right' },
+  analyzedBpm: { width: 72, minWidth: 48, align: 'right' },
+  analyzedKey: { width: 56, minWidth: 44, align: 'center' },
   favorite: { width: 28, minWidth: 28, align: 'center' },
   rating: { width: 80, minWidth: 80, align: 'center' },
   playCount: { width: 72, minWidth: 48, align: 'right' },
@@ -63,8 +77,11 @@ export const TRACK_COLUMNS: Record<TrackColumnId, TrackColumn> = {
   format: { width: 64, minWidth: 48, align: 'left' },
   bitrate: { width: 88, minWidth: 64, align: 'right' },
   sampleRate: { width: 88, minWidth: 64, align: 'right' },
+  bitDepth: { width: 64, minWidth: 48, align: 'right' },
+  channels: { width: 64, minWidth: 48, align: 'right' },
   fileSize: { width: 80, minWidth: 60, align: 'right' },
-  filePath: { width: 360, minWidth: 100, align: 'left' }
+  filePath: { width: 360, minWidth: 100, align: 'left' },
+  comment: { width: 200, minWidth: 60, align: 'left' }
 };
 
 /** 既定で表示する列 */
@@ -170,6 +187,20 @@ export function trackCellText(track: Track, id: TrackColumnId): string {
       return track.bitrate ? `${track.bitrate} kbps` : '';
     case 'sampleRate':
       return track.sampleRate ? `${track.sampleRate / 1000} kHz` : '';
+    case 'composer':
+    case 'grouping':
+    case 'comment':
+      // コメントは、改行を空白にして1行で出す
+      return (track.details[id] ?? '').replace(/\s+/g, ' ');
+    case 'bpm':
+    case 'channels':
+      return track.details[id]?.toString() ?? '';
+    case 'bitDepth':
+      return track.details.bitDepth ? `${track.details.bitDepth} bit` : '';
+    case 'analyzedBpm':
+      return track.details.analyzedBpm === null ? '' : track.details.analyzedBpm.toFixed(1);
+    case 'analyzedKey':
+      return formatMusicKey(track.details.analyzedKey);
     case 'fileSize':
       return formatFileSize(track.fileSize);
     case 'filePath':

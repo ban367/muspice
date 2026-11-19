@@ -27,7 +27,10 @@ const NAME_FIELDS: ReadonlySet<TrackSortField> = new Set([
   'album',
   'albumArtist',
   'genre',
-  'format'
+  'format',
+  'composer',
+  'grouping',
+  'comment'
 ]);
 
 /** 見出しを最初にクリックした時に、大きい方（新しい方）から並べる項目 */
@@ -61,6 +64,17 @@ function sortKey(track: Track, field: TrackSortField): SortKey {
       return track.format;
     case 'filePath':
       return track.filePath;
+    case 'composer':
+    case 'grouping':
+    case 'comment':
+      return track.details[field] || '';
+    // 値のない曲は、いちばん小さい扱い（キーは、主音の順。長調の後に短調）
+    case 'bpm':
+    case 'bitDepth':
+    case 'channels':
+    case 'analyzedBpm':
+    case 'analyzedKey':
+      return track.details[field] ?? -1;
     case 'favorite':
       return track.isFavorite ? 1 : 0;
     // 日時は書式のそろった文字列のため、そのまま比べられる（値のない曲は、いちばん古い扱い）

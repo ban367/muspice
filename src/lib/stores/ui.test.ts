@@ -176,7 +176,15 @@ describe('列幅', () => {
     bitrate: 88,
     sampleRate: 88,
     fileSize: 80,
-    filePath: 360
+    filePath: 360,
+    composer: 160,
+    grouping: 120,
+    bpm: 56,
+    analyzedBpm: 72,
+    analyzedKey: 56,
+    bitDepth: 64,
+    channels: 64,
+    comment: 200
   };
 
   it('保存がなければ既定値を使う（保存はしない）', async () => {

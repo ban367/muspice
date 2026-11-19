@@ -10,7 +10,7 @@ use rusqlite::{Connection, Row};
 
 use crate::models::{
     AlbumGroup, AlbumSummary, ArtistSummary, GenreSummary, MAX_PLAY_COUNT, Metadata,
-    PlayHistoryEntry, ReplayGain, SortTags, Track,
+    PlayHistoryEntry, ReplayGain, SortTags, Track, TrackDetails,
 };
 use crate::track_relink::MissingTrack;
 
@@ -59,6 +59,11 @@ fn stored_text(value: &Option<String>) -> Option<&str> {
     value.as_deref().filter(|value| !value.is_empty())
 }
 
+/// 編集で渡されたコメントを、保存する値にする（空白だけの値は、タグを読む時と同じく、ないものとする）
+fn stored_comment(value: &Option<String>) -> Option<&str> {
+    value.as_deref().filter(|value| !value.trim().is_empty())
+}
+
 /// SELECTで使用するトラックカラム列挙
 ///
 /// NULLを許す列のうち、`Track`で値なしにできない項目（大きさ・形式・日時・お気に入り・評価・
@@ -71,7 +76,13 @@ pub const TRACK_COLUMNS: &str = "id, file_path, file_name, title, artist, album,
     last_played_at, COALESCE(created_at, ''), COALESCE(updated_at, ''),
     replay_gain_track_gain, replay_gain_track_peak, replay_gain_album_gain, replay_gain_album_peak,
     album_artist, missing_since IS NOT NULL, COALESCE(skip_count, 0),
-    title_sort, artist_sort, album_sort, album_artist_sort, COALESCE(compilation, 0)";
+    title_sort, artist_sort, album_sort, album_artist_sort, COALESCE(compilation, 0),
+    composer, grouping, comment, bpm, bit_depth, channels,
+    (SELECT a.bpm FROM track_analysis a WHERE a.track_id = id AND a.failed = 0
+        AND a.duration IS (SELECT t2.duration FROM tracks t2 WHERE t2.id = a.track_id)),
+    (SELECT a.key_pitch_class + 12 * a.key_mode FROM track_analysis a
+        WHERE a.track_id = id AND a.failed = 0 AND a.key_pitch_class IS NOT NULL
+        AND a.duration IS (SELECT t2.duration FROM tracks t2 WHERE t2.id = a.track_id))";
 
 /// SQLiteの行からTrack構造体にマッピングする
 ///
@@ -115,6 +126,16 @@ pub fn map_track_row(row: &Row) -> rusqlite::Result<Track> {
         },
         is_missing: row.get(26)?,
         compilation: row.get::<_, i32>(32)? != 0,
+        details: TrackDetails {
+            composer: row.get(33)?,
+            grouping: row.get(34)?,
+            comment: row.get(35)?,
+            bpm: row.get(36)?,
+            bit_depth: row.get(37)?,
+            channels: row.get(38)?,
+            analyzed_bpm: row.get(39)?,
+            analyzed_key: row.get(40)?,
+        },
     })
 }
 
@@ -845,8 +866,12 @@ pub fn update_track_metadata(
                 album_sort = ?11,
                 album_artist_sort = ?12,
                 compilation = ?13,
-                updated_at = ?14
-             WHERE id = ?15",
+                composer = ?14,
+                grouping = ?15,
+                comment = ?16,
+                bpm = ?17,
+                updated_at = ?18
+             WHERE id = ?19",
             rusqlite::params![
                 stored_text(&metadata.title),
                 stored_text(&metadata.artist),
@@ -861,6 +886,10 @@ pub fn update_track_metadata(
                 stored_text(&metadata.album_sort),
                 stored_text(&metadata.album_artist_sort),
                 metadata.compilation == Some(true),
+                stored_text(&metadata.composer),
+                stored_text(&metadata.grouping),
+                stored_comment(&metadata.comment),
+                metadata.bpm,
                 now,
                 track_id,
             ],
@@ -911,17 +940,27 @@ pub fn update_track_metadata_partial(
         ("artist_sort = ?", &metadata.artist_sort),
         ("album_sort = ?", &metadata.album_sort),
         ("album_artist_sort = ?", &metadata.album_artist_sort),
+        ("composer = ?", &metadata.composer),
+        ("grouping = ?", &metadata.grouping),
     ] {
         if value.is_some() {
             update_parts.push(column);
             params.push(Box::new(stored_text(value).map(str::to_string)));
         }
     }
+    // コメントは、前後の空白も内容として残す（空の値は、項目を空にする）
+    if metadata.comment.is_some() {
+        update_parts.push("comment = ?");
+        params.push(Box::new(
+            stored_comment(&metadata.comment).map(str::to_string),
+        ));
+    }
 
     for (column, value) in [
         ("year = ?", metadata.year),
         ("track_number = ?", metadata.track_number),
         ("disc_number = ?", metadata.disc_number),
+        ("bpm = ?", metadata.bpm),
     ] {
         if value.is_some() {
             update_parts.push(column);
@@ -1024,9 +1063,10 @@ pub fn insert_track(
             replay_gain_track_gain, replay_gain_track_peak, replay_gain_album_gain, replay_gain_album_peak,
             rating, album_artist, album_artist_read,
             title_sort, artist_sort, album_sort, album_artist_sort, sort_tags_read, multi_values_read,
-            rating_read, compilation, compilation_read
+            rating_read, compilation, compilation_read,
+            composer, grouping, comment, bpm, bit_depth, channels, details_read
         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, 1,
-                  ?25, ?26, ?27, ?28, 1, 1, 1, ?29, 1)",
+                  ?25, ?26, ?27, ?28, 1, 1, 1, ?29, 1, ?30, ?31, ?32, ?33, ?34, ?35, 1)",
         rusqlite::params![
             track.id,
             track.file_path,
@@ -1057,6 +1097,12 @@ pub fn insert_track(
             track.sort_tags.album,
             track.sort_tags.album_artist,
             track.compilation,
+            track.details.composer,
+            track.details.grouping,
+            track.details.comment,
+            track.details.bpm,
+            track.details.bit_depth,
+            track.details.channels,
         ],
     )
     .map_err(|e| AppError::Database(format!("トラックの保存に失敗しました: {}", e)))?;
@@ -1085,6 +1131,8 @@ pub fn update_track_by_file_path(
             title_sort = ?23, artist_sort = ?24, album_sort = ?25, album_artist_sort = ?26,
             sort_tags_read = 1, multi_values_read = 1, rating_read = 1,
             compilation = ?27, compilation_read = 1,
+            composer = ?28, grouping = ?29, comment = ?30, bpm = ?31, bit_depth = ?32,
+            channels = ?33, details_read = 1,
             missing_since = NULL
         WHERE file_path = ?1",
         rusqlite::params![
@@ -1115,6 +1163,12 @@ pub fn update_track_by_file_path(
             track.sort_tags.album,
             track.sort_tags.album_artist,
             track.compilation,
+            track.details.composer,
+            track.details.grouping,
+            track.details.comment,
+            track.details.bpm,
+            track.details.bit_depth,
+            track.details.channels,
         ],
     )
     .map_err(|e| AppError::Database(format!("トラックの更新に失敗しました: {}", e)))?;
@@ -1151,6 +1205,11 @@ pub struct UnreadTagsTrack {
     pub rating: i32,
     /// コンピレーションの印を読んでいない（印をDBに持つ前の版で登録した。ADR-093）
     pub needs_compilation: bool,
+    /// 作曲者・BPM・ビット深度などを読んでいない（それらをDBに持つ前の版で登録した。ADR-115）
+    pub needs_details: bool,
+    /// 取得した時の更新日時（ファイルを読んでいる間に曲を編集した時は、作曲者などを記録しない。
+    /// `set_track_details`）
+    pub updated_at: Option<String>,
 }
 
 /// 後から追加した項目をまだファイルから読んでいないトラックを、rowidの順に取得する
@@ -1167,10 +1226,10 @@ pub fn find_tracks_with_unread_tags(
         conn,
         "SELECT rowid, id, file_path, album_artist_read = 0, sort_tags_read = 0,
                 multi_values_read = 0, artist, genre, rating_read = 0, COALESCE(rating, 0),
-                compilation_read = 0
+                compilation_read = 0, details_read = 0, updated_at
          FROM tracks
          WHERE (album_artist_read = 0 OR sort_tags_read = 0 OR multi_values_read = 0
-                OR rating_read = 0 OR compilation_read = 0)
+                OR rating_read = 0 OR compilation_read = 0 OR details_read = 0)
                AND missing_since IS NULL AND rowid > ?1
          ORDER BY rowid LIMIT ?2",
         &[&after_rowid, &limit],
@@ -1187,6 +1246,8 @@ pub fn find_tracks_with_unread_tags(
                 needs_rating: row.get(8)?,
                 rating: row.get(9)?,
                 needs_compilation: row.get(10)?,
+                needs_details: row.get(11)?,
+                updated_at: row.get(12)?,
             })
         },
     )
@@ -1222,6 +1283,38 @@ pub fn set_track_compilation(
     )
     .map_err(|e| AppError::Database(format!("コンピレーションの印の記録に失敗しました: {}", e)))?;
     Ok(())
+}
+
+/// ファイルから読んだ作曲者・グループ・コメント・BPM・ビット深度・チャンネル数を記録し、読み込み済みにする
+///
+/// 曲の更新日時が`read_updated_at`（ファイルを読む前に取得した値）のままの場合だけ記録し、記録したかを
+/// 返す。ファイルを読んでいる間に曲を編集した（タグを書き換えた・再スキャンした）場合は、読んだ値が
+/// 古いため記録せず、未読のまま残す（次の読み込みで読み直す）。ほかの項目（更新日時を含む）は変えない
+/// （ADR-115）。
+pub fn set_track_details(
+    conn: &Connection,
+    track_id: &str,
+    details: &TrackDetails,
+    read_updated_at: Option<&str>,
+) -> AppResult<bool> {
+    let changed = conn
+        .execute(
+            "UPDATE tracks SET composer = ?2, grouping = ?3, comment = ?4, bpm = ?5,
+                               bit_depth = ?6, channels = ?7, details_read = 1
+             WHERE id = ?1 AND updated_at IS ?8",
+            rusqlite::params![
+                track_id,
+                details.composer,
+                details.grouping,
+                details.comment,
+                details.bpm,
+                details.bit_depth,
+                details.channels,
+                read_updated_at
+            ],
+        )
+        .map_err(|e| AppError::Database(format!("作曲者などの記録に失敗しました: {}", e)))?;
+    Ok(changed > 0)
 }
 
 /// ファイルから読んだアルバムアーティストを記録し、読み込み済みにする
@@ -1968,6 +2061,64 @@ mod tests {
             ],
         )
         .expect("テストトラック挿入に失敗");
+    }
+
+    #[test]
+    fn test_track_details_are_stored_searched_and_read_with_analysis() {
+        let conn = setup_test_db();
+        insert_test_track(&conn, "t1", "曲", "アーティスト", "アルバム", "クラシック");
+        conn.execute("UPDATE tracks SET duration = 300 WHERE id = 't1'", [])
+            .unwrap();
+
+        // 編集画面の保存で、作曲者・グループ・コメント・BPMも記録する
+        let metadata = Metadata {
+            title: Some("曲".to_string()),
+            composer: Some("ベートーヴェン".to_string()),
+            grouping: Some("交響曲".to_string()),
+            comment: Some("  ".to_string()),
+            bpm: Some(96),
+            ..Default::default()
+        };
+        update_track_metadata(&conn, "t1", &metadata).unwrap();
+        let details = find_track_by_id(&conn, "t1").unwrap().details;
+        assert_eq!(details.composer.as_deref(), Some("ベートーヴェン"));
+        assert_eq!(details.grouping.as_deref(), Some("交響曲"));
+        // 空白だけのコメントは、ないものとして記録する
+        assert_eq!(details.comment, None);
+        assert_eq!(details.bpm, Some(96));
+
+        // 作曲者でも探せる（索引は、作曲者の変更で更新する）
+        let found = search_tracks_by_query(&conn, "ベートーヴェン").unwrap();
+        assert_eq!(
+            found.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(),
+            ["t1"]
+        );
+
+        // 一括編集でも、値のある項目だけを変える
+        let partial = Metadata {
+            composer: Some("ブラームス".to_string()),
+            ..Default::default()
+        };
+        update_track_metadata_partial(&conn, "t1", &partial, "2026-11-20T00:00:00Z").unwrap();
+        let details = find_track_by_id(&conn, "t1").unwrap().details;
+        assert_eq!(details.composer.as_deref(), Some("ブラームス"));
+        assert_eq!(details.bpm, Some(96));
+
+        // 曲の解析の結果（同じ長さの時だけ。キーは主音＋短調なら12）
+        conn.execute(
+            "INSERT INTO track_analysis (track_id, duration, bpm, key_pitch_class, key_mode, failed, analyzed_at)
+             VALUES ('t1', 300, 127.5, 9, 1, 0, '2026-11-20T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+        let details = find_track_by_id(&conn, "t1").unwrap().details;
+        assert_eq!(details.analyzed_bpm, Some(127.5));
+        assert_eq!(details.analyzed_key, Some(21));
+        // 解析の後に長さが変わった曲は、解析していないものとして扱う
+        conn.execute("UPDATE tracks SET duration = 301 WHERE id = 't1'", [])
+            .unwrap();
+        let details = find_track_by_id(&conn, "t1").unwrap().details;
+        assert_eq!((details.analyzed_bpm, details.analyzed_key), (None, None));
     }
 
     #[test]
@@ -3555,6 +3706,7 @@ mod tests {
             sort_tags: Default::default(),
             is_missing: false,
             compilation: false,
+            details: Default::default(),
         };
         track.sort_tags = SortTags {
             title: Some("きょく".to_string()),
@@ -3838,6 +3990,21 @@ mod tests {
         assert!(find_tracks_with_unread_tags(&conn, 0, 1).unwrap()[0].needs_compilation);
         set_track_compilation(&conn, "t1", true).unwrap();
         assert!(find_track_by_id(&conn, "t1").unwrap().compilation);
+        // 作曲者などだけが未読のまま残る（ADR-115）
+        assert!(find_tracks_with_unread_tags(&conn, 0, 1).unwrap()[0].needs_details);
+        let details = TrackDetails {
+            composer: Some("作曲者".to_string()),
+            bpm: Some(120),
+            bit_depth: Some(24),
+            channels: Some(2),
+            ..Default::default()
+        };
+        let read = find_tracks_with_unread_tags(&conn, 0, 1).unwrap().remove(0);
+        // 読んだ後に曲を編集した（更新日時が変わった）場合は、記録せずに未読のまま残す
+        assert!(!set_track_details(&conn, "t1", &details, Some("2000-01-01T00:00:00Z")).unwrap());
+        assert!(find_tracks_with_unread_tags(&conn, 0, 1).unwrap()[0].needs_details);
+        assert!(set_track_details(&conn, "t1", &details, read.updated_at.as_deref()).unwrap());
+        assert_eq!(find_track_by_id(&conn, "t1").unwrap().details, details);
         let rest = find_tracks_with_unread_tags(&conn, first[1].rowid, 2).unwrap();
         assert_eq!(
             rest.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(),

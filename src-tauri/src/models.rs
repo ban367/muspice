@@ -43,6 +43,30 @@ pub struct Track {
     /// コンピレーション（複数のアーティストの曲を集めたアルバム）の印。アルバムアーティストがない曲は、
     /// 「Various Artists」のアルバムにまとめる（`group_artist`。ADR-093）
     pub compilation: bool,
+    /// 一覧の列・検索に使う、タグとファイルの情報のうち、後から持つようにした項目（ADR-115）
+    pub details: TrackDetails,
+}
+
+/// 曲の、一覧の列・検索に使う項目のうち、後から持つようにしたもの（作曲者・BPM・ビット深度など。ADR-115）
+///
+/// タグ・ファイルの項目は、取り込み・再スキャン・編集の保存で記録する（登録済みの曲は、起動後に
+/// `tag_backfill`が読む）。解析の項目は、曲の解析の結果（`track_analysis`。ADR-104）から読む。
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackDetails {
+    pub composer: Option<String>,
+    pub grouping: Option<String>,
+    pub comment: Option<String>,
+    /// BPM（タグの値。整数）
+    pub bpm: Option<i32>,
+    /// ビット深度（PCMの形式など、ファイルが持つ場合だけ）
+    pub bit_depth: Option<i32>,
+    /// チャンネル数
+    pub channels: Option<i32>,
+    /// 曲の解析で求めたテンポ（BPM。解析していない・できなかった曲と、解析の後に長さが変わった曲はなし）
+    pub analyzed_bpm: Option<f64>,
+    /// 曲の解析で求めたキー（主音の0〜11。短調は12を足す。なしの扱いは`analyzed_bpm`と同じ）
+    pub analyzed_key: Option<i32>,
 }
 
 /// コンピレーションの印があり、アルバムアーティストのない曲をまとめるアルバムアーティスト

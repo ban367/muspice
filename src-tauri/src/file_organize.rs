@@ -1134,6 +1134,7 @@ mod tests {
             sort_tags: Default::default(),
             is_missing: false,
             compilation: false,
+            details: Default::default(),
         }
     }
 
