@@ -1561,6 +1561,9 @@ export const ja = {
     removeUnselected: '同期する内容から外れた曲を、デバイスから削除する',
     removeUnselectedHint:
       '削除するのはMuspiceがコピーした曲だけです。自分でデバイスに置いたファイルは削除しません',
+    copyExtras: '歌詞ファイル（.lrc）とフォルダの画像もコピーする',
+    copyExtrasHint:
+      '曲と同じ名前の歌詞ファイルと、フォルダの画像（cover.jpgなど）を、曲と同じフォルダへコピーします。オフにすると、次の同期で、Muspiceがコピーしたものを削除します',
     noSource: '同期する内容を選択してください',
 
     syncDialog: {
@@ -1570,6 +1573,12 @@ export const ja = {
       copy: 'コピー',
       delete: '削除',
       rename: '名前の変更',
+      /** 曲に添える歌詞ファイル・フォルダの画像（ADR-112） */
+      extras: '歌詞・フォルダの画像',
+      extraCounts: (copied: number, deleted: number) =>
+        [copied > 0 && `コピー ${copied}件`, deleted > 0 && `削除 ${deleted}件`]
+          .filter(Boolean)
+          .join('・'),
       unchanged: '変更なし',
       playlists: 'プレイリスト',
       /** 曲数とサイズ（例: 12曲（345.6 MB）） */

@@ -49,6 +49,7 @@
         playlistIds: current.playlistIds,
         removeUnselected: current.removeUnselected,
         pathTemplate: current.pathTemplate,
+        copyExtras: current.copyExtras,
         ...patch
       }
     });
@@ -76,7 +77,8 @@
           syncAll: current.syncAll,
           playlistIds: current.playlistIds,
           removeUnselected: current.removeUnselected,
-          pathTemplate: draftTemplate.trim()
+          pathTemplate: draftTemplate.trim(),
+          copyExtras: current.copyExtras
         }
       },
       { onSuccess: () => showSuccess(m.devices.layoutApplied) }
@@ -278,6 +280,17 @@
         {m.devices.removeUnselected}
       </label>
       <p class="hint option-hint">{m.devices.removeUnselectedHint}</p>
+
+      <label class="option remove-option">
+        <input
+          type="checkbox"
+          class="option-checkbox"
+          checked={device.copyExtras}
+          onchange={(e) => updateConfig(device, { copyExtras: e.currentTarget.checked })}
+        />
+        {m.devices.copyExtras}
+      </label>
+      <p class="hint option-hint">{m.devices.copyExtrasHint}</p>
 
       <!-- デバイス上の配置の書式（例は、最近追加したアルバムの曲を、デバイスのフォルダからの場所で出す。ADR-111） -->
       <h3 class="group-title layout-title">{m.devices.layoutTitle}</h3>
