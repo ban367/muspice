@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { SmartRule, SmartRules } from '#lib/types/models.js';
 import {
+  KEY_VALUES,
   changeRuleField,
   describeOrder,
   describeRule,
@@ -181,6 +182,68 @@ describe('toSmartRules', () => {
   });
 });
 
+describe('新しい項目（キー・プレイリスト・見つからない曲・サンプルレート）', () => {
+  it('比べ方と、最初の値', () => {
+    expect(opsFor('analyzedKey')).toEqual(['is', 'isNot', 'isEmpty', 'isNotEmpty']);
+    expect(opsFor('playlist')).toEqual(['is', 'isNot']);
+    expect(opsFor('missing')).toEqual(['is', 'isNot']);
+    expect(newRuleDraft(0, 'analyzedKey')).toMatchObject({ op: 'is', value: '0' });
+    expect(newRuleDraft(0, 'playlist')).toMatchObject({ op: 'is', value: '' });
+    expect(needsValue(draft({ field: 'missing', op: 'is' }))).toBe(false);
+    expect(needsValue(draft({ field: 'playlist', op: 'isNot' }))).toBe(true);
+    expect(needsValue(draft({ field: 'analyzedKey', op: 'isEmpty' }))).toBe(false);
+  });
+
+  it('キーの選択肢は、24の調を長調・短調の順に並べる', () => {
+    expect(KEY_VALUES).toHaveLength(24);
+    expect(new Set(KEY_VALUES).size).toBe(24);
+    expect(KEY_VALUES.slice(0, 4)).toEqual([0, 12, 1, 13]);
+  });
+
+  it('入力を、保存する条件にする', () => {
+    const result = toSmartRules(
+      form({
+        drafts: [
+          draft({ key: 0, field: 'analyzedKey', op: 'is', value: '21' }),
+          draft({ key: 1, field: 'analyzedKey', op: 'isEmpty', value: '21' }),
+          draft({ key: 2, field: 'playlist', op: 'isNot', value: 'p1' }),
+          draft({ key: 3, field: 'missing', op: 'is' }),
+          draft({ key: 4, field: 'sampleRate', op: 'atLeast', value: '44.1' })
+        ]
+      })
+    );
+    expect(result.rules?.rules).toEqual([
+      { kind: 'key', op: 'is', value: 21 },
+      { kind: 'key', op: 'isEmpty', value: 0 },
+      { kind: 'playlist', op: 'isNot', playlistId: 'p1' },
+      { kind: 'missing', value: true },
+      { kind: 'number', field: 'sampleRate', op: 'atLeast', value: 44_100, valueTo: null }
+    ]);
+  });
+
+  it('プレイリストを選んでいない条件は、誤りにする', () => {
+    const result = toSmartRules(
+      form({ drafts: [draft({ key: 7, field: 'playlist', op: 'is', value: '' })] })
+    );
+    expect(result).toMatchObject({ error: 'playlistRequired', ruleKey: 7 });
+  });
+
+  it('保存してある条件を入力にし、同じ条件に戻せる', () => {
+    const rules: SmartRule[] = [
+      { kind: 'key', op: 'isNot', value: 9 },
+      { kind: 'key', op: 'isNotEmpty', value: 0 },
+      { kind: 'playlist', op: 'is', playlistId: 'p2' },
+      { kind: 'missing', value: false },
+      { kind: 'number', field: 'sampleRate', op: 'between', value: 44_100, valueTo: 48_000 },
+      { kind: 'number', field: 'analyzedBpm', op: 'atLeast', value: 120, valueTo: null },
+      { kind: 'text', field: 'grouping', op: 'contains', value: 'Live' }
+    ];
+    const drafts = toRuleDrafts(rules);
+    expect(drafts[4]).toMatchObject({ value: '44.1', valueTo: '48' });
+    expect(toSmartRules(form({ drafts })).rules?.rules).toEqual(rules);
+  });
+});
+
 describe('toSmartRulesForm・toRuleDrafts', () => {
   const rules: SmartRules = {
     matchMode: 'any',
@@ -262,9 +325,33 @@ describe('describeRule・describeOrder', () => {
     [{ kind: 'favorite', value: true }, 'お気に入り'],
     [{ kind: 'favorite', value: false }, 'お気に入りではない'],
     [{ kind: 'inMusicFolder', value: true }, '音楽フォルダの中にある'],
-    [{ kind: 'inMusicFolder', value: false }, '音楽フォルダの外にある']
+    [{ kind: 'inMusicFolder', value: false }, '音楽フォルダの外にある'],
+    [
+      { kind: 'number', field: 'sampleRate', op: 'atLeast', value: 96_000, valueTo: null },
+      'サンプルレート: 96 kHz以上'
+    ],
+    [
+      { kind: 'number', field: 'bitDepth', op: 'is', value: 24, valueTo: null },
+      'ビット深度: 24 bit'
+    ],
+    [{ kind: 'text', field: 'composer', op: 'is', value: 'Bach' }, '作曲者: 「Bach」'],
+    [{ kind: 'key', op: 'is', value: 21 }, 'キー（解析）: Am'],
+    [{ kind: 'key', op: 'isNot', value: 0 }, 'キー（解析）: C以外'],
+    [{ kind: 'key', op: 'isEmpty', value: 0 }, 'キー（解析）: なし（未解析）'],
+    [{ kind: 'missing', value: true }, 'ファイルが見つからない'],
+    [{ kind: 'missing', value: false }, 'ファイルがある']
   ])('条件を説明する', (rule, expected) => {
     expect(describeRule(rule)).toBe(expected);
+  });
+
+  it('プレイリストの条件は、プレイリストの名前で説明する（消したプレイリストは、その旨）', () => {
+    const names = (id: string) => (id === 'p1' ? '車では聴かない' : null);
+    expect(describeRule({ kind: 'playlist', op: 'isNot', playlistId: 'p1' }, names)).toBe(
+      '「車では聴かない」に入っていない'
+    );
+    expect(describeRule({ kind: 'playlist', op: 'is', playlistId: 'gone' }, names)).toBe(
+      '「（削除したプレイリスト）」に入っている'
+    );
   });
 
   it('並び順と上限を説明する', () => {

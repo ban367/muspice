@@ -1102,6 +1102,10 @@ export const en: Messages = {
     random: 'Random',
     pathField: 'File Location',
     inMusicFolderField: 'Music folder',
+    playlistField: 'Playlist',
+    choosePlaylist: 'Choose a playlist',
+    deletedPlaylist: '(Deleted playlist)',
+    missingField: 'File',
     noRating: 'No rating',
     days: 'days',
     minutesUnit: 'min',
@@ -1137,6 +1141,20 @@ export const en: Messages = {
       inMusicFolder: {
         is: 'contains the track',
         isNot: 'does not contain the track'
+      },
+      key: {
+        is: 'is',
+        isNot: 'is not',
+        isEmpty: 'is empty (not analyzed)',
+        isNotEmpty: 'is not empty'
+      },
+      playlist: {
+        is: 'contains the track',
+        isNot: 'does not contain the track'
+      },
+      missing: {
+        is: 'is missing',
+        isNot: 'is present'
       }
     },
     describe: {
@@ -1167,6 +1185,14 @@ export const en: Messages = {
       favorite: (value: boolean) => (value ? 'Favorite' : 'Not a favorite'),
       inMusicFolder: (value: boolean) =>
         value ? 'In the music folder' : 'Outside the music folder',
+      key: {
+        is: (key: string) => key,
+        isNot: (key: string) => `not ${key}`,
+        isEmpty: () => 'none (not analyzed)',
+        isNotEmpty: () => 'any'
+      },
+      playlist: (name: string, value: boolean) => `${value ? 'In' : 'Not in'} "${name}"`,
+      missing: (value: boolean) => (value ? 'File is missing' : 'File is present'),
       order: (field: string, descending: boolean) =>
         `${field}, ${descending ? 'descending' : 'ascending'}`,
       limited: (order: string, limit: number) =>
@@ -1183,7 +1209,8 @@ export const en: Messages = {
       rangeInvalid: 'Enter the range from the smaller value to the larger value',
       daysInvalid: 'Enter a number of days from 1 to 36500',
       limitInvalid: 'Enter a limit from 1 to 100000',
-      tooManyRules: 'Too many rules (up to 50)'
+      tooManyRules: 'Too many rules (up to 50)',
+      playlistRequired: 'Choose a playlist for the rule'
     },
     editRules: 'Edit Rules',
     editRulesEllipsis: 'Edit Rules...',

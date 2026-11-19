@@ -1161,6 +1161,12 @@ export const ja = {
     pathField: 'ファイルの場所',
     /** 音楽フォルダの中にあるかの条件（ADR-084） */
     inMusicFolderField: '音楽フォルダ',
+    /** ほかのプレイリストに入っているかの条件（ADR-116） */
+    playlistField: 'プレイリスト',
+    choosePlaylist: 'プレイリストを選ぶ',
+    deletedPlaylist: '（削除したプレイリスト）',
+    /** ファイルが見つからない曲かの条件（ADR-023） */
+    missingField: 'ファイル',
     noRating: '評価なし',
     days: '日',
     minutesUnit: '分',
@@ -1196,6 +1202,20 @@ export const ja = {
       inMusicFolder: {
         is: 'の中にある',
         isNot: 'の外にある'
+      },
+      key: {
+        is: 'である',
+        isNot: 'でない',
+        isEmpty: 'がない（未解析）',
+        isNotEmpty: 'がある'
+      },
+      playlist: {
+        is: 'に入っている',
+        isNot: 'に入っていない'
+      },
+      missing: {
+        is: 'が見つからない',
+        isNot: 'がある'
       }
     },
     /** 条件の説明（プレイリストの画面に出す） */
@@ -1227,6 +1247,15 @@ export const ja = {
       favorite: (value: boolean): string => (value ? 'お気に入り' : 'お気に入りではない'),
       inMusicFolder: (value: boolean): string =>
         value ? '音楽フォルダの中にある' : '音楽フォルダの外にある',
+      key: {
+        is: (key: string) => key,
+        isNot: (key: string) => `${key}以外`,
+        isEmpty: () => 'なし（未解析）',
+        isNotEmpty: () => 'あり'
+      },
+      playlist: (name: string, value: boolean): string =>
+        `「${name}」に${value ? '入っている' : '入っていない'}`,
+      missing: (value: boolean): string => (value ? 'ファイルが見つからない' : 'ファイルがある'),
       order: (field: string, descending: boolean) => `${field}の${descending ? '降順' : '昇順'}`,
       limited: (order: string, limit: number) => `${order}で${limit}曲まで`
     },
@@ -1241,7 +1270,8 @@ export const ja = {
       rangeInvalid: '範囲の条件は、小さい値と大きい値の順に入力してください',
       daysInvalid: '日数は、1から36500で入力してください',
       limitInvalid: '曲数の上限は、1から100000で入力してください',
-      tooManyRules: '条件が多すぎます（50個まで）'
+      tooManyRules: '条件が多すぎます（50個まで）',
+      playlistRequired: '条件のプレイリストを選んでください'
     },
     editRules: '条件を編集',
     editRulesEllipsis: '条件を編集...',

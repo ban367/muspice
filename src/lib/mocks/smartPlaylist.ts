@@ -11,6 +11,7 @@ import { groupArtist } from '#lib/utils/albumKey.js';
 import { isOutsideMusicFolder } from '#lib/utils/musicFolder.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** 条件から曲を求める時の状況（Rustの`EvalContext`に対応） */
 export interface SmartPlaylistContext {
@@ -20,6 +21,11 @@ export interface SmartPlaylistContext {
   shuffleSeed: number;
   /** 音楽フォルダ（「音楽フォルダの中にある」の条件に使う。未設定ならnull。ADR-084） */
   musicFolderPath?: string | null;
+  /**
+   * プレイリストに入っている曲のID（「プレイリストに入っている」の条件に使う。自動プレイリストは
+   * 条件に合う曲。消したプレイリストは空。ADR-116）
+   */
+  playlistMembers?: (playlistId: string) => ReadonlySet<string>;
 }
 
 /** 条件の誤りを説明する文（誤りがなければnull。Rustの`validate_rules`に対応） */
@@ -56,8 +62,19 @@ export function smartRulesError(rules: SmartRules): string | null {
         }
         break;
       }
+      case 'key': {
+        const needsValue = rule.op === 'is' || rule.op === 'isNot';
+        if (needsValue && (!Number.isInteger(rule.value) || rule.value < 0 || rule.value > 23)) {
+          return 'キーの条件の値が範囲の外です';
+        }
+        break;
+      }
+      case 'playlist':
+        if (!UUID_PATTERN.test(rule.playlistId)) return '不正なプレイリストID形式です';
+        break;
       case 'favorite':
       case 'inMusicFolder':
+      case 'missing':
         break;
     }
   }
@@ -69,7 +86,16 @@ type NumberRule = Extract<SmartRule, { kind: 'number' }>;
 type DateRule = Extract<SmartRule, { kind: 'date' }>;
 
 function textValue(track: Track, field: TextRule['field']): string | null {
-  return field === 'path' ? track.filePath : track[field];
+  switch (field) {
+    case 'path':
+      return track.filePath;
+    case 'composer':
+    case 'grouping':
+    case 'comment':
+      return track.details[field];
+    default:
+      return track[field];
+  }
 }
 
 function matchesText(track: Track, rule: TextRule): boolean {
@@ -101,8 +127,22 @@ function matchesText(track: Track, rule: TextRule): boolean {
   }
 }
 
+function numberValue(track: Track, field: NumberRule['field']): number | null {
+  switch (field) {
+    case 'bpm':
+    case 'bitDepth':
+    case 'channels':
+      return track.details[field];
+    // 解析したテンポは、四捨五入した整数で比べる（Rust側と同じ）
+    case 'analyzedBpm':
+      return track.details.analyzedBpm === null ? null : Math.round(track.details.analyzedBpm);
+    default:
+      return track[field];
+  }
+}
+
 function matchesNumber(track: Track, rule: NumberRule): boolean {
-  const value: number | null = track[rule.field];
+  const value = numberValue(track, rule.field);
   // 値のない曲（年のない曲など）は、「その値ではない」にだけ含める
   if (value === null) return rule.op === 'isNot';
   switch (rule.op) {
@@ -136,13 +176,27 @@ function matchesDate(track: Track, rule: DateRule, now: number): boolean {
   }
 }
 
-/** 曲が、1つの条件に合うか（`musicFolderPath`は音楽フォルダ。未設定ならnull） */
-export function matchesSmartRule(
-  track: Track,
-  rule: SmartRule,
-  now: number,
-  musicFolderPath: string | null = null
-): boolean {
+type KeyRule = Extract<SmartRule, { kind: 'key' }>;
+
+function matchesKey(track: Track, rule: KeyRule): boolean {
+  const key = track.details.analyzedKey;
+  switch (rule.op) {
+    case 'is':
+      return key === rule.value;
+    // 解析していない曲は、「そのキーではない」に含める
+    case 'isNot':
+      return key !== rule.value;
+    case 'isEmpty':
+      return key === null;
+    case 'isNotEmpty':
+      return key !== null;
+  }
+}
+
+/** 曲が、1つの条件に合うか */
+function matchesSmartRule(track: Track, rule: SmartRule, context: SmartPlaylistContext): boolean {
+  const { now } = context;
+  const musicFolderPath = context.musicFolderPath ?? null;
   switch (rule.kind) {
     case 'text':
       return matchesText(track, rule);
@@ -158,6 +212,14 @@ export function matchesSmartRule(
         (musicFolderPath !== null && !isOutsideMusicFolder(track.filePath, musicFolderPath)) ===
         rule.value
       );
+    case 'key':
+      return matchesKey(track, rule);
+    case 'missing':
+      return track.isMissing === rule.value;
+    case 'playlist': {
+      const members = context.playlistMembers?.(rule.playlistId) ?? new Set<string>();
+      return members.has(track.id) === (rule.op === 'is');
+    }
   }
 }
 
@@ -225,11 +287,9 @@ function shuffleKey(seed: number, trackId: string): number {
 function matchingTracks(
   tracks: readonly Track[],
   rules: SmartRules,
-  now: number,
-  musicFolderPath: string | null
+  context: SmartPlaylistContext
 ): Track[] {
-  const matches = (track: Track, rule: SmartRule) =>
-    matchesSmartRule(track, rule, now, musicFolderPath);
+  const matches = (track: Track, rule: SmartRule) => matchesSmartRule(track, rule, context);
   // 「すべてを満たす」で条件がなければすべての曲、「いずれかを満たす」で条件がなければ曲なし
   return tracks.filter((track) =>
     rules.matchMode === 'all'
@@ -244,7 +304,7 @@ export function findSmartPlaylistTracks(
   rules: SmartRules,
   context: SmartPlaylistContext
 ): Track[] {
-  const matched = matchingTracks(tracks, rules, context.now, context.musicFolderPath ?? null);
+  const matched = matchingTracks(tracks, rules, context);
   const { field, descending } = rules.order;
 
   if (field === 'random') {
@@ -268,9 +328,8 @@ export function findSmartPlaylistTracks(
 export function countSmartPlaylistTracks(
   tracks: readonly Track[],
   rules: SmartRules,
-  now: number,
-  musicFolderPath: string | null = null
+  context: SmartPlaylistContext
 ): number {
-  const count = matchingTracks(tracks, rules, now, musicFolderPath).length;
+  const count = matchingTracks(tracks, rules, context).length;
   return rules.limit === null ? count : Math.min(count, rules.limit);
 }

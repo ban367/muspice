@@ -239,11 +239,91 @@ describe('findSmartPlaylistTracks', () => {
   });
 });
 
+describe('タグ・解析・ファイルの状態・プレイリストの条件', () => {
+  const details = (overrides: Partial<Track['details']>): Partial<Track> => ({
+    details: { ...track('x').details, ...overrides }
+  });
+  const library = [
+    track('a', {
+      ...details({ composer: 'Bach', bpm: 128, analyzedBpm: 124.5, analyzedKey: 21 }),
+      sampleRate: 96_000
+    }),
+    track('b', { ...details({ composer: 'Bachmann', analyzedKey: 0 }), isMissing: true }),
+    track('c'),
+    track('d')
+  ];
+  const find = (
+    list: SmartRule[],
+    context: Partial<Parameters<typeof findSmartPlaylistTracks>[2]> = {}
+  ) =>
+    findSmartPlaylistTracks(library, rules({ rules: list }), {
+      now: NOW,
+      shuffleSeed: 1,
+      ...context
+    }).map((t) => t.id);
+
+  it('作曲者で比べる', () => {
+    expect(find([{ kind: 'text', field: 'composer', op: 'is', value: 'bach' }])).toEqual(['a']);
+    expect(find([{ kind: 'text', field: 'composer', op: 'contains', value: 'bach' }])).toEqual([
+      'a',
+      'b'
+    ]);
+  });
+
+  it('解析したテンポは四捨五入して比べ、キー・見つからない曲・サンプルレートで絞り込む', () => {
+    const number = (
+      field: 'analyzedBpm' | 'sampleRate' | 'bpm',
+      op: 'is' | 'atLeast',
+      value: number
+    ) => ({ kind: 'number', field, op, value, valueTo: null }) as const;
+    expect(find([number('analyzedBpm', 'is', 125)])).toEqual(['a']);
+    expect(find([number('bpm', 'atLeast', 120)])).toEqual(['a']);
+    expect(find([number('sampleRate', 'atLeast', 48_000)])).toEqual(['a']);
+    expect(find([{ kind: 'key', op: 'is', value: 21 }])).toEqual(['a']);
+    expect(find([{ kind: 'key', op: 'isNot', value: 21 }])).toEqual(['b', 'c', 'd']);
+    expect(find([{ kind: 'key', op: 'isEmpty', value: 0 }])).toEqual(['c', 'd']);
+    expect(find([{ kind: 'missing', value: true }])).toEqual(['b']);
+  });
+
+  it('プレイリストに入っている曲で比べる（プレイリストが分からなければ、曲のないプレイリスト）', () => {
+    const playlistMembers = (id: string) => new Set(id === 'p1' ? ['a', 'c'] : []);
+    expect(find([{ kind: 'playlist', op: 'is', playlistId: 'p1' }], { playlistMembers })).toEqual([
+      'a',
+      'c'
+    ]);
+    expect(
+      find([{ kind: 'playlist', op: 'isNot', playlistId: 'p1' }], { playlistMembers })
+    ).toEqual(['b', 'd']);
+    expect(find([{ kind: 'playlist', op: 'isNot', playlistId: 'p1' }])).toEqual([
+      'a',
+      'b',
+      'c',
+      'd'
+    ]);
+  });
+
+  it('キー・プレイリストの条件を検証する', () => {
+    expect(
+      smartRulesError(rules({ rules: [{ kind: 'key', op: 'is', value: 24 }] }))
+    ).not.toBeNull();
+    expect(
+      smartRulesError(rules({ rules: [{ kind: 'key', op: 'isEmpty', value: 99 }] }))
+    ).toBeNull();
+    expect(
+      smartRulesError(rules({ rules: [{ kind: 'playlist', op: 'is', playlistId: 'not-a-uuid' }] }))
+    ).not.toBeNull();
+  });
+});
+
 describe('countSmartPlaylistTracks', () => {
   it('条件に合う曲数を、上限を超えない範囲で返す', () => {
-    expect(countSmartPlaylistTracks(LIBRARY, rules(), NOW)).toBe(4);
-    expect(countSmartPlaylistTracks(LIBRARY, rules({ limit: 3 }), NOW)).toBe(3);
-    expect(countSmartPlaylistTracks(LIBRARY, rules({ limit: 10 }), NOW)).toBe(4);
+    expect(countSmartPlaylistTracks(LIBRARY, rules(), { now: NOW, shuffleSeed: 1 })).toBe(4);
+    expect(
+      countSmartPlaylistTracks(LIBRARY, rules({ limit: 3 }), { now: NOW, shuffleSeed: 1 })
+    ).toBe(3);
+    expect(
+      countSmartPlaylistTracks(LIBRARY, rules({ limit: 10 }), { now: NOW, shuffleSeed: 1 })
+    ).toBe(4);
   });
 });
 

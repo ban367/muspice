@@ -30,11 +30,14 @@ pub fn create_playlist(conn: &Connection, name: &str) -> AppResult<Playlist> {
 }
 
 /// 自動プレイリスト（条件で曲を集めるプレイリスト）を作成
+///
+/// 条件にしたプレイリストがない場合は断る（`smart_playlist::validate_playlist_references`）。
 pub fn create_smart_playlist(
     conn: &Connection,
     name: &str,
     rules: &SmartRules,
 ) -> AppResult<Playlist> {
+    smart_playlist::validate_playlist_references(conn, None, rules)?;
     insert_playlist(conn, name, Some(rules)).map_err(database("プレイリストの作成"))
 }
 
@@ -116,7 +119,10 @@ fn parse_rules(json: Option<String>) -> Option<SmartRules> {
 /// プレイリストの条件を取得する
 ///
 /// 外側の`None`はプレイリストがない場合、内側の`None`は通常のプレイリスト。
-fn find_rules(conn: &Connection, playlist_id: &str) -> AppResult<Option<Option<SmartRules>>> {
+pub(crate) fn find_rules(
+    conn: &Connection,
+    playlist_id: &str,
+) -> AppResult<Option<Option<SmartRules>>> {
     conn.query_row(
         "SELECT rules FROM playlists WHERE id = ?1",
         [playlist_id],
@@ -143,6 +149,8 @@ pub fn ensure_manual_playlist(conn: &Connection, playlist_id: &str) -> AppResult
 /// 自動プレイリストの条件を変更
 ///
 /// 通常のプレイリストは、自動プレイリストに変えない（入れてある曲が見えなくなるため）。
+/// 条件にしたプレイリストがない場合・そのプレイリスト自身や互いを条件にする場合は断る
+/// （`smart_playlist::validate_playlist_references`）。
 pub fn update_smart_playlist_rules(
     conn: &Connection,
     playlist_id: &str,
@@ -157,6 +165,7 @@ pub fn update_smart_playlist_rules(
         }
         Some(Some(_)) => {}
     }
+    smart_playlist::validate_playlist_references(conn, Some(playlist_id), rules)?;
 
     let database = database("プレイリストの条件の変更");
     conn.execute(
