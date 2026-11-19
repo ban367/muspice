@@ -395,10 +395,20 @@ interface MockSyncDevice extends Omit<SyncDevice, 'freeBytes' | 'totalBytes'> {
   /** デバイスにコピー済みの曲（トラックID → サイズ） */
   copied: Map<string, number>;
   /**
-   * コピー済みの曲を置いた時の配置の書式（書式を変えると、次の同期でコピー済みの曲の名前を変える。
-   * 実装は、曲ごとに書式から求めた場所と記録を比べる）
+   * コピー済みの曲のデバイス上の場所（トラックID → 場所。実装の管理ファイルの記録）
+   *
+   * 書式から求めた今の場所と違う曲は、次の同期で名前を変える（Rustの`device_sync::plan_sync`）。
    */
-  copiedTemplate: string;
+  copiedPaths: Map<string, string>;
+}
+
+/**
+ * 曲のデバイス上の配置（Rustの`device_sync::track_relative_path`。書式はファイルの整理と同じ書き方で、
+ * 拡張子は小文字にする）
+ */
+function devicePathOf(track: Track, template: string): string {
+  const extension = /\.[A-Za-z0-9]+$/.exec(track.filePath)?.[0].toLowerCase();
+  return organizedRelativePath(parseOrganizeTemplate(template), track, extension);
 }
 
 /** 再生状態を保存するキー（`storage`を渡した場合） */
@@ -773,6 +783,14 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         return [mockTrackId(index), track?.fileSize ?? 0] as const;
       })
     );
+  /** コピー済みの曲の、その書式でのデバイス上の場所 */
+  const copiedPathsOf = (indexes: number[], template: string) =>
+    new Map(
+      indexes.flatMap((index) => {
+        const track = tracks.find((t) => t.id === mockTrackId(index));
+        return track ? [[track.id, devicePathOf(track, template)] as const] : [];
+      })
+    );
   let syncDevices: MockSyncDevice[] = [
     {
       id: crypto.randomUUID(),
@@ -790,7 +808,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       otherUsedBytes: 20 * GIB,
       // プレイリストの5曲のうち2曲と、プレイリストから外した1曲がコピー済み
       copied: copiedTracks([7, 8, 2]),
-      copiedTemplate: '%artist%/%album%/[%disc%-]%track% %title%'
+      copiedPaths: copiedPathsOf([7, 8, 2], '%artist%/%album%/[%disc%-]%track% %title%')
     },
     {
       id: crypto.randomUUID(),
@@ -806,7 +824,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       totalBytes: 16 * GIB,
       otherUsedBytes: 0,
       copied: new Map(),
-      copiedTemplate: DEFAULT_DEVICE_TEMPLATE
+      copiedPaths: new Map()
     }
   ];
   let isSyncRunning = false;
@@ -2372,9 +2390,20 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     const deleteBytes = toDelete.reduce((sum, id) => sum + (device.copied.get(id) ?? 0), 0);
     const freeBytes = device.totalBytes - usedBytes(device);
     const requiredBytes = Math.max(copyBytes - deleteBytes, 0);
-    // 書式を変えた後は、残すコピー済みの曲の名前を変える（実装は、場所が変わる曲だけ）
-    const keptCount = device.copied.size - toDelete.length;
-    const renameCount = device.pathTemplate === device.copiedTemplate ? 0 : keptCount;
+    // 残すコピー済みの曲のうち、書式から求めた場所が記録と違う曲は、名前を変える
+    // （大文字と小文字だけの違いは同じとみなす。Rustの`is_same_or_numbered`）
+    const keptIds = [...device.copied.keys()].filter((id) => !toDelete.includes(id));
+    const toRename = keptIds.filter((id) => {
+      const track = tracks.find((t) => t.id === id);
+      const recorded = device.copiedPaths.get(id);
+      return (
+        track !== undefined &&
+        recorded !== undefined &&
+        devicePathOf(track, device.pathTemplate).toLowerCase() !== recorded.toLowerCase()
+      );
+    });
+    const keptCount = keptIds.length;
+    const renameCount = toRename.length;
     const summary: DeviceSyncPlan = {
       copyCount: toCopy.length,
       copyBytes,
@@ -2388,14 +2417,14 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       requiredBytes,
       hasEnoughSpace: requiredBytes === 0 || requiredBytes + SYNC_SPACE_MARGIN_BYTES <= freeBytes
     };
-    return { toCopy, toDelete, summary };
+    return { toCopy, toDelete, toRename, summary };
   }
 
   /** デバイスへ同期する（1曲ずつ進捗を送り、中止の要求があれば次の曲の前で止める） */
   async function runDeviceSync(deviceId: string): Promise<DeviceSyncResult> {
     const device = findSyncDevice(deviceId);
     if (isSyncRunning) fail('LOCK', '他のデバイスへの同期が実行中です');
-    const { toCopy, toDelete, summary } = planSync(device);
+    const { toCopy, toDelete, toRename, summary } = planSync(device);
     if (!device.syncAll && devicePlaylists(device).length === 0) {
       fail('VALIDATION', '同期する対象（全曲またはプレイリスト）を選択してください');
     }
@@ -2404,7 +2433,15 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     isSyncRunning = true;
     isSyncCancelled = false;
     try {
-      for (const id of toDelete) device.copied.delete(id);
+      for (const id of toDelete) {
+        device.copied.delete(id);
+        device.copiedPaths.delete(id);
+      }
+      // 名前の変更（実装の順は、削除 → 名前の変更 → コピー）
+      for (const id of toRename) {
+        const track = tracks.find((t) => t.id === id);
+        if (track) device.copiedPaths.set(id, devicePathOf(track, device.pathTemplate));
+      }
 
       let copiedCount = 0;
       let bytesDone = 0;
@@ -2422,12 +2459,10 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         progress(index, track.fileName);
         await sleep(SYNC_STEP_MS);
         device.copied.set(track.id, track.fileSize);
+        device.copiedPaths.set(track.id, devicePathOf(track, device.pathTemplate));
         bytesDone += track.fileSize;
         copiedCount++;
       }
-
-      // 名前の変更は、コピーより前に済ませる（実装の順は、削除 → 名前の変更 → コピー）
-      device.copiedTemplate = device.pathTemplate;
 
       const cancelled = isSyncCancelled;
       if (!cancelled) {
@@ -3576,7 +3611,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         totalBytes: 64 * GIB,
         otherUsedBytes: 0,
         copied: new Map(),
-        copiedTemplate: DEFAULT_DEVICE_TEMPLATE
+        copiedPaths: new Map()
       };
       syncDevices.push(device);
       return toSyncDevice(device);

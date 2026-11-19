@@ -2681,12 +2681,19 @@ describe('転送先デバイス', () => {
     expect(stored).toMatchObject({ name: device.name, pathTemplate: device.pathTemplate });
   });
 
-  it('配置の書式を変えると、次の同期でコピー済みの曲の名前を変える', async () => {
+  it('配置の書式を変えると、次の同期で、場所が変わるコピー済みの曲の名前を変える', async () => {
     const device = await connectedDevice();
+    // アルバムアーティストのない曲は、既定の書式でも曲のアーティストのフォルダのため、名前は変わらない
     await commands.updateSyncDevice(device.id, {
       ...device,
       pathTemplate: DEFAULT_DEVICE_TEMPLATE
     });
+    expect(await commands.planDeviceSync(device.id)).toMatchObject({
+      renameCount: 0,
+      unchangedCount: 2
+    });
+
+    await commands.updateSyncDevice(device.id, { ...device, pathTemplate: '%album%/%title%' });
     expect(await commands.planDeviceSync(device.id)).toMatchObject({
       renameCount: 2,
       unchangedCount: 0
