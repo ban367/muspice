@@ -253,6 +253,11 @@ export const ja = {
     columns: '表示する列',
     resetSort: '並び順を既定に戻す',
     resetColumns: '列と並び順を既定に戻す',
+    /** 一覧の下の合計（ADR-114） */
+    summary: (count: number, duration: string, size: string) =>
+      `${count}曲 · ${duration} · ${size}`,
+    selectionSummary: (count: number, duration: string, size: string) =>
+      `${count}曲を選択中（${duration} · ${size}）`,
     /** 並べ替えている列の見出しの名前（スクリーンリーダー向け） */
     sortedColumn: (column: string, descending: boolean) =>
       `${column}（${descending ? '降順' : '昇順'}で並べ替え中）`

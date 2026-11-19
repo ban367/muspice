@@ -240,6 +240,11 @@ export const en: Messages = {
     columns: 'Columns',
     resetSort: 'Reset Sort Order',
     resetColumns: 'Reset Columns and Sort Order',
+    /** Totals below the list (ADR-114) */
+    summary: (count, duration, size) =>
+      `${plural(count, 'track', 'tracks')} · ${duration} · ${size}`,
+    selectionSummary: (count, duration, size) =>
+      `${plural(count, 'track', 'tracks')} selected (${duration} · ${size})`,
     sortedColumn: (column, descending) =>
       `${column} (sorted ${descending ? 'descending' : 'ascending'})`
   },

@@ -157,9 +157,9 @@ describe('列幅', () => {
   // 番号の列と、曲の一覧に出せるすべての列の幅を持つ
   const DEFAULT_WIDTHS = {
     number: 48,
-    title: 300,
-    artist: 200,
-    album: 200,
+    title: 250,
+    artist: 165,
+    album: 165,
     albumArtist: 180,
     genre: 110,
     year: 56,
