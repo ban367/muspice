@@ -167,6 +167,8 @@ pub struct Settings {
     pub stay_in_menu_bar: bool,
     /// グローバルホットキー（ほかのアプリを使っている間も効くショートカット）を使う
     pub global_shortcuts: bool,
+    /// グローバルホットキーの割り当て（操作ごとに1つまで。割り当てのない操作は含めない。ADR-122）
+    pub global_shortcut_keys: Vec<GlobalShortcutKey>,
     /// 曲が変わった時に、OSの通知で知らせる（ウィンドウが前面にない時だけ）
     pub notify_track_change: bool,
     /// 音楽フォルダの書式（音楽フォルダへ曲を置く時の、フォルダとファイルの名前の付け方。
@@ -181,6 +183,16 @@ pub struct Settings {
     /// ライブラリのデータ（DB・設定）を、1日に1回、アプリのデータのフォルダへ自動でバックアップする
     /// （新しい世代だけを残す。`backup`）
     pub auto_backup: bool,
+}
+
+/// グローバルホットキーの1つの割り当て
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct GlobalShortcutKey {
+    pub action: crate::global_shortcuts::GlobalShortcutAction,
+    /// 組み合わせ（`control+alt+KeyP`の形。修飾キーは`control`・`alt`・`shift`・`super`、キーは
+    /// `KeyboardEvent.code`と同じ名前）
+    pub shortcut: String,
 }
 
 impl Settings {
@@ -217,6 +229,7 @@ impl Default for Settings {
             ai_shuffle_mode: crate::ai_shuffle::AiShuffleMode::default(),
             stay_in_menu_bar: false,
             global_shortcuts: false,
+            global_shortcut_keys: crate::global_shortcuts::default_keys(),
             notify_track_change: false,
             music_folder_template: DEFAULT_MUSIC_FOLDER_TEMPLATE.to_string(),
             copy_to_music_folder: true,
@@ -275,6 +288,8 @@ pub fn validate_settings(settings: &Settings) -> AppResult<()> {
         crate::validation::validate_playlist_id(playlist_id)?;
     }
     crate::file_organize::Template::parse(&settings.music_folder_template)?;
+    crate::global_shortcuts::validate_keys(&settings.global_shortcut_keys)
+        .map_err(AppError::Validation)?;
     Ok(())
 }
 
@@ -513,6 +528,10 @@ mod tests {
             ai_shuffle_mode: crate::ai_shuffle::AiShuffleMode::RarelyPlayed,
             stay_in_menu_bar: true,
             global_shortcuts: true,
+            global_shortcut_keys: vec![GlobalShortcutKey {
+                action: crate::global_shortcuts::GlobalShortcutAction::VolumeUp,
+                shortcut: "super+shift+ArrowUp".to_string(),
+            }],
             notify_track_change: true,
             music_folder_template: "%artist%/%album%/%track% %title%".to_string(),
             copy_to_music_folder: false,
