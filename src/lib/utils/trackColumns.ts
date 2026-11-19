@@ -52,9 +52,11 @@ export interface TrackColumn {
 
 /** 列の定義 */
 export const TRACK_COLUMNS: Record<TrackColumnId, TrackColumn> = {
-  title: { width: 300, minWidth: 80, align: 'left' },
-  artist: { width: 200, minWidth: 60, align: 'left' },
-  album: { width: 200, minWidth: 60, align: 'left' },
+  // 既定の列（タイトル・アーティスト・アルバム・お気に入り・評価・時間）が、既定のウィンドウ（1280×800）の
+  // 一覧の幅（左のサイドバーと右のアイコンの列を除いた約910px）に収まる幅にする（ADR-114）
+  title: { width: 250, minWidth: 80, align: 'left' },
+  artist: { width: 165, minWidth: 60, align: 'left' },
+  album: { width: 165, minWidth: 60, align: 'left' },
   albumArtist: { width: 180, minWidth: 60, align: 'left' },
   genre: { width: 110, minWidth: 50, align: 'left' },
   composer: { width: 160, minWidth: 60, align: 'left' },
@@ -86,6 +88,7 @@ export const TRACK_COLUMNS: Record<TrackColumnId, TrackColumn> = {
 export const DEFAULT_TRACK_COLUMNS: readonly TrackColumnId[] = [
   'title',
   'artist',
+  'album',
   'favorite',
   'rating',
   'duration'

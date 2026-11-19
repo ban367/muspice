@@ -39,6 +39,8 @@
   import { TrackSelection, handleTrackListKeydown } from '#lib/utils/trackSelection.svelte.js';
   import { startTrackDrag } from '#lib/utils/trackDrag.js';
   import { moveItems } from '#lib/utils/reorder.js';
+  import { trackTotals } from '#lib/utils/trackTotals.js';
+  import { formatFileSize, formatTotalDuration } from '#lib/utils/format.js';
   import {
     createTrackSorter,
     initialSortDirection,
@@ -102,6 +104,8 @@
      * 渡した順のまま並べている間、まとまりの最初の行の上に、区切りの線を引く（重複した曲の一覧で使う）。
      */
     groupOf?: (track: Track) => string;
+    /** 一覧の下に、曲数・時間・サイズの合計（と選んでいる曲の合計）を出すか（ADR-114） */
+    showSummary?: boolean;
   }
 
   let {
@@ -122,7 +126,8 @@
     onRemove,
     removeLabel,
     isRevealFallback = false,
-    groupOf
+    groupOf,
+    showSummary = true
   }: Props = $props();
 
   // 行の高さの見積もり（描画した後は、VirtualListが実測した高さを使う）
@@ -238,6 +243,10 @@
     if (!sortedTracks) return [];
     return sortedTracks.filter((track) => selection.has(track.id));
   });
+
+  // 一覧の下の合計（表示している曲と、2曲以上を選んでいる時は選んでいる曲。ADR-114）
+  const totals = $derived(trackTotals(sortedTracks ?? []));
+  const selectionTotals = $derived(selectedTracks.length >= 2 ? trackTotals(selectedTracks) : null);
 
   // 選んでいる曲を、曲情報パネルに出す
   followSelectedTrack(() => {
@@ -685,6 +694,26 @@
       </div>
     {/if}
   </div>
+
+  <!-- 曲数・時間・サイズの合計（ミュージックの画面の下の表示にあたる） -->
+  {#if showSummary && sortedTracks && sortedTracks.length > 0}
+    <p class="list-summary" aria-live="polite">
+      {m.trackList.summary(
+        totals.count,
+        formatTotalDuration(totals.duration),
+        formatFileSize(totals.size)
+      )}
+      {#if selectionTotals}
+        <span class="selection-summary">
+          {m.trackList.selectionSummary(
+            selectionTotals.count,
+            formatTotalDuration(selectionTotals.duration),
+            formatFileSize(selectionTotals.size)
+          )}
+        </span>
+      {/if}
+    </p>
+  {/if}
 </div>
 
 <!-- コンテキストメニュー -->
@@ -722,6 +751,15 @@
 
 <style>
   @reference "../../../app.css";
+
+  /* 一覧の下の合計（1行。長い時は省く） */
+  .list-summary {
+    @apply shrink-0 m-0 px-3 pt-1.5 text-xs text-text-muted text-center truncate;
+  }
+
+  .selection-summary {
+    @apply ml-3 text-text-secondary;
+  }
   /* 列の見出し（VirtualListが一覧の上に固定して表示する） */
   /* 列が多くて幅に収まらない場合は、見出しと行を列の幅の合計まで広げ、横にスクロールする */
   .table-header {
