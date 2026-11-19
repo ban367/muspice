@@ -16,6 +16,7 @@ import { miniPlayer } from '#lib/stores/miniPlayer.svelte.js';
 import { smartPlaylistDialog } from '#lib/stores/smartPlaylist.svelte.js';
 import { ui } from '#lib/stores/ui.svelte.js';
 import { reportError } from '#lib/utils/errorLog.js';
+import { artistsOf, goToAlbum, goToArtist } from '#lib/utils/libraryReveal.js';
 import { stopListening } from '#lib/utils/listen.js';
 import { m } from '#lib/i18n/i18n.svelte.js';
 
@@ -74,6 +75,10 @@ export async function runMenuCommand(command: MenuCommand): Promise<void> {
     case 'showInFinder':
       await showSelectedTrackInFinder();
       break;
+    case 'goToAlbum':
+    case 'goToArtist':
+      await goToSelectedTrackGroup(command.type);
+      break;
   }
 }
 
@@ -112,6 +117,22 @@ async function showSelectedTrackInFinder(): Promise<void> {
       // トーストで知らせ済み
     }
   );
+}
+
+/**
+ * 「アルバムへ移動」・「アーティストへ移動」: 最後に選んだ曲のアルバム・アーティストの画面を開く
+ * （複数のアーティストの曲は、最初のアーティスト。ほかは、右クリックのメニューから選ぶ。ADR-110）
+ */
+async function goToSelectedTrackGroup(type: 'goToAlbum' | 'goToArtist'): Promise<void> {
+  if (selectedTracks().length === 0) return;
+  const track = ui.selectedTrack?.track;
+  if (!track) return;
+  if (type === 'goToAlbum') {
+    await goToAlbum(track);
+    return;
+  }
+  const artist = artistsOf(track)[0];
+  if (artist !== undefined) await goToArtist(artist);
 }
 
 /**

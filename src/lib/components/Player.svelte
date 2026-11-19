@@ -30,6 +30,7 @@
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import { isGlobalShortcutBlocked } from '#lib/utils/globalShortcuts.js';
   import MarqueeText from './MarqueeText.svelte';
+  import ContextMenu from './ContextMenu.svelte';
   import FavoriteButton from './library/FavoriteButton.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
@@ -223,6 +224,14 @@
    *
    * 開いている画面の一覧にその曲があればそこで、なければ全曲の一覧へ移動して表示する。
    */
+  /** 再生中の曲の右クリックのメニュー（曲の一覧と同じメニュー。アルバム・アーティストへの移動など） */
+  let trackMenu = $state<{ x: number; y: number } | null>(null);
+
+  function openTrackMenu(event: MouseEvent) {
+    event.preventDefault();
+    if (player.currentTrack) trackMenu = { x: event.clientX, y: event.clientY };
+  }
+
   async function revealCurrentTrack() {
     const track = player.currentTrack;
     if (!track) return;
@@ -333,11 +342,12 @@
       >
         <AlbumArt src={currentArtUrl} alt={m.common.albumArt} placeholderType="music" />
       </button>
-      <!-- 曲の情報のクリックで、再生中の曲を一覧で表示する -->
+      <!-- 曲の情報のクリックで、再生中の曲を一覧で表示する。右クリックで曲のメニューを開く -->
       <button
         type="button"
         class="track-info"
         onclick={revealCurrentTrack}
+        oncontextmenu={openTrackMenu}
         title={m.player.revealCurrentTrack}
       >
         <div class="min-w-0">
@@ -647,6 +657,15 @@
     </div>
   {/if}
 </div>
+
+{#if trackMenu && player.currentTrack}
+  <ContextMenu
+    x={trackMenu.x}
+    y={trackMenu.y}
+    track={player.currentTrack}
+    onClose={() => (trackMenu = null)}
+  />
+{/if}
 
 <style>
   @reference "../../app.css";

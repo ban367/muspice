@@ -11,12 +11,13 @@
   カードの見た目はSnippetでカスタマイズ可能。
 -->
 <script lang="ts" generics="T extends AlbumSummary | ArtistSummary | GenreSummary">
-  import { tick, type Snippet } from 'svelte';
+  import { tick, untrack, type Snippet } from 'svelte';
   import type { AlbumSummary, ArtistSummary, GenreSummary } from '#lib/types/models.js';
   import { VirtualList } from '#lib/components/ui/index.js';
   import { GRID_CARD_GAP, ui } from '#lib/stores/ui.svelte.js';
   import { openableListAction } from '#lib/utils/listNavigation.js';
   import { matchesSearchTerms, searchTerms } from '#lib/utils/searchText.js';
+  import { matchesReveal } from '#lib/utils/libraryReveal.js';
   import GroupContextMenu from '../GroupContextMenu.svelte';
   import GridDetailSplit from './GridDetailSplit.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
@@ -154,6 +155,26 @@
   function closeDetail() {
     activeKey = null;
   }
+
+  // 曲から移ってきた時（`ui.revealGroup`）は、グリッド表示でその項目を選び（中身の領域を開く）、
+  // 見える位置へ出す（リスト表示では、`LibraryBrowsePage`が左の一覧で選ぶ。ADR-110）
+  $effect(() => {
+    const request = ui.revealGroup;
+    if (request === null || request.kind !== groupType || displayMode !== 'grid' || isLoading) {
+      return;
+    }
+    const item = items.find((candidate) => matchesReveal(request, candidate)) ?? null;
+    untrack(() => {
+      ui.revealGroup = null;
+      if (item === null) return;
+      const key = getKey(item);
+      activeKey = key;
+      void tick().then(() => {
+        const index = filteredItems.findIndex((candidate) => getKey(candidate) === key);
+        if (index >= 0) virtualList?.scrollToIndex(index);
+      });
+    });
+  });
 
   // 中身の領域を開いた時は、グリッドが低くなった後に、選んだ項目を見える位置へ出す
   // （下の方の項目を選ぶと、領域の下に隠れるため）

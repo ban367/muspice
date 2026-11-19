@@ -297,6 +297,9 @@ src-tauri/src/
   - 表示する列・列の順番・並び順は、画面ごとに`#lib/stores/trackListView.svelte`の`trackListView(viewId, defaults)`が覚える（localStorageの`muspice:trackListView:<viewId>`）。一覧を置く画面は、`TrackList`に`viewId`と、その画面の既定（`defaultColumns`・`defaultSort`）を渡す。列の幅は、どの画面でも共通で`ui.columnWidths`に持つ
   - プレイリストの画面も`TrackList`で表示する（ADR-039）。`onReorder`を渡すと、渡した順のまま並べている間（並び順がnullの間）だけ、行のドラッグで並べ替えられる（並べ替えの計算は`#lib/utils/reorder`の`moveItems`）。`onRemove`を渡すと、右クリックのメニューとDeleteキーで、選択した曲を一覧から外せる。列はどのプレイリストでも共通（`viewId="playlist"`）、並び順はプレイリストごと（`sortViewId`に`playlistSortViewId(id)`）に覚える
   - 再生中の曲へのジャンプは、`ui.revealTrackId`に曲のIDを入れる。その曲を含む`TrackList`が、行までスクロールして選び、nullに戻す。開いている画面の一覧にない場合は、プレーヤーが全曲の一覧（`isRevealFallback`を付けた`TrackList`）へ移動する
+  - 曲からアルバム・アーティストの画面への移動（ADR-110）は、`#lib/utils/libraryReveal`の`goToAlbum`・`goToArtist`で行う。検索を外し、Now Playingの画面を閉じ、`ui.revealGroup`に移る先（アルバムは名前とまとめたアーティスト、アーティストは名前）を置いてから、画面を開く。グリッド表示は`LibraryGrid`がカードを選んで（中身の領域を開いて）見える位置へ出し、リスト表示は`LibraryBrowsePage`が左の一覧の項目を選び（`revealKind`・`revealListKey`）、右のペインへ移る先を渡す（アルバムの画面では、`ArtistAlbumsView`がそのアルバムの見出しまでスクロールする）。受け取った方がnullに戻す
+  - 移る先のアーティストは、アーティストの画面のまとめ方と同じ（`artistsOf`。アルバムアーティスト、なければコンピレーションは`Various Artists`、ほかは曲のアーティストのそれぞれの値）。右クリックのメニューでは、複数ある曲はサブメニューで選び、名前のクリック・「曲」メニューでは最初のアーティストへ移る
+  - 名前を押して移るボタンは、`app.css`の`text-link`（文字のまま見せ、ポインタを置くと下線）で作る
 - 曲の一覧（`TrackList`（プレイリストの画面を含む）、アーティスト・アルバムアーティストの詳細（`ArtistAlbumsView`）、再生履歴（`PlayHistoryList`）、右サイドバーのアルバム情報パネル）は、一覧ごとに`#lib/utils/trackSelection.svelte`の`TrackSelection`を作り、行のクリックを`click()`へ、一覧の`onkeydown`を`handleTrackListKeydown`へ渡す
   - 矢印キーで選択を移し、Shift+矢印で範囲選択、Cmd/Ctrl+Aですべて選択、Enterで再生する
   - Shift+クリックの範囲は、Shift+矢印と同じ起点（最後に修飾キーなし・Cmd/Ctrlでクリックした行、または矢印で移した行）から選ぶ（`computeClickSelection`に`TrackSelection`の起点を渡す）

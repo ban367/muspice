@@ -210,6 +210,18 @@ body {
   @apply opacity-30 cursor-not-allowed;
 }
 
+/* 名前を押すと、その画面へ移るボタン（アーティスト名・アルバム名。文字のまま見せ、ポインタを置くと下線。
+   ADR-110）。省略の表示（`truncate`）は、ボタンそのものに付ける */
+.text-link {
+  @apply block max-w-full p-0 m-0 border-none bg-transparent text-left cursor-pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.text-link:hover {
+  @apply underline;
+}
+
 /* プログレスバー共通 */
 .progress-bar-base {
   @apply h-1 bg-progress-bg rounded-full relative cursor-pointer;

@@ -13,9 +13,11 @@
     MenuHeading,
     MenuItem,
     MenuSeparator,
+    MenuSub,
     PlaylistSubmenu,
     QueueMenuItems
   } from '#lib/components/ui/index.js';
+  import { albumOf, artistsOf, goToAlbum, goToArtist } from '#lib/utils/libraryReveal.js';
   import { useSetFavoriteMutation, useShowInFolderMutation } from '#lib/queries/tracks.js';
   import { useOpenTrackEditorMutation } from '#lib/queries/trackEditor.js';
   import { tagToolsDialog } from '#lib/stores/tagTools.svelte.js';
@@ -124,6 +126,22 @@
     onClose();
   }
 
+  // 右クリックした曲のアルバムと、アーティストの画面でまとめるアーティスト（ADR-110）
+  const hasAlbum = $derived(albumOf(track) !== null);
+  const artists = $derived(artistsOf(track));
+
+  /** 右クリックした曲の、アルバムの画面を開く */
+  function handleGoToAlbum() {
+    void goToAlbum(track);
+    onClose();
+  }
+
+  /** そのアーティストの、アーティストの画面を開く */
+  function handleGoToArtist(artist: string) {
+    void goToArtist(artist);
+    onClose();
+  }
+
   /**
    * ファイルの場所を開く（失敗はミューテーション内でトースト通知する）
    */
@@ -142,6 +160,21 @@
     onClose();
   }
 </script>
+
+<!-- 「アーティストへ移動」のアイコン（項目とサブメニューで使う） -->
+{#snippet artistIcon()}
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    class="menu-icon"
+    fill="none"
+    viewBox="0 0 24 24"
+    stroke="currentColor"
+    stroke-width="2"
+  >
+    <path stroke-linecap="round" stroke-linejoin="round" d="M20 21a8 8 0 0 0-16 0" />
+    <circle cx="12" cy="8" r="4" />
+  </svg>
+{/snippet}
 
 <BaseContextMenu {x} {y} {onClose}>
   {#if selectedCount > 1}
@@ -174,6 +207,42 @@
     {/snippet}
     {allFavorite ? m.common.removeFromFavorites : m.common.addToFavorites}
   </MenuItem>
+
+  {#if hasAlbum || artists.length > 0}
+    <MenuSeparator />
+  {/if}
+
+  {#if hasAlbum}
+    <MenuItem onSelect={handleGoToAlbum}>
+      {#snippet icon()}
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          class="menu-icon"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          stroke-width="2"
+        >
+          <circle cx="12" cy="12" r="9" />
+          <circle cx="12" cy="12" r="2.5" />
+        </svg>
+      {/snippet}
+      {m.contextMenu.goToAlbum}
+    </MenuItem>
+  {/if}
+
+  <!-- アーティストが複数ある曲（「A; B」）は、サブメニューで選ぶ -->
+  {#if artists.length === 1}
+    <MenuItem onSelect={() => handleGoToArtist(artists[0])} icon={artistIcon}>
+      {m.contextMenu.goToArtist}
+    </MenuItem>
+  {:else if artists.length > 1}
+    <MenuSub label={m.contextMenu.goToArtist} icon={artistIcon}>
+      {#each artists as artist (artist)}
+        <MenuItem onSelect={() => handleGoToArtist(artist)}>{artist}</MenuItem>
+      {/each}
+    </MenuSub>
+  {/if}
 
   <MenuSeparator />
 

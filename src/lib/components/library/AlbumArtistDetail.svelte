@@ -8,15 +8,18 @@
   import { ui } from '#lib/stores/ui.svelte.js';
   import { albumSearchFields, type AlbumArtistEntry } from '#lib/utils/albumArtists.js';
   import { matchesSearchTerms, searchTerms } from '#lib/utils/searchText.js';
+  import type { RevealGroup } from '#lib/utils/libraryReveal.js';
   import ArtistAlbumsView from './ArtistAlbumsView.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   // Props
   interface Props {
     albumArtist: AlbumArtistEntry;
+    /** 曲から移ってきた時に、見える位置へ出すアルバム（ADR-110） */
+    reveal?: Extract<RevealGroup, { kind: 'album' }> | null;
   }
 
-  let { albumArtist }: Props = $props();
+  let { albumArtist, reveal = null }: Props = $props();
 
   // アルバムアーティストのアルバムと曲
   const artistName = $derived(albumArtist.name);
@@ -31,5 +34,10 @@
 
 <!-- 別のアルバムアーティストに切り替わったら、選択とスクロールを最初に戻す（データを取り直しただけでは戻さない） -->
 {#key albumArtist.key}
-  <ArtistAlbumsView title={artistName ?? m.common.unknownArtist} {albums} artist={artistName} />
+  <ArtistAlbumsView
+    title={artistName ?? m.common.unknownArtist}
+    {albums}
+    artist={artistName}
+    revealAlbum={reveal}
+  />
 {/key}

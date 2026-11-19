@@ -33,12 +33,19 @@ vi.mock('#lib/stores/miniPlayer.svelte.js', () => ({
   }
 }));
 
+vi.mock('#lib/utils/libraryReveal.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('#lib/utils/libraryReveal.js')>()),
+  goToAlbum: vi.fn(async () => {}),
+  goToArtist: vi.fn(async () => {})
+}));
+
 vi.mock('$app/navigation', () => ({ goto: vi.fn(async () => {}) }));
 vi.mock('$app/paths', () => ({ resolve: (path: string) => `/${path}` }));
 
 import { goto } from '$app/navigation';
 import { commands } from '#lib/bindings.js';
 import { openTrackEditor } from '#lib/queries/trackEditor.js';
+import { goToAlbum, goToArtist } from '#lib/utils/libraryReveal.js';
 import { miniPlayer } from '#lib/stores/miniPlayer.svelte.js';
 import { smartPlaylistDialog } from '#lib/stores/smartPlaylist.svelte.js';
 import { ui } from '#lib/stores/ui.svelte.js';
@@ -159,6 +166,21 @@ describe('runMenuCommand', () => {
     ui.selectedTrack = { track: track('t2'), count: 2, tracks: [track('t1'), track('t2')] };
     await runMenuCommand({ type: 'showInFinder' });
     expect(commands.showInFolder).toHaveBeenCalledWith('t2');
+  });
+
+  it('アルバム・アーティストへの移動は、最後に選んだ曲のアルバム・最初のアーティストへ移る', async () => {
+    const last = { ...track('t2'), album: 'Album', albumArtist: null, artist: 'A; B' } as Track;
+    ui.selectedTrack = { track: last, count: 2, tracks: [track('t1'), last] };
+    await runMenuCommand({ type: 'goToAlbum' });
+    await runMenuCommand({ type: 'goToArtist' });
+    expect(goToAlbum).toHaveBeenCalledWith(last);
+    expect(goToArtist).toHaveBeenCalledWith('A');
+
+    // 選んでいない時は、移らない
+    vi.mocked(goToAlbum).mockClear();
+    ui.selectedTrack = { track: last, count: 0 };
+    await runMenuCommand({ type: 'goToAlbum' });
+    expect(goToAlbum).not.toHaveBeenCalled();
   });
 
   it('検索は、表示中の画面の検索欄へ移り、文字を選ぶ', async () => {
