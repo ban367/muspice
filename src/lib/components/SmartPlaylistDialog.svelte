@@ -5,19 +5,23 @@
   - 条件は、項目・比べ方・値の組の一覧。「すべての条件に合う曲」か「いずれかの条件に合う曲」を選ぶ
   - 曲数の上限と並び順を付けられる（上限は、並び順の先頭から選ぶ）
   - 入力を変えるたびに、条件に合う曲数を出す（数えるのはバックエンド）
+  - ほかのプレイリストを条件にできる（このプレイリスト自身は選べない。互いを条件にする条件は、
+    保存する時にバックエンドが断る。ADR-116）
 
   入力と条件（`SmartRules`）の変換・検証は`#lib/utils/smartPlaylist`が行う。
 -->
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
-  import type { MatchMode, Playlist, SmartRules } from '#lib/types/models.js';
+  import type { MatchMode, NumberField, Playlist, SmartRules } from '#lib/types/models.js';
   import {
     useCreateSmartPlaylistMutation,
+    usePlaylistsQuery,
     useSmartPlaylistCountQuery,
     useUpdateSmartPlaylistMutation
   } from '#lib/queries/playlists.js';
   import {
+    KEY_VALUES,
     MAX_RULES,
     ORDER_FIELDS,
     RULE_FIELDS,
@@ -28,6 +32,7 @@
     needsValue,
     newRuleDraft,
     newSmartRulesForm,
+    numberUnit,
     opsFor,
     orderFieldLabel,
     ruleFieldLabel,
@@ -41,6 +46,8 @@
   import { Modal } from '#lib/components/ui/index.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
   import { RATING_VALUES, formatRatingStars } from '#lib/utils/rating.js';
+  import { formatMusicKey } from '#lib/utils/musicKey.js';
+  import { sortByName } from '#lib/utils/nameSort.js';
 
   interface Props {
     /** 条件を変えるプレイリスト（nullなら、新しく作る） */
@@ -72,11 +79,21 @@
   /** 保存しようとしたか（値を入れていない条件の指摘は、保存しようとしてから出す） */
   let hasTriedSaving = $state(false);
 
+  // 条件にできるプレイリスト（このプレイリスト自身は除き、名前の順）
+  const playlistsQuery = usePlaylistsQuery();
+  const playlistChoices = $derived(
+    sortByName((playlistsQuery.data ?? []).filter((p) => p.id !== target?.id))
+  );
+  /** 選べるプレイリストにない（消した）プレイリストか */
+  const isUnknownPlaylist = (playlistId: string) =>
+    playlistId !== '' && !playlistChoices.some((p) => p.id === playlistId);
+
   const result = $derived(toSmartRules({ matchMode, drafts, isLimited, limit, order }));
   const nameError = $derived(validatePlaylistName(name.trim()).error ?? null);
   const inputError = $derived.by(() => {
     if (result.error === null) return null;
-    if (result.error === 'valueRequired' && !hasTriedSaving) return null;
+    const isMissingValue = result.error === 'valueRequired' || result.error === 'playlistRequired';
+    if (isMissingValue && !hasTriedSaving) return null;
     return m.smartPlaylist.errors[result.error];
   });
   const invalidRuleKey = $derived(
@@ -204,6 +221,32 @@
           <div class="rule-value">
             {#if !needsValue(draft)}
               <!-- 値のいらない比べ方（空かどうか・お気に入りかどうか） -->
+            {:else if definition.kind === 'playlist'}
+              <select
+                class="form-input"
+                bind:value={draft.value}
+                aria-label={m.smartPlaylist.ruleValue}
+                disabled={isSaving}
+              >
+                <option value="" disabled>{m.smartPlaylist.choosePlaylist}</option>
+                {#if isUnknownPlaylist(draft.value)}
+                  <option value={draft.value}>{m.smartPlaylist.deletedPlaylist}</option>
+                {/if}
+                {#each playlistChoices as choice (choice.id)}
+                  <option value={choice.id}>{choice.name}</option>
+                {/each}
+              </select>
+            {:else if definition.kind === 'key'}
+              <select
+                class="form-input compact"
+                bind:value={draft.value}
+                aria-label={m.smartPlaylist.ruleValue}
+                disabled={isSaving}
+              >
+                {#each KEY_VALUES as key (key)}
+                  <option value={String(key)}>{formatMusicKey(key)}</option>
+                {/each}
+              </select>
             {:else if definition.kind === 'text'}
               <input
                 type="text"
@@ -245,7 +288,9 @@
             {:else}
               <input
                 type="text"
-                inputmode={definition.input === 'minutes' ? 'decimal' : 'numeric'}
+                inputmode={definition.input === 'minutes' || definition.input === 'kilohertz'
+                  ? 'decimal'
+                  : 'numeric'}
                 class="form-input number"
                 bind:value={draft.value}
                 aria-label={m.smartPlaylist.ruleValue}
@@ -256,7 +301,9 @@
                 <span class="unit">{m.common.rangeSeparator}</span>
                 <input
                   type="text"
-                  inputmode={definition.input === 'minutes' ? 'decimal' : 'numeric'}
+                  inputmode={definition.input === 'minutes' || definition.input === 'kilohertz'
+                    ? 'decimal'
+                    : 'numeric'}
                   class="form-input number"
                   bind:value={draft.valueTo}
                   aria-label={m.smartPlaylist.ruleValueTo}
@@ -268,8 +315,8 @@
                 <span class="unit">{m.smartPlaylist.days}</span>
               {:else if definition.input === 'minutes'}
                 <span class="unit">{m.smartPlaylist.minutesUnit}</span>
-              {:else if draft.field === 'bitrate'}
-                <span class="unit">kbps</span>
+              {:else if numberUnit(draft.field as NumberField)}
+                <span class="unit">{numberUnit(draft.field as NumberField)}</span>
               {/if}
             {/if}
           </div>

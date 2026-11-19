@@ -6,15 +6,16 @@
 
 use super::{file_dialog, pick_folder, run_blocking};
 use crate::device::{
-    DeviceRecord, DeviceSyncPlan, DeviceSyncResult, DeviceSyncState, PLAN_ITEMS_LIMIT, SyncDevice,
-    SyncDeviceConfig, SyncRename, SyncSelectionSummary, suggest_device_name, validate_device_name,
+    DeviceRecord, DeviceSyncPlan, DeviceSyncResult, DeviceSyncState, DeviceTranscode,
+    PLAN_ITEMS_LIMIT, SyncDevice, SyncDeviceConfig, SyncRename, SyncSelectionSummary,
+    TranscodeMode, suggest_device_name, validate_device_name,
 };
 use crate::device_manifest::{
     Manifest, read_device_id, read_manifest, to_device_path, write_manifest,
 };
 use crate::device_sync::{
-    ExtraKind, SourceExtra, SourceFile, SourcePlaylist, SourceTrack, SyncPlan, plan_sync,
-    track_relative_path,
+    ExtraKind, SourceExtra, SourceFile, SourcePlaylist, SourceTrack, SyncPlan, Transcode,
+    plan_sync, track_relative_path,
 };
 use crate::device_transfer::{TransferProgress, execute_plan};
 use crate::error::{AppError, AppResult};
@@ -23,6 +24,7 @@ use crate::file_organize::{DirCache, Template};
 use crate::library::{modified_at_of, to_count};
 use crate::library_folder::{find_all_folders, folders_overlap, normalize_folder_path};
 use crate::metadata::MAX_ALBUM_ART_BYTES;
+use crate::repository::TransferTrack;
 use crate::settings::Language;
 use crate::state::AppState;
 use crate::validation::{validate_playlist_id, validate_track_id};
@@ -94,6 +96,7 @@ fn to_sync_device(record: DeviceRecord) -> SyncDevice {
         remove_unselected: record.remove_unselected,
         path_template: record.path_template,
         copy_extras: record.copy_extras,
+        transcode: record.transcode,
         ejectable,
         connected,
         free_bytes,
@@ -225,6 +228,7 @@ pub async fn update_sync_device(
     // 配置の書式は、読めることを確かめてから保存する（前後の空白は除く）
     let path_template = config.path_template.trim().to_string();
     Template::parse(&path_template)?;
+    crate::device::validate_transcode(&config.transcode)?;
     let config = SyncDeviceConfig {
         name: validate_device_name(&config.name)?,
         path_template,
@@ -358,6 +362,11 @@ fn prepare_sync(state: &AppState, device_id: &str) -> AppResult<PreparedSync> {
         )
     })?;
     let mut dir_cache = DirCache::default();
+    // 変換できない環境（macOSでない・`afconvert`がない）では、設定によらず変換しない
+    let transcode_setting = device.transcode;
+    if transcode_setting.mode != TranscodeMode::Off && !crate::transcode::is_available() {
+        log::warn!("Transcoding is not available; copying the original files");
+    }
     let tracks: Vec<SourceTrack> = all_tracks
         .into_iter()
         .filter(|track| {
@@ -373,7 +382,11 @@ fn prepare_sync(state: &AppState, device_id: &str) -> AppResult<PreparedSync> {
                     size: to_bytes(metadata.len()),
                     modified_at: modified_at_of(&metadata),
                 });
-            let path = track_relative_path(&track, &template);
+            let transcode = file
+                .is_some()
+                .then(|| transcode_for(&transcode_setting, &track))
+                .flatten();
+            let path = track_relative_path(&track, &template, transcode);
             // 歌詞ファイル・フォルダの画像（元のファイルがある曲だけ。フォルダは1回だけ読む）
             let extras = if device.copy_extras && file.is_some() {
                 source_extras(&mut dir_cache, Path::new(&track.file_path))
@@ -383,6 +396,7 @@ fn prepare_sync(state: &AppState, device_id: &str) -> AppResult<PreparedSync> {
             SourceTrack {
                 track,
                 file,
+                transcode,
                 path,
                 extras,
             }
@@ -410,6 +424,32 @@ fn prepare_sync(state: &AppState, device_id: &str) -> AppResult<PreparedSync> {
         root,
         manifest,
         plan,
+    })
+}
+
+/// 曲を、転送する時にAACに変換するか（変換するなら、変換の設定。ADR-118）
+///
+/// 可逆の形式かは、拡張子（`.m4a`・`.ogg`は中のコーデック）で決める。ビットレートの条件では、
+/// 可逆の形式の曲と、ライブラリに記録したビットレートが変換先より高い曲を変換する。変換できない
+/// 環境では、変換しない。
+fn transcode_for(setting: &DeviceTranscode, track: &TransferTrack) -> Option<Transcode> {
+    if setting.mode == TranscodeMode::Off || !crate::transcode::is_available() {
+        return None;
+    }
+    let is_lossless =
+        || crate::transcode::is_lossless_source(Path::new(&track.file_path)) == Some(true);
+    let converts = match setting.mode {
+        TranscodeMode::Off => false,
+        TranscodeMode::Lossless => is_lossless(),
+        TranscodeMode::AboveBitrate => {
+            track
+                .bitrate
+                .is_some_and(|bitrate| i64::from(bitrate) > i64::from(setting.bitrate_kbps))
+                || is_lossless()
+        }
+    };
+    converts.then_some(Transcode {
+        bitrate_kbps: setting.bitrate_kbps,
     })
 }
 
@@ -454,11 +494,12 @@ fn summarize_plan(plan: &SyncPlan, free_bytes: i64) -> AppResult<DeviceSyncPlan>
     Ok(DeviceSyncPlan {
         copy_count: to_count(plan.to_copy.len())?,
         copy_bytes,
-        delete_count: to_count(plan.to_delete.len())?,
+        delete_count: to_count(plan.deleted_files().count())?,
         delete_bytes: plan.delete_bytes,
         rename_count: to_count(plan.to_rename.len())?,
         unchanged_count: to_count(plan.kept.len())?,
         playlist_count: to_count(plan.playlists.len())?,
+        transcode_count: to_count(plan.transcode_count())?,
         missing_source_count: plan.missing_source_count,
         extra_copy_count: to_count(plan.extras_to_copy.len())?,
         extra_copy_bytes,
@@ -474,8 +515,7 @@ fn summarize_plan(plan: &SyncPlan, free_bytes: i64) -> AppResult<DeviceSyncPlan>
             .map(|op| op.dest.clone())
             .collect(),
         delete_paths: plan
-            .to_delete
-            .iter()
+            .deleted_files()
             .take(PLAN_ITEMS_LIMIT)
             .map(|entry| entry.path.clone())
             .collect(),
@@ -650,6 +690,7 @@ pub async fn run_device_sync(
                     bytes_done: progress.bytes_done,
                     bytes_total: progress.bytes_total,
                     current_file: progress.current_file,
+                    converting: progress.converting,
                 };
                 if let Err(e) = event.emit(&app_handle) {
                     log::warn!("Failed to emit sync progress event: {}", e);
@@ -729,6 +770,65 @@ pub async fn cancel_device_sync(sync_state: State<'_, DeviceSyncState>) -> AppRe
 mod tests {
     use super::*;
     use crate::device::{find_device, update_device_config};
+
+    #[test]
+    fn test_transcode_for_follows_the_setting() {
+        let mut track = TransferTrack {
+            id: "t1".to_string(),
+            file_path: "/music/a.flac".to_string(),
+            title: None,
+            artist: None,
+            album: None,
+            album_artist: None,
+            compilation: false,
+            genre: None,
+            year: None,
+            track_number: None,
+            disc_number: None,
+            duration: Some(200),
+            file_size: 1,
+            bitrate: Some(900),
+        };
+        let setting = |mode| DeviceTranscode {
+            mode,
+            bitrate_kbps: 256,
+        };
+        let aac = Some(Transcode { bitrate_kbps: 256 });
+        assert_eq!(transcode_for(&setting(TranscodeMode::Off), &track), None);
+        // 変換できない環境では、設定によらず変換しない
+        if !crate::transcode::is_available() {
+            assert_eq!(
+                transcode_for(&setting(TranscodeMode::Lossless), &track),
+                None
+            );
+            return;
+        }
+        assert_eq!(
+            transcode_for(&setting(TranscodeMode::Lossless), &track),
+            aac
+        );
+        assert_eq!(
+            transcode_for(&setting(TranscodeMode::AboveBitrate), &track),
+            aac
+        );
+
+        // ビットレートの高い非可逆の曲は、ビットレートの条件の時だけ変換する
+        track.file_path = "/music/a.mp3".to_string();
+        track.bitrate = Some(320);
+        assert_eq!(
+            transcode_for(&setting(TranscodeMode::Lossless), &track),
+            None
+        );
+        assert_eq!(
+            transcode_for(&setting(TranscodeMode::AboveBitrate), &track),
+            aac
+        );
+        track.bitrate = Some(256);
+        assert_eq!(
+            transcode_for(&setting(TranscodeMode::AboveBitrate), &track),
+            None
+        );
+    }
     use crate::device_manifest::test_support::TempDir;
     use crate::models::{ReplayGain, Track};
 
@@ -838,6 +938,7 @@ mod tests {
                 remove_unselected,
                 path_template: crate::device::DEFAULT_DEVICE_TEMPLATE.to_string(),
                 copy_extras: true,
+                transcode: DeviceTranscode::default(),
             };
             self.state
                 .with_db(|db| update_device_config(db, device_id, &config))
@@ -991,6 +1092,7 @@ mod tests {
             remove_unselected: true,
             path_template: crate::device::DEFAULT_DEVICE_TEMPLATE.to_string(),
             copy_extras: false,
+            transcode: DeviceTranscode::default(),
         };
         fixture
             .state

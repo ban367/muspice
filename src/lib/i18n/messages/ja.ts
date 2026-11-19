@@ -1189,6 +1189,12 @@ export const ja = {
     pathField: 'ファイルの場所',
     /** 音楽フォルダの中にあるかの条件（ADR-084） */
     inMusicFolderField: '音楽フォルダ',
+    /** ほかのプレイリストに入っているかの条件（ADR-116） */
+    playlistField: 'プレイリスト',
+    choosePlaylist: 'プレイリストを選ぶ',
+    deletedPlaylist: '（削除したプレイリスト）',
+    /** ファイルが見つからない曲かの条件（ADR-023） */
+    missingField: 'ファイル',
     noRating: '評価なし',
     days: '日',
     minutesUnit: '分',
@@ -1224,6 +1230,20 @@ export const ja = {
       inMusicFolder: {
         is: 'の中にある',
         isNot: 'の外にある'
+      },
+      key: {
+        is: 'である',
+        isNot: 'でない',
+        isEmpty: 'がない（未解析）',
+        isNotEmpty: 'がある'
+      },
+      playlist: {
+        is: 'に入っている',
+        isNot: 'に入っていない'
+      },
+      missing: {
+        is: 'が見つからない',
+        isNot: 'がある'
       }
     },
     /** 条件の説明（プレイリストの画面に出す） */
@@ -1255,6 +1275,15 @@ export const ja = {
       favorite: (value: boolean): string => (value ? 'お気に入り' : 'お気に入りではない'),
       inMusicFolder: (value: boolean): string =>
         value ? '音楽フォルダの中にある' : '音楽フォルダの外にある',
+      key: {
+        is: (key: string) => key,
+        isNot: (key: string) => `${key}以外`,
+        isEmpty: () => 'なし（未解析）',
+        isNotEmpty: () => 'あり'
+      },
+      playlist: (name: string, value: boolean): string =>
+        `「${name}」に${value ? '入っている' : '入っていない'}`,
+      missing: (value: boolean): string => (value ? 'ファイルが見つからない' : 'ファイルがある'),
       order: (field: string, descending: boolean) => `${field}の${descending ? '降順' : '昇順'}`,
       limited: (order: string, limit: number) => `${order}で${limit}曲まで`
     },
@@ -1269,7 +1298,8 @@ export const ja = {
       rangeInvalid: '範囲の条件は、小さい値と大きい値の順に入力してください',
       daysInvalid: '日数は、1から36500で入力してください',
       limitInvalid: '曲数の上限は、1から100000で入力してください',
-      tooManyRules: '条件が多すぎます（50個まで）'
+      tooManyRules: '条件が多すぎます（50個まで）',
+      playlistRequired: '条件のプレイリストを選んでください'
     },
     editRules: '条件を編集',
     editRulesEllipsis: '条件を編集...',
@@ -1611,6 +1641,16 @@ export const ja = {
     copyExtrasHint:
       '曲と同じ名前の歌詞ファイルと、フォルダの画像（cover.jpgなど）を、曲と同じフォルダへコピーします。オフにすると、次の同期で、Muspiceがコピーしたものを削除します',
     noSource: '同期する内容を選択してください',
+    /** 転送する時の変換（ADR-118） */
+    transcode: '転送する時の変換',
+    transcodeModes: {
+      off: '変換しない',
+      lossless: '可逆の形式（FLAC・ALAC・WAVなど）の曲をAACにする',
+      aboveBitrate: 'ビットレートが高い曲をAACにする'
+    },
+    transcodeBitrate: 'AACのビットレート',
+    transcodeHint:
+      '容量の小さい機器に多くの曲を入れられます。変換には時間がかかります（変換した曲は、元の曲か設定が変わるまで変換し直しません）。タグとアルバムアートも写します',
 
     syncDialog: {
       title: (name: string) => `「${name}」へ同期`,
@@ -1632,6 +1672,9 @@ export const ja = {
       playlists: 'プレイリスト',
       /** 曲数とサイズ（例: 12曲（345.6 MB）） */
       countAndSize: (count: number, size: string) => `${count}曲（${size}）`,
+      /** 変換してコピーする曲（ADR-118） */
+      transcodeCount: (count: number) =>
+        `コピーする曲のうち${count}曲をAACに変換します（変換する曲のサイズは見積もりです）`,
       freeSpace: '空き容量',
       upToDate: 'デバイスの曲は最新です',
       missingSources: (count: number) =>
@@ -1640,6 +1683,7 @@ export const ja = {
       start: '同期を開始',
       preparing: '準備しています...',
       copying: (current: number, total: number) => `コピー中... (${current}/${total})`,
+      converting: (current: number, total: number) => `変換してコピー中... (${current}/${total})`,
       finishing: '仕上げています...',
       stop: '中止',
       stopping: '中止しています...',

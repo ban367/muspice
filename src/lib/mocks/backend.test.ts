@@ -1283,6 +1283,54 @@ describe('プレイリスト', () => {
     });
   });
 
+  it('ほかのプレイリストを条件にでき、自分自身・互いを条件にする条件は断る', async () => {
+    const all = (rules: SmartRules['rules']): SmartRules => ({
+      matchMode: 'all',
+      rules,
+      order: { field: 'title', descending: false },
+      limit: null
+    });
+    const manual = await commands.createPlaylistWithTracks('車では聴かない', [
+      mockTrackId(1),
+      mockTrackId(2)
+    ]);
+    const library = await commands.getAllTracks();
+    const excluded = await commands.createSmartPlaylist(
+      '車用',
+      all([{ kind: 'playlist', op: 'isNot', playlistId: manual.id }])
+    );
+    const tracks = await commands.getPlaylistTracks(excluded.id);
+    expect(tracks).toHaveLength(library.length - 2);
+    expect(tracks.map((track) => track.id)).not.toContain(mockTrackId(1));
+
+    // 自動プレイリストを条件にした自動プレイリスト
+    const nested = await commands.createSmartPlaylist(
+      '車用の中',
+      all([{ kind: 'playlist', op: 'is', playlistId: excluded.id }])
+    );
+    expect(await commands.getPlaylistTracks(nested.id)).toHaveLength(library.length - 2);
+
+    const rejected = { code: 'VALIDATION' };
+    await expect(
+      commands.updateSmartPlaylist(
+        excluded.id,
+        all([{ kind: 'playlist', op: 'is', playlistId: excluded.id }])
+      )
+    ).rejects.toMatchObject(rejected);
+    await expect(
+      commands.updateSmartPlaylist(
+        excluded.id,
+        all([{ kind: 'playlist', op: 'is', playlistId: nested.id }])
+      )
+    ).rejects.toMatchObject(rejected);
+    await expect(
+      commands.createSmartPlaylist(
+        '消したもの',
+        all([{ kind: 'playlist', op: 'is', playlistId: mockPlaylistId(99) }])
+      )
+    ).rejects.toMatchObject(rejected);
+  });
+
   it('引数は複製して受け取る（呼び出し側のオブジェクトを持ち続けない）', async () => {
     // 複製できないオブジェクト（画面の状態のプロキシなど）を渡されても、後で結果として返せる
     const hidden = new Proxy(['years'], {});
@@ -2711,7 +2759,8 @@ describe('転送先デバイス', () => {
       playlistIds: [mockPlaylistId(2), mockPlaylistId(99)],
       removeUnselected: false,
       pathTemplate: ' %artist%/%title% ',
-      copyExtras: false
+      copyExtras: false,
+      transcode: { mode: 'lossless', bitrateKbps: 192 }
     });
 
     expect(updated).toMatchObject({
@@ -2720,8 +2769,32 @@ describe('転送先デバイス', () => {
       playlistIds: [mockPlaylistId(2)],
       removeUnselected: false,
       pathTemplate: '%artist%/%title%',
-      copyExtras: false
+      copyExtras: false,
+      transcode: { mode: 'lossless', bitrateKbps: 192 }
     });
+    // 変換のビットレートは、選べる値だけ
+    await expect(
+      commands.updateSyncDevice(device.id, {
+        ...updated,
+        transcode: { mode: 'lossless', bitrateKbps: 100 }
+      })
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+
+  it('変換する設定では、変換する曲を数え、拡張子を.m4aにする', async () => {
+    const device = await connectedDevice();
+    const updated = await commands.updateSyncDevice(device.id, {
+      ...device,
+      syncAll: true,
+      transcode: { mode: 'aboveBitrate', bitrateKbps: 128 }
+    });
+    expect(updated.transcode).toEqual({ mode: 'aboveBitrate', bitrateKbps: 128 });
+
+    const plan = await commands.planDeviceSync(device.id);
+    expect(plan.transcodeCount).toBeGreaterThan(0);
+    expect(plan.copyPaths.filter((path) => path.endsWith('.m4a')).length).toBeGreaterThanOrEqual(
+      plan.transcodeCount
+    );
   });
 
   it('同期する内容の見通しと、確認の画面の一覧を返し、取り出すと接続されていない状態になる', async () => {

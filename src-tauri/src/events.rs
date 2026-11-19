@@ -108,6 +108,8 @@ pub struct DeviceSyncProgress {
     pub bytes_total: i64,
     /// コピー中のファイル名
     pub current_file: String,
+    /// コピー中のファイルを変換しているか（ADR-118）
+    pub converting: bool,
 }
 
 /// 再スキャン・ライブラリフォルダの削除で、ライブラリのトラックが変わった

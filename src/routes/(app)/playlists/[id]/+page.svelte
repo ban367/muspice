@@ -58,6 +58,9 @@
 
   // プレイリストの曲の情報（見つかったプレイリストの分だけを取得する）
   const selectedPlaylistId = $derived(selectedPlaylist?.id ?? null);
+  /** 条件にしたプレイリストの名前（条件の説明に出す。消したプレイリストはnull） */
+  const playlistById = $derived(mapById<Playlist>(playlistsQuery.data ?? []));
+  const playlistName = (id: string) => playlistById.get(id)?.name ?? null;
   const tracksQuery = $derived(
     selectedPlaylistId === null ? null : usePlaylistTracksQuery(selectedPlaylistId, isSmart)
   );
@@ -176,7 +179,7 @@
                   <li class="rule-chip mode">{m.smartPlaylist.matchModes[smartRules.matchMode]}</li>
                 {/if}
                 {#each smartRules.rules as rule, index (index)}
-                  <li class="rule-chip">{describeRule(rule)}</li>
+                  <li class="rule-chip">{describeRule(rule, playlistName)}</li>
                 {/each}
                 <li class="rule-chip order">{describeOrder(smartRules)}</li>
               {/if}

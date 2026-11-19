@@ -64,25 +64,49 @@ fn stored_comment(value: &Option<String>) -> Option<&str> {
     value.as_deref().filter(|value| !value.trim().is_empty())
 }
 
+/// 曲の解析で求めたテンポ（BPM。REAL）を返すSQLの式（`TRACK_COLUMNS`と自動プレイリストの条件で使う）
+///
+/// 失敗した解析と、解析したあとで長さが変わった（ファイルを置き換えた）曲の古い解析は使わない。
+/// `id`は、曲（`tracks`の行）のID。
+macro_rules! analyzed_bpm_sql {
+    () => {
+        "(SELECT a.bpm FROM track_analysis a WHERE a.track_id = id AND a.failed = 0
+        AND a.duration IS (SELECT t2.duration FROM tracks t2 WHERE t2.id = a.track_id))"
+    };
+}
+pub(crate) use analyzed_bpm_sql;
+
+/// 曲の解析で求めたキー（主音の音名 + 12 × 調（0は長調・1は短調）。0〜23）を返すSQLの式
+///
+/// 使わない解析は、`analyzed_bpm_sql`と同じ。
+macro_rules! analyzed_key_sql {
+    () => {
+        "(SELECT a.key_pitch_class + 12 * a.key_mode FROM track_analysis a
+        WHERE a.track_id = id AND a.failed = 0 AND a.key_pitch_class IS NOT NULL
+        AND a.duration IS (SELECT t2.duration FROM tracks t2 WHERE t2.id = a.track_id))"
+    };
+}
+pub(crate) use analyzed_key_sql;
+
 /// SELECTで使用するトラックカラム列挙
 ///
 /// NULLを許す列のうち、`Track`で値なしにできない項目（大きさ・形式・日時・お気に入り・評価・
 /// 再生回数など）は、COALESCEでNULL安全にしている。アプリは必ず値を入れるが、ほかのツール・古い版が
 /// NULLの行を1件入れただけで、その行を含む一覧全体を読めなくなるため（既存の表に`NOT NULL`は
 /// 後から付けられない）。
-pub const TRACK_COLUMNS: &str = "id, file_path, file_name, title, artist, album, genre, year,
+pub const TRACK_COLUMNS: &str = concat!(
+    "id, file_path, file_name, title, artist, album, genre, year,
     track_number, disc_number, duration, COALESCE(file_size, 0), COALESCE(format, ''), bitrate,
     sample_rate, COALESCE(is_favorite, 0), COALESCE(rating, 0), COALESCE(play_count, 0),
     last_played_at, COALESCE(created_at, ''), COALESCE(updated_at, ''),
     replay_gain_track_gain, replay_gain_track_peak, replay_gain_album_gain, replay_gain_album_peak,
     album_artist, missing_since IS NOT NULL, COALESCE(skip_count, 0),
     title_sort, artist_sort, album_sort, album_artist_sort, COALESCE(compilation, 0),
-    composer, grouping, comment, bpm, bit_depth, channels,
-    (SELECT a.bpm FROM track_analysis a WHERE a.track_id = id AND a.failed = 0
-        AND a.duration IS (SELECT t2.duration FROM tracks t2 WHERE t2.id = a.track_id)),
-    (SELECT a.key_pitch_class + 12 * a.key_mode FROM track_analysis a
-        WHERE a.track_id = id AND a.failed = 0 AND a.key_pitch_class IS NOT NULL
-        AND a.duration IS (SELECT t2.duration FROM tracks t2 WHERE t2.id = a.track_id))";
+    composer, grouping, comment, bpm, bit_depth, channels, ",
+    analyzed_bpm_sql!(),
+    ", ",
+    analyzed_key_sql!()
+);
 
 /// SQLiteの行からTrack構造体にマッピングする
 ///
@@ -1413,6 +1437,8 @@ pub struct TransferTrack {
     pub duration: Option<i32>,
     /// ライブラリに記録したファイルのサイズ（同期する内容の見通しに使う）
     pub file_size: i64,
+    /// ビットレート（kbps。転送する時に変換するかを決めるのに使う。ADR-118）
+    pub bitrate: Option<i32>,
 }
 
 /// デバイスへの転送用に、全トラックを取得する（件数の上限なし）
@@ -1424,7 +1450,7 @@ pub fn find_transfer_tracks(conn: &Connection) -> AppResult<Vec<TransferTrack>> 
     let mut stmt = conn
         .prepare(&format!(
             "SELECT id, file_path, title, artist, album, album_artist, compilation, genre, year,
-                    track_number, disc_number, duration, file_size
+                    track_number, disc_number, duration, file_size, bitrate
              FROM tracks
              ORDER BY {}, album, disc_number, track_number, title, id",
             ALBUM_ARTIST
@@ -1446,6 +1472,7 @@ pub fn find_transfer_tracks(conn: &Connection) -> AppResult<Vec<TransferTrack>> 
             disc_number: row.get(10)?,
             duration: row.get(11)?,
             file_size: row.get::<_, Option<i64>>(12)?.unwrap_or(0),
+            bitrate: row.get(13)?,
         })
     })
     .map_err(|e| AppError::Database(format!("クエリの実行に失敗しました: {}", e)))?

@@ -15,11 +15,12 @@
     useUpdateSyncDeviceMutation
   } from '#lib/queries/devices.js';
   import { usePlaylistsQuery } from '#lib/queries/playlists.js';
+  import { useConvertFormatsQuery } from '#lib/queries/convert.js';
   import { showSuccess } from '#lib/stores/error.svelte.js';
-  import type { SyncDevice, SyncDeviceConfig } from '#lib/types/models.js';
+  import type { SyncDevice, SyncDeviceConfig, TranscodeMode } from '#lib/types/models.js';
   import DeviceSyncDialog from '#lib/components/DeviceSyncDialog.svelte';
   import MusicFolderTemplateSetting from '#lib/components/MusicFolderTemplateSetting.svelte';
-  import { DEFAULT_DEVICE_TEMPLATE } from '#lib/bindings.js';
+  import { AAC_BITRATES_KBPS, DEFAULT_DEVICE_TEMPLATE } from '#lib/bindings.js';
   import { isDeviceNameTooLong } from '#lib/utils/devices.js';
   import { confirmDestructive, promptText } from '#lib/utils/dialog.svelte.js';
   import { formatDateTime, formatFileSize } from '#lib/utils/format.js';
@@ -39,6 +40,10 @@
   const selectionQuery = useSyncSelectionSummaryQuery(() => deviceId ?? '');
 
   const device = $derived(devicesQuery.data?.find((d: SyncDevice) => d.id === deviceId) ?? null);
+  // 転送する時の変換は、変換できる環境（macOS）でだけ出す（ADR-118）
+  const convertFormatsQuery = useConvertFormatsQuery();
+  const canTranscode = $derived((convertFormatsQuery.data?.length ?? 0) > 0);
+  const transcodeModes: TranscodeMode[] = ['off', 'lossless', 'aboveBitrate'];
   const playlists = $derived(playlistsQuery.data ?? []);
   const hasSource = $derived(device !== null && (device.syncAll || device.playlistIds.length > 0));
 
@@ -55,6 +60,7 @@
         removeUnselected: current.removeUnselected,
         pathTemplate: current.pathTemplate,
         copyExtras: current.copyExtras,
+        transcode: current.transcode,
         ...patch
       }
     });
@@ -83,7 +89,8 @@
           playlistIds: current.playlistIds,
           removeUnselected: current.removeUnselected,
           pathTemplate: draftTemplate.trim(),
-          copyExtras: current.copyExtras
+          copyExtras: current.copyExtras,
+          transcode: current.transcode
         }
       },
       { onSuccess: () => showSuccess(m.devices.layoutApplied) }
@@ -332,6 +339,45 @@
       </label>
       <p class="hint option-hint">{m.devices.copyExtrasHint}</p>
 
+      <!-- 転送する時の変換（変換できる環境だけ。ADR-118） -->
+      {#if canTranscode}
+        <div class="option transcode-option">
+          <label for="device-transcode">{m.devices.transcode}</label>
+          <select
+            id="device-transcode"
+            class="form-input transcode-select"
+            value={device.transcode.mode}
+            onchange={(e) =>
+              updateConfig(device, {
+                transcode: {
+                  ...device.transcode,
+                  mode: e.currentTarget.value as TranscodeMode
+                }
+              })}
+          >
+            {#each transcodeModes as mode (mode)}
+              <option value={mode}>{m.devices.transcodeModes[mode]}</option>
+            {/each}
+          </select>
+          {#if device.transcode.mode !== 'off'}
+            <select
+              class="form-input transcode-select"
+              aria-label={m.devices.transcodeBitrate}
+              value={String(device.transcode.bitrateKbps)}
+              onchange={(e) =>
+                updateConfig(device, {
+                  transcode: { ...device.transcode, bitrateKbps: Number(e.currentTarget.value) }
+                })}
+            >
+              {#each AAC_BITRATES_KBPS as bitrate (bitrate)}
+                <option value={String(bitrate)}>{bitrate} kbps</option>
+              {/each}
+            </select>
+          {/if}
+        </div>
+        <p class="hint mt-1">{m.devices.transcodeHint}</p>
+      {/if}
+
       <!-- デバイス上の配置の書式（例は、最近追加したアルバムの曲を、デバイスのフォルダからの場所で出す。ADR-111） -->
       <h3 class="group-title layout-title">{m.devices.layoutTitle}</h3>
       <MusicFolderTemplateSetting
@@ -487,6 +533,15 @@
 
   .option-hint {
     @apply mt-1 ml-6;
+  }
+
+  /* 転送する時の変換（項目名と、条件・ビットレートを選ぶ欄を並べる） */
+  .transcode-option {
+    @apply mt-6 flex-wrap cursor-default;
+  }
+
+  .transcode-select {
+    @apply w-auto;
   }
 
   .playlist-list {

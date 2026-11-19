@@ -29,6 +29,71 @@ pub const DEFAULT_DEVICE_TEMPLATE: &str = DEFAULT_MUSIC_FOLDER_TEMPLATE;
 /// 変えるまで変えない）。`db.rs`の列の既定値にも使う。
 pub const LEGACY_DEVICE_TEMPLATE: &str = "%artist%/%album%/[%disc%-]%track% %title%";
 
+/// デバイスへ転送する時に、曲をAACに変換する条件（ADR-118）
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum TranscodeMode {
+    /// 変換しない（元のファイルをコピーする）
+    Off,
+    /// 可逆の形式（FLAC・ALAC・WAV・AIFF・WavPack・APE）の曲を変換する
+    Lossless,
+    /// 可逆の形式の曲と、ビットレートが変換先より高い曲を変換する
+    AboveBitrate,
+}
+
+impl TranscodeMode {
+    /// DBに保存する値
+    fn as_db(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Lossless => "lossless",
+            Self::AboveBitrate => "aboveBitrate",
+        }
+    }
+
+    /// DBの値から読む（知らない値は、変換しない）
+    fn from_db(value: &str) -> Self {
+        match value {
+            "lossless" => Self::Lossless,
+            "aboveBitrate" => Self::AboveBitrate,
+            _ => Self::Off,
+        }
+    }
+}
+
+/// デバイスへ転送する時の変換の設定（ADR-118）
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceTranscode {
+    pub mode: TranscodeMode,
+    /// 変換先のAACのビットレート（kbps。`transcode::AAC_BITRATES_KBPS`のどれか）
+    pub bitrate_kbps: u32,
+}
+
+impl Default for DeviceTranscode {
+    fn default() -> Self {
+        Self {
+            mode: TranscodeMode::Off,
+            bitrate_kbps: crate::transcode::DEFAULT_AAC_BITRATE_KBPS,
+        }
+    }
+}
+
+/// 変換の設定を確かめる（ビットレートは選べる値のどれか。変換できない環境では、変換する設定にできない）
+pub fn validate_transcode(transcode: &DeviceTranscode) -> AppResult<()> {
+    if !crate::transcode::AAC_BITRATES_KBPS.contains(&transcode.bitrate_kbps) {
+        return Err(AppError::Validation(
+            "変換のビットレートは、128・192・256・320 kbpsのどれかにしてください".to_string(),
+        ));
+    }
+    if transcode.mode != TranscodeMode::Off && !crate::transcode::is_available() {
+        return Err(AppError::Validation(
+            "この環境では、転送する時に曲を変換できません".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 /// 転送先デバイス（一覧表示用）
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -47,6 +112,8 @@ pub struct SyncDevice {
     pub path_template: String,
     /// 曲に添えて、歌詞ファイル・フォルダの画像もコピーするか（ADR-112）
     pub copy_extras: bool,
+    /// 転送する時の変換（ADR-118）
+    pub transcode: DeviceTranscode,
     /// 取り出せるか（macOSで、転送先のフォルダが`/Volumes`の下のドライブにあり、接続されている。ADR-113）
     pub ejectable: bool,
     /// 接続されているか（転送先のフォルダに、このデバイスの管理ファイルがあるか）
@@ -70,6 +137,7 @@ pub struct SyncDeviceConfig {
     pub remove_unselected: bool,
     pub path_template: String,
     pub copy_extras: bool,
+    pub transcode: DeviceTranscode,
 }
 
 /// 同期で行う処理の件数と、必要な容量（同期の前の確認用）
@@ -90,6 +158,8 @@ pub struct DeviceSyncPlan {
     pub unchanged_count: u32,
     /// 書き出すプレイリスト数
     pub playlist_count: u32,
+    /// コピーする曲のうち、AACに変換する曲数（変換する曲のサイズは、ビットレートと長さからの見積もり。ADR-118）
+    pub transcode_count: u32,
     /// 元のファイルが見つからない曲数（コピーできない。コピー済みならデバイスに残す）
     pub missing_source_count: u32,
     /// コピー・削除する、曲に添えるファイル（歌詞ファイル・フォルダの画像）の数と、コピーするサイズ（ADR-112）
@@ -163,6 +233,8 @@ pub struct DeviceRecord {
     pub path_template: String,
     /// 歌詞ファイル・フォルダの画像もコピーするか
     pub copy_extras: bool,
+    /// 転送する時の変換
+    pub transcode: DeviceTranscode,
     /// 同期するプレイリスト（削除済みのプレイリストは含まない）
     pub playlist_ids: Vec<String>,
     pub created_at: String,
@@ -289,7 +361,7 @@ pub fn suggest_device_name(folder: &Path) -> Option<String> {
     (!name.is_empty()).then(|| name.to_string())
 }
 
-const DEVICE_COLUMNS: &str = "id, name, path, sync_all, remove_unselected, created_at, last_synced_at, path_template, copy_extras";
+const DEVICE_COLUMNS: &str = "id, name, path, sync_all, remove_unselected, created_at, last_synced_at, path_template, copy_extras, transcode_mode, transcode_bitrate";
 
 fn map_device_row(row: &rusqlite::Row) -> rusqlite::Result<DeviceRecord> {
     Ok(DeviceRecord {
@@ -300,6 +372,10 @@ fn map_device_row(row: &rusqlite::Row) -> rusqlite::Result<DeviceRecord> {
         remove_unselected: row.get::<_, i32>(4)? != 0,
         path_template: row.get(7)?,
         copy_extras: row.get::<_, i32>(8)? != 0,
+        transcode: DeviceTranscode {
+            mode: TranscodeMode::from_db(&row.get::<_, String>(9)?),
+            bitrate_kbps: row.get(10)?,
+        },
         playlist_ids: Vec::new(),
         created_at: row.get(5)?,
         last_synced_at: row.get(6)?,
@@ -405,7 +481,7 @@ pub fn update_device_config(
         .execute(
             "UPDATE sync_devices
              SET name = ?2, sync_all = ?3, remove_unselected = ?4, path_template = ?5,
-                 copy_extras = ?6
+                 copy_extras = ?6, transcode_mode = ?7, transcode_bitrate = ?8
              WHERE id = ?1",
             rusqlite::params![
                 device_id,
@@ -413,7 +489,9 @@ pub fn update_device_config(
                 config.sync_all,
                 config.remove_unselected,
                 config.path_template,
-                config.copy_extras
+                config.copy_extras,
+                config.transcode.mode.as_db(),
+                config.transcode.bitrate_kbps
             ],
         )
         .map_err(|e| AppError::Database(format!("デバイスの更新に失敗しました: {}", e)))?;
@@ -479,6 +557,42 @@ pub fn mark_synced(conn: &Connection, device_id: &str) -> AppResult<()> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn test_validate_transcode() {
+        let transcode = |mode, bitrate_kbps| DeviceTranscode { mode, bitrate_kbps };
+        assert!(validate_transcode(&DeviceTranscode::default()).is_ok());
+        assert!(validate_transcode(&transcode(TranscodeMode::Off, 100)).is_err());
+        assert_eq!(
+            validate_transcode(&transcode(TranscodeMode::Lossless, 192)).is_ok(),
+            crate::transcode::is_available()
+        );
+    }
+
+    #[test]
+    fn test_transcode_setting_is_saved() {
+        let mut conn = setup_test_db();
+        insert_device(&conn, "d1", "SD", "/Volumes/SD").unwrap();
+        assert_eq!(
+            find_device(&conn, "d1").unwrap().transcode,
+            DeviceTranscode::default()
+        );
+
+        let transcode = DeviceTranscode {
+            mode: TranscodeMode::AboveBitrate,
+            bitrate_kbps: 128,
+        };
+        update_device_config(
+            &mut conn,
+            "d1",
+            &SyncDeviceConfig {
+                transcode,
+                ..config("SD", true, &[])
+            },
+        )
+        .unwrap();
+        assert_eq!(find_device(&conn, "d1").unwrap().transcode, transcode);
+    }
+
     fn setup_test_db() -> Connection {
         crate::db::open_in_memory()
     }
@@ -491,6 +605,7 @@ mod tests {
             remove_unselected: true,
             path_template: DEFAULT_DEVICE_TEMPLATE.to_string(),
             copy_extras: true,
+            transcode: DeviceTranscode::default(),
         }
     }
 
