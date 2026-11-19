@@ -4,7 +4,7 @@
   アルバムアーティストで使う。1つだけ選び、↑↓・Home・Endで選択を移す。
 -->
 <script lang="ts" generics="T extends { name: string | null; representativeTrackId: string }">
-  import { tick } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { VirtualList } from '#lib/components/ui/index.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
   import { listSelectionTarget } from '#lib/utils/listNavigation.js';
@@ -39,6 +39,16 @@
 
   // 選択中のアーティストのキー
   const selectedKey = $derived(selectedArtist ? getKey(selectedArtist) : null);
+
+  // 選択が一覧の外から変わった時（曲からアーティストへ移った時など。ADR-110）も、選んだ項目を
+  // 見える位置へ出す（見えている項目は動かさない）
+  $effect(() => {
+    const key = selectedKey;
+    untrack(() => {
+      const index = artists.findIndex((artist) => getKey(artist) === key);
+      if (index >= 0) virtualList?.scrollToIndex(index);
+    });
+  });
 
   // ↑↓・Home・Endで、選択中のアーティストから前後のアーティストへ選択を移す
   async function handleKeydown(event: KeyboardEvent) {

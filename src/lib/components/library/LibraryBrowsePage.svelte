@@ -9,7 +9,8 @@
 -->
 <script lang="ts" generics="T">
   import type { Snippet } from 'svelte';
-  import { onDestroy } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
+  import type { RevealGroup } from '#lib/utils/libraryReveal.js';
   import LibraryHeader from './LibraryHeader.svelte';
   import { ui } from '#lib/stores/ui.svelte.js';
   import { createSearchDebounce } from '#lib/utils/debounce.js';
@@ -53,8 +54,16 @@
     gridView: Snippet<['grid' | 'list']>;
     /** リストモードの左ペイン（フィルタ済みアイテム・選択中・選択ハンドラを受け取る） */
     listView?: Snippet<[T[], T | null, (item: T) => void]>;
-    /** リストモードの右ペイン（選択中アイテムを受け取る） */
-    detailView?: Snippet<[T]>;
+    /**
+     * リストモードの右ペイン（選択中アイテムと、曲から移ってきた時の移る先の項目を受け取る）
+     *
+     * 移る先の項目は、リスト表示で`ui.revealGroup`を受け取った時のもの（受け取るまではnull）。
+     */
+    detailView?: Snippet<[T, RevealGroup | null]>;
+    /** 曲から移ってくる項目の種類（「アルバムへ移動」などで、この画面を開く時。ADR-110） */
+    revealKind?: RevealGroup['kind'];
+    /** 曲から移ってきた時に、リスト表示の左の一覧で選ぶ項目のキー */
+    revealListKey?: (request: RevealGroup) => unknown;
   }
 
   let {
@@ -73,7 +82,9 @@
     emptyIcon,
     gridView,
     listView,
-    detailView
+    detailView,
+    revealKind,
+    revealListKey
   }: Props = $props();
 
   // 表示モード（初期値のみpropsから取得する意図的な設計）
@@ -135,6 +146,23 @@
   function handleItemSelect(item: T) {
     selectedKey = keyOf(item);
   }
+
+  /** リスト表示で受け取った、曲から移ってきた時の移る先の項目（右のペインへ渡す） */
+  let revealed = $state.raw<RevealGroup | null>(null);
+
+  // 曲から移ってきた時（`ui.revealGroup`）は、検索を外し、リスト表示では左の一覧の項目を選ぶ
+  // （グリッド表示では、グリッド（`LibraryGrid`）がカードを選ぶ。ADR-110）
+  $effect(() => {
+    const request = ui.revealGroup;
+    if (request === null || request.kind !== revealKind) return;
+    untrack(() => {
+      if (searchTerm !== '' || ui.browseSearchQuery !== '') clearSearch();
+      if (displayMode !== 'list' || !hasTwoPaneList || !revealListKey) return;
+      selectedKey = revealListKey(request);
+      revealed = request;
+      ui.revealGroup = null;
+    });
+  });
 </script>
 
 <div class="browse-page">
@@ -169,7 +197,7 @@
       <!-- 右ペイン: 詳細表示 -->
       <div class="detail-pane">
         {#if selectedItem}
-          {@render detailView?.(selectedItem)}
+          {@render detailView?.(selectedItem, revealed)}
         {:else}
           <div class="empty-detail-view">
             <div class="empty-detail">

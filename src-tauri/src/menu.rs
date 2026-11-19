@@ -44,7 +44,8 @@ const PLAYBACK_GROUP_STARTS: [&str; 2] = ["playback_volume_up", "playback_toggle
 ///
 /// キーは、どれも⌘（macOS以外ではCtrl）付きにする。入力欄で使うキー（⌘A・⌘C・⌘Zなど）と重ならず、
 /// 入力中にメニューが受け取っても困らない（ダイアログを開いている間は、フロントエンドが何もしない）。
-const MENU_COMMAND_ITEMS: [(&str, &str, MenuCommand); 5] = [
+/// キーが空の項目には、キーを割り当てない。
+const MENU_COMMAND_ITEMS: [(&str, &str, MenuCommand); 7] = [
     ("new_playlist", "CmdOrCtrl+N", MenuCommand::NewPlaylist),
     (
         "new_smart_playlist",
@@ -58,6 +59,8 @@ const MENU_COMMAND_ITEMS: [(&str, &str, MenuCommand); 5] = [
         "Shift+CmdOrCtrl+R",
         MenuCommand::ShowInFinder,
     ),
+    ("go_to_album", "", MenuCommand::GoToAlbum),
+    ("go_to_artist", "", MenuCommand::GoToArtist),
 ];
 
 /// 「再生」メニューの項目のIDから、フロントエンドへ送る操作を決める（ほかの項目は`None`）
@@ -121,6 +124,8 @@ struct MenuLabels {
     song: &'static str,
     edit_track_info: &'static str,
     show_in_finder: &'static str,
+    go_to_album: &'static str,
+    go_to_artist: &'static str,
     view: &'static str,
     toggle_fullscreen: &'static str,
     toggle_sidebar: &'static str,
@@ -165,6 +170,8 @@ impl MenuLabels {
                 song: "曲",
                 edit_track_info: "曲の情報を編集...",
                 show_in_finder: "ファイルの場所を開く",
+                go_to_album: "アルバムへ移動",
+                go_to_artist: "アーティストへ移動",
                 view: "表示",
                 toggle_fullscreen: "フルスクリーン切替",
                 toggle_sidebar: "サイドバーを表示/隠す",
@@ -213,6 +220,8 @@ impl MenuLabels {
                 song: "Song",
                 edit_track_info: "Edit Song Info...",
                 show_in_finder: "Show in Finder",
+                go_to_album: "Go to Album",
+                go_to_artist: "Go to Artist",
                 view: "View",
                 toggle_fullscreen: "Toggle Full Screen",
                 toggle_sidebar: "Show/Hide Sidebar",
@@ -266,6 +275,7 @@ fn command_item<R: Runtime>(
     if let Some((_, accelerator, _)) = MENU_COMMAND_ITEMS
         .iter()
         .find(|(item_id, _, _)| *item_id == id)
+        && !accelerator.is_empty()
     {
         builder = builder.accelerator(*accelerator);
     }
@@ -337,6 +347,9 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>, language: Language) -> tauri::
             labels.edit_track_info,
         )?)
         .item(&command_item(app, "show_in_finder", labels.show_in_finder)?)
+        .separator()
+        .item(&command_item(app, "go_to_album", labels.go_to_album)?)
+        .item(&command_item(app, "go_to_artist", labels.go_to_artist)?)
         .build()?;
 
     let view_menu = SubmenuBuilder::new(app, labels.view)
@@ -465,6 +478,8 @@ mod tests {
             menu_command("show_in_finder"),
             Some(MenuCommand::ShowInFinder)
         );
+        assert_eq!(menu_command("go_to_album"), Some(MenuCommand::GoToAlbum));
+        assert_eq!(menu_command("go_to_artist"), Some(MenuCommand::GoToArtist));
         // ほかのメニューの項目・「再生」メニューの項目は、メインウィンドウの操作ではない
         assert_eq!(menu_command("import_folder"), None);
         assert_eq!(menu_command("playback_toggle"), None);
@@ -482,7 +497,12 @@ mod tests {
         assert_eq!(ids.len(), count);
 
         // メニューにじかに書いたキー（設定・インポート・表示）とも重ならない
-        let mut keys: Vec<&str> = MENU_COMMAND_ITEMS.iter().map(|(_, key, _)| *key).collect();
+        // キーのない項目（空）は比べない
+        let mut keys: Vec<&str> = MENU_COMMAND_ITEMS
+            .iter()
+            .map(|(_, key, _)| *key)
+            .filter(|key| !key.is_empty())
+            .collect();
         keys.extend([
             "CmdOrCtrl+,",
             "CmdOrCtrl+O",

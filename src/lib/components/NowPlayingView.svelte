@@ -23,6 +23,7 @@
   import { ui } from '#lib/stores/ui.svelte.js';
   import { toErrorMessage } from '#lib/stores/error.svelte.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
+  import { artistsOf, goToAlbum, goToArtist } from '#lib/utils/libraryReveal.js';
   import { findCurrentLine, parseLyrics } from '#lib/utils/lyrics.js';
   import AlbumArt from './AlbumArt.svelte';
   import FavoriteButton from './library/FavoriteButton.svelte';
@@ -35,6 +36,8 @@
   const AUTO_SCROLL_PAUSE_MS = 4000;
 
   const currentTrack = $derived(player.currentTrack);
+  // アーティスト名を押した時に移るアーティスト（複数のアーティストの曲は、最初のアーティスト。ADR-110）
+  const linkedArtist = $derived(currentTrack ? (artistsOf(currentTrack)[0] ?? null) : null);
   const trackId = $derived(currentTrack?.id ?? null);
 
   // 再生キューの曲は、キューに入れた時点の内容のため、評価は全曲の一覧（変更のたびに
@@ -123,10 +126,31 @@
           />
         </div>
         <h2 class="track-title">{currentTrack.title || currentTrack.fileName}</h2>
-        <p class="track-artist">{currentTrack.artist || m.common.unknownArtist}</p>
+        <!-- 名前を押すと、アーティスト・アルバムの画面へ移る（Now Playingの画面は閉じる。ADR-110） -->
+        <p class="track-artist">
+          {#if linkedArtist !== null}
+            <button
+              type="button"
+              class="text-link inline-link"
+              title={m.contextMenu.goToArtist}
+              onclick={() => goToArtist(linkedArtist)}
+            >
+              {currentTrack.artist || m.common.unknownArtist}
+            </button>
+          {:else}
+            {currentTrack.artist || m.common.unknownArtist}
+          {/if}
+        </p>
         {#if currentTrack.album}
           <p class="track-album">
-            {currentTrack.album}{currentTrack.year ? ` · ${currentTrack.year}` : ''}
+            <button
+              type="button"
+              class="text-link inline-link"
+              title={m.contextMenu.goToAlbum}
+              onclick={() => goToAlbum(currentTrack)}
+            >
+              {currentTrack.album}
+            </button>{currentTrack.year ? ` · ${currentTrack.year}` : ''}
           </p>
         {/if}
         <div class="actions">
@@ -248,6 +272,12 @@
 
   .track-album {
     @apply m-0 mt-1 text-sm text-text-muted break-words;
+  }
+
+  /* 文の中の名前のボタン（長い名前は、ほかの文字と同じく折り返す） */
+  .inline-link {
+    @apply inline text-center;
+    overflow-wrap: anywhere;
   }
 
   .actions {

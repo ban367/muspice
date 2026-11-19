@@ -14,6 +14,7 @@
   import { useAlbumTracksQuery, useSetRatingMutation } from '#lib/queries/tracks.js';
   import { player, playNow } from '#lib/stores/player.svelte.js';
   import { groupArtist } from '#lib/utils/albumKey.js';
+  import { artistsOf, goToAlbum, goToArtist } from '#lib/utils/libraryReveal.js';
   import { groupByDisc } from '#lib/utils/albumDiscs.js';
   import { formatDuration, formatTotalDuration } from '#lib/utils/format.js';
   import { TrackSelection, handleTrackListKeydown } from '#lib/utils/trackSelection.svelte.js';
@@ -35,6 +36,8 @@
   // 再生中の曲のアルバム（アルバムが変わった時だけ曲を取り直す。同じアルバムの次の曲へ進んでも取り直さない）
   const albumName = $derived(current?.album ?? null);
   const albumArtist = $derived(current ? groupArtist(current) : null);
+  // アルバムアーティストの名前を押した時に移るアーティスト（複数のアーティストの曲は、最初のアーティスト）
+  const linkedArtist = $derived(current ? (artistsOf(current)[0] ?? null) : null);
   const albumTracksQuery = $derived(
     albumName === null ? null : useAlbumTracksQuery(albumName, albumArtist)
   );
@@ -184,8 +187,27 @@
     <SidePanelSection title={m.albumInfo.album} flush>
       <div class="album-heading">
         <div class="album-heading-text">
-          <p class="album-name" title={albumName}>{albumName}</p>
-          <p class="album-artist">{albumArtist || m.common.unknownArtist}</p>
+          <!-- 名前を押すと、アルバム・アーティストの画面へ移る（ADR-110） -->
+          <button
+            type="button"
+            class="album-name text-link"
+            title={m.contextMenu.goToAlbum}
+            onclick={() => current && goToAlbum(current)}
+          >
+            {albumName}
+          </button>
+          {#if linkedArtist !== null}
+            <button
+              type="button"
+              class="album-artist text-link"
+              title={m.contextMenu.goToArtist}
+              onclick={() => goToArtist(linkedArtist)}
+            >
+              {albumArtist || m.common.unknownArtist}
+            </button>
+          {:else}
+            <p class="album-artist">{albumArtist || m.common.unknownArtist}</p>
+          {/if}
           <!-- 曲を取得するまでは、曲数がわからない（高さは変えずに空ける） -->
           <p class="album-stats">{albumStats || ' '}</p>
         </div>
@@ -291,6 +313,12 @@
 
   .album-stats {
     @apply m-0 h-4 leading-4 text-xs text-text-dimmed truncate;
+  }
+
+  /* 名前のボタンは、名前の長さだけの幅にする（余白を押しても移らない） */
+  .album-name.text-link,
+  .album-artist.text-link {
+    @apply w-fit;
   }
 
   .album-play {

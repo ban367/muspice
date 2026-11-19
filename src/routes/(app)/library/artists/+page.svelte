@@ -25,6 +25,8 @@
   searchFields={artistSearchFields}
   getItemKey={(artist) => artist.name}
   listPaneWidth="16rem"
+  revealKind="artist"
+  revealListKey={(request) => request.name}
 >
   {#snippet emptyIcon()}
     <svg

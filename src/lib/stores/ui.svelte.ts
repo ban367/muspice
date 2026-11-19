@@ -8,6 +8,7 @@
 
 import { untrack } from 'svelte';
 import type { Track } from '#lib/types/models.js';
+import type { RevealGroup } from '#lib/utils/libraryReveal.js';
 import { TRACK_COLUMN_IDS, TRACK_COLUMNS, type TrackColumnId } from '#lib/utils/trackColumns.js';
 
 // 右サイドバーのパネル（queue: 再生キュー, sound: イコライザなどの音の加工の設定,
@@ -161,6 +162,14 @@ class UiState {
    * その曲を含む曲の一覧（`TrackList`）が、その行までスクロールして選び、nullに戻す。
    */
   revealTrackId = $state<string | null>(null);
+
+  /**
+   * 曲から移った先の画面で選ぶアルバム・アーティスト（「アルバムへ移動」など。なければnull。ADR-110）
+   *
+   * アルバム・アーティストの画面（グリッド表示は`LibraryGrid`、リスト表示は`LibraryBrowsePage`）が、
+   * その項目を選んで見える位置へ出し、nullに戻す。
+   */
+  revealGroup = $state.raw<RevealGroup | null>(null);
 
   /**
    * 一覧で最後に選んだ曲（選択中の曲のパネルに出す。まだ選んでいなければnull）

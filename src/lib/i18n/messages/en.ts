@@ -806,6 +806,8 @@ export const en: Messages = {
     loudnessScan: 'Analyze Loudness...',
     convert: 'Convert Format...',
     showInFolder: 'Show in Folder',
+    goToAlbum: 'Go to Album',
+    goToArtist: 'Go to Artist',
     deleteEllipsis: 'Delete...',
     addToPlaylist: 'Add to Playlist',
     noPlaylists: 'No playlists',
