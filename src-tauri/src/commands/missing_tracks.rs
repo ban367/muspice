@@ -308,6 +308,8 @@ mod tests {
         assert_eq!(track.title.as_deref(), Some("old"));
         assert_eq!(track.file_size, fs::metadata(&new).unwrap().len() as i64);
         assert_eq!(track.duration, Some(2));
+        assert_eq!(track.details.bit_depth, Some(16));
+        assert_eq!(track.details.channels, Some(1));
     }
 
     #[test]

@@ -388,7 +388,7 @@ const SYNC_SPACE_MARGIN_BYTES = 1024 * 1024;
 const GIB = 1024 ** 3;
 
 /** 転送先デバイス（一覧表示用の値のうち、容量は状態から計算する） */
-interface MockSyncDevice extends Omit<SyncDevice, 'freeBytes' | 'totalBytes'> {
+interface MockSyncDevice extends Omit<SyncDevice, 'freeBytes' | 'totalBytes' | 'ejectable'> {
   /** デバイスの全体の容量と、Muspiceがコピーした曲以外が使っている容量 */
   totalBytes: number;
   otherUsedBytes: number;
@@ -1047,8 +1047,16 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       albumArtist: metadata.albumArtistSort ?? null
     };
     track.updatedAt = now();
-    // データベースに保存しない項目（作曲者・歌詞など）は、ファイルのタグの代わりに持っておく
+    // データベースに保存しない項目（歌詞・総数など）は、ファイルのタグの代わりに持っておく
     fileOnlyTags.set(trackId, pickFileOnlyTags(metadata));
+    // 作曲者・グループ・コメント・BPMは、一覧の列にも出す（Rustの`update_track_metadata`。ADR-115）
+    track.details = {
+      ...track.details,
+      composer: metadata.composer || null,
+      grouping: metadata.grouping || null,
+      comment: metadata.comment?.trim() ? metadata.comment : null,
+      bpm: metadata.bpm ?? null
+    };
     options.emit('tracksEdited', { trackIds: [trackId], albumArt: false });
     return keepMusicFolderOrganized([trackId]);
   }
@@ -1113,6 +1121,19 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       artist: text(metadata.artistSort, track.sortTags.artist),
       album: text(metadata.albumSort, track.sortTags.album),
       albumArtist: text(metadata.albumArtistSort, track.sortTags.albumArtist)
+    };
+    // 作曲者・グループ・コメント・BPMは、値のある項目だけを変える（空の値は、項目を空にする。ADR-115）
+    track.details = {
+      ...track.details,
+      composer: text(metadata.composer, track.details.composer),
+      grouping: text(metadata.grouping, track.details.grouping),
+      comment:
+        metadata.comment == null
+          ? track.details.comment
+          : metadata.comment.trim()
+            ? metadata.comment
+            : null,
+      bpm: metadata.bpm ?? track.details.bpm
     };
     if (JSON.stringify(track) !== before) track.updatedAt = timestamp;
 
@@ -1236,6 +1257,11 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     if (track.trackNumber !== null) tags.trackNumber = track.trackNumber;
     if (track.discNumber !== null) tags.discNumber = track.discNumber;
     if (track.compilation) tags.compilation = true;
+    // 作曲者・グループ・コメント・BPMは、一覧の値と同じ（ADR-115）
+    tags.composer = track.details.composer;
+    tags.grouping = track.details.grouping;
+    tags.comment = track.details.comment;
+    tags.bpm = track.details.bpm;
     tags.titleSort = track.sortTags.title;
     tags.artistSort = track.sortTags.artist;
     tags.albumSort = track.sortTags.album;
@@ -1499,6 +1525,16 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       updatedAt: timestamp,
       replayGain: { trackGain: null, trackPeak: null, albumGain: null, albumPeak: null },
       sortTags: { title: null, artist: null, album: null, albumArtist: null },
+      details: {
+        composer: null,
+        grouping: null,
+        comment: null,
+        bpm: null,
+        bitDepth: null,
+        channels: null,
+        analyzedBpm: null,
+        analyzedKey: null
+      },
       isMissing: false,
       compilation: false
     };
@@ -2358,6 +2394,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       removeUnselected: device.removeUnselected,
       pathTemplate: device.pathTemplate,
       copyExtras: device.copyExtras,
+      // 取り出せるのは、`/Volumes`の下のドライブにあり、接続されているデバイス（Rustはさらに、macOSだけ）
+      ejectable: device.connected && /^\/Volumes\/[^/]+/.test(device.path),
       connected: device.connected,
       freeBytes: device.connected ? device.totalBytes - usedBytes(device) : null,
       totalBytes: device.connected ? device.totalBytes : null,
@@ -2422,7 +2460,17 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       extraDeleteCount: 0,
       freeBytes,
       requiredBytes,
-      hasEnoughSpace: requiredBytes === 0 || requiredBytes + SYNC_SPACE_MARGIN_BYTES <= freeBytes
+      hasEnoughSpace: requiredBytes === 0 || requiredBytes + SYNC_SPACE_MARGIN_BYTES <= freeBytes,
+      // 確認の画面の一覧（デバイス上の場所。Rustは先頭の`PLAN_ITEMS_LIMIT`件まで）
+      copyPaths: toCopy.map((track) => devicePathOf(track, device.pathTemplate)),
+      deletePaths: toDelete.map((id) => device.copiedPaths.get(id) ?? id),
+      renames: toRename.map((id) => {
+        const track = tracks.find((t) => t.id === id);
+        return {
+          from: device.copiedPaths.get(id) ?? id,
+          to: track ? devicePathOf(track, device.pathTemplate) : id
+        };
+      })
     };
     return { toCopy, toDelete, toRename, summary };
   }
@@ -2530,7 +2578,14 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       if (terms.length === 0) return [];
       return tracksWhere((track) =>
         matchesSearchTerms(
-          [track.title, track.artist, track.album, track.genre, track.albumArtist],
+          [
+            track.title,
+            track.artist,
+            track.album,
+            track.genre,
+            track.albumArtist,
+            track.details.composer
+          ],
           terms
         )
       );
@@ -3671,6 +3726,27 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       device.playlistIds = config.playlistIds.filter((id) => playlists.some((p) => p.id === id));
       device.removeUnselected = config.removeUnselected;
       return toSyncDevice(device);
+    },
+    // 同期する内容の曲数と、ライブラリでのサイズ（Rustと同じく、デバイスには触れない）
+    getSyncSelectionSummary: (deviceId) => {
+      const selected = tracksToSync(findSyncDevice(deviceId));
+      return {
+        trackCount: selected.length,
+        totalBytes: selected.reduce((sum, track) => sum + track.fileSize, 0)
+      };
+    },
+    // ドライブを取り出した（接続されていない状態にする）
+    ejectSyncDevice: (deviceId) => {
+      const device = findSyncDevice(deviceId);
+      if (isSyncRunning) fail('LOCK', '同期の実行中は、デバイスを取り出せません');
+      if (!/^\/Volumes\/[^/]+/.test(device.path)) {
+        fail('VALIDATION', 'このデバイスは、取り出せる場所にありません');
+      }
+      if (!device.connected) {
+        fail('NOT_FOUND', 'デバイスが見つかりません（すでに取り出されている可能性があります）');
+      }
+      device.connected = false;
+      return null;
     },
     // 選んだフォルダにデバイスがあることにして、接続された状態にする
     relinkSyncDevice: (deviceId) => {

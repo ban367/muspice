@@ -118,15 +118,17 @@ fn add_column_if_not_exists(
 /// - 2: 検索の対象にアルバムアーティストを加えた
 /// - 3: 途中の一致を探せるよう、トークナイザーをtrigramにした。検索用に正規化した文字列
 ///   （`search_text`）を1つの列に入れ、表が内容を持つようにした（external contentをやめた）
+/// - 4: 検索の対象に作曲者を加えた（ADR-115）
 ///
 /// 表の列・トークナイザーを変える時は値を上げる（古い版の表は、起動時に作り直す）。
-const FTS_SCHEMA_VERSION: i32 = 3;
+const FTS_SCHEMA_VERSION: i32 = 4;
 
-/// 全文検索の表に入れる文字列（タイトル・アーティスト・アルバム・ジャンル・アルバムアーティストを
-/// 検索用に正規化してつなぐ）を求めるSQLの式。`prefix`は`new.`など
+/// 全文検索の表に入れる文字列（タイトル・アーティスト・アルバム・ジャンル・アルバムアーティスト・
+/// 作曲者を検索用に正規化してつなぐ）を求めるSQLの式。`prefix`は`new.`など
 fn fts_text_expr(prefix: &str) -> String {
     format!(
-        "{}({prefix}title, {prefix}artist, {prefix}album, {prefix}genre, {prefix}album_artist)",
+        "{}({prefix}title, {prefix}artist, {prefix}album, {prefix}genre, {prefix}album_artist, \
+         {prefix}composer)",
         crate::search_text::SQL_FUNCTION
     )
 }
@@ -242,6 +244,16 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         "compilation_read",
         "INTEGER NOT NULL DEFAULT 0",
     )?;
+    // 作曲者・グループ・コメント・BPM・ビット深度・チャンネル数（一覧の列・検索に使う。ADR-115）。
+    // `details_read`は、それらをファイルから読んだか（列を足す前に登録したトラックは0で、起動後に
+    // `tag_backfill`が読む）
+    for column in ["composer", "grouping", "comment"] {
+        add_column_if_not_exists(conn, "tracks", column, "TEXT")?;
+    }
+    for column in ["bpm", "bit_depth", "channels"] {
+        add_column_if_not_exists(conn, "tracks", column, "INTEGER")?;
+    }
+    add_column_if_not_exists(conn, "tracks", "details_read", "INTEGER NOT NULL DEFAULT 0")?;
 
     // ファイルが見つからなくなった日時（見つかる間はNULL）。再スキャンでファイルが見つからなく
     // なったトラックはすぐには外さず、「見つからない曲」として残す。移動・改名されたファイルが
@@ -516,7 +528,7 @@ fn run_migrations(conn: &Connection) -> Result<()> {
              DELETE FROM tracks_fts WHERE rowid = old.rowid;
          END;
 
-         CREATE TRIGGER tracks_au AFTER UPDATE OF title, artist, album, genre, album_artist
+         CREATE TRIGGER tracks_au AFTER UPDATE OF title, artist, album, genre, album_artist, composer
          ON tracks BEGIN
              UPDATE tracks_fts SET text = {new_text} WHERE rowid = old.rowid;
          END;",

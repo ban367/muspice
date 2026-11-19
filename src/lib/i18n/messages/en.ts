@@ -72,6 +72,10 @@ export const en: Messages = {
     sampleRate: 'Sample Rate',
     fileSize: 'Size',
     filePath: 'Location',
+    bitDepth: 'Bit Depth',
+    channels: 'Channels',
+    analyzedBpm: 'Tempo (Analyzed)',
+    analyzedKey: 'Key (Analyzed)',
     titleSort: 'Sort Title',
     artistSort: 'Sort Artist',
     albumArtistSort: 'Sort Album Artist',
@@ -175,6 +179,7 @@ export const en: Messages = {
     updateDevice: 'Changing the device settings',
     relinkDevice: 'Changing the destination',
     removeDevice: 'Removing the device',
+    ejectDevice: 'Ejecting the device',
     cancelDeviceSync: 'Stopping the sync'
   },
 
@@ -528,6 +533,8 @@ export const en: Messages = {
       format: 'Format',
       bitrate: 'Bit rate',
       sampleRate: 'Sample rate',
+      bitDepth: 'Bit depth',
+      channels: 'Channels',
       duration: 'Length',
       size: 'Size',
       addedAt: 'Date added',
@@ -537,6 +544,7 @@ export const en: Messages = {
       never: 'Never played',
       kbps: (value) => `${value} kbps`,
       hz: (value) => `${value.toLocaleString('en-US')} Hz`,
+      bits: (value) => `${value} bit`,
       times: (count) => `${count}`,
       missing: 'The file is missing'
     }
@@ -1493,6 +1501,15 @@ export const en: Messages = {
     relink: 'Change Destination',
     relinked: 'Changed the destination',
     remove: 'Remove Device',
+    /** Ejecting the drive (macOS, ADR-113) */
+    eject: 'Eject',
+    ejected: (name) => `Ejected "${name}"`,
+    /** When a registered device is connected */
+    connectedNotice: (name) => `"${name}" is connected. You can sync it from its device page`,
+    /** Size of what will be synced */
+    selectionSummary: (count, size) => `Selected: ${plural(count, 'track', 'tracks')} (${size})`,
+    selectionTooLarge: (total) =>
+      `This is larger than the device capacity (${total}), so not all tracks will fit`,
     confirmRemove: (name) =>
       `Remove the device "${name}"?\nThe tracks on the device are not deleted.`,
     removed: 'Removed the device',
@@ -1526,6 +1543,9 @@ export const en: Messages = {
       rename: 'Rename',
       /** Lyrics files and folder images copied along with tracks (ADR-112) */
       extras: 'Lyrics and folder images',
+      /** Lists of tracks in the preview (shown when expanded; only the first ones when there are many) */
+      moreItems: (count) => `and ${plural(count, 'more track', 'more tracks')}`,
+      showDetails: 'Show the tracks',
       extraCounts: (copied, deleted) =>
         [copied > 0 && `copy ${copied}`, deleted > 0 && `delete ${deleted}`]
           .filter(Boolean)

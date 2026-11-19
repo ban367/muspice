@@ -2706,6 +2706,23 @@ describe('転送先デバイス', () => {
     });
   });
 
+  it('同期する内容の見通しと、確認の画面の一覧を返し、取り出すと接続されていない状態になる', async () => {
+    const device = await connectedDevice();
+    const summary = await commands.getSyncSelectionSummary(device.id);
+    expect(summary.trackCount).toBe(5);
+    expect(summary.totalBytes).toBeGreaterThan(0);
+
+    const plan = await commands.planDeviceSync(device.id);
+    expect(plan.copyPaths).toHaveLength(plan.copyCount);
+    expect(plan.deletePaths).toHaveLength(plan.deleteCount);
+    expect(device.ejectable).toBe(true);
+
+    await commands.ejectSyncDevice(device.id);
+    const [ejected] = (await commands.getSyncDevices()).filter((d) => d.id === device.id);
+    expect(ejected).toMatchObject({ connected: false, ejectable: false });
+    await expect(commands.ejectSyncDevice(device.id)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
   it('読めない配置の書式は保存せず、ほかの設定も変えない', async () => {
     const device = await connectedDevice();
     await expect(

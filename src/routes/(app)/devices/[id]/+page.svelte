@@ -7,9 +7,11 @@
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
   import {
+    useEjectSyncDeviceMutation,
     useRelinkSyncDeviceMutation,
     useRemoveSyncDeviceMutation,
     useSyncDevicesQuery,
+    useSyncSelectionSummaryQuery,
     useUpdateSyncDeviceMutation
   } from '#lib/queries/devices.js';
   import { usePlaylistsQuery } from '#lib/queries/playlists.js';
@@ -32,6 +34,9 @@
   const updateMutation = useUpdateSyncDeviceMutation();
   const relinkMutation = useRelinkSyncDeviceMutation();
   const removeMutation = useRemoveSyncDeviceMutation();
+  const ejectMutation = useEjectSyncDeviceMutation();
+  // 同期する内容の曲数とサイズ（ライブラリの記録から求める見通し。ADR-113）
+  const selectionQuery = useSyncSelectionSummaryQuery(() => deviceId ?? '');
 
   const device = $derived(devicesQuery.data?.find((d: SyncDevice) => d.id === deviceId) ?? null);
   const playlists = $derived(playlistsQuery.data ?? []);
@@ -111,6 +116,15 @@
       if (relinked) showSuccess(m.devices.relinked);
     } catch {
       // 失敗はミューテーション内でトースト通知済み
+    }
+  }
+
+  async function handleEject(current: SyncDevice) {
+    try {
+      await ejectMutation.mutateAsync(current.id);
+      showSuccess(m.devices.ejected(current.name));
+    } catch {
+      // トーストで知らせ済み
     }
   }
 
@@ -213,6 +227,16 @@
         >
           {m.devices.relink}
         </button>
+        {#if device.ejectable}
+          <button
+            type="button"
+            class="btn-secondary text-sm"
+            onclick={() => handleEject(device)}
+            disabled={ejectMutation.isPending}
+          >
+            {m.devices.eject}
+          </button>
+        {/if}
         <button
           type="button"
           class="btn-secondary text-sm"
@@ -229,7 +253,23 @@
     {/if}
 
     <section class="source-section">
-      <h2 class="source-title source-hint">{m.devices.sourceTitle}</h2>
+      <h2 class="source-title">{m.devices.sourceTitle}</h2>
+      <!-- 選んだ内容の曲数とサイズ（コピー済みの曲・歌詞と画像を含めない、ライブラリでの合計） -->
+      <p class="hint source-hint">
+        {#if selectionQuery.data && hasSource}
+          {m.devices.selectionSummary(
+            selectionQuery.data.trackCount,
+            formatFileSize(selectionQuery.data.totalBytes)
+          )}
+          {#if device.totalBytes !== null && selectionQuery.data.totalBytes > device.totalBytes}
+            <span class="text-warning">
+              · {m.devices.selectionTooLarge(formatFileSize(device.totalBytes))}
+            </span>
+          {/if}
+        {:else}
+          &nbsp;
+        {/if}
+      </p>
 
       <label class="option">
         <input

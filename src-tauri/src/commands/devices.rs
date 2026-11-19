@@ -6,8 +6,8 @@
 
 use super::{file_dialog, pick_folder, run_blocking};
 use crate::device::{
-    DeviceRecord, DeviceSyncPlan, DeviceSyncResult, DeviceSyncState, SyncDevice, SyncDeviceConfig,
-    suggest_device_name, validate_device_name,
+    DeviceRecord, DeviceSyncPlan, DeviceSyncResult, DeviceSyncState, PLAN_ITEMS_LIMIT, SyncDevice,
+    SyncDeviceConfig, SyncRename, SyncSelectionSummary, suggest_device_name, validate_device_name,
 };
 use crate::device_manifest::{
     Manifest, read_device_id, read_manifest, to_device_path, write_manifest,
@@ -81,6 +81,10 @@ fn to_sync_device(record: DeviceRecord) -> SyncDevice {
         (None, None)
     };
 
+    // 取り出せるのは、macOSで、`/Volumes`の下のドライブにあり、接続されているデバイス
+    let ejectable =
+        cfg!(target_os = "macos") && connected && crate::device::volume_mount_point(root).is_some();
+
     SyncDevice {
         id: record.id,
         name: record.name,
@@ -90,6 +94,7 @@ fn to_sync_device(record: DeviceRecord) -> SyncDevice {
         remove_unselected: record.remove_unselected,
         path_template: record.path_template,
         copy_extras: record.copy_extras,
+        ejectable,
         connected,
         free_bytes,
         total_bytes,
@@ -462,7 +467,129 @@ fn summarize_plan(plan: &SyncPlan, free_bytes: i64) -> AppResult<DeviceSyncPlan>
         required_bytes,
         has_enough_space: required_bytes == 0
             || required_bytes.saturating_add(SPACE_MARGIN_BYTES) <= free_bytes,
+        copy_paths: plan
+            .to_copy
+            .iter()
+            .take(PLAN_ITEMS_LIMIT)
+            .map(|op| op.dest.clone())
+            .collect(),
+        delete_paths: plan
+            .to_delete
+            .iter()
+            .take(PLAN_ITEMS_LIMIT)
+            .map(|entry| entry.path.clone())
+            .collect(),
+        renames: plan
+            .to_rename
+            .iter()
+            .take(PLAN_ITEMS_LIMIT)
+            .map(|op| SyncRename {
+                from: op.entry.path.clone(),
+                to: op.to.clone(),
+            })
+            .collect(),
     })
+}
+
+/// 同期する内容の曲数と、ライブラリでのサイズの合計（デバイスには触れない。ADR-113）
+fn selection_summary(state: &AppState, device_id: &str) -> AppResult<SyncSelectionSummary> {
+    let context = state.smart_playlist_context();
+    state.with_db(|db| {
+        let device = crate::device::find_device(db, device_id)?;
+        let tracks = crate::repository::find_transfer_tracks(db)?;
+        let selected: Option<HashSet<String>> = if device.sync_all {
+            None
+        } else {
+            let mut ids = HashSet::new();
+            for playlist in crate::playlist::get_all_playlists(db)?
+                .into_iter()
+                .filter(|playlist| device.playlist_ids.contains(&playlist.id))
+            {
+                ids.extend(crate::playlist::playlist_track_ids(db, &playlist, context)?);
+            }
+            Some(ids)
+        };
+        let (count, bytes) = tracks
+            .iter()
+            .filter(|track| selected.as_ref().is_none_or(|ids| ids.contains(&track.id)))
+            .fold((0usize, 0i64), |(count, bytes), track| {
+                (count + 1, bytes.saturating_add(track.file_size))
+            });
+        Ok(SyncSelectionSummary {
+            track_count: to_count(count)?,
+            total_bytes: bytes,
+        })
+    })
+}
+
+/// 同期する内容の曲数と、ライブラリでのサイズの合計を返す（デバイスのページの見通し。ADR-113）
+///
+/// デバイスに触れず、ライブラリの記録から求める（接続されていなくても求められる）。
+#[tauri::command]
+#[specta::specta]
+pub async fn get_sync_selection_summary(
+    device_id: String,
+    app_handle: AppHandle,
+) -> AppResult<SyncSelectionSummary> {
+    validate_device_id(&device_id)?;
+    run_blocking(move || selection_summary(app_handle.state::<AppState>().inner(), &device_id))
+        .await
+}
+
+/// デバイスのドライブを取り出す（macOS。同期の後に使う。ADR-113）
+///
+/// 転送先のフォルダが`/Volumes`の下のドライブにある時だけ使える（ほかは`VALIDATION`）。同期の
+/// 実行中は`LOCK`。ほかのアプリがファイルを開いているなどで取り出せない時は`IO`。
+#[tauri::command]
+#[specta::specta]
+pub async fn eject_sync_device(device_id: String, app_handle: AppHandle) -> AppResult<()> {
+    validate_device_id(&device_id)?;
+    run_blocking(move || {
+        if app_handle.state::<DeviceSyncState>().is_running() {
+            return Err(AppError::Lock(
+                "同期の実行中は、デバイスを取り出せません".to_string(),
+            ));
+        }
+        let device = app_handle
+            .state::<AppState>()
+            .with_db(|db| crate::device::find_device(db, &device_id))?;
+        let mount_point = crate::device::volume_mount_point(Path::new(&device.path))
+            .filter(|_| cfg!(target_os = "macos"))
+            .ok_or_else(|| {
+                AppError::Validation("このデバイスは、取り出せる場所にありません".to_string())
+            })?;
+        eject_volume(&mount_point)
+    })
+    .await
+}
+
+/// ドライブを取り出す（`diskutil eject`。macOSに付いているコマンド）
+fn eject_volume(mount_point: &Path) -> AppResult<()> {
+    if !mount_point.is_dir() {
+        return Err(AppError::NotFound(
+            "デバイスが見つかりません（すでに取り出されている可能性があります）".to_string(),
+        ));
+    }
+    let output = std::process::Command::new("/usr/sbin/diskutil")
+        .arg("eject")
+        .arg(mount_point)
+        .output()
+        .map_err(|e| AppError::Io(format!("デバイスを取り出せませんでした: {}", e)))?;
+    if output.status.success() {
+        log::info!("Ejected the device volume: {}", mount_point.display());
+        Ok(())
+    } else {
+        let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        log::warn!(
+            "Failed to eject the device volume {}: {}",
+            mount_point.display(),
+            detail
+        );
+        Err(AppError::Io(
+            "デバイスを取り出せませんでした（ほかのアプリがデバイスのファイルを開いている可能性があります）"
+                .to_string(),
+        ))
+    }
 }
 
 /// デバイスの空き容量（バイト）
@@ -670,6 +797,7 @@ mod tests {
                 updated_at: "2026-01-01T00:00:00Z".to_string(),
                 replay_gain: ReplayGain::default(),
                 sort_tags: Default::default(),
+                details: Default::default(),
             };
             self.state
                 .with_db(|db| crate::repository::insert_track(db, &track, None))
@@ -778,6 +906,46 @@ mod tests {
             (0, 0, 2)
         );
         assert_eq!(fixture.sync(&device_id).copied_count, 0);
+    }
+
+    #[test]
+    fn test_plan_lists_paths_and_selection_summary_uses_the_library() {
+        let fixture = Fixture::new();
+        let one = fixture.add_track(
+            "00000000-0000-0000-0000-000000000001",
+            "Artist",
+            "Album",
+            1,
+            "One",
+        );
+        fixture.add_track(
+            "00000000-0000-0000-0000-000000000002",
+            "Artist",
+            "Album",
+            2,
+            "Two",
+        );
+        fixture
+            .state
+            .with_db(|db| {
+                db.execute("UPDATE tracks SET file_size = 300", [])
+                    .map_err(|e| AppError::Database(e.to_string()))
+            })
+            .unwrap();
+        let playlist = fixture.add_playlist("Car", &[&one]);
+        let device_id = fixture.register(false, &[&playlist]);
+
+        // 確認の画面の一覧は、コピーする曲のデバイス上の場所
+        let plan = fixture.plan(&device_id);
+        assert_eq!(plan.copy_paths, ["Artist/Album/01 One.mp3"]);
+        assert!(plan.delete_paths.is_empty() && plan.renames.is_empty());
+
+        // 同期する内容の見通しは、ライブラリの記録のサイズ（デバイスに触れない）
+        let summary = selection_summary(&fixture.state, &device_id).unwrap();
+        assert_eq!((summary.track_count, summary.total_bytes), (1, 300));
+        fixture.configure(&device_id, true, &[], true);
+        let summary = selection_summary(&fixture.state, &device_id).unwrap();
+        assert_eq!((summary.track_count, summary.total_bytes), (2, 600));
     }
 
     #[test]

@@ -47,6 +47,8 @@ pub struct SyncDevice {
     pub path_template: String,
     /// 曲に添えて、歌詞ファイル・フォルダの画像もコピーするか（ADR-112）
     pub copy_extras: bool,
+    /// 取り出せるか（macOSで、転送先のフォルダが`/Volumes`の下のドライブにあり、接続されている。ADR-113）
+    pub ejectable: bool,
     /// 接続されているか（転送先のフォルダに、このデバイスの管理ファイルがあるか）
     pub connected: bool,
     /// 空き容量・全体の容量（バイト）。接続されていない場合は値なし
@@ -102,6 +104,33 @@ pub struct DeviceSyncPlan {
     pub required_bytes: i64,
     /// 空き容量が足りるか
     pub has_enough_space: bool,
+    /// コピー・削除・名前を変える曲のデバイス上の場所（確認の画面で見せる。それぞれ先頭の
+    /// `PLAN_ITEMS_LIMIT`件まで。件数は`copyCount`などを使う。ADR-113）
+    pub copy_paths: Vec<String>,
+    pub delete_paths: Vec<String>,
+    pub renames: Vec<SyncRename>,
+}
+
+/// 確認の画面で見せる一覧の、それぞれの件数の上限
+pub const PLAN_ITEMS_LIMIT: usize = 1000;
+
+/// デバイス上で名前を変える曲（変更前と変更後の場所）
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncRename {
+    pub from: String,
+    pub to: String,
+}
+
+/// 同期する内容の曲数と、ライブラリでのサイズの合計（デバイスのページで見せる見通し。ADR-113）
+///
+/// デバイスに触れずに、ライブラリの記録から求める（コピー済みかどうか・曲に添えるファイルは含めない）。
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncSelectionSummary {
+    pub track_count: u32,
+    #[specta(type = specta_typescript::Number)]
+    pub total_bytes: i64,
 }
 
 /// 同期の結果
@@ -147,6 +176,21 @@ impl DeviceRecord {
     }
 }
 
+/// 転送先のフォルダのあるドライブのマウント先（`/Volumes/<名前>`。macOSの外付けのドライブ）
+///
+/// `/Volumes`の下でないフォルダ（Macの中のフォルダ）はNone。
+pub fn volume_mount_point(path: &Path) -> Option<std::path::PathBuf> {
+    let mut components = path.components();
+    match (components.next(), components.next(), components.next()) {
+        (
+            Some(Component::RootDir),
+            Some(Component::Normal(volumes)),
+            Some(Component::Normal(name)),
+        ) if volumes == "Volumes" => Some(Path::new("/Volumes").join(name)),
+        _ => None,
+    }
+}
+
 /// 同期の実行状態（同時に実行する同期は1つだけ）
 #[derive(Default)]
 pub struct DeviceSyncState {
@@ -164,6 +208,11 @@ impl DeviceSyncState {
             .ok()?;
         self.cancel.store(false, Ordering::SeqCst);
         Some(DeviceSyncGuard { state: self })
+    }
+
+    /// 同期を実行中か
+    pub fn is_running(&self) -> bool {
+        self.running.load(Ordering::SeqCst)
     }
 
     /// 実行中の同期を中止させる（実行中でなければ何もしない）
@@ -581,6 +630,22 @@ mod tests {
         assert!(validate_device_name(&"あ".repeat(100)).is_ok());
         assert!(validate_device_name(&"あ".repeat(101)).is_err());
         assert!(validate_device_name("SD\nカード").is_err());
+    }
+
+    #[test]
+    fn test_volume_mount_point() {
+        assert_eq!(
+            volume_mount_point(Path::new("/Volumes/SDCARD/Music")),
+            Some(std::path::PathBuf::from("/Volumes/SDCARD"))
+        );
+        assert_eq!(
+            volume_mount_point(Path::new("/Volumes/WALKMAN")),
+            Some(std::path::PathBuf::from("/Volumes/WALKMAN"))
+        );
+        // Macの中のフォルダ・`/Volumes`そのものは、取り出すドライブではない
+        assert_eq!(volume_mount_point(Path::new("/Users/me/Music")), None);
+        assert_eq!(volume_mount_point(Path::new("/Volumes")), None);
+        assert_eq!(volume_mount_point(Path::new("relative/Volumes/X")), None);
     }
 
     #[test]

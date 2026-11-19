@@ -295,6 +295,7 @@ src-tauri/src/
 - 一覧では、矢印キーを押しても一覧をスクロールさせず、選択している項目から隣の項目へ選択を移す（移動先が画面の外なら、見える位置までスクロールする）。移動先の計算は`#lib/utils/listNavigation`の`navigationTarget`（リストは↑↓、グリッドは上下左右、Home・End）で行う
 - 曲の一覧（`TrackList`）のリスト表示の列は、`#lib/utils/trackColumns`の定義（`TRACK_COLUMN_IDS`・`TRACK_COLUMNS`）から描画する（ADR-038）
   - 一覧の下の合計（曲数・時間・サイズ。2曲以上を選んでいる時は、その合計も）は、`TrackList`が`#lib/utils/trackTotals`で求めて出す（`showSummary`で隠せる。ADR-114）。既定の列は、タイトル・アーティスト・アルバム・お気に入り・評価・時間（`DEFAULT_TRACK_COLUMNS`）で、既定のウィンドウ（1280×800）で横にはみ出さない幅にしてある
+  - 作曲者・グループ・コメント・BPM・ビット深度・チャンネル数と、曲の解析のテンポ・キーは、`Track.details`（`TrackDetails`）にある（ADR-115）。キーの表記は`#lib/utils/musicKey`の`formatMusicKey`
   - 列を足す時は、`TRACK_COLUMN_IDS`・`TRACK_COLUMNS`（幅・そろえ方）・`trackCellText`（セルの文字列）・`trackSort`の`sortKey`（並べ替えの値）と、見出しの表示名（`m.fields`。列のIDと同じキーで、`trackColumnLabel`が読む）を足す。どの列も並べ替えられる
   - 表示する列・列の順番・並び順は、画面ごとに`#lib/stores/trackListView.svelte`の`trackListView(viewId, defaults)`が覚える（localStorageの`muspice:trackListView:<viewId>`）。一覧を置く画面は、`TrackList`に`viewId`と、その画面の既定（`defaultColumns`・`defaultSort`）を渡す。列の幅は、どの画面でも共通で`ui.columnWidths`に持つ
   - プレイリストの画面も`TrackList`で表示する（ADR-039）。`onReorder`を渡すと、渡した順のまま並べている間（並び順がnullの間）だけ、行のドラッグで並べ替えられる（並べ替えの計算は`#lib/utils/reorder`の`moveItems`）。`onRemove`を渡すと、右クリックのメニューとDeleteキーで、選択した曲を一覧から外せる。列はどのプレイリストでも共通（`viewId="playlist"`）、並び順はプレイリストごと（`sortViewId`に`playlistSortViewId(id)`）に覚える
