@@ -493,6 +493,12 @@
               <dd>{track.bitrate ? m.metadataEditor.file.kbps(track.bitrate) : '--'}</dd>
               <dt>{m.metadataEditor.file.sampleRate}</dt>
               <dd>{track.sampleRate ? m.metadataEditor.file.hz(track.sampleRate) : '--'}</dd>
+              <dt>{m.metadataEditor.file.bitDepth}</dt>
+              <dd>
+                {track.details.bitDepth ? m.metadataEditor.file.bits(track.details.bitDepth) : '--'}
+              </dd>
+              <dt>{m.metadataEditor.file.channels}</dt>
+              <dd>{track.details.channels ?? '--'}</dd>
               <dt>{m.metadataEditor.file.duration}</dt>
               <dd>{formatDuration(track.duration)}</dd>
               <dt>{m.metadataEditor.file.size}</dt>

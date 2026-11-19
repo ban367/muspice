@@ -676,6 +676,8 @@ includesSettings: boolean } |
 	 *  「Various Artists」のアルバムにまとめる（`group_artist`。ADR-093）
 	 */
 	compilation: boolean,
+	/**  一覧の列・検索に使う、タグとファイルの情報のうち、後から持つようにした項目（ADR-115） */
+	details: TrackDetails,
 } | null>("pick_ai_shuffle_track", { currentTrackId, excludedTrackIds }),
 	/**
 	 *  トラックのアルバムアートの情報（埋め込みの画像か、フォルダの画像か・種類・大きさ）を取得する
@@ -2446,6 +2448,30 @@ export type Track = {
 	 *  「Various Artists」のアルバムにまとめる（`group_artist`。ADR-093）
 	 */
 	compilation: boolean,
+	/**  一覧の列・検索に使う、タグとファイルの情報のうち、後から持つようにした項目（ADR-115） */
+	details: TrackDetails,
+};
+
+/**
+ *  曲の、一覧の列・検索に使う項目のうち、後から持つようにしたもの（作曲者・BPM・ビット深度など。ADR-115）
+ * 
+ *  タグ・ファイルの項目は、取り込み・再スキャン・編集の保存で記録する（登録済みの曲は、起動後に
+ *  `tag_backfill`が読む）。解析の項目は、曲の解析の結果（`track_analysis`。ADR-104）から読む。
+ */
+export type TrackDetails = {
+	composer: string | null,
+	grouping: string | null,
+	comment: string | null,
+	/**  BPM（タグの値。整数） */
+	bpm: number | null,
+	/**  ビット深度（PCMの形式など、ファイルが持つ場合だけ） */
+	bitDepth: number | null,
+	/**  チャンネル数 */
+	channels: number | null,
+	/**  曲の解析で求めたテンポ（BPM。解析していない・できなかった曲と、解析の後に長さが変わった曲はなし） */
+	analyzedBpm: number | null,
+	/**  曲の解析で求めたキー（主音の0〜11。短調は12を足す。なしの扱いは`analyzed_bpm`と同じ） */
+	analyzedKey: number | null,
 };
 
 /**

@@ -16,10 +16,13 @@
 //! コンピレーションの印をDBに持つ前（ADR-093）に登録したトラックは、印がない。アルバムアーティストの
 //! ないコンピレーションが、曲のアーティストごとの別のアルバムに分かれて見えるため、ファイルから読む。
 //!
+//! 作曲者・グループ・コメント・BPM・ビット深度・チャンネル数をDBに持つ前（ADR-115）に登録したトラックは、
+//! それらの値がない。一覧の列・検索に使うため、ファイルから読む。
+//!
 //! - 読み込むのは未読の項目だけで、ほかの項目は変えない（「メタデータを更新」と違い、
 //!   以前のバージョンでDBだけに保存した編集内容を失わない）
 //! - 読み込んだトラックは`album_artist_read`・`sort_tags_read`・`multi_values_read`・`rating_read`・
-//!   `compilation_read`を1にする。
+//!   `compilation_read`・`details_read`を1にする。
 //!   対象がなくなれば、次回以降の起動では何もしない
 //! - ファイルを読めなかったトラック（外付けドライブが外れているなど）は未読のまま残し、次回の起動で読み直す
 //! - 途中でアプリを終了した場合は、次回の起動で続きから読み込む
@@ -140,6 +143,9 @@ fn backfill(
                 if track.needs_compilation {
                     crate::repository::set_track_compilation(&tx, &track.id, tags.compilation)?;
                 }
+                if track.needs_details {
+                    crate::repository::set_track_details(&tx, &track.id, &tags.details)?;
+                }
             }
             tx.commit().map_err(|e| {
                 AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
@@ -157,6 +163,7 @@ fn backfill(
                             || all_values(track.genre.as_deref(), tags.genre.as_deref()).is_some()))
                     || (track.needs_rating && half_star_rating(track.rating, tags.rating).is_some())
                     || (track.needs_compilation && tags.compilation)
+                    || (track.needs_details && tags.details != Default::default())
             })
             .count();
     }

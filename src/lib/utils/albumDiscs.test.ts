@@ -29,6 +29,16 @@ function track(id: string, discNumber: number | null): Track {
     updatedAt: '2026-01-01T00:00:00.000Z',
     replayGain: { trackGain: null, trackPeak: null, albumGain: null, albumPeak: null },
     sortTags: { title: null, artist: null, album: null, albumArtist: null },
+    details: {
+      composer: null,
+      grouping: null,
+      comment: null,
+      bpm: null,
+      bitDepth: null,
+      channels: null,
+      analyzedBpm: null,
+      analyzedKey: null
+    },
     isMissing: false,
     compilation: false
   };

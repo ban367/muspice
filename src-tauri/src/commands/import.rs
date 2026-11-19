@@ -1270,6 +1270,7 @@ pub(super) fn create_track_from_file(file_path: &Path) -> AppResult<Track> {
         sort_tags,
         is_missing: false,
         compilation: file_info.metadata.compilation == Some(true),
+        details: file_info.details,
     })
 }
 

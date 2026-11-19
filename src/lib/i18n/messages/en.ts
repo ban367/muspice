@@ -72,6 +72,10 @@ export const en: Messages = {
     sampleRate: 'Sample Rate',
     fileSize: 'Size',
     filePath: 'Location',
+    bitDepth: 'Bit Depth',
+    channels: 'Channels',
+    analyzedBpm: 'Tempo (Analyzed)',
+    analyzedKey: 'Key (Analyzed)',
     titleSort: 'Sort Title',
     artistSort: 'Sort Artist',
     albumArtistSort: 'Sort Album Artist',
@@ -520,6 +524,8 @@ export const en: Messages = {
       format: 'Format',
       bitrate: 'Bit rate',
       sampleRate: 'Sample rate',
+      bitDepth: 'Bit depth',
+      channels: 'Channels',
       duration: 'Length',
       size: 'Size',
       addedAt: 'Date added',
@@ -529,6 +535,7 @@ export const en: Messages = {
       never: 'Never played',
       kbps: (value) => `${value} kbps`,
       hz: (value) => `${value.toLocaleString('en-US')} Hz`,
+      bits: (value) => `${value} bit`,
       times: (count) => `${count}`,
       missing: 'The file is missing'
     }

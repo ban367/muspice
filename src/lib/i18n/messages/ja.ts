@@ -74,6 +74,10 @@ export const ja = {
     sampleRate: 'サンプルレート',
     fileSize: 'サイズ',
     filePath: '場所',
+    bitDepth: 'ビット深度',
+    channels: 'チャンネル',
+    analyzedBpm: 'テンポ（解析）',
+    analyzedKey: 'キー（解析）',
     titleSort: 'タイトルの読み',
     artistSort: 'アーティストの読み',
     albumArtistSort: 'アルバムアーティストの読み',
@@ -560,6 +564,8 @@ export const ja = {
       format: '形式',
       bitrate: 'ビットレート',
       sampleRate: 'サンプルレート',
+      bitDepth: 'ビット深度',
+      channels: 'チャンネル数',
       duration: '長さ',
       size: 'サイズ',
       addedAt: '追加した日時',
@@ -569,6 +575,7 @@ export const ja = {
       never: '未再生',
       kbps: (value: number) => `${value} kbps`,
       hz: (value: number) => `${value.toLocaleString('ja-JP')} Hz`,
+      bits: (value: number) => `${value} bit`,
       times: (count: number) => `${count}回`,
       missing: 'ファイルが見つかりません'
     }

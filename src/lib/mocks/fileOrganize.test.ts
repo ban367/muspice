@@ -34,6 +34,16 @@ function track(id: string, filePath: string, overrides: Partial<Track> = {}): Tr
     sortTags: { title: null, artist: null, album: null, albumArtist: null },
     isMissing: false,
     compilation: false,
+    details: {
+      composer: null,
+      grouping: null,
+      comment: null,
+      bpm: null,
+      bitDepth: null,
+      channels: null,
+      analyzedBpm: null,
+      analyzedKey: null
+    },
     ...overrides
   };
 }
