@@ -305,6 +305,8 @@ playlistCount: number } | null>("set_music_folder", { source }),
 	pathTemplate: string,
 	/**  曲に添えて、歌詞ファイル・フォルダの画像もコピーするか（ADR-112） */
 	copyExtras: boolean,
+	/**  取り出せるか（macOSで、転送先のフォルダが`/Volumes`の下のドライブにあり、接続されている。ADR-113） */
+	ejectable: boolean,
 	/**  接続されているか（転送先のフォルダに、このデバイスの管理ファイルがあるか） */
 	connected: boolean,
 	/**  空き容量・全体の容量（バイト）。接続されていない場合は値なし */
@@ -340,6 +342,8 @@ playlistCount: number } | null>("set_music_folder", { source }),
 	pathTemplate: string,
 	/**  曲に添えて、歌詞ファイル・フォルダの画像もコピーするか（ADR-112） */
 	copyExtras: boolean,
+	/**  取り出せるか（macOSで、転送先のフォルダが`/Volumes`の下のドライブにあり、接続されている。ADR-113） */
+	ejectable: boolean,
 	/**  接続されているか（転送先のフォルダに、このデバイスの管理ファイルがあるか） */
 	connected: boolean,
 	/**  空き容量・全体の容量（バイト）。接続されていない場合は値なし */
@@ -371,6 +375,19 @@ playlistCount: number } | null>("set_music_folder", { source }),
 	runDeviceSync: (deviceId: string) => __TAURI_INVOKE<DeviceSyncResult>("run_device_sync", { deviceId }),
 	/**  実行中の同期を中止する（コピー中のファイルの途中でも止める。実行中でなければ何もしない） */
 	cancelDeviceSync: () => __TAURI_INVOKE<null>("cancel_device_sync"),
+	/**
+	 *  同期する内容の曲数と、ライブラリでのサイズの合計を返す（デバイスのページの見通し。ADR-113）
+	 * 
+	 *  デバイスに触れず、ライブラリの記録から求める（接続されていなくても求められる）。
+	 */
+	getSyncSelectionSummary: (deviceId: string) => __TAURI_INVOKE<SyncSelectionSummary>("get_sync_selection_summary", { deviceId }),
+	/**
+	 *  デバイスのドライブを取り出す（macOS。同期の後に使う。ADR-113）
+	 * 
+	 *  転送先のフォルダが`/Volumes`の下のドライブにある時だけ使える（ほかは`VALIDATION`）。同期の
+	 *  実行中は`LOCK`。ほかのアプリがファイルを開いているなどで取り出せない時は`IO`。
+	 */
+	ejectSyncDevice: (deviceId: string) => __TAURI_INVOKE<null>("eject_sync_device", { deviceId }),
 	/**  現在の設定を取得 */
 	getSettings: () => __TAURI_INVOKE<Settings>("get_settings"),
 	/**
@@ -1344,6 +1361,13 @@ export type DeviceSyncPlan = {
 	requiredBytes: number,
 	/**  空き容量が足りるか */
 	hasEnoughSpace: boolean,
+	/**
+	 *  コピー・削除・名前を変える曲のデバイス上の場所（確認の画面で見せる。それぞれ先頭の
+	 *  `PLAN_ITEMS_LIMIT`件まで。件数は`copyCount`などを使う。ADR-113）
+	 */
+	copyPaths: string[],
+	deletePaths: string[],
+	renames: SyncRename[],
 };
 
 /**  デバイスへの同期の進捗（コピー中のファイル） */
@@ -2373,6 +2397,8 @@ export type SyncDevice = {
 	pathTemplate: string,
 	/**  曲に添えて、歌詞ファイル・フォルダの画像もコピーするか（ADR-112） */
 	copyExtras: boolean,
+	/**  取り出せるか（macOSで、転送先のフォルダが`/Volumes`の下のドライブにあり、接続されている。ADR-113） */
+	ejectable: boolean,
 	/**  接続されているか（転送先のフォルダに、このデバイスの管理ファイルがあるか） */
 	connected: boolean,
 	/**  空き容量・全体の容量（バイト）。接続されていない場合は値なし */
@@ -2390,6 +2416,22 @@ export type SyncDeviceConfig = {
 	removeUnselected: boolean,
 	pathTemplate: string,
 	copyExtras: boolean,
+};
+
+/**  デバイス上で名前を変える曲（変更前と変更後の場所） */
+export type SyncRename = {
+	from: string,
+	to: string,
+};
+
+/**
+ *  同期する内容の曲数と、ライブラリでのサイズの合計（デバイスのページで見せる見通し。ADR-113）
+ * 
+ *  デバイスに触れずに、ライブラリの記録から求める（コピー済みかどうか・曲に添えるファイルは含めない）。
+ */
+export type SyncSelectionSummary = {
+	trackCount: number,
+	totalBytes: number,
 };
 
 /**  文字列の項目 */

@@ -58,8 +58,9 @@ pub use music_folder::{
 
 // 転送先デバイス（SDカードなどのフォルダ）の登録・設定・同期
 pub use devices::{
-    cancel_device_sync, get_sync_devices, plan_device_sync, register_sync_device,
-    relink_sync_device, remove_sync_device, run_device_sync, update_sync_device,
+    cancel_device_sync, eject_sync_device, get_sync_devices, get_sync_selection_summary,
+    plan_device_sync, register_sync_device, relink_sync_device, remove_sync_device,
+    run_device_sync, update_sync_device,
 };
 
 // トラック取得・検索・フィルタリング・一覧（アルバム・アーティスト・ジャンル）・削除

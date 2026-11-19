@@ -37,6 +37,20 @@ describe('invalidatePlaylistQueries', () => {
     expect(isInvalidated(client, queryKeys.tracks.playlist('smart'))).toBe(false);
   });
 
+  it('デバイスの同期する内容の見通しを、全デバイスについて無効化する', () => {
+    const client = clientWith([
+      queryKeys.syncSelectionSummary('d1'),
+      queryKeys.syncSelectionSummary('d2'),
+      queryKeys.syncDevices
+    ]);
+
+    invalidatePlaylistQueries(client, null);
+
+    expect(isInvalidated(client, queryKeys.syncSelectionSummary('d1'))).toBe(true);
+    expect(isInvalidated(client, queryKeys.syncSelectionSummary('d2'))).toBe(true);
+    expect(isInvalidated(client, queryKeys.syncDevices)).toBe(false);
+  });
+
   it('一覧だけを変えた時（移動・削除・名前）は、プレイリストの曲を取り直さない', () => {
     const client = clientWith(keys);
 
@@ -50,7 +64,7 @@ describe('invalidatePlaylistQueries', () => {
 });
 
 describe('invalidateLibraryQueries', () => {
-  it('曲・プレイリストと、ライブラリフォルダ・音楽フォルダを無効化する', () => {
+  it('曲・プレイリストと、ライブラリフォルダ・音楽フォルダ・デバイスの見通しを無効化する', () => {
     const client = clientWith([
       queryKeys.tracks.list,
       queryKeys.tracks.playlist('a'),
@@ -58,6 +72,7 @@ describe('invalidateLibraryQueries', () => {
       queryKeys.playlists,
       queryKeys.libraryFolders,
       queryKeys.musicFolder,
+      queryKeys.syncSelectionSummary('d1'),
       queryKeys.settings
     ]);
 
@@ -69,7 +84,8 @@ describe('invalidateLibraryQueries', () => {
       queryKeys.albums.list,
       queryKeys.playlists,
       queryKeys.libraryFolders,
-      queryKeys.musicFolder
+      queryKeys.musicFolder,
+      queryKeys.syncSelectionSummary('d1')
     ]) {
       expect(isInvalidated(client, key), JSON.stringify(key)).toBe(true);
     }

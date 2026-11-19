@@ -1318,6 +1318,8 @@ pub struct TransferTrack {
     pub track_number: Option<i32>,
     pub disc_number: Option<i32>,
     pub duration: Option<i32>,
+    /// ライブラリに記録したファイルのサイズ（同期する内容の見通しに使う）
+    pub file_size: i64,
 }
 
 /// デバイスへの転送用に、全トラックを取得する（件数の上限なし）
@@ -1329,7 +1331,7 @@ pub fn find_transfer_tracks(conn: &Connection) -> AppResult<Vec<TransferTrack>> 
     let mut stmt = conn
         .prepare(&format!(
             "SELECT id, file_path, title, artist, album, album_artist, compilation, genre, year,
-                    track_number, disc_number, duration
+                    track_number, disc_number, duration, file_size
              FROM tracks
              ORDER BY {}, album, disc_number, track_number, title, id",
             ALBUM_ARTIST
@@ -1350,6 +1352,7 @@ pub fn find_transfer_tracks(conn: &Connection) -> AppResult<Vec<TransferTrack>> 
             track_number: row.get(9)?,
             disc_number: row.get(10)?,
             duration: row.get(11)?,
+            file_size: row.get::<_, Option<i64>>(12)?.unwrap_or(0),
         })
     })
     .map_err(|e| AppError::Database(format!("クエリの実行に失敗しました: {}", e)))?

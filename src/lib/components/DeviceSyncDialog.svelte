@@ -9,10 +9,11 @@
   import { events } from '#lib/bindings.js';
   import {
     cancelDeviceSync,
+    useEjectSyncDeviceMutation,
     usePlanDeviceSyncMutation,
     useRunDeviceSyncMutation
   } from '#lib/queries/devices.js';
-  import { toErrorMessage } from '#lib/stores/error.svelte.js';
+  import { showSuccess, toErrorMessage } from '#lib/stores/error.svelte.js';
   import type {
     DeviceSyncPlan,
     DeviceSyncProgress,
@@ -37,6 +38,19 @@
 
   const planMutation = usePlanDeviceSyncMutation();
   const runMutation = useRunDeviceSyncMutation();
+  const ejectMutation = useEjectSyncDeviceMutation();
+
+  /** ドライブを取り出して閉じる（失敗はトーストで知らせ、開いたままにする） */
+  async function ejectAndClose() {
+    const name = device.name;
+    try {
+      await ejectMutation.mutateAsync(device.id);
+      showSuccess(m.devices.ejected(name));
+      onClose();
+    } catch {
+      // トーストで知らせ済み
+    }
+  }
 
   let plan = $state<DeviceSyncPlan | null>(null);
   let planError = $state('');
@@ -101,6 +115,17 @@
     }
   }
 </script>
+
+{#snippet pathList(paths: string[], total: number)}
+  <ul class="path-list">
+    {#each paths as path, index (index)}
+      <li>{path}</li>
+    {/each}
+  </ul>
+  {#if total > paths.length}
+    <p class="hint more-items">{messages.moreItems(total - paths.length)}</p>
+  {/if}
+{/snippet}
 
 <Modal {open} {onClose} title={messages.title(device.name)} dismissible={!isSyncing}>
   {#if result}
@@ -219,6 +244,27 @@
         <dd>{formatFileSize(plan.freeBytes)}</dd>
       </div>
     </dl>
+    <!-- コピー・削除・名前を変える曲の、デバイス上の場所（開くと出す。ADR-113） -->
+    {#if plan.copyCount + plan.deleteCount + plan.renameCount > 0}
+      <details class="plan-details">
+        <summary>{messages.showDetails}</summary>
+        {#if plan.deleteCount > 0}
+          <h5 class="list-title">{messages.delete}</h5>
+          {@render pathList(plan.deletePaths, plan.deleteCount)}
+        {/if}
+        {#if plan.renameCount > 0}
+          <h5 class="list-title">{messages.rename}</h5>
+          {@render pathList(
+            plan.renames.map((rename) => `${rename.from} → ${rename.to}`),
+            plan.renameCount
+          )}
+        {/if}
+        {#if plan.copyCount > 0}
+          <h5 class="list-title">{messages.copy}</h5>
+          {@render pathList(plan.copyPaths, plan.copyCount)}
+        {/if}
+      </details>
+    {/if}
     {#if isDeviceUpToDate(plan)}
       <p class="hint notice">{messages.upToDate}</p>
     {/if}
@@ -241,6 +287,17 @@
 
   {#snippet footer()}
     {#if result}
+      <!-- 同期の後に、そのままドライブを取り出せる（macOS。ADR-113） -->
+      {#if device.ejectable && !result.cancelled}
+        <button
+          type="button"
+          class="btn-secondary"
+          onclick={ejectAndClose}
+          disabled={ejectMutation.isPending}
+        >
+          {m.devices.eject}
+        </button>
+      {/if}
       <button type="button" class="btn-success" onclick={onClose} data-autofocus>
         {m.common.close}
       </button>
@@ -309,6 +366,30 @@
 
   .message-warning {
     @apply p-3 bg-warning/20 text-warning rounded-md text-sm;
+  }
+
+  .plan-details {
+    @apply mt-4 text-sm;
+  }
+
+  .plan-details summary {
+    @apply cursor-pointer text-text-secondary;
+  }
+
+  .list-title {
+    @apply text-xs font-semibold text-text-secondary m-0 mt-3 mb-1;
+  }
+
+  .path-list {
+    @apply list-none m-0 p-0 max-h-40 overflow-y-auto border border-border rounded-md divide-y divide-border;
+  }
+
+  .path-list li {
+    @apply px-3 py-1 text-xs font-mono text-text-primary break-all;
+  }
+
+  .more-items {
+    @apply mt-1;
   }
 
   .progress-bar-container {

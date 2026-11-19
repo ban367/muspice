@@ -388,7 +388,7 @@ const SYNC_SPACE_MARGIN_BYTES = 1024 * 1024;
 const GIB = 1024 ** 3;
 
 /** 転送先デバイス（一覧表示用の値のうち、容量は状態から計算する） */
-interface MockSyncDevice extends Omit<SyncDevice, 'freeBytes' | 'totalBytes'> {
+interface MockSyncDevice extends Omit<SyncDevice, 'freeBytes' | 'totalBytes' | 'ejectable'> {
   /** デバイスの全体の容量と、Muspiceがコピーした曲以外が使っている容量 */
   totalBytes: number;
   otherUsedBytes: number;
@@ -2358,6 +2358,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       removeUnselected: device.removeUnselected,
       pathTemplate: device.pathTemplate,
       copyExtras: device.copyExtras,
+      // 取り出せるのは、`/Volumes`の下のドライブにあり、接続されているデバイス（Rustはさらに、macOSだけ）
+      ejectable: device.connected && /^\/Volumes\/[^/]+/.test(device.path),
       connected: device.connected,
       freeBytes: device.connected ? device.totalBytes - usedBytes(device) : null,
       totalBytes: device.connected ? device.totalBytes : null,
@@ -2422,7 +2424,17 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       extraDeleteCount: 0,
       freeBytes,
       requiredBytes,
-      hasEnoughSpace: requiredBytes === 0 || requiredBytes + SYNC_SPACE_MARGIN_BYTES <= freeBytes
+      hasEnoughSpace: requiredBytes === 0 || requiredBytes + SYNC_SPACE_MARGIN_BYTES <= freeBytes,
+      // 確認の画面の一覧（デバイス上の場所。Rustは先頭の`PLAN_ITEMS_LIMIT`件まで）
+      copyPaths: toCopy.map((track) => devicePathOf(track, device.pathTemplate)),
+      deletePaths: toDelete.map((id) => device.copiedPaths.get(id) ?? id),
+      renames: toRename.map((id) => {
+        const track = tracks.find((t) => t.id === id);
+        return {
+          from: device.copiedPaths.get(id) ?? id,
+          to: track ? devicePathOf(track, device.pathTemplate) : id
+        };
+      })
     };
     return { toCopy, toDelete, toRename, summary };
   }
@@ -3641,6 +3653,27 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       device.playlistIds = config.playlistIds.filter((id) => playlists.some((p) => p.id === id));
       device.removeUnselected = config.removeUnselected;
       return toSyncDevice(device);
+    },
+    // 同期する内容の曲数と、ライブラリでのサイズ（Rustと同じく、デバイスには触れない）
+    getSyncSelectionSummary: (deviceId) => {
+      const selected = tracksToSync(findSyncDevice(deviceId));
+      return {
+        trackCount: selected.length,
+        totalBytes: selected.reduce((sum, track) => sum + track.fileSize, 0)
+      };
+    },
+    // ドライブを取り出した（接続されていない状態にする）
+    ejectSyncDevice: (deviceId) => {
+      const device = findSyncDevice(deviceId);
+      if (isSyncRunning) fail('LOCK', '同期の実行中は、デバイスを取り出せません');
+      if (!/^\/Volumes\/[^/]+/.test(device.path)) {
+        fail('VALIDATION', 'このデバイスは、取り出せる場所にありません');
+      }
+      if (!device.connected) {
+        fail('NOT_FOUND', 'デバイスが見つかりません（すでに取り出されている可能性があります）');
+      }
+      device.connected = false;
+      return null;
     },
     // 選んだフォルダにデバイスがあることにして、接続された状態にする
     relinkSyncDevice: (deviceId) => {
