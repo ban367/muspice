@@ -2,7 +2,8 @@
   @component AlbumDetail
   グリッド表示の下の中身の領域に出す、1枚のアルバムの曲（ADR-097）。アルバムの画面と最近追加した曲の画面で使う。
   曲は、アルバム名とまとめたアーティストで取得し（`useAlbumTracksQuery`）、アーティストの画面と同じ形
-  （`ArtistAlbumsView`。ディスクごとの区切り・選択・再生・ドラッグ・メニュー）で出す。
+  （`ArtistAlbumsView`。ディスクごとの区切り・選択・再生・ドラッグ・メニュー）で出す。見出しの名前がアルバム名の
+  ため、アルバムの見出し（ジャケット画像・名前）は出さず、アルバムの情報とメニューを見出しに出す（`singleAlbum`。ADR-107）。
 -->
 <script lang="ts">
   import type { AlbumGroup, AlbumSummary } from '#lib/types/models.js';
@@ -40,5 +41,12 @@
 
 <!-- 別のアルバムに切り替わったら、選択とスクロールを最初に戻す（データを取り直しただけでは戻さない） -->
 {#key albumKey(album)}
-  <ArtistAlbumsView title={album.name} {albums} artist={album.artist} compact {onClose} />
+  <ArtistAlbumsView
+    title={album.name}
+    {albums}
+    artist={album.artist}
+    compact
+    singleAlbum
+    {onClose}
+  />
 {/key}

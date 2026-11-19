@@ -9,6 +9,9 @@
   - グリッド表示の下の領域（`compact`）で幅が広い時は、曲をディスクごとに2列に分けて並べる
     （左の列を上から下へ、続きを右の列へ。↑↓は曲の順に、←→は隣の列の同じ段へ移る。ADR-105）
   - アルバムの見出しをダブルクリックすると、アルバムを再生する。右クリックでアルバムのメニューを開く
+  - 1枚のアルバムだけを出す時（`singleAlbum`。アルバムの画面のグリッドの下の領域）は、見出しの名前がアルバム名
+    のため、アルバムの見出し（ジャケット画像・名前）を出さず、アーティスト・ジャンルと年・曲数と時間を名前の横に
+    出す。アルバムのメニューは、見出しの「その他」と右クリックで開く（ADR-107）
   - 曲の選択はアルバムをまたいで行える。最後に選んだ曲を、右サイドバーの曲情報パネルに出す
 -->
 <script lang="ts">
@@ -53,11 +56,25 @@
      * 見出しを低くし、幅が広い時は曲を2列に分けて並べる。
      */
     compact?: boolean;
+    /**
+     * 1枚のアルバムの曲だけを出すか（見出しの名前がアルバム名）
+     *
+     * アルバムの見出し（ジャケット画像・名前）を出さず、アルバムの情報を見出しに出す。
+     */
+    singleAlbum?: boolean;
     /** 見出しの右端に閉じるボタンを出し、押した時に呼ぶ */
     onClose?: () => void;
   }
 
-  let { title, albums, artist, menuArtist, compact = false, onClose }: Props = $props();
+  let {
+    title,
+    albums,
+    artist,
+    menuArtist,
+    compact = false,
+    singleAlbum = false,
+    onClose
+  }: Props = $props();
 
   const setRatingMutation = useSetRatingMutation();
 
@@ -71,6 +88,16 @@
       return { album, discs, hasMultipleDiscs: discs.length > 1 };
     })
   );
+
+  // 見出しに情報を出すアルバム（1枚のアルバムだけを出す時。曲を取得するまではない）
+  const headerAlbum = $derived(singleAlbum ? (albums[0] ?? null) : null);
+
+  /** アルバムのジャンルと年（最初の曲のもの。「ジャンル · 年」） */
+  function genreAndYear(album: AlbumGroup): string {
+    return [album.tracks[0]?.genre || m.common.unknownGenre, album.tracks[0]?.year]
+      .filter(Boolean)
+      .join(' · ');
+  }
 
   // トラックの選択（クリック・キーボード。アルバムをまたいで選択できる）
   const selection = new TrackSelection(() => displayTracks);
@@ -177,14 +204,38 @@
     event.preventDefault();
     groupMenu = { ...menuPosition(event), album };
   }
+
+  /** 一覧の見出しの右クリック（1枚のアルバムだけを出す時は、アルバムのメニューを開く） */
+  function handleHeaderContextMenu(event: MouseEvent) {
+    if (headerAlbum) openAlbumMenu(event, headerAlbum);
+  }
 </script>
 
 <div class="artist-albums" class:compact>
-  <!-- ヘッダー -->
-  <div class="detail-header">
-    <h1 class="artist-name">{title}</h1>
+  <!-- ヘッダー（1枚のアルバムだけを出す時は、アルバムの見出しを兼ねる。メニューは「その他」のボタンからも使える） -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="detail-header" oncontextmenu={handleHeaderContextMenu}>
+    <div class="header-title">
+      <h1 class="artist-name">{title}</h1>
+      {#if headerAlbum}
+        <span class="header-meta"
+          >{[
+            headerAlbum.artist || m.common.unknownArtist,
+            genreAndYear(headerAlbum),
+            m.common.trackCountAndDuration(
+              headerAlbum.trackCount,
+              formatTotalDuration(headerAlbum.totalDuration)
+            )
+          ].join(' · ')}</span
+        >
+      {/if}
+    </div>
     <div class="header-actions">
-      <button class="action-btn play" onclick={handlePlayAll} title={m.common.playAll}>
+      <button
+        class="action-btn play"
+        onclick={handlePlayAll}
+        title={singleAlbum ? m.library.playAlbum : m.common.playAll}
+      >
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
           <path d="M8 5v14l11-7z" />
         </svg>
@@ -196,6 +247,20 @@
           aria-label={m.common.more}
           aria-haspopup="menu"
           onclick={(event) => (groupMenu = { ...menuPosition(event), album: null })}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+            <circle cx="12" cy="5" r="2" />
+            <circle cx="12" cy="12" r="2" />
+            <circle cx="12" cy="19" r="2" />
+          </svg>
+        </button>
+      {:else if headerAlbum}
+        <button
+          class="action-btn"
+          title={m.common.more}
+          aria-label={m.common.more}
+          aria-haspopup="menu"
+          onclick={(event) => openAlbumMenu(event, headerAlbum)}
         >
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
             <circle cx="12" cy="5" r="2" />
@@ -240,66 +305,64 @@
     <!-- 同じ名前のアルバムが複数あることがある（ほかのアーティストとの曲のアルバムなど）ため、代表の曲で見分ける -->
     {#each sections as { album, discs, hasMultipleDiscs } (album.representativeTrackId)}
       <div class="album-section">
-        <!-- アルバムヘッダー -->
-        <div class="album-header">
-          <!-- 再生とメニューは、横のボタンからも使える -->
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div
-            class="album-summary"
-            ondblclick={() => handleAlbumPlay(album)}
-            oncontextmenu={(e) => openAlbumMenu(e, album)}
-          >
-            <div class="album-art">
-              <AlbumArt
-                src={albumArtUrl(album.representativeTrackId)}
-                alt={album.name}
-                rounded="sm"
-              />
+        <!-- アルバムヘッダー（1枚のアルバムだけを出す時は、一覧の見出しに出すため省く） -->
+        {#if !singleAlbum}
+          <div class="album-header">
+            <!-- 再生とメニューは、横のボタンからも使える -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div
+              class="album-summary"
+              ondblclick={() => handleAlbumPlay(album)}
+              oncontextmenu={(e) => openAlbumMenu(e, album)}
+            >
+              <div class="album-art">
+                <AlbumArt
+                  src={albumArtUrl(album.representativeTrackId)}
+                  alt={album.name}
+                  rounded="sm"
+                />
+              </div>
+              <div class="album-info">
+                <MarqueeText text={album.name} class="album-title" />
+                {#if album.artist !== artist}
+                  <!-- ほかのアーティストとの曲のアルバム: アルバムをまとめるアーティストを出す -->
+                  <span class="album-meta">{album.artist || m.common.unknownArtist}</span>
+                {/if}
+                <span class="album-meta">{genreAndYear(album)}</span>
+                <span class="album-stats"
+                  >{m.common.trackCountAndDuration(
+                    album.trackCount,
+                    formatTotalDuration(album.totalDuration)
+                  )}</span
+                >
+              </div>
             </div>
-            <div class="album-info">
-              <MarqueeText text={album.name} class="album-title" />
-              {#if album.artist !== artist}
-                <!-- ほかのアーティストとの曲のアルバム: アルバムをまとめるアーティストを出す -->
-                <span class="album-meta">{album.artist || m.common.unknownArtist}</span>
-              {/if}
-              <span class="album-meta"
-                >{[album.tracks[0]?.genre || m.common.unknownGenre, album.tracks[0]?.year]
-                  .filter(Boolean)
-                  .join(' · ')}</span
+            <div class="album-actions">
+              <button
+                class="album-action-btn"
+                onclick={() => handleAlbumPlay(album)}
+                title={m.common.play}
               >
-              <span class="album-stats"
-                >{m.common.trackCountAndDuration(
-                  album.trackCount,
-                  formatTotalDuration(album.totalDuration)
-                )}</span
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+              </button>
+              <button
+                class="album-action-btn"
+                title={m.common.more}
+                aria-label={m.common.more}
+                aria-haspopup="menu"
+                onclick={(event) => openAlbumMenu(event, album)}
               >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                  <circle cx="12" cy="5" r="2" />
+                  <circle cx="12" cy="12" r="2" />
+                  <circle cx="12" cy="19" r="2" />
+                </svg>
+              </button>
             </div>
           </div>
-          <div class="album-actions">
-            <button
-              class="album-action-btn"
-              onclick={() => handleAlbumPlay(album)}
-              title={m.common.play}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M8 5v14l11-7z" />
-              </svg>
-            </button>
-            <button
-              class="album-action-btn"
-              title={m.common.more}
-              aria-label={m.common.more}
-              aria-haspopup="menu"
-              onclick={(event) => openAlbumMenu(event, album)}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-                <circle cx="12" cy="5" r="2" />
-                <circle cx="12" cy="12" r="2" />
-                <circle cx="12" cy="19" r="2" />
-              </svg>
-            </button>
-          </div>
-        </div>
+        {/if}
 
         <!-- トラックリスト -->
         <div class="track-list">
@@ -421,8 +484,17 @@
     @apply flex items-center justify-between gap-4 p-6 border-b border-border shrink-0;
   }
 
+  /* 名前を優先して出し、横の情報（1枚のアルバムだけの時）は残りの幅に収まらない分を省く */
+  .header-title {
+    @apply flex items-baseline gap-3 min-w-0;
+  }
+
   .artist-name {
-    @apply text-3xl font-bold text-text-primary m-0 truncate;
+    @apply text-3xl font-bold text-text-primary m-0 truncate shrink-0 max-w-full;
+  }
+
+  .header-meta {
+    @apply text-sm text-text-muted truncate min-w-0;
   }
 
   .header-actions {
