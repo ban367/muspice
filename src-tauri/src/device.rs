@@ -9,6 +9,7 @@
 //!   `device_transfer`が行う
 
 use crate::error::{AppError, AppResult};
+use crate::settings::DEFAULT_MUSIC_FOLDER_TEMPLATE;
 use chrono::Utc;
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -18,6 +19,15 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 /// デバイス名の長さの上限（文字数）
 const MAX_DEVICE_NAME_LENGTH: usize = 100;
+
+/// 新しく登録するデバイスの配置の書式（音楽フォルダの既定の書式と同じ。アルバムアーティストで分ける。ADR-111）
+pub const DEFAULT_DEVICE_TEMPLATE: &str = DEFAULT_MUSIC_FOLDER_TEMPLATE;
+
+/// 配置の書式を持つ前に登録したデバイスの書式（曲のアーティストで分ける、以前の配置。ADR-111）
+///
+/// 書式を足した時に登録済みのデバイスは、この書式で続ける（デバイス上の曲の名前を、利用者が書式を
+/// 変えるまで変えない）。`db.rs`の列の既定値にも使う。
+pub const LEGACY_DEVICE_TEMPLATE: &str = "%artist%/%album%/[%disc%-]%track% %title%";
 
 /// 転送先デバイス（一覧表示用）
 #[derive(Debug, Clone, Serialize, Type)]
@@ -33,6 +43,8 @@ pub struct SyncDevice {
     pub playlist_ids: Vec<String>,
     /// 同期の対象から外れた曲を、デバイスから削除するか
     pub remove_unselected: bool,
+    /// デバイス上の配置の書式（ファイルの整理と同じ書き方。ADR-111）
+    pub path_template: String,
     /// 接続されているか（転送先のフォルダに、このデバイスの管理ファイルがあるか）
     pub connected: bool,
     /// 空き容量・全体の容量（バイト）。接続されていない場合は値なし
@@ -44,7 +56,7 @@ pub struct SyncDevice {
     pub last_synced_at: Option<String>,
 }
 
-/// デバイスの設定（名前と同期する対象）
+/// デバイスの設定（名前と同期する対象と、デバイス上の配置の書式）
 #[derive(Debug, Clone, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncDeviceConfig {
@@ -52,6 +64,7 @@ pub struct SyncDeviceConfig {
     pub sync_all: bool,
     pub playlist_ids: Vec<String>,
     pub remove_unselected: bool,
+    pub path_template: String,
 }
 
 /// 同期で行う処理の件数と、必要な容量（同期の前の確認用）
@@ -106,6 +119,8 @@ pub struct DeviceRecord {
     pub path: String,
     pub sync_all: bool,
     pub remove_unselected: bool,
+    /// デバイス上の配置の書式
+    pub path_template: String,
     /// 同期するプレイリスト（削除済みのプレイリストは含まない）
     pub playlist_ids: Vec<String>,
     pub created_at: String,
@@ -213,7 +228,7 @@ pub fn suggest_device_name(folder: &Path) -> Option<String> {
 }
 
 const DEVICE_COLUMNS: &str =
-    "id, name, path, sync_all, remove_unselected, created_at, last_synced_at";
+    "id, name, path, sync_all, remove_unselected, created_at, last_synced_at, path_template";
 
 fn map_device_row(row: &rusqlite::Row) -> rusqlite::Result<DeviceRecord> {
     Ok(DeviceRecord {
@@ -222,6 +237,7 @@ fn map_device_row(row: &rusqlite::Row) -> rusqlite::Result<DeviceRecord> {
         path: row.get(2)?,
         sync_all: row.get::<_, i32>(3)? != 0,
         remove_unselected: row.get::<_, i32>(4)? != 0,
+        path_template: row.get(7)?,
         playlist_ids: Vec::new(),
         created_at: row.get(5)?,
         last_synced_at: row.get(6)?,
@@ -294,11 +310,18 @@ pub fn find_device(conn: &Connection, device_id: &str) -> AppResult<DeviceRecord
         .ok_or_else(|| AppError::NotFound("デバイスが見つかりません".to_string()))
 }
 
-/// デバイスを登録する（同期する対象は未選択。対象から外れた曲は削除する設定）
+/// デバイスを登録する（同期する対象は未選択。対象から外れた曲は削除する設定。配置は既定の書式）
 pub fn insert_device(conn: &Connection, device_id: &str, name: &str, path: &str) -> AppResult<()> {
     conn.execute(
-        "INSERT INTO sync_devices (id, name, path, created_at) VALUES (?1, ?2, ?3, ?4)",
-        rusqlite::params![device_id, name, path, Utc::now().to_rfc3339()],
+        "INSERT INTO sync_devices (id, name, path, created_at, path_template)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        rusqlite::params![
+            device_id,
+            name,
+            path,
+            Utc::now().to_rfc3339(),
+            DEFAULT_DEVICE_TEMPLATE
+        ],
     )
     .map_err(|e| AppError::Database(format!("デバイスの登録に失敗しました: {}", e)))?;
     Ok(())
@@ -318,12 +341,15 @@ pub fn update_device_config(
 
     let updated = tx
         .execute(
-            "UPDATE sync_devices SET name = ?2, sync_all = ?3, remove_unselected = ?4 WHERE id = ?1",
+            "UPDATE sync_devices
+             SET name = ?2, sync_all = ?3, remove_unselected = ?4, path_template = ?5
+             WHERE id = ?1",
             rusqlite::params![
                 device_id,
                 config.name,
                 config.sync_all,
-                config.remove_unselected
+                config.remove_unselected,
+                config.path_template
             ],
         )
         .map_err(|e| AppError::Database(format!("デバイスの更新に失敗しました: {}", e)))?;
@@ -399,7 +425,39 @@ mod tests {
             sync_all,
             playlist_ids: playlist_ids.iter().map(|id| id.to_string()).collect(),
             remove_unselected: true,
+            path_template: DEFAULT_DEVICE_TEMPLATE.to_string(),
         }
+    }
+
+    #[test]
+    fn test_path_template_defaults_and_updates() {
+        let mut conn = setup_test_db();
+        // 新しく登録したデバイスは、既定の書式（アルバムアーティストで分ける）
+        insert_device(&conn, "d1", "SD", "/Volumes/SD").unwrap();
+        assert_eq!(
+            find_device(&conn, "d1").unwrap().path_template,
+            DEFAULT_DEVICE_TEMPLATE
+        );
+
+        // 書式の列を足す前に登録したデバイス（列を指定せずに作った行）は、以前の配置の書式
+        conn.execute(
+            "INSERT INTO sync_devices (id, name, path) VALUES ('d2', 'Old', '/Volumes/Old')",
+            [],
+        )
+        .unwrap();
+        assert_eq!(
+            find_device(&conn, "d2").unwrap().path_template,
+            LEGACY_DEVICE_TEMPLATE
+        );
+
+        // 設定の更新で、書式も変わる
+        let mut updated = config("SD", true, &[]);
+        updated.path_template = "%artist%/%title%".to_string();
+        update_device_config(&mut conn, "d1", &updated).unwrap();
+        assert_eq!(
+            find_device(&conn, "d1").unwrap().path_template,
+            "%artist%/%title%"
+        );
     }
 
     #[test]

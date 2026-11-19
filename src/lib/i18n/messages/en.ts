@@ -1468,7 +1468,13 @@ export const en: Messages = {
       `Remove the device "${name}"?\nThe tracks on the device are not deleted.`,
     removed: 'Removed the device',
     sourceTitle: 'What to sync',
-    layoutHint: 'Tracks are copied into "Artist/Album/Title" folders',
+    /** Folder layout on the device (ADR-111) */
+    layoutTitle: 'Layout',
+    layoutTemplate: 'Folder Layout on the Device',
+    layoutTemplateHint:
+      'How folders and files are named for tracks copied to the device (the same syntax as Organize Files). After you change it, the next sync renames the copied tracks (without copying them again).',
+    applyLayout: 'Apply Layout',
+    layoutApplied: 'Changed the layout. The next sync renames the tracks on the device',
     syncAll: 'All tracks in the library',
     playlists: 'Playlists',
     playlistsHint:

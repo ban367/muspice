@@ -1,6 +1,6 @@
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { commands, events as bindingEvents } from '#lib/bindings.js';
+import { commands, DEFAULT_DEVICE_TEMPLATE, events as bindingEvents } from '#lib/bindings.js';
 import type { ConvertOptions, SmartRules } from '#lib/types/models.js';
 import {
   createMockBackend,
@@ -2659,15 +2659,40 @@ describe('転送先デバイス', () => {
       name: '車',
       syncAll: true,
       playlistIds: [mockPlaylistId(2), mockPlaylistId(99)],
-      removeUnselected: false
+      removeUnselected: false,
+      pathTemplate: ' %artist%/%title% '
     });
 
     expect(updated).toMatchObject({
       name: '車',
       syncAll: true,
       playlistIds: [mockPlaylistId(2)],
-      removeUnselected: false
+      removeUnselected: false,
+      pathTemplate: '%artist%/%title%'
     });
+  });
+
+  it('読めない配置の書式は保存せず、ほかの設定も変えない', async () => {
+    const device = await connectedDevice();
+    await expect(
+      commands.updateSyncDevice(device.id, { ...device, name: '車', pathTemplate: '%unknown%' })
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+    const [stored] = (await commands.getSyncDevices()).filter((d) => d.id === device.id);
+    expect(stored).toMatchObject({ name: device.name, pathTemplate: device.pathTemplate });
+  });
+
+  it('配置の書式を変えると、次の同期でコピー済みの曲の名前を変える', async () => {
+    const device = await connectedDevice();
+    await commands.updateSyncDevice(device.id, {
+      ...device,
+      pathTemplate: DEFAULT_DEVICE_TEMPLATE
+    });
+    expect(await commands.planDeviceSync(device.id)).toMatchObject({
+      renameCount: 2,
+      unchangedCount: 0
+    });
+    expect(await commands.runDeviceSync(device.id)).toMatchObject({ renamedCount: 2 });
+    expect(await commands.planDeviceSync(device.id)).toMatchObject({ renameCount: 0 });
   });
 
   it('差分を調べる（コピー済みの曲はコピーせず、対象から外れた曲は削除する）', async () => {

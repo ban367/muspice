@@ -4,8 +4,9 @@
 //! 同期で行う処理（`SyncPlan`）を決める。ファイルシステムには触れない（デバイス上の
 //! ファイルのサイズは、呼び出し側が渡す関数で調べる）。実行は`device_transfer`が行う。
 //!
-//! - 曲はタグから`アーティスト/アルバム/01 タイトル.拡張子`に配置する。一度決めたパスは
-//!   管理ファイルに記録し、タグが変わらない限り変えない
+//! - 曲は、デバイスごとの配置の書式（ファイルの整理と同じ書き方。既定は
+//!   `アルバムアーティスト/アルバム/01 タイトル.拡張子`。ADR-111）でタグから配置する。一度決めたパスは
+//!   管理ファイルに記録し、タグ・書式が変わらない限り変えない
 //! - 削除・上書きするのは、管理ファイルに記録のあるファイルだけ。記録のないファイルが
 //!   同じ場所にある場合は、別の名前（` (2)`を付ける）にする。ただし同じ場所に同じサイズの
 //!   ファイルがある場合は、コピー済みとして扱う（管理ファイルをなくした場合や、ライブラリ内で
@@ -14,6 +15,7 @@
 //!   比べて判定する
 
 use crate::device_manifest::{Manifest, ManifestFile, ManifestPlaylist};
+use crate::file_organize::Template;
 use crate::library_folder::is_dst_shift;
 use crate::repository::TransferTrack;
 use std::collections::{HashMap, HashSet};
@@ -53,6 +55,9 @@ pub struct SourceTrack {
     pub track: TransferTrack,
     /// 元のファイルが見つからない場合はNone
     pub file: Option<SourceFile>,
+    /// デバイス上の配置（デバイスの書式から求めた、デバイスのフォルダからの場所。区切りは`/`。
+    /// `track_relative_path`）
+    pub path: String,
 }
 
 /// 元のファイルのサイズと更新日時（UNIX時間の秒）
@@ -198,32 +203,16 @@ fn source_extension(file_path: &str) -> Option<String> {
         .then(|| extension.to_ascii_lowercase())
 }
 
-/// 曲のデバイス上の配置（`アーティスト/アルバム/01 タイトル.拡張子`。区切りは`/`）
+/// 曲のデバイス上の配置（デバイスのフォルダからの場所。区切りは`/`。ADR-111）
 ///
-/// ディスク番号があれば、トラック番号の前に付ける（`1-01 タイトル`）。
-/// タイトルのタグがない曲は、元のファイル名を使う。
-pub fn track_relative_path(track: &TransferTrack) -> String {
-    let artist = sanitize_component(non_empty(&track.artist).unwrap_or(UNKNOWN_ARTIST));
-    let album = sanitize_component(non_empty(&track.album).unwrap_or(UNKNOWN_ALBUM));
-
-    let title = non_empty(&track.title)
-        .or_else(|| {
-            Path::new(&track.file_path)
-                .file_stem()
-                .and_then(|s| s.to_str())
-        })
-        .unwrap_or(UNKNOWN_TITLE);
-    let number = match (track.disc_number, track.track_number) {
-        (Some(disc), Some(number)) if disc > 0 && number > 0 => format!("{}-{:02} ", disc, number),
-        (_, Some(number)) if number > 0 => format!("{:02} ", number),
-        _ => String::new(),
-    };
-    let stem = sanitize_component(&format!("{}{}", number, title));
-
-    match source_extension(&track.file_path) {
-        Some(extension) => format!("{}/{}/{}.{}", artist, album, stem, extension),
-        None => format!("{}/{}/{}", artist, album, stem),
-    }
+/// 書式は、ファイルの整理と同じ書き方（値のない項目・ファイル名に使える形の決まりも同じ。
+/// `file_organize::Template`）。`/`のない書式は、デバイスのフォルダの直下に置く。拡張子は、元の
+/// ファイルの拡張子を小文字にしたもの。
+pub fn track_relative_path(track: &TransferTrack, template: &Template) -> String {
+    let extension = source_extension(&track.file_path);
+    template
+        .components_with_extension(track, Path::new(&track.file_path), extension.as_deref())
+        .join("/")
 }
 
 /// プレイリストのファイル名（`プレイリスト名.m3u8`）
@@ -372,7 +361,7 @@ pub fn plan_sync(
             plan.missing_source_count += 1;
             continue;
         };
-        if !is_same_or_numbered(&entry.path, &track_relative_path(&source.track)) {
+        if !is_same_or_numbered(&entry.path, &source.path) {
             // タグが変わって配置が変わった（今のパスは、リネーム・削除するまで使ったままにする）
             pending.push((index, Some(entry_index)));
         } else if is_source_unchanged(entry, file)
@@ -401,7 +390,7 @@ pub fn plan_sync(
     for (index, entry_index) in pending {
         let source = &tracks[index];
         let Some(file) = &source.file else { continue };
-        let desired = track_relative_path(&source.track);
+        let desired = source.path.clone();
         let desired_key = path_key(&desired);
 
         // 同じ場所に同じサイズのファイルがある: コピー済みとして扱う
@@ -592,16 +581,27 @@ mod tests {
             title: Some(title.to_string()),
             artist: Some(artist.to_string()),
             album: Some(album.to_string()),
+            album_artist: None,
+            compilation: false,
+            genre: None,
+            year: None,
             track_number: Some(number),
             disc_number: None,
             duration: Some(180),
         }
     }
 
-    /// 元のファイルが見つかるトラック（サイズ100・更新日時10）
+    /// 以前の配置の書式（曲のアーティスト/アルバム/曲名）
+    fn legacy() -> Template {
+        Template::parse(crate::device::LEGACY_DEVICE_TEMPLATE).unwrap()
+    }
+
+    /// 元のファイルが見つかるトラック（サイズ100・更新日時10。配置は以前の配置の書式）
     fn source(id: &str, artist: &str, album: &str, number: i32, title: &str) -> SourceTrack {
+        let track = transfer_track(id, artist, album, number, title);
         SourceTrack {
-            track: transfer_track(id, artist, album, number, title),
+            path: track_relative_path(&track, &legacy()),
+            track,
             file: Some(SourceFile {
                 size: 100,
                 modified_at: Some(10),
@@ -687,17 +687,79 @@ mod tests {
 
     #[test]
     fn test_track_relative_path() {
+        let legacy = legacy();
         let mut track = transfer_track("t1", "Artist", "Album", 3, "Title");
-        assert_eq!(track_relative_path(&track), "Artist/Album/03 Title.mp3");
+        assert_eq!(
+            track_relative_path(&track, &legacy),
+            "Artist/Album/03 Title.mp3"
+        );
 
         track.disc_number = Some(2);
-        assert_eq!(track_relative_path(&track), "Artist/Album/2-03 Title.mp3");
+        assert_eq!(
+            track_relative_path(&track, &legacy),
+            "Artist/Album/2-03 Title.mp3"
+        );
 
         // 拡張子は小文字にする
         track.file_path = "/music/Song.FLAC".to_string();
         track.disc_number = None;
         track.track_number = None;
-        assert_eq!(track_relative_path(&track), "Artist/Album/Title.flac");
+        assert_eq!(
+            track_relative_path(&track, &legacy),
+            "Artist/Album/Title.flac"
+        );
+    }
+
+    #[test]
+    fn test_track_relative_path_uses_album_artist_by_default() {
+        let template = Template::parse(crate::device::DEFAULT_DEVICE_TEMPLATE).unwrap();
+        // アルバムアーティストのある曲は、アルバムアーティストのフォルダ（フィーチャリングの曲も同じ）
+        let mut track = transfer_track("t1", "Band feat. Guest", "Album", 3, "Title");
+        track.album_artist = Some("Band".to_string());
+        assert_eq!(
+            track_relative_path(&track, &template),
+            "Band/Album/03 Title.mp3"
+        );
+
+        // アルバムアーティストのないコンピレーションは、Various Artists（一覧のまとめ方と同じ）
+        let mut track = transfer_track("t2", "Someone", "Hits", 1, "Song");
+        track.compilation = true;
+        assert_eq!(
+            track_relative_path(&track, &template),
+            "Various Artists/Hits/01 Song.mp3"
+        );
+        // 以前の配置の書式では、曲のアーティストのフォルダ
+        assert_eq!(
+            track_relative_path(&track, &legacy()),
+            "Someone/Hits/01 Song.mp3"
+        );
+
+        // `/`のない書式は、デバイスのフォルダの直下
+        let flat = Template::parse("%artist% - %title%").unwrap();
+        assert_eq!(track_relative_path(&track, &flat), "Someone - Song.mp3");
+    }
+
+    #[test]
+    fn test_plan_renames_tracks_when_the_template_changes() {
+        // 以前の配置でコピー済みの曲（元のファイルは変わっていない）
+        let mut track = transfer_track("t1", "Someone", "Hits", 1, "Song");
+        track.compilation = true;
+        let files = vec![entry("Someone/Hits/01 Song.mp3", "t1")];
+        let on_device = [("Someone/Hits/01 Song.mp3", 100)];
+        let template = Template::parse(crate::device::DEFAULT_DEVICE_TEMPLATE).unwrap();
+        let tracks = vec![SourceTrack {
+            path: track_relative_path(&track, &template),
+            track,
+            file: Some(SourceFile {
+                size: 100,
+                modified_at: Some(10),
+            }),
+        }];
+
+        let plan = plan_sync(&tracks, &[], &manifest(files), true, device(&on_device));
+        assert!(plan.to_copy.is_empty());
+        assert_eq!(plan.to_rename.len(), 1);
+        assert_eq!(plan.to_rename[0].to, "Various Artists/Hits/01 Song.mp3");
     }
 
     #[test]
@@ -708,12 +770,16 @@ mod tests {
             title: None,
             artist: Some("  ".to_string()),
             album: None,
+            album_artist: None,
+            compilation: false,
+            genre: None,
+            year: None,
             track_number: None,
             disc_number: None,
             duration: None,
         };
         assert_eq!(
-            track_relative_path(&track),
+            track_relative_path(&track, &legacy()),
             "Unknown Artist/Unknown Album/untagged song.m4a"
         );
     }

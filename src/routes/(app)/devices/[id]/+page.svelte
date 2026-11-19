@@ -16,6 +16,8 @@
   import { showSuccess } from '#lib/stores/error.svelte.js';
   import type { SyncDevice, SyncDeviceConfig } from '#lib/types/models.js';
   import DeviceSyncDialog from '#lib/components/DeviceSyncDialog.svelte';
+  import MusicFolderTemplateSetting from '#lib/components/MusicFolderTemplateSetting.svelte';
+  import { DEFAULT_DEVICE_TEMPLATE } from '#lib/bindings.js';
   import { isDeviceNameTooLong } from '#lib/utils/devices.js';
   import { confirmDestructive, promptText } from '#lib/utils/dialog.svelte.js';
   import { formatDateTime, formatFileSize } from '#lib/utils/format.js';
@@ -46,9 +48,39 @@
         syncAll: current.syncAll,
         playlistIds: current.playlistIds,
         removeUnselected: current.removeUnselected,
+        pathTemplate: current.pathTemplate,
         ...patch
       }
     });
+  }
+
+  // 配置の書式（入力中の値。「書式を適用」で保存する。別のデバイスを開いたら、そのデバイスの書式に戻す）
+  let draftTemplate = $state('');
+  let draftDeviceId: string | null = null;
+  $effect(() => {
+    if (device && device.id !== draftDeviceId) {
+      draftDeviceId = device.id;
+      draftTemplate = device.pathTemplate;
+    }
+  });
+  const isTemplateChanged = $derived(
+    device !== null && draftTemplate.trim() !== device.pathTemplate
+  );
+
+  function applyTemplate(current: SyncDevice) {
+    updateMutation.mutate(
+      {
+        deviceId: current.id,
+        config: {
+          name: current.name,
+          syncAll: current.syncAll,
+          playlistIds: current.playlistIds,
+          removeUnselected: current.removeUnselected,
+          pathTemplate: draftTemplate.trim()
+        }
+      },
+      { onSuccess: () => showSuccess(m.devices.layoutApplied) }
+    );
   }
 
   function togglePlaylist(current: SyncDevice, playlistId: string, selected: boolean) {
@@ -195,8 +227,7 @@
     {/if}
 
     <section class="source-section">
-      <h2 class="source-title">{m.devices.sourceTitle}</h2>
-      <p class="hint source-hint">{m.devices.layoutHint}</p>
+      <h2 class="source-title source-hint">{m.devices.sourceTitle}</h2>
 
       <label class="option">
         <input
@@ -247,6 +278,24 @@
         {m.devices.removeUnselected}
       </label>
       <p class="hint option-hint">{m.devices.removeUnselectedHint}</p>
+
+      <!-- デバイス上の配置の書式（例は、最近追加したアルバムの曲を、デバイスのフォルダからの場所で出す。ADR-111） -->
+      <h3 class="group-title layout-title">{m.devices.layoutTitle}</h3>
+      <MusicFolderTemplateSetting
+        bind:template={draftTemplate}
+        id="device-template"
+        label={m.devices.layoutTemplate}
+        hint={m.devices.layoutTemplateHint}
+        defaultTemplate={DEFAULT_DEVICE_TEMPLATE}
+      />
+      <button
+        type="button"
+        class="btn-primary text-sm"
+        onclick={() => applyTemplate(device)}
+        disabled={!isTemplateChanged || updateMutation.isPending}
+      >
+        {m.devices.applyLayout}
+      </button>
     </section>
 
     <DeviceSyncDialog open={isSyncDialogOpen} {device} onClose={() => (isSyncDialogOpen = false)} />
@@ -369,6 +418,10 @@
 
   .remove-option {
     @apply mt-6;
+  }
+
+  .layout-title {
+    @apply mt-8 mb-3;
   }
 
   .option {

@@ -301,6 +301,8 @@ playlistCount: number } | null>("set_music_folder", { source }),
 	playlistIds: string[],
 	/**  同期の対象から外れた曲を、デバイスから削除するか */
 	removeUnselected: boolean,
+	/**  デバイス上の配置の書式（ファイルの整理と同じ書き方。ADR-111） */
+	pathTemplate: string,
 	/**  接続されているか（転送先のフォルダに、このデバイスの管理ファイルがあるか） */
 	connected: boolean,
 	/**  空き容量・全体の容量（バイト）。接続されていない場合は値なし */
@@ -332,6 +334,8 @@ playlistCount: number } | null>("set_music_folder", { source }),
 	playlistIds: string[],
 	/**  同期の対象から外れた曲を、デバイスから削除するか */
 	removeUnselected: boolean,
+	/**  デバイス上の配置の書式（ファイルの整理と同じ書き方。ADR-111） */
+	pathTemplate: string,
 	/**  接続されているか（転送先のフォルダに、このデバイスの管理ファイルがあるか） */
 	connected: boolean,
 	/**  空き容量・全体の容量（バイト）。接続されていない場合は値なし */
@@ -1051,6 +1055,8 @@ export const DEFAULT_AAC_BITRATE_KBPS = 256 as const;
 export const DEFAULT_ACCENT_COLOR = "#3b82f6" as const;
 
 export const DEFAULT_CROSSFADE_SECONDS = 5 as const;
+
+export const DEFAULT_DEVICE_TEMPLATE = "%albumartist%/%album%/[%disc%-]%track% %title%" as const;
 
 export const DEFAULT_MUSIC_FOLDER_TEMPLATE = "%albumartist%/%album%/[%disc%-]%track% %title%" as const;
 
@@ -2345,6 +2351,8 @@ export type SyncDevice = {
 	playlistIds: string[],
 	/**  同期の対象から外れた曲を、デバイスから削除するか */
 	removeUnselected: boolean,
+	/**  デバイス上の配置の書式（ファイルの整理と同じ書き方。ADR-111） */
+	pathTemplate: string,
 	/**  接続されているか（転送先のフォルダに、このデバイスの管理ファイルがあるか） */
 	connected: boolean,
 	/**  空き容量・全体の容量（バイト）。接続されていない場合は値なし */
@@ -2354,12 +2362,13 @@ export type SyncDevice = {
 	lastSyncedAt: string | null,
 };
 
-/**  デバイスの設定（名前と同期する対象） */
+/**  デバイスの設定（名前と同期する対象と、デバイス上の配置の書式） */
 export type SyncDeviceConfig = {
 	name: string,
 	syncAll: boolean,
 	playlistIds: string[],
 	removeUnselected: boolean,
+	pathTemplate: string,
 };
 
 /**  文字列の項目 */

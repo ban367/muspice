@@ -11,6 +11,7 @@
  */
 import {
   DEFAULT_ACCENT_COLOR,
+  DEFAULT_DEVICE_TEMPLATE,
   DEFAULT_MUSIC_FOLDER_TEMPLATE,
   AAC_BITRATES_KBPS,
   LIBRARY_SCAN_INTERVALS,
@@ -393,6 +394,11 @@ interface MockSyncDevice extends Omit<SyncDevice, 'freeBytes' | 'totalBytes'> {
   otherUsedBytes: number;
   /** デバイスにコピー済みの曲（トラックID → サイズ） */
   copied: Map<string, number>;
+  /**
+   * コピー済みの曲を置いた時の配置の書式（書式を変えると、次の同期でコピー済みの曲の名前を変える。
+   * 実装は、曲ごとに書式から求めた場所と記録を比べる）
+   */
+  copiedTemplate: string;
 }
 
 /** 再生状態を保存するキー（`storage`を渡した場合） */
@@ -775,13 +781,16 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       syncAll: false,
       playlistIds: [mockPlaylistId(1)],
       removeUnselected: true,
+      // 配置の書式を持つ前に登録したデバイス（以前の配置。曲のアーティストで分ける）
+      pathTemplate: '%artist%/%album%/[%disc%-]%track% %title%',
       connected: true,
       createdAt: '2026-01-03T00:00:00.000Z',
       lastSyncedAt: '2026-01-04T00:00:00.000Z',
       totalBytes: 32 * GIB,
       otherUsedBytes: 20 * GIB,
       // プレイリストの5曲のうち2曲と、プレイリストから外した1曲がコピー済み
-      copied: copiedTracks([7, 8, 2])
+      copied: copiedTracks([7, 8, 2]),
+      copiedTemplate: '%artist%/%album%/[%disc%-]%track% %title%'
     },
     {
       id: crypto.randomUUID(),
@@ -790,12 +799,14 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       syncAll: true,
       playlistIds: [],
       removeUnselected: true,
+      pathTemplate: DEFAULT_DEVICE_TEMPLATE,
       connected: false,
       createdAt: '2026-01-02T00:00:00.000Z',
       lastSyncedAt: null,
       totalBytes: 16 * GIB,
       otherUsedBytes: 0,
-      copied: new Map()
+      copied: new Map(),
+      copiedTemplate: DEFAULT_DEVICE_TEMPLATE
     }
   ];
   let isSyncRunning = false;
@@ -2325,6 +2336,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       syncAll: device.syncAll,
       playlistIds: devicePlaylists(device).map((playlist) => playlist.id),
       removeUnselected: device.removeUnselected,
+      pathTemplate: device.pathTemplate,
       connected: device.connected,
       freeBytes: device.connected ? device.totalBytes - usedBytes(device) : null,
       totalBytes: device.connected ? device.totalBytes : null,
@@ -2360,13 +2372,16 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     const deleteBytes = toDelete.reduce((sum, id) => sum + (device.copied.get(id) ?? 0), 0);
     const freeBytes = device.totalBytes - usedBytes(device);
     const requiredBytes = Math.max(copyBytes - deleteBytes, 0);
+    // 書式を変えた後は、残すコピー済みの曲の名前を変える（実装は、場所が変わる曲だけ）
+    const keptCount = device.copied.size - toDelete.length;
+    const renameCount = device.pathTemplate === device.copiedTemplate ? 0 : keptCount;
     const summary: DeviceSyncPlan = {
       copyCount: toCopy.length,
       copyBytes,
       deleteCount: toDelete.length,
       deleteBytes,
-      renameCount: 0,
-      unchangedCount: device.copied.size - toDelete.length,
+      renameCount,
+      unchangedCount: keptCount - renameCount,
       playlistCount: devicePlaylists(device).length,
       missingSourceCount: 0,
       freeBytes,
@@ -2411,6 +2426,9 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         copiedCount++;
       }
 
+      // 名前の変更は、コピーより前に済ませる（実装の順は、削除 → 名前の変更 → コピー）
+      device.copiedTemplate = device.pathTemplate;
+
       const cancelled = isSyncCancelled;
       if (!cancelled) {
         progress(toCopy.length, '');
@@ -2419,7 +2437,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       return {
         copiedCount,
         deletedCount: toDelete.length,
-        renamedCount: 0,
+        renamedCount: summary.renameCount,
         playlistCount: cancelled ? 0 : summary.playlistCount,
         errorCount: 0,
         errors: [],
@@ -3551,12 +3569,14 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         syncAll: false,
         playlistIds: [],
         removeUnselected: true,
+        pathTemplate: DEFAULT_DEVICE_TEMPLATE,
         connected: true,
         createdAt: now(),
         lastSyncedAt: null,
         totalBytes: 64 * GIB,
         otherUsedBytes: 0,
-        copied: new Map()
+        copied: new Map(),
+        copiedTemplate: DEFAULT_DEVICE_TEMPLATE
       };
       syncDevices.push(device);
       return toSyncDevice(device);
@@ -3564,7 +3584,12 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     updateSyncDevice: (deviceId, config) => {
       const device = findSyncDevice(deviceId);
       config.playlistIds.forEach(validatePlaylistId);
-      device.name = validateDeviceName(config.name);
+      // 配置の書式は、読めることを確かめてから保存する（実装と同じく、前後の空白は除く）
+      const pathTemplate = config.pathTemplate.trim();
+      parseOrganizeTemplate(pathTemplate);
+      const name = validateDeviceName(config.name);
+      device.name = name;
+      device.pathTemplate = pathTemplate;
       device.syncAll = config.syncAll;
       // 実装と同じく、見つからないプレイリストは無視する
       device.playlistIds = config.playlistIds.filter((id) => playlists.some((p) => p.id === id));

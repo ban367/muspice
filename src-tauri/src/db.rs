@@ -367,6 +367,17 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         [],
     )?;
 
+    // デバイス上の配置の書式（列を足す前に登録したデバイスは、以前の配置の書式。ADR-111）
+    add_column_if_not_exists(
+        conn,
+        "sync_devices",
+        "path_template",
+        &format!(
+            "TEXT NOT NULL DEFAULT '{}'",
+            crate::device::LEGACY_DEVICE_TEMPLATE
+        ),
+    )?;
+
     // デバイスに同期するプレイリスト
     conn.execute(
         "CREATE TABLE IF NOT EXISTS sync_device_playlists (

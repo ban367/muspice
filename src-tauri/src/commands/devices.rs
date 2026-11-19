@@ -12,10 +12,13 @@ use crate::device::{
 use crate::device_manifest::{
     Manifest, read_device_id, read_manifest, to_device_path, write_manifest,
 };
-use crate::device_sync::{SourceFile, SourcePlaylist, SourceTrack, SyncPlan, plan_sync};
+use crate::device_sync::{
+    SourceFile, SourcePlaylist, SourceTrack, SyncPlan, plan_sync, track_relative_path,
+};
 use crate::device_transfer::{TransferProgress, execute_plan};
 use crate::error::{AppError, AppResult};
 use crate::events::DeviceSyncProgress;
+use crate::file_organize::Template;
 use crate::library::{modified_at_of, to_count};
 use crate::library_folder::{find_all_folders, folders_overlap, normalize_folder_path};
 use crate::settings::Language;
@@ -83,6 +86,7 @@ fn to_sync_device(record: DeviceRecord) -> SyncDevice {
         sync_all: record.sync_all,
         playlist_ids: record.playlist_ids,
         remove_unselected: record.remove_unselected,
+        path_template: record.path_template,
         connected,
         free_bytes,
         total_bytes,
@@ -210,8 +214,12 @@ pub async fn update_sync_device(
     for playlist_id in &config.playlist_ids {
         validate_playlist_id(playlist_id)?;
     }
+    // 配置の書式は、読めることを確かめてから保存する（前後の空白は除く）
+    let path_template = config.path_template.trim().to_string();
+    Template::parse(&path_template)?;
     let config = SyncDeviceConfig {
         name: validate_device_name(&config.name)?,
+        path_template,
         ..config
     };
 
@@ -334,6 +342,13 @@ fn prepare_sync(state: &AppState, device_id: &str) -> AppResult<PreparedSync> {
             .flat_map(|playlist| playlist.track_ids.iter().map(String::as_str))
             .collect()
     });
+    // デバイス上の配置の書式（保存する時に確かめているため、読めないのは記録が壊れた場合だけ）
+    let template = Template::parse(&device.path_template).map_err(|_| {
+        AppError::Validation(
+            "デバイスの配置の書式を読めません。デバイスのページで、書式を直してください"
+                .to_string(),
+        )
+    })?;
     let tracks: Vec<SourceTrack> = all_tracks
         .into_iter()
         .filter(|track| {
@@ -349,7 +364,8 @@ fn prepare_sync(state: &AppState, device_id: &str) -> AppResult<PreparedSync> {
                     size: to_bytes(metadata.len()),
                     modified_at: modified_at_of(&metadata),
                 });
-            SourceTrack { track, file }
+            let path = track_relative_path(&track, &template);
+            SourceTrack { track, file, path }
         })
         .collect();
 
@@ -637,6 +653,7 @@ mod tests {
                 sync_all,
                 playlist_ids: playlist_ids.iter().map(|id| id.to_string()).collect(),
                 remove_unselected,
+                path_template: crate::device::DEFAULT_DEVICE_TEMPLATE.to_string(),
             };
             self.state
                 .with_db(|db| update_device_config(db, device_id, &config))
