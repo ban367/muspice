@@ -1,7 +1,8 @@
 <!--
   @component ReplayGainSection
-  サウンドのパネル（`SoundPanel`）のリプレイゲイン（音量の正規化）のまとまり。補正の単位（オフ / トラック / アルバム / 自動）・
-  プリアンプ・ゲインのない曲の音量・クリップ防止を変え、その場で設定（`settings.json`）へ保存する。
+  サウンドのパネル（`SoundPanel`）のリプレイゲイン（音量の正規化）のまとまり。見出しのスイッチでオン・オフし、
+  補正の単位（トラック / アルバム / 自動）・プリアンプ・ゲインのない曲の音量・クリップ防止を変えて、
+  その場で設定（`settings.json`）へ保存する。単位などは、オフの間も覚えておく。
   補正は再生エンジンがかける（`normalization.rs`）。再生中の曲にかけている補正も出す（`appliedReplayGain`）。
 -->
 <script lang="ts">
@@ -15,13 +16,14 @@
   import SidePanelCheckbox from './SidePanelCheckbox.svelte';
   import SidePanelOptions from './SidePanelOptions.svelte';
   import SidePanelSlider from './SidePanelSlider.svelte';
+  import SidePanelToggle from './SidePanelToggle.svelte';
 
-  const MODES: VolumeNormalization[] = ['off', 'track', 'album', 'auto'];
+  const MODES: VolumeNormalization[] = ['track', 'album', 'auto'];
 
   const settings = useUpdateSettings();
   const current = $derived(settings.current);
-  const mode = $derived(current?.volumeNormalization ?? 'off');
-  const isOff = $derived(current === null || mode === 'off');
+  const enabled = $derived(current?.volumeNormalizationEnabled ?? false);
+  const isOff = $derived(current === null || !enabled);
   const modeOptions = $derived(
     MODES.map((value) => ({ value, label: m.soundPanel.replayGainModes[value] }))
   );
@@ -39,22 +41,26 @@
   }
 </script>
 
-<SidePanelSection title={m.soundPanel.replayGain}>
+<SidePanelSection title={m.soundPanel.replayGain} variant="group">
+  {#snippet actions()}
+    <SidePanelToggle
+      checked={enabled}
+      label={m.soundPanel.replayGain}
+      title={enabled ? m.soundPanel.turnOffReplayGain : m.soundPanel.turnOnReplayGain}
+      disabled={current === null}
+      onchange={(volumeNormalizationEnabled) => settings.update({ volumeNormalizationEnabled })}
+    />
+  {/snippet}
   <div class="fields">
-    <div>
+    <div class="field">
+      <span class="label">{m.soundPanel.replayGainMode}</span>
       <SidePanelOptions
-        label={m.soundPanel.replayGain}
+        label={m.soundPanel.replayGainMode}
         options={modeOptions}
-        value={mode}
-        disabled={current === null}
+        value={current?.volumeNormalization ?? 'auto'}
+        disabled={isOff}
         onchange={(volumeNormalization) => settings.update({ volumeNormalization })}
       />
-      <p class="hint">
-        {m.soundPanel.replayGainHint}
-        {#if mode === 'auto'}
-          <br />{m.soundPanel.replayGainAutoHint}
-        {/if}
-      </p>
     </div>
     <SidePanelSlider
       label={m.soundPanel.preamp}
@@ -63,7 +69,6 @@
       max={MAX_NORMALIZATION_PREAMP_DB}
       disabled={isOff}
       format={m.soundPanel.preampValue}
-      hint={m.soundPanel.preampHint}
       onchange={(normalizationPreampDb) => settings.update({ normalizationPreampDb })}
     />
     <SidePanelSlider
@@ -73,14 +78,12 @@
       max={MAX_NORMALIZATION_PREAMP_DB}
       disabled={isOff}
       format={m.soundPanel.preampValue}
-      hint={m.soundPanel.untaggedPreampHint}
       onchange={(normalizationUntaggedPreampDb) =>
         settings.update({ normalizationUntaggedPreampDb })}
     />
     <SidePanelCheckbox
       label={m.soundPanel.preventClipping}
       checked={current?.normalizationPreventClipping ?? true}
-      hint={m.soundPanel.preventClippingHint}
       disabled={isOff}
       onchange={(normalizationPreventClipping) => settings.update({ normalizationPreventClipping })}
     />
@@ -110,8 +113,12 @@
     @apply flex flex-col gap-3;
   }
 
-  .hint {
-    @apply mt-1.5 mb-0 text-[0.6875rem] leading-snug text-text-muted;
+  .field {
+    @apply flex flex-col gap-1.5;
+  }
+
+  .label {
+    @apply text-xs text-text-secondary;
   }
 
   /* 再生中の曲にかけている補正 */

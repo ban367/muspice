@@ -9,7 +9,8 @@ use crate::settings::{Settings, VolumeNormalization};
 /// 音量の正規化の設定（再生エンジンが使う形）
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Normalization {
-    pub mode: VolumeNormalization,
+    /// 補正に使うゲインの単位（`None`は正規化しない）
+    pub mode: Option<VolumeNormalization>,
     /// プリアンプ（dB）。補正する曲（ゲインのある曲）の音量を、まとめて上げ下げする
     pub preamp_db: f64,
     /// ゲインのない曲にかける音量の変化（dB）
@@ -22,7 +23,7 @@ impl Normalization {
     /// 正規化しない
     #[cfg(test)]
     pub const OFF: Self = Self {
-        mode: VolumeNormalization::Off,
+        mode: None,
         preamp_db: 0.0,
         untagged_preamp_db: 0.0,
         prevent_clipping: true,
@@ -30,10 +31,10 @@ impl Normalization {
 }
 
 impl From<VolumeNormalization> for Normalization {
-    /// プリアンプなし・クリップ防止ありの設定
+    /// その単位で正規化する、プリアンプなし・クリップ防止ありの設定
     fn from(mode: VolumeNormalization) -> Self {
         Self {
-            mode,
+            mode: Some(mode),
             preamp_db: 0.0,
             untagged_preamp_db: 0.0,
             prevent_clipping: true,
@@ -44,7 +45,9 @@ impl From<VolumeNormalization> for Normalization {
 impl From<&Settings> for Normalization {
     fn from(settings: &Settings) -> Self {
         Self {
-            mode: settings.volume_normalization,
+            mode: settings
+                .volume_normalization_enabled
+                .then_some(settings.volume_normalization),
             preamp_db: f64::from(settings.normalization_preamp_db),
             untagged_preamp_db: f64::from(settings.normalization_untagged_preamp_db),
             prevent_clipping: settings.normalization_prevent_clipping,
@@ -72,8 +75,10 @@ pub fn normalization_gain(
 ) -> f32 {
     let track = (replay_gain.track_gain, replay_gain.track_peak);
     let album = (replay_gain.album_gain, replay_gain.album_peak);
-    let (preferred, fallback) = match normalization.mode {
-        VolumeNormalization::Off => return 1.0,
+    let Some(mode) = normalization.mode else {
+        return 1.0;
+    };
+    let (preferred, fallback) = match mode {
         VolumeNormalization::Track => (track, album),
         VolumeNormalization::Album => (album, track),
         VolumeNormalization::Auto if shuffle => (track, album),
@@ -183,10 +188,11 @@ mod tests {
             ),
             1.0
         );
-        assert_eq!(
-            gain(&no_peak, with_preamp(VolumeNormalization::Off, 6.0)),
-            1.0
-        );
+        let off = Normalization {
+            preamp_db: 6.0,
+            ..Normalization::OFF
+        };
+        assert_eq!(gain(&no_peak, off), 1.0);
     }
 
     fn tagged() -> ReplayGain {
@@ -200,7 +206,7 @@ mod tests {
 
     #[test]
     fn test_off_does_not_change_the_volume() {
-        assert_eq!(gain(&tagged(), VolumeNormalization::Off.into()), 1.0);
+        assert_eq!(gain(&tagged(), Normalization::OFF), 1.0);
         // シャッフル・ゲインのない曲の設定も効かない
         let off = Normalization {
             untagged_preamp_db: -6.0,

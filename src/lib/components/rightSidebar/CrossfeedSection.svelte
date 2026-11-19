@@ -22,7 +22,7 @@
   );
 </script>
 
-<SidePanelSection title={m.soundPanel.crossfeed}>
+<SidePanelSection title={m.soundPanel.crossfeed} variant="group">
   {#snippet actions()}
     <SidePanelToggle
       checked={enabled}
@@ -41,7 +41,6 @@
       disabled={current === null || !enabled}
       onchange={(crossfeedLevel) => settings.update({ crossfeedLevel })}
     />
-    <p class="hint">{m.soundPanel.crossfeedHint}</p>
   </div>
 </SidePanelSection>
 
@@ -54,9 +53,5 @@
 
   .label {
     @apply text-xs text-text-secondary;
-  }
-
-  .hint {
-    @apply m-0 text-[0.6875rem] leading-snug text-text-muted;
   }
 </style>

@@ -74,18 +74,16 @@ pub enum Theme {
     System,
 }
 
-/// 音量の正規化（ReplayGain）
+/// 音量の正規化（ReplayGain）で補正に使うゲインの単位（オン・オフは`Settings::volume_normalization_enabled`）
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum VolumeNormalization {
-    /// 補正しない
-    #[default]
-    Off,
     /// トラック単位のゲインで補正する（ない場合はアルバム単位）
     Track,
     /// アルバム単位のゲインで補正する（ない場合はトラック単位）
     Album,
     /// シャッフルモードの間はトラック単位、それ以外はアルバム単位で補正する
+    #[default]
     Auto,
 }
 
@@ -129,7 +127,9 @@ pub struct Settings {
     pub theme: Theme,
     /// アクセントカラー（`#rrggbb`）
     pub accent_color: String,
-    /// 音量の正規化
+    /// 音量の正規化（ReplayGain）をする
+    pub volume_normalization_enabled: bool,
+    /// 音量の正規化で補正に使うゲインの単位（オフの間も覚えておく）
     pub volume_normalization: VolumeNormalization,
     /// 音量の正規化のプリアンプ（dB。正規化で補正する曲の音量を、まとめて上げ下げする）
     pub normalization_preamp_db: i8,
@@ -197,6 +197,7 @@ impl Default for Settings {
             startup_page: StartupPage::default(),
             theme: Theme::default(),
             accent_color: DEFAULT_ACCENT_COLOR.to_string(),
+            volume_normalization_enabled: false,
             volume_normalization: VolumeNormalization::default(),
             normalization_preamp_db: 0,
             normalization_untagged_preamp_db: 0,
@@ -315,6 +316,7 @@ fn parse_with_defaults(json: &str) -> serde_json::Result<Settings> {
     if let (Value::Object(merged), Value::Object(mut stored)) =
         (&mut merged, serde_json::from_str::<Value>(json)?)
     {
+        migrate_volume_normalization(&mut stored);
         migrate_crossfade(&mut stored);
         for (key, mut value) in stored {
             match key.as_str() {
@@ -333,6 +335,26 @@ fn parse_with_defaults(json: &str) -> serde_json::Result<Settings> {
         }
     }
     serde_json::from_value(merged)
+}
+
+/// 音量の正規化のオン・オフを、単位とは別の項目にする前のファイルを読めるようにする
+///
+/// 以前は単位の`off`がオフだった。オン・オフの項目がなければ、単位が読めればオンにし、
+/// `off`はオフにして単位を既定に戻す（オンにした時に使う単位）。読めない単位（新しい版の選択肢）は、
+/// オン・オフを決めない（どちらも既定値になる）。
+fn migrate_volume_normalization(stored: &mut serde_json::Map<String, Value>) {
+    if stored.contains_key("volumeNormalizationEnabled") {
+        return;
+    }
+    let Some(mode) = stored.get("volumeNormalization") else {
+        return;
+    };
+    if mode.as_str() == Some("off") {
+        stored.remove("volumeNormalization");
+        stored.insert("volumeNormalizationEnabled".to_string(), Value::Bool(false));
+    } else if serde_json::from_value::<VolumeNormalization>(mode.clone()).is_ok() {
+        stored.insert("volumeNormalizationEnabled".to_string(), Value::Bool(true));
+    }
 }
 
 /// クロスフェードのオン・オフを、秒数とは別の項目にする前のファイルを読めるようにする
@@ -471,7 +493,8 @@ mod tests {
             startup_page: StartupPage::Songs,
             theme: Theme::System,
             accent_color: "#ff8800".to_string(),
-            volume_normalization: VolumeNormalization::Auto,
+            volume_normalization_enabled: true,
+            volume_normalization: VolumeNormalization::Album,
             normalization_preamp_db: -6,
             normalization_untagged_preamp_db: -4,
             normalization_prevent_clipping: false,
@@ -515,7 +538,8 @@ mod tests {
         // 項目を追加する前に保存したファイルでも、新しい項目は既定値になる
         assert_eq!(settings.theme, Theme::Dark);
         assert_eq!(settings.language, Language::Ja);
-        assert_eq!(settings.volume_normalization, VolumeNormalization::Off);
+        assert!(!settings.volume_normalization_enabled);
+        assert_eq!(settings.volume_normalization, VolumeNormalization::Auto);
         // ゲインのない曲は補正せず、クリップ防止はオン（項目を足す前と同じ動き）
         assert_eq!(settings.normalization_untagged_preamp_db, 0);
         assert!(settings.normalization_prevent_clipping);
@@ -617,6 +641,51 @@ mod tests {
         assert!(state.save(settings(MAX_CROSSFADE_SECONDS + 1)).is_err());
         // オフは秒数ではなく`crossfade_enabled`で表す
         assert!(state.save(settings(0)).is_err());
+    }
+
+    /// 音量の正規化のオン・オフの項目がない（単位の`off`がオフだった）ファイルを読む
+    #[test]
+    fn test_volume_normalization_without_enabled_field_is_migrated() {
+        let path = temp_settings_path("normalization-migration");
+        let load = |json: &str| {
+            fs::write(&path, json).unwrap();
+            let settings = load_settings(&path);
+            (
+                settings.volume_normalization_enabled,
+                settings.volume_normalization,
+            )
+        };
+        assert_eq!(
+            load(r#"{ "volumeNormalization": "track" }"#),
+            (true, VolumeNormalization::Track)
+        );
+        assert_eq!(
+            load(r#"{ "volumeNormalization": "album" }"#),
+            (true, VolumeNormalization::Album)
+        );
+        assert_eq!(
+            load(r#"{ "volumeNormalization": "auto" }"#),
+            (true, VolumeNormalization::Auto)
+        );
+        assert_eq!(
+            load(r#"{ "volumeNormalization": "off" }"#),
+            (false, VolumeNormalization::Auto)
+        );
+        // 読めない単位では、オンにしない
+        assert_eq!(
+            load(r#"{ "volumeNormalization": "smart" }"#),
+            (false, VolumeNormalization::Auto)
+        );
+        // オン・オフの項目があれば、そのまま使う
+        assert_eq!(
+            load(r#"{ "volumeNormalizationEnabled": false, "volumeNormalization": "track" }"#),
+            (false, VolumeNormalization::Track)
+        );
+        assert_eq!(
+            load(r#"{ "volumeNormalizationEnabled": true, "volumeNormalization": "off" }"#),
+            (true, VolumeNormalization::Auto)
+        );
+        fs::remove_dir_all(path.parent().unwrap()).ok();
     }
 
     /// クロスフェードのオン・オフの項目がない（秒数の0がオフだった）ファイルを読む

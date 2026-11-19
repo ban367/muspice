@@ -469,25 +469,21 @@ export const ja = {
     deletePreset: 'プリセットを削除',
     confirmDeletePreset: (name: string) => `"${name}" を削除しますか？`,
     /** 全体の音量 */
-    preamp: 'プリアンプ',
-    preampHint: '全体の音量を上げ下げします。バンドを持ち上げた分だけ下げると、音割れを防げます'
+    preamp: 'プリアンプ'
   },
 
   /** 右サイドバーのサウンドのパネル（イコライザは`equalizer`） */
   soundPanel: {
     replayGain: 'リプレイゲイン',
+    turnOnReplayGain: 'リプレイゲインをオン',
+    turnOffReplayGain: 'リプレイゲインをオフ',
     /** 補正に使うゲインの単位 */
-    replayGainModes: { off: 'オフ', track: 'トラック', album: 'アルバム', auto: '自動' },
-    replayGainHint:
-      'タグで曲ごとの音量をそろえます。アルバムでは、アルバム内の曲の差を残します。タグのない曲は、設定の「音量の解析」で書き込めます',
+    replayGainMode: 'モード',
+    replayGainModes: { track: 'トラック', album: 'アルバム', auto: '自動' },
     preamp: 'プリアンプ',
     preampValue: (db: number) => `${db > 0 ? '+' : ''}${db} dB`,
-    replayGainAutoHint: '自動では、シャッフルモードの間はトラック、それ以外はアルバムで補正します',
-    preampHint: '補正する曲の音量を、まとめて上げ下げします',
     untaggedPreamp: 'タグのない曲',
-    untaggedPreampHint: 'ReplayGainのタグがない曲の音量を上げ下げします',
     preventClipping: 'クリップ防止',
-    preventClippingHint: '補正で音割れしないよう、曲のピークに合わせて抑えます',
     /** 再生中の曲にかけている補正 */
     currentGain: '再生中の曲',
     gainValue: (db: number) => `${db > 0 ? '+' : ''}${db.toFixed(1)} dB`,
@@ -498,22 +494,17 @@ export const ja = {
     gapless: 'ギャップレス再生',
     turnOnGapless: 'ギャップレス再生をオン',
     turnOffGapless: 'ギャップレス再生をオフ',
-    gaplessHint: '曲と曲の間に無音を入れずに続けます',
     crossfade: 'クロスフェード',
     turnOnCrossfade: 'クロスフェードをオン',
     turnOffCrossfade: 'クロスフェードをオフ',
     crossfadeDuration: '時間',
     crossfadeSeconds: (seconds: number) => `${seconds}秒`,
-    crossfadeHint: '曲の終わりと次の曲の頭を重ねます。「次へ」などで曲を変えた時は重ねません',
     crossfadeSkipAlbumTracks: '同じアルバムの続きの曲では重ねない',
-    crossfadeSkipAlbumTracksHint: 'アルバムを曲順に聴く時は、曲間を切れ目なく続けます',
     crossfeed: 'クロスフィード',
     turnOnCrossfeed: 'クロスフィードをオン',
     turnOffCrossfeed: 'クロスフィードをオフ',
     crossfeedLevel: '強さ',
-    crossfeedLevels: { weak: '弱', medium: '中', strong: '強' },
-    crossfeedHint:
-      'ヘッドホン向けに左右の音を少し混ぜて、スピーカーで聴く時に近い広がりにします。左右に大きく分かれた録音が聴きやすくなります'
+    crossfeedLevels: { weak: '弱', medium: '中', strong: '強' }
   },
 
   metadataEditor: {

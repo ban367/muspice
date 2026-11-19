@@ -13,22 +13,10 @@
     disabled?: boolean;
     /** 値の表示（「+3 dB」「5秒」など） */
     format: (value: number) => string;
-    /** 説明（スライダーの下に出す） */
-    hint?: string;
     onchange: (value: number) => void;
   }
 
-  let {
-    label,
-    value,
-    min,
-    max,
-    step = 1,
-    disabled = false,
-    format,
-    hint,
-    onchange
-  }: Props = $props();
+  let { label, value, min, max, step = 1, disabled = false, format, onchange }: Props = $props();
 
   // 動かしている間の値（離すまでは、保存した値ではなくこちらを表示する）
   let dragging = $state<number | null>(null);
@@ -58,9 +46,6 @@
       onchange(Number(e.currentTarget.value));
     }}
   />
-  {#if hint}
-    <p class="slider-hint">{hint}</p>
-  {/if}
 </div>
 
 <style>
@@ -109,9 +94,5 @@
 
   .slider:not(:disabled)::-moz-range-thumb:hover {
     @apply scale-125;
-  }
-
-  .slider-hint {
-    @apply mt-1.5 mb-0 text-[0.6875rem] leading-snug text-text-muted;
   }
 </style>

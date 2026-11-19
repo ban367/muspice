@@ -2170,7 +2170,9 @@ export type Settings = {
 	theme: Theme,
 	/**  アクセントカラー（`#rrggbb`） */
 	accentColor: string,
-	/**  音量の正規化 */
+	/**  音量の正規化（ReplayGain）をする */
+	volumeNormalizationEnabled: boolean,
+	/**  音量の正規化で補正に使うゲインの単位（オフの間も覚えておく） */
 	volumeNormalization: VolumeNormalization,
 	/**  音量の正規化のプリアンプ（dB。正規化で補正する曲の音量を、まとめて上げ下げする） */
 	normalizationPreampDb: number,
@@ -2455,10 +2457,8 @@ export type TracksEdited = {
  */
 export type TracksOpened = null;
 
-/**  音量の正規化（ReplayGain） */
+/**  音量の正規化（ReplayGain）で補正に使うゲインの単位（オン・オフは`Settings::volume_normalization_enabled`） */
 export type VolumeNormalization = 
-/**  補正しない */
-"off" | 
 /**  トラック単位のゲインで補正する（ない場合はアルバム単位） */
 "track" | 
 /**  アルバム単位のゲインで補正する（ない場合はトラック単位） */

@@ -107,7 +107,7 @@
   );
 </script>
 
-<SidePanelSection title={m.equalizer.title}>
+<SidePanelSection title={m.equalizer.title} variant="group">
   {#snippet actions()}
     <SidePanelToggle
       checked={equalizer.enabled}
@@ -281,7 +281,6 @@
         max={MAX_PREAMP}
         disabled={!equalizer.enabled}
         format={(db) => `${formatGain(db)} dB`}
-        hint={m.equalizer.preampHint}
         onchange={(preamp) => equalizer.setPreamp(preamp)}
       />
     </div>
