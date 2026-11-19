@@ -1516,6 +1516,58 @@ pub fn relink_track(
     Ok(())
 }
 
+/// 見つからない曲を、利用者が選んだファイルに結び付ける（「ファイルの場所を指定」。ADR-117）
+///
+/// パス・ファイルの更新日時と、選んだファイルから読んだ大きさ・形式・長さ・ビットレート・
+/// サンプルレート（`file`）を変え、見つかる曲に戻す。タグの内容（ライブラリでの値）・評価・
+/// お気に入り・再生回数・プレイリストへの登録は変えない（別の版のファイルを選んでも、
+/// ライブラリで編集した値を残す）。
+pub fn relink_track_to_file(
+    conn: &Connection,
+    track_id: &str,
+    file: &Track,
+    file_modified_at: Option<i64>,
+) -> AppResult<()> {
+    let rows_affected = conn
+        .execute(
+            "UPDATE tracks SET file_path = ?2, file_name = ?3, file_modified_at = ?4,
+                 file_size = ?5, format = ?6, duration = ?7, bitrate = ?8, sample_rate = ?9,
+                 missing_since = NULL
+             WHERE id = ?1",
+            rusqlite::params![
+                track_id,
+                file.file_path,
+                file.file_name,
+                file_modified_at,
+                file.file_size,
+                file.format,
+                file.duration,
+                file.bitrate,
+                file.sample_rate
+            ],
+        )
+        .map_err(|e| AppError::Database(format!("トラックのパスの更新に失敗しました: {}", e)))?;
+    if rows_affected == 0 {
+        return Err(AppError::NotFound(format!(
+            "結び付けるトラックが見つかりません: {}",
+            track_id
+        )));
+    }
+    Ok(())
+}
+
+/// 見つかる曲（見つからない曲を除く）のファイルの場所をすべて取得する
+///
+/// フォルダから見つからない曲を探す時に、ほかの曲として登録済みのファイルを候補から外すのに使う。
+pub fn find_present_file_paths(conn: &Connection) -> AppResult<HashSet<String>> {
+    let mut stmt = conn
+        .prepare("SELECT file_path FROM tracks WHERE missing_since IS NULL")
+        .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
+    stmt.query_map([], |row| row.get::<_, String>(0))
+        .and_then(|rows| rows.collect())
+        .map_err(|e| AppError::Database(format!("ファイルの場所の取得に失敗しました: {}", e)))
+}
+
 /// 見つからない曲の数
 pub fn count_missing_tracks(conn: &Connection) -> AppResult<u32> {
     conn.query_row(

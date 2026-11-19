@@ -2127,6 +2127,38 @@ describe('見つからない曲', () => {
     expect(await commands.removeMissingTracks()).toBe(0);
     expect(events).toEqual([]);
   });
+
+  it('ファイルの場所を指定して、同じ曲のまま結び付け直す', async () => {
+    const [missing] = (await commands.getAllTracks()).filter((track) => track.isMissing);
+    backend.setFolderResult(null);
+    expect(await commands.locateTrackFile(missing.id)).toBeNull();
+
+    backend.setFolderResult('/Volumes/NAS/Music/');
+    const relinked = await commands.locateTrackFile(missing.id);
+    expect(relinked).toMatchObject({
+      id: missing.id,
+      filePath: `/Volumes/NAS/Music/${missing.fileName}`,
+      isMissing: false
+    });
+    expect(events).toContainEqual({ event: 'library-changed', payload: null });
+    // 見つかっている曲には指定できない
+    await expect(commands.locateTrackFile(missing.id)).rejects.toMatchObject({
+      code: 'VALIDATION'
+    });
+  });
+
+  it('フォルダから探して、見つからない曲をまとめて結び付け直す', async () => {
+    backend.setFolderResult('/Volumes/NAS/Music');
+    expect(await commands.findMissingTracksInFolder()).toEqual({
+      relinkedCount: 1,
+      remainingCount: 0
+    });
+    expect((await commands.getLibraryFolders()).missingTrackCount).toBe(0);
+    expect(await commands.findMissingTracksInFolder()).toEqual({
+      relinkedCount: 0,
+      remainingCount: 0
+    });
+  });
 });
 
 describe('ライブラリフォルダ', () => {

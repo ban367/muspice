@@ -161,6 +161,8 @@ export const en: Messages = {
     planLibraryRestore: 'Checking the backup',
     restoreLibraryBackup: 'Restoring from the backup',
     removeMissingTracks: 'Removing missing tracks',
+    locateTrackFile: 'Locating the file',
+    findMissingTracksInFolder: 'Searching for missing tracks',
     addLibraryFolderExclusion: 'Adding the excluded folder',
     removeLibraryFolderExclusion: 'Removing the excluded folder',
     removeExcludedTracks: 'Removing the tracks in the excluded folder',
@@ -287,6 +289,7 @@ export const en: Messages = {
     playHistory: 'Play History',
     mostPlayed: 'Most Played',
     duplicates: 'Duplicates',
+    missing: 'Missing Songs',
     recentlyAdded: 'Recently Added',
     folders: 'Folders',
     years: 'Years',
@@ -811,6 +814,7 @@ export const en: Messages = {
     loudnessScan: 'Analyze Loudness...',
     convert: 'Convert Format...',
     showInFolder: 'Show in Folder',
+    locateFile: 'Locate File...',
     goToAlbum: 'Go to Album',
     goToArtist: 'Go to Artist',
     deleteEllipsis: 'Delete...',
@@ -1002,6 +1006,24 @@ export const en: Messages = {
     noDuplicates: 'No duplicate songs',
     noDuplicatesHint:
       'Songs with the same title and artist and nearly the same length will appear here',
+    missing: 'Missing Songs',
+    missingDescription:
+      'Songs whose files were not found. Relink them with "Locate File..." in the context menu or "Search in Folder..." (favorites, play counts and playlists are kept)',
+    missingCount: (count: number) => `${count} ${count === 1 ? 'song' : 'songs'}`,
+    noMissing: 'No missing songs',
+    noMissingHint: 'Songs whose files are no longer found by a rescan will appear here',
+    findInFolder: 'Search in Folder...',
+    findingInFolder: 'Searching...',
+    removeMissing: 'Remove from Library...',
+    removeMissingConfirm: (count: number) =>
+      `Remove the ${count === 1 ? 'song' : `${count} songs`} whose files were not found from the library? They are also removed from playlists, and their favorites and play counts are lost.`,
+    removeMissingOk: 'Remove',
+    foundInFolder: (relinked: number, remaining: number) =>
+      remaining > 0
+        ? `Relinked ${relinked} ${relinked === 1 ? 'song' : 'songs'} (${remaining} still missing)`
+        : `Relinked ${relinked} ${relinked === 1 ? 'song' : 'songs'}`,
+    notFoundInFolder: 'No files of the missing songs were found in this folder',
+    locatedFile: 'Changed the file location',
     favorites: 'Favorites',
     noFavorites: 'No favorite songs yet',
     noFavoritesHint: 'Click the heart on a song to add it here',

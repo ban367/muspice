@@ -12,6 +12,7 @@
   import { ui } from '#lib/stores/ui.svelte.js';
   import { useGenresQuery } from '#lib/queries/tracks.js';
   import { useSettingsQuery } from '#lib/queries/settings.js';
+  import { useLibraryFoldersQuery } from '#lib/queries/libraryFolders.js';
   import type { SidebarItem } from '#lib/types/models.js';
   import SidebarPlaylists from './SidebarPlaylists.svelte';
   import MarqueeText from './MarqueeText.svelte';
@@ -40,6 +41,10 @@
   const settingsQuery = useSettingsQuery();
   const hiddenItems = $derived(setOf(settingsQuery.data?.hiddenSidebarItems ?? []));
   const isShown = (item: SidebarItem) => !hiddenItems.has(item);
+
+  // 見つからない曲の画面は、見つからない曲がある時だけ出す（ADR-117）
+  const libraryFoldersQuery = useLibraryFoldersQuery();
+  const missingTrackCount = $derived(libraryFoldersQuery.data?.missingTrackCount ?? 0);
 
   const genresQuery = useGenresQuery();
   const genres = $derived(genresQuery.data ?? []);
@@ -431,6 +436,32 @@
             </a>
           </li>
         {/if}
+        {#if missingTrackCount > 0 || currentPath === '/library/missing'}
+          <li>
+            <a
+              href={resolve('library/missing')}
+              class="nav-item-base"
+              class:active={currentPath === '/library/missing'}
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="nav-icon"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"
+                />
+              </svg>
+              <span>{m.sidebar.missing}</span>
+              <span class="nav-count">{missingTrackCount}</span>
+            </a>
+          </li>
+        {/if}
       </ul>
     </div>
 
@@ -511,6 +542,11 @@
 
 <style>
   @reference "../../app.css";
+
+  /* 項目の右端に出す数（見つからない曲の数） */
+  .nav-count {
+    @apply ml-auto pl-2 text-xs text-text-muted tabular-nums;
+  }
 
   /* 下の端は、再生バーの高さだけ空ける（再生バーは画面の幅いっぱいに重なる） */
   .sidebar {
