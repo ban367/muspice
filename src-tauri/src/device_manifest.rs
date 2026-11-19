@@ -70,6 +70,22 @@ pub struct ManifestFile {
     /// （FAT系の2秒の精度や、夏時間の切り替えによるずれの影響を受けない）。
     pub size: i64,
     pub modified_at: Option<i64>,
+    /// 変換してコピーした場合の、デバイス上のファイルのサイズ（変換していなければ値なし。`size`と同じ）
+    ///
+    /// 項目を足す前の版は、この項目を読まずに書き直す（その版で同期すると、変換したファイルは
+    /// サイズが合わないため、元のファイルでコピーし直される）。ADR-118。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_size: Option<i64>,
+    /// 変換の設定（`aac-256`など。変換していなければ値なし）。設定を変えたら、コピーし直す
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transcode: Option<String>,
+}
+
+impl ManifestFile {
+    /// デバイス上のファイルのサイズ（変換していなければ、元のファイルのサイズと同じ）
+    pub fn device_size(&self) -> i64 {
+        self.device_size.unwrap_or(self.size)
+    }
 }
 
 /// デバイスに書き出したプレイリストのファイル
@@ -320,6 +336,8 @@ mod tests {
             track_id: "t1".to_string(),
             size: 123,
             modified_at: Some(456),
+            device_size: None,
+            transcode: None,
         });
         manifest.playlists.push(ManifestPlaylist {
             path: "通勤.m3u8".to_string(),

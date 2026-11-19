@@ -9,6 +9,8 @@
 //!   コピーするため、FAT32・exFATでは`._`で始まるファイルができ、機器によっては曲として
 //!   表示されてしまう。進捗の通知と、ファイルの途中での中止もできる
 //! - コピーは別名（`.part`）に書いてから置き換える（中断しても、壊れたファイルを曲として残さない）
+//! - 変換してコピーする曲（ADR-118）は、デバイスの同じフォルダの一時的な名前に変換してから置き換える
+//!   （`transcode::convert_file`。タグ・アルバムアートも写す）
 //! - ファイル単位の失敗は記録して続ける。デバイスが外れた場合は中止する
 //! - 管理ファイルは途中でも保存する（中止・取り外しの後、次の同期で続きから差分になる）
 
@@ -16,7 +18,7 @@ use crate::device_manifest::{
     Manifest, ManifestExtra, ManifestFile, ManifestPlaylist, create_temp_file,
     remove_file_if_exists, to_device_path, write_manifest,
 };
-use crate::device_sync::{CopyOp, ExtraCopyOp, SyncPlan, build_m3u8, path_key};
+use crate::device_sync::{CopyOp, ExtraCopyOp, SyncPlan, Transcode, build_m3u8, path_key};
 use crate::error::{AppError, AppResult};
 use crate::library::modified_at_of;
 use std::collections::{BTreeMap, HashMap};
@@ -50,6 +52,8 @@ pub struct TransferProgress {
     pub bytes_total: i64,
     /// コピー中のファイル名
     pub current_file: String,
+    /// コピー中のファイルを変換しているか（ADR-118）
+    pub converting: bool,
 }
 
 /// 同期の実行結果
@@ -407,6 +411,7 @@ fn copy_files(
             bytes_done,
             bytes_total,
             current_file: display_name(&op.dest),
+            converting: op.transcode.is_some(),
         };
         on_progress(progress(bytes_done));
 
@@ -437,7 +442,7 @@ fn copy_files(
                 outcome.errors.push(format!("{}: {}", op.source, e));
             }
         }
-        bytes_done += op.size;
+        bytes_done += op.device_size;
 
         if unsaved >= MANIFEST_SAVE_INTERVAL {
             unsaved = 0;
@@ -455,6 +460,7 @@ fn copy_files(
             bytes_done: bytes_total,
             bytes_total,
             current_file: String::new(),
+            converting: false,
         });
     }
     Ok(false)
@@ -522,21 +528,82 @@ fn copy_track(
 ) -> io::Result<Option<ManifestFile>> {
     let source = Path::new(&op.source);
     let dest = device.resolve(&op.dest, true)?;
-    let Some(written) = copy_file(source, &dest, buffer, cancel, on_bytes)? else {
+    let written = match op.transcode {
+        Some(transcode) => transcode_file(source, &dest, transcode, cancel)?,
+        None => copy_file(source, &dest, buffer, cancel, on_bytes)?,
+    };
+    let Some(written) = written else {
         return Ok(None);
     };
 
     // 差分の計算の後に元のファイルが変わっていた場合に備えて、コピーした内容の状態を記録する
-    let modified_at = fs::metadata(source)
-        .ok()
-        .and_then(|metadata| modified_at_of(&metadata))
+    let metadata = fs::metadata(source).ok();
+    let modified_at = metadata
+        .as_ref()
+        .and_then(modified_at_of)
         .or(op.modified_at);
-    Ok(Some(ManifestFile {
-        path: op.dest.clone(),
-        track_id: op.track_id.clone(),
-        size: written,
-        modified_at,
+    Ok(Some(match op.transcode {
+        // 変換した曲は、元のファイルのサイズと、デバイス上のサイズ・変換の設定を記録する
+        Some(transcode) => ManifestFile {
+            path: op.dest.clone(),
+            track_id: op.track_id.clone(),
+            size: metadata.map_or(op.size, |metadata| {
+                i64::try_from(metadata.len()).unwrap_or(i64::MAX)
+            }),
+            modified_at,
+            device_size: Some(written),
+            transcode: Some(transcode.signature()),
+        },
+        None => ManifestFile {
+            path: op.dest.clone(),
+            track_id: op.track_id.clone(),
+            size: written,
+            modified_at,
+            device_size: None,
+            transcode: None,
+        },
     }))
+}
+
+/// 曲をAACに変換して、デバイスに書く（ADR-118）
+///
+/// デバイスの同じフォルダの一時的な名前（`.`で始まり、拡張子は`.m4a`。タグを書くために拡張子を
+/// 残す）に変換してから、置き換える。デバイス上のファイルのサイズを返す（中止した場合はNone）。
+/// デコードした音声の一時ファイルは、Macの一時フォルダに置く。
+fn transcode_file(
+    source: &Path,
+    dest: &Path,
+    transcode: Transcode,
+    cancel: &AtomicBool,
+) -> io::Result<Option<i64>> {
+    let parent = dest.parent().unwrap_or(dest);
+    let partial = parent.join(format!(
+        ".{}.converting.{}",
+        uuid::Uuid::new_v4(),
+        Transcode::EXTENSION
+    ));
+    let temp_dir = std::env::temp_dir().join("muspice-device-sync");
+    let converted = crate::transcode::convert_file(
+        source,
+        &partial,
+        crate::transcode::ConvertFormat::Aac,
+        transcode.bitrate_kbps,
+        &temp_dir,
+        cancel,
+    );
+    match converted {
+        Ok(true) => {
+            if let Err(e) = fs::rename(&partial, dest) {
+                fs::remove_file(&partial).ok();
+                return Err(e);
+            }
+            let size = fs::metadata(dest)?.len();
+            Ok(Some(i64::try_from(size).unwrap_or(i64::MAX)))
+        }
+        // 中止した・失敗した場合は、`convert_file`が一時的なファイルを消す
+        Ok(false) => Ok(None),
+        Err(e) => Err(io::Error::other(format!("変換できませんでした（{}）", e))),
+    }
 }
 
 /// プレイリストのファイルを削除・書き出しする
@@ -636,6 +703,8 @@ mod tests {
                 dest: dest.to_string(),
                 size: content.len() as i64,
                 modified_at: Some(1),
+                transcode: None,
+                device_size: content.len() as i64,
             }
         }
 
@@ -649,6 +718,8 @@ mod tests {
                 track_id: track_id.to_string(),
                 size: content.len() as i64,
                 modified_at: Some(1),
+                device_size: None,
+                transcode: None,
             }
         }
 
@@ -858,6 +929,8 @@ mod tests {
             track_id: "t1".to_string(),
             size: 4,
             modified_at: None,
+            device_size: None,
+            transcode: None,
         };
         let plan = SyncPlan {
             to_delete: vec![entry.clone()],
@@ -1094,6 +1167,8 @@ mod tests {
             track_id: "t1".to_string(),
             size: 6,
             modified_at: None,
+            device_size: None,
+            transcode: None,
         };
         let plan = SyncPlan {
             to_delete: vec![entry.clone()],
@@ -1182,5 +1257,66 @@ mod tests {
         let fixture = Fixture::new();
         fixture.execute(fixture.manifest(vec![]), &SyncPlan::default());
         assert!(fixture.root.join(MANIFEST_DIR).is_dir());
+    }
+
+    /// 変換してコピーする（`afconvert`のあるmacOSだけ。ADR-118）
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_transcodes_to_aac_and_records_the_setting() {
+        if !crate::transcode::is_available() {
+            return;
+        }
+        let fixture = Fixture::new();
+        let source = fixture.library.join("t1.flac");
+        fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/playback/flac.flac"),
+            &source,
+        )
+        .unwrap();
+        let source_size = fs::metadata(&source).unwrap().len() as i64;
+        let transcode = Transcode { bitrate_kbps: 128 };
+        let plan = SyncPlan {
+            to_copy: vec![CopyOp {
+                track_id: "t1".to_string(),
+                source: source.to_str().unwrap().to_string(),
+                dest: "Artist/Album/01 One.m4a".to_string(),
+                size: source_size,
+                modified_at: None,
+                transcode: Some(transcode),
+                device_size: 1000,
+            }],
+            ..SyncPlan::default()
+        };
+        let mut progress: Vec<TransferProgress> = Vec::new();
+
+        let outcome = execute_plan(
+            &fixture.root,
+            fixture.manifest(vec![]),
+            &plan,
+            &AtomicBool::new(false),
+            &mut |p| progress.push(p),
+        )
+        .unwrap();
+
+        assert_eq!(outcome.copied_count, 1, "{:?}", outcome.errors);
+        let dest = to_device_path(&fixture.root, "Artist/Album/01 One.m4a");
+        assert_eq!(crate::transcode::is_lossless_source(&dest), Some(false));
+        // 変換中の一時ファイルは残らない
+        let names: Vec<String> = fs::read_dir(dest.parent().unwrap())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, ["01 One.m4a"]);
+        assert!(progress.iter().any(|p| p.converting));
+
+        let saved = read_manifest(&fixture.root).unwrap().unwrap();
+        assert_eq!(saved.files.len(), 1);
+        let entry = &saved.files[0];
+        assert_eq!(entry.size, source_size);
+        assert_eq!(
+            entry.device_size,
+            Some(fs::metadata(&dest).unwrap().len() as i64)
+        );
+        assert_eq!(entry.transcode.as_deref(), Some("aac-128"));
     }
 }

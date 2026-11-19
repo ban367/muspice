@@ -32,6 +32,7 @@ export type {
   DeviceSyncPlan,
   DeviceSyncProgress,
   DeviceSyncResult,
+  DeviceTranscode,
   DuplicateAction,
   FolderExclusion,
   FolderImportMode,
@@ -102,6 +103,7 @@ export type {
   Theme,
   Track,
   TrackMetadataChange,
+  TranscodeMode,
   TracksEdited,
   VolumeNormalization,
   WriteMetadataResult

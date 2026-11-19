@@ -13,6 +13,8 @@
 //!   ファイルを移動してトラックが登録し直された場合に、同じ曲をコピーし直さない）
 //! - 元のファイルが変わったかは、コピーした時点のサイズ・更新日時（管理ファイルの記録）と
 //!   比べて判定する
+//! - 変換してコピーする曲（ADR-118）は、拡張子を`.m4a`にし、変換の設定（管理ファイルの`transcode`）も
+//!   比べる。設定が変わった曲は、コピーし直す。コピーする容量は、ビットレートと長さから見積もる
 
 use crate::device_manifest::{Manifest, ManifestExtra, ManifestFile, ManifestPlaylist};
 use crate::file_organize::Template;
@@ -49,12 +51,44 @@ const RESERVED_NAMES: [&str; 22] = [
     "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
 ];
 
+/// 曲をAACに変換してコピーする時の設定（ADR-118）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Transcode {
+    /// AACのビットレート（kbps）
+    pub bitrate_kbps: u32,
+}
+
+impl Transcode {
+    /// 変換後のファイルの拡張子
+    pub const EXTENSION: &'static str = "m4a";
+
+    /// 管理ファイルに記録する、変換の設定（`aac-256`など）
+    pub fn signature(self) -> String {
+        format!("aac-{}", self.bitrate_kbps)
+    }
+
+    /// 変換後のファイルのサイズの見積もり（ビットレート×長さに、タグ・アルバムアートの分を足す）
+    pub fn estimated_size(self, duration_seconds: Option<i32>, source_size: i64) -> i64 {
+        /// タグ・アルバムアート・コンテナの分として足す大きさ
+        const OVERHEAD_BYTES: i64 = 256 * 1024;
+        match duration_seconds {
+            Some(seconds) if seconds > 0 => {
+                i64::from(self.bitrate_kbps) * 1000 / 8 * i64::from(seconds) + OVERHEAD_BYTES
+            }
+            // 長さが分からない曲は、元のサイズで見積もる（多めに見る）
+            _ => source_size,
+        }
+    }
+}
+
 /// 同期元のトラックと、元のファイルの今の状態
 #[derive(Debug, Clone, PartialEq)]
 pub struct SourceTrack {
     pub track: TransferTrack,
     /// 元のファイルが見つからない場合はNone
     pub file: Option<SourceFile>,
+    /// AACに変換してコピーするか（`path`の拡張子も`.m4a`にする。ADR-118）
+    pub transcode: Option<Transcode>,
     /// デバイス上の配置（デバイスの書式から求めた、デバイスのフォルダからの場所。区切りは`/`。
     /// `track_relative_path`）
     pub path: String,
@@ -114,8 +148,13 @@ pub struct CopyOp {
     pub source: String,
     /// コピー先（デバイスのフォルダからの相対パス）
     pub dest: String,
+    /// 元のファイルのサイズと更新日時
     pub size: i64,
     pub modified_at: Option<i64>,
+    /// AACに変換してコピーするか（ADR-118）
+    pub transcode: Option<Transcode>,
+    /// デバイス上のファイルのサイズ（変換する曲は見積もり。変換しない曲は`size`と同じ）
+    pub device_size: i64,
 }
 
 /// デバイス上で名前を変えるファイル（タグが変わって配置が変わった曲）
@@ -177,9 +216,17 @@ pub struct SyncPlan {
 }
 
 impl SyncPlan {
-    /// コピーするファイルのサイズの合計
+    /// コピーするファイルの、デバイス上のサイズの合計（変換する曲は見積もり）
     pub fn copy_bytes(&self) -> i64 {
-        self.to_copy.iter().map(|op| op.size).sum()
+        self.to_copy.iter().map(|op| op.device_size).sum()
+    }
+
+    /// コピーする曲のうち、変換する曲数
+    pub fn transcode_count(&self) -> usize {
+        self.to_copy
+            .iter()
+            .filter(|op| op.transcode.is_some())
+            .count()
     }
 
     /// コピーする、曲に添えるファイルのサイズの合計
@@ -249,9 +296,16 @@ fn source_extension(file_path: &str) -> Option<String> {
 ///
 /// 書式は、ファイルの整理と同じ書き方（値のない項目・ファイル名に使える形の決まりも同じ。
 /// `file_organize::Template`）。`/`のない書式は、デバイスのフォルダの直下に置く。拡張子は、元の
-/// ファイルの拡張子を小文字にしたもの。
-pub fn track_relative_path(track: &TransferTrack, template: &Template) -> String {
-    let extension = source_extension(&track.file_path);
+/// ファイルの拡張子を小文字にしたもの（変換してコピーする曲は`m4a`。ADR-118）。
+pub fn track_relative_path(
+    track: &TransferTrack,
+    template: &Template,
+    transcode: Option<Transcode>,
+) -> String {
+    let extension = match transcode {
+        Some(_) => Some(Transcode::EXTENSION.to_string()),
+        None => source_extension(&track.file_path),
+    };
     template
         .components_with_extension(track, Path::new(&track.file_path), extension.as_deref())
         .join("/")
@@ -320,6 +374,23 @@ fn is_source_unchanged(entry: &ManifestFile, file: &SourceFile) -> bool {
     }
 }
 
+/// コピー済みのファイルが、今の変換の設定でコピーしたものか（どちらも変換しない場合を含む）
+fn is_same_transcode(entry: &ManifestFile, source: &SourceTrack) -> bool {
+    entry.transcode == source.transcode.map(Transcode::signature)
+}
+
+/// デバイス上のコピーが、そのまま使えるか（元のファイル・変換の設定が変わらず、デバイス上のファイルがある）
+fn is_copy_current(
+    entry: &ManifestFile,
+    source: &SourceTrack,
+    file: &SourceFile,
+    device_file_size: &impl Fn(&str) -> Option<i64>,
+) -> bool {
+    is_source_unchanged(entry, file)
+        && is_same_transcode(entry, source)
+        && device_file_size(&entry.path) == Some(entry.device_size())
+}
+
 fn copy_op(source: &SourceTrack, file: &SourceFile, dest: String) -> CopyOp {
     CopyOp {
         track_id: source.track.id.clone(),
@@ -327,6 +398,10 @@ fn copy_op(source: &SourceTrack, file: &SourceFile, dest: String) -> CopyOp {
         dest,
         size: file.size,
         modified_at: file.modified_at,
+        transcode: source.transcode,
+        device_size: source.transcode.map_or(file.size, |transcode| {
+            transcode.estimated_size(source.track.duration, file.size)
+        }),
     }
 }
 
@@ -406,12 +481,10 @@ pub fn plan_sync(
         if !is_same_or_numbered(&entry.path, &source.path) {
             // タグが変わって配置が変わった（今のパスは、リネーム・削除するまで使ったままにする）
             pending.push((index, Some(entry_index)));
-        } else if is_source_unchanged(entry, file)
-            && device_file_size(&entry.path) == Some(entry.size)
-        {
+        } else if is_copy_current(entry, source, file, &device_file_size) {
             plan.kept.push(entry.clone());
         } else {
-            // 元のファイルが変わったか、デバイス上のファイルがない・壊れている
+            // 元のファイル・変換の設定が変わったか、デバイス上のファイルがない・壊れている
             plan.to_copy.push(copy_op(source, file, entry.path.clone()));
         }
     }
@@ -435,8 +508,10 @@ pub fn plan_sync(
         let desired = source.path.clone();
         let desired_key = path_key(&desired);
 
-        // 同じ場所に同じサイズのファイルがある: コピー済みとして扱う
+        // 同じ場所に同じサイズのファイルがある: コピー済みとして扱う（変換する曲は、変換後のサイズが
+        // 分からないため、扱わない）
         if entry_index.is_none()
+            && source.transcode.is_none()
             && !claimed.contains(&desired_key)
             && device_file_size(&desired) == Some(file.size)
         {
@@ -447,6 +522,8 @@ pub fn plan_sync(
                 track_id: source.track.id.clone(),
                 size: file.size,
                 modified_at: file.modified_at,
+                device_size: None,
+                transcode: None,
             });
             continue;
         }
@@ -461,17 +538,15 @@ pub fn plan_sync(
         claimed.insert(path_key(&dest));
 
         match entry_index.map(|i| &manifest.files[i]) {
-            Some(entry)
-                if is_source_unchanged(entry, file)
-                    && device_file_size(&entry.path) == Some(entry.size) =>
-            {
+            // 変換の設定も同じ時だけ、名前を変える（変換の設定が変わると、拡張子も中身も変わる）
+            Some(entry) if is_copy_current(entry, source, file, &device_file_size) => {
                 plan.to_rename.push(RenameOp {
                     entry: entry.clone(),
                     to: dest,
                 });
             }
             Some(entry) => {
-                // 元のファイルも変わっている: 古いファイルを消して、新しい場所にコピーする
+                // 元のファイル・変換の設定も変わっている: 古いファイルを消して、新しい場所にコピーする
                 plan.delete_bytes += device_file_size(&entry.path).unwrap_or(0);
                 plan.to_delete.push(entry.clone());
                 plan.to_copy.push(copy_op(source, file, dest));
@@ -805,6 +880,7 @@ mod tests {
             disc_number: None,
             duration: Some(180),
             file_size: 100,
+            bitrate: Some(320),
         }
     }
 
@@ -817,12 +893,13 @@ mod tests {
     fn source(id: &str, artist: &str, album: &str, number: i32, title: &str) -> SourceTrack {
         let track = transfer_track(id, artist, album, number, title);
         SourceTrack {
-            path: track_relative_path(&track, &legacy()),
+            path: track_relative_path(&track, &legacy(), None),
             track,
             file: Some(SourceFile {
                 size: 100,
                 modified_at: Some(10),
             }),
+            transcode: None,
             extras: Vec::new(),
         }
     }
@@ -833,6 +910,8 @@ mod tests {
             track_id: track_id.to_string(),
             size: 100,
             modified_at: Some(10),
+            device_size: None,
+            transcode: None,
         }
     }
 
@@ -908,13 +987,13 @@ mod tests {
         let legacy = legacy();
         let mut track = transfer_track("t1", "Artist", "Album", 3, "Title");
         assert_eq!(
-            track_relative_path(&track, &legacy),
+            track_relative_path(&track, &legacy, None),
             "Artist/Album/03 Title.mp3"
         );
 
         track.disc_number = Some(2);
         assert_eq!(
-            track_relative_path(&track, &legacy),
+            track_relative_path(&track, &legacy, None),
             "Artist/Album/2-03 Title.mp3"
         );
 
@@ -923,7 +1002,7 @@ mod tests {
         track.disc_number = None;
         track.track_number = None;
         assert_eq!(
-            track_relative_path(&track, &legacy),
+            track_relative_path(&track, &legacy, None),
             "Artist/Album/Title.flac"
         );
     }
@@ -935,7 +1014,7 @@ mod tests {
         let mut track = transfer_track("t1", "Band feat. Guest", "Album", 3, "Title");
         track.album_artist = Some("Band".to_string());
         assert_eq!(
-            track_relative_path(&track, &template),
+            track_relative_path(&track, &template, None),
             "Band/Album/03 Title.mp3"
         );
 
@@ -943,18 +1022,21 @@ mod tests {
         let mut track = transfer_track("t2", "Someone", "Hits", 1, "Song");
         track.compilation = true;
         assert_eq!(
-            track_relative_path(&track, &template),
+            track_relative_path(&track, &template, None),
             "Various Artists/Hits/01 Song.mp3"
         );
         // 以前の配置の書式では、曲のアーティストのフォルダ
         assert_eq!(
-            track_relative_path(&track, &legacy()),
+            track_relative_path(&track, &legacy(), None),
             "Someone/Hits/01 Song.mp3"
         );
 
         // `/`のない書式は、デバイスのフォルダの直下
         let flat = Template::parse("%artist% - %title%").unwrap();
-        assert_eq!(track_relative_path(&track, &flat), "Someone - Song.mp3");
+        assert_eq!(
+            track_relative_path(&track, &flat, None),
+            "Someone - Song.mp3"
+        );
     }
 
     /// 曲に添えるファイルのある、元のファイルが見つかるトラック
@@ -1177,12 +1259,13 @@ mod tests {
         let on_device = [("Someone/Hits/01 Song.mp3", 100)];
         let template = Template::parse(crate::device::DEFAULT_DEVICE_TEMPLATE).unwrap();
         let tracks = vec![SourceTrack {
-            path: track_relative_path(&track, &template),
+            path: track_relative_path(&track, &template, None),
             track,
             file: Some(SourceFile {
                 size: 100,
                 modified_at: Some(10),
             }),
+            transcode: None,
             extras: Vec::new(),
         }];
 
@@ -1208,9 +1291,10 @@ mod tests {
             disc_number: None,
             duration: None,
             file_size: 0,
+            bitrate: None,
         };
         assert_eq!(
-            track_relative_path(&track, &legacy()),
+            track_relative_path(&track, &legacy(), None),
             "Unknown Artist/Unknown Album/untagged song.m4a"
         );
     }
@@ -1352,6 +1436,127 @@ mod tests {
             paths(&plan.kept),
             ["Artist/Album/01 One.mp3", "Artist/Album/02 Two.mp3"]
         );
+    }
+
+    /// AACに変換してコピーする曲（配置は以前の配置の書式。拡張子は`.m4a`）
+    fn transcoded(id: &str, title: &str, bitrate_kbps: u32) -> SourceTrack {
+        let mut track = source(id, "Artist", "Album", 1, title);
+        track.transcode = Some(Transcode { bitrate_kbps });
+        track.path = track_relative_path(&track.track, &legacy(), track.transcode);
+        track
+    }
+
+    /// 変換してコピーした記録（デバイス上のサイズは`device_size`）
+    fn transcoded_entry(
+        path: &str,
+        track_id: &str,
+        bitrate_kbps: u32,
+        device_size: i64,
+    ) -> ManifestFile {
+        ManifestFile {
+            device_size: Some(device_size),
+            transcode: Some(Transcode { bitrate_kbps }.signature()),
+            ..entry(path, track_id)
+        }
+    }
+
+    #[test]
+    fn test_plan_transcodes_with_m4a_paths_and_estimated_sizes() {
+        let tracks = vec![transcoded("t1", "One", 256)];
+        let plan = plan_sync(&tracks, &[], &manifest(vec![]), true, device(&[]));
+
+        assert_eq!(copy_dests(&plan), ["Artist/Album/01 One.m4a"]);
+        let op = &plan.to_copy[0];
+        assert_eq!(op.transcode, Some(Transcode { bitrate_kbps: 256 }));
+        // 元のファイルのサイズと、ビットレート×長さ（180秒）からの見積もり
+        assert_eq!(op.size, 100);
+        assert_eq!(op.device_size, 256 * 1000 / 8 * 180 + 256 * 1024);
+        assert_eq!(plan.copy_bytes(), op.device_size);
+        assert_eq!(plan.transcode_count(), 1);
+    }
+
+    #[test]
+    fn test_plan_keeps_transcoded_copies_until_the_setting_changes() {
+        let path = "Artist/Album/01 One.m4a";
+        let recorded = manifest(vec![transcoded_entry(path, "t1", 256, 5000)]);
+        let on_device = [(path, 5000)];
+
+        // 元のファイル・設定が変わらず、デバイス上のサイズが記録と同じなら、そのまま
+        let plan = plan_sync(
+            &[transcoded("t1", "One", 256)],
+            &[],
+            &recorded,
+            true,
+            device(&on_device),
+        );
+        assert_eq!(paths(&plan.kept), [path]);
+        assert!(plan.to_copy.is_empty());
+
+        // ビットレートを変えた: 同じ場所に変換し直す
+        let plan = plan_sync(
+            &[transcoded("t1", "One", 128)],
+            &[],
+            &recorded,
+            true,
+            device(&on_device),
+        );
+        assert_eq!(copy_dests(&plan), [path]);
+        assert!(plan.to_delete.is_empty() && plan.kept.is_empty());
+
+        // 変換しない設定にした: 名前を変えずに、変換したファイルを消して元のファイルをコピーする
+        let plan = plan_sync(
+            &[source("t1", "Artist", "Album", 1, "One")],
+            &[],
+            &recorded,
+            true,
+            device(&on_device),
+        );
+        assert!(plan.to_rename.is_empty());
+        assert_eq!(paths(&plan.to_delete), [path]);
+        assert_eq!(copy_dests(&plan), ["Artist/Album/01 One.mp3"]);
+    }
+
+    #[test]
+    fn test_plan_does_not_rename_original_copies_into_transcoded_ones() {
+        // 変換しないでコピーした曲を、変換する設定にした
+        let old = "Artist/Album/01 One.mp3";
+        let plan = plan_sync(
+            &[transcoded("t1", "One", 256)],
+            &[],
+            &manifest(vec![entry(old, "t1")]),
+            true,
+            device(&[(old, 100)]),
+        );
+        assert!(plan.to_rename.is_empty());
+        assert_eq!(paths(&plan.to_delete), [old]);
+        assert_eq!(copy_dests(&plan), ["Artist/Album/01 One.m4a"]);
+
+        // タグだけが変わった変換済みの曲は、名前を変える
+        let recorded = "Artist/Album/01 Old.m4a";
+        let plan = plan_sync(
+            &[transcoded("t1", "New", 256)],
+            &[],
+            &manifest(vec![transcoded_entry(recorded, "t1", 256, 5000)]),
+            true,
+            device(&[(recorded, 5000)]),
+        );
+        assert_eq!(plan.to_rename.len(), 1);
+        assert_eq!(plan.to_rename[0].to, "Artist/Album/01 New.m4a");
+    }
+
+    #[test]
+    fn test_plan_does_not_adopt_unmanaged_files_for_transcoded_tracks() {
+        // 記録のない同じ名前・元と同じサイズのファイルは、変換したものか分からないため、使わない
+        let desired = "Artist/Album/01 One.m4a";
+        let plan = plan_sync(
+            &[transcoded("t1", "One", 256)],
+            &[],
+            &manifest(vec![]),
+            true,
+            device(&[(desired, 100)]),
+        );
+        assert!(plan.kept.is_empty());
+        assert_eq!(copy_dests(&plan), ["Artist/Album/01 One (2).m4a"]);
     }
 
     #[test]
