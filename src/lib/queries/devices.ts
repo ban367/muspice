@@ -16,6 +16,9 @@ import { m } from '#lib/i18n/i18n.svelte.js';
 /** デバイスのページを開いている間に、接続の状態を読み直す間隔（ms） */
 const CONNECTION_POLL_INTERVAL_MS = 5000;
 
+/** ほかの画面の間に（サイドバーが）接続の状態を読み直す間隔（ms。抜き差しを知らせるため。ADR-113） */
+const BACKGROUND_POLL_INTERVAL_MS = 15000;
+
 /** ロールバック用に直前のデバイス一覧を保持するコンテキスト */
 interface DevicesSnapshot {
   previousDevices: SyncDevice[] | undefined;
@@ -32,13 +35,41 @@ interface UpdateDeviceVariables {
  *
  * @param options.poll 一定の間隔で読み直す（デバイスの抜き差しを反映する。デバイスのページ用）
  */
-export function useSyncDevicesQuery(options: { poll?: boolean } = {}) {
+export function useSyncDevicesQuery(options: { poll?: boolean | 'background' } = {}) {
   return createQuery(() => ({
     queryKey: queryKeys.syncDevices,
     queryFn: () => withErrorToast(m.operations.fetchDevices, () => commands.getSyncDevices()),
-    ...(options.poll
+    ...(options.poll === true
       ? { refetchInterval: CONNECTION_POLL_INTERVAL_MS, refetchOnMount: 'always' as const }
-      : {})
+      : options.poll === 'background'
+        ? { refetchInterval: BACKGROUND_POLL_INTERVAL_MS }
+        : {})
+  }));
+}
+
+/**
+ * 同期する内容の曲数と、ライブラリでのサイズの合計（デバイスのページの見通し。ADR-113）
+ *
+ * デバイスに触れずにライブラリの記録から求める。設定を変えた時（`useUpdateSyncDeviceMutation`）に取り直す。
+ */
+export function useSyncSelectionSummaryQuery(deviceId: () => string) {
+  return createQuery(() => ({
+    queryKey: queryKeys.syncSelectionSummary(deviceId()),
+    queryFn: () =>
+      withErrorToast(m.operations.fetchDevices, () => commands.getSyncSelectionSummary(deviceId()))
+  }));
+}
+
+/**
+ * デバイスのドライブを取り出すミューテーション（macOS。`SyncDevice.ejectable`の時だけ使う）
+ */
+export function useEjectSyncDeviceMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: (deviceId: string) =>
+      withErrorToast(m.operations.ejectDevice, () => commands.ejectSyncDevice(deviceId)),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.syncDevices })
   }));
 }
 
@@ -90,7 +121,12 @@ export function useUpdateSyncDeviceMutation() {
         queryClient.setQueryData(queryKeys.syncDevices, context.previousDevices);
       }
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.syncDevices })
+    onSettled: (_data: unknown, _error: unknown, { deviceId }: UpdateDeviceVariables) =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.syncDevices }),
+        // 同期する内容が変わったら、見通しも取り直す
+        queryClient.invalidateQueries({ queryKey: queryKeys.syncSelectionSummary(deviceId) })
+      ])
   }));
 }
 

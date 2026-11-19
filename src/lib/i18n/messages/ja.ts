@@ -184,6 +184,7 @@ export const ja = {
     updateDevice: 'デバイスの設定の変更',
     relinkDevice: '転送先の変更',
     removeDevice: 'デバイスの登録の解除',
+    ejectDevice: 'デバイスの取り出し',
     cancelDeviceSync: '同期の中止'
   },
 
@@ -1537,6 +1538,16 @@ export const ja = {
     relink: '転送先を変更',
     relinked: '転送先を変更しました',
     remove: '登録を解除',
+    /** ドライブの取り出し（macOS。ADR-113） */
+    eject: '取り出す',
+    ejected: (name: string) => `「${name}」を取り出しました`,
+    /** 登録済みのデバイスがつながった時の知らせ */
+    connectedNotice: (name: string) =>
+      `「${name}」が接続されました。デバイスのページから同期できます`,
+    /** 同期する内容の見通し（曲数とサイズ。デバイスの容量より大きい時の注意） */
+    selectionSummary: (count: number, size: string) => `選んだ内容: ${count}曲（${size}）`,
+    selectionTooLarge: (total: string) =>
+      `デバイスの容量（${total}）より大きいため、すべての曲は入りません`,
     confirmRemove: (name: string) =>
       `デバイス「${name}」の登録を解除しますか？\nデバイス上の曲は削除されません。`,
     removed: 'デバイスの登録を解除しました',
@@ -1570,6 +1581,9 @@ export const ja = {
       rename: '名前の変更',
       /** 曲に添える歌詞ファイル・フォルダの画像（ADR-112） */
       extras: '歌詞・フォルダの画像',
+      /** 確認の画面の、曲の一覧（開くと出す。多い時は先頭だけ） */
+      moreItems: (count: number) => `ほか${count}曲`,
+      showDetails: '曲の一覧を見る',
       extraCounts: (copied: number, deleted: number) =>
         [copied > 0 && `コピー ${copied}件`, deleted > 0 && `削除 ${deleted}件`]
           .filter(Boolean)

@@ -50,8 +50,24 @@
   // 現在のパスからアクティブなページを判定
   const currentPath = $derived(page.url.pathname);
 
-  // 転送先デバイス
-  const devicesQuery = useSyncDevicesQuery();
+  // 転送先デバイス（抜き差しを知らせるため、ほかの画面の間も、ゆっくりした間隔で読み直す）
+  const devicesQuery = useSyncDevicesQuery({ poll: 'background' });
+
+  // 登録済みのデバイスがつながったら知らせる（最初に読んだ時と、登録したばかりのデバイスは知らせない。
+  // 自動では同期しない。ADR-113）
+  let knownConnections: Record<string, boolean> | null = null;
+  $effect(() => {
+    const devices = devicesQuery.data;
+    if (!devices) return;
+    const previous = knownConnections;
+    knownConnections = Object.fromEntries(devices.map((device) => [device.id, device.connected]));
+    if (previous === null) return;
+    for (const device of devices) {
+      if (device.connected && previous[device.id] === false) {
+        showSuccess(m.devices.connectedNotice(device.name));
+      }
+    }
+  });
   const registerDeviceMutation = useRegisterSyncDeviceMutation();
   const queryClient = useQueryClient();
 

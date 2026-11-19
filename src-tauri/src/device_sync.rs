@@ -804,6 +804,7 @@ mod tests {
             track_number: Some(number),
             disc_number: None,
             duration: Some(180),
+            file_size: 100,
         }
     }
 
@@ -1206,6 +1207,7 @@ mod tests {
             track_number: None,
             disc_number: None,
             duration: None,
+            file_size: 0,
         };
         assert_eq!(
             track_relative_path(&track, &legacy()),

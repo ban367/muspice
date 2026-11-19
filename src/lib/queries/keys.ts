@@ -105,5 +105,7 @@ export const queryKeys = {
   musicFolder: ['musicFolder'] as const,
 
   /** 転送先デバイス（SDカードなどのフォルダ） */
-  syncDevices: ['syncDevices'] as const
+  syncDevices: ['syncDevices'] as const,
+  /** 同期する内容の見通し（デバイスごと。設定を変えたら取り直す） */
+  syncSelectionSummary: (deviceId: string) => ['syncSelectionSummary', deviceId] as const
 } as const;
