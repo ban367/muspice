@@ -39,6 +39,8 @@ export function invalidateTrackListQueries(queryClient: QueryClient) {
   queryClient.invalidateQueries({ queryKey: queryKeys.artists.list });
   queryClient.invalidateQueries({ queryKey: queryKeys.genres.list });
   queryClient.invalidateQueries({ queryKey: queryKeys.unique.all });
+  // デバイスの同期する内容の見通し（曲数・サイズ）も変わる（自動プレイリストの曲・ファイルのサイズ）
+  queryClient.invalidateQueries({ queryKey: queryKeys.syncSelectionSummaries });
   // プレイリストは除外（プレイリストに入っている曲のIDは変わらない）
 }
 
@@ -362,6 +364,8 @@ export function useSetFavoriteMutation() {
       patchTracksInCache(queryClient, trackIds, { isFavorite: favorite });
       // お気に入りの一覧は、入っている曲と並びが変わるため取り直す
       queryClient.invalidateQueries({ queryKey: queryKeys.tracks.favorites });
+      // お気に入りを条件にした自動プレイリストを同期するデバイスの見通しも変わる
+      queryClient.invalidateQueries({ queryKey: queryKeys.syncSelectionSummaries });
     }
   }));
 }
@@ -380,6 +384,8 @@ export function useSetRatingMutation() {
     },
     onSuccess: (_result, { trackId, rating }) => {
       patchTrackInCache(queryClient, trackId, { rating });
+      // 評価を条件にした自動プレイリストを同期するデバイスの見通しも変わる
+      queryClient.invalidateQueries({ queryKey: queryKeys.syncSelectionSummaries });
     }
   }));
 }

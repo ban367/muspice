@@ -50,7 +50,8 @@ export function useSyncDevicesQuery(options: { poll?: boolean | 'background' } =
 /**
  * 同期する内容の曲数と、ライブラリでのサイズの合計（デバイスのページの見通し。ADR-113）
  *
- * デバイスに触れずにライブラリの記録から求める。設定を変えた時（`useUpdateSyncDeviceMutation`）に取り直す。
+ * デバイスに触れずにライブラリの記録から求める。設定を変えた時（`useUpdateSyncDeviceMutation`）と、
+ * ライブラリ・プレイリスト・評価・お気に入りが変わった時（`queryKeys.syncSelectionSummaries`の無効化）に取り直す。
  */
 export function useSyncSelectionSummaryQuery(deviceId: () => string) {
   return createQuery(() => ({
