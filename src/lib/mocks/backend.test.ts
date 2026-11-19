@@ -2660,7 +2660,8 @@ describe('転送先デバイス', () => {
       syncAll: true,
       playlistIds: [mockPlaylistId(2), mockPlaylistId(99)],
       removeUnselected: false,
-      pathTemplate: ' %artist%/%title% '
+      pathTemplate: ' %artist%/%title% ',
+      copyExtras: false
     });
 
     expect(updated).toMatchObject({
@@ -2668,7 +2669,8 @@ describe('転送先デバイス', () => {
       syncAll: true,
       playlistIds: [mockPlaylistId(2)],
       removeUnselected: false,
-      pathTemplate: '%artist%/%title%'
+      pathTemplate: '%artist%/%title%',
+      copyExtras: false
     });
   });
 

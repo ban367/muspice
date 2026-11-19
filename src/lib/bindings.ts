@@ -303,6 +303,8 @@ playlistCount: number } | null>("set_music_folder", { source }),
 	removeUnselected: boolean,
 	/**  デバイス上の配置の書式（ファイルの整理と同じ書き方。ADR-111） */
 	pathTemplate: string,
+	/**  曲に添えて、歌詞ファイル・フォルダの画像もコピーするか（ADR-112） */
+	copyExtras: boolean,
 	/**  接続されているか（転送先のフォルダに、このデバイスの管理ファイルがあるか） */
 	connected: boolean,
 	/**  空き容量・全体の容量（バイト）。接続されていない場合は値なし */
@@ -336,6 +338,8 @@ playlistCount: number } | null>("set_music_folder", { source }),
 	removeUnselected: boolean,
 	/**  デバイス上の配置の書式（ファイルの整理と同じ書き方。ADR-111） */
 	pathTemplate: string,
+	/**  曲に添えて、歌詞ファイル・フォルダの画像もコピーするか（ADR-112） */
+	copyExtras: boolean,
 	/**  接続されているか（転送先のフォルダに、このデバイスの管理ファイルがあるか） */
 	connected: boolean,
 	/**  空き容量・全体の容量（バイト）。接続されていない場合は値なし */
@@ -1331,7 +1335,11 @@ export type DeviceSyncPlan = {
 	playlistCount: number,
 	/**  元のファイルが見つからない曲数（コピーできない。コピー済みならデバイスに残す） */
 	missingSourceCount: number,
-	/**  デバイスの空き容量と、同期で増える容量（バイト） */
+	/**  コピー・削除する、曲に添えるファイル（歌詞ファイル・フォルダの画像）の数と、コピーするサイズ（ADR-112） */
+	extraCopyCount: number,
+	extraCopyBytes: number,
+	extraDeleteCount: number,
+	/**  デバイスの空き容量と、同期で増える容量（バイト。曲に添えるファイルを含む） */
 	freeBytes: number,
 	requiredBytes: number,
 	/**  空き容量が足りるか */
@@ -1358,6 +1366,9 @@ export type DeviceSyncResult = {
 	copiedCount: number,
 	deletedCount: number,
 	renamedCount: number,
+	/**  コピー・削除した、曲に添えるファイルの数 */
+	extraCopiedCount: number,
+	extraDeletedCount: number,
 	/**  書き出したプレイリスト数 */
 	playlistCount: number,
 	errorCount: number,
@@ -2353,6 +2364,8 @@ export type SyncDevice = {
 	removeUnselected: boolean,
 	/**  デバイス上の配置の書式（ファイルの整理と同じ書き方。ADR-111） */
 	pathTemplate: string,
+	/**  曲に添えて、歌詞ファイル・フォルダの画像もコピーするか（ADR-112） */
+	copyExtras: boolean,
 	/**  接続されているか（転送先のフォルダに、このデバイスの管理ファイルがあるか） */
 	connected: boolean,
 	/**  空き容量・全体の容量（バイト）。接続されていない場合は値なし */
@@ -2369,6 +2382,7 @@ export type SyncDeviceConfig = {
 	playlistIds: string[],
 	removeUnselected: boolean,
 	pathTemplate: string,
+	copyExtras: boolean,
 };
 
 /**  文字列の項目 */

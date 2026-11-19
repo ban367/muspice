@@ -14,7 +14,7 @@
 //! - 元のファイルが変わったかは、コピーした時点のサイズ・更新日時（管理ファイルの記録）と
 //!   比べて判定する
 
-use crate::device_manifest::{Manifest, ManifestFile, ManifestPlaylist};
+use crate::device_manifest::{Manifest, ManifestExtra, ManifestFile, ManifestPlaylist};
 use crate::file_organize::Template;
 use crate::library_folder::is_dst_shift;
 use crate::repository::TransferTrack;
@@ -58,6 +58,37 @@ pub struct SourceTrack {
     /// デバイス上の配置（デバイスの書式から求めた、デバイスのフォルダからの場所。区切りは`/`。
     /// `track_relative_path`）
     pub path: String,
+    /// 曲に添えてコピーするファイル（歌詞ファイル・フォルダの画像。ADR-112）
+    pub extras: Vec<SourceExtra>,
+}
+
+/// 曲に添えるファイルの種類
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExtraKind {
+    /// 曲と同じ名前の歌詞ファイル（`.lrc`）。デバイスでも、曲と同じ名前にする
+    Lyrics,
+    /// フォルダの画像（`cover.jpg`など）。デバイスでは、曲のフォルダに同じ名前で置く
+    FolderImage,
+}
+
+/// 曲に添えてコピーするファイル
+#[derive(Debug, Clone, PartialEq)]
+pub struct SourceExtra {
+    pub kind: ExtraKind,
+    /// 元のファイルのパス
+    pub source: String,
+    pub file: SourceFile,
+}
+
+/// デバイスへコピーする、曲に添えるファイル
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExtraCopyOp {
+    /// 元のファイルのパス
+    pub source: String,
+    /// コピー先（デバイスのフォルダからの相対パス）
+    pub dest: String,
+    pub size: i64,
+    pub modified_at: Option<i64>,
 }
 
 /// 元のファイルのサイズと更新日時（UNIX時間の秒）
@@ -137,12 +168,23 @@ pub struct SyncPlan {
     pub kept_playlists: Vec<ManifestPlaylist>,
     /// 元のファイルが見つからなかった曲数（デバイスにコピー済みなら、そのまま残す）
     pub missing_source_count: u32,
+    /// 曲に添えるファイルのうち、コピーするもの・削除するもの・そのまま残すもの（ADR-112）
+    pub extras_to_copy: Vec<ExtraCopyOp>,
+    pub extras_to_delete: Vec<ManifestExtra>,
+    pub kept_extras: Vec<ManifestExtra>,
+    /// 削除する、曲に添えたファイルの、デバイス上のサイズの合計
+    pub extra_delete_bytes: i64,
 }
 
 impl SyncPlan {
     /// コピーするファイルのサイズの合計
     pub fn copy_bytes(&self) -> i64 {
         self.to_copy.iter().map(|op| op.size).sum()
+    }
+
+    /// コピーする、曲に添えるファイルのサイズの合計
+    pub fn extra_copy_bytes(&self) -> i64 {
+        self.extras_to_copy.iter().map(|op| op.size).sum()
     }
 }
 
@@ -453,6 +495,7 @@ pub fn plan_sync(
         }
     }
 
+    plan_extras(&mut plan, tracks, &track_index, manifest, &device_file_size);
     plan_playlists(
         &mut plan,
         tracks,
@@ -463,6 +506,179 @@ pub fn plan_sync(
         device_file_size,
     );
     plan
+}
+
+/// 曲に添えるファイルの、デバイス上の場所（曲のデバイス上の場所から決める。置けない場合はNone）
+///
+/// 歌詞ファイルは、曲と同じ名前（拡張子だけを`.lrc`にする。連番の付いた曲は、連番も同じ）。
+/// フォルダの画像は、曲のフォルダに元のファイルと同じ名前で置く（デバイスのフォルダの直下の曲には
+/// 置かない。直下の画像は、どのアルバムの画像か分からないため）。
+fn extra_dest(track_path: &str, extra: &SourceExtra) -> Option<String> {
+    match extra.kind {
+        ExtraKind::Lyrics => {
+            let (stem, _) = split_extension(track_path);
+            Some(format!(
+                "{}.{}",
+                stem,
+                crate::file_organize::LYRICS_EXTENSION
+            ))
+        }
+        ExtraKind::FolderImage => {
+            let (folder, _) = track_path.rsplit_once('/')?;
+            let name = Path::new(&extra.source).file_name()?.to_str()?;
+            Some(format!("{}/{}", folder, sanitize_component(name)))
+        }
+    }
+}
+
+/// 曲に添えるファイル（歌詞ファイル・フォルダの画像）のコピー・削除を決める（ADR-112）
+///
+/// - 同期する曲の、同期した後の場所（コピー・名前の変更の先と、そのまま残す曲）に合わせて置く。
+///   同じ場所になるファイル（同じフォルダの曲の画像）は、曲順で最初の曲のものを使う
+/// - 記録があり、元のファイルが同じで変わっておらず、デバイス上にもある: そのまま残す。変わった・
+///   デバイス上にない: 同じ場所にコピーし直す
+/// - 記録がない: デバイス上になければコピーする。同じサイズのファイルがあれば、コピー済みとして記録する。
+///   違うファイルがあれば、置かない（利用者が置いたファイルを上書きしない）
+/// - 記録があるが、置く場所でなくなった（曲の場所が変わった・元のファイルがなくなった・コピーしない
+///   設定にした）: 削除する。ただし、元のファイルが見つからない曲・対象から外れて残す曲の、歌詞ファイルと
+///   同じフォルダの画像は残す（曲と一緒に残す）
+fn plan_extras(
+    plan: &mut SyncPlan,
+    tracks: &[SourceTrack],
+    track_index: &HashMap<&str, usize>,
+    manifest: &Manifest,
+    device_file_size: &impl Fn(&str) -> Option<i64>,
+) {
+    // 同期した後の、曲の場所（トラックID → 場所）
+    let mut final_paths: HashMap<&str, &str> = HashMap::new();
+    for op in &plan.to_copy {
+        final_paths.insert(op.track_id.as_str(), op.dest.as_str());
+    }
+    for op in &plan.to_rename {
+        final_paths.insert(op.entry.track_id.as_str(), op.to.as_str());
+    }
+    for entry in &plan.kept {
+        final_paths
+            .entry(entry.track_id.as_str())
+            .or_insert(entry.path.as_str());
+    }
+
+    // 元のファイルがない・対象から外れたが、そのまま残す曲（添えたファイルも残す）
+    let left_paths: Vec<&str> = plan
+        .kept
+        .iter()
+        .filter(|entry| {
+            track_index
+                .get(entry.track_id.as_str())
+                .is_none_or(|&index| tracks[index].file.is_none())
+        })
+        .map(|entry| entry.path.as_str())
+        .collect();
+
+    // 置く場所（パスのキー → 場所と元のファイル）
+    let mut desired: Vec<(String, String, &SourceExtra)> = Vec::new();
+    let mut claimed: HashSet<String> = HashSet::new();
+    for source in tracks {
+        let Some(track_path) = final_paths.get(source.track.id.as_str()) else {
+            continue;
+        };
+        for extra in &source.extras {
+            let Some(dest) = extra_dest(track_path, extra) else {
+                continue;
+            };
+            let key = path_key(&dest);
+            if claimed.insert(key.clone()) {
+                desired.push((key, dest, extra));
+            }
+        }
+    }
+
+    let recorded: HashMap<String, &ManifestExtra> = manifest
+        .extras
+        .iter()
+        .rev()
+        .map(|entry| (path_key(&entry.path), entry))
+        .collect();
+
+    for (key, dest, extra) in desired {
+        match recorded.get(&key) {
+            Some(entry)
+                if entry.source == extra.source
+                    && is_extra_unchanged(entry, &extra.file)
+                    && device_file_size(&entry.path) == Some(entry.size) =>
+            {
+                plan.kept_extras.push((*entry).clone());
+            }
+            Some(_) => plan.extras_to_copy.push(extra_copy_op(extra, dest)),
+            None => match device_file_size(&dest) {
+                None => plan.extras_to_copy.push(extra_copy_op(extra, dest)),
+                Some(size) if size == extra.file.size => plan.kept_extras.push(ManifestExtra {
+                    path: dest,
+                    source: extra.source.clone(),
+                    size,
+                    modified_at: extra.file.modified_at,
+                }),
+                // 利用者が置いたファイル: 上書きしない
+                Some(_) => {}
+            },
+        }
+    }
+
+    for (key, entry) in recorded {
+        if claimed.contains(&key) {
+            continue;
+        }
+        if belongs_to_left_track(&entry.path, &left_paths) {
+            plan.kept_extras.push(entry.clone());
+        } else {
+            plan.extra_delete_bytes += device_file_size(&entry.path).unwrap_or(0);
+            plan.extras_to_delete.push(entry.clone());
+        }
+    }
+    // 管理ファイルの順を一定にする（記録の順）
+    plan.extras_to_delete.sort_by(|a, b| a.path.cmp(&b.path));
+}
+
+/// 曲に添えたファイルが、そのまま残す曲（元のファイルがない・対象から外れた曲）のものか
+///
+/// 歌詞ファイルは、拡張子を除いた名前が同じ曲。画像は、同じフォルダの曲。
+fn belongs_to_left_track(extra_path: &str, left_paths: &[&str]) -> bool {
+    let is_lyrics = split_extension(extra_path)
+        .1
+        .eq_ignore_ascii_case(&format!(".{}", crate::file_organize::LYRICS_EXTENSION));
+    if is_lyrics {
+        let stem = path_key(split_extension(extra_path).0);
+        left_paths
+            .iter()
+            .any(|path| path_key(split_extension(path).0) == stem)
+    } else {
+        let folder = extra_path
+            .rsplit_once('/')
+            .map(|(folder, _)| path_key(folder));
+        left_paths
+            .iter()
+            .any(|path| path.rsplit_once('/').map(|(f, _)| path_key(f)) == folder)
+    }
+}
+
+/// 曲に添えたファイルの元のファイルが、コピーした時点から変わっていないか（曲と同じ判定）
+fn is_extra_unchanged(entry: &ManifestExtra, file: &SourceFile) -> bool {
+    entry.size == file.size
+        && match (entry.modified_at, file.modified_at) {
+            (Some(recorded), Some(current)) => {
+                recorded == current || is_dst_shift(recorded, current)
+            }
+            _ => true,
+        }
+}
+
+fn extra_copy_op(extra: &SourceExtra, dest: String) -> ExtraCopyOp {
+    ExtraCopyOp {
+        source: extra.source.clone(),
+        dest,
+        size: extra.file.size,
+        modified_at: extra.file.modified_at,
+    }
 }
 
 /// プレイリストのファイルの書き出し・削除を決める
@@ -606,6 +822,7 @@ mod tests {
                 size: 100,
                 modified_at: Some(10),
             }),
+            extras: Vec::new(),
         }
     }
 
@@ -739,6 +956,217 @@ mod tests {
         assert_eq!(track_relative_path(&track, &flat), "Someone - Song.mp3");
     }
 
+    /// 曲に添えるファイルのある、元のファイルが見つかるトラック
+    fn source_with_extras(
+        id: &str,
+        album: &str,
+        number: i32,
+        extras: Vec<SourceExtra>,
+    ) -> SourceTrack {
+        SourceTrack {
+            extras,
+            ..source(id, "Artist", album, number, id)
+        }
+    }
+
+    fn extra(kind: ExtraKind, source: &str, size: i64) -> SourceExtra {
+        SourceExtra {
+            kind,
+            source: source.to_string(),
+            file: SourceFile {
+                size,
+                modified_at: Some(10),
+            },
+        }
+    }
+
+    fn extra_entry(path: &str, source: &str, size: i64) -> ManifestExtra {
+        ManifestExtra {
+            path: path.to_string(),
+            source: source.to_string(),
+            size,
+            modified_at: Some(10),
+        }
+    }
+
+    #[test]
+    fn test_plan_copies_lyrics_and_one_folder_image_per_folder() {
+        let tracks = vec![
+            source_with_extras(
+                "t1",
+                "Album",
+                1,
+                vec![
+                    extra(ExtraKind::Lyrics, "/music/t1.lrc", 5),
+                    extra(ExtraKind::FolderImage, "/music/Album/Cover.JPG", 50),
+                ],
+            ),
+            // 同じフォルダの2曲目の画像は、1曲目のものと同じ場所になるため、コピーしない
+            source_with_extras(
+                "t2",
+                "Album",
+                2,
+                vec![extra(ExtraKind::FolderImage, "/music/Other/folder.jpg", 60)],
+            ),
+        ];
+        let plan = plan_sync(&tracks, &[], &manifest(vec![]), true, device(&[]));
+
+        let mut dests: Vec<&str> = plan
+            .extras_to_copy
+            .iter()
+            .map(|op| op.dest.as_str())
+            .collect();
+        dests.sort_unstable();
+        assert_eq!(
+            dests,
+            [
+                "Artist/Album/01 t1.lrc",
+                "Artist/Album/Cover.JPG",
+                "Artist/Album/folder.jpg"
+            ]
+        );
+        assert_eq!(plan.extra_copy_bytes(), 5 + 50 + 60);
+    }
+
+    #[test]
+    fn test_plan_keeps_unchanged_extras_and_recopies_changed_ones() {
+        let tracks = vec![source_with_extras(
+            "t1",
+            "Album",
+            1,
+            vec![
+                extra(ExtraKind::Lyrics, "/music/t1.lrc", 5),
+                extra(ExtraKind::FolderImage, "/music/cover.jpg", 70),
+            ],
+        )];
+        let files = vec![entry("Artist/Album/01 t1.mp3", "t1")];
+        let on_device = [
+            ("Artist/Album/01 t1.mp3", 100),
+            ("Artist/Album/01 t1.lrc", 5),
+            ("Artist/Album/cover.jpg", 50),
+        ];
+        let manifest = Manifest {
+            extras: vec![
+                extra_entry("Artist/Album/01 t1.lrc", "/music/t1.lrc", 5),
+                // 元の画像が差し替えられた（サイズが変わった）
+                extra_entry("Artist/Album/cover.jpg", "/music/cover.jpg", 50),
+            ],
+            ..manifest(files)
+        };
+
+        let plan = plan_sync(&tracks, &[], &manifest, true, device(&on_device));
+
+        assert_eq!(
+            plan.kept_extras
+                .iter()
+                .map(|e| e.path.as_str())
+                .collect::<Vec<_>>(),
+            ["Artist/Album/01 t1.lrc"]
+        );
+        assert_eq!(
+            plan.extras_to_copy
+                .iter()
+                .map(|op| op.dest.as_str())
+                .collect::<Vec<_>>(),
+            ["Artist/Album/cover.jpg"]
+        );
+        assert!(plan.extras_to_delete.is_empty());
+    }
+
+    #[test]
+    fn test_plan_does_not_overwrite_unmanaged_extras_and_adopts_same_size() {
+        let tracks = vec![source_with_extras(
+            "t1",
+            "Album",
+            1,
+            vec![
+                extra(ExtraKind::Lyrics, "/music/t1.lrc", 5),
+                extra(ExtraKind::FolderImage, "/music/cover.jpg", 70),
+            ],
+        )];
+        // 記録のないファイル: 同じサイズの歌詞はコピー済みとして記録し、違う画像は上書きしない
+        let on_device = [
+            ("Artist/Album/01 t1.lrc", 5),
+            ("Artist/Album/cover.jpg", 999),
+        ];
+        let plan = plan_sync(&tracks, &[], &manifest(vec![]), true, device(&on_device));
+
+        assert_eq!(
+            plan.kept_extras
+                .iter()
+                .map(|e| e.path.as_str())
+                .collect::<Vec<_>>(),
+            ["Artist/Album/01 t1.lrc"]
+        );
+        assert!(plan.extras_to_copy.is_empty());
+    }
+
+    #[test]
+    fn test_plan_deletes_extras_of_removed_tracks_but_keeps_those_of_left_tracks() {
+        // t1は同期する曲で、歌詞ファイルがなくなった。t2は対象から外れた（残す設定）
+        let tracks = vec![source("t1", "Artist", "Album", 1, "t1")];
+        let files = vec![
+            entry("Artist/Album/01 t1.mp3", "t1"),
+            entry("Artist/Other/01 t2.mp3", "t2"),
+        ];
+        let on_device = [
+            ("Artist/Album/01 t1.mp3", 100),
+            ("Artist/Album/01 t1.lrc", 5),
+            ("Artist/Other/01 t2.mp3", 100),
+            ("Artist/Other/01 t2.lrc", 5),
+            ("Artist/Other/cover.jpg", 50),
+        ];
+        let manifest = Manifest {
+            extras: vec![
+                extra_entry("Artist/Album/01 t1.lrc", "/music/t1.lrc", 5),
+                extra_entry("Artist/Other/01 t2.lrc", "/music/t2.lrc", 5),
+                extra_entry("Artist/Other/cover.jpg", "/music/cover.jpg", 50),
+            ],
+            ..manifest(files)
+        };
+
+        let plan = plan_sync(&tracks, &[], &manifest, false, device(&on_device));
+
+        assert_eq!(
+            plan.extras_to_delete
+                .iter()
+                .map(|e| e.path.as_str())
+                .collect::<Vec<_>>(),
+            ["Artist/Album/01 t1.lrc"]
+        );
+        let mut kept: Vec<&str> = plan.kept_extras.iter().map(|e| e.path.as_str()).collect();
+        kept.sort_unstable();
+        assert_eq!(kept, ["Artist/Other/01 t2.lrc", "Artist/Other/cover.jpg"]);
+        assert_eq!(plan.extra_delete_bytes, 5);
+    }
+
+    #[test]
+    fn test_plan_moves_lyrics_with_renamed_tracks() {
+        // 配置が変わって名前を変える曲の歌詞ファイルは、古い場所を消し、新しい場所へコピーする
+        let mut tracks = vec![source_with_extras(
+            "t1",
+            "New Album",
+            1,
+            vec![extra(ExtraKind::Lyrics, "/music/t1.lrc", 5)],
+        )];
+        tracks[0].track.album = Some("New Album".to_string());
+        let files = vec![entry("Artist/Album/01 t1.mp3", "t1")];
+        let on_device = [
+            ("Artist/Album/01 t1.mp3", 100),
+            ("Artist/Album/01 t1.lrc", 5),
+        ];
+        let manifest = Manifest {
+            extras: vec![extra_entry("Artist/Album/01 t1.lrc", "/music/t1.lrc", 5)],
+            ..manifest(files)
+        };
+
+        let plan = plan_sync(&tracks, &[], &manifest, true, device(&on_device));
+
+        assert_eq!(plan.to_rename[0].to, "Artist/New Album/01 t1.mp3");
+        assert_eq!(plan.extras_to_copy[0].dest, "Artist/New Album/01 t1.lrc");
+        assert_eq!(plan.extras_to_delete[0].path, "Artist/Album/01 t1.lrc");
+    }
+
     #[test]
     fn test_plan_renames_tracks_when_the_template_changes() {
         // 以前の配置でコピー済みの曲（元のファイルは変わっていない）
@@ -754,6 +1182,7 @@ mod tests {
                 size: 100,
                 modified_at: Some(10),
             }),
+            extras: Vec::new(),
         }];
 
         let plan = plan_sync(&tracks, &[], &manifest(files), true, device(&on_device));

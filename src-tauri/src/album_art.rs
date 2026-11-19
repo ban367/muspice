@@ -58,6 +58,18 @@ fn folder_image_rank(path: &Path) -> Option<(usize, usize)> {
     ))
 }
 
+/// フォルダの中のファイルのうち、表示に使うフォルダの画像の名前で、いちばん先のもの
+///
+/// 名前の優先順（`find_folder_image`と同じ）で選ぶ。中身は確かめない。
+pub(crate) fn preferred_folder_image(paths: &[PathBuf]) -> Option<PathBuf> {
+    paths
+        .iter()
+        .filter_map(|path| Some((folder_image_rank(path)?, path)))
+        .filter(|(_, path)| path.is_file())
+        .min()
+        .map(|(_, path)| path.clone())
+}
+
 /// ファイル名が、フォルダの画像の名前か（ファイルの整理で、曲と一緒に移す画像の判定に使う）
 pub(crate) fn is_folder_image(path: &Path) -> bool {
     folder_image_rank(path).is_some()

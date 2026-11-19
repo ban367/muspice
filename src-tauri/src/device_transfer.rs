@@ -2,7 +2,9 @@
 //!
 //! `device_sync::plan_sync`が決めた処理を、デバイスのフォルダに対して行う。
 //!
-//! - 順序は「削除 → リネーム → コピー → プレイリスト」（削除で空いた容量と場所を先に使えるようにする）
+//! - 順序は「削除 → リネーム → コピー → 曲に添えるファイル → プレイリスト」（削除で空いた容量と場所を
+//!   先に使えるようにする）。曲に添えるファイル（歌詞ファイル・フォルダの画像。ADR-112）は、曲と
+//!   一緒に削除し、曲のコピーの後にコピーする
 //! - コピーは`std::fs::copy`を使わず、読み書きを自分で行う。macOSの`fs::copy`は拡張属性も
 //!   コピーするため、FAT32・exFATでは`._`で始まるファイルができ、機器によっては曲として
 //!   表示されてしまう。進捗の通知と、ファイルの途中での中止もできる
@@ -11,10 +13,10 @@
 //! - 管理ファイルは途中でも保存する（中止・取り外しの後、次の同期で続きから差分になる）
 
 use crate::device_manifest::{
-    Manifest, ManifestFile, ManifestPlaylist, create_temp_file, remove_file_if_exists,
-    to_device_path, write_manifest,
+    Manifest, ManifestExtra, ManifestFile, ManifestPlaylist, create_temp_file,
+    remove_file_if_exists, to_device_path, write_manifest,
 };
-use crate::device_sync::{CopyOp, SyncPlan, build_m3u8, path_key};
+use crate::device_sync::{CopyOp, ExtraCopyOp, SyncPlan, build_m3u8, path_key};
 use crate::error::{AppError, AppResult};
 use crate::library::modified_at_of;
 use std::collections::{BTreeMap, HashMap};
@@ -56,6 +58,9 @@ pub struct TransferOutcome {
     pub copied_count: u32,
     pub deleted_count: u32,
     pub renamed_count: u32,
+    /// コピー・削除した、曲に添えるファイルの数
+    pub extra_copied_count: u32,
+    pub extra_deleted_count: u32,
     /// 書き出したプレイリスト数
     pub playlist_count: u32,
     /// 失敗したファイルと理由
@@ -75,6 +80,8 @@ struct Device<'a> {
     files: BTreeMap<String, ManifestFile>,
     /// 書き出し済みのプレイリスト（パスのキー → 記録）
     playlists: BTreeMap<String, ManifestPlaylist>,
+    /// コピー済みの、曲に添えるファイル（パスのキー → 記録）
+    extras: BTreeMap<String, ManifestExtra>,
 }
 
 impl Device<'_> {
@@ -118,6 +125,7 @@ impl Device<'_> {
             device_id: self.device_id.clone(),
             files: self.files.values().cloned().collect(),
             playlists: self.playlists.values().cloned().collect(),
+            extras: self.extras.values().cloned().collect(),
         };
         write_manifest(self.root, &manifest)
     }
@@ -242,6 +250,7 @@ pub fn execute_plan(
         version: manifest.version,
         files: BTreeMap::new(),
         playlists: BTreeMap::new(),
+        extras: BTreeMap::new(),
     };
     // 今の記録から始めて、済んだ処理を反映していく（同じパスの記録は最初の1件を使う）
     for entry in manifest.files {
@@ -253,9 +262,15 @@ pub fn execute_plan(
             .entry(path_key(&entry.path))
             .or_insert(entry);
     }
+    for entry in manifest.extras {
+        device.extras.entry(path_key(&entry.path)).or_insert(entry);
+    }
     // そのまま残す曲（コピー済みとして扱うことにした、記録のないファイルを含む）
     for entry in &plan.kept {
         device.files.insert(path_key(&entry.path), entry.clone());
+    }
+    for entry in &plan.kept_extras {
+        device.extras.insert(path_key(&entry.path), entry.clone());
     }
 
     let mut outcome = TransferOutcome::default();
@@ -278,6 +293,32 @@ pub fn execute_plan(
             // 親フォルダごとなくなっている場合も、削除済みとして扱う
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
                 device.files.remove(&path_key(&entry.path));
+            }
+            Err(e) => {
+                device.ensure_connected()?;
+                outcome
+                    .errors
+                    .push(format!("{}: 削除できませんでした（{}）", entry.path, e));
+            }
+        }
+    }
+
+    // 曲に添えたファイルの削除（曲と同じく、記録のあるファイルだけ）
+    for entry in &plan.extras_to_delete {
+        if is_cancelled() {
+            break;
+        }
+        let removed = device
+            .resolve(&entry.path, false)
+            .and_then(|path| remove_file_if_exists(&path).map(|()| path));
+        match removed {
+            Ok(path) => {
+                device.remove_empty_parents(&path);
+                device.extras.remove(&path_key(&entry.path));
+                outcome.extra_deleted_count += 1;
+            }
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                device.extras.remove(&path_key(&entry.path));
             }
             Err(e) => {
                 device.ensure_connected()?;
@@ -319,12 +360,16 @@ pub fn execute_plan(
             }
         }
     }
-    if outcome.deleted_count > 0 || outcome.renamed_count > 0 {
+    if outcome.deleted_count > 0 || outcome.renamed_count > 0 || outcome.extra_deleted_count > 0 {
         device.save()?;
     }
 
     // 3. コピー
-    let storage_full = copy_files(&mut device, plan, cancel, on_progress, &mut outcome)?;
+    let mut storage_full = copy_files(&mut device, plan, cancel, on_progress, &mut outcome)?;
+    // 曲に添えるファイル（歌詞ファイル・フォルダの画像）。中止・容量が足りない場合はコピーしない
+    if !is_cancelled() && !storage_full {
+        storage_full = copy_extras(&mut device, &plan.extras_to_copy, cancel, &mut outcome)?;
+    }
     outcome.cancelled = is_cancelled();
 
     // 4. プレイリスト（中止された場合と、容量が足りなくなった場合は書き出さない）
@@ -411,6 +456,58 @@ fn copy_files(
             bytes_total,
             current_file: String::new(),
         });
+    }
+    Ok(false)
+}
+
+/// 曲に添えるファイルをコピーする（小さいファイルのため、進捗は送らない）
+///
+/// デバイスの容量が足りなくなって打ち切った場合はtrueを返す。
+fn copy_extras(
+    device: &mut Device,
+    ops: &[ExtraCopyOp],
+    cancel: &AtomicBool,
+    outcome: &mut TransferOutcome,
+) -> AppResult<bool> {
+    let mut buffer = vec![0u8; COPY_BUFFER_SIZE];
+    for op in ops {
+        if cancel.load(Ordering::SeqCst) {
+            break;
+        }
+        let source = Path::new(&op.source);
+        let copied = device
+            .resolve(&op.dest, true)
+            .and_then(|dest| copy_file(source, &dest, &mut buffer, cancel, &mut |_| {}));
+        match copied {
+            Ok(Some(written)) => {
+                let modified_at = fs::metadata(source)
+                    .ok()
+                    .and_then(|metadata| modified_at_of(&metadata))
+                    .or(op.modified_at);
+                device.extras.insert(
+                    path_key(&op.dest),
+                    ManifestExtra {
+                        path: op.dest.clone(),
+                        source: op.source.clone(),
+                        size: written,
+                        modified_at,
+                    },
+                );
+                outcome.extra_copied_count += 1;
+            }
+            Ok(None) => break,
+            Err(e) => {
+                device.ensure_connected()?;
+                if e.kind() == io::ErrorKind::StorageFull {
+                    outcome.errors.push(
+                        "デバイスの空き容量が足りなくなったため、コピーを打ち切りました"
+                            .to_string(),
+                    );
+                    return Ok(true);
+                }
+                outcome.errors.push(format!("{}: {}", op.source, e));
+            }
+        }
     }
     Ok(false)
 }
@@ -641,6 +738,87 @@ mod tests {
         assert_eq!(progress.first().unwrap().current_file, "01 One.mp3");
         let last = progress.last().unwrap();
         assert_eq!((last.current, last.bytes_done, last.bytes_total), (2, 7, 7));
+    }
+
+    #[test]
+    fn test_copies_and_deletes_extras() {
+        let fixture = Fixture::new();
+        // 曲と一緒に消す、古い歌詞ファイル（記録あり）
+        let old_lyrics = to_device_path(&fixture.root, "Old/Album/01 Gone.lrc");
+        fs::create_dir_all(old_lyrics.parent().unwrap()).unwrap();
+        fs::write(&old_lyrics, "old").unwrap();
+        let old_entry = ManifestExtra {
+            path: "Old/Album/01 Gone.lrc".to_string(),
+            source: "/music/gone.lrc".to_string(),
+            size: 3,
+            modified_at: Some(1),
+        };
+        let lyrics_source = fixture.library.join("one.lrc");
+        fs::write(&lyrics_source, "[00:01.00]la").unwrap();
+        let plan = SyncPlan {
+            to_copy: vec![fixture.copy_op("t1", "Artist/Album/01 One.mp3", "one")],
+            extras_to_copy: vec![ExtraCopyOp {
+                source: lyrics_source.to_str().unwrap().to_string(),
+                dest: "Artist/Album/01 One.lrc".to_string(),
+                size: 12,
+                modified_at: Some(1),
+            }],
+            extras_to_delete: vec![old_entry.clone()],
+            ..SyncPlan::default()
+        };
+        let manifest = Manifest {
+            extras: vec![old_entry],
+            ..fixture.manifest(vec![])
+        };
+
+        let outcome = fixture.execute(manifest, &plan);
+
+        assert_eq!(
+            (outcome.extra_copied_count, outcome.extra_deleted_count),
+            (1, 1)
+        );
+        assert_eq!(
+            fixture.read("Artist/Album/01 One.lrc").as_deref(),
+            Some("[00:01.00]la")
+        );
+        // 消した歌詞ファイルのフォルダは、空になったため消える
+        assert!(!fixture.root.join("Old").exists());
+        let saved = read_manifest(&fixture.root).unwrap().unwrap();
+        assert_eq!(
+            saved
+                .extras
+                .iter()
+                .map(|e| (e.path.as_str(), e.size))
+                .collect::<Vec<_>>(),
+            [("Artist/Album/01 One.lrc", 12)]
+        );
+    }
+
+    #[test]
+    fn test_extras_are_not_copied_after_cancel() {
+        let fixture = Fixture::new();
+        let source = fixture.library.join("cover.jpg");
+        fs::write(&source, "jpg").unwrap();
+        let plan = SyncPlan {
+            extras_to_copy: vec![ExtraCopyOp {
+                source: source.to_str().unwrap().to_string(),
+                dest: "Artist/Album/cover.jpg".to_string(),
+                size: 3,
+                modified_at: Some(1),
+            }],
+            ..SyncPlan::default()
+        };
+        let outcome = execute_plan(
+            &fixture.root,
+            fixture.manifest(vec![]),
+            &plan,
+            &AtomicBool::new(true),
+            &mut |_| {},
+        )
+        .unwrap();
+        assert!(outcome.cancelled);
+        assert_eq!(outcome.extra_copied_count, 0);
+        assert_eq!(fixture.read("Artist/Album/cover.jpg"), None);
     }
 
     #[test]

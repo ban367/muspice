@@ -40,11 +40,22 @@ describe('syncProgressPercent', () => {
 });
 
 describe('isDeviceUpToDate', () => {
-  it('コピー・削除・名前の変更がなければtrue', () => {
-    expect(isDeviceUpToDate({ copyCount: 0, deleteCount: 0, renameCount: 0 })).toBe(true);
-    expect(isDeviceUpToDate({ copyCount: 1, deleteCount: 0, renameCount: 0 })).toBe(false);
-    expect(isDeviceUpToDate({ copyCount: 0, deleteCount: 2, renameCount: 0 })).toBe(false);
-    expect(isDeviceUpToDate({ copyCount: 0, deleteCount: 0, renameCount: 3 })).toBe(false);
+  const none = {
+    copyCount: 0,
+    deleteCount: 0,
+    renameCount: 0,
+    extraCopyCount: 0,
+    extraDeleteCount: 0
+  };
+
+  it('コピー・削除・名前の変更（曲に添えるファイルを含む）がなければtrue', () => {
+    expect(isDeviceUpToDate(none)).toBe(true);
+    expect(isDeviceUpToDate({ ...none, copyCount: 1 })).toBe(false);
+    expect(isDeviceUpToDate({ ...none, deleteCount: 2 })).toBe(false);
+    expect(isDeviceUpToDate({ ...none, renameCount: 3 })).toBe(false);
+    // 歌詞ファイル・フォルダの画像だけをコピー・削除する時も、最新ではない
+    expect(isDeviceUpToDate({ ...none, extraCopyCount: 1 })).toBe(false);
+    expect(isDeviceUpToDate({ ...none, extraDeleteCount: 1 })).toBe(false);
   });
 });
 
