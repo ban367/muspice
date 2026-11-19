@@ -13,14 +13,16 @@ use crate::device_manifest::{
     Manifest, read_device_id, read_manifest, to_device_path, write_manifest,
 };
 use crate::device_sync::{
-    SourceFile, SourcePlaylist, SourceTrack, SyncPlan, plan_sync, track_relative_path,
+    ExtraKind, SourceExtra, SourceFile, SourcePlaylist, SourceTrack, SyncPlan, plan_sync,
+    track_relative_path,
 };
 use crate::device_transfer::{TransferProgress, execute_plan};
 use crate::error::{AppError, AppResult};
 use crate::events::DeviceSyncProgress;
-use crate::file_organize::Template;
+use crate::file_organize::{DirCache, Template};
 use crate::library::{modified_at_of, to_count};
 use crate::library_folder::{find_all_folders, folders_overlap, normalize_folder_path};
+use crate::metadata::MAX_ALBUM_ART_BYTES;
 use crate::settings::Language;
 use crate::state::AppState;
 use crate::validation::{validate_playlist_id, validate_track_id};
@@ -87,6 +89,7 @@ fn to_sync_device(record: DeviceRecord) -> SyncDevice {
         playlist_ids: record.playlist_ids,
         remove_unselected: record.remove_unselected,
         path_template: record.path_template,
+        copy_extras: record.copy_extras,
         connected,
         free_bytes,
         total_bytes,
@@ -349,6 +352,7 @@ fn prepare_sync(state: &AppState, device_id: &str) -> AppResult<PreparedSync> {
                 .to_string(),
         )
     })?;
+    let mut dir_cache = DirCache::default();
     let tracks: Vec<SourceTrack> = all_tracks
         .into_iter()
         .filter(|track| {
@@ -365,7 +369,18 @@ fn prepare_sync(state: &AppState, device_id: &str) -> AppResult<PreparedSync> {
                     modified_at: modified_at_of(&metadata),
                 });
             let path = track_relative_path(&track, &template);
-            SourceTrack { track, file, path }
+            // 歌詞ファイル・フォルダの画像（元のファイルがある曲だけ。フォルダは1回だけ読む）
+            let extras = if device.copy_extras && file.is_some() {
+                source_extras(&mut dir_cache, Path::new(&track.file_path))
+            } else {
+                Vec::new()
+            };
+            SourceTrack {
+                track,
+                file,
+                path,
+                extras,
+            }
         })
         .collect();
 
@@ -393,11 +408,44 @@ fn prepare_sync(state: &AppState, device_id: &str) -> AppResult<PreparedSync> {
     })
 }
 
+/// 曲に添えてコピーするファイル（同じ名前の歌詞ファイルと、フォルダの画像。ADR-112）
+///
+/// フォルダの画像は、アルバムアートの表示と同じ名前の優先順で、いちばん先の1つ（大きすぎる画像は使わない）。
+fn source_extras(dir_cache: &mut DirCache, track_path: &Path) -> Vec<SourceExtra> {
+    let lyrics = dir_cache
+        .lyrics_file(track_path)
+        .map(|path| (ExtraKind::Lyrics, path));
+    let image = track_path
+        .parent()
+        .and_then(|dir| dir_cache.folder_image(dir))
+        .map(|path| (ExtraKind::FolderImage, path));
+    lyrics
+        .into_iter()
+        .chain(image)
+        .filter_map(|(kind, path)| {
+            let metadata = fs::metadata(&path).ok().filter(|m| m.is_file())?;
+            if kind == ExtraKind::FolderImage && metadata.len() > MAX_ALBUM_ART_BYTES {
+                return None;
+            }
+            Some(SourceExtra {
+                kind,
+                source: path.to_str()?.to_string(),
+                file: SourceFile {
+                    size: to_bytes(metadata.len()),
+                    modified_at: modified_at_of(&metadata),
+                },
+            })
+        })
+        .collect()
+}
+
 /// 差分から、件数と必要な容量をまとめる
 fn summarize_plan(plan: &SyncPlan, free_bytes: i64) -> AppResult<DeviceSyncPlan> {
     let copy_bytes = plan.copy_bytes();
+    let extra_copy_bytes = plan.extra_copy_bytes();
     // 削除を先に行うため、削除で空く容量を差し引く
-    let required_bytes = (copy_bytes - plan.delete_bytes).max(0);
+    let required_bytes =
+        (copy_bytes + extra_copy_bytes - plan.delete_bytes - plan.extra_delete_bytes).max(0);
     Ok(DeviceSyncPlan {
         copy_count: to_count(plan.to_copy.len())?,
         copy_bytes,
@@ -407,6 +455,9 @@ fn summarize_plan(plan: &SyncPlan, free_bytes: i64) -> AppResult<DeviceSyncPlan>
         unchanged_count: to_count(plan.kept.len())?,
         playlist_count: to_count(plan.playlists.len())?,
         missing_source_count: plan.missing_source_count,
+        extra_copy_count: to_count(plan.extras_to_copy.len())?,
+        extra_copy_bytes,
+        extra_delete_count: to_count(plan.extras_to_delete.len())?,
         free_bytes,
         required_bytes,
         has_enough_space: required_bytes == 0
@@ -514,11 +565,13 @@ fn sync_device(
         state.with_db(|db| crate::device::mark_synced(db, device_id))?;
     }
     log::info!(
-        "Synced to device: {} copied={}, deleted={}, renamed={}, playlists={}, errors={}, cancelled={}",
+        "Synced to device: {} copied={}, deleted={}, renamed={}, extras copied={}, extras deleted={}, playlists={}, errors={}, cancelled={}",
         prepared.device.path,
         outcome.copied_count,
         outcome.deleted_count,
         outcome.renamed_count,
+        outcome.extra_copied_count,
+        outcome.extra_deleted_count,
         outcome.playlist_count,
         outcome.errors.len(),
         outcome.cancelled
@@ -528,6 +581,8 @@ fn sync_device(
         copied_count: outcome.copied_count,
         deleted_count: outcome.deleted_count,
         renamed_count: outcome.renamed_count,
+        extra_copied_count: outcome.extra_copied_count,
+        extra_deleted_count: outcome.extra_deleted_count,
         playlist_count: outcome.playlist_count,
         error_count: to_count(outcome.errors.len())?,
         errors: outcome.errors,
@@ -654,6 +709,7 @@ mod tests {
                 playlist_ids: playlist_ids.iter().map(|id| id.to_string()).collect(),
                 remove_unselected,
                 path_template: crate::device::DEFAULT_DEVICE_TEMPLATE.to_string(),
+                copy_extras: true,
             };
             self.state
                 .with_db(|db| update_device_config(db, device_id, &config))
@@ -722,6 +778,62 @@ mod tests {
             (0, 0, 2)
         );
         assert_eq!(fixture.sync(&device_id).copied_count, 0);
+    }
+
+    #[test]
+    fn test_sync_copies_lyrics_and_folder_image_and_removes_them_when_turned_off() {
+        let fixture = Fixture::new();
+        let id = fixture.add_track(
+            "00000000-0000-0000-0000-000000000001",
+            "Artist",
+            "Album",
+            1,
+            "One",
+        );
+        fs::write(fixture.library.join(format!("{}.LRC", id)), "[00:01.00]la").unwrap();
+        // フォルダの画像は、中身がJPEGかPNGのものだけを使う（表示と同じ。先頭がJPEGの印）
+        fs::write(fixture.library.join("cover.jpg"), b"\xFF\xD8\xFFjpeg").unwrap();
+        let device_id = fixture.register(true, &[]);
+
+        let plan = fixture.plan(&device_id);
+        assert_eq!((plan.copy_count, plan.extra_copy_count), (1, 2));
+        assert_eq!(plan.extra_copy_bytes, 12 + 7);
+        let result = fixture.sync(&device_id);
+        assert_eq!((result.extra_copied_count, result.error_count), (2, 0));
+        assert_eq!(
+            fixture.on_device("Artist/Album/01 One.lrc").as_deref(),
+            Some("[00:01.00]la")
+        );
+        assert_eq!(
+            fs::read(to_device_path(
+                &fixture.device_root,
+                "Artist/Album/cover.jpg"
+            ))
+            .unwrap(),
+            b"\xFF\xD8\xFFjpeg"
+        );
+        // もう一度同期しても、コピーし直さない
+        assert_eq!(fixture.plan(&device_id).extra_copy_count, 0);
+
+        // コピーしない設定にすると、コピーした歌詞ファイル・画像を消す（曲は残す）
+        let config = SyncDeviceConfig {
+            name: "SD".to_string(),
+            sync_all: true,
+            playlist_ids: Vec::new(),
+            remove_unselected: true,
+            path_template: crate::device::DEFAULT_DEVICE_TEMPLATE.to_string(),
+            copy_extras: false,
+        };
+        fixture
+            .state
+            .with_db(|db| update_device_config(db, &device_id, &config))
+            .unwrap();
+        let plan = fixture.plan(&device_id);
+        assert_eq!((plan.extra_delete_count, plan.unchanged_count), (2, 1));
+        assert_eq!(fixture.sync(&device_id).extra_deleted_count, 2);
+        assert_eq!(fixture.on_device("Artist/Album/01 One.lrc"), None);
+        assert_eq!(fixture.on_device("Artist/Album/cover.jpg"), None);
+        assert!(fixture.on_device("Artist/Album/01 One.mp3").is_some());
     }
 
     #[test]

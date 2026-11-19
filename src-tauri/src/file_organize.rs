@@ -455,6 +455,8 @@ pub struct Plan {
 #[derive(Default)]
 pub(crate) struct DirCache {
     entries: HashMap<PathBuf, Vec<PathBuf>>,
+    /// フォルダの画像（フォルダごとに1回だけ選ぶ）
+    images: HashMap<PathBuf, Option<PathBuf>>,
 }
 
 impl DirCache {
@@ -462,6 +464,16 @@ impl DirCache {
         self.entries
             .entry(dir.to_path_buf())
             .or_insert_with(|| list_dir(dir).unwrap_or_default())
+    }
+
+    /// フォルダの画像（アルバムアートの表示と同じ名前の優先順で、いちばん先のもの。デバイスへの転送に使う）
+    pub(crate) fn folder_image(&mut self, dir: &Path) -> Option<PathBuf> {
+        if let Some(image) = self.images.get(dir) {
+            return image.clone();
+        }
+        let image = crate::album_art::preferred_folder_image(self.list(dir));
+        self.images.insert(dir.to_path_buf(), image.clone());
+        image
     }
 
     /// 曲と同じフォルダにある、同じ名前の歌詞ファイル（`lyrics::read_track_lyrics`が読むもの）

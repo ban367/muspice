@@ -36,6 +36,25 @@ pub struct Manifest {
     /// Muspiceが書き出したプレイリストのファイル
     #[serde(default)]
     pub playlists: Vec<ManifestPlaylist>,
+    /// Muspiceが曲に添えてコピーしたファイル（歌詞ファイル・フォルダの画像。ADR-112）
+    ///
+    /// 項目を足す前の版は、この項目を読まずに書き直すため、記録がなくなることがある（その版で
+    /// 同期すると、添えたファイルは記録のないファイルになり、残る）。
+    #[serde(default)]
+    pub extras: Vec<ManifestExtra>,
+}
+
+/// 曲に添えてコピーしたファイル（歌詞ファイル・フォルダの画像）
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManifestExtra {
+    /// デバイスのフォルダからの相対パス（区切りは`/`）
+    pub path: String,
+    /// コピー元のファイルのパス（ライブラリの側）
+    pub source: String,
+    /// コピーした時点の、元のファイルのサイズと更新日時（UNIX時間の秒）
+    pub size: i64,
+    pub modified_at: Option<i64>,
 }
 
 /// デバイスにコピーした曲のファイル
@@ -70,6 +89,7 @@ impl Manifest {
             device_id: device_id.to_string(),
             files: Vec::new(),
             playlists: Vec::new(),
+            extras: Vec::new(),
         }
     }
 }
@@ -135,12 +155,14 @@ pub fn read_manifest(root: &Path) -> AppResult<Option<Manifest>> {
         ));
     }
 
-    let file_count = manifest.files.len() + manifest.playlists.len();
+    let file_count = manifest.files.len() + manifest.playlists.len() + manifest.extras.len();
     manifest.files.retain(|f| is_safe_relative_path(&f.path));
     manifest
         .playlists
         .retain(|p| is_safe_relative_path(&p.path));
-    let dropped = file_count - manifest.files.len() - manifest.playlists.len();
+    manifest.extras.retain(|e| is_safe_relative_path(&e.path));
+    let dropped =
+        file_count - manifest.files.len() - manifest.playlists.len() - manifest.extras.len();
     if dropped > 0 {
         log::warn!(
             "Ignored {} invalid path entries in the device manifest: {}",

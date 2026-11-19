@@ -801,6 +801,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       removeUnselected: true,
       // 配置の書式を持つ前に登録したデバイス（以前の配置。曲のアーティストで分ける）
       pathTemplate: '%artist%/%album%/[%disc%-]%track% %title%',
+      copyExtras: true,
       connected: true,
       createdAt: '2026-01-03T00:00:00.000Z',
       lastSyncedAt: '2026-01-04T00:00:00.000Z',
@@ -818,6 +819,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       playlistIds: [],
       removeUnselected: true,
       pathTemplate: DEFAULT_DEVICE_TEMPLATE,
+      copyExtras: true,
       connected: false,
       createdAt: '2026-01-02T00:00:00.000Z',
       lastSyncedAt: null,
@@ -2355,6 +2357,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       playlistIds: devicePlaylists(device).map((playlist) => playlist.id),
       removeUnselected: device.removeUnselected,
       pathTemplate: device.pathTemplate,
+      copyExtras: device.copyExtras,
       connected: device.connected,
       freeBytes: device.connected ? device.totalBytes - usedBytes(device) : null,
       totalBytes: device.connected ? device.totalBytes : null,
@@ -2413,6 +2416,10 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       unchangedCount: keptCount - renameCount,
       playlistCount: devicePlaylists(device).length,
       missingSourceCount: 0,
+      // 歌詞ファイル・フォルダの画像はモックにないため、ない（ADR-112）
+      extraCopyCount: 0,
+      extraCopyBytes: 0,
+      extraDeleteCount: 0,
       freeBytes,
       requiredBytes,
       hasEnoughSpace: requiredBytes === 0 || requiredBytes + SYNC_SPACE_MARGIN_BYTES <= freeBytes
@@ -2473,6 +2480,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         copiedCount,
         deletedCount: toDelete.length,
         renamedCount: summary.renameCount,
+        extraCopiedCount: 0,
+        extraDeletedCount: 0,
         playlistCount: cancelled ? 0 : summary.playlistCount,
         errorCount: 0,
         errors: [],
@@ -3605,6 +3614,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         playlistIds: [],
         removeUnselected: true,
         pathTemplate: DEFAULT_DEVICE_TEMPLATE,
+        copyExtras: true,
         connected: true,
         createdAt: now(),
         lastSyncedAt: null,
@@ -3625,6 +3635,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       const name = validateDeviceName(config.name);
       device.name = name;
       device.pathTemplate = pathTemplate;
+      device.copyExtras = config.copyExtras;
       device.syncAll = config.syncAll;
       // 実装と同じく、見つからないプレイリストは無視する
       device.playlistIds = config.playlistIds.filter((id) => playlists.some((p) => p.id === id));

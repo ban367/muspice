@@ -45,6 +45,8 @@ pub struct SyncDevice {
     pub remove_unselected: bool,
     /// デバイス上の配置の書式（ファイルの整理と同じ書き方。ADR-111）
     pub path_template: String,
+    /// 曲に添えて、歌詞ファイル・フォルダの画像もコピーするか（ADR-112）
+    pub copy_extras: bool,
     /// 接続されているか（転送先のフォルダに、このデバイスの管理ファイルがあるか）
     pub connected: bool,
     /// 空き容量・全体の容量（バイト）。接続されていない場合は値なし
@@ -65,6 +67,7 @@ pub struct SyncDeviceConfig {
     pub playlist_ids: Vec<String>,
     pub remove_unselected: bool,
     pub path_template: String,
+    pub copy_extras: bool,
 }
 
 /// 同期で行う処理の件数と、必要な容量（同期の前の確認用）
@@ -87,7 +90,12 @@ pub struct DeviceSyncPlan {
     pub playlist_count: u32,
     /// 元のファイルが見つからない曲数（コピーできない。コピー済みならデバイスに残す）
     pub missing_source_count: u32,
-    /// デバイスの空き容量と、同期で増える容量（バイト）
+    /// コピー・削除する、曲に添えるファイル（歌詞ファイル・フォルダの画像）の数と、コピーするサイズ（ADR-112）
+    pub extra_copy_count: u32,
+    #[specta(type = specta_typescript::Number)]
+    pub extra_copy_bytes: i64,
+    pub extra_delete_count: u32,
+    /// デバイスの空き容量と、同期で増える容量（バイト。曲に添えるファイルを含む）
     #[specta(type = specta_typescript::Number)]
     pub free_bytes: i64,
     #[specta(type = specta_typescript::Number)]
@@ -103,6 +111,9 @@ pub struct DeviceSyncResult {
     pub copied_count: u32,
     pub deleted_count: u32,
     pub renamed_count: u32,
+    /// コピー・削除した、曲に添えるファイルの数
+    pub extra_copied_count: u32,
+    pub extra_deleted_count: u32,
     /// 書き出したプレイリスト数
     pub playlist_count: u32,
     pub error_count: u32,
@@ -121,6 +132,8 @@ pub struct DeviceRecord {
     pub remove_unselected: bool,
     /// デバイス上の配置の書式
     pub path_template: String,
+    /// 歌詞ファイル・フォルダの画像もコピーするか
+    pub copy_extras: bool,
     /// 同期するプレイリスト（削除済みのプレイリストは含まない）
     pub playlist_ids: Vec<String>,
     pub created_at: String,
@@ -227,8 +240,7 @@ pub fn suggest_device_name(folder: &Path) -> Option<String> {
     (!name.is_empty()).then(|| name.to_string())
 }
 
-const DEVICE_COLUMNS: &str =
-    "id, name, path, sync_all, remove_unselected, created_at, last_synced_at, path_template";
+const DEVICE_COLUMNS: &str = "id, name, path, sync_all, remove_unselected, created_at, last_synced_at, path_template, copy_extras";
 
 fn map_device_row(row: &rusqlite::Row) -> rusqlite::Result<DeviceRecord> {
     Ok(DeviceRecord {
@@ -238,6 +250,7 @@ fn map_device_row(row: &rusqlite::Row) -> rusqlite::Result<DeviceRecord> {
         sync_all: row.get::<_, i32>(3)? != 0,
         remove_unselected: row.get::<_, i32>(4)? != 0,
         path_template: row.get(7)?,
+        copy_extras: row.get::<_, i32>(8)? != 0,
         playlist_ids: Vec::new(),
         created_at: row.get(5)?,
         last_synced_at: row.get(6)?,
@@ -342,14 +355,16 @@ pub fn update_device_config(
     let updated = tx
         .execute(
             "UPDATE sync_devices
-             SET name = ?2, sync_all = ?3, remove_unselected = ?4, path_template = ?5
+             SET name = ?2, sync_all = ?3, remove_unselected = ?4, path_template = ?5,
+                 copy_extras = ?6
              WHERE id = ?1",
             rusqlite::params![
                 device_id,
                 config.name,
                 config.sync_all,
                 config.remove_unselected,
-                config.path_template
+                config.path_template,
+                config.copy_extras
             ],
         )
         .map_err(|e| AppError::Database(format!("デバイスの更新に失敗しました: {}", e)))?;
@@ -426,6 +441,7 @@ mod tests {
             playlist_ids: playlist_ids.iter().map(|id| id.to_string()).collect(),
             remove_unselected: true,
             path_template: DEFAULT_DEVICE_TEMPLATE.to_string(),
+            copy_extras: true,
         }
     }
 
