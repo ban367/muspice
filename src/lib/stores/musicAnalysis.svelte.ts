@@ -26,12 +26,18 @@ class MusicAnalysisState {
 
   /**
    * 解析の状態の通知を受け取り始める（表示している間だけ呼ぶ）
+   *
+   * ライブラリが変わった時（`LibraryChanged`。音楽フォルダの変更でライブラリを置き換えた・曲を読み込んだ・
+   * 外したなど）も、曲の数が変わるため取り直す（解析していない間は、解析の通知が来ない）。
    * @returns 受け取るのをやめる関数
    */
   watch(): () => void {
-    const listening = events.musicAnalysisProgress.listen((event) => this.#update(event.payload));
+    const listeningProgress = events.musicAnalysisProgress.listen((event) =>
+      this.#update(event.payload)
+    );
+    const listeningLibrary = events.libraryChanged.listen(() => void this.refresh());
     void this.refresh();
-    return () => stopListening(listening);
+    return () => stopListening(listeningProgress, listeningLibrary);
   }
 
   /** 解析の状態を取り直す */
