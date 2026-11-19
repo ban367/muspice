@@ -286,6 +286,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             "DEFAULT_MUSIC_FOLDER_TEMPLATE",
             settings::DEFAULT_MUSIC_FOLDER_TEMPLATE,
         )
+        .constant("DEFAULT_DEVICE_TEMPLATE", device::DEFAULT_DEVICE_TEMPLATE)
         .constant("AUTO_BACKUP_KEEP", backup::AUTO_BACKUP_KEEP)
         // AIシャッフルで避ける曲（キューの今の位置の前後の件数。フロントが渡す）
         .constant("AI_SHUFFLE_EXCLUSION_WINDOW", ai_shuffle::EXCLUSION_WINDOW)

@@ -1303,7 +1303,7 @@ pub fn find_all_file_paths(conn: &Connection) -> AppResult<HashSet<String>> {
     Ok(paths)
 }
 
-/// デバイスへの転送に使うトラックの情報（ファイルのパスと、デバイス上の配置に使うタグ）
+/// デバイスへの転送に使うトラックの情報（ファイルのパスと、デバイス上の配置の書式に使うタグ）
 #[derive(Debug, Clone, PartialEq)]
 pub struct TransferTrack {
     pub id: String,
@@ -1311,6 +1311,10 @@ pub struct TransferTrack {
     pub title: Option<String>,
     pub artist: Option<String>,
     pub album: Option<String>,
+    pub album_artist: Option<String>,
+    pub compilation: bool,
+    pub genre: Option<String>,
+    pub year: Option<i32>,
     pub track_number: Option<i32>,
     pub disc_number: Option<i32>,
     pub duration: Option<i32>,
@@ -1318,15 +1322,18 @@ pub struct TransferTrack {
 
 /// デバイスへの転送用に、全トラックを取得する（件数の上限なし）
 ///
-/// 一覧表示用の`find_all_tracks`と違い、転送に要る列だけを読み、
-/// アルバムの曲順に並べる（この順にコピーする。フォルダに書き込んだ順に再生する機器があるため）。
+/// 一覧表示用の`find_all_tracks`と違い、転送に要る列だけを読み、アルバムの曲順に並べる（この順に
+/// コピーする。フォルダに書き込んだ順に再生する機器があるため）。アルバムは、一覧と同じく
+/// アルバムをまとめたアーティストで分ける（コンピレーションの曲を、アルバムの曲順に続けてコピーする）。
 pub fn find_transfer_tracks(conn: &Connection) -> AppResult<Vec<TransferTrack>> {
     let mut stmt = conn
-        .prepare(
-            "SELECT id, file_path, title, artist, album, track_number, disc_number, duration
+        .prepare(&format!(
+            "SELECT id, file_path, title, artist, album, album_artist, compilation, genre, year,
+                    track_number, disc_number, duration
              FROM tracks
-             ORDER BY artist, album, disc_number, track_number, title, id",
-        )
+             ORDER BY {}, album, disc_number, track_number, title, id",
+            ALBUM_ARTIST
+        ))
         .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
 
     stmt.query_map([], |row| {
@@ -1336,9 +1343,13 @@ pub fn find_transfer_tracks(conn: &Connection) -> AppResult<Vec<TransferTrack>> 
             title: row.get(2)?,
             artist: row.get(3)?,
             album: row.get(4)?,
-            track_number: row.get(5)?,
-            disc_number: row.get(6)?,
-            duration: row.get(7)?,
+            album_artist: row.get(5)?,
+            compilation: row.get::<_, Option<i32>>(6)?.unwrap_or(0) != 0,
+            genre: row.get(7)?,
+            year: row.get(8)?,
+            track_number: row.get(9)?,
+            disc_number: row.get(10)?,
+            duration: row.get(11)?,
         })
     })
     .map_err(|e| AppError::Database(format!("クエリの実行に失敗しました: {}", e)))?
