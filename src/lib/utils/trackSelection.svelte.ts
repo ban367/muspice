@@ -146,15 +146,31 @@ export class TrackSelection<T extends { id: string } = { id: string }> {
    */
   move(key: string, extend: boolean, columns: number | null = null): string | null {
     const tracks = this.#tracks();
-    const indexOf = (id: string | null) =>
-      id === null ? -1 : tracks.findIndex((track) => track.id === id);
-
-    const current = indexOf(this.#activeId);
+    const current = indexOfTrack(tracks, this.#activeId);
     const target = navigationTarget(key, current, tracks.length, columns);
     if (target === null) return null;
+    return this.#moveToIndex(tracks, target, extend);
+  }
 
+  /**
+   * 指定したトラックへ現在位置を移し、選択する（Shiftの扱いは`move`と同じ）
+   *
+   * 見た目の並びが表示順と違う一覧（2列に分けた一覧の←→など）で、移動先を呼び出し側で決める時に使う。
+   * @param trackId - 移動先のトラックID
+   * @param extend - Shiftを押しているか
+   * @returns 移動先のトラックID。一覧にないトラックの場合はnull
+   */
+  moveTo(trackId: string, extend: boolean): string | null {
+    const tracks = this.#tracks();
+    const target = indexOfTrack(tracks, trackId);
+    if (target === -1) return null;
+    return this.#moveToIndex(tracks, target, extend);
+  }
+
+  /** 表示順の位置`target`へ現在位置を移し、選択する（`move`・`moveTo`の共通部分） */
+  #moveToIndex(tracks: readonly T[], target: number, extend: boolean): string {
     const targetId = tracks[target].id;
-    const anchor = extend ? indexOf(this.#anchorId ?? this.#activeId) : -1;
+    const anchor = extend ? indexOfTrack(tracks, this.#anchorId ?? this.#activeId) : -1;
     if (anchor === -1) {
       this.#replace([targetId]);
       this.#anchorId = targetId;
@@ -170,6 +186,11 @@ export class TrackSelection<T extends { id: string } = { id: string }> {
   }
 }
 
+/** 表示順のトラックのうち、IDの位置（ない・nullの場合は-1） */
+function indexOfTrack(tracks: readonly { id: string }[], id: string | null): number {
+  return id === null ? -1 : tracks.findIndex((track) => track.id === id);
+}
+
 export interface TrackListKeyOptions {
   /** グリッド表示の列数を返す（リスト表示ではnull） */
   columns?: () => number | null;
@@ -182,12 +203,20 @@ export interface TrackListKeyOptions {
    * 描画する一覧（仮想スクロール）では、移動先の行の要素がないことがあるため、これを渡す。
    */
   scrollTo?: (trackId: string) => void;
+  /**
+   * ←→の移動先のトラックIDを返す（曲を2列に分けて並べた一覧で、隣の列へ移る）
+   *
+   * 現在位置のトラックID（ない場合はnull）を受け取る。nullを返すと、←→は`columns`に従う
+   * （リスト表示では扱わない）。
+   */
+  sideTarget?: (key: 'ArrowLeft' | 'ArrowRight', activeId: string | null) => string | null;
 }
 
 /**
  * トラック一覧のキーボード操作（一覧の要素の`onkeydown`から呼ぶ）
  *
  * - 矢印キー・Home・End: 選択を移す（Shiftで範囲選択）。移動先が見える位置までスクロールする
+ *   （←→は、グリッド表示（`columns`）と2列に分けた一覧（`sideTarget`）だけ）
  * - Cmd/Ctrl+A: すべて選択する
  * - Enter: `onActivate`を呼ぶ
  *
@@ -222,7 +251,14 @@ export function handleTrackListKeydown(
     return;
   }
 
-  const trackId = selection.move(event.key, event.shiftKey, options.columns?.() ?? null);
+  const sideTargetId =
+    (event.key === 'ArrowLeft' || event.key === 'ArrowRight') && options.sideTarget
+      ? options.sideTarget(event.key, selection.activeId)
+      : null;
+  const trackId =
+    sideTargetId !== null
+      ? selection.moveTo(sideTargetId, event.shiftKey)
+      : selection.move(event.key, event.shiftKey, options.columns?.() ?? null);
   if (trackId === null) return;
 
   // 既定の動作（一覧のスクロール）の代わりに、移動先の行を見える位置へ出す
