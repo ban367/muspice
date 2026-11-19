@@ -49,6 +49,8 @@ export type {
   Language,
   LibraryFolder,
   LibraryFolderList,
+  LibraryExportFormat,
+  LibraryExportResult,
   LibraryXmlImportResult,
   LoudnessScanProgress,
   LoudnessScanResult,
