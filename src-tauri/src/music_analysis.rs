@@ -503,7 +503,8 @@ fn run(app: &AppHandle) -> AppResult<bool> {
 /// 置き換える・インポート・曲を外す・場所を付け替えるなど）。そのため、解析する曲の一覧は、読んだ時点の
 /// ものとして扱う:
 /// - 1曲ごとに、解析する前に、まだ解析していない曲のままかを確かめ（`is_still_pending`）、変わった曲は
-///   飛ばす（外した曲を解析し続けない）
+///   飛ばす（外した曲を解析し続けない）。保存する前にも確かめ、解析している間に変わった曲（場所を
+///   付け替えたなど）の結果は捨てる（古いファイルの結果を、今のファイルのものとして残さない）
 /// - 一覧を終えたら、解析していない曲を読み直して続ける（解析の途中に読み込んだ曲・場所を付け替えた曲も
 ///   解析する）。読めなかったファイルは、この実行では、同じパス・長さのまま繰り返さない
 ///
@@ -553,8 +554,23 @@ fn analyze_pending(
             if !matches!(outcome, AnalyzeOutcome::Analyzed(_)) {
                 log::info!("Could not analyze {}: {:?}", track.file_path, outcome);
             }
-            state.with_db(|db| save_outcome(db, &track.id, track.duration, &outcome))?;
-            on_saved();
+            // 解析している間に変わった曲（場所を付け替えた・ライブラリから外したなど）の結果は、今の
+            // ファイルのものでないため捨てる。確かめと保存は、DBのロックの中で続けて行う
+            let saved = state.with_db(|db| {
+                if !is_still_pending(db, &track)? {
+                    return Ok(false);
+                }
+                save_outcome(db, &track.id, track.duration, &outcome)?;
+                Ok(true)
+            })?;
+            if saved {
+                on_saved();
+            } else {
+                log::debug!(
+                    "Discarding the analysis of a track that changed while being analyzed: {}",
+                    track.file_path
+                );
+            }
         }
     }
 }
@@ -818,6 +834,53 @@ mod tests {
         // 外した曲は解析せず、付け替えた曲は新しい場所で、読み込んだ曲も続けて解析する
         assert_eq!(analyzed, vec![first, moved_path, imported_path]);
         assert_eq!(analyzed_ids(&state), vec!["first", "imported", "moved"]);
+    }
+
+    #[test]
+    fn test_analysis_of_a_track_moved_while_analyzing_is_discarded() {
+        let dir = TempDir::new();
+        let state = AppState::new(open_in_memory());
+        let old_path = insert_file_track(&state, dir.path(), "track", 0);
+        let new_path = dir.path().join("moved.flac");
+        std::fs::write(&new_path, b"audio").unwrap();
+        let new_path = new_path.to_string_lossy().into_owned();
+
+        let mut analyzed = Vec::new();
+        let completed = analyze_pending(
+            &state,
+            || false,
+            |path| {
+                let path = path.to_string_lossy().into_owned();
+                // 古い場所のファイルを解析している間に、曲の場所を付け替える（長さは同じ）
+                if path == old_path {
+                    state
+                        .with_db(|db| {
+                            db.execute(
+                                "UPDATE tracks SET file_path = ?1 WHERE id = 'track'",
+                                [&new_path],
+                            )
+                            .map_err(db_error)
+                        })
+                        .unwrap();
+                }
+                // どちらのファイルを解析したかを、BPMで見分ける
+                let bpm = if path == old_path { 100.0 } else { 120.0 };
+                analyzed.push(path);
+                Some(AnalyzeOutcome::Analyzed(MusicFeatures {
+                    bpm: Some(bpm),
+                    key: None,
+                    pace: None,
+                }))
+            },
+            || {},
+        )
+        .unwrap();
+
+        assert!(completed);
+        // 古い場所の結果は捨て、新しい場所で解析し直す
+        assert_eq!(analyzed, vec![old_path, new_path]);
+        let features = state.with_db(|db| load_features(db)).unwrap();
+        assert_eq!(features["track"].bpm, Some(120.0));
     }
 
     #[test]
