@@ -816,10 +816,27 @@ includesSettings: boolean } |
 	 * 
 	 *  開いている間は、メインウィンドウを操作できないようにする（`TrackEditorChanged`）。すでに開いている
 	 *  場合は、編集中の内容を失わないよう、曲を入れ替えずに前面へ出す。
+	 * 
+	 *  `sequence`は、開いた一覧の曲の並び（1曲の編集で、編集画面から前後の曲へ移るのに使う。ADR-119）。
+	 *  一括編集・並びのない所から開く時は、空にする。
 	 */
-	openTrackEditor: (trackIds: string[]) => __TAURI_INVOKE<null>("open_track_editor", { trackIds }),
+	openTrackEditor: (trackIds: string[], sequence: string[]) => __TAURI_INVOKE<null>("open_track_editor", { trackIds, sequence }),
 	/**  編集画面で扱う曲を、開いた時の順に返す（ライブラリから外された曲は除く） */
 	getTrackEditorTracks: () => __TAURI_INVOKE<Track[]>("get_track_editor_tracks"),
+	/**  編集している曲の、開いた一覧の並びでの位置（並びのない編集ではnull。ADR-119） */
+	getTrackEditorPosition: () => __TAURI_INVOKE<{
+	/**  0から数えた位置 */
+	index: number,
+	/**  一覧の曲数 */
+	count: number,
+} | null>("get_track_editor_position"),
+	/**
+	 *  編集する曲を、開いた一覧の並びの前（`offset`が負）・後ろの曲へ移す（ADR-119）
+	 * 
+	 *  移ったらtrue（編集画面は、`get_track_editor_tracks`で曲を取り直す）。並びの端ではfalse。ライブラリから
+	 *  外された曲は飛ばす。前の曲で選んで使わなかった画像は捨てる。
+	 */
+	moveTrackEditor: (offset: number) => __TAURI_INVOKE<boolean>("move_track_editor", { offset }),
 	/**  プレイリストを作成 */
 	createPlaylist: (name: string) => __TAURI_INVOKE<Playlist>("create_playlist", { name }),
 	/**  自動プレイリスト（条件で曲を集めるプレイリスト）を作成 */
@@ -2684,6 +2701,14 @@ export type TrackDetails = {
  */
 export type TrackEditorChanged = {
 	open: boolean,
+};
+
+/**  編集している曲の、一覧の並びでの位置（前後の曲へ移るボタンに使う。ADR-119） */
+export type TrackEditorPosition = {
+	/**  0から数えた位置 */
+	index: number,
+	/**  一覧の曲数 */
+	count: number,
 };
 
 /**  曲の歌詞 */

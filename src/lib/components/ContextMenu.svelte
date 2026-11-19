@@ -92,7 +92,11 @@
    * 選択した曲（一覧の順）の、曲の情報の編集画面を開く（別のウィンドウ。失敗はトースト通知する）
    */
   function handleEditMetadata() {
-    openTrackEditorMutation.mutate(selectedTracks.map((selected) => selected.id));
+    // 1曲の編集では、一覧の並びも渡す（編集画面から前後の曲へ移れる。ADR-119）
+    openTrackEditorMutation.mutate({
+      trackIds: selectedTracks.map((selected) => selected.id),
+      sequence: tracks.map((listed) => listed.id)
+    });
     onClose();
   }
 

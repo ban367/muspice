@@ -7,6 +7,9 @@
 //! `get_track_editor_tracks`で受け取る（WebViewどうしでデータを渡さない）。編集画面を閉じると、
 //! 預かった曲と選んだ画像を捨て、メインウィンドウを戻す。
 //!
+//! 1曲の編集では、開いた一覧の曲の並びも預かり、編集画面の「前の曲」「次の曲」で、その並びの前後の曲へ
+//! 移れる（`move_track_editor`。ミュージックの「情報を見る」の「<」「>」にあたる。ADR-119）。
+//!
 //! `set_enabled(false)`は使わない。macOSでは、メインウィンドウに半透明のシートを付けて止めるが、
 //! シートは親の子のウィンドウ（編集画面）より手前に重なり、編集画面まで覆って操作できなくなる。
 
@@ -17,6 +20,8 @@ use crate::models::Track;
 use crate::settings::Language;
 use crate::state::AppState;
 use crate::validation::validate_track_id;
+use serde::Serialize;
+use specta::Type;
 use std::sync::Mutex;
 use tauri::webview::WebviewWindowBuilder;
 use tauri::{AppHandle, Manager, Runtime, State};
@@ -39,25 +44,99 @@ const MAX_TRACKS: usize = 100_000;
 /// 編集画面で扱う曲（開いている間だけ持つ）
 #[derive(Default)]
 pub struct TrackEditorState {
-    track_ids: Mutex<Vec<String>>,
+    inner: Mutex<EditorTracks>,
+}
+
+/// 編集する曲と、前後の曲へ移るための一覧の並び
+#[derive(Debug, Default, Clone, PartialEq)]
+struct EditorTracks {
+    track_ids: Vec<String>,
+    /// 開いた一覧の曲の並び（1曲の編集で、その曲を含む場合だけ。ほかは空）
+    sequence: Vec<String>,
+}
+
+/// 編集している曲の、一覧の並びでの位置（前後の曲へ移るボタンに使う。ADR-119）
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackEditorPosition {
+    /// 0から数えた位置
+    pub index: u32,
+    /// 一覧の曲数
+    pub count: u32,
 }
 
 impl TrackEditorState {
-    fn set(&self, track_ids: Vec<String>) {
-        if let Ok(mut current) = self.track_ids.lock() {
-            *current = track_ids;
+    /// 編集する曲を預かる（`sequence`は、1曲の編集で、その曲を含む時だけ預かる）
+    fn set(&self, track_ids: Vec<String>, sequence: Vec<String>) {
+        let sequence = match track_ids.as_slice() {
+            [track_id] if sequence.contains(track_id) => sequence,
+            _ => Vec::new(),
+        };
+        if let Ok(mut current) = self.inner.lock() {
+            *current = EditorTracks {
+                track_ids,
+                sequence,
+            };
         }
     }
 
     fn get(&self) -> Vec<String> {
-        self.track_ids
+        self.inner
             .lock()
-            .map(|ids| ids.clone())
+            .map(|inner| inner.track_ids.clone())
             .unwrap_or_default()
     }
 
     fn clear(&self) {
-        self.set(Vec::new());
+        self.set(Vec::new(), Vec::new());
+    }
+
+    /// 編集している曲の、一覧の並びでの位置（並びを預かっていなければNone）
+    fn position(&self) -> Option<TrackEditorPosition> {
+        let inner = self.inner.lock().ok()?;
+        let [track_id] = inner.track_ids.as_slice() else {
+            return None;
+        };
+        let index = inner.sequence.iter().position(|id| id == track_id)?;
+        Some(TrackEditorPosition {
+            index: u32::try_from(index).ok()?,
+            count: u32::try_from(inner.sequence.len()).ok()?,
+        })
+    }
+
+    /// 一覧の並びの、`offset`だけ前後の曲へ移る（`exists`がfalseを返す曲は飛ばす）
+    ///
+    /// 移ったらtrue。並びの端・並びを預かっていない時はfalse（編集する曲は変えない）。
+    fn step(&self, offset: i32, exists: impl Fn(&str) -> bool) -> bool {
+        let Ok(mut inner) = self.inner.lock() else {
+            return false;
+        };
+        let current = match inner.track_ids.as_slice() {
+            [track_id] => inner.sequence.iter().position(|id| id == track_id),
+            _ => None,
+        };
+        let (Some(mut index), true) = (current, offset != 0) else {
+            return false;
+        };
+        let step = if offset > 0 { 1 } else { -1 };
+        let mut remaining = offset.unsigned_abs();
+        loop {
+            let Some(next) = index.checked_add_signed(step) else {
+                return false;
+            };
+            let Some(next_id) = inner.sequence.get(next) else {
+                return false;
+            };
+            index = next;
+            // ライブラリから外された曲は、数えずに飛ばす
+            if exists(next_id) {
+                remaining -= 1;
+                if remaining == 0 {
+                    inner.track_ids = vec![next_id.clone()];
+                    return true;
+                }
+            }
+        }
     }
 }
 
@@ -90,10 +169,19 @@ fn validate_track_ids(track_ids: &[String]) -> AppResult<()> {
 ///
 /// 開いている間は、メインウィンドウを操作できないようにする（`TrackEditorChanged`）。すでに開いている
 /// 場合は、編集中の内容を失わないよう、曲を入れ替えずに前面へ出す。
+///
+/// `sequence`は、開いた一覧の曲の並び（1曲の編集で、編集画面から前後の曲へ移るのに使う。ADR-119）。
+/// 一括編集・並びのない所から開く時は、空にする。
 #[tauri::command]
 #[specta::specta]
-pub async fn open_track_editor(track_ids: Vec<String>, app: AppHandle) -> AppResult<()> {
+pub async fn open_track_editor(
+    track_ids: Vec<String>,
+    sequence: Vec<String>,
+    app: AppHandle,
+) -> AppResult<()> {
     validate_track_ids(&track_ids)?;
+    // 一覧の並びは、編集する曲数の上限とは別（大きなライブラリの全曲の一覧からも開ける）。IDの形だけを確かめる
+    sequence.iter().try_for_each(|id| validate_track_id(id))?;
 
     if let Some(window) = app.get_webview_window(TRACK_EDITOR_WINDOW) {
         let _ = window.set_focus();
@@ -104,7 +192,7 @@ pub async fn open_track_editor(track_ids: Vec<String>, app: AppHandle) -> AppRes
         .ok_or_else(|| AppError::NotFound("メインウィンドウが見つかりません".to_string()))?;
 
     let title = window_title(crate::menu::current_language(&app), track_ids.len());
-    app.state::<TrackEditorState>().set(track_ids);
+    app.state::<TrackEditorState>().set(track_ids, sequence);
     // 前に選んで、使わなかった画像は捨てる
     app.state::<PendingAlbumArt>().clear();
 
@@ -155,6 +243,38 @@ pub async fn get_track_editor_tracks(
     let track_ids = editor.get();
     let mut found = state.with_db(|db| crate::repository::find_tracks_by_ids(db, &track_ids))?;
     Ok(track_ids.iter().filter_map(|id| found.remove(id)).collect())
+}
+
+/// 編集している曲の、開いた一覧の並びでの位置（並びのない編集ではnull。ADR-119）
+#[tauri::command]
+#[specta::specta]
+pub async fn get_track_editor_position(
+    editor: State<'_, TrackEditorState>,
+) -> AppResult<Option<TrackEditorPosition>> {
+    Ok(editor.position())
+}
+
+/// 編集する曲を、開いた一覧の並びの前（`offset`が負）・後ろの曲へ移す（ADR-119）
+///
+/// 移ったらtrue（編集画面は、`get_track_editor_tracks`で曲を取り直す）。並びの端ではfalse。ライブラリから
+/// 外された曲は飛ばす。前の曲で選んで使わなかった画像は捨てる。
+#[tauri::command]
+#[specta::specta]
+pub async fn move_track_editor(
+    offset: i32,
+    editor: State<'_, TrackEditorState>,
+    state: State<'_, AppState>,
+    pending_art: State<'_, PendingAlbumArt>,
+) -> AppResult<bool> {
+    let moved = editor.step(offset, |track_id| {
+        state
+            .with_db(|db| crate::repository::find_track_by_id(db, track_id))
+            .is_ok()
+    });
+    if moved {
+        pending_art.clear();
+    }
+    Ok(moved)
 }
 
 /// 編集画面のウィンドウが閉じた時に呼ぶ（`WindowEvent::Destroyed`）
@@ -209,9 +329,54 @@ mod tests {
     fn test_editor_state_keeps_tracks_until_cleared() {
         let state = TrackEditorState::default();
         assert!(state.get().is_empty());
-        state.set(ids(2));
+        state.set(ids(2), Vec::new());
         assert_eq!(state.get(), ids(2));
         state.clear();
         assert!(state.get().is_empty());
+    }
+
+    #[test]
+    fn test_editor_moves_through_the_sequence() {
+        let all = ids(5);
+        let state = TrackEditorState::default();
+        state.set(vec![all[1].clone()], all.clone());
+        assert_eq!(
+            state.position(),
+            Some(TrackEditorPosition { index: 1, count: 5 })
+        );
+
+        let exists = |id: &str| id != all[3];
+        assert!(state.step(1, exists));
+        assert_eq!(state.get(), [all[2].clone()]);
+        // ライブラリから外された曲（3番目）は飛ばす
+        assert!(state.step(1, exists));
+        assert_eq!(state.get(), [all[4].clone()]);
+        // 端では移らない
+        assert!(!state.step(1, exists));
+        assert_eq!(state.get(), [all[4].clone()]);
+        assert!(state.step(-2, exists));
+        assert_eq!(state.get(), [all[1].clone()]);
+        assert!(state.step(-1, exists));
+        assert!(!state.step(-1, exists));
+        assert_eq!(
+            state.position(),
+            Some(TrackEditorPosition { index: 0, count: 5 })
+        );
+    }
+
+    #[test]
+    fn test_editor_keeps_the_sequence_only_for_one_track_in_it() {
+        let all = ids(3);
+        let state = TrackEditorState::default();
+        // 一括編集では、並びを預からない
+        state.set(all[..2].to_vec(), all.clone());
+        assert_eq!(state.position(), None);
+        assert!(!state.step(1, |_| true));
+        // 並びにない曲
+        state.set(vec![ids(4)[3].clone()], all.clone());
+        assert_eq!(state.position(), None);
+        // 並びのない所から開いた
+        state.set(vec![all[0].clone()], Vec::new());
+        assert!(!state.step(1, |_| true));
     }
 }

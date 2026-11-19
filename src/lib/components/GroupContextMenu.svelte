@@ -46,7 +46,7 @@
    * アルバムの全曲を、曲の情報の編集画面でまとめて編集する（別のウィンドウ）
    */
   function handleEditTracks() {
-    openTrackEditorMutation.mutate(allTracks.map((track) => track.id));
+    openTrackEditorMutation.mutate({ trackIds: allTracks.map((track) => track.id) });
     onClose();
   }
 </script>

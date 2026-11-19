@@ -105,8 +105,8 @@ pub use album_art::{
 
 // 曲の情報の編集画面（別のウィンドウ。ADR-094）
 pub use track_editor::{
-    TRACK_EDITOR_WINDOW, TrackEditorState, focus_track_editor, get_track_editor_tracks,
-    on_track_editor_closed, open_track_editor,
+    TRACK_EDITOR_WINDOW, TrackEditorState, focus_track_editor, get_track_editor_position,
+    get_track_editor_tracks, move_track_editor, on_track_editor_closed, open_track_editor,
 };
 
 // プレイリスト管理

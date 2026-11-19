@@ -528,6 +528,11 @@ export const ja = {
     tagsSavedArtFailed: (reason: string) =>
       `タグは保存しましたが、アルバムアートを書き込めませんでした: ${reason}`,
     openFailed: '編集画面を開く',
+    /** 開いた一覧の前後の曲へ移る（ADR-119） */
+    previousTrack: '前の曲（⌘[）',
+    nextTrack: '次の曲（⌘]）',
+    position: (current: number, count: number) => `${current} / ${count}`,
+    moveFailed: '前後の曲への移動',
     loadingTracks: '曲を読み込み中...',
     noTracks: '編集する曲が見つかりません。ライブラリから外された可能性があります',
     bulkHint:

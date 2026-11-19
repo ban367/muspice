@@ -106,6 +106,7 @@ export type {
   TextOp,
   Theme,
   Track,
+  TrackEditorPosition,
   TrackMetadataChange,
   TranscodeMode,
   TracksEdited,

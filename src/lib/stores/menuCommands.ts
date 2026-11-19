@@ -102,7 +102,12 @@ function selectedTracks() {
 async function editSelectedTracks(): Promise<void> {
   const tracks = selectedTracks();
   if (tracks.length === 0) return;
-  await openTrackEditor(tracks.map((track) => track.id)).catch(() => {
+  // 1曲の編集では、一覧の並びも渡す（編集画面から前後の曲へ移れる。ADR-119）
+  const sequence = ui.selectedTrack?.listTracks?.map((track) => track.id) ?? [];
+  await openTrackEditor(
+    tracks.map((track) => track.id),
+    sequence
+  ).catch(() => {
     // トーストで知らせ済み
   });
 }

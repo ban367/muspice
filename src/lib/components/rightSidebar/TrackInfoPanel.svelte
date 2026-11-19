@@ -87,7 +87,7 @@
     />
     <SidePanelButton
       label={m.trackInfo.edit}
-      onclick={() => track && openTrackEditorMutation.mutate([track.id])}
+      onclick={() => track && openTrackEditorMutation.mutate({ trackIds: [track.id] })}
       disabled={!track || openTrackEditorMutation.isPending}
     >
       <svg
