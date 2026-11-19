@@ -5,6 +5,7 @@ import {
   playlistSortViewId,
   trackListView
 } from './trackListView.svelte.js';
+import { DEFAULT_TRACK_COLUMNS } from '#lib/utils/trackColumns.js';
 
 /** Node環境にはlocalStorageがないため、メモリ上の実装に差し替える */
 function createMemoryStorage(): Storage {
@@ -40,7 +41,7 @@ describe('TrackListView', () => {
   it('保存がなければ、既定の列・並び順を使う', () => {
     const view = new TrackListView('a');
 
-    expect(view.columns).toEqual(['title', 'artist', 'favorite', 'rating', 'duration']);
+    expect(view.columns).toEqual(['title', 'artist', 'album', 'favorite', 'rating', 'duration']);
     expect(view.sort).toEqual({ field: 'createdAt', direction: 'desc' });
     expect(view.isDefault).toBe(true);
     // 既定のままなら、保存しない
@@ -81,7 +82,7 @@ describe('TrackListView', () => {
   it('画面ごとに別々に覚える', () => {
     new TrackListView('e1').columns = ['title'];
 
-    expect(new TrackListView('e2').columns).toHaveLength(5);
+    expect(new TrackListView('e2').columns).toEqual(DEFAULT_TRACK_COLUMNS);
     expect(new TrackListView('e1').columns).toEqual(['title']);
   });
 
@@ -117,14 +118,14 @@ describe('TrackListView', () => {
 
     view.reset();
     expect(view.isDefault).toBe(true);
-    expect(new TrackListView('g', { sort: null }).columns).toHaveLength(5);
+    expect(new TrackListView('g', { sort: null }).columns).toEqual(DEFAULT_TRACK_COLUMNS);
   });
 
   it('列を空にはできない（既定の列に戻る）', () => {
     const view = new TrackListView('h');
     view.columns = [];
 
-    expect(view.columns).toHaveLength(5);
+    expect(view.columns).toEqual(DEFAULT_TRACK_COLUMNS);
   });
 
   it('名前がなければ、保存しない', () => {
