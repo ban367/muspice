@@ -19,6 +19,7 @@ mod library_xml;
 mod loudness;
 mod m3u;
 mod metadata_cmd;
+mod missing_tracks;
 mod music_folder;
 mod organize;
 mod playback;
@@ -47,6 +48,8 @@ pub use library_folders::{
     remove_excluded_tracks, remove_library_folder, remove_library_folder_exclusion,
     remove_missing_tracks, rescan_library_folder, rescan_outside_tracks,
 };
+// 見つからない曲の場所の指定と、フォルダから探して結び付け直す（ADR-117）
+pub use missing_tracks::{find_missing_tracks_in_folder, locate_track_file};
 // 自動の再スキャン（`library_sync`）が使う
 pub(crate) use library_folders::{rescan_folder, rescan_outside};
 

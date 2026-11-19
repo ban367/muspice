@@ -176,6 +176,8 @@ export const ja = {
     planLibraryRestore: 'バックアップの確認',
     restoreLibraryBackup: 'バックアップからの復元',
     removeMissingTracks: '見つからない曲の削除',
+    locateTrackFile: 'ファイルの場所の指定',
+    findMissingTracksInFolder: '見つからない曲の検索',
     addLibraryFolderExclusion: '読み込まないフォルダの追加',
     removeLibraryFolderExclusion: '読み込まないフォルダの削除',
     removeExcludedTracks: '読み込まないフォルダの曲の削除',
@@ -306,6 +308,7 @@ export const ja = {
     playHistory: '再生履歴',
     mostPlayed: 'よく再生する曲',
     duplicates: '重複した曲',
+    missing: '見つからない曲',
     recentlyAdded: '最近追加した曲',
     folders: 'フォルダ',
     years: '年代',
@@ -868,6 +871,7 @@ export const ja = {
     loudnessScan: '音量を解析...',
     convert: '形式を変換...',
     showInFolder: 'ファイルの場所を開く',
+    locateFile: 'ファイルの場所を指定...',
     goToAlbum: 'アルバムへ移動',
     goToArtist: 'アーティストへ移動',
     deleteEllipsis: '削除...',
@@ -1067,6 +1071,25 @@ export const ja = {
     noDuplicates: '重複した曲はありません',
     noDuplicatesHint:
       'タイトルとアーティストが同じで、長さがほぼ同じ曲があると、ここに表示されます',
+    /** 見つからない曲の画面（ADR-117） */
+    missing: '見つからない曲',
+    missingDescription:
+      'ファイルが見つからない曲です。右クリックの「ファイルの場所を指定...」か「フォルダから探す...」で、結び付け直せます（お気に入り・再生回数・プレイリストを保ちます）',
+    missingCount: (count: number) => `${count}曲`,
+    noMissing: '見つからない曲はありません',
+    noMissingHint: '再スキャンでファイルが見つからなくなった曲が、ここに表示されます',
+    findInFolder: 'フォルダから探す...',
+    findingInFolder: '探しています...',
+    removeMissing: 'ライブラリから外す...',
+    removeMissingConfirm: (count: number) =>
+      `ファイルが見つからない${count}曲を、ライブラリから外しますか？プレイリストからも消え、お気に入り・再生回数も失われます。`,
+    removeMissingOk: '外す',
+    foundInFolder: (relinked: number, remaining: number) =>
+      remaining > 0
+        ? `${relinked}曲を結び付けました（見つからない曲は、あと${remaining}曲です）`
+        : `${relinked}曲を結び付けました`,
+    notFoundInFolder: 'このフォルダには、見つからない曲のファイルがありませんでした',
+    locatedFile: 'ファイルの場所を変えました',
     favorites: 'お気に入り',
     noFavorites: 'お気に入りの曲がありません',
     noFavoritesHint: '曲のハートを押すと、ここに表示されます',

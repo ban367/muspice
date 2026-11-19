@@ -19,6 +19,7 @@
   } from '#lib/components/ui/index.js';
   import { albumOf, artistsOf, goToAlbum, goToArtist } from '#lib/utils/libraryReveal.js';
   import { useSetFavoriteMutation, useShowInFolderMutation } from '#lib/queries/tracks.js';
+  import { useLocateTrackFileMutation } from '#lib/queries/libraryFolders.js';
   import { useOpenTrackEditorMutation } from '#lib/queries/trackEditor.js';
   import { tagToolsDialog } from '#lib/stores/tagTools.svelte.js';
   import { fileOrganizeDialog } from '#lib/stores/fileOrganize.svelte.js';
@@ -55,6 +56,7 @@
   }: Props = $props();
 
   const showInFolderMutation = useShowInFolderMutation();
+  const locateTrackFileMutation = useLocateTrackFileMutation();
   // 形式の変換は、変換できる環境（macOS）でだけ項目を出す
   const convertFormatsQuery = useConvertFormatsQuery();
   const canConvert = $derived((convertFormatsQuery.data?.length ?? 0) > 0);
@@ -147,6 +149,14 @@
    */
   function handleShowInFolder() {
     showInFolderMutation.mutate(track.id);
+    onClose();
+  }
+
+  /**
+   * 見つからない曲のファイルの場所を、ファイルを選ぶダイアログで指定する（ADR-117。失敗はトースト通知する）
+   */
+  function handleLocateFile() {
+    locateTrackFileMutation.mutate(track.id);
     onClose();
   }
 
@@ -348,7 +358,8 @@
     {m.contextMenu.loudnessScan}
   </MenuItem>
 
-  <MenuItem onSelect={handleShowInFolder}>
+  <!-- 見つからない曲は、ファイルの場所を開く代わりに、場所を指定する（ADR-117） -->
+  <MenuItem onSelect={track.isMissing ? handleLocateFile : handleShowInFolder}>
     {#snippet icon()}
       <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -365,7 +376,7 @@
         />
       </svg>
     {/snippet}
-    {m.contextMenu.showInFolder}
+    {track.isMissing ? m.contextMenu.locateFile : m.contextMenu.showInFolder}
   </MenuItem>
 
   {#if onRemoveFromList || onDelete}

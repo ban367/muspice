@@ -164,6 +164,66 @@ foundCount: number } |
 	 */
 	removeMissingTracks: () => __TAURI_INVOKE<number>("remove_missing_tracks"),
 	/**
+	 *  見つからない曲のファイルの場所を、ファイルを選ぶダイアログで指定する（ADR-117）
+	 * 
+	 *  ダイアログは、曲の元の場所に近い、今あるフォルダから開く。結び付けた曲を返す（選ばずに閉じた
+	 *  場合はNone）。見つかっている曲・選んだファイルがほかの曲として登録済みの場合は`VALIDATION`。
+	 */
+	locateTrackFile: (trackId: string) => __TAURI_INVOKE<{
+	id: string,
+	filePath: string,
+	fileName: string,
+	title: string | null,
+	artist: string | null,
+	album: string | null,
+	/**  アルバムアーティスト（タグにない曲は値なし。一覧では、ない場合に`artist`でまとめる） */
+	albumArtist: string | null,
+	genre: string | null,
+	year: number | null,
+	trackNumber: number | null,
+	discNumber: number | null,
+	duration: number | null,
+	fileSize: number,
+	format: string,
+	bitrate: number | null,
+	sampleRate: number | null,
+	isFavorite: boolean,
+	/**  評価（半分の星の単位。0は評価なし、7は星3.5、10は星5つ。ADR-082） */
+	rating: number,
+	/**  再生回数（曲の半分か4分を聴いた回数） */
+	playCount: number,
+	/**  スキップ回数（再生回数に数える前に、別の曲へ移った回数） */
+	skipCount: number,
+	/**  最後に再生回数に数えた日時 */
+	lastPlayedAt: string | null,
+	createdAt: string,
+	updatedAt: string,
+	/**  音量の正規化に使うゲイン（タグにない項目は値なし） */
+	replayGain: ReplayGain,
+	/**  並び順に使う値（読みなど。タグにない項目は値なし） */
+	sortTags: SortTags,
+	/**  ファイルが見つからない（再スキャンで見つからなくなった曲。利用者が外すまで残す） */
+	isMissing: boolean,
+	/**
+	 *  コンピレーション（複数のアーティストの曲を集めたアルバム）の印。アルバムアーティストがない曲は、
+	 *  「Various Artists」のアルバムにまとめる（`group_artist`。ADR-093）
+	 */
+	compilation: boolean,
+	/**  一覧の列・検索に使う、タグとファイルの情報のうち、後から持つようにした項目（ADR-115） */
+	details: TrackDetails,
+} | null>("locate_track_file", { trackId }),
+	/**
+	 *  フォルダを選ぶダイアログで選んだフォルダの中から、見つからない曲のファイルを探して結び付ける（ADR-117）
+	 * 
+	 *  フォルダを選ばずに閉じた場合はNone。
+	 */
+	findMissingTracksInFolder: () => __TAURI_INVOKE<{
+	/**  結び付けた曲の数 */
+	relinkedCount: number,
+	/**  まだ見つからない曲の数 */
+	remainingCount: number,
+} | null>("find_missing_tracks_in_folder"),
+	/**
 	 *  読み込まないフォルダを選ぶダイアログを開き、ライブラリフォルダの除外の一覧へ足す
 	 * 
 	 *  ダイアログはRust側で、ライブラリフォルダを開いた状態で出す（WebViewからパスを受け取らない）。
@@ -1770,6 +1830,14 @@ export type Metadata = {
 	artistSort?: string | null,
 	albumSort?: string | null,
 	albumArtistSort?: string | null,
+};
+
+/**  フォルダから見つからない曲を探した結果 */
+export type MissingTrackSearchResult = {
+	/**  結び付けた曲の数 */
+	relinkedCount: number,
+	/**  まだ見つからない曲の数 */
+	remainingCount: number,
 };
 
 /**  曲の解析（テンポ・キー）の状態が変わった（始めた・1曲を解析した・終わった・止めた） */

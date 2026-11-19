@@ -47,6 +47,13 @@ impl MissingTrackIndex {
         Self { by_size }
     }
 
+    /// この大きさの「見つからないトラック」が残っているか（大きさが違うファイルは、タグを読まずに飛ばせる）
+    pub fn has_size(&self, file_size: i64) -> bool {
+        self.by_size
+            .get(&file_size)
+            .is_some_and(|candidates| !candidates.is_empty())
+    }
+
     /// 新しく見つかったファイルと同じ曲の「見つからないトラック」を取り出す
     ///
     /// 取り出したトラックは候補から外す（1つのトラックを、複数のファイルに対応付けない）。
