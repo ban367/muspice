@@ -148,6 +148,7 @@ export const en: Messages = {
     deletePlaylist: 'Deleting the playlist',
     importM3u: 'Importing playlists',
     importLibraryXml: 'Importing the library XML',
+    exportLibrary: 'Exporting the library',
     exportM3u: 'Exporting the playlist',
     fetchAlbumArtInfo: 'Loading the album art details',
     loadSettings: 'Loading settings',
@@ -790,6 +791,16 @@ export const en: Messages = {
     partiallyFailed: (failed) =>
       `The album art could not be written to ${plural(failed, 'file', 'files')}`,
     allFailed: (reason) => `Could not write the album art: ${reason}`
+  },
+
+  libraryExport: {
+    title: 'Export the Library',
+    description:
+      'The iTunes-style library XML contains tracks, ratings, play counts and playlists (smart playlists with the tracks matching their rules now), readable by DJ software (rekordbox, Serato, Traktor, etc.) and other library managers. The CSV contains the track list for spreadsheet apps.',
+    xml: 'Export as XML...',
+    csv: 'Export as CSV...',
+    exporting: 'Exporting...',
+    exported: (path) => `Exported: ${path}`
   },
 
   libraryXmlImport: {

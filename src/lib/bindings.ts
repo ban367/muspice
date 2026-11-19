@@ -944,6 +944,20 @@ includesSettings: boolean } |
 	skippedPlaylistCount: number,
 } | null>("import_library_xml", { includePlaylists }),
 	/**
+	 *  ライブラリを、保存のダイアログで選んだファイルへ書き出す（選ばなかった場合はnull。ADR-121）
+	 * 
+	 *  XMLは、曲とプレイリスト（自動プレイリストは、書き出す時点で条件に合う曲。プレイリストのフォルダも）。
+	 *  CSVは、曲の一覧（見出しはアプリの言語）。同じ名前のファイルを選んだ場合は置き換える（一時ファイルに
+	 *  書いてから置き換える）。
+	 */
+	exportLibrary: (format: LibraryExportFormat) => __TAURI_INVOKE<{
+	/**  書き出したファイル */
+	path: string,
+	trackCount: number,
+	/**  書き出したプレイリスト数（CSVは0） */
+	playlistCount: number,
+} | null>("export_library", { format }),
+	/**
 	 *  再生状態（音量・シャッフル・リピート・再生キュー・再生していた曲）を保存する
 	 * 
 	 *  `queue`は、キューが変わった時だけ渡す（nullなら、保存してあるキューから変えない）。
@@ -1610,6 +1624,22 @@ export type Language =
  *  設定ウィンドウでの操作を、メインウィンドウの一覧（Queryのキャッシュ）に反映する。
  */
 export type LibraryChanged = null;
+
+/**  書き出す形式 */
+export type LibraryExportFormat = 
+/**  iTunes形式のライブラリXML（曲・評価・再生回数・プレイリスト） */
+"xml" | 
+/**  曲の一覧のCSV */
+"csv";
+
+/**  書き出した結果 */
+export type LibraryExportResult = {
+	/**  書き出したファイル */
+	path: string,
+	trackCount: number,
+	/**  書き出したプレイリスト数（CSVは0） */
+	playlistCount: number,
+};
 
 /**  ライブラリフォルダ（一覧表示用） */
 export type LibraryFolder = {

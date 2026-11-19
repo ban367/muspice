@@ -159,6 +159,7 @@ export const ja = {
     deletePlaylist: 'プレイリストの削除',
     importM3u: 'プレイリストの読み込み',
     importLibraryXml: 'ライブラリのXMLの取り込み',
+    exportLibrary: 'ライブラリの書き出し',
     exportM3u: 'プレイリストの書き出し',
     fetchAlbumArtInfo: 'アルバムアートの情報の取得',
     loadSettings: '設定の読み込み',
@@ -840,6 +841,17 @@ export const ja = {
     partiallyFailed: (failed: number) =>
       `アルバムアートは、${failed}曲のファイルに書き込めませんでした`,
     allFailed: (reason: string) => `アルバムアートを書き込めませんでした: ${reason}`
+  },
+
+  /** ライブラリの書き出し（iTunes形式のXML・CSV。ADR-121） */
+  libraryExport: {
+    title: 'ライブラリの書き出し',
+    description:
+      'iTunes形式のライブラリのXMLは、曲・評価・再生回数・プレイリスト（自動プレイリストは、今の条件に合う曲）を、DJソフト（rekordbox・Serato・Traktorなど）やほかの管理ソフトで読める形で書き出します。CSVは、曲の一覧を表計算ソフトで開ける形で書き出します',
+    xml: 'XMLで書き出す...',
+    csv: 'CSVで書き出す...',
+    exporting: '書き出し中...',
+    exported: (path: string) => `書き出しました: ${path}`
   },
 
   libraryXmlImport: {

@@ -14,6 +14,7 @@ mod backup;
 mod convert;
 mod devices;
 mod import;
+mod library_export;
 mod library_folders;
 mod library_xml;
 mod loudness;
@@ -119,6 +120,7 @@ pub use playlist_cmd::{
 };
 
 // ライブラリのXML（iTunes形式）の取り込み
+pub use library_export::export_library;
 pub use library_xml::import_library_xml;
 
 // プレイリストのM3Uの読み込み・書き出し
