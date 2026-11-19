@@ -362,9 +362,9 @@ src-tauri/src/
 - 右サイドバーのパネルの幅は、`app.css`の`--spacing-side-panel`。パネルを切り替えても幅が変わらないよう、再生キュー・サウンド・アルバム情報・曲情報のパネルのどれも同じ幅にする（ADR-077）。パネルを本文の横に並べる間（`ui.isRightSidebarDocked`: 固定した時）は、レイアウトが本文をその幅だけ寄せる（`.main-container`の`margin-right`）。幅を変える時は変数だけを変える
 - 右サイドバーのパネル（`src/lib/components/rightSidebar/`）は、`SidePanel`の枠に中身を渡して作る（見出しの文字・高さ（48px）・余白・スクロールを、パネルごとに書かない。ADR-079）
   - 見出しのボタンは`actions`のスニペットに`SidePanelButton`（アイコンのボタン。説明は、ツールチップと読み上げに使う）を並べる。常に見せる領域（曲のカード`SidePanelTrack`）は`top`のスニペット、残りは本文に置く
-  - 本文は`SidePanelSection`（小さな見出しと、見出しの右端の操作。イコライザのオン・オフなど）で区切る。中身がない時は`SidePanelMessage`を出す。仮想スクロールの一覧は、`SidePanel`の`scroll={false}`と`SidePanelSection`の`fill`で残りの高さに広げ、`flush`で左右の余白を行に任せる
+  - 本文は`SidePanelSection`（小さな見出しと、見出しの右端の操作。イコライザのオン・オフなど）で区切る。設定を並べるパネル（サウンド）は`variant="group"`にし、見出しを大きくして、まとまりの間に区切りの線を引く（ADR-108）。見出しの文字のクラスは、`app.css`の`section-title`（左のサイドバーの見出し）と名前を重ねない。中身がない時は`SidePanelMessage`を出す。仮想スクロールの一覧は、`SidePanel`の`scroll={false}`と`SidePanelSection`の`fill`で残りの高さに広げ、`flush`で左右の余白を行に任せる
   - 中身によって並びが動かないよう、見出し・曲のカード・まとまりの見出しは高さを固定し、文字は1行に収めて省略する（値のない行も高さを空ける）。ボタンは、使えない間も消さずに`disabled`にする
-  - サウンドのパネル（`SoundPanel`）は、音の設定を、まとまりのコンポーネント（`ReplayGainSection`・`CrossfadeSection`・`EqualizerSection`・`CrossfeedSection`）で、音を処理する順に並べる。設定を足す時は、まとまりのコンポーネントを作って並べる。まとまりの中の操作は、見出しのオン・オフのスイッチ（`SidePanelToggle`）・選択肢のボタンの並び（`SidePanelOptions`）・名前と値の付いたスライダー（`SidePanelSlider`。離した時に`onchange`）を使う（ADR-099）
+  - サウンドのパネル（`SoundPanel`）は、音の設定を、まとまりのコンポーネント（`ReplayGainSection`・`CrossfadeSection`・`EqualizerSection`・`CrossfeedSection`）で、音を処理する順に並べる。設定を足す時は、まとまりのコンポーネントを作って並べる。まとまりの中の操作は、見出しのオン・オフのスイッチ（`SidePanelToggle`）・選択肢のボタンの並び（`SidePanelOptions`）・名前と値の付いたスライダー（`SidePanelSlider`。離した時に`onchange`）を使う（ADR-099）。オン・オフはどのまとまりも見出しのスイッチで行い（ボタンの並びの「オフ」にしない）、説明の文は出さない（ADR-108）
   - 本文が狭くなるため、ライブラリの見出し（`LibraryHeader`）は、見出しの文字・ボタンの文字を折り返さず、検索欄を縮め、それでも入らなければ項目を次の行へ送る
 - 再生バー（`Player`）は、画面の下の端に幅いっぱいで重ね、高さを`--spacing-player-height`に固定する（曲がある時・ない時で変えない）。下の端まである部品（左右のサイドバー・ページの領域・Now Playingの画面・モーダル）は、この変数の分だけ下を空ける（`pb-player-height`または`padding-bottom: var(--spacing-player-height)`）。再生バーの中身の高さを変えたら、変数の値も合わせる
 

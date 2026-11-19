@@ -23,6 +23,7 @@ export interface AppliedReplayGain {
 /** 計算に使う設定 */
 export type ReplayGainSettings = Pick<
   Settings,
+  | 'volumeNormalizationEnabled'
   | 'volumeNormalization'
   | 'normalizationPreampDb'
   | 'normalizationUntaggedPreampDb'
@@ -39,8 +40,8 @@ export function appliedReplayGain(
   settings: ReplayGainSettings,
   shuffle: boolean
 ): AppliedReplayGain | null {
+  if (!settings.volumeNormalizationEnabled) return null;
   const mode = settings.volumeNormalization;
-  if (mode === 'off') return null;
   const useTrack = mode === 'track' || (mode === 'auto' && shuffle);
   const track = {
     source: 'track' as const,

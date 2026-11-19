@@ -92,6 +92,7 @@ export async function receiveSavedSettings(
 export const SETTINGS_EDITED_IN_MAIN_WINDOW = [
   'autoDj',
   'autoDjPlaylistId',
+  'volumeNormalizationEnabled',
   'volumeNormalization',
   'normalizationPreampDb',
   'normalizationUntaggedPreampDb',

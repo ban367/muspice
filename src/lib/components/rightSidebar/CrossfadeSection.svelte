@@ -2,7 +2,7 @@
   @component CrossfadeSection
   サウンドのパネル（`SoundPanel`）の曲のつなぎ方のまとまり。ギャップレス再生とクロスフェードを、それぞれ見出しの
   スイッチでオン・オフし、その場で設定（`settings.json`）へ保存する。クロスフェードの秒数は、オフの間も覚えておく。
-  同じアルバムの続きの曲では重ねない設定も、ここで変える。
+  同じアルバムの続きの曲では重ねない設定も、ここで変える。ギャップレス再生のまとまりは、見出しのスイッチだけ。
   曲をどうつなぐかは再生エンジンが決める（`engine.rs`の`crossfade_plan`）。
 -->
 <script lang="ts">
@@ -20,7 +20,7 @@
   const crossfade = $derived(current?.crossfadeEnabled ?? false);
 </script>
 
-<SidePanelSection title={m.soundPanel.gapless}>
+<SidePanelSection title={m.soundPanel.gapless} variant="group">
   {#snippet actions()}
     <SidePanelToggle
       checked={gapless}
@@ -30,10 +30,9 @@
       onchange={(gaplessPlayback) => settings.update({ gaplessPlayback })}
     />
   {/snippet}
-  <p class="hint">{m.soundPanel.gaplessHint}</p>
 </SidePanelSection>
 
-<SidePanelSection title={m.soundPanel.crossfade}>
+<SidePanelSection title={m.soundPanel.crossfade} variant="group">
   {#snippet actions()}
     <SidePanelToggle
       checked={crossfade}
@@ -43,21 +42,19 @@
       onchange={(crossfadeEnabled) => settings.update({ crossfadeEnabled })}
     />
   {/snippet}
-  <SidePanelSlider
-    label={m.soundPanel.crossfadeDuration}
-    value={current?.crossfadeSeconds ?? MIN_CROSSFADE_SECONDS}
-    min={MIN_CROSSFADE_SECONDS}
-    max={MAX_CROSSFADE_SECONDS}
-    disabled={current === null || !crossfade}
-    format={m.soundPanel.crossfadeSeconds}
-    hint={m.soundPanel.crossfadeHint}
-    onchange={(crossfadeSeconds) => settings.update({ crossfadeSeconds })}
-  />
-  <div class="option">
+  <div class="fields">
+    <SidePanelSlider
+      label={m.soundPanel.crossfadeDuration}
+      value={current?.crossfadeSeconds ?? MIN_CROSSFADE_SECONDS}
+      min={MIN_CROSSFADE_SECONDS}
+      max={MAX_CROSSFADE_SECONDS}
+      disabled={current === null || !crossfade}
+      format={m.soundPanel.crossfadeSeconds}
+      onchange={(crossfadeSeconds) => settings.update({ crossfadeSeconds })}
+    />
     <SidePanelCheckbox
       label={m.soundPanel.crossfadeSkipAlbumTracks}
       checked={current?.crossfadeSkipAlbumTracks ?? true}
-      hint={m.soundPanel.crossfadeSkipAlbumTracksHint}
       disabled={current === null || !crossfade}
       onchange={(crossfadeSkipAlbumTracks) => settings.update({ crossfadeSkipAlbumTracks })}
     />
@@ -67,11 +64,7 @@
 <style>
   @reference "../../../app.css";
 
-  .hint {
-    @apply m-0 text-[0.6875rem] leading-snug text-text-muted;
-  }
-
-  .option {
-    @apply mt-3;
+  .fields {
+    @apply flex flex-col gap-3;
   }
 </style>

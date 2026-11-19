@@ -3558,6 +3558,7 @@ mod tests {
     fn test_options_are_taken_from_the_settings() {
         let settings = Settings {
             output_device_id: Some("usb-dac".to_string()),
+            volume_normalization_enabled: true,
             volume_normalization: VolumeNormalization::Album,
             normalization_preamp_db: -3,
             normalization_untagged_preamp_db: -5,
@@ -3572,7 +3573,7 @@ mod tests {
             PlaybackOptions {
                 output_device_id: Some("usb-dac".to_string()),
                 normalization: Normalization {
-                    mode: VolumeNormalization::Album,
+                    mode: Some(VolumeNormalization::Album),
                     preamp_db: -3.0,
                     untagged_preamp_db: -5.0,
                     prevent_clipping: false,
@@ -3591,6 +3592,15 @@ mod tests {
         assert_eq!(
             PlaybackOptions::from(&crossfeed).crossfeed,
             Some(CrossfeedLevel::Strong)
+        );
+        // 正規化がオフの間は、覚えている単位を使わない
+        let normalization_off = Settings {
+            volume_normalization_enabled: false,
+            ..settings.clone()
+        };
+        assert_eq!(
+            PlaybackOptions::from(&normalization_off).normalization.mode,
+            None
         );
         // オフの間は、覚えている秒数を使わない
         let disabled = Settings {

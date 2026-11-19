@@ -8,6 +8,7 @@ const TAGGED: ReplayGain = { trackGain: -6, trackPeak: 0.5, albumGain: -9, album
 
 function settings(overrides: Partial<ReplayGainSettings> = {}): ReplayGainSettings {
   return {
+    volumeNormalizationEnabled: true,
     volumeNormalization: 'track',
     normalizationPreampDb: 0,
     normalizationUntaggedPreampDb: 0,
@@ -18,7 +19,9 @@ function settings(overrides: Partial<ReplayGainSettings> = {}): ReplayGainSettin
 
 describe('appliedReplayGain', () => {
   it('正規化がオフの時は補正しない', () => {
-    expect(appliedReplayGain(TAGGED, settings({ volumeNormalization: 'off' }), false)).toBeNull();
+    expect(
+      appliedReplayGain(TAGGED, settings({ volumeNormalizationEnabled: false }), false)
+    ).toBeNull();
   });
 
   it('選んだ単位のゲインにプリアンプを足す', () => {

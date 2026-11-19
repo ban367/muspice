@@ -436,25 +436,19 @@ export const en: Messages = {
     presetName: 'Preset name',
     deletePreset: 'Delete preset',
     confirmDeletePreset: (name) => `Delete "${name}"?`,
-    preamp: 'Preamp',
-    preampHint:
-      'Raises or lowers the overall volume. Lower it by as much as you boost the bands to avoid clipping.'
+    preamp: 'Preamp'
   },
 
   soundPanel: {
     replayGain: 'ReplayGain',
-    replayGainModes: { off: 'Off', track: 'Track', album: 'Album', auto: 'Auto' },
-    replayGainHint:
-      'Evens out loudness using the tags. Album keeps the differences within an album. Add tags with "Loudness analysis" in Settings.',
+    turnOnReplayGain: 'Turn on ReplayGain',
+    turnOffReplayGain: 'Turn off ReplayGain',
+    replayGainMode: 'Mode',
+    replayGainModes: { track: 'Track', album: 'Album', auto: 'Auto' },
     preamp: 'Preamp',
     preampValue: (db) => `${db > 0 ? '+' : ''}${db} dB`,
-    replayGainAutoHint: 'Auto uses track gain in shuffle mode and album gain otherwise.',
-    preampHint: 'Raises or lowers the volume of all adjusted tracks.',
     untaggedPreamp: 'Tracks without tags',
-    untaggedPreampHint: 'Raises or lowers the volume of tracks without ReplayGain tags.',
     preventClipping: 'Prevent clipping',
-    preventClippingHint:
-      'Keeps the adjustment below the peak of the track so that it does not clip.',
     currentGain: 'Now playing',
     gainValue: (db) => `${db > 0 ? '+' : ''}${db.toFixed(1)} dB`,
     gainDetail: (value, source) => `${value} (${source})`,
@@ -463,23 +457,17 @@ export const en: Messages = {
     gapless: 'Gapless playback',
     turnOnGapless: 'Turn on gapless playback',
     turnOffGapless: 'Turn off gapless playback',
-    gaplessHint: 'Plays tracks without silence between them.',
     crossfade: 'Crossfade',
     turnOnCrossfade: 'Turn on crossfade',
     turnOffCrossfade: 'Turn off crossfade',
     crossfadeDuration: 'Duration',
     crossfadeSeconds: (seconds) => `${seconds} s`,
-    crossfadeHint:
-      'Overlaps the end of a track with the start of the next. Not used when you change tracks with "Next" and the like.',
     crossfadeSkipAlbumTracks: 'Not between consecutive album tracks',
-    crossfadeSkipAlbumTracksHint: 'Plays an album in track order without breaks between tracks.',
     crossfeed: 'Crossfeed',
     turnOnCrossfeed: 'Turn on crossfeed',
     turnOffCrossfeed: 'Turn off crossfeed',
     crossfeedLevel: 'Strength',
-    crossfeedLevels: { weak: 'Weak', medium: 'Medium', strong: 'Strong' },
-    crossfeedHint:
-      'Mixes a little of each channel into the other for headphones, closer to listening on speakers. Makes recordings with wide stereo separation easier to listen to.'
+    crossfeedLevels: { weak: 'Weak', medium: 'Medium', strong: 'Strong' }
   },
 
   metadataEditor: {
