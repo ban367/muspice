@@ -489,6 +489,10 @@ export const en: Messages = {
     tagsSavedArtFailed: (reason) =>
       `The tags were saved, but the album art could not be written: ${reason}`,
     openFailed: 'Opening the editor',
+    previousTrack: 'Previous Song (⌘[)',
+    nextTrack: 'Next Song (⌘])',
+    position: (current, count) => `${current} / ${count}`,
+    moveFailed: 'Moving to another song',
     loadingTracks: 'Loading songs...',
     noTracks: 'The songs to edit were not found. They may have been removed from the library',
     bulkHint:

@@ -10,11 +10,13 @@
   - 「並び順」は、並び順に使う読み（ソート用のタグ）。空の項目は、表示用の名前で並べる
   - 「アルバムアート」で選んだ変更は、「保存」でタグの後に書き込む（`AlbumArtEditor`）
   - 保存して知らせることがなければ、画面を閉じる。一部の曲に書き込めなかった時などは、閉じずに知らせる
+  - 1曲の編集で、開いた一覧の並びがある時は、見出しの「<」「>」（⌘[・⌘]）で前後の曲へ移る。変えた
+    内容があれば、保存してから移る（ミュージックの「情報を見る」と同じ。ADR-119）
 
   入力欄の値と`Metadata`の変換・検証は`#lib/utils/metadataForm`が行う。
 -->
 <script lang="ts">
-  import type { Track } from '#lib/types/models.js';
+  import type { Track, TrackEditorPosition } from '#lib/types/models.js';
   import {
     useShowInFolderMutation,
     useTrackTagsQuery,
@@ -47,9 +49,13 @@
     tracks: Track[];
     /** 画面を閉じる（キャンセル・保存の後） */
     onClose: () => void;
+    /** 開いた一覧の並びでの位置（前後の曲へ移れる時だけ。ADR-119） */
+    position?: TrackEditorPosition | null;
+    /** 前（-1）・後ろ（1）の曲へ移る（移れる時だけ渡す） */
+    onMove?: (offset: number) => Promise<void>;
   }
 
-  let { tracks, onClose }: Props = $props();
+  let { tracks, onClose, position = null, onMove }: Props = $props();
 
   const updateMetadataMutation = useUpdateTrackMetadataMutation();
   const updateMultipleTracksMutation = useUpdateMultipleTracksMutation();
@@ -183,13 +189,52 @@
     }
   }
 
+  /** 保存していない変更があるか（タグ・アルバムアート） */
+  function hasChanges(): boolean {
+    if (artChange.kind !== 'none') return true;
+    if (isSingleEdit) return JSON.stringify(metadataFromForm(form, 'single')) !== loadedMetadata;
+    return Object.keys(metadataFromForm(form, 'bulk')).length > 0;
+  }
+
+  const canMovePrevious = $derived(
+    onMove !== undefined && position !== null && position.index > 0 && !isSaving && formLoaded
+  );
+  const canMoveNext = $derived(
+    onMove !== undefined &&
+      position !== null &&
+      position.index + 1 < position.count &&
+      !isSaving &&
+      formLoaded
+  );
+
+  /**
+   * 前後の曲へ移る（変えた内容があれば、保存してから。保存で知らせることがあれば、移らずに出す）
+   */
+  async function move(offset: number) {
+    if (!onMove || isSaving) return;
+    if (notices === null && hasChanges()) {
+      const saved = await save();
+      if (!saved) return;
+    }
+    await onMove(offset);
+  }
+
   async function handleSave() {
+    if (await save()) onClose();
+  }
+
+  /**
+   * 入力を検証して保存する
+   *
+   * @returns 保存して、知らせることがなかったか（知らせることがあれば出し、誤りがあれば出して、false）
+   */
+  async function save(): Promise<boolean> {
     error = null;
     const errors = validateForm(form);
     if (errors.length > 0) {
       validationError = errors.join(', ');
       activeTab = 'tags';
-      return;
+      return false;
     }
     validationError = null;
     isSaving = true;
@@ -202,21 +247,31 @@
       // Rustが送る`TracksEdited`で行う
       if (notes.length > 0) {
         notices = notes;
-      } else {
-        onClose();
+        return false;
       }
+      return true;
     } catch (e) {
       error = toErrorMessage(e);
+      return false;
     } finally {
       isSaving = false;
     }
   }
 
-  // Escで閉じる（保存の間は閉じない）
+  // Escで閉じる（保存の間は閉じない）。⌘[・⌘]で前後の曲へ移る（入力欄の中でも）
   function handleKeydown(event: KeyboardEvent) {
-    if (event.key === 'Escape' && !event.defaultPrevented && !isSaving) {
+    if (event.defaultPrevented) return;
+    if (event.key === 'Escape' && !isSaving) {
       event.preventDefault();
       onClose();
+      return;
+    }
+    const isCommand = event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey;
+    if (isCommand && (event.key === '[' || event.key === ']')) {
+      event.preventDefault();
+      if (event.key === '[' ? canMovePrevious : canMoveNext) {
+        void move(event.key === '[' ? -1 : 1);
+      }
     }
   }
 </script>
@@ -299,12 +354,58 @@
       <div class="header-art">
         <AlbumArt src={albumArtUrl(track.id)} alt="" rounded="md" placeholderType="music" />
       </div>
-      <div class="min-w-0">
+      <div class="min-w-0 flex-1">
         <p class="header-title">{track.title || track.fileName}</p>
         <p class="header-sub">
           {[track.artist, track.album].filter((value) => value).join(' — ')}
         </p>
       </div>
+      <!-- 開いた一覧の前後の曲へ移る（ADR-119） -->
+      {#if onMove && position}
+        <div class="header-nav">
+          <span class="header-position">
+            {m.metadataEditor.position(position.index + 1, position.count)}
+          </span>
+          <button
+            type="button"
+            class="btn-icon nav-button"
+            onclick={() => move(-1)}
+            disabled={!canMovePrevious}
+            title={m.metadataEditor.previousTrack}
+            aria-label={m.metadataEditor.previousTrack}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="w-4 h-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            class="btn-icon nav-button"
+            onclick={() => move(1)}
+            disabled={!canMoveNext}
+            title={m.metadataEditor.nextTrack}
+            aria-label={m.metadataEditor.nextTrack}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="w-4 h-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+        </div>
+      {/if}
     {:else}
       <p class="header-title">{m.metadataEditor.bulkEditTitle(trackCount)}</p>
     {/if}
@@ -580,6 +681,18 @@
 
   .header-sub {
     @apply m-0 mt-0.5 text-xs text-text-muted truncate;
+  }
+
+  .header-nav {
+    @apply flex items-center gap-1 shrink-0;
+  }
+
+  .header-position {
+    @apply mr-1 text-xs text-text-muted tabular-nums;
+  }
+
+  .nav-button {
+    @apply w-8 h-8 p-0;
   }
 
   .editor-body {

@@ -251,7 +251,14 @@
   // 選んでいる曲を、曲情報パネルに出す
   followSelectedTrack(() => {
     const track = selection.lastSelected;
-    return track === null ? null : { track, count: selectedTracks.length, tracks: selectedTracks };
+    return track === null
+      ? null
+      : {
+          track,
+          count: selectedTracks.length,
+          tracks: selectedTracks,
+          listTracks: sortedTracks ?? undefined
+        };
   });
 
   function handleTrackClick(trackId: string, event: MouseEvent) {

@@ -27,6 +27,12 @@ export interface SelectedTrack {
    * 選択を外した・一覧がなくなった後（`count`が0）は持たない。
    */
   tracks?: readonly Track[];
+  /**
+   * 一覧のすべての曲（表示の順。1曲の情報の編集画面で、前後の曲へ移るのに使う。ADR-119）
+   *
+   * 選択を外した・一覧がなくなった後（`count`が0）は持たない。
+   */
+  listTracks?: readonly Track[];
 }
 
 // グリッドカードサイズの範囲（px）
