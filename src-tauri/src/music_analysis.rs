@@ -7,7 +7,9 @@
 //!   ある時だけそれを組み込み、`music_understanding`の印を立てる。組み込んでいない時と、macOS 27より
 //!   古いmacOSでは、解析を使えない（`is_available`がfalse）
 //! - 解析は利用者が設定画面から始め、バックグラウンドのスレッドで1曲ずつ進む。止めるまでに終わらなければ、
-//!   次の起動で続きから再開する（`resume`）
+//!   次の起動で続きから再開する（`resume`）。解析の途中でライブラリが変わっても（音楽フォルダの変更で
+//!   ライブラリを置き換えた・曲を読み込んだなど）、外した曲は飛ばし、読み込んだ曲も続けて解析する
+//!   （`analyze_pending`）
 //! - 曲の長さを一緒に保存し、ファイルの差し替えで長さが変わった曲は解析し直す（タグの書き換え
 //!   （評価など）では、ファイルの更新日時が変わっても、解析し直さない）
 //! - 解析できなかった曲（AVFoundationが読めない形式など）も、解析し直さないよう記録する。
@@ -19,6 +21,7 @@ use crate::state::AppState;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
 use specta::Type;
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Manager};
@@ -176,7 +179,7 @@ const VALID_ANALYSIS_JOIN: &str =
     "LEFT JOIN track_analysis a ON a.track_id = t.id AND a.duration IS t.duration";
 
 /// 解析する曲（見つからない曲を除き、解析していない曲を、よく再生する順に）
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PendingTrack {
     pub id: String,
     pub file_path: String,
@@ -201,6 +204,27 @@ pub fn pending_tracks(conn: &Connection) -> AppResult<Vec<PendingTrack>> {
         })
         .map_err(db_error)?;
     rows.collect::<rusqlite::Result<_>>().map_err(db_error)
+}
+
+/// 曲が、`pending_tracks`で読んだ時のまま、解析していない曲か
+///
+/// ライブラリにあり、見つからない曲でなく、パスと長さが変わっておらず、解析の結果がない時にtrue。
+/// 読んだ後に、ライブラリから外した（音楽フォルダの変更でライブラリを置き換えたなど）・場所を付け替えた・
+/// ファイルを差し替えた曲はfalse。
+fn is_still_pending(conn: &Connection, track: &PendingTrack) -> AppResult<bool> {
+    let sql = format!(
+        "SELECT EXISTS (
+            SELECT 1 FROM tracks t {VALID_ANALYSIS_JOIN}
+            WHERE t.id = ?1 AND t.file_path = ?2 AND t.duration IS ?3
+              AND t.missing_since IS NULL AND a.track_id IS NULL
+         )"
+    );
+    conn.query_row(
+        &sql,
+        params![track.id, track.file_path, track.duration],
+        |row| row.get(0),
+    )
+    .map_err(db_error)
 }
 
 /// 1曲の解析の結果を保存する（曲がライブラリからなくなっていれば、何もしない）
@@ -464,33 +488,91 @@ pub fn resume(app: &AppHandle) {
 ///
 /// @returns 最後まで解析したか、止めたか（true）。解析を使えなくなった時はfalse
 fn run(app: &AppHandle) -> AppResult<bool> {
-    let state = app.state::<AppState>();
     let analysis = app.state::<MusicAnalysisState>();
-    let tracks = state.with_db(|db| pending_tracks(db))?;
-    log::info!("Analyzing {} tracks", tracks.len());
+    analyze_pending(
+        &app.state::<AppState>(),
+        || analysis.cancel.load(Ordering::SeqCst),
+        analyze_file,
+        || emit_status(app),
+    )
+}
 
-    for track in tracks {
-        if analysis.cancel.load(Ordering::SeqCst) {
-            log::info!("Music analysis was stopped");
+/// 解析していない曲を、1曲ずつ解析して保存する（`run`の本体。解析する関数と知らせ方を受け取る）
+///
+/// 解析には何時間もかかることがあり、その間にライブラリが変わる（音楽フォルダの変更でライブラリを
+/// 置き換える・インポート・曲を外す・場所を付け替えるなど）。そのため、解析する曲の一覧は、読んだ時点の
+/// ものとして扱う:
+/// - 1曲ごとに、解析する前に、まだ解析していない曲のままかを確かめ（`is_still_pending`）、変わった曲は
+///   飛ばす（外した曲を解析し続けない）。保存する前にも確かめ、解析している間に変わった曲（場所を
+///   付け替えたなど）の結果は捨てる（古いファイルの結果を、今のファイルのものとして残さない）
+/// - 一覧を終えたら、解析していない曲を読み直して続ける（解析の途中に読み込んだ曲・場所を付け替えた曲も
+///   解析する）。読めなかったファイルは、この実行では、同じパス・長さのまま繰り返さない
+///
+/// @param is_cancelled - 止めるのを頼まれたか（1曲ごとに確かめる）
+/// @param analyze - 1曲を解析する関数（解析を使えない時はNone）
+/// @param on_saved - 1曲の結果を保存した後に呼ぶ（画面へ知らせる）
+/// @returns 最後まで解析したか、止めたか（true）。解析を使えなくなった時はfalse
+fn analyze_pending(
+    state: &AppState,
+    is_cancelled: impl Fn() -> bool,
+    mut analyze: impl FnMut(&Path) -> Option<AnalyzeOutcome>,
+    mut on_saved: impl FnMut(),
+) -> AppResult<bool> {
+    // この実行で扱った曲（ID・パス・長さ。読めなかったファイルを、一覧を読み直すたびに試さない）
+    let mut attempted: HashSet<PendingTrack> = HashSet::new();
+    loop {
+        let tracks: Vec<PendingTrack> = state
+            .with_db(|db| pending_tracks(db))?
+            .into_iter()
+            .filter(|track| !attempted.contains(track))
+            .collect();
+        if tracks.is_empty() {
+            log::info!("Music analysis finished");
             return Ok(true);
         }
-        // 見つからない・読めないファイル（NASの切断など）は記録せず、次の解析で読み直す
-        let path = Path::new(&track.file_path);
-        if !path.is_file() {
-            log::debug!("Skipping a file that cannot be read: {}", track.file_path);
-            continue;
+        log::info!("Analyzing {} tracks", tracks.len());
+
+        for track in tracks {
+            if is_cancelled() {
+                log::info!("Music analysis was stopped");
+                return Ok(true);
+            }
+            // 一覧を読んだ後に変わった曲は飛ばす（今の状態は、一覧を読み直した時に拾う）
+            if !state.with_db(|db| is_still_pending(db, &track))? {
+                continue;
+            }
+            attempted.insert(track.clone());
+            // 見つからない・読めないファイル（NASの切断など）は記録せず、次の解析で読み直す
+            let path = Path::new(&track.file_path);
+            if !path.is_file() {
+                log::debug!("Skipping a file that cannot be read: {}", track.file_path);
+                continue;
+            }
+            let Some(outcome) = analyze(path) else {
+                return Ok(false);
+            };
+            if !matches!(outcome, AnalyzeOutcome::Analyzed(_)) {
+                log::info!("Could not analyze {}: {:?}", track.file_path, outcome);
+            }
+            // 解析している間に変わった曲（場所を付け替えた・ライブラリから外したなど）の結果は、今の
+            // ファイルのものでないため捨てる。確かめと保存は、DBのロックの中で続けて行う
+            let saved = state.with_db(|db| {
+                if !is_still_pending(db, &track)? {
+                    return Ok(false);
+                }
+                save_outcome(db, &track.id, track.duration, &outcome)?;
+                Ok(true)
+            })?;
+            if saved {
+                on_saved();
+            } else {
+                log::debug!(
+                    "Discarding the analysis of a track that changed while being analyzed: {}",
+                    track.file_path
+                );
+            }
         }
-        let Some(outcome) = analyze_file(path) else {
-            return Ok(false);
-        };
-        if !matches!(outcome, AnalyzeOutcome::Analyzed(_)) {
-            log::info!("Could not analyze {}: {:?}", track.file_path, outcome);
-        }
-        state.with_db(|db| save_outcome(db, &track.id, track.duration, &outcome))?;
-        emit_status(app);
     }
-    log::info!("Music analysis finished");
-    Ok(true)
 }
 
 /// 今の状態を画面へ知らせる
@@ -511,6 +593,7 @@ fn emit_status(app: &AppHandle) {
 mod tests {
     use super::*;
     use crate::db::open_in_memory;
+    use crate::device_manifest::test_support::TempDir;
 
     fn insert_track(conn: &Connection, id: &str, duration: i32, play_count: i32) {
         conn.execute(
@@ -663,6 +746,185 @@ mod tests {
         assert!(is_requested(&conn).unwrap());
         set_requested(&conn, false).unwrap();
         assert!(!is_requested(&conn).unwrap());
+    }
+
+    const ANALYZED: AnalyzeOutcome = AnalyzeOutcome::Analyzed(MusicFeatures {
+        bpm: Some(120.0),
+        key: None,
+        pace: None,
+    });
+
+    /// 曲のファイルを作り、曲として登録する（ファイルのパスを返す）
+    fn insert_file_track(state: &AppState, dir: &Path, id: &str, play_count: i32) -> String {
+        let path = dir.join(format!("{id}.flac"));
+        std::fs::write(&path, b"audio").unwrap();
+        let path = path.to_string_lossy().into_owned();
+        state
+            .with_db(|db| {
+                db.execute(
+                    "INSERT INTO tracks (id, file_path, file_name, duration, play_count)
+                     VALUES (?1, ?2, ?3, 200, ?4)",
+                    params![id, path, format!("{id}.flac"), play_count],
+                )
+                .map_err(db_error)
+            })
+            .unwrap();
+        path
+    }
+
+    /// 解析の結果がある曲のID（IDの順）
+    fn analyzed_ids(state: &AppState) -> Vec<String> {
+        state
+            .with_db(|db| {
+                let mut stmt = db
+                    .prepare("SELECT track_id FROM track_analysis ORDER BY track_id")
+                    .map_err(db_error)?;
+                let ids = stmt.query_map([], |row| row.get(0)).map_err(db_error)?;
+                ids.collect::<rusqlite::Result<_>>().map_err(db_error)
+            })
+            .unwrap()
+    }
+
+    #[test]
+    fn test_analysis_follows_library_changes_during_the_run() {
+        let dir = TempDir::new();
+        let state = AppState::new(open_in_memory());
+        let first = insert_file_track(&state, dir.path(), "first", 9);
+        insert_file_track(&state, dir.path(), "removed", 5);
+        insert_file_track(&state, dir.path(), "moved", 1);
+        let moved_path = dir.path().join("elsewhere.flac");
+        std::fs::write(&moved_path, b"audio").unwrap();
+        let moved_path = moved_path.to_string_lossy().into_owned();
+        let imported_path = dir
+            .path()
+            .join("imported.flac")
+            .to_string_lossy()
+            .into_owned();
+
+        let mut analyzed = Vec::new();
+        let completed = analyze_pending(
+            &state,
+            || false,
+            |path| {
+                let path = path.to_string_lossy().into_owned();
+                // 1曲目を解析している間に、ライブラリが変わる（音楽フォルダの変更で曲を外す・場所を
+                // 付け替える・新しい曲を読み込む）。外した曲のファイルは残っている
+                if path == first {
+                    state
+                        .with_db(|db| {
+                            db.execute("DELETE FROM tracks WHERE id = 'removed'", [])
+                                .map_err(db_error)?;
+                            db.execute(
+                                "UPDATE tracks SET file_path = ?1 WHERE id = 'moved'",
+                                [&moved_path],
+                            )
+                            .map_err(db_error)
+                        })
+                        .unwrap();
+                    insert_file_track(&state, dir.path(), "imported", 0);
+                }
+                analyzed.push(path);
+                Some(ANALYZED)
+            },
+            || {},
+        )
+        .unwrap();
+
+        assert!(completed);
+        // 外した曲は解析せず、付け替えた曲は新しい場所で、読み込んだ曲も続けて解析する
+        assert_eq!(analyzed, vec![first, moved_path, imported_path]);
+        assert_eq!(analyzed_ids(&state), vec!["first", "imported", "moved"]);
+    }
+
+    #[test]
+    fn test_analysis_of_a_track_moved_while_analyzing_is_discarded() {
+        let dir = TempDir::new();
+        let state = AppState::new(open_in_memory());
+        let old_path = insert_file_track(&state, dir.path(), "track", 0);
+        let new_path = dir.path().join("moved.flac");
+        std::fs::write(&new_path, b"audio").unwrap();
+        let new_path = new_path.to_string_lossy().into_owned();
+
+        let mut analyzed = Vec::new();
+        let completed = analyze_pending(
+            &state,
+            || false,
+            |path| {
+                let path = path.to_string_lossy().into_owned();
+                // 古い場所のファイルを解析している間に、曲の場所を付け替える（長さは同じ）
+                if path == old_path {
+                    state
+                        .with_db(|db| {
+                            db.execute(
+                                "UPDATE tracks SET file_path = ?1 WHERE id = 'track'",
+                                [&new_path],
+                            )
+                            .map_err(db_error)
+                        })
+                        .unwrap();
+                }
+                // どちらのファイルを解析したかを、BPMで見分ける
+                let bpm = if path == old_path { 100.0 } else { 120.0 };
+                analyzed.push(path);
+                Some(AnalyzeOutcome::Analyzed(MusicFeatures {
+                    bpm: Some(bpm),
+                    key: None,
+                    pace: None,
+                }))
+            },
+            || {},
+        )
+        .unwrap();
+
+        assert!(completed);
+        // 古い場所の結果は捨て、新しい場所で解析し直す
+        assert_eq!(analyzed, vec![old_path, new_path]);
+        let features = state.with_db(|db| load_features(db)).unwrap();
+        assert_eq!(features["track"].bpm, Some(120.0));
+    }
+
+    #[test]
+    fn test_unreadable_files_are_tried_once_per_run() {
+        let dir = TempDir::new();
+        let state = AppState::new(open_in_memory());
+        let gone = insert_file_track(&state, dir.path(), "gone", 1);
+        std::fs::remove_file(&gone).unwrap();
+        insert_file_track(&state, dir.path(), "present", 0);
+
+        let mut calls = 0;
+        let completed = analyze_pending(
+            &state,
+            || false,
+            |_| {
+                calls += 1;
+                Some(ANALYZED)
+            },
+            || {},
+        )
+        .unwrap();
+
+        // 一覧を読み直しても、読めないファイルを繰り返さずに終わる
+        assert!(completed);
+        assert_eq!(calls, 1);
+        assert_eq!(analyzed_ids(&state), vec!["present"]);
+        // 読めないファイルは記録しない（次の解析で読み直す）
+        let pending = state.with_db(|db| pending_tracks(db)).unwrap();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].id, "gone");
+    }
+
+    #[test]
+    fn test_analysis_stops_when_cancelled_or_unavailable() {
+        let dir = TempDir::new();
+        let state = AppState::new(open_in_memory());
+        insert_file_track(&state, dir.path(), "a", 0);
+
+        // 止めるのを頼まれていれば、解析せずに終える（止めた扱い）
+        assert!(analyze_pending(&state, || true, |_| Some(ANALYZED), || {}).unwrap());
+        assert!(analyzed_ids(&state).is_empty());
+        // 解析を使えなくなったら、やめる（次の起動で再開する）
+        assert!(!analyze_pending(&state, || false, |_| None, || {}).unwrap());
+        assert!(analyzed_ids(&state).is_empty());
     }
 
     /// 実際にMusicUnderstandingで解析する（このMacで使える時だけ。数秒〜十数秒かかるため、

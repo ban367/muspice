@@ -372,6 +372,44 @@ describe('曲の解析とAIシャッフル', () => {
     expect(status.analyzed + status.failed).toBeLessThanOrEqual(1);
   });
 
+  it('解析の途中に外した曲は飛ばし、読み込んだ曲も続けて解析する', async () => {
+    // 待っている処理（解析とインポートの1歩ずつ）を、テストから進める
+    const waiting: (() => void)[] = [];
+    const releaseAll = () => waiting.splice(0).forEach((resolve) => resolve());
+    backend = createMockBackend({
+      emit: () => {},
+      sleep: () => new Promise((resolve) => waiting.push(resolve))
+    });
+    mockIPC((cmd, payload) => backend.invoke(cmd, payload as Record<string, unknown>));
+    const [removed] = (await commands.getAllTracks()).filter((track) => !track.isMissing);
+
+    await commands.startMusicAnalysis();
+    await commands.deleteTracksCommand([removed.id]);
+    let runningWhenImported: boolean | null = null;
+    const importing = commands.importFiles('Skip').then(async () => {
+      runningWhenImported = (await commands.getMusicAnalysisStatus()).running;
+    });
+    for (
+      let i = 0;
+      i < 1000 &&
+      (runningWhenImported === null || (await commands.getMusicAnalysisStatus()).running);
+      i++
+    ) {
+      releaseAll();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    await importing;
+
+    // 読み込んだのは、解析の途中
+    expect(runningWhenImported).toBe(true);
+    const status = await commands.getMusicAnalysisStatus();
+    expect(status.running).toBe(false);
+    expect(status.analyzed + status.failed).toBe(status.total);
+    expect(status.total).toBe(
+      (await commands.getAllTracks()).filter((track) => !track.isMissing).length
+    );
+  });
+
   it('AIシャッフルは、今の曲・避ける曲・見つからない曲を選ばない', async () => {
     const tracks = await commands.getAllTracks();
     const present = tracks.filter((track) => !track.isMissing);

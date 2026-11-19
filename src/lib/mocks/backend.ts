@@ -2031,26 +2031,31 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   }
 
   /**
-   * 曲の解析を、バックグラウンドで進める（Rustの`music_analysis::run`。実ファイルはないため、
+   * 曲の解析を、バックグラウンドで進める（Rustの`music_analysis::analyze_pending`。実ファイルはないため、
    * テンポとキーは曲の長さから決まる値にする）
+   *
+   * 解析の途中に外した曲は飛ばし、一覧を終えたら、解析の途中に読み込んだ曲を拾い直して続ける。
    */
   async function runMusicAnalysis(): Promise<void> {
-    const pending = tracks
-      .filter((track) => !track.isMissing && !musicFeatures.has(track.id))
-      .sort((a, b) => b.playCount - a.playCount);
+    const pendingTracks = () =>
+      tracks
+        .filter((track) => !track.isMissing && !musicFeatures.has(track.id))
+        .sort((a, b) => b.playCount - a.playCount);
     try {
-      for (const track of pending) {
-        if (musicAnalysis.cancelled) break;
-        await sleep(MUSIC_ANALYSIS_STEP_MS);
-        if (!tracks.includes(track)) continue;
-        const duration = track.duration ?? 0;
-        musicFeatures.set(
-          track.id,
-          MUSIC_ANALYSIS_UNSUPPORTED_FORMATS.includes(track.format.toLowerCase())
-            ? null
-            : { bpm: 80 + (duration % 80), key: duration % 24 }
-        );
-        options.emit('musicAnalysisProgress', musicAnalysisStatus());
+      for (let pending = pendingTracks(); pending.length > 0; pending = pendingTracks()) {
+        for (const track of pending) {
+          if (musicAnalysis.cancelled) return;
+          await sleep(MUSIC_ANALYSIS_STEP_MS);
+          if (!tracks.includes(track) || track.isMissing) continue;
+          const duration = track.duration ?? 0;
+          musicFeatures.set(
+            track.id,
+            MUSIC_ANALYSIS_UNSUPPORTED_FORMATS.includes(track.format.toLowerCase())
+              ? null
+              : { bpm: 80 + (duration % 80), key: duration % 24 }
+          );
+          options.emit('musicAnalysisProgress', musicAnalysisStatus());
+        }
       }
     } finally {
       musicAnalysis.running = false;
