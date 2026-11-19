@@ -15,7 +15,9 @@
   - 曲の選択はアルバムをまたいで行える。最後に選んだ曲を、右サイドバーの曲情報パネルに出す
 -->
 <script lang="ts">
+  import { tick, untrack } from 'svelte';
   import type { AlbumGroup, ArtistSummary, Track } from '#lib/types/models.js';
+  import type { RevealGroup } from '#lib/utils/libraryReveal.js';
   import { flattenAlbumTracks, useSetRatingMutation } from '#lib/queries/tracks.js';
   import { player, playNow } from '#lib/stores/player.svelte.js';
   import { followSelectedTrack } from '#lib/stores/ui.svelte.js';
@@ -64,6 +66,12 @@
     singleAlbum?: boolean;
     /** 見出しの右端に閉じるボタンを出し、押した時に呼ぶ */
     onClose?: () => void;
+    /**
+     * 曲から移ってきた時に、見える位置へ出すアルバム（ADR-110）
+     *
+     * 渡すたびに（同じアルバムでも、別に作った値なら）、そのアルバムの見出しまでスクロールする。
+     */
+    revealAlbum?: Extract<RevealGroup, { kind: 'album' }> | null;
   }
 
   let {
@@ -73,7 +81,8 @@
     menuArtist,
     compact = false,
     singleAlbum = false,
-    onClose
+    onClose,
+    revealAlbum = null
   }: Props = $props();
 
   const setRatingMutation = useSetRatingMutation();
@@ -125,6 +134,25 @@
 
   /** 一覧の要素（キー操作で、移動先の行を探す） */
   let listElement: HTMLElement | undefined;
+
+  /** 見える位置へ出したアルバム（同じ値で、何度もスクロールしないため） */
+  let revealedAlbum: RevealGroup | null = null;
+
+  // 曲から移ってきた時は、そのアルバムの見出しまでスクロールする（曲を取得するまでは待つ）
+  $effect(() => {
+    const request = revealAlbum;
+    if (request === null || request === revealedAlbum) return;
+    const index = sections.findIndex(({ album }) => album.name === request.name);
+    if (index < 0) return;
+    untrack(() => {
+      revealedAlbum = request;
+      void tick().then(() => {
+        listElement
+          ?.querySelectorAll<HTMLElement>('.album-section')
+          [index]?.scrollIntoView({ block: 'start' });
+      });
+    });
+  });
 
   /**
    * 曲を2列に分けて並べている時の、←→の移動先（隣の列の、同じ段の曲。ディスクの中だけで移る）

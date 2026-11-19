@@ -16,6 +16,7 @@
     useTracksQuery
   } from '#lib/queries/tracks.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
+  import { albumOf, artistsOf, goToAlbum, goToArtist } from '#lib/utils/libraryReveal.js';
   import AlbumArt from '../AlbumArt.svelte';
   import RatingStars from '../library/RatingStars.svelte';
   import FavoriteButton from '../library/FavoriteButton.svelte';
@@ -33,6 +34,9 @@
   }
 
   let { label, note, track, emptyText }: Props = $props();
+
+  // アーティストの画面でまとめるアーティスト（名前を押した時に移る先）
+  const artists = $derived(track ? artistsOf(track) : []);
 
   const tracksQuery = useTracksQuery();
   const favoritesQuery = useFavoriteTracksQuery();
@@ -72,10 +76,32 @@
       <p class="card-title" title={track.title || track.fileName}>
         {track.title || track.fileName}
       </p>
-      <p class="card-artist" title={track.artist ?? undefined}>
-        {track.artist || m.common.unknownArtist}
-      </p>
-      <p class="card-album" title={track.album ?? undefined}>{track.album ?? ''}</p>
+      <!-- 名前を押すと、アーティスト・アルバムの画面へ移る（複数のアーティストの曲は、最初のアーティスト。
+           ADR-110） -->
+      {#if artists.length > 0}
+        <button
+          type="button"
+          class="card-artist text-link"
+          title={m.contextMenu.goToArtist}
+          onclick={() => goToArtist(artists[0])}
+        >
+          {track.artist || m.common.unknownArtist}
+        </button>
+      {:else}
+        <p class="card-artist">{m.common.unknownArtist}</p>
+      {/if}
+      {#if albumOf(track)}
+        <button
+          type="button"
+          class="card-album text-link"
+          title={m.contextMenu.goToAlbum}
+          onclick={() => goToAlbum(track)}
+        >
+          {track.album}
+        </button>
+      {:else}
+        <p class="card-album"></p>
+      {/if}
       <div class="card-actions">
         <FavoriteButton trackId={track.id} {isFavorite} size="medium" />
         <RatingStars
@@ -135,6 +161,12 @@
 
   .card-album {
     @apply m-0 h-4 leading-4 text-xs text-text-muted truncate;
+  }
+
+  /* 名前のボタンは、名前の長さだけの幅にする（余白を押しても移らない） */
+  .card-artist.text-link,
+  .card-album.text-link {
+    @apply w-fit;
   }
 
   .card-actions {

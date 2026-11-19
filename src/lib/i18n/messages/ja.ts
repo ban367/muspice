@@ -855,6 +855,8 @@ export const ja = {
     loudnessScan: '音量を解析...',
     convert: '形式を変換...',
     showInFolder: 'ファイルの場所を開く',
+    goToAlbum: 'アルバムへ移動',
+    goToArtist: 'アーティストへ移動',
     deleteEllipsis: '削除...',
     addToPlaylist: 'プレイリストに追加',
     noPlaylists: 'プレイリストがありません',
