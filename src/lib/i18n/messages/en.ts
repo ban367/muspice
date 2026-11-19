@@ -1492,6 +1492,9 @@ export const en: Messages = {
     removeUnselected: 'Delete tracks that are no longer selected from the device',
     removeUnselectedHint:
       'Only tracks copied by Muspice are deleted. Files you put on the device yourself are not deleted.',
+    copyExtras: 'Also copy lyrics files (.lrc) and folder images',
+    copyExtrasHint:
+      'Copies the lyrics file with the same name as each track and the folder image (cover.jpg, etc.) next to the tracks. When turned off, the next sync deletes the ones Muspice copied.',
     noSource: 'Select what to sync',
 
     syncDialog: {
@@ -1501,6 +1504,12 @@ export const en: Messages = {
       copy: 'Copy',
       delete: 'Delete',
       rename: 'Rename',
+      /** Lyrics files and folder images copied along with tracks (ADR-112) */
+      extras: 'Lyrics and folder images',
+      extraCounts: (copied, deleted) =>
+        [copied > 0 && `copy ${copied}`, deleted > 0 && `delete ${deleted}`]
+          .filter(Boolean)
+          .join(', '),
       unchanged: 'Unchanged',
       playlists: 'Playlists',
       countAndSize: (count, size) => `${plural(count, 'track', 'tracks')} (${size})`,

@@ -389,6 +389,13 @@ fn run_migrations(conn: &Connection) -> Result<()> {
             crate::device::LEGACY_DEVICE_TEMPLATE
         ),
     )?;
+    // 歌詞ファイル・フォルダの画像もコピーするか（既定はコピーする。ADR-112）
+    add_column_if_not_exists(
+        conn,
+        "sync_devices",
+        "copy_extras",
+        "INTEGER NOT NULL DEFAULT 1",
+    )?;
 
     // デバイスに同期するプレイリスト
     conn.execute(
