@@ -169,6 +169,24 @@ pub struct ToggleSidebar;
 #[derive(Debug, Clone, Serialize, Type, Event)]
 pub struct ToggleMiniPlayer;
 
+/// メニューバーの、メインウィンドウで行う操作（ADR-109）
+///
+/// 操作はフロントエンド（`stores/menuCommands.ts`）が行う。ダイアログを開いている間は何もしない。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type, Event)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum MenuCommand {
+    /// 「新規プレイリスト...」: プレイリストの名前の入力を開く
+    NewPlaylist,
+    /// 「新規自動プレイリスト...」: 自動プレイリストの編集画面を開く
+    NewSmartPlaylist,
+    /// 「検索」: 表示中の画面の検索欄へ移る（検索欄のない画面では、曲の画面を開いてから）
+    Find,
+    /// 「曲の情報を編集...」: 一覧で選んでいる曲の、曲の情報の編集画面を開く
+    EditTrackInfo,
+    /// 「ファイルの場所を開く」: 一覧で最後に選んだ曲のファイルを、Finderで表示する
+    ShowInFinder,
+}
+
 /// 設定が保存された（設定ウィンドウでの変更をメインウィンドウに反映する）
 #[derive(Debug, Clone, Serialize, Type, Event)]
 pub struct SettingsChanged(pub Settings);

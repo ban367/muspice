@@ -259,6 +259,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::TracksOpened,
             events::ToggleSidebar,
             events::ToggleMiniPlayer,
+            events::MenuCommand,
             events::SettingsChanged,
             events::PlaybackEvent,
             events::PlaybackControl
@@ -618,6 +619,10 @@ pub fn run() {
                     // 「再生」メニュー: 再生の操作をフロントエンドに送信
                     if let Some(control) = menu::playback_control(id) {
                         let _ = control.emit(app);
+                    }
+                    // メインウィンドウで行う操作（新規プレイリスト・検索・「曲」メニューなど）
+                    if let Some(command) = menu::menu_command(id) {
+                        menu::send_menu_command(app, command);
                     }
                 }
             }

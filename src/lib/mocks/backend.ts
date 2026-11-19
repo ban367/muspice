@@ -116,6 +116,7 @@ export const MOCK_EVENT_NAMES = {
   libraryScanProgress: 'library-scan-progress',
   loudnessScanFinished: 'loudness-scan-finished',
   loudnessScanProgress: 'loudness-scan-progress',
+  menuCommand: 'menu-command',
   musicAnalysisProgress: 'music-analysis-progress',
   openImportDialog: 'open-import-dialog',
   organizeProgress: 'organize-progress',

@@ -28,6 +28,7 @@
   import { importer } from '#lib/stores/importer.svelte.js';
   import { clearQueue } from '#lib/stores/player.svelte.js';
   import { watchOpenedFiles } from '#lib/stores/openedFiles.js';
+  import { watchMenuCommands } from '#lib/stores/menuCommands.js';
   import { showStartupNotices } from '#lib/stores/startupNotices.js';
   import { handleError } from '#lib/stores/error.svelte.js';
   import { tagToolsDialog } from '#lib/stores/tagTools.svelte.js';
@@ -82,6 +83,9 @@
     // 「このアプリで開く」・Dockのアイコンへのドロップで開かれた曲を、再生する
     const stopWatchingOpenedFiles = watchOpenedFiles();
 
+    // メニューバーの、メインウィンドウで行う操作（新規プレイリスト・検索・「曲」メニュー。ADR-109）
+    const stopWatchingMenuCommands = watchMenuCommands();
+
     // サイドバー切替イベント
     const unlistenSidebar = events.toggleSidebar.listen(() => {
       ui.isSidebarOpen = !ui.isSidebarOpen;
@@ -132,6 +136,7 @@
         unlistenClearQueue
       );
       stopWatchingOpenedFiles();
+      stopWatchingMenuCommands();
       stopWatchingLoudnessScan();
       stopWatchingConversion();
     };

@@ -491,17 +491,40 @@ export interface Playlist {
 | `MusicAnalysisProgress` | `MusicAnalysisStatus`                                              | 曲の解析を始めた時・1曲を解析するたび・終わった（止めた）時                                                                                                                                                                                   |
 | `DeviceSyncProgress`    | `{ deviceId, current, total, bytesDone, bytesTotal, currentFile }` | `run_device_sync`（コピーするファイルごと。大きなファイルでは途中でも送る）                                                                                                                                                                   |
 | `ShowAboutDialog`       | なし                                                               | メニュー「Muspice について」                                                                                                                                                                                                                  |
-| `OpenImportDialog`      | なし                                                               | メニュー「フォルダをインポート...」                                                                                                                                                                                                           |
-| `ImportFilesRequested`  | なし                                                               | メニュー「ファイルをインポート...」（Cmd/Ctrl+Shift+I）                                                                                                                                                                                       |
+| `OpenImportDialog`      | なし                                                               | メニュー「フォルダをインポート...」（⌘O）                                                                                                                                                                                                     |
+| `ImportFilesRequested`  | なし                                                               | メニュー「ファイルをインポート...」（⇧⌘O）                                                                                                                                                                                                    |
 | `TracksEdited`          | `{ trackIds, albumArt }`                                           | `update_track_metadata`・`update_multiple_tracks_metadata`（書き込めた曲）・`set_album_art`・`remove_album_art`（書き換えた曲。`albumArt: true`）。メインウィンドウが曲の一覧・タグを取り直し、アルバムアートなら表示中の画像を読み直す       |
 | `TrackEditorChanged`    | `{ open }`                                                         | `open_track_editor`（開いた時）と、編集画面のウィンドウを閉じた時                                                                                                                                                                             |
 | `ClearPlayQueue`        | なし                                                               | `confirm_music_folder_change`でライブラリを置き換えた時。メインウィンドウが再生キューをクリアする（再生中の曲も止める。キューの「クリア」と同じ）                                                                                             |
 | `TracksOpened`          | なし                                                               | 「このアプリで開く」などで開かれたファイルのインポートが済んだ時（曲は`take_opened_files`で受け取る）                                                                                                                                         |
 | `ToggleSidebar`         | なし                                                               | メニュー「サイドバーを表示/隠す」                                                                                                                                                                                                             |
-| `ToggleMiniPlayer`      | なし                                                               | メニュー「ミニプレーヤー」（Cmd/Ctrl+Shift+M）                                                                                                                                                                                                |
+| `ToggleMiniPlayer`      | なし                                                               | メニュー「ミニプレーヤー」（⇧⌘M）                                                                                                                                                                                                             |
+| `MenuCommand`           | `{ type }`                                                         | メニューの、メインウィンドウで行う操作（下の「メニューバー」を参照）                                                                                                                                                                          |
 | `SettingsChanged`       | `Settings`                                                         | `save_settings`                                                                                                                                                                                                                               |
 | `PlaybackEvent`         | 下の「再生エンジン」を参照                                         | 再生エンジン（再生位置・曲の切り替わり・終了・失敗）                                                                                                                                                                                          |
 | `PlaybackControl`       | 下の「メディアキー・Now Playingと、再生メニュー」を参照            | メニューバーの「再生」メニュー、OSのメディアキー・コントロールセンターなど、メニューバーのアイコンのメニュー、グローバルホットキー                                                                                                            |
+
+#### メニューバー（`menu.rs`。ADR-109）
+
+項目とキーは、macOSのアプリの慣習（ミュージックなど）にそろえる。文言は設定の言語に合わせ、OSが用意する項目（コピー・隠す・しまうなど）にも、アプリの文言を付ける。
+
+| メニュー   | 項目（キー）                                                                                                                                       |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Muspice    | Muspice について・設定...（⌘,）・サービス・Muspice を隠す（⌘H）・ほかを隠す（⌥⌘H）・すべてを表示・Muspice を終了（⌘Q）                             |
+| ファイル   | 新規プレイリスト...（⌘N）・新規自動プレイリスト...（⌥⌘N）・フォルダをインポート...（⌘O）・ファイルをインポート...（⇧⌘O）・ウインドウを閉じる（⌘W） |
+| 編集       | 取り消す・やり直す・カット・コピー・ペースト・すべてを選択・検索（⌘F）                                                                             |
+| 曲         | 曲の情報を編集...（⌘I）・ファイルの場所を開く（⇧⌘R）                                                                                               |
+| 表示       | フルスクリーン切替（⌃⌘F）・サイドバーを表示/隠す（⌘\）・ミニプレーヤー（⇧⌘M）                                                                      |
+| 再生       | 再生 / 一時停止・次の曲・前の曲・音量・ミュート・シャッフル・リピート（キーなし。`PlaybackControl`）                                               |
+| ウインドウ | しまう（⌘M）・拡大/縮小・すべてを手前に移動（OSがウインドウの一覧を足す。`WINDOW_SUBMENU_ID`）                                                     |
+| ヘルプ     | Muspice について・GitHub を開く・ログのフォルダを開く（OSが項目の検索の欄を足す。`HELP_SUBMENU_ID`）                                               |
+
+- `MenuCommand`（`{ type: 'newPlaylist' | 'newSmartPlaylist' | 'find' | 'editTrackInfo' | 'showInFinder' }`）は、メインウィンドウで行う操作。Rust側は、曲の情報の編集画面を開いている間は送らずに編集画面を前面に出し（ADR-094）、ほかの時はメインウィンドウを前面に出してから送る（隠している・最小化している・設定のウィンドウが前面にある時も）
+- フロントエンド（`stores/menuCommands.ts`）は、ダイアログ（`<dialog open>`）を開いている間は何もしない（メニューのキーは、入力欄にフォーカスがあってもメニューが受け取るため）。新規プレイリスト・新規自動プレイリスト・検索は、ミニプレーヤーの間は通常の表示に戻してから行う
+  - 新規プレイリスト: サイドバーの「+」と同じく、名前の入力を開く（サイドバーのプレイリストの一覧が受け持つ）
+  - 検索: 表示中の画面の一覧の検索欄（`LibraryHeader`の入力欄）へ移り、文字を選ぶ。検索欄のない画面では、曲の画面を開いてから移る。Now Playingの画面は閉じる
+  - 曲の情報を編集・ファイルの場所を開く: 一覧で選んでいる曲（`followSelectedTrack`で一覧が出している曲。`ui.selectedTrack`の`tracks`）が対象で、右クリックのメニューと同じ動き（編集画面は選んでいる曲を一覧の順で、ファイルの場所は最後に選んだ曲）。選んでいない・ミニプレーヤーの間は何もしない
+- 「再生」メニューにキーを割り当てないのは、ウィンドウの中のキー操作（Space・Sなど）と同じキーをメニューに割り当てると、入力欄への入力中にもメニューが受け取るため。メインウィンドウで行う操作のキーは、どれも⌘付きで、入力欄で使うキーと重ならない
 
 ### メタデータ編集
 

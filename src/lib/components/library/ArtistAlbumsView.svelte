@@ -106,7 +106,8 @@
   followSelectedTrack(() => {
     const track = selection.lastSelected;
     if (track === null) return null;
-    return { track, count: displayTracks.filter((t) => selection.has(t.id)).length };
+    const tracks = displayTracks.filter((t) => selection.has(t.id));
+    return { track, count: tracks.length, tracks };
   });
 
   function handleTrackClick(trackId: string, event: MouseEvent) {

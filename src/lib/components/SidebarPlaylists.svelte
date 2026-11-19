@@ -11,6 +11,7 @@
   並び順と、閉じているフォルダは`#lib/stores/playlistSidebar.svelte`が覚える（ADR-043）。
 -->
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { resolve } from '$app/paths';
   import { page } from '$app/state';
   import {
@@ -42,6 +43,7 @@
   } from '#lib/utils/playlistTree.js';
   import { playlistSidebar } from '#lib/stores/playlistSidebar.svelte.js';
   import { smartPlaylistDialog } from '#lib/stores/smartPlaylist.svelte.js';
+  import { provideMenuCommand } from '#lib/stores/menuCommands.js';
   import type { Playlist, PlaylistFolder } from '#lib/types/models.js';
   import {
     BaseContextMenu,
@@ -114,6 +116,9 @@
 
     createPlaylistMutation.mutate(toSafeString(name, 100));
   }
+
+  // メニューバーの「新規プレイリスト...」（⌘N）も、「+」のボタンと同じく名前の入力を開く
+  onMount(() => provideMenuCommand('newPlaylist', handleCreatePlaylist));
 
   /** 新規フォルダを作成 */
   async function handleCreateFolder() {

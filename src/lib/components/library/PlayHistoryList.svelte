@@ -61,7 +61,9 @@
   // 選んでいる行の曲を、曲情報パネルに出す
   followSelectedTrack(() => {
     const row = selection.lastSelected;
-    return row === null ? null : { track: row.track, count: selectedTracks.length };
+    return row === null
+      ? null
+      : { track: row.track, count: selectedTracks.length, tracks: selectedTracks };
   });
 
   let showDeleteDialog = $state(false);

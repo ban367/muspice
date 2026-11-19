@@ -1024,6 +1024,7 @@ export const events = {
 	libraryScanProgress: makeEvent<LibraryScanProgress>("library-scan-progress"),
 	loudnessScanFinished: makeEvent<LoudnessScanFinished>("loudness-scan-finished"),
 	loudnessScanProgress: makeEvent<LoudnessScanProgress>("loudness-scan-progress"),
+	menuCommand: makeEvent<MenuCommand>("menu-command"),
 	musicAnalysisProgress: makeEvent<MusicAnalysisProgress>("music-analysis-progress"),
 	openImportDialog: makeEvent<OpenImportDialog>("open-import-dialog"),
 	organizeProgress: makeEvent<OrganizeProgress>("organize-progress"),
@@ -1648,6 +1649,23 @@ export type MatchMode =
 "all" | 
 /**  いずれかの条件を満たす曲（条件がなければ、曲なし） */
 "any";
+
+/**
+ *  メニューバーの、メインウィンドウで行う操作（ADR-109）
+ * 
+ *  操作はフロントエンド（`stores/menuCommands.ts`）が行う。ダイアログを開いている間は何もしない。
+ */
+export type MenuCommand = 
+/**  「新規プレイリスト...」: プレイリストの名前の入力を開く */
+{ type: "newPlaylist" } | 
+/**  「新規自動プレイリスト...」: 自動プレイリストの編集画面を開く */
+{ type: "newSmartPlaylist" } | 
+/**  「検索」: 表示中の画面の検索欄へ移る（検索欄のない画面では、曲の画面を開いてから） */
+{ type: "find" } | 
+/**  「曲の情報を編集...」: 一覧で選んでいる曲の、曲の情報の編集画面を開く */
+{ type: "editTrackInfo" } | 
+/**  「ファイルの場所を開く」: 一覧で最後に選んだ曲のファイルを、Finderで表示する */
+{ type: "showInFinder" };
 
 /**
  *  曲のタグ（編集画面で扱う項目）
