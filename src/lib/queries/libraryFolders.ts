@@ -12,6 +12,7 @@ import { commands } from '#lib/bindings.js';
 import { queryKeys } from './keys.js';
 import { withErrorToast } from './shared.js';
 import { m } from '#lib/i18n/i18n.svelte.js';
+import { showSuccess } from '#lib/stores/error.svelte.js';
 
 /**
  * ライブラリフォルダの一覧を取得するクエリ
@@ -185,5 +186,42 @@ export function useRemoveMissingTracksMutation() {
     mutationFn: () =>
       withErrorToast(m.operations.removeMissingTracks, () => commands.removeMissingTracks()),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.libraryFolders })
+  }));
+}
+
+/**
+ * 見つからない曲のファイルの場所を、ファイルを選ぶダイアログ（Rust側が開く）で指定するミューテーション（ADR-117）
+ *
+ * 結び付けた曲を返す（選ばずに閉じた場合はnull）。一覧は、Rustが送る`LibraryChanged`イベントで更新される。
+ */
+export function useLocateTrackFileMutation() {
+  return createMutation(() => ({
+    mutationFn: (trackId: string) =>
+      withErrorToast(m.operations.locateTrackFile, () => commands.locateTrackFile(trackId)),
+    onSuccess: (track: Awaited<ReturnType<typeof commands.locateTrackFile>>) => {
+      if (track) showSuccess(m.library.locatedFile);
+    }
+  }));
+}
+
+/**
+ * 選んだフォルダ（Rust側のダイアログ）の中から、見つからない曲のファイルを探して結び付けるミューテーション（ADR-117）
+ *
+ * 結果をトーストで知らせる（フォルダを選ばずに閉じた場合はnull）。一覧は`LibraryChanged`イベントで更新される。
+ */
+export function useFindMissingTracksInFolderMutation() {
+  return createMutation(() => ({
+    mutationFn: () =>
+      withErrorToast(m.operations.findMissingTracksInFolder, () =>
+        commands.findMissingTracksInFolder()
+      ),
+    onSuccess: (result: Awaited<ReturnType<typeof commands.findMissingTracksInFolder>>) => {
+      if (!result) return;
+      showSuccess(
+        result.relinkedCount > 0
+          ? m.library.foundInFolder(result.relinkedCount, result.remainingCount)
+          : m.library.notFoundInFolder
+      );
+    }
   }));
 }

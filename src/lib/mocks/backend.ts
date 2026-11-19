@@ -3425,6 +3425,36 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       if (removed > 0) options.emit('libraryChanged', null);
       return removed;
     },
+    // 実装はRust側のダイアログでファイルを選ぶ。モックは`setFolderResult`のフォルダにある、同じ名前の
+    // ファイルを選んだことにする（nullなら選ばずに閉じた）
+    locateTrackFile: (trackId) => {
+      validateTrackId(trackId);
+      const track = tracks.find((t) => t.id === trackId);
+      if (!track) fail('NOT_FOUND', '指定されたトラックが見つかりません');
+      if (!track.isMissing) fail('VALIDATION', 'この曲のファイルは見つかっています');
+      if (folderResult === null) return null;
+      const filePath = `${normalizeFolderPath(folderResult)}/${track.fileName}`;
+      if (tracks.some((t) => t.id !== trackId && t.filePath === filePath)) {
+        fail('VALIDATION', '選んだファイルは、ほかの曲としてライブラリにあります');
+      }
+      track.filePath = filePath;
+      track.isMissing = false;
+      options.emit('libraryChanged', null);
+      return track;
+    },
+    // 実装は、選んだフォルダの中から同じ曲のファイルを探す。モックは`setFolderResult`のフォルダに、
+    // 見つからない曲がすべて（同じ名前で）あることにする
+    findMissingTracksInFolder: () => {
+      if (folderResult === null) return null;
+      const folder = normalizeFolderPath(folderResult);
+      const missing = tracks.filter((track) => track.isMissing);
+      for (const track of missing) {
+        track.filePath = `${folder}/${track.fileName}`;
+        track.isMissing = false;
+      }
+      if (missing.length > 0) options.emit('libraryChanged', null);
+      return { relinkedCount: missing.length, remainingCount: 0 };
+    },
     // 音楽フォルダのライブラリフォルダを削除すると、音楽フォルダは未設定に戻る
     removeLibraryFolder: (folderId, removeTracksToo) => {
       const folder = findLibraryFolder(folderId);

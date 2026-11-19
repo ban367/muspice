@@ -145,7 +145,7 @@ src-tauri/src/
 ├── startup.rs             # 起動時のDBの開き方（壊れたDBを残して空で起動・起動を続けられない時の知らせ）と、起動時の知らせ（ADR-088）
 ├── tag_backfill.rs        # 既存のトラックの、後から追加した項目（アルバムアーティスト・ソート用のタグ・複数の値・半分の星の評価）の読み込み（起動時）
 ├── track_notification.rs  # 曲が変わった時の通知（ADR-046）
-├── track_relink.rs        # 移動・改名されたファイルと、見つからない曲の対応付け
+├── track_relink.rs        # 移動・改名されたファイルと、見つからない曲の対応付け（再スキャンと「フォルダから探す」で使う）
 ├── transcode.rs           # 形式の変換（デコードした音声の一時ファイル・afconvertでのエンコード・出力先の計画。ADR-054）
 ├── trash.rs               # ファイルをOSのゴミ箱へ移す（形式の変換の置き換えと、曲のファイルごとの削除で使う。macOS）
 ├── tray.rs                # メニューバー（トレイ）への常駐（アイコン・メニュー・再生中の曲の表示。ADR-046）
@@ -215,6 +215,7 @@ src-tauri/src/
 - 形式の変換（`ConvertDialog`。曲の右クリックのメニューから`convertDialog.open(tracks)`で開く）は、変換先にできる形式（`useConvertFormatsQuery`）が空でない環境でだけ、メニューに項目を出す（`ConvertDialogHost`が、形式を取得してから画面を出す）。出力先を決めるのはRust側で、画面は`plan_conversion`の結果を`#lib/utils/convert`の`summarizeConvertPlan`で集計して出す（変換する曲・変換しない曲・音質が戻らない変換の数）。実行の状態は`conversion`（`#lib/stores/convert.svelte`）が持ち、画面を閉じても変換は続く。前回の指定は覚えるが、出力先はいつも「書き出す」から始める（置き換えは、毎回選ばせる）
 - 音量の解析の画面の状態は、`loudnessScan`（`#lib/stores/loudnessScan.svelte`）が持つ。`watch()`で進捗・完了のイベントを受け取り（メインウィンドウは`(app)/+layout.svelte`、設定ウィンドウは`LoudnessScanSettings`が呼ぶ）、どちらのウィンドウで始めた解析でも進み具合を出す。結果の通知（トースト）は、`start()`を呼んだウィンドウだけが出す。選んだ曲の解析は、曲のメニューから`loudnessScanDialog.open(tracks)`で開く（`LoudnessScanDialog`。実行中に閉じても、解析は続く）
 - ファイルの整理（`FileOrganizeDialog`。曲の右クリックのメニューから`fileOrganizeDialog.open(tracks)`で開く）は、整理後の場所をRust側（`file_organize.rs`）だけが決める。画面は、書式を変えるたびに`plan_file_organize`を呼び（入力が止まってから300ms。後から始めた取得の結果だけを使う）、返った計画を`#lib/utils/fileOrganize`の`summarizeOrganizePlan`で、動かす曲・動かさない曲・そのままの曲に分けて出す。書式の候補（`FILE_ORGANIZE_PRESETS`）と、前回の書式の記憶（localStorage）も同じモジュールにある。モックは、`src/lib/mocks/fileOrganize.ts`が同じ規則で場所を決める（書式を変えたら、両方を直す）
+- 見つからない曲の画面（`/library/missing`）は、全曲の一覧から`isMissing`の曲を選んで`TrackList`に渡す（`viewId="missing"`。既定の列に場所（`filePath`）を出す）。サイドバーの項目は、`LibraryFolderList.missingTrackCount`が1以上の時（か、その画面を開いている時）だけ出し、設定の「サイドバーに表示する項目」には入れない（ADR-117）。曲の右クリックのメニューは、見つからない曲では「ファイルの場所を開く」の代わりに「ファイルの場所を指定...」を出す
 - 重複した曲の画面（`/library/duplicates`）は、`#lib/utils/duplicates`の`findDuplicateGroups`で全曲の一覧からまとまりを作り、`TrackList`にまとまりの順で渡す（`defaultSort={null}`）。`TrackList`の`groupOf`に、曲からまとまりのキーを返す関数を渡すと、渡した順で並べている間、まとまりの間に線を引く。場所の列（`filePath`）は、どの一覧でも選べる
 - アーティスト・ジャンルを値ごとに扱う時（一覧の集計・絞り込み）は、`#lib/utils/multiValue`の`splitValues`・`hasValue`・`listedArtists`で値に分ける（`track.artist === ...`で比べない。`A; B`のように複数の値を持つ曲があるため。ADR-051）
 - 曲が音楽フォルダの外にあるかは、`#lib/utils/musicFolder`の`isOutsideMusicFolder`で曲の場所から求める（DBに持たない。ADR-084）。印は`OutsideMusicFolderMark`（曲の一覧のタイトルの前・カードの画像の隅）
