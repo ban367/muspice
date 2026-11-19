@@ -137,18 +137,25 @@
     ui.browseSearchQuery = '';
   }
 
+  /**
+   * リスト表示で受け取った、曲から移ってきた時の移る先の項目（右のペインへ渡す）
+   *
+   * 利用者が左の一覧で選び直した・表示を切り替えた時は外す（選んだ項目の中に、同じ名前のアルバムが
+   * あっても、そこへスクロールしない）。
+   */
+  let revealed = $state.raw<RevealGroup | null>(null);
+
   function handleDisplayModeChange(mode: 'grid' | 'list') {
     displayMode = mode;
     // モード切り替え時に選択をリセット
     selectedKey = null;
+    revealed = null;
   }
 
   function handleItemSelect(item: T) {
     selectedKey = keyOf(item);
+    revealed = null;
   }
-
-  /** リスト表示で受け取った、曲から移ってきた時の移る先の項目（右のペインへ渡す） */
-  let revealed = $state.raw<RevealGroup | null>(null);
 
   // 曲から移ってきた時（`ui.revealGroup`）は、検索を外し、リスト表示では左の一覧の項目を選ぶ
   // （グリッド表示では、グリッド（`LibraryGrid`）がカードを選ぶ。ADR-110）
