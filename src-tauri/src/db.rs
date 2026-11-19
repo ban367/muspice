@@ -396,6 +396,22 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         "copy_extras",
         "INTEGER NOT NULL DEFAULT 1",
     )?;
+    // 転送する時の変換（既定は変換しない。ADR-118）
+    add_column_if_not_exists(
+        conn,
+        "sync_devices",
+        "transcode_mode",
+        "TEXT NOT NULL DEFAULT 'off'",
+    )?;
+    add_column_if_not_exists(
+        conn,
+        "sync_devices",
+        "transcode_bitrate",
+        &format!(
+            "INTEGER NOT NULL DEFAULT {}",
+            crate::transcode::DEFAULT_AAC_BITRATE_KBPS
+        ),
+    )?;
 
     // デバイスに同期するプレイリスト
     conn.execute(

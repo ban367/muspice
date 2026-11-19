@@ -187,6 +187,8 @@
         {messages.preparing}
       {:else if isFinishing}
         {messages.finishing}
+      {:else if progress.converting}
+        {messages.converting(progress.current + 1, progress.total)}
       {:else}
         {messages.copying(progress.current + 1, progress.total)}
       {/if}
@@ -244,6 +246,10 @@
         <dd>{formatFileSize(plan.freeBytes)}</dd>
       </div>
     </dl>
+    <!-- 変換してコピーする曲（ADR-118） -->
+    {#if plan.transcodeCount > 0}
+      <p class="hint mt-2">{messages.transcodeCount(plan.transcodeCount)}</p>
+    {/if}
     <!-- コピー・削除・名前を変える曲の、デバイス上の場所（開くと出す。ADR-113） -->
     {#if plan.copyCount + plan.deleteCount + plan.renameCount > 0}
       <details class="plan-details">
