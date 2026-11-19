@@ -107,6 +107,18 @@ fn with_extension(path: PathBuf, extension: &str) -> PathBuf {
     PathBuf::from(name)
 }
 
+/// 書き出す途中の一時ファイル（保存先と同じフォルダの、ほかのファイルと重ならない名前）
+///
+/// `atomic_file::replace_file`は、一時ファイルの名前にあるものを消してから書くため、利用者のファイルと
+/// 重ならないよう、`.`で始まる名前にUUIDを入れる。
+fn temp_path(path: &Path) -> PathBuf {
+    let name = format!(".muspice-export-{}.tmp", uuid::Uuid::new_v4());
+    match path.parent() {
+        Some(dir) => dir.join(name),
+        None => PathBuf::from(name),
+    }
+}
+
 /// ライブラリを読み、ファイルへ書き出す
 fn export(
     state: &AppState,
@@ -156,9 +168,7 @@ fn export(
         .map_err(|e| AppError::Io(format!("XMLを作れませんでした: {}", e)))?,
         LibraryExportFormat::Csv => build_csv(&tracks, language).into_bytes(),
     };
-    let mut temp = path.as_os_str().to_os_string();
-    temp.push(".tmp");
-    crate::atomic_file::replace_file(path, Path::new(&temp), &bytes)
+    crate::atomic_file::replace_file(path, &temp_path(path), &bytes)
         .map_err(|e| AppError::Io(format!("書き出せませんでした: {}", e)))?;
     log::info!(
         "Exported the library ({:?}): tracks={}, playlists={}",
@@ -230,12 +240,18 @@ mod tests {
         assert_eq!(library.tracks.len(), 1);
         assert_eq!(library.playlists[0].name, "通勤");
 
+        // 保存先の隣にある、同じ名前に`.tmp`を付けたファイルは消さない
+        std::fs::write(dir.path().join("Library.csv.tmp"), "user file").unwrap();
         let csv = dir.path().join("Library.csv");
         let result = export(&state, LibraryExportFormat::Csv, Language::En, &csv).unwrap();
         assert_eq!((result.track_count, result.playlist_count), (1, 0));
         let content = std::fs::read_to_string(&csv).unwrap();
         assert!(content.contains("\r\nSong,"));
-        // 一時ファイルは残さない
-        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 2);
+        // 一時ファイルは残さない（XML・CSV・利用者のファイル）
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 3);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("Library.csv.tmp")).unwrap(),
+            "user file"
+        );
     }
 }
