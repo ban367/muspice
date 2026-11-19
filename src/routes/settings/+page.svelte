@@ -100,6 +100,14 @@
   let recordingAction = $state<GlobalShortcutAction | null>(null);
   let shortcutError = $state<string | null>(null);
 
+  // 一般のセクションを離れたら、記録をやめる（見えない行の割り当てを、押したキーで変えない）
+  $effect(() => {
+    if (activeSection !== 'general') {
+      recordingAction = null;
+      shortcutError = null;
+    }
+  });
+
   /** 入力中の割り当て（割り当てのない操作はnull） */
   function pendingShortcut(action: GlobalShortcutAction): string | null {
     return pending?.globalShortcutKeys.find((key) => key.action === action)?.shortcut ?? null;
@@ -126,7 +134,7 @@
   /** 割り当てを記録している間は、押したキーを割り当てにする（Escで取り消す） */
   function handleShortcutKeydown(event: KeyboardEvent) {
     const action = recordingAction;
-    if (action === null) return;
+    if (action === null || activeSection !== 'general') return;
     event.preventDefault();
     event.stopPropagation();
     if (event.code === 'Escape' && !event.ctrlKey && !event.altKey && !event.metaKey) {
