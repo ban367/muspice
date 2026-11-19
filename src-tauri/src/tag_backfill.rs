@@ -25,6 +25,8 @@
 //!   `compilation_read`・`details_read`を1にする。
 //!   対象がなくなれば、次回以降の起動では何もしない
 //! - ファイルを読めなかったトラック（外付けドライブが外れているなど）は未読のまま残し、次回の起動で読み直す
+//! - 作曲者などは、ファイルを読んでいる間に曲を編集した（更新日時が変わった）場合は記録せず、未読のまま
+//!   残して次回の起動で読み直す（読んだ値は編集の前のもので、編集した値を戻してしまうため）
 //! - 途中でアプリを終了した場合は、次回の起動で続きから読み込む
 
 use crate::error::{AppError, AppResult};
@@ -143,8 +145,19 @@ fn backfill(
                 if track.needs_compilation {
                     crate::repository::set_track_compilation(&tx, &track.id, tags.compilation)?;
                 }
-                if track.needs_details {
-                    crate::repository::set_track_details(&tx, &track.id, &tags.details)?;
+                // ファイルを読んでいる間に編集した曲は、古い値で上書きせず、未読のまま残す
+                if track.needs_details
+                    && !crate::repository::set_track_details(
+                        &tx,
+                        &track.id,
+                        &tags.details,
+                        track.updated_at.as_deref(),
+                    )?
+                {
+                    log::debug!(
+                        "Track {} changed while reading its tags; retry later",
+                        track.id
+                    );
                 }
             }
             tx.commit().map_err(|e| {
@@ -501,6 +514,64 @@ mod tests {
         // 2回目は読むトラックがない
         let again = backfill(&state, |_| panic!("読み込み済みのトラックを読んだ")).unwrap();
         assert_eq!(again, BackfillResult::default());
+    }
+
+    /// ファイルを読んでいる間に編集した曲の作曲者などを、読んだ（編集の前の）値で上書きしない
+    #[test]
+    fn test_backfill_keeps_details_edited_while_reading() {
+        let state = setup_state();
+        insert_unread_track(&state, "t1", "曲1");
+        insert_unread_track(&state, "t2", "曲2");
+
+        let result = backfill(&state, |path| {
+            if path.ends_with("t1.mp3") {
+                // 読んでいる間に、編集画面で作曲者を変えた
+                state
+                    .with_db(|db| {
+                        db.execute(
+                            "UPDATE tracks SET composer = '新しい作曲者',
+                                               updated_at = '2026-02-01T00:00:00Z'
+                             WHERE id = 't1'",
+                            [],
+                        )
+                        .unwrap();
+                        Ok(())
+                    })
+                    .unwrap();
+            }
+            Ok(BackfillTags {
+                details: crate::models::TrackDetails {
+                    composer: Some("古い作曲者".to_string()),
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+        })
+        .unwrap();
+
+        assert_eq!(result.read_count, 2);
+        let track = |id| {
+            state
+                .with_db(|db| crate::repository::find_track_by_id(db, id))
+                .unwrap()
+        };
+        assert_eq!(
+            track("t1").details.composer.as_deref(),
+            Some("新しい作曲者")
+        );
+        assert_eq!(track("t2").details.composer.as_deref(), Some("古い作曲者"));
+        // 編集した曲は未読のまま残り、次の読み込みで読み直す
+        let unread = state
+            .with_db(|db| crate::repository::find_tracks_with_unread_tags(db, 0, 10))
+            .unwrap();
+        assert_eq!(
+            unread
+                .iter()
+                .filter(|t| t.needs_details)
+                .map(|t| t.id.as_str())
+                .collect::<Vec<_>>(),
+            ["t1"]
+        );
     }
 
     #[test]

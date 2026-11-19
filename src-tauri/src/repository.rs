@@ -1207,6 +1207,9 @@ pub struct UnreadTagsTrack {
     pub needs_compilation: bool,
     /// 作曲者・BPM・ビット深度などを読んでいない（それらをDBに持つ前の版で登録した。ADR-115）
     pub needs_details: bool,
+    /// 取得した時の更新日時（ファイルを読んでいる間に曲を編集した時は、作曲者などを記録しない。
+    /// `set_track_details`）
+    pub updated_at: Option<String>,
 }
 
 /// 後から追加した項目をまだファイルから読んでいないトラックを、rowidの順に取得する
@@ -1223,7 +1226,7 @@ pub fn find_tracks_with_unread_tags(
         conn,
         "SELECT rowid, id, file_path, album_artist_read = 0, sort_tags_read = 0,
                 multi_values_read = 0, artist, genre, rating_read = 0, COALESCE(rating, 0),
-                compilation_read = 0, details_read = 0
+                compilation_read = 0, details_read = 0, updated_at
          FROM tracks
          WHERE (album_artist_read = 0 OR sort_tags_read = 0 OR multi_values_read = 0
                 OR rating_read = 0 OR compilation_read = 0 OR details_read = 0)
@@ -1244,6 +1247,7 @@ pub fn find_tracks_with_unread_tags(
                 rating: row.get(9)?,
                 needs_compilation: row.get(10)?,
                 needs_details: row.get(11)?,
+                updated_at: row.get(12)?,
             })
         },
     )
@@ -1283,28 +1287,34 @@ pub fn set_track_compilation(
 
 /// ファイルから読んだ作曲者・グループ・コメント・BPM・ビット深度・チャンネル数を記録し、読み込み済みにする
 ///
-/// ほかの項目（更新日時を含む）は変えない（ADR-115）。
+/// 曲の更新日時が`read_updated_at`（ファイルを読む前に取得した値）のままの場合だけ記録し、記録したかを
+/// 返す。ファイルを読んでいる間に曲を編集した（タグを書き換えた・再スキャンした）場合は、読んだ値が
+/// 古いため記録せず、未読のまま残す（次の読み込みで読み直す）。ほかの項目（更新日時を含む）は変えない
+/// （ADR-115）。
 pub fn set_track_details(
     conn: &Connection,
     track_id: &str,
     details: &TrackDetails,
-) -> AppResult<()> {
-    conn.execute(
-        "UPDATE tracks SET composer = ?2, grouping = ?3, comment = ?4, bpm = ?5, bit_depth = ?6,
-                           channels = ?7, details_read = 1
-         WHERE id = ?1",
-        rusqlite::params![
-            track_id,
-            details.composer,
-            details.grouping,
-            details.comment,
-            details.bpm,
-            details.bit_depth,
-            details.channels
-        ],
-    )
-    .map_err(|e| AppError::Database(format!("作曲者などの記録に失敗しました: {}", e)))?;
-    Ok(())
+    read_updated_at: Option<&str>,
+) -> AppResult<bool> {
+    let changed = conn
+        .execute(
+            "UPDATE tracks SET composer = ?2, grouping = ?3, comment = ?4, bpm = ?5,
+                               bit_depth = ?6, channels = ?7, details_read = 1
+             WHERE id = ?1 AND updated_at IS ?8",
+            rusqlite::params![
+                track_id,
+                details.composer,
+                details.grouping,
+                details.comment,
+                details.bpm,
+                details.bit_depth,
+                details.channels,
+                read_updated_at
+            ],
+        )
+        .map_err(|e| AppError::Database(format!("作曲者などの記録に失敗しました: {}", e)))?;
+    Ok(changed > 0)
 }
 
 /// ファイルから読んだアルバムアーティストを記録し、読み込み済みにする
@@ -3986,7 +3996,11 @@ mod tests {
             channels: Some(2),
             ..Default::default()
         };
-        set_track_details(&conn, "t1", &details).unwrap();
+        let read = find_tracks_with_unread_tags(&conn, 0, 1).unwrap().remove(0);
+        // 読んだ後に曲を編集した（更新日時が変わった）場合は、記録せずに未読のまま残す
+        assert!(!set_track_details(&conn, "t1", &details, Some("2000-01-01T00:00:00Z")).unwrap());
+        assert!(find_tracks_with_unread_tags(&conn, 0, 1).unwrap()[0].needs_details);
+        assert!(set_track_details(&conn, "t1", &details, read.updated_at.as_deref()).unwrap());
         assert_eq!(find_track_by_id(&conn, "t1").unwrap().details, details);
         let rest = find_tracks_with_unread_tags(&conn, first[1].rowid, 2).unwrap();
         assert_eq!(
