@@ -114,10 +114,10 @@ export interface Playlist {
 
 ### 転送先デバイス型
 
-- `SyncDevice`: `id`, `name`, `path`（転送先のフォルダ）, `syncAll`（全曲を同期するか）, `playlistIds`（同期するプレイリスト）, `removeUnselected`（対象から外れた曲をデバイスから削除するか）, `pathTemplate`（デバイス上の配置の書式。下の「デバイス上の配置」）, `connected`（転送先のフォルダに、このデバイスの管理ファイルがあるか）, `freeBytes` / `totalBytes`（接続されていなければnull）, `createdAt`, `lastSyncedAt`
-- `SyncDeviceConfig`: `name`, `syncAll`, `playlistIds`, `removeUnselected`, `pathTemplate`
-- `DeviceSyncPlan`: `copyCount` / `copyBytes`, `deleteCount` / `deleteBytes`, `renameCount`, `unchangedCount`, `playlistCount`, `missingSourceCount`（元のファイルが見つからない曲数）, `freeBytes`, `requiredBytes`（コピーする容量から、削除で空く容量を引いたもの）, `hasEnoughSpace`
-- `DeviceSyncResult`: `copiedCount`, `deletedCount`, `renamedCount`, `playlistCount`, `errorCount`, `errors[]`, `cancelled`
+- `SyncDevice`: `id`, `name`, `path`（転送先のフォルダ）, `syncAll`（全曲を同期するか）, `playlistIds`（同期するプレイリスト）, `removeUnselected`（対象から外れた曲をデバイスから削除するか）, `pathTemplate`（デバイス上の配置の書式。下の「デバイス上の配置」）, `copyExtras`（歌詞ファイル・フォルダの画像もコピーするか。下の「曲に添えるファイル」）, `connected`（転送先のフォルダに、このデバイスの管理ファイルがあるか）, `freeBytes` / `totalBytes`（接続されていなければnull）, `createdAt`, `lastSyncedAt`
+- `SyncDeviceConfig`: `name`, `syncAll`, `playlistIds`, `removeUnselected`, `pathTemplate`, `copyExtras`
+- `DeviceSyncPlan`: `copyCount` / `copyBytes`, `deleteCount` / `deleteBytes`, `renameCount`, `unchangedCount`, `playlistCount`, `missingSourceCount`（元のファイルが見つからない曲数）, `extraCopyCount` / `extraCopyBytes` / `extraDeleteCount`（曲に添えるファイルのコピー・削除）, `freeBytes`, `requiredBytes`（コピーする容量（曲に添えるファイルを含む）から、削除で空く容量を引いたもの）, `hasEnoughSpace`
+- `DeviceSyncResult`: `copiedCount`, `deletedCount`, `renamedCount`, `extraCopiedCount` / `extraDeletedCount`（曲に添えるファイル）, `playlistCount`, `errorCount`, `errors[]`, `cancelled`
 
 ## データベース仕様（SQLite）
 
@@ -133,7 +133,7 @@ export interface Playlist {
 | `playlist_tracks`           | プレイリスト内順序              | `playlist_id`, `track_id`, `position`, `added_at`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `play_history`              | 再生履歴                        | `id`, `track_id`, `played_at`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `tracks_fts`                | 全文検索（FTS5・trigram）       | `text`（タイトル・アーティスト・アルバム・ジャンル・アルバムアーティストを、検索用に正規化してつないだ文字列）。`rowid`は`tracks`と同じ                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `sync_devices`              | 転送先デバイス                  | `id`, `name`, `path`, `sync_all`, `remove_unselected`, `path_template`（デバイス上の配置の書式。列を足す前に登録したデバイスは、以前の配置の書式。ADR-111）, `created_at`, `last_synced_at`                                                                                                                                                                                                                                                                                                                                                    |
+| `sync_devices`              | 転送先デバイス                  | `id`, `name`, `path`, `sync_all`, `remove_unselected`, `path_template`（デバイス上の配置の書式。列を足す前に登録したデバイスは、以前の配置の書式。ADR-111）, `copy_extras`（歌詞ファイル・フォルダの画像もコピーするか。既定は1。ADR-112）, `created_at`, `last_synced_at`                                                                                                                                                                                                                                                                     |
 | `sync_device_playlists`     | デバイスに同期するプレイリスト  | `device_id`, `playlist_id`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `app_meta`                  | DBの情報（キーと値）            | `key`（PRIMARY KEY）, `value`。`schema_version`に、表の作りの版（`db::DB_SCHEMA_VERSION`）を記録する。曲の解析が途中の間は`music_analysis_requested`を`1`にする（次の起動で再開する）                                                                                                                                                                                                                                                                                                                                                          |
 | `track_analysis`            | 曲の解析（テンポ・キー）の結果  | `track_id`（PRIMARY KEY。`tracks`の削除で消える）, `duration`（解析した時の曲の長さ。今の長さと違えば、解析していないものとして扱う）, `bpm`, `key_pitch_class`（主音の0〜11）, `key_mode`（長調0・短調1）, `pace`, `failed`（解析できなかった曲は1で、値はNULL）, `analyzed_at`。ADR-104                                                                                                                                                                                                                                                      |
@@ -396,9 +396,20 @@ export interface Playlist {
 - 削除・上書きするのは、管理ファイルに記録のあるファイルだけ。記録のないファイルがある場所は避ける（連番を付ける）
 - プレイリストのファイルは毎回書き直す。名前を変えたプレイリストは古いファイルを消す。対象から外れたプレイリストのファイルは、`removeUnselected`なら削除する
 
+#### 曲に添えるファイル（`device_sync::plan_extras`。ADR-112）
+
+デバイスの設定`copyExtras`（既定はオン）がオンの時は、同期する曲に添えて、歌詞ファイルとフォルダの画像もコピーする。
+
+- 対象: 曲と同じフォルダにある、同じ名前の歌詞ファイル（`.lrc`。拡張子の大文字と小文字は区別しない。`get_track_lyrics`が読むもの）と、フォルダの画像（アルバムアートの表示と同じ名前の優先順で、いちばん先の1つ。10MBを超えるものは使わない）。元のファイルが見つからない曲には添えない
+- 置く場所: 歌詞ファイルは、デバイス上の曲と同じ名前（拡張子は`.lrc`。連番の付いた曲は連番も同じ）。フォルダの画像は、デバイス上の曲のフォルダに、元と同じ名前で置く（デバイスのフォルダの直下の曲には置かない）。同じ場所になる画像（同じフォルダの曲）は、曲順で最初の曲のものを使う
+- 記録があり、元のファイルが同じで変わっておらず（サイズ・更新日時。曲と同じく夏時間のずれを許す）、デバイス上にもある: そのまま残す。変わった・ない: 同じ場所にコピーし直す
+- 記録がない: デバイス上になければコピーする。同じサイズのファイルがあれば、コピー済みとして記録する。違うファイルがあれば、置かない（上書きしない。連番も付けない）
+- 記録があるが、置く場所でなくなった（曲の場所が変わった・元のファイルがなくなった・オフにした）: 削除する。ただし、元のファイルが見つからない曲・対象から外れて残す曲の、歌詞ファイル（名前が同じ）と画像（同じフォルダ）は残す
+- 曲の名前を変える時（配置の変更）は、添えたファイルの名前は変えず、古い場所のものを削除して、新しい場所へコピーする
+
 #### 同期の実行（`device_transfer::execute_plan`）
 
-- 順序は「削除 → リネーム → コピー → プレイリスト」。空になったフォルダは削除する
+- 順序は「削除（曲・曲に添えるファイル） → リネーム → コピー（曲 → 曲に添えるファイル） → プレイリスト」。空になったフォルダは削除する。中止された場合と、デバイスの容量が足りなくなった場合は、曲に添えるファイルをコピーしない
 - コピーは別名（`.part`）に書いてから置き換える。一時ファイルの名前にあるものは消してから新しく作る（シンボリックリンクをたどらない。`device_manifest::create_temp_file`）。アルバムの曲順にコピーする
 - 管理ファイルは、削除・リネームの後、50曲コピーするごと、最後に保存する（別名で書いてから置き換える）
 - 中止された場合と、デバイスの容量が足りなくなった場合は、プレイリストを書き出さずに終わる（コピー済みの曲は記録する）。最終同期の日時は、中止されなかった場合だけ記録する
@@ -420,9 +431,19 @@ export interface Playlist {
       "modifiedAt": 1700000000
     }
   ],
-  "playlists": [{ "path": "通勤.m3u8", "playlistId": "（UUID）" }]
+  "playlists": [{ "path": "通勤.m3u8", "playlistId": "（UUID）" }],
+  "extras": [
+    {
+      "path": "Artist/Album/01 Title.lrc",
+      "source": "/Users/me/Music/Album/01 Title.lrc",
+      "size": 1234,
+      "modifiedAt": 1700000000
+    }
+  ]
 }
 ```
+
+- `extras`は、曲に添えてコピーしたファイル（ADR-112）。`source`はコピー元のファイルのパス。項目を足す前の版は、この項目を読まずに管理ファイルを書き直すため、その版で同期すると記録がなくなる（添えたファイルは記録のないファイルとして残り、次の同期で同じサイズならコピー済みとして記録し直す）
 
 - `path`はデバイスのフォルダからの相対パス（区切りは`/`）。`size` / `modifiedAt`はコピーした時点の元のファイルのもの
 - 読むときに、フォルダの外を指すパス（空の要素・`.`・`..`・絶対パス・`\`や`:`を含むもの・`.muspice`の中）の記録は無視する。壊れている場合は`IO`、`version`が新しい場合は`VALIDATION`でエラーにする（空として扱わない）

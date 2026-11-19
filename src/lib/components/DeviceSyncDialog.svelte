@@ -126,6 +126,12 @@
           <dd>{m.common.trackCount(result.renamedCount)}</dd>
         </div>
       {/if}
+      {#if result.extraCopiedCount > 0 || result.extraDeletedCount > 0}
+        <div class="summary-row">
+          <dt>{messages.extras}</dt>
+          <dd>{messages.extraCounts(result.extraCopiedCount, result.extraDeletedCount)}</dd>
+        </div>
+      {/if}
       <div class="summary-row">
         <dt>{messages.playlistsWritten}</dt>
         <dd>{m.common.itemCount(result.playlistCount)}</dd>
@@ -191,6 +197,13 @@
         <div class="summary-row">
           <dt>{messages.rename}</dt>
           <dd>{m.common.trackCount(plan.renameCount)}</dd>
+        </div>
+      {/if}
+      <!-- 曲に添える歌詞ファイル・フォルダの画像（ADR-112。コピー・削除がある時だけ） -->
+      {#if plan.extraCopyCount > 0 || plan.extraDeleteCount > 0}
+        <div class="summary-row">
+          <dt>{messages.extras}</dt>
+          <dd>{messages.extraCounts(plan.extraCopyCount, plan.extraDeleteCount)}</dd>
         </div>
       {/if}
       <div class="summary-row">
