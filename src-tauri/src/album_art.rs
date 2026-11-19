@@ -58,16 +58,35 @@ fn folder_image_rank(path: &Path) -> Option<(usize, usize)> {
     ))
 }
 
-/// フォルダの中のファイルのうち、表示に使うフォルダの画像の名前で、いちばん先のもの
+/// フォルダの中のファイルのうち、表示に使うフォルダの画像（`find_folder_image`が選ぶものと同じ）
 ///
-/// 名前の優先順（`find_folder_image`と同じ）で選ぶ。中身は確かめない。
+/// 名前の優先順に試し、使える画像（10MB以下のファイルで、中身がJPEGかPNG）のうち最初のものを選ぶ。
+/// 中身は先頭だけを読んで確かめる（画像全体は読まない）。
 pub(crate) fn preferred_folder_image(paths: &[PathBuf]) -> Option<PathBuf> {
-    paths
+    let mut candidates: Vec<((usize, usize), &PathBuf)> = paths
         .iter()
         .filter_map(|path| Some((folder_image_rank(path)?, path)))
-        .filter(|(_, path)| path.is_file())
-        .min()
+        .collect();
+    // 同じ優先順位のファイル（大文字と小文字だけが違う名前）は、名前の順にする（`find_folder_image`と同じ）
+    candidates.sort();
+    candidates
+        .into_iter()
+        .find(|(_, path)| is_usable_folder_image(path))
         .map(|(_, path)| path.clone())
+}
+
+/// フォルダの画像として使えるか（10MB以下のファイルで、中身がJPEGかPNG。`read_folder_image`と同じ決まり）
+fn is_usable_folder_image(path: &Path) -> bool {
+    use std::io::Read;
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return false;
+    };
+    if !metadata.is_file() || metadata.len() > MAX_ALBUM_ART_BYTES {
+        return false;
+    }
+    let mut header = [0u8; 8];
+    let read = std::fs::File::open(path).and_then(|mut file| file.read(&mut header));
+    matches!(read, Ok(n) if sniff_image_mime_type(&header[..n]).is_some())
 }
 
 /// ファイル名が、フォルダの画像の名前か（ファイルの整理で、曲と一緒に移す画像の判定に使う）
@@ -664,6 +683,33 @@ mod tests {
         assert_eq!(picture.mime_type, "image/png");
 
         assert!(find_folder_image(&dir.path("no-such-folder")).is_none());
+    }
+
+    #[test]
+    fn test_preferred_folder_image_matches_the_displayed_image() {
+        let dir = TempDir::new();
+        // 使えない候補（画像でない・大きすぎる・フォルダ）は飛ばし、表示と同じ画像を選ぶ
+        fs::write(dir.path("cover.jpg"), b"not an image").unwrap();
+        fs::File::create(dir.path("folder.jpg"))
+            .unwrap()
+            .set_len(MAX_ALBUM_ART_BYTES + 1)
+            .unwrap();
+        fs::create_dir(dir.path("front.jpg")).unwrap();
+        fs::write(dir.path("album.jpg"), png(8, 8)).unwrap();
+        fs::write(dir.path("albumart.png"), png(8, 8)).unwrap();
+        let paths: Vec<PathBuf> = fs::read_dir(&dir.0)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect();
+
+        let preferred = preferred_folder_image(&paths);
+        assert_eq!(preferred, Some(dir.path("album.jpg")));
+        assert_eq!(
+            preferred,
+            find_folder_image(&dir.0).map(|(path, _, _)| path)
+        );
+        // 使える画像がなければ、なし
+        assert_eq!(preferred_folder_image(&paths[..0]), None);
     }
 
     #[test]

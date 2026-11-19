@@ -791,12 +791,13 @@ mod tests {
             "One",
         );
         fs::write(fixture.library.join(format!("{}.LRC", id)), "[00:01.00]la").unwrap();
-        fs::write(fixture.library.join("cover.jpg"), "jpeg").unwrap();
+        // フォルダの画像は、中身がJPEGかPNGのものだけを使う（表示と同じ。先頭がJPEGの印）
+        fs::write(fixture.library.join("cover.jpg"), b"\xFF\xD8\xFFjpeg").unwrap();
         let device_id = fixture.register(true, &[]);
 
         let plan = fixture.plan(&device_id);
         assert_eq!((plan.copy_count, plan.extra_copy_count), (1, 2));
-        assert_eq!(plan.extra_copy_bytes, 12 + 4);
+        assert_eq!(plan.extra_copy_bytes, 12 + 7);
         let result = fixture.sync(&device_id);
         assert_eq!((result.extra_copied_count, result.error_count), (2, 0));
         assert_eq!(
@@ -804,8 +805,12 @@ mod tests {
             Some("[00:01.00]la")
         );
         assert_eq!(
-            fixture.on_device("Artist/Album/cover.jpg").as_deref(),
-            Some("jpeg")
+            fs::read(to_device_path(
+                &fixture.device_root,
+                "Artist/Album/cover.jpg"
+            ))
+            .unwrap(),
+            b"\xFF\xD8\xFFjpeg"
         );
         // もう一度同期しても、コピーし直さない
         assert_eq!(fixture.plan(&device_id).extra_copy_count, 0);
