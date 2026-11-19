@@ -14,7 +14,7 @@ use super::{file_dialog, pick_folder, run_blocking};
 use crate::error::{AppError, AppResult};
 use crate::library::{
     ScanExclusions, get_file_modified_at, is_supported_audio_file, modified_at_of, scan_directory,
-    supported_extensions, to_count,
+    supported_extensions,
 };
 use crate::models::Track;
 use crate::settings::Language;
@@ -153,11 +153,13 @@ fn relink_to_file(state: &AppState, track_id: &str, path: &Path) -> AppResult<Tr
     let modified_at = get_file_modified_at(path);
 
     state.with_db(|db| {
-        let registered = crate::repository::find_tracks_by_file_paths(
-            db,
-            std::slice::from_ref(&file.file_path),
-        )?;
-        if registered.iter().any(|other| other.id != track_id) {
+        // ダイアログを開いている間に、取り込みなどで見つかる曲に戻っていたら、結び付けを変えない
+        if !crate::repository::find_track_by_id(db, track_id)?.is_missing {
+            return Err(AppError::Validation(
+                "この曲のファイルは、ファイルを選んでいる間に見つかりました".to_string(),
+            ));
+        }
+        if is_registered_to_other(db, &file.file_path, track_id)? {
             return Err(AppError::Validation(
                 "選んだファイルは、ほかの曲としてライブラリにあります".to_string(),
             ));
@@ -165,6 +167,16 @@ fn relink_to_file(state: &AppState, track_id: &str, path: &Path) -> AppResult<Tr
         crate::repository::relink_track_to_file(db, track_id, &file, modified_at)?;
         crate::repository::find_track_by_id(db, track_id)
     })
+}
+
+/// ファイルが、ほかの曲としてライブラリに登録されているか
+fn is_registered_to_other(
+    conn: &rusqlite::Connection,
+    file_path: &str,
+    track_id: &str,
+) -> AppResult<bool> {
+    let registered = crate::repository::find_tracks_by_file_paths(conn, &[file_path.to_string()])?;
+    Ok(registered.iter().any(|other| other.id != track_id))
 }
 
 /// フォルダの中から、見つからない曲と同じ曲のファイルを探して結び付ける
@@ -216,7 +228,15 @@ fn search_folder(state: &AppState, folder: &Path) -> AppResult<MissingTrackSearc
         let tx = db.transaction().map_err(|e| {
             AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
         })?;
+        // フォルダを読んでいる間に、取り込みなどで見つかる曲に戻った曲・ほかの曲として登録された
+        // ファイルは、結び付けない
+        let mut relinked = 0;
         for (track_id, file, modified_at) in &found {
+            if !crate::repository::find_track_by_id(&tx, track_id)?.is_missing
+                || is_registered_to_other(&tx, &file.file_path, track_id)?
+            {
+                continue;
+            }
             crate::repository::relink_track(
                 &tx,
                 track_id,
@@ -224,12 +244,13 @@ fn search_folder(state: &AppState, folder: &Path) -> AppResult<MissingTrackSearc
                 &file.file_name,
                 *modified_at,
             )?;
+            relinked += 1;
         }
         tx.commit().map_err(|e| {
             AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
         })?;
         Ok(MissingTrackSearchResult {
-            relinked_count: to_count(found.len())?,
+            relinked_count: relinked,
             remaining_count: crate::repository::count_missing_tracks(db)?,
         })
     })
@@ -337,6 +358,11 @@ mod tests {
         ));
         // 元の場所のファイルが戻っていれば、同じ場所にも結び付けられる
         assert!(relink_to_file(&state, &track_id, &old).is_ok());
+        // 見つかる曲に戻った曲は、結び付けを変えない（ファイルを選んでいる間に取り込みで戻った場合など）
+        assert!(matches!(
+            relink_to_file(&state, &track_id, &old),
+            Err(AppError::Validation(_))
+        ));
     }
 
     #[test]
