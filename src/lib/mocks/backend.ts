@@ -406,8 +406,8 @@ interface MockSyncDevice extends Omit<SyncDevice, 'freeBytes' | 'totalBytes' | '
  * 曲のデバイス上の配置（Rustの`device_sync::track_relative_path`。書式はファイルの整理と同じ書き方で、
  * 拡張子は小文字にする）
  */
-function devicePathOf(track: Track, template: string): string {
-  const extension = /\.[A-Za-z0-9]+$/.exec(track.filePath)?.[0].toLowerCase();
+function devicePathOf(track: Track, template: string, transcode = false): string {
+  const extension = transcode ? '.m4a' : /\.[A-Za-z0-9]+$/.exec(track.filePath)?.[0].toLowerCase();
   return organizedRelativePath(parseOrganizeTemplate(template), track, extension);
 }
 
@@ -802,6 +802,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       // 配置の書式を持つ前に登録したデバイス（以前の配置。曲のアーティストで分ける）
       pathTemplate: '%artist%/%album%/[%disc%-]%track% %title%',
       copyExtras: true,
+      transcode: { mode: 'off', bitrateKbps: 256 },
       connected: true,
       createdAt: '2026-01-03T00:00:00.000Z',
       lastSyncedAt: '2026-01-04T00:00:00.000Z',
@@ -820,6 +821,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       removeUnselected: true,
       pathTemplate: DEFAULT_DEVICE_TEMPLATE,
       copyExtras: true,
+      transcode: { mode: 'off', bitrateKbps: 256 },
       connected: false,
       createdAt: '2026-01-02T00:00:00.000Z',
       lastSyncedAt: null,
@@ -2445,6 +2447,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       removeUnselected: device.removeUnselected,
       pathTemplate: device.pathTemplate,
       copyExtras: device.copyExtras,
+      transcode: { ...device.transcode },
       // 取り出せるのは、`/Volumes`の下のドライブにあり、接続されているデバイス（Rustはさらに、macOSだけ）
       ejectable: device.connected && /^\/Volumes\/[^/]+/.test(device.path),
       connected: device.connected,
@@ -2464,6 +2467,29 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     return tracks.filter((track) => ids.has(track.id));
   }
 
+  /**
+   * 転送する時にAACに変換する曲か（Rustの`transcode_for`。可逆の形式は、モックでは形式の名前で決める。ADR-118）
+   */
+  function transcodes(device: MockSyncDevice, track: Track): boolean {
+    const lossless = ['FLAC', 'WAV', 'AIFF', 'WV', 'WAVPACK', 'APE'].includes(
+      track.format.toUpperCase()
+    );
+    switch (device.transcode.mode) {
+      case 'off':
+        return false;
+      case 'lossless':
+        return lossless;
+      case 'aboveBitrate':
+        return lossless || (track.bitrate ?? 0) > device.transcode.bitrateKbps;
+    }
+  }
+
+  /** デバイス上のサイズ（変換する曲は、ビットレートと長さからの見積もり。Rustの`Transcode::estimated_size`） */
+  function deviceSizeOf(device: MockSyncDevice, track: Track): number {
+    if (!transcodes(device, track) || !track.duration) return track.fileSize;
+    return ((device.transcode.bitrateKbps * 1000) / 8) * track.duration + 256 * 1024;
+  }
+
   /** 同期でコピー・削除する曲を決める */
   function planSync(device: MockSyncDevice) {
     if (!device.connected) {
@@ -2478,7 +2504,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     const stale = [...device.copied.keys()].filter((id) => !selectedIds.has(id));
     const toDelete = device.removeUnselected ? stale : [];
 
-    const copyBytes = toCopy.reduce((sum, track) => sum + track.fileSize, 0);
+    const copyBytes = toCopy.reduce((sum, track) => sum + deviceSizeOf(device, track), 0);
     const deleteBytes = toDelete.reduce((sum, id) => sum + (device.copied.get(id) ?? 0), 0);
     const freeBytes = device.totalBytes - usedBytes(device);
     const requiredBytes = Math.max(copyBytes - deleteBytes, 0);
@@ -2504,6 +2530,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       renameCount,
       unchangedCount: keptCount - renameCount,
       playlistCount: devicePlaylists(device).length,
+      transcodeCount: toCopy.filter((track) => transcodes(device, track)).length,
       missingSourceCount: 0,
       // 歌詞ファイル・フォルダの画像はモックにないため、ない（ADR-112）
       extraCopyCount: 0,
@@ -2513,7 +2540,9 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       requiredBytes,
       hasEnoughSpace: requiredBytes === 0 || requiredBytes + SYNC_SPACE_MARGIN_BYTES <= freeBytes,
       // 確認の画面の一覧（デバイス上の場所。Rustは先頭の`PLAN_ITEMS_LIMIT`件まで）
-      copyPaths: toCopy.map((track) => devicePathOf(track, device.pathTemplate)),
+      copyPaths: toCopy.map((track) =>
+        devicePathOf(track, device.pathTemplate, transcodes(device, track))
+      ),
       deletePaths: toDelete.map((id) => device.copiedPaths.get(id) ?? id),
       renames: toRename.map((id) => {
         const track = tracks.find((t) => t.id === id);
@@ -2551,28 +2580,31 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
 
       let copiedCount = 0;
       let bytesDone = 0;
-      const progress = (current: number, currentFile: string) =>
+      const progress = (current: number, currentFile: string, converting: boolean) =>
         options.emit('deviceSyncProgress', {
           deviceId,
           current,
           total: toCopy.length,
           bytesDone,
           bytesTotal: summary.copyBytes,
-          currentFile
+          currentFile,
+          converting
         });
       for (const [index, track] of toCopy.entries()) {
         if (isSyncCancelled) break;
-        progress(index, track.fileName);
+        const converting = transcodes(device, track);
+        progress(index, track.fileName, converting);
         await sleep(SYNC_STEP_MS);
-        device.copied.set(track.id, track.fileSize);
-        device.copiedPaths.set(track.id, devicePathOf(track, device.pathTemplate));
-        bytesDone += track.fileSize;
+        const size = deviceSizeOf(device, track);
+        device.copied.set(track.id, size);
+        device.copiedPaths.set(track.id, devicePathOf(track, device.pathTemplate, converting));
+        bytesDone += size;
         copiedCount++;
       }
 
       const cancelled = isSyncCancelled;
       if (!cancelled) {
-        progress(toCopy.length, '');
+        progress(toCopy.length, '', false);
         device.lastSyncedAt = now();
       }
       return {
@@ -3763,6 +3795,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         removeUnselected: true,
         pathTemplate: DEFAULT_DEVICE_TEMPLATE,
         copyExtras: true,
+        transcode: { mode: 'off', bitrateKbps: 256 },
         connected: true,
         createdAt: now(),
         lastSyncedAt: null,
@@ -3784,6 +3817,11 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       device.name = name;
       device.pathTemplate = pathTemplate;
       device.copyExtras = config.copyExtras;
+      // 変換のビットレートは選べる値のどれか（Rustの`validate_transcode`）
+      if (!AAC_BITRATES_KBPS.some((bitrate) => bitrate === config.transcode.bitrateKbps)) {
+        fail('VALIDATION', '変換のビットレートは、128・192・256・320 kbpsのどれかにしてください');
+      }
+      device.transcode = { ...config.transcode };
       device.syncAll = config.syncAll;
       // 実装と同じく、見つからないプレイリストは無視する
       device.playlistIds = config.playlistIds.filter((id) => playlists.some((p) => p.id === id));

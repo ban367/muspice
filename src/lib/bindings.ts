@@ -365,6 +365,8 @@ playlistCount: number } | null>("set_music_folder", { source }),
 	pathTemplate: string,
 	/**  曲に添えて、歌詞ファイル・フォルダの画像もコピーするか（ADR-112） */
 	copyExtras: boolean,
+	/**  転送する時の変換（ADR-118） */
+	transcode: DeviceTranscode,
 	/**  取り出せるか（macOSで、転送先のフォルダが`/Volumes`の下のドライブにあり、接続されている。ADR-113） */
 	ejectable: boolean,
 	/**  接続されているか（転送先のフォルダに、このデバイスの管理ファイルがあるか） */
@@ -402,6 +404,8 @@ playlistCount: number } | null>("set_music_folder", { source }),
 	pathTemplate: string,
 	/**  曲に添えて、歌詞ファイル・フォルダの画像もコピーするか（ADR-112） */
 	copyExtras: boolean,
+	/**  転送する時の変換（ADR-118） */
+	transcode: DeviceTranscode,
 	/**  取り出せるか（macOSで、転送先のフォルダが`/Volumes`の下のドライブにあり、接続されている。ADR-113） */
 	ejectable: boolean,
 	/**  接続されているか（転送先のフォルダに、このデバイスの管理ファイルがあるか） */
@@ -1426,6 +1430,8 @@ export type DeviceSyncPlan = {
 	unchangedCount: number,
 	/**  書き出すプレイリスト数 */
 	playlistCount: number,
+	/**  コピーする曲のうち、AACに変換する曲数（変換する曲のサイズは、ビットレートと長さからの見積もり。ADR-118） */
+	transcodeCount: number,
 	/**  元のファイルが見つからない曲数（コピーできない。コピー済みならデバイスに残す） */
 	missingSourceCount: number,
 	/**  コピー・削除する、曲に添えるファイル（歌詞ファイル・フォルダの画像）の数と、コピーするサイズ（ADR-112） */
@@ -1459,6 +1465,8 @@ export type DeviceSyncProgress = {
 	bytesTotal: number,
 	/**  コピー中のファイル名 */
 	currentFile: string,
+	/**  コピー中のファイルを変換しているか（ADR-118） */
+	converting: boolean,
 };
 
 /**  同期の結果 */
@@ -1475,6 +1483,13 @@ export type DeviceSyncResult = {
 	errors: string[],
 	/**  途中で中止された */
 	cancelled: boolean,
+};
+
+/**  デバイスへ転送する時の変換の設定（ADR-118） */
+export type DeviceTranscode = {
+	mode: TranscodeMode,
+	/**  変換先のAACのビットレート（kbps。`transcode::AAC_BITRATES_KBPS`のどれか） */
+	bitrateKbps: number,
 };
 
 /**  重複ファイルの処理方法 */
@@ -2528,6 +2543,8 @@ export type SyncDevice = {
 	pathTemplate: string,
 	/**  曲に添えて、歌詞ファイル・フォルダの画像もコピーするか（ADR-112） */
 	copyExtras: boolean,
+	/**  転送する時の変換（ADR-118） */
+	transcode: DeviceTranscode,
 	/**  取り出せるか（macOSで、転送先のフォルダが`/Volumes`の下のドライブにあり、接続されている。ADR-113） */
 	ejectable: boolean,
 	/**  接続されているか（転送先のフォルダに、このデバイスの管理ファイルがあるか） */
@@ -2547,6 +2564,7 @@ export type SyncDeviceConfig = {
 	removeUnselected: boolean,
 	pathTemplate: string,
 	copyExtras: boolean,
+	transcode: DeviceTranscode,
 };
 
 /**  デバイス上で名前を変える曲（変更前と変更後の場所） */
@@ -2701,6 +2719,15 @@ export type TracksEdited = {
  *  フロントエンドは、`take_opened_files`で曲を受け取って再生する（`opened_files`）。
  */
 export type TracksOpened = null;
+
+/**  デバイスへ転送する時に、曲をAACに変換する条件（ADR-118） */
+export type TranscodeMode = 
+/**  変換しない（元のファイルをコピーする） */
+"off" | 
+/**  可逆の形式（FLAC・ALAC・WAV・AIFF・WavPack・APE）の曲を変換する */
+"lossless" | 
+/**  可逆の形式の曲と、ビットレートが変換先より高い曲を変換する */
+"aboveBitrate";
 
 /**  音量の正規化（ReplayGain）で補正に使うゲインの単位（オン・オフは`Settings::volume_normalization_enabled`） */
 export type VolumeNormalization = 
