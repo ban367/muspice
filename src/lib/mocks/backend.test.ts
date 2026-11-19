@@ -2210,6 +2210,17 @@ describe('見つからない曲', () => {
 });
 
 describe('ライブラリフォルダ', () => {
+  it('ネットワーク上のボリュームのフォルダには印を付ける', async () => {
+    const before = await commands.getLibraryFolders();
+    expect(before.folders.every((folder) => !folder.isNetwork)).toBe(true);
+
+    await importFolder('/Volumes/NAS/Music');
+    const nas = (await commands.getLibraryFolders()).folders.find(
+      (folder) => folder.path === '/Volumes/NAS/Music'
+    );
+    expect(nas?.isNetwork).toBe(true);
+  });
+
   it('インポートしたフォルダを登録し、入れ子のフォルダはまとめる', async () => {
     await importFolder('/Users/demo/Imports/A');
     await importFolder('/Users/demo/Imports/A/Live');

@@ -8,6 +8,7 @@
     useSaveSettingsMutation,
     useSettingsQuery
   } from '#lib/queries/settings.js';
+  import { useLibraryFoldersQuery } from '#lib/queries/libraryFolders.js';
   import type {
     AiShuffleMode,
     Language,
@@ -61,6 +62,11 @@
   let activeSection: SettingsSection = $state('general');
 
   const settingsQuery = useSettingsQuery();
+  // ネットワーク上のライブラリフォルダ（NASなど）がある時は、定期的な再スキャンを勧める（ADR-120）
+  const libraryFoldersQuery = useLibraryFoldersQuery();
+  const hasNetworkFolder = $derived(
+    libraryFoldersQuery.data?.folders.some((folder) => folder.isNetwork) ?? false
+  );
   const saveMutation = useSaveSettingsMutation();
 
   // 編集中の設定（適用前）。保存済みの設定を読み込んだら初期値にする
@@ -362,6 +368,11 @@
               <p class="setting-description">
                 {m.settings.scanIntervalHint}
               </p>
+              {#if hasNetworkFolder && pending.libraryScanIntervalMinutes === 0}
+                <p class="setting-description network-hint" role="note">
+                  {m.settings.networkFolderHint}
+                </p>
+              {/if}
             </div>
           </section>
         {/if}
@@ -562,6 +573,11 @@
 
 <style>
   @reference "../../app.css";
+
+  /* ネットワーク上のライブラリフォルダがある時の、定期的な再スキャンの勧め */
+  .setting-description.network-hint {
+    @apply text-warning;
+  }
 
   .settings-container {
     @apply flex h-full;

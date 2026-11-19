@@ -1625,6 +1625,12 @@ export type LibraryFolder = {
 	exclusions: FolderExclusion[],
 	/**  音楽フォルダ（新しい曲を置く宛先）か */
 	isMusicFolder: boolean,
+	/**
+	 *  ネットワーク上のボリューム（NASのSMB・AFP・NFSなど）にあるか（macOSだけで調べる。ADR-120）
+	 * 
+	 *  ほかの機器からの変更が、フォルダの監視に通知されないため、定期の再スキャンを勧めるのに使う。
+	 */
+	isNetwork: boolean,
 };
 
 /**  ライブラリフォルダの一覧 */

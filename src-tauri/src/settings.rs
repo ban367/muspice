@@ -209,7 +209,9 @@ impl Default for Settings {
             crossfeed_enabled: false,
             crossfeed_level: CrossfeedLevel::default(),
             output_device_id: None,
-            watch_library_folders: false,
+            // 監視は既定でオン（音楽フォルダにFinderで入れた曲も、ライブラリに出す。起動時の再スキャンも
+            // する。ADR-120）。定期の再スキャンは、ネットワーク上のフォルダで勧める（既定はしない）
+            watch_library_folders: true,
             library_scan_interval_minutes: 0,
             hidden_sidebar_items: Vec::new(),
             auto_dj: false,
@@ -550,7 +552,10 @@ mod tests {
         assert!(!settings.crossfeed_enabled);
         assert_eq!(settings.crossfeed_level, CrossfeedLevel::Medium);
         assert_eq!(settings.output_device_id, None);
-        assert!(!settings.auto_sync_enabled());
+        // フォルダの監視は、既定でオン（起動時の再スキャンもする。ADR-120）
+        assert!(settings.watch_library_folders);
+        assert_eq!(settings.library_scan_interval_minutes, 0);
+        assert!(settings.auto_sync_enabled());
         assert!(settings.hidden_sidebar_items.is_empty());
         // 取り込む曲のコピーは、既定でオン（音楽フォルダを設定した時だけ効く）
         assert!(settings.copy_to_music_folder);
@@ -945,11 +950,16 @@ mod tests {
             ..Settings::default()
         };
         let interval = Settings {
+            watch_library_folders: false,
             library_scan_interval_minutes: 15,
             ..Settings::default()
         };
         assert!(watch.auto_sync_enabled());
         assert!(interval.auto_sync_enabled());
-        assert!(!Settings::default().auto_sync_enabled());
+        let off = Settings {
+            watch_library_folders: false,
+            ..Settings::default()
+        };
+        assert!(!off.auto_sync_enabled());
     }
 }
