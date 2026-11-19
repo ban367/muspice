@@ -2752,7 +2752,8 @@ describe('転送先デバイス', () => {
       playlistIds: [mockPlaylistId(2), mockPlaylistId(99)],
       removeUnselected: false,
       pathTemplate: ' %artist%/%title% ',
-      copyExtras: false
+      copyExtras: false,
+      transcode: { mode: 'lossless', bitrateKbps: 192 }
     });
 
     expect(updated).toMatchObject({
@@ -2761,8 +2762,32 @@ describe('転送先デバイス', () => {
       playlistIds: [mockPlaylistId(2)],
       removeUnselected: false,
       pathTemplate: '%artist%/%title%',
-      copyExtras: false
+      copyExtras: false,
+      transcode: { mode: 'lossless', bitrateKbps: 192 }
     });
+    // 変換のビットレートは、選べる値だけ
+    await expect(
+      commands.updateSyncDevice(device.id, {
+        ...updated,
+        transcode: { mode: 'lossless', bitrateKbps: 100 }
+      })
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+
+  it('変換する設定では、変換する曲を数え、拡張子を.m4aにする', async () => {
+    const device = await connectedDevice();
+    const updated = await commands.updateSyncDevice(device.id, {
+      ...device,
+      syncAll: true,
+      transcode: { mode: 'aboveBitrate', bitrateKbps: 128 }
+    });
+    expect(updated.transcode).toEqual({ mode: 'aboveBitrate', bitrateKbps: 128 });
+
+    const plan = await commands.planDeviceSync(device.id);
+    expect(plan.transcodeCount).toBeGreaterThan(0);
+    expect(plan.copyPaths.filter((path) => path.endsWith('.m4a')).length).toBeGreaterThanOrEqual(
+      plan.transcodeCount
+    );
   });
 
   it('同期する内容の見通しと、確認の画面の一覧を返し、取り出すと接続されていない状態になる', async () => {

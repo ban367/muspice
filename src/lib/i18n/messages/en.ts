@@ -1562,6 +1562,15 @@ export const en: Messages = {
     copyExtrasHint:
       'Copies the lyrics file with the same name as each track and the folder image (cover.jpg, etc.) next to the tracks. When turned off, the next sync deletes the ones Muspice copied.',
     noSource: 'Select what to sync',
+    transcode: 'Convert when transferring',
+    transcodeModes: {
+      off: 'Do not convert',
+      lossless: 'Convert lossless tracks (FLAC, ALAC, WAV, etc.) to AAC',
+      aboveBitrate: 'Convert higher bit rate tracks to AAC'
+    },
+    transcodeBitrate: 'AAC bit rate',
+    transcodeHint:
+      'Fits more tracks on devices with little space. Converting takes time (converted tracks are not converted again until the track or the setting changes). Tags and album art are copied too.',
 
     syncDialog: {
       title: (name) => `Sync to "${name}"`,
@@ -1582,6 +1591,8 @@ export const en: Messages = {
       unchanged: 'Unchanged',
       playlists: 'Playlists',
       countAndSize: (count, size) => `${plural(count, 'track', 'tracks')} (${size})`,
+      transcodeCount: (count) =>
+        `${plural(count, 'track', 'tracks')} will be converted to AAC (their sizes are estimates)`,
       freeSpace: 'Free space',
       upToDate: 'The tracks on the device are up to date',
       missingSources: (count) =>
@@ -1590,6 +1601,7 @@ export const en: Messages = {
       start: 'Start Sync',
       preparing: 'Preparing...',
       copying: (current, total) => `Copying... (${current}/${total})`,
+      converting: (current, total) => `Converting and copying... (${current}/${total})`,
       finishing: 'Finishing...',
       stop: 'Stop',
       stopping: 'Stopping...',

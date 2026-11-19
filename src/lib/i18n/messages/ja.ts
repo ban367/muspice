@@ -1639,6 +1639,16 @@ export const ja = {
     copyExtrasHint:
       '曲と同じ名前の歌詞ファイルと、フォルダの画像（cover.jpgなど）を、曲と同じフォルダへコピーします。オフにすると、次の同期で、Muspiceがコピーしたものを削除します',
     noSource: '同期する内容を選択してください',
+    /** 転送する時の変換（ADR-118） */
+    transcode: '転送する時の変換',
+    transcodeModes: {
+      off: '変換しない',
+      lossless: '可逆の形式（FLAC・ALAC・WAVなど）の曲をAACにする',
+      aboveBitrate: 'ビットレートが高い曲をAACにする'
+    },
+    transcodeBitrate: 'AACのビットレート',
+    transcodeHint:
+      '容量の小さい機器に多くの曲を入れられます。変換には時間がかかります（変換した曲は、元の曲か設定が変わるまで変換し直しません）。タグとアルバムアートも写します',
 
     syncDialog: {
       title: (name: string) => `「${name}」へ同期`,
@@ -1660,6 +1670,9 @@ export const ja = {
       playlists: 'プレイリスト',
       /** 曲数とサイズ（例: 12曲（345.6 MB）） */
       countAndSize: (count: number, size: string) => `${count}曲（${size}）`,
+      /** 変換してコピーする曲（ADR-118） */
+      transcodeCount: (count: number) =>
+        `コピーする曲のうち${count}曲をAACに変換します（変換する曲のサイズは見積もりです）`,
       freeSpace: '空き容量',
       upToDate: 'デバイスの曲は最新です',
       missingSources: (count: number) =>
@@ -1668,6 +1681,7 @@ export const ja = {
       start: '同期を開始',
       preparing: '準備しています...',
       copying: (current: number, total: number) => `コピー中... (${current}/${total})`,
+      converting: (current: number, total: number) => `変換してコピー中... (${current}/${total})`,
       finishing: '仕上げています...',
       stop: '中止',
       stopping: '中止しています...',
