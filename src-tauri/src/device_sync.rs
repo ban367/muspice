@@ -155,6 +155,9 @@ pub struct CopyOp {
     pub transcode: Option<Transcode>,
     /// デバイス上のファイルのサイズ（変換する曲は見積もり。変換しない曲は`size`と同じ）
     pub device_size: i64,
+    /// コピーできた後に削除する、同じ曲の古いファイル（変換の設定を変えて拡張子が変わった曲。
+    /// 変換に失敗した・中止した時に、デバイスに曲が1つもなくならないよう、先に消さない）
+    pub replaces: Option<ManifestFile>,
 }
 
 /// デバイス上で名前を変えるファイル（タグが変わって配置が変わった曲）
@@ -219,6 +222,13 @@ impl SyncPlan {
     /// コピーするファイルの、デバイス上のサイズの合計（変換する曲は見積もり）
     pub fn copy_bytes(&self) -> i64 {
         self.to_copy.iter().map(|op| op.device_size).sum()
+    }
+
+    /// 削除する曲（先に削除する曲と、コピーできた後に削除する古いファイル）
+    pub fn deleted_files(&self) -> impl Iterator<Item = &ManifestFile> {
+        self.to_delete
+            .iter()
+            .chain(self.to_copy.iter().filter_map(|op| op.replaces.as_ref()))
     }
 
     /// コピーする曲のうち、変換する曲数
@@ -402,6 +412,7 @@ fn copy_op(source: &SourceTrack, file: &SourceFile, dest: String) -> CopyOp {
         device_size: source.transcode.map_or(file.size, |transcode| {
             transcode.estimated_size(source.track.duration, file.size)
         }),
+        replaces: None,
     }
 }
 
@@ -545,8 +556,16 @@ pub fn plan_sync(
                     to: dest,
                 });
             }
+            // 変換の設定が変わった: 新しい場所にコピー（変換）できてから、古いファイルを消す
+            Some(entry) if !is_same_transcode(entry, source) => {
+                plan.delete_bytes += device_file_size(&entry.path).unwrap_or(0);
+                plan.to_copy.push(CopyOp {
+                    replaces: Some(entry.clone()),
+                    ..copy_op(source, file, dest)
+                });
+            }
             Some(entry) => {
-                // 元のファイル・変換の設定も変わっている: 古いファイルを消して、新しい場所にコピーする
+                // 元のファイルも変わっている: 古いファイルを消して、新しい場所にコピーする
                 plan.delete_bytes += device_file_size(&entry.path).unwrap_or(0);
                 plan.to_delete.push(entry.clone());
                 plan.to_copy.push(copy_op(source, file, dest));
@@ -1503,7 +1522,7 @@ mod tests {
         assert_eq!(copy_dests(&plan), [path]);
         assert!(plan.to_delete.is_empty() && plan.kept.is_empty());
 
-        // 変換しない設定にした: 名前を変えずに、変換したファイルを消して元のファイルをコピーする
+        // 変換しない設定にした: 名前を変えずに、元のファイルをコピーしてから変換したファイルを消す
         let plan = plan_sync(
             &[source("t1", "Artist", "Album", 1, "One")],
             &[],
@@ -1511,9 +1530,16 @@ mod tests {
             true,
             device(&on_device),
         );
-        assert!(plan.to_rename.is_empty());
-        assert_eq!(paths(&plan.to_delete), [path]);
+        assert!(plan.to_rename.is_empty() && plan.to_delete.is_empty());
         assert_eq!(copy_dests(&plan), ["Artist/Album/01 One.mp3"]);
+        assert_eq!(
+            plan.to_copy[0].replaces.as_ref().map(|e| e.path.as_str()),
+            Some(path)
+        );
+        assert_eq!(
+            paths(&plan.deleted_files().cloned().collect::<Vec<_>>()),
+            [path]
+        );
     }
 
     #[test]
@@ -1527,9 +1553,13 @@ mod tests {
             true,
             device(&[(old, 100)]),
         );
-        assert!(plan.to_rename.is_empty());
-        assert_eq!(paths(&plan.to_delete), [old]);
+        assert!(plan.to_rename.is_empty() && plan.to_delete.is_empty());
         assert_eq!(copy_dests(&plan), ["Artist/Album/01 One.m4a"]);
+        assert_eq!(
+            plan.to_copy[0].replaces.as_ref().map(|e| e.path.as_str()),
+            Some(old)
+        );
+        assert_eq!(plan.delete_bytes, 100);
 
         // タグだけが変わった変換済みの曲は、名前を変える
         let recorded = "Artist/Album/01 Old.m4a";

@@ -427,6 +427,10 @@ fn copy_files(
                 device.files.insert(path_key(&entry.path), entry);
                 outcome.copied_count += 1;
                 unsaved += 1;
+                // 変換の設定を変えた曲の古いファイルは、コピーできてから消す
+                if let Some(old) = &op.replaces {
+                    remove_replaced(device, old, outcome)?;
+                }
             }
             // 途中で中止された
             Ok(None) => break,
@@ -464,6 +468,34 @@ fn copy_files(
         });
     }
     Ok(false)
+}
+
+/// 新しい場所にコピーできた曲の、古いファイルを削除する（`CopyOp::replaces`）
+fn remove_replaced(
+    device: &mut Device,
+    old: &ManifestFile,
+    outcome: &mut TransferOutcome,
+) -> AppResult<()> {
+    let removed = device
+        .resolve(&old.path, false)
+        .and_then(|path| remove_file_if_exists(&path).map(|()| path));
+    match removed {
+        Ok(path) => {
+            device.remove_empty_parents(&path);
+            device.files.remove(&path_key(&old.path));
+            outcome.deleted_count += 1;
+        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            device.files.remove(&path_key(&old.path));
+        }
+        Err(e) => {
+            device.ensure_connected()?;
+            outcome
+                .errors
+                .push(format!("{}: 削除できませんでした（{}）", old.path, e));
+        }
+    }
+    Ok(())
 }
 
 /// 曲に添えるファイルをコピーする（小さいファイルのため、進捗は送らない）
@@ -602,8 +634,21 @@ fn transcode_file(
         }
         // 中止した・失敗した場合は、`convert_file`が一時的なファイルを消す
         Ok(false) => Ok(None),
+        // デバイスの空き容量がなくなった（埋め込みの画像が大きいなど、見積もりより大きくなった）:
+        // 普通のコピーと同じく、コピーを打ち切る
+        Err(_) if is_nearly_full(parent) => Err(io::Error::new(
+            io::ErrorKind::StorageFull,
+            "デバイスの空き容量が足りません",
+        )),
         Err(e) => Err(io::Error::other(format!("変換できませんでした（{}）", e))),
     }
+}
+
+/// デバイスの空き容量が、ほとんどないか（変換に失敗した理由が、容量の不足かを見分ける）
+fn is_nearly_full(dir: &Path) -> bool {
+    /// これより空き容量が少なければ、容量の不足とみなす
+    const NEARLY_FULL_BYTES: u64 = 16 * 1024 * 1024;
+    fs4::available_space(dir).is_ok_and(|free| free < NEARLY_FULL_BYTES)
 }
 
 /// プレイリストのファイルを削除・書き出しする
@@ -705,6 +750,7 @@ mod tests {
                 modified_at: Some(1),
                 transcode: None,
                 device_size: content.len() as i64,
+                replaces: None,
             }
         }
 
@@ -1259,6 +1305,54 @@ mod tests {
         assert!(fixture.root.join(MANIFEST_DIR).is_dir());
     }
 
+    /// 変換の設定を変えた曲の古いファイルは、コピーできてから消す（できなければ残す）
+    #[test]
+    fn test_replaced_files_are_deleted_only_after_the_copy() {
+        let fixture = Fixture::new();
+        let old_one = fixture.device_file("t1", "Artist/Album/01 One.flac", "old one");
+        let old_two = fixture.device_file("t2", "Artist/Album/02 Two.flac", "old two");
+        let copied = CopyOp {
+            replaces: Some(old_one.clone()),
+            ..fixture.copy_op("t1", "Artist/Album/01 One.m4a", "new")
+        };
+        // 元のファイルがなくなっていて、コピーできない
+        let failed = CopyOp {
+            source: fixture
+                .library
+                .join("gone.mp3")
+                .to_str()
+                .unwrap()
+                .to_string(),
+            replaces: Some(old_two.clone()),
+            ..fixture.copy_op("t2", "Artist/Album/02 Two.m4a", "x")
+        };
+        let plan = SyncPlan {
+            to_copy: vec![copied, failed],
+            ..SyncPlan::default()
+        };
+
+        let outcome = fixture.execute(fixture.manifest(vec![old_one, old_two]), &plan);
+
+        assert_eq!(outcome.copied_count, 1);
+        assert_eq!(outcome.deleted_count, 1);
+        assert_eq!(outcome.errors.len(), 1);
+        assert_eq!(fixture.read("Artist/Album/01 One.flac"), None);
+        assert_eq!(
+            fixture.read("Artist/Album/01 One.m4a").as_deref(),
+            Some("new")
+        );
+        assert_eq!(
+            fixture.read("Artist/Album/02 Two.flac").as_deref(),
+            Some("old two")
+        );
+        let mut saved = fixture.saved_paths();
+        saved.sort();
+        assert_eq!(
+            saved,
+            ["Artist/Album/01 One.m4a", "Artist/Album/02 Two.flac"]
+        );
+    }
+
     /// 変換してコピーする（`afconvert`のあるmacOSだけ。ADR-118）
     #[cfg(target_os = "macos")]
     #[test]
@@ -1284,6 +1378,7 @@ mod tests {
                 modified_at: None,
                 transcode: Some(transcode),
                 device_size: 1000,
+                replaces: None,
             }],
             ..SyncPlan::default()
         };

@@ -494,7 +494,7 @@ fn summarize_plan(plan: &SyncPlan, free_bytes: i64) -> AppResult<DeviceSyncPlan>
     Ok(DeviceSyncPlan {
         copy_count: to_count(plan.to_copy.len())?,
         copy_bytes,
-        delete_count: to_count(plan.to_delete.len())?,
+        delete_count: to_count(plan.deleted_files().count())?,
         delete_bytes: plan.delete_bytes,
         rename_count: to_count(plan.to_rename.len())?,
         unchanged_count: to_count(plan.kept.len())?,
@@ -515,8 +515,7 @@ fn summarize_plan(plan: &SyncPlan, free_bytes: i64) -> AppResult<DeviceSyncPlan>
             .map(|op| op.dest.clone())
             .collect(),
         delete_paths: plan
-            .to_delete
-            .iter()
+            .deleted_files()
             .take(PLAN_ITEMS_LIMIT)
             .map(|entry| entry.path.clone())
             .collect(),
