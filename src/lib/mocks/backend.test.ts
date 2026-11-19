@@ -1845,10 +1845,28 @@ describe('曲の情報の編集画面', () => {
     const tracks = await commands.getAllTracks();
     const ids = [tracks[2].id, tracks[0].id];
 
-    await commands.openTrackEditor(ids);
+    await commands.openTrackEditor(ids, []);
 
     expect((await commands.getTrackEditorTracks()).map((track) => track.id)).toEqual(ids);
-    await expect(commands.openTrackEditor([])).rejects.toMatchObject({ code: 'VALIDATION' });
+    // 一括編集では、前後の曲へ移らない
+    expect(await commands.getTrackEditorPosition()).toBeNull();
+    expect(await commands.moveTrackEditor(1)).toBe(false);
+    await expect(commands.openTrackEditor([], [])).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+
+  it('1曲の編集では、開いた一覧の並びの前後の曲へ移れる', async () => {
+    const tracks = await commands.getAllTracks();
+    const sequence = tracks.slice(0, 3).map((track) => track.id);
+
+    await commands.openTrackEditor([sequence[1]], sequence);
+    expect(await commands.getTrackEditorPosition()).toEqual({ index: 1, count: 3 });
+
+    expect(await commands.moveTrackEditor(1)).toBe(true);
+    expect((await commands.getTrackEditorTracks()).map((track) => track.id)).toEqual([sequence[2]]);
+    // 並びの端では移らない
+    expect(await commands.moveTrackEditor(1)).toBe(false);
+    expect(await commands.moveTrackEditor(-2)).toBe(true);
+    expect(await commands.getTrackEditorPosition()).toEqual({ index: 0, count: 3 });
   });
 
   it('タグ・アルバムアートを書き換えると、ほかのウィンドウへ知らせる', async () => {

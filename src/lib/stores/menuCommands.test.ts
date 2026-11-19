@@ -142,9 +142,16 @@ describe('runMenuCommand', () => {
   });
 
   it('曲の情報の編集は、一覧で選んでいる曲を一覧の順で開く', async () => {
-    ui.selectedTrack = { track: track('t3'), count: 2, tracks: [track('t1'), track('t3')] };
+    const list = [track('t1'), track('t2'), track('t3')];
+    ui.selectedTrack = {
+      track: track('t3'),
+      count: 2,
+      tracks: [track('t1'), track('t3')],
+      listTracks: list
+    };
     await runMenuCommand({ type: 'editTrackInfo' });
-    expect(openTrackEditor).toHaveBeenCalledWith(['t1', 't3']);
+    // 一覧の並びも渡す（1曲の編集の時だけ、編集画面で前後の曲へ移るのに使う。ADR-119）
+    expect(openTrackEditor).toHaveBeenCalledWith(['t1', 't3'], ['t1', 't2', 't3']);
   });
 
   it('選んでいる曲がない・ミニプレーヤーの間は、編集画面もFinderも開かない', async () => {
