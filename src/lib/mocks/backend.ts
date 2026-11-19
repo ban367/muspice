@@ -691,6 +691,29 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   let pendingArt: { token: string; picture: number } | null = null;
   /** 編集画面で扱う曲（ブラウザでは`storage`にも置き、別のウィンドウで受け取る） */
   let editorTrackIds: string[] = [];
+  /** 編集画面の、開いた一覧の曲の並び（1曲の編集で、その曲を含む時だけ。ADR-119） */
+  let editorSequence: string[] = [];
+
+  /** 編集画面で扱う曲と並び（別のウィンドウ（ブラウザでは別のページ）では、保存先から受け取る） */
+  function loadEditorTracks(): { trackIds: string[]; sequence: string[] } {
+    if (editorTrackIds.length > 0) return { trackIds: editorTrackIds, sequence: editorSequence };
+    try {
+      const stored = options.storage?.getItem(TRACK_EDITOR_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored) as { trackIds: string[]; sequence: string[] };
+        return { trackIds: parsed.trackIds, sequence: parsed.sequence ?? [] };
+      }
+    } catch {
+      // 読めなければ、預かっていないものとする
+    }
+    return { trackIds: [], sequence: [] };
+  }
+
+  function saveEditorTracks(trackIds: string[], sequence: string[]): void {
+    editorTrackIds = trackIds;
+    editorSequence = sequence;
+    options.storage?.setItem(TRACK_EDITOR_KEY, JSON.stringify({ trackIds, sequence }));
+  }
   // 前回の再生状態（保存先に壊れた内容があれば使わない）
   let playbackState: StoredPlaybackState = EMPTY_PLAYBACK_STATE;
   try {
@@ -2854,27 +2877,41 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         return true;
       });
     },
-    openTrackEditor: (trackIds) => {
+    openTrackEditor: (trackIds, sequence) => {
       if (trackIds.length === 0) fail('VALIDATION', 'トラックIDが指定されていません');
       trackIds.forEach(validateTrackId);
-      editorTrackIds = trackIds;
+      sequence.forEach(validateTrackId);
+      // 並びは、1曲の編集で、その曲を含む時だけ預かる（Rustの`TrackEditorState::set`）
+      const kept = trackIds.length === 1 && sequence.includes(trackIds[0]) ? sequence : [];
+      saveEditorTracks(trackIds, kept);
       pendingArt = null;
-      options.storage?.setItem(TRACK_EDITOR_KEY, JSON.stringify(trackIds));
       // ブラウザでは、開いたページを閉じたことが分からないため、開いた知らせ（`trackEditorChanged`。
       // メインウィンドウの覆い）は送らない（覆いは`__MUSPICE_MOCK__.emit`で確かめる）
       options.openWindow?.('/track-editor');
       return null;
     },
-    getTrackEditorTracks: () => {
-      // 別のウィンドウ（ブラウザでは別のページ）では、保存先から受け取る
-      let ids = editorTrackIds;
-      try {
-        const stored = options.storage?.getItem(TRACK_EDITOR_KEY);
-        if (ids.length === 0 && stored) ids = JSON.parse(stored) as string[];
-      } catch {
-        ids = editorTrackIds;
+    getTrackEditorTracks: () =>
+      loadEditorTracks().trackIds.flatMap((id) => tracks.filter((track) => track.id === id)),
+    getTrackEditorPosition: () => {
+      const { trackIds, sequence } = loadEditorTracks();
+      const index = trackIds.length === 1 ? sequence.indexOf(trackIds[0]) : -1;
+      return index < 0 ? null : { index, count: sequence.length };
+    },
+    // 並びの前後の曲へ移る（ライブラリから外された曲は飛ばす。Rustの`TrackEditorState::step`）
+    moveTrackEditor: (offset) => {
+      const { trackIds, sequence } = loadEditorTracks();
+      let index = trackIds.length === 1 ? sequence.indexOf(trackIds[0]) : -1;
+      if (index < 0 || offset === 0) return false;
+      const step = offset > 0 ? 1 : -1;
+      let remaining = Math.abs(offset);
+      while (remaining > 0) {
+        index += step;
+        if (index < 0 || index >= sequence.length) return false;
+        if (tracks.some((track) => track.id === sequence[index])) remaining--;
       }
-      return ids.flatMap((id) => tracks.filter((track) => track.id === id));
+      saveEditorTracks([sequence[index]], sequence);
+      pendingArt = null;
+      return true;
     },
     removeAlbumArt: (trackIds) => {
       validateAlbumArtTargets(trackIds);
