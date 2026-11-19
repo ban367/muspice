@@ -797,15 +797,19 @@ macOS 27のMusicUnderstandingで曲のテンポ・キー・ペースを求め、
 
 - 条件は`SmartRules`: `{ matchMode: 'all' | 'any', rules: SmartRule[], order: { field, descending }, limit: number | null }`。`playlists.rules`にJSONで保存する
   - `SmartRule`は、`kind`で種類を分ける
-    - `{ kind: 'text', field, op, value }`: `field`は`title`・`artist`・`albumArtist`・`album`・`genre`・`format`・`path`（ファイルの場所）。`op`は`contains`・`notContains`・`is`・`isNot`・`startsWith`・`endsWith`・`isEmpty`・`isNotEmpty`。検索と同じ正規化（大文字と小文字・全角と半角・ひらがなとカタカナをそろえる）をして比べる。値のない項目は、空の文字列として比べる（「〜ではない」「〜を含まない」に合う）
+    - `{ kind: 'text', field, op, value }`: `field`は`title`・`artist`・`albumArtist`・`album`・`genre`・`composer`・`grouping`・`comment`・`format`・`path`（ファイルの場所）。`op`は`contains`・`notContains`・`is`・`isNot`・`startsWith`・`endsWith`・`isEmpty`・`isNotEmpty`。検索と同じ正規化（大文字と小文字・全角と半角・ひらがなとカタカナをそろえる）をして比べる。値のない項目は、空の文字列として比べる（「〜ではない」「〜を含まない」に合う）
     - `artist`・`genre`は複数の値を持てるため、値のどれかが条件に合うかで比べる（「ジャンルがRock」は、`Rock; Pop`の曲にも合う。分ける前の文字列そのものが合う場合も、合うとみなす。`notContains`・`isNot`は、どの値も合わない曲）
-    - `{ kind: 'number', field, op, value, valueTo }`: `field`は`rating`・`year`・`playCount`・`skipCount`・`duration`（秒）・`trackNumber`・`discNumber`・`bitrate`（kbps）。`op`は`is`・`isNot`・`atLeast`・`atMost`・`between`（`value`以上・`valueTo`以下）。評価・再生回数・スキップ回数は、値がなければ0として比べる。ほかの項目の値のない曲は、`isNot`にだけ合う
+    - `{ kind: 'number', field, op, value, valueTo }`: `field`は`rating`・`year`・`playCount`・`skipCount`・`duration`（秒）・`trackNumber`・`discNumber`・`bitrate`（kbps）・`bpm`（タグのBPM）・`analyzedBpm`（曲の解析のテンポ。四捨五入した整数で比べる）・`sampleRate`（Hz。画面はkHzで入力する）・`bitDepth`・`channels`。`op`は`is`・`isNot`・`atLeast`・`atMost`・`between`（`value`以上・`valueTo`以下）。評価・再生回数・スキップ回数は、値がなければ0として比べる。ほかの項目の値のない曲は、`isNot`にだけ合う
     - `{ kind: 'date', field, op, days }`: `field`は`createdAt`（追加日）・`lastPlayedAt`（最終再生日）。`op`は`inLast`（過去`days`日以内）・`notInLast`（過去`days`日より前。日付のない曲＝未再生の曲を含む）・`isEmpty`・`isNotEmpty`
     - `{ kind: 'favorite', value }`: お気に入りかどうか
     - `{ kind: 'inMusicFolder', value }`: 音楽フォルダの中にあるか（曲の場所が、音楽フォルダのパス＋区切り文字で始まるか。音楽フォルダが未設定なら、どの曲も中にない。ADR-084）
+    - `{ kind: 'key', op, value }`: 曲の解析のキー（`value`は、主音の0〜11。短調は12を足す。ADR-115）。`op`は`is`・`isNot`（解析していない曲を含む）・`isEmpty`（解析していない・キーを決められなかった曲）・`isNotEmpty`
+    - `{ kind: 'missing', value }`: ファイルが見つからない曲か（`tracks.missing_since`。ADR-023）
+    - `{ kind: 'playlist', op, playlistId }`: ほかのプレイリストに入っているか（`op`は`is`・`isNot`。ADR-116）。通常のプレイリストは入れてある曲、自動プレイリストはその条件に合う曲（上限・並び順を含めて求めた曲）で比べる。消したプレイリストは、曲のないプレイリストとして扱う（`is`は曲なし、`isNot`はすべての曲）
   - `matchMode`が`all`ならすべての条件に合う曲（条件がなければ、すべての曲）、`any`ならいずれかの条件に合う曲（条件がなければ、曲なし）
   - `order.field`は`random`・`title`・`artist`・`album`・`createdAt`・`lastPlayedAt`・`playCount`・`rating`・`year`・`duration`。同じ値の曲は、アーティスト → アルバム → アルバムの中の順に並べる。`limit`があれば、この並びの先頭からその曲数までにする
-  - 検証: 条件は50個まで、文字列は255文字まで、数値は0〜1000000（評価は半分の星の単位で0〜10）、日数は1〜36500、`limit`は1〜100000。違反は`VALIDATION`
+  - 検証: 条件は50個まで、文字列は255文字まで、数値は0〜1000000（評価は半分の星の単位で0〜10）、日数は1〜36500、キーは0〜23、プレイリストのIDはUUID、`limit`は1〜100000。違反は`VALIDATION`
+  - `create_smart_playlist`・`update_smart_playlist`は、条件にしたプレイリストがない場合・そのプレイリスト自身を条件にする場合・条件にした自動プレイリストが（ほかの自動プレイリストを通してでも）このプレイリストを条件にしている場合も`VALIDATION`（`smart_playlist::validate_playlist_references`）。保存してある条件が循環していても（ほかの版で保存したなど）、曲を求めるのは止まる（循環した所は、曲のないプレイリストとして扱う）
 - `get_playlists`は、自動プレイリストの`tracks`を空で返す。曲は`get_playlist_tracks`が、呼ぶたびに条件から求める（評価・再生回数・タグの変更に追随する）
 - ランダムな並び（`order.field`が`random`）は、種と曲のIDから決める。種は起動のたびに変わり、`reshuffle_smart_playlists`でも変わる（すべての自動プレイリストの並びが変わる）。種が同じ間は、何度取得しても同じ並びになる
 - `update_smart_playlist`は条件だけを変える（名前は`rename_playlist`）。通常のプレイリストに対しては`VALIDATION`（入れてある曲が見えなくなるため、自動プレイリストには変えない）

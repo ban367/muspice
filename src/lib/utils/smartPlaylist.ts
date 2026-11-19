@@ -7,6 +7,7 @@
 import type {
   DateField,
   DateOp,
+  KeyOp,
   MatchMode,
   NumberField,
   NumberOp,
@@ -19,24 +20,39 @@ import type {
 } from '#lib/types/models.js';
 import { m } from '#lib/i18n/i18n.svelte.js';
 import { MAX_RATING, formatRatingStars } from './rating.js';
+import { formatMusicKey } from './musicKey.js';
 
 /** 条件にできる項目 */
-export type RuleField = TextField | NumberField | DateField | 'favorite' | 'inMusicFolder';
+export type RuleField =
+  | TextField
+  | NumberField
+  | DateField
+  | 'favorite'
+  | 'inMusicFolder'
+  | 'analyzedKey'
+  | 'playlist'
+  | 'missing';
 
 /** 項目の種類（比べ方・値の入力の形が決まる） */
 export type RuleKind = SmartRule['kind'];
 
-/** お気に入り・音楽フォルダの中にあるかの比べ方（保存する条件では、`value`の真偽にする） */
+/**
+ * お気に入り・音楽フォルダの中にあるか・見つからないか・プレイリストに入っているかの比べ方
+ * （保存する条件では、プレイリスト以外は`value`の真偽にする）
+ */
 export type FavoriteOp = 'is' | 'isNot';
 
-export type RuleOp = TextOp | NumberOp | DateOp | FavoriteOp;
+export type RuleOp = TextOp | NumberOp | DateOp | FavoriteOp | KeyOp;
 
 /** 数値の項目の、入力の形 */
-type NumberInput = 'integer' | 'rating' | 'minutes';
+type NumberInput = 'integer' | 'rating' | 'minutes' | 'kilohertz';
 
 interface RuleFieldDefinition {
   kind: RuleKind;
-  /** 数値の項目の入力の形（評価は星の数を選ぶ。長さは分で入力し、秒で保存する） */
+  /**
+   * 数値の項目の入力の形（評価は星の数を選ぶ。長さは分で入力し、秒で保存する。サンプルレートは
+   * kHzで入力し、Hzで保存する）
+   */
   input?: NumberInput;
 }
 
@@ -46,7 +62,10 @@ export const RULE_FIELDS: Record<RuleField, RuleFieldDefinition> = {
   artist: { kind: 'text' },
   albumArtist: { kind: 'text' },
   album: { kind: 'text' },
+  composer: { kind: 'text' },
+  grouping: { kind: 'text' },
   genre: { kind: 'text' },
+  comment: { kind: 'text' },
   year: { kind: 'number', input: 'integer' },
   rating: { kind: 'number', input: 'rating' },
   favorite: { kind: 'favorite' },
@@ -54,13 +73,21 @@ export const RULE_FIELDS: Record<RuleField, RuleFieldDefinition> = {
   skipCount: { kind: 'number', input: 'integer' },
   lastPlayedAt: { kind: 'date' },
   createdAt: { kind: 'date' },
+  playlist: { kind: 'playlist' },
   duration: { kind: 'number', input: 'minutes' },
   trackNumber: { kind: 'number', input: 'integer' },
   discNumber: { kind: 'number', input: 'integer' },
+  bpm: { kind: 'number', input: 'integer' },
+  analyzedBpm: { kind: 'number', input: 'integer' },
+  analyzedKey: { kind: 'key' },
   format: { kind: 'text' },
   bitrate: { kind: 'number', input: 'integer' },
+  sampleRate: { kind: 'number', input: 'kilohertz' },
+  bitDepth: { kind: 'number', input: 'integer' },
+  channels: { kind: 'number', input: 'integer' },
   path: { kind: 'text' },
-  inMusicFolder: { kind: 'inMusicFolder' }
+  inMusicFolder: { kind: 'inMusicFolder' },
+  missing: { kind: 'missing' }
 };
 export const RULE_FIELD_IDS = Object.keys(RULE_FIELDS) as RuleField[];
 
@@ -77,6 +104,16 @@ const TEXT_OPS: readonly TextOp[] = [
 const NUMBER_OPS: readonly NumberOp[] = ['is', 'isNot', 'atLeast', 'atMost', 'between'];
 const DATE_OPS: readonly DateOp[] = ['inLast', 'notInLast', 'isEmpty', 'isNotEmpty'];
 const FAVORITE_OPS: readonly FavoriteOp[] = ['is', 'isNot'];
+const KEY_OPS: readonly KeyOp[] = ['is', 'isNot', 'isEmpty', 'isNotEmpty'];
+
+/**
+ * キーの条件で選べる値（主音の音名 + 12 × 調。ハ長調・ハ短調・変ニ長調…の順）
+ *
+ * 値の表記は、一覧の列と同じ（`formatMusicKey`）。
+ */
+export const KEY_VALUES: readonly number[] = Array.from({ length: 24 }, (_, index) =>
+  index % 2 === 0 ? index / 2 : (index - 1) / 2 + 12
+);
 
 /** 並び順に使える項目（この並びが、メニューの順になる） */
 export const ORDER_FIELDS: readonly SmartOrderField[] = [
@@ -96,6 +133,8 @@ export const ORDER_FIELDS: readonly SmartOrderField[] = [
 export const MAX_RULES = 50;
 /** 曲数の上限として指定できる最大の値（Rustの`MAX_LIMIT`と同じ） */
 const MAX_LIMIT = 100_000;
+/** キーの条件の値の上限（Rustの`MAX_KEY`と同じ） */
+const MAX_KEY = 23;
 const MAX_NUMBER = 1_000_000;
 const MAX_DAYS = 36_500;
 const MAX_TEXT_LENGTH = 255;
@@ -112,7 +151,11 @@ export function opsFor(field: RuleField): readonly RuleOp[] {
       return field === 'createdAt' ? DATE_OPS.slice(0, 2) : DATE_OPS;
     case 'favorite':
     case 'inMusicFolder':
+    case 'missing':
+    case 'playlist':
       return FAVORITE_OPS;
+    case 'key':
+      return KEY_OPS;
   }
 }
 
@@ -122,21 +165,27 @@ export interface RuleDraft {
   key: number;
   field: RuleField;
   op: RuleOp;
-  /** 値（文字列・数値・日数） */
+  /** 値（文字列・数値・日数。キーは`KEY_VALUES`の値、プレイリストはID） */
   value: string;
   /** 範囲の条件の、大きい方の値 */
   valueTo: string;
 }
 
-/** 値の入力がいらない比べ方か（空かどうか・お気に入りかどうか） */
+/** 値の入力がいる比べ方か（空かどうか・お気に入りかどうかなどは、値がいらない） */
 export function needsValue(draft: Pick<RuleDraft, 'field' | 'op'>): boolean {
   const kind = RULE_FIELDS[draft.field].kind;
-  if (kind === 'favorite' || kind === 'inMusicFolder') return false;
+  if (kind === 'favorite' || kind === 'inMusicFolder' || kind === 'missing') return false;
   return draft.op !== 'isEmpty' && draft.op !== 'isNotEmpty';
 }
 
-/** 項目を選んだ直後の値（評価は星を選ぶため、最初から値（星4）を入れておく） */
-const initialValue = (field: RuleField) => (RULE_FIELDS[field].input === 'rating' ? '8' : '');
+/**
+ * 項目を選んだ直後の値（評価・キーは一覧から選ぶため、最初から値（星4・ハ長調）を入れておく。
+ * プレイリストは、選ぶまで空）
+ */
+function initialValue(field: RuleField): string {
+  if (RULE_FIELDS[field].input === 'rating') return '8';
+  return RULE_FIELDS[field].kind === 'key' ? '0' : '';
+}
 
 /** 新しい条件（項目の最初の比べ方・空の値） */
 export function newRuleDraft(key: number, field: RuleField = 'artist'): RuleDraft {
@@ -172,8 +221,18 @@ export function changeRuleField(draft: RuleDraft, field: RuleField): RuleDraft {
 /** 秒を、分の入力に出す文字列にする（90 → "1.5"） */
 const toMinutesText = (seconds: number) => String(Math.round((seconds / 60) * 100) / 100);
 
+/** Hzを、kHzの入力に出す文字列にする（44100 → "44.1"） */
+const toKilohertzText = (hertz: number) => String(Math.round(hertz / 100) / 10);
+
 function numberText(field: NumberField, value: number): string {
-  return RULE_FIELDS[field].input === 'minutes' ? toMinutesText(value) : String(value);
+  switch (RULE_FIELDS[field].input) {
+    case 'minutes':
+      return toMinutesText(value);
+    case 'kilohertz':
+      return toKilohertzText(value);
+    default:
+      return String(value);
+  }
 }
 
 /**
@@ -205,13 +264,26 @@ export function toRuleDrafts(rules: readonly SmartRule[]): RuleDraft[] {
       case 'favorite':
         return { key, field: 'favorite', op: rule.value ? 'is' : 'isNot', value: '', valueTo: '' };
       case 'inMusicFolder':
+      case 'missing':
         return {
           key,
-          field: 'inMusicFolder',
+          field: rule.kind,
           op: rule.value ? 'is' : 'isNot',
           value: '',
           valueTo: ''
         };
+      case 'key': {
+        const usesValue = rule.op === 'is' || rule.op === 'isNot';
+        return {
+          key,
+          field: 'analyzedKey',
+          op: rule.op,
+          value: usesValue ? String(rule.value) : initialValue('analyzedKey'),
+          valueTo: ''
+        };
+      }
+      case 'playlist':
+        return { key, field: 'playlist', op: rule.op, value: rule.playlistId, valueTo: '' };
     }
   });
 }
@@ -225,7 +297,8 @@ export type SmartRuleError =
   | 'rangeInvalid'
   | 'daysInvalid'
   | 'limitInvalid'
-  | 'tooManyRules';
+  | 'tooManyRules'
+  | 'playlistRequired';
 
 export type SmartRulesResult =
   | { rules: SmartRules; error: null }
@@ -239,12 +312,13 @@ function parseCount(text: string): number | null {
   return Number.isSafeInteger(value) ? value : null;
 }
 
-/** 数値の項目の値を読む（長さは分で入力し、秒にする。読めなければnull） */
+/** 数値の項目の値を読む（長さは分、サンプルレートはkHzで入力し、秒・Hzにする。読めなければnull） */
 function parseNumber(field: NumberField, text: string): number | null {
-  if (RULE_FIELDS[field].input !== 'minutes') return parseCount(text);
+  const input = RULE_FIELDS[field].input;
+  if (input !== 'minutes' && input !== 'kilohertz') return parseCount(text);
   const trimmed = text.trim();
   if (!/^\d+(\.\d+)?$/.test(trimmed)) return null;
-  return Math.round(Number(trimmed) * 60);
+  return Math.round(Number(trimmed) * (input === 'minutes' ? 60 : 1000));
 }
 
 function toRule(draft: RuleDraft): SmartRule | SmartRuleError {
@@ -285,6 +359,18 @@ function toRule(draft: RuleDraft): SmartRule | SmartRuleError {
       return { kind: 'favorite', value: draft.op === 'is' };
     case 'inMusicFolder':
       return { kind: 'inMusicFolder', value: draft.op === 'is' };
+    case 'missing':
+      return { kind: 'missing', value: draft.op === 'is' };
+    case 'key': {
+      const op = draft.op as KeyOp;
+      if (!needsValue(draft)) return { kind: 'key', op, value: 0 };
+      const value = parseCount(draft.value);
+      if (value === null || value > MAX_KEY) return 'numberInvalid';
+      return { kind: 'key', op, value };
+    }
+    case 'playlist':
+      if (draft.value === '') return 'playlistRequired';
+      return { kind: 'playlist', op: draft.op as FavoriteOp, playlistId: draft.value };
   }
 }
 
@@ -374,9 +460,18 @@ export function toSmartRulesForm(rules: SmartRules): SmartRulesForm {
 
 /** 項目の表示名 */
 export function ruleFieldLabel(field: RuleField): string {
-  if (field === 'path') return m.smartPlaylist.pathField;
-  if (field === 'inMusicFolder') return m.smartPlaylist.inMusicFolderField;
-  return m.fields[field];
+  switch (field) {
+    case 'path':
+      return m.smartPlaylist.pathField;
+    case 'inMusicFolder':
+      return m.smartPlaylist.inMusicFolderField;
+    case 'playlist':
+      return m.smartPlaylist.playlistField;
+    case 'missing':
+      return m.smartPlaylist.missingField;
+    default:
+      return m.fields[field];
+  }
 }
 
 /** 並び順の項目の表示名 */
@@ -390,20 +485,45 @@ export function ruleOpLabel(field: RuleField, op: RuleOp): string {
   return labels[op];
 }
 
-/** 数値の条件の値を、説明文に出す形にする（評価は星、長さは分） */
+/** 数値の条件の値の単位（入力欄の後ろと、説明文に出す。単位のない項目はnull） */
+export function numberUnit(field: NumberField): string | null {
+  switch (field) {
+    case 'bitrate':
+      return 'kbps';
+    case 'sampleRate':
+      return 'kHz';
+    case 'bitDepth':
+      return 'bit';
+    default:
+      return null;
+  }
+}
+
+/** 数値の条件の値を、説明文に出す形にする（評価は星、長さは分、サンプルレートはkHz） */
 function describeNumber(field: NumberField, value: number): string {
   switch (RULE_FIELDS[field].input) {
     case 'rating':
       return value === 0 ? m.smartPlaylist.noRating : formatRatingStars(value);
     case 'minutes':
       return m.smartPlaylist.minutes(toMinutesText(value));
-    default:
-      return field === 'bitrate' ? `${value} kbps` : String(value);
+    default: {
+      const unit = numberUnit(field);
+      const text = numberText(field, value);
+      return unit === null ? text : `${text} ${unit}`;
+    }
   }
 }
 
-/** 条件の説明（プレイリストの画面に出す。例: 「ジャンル: 「Jazz」を含む」） */
-export function describeRule(rule: SmartRule): string {
+/**
+ * 条件の説明（プレイリストの画面に出す。例: 「ジャンル: 「Jazz」を含む」）
+ *
+ * @param playlistName プレイリストのIDから名前を求める（プレイリストの条件に使う。消した
+ *   プレイリストはnull）
+ */
+export function describeRule(
+  rule: SmartRule,
+  playlistName: (playlistId: string) => string | null = () => null
+): string {
   const describe = m.smartPlaylist.describe;
   switch (rule.kind) {
     case 'text':
@@ -419,6 +539,18 @@ export function describeRule(rule: SmartRule): string {
       return describe.favorite(rule.value);
     case 'inMusicFolder':
       return describe.inMusicFolder(rule.value);
+    case 'missing':
+      return describe.missing(rule.value);
+    case 'key':
+      return describe.rule(
+        ruleFieldLabel('analyzedKey'),
+        describe.key[rule.op](formatMusicKey(rule.value))
+      );
+    case 'playlist':
+      return describe.playlist(
+        playlistName(rule.playlistId) ?? m.smartPlaylist.deletedPlaylist,
+        rule.op === 'is'
+      );
   }
 }
 

@@ -8,7 +8,6 @@ use crate::validation::{
     validate_playlist_description, validate_playlist_folder_id, validate_playlist_folder_name,
     validate_playlist_id, validate_playlist_name, validate_track_id,
 };
-use chrono::Utc;
 use tauri::State;
 
 /// プレイリストを作成
@@ -63,7 +62,8 @@ pub async fn count_smart_playlist_tracks(
 ) -> AppResult<u32> {
     validate_rules(&rules)?;
 
-    state.with_db(|db| crate::smart_playlist::count_tracks(db, &rules, Utc::now()))
+    let context = state.smart_playlist_context();
+    state.with_db(|db| crate::smart_playlist::count_tracks(db, &rules, context))
 }
 
 /// すべてのプレイリストを取得

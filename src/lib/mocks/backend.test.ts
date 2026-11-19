@@ -1283,6 +1283,54 @@ describe('プレイリスト', () => {
     });
   });
 
+  it('ほかのプレイリストを条件にでき、自分自身・互いを条件にする条件は断る', async () => {
+    const all = (rules: SmartRules['rules']): SmartRules => ({
+      matchMode: 'all',
+      rules,
+      order: { field: 'title', descending: false },
+      limit: null
+    });
+    const manual = await commands.createPlaylistWithTracks('車では聴かない', [
+      mockTrackId(1),
+      mockTrackId(2)
+    ]);
+    const library = await commands.getAllTracks();
+    const excluded = await commands.createSmartPlaylist(
+      '車用',
+      all([{ kind: 'playlist', op: 'isNot', playlistId: manual.id }])
+    );
+    const tracks = await commands.getPlaylistTracks(excluded.id);
+    expect(tracks).toHaveLength(library.length - 2);
+    expect(tracks.map((track) => track.id)).not.toContain(mockTrackId(1));
+
+    // 自動プレイリストを条件にした自動プレイリスト
+    const nested = await commands.createSmartPlaylist(
+      '車用の中',
+      all([{ kind: 'playlist', op: 'is', playlistId: excluded.id }])
+    );
+    expect(await commands.getPlaylistTracks(nested.id)).toHaveLength(library.length - 2);
+
+    const rejected = { code: 'VALIDATION' };
+    await expect(
+      commands.updateSmartPlaylist(
+        excluded.id,
+        all([{ kind: 'playlist', op: 'is', playlistId: excluded.id }])
+      )
+    ).rejects.toMatchObject(rejected);
+    await expect(
+      commands.updateSmartPlaylist(
+        excluded.id,
+        all([{ kind: 'playlist', op: 'is', playlistId: nested.id }])
+      )
+    ).rejects.toMatchObject(rejected);
+    await expect(
+      commands.createSmartPlaylist(
+        '消したもの',
+        all([{ kind: 'playlist', op: 'is', playlistId: mockPlaylistId(99) }])
+      )
+    ).rejects.toMatchObject(rejected);
+  });
+
   it('引数は複製して受け取る（呼び出し側のオブジェクトを持ち続けない）', async () => {
     // 複製できないオブジェクト（画面の状態のプロキシなど）を渡されても、後で結果として返せる
     const hidden = new Proxy(['years'], {});

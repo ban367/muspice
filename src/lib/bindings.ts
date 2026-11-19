@@ -1590,6 +1590,13 @@ export type KeepOrganizedResult = {
 	errors: string[],
 };
 
+/**  キー（曲の解析の結果）の比べ方 */
+export type KeyOp = "is" | 
+/**  そのキーではない（解析していない曲を含む） */
+"isNot" | 
+/**  キーがない（解析していない・解析できなかった・キーを決められなかった曲） */
+"isEmpty" | "isNotEmpty";
+
 /**  表示の言語 */
 export type Language = 
 /**  日本語 */
@@ -1930,7 +1937,15 @@ export type NumberField =
 /**  長さ（秒） */
 "duration" | "trackNumber" | "discNumber" | 
 /**  ビットレート（kbps） */
-"bitrate";
+"bitrate" | 
+/**  タグのBPM */
+"bpm" | 
+/**  曲の解析で求めたテンポ（四捨五入した整数で比べる。ADR-104） */
+"analyzedBpm" | 
+/**  サンプルレート（Hz） */
+"sampleRate" | 
+/**  ビット深度（bit） */
+"bitDepth" | "channels";
 
 /**  数値の比べ方 */
 export type NumberOp = "is" | "isNot" | "atLeast" | "atMost" | 
@@ -2189,6 +2204,13 @@ export type PlaylistFolder = {
 	createdAt: string,
 };
 
+/**  プレイリストに入っているかの比べ方 */
+export type PlaylistOp = 
+/**  入っている */
+"is" | 
+/**  入っていない */
+"isNot";
+
 /**  プレイリスト内のトラック情報 */
 export type PlaylistTrack = {
 	trackId: string,
@@ -2404,7 +2426,16 @@ export type SmartRule =
 /**  お気に入りかどうか */
 { kind: "favorite"; value: boolean } | 
 /**  音楽フォルダの中にあるか（音楽フォルダが未設定なら、どの曲も中にない。ADR-084） */
-{ kind: "inMusicFolder"; value: boolean };
+{ kind: "inMusicFolder"; value: boolean } | 
+/**
+ *  曲の解析で求めたキー（`value`は、主音の音名 + 12 × 調（0は長調・1は短調）。0はハ長調、
+ *  21はイ短調。`IsEmpty`・`IsNotEmpty`では使わない）
+ */
+{ kind: "key"; op: KeyOp; value: number } | 
+/**  ほかのプレイリストに入っているか（自動プレイリストは、その条件に合う曲。ADR-116） */
+{ kind: "playlist"; op: PlaylistOp; playlistId: string } | 
+/**  ファイルが見つからない曲か（ADR-023） */
+{ kind: "missing"; value: boolean };
 
 /**  自動プレイリストの条件 */
 export type SmartRules = {
@@ -2505,7 +2536,7 @@ export type SyncSelectionSummary = {
 };
 
 /**  文字列の項目 */
-export type TextField = "title" | "artist" | "albumArtist" | "album" | "genre" | 
+export type TextField = "title" | "artist" | "albumArtist" | "album" | "genre" | "composer" | "grouping" | "comment" | 
 /**  ファイルの種類（mp3・flacなど） */
 "format" | 
 /**  ファイルの場所（フォルダ名での絞り込みに使う） */

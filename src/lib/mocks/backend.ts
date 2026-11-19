@@ -955,12 +955,63 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   const smartContext = (): SmartPlaylistContext => ({
     now: Date.now(),
     shuffleSeed,
-    musicFolderPath: musicFolderPath()
+    musicFolderPath: musicFolderPath(),
+    playlistMembers: playlistMembers(new Set())
   });
+
+  /**
+   * プレイリストに入っている曲のID（実装と同じく、自動プレイリストは条件に合う曲、消した
+   * プレイリストは空。`visiting`は求めている途中の自動プレイリストで、循環していれば空で止める）
+   */
+  function playlistMembers(visiting: ReadonlySet<string>) {
+    return (playlistId: string): ReadonlySet<string> => {
+      const playlist = playlists.find((p) => p.id === playlistId);
+      if (!playlist) return new Set();
+      if (playlist.rules === null) return new Set(playlist.tracks.map((entry) => entry.trackId));
+      if (visiting.has(playlistId)) return new Set();
+      const context = {
+        ...smartContext(),
+        playlistMembers: playlistMembers(new Set([...visiting, playlistId]))
+      };
+      return new Set(findSmartPlaylistTracks(tracks, playlist.rules, context).map((t) => t.id));
+    };
+  }
 
   function validateSmartRules(rules: SmartRules): void {
     const error = smartRulesError(rules);
     if (error !== null) fail('VALIDATION', error);
+  }
+
+  /** 条件にしたプレイリストを検証する（Rustの`validate_playlist_references`に対応） */
+  function validatePlaylistReferences(playlistId: string | null, rules: SmartRules): void {
+    const referenced = (rules: SmartRules) =>
+      rules.rules.flatMap((rule) => (rule.kind === 'playlist' ? [rule.playlistId] : []));
+    const refersTo = (rules: SmartRules, target: string, visited: Set<string>): boolean =>
+      referenced(rules).some((id) => {
+        if (id === target) return true;
+        if (visited.has(id)) return false;
+        visited.add(id);
+        const next = playlists.find((p) => p.id === id)?.rules;
+        return next != null && refersTo(next, target, visited);
+      });
+
+    for (const id of referenced(rules)) {
+      if (id === playlistId) {
+        fail('VALIDATION', '自動プレイリストの条件に、そのプレイリスト自身は使えません');
+      }
+      const target = playlists.find((p) => p.id === id);
+      if (!target) fail('VALIDATION', '条件にしたプレイリストが見つかりません');
+      if (
+        playlistId !== null &&
+        target.rules !== null &&
+        refersTo(target.rules, playlistId, new Set())
+      ) {
+        fail(
+          'VALIDATION',
+          '条件にしたプレイリストが、このプレイリストを条件にしています（互いを条件にはできません）'
+        );
+      }
+    }
   }
 
   /** プレイリストの曲（プレイリストの中の並び順。自動プレイリストは、条件に合う曲） */
@@ -2895,6 +2946,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       const trimmed = name.trim();
       validatePlaylistName(trimmed);
       validateSmartRules(rules);
+      validatePlaylistReferences(null, rules);
       return newPlaylist(trimmed, rules);
     },
     // 実装と同じく、同じ曲は最初の1回だけを入れ、見つからない曲があれば作らない
@@ -2986,13 +3038,14 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       if (playlist.rules === null) {
         fail('VALIDATION', '通常のプレイリストには、条件を設定できません');
       }
+      validatePlaylistReferences(playlistId, rules);
       playlist.rules = rules;
       playlist.updatedAt = now();
       return null;
     },
     countSmartPlaylistTracks: (rules) => {
       validateSmartRules(rules);
-      return countSmartPlaylistTracks(tracks, rules, Date.now(), musicFolderPath());
+      return countSmartPlaylistTracks(tracks, rules, smartContext());
     },
     reshuffleSmartPlaylists: () => {
       shuffleSeed++;
