@@ -517,10 +517,11 @@ Tauriのウィンドウ（macOSではWKWebView）はブラウザ自動化ツー�
 
 1. Frontend Check（type-check, lint, format:check, markdownlint, test）
 2. Backend Check（ubuntu。fmt --check, clippy, test, `bindings.ts`が最新か）
-3. Backend Check (macOS)（macOS。clippy, test, `bindings.ts`が最新か）: macOSだけのコード（`cfg(target_os = "macos")`。メディアキー・ゴミ箱・ドロップしたファイル・形式の変換・グローバルホットキーなど）とobjc2系の依存を確かめる。fmtはOSによらずすべてのファイルを見るため、Backend Checkだけで行う。バンドルは作らない。ランナーのXcode（26）にはMusicUnderstandingがないため、曲の解析のSwiftのコードはビルドしない（`music_understanding`の印のない側を確かめる。Swiftのコードは手元のXcode 27でビルドし、`cargo test music_analysis -- --ignored`で実際の解析を確かめる。組み込まない側は、手元でも`MUSPICE_SKIP_MUSIC_ANALYSIS=1`を付けたclippy・testで確かめられる。ADR-104）
-4. Build Test（PR時のみ、ubuntuでTauri build）
+3. Backend Check (macOS)（macOS。clippy, test, `bindings.ts`が最新か）: macOSだけのコード（`cfg(target_os = "macos")`。メディアキー・ゴミ箱・ドロップしたファイル・形式の変換・グローバルホットキーなど）とobjc2系の依存を確かめる。fmtはOSによらずすべてのファイルを見るため、Backend Checkだけで行う。バンドルは作らない。ランナーのXcode（26）にはMusicUnderstandingがないため、曲の解析のSwiftのコードは組み込まない（`music_understanding`の印のない側を確かめる。組み込まない側は、手元でも`MUSPICE_SKIP_MUSIC_ANALYSIS=1`を付けたclippy・testで確かめられる。ADR-104）
+4. Backend Check (macOS, Xcode 27)（`xcode-27`のイメージ。macOS 27・Xcode 27のプレビュー。clippy, test, Swiftのコードが組み込まれたか, 曲の解析のテスト, `bindings.ts`が最新か）: 曲の解析のSwiftのコード（`swift/music_analysis.swift`）と、それを呼ぶRustのコード（`music_understanding`の印のある側）を確かめる。Xcodeは手元と同じ27.2を`DEVELOPER_DIR`で選ぶ（イメージの既定は27.1で、macOSのSDKは27.0）。build.rsは組み込めない時も警告だけを出してビルドを続けるため、テストの実行ファイルにSwiftの関数（`_muspice_music_analysis_analyze`など）があることを`nm`で確かめる（ないと失敗にする）。ランナーのmacOSは27のため、普段は動かさない実際の解析のテスト（`cargo test music_analysis -- --ignored`）も流す。イメージがプレビューのため、必須のチェックにはしない（ADR-106）。27.2がイメージから外れたら、`DEVELOPER_DIR`を直す
+5. Build Test（PR時のみ、ubuntuでTauri build）
 
-ジョブ名（`name:`）は、mainのルールセット「Main Branch Protection」の必須チェックに登録する（`Frontend Check`・`Backend Check`・`Backend Check (macOS)`・`Build Test (ubuntu-latest)`）。名前を変える時は、ルールセットも合わせて直す（直さないと、すべてのPRがマージできなくなる）。
+ジョブ名（`name:`）は、mainのルールセット「Main Branch Protection」の必須チェックに登録する（`Frontend Check`・`Backend Check`・`Backend Check (macOS)`・`Build Test (ubuntu-latest)`。`Backend Check (macOS, Xcode 27)`は登録しない）。名前を変える時は、ルールセットも合わせて直す（直さないと、すべてのPRがマージできなくなる）。
 
 対応するOSはmacOSだけ（ADR-090）で、配布の対象（`tauri.conf.json`の`bundle.targets`）は`app`・`dmg`。CIのビルドテストはLinuxで行うため、`tauri.linux.conf.json`で、Linuxの配布物を`.deb`だけにしている（ビルドが通ることの確認。macOSの配布物のビルドは、リリース用のワークフロー（#303）で行う）。
 
