@@ -71,6 +71,8 @@ export const queryKeys = {
 
   /** 曲の情報の編集画面で扱う曲（編集画面のウィンドウで、開いた時に受け取る） */
   trackEditorTracks: ['trackEditorTracks'] as const,
+  /** 編集している曲の、開いた一覧の並びでの位置（前後の曲へ移るボタン。ADR-119） */
+  trackEditorPosition: ['trackEditorPosition'] as const,
 
   /** 曲のアルバムアートの情報（どこの画像か・種類・大きさ。ファイルから読む） */
   albumArtInfo: {

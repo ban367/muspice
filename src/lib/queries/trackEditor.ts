@@ -21,7 +21,8 @@ import { invalidateTagQueries, invalidateTrackListQueries } from './tracks.js';
  */
 export function useOpenTrackEditorMutation() {
   return createMutation(() => ({
-    mutationFn: openTrackEditor
+    mutationFn: (variables: { trackIds: string[]; sequence?: readonly string[] }) =>
+      openTrackEditor(variables.trackIds, variables.sequence)
   }));
 }
 
@@ -29,11 +30,16 @@ export function useOpenTrackEditorMutation() {
  * 曲の情報の編集画面を開く（右クリックのメニューと、メニューバーの「曲の情報を編集...」が使う）
  *
  * 失敗はトーストで知らせてから、エラーを投げ直す。
+ * @param sequence 開いた一覧の曲の並び（1曲の編集で、編集画面から前後の曲へ移るのに使う。ADR-119）
  */
-export async function openTrackEditor(trackIds: string[]): Promise<void> {
+export async function openTrackEditor(
+  trackIds: string[],
+  sequence: readonly string[] = []
+): Promise<void> {
   // 再生履歴など、同じ曲が何度も入る一覧から開く時は、1回にまとめる（開いた順は保つ）
+  const ids = [...new Set(trackIds)];
   await withErrorToast(m.metadataEditor.openFailed, () =>
-    commands.openTrackEditor([...new Set(trackIds)])
+    commands.openTrackEditor(ids, ids.length === 1 ? [...new Set(sequence)] : [])
   );
   // 開いたら、すぐに覆いを重ねる（Rustの`TrackEditorChanged`も同じ値にする。閉じた時は、それで外す）
   ui.isTrackEditorOpen = true;
@@ -51,6 +57,36 @@ export function useTrackEditorTracksQuery() {
     staleTime: Infinity,
     retry: false
   }));
+}
+
+/**
+ * 編集している曲の、開いた一覧の並びでの位置を取得するクエリ（並びのない編集ではnull。ADR-119）
+ */
+export function useTrackEditorPositionQuery() {
+  return createQuery(() => ({
+    queryKey: queryKeys.trackEditorPosition,
+    queryFn: () => commands.getTrackEditorPosition(),
+    staleTime: Infinity,
+    retry: false
+  }));
+}
+
+/**
+ * 編集する曲を、開いた一覧の並びの前後の曲へ移し、編集画面の曲と位置を取り直す（ADR-119）
+ *
+ * @returns 移ったか（並びの端では移らない）
+ */
+export async function moveTrackEditor(queryClient: QueryClient, offset: number): Promise<boolean> {
+  const moved = await withErrorToast(m.metadataEditor.moveFailed, () =>
+    commands.moveTrackEditor(offset)
+  );
+  if (moved) {
+    await Promise.all([
+      queryClient.refetchQueries({ queryKey: queryKeys.trackEditorTracks }),
+      queryClient.refetchQueries({ queryKey: queryKeys.trackEditorPosition })
+    ]);
+  }
+  return moved;
 }
 
 /**
