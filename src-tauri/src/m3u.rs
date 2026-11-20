@@ -413,6 +413,11 @@ pub(crate) fn relative_path(file_path: &str, base: &Path) -> String {
     parts.join("/")
 }
 
+/// プレイリストのファイルに書ける曲（CUEシートの曲を除く。ADR-123）
+pub fn exportable_tracks(tracks: &[Track]) -> impl Iterator<Item = &Track> {
+    tracks.iter().filter(|track| track.cue.is_none())
+}
+
 /// プレイリストのファイル（拡張M3U、UTF-8）の内容を作る
 ///
 /// - `base`: 書き出し先のフォルダ。渡すと、曲の場所をそこからの相対パスで書く（`None`は絶対パス）
@@ -424,9 +429,11 @@ pub fn build_m3u8(tracks: &[Track], base: Option<&Path>) -> String {
 }
 
 /// プレイリストのファイル（拡張M3U、UTF-8）の内容を作る（曲の場所の書き方を、曲ごとに決める）
+///
+/// CUEシートの曲は書かない（ほかのアプリが読めるファイルの場所がない。ADR-123）。
 pub fn build_m3u8_with(tracks: &[Track], location: impl Fn(&Track) -> String) -> String {
     let mut content = String::from("#EXTM3U\r\n");
-    for track in tracks {
+    for track in exportable_tracks(tracks) {
         let path = location(track);
         content.push_str(&format!(
             "#EXTINF:{},{}\r\n{}\r\n",
@@ -685,6 +692,24 @@ mod tests {
              #EXTINF:214,改行 あり\r\nlocal.mp3\r\n\
              #EXTINF:-1,x.flac\r\n/Volumes/SD/Other/x.flac\r\n"
         );
+    }
+
+    /// CUEシートの曲は、ほかのアプリが読めるファイルがないため書かない
+    #[test]
+    fn test_build_m3u8_skips_cue_tracks() {
+        let mut cue = track("/Music/Album.cue#02", Some("Cue"), None);
+        cue.cue = Some(crate::models::TrackCue {
+            source: "/Music/Album.flac".to_string(),
+            start: 750,
+            end: None,
+        });
+        let tracks = vec![cue, track("/Music/song.mp3", Some("Song"), None)];
+
+        assert_eq!(
+            build_m3u8(&tracks, None),
+            "#EXTM3U\r\n#EXTINF:214,Song\r\n/Music/song.mp3\r\n"
+        );
+        assert_eq!(exportable_tracks(&tracks).count(), 1);
     }
 
     #[test]

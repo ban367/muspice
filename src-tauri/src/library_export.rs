@@ -9,7 +9,7 @@
 
 use crate::models::{PlaylistFolder, Track};
 use crate::settings::Language;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, SubsecRound, Utc};
 use plist::{Dictionary, Value};
 use std::time::SystemTime;
 
@@ -53,9 +53,15 @@ pub fn file_url(path: &str) -> String {
 /// DBに保存した日時（RFC 3339）を、プロパティリストの日時にする（読めなければNone）
 fn plist_date(value: &str) -> Option<Value> {
     let parsed = DateTime::parse_from_rfc3339(value).ok()?;
-    Some(Value::Date(
-        SystemTime::from(parsed.with_timezone(&Utc)).into(),
-    ))
+    Some(whole_second_date(parsed.with_timezone(&Utc)))
+}
+
+/// プロパティリストの日時（秒まで）
+///
+/// プロパティリストの`<date>`は`2026-01-02T03:04:05Z`の形で、秒の小数を書くと、Appleの`plutil`・
+/// Pythonの`plistlib`などが読めない（DJソフトなど、読む側の多くも同じ）。秒の小数は切り捨てる。
+fn whole_second_date(date: DateTime<Utc>) -> Value {
+    Value::Date(SystemTime::from(date.trunc_subsecs(0)).into())
 }
 
 fn integer(value: impl Into<i64>) -> Value {
@@ -181,7 +187,8 @@ fn playlist_items<'a>(
 ///
 /// 曲（`Tracks`）と、プレイリスト（`Playlists`。最初にライブラリ全体の`Master`、次にフォルダ、
 /// プレイリストの順）を書く。プレイリストのフォルダは`Folder`、入っているプレイリストは
-/// `Parent Persistent ID`で表す。
+/// `Parent Persistent ID`で表す。CUEシートの曲は書かない（`Location`に書けるファイルがない。
+/// 音声ファイル全体を指すと、読む側はアルバム全体を1曲として扱う。ADR-123）。
 /// - `music_folder`: 音楽フォルダ（`Music Folder`に書く。未設定ならNone）
 pub fn build_itunes_xml(
     tracks: &[Track],
@@ -191,6 +198,7 @@ pub fn build_itunes_xml(
     app_version: &str,
     now: DateTime<Utc>,
 ) -> Value {
+    let tracks: Vec<&Track> = tracks.iter().filter(|track| track.cue.is_none()).collect();
     let xml_ids: std::collections::HashMap<&str, i64> = tracks
         .iter()
         .zip(FIRST_ID..)
@@ -262,10 +270,7 @@ pub fn build_itunes_xml(
         "Application Version".to_string(),
         Value::String(format!("Muspice {}", app_version)),
     );
-    root.insert(
-        "Date".to_string(),
-        Value::Date(SystemTime::from(now).into()),
-    );
+    root.insert("Date".to_string(), whole_second_date(now));
     root.insert("Features".to_string(), integer(5));
     root.insert("Show Content Ratings".to_string(), Value::Boolean(true));
     if let Some(folder) = music_folder {
@@ -567,6 +572,73 @@ mod tests {
             .and_then(|playlist| playlist.get("Parent Persistent ID"))
             .and_then(Value::as_string);
         assert_eq!(parent, Some(persistent_id(&folder.id).as_str()));
+    }
+
+    /// 日時は秒までで書き（秒の小数は、Appleの`plutil`などが読めない）、CUEシートの曲は書かない
+    #[test]
+    fn test_itunes_xml_writes_whole_second_dates_and_skips_cue_tracks() {
+        let mut regular = track("a1000000-0000-4000-8000-000000000001", "/Music/曲 1.mp3");
+        regular.created_at = "2026-11-20T13:33:34.307156+00:00".to_string();
+        regular.last_played_at = Some("2026-11-20T13:35:01.5+00:00".to_string());
+        let mut cue = track(
+            "a1000000-0000-4000-8000-000000000002",
+            "/Music/Album.cue#01",
+        );
+        cue.cue = Some(crate::models::TrackCue {
+            source: "/Music/Album.flac".to_string(),
+            start: 0,
+            end: Some(750),
+        });
+        let playlists = [ExportPlaylist {
+            id: "b1000000-0000-4000-8000-000000000001".to_string(),
+            name: "Mix".to_string(),
+            folder_id: None,
+            track_ids: vec![cue.id.clone(), regular.id.clone()],
+        }];
+        let now = DateTime::parse_from_rfc3339("2026-11-20T13:37:29.825692Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let xml = String::from_utf8(
+            to_xml_bytes(&build_itunes_xml(
+                &[cue, regular.clone()],
+                &playlists,
+                &[],
+                None,
+                "1.0.0",
+                now,
+            ))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let dates: Vec<&str> = xml
+            .split("<date>")
+            .skip(1)
+            .map(|rest| rest.split("</date>").next().unwrap())
+            .collect();
+        assert_eq!(
+            dates,
+            [
+                "2026-11-20T13:37:29Z",
+                "2026-01-03T00:00:00Z",
+                "2026-11-20T13:33:34Z",
+                "2026-11-20T13:35:01Z"
+            ]
+        );
+        assert!(!xml.contains("Album.cue"));
+        assert!(!xml.contains("Album.flac"));
+
+        // 読み戻すと、ふつうの曲だけがあり、プレイリストにもその曲だけが入る
+        let dir = TempDir::new();
+        let path = dir.path().join("Library.xml");
+        std::fs::write(&path, xml).unwrap();
+        let library = crate::library_xml::parse(&path).unwrap();
+        assert_eq!(library.tracks.len(), 1);
+        assert_eq!(
+            crate::m3u::display_location(&library.tracks[0].location),
+            regular.file_path
+        );
+        assert_eq!(library.playlists[0].track_ids, [library.tracks[0].track_id]);
     }
 
     #[test]

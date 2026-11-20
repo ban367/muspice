@@ -387,7 +387,7 @@ export interface Playlist {
 - 再生: `playback_play`・`playback_set_next`は、`cue.source`を開いて`cue.start`〜`cue.end`だけを再生する（`TrackRegion`。下の「再生エンジン」）。Now Playingのアートワークも音声ファイルから読む
 - ファイルを書き換える操作は、CUEシートの曲を含むと`VALIDATION`（`commands::reject_cue_tracks`・`repository::ensure_no_cue_tracks`）: `update_track_metadata`・`update_multiple_tracks_metadata`・`apply_metadata_changes`・`open_track_editor`・`set_album_art`・`remove_album_art`・`plan_conversion`・`convert_tracks`・`start_loudness_scan`・`plan_file_organize`・`organize_files`。フロントの右クリックのメニュー（曲の情報の編集・タグの一括ツール・ファイルの整理・形式の変換・音量の解析。アルバムのメニューの曲の情報の編集も）と、右サイドバーの編集も無効にする。曲の情報の編集画面で前後の曲へ移る時（`move_track_editor`）は、CUEシートの曲を飛ばす
 - 評価（`set_rating`）は、DBだけに記録する（タグには書かない。再スキャンで読み直しても変えない）
-- 対象から外すもの: デバイスへの転送・曲の解析（テンポ・キー）・音量の解析のまだの曲の数・タグの値の候補（`get_track_tag_values`）・歌詞（`get_track_lyrics`は`null`）
+- 対象から外すもの: デバイスへの転送・曲の解析（テンポ・キー）・音量の解析のまだの曲の数・タグの値の候補（`get_track_tag_values`）・歌詞（`get_track_lyrics`は`null`）・ライブラリのXMLとプレイリストのM3Uの書き出し（ほかのアプリが読めるファイルがない。CSVには、ライブラリの一覧として仮想のパスのまま書く）
 - アルバムアート（`get_album_art`）は、音声ファイルから読む。「Finderで表示」（`show_in_folder`）は、CUEシートを選ぶ
 - 「ファイルも削除」（`delete_tracks_with_files_command`）は、仮想のパスにファイルがないため、ライブラリから外すだけ（CUEシートと音声ファイルは残る）
 - 一覧の合計の大きさ（`trackTotals`）は、同じ音声ファイルを1回だけ数える
@@ -868,7 +868,7 @@ M3Uの読み込み・書き出し（ADR-032）:
   - 曲の場所は、ライブラリの曲のパスと突き合わせる。そのまま一致する曲がなければ、ファイル名が同じ曲のうち、上のフォルダの名前がいちばん長く一致する曲（同じ長さで複数あれば、対応を付けない）
   - プレイリストの名前は、ファイル名（拡張子を除く。使えない文字は`_`）。同じ名前があれば`名前 (2)`のように番号を付ける。名前は、番号を付けた後も100文字（`playlist_name`の上限。バイト数ではなく文字数）に収まるよう、長い名前の後ろを切る
   - 対応する曲が1つもない場合・ファイルを読めない場合（`error`）は、プレイリストを作らない（`playlistId`は`null`）。同じ曲の2回目以降は入れず、`duplicateCount`に数える。`unmatched`は、対応が付かなかった行の先頭200件
-- `export_playlist_m3u`は、Rust側で保存先を選ぶダイアログを開き、プレイリストをUTF-8の拡張M3U（`#EXTINF`付き・改行はCRLF）で書き出す。`relativePaths`が`true`なら、曲の場所を書き出し先のフォルダからの相対パスで書く（共通するフォルダがない曲は絶対パス）。拡張子がM3Uでなければ`.m3u8`を付ける（付けた名前のファイルがあれば、ダイアログで上書きを確かめていないため`VALIDATION`）。保存先を選ばなかった場合は`null`を返す
+- `export_playlist_m3u`は、Rust側で保存先を選ぶダイアログを開き、プレイリストをUTF-8の拡張M3U（`#EXTINF`付き・改行はCRLF）で書き出す。`relativePaths`が`true`なら、曲の場所を書き出し先のフォルダからの相対パスで書く（共通するフォルダがない曲は絶対パス）。拡張子がM3Uでなければ`.m3u8`を付ける（付けた名前のファイルがあれば、ダイアログで上書きを確かめていないため`VALIDATION`）。保存先を選ばなかった場合は`null`を返す。CUEシートの曲は書かない（ほかのアプリが読めるファイルがない。`trackCount`にも数えない。ADR-123）
 - `export_all_playlists_m3u`は、Rust側で書き出すフォルダを選ぶダイアログを開き、通常のプレイリストをまとめて、`export_playlist_m3u`と同じ形のM3U8で書き出す（`playlist_export.rs`。ADR-087。自動プレイリストは書き出さない）。プレイリストのフォルダは、選んだフォルダの中のフォルダにし、名前はファイル名に使える形にする（デバイスへの転送と同じ`sanitize_component`）。同じ場所になるプレイリストは、番号を付けた名前にする（大文字と小文字は区別しない）。同じ名前のファイルは置き換え（一時ファイルに書いてから置き換える）、ほかのファイルは消さない。`relativePaths`が`true`なら、曲の場所を書き出したファイルのフォルダからの相対パスで書く。結果は`{ folder, playlistCount }`（`playlistCount`が0なら、何も書いていない）。フォルダを選ばなかった場合は`null`
   - `M3uExportResult`: `{ fileName, trackCount }`
 
@@ -919,7 +919,7 @@ iTunes形式のライブラリXML（MusicBee・iTunes / ミュージックが書
 
 - 保存先を選ばなかった場合は`null`。拡張子のない名前は、拡張子を足す（足した名前のファイルがある場合は`VALIDATION`）。同じフォルダの一時ファイル（`.muspice-export-<UUID>.tmp`。利用者のファイルと重ならない名前）に書いてから置き換える
 - `LibraryExportResult`: `{ path, trackCount, playlistCount }`（CSVの`playlistCount`は0）
-- XML: iTunes形式のプロパティリスト。`Tracks`（キーは曲の番号）の値は`Track ID`・`Persistent ID`（曲のIDの先頭16桁の16進数）・`Name`・`Artist`・`Album Artist`・`Composer`・`Album`・`Grouping`・`Genre`・`Kind`・`Size`・`Total Time`（ミリ秒）・`Disc Number`・`Track Number`・`Year`・`BPM`・`Date Modified`・`Date Added`・`Bit Rate`・`Sample Rate`・`Comments`・`Play Count`・`Play Date UTC`・`Skip Count`・`Rating`（0〜100。半分の星の単位を10倍）・`Loved`・`Compilation`・`Sort Name`などの読み・`Location`（`file://localhost`で始め、英数字と`-._~/`のほかは`%XX`にしたURL）。値のない項目は書かない。`Playlists`は、ライブラリ全体（`Master`）・プレイリストのフォルダ（`Folder`）・プレイリスト（サイドバーの手動の並び順。フォルダの中のものは`Parent Persistent ID`）の順。自動プレイリストは、書き出す時点で条件に合う曲の、通常のプレイリストとして書く。音楽フォルダを設定していれば`Music Folder`も書く。このアプリの取り込み（`import_library_xml`）で読み戻せる
+- XML: iTunes形式のプロパティリスト。`Tracks`（キーは曲の番号）の値は`Track ID`・`Persistent ID`（曲のIDの先頭16桁の16進数）・`Name`・`Artist`・`Album Artist`・`Composer`・`Album`・`Grouping`・`Genre`・`Kind`・`Size`・`Total Time`（ミリ秒）・`Disc Number`・`Track Number`・`Year`・`BPM`・`Date Modified`・`Date Added`・`Bit Rate`・`Sample Rate`・`Comments`・`Play Count`・`Play Date UTC`・`Skip Count`・`Rating`（0〜100。半分の星の単位を10倍）・`Loved`・`Compilation`・`Sort Name`などの読み・`Location`（`file://localhost`で始め、英数字と`-._~/`のほかは`%XX`にしたURL）。値のない項目は書かない。`Playlists`は、ライブラリ全体（`Master`）・プレイリストのフォルダ（`Folder`）・プレイリスト（サイドバーの手動の並び順。フォルダの中のものは`Parent Persistent ID`）の順。自動プレイリストは、書き出す時点で条件に合う曲の、通常のプレイリストとして書く。音楽フォルダを設定していれば`Music Folder`も書く。日時（`<date>`）は秒まで（`2026-01-02T03:04:05Z`。秒の小数を書くと、Appleの`plutil`・Pythonの`plistlib`などが読めない）。CUEシートの曲は書かない（`Location`に書けるファイルがない。プレイリストからも除き、`trackCount`にも数えない。ADR-123）。このアプリの取り込み（`import_library_xml`）で読み戻せる
 - CSV: 曲の一覧（UTF-8のBOM付き・CRLF）。列は、タイトル・アーティスト・アルバムアーティスト・アルバム・作曲者・グループ・ジャンル・年・トラック番号・ディスク番号・時間（`m:ss`）・評価（星の数。半分の星は`.5`）・お気に入り（`1`）・再生回数・スキップ回数・最終再生日・追加日（DBの値）・形式・ビットレート・サンプルレート・サイズ・場所。見出しはアプリの言語。`,`・`"`・改行を含む値は`"`で囲む。`=`・`+`・`-`・`@`・タブ・CRで始まる値は、表計算ソフトが式として実行しないよう、頭に`'`を付ける
 
 ### 再生・統計・システム
