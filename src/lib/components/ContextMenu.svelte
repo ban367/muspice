@@ -74,6 +74,9 @@
     return [track];
   });
 
+  // CUEシートの曲（アルバム1ファイルの中の曲）を含む時は、ファイルを書き換える操作を出さない（ADR-123）
+  const hasCueTrack = $derived(selectedTracks.some((selected) => selected.cue !== null));
+
   // 選択した曲がすべてお気に入りなら「外す」、そうでなければ「追加」（まだの曲をまとめて追加する）
   const allFavorite = $derived(selectedTracks.every((selected) => selected.isFavorite));
 
@@ -260,7 +263,7 @@
 
   <MenuSeparator />
 
-  <MenuItem onSelect={handleEditMetadata}>
+  <MenuItem onSelect={handleEditMetadata} disabled={hasCueTrack}>
     {#snippet icon()}
       <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -280,7 +283,7 @@
     {m.contextMenu.editMetadata}
   </MenuItem>
 
-  <MenuItem onSelect={handleTagTools}>
+  <MenuItem onSelect={handleTagTools} disabled={hasCueTrack}>
     {#snippet icon()}
       <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -300,7 +303,7 @@
     {m.contextMenu.tagTools}
   </MenuItem>
 
-  <MenuItem onSelect={handleFileOrganize}>
+  <MenuItem onSelect={handleFileOrganize} disabled={hasCueTrack}>
     {#snippet icon()}
       <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -321,7 +324,7 @@
   </MenuItem>
 
   {#if canConvert}
-    <MenuItem onSelect={handleConvert}>
+    <MenuItem onSelect={handleConvert} disabled={hasCueTrack}>
       {#snippet icon()}
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -342,7 +345,7 @@
     </MenuItem>
   {/if}
 
-  <MenuItem onSelect={handleLoudnessScan}>
+  <MenuItem onSelect={handleLoudnessScan} disabled={hasCueTrack}>
     {#snippet icon()}
       <svg
         xmlns="http://www.w3.org/2000/svg"

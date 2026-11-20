@@ -42,6 +42,7 @@ function track(id: string, rating = 0): Track {
       analyzedKey: null
     },
     isMissing: false,
+    cue: null,
     compilation: false
   };
 }

@@ -190,7 +190,7 @@ pub struct PendingTrack {
 pub fn pending_tracks(conn: &Connection) -> AppResult<Vec<PendingTrack>> {
     let sql = format!(
         "SELECT t.id, t.file_path, t.duration FROM tracks t {VALID_ANALYSIS_JOIN}
-         WHERE t.missing_since IS NULL AND a.track_id IS NULL
+         WHERE t.missing_since IS NULL AND t.cue_source IS NULL AND a.track_id IS NULL
          ORDER BY t.play_count DESC, t.rowid"
     );
     let mut stmt = conn.prepare(&sql).map_err(db_error)?;
@@ -216,7 +216,7 @@ fn is_still_pending(conn: &Connection, track: &PendingTrack) -> AppResult<bool> 
         "SELECT EXISTS (
             SELECT 1 FROM tracks t {VALID_ANALYSIS_JOIN}
             WHERE t.id = ?1 AND t.file_path = ?2 AND t.duration IS ?3
-              AND t.missing_since IS NULL AND a.track_id IS NULL
+              AND t.missing_since IS NULL AND t.cue_source IS NULL AND a.track_id IS NULL
          )"
     );
     conn.query_row(
@@ -282,7 +282,7 @@ pub fn count_analysis(conn: &Connection) -> AppResult<AnalysisCounts> {
                 COALESCE(SUM(a.track_id IS NOT NULL AND a.failed = 0), 0),
                 COALESCE(SUM(a.track_id IS NOT NULL AND a.failed = 1), 0)
          FROM tracks t {VALID_ANALYSIS_JOIN}
-         WHERE t.missing_since IS NULL"
+         WHERE t.missing_since IS NULL AND t.cue_source IS NULL"
     );
     let (total, analyzed, failed): (i64, i64, i64) = conn
         .query_row(&sql, [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))

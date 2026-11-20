@@ -85,8 +85,10 @@ pub struct DeleteFailure {
 /// フォルダを走査した結果
 #[derive(Debug, Default, PartialEq)]
 pub struct ScannedFolder {
-    /// 見つかった音楽ファイル
+    /// 見つかった音楽ファイル（CUEシートが2曲以上を書いているファイルは、その曲の仮のパス。`cue::expand`）
     pub audio_files: Vec<PathBuf>,
+    /// 見つかったCUEシート（`.cue`）
+    pub cue_files: Vec<PathBuf>,
     /// 読めなかったフォルダ（権限がないなど）。中のファイルは`audio_files`に入っていない
     pub unreadable_dirs: Vec<PathBuf>,
 }
@@ -239,6 +241,9 @@ pub fn scan_directory(dir_path: &Path, exclusions: &ScanExclusions) -> AppResult
         parent: None,
     };
     scan_entries(dir_path, entries, &ancestors, exclusions, &mut scanned);
+    // CUEシートの曲を、曲ごとの仮のパスにする（ADR-123）
+    scanned.audio_files =
+        crate::cue::expand(std::mem::take(&mut scanned.audio_files), &scanned.cue_files);
     Ok(scanned)
 }
 
@@ -347,6 +352,13 @@ fn scan_entries(
             }
             Some(EntryKind::File) if is_supported_audio_file(&path) => {
                 scanned.audio_files.push(path);
+            }
+            Some(EntryKind::File)
+                if path
+                    .extension()
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("cue")) =>
+            {
+                scanned.cue_files.push(path);
             }
             Some(EntryKind::File) | None => {}
         }

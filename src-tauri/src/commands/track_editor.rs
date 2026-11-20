@@ -182,6 +182,7 @@ pub async fn open_track_editor(
     validate_track_ids(&track_ids)?;
     // 一覧の並びは、編集する曲数の上限とは別（大きなライブラリの全曲の一覧からも開ける）。IDの形だけを確かめる
     sequence.iter().try_for_each(|id| validate_track_id(id))?;
+    super::reject_cue_tracks(&app, &track_ids)?;
 
     if let Some(window) = app.get_webview_window(TRACK_EDITOR_WINDOW) {
         let _ = window.set_focus();

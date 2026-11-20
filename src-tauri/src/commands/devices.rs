@@ -870,6 +870,7 @@ mod tests {
             let path = self.library.join(&file_name);
             fs::write(&path, format!("audio data of {}", title)).unwrap();
             let track = Track {
+                cue: None,
                 id: id.to_string(),
                 file_path: path.to_str().unwrap().to_string(),
                 file_name,

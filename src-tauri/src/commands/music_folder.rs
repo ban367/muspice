@@ -1284,6 +1284,7 @@ mod tests {
     #[test]
     fn test_template_examples_are_relative_paths() {
         let track = |file_path: &str, album_artist: Option<&str>, disc: Option<i32>| Track {
+            cue: None,
             id: "a1000000-0000-4000-8000-000000000001".to_string(),
             file_path: file_path.to_string(),
             file_name: file_path.rsplit('/').next().unwrap().to_string(),

@@ -9,7 +9,7 @@ use crate::error::{AppError, AppResult};
 use crate::media_controls::{MediaControls, NowPlayingUpdate};
 use crate::playback::{
     AlbumPosition, MAX_SPEED, MIN_SPEED, OutputDevice, PlayRequest, PlaybackEngine,
-    PlaybackTrackInfo,
+    PlaybackTrackInfo, TrackRegion,
 };
 use crate::state::AppState;
 use crate::validation::validate_track_id;
@@ -30,9 +30,21 @@ fn play_request(state: &AppState, track_id: &str, token: u32) -> AppResult<PlayR
             disc_number: track.disc_number,
             track_number: track.track_number,
         });
+    // CUEシートの曲は、元の音声ファイルの範囲を鳴らす（ADR-123）
+    let (path, region) = match &track.cue {
+        Some(cue) => (
+            PathBuf::from(&cue.source),
+            Some(TrackRegion {
+                start: u64::try_from(cue.start).unwrap_or(0),
+                end: cue.end.and_then(|end| u64::try_from(end).ok()),
+            }),
+        ),
+        None => (PathBuf::from(&track.file_path), None),
+    };
     Ok(PlayRequest {
         token,
-        path: PathBuf::from(track.file_path),
+        path,
+        region,
         replay_gain: track.replay_gain,
         album,
     })

@@ -43,6 +43,10 @@ pub async fn set_rating(track_id: String, rating: i32, app: AppHandle) -> AppRes
     run_blocking(move || {
         let state = app.state::<AppState>();
         let _file = state.lock_track_file(&track_id);
+        // CUEシートの曲は、データベースだけに記録する（1つのファイルに複数の曲があるため。ADR-123）
+        if state.with_db(|db| crate::repository::is_cue_track(db, &track_id))? {
+            return state.with_db(|db| crate::repository::set_track_rating(db, &track_id, rating));
+        }
         let file_path =
             state.with_db(|db| crate::repository::find_file_path_by_track_id(db, &track_id))?;
         let path = Path::new(&file_path);

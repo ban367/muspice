@@ -50,6 +50,7 @@ const track: Track = {
     analyzedKey: null
   },
   isMissing: false,
+  cue: null,
   compilation: false
 };
 

@@ -436,6 +436,7 @@ mod tests {
 
     fn track(id: &str, path: &str) -> Track {
         Track {
+            cue: None,
             id: id.to_string(),
             file_path: path.to_string(),
             file_name: path.rsplit('/').next().unwrap().to_string(),

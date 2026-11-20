@@ -99,6 +99,10 @@ pub async fn get_track_lyrics(
 
     let file_path =
         state.with_db(|db| crate::repository::find_file_path_by_track_id(db, &track_id))?;
+    // CUEシートの曲には、歌詞を読まない（曲ごとの歌詞のファイル・タグがない。ADR-123）
+    if crate::cue::is_virtual(&file_path) {
+        return Ok(None);
+    }
 
     run_blocking(move || crate::lyrics::read_track_lyrics(Path::new(&file_path))).await
 }
@@ -129,6 +133,7 @@ pub async fn update_track_metadata(
 ) -> AppResult<Option<KeepOrganizedResult>> {
     validate_track_id(&track_id)?;
     validate_metadata_input(&metadata)?;
+    super::reject_cue_tracks(&app, std::slice::from_ref(&track_id))?;
     let metadata = normalize_multi_values(metadata);
 
     // ファイルへの書き込み（ファイルI/OのためDBロック外・ブロッキング処理用スレッドで実行）と、
@@ -226,6 +231,7 @@ pub async fn update_multiple_tracks_metadata(
     }
 
     validate_metadata_input(&metadata)?;
+    super::reject_cue_tracks(&app, &track_ids)?;
     let metadata = normalize_multi_values(metadata);
 
     // ファイルの書き込みとバッチ書き込みはブロッキング処理用スレッドで行う
@@ -271,6 +277,11 @@ pub async fn apply_metadata_changes(
         validate_track_id(&change.track_id)?;
         validate_metadata_input(&change.metadata)?;
     }
+    let changed_ids: Vec<String> = changes
+        .iter()
+        .map(|change| change.track_id.clone())
+        .collect();
+    super::reject_cue_tracks(&app, &changed_ids)?;
 
     let changes: Vec<TrackMetadataChange> = changes
         .into_iter()

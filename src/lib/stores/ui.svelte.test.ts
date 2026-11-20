@@ -42,6 +42,7 @@ function track(id: string, title = `Song ${id}`): Track {
       analyzedKey: null
     },
     isMissing: false,
+    cue: null,
     compilation: false
   };
 }

@@ -126,6 +126,7 @@ mod tests {
     /// 新しく見つかったファイル（`missing`と同じタグ）
     fn file(file_name: &str, size: i64) -> Track {
         Track {
+            cue: None,
             id: "new".to_string(),
             file_path: format!("/music/new/{file_name}"),
             file_name: file_name.to_string(),

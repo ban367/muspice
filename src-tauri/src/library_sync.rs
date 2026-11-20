@@ -335,7 +335,11 @@ fn is_relevant_change(
     if ignored.iter().any(|dir| path.starts_with(dir)) {
         return false;
     }
-    if is_supported_audio_file(path) {
+    // CUEシート（曲の区切り）の変更も、そのフォルダの曲を変える（ADR-123）
+    let is_cue_sheet = path
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("cue"));
+    if is_supported_audio_file(path) || is_cue_sheet {
         return true;
     }
     if path.exists() {
@@ -586,6 +590,8 @@ mod tests {
         // 音楽ファイル（なくなったものも）・今あるフォルダは含める
         assert!(relevant(&song));
         assert!(relevant(&dir.join("removed.mp3")));
+        // CUEシート（ADR-123）
+        assert!(relevant(&dir.join("album.cue")));
         assert!(relevant(&dir));
         // なくなったパスは、ライブラリの曲を含む場合だけ含める（一時ファイルでは再スキャンしない）
         assert!(relevant(&removed_album));

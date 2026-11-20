@@ -172,7 +172,11 @@ pub fn plan_units(tracks: &[Track], scope: &ScanScope) -> Vec<ScanUnit> {
 
     let mut units: Vec<ScanUnit> = Vec::new();
     let mut album_units: HashMap<(String, Option<String>), usize> = HashMap::new();
-    for track in tracks.iter().filter(|track| !track.is_missing) {
+    // CUEシートの曲は解析しない（1つのファイルに複数の曲があり、ゲインをタグに書けない。ADR-123）
+    for track in tracks
+        .iter()
+        .filter(|track| !track.is_missing && track.cue.is_none())
+    {
         match album_key(track) {
             Some(key) => {
                 let index = *album_units.entry(key).or_insert_with(|| {
@@ -427,6 +431,7 @@ mod tests {
         album_gain: Option<f64>,
     ) -> Track {
         Track {
+            cue: None,
             id: id.to_string(),
             file_path: format!("/music/{id}.flac"),
             file_name: format!("{id}.flac"),

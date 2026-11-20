@@ -28,7 +28,7 @@
 
 use super::block_decoder::catch_panic;
 use super::convert::{Converter, OUTPUT_CHANNELS};
-use super::decoder::TrackDecoder;
+use super::decoder::{TrackDecoder, TrackRegion};
 use super::effects::{EQ_BANDS, EffectParams};
 use super::normalization::{Normalization, normalization_gain};
 use super::output::{CpalBackend, OutputBackend, OutputEvent, OutputHandle};
@@ -111,6 +111,8 @@ pub struct PlayRequest {
     pub token: u32,
     /// 音声ファイルのパス
     pub path: PathBuf,
+    /// 曲の範囲（CUEシートの曲。ファイルの一部だけを鳴らす。ふつうの曲はNone。ADR-123）
+    pub region: Option<TrackRegion>,
     /// 音量の正規化に使うゲインとピーク（タグから読んだもの）
     pub replay_gain: ReplayGain,
     /// アルバムの中の位置（アルバム名のない曲はNone。同じアルバムの続きの曲を見分ける）
@@ -328,6 +330,19 @@ fn engine_stopped() -> AppError {
 /// ファイルを開いてデコーダーを作る関数（テストでは、開くのに時間がかかるものに差し替える）
 type OpenDecoder = Arc<dyn Fn(&Path) -> AppResult<TrackDecoder> + Send + Sync>;
 
+/// デコーダーを開き、曲の範囲があれば、その範囲だけを返すようにする
+fn open_track(
+    open: &OpenDecoder,
+    path: &Path,
+    region: Option<TrackRegion>,
+) -> AppResult<TrackDecoder> {
+    let decoder = open(path)?;
+    match region {
+        Some(region) => decoder.with_region(region),
+        None => Ok(decoder),
+    }
+}
+
 /// `set_next`の結果を返す先
 ///
 /// 結果を返さずに捨てた場合（開き終える前に、別の曲を用意した・再生を止めた）は、成功を返す
@@ -362,6 +377,7 @@ struct OpeningNext {
 struct Deck {
     token: u32,
     path: PathBuf,
+    region: Option<TrackRegion>,
     decoder: TrackDecoder,
     replay_gain: ReplayGain,
     album: Option<AlbumPosition>,
@@ -407,6 +423,7 @@ fn crossfade_gains(frame: u64, total_frames: u64) -> (f32, f32) {
 struct Segment {
     token: u32,
     path: PathBuf,
+    region: Option<TrackRegion>,
     replay_gain: ReplayGain,
     album: Option<AlbumPosition>,
     /// この曲の音声を書き始めた位置（リングバッファへ書いたフレーム数の合計）
@@ -720,12 +737,15 @@ impl Engine {
         self.latest_play_token = Some(request.token);
 
         // 続けて再生する曲として用意していた曲なら、開いてあるデコーダーをそのまま使う
-        let prepared = self.next.take().filter(|next| next.path == request.path);
+        let prepared = self
+            .next
+            .take()
+            .filter(|next| next.path == request.path && next.region == request.region);
         self.stop_playback();
 
         let decoder = match prepared {
             Some(deck) => deck.decoder,
-            None => (self.open_decoder)(&request.path)?,
+            None => open_track(&self.open_decoder, &request.path, request.region)?,
         };
         let gain = self.gain_of(&request.replay_gain);
         let deck = Deck::new(request, decoder, gain);
@@ -774,18 +794,20 @@ impl Engine {
             return;
         }
         // 同じ曲をすでに用意していれば、番号だけを付け替える
-        if let Some(next) = self.next.as_mut().filter(|next| next.path == request.path) {
+        if let Some(next) = self
+            .next
+            .as_mut()
+            .filter(|next| next.path == request.path && next.region == request.region)
+        {
             next.token = request.token;
             reply.send(Ok(()));
             return;
         }
         // 同じ曲を開いている途中なら、開き終えるのを待って、この要求の曲として用意する
         // （前の要求には、成功を返す）
-        if let Some(opening) = self
-            .opening
-            .as_mut()
-            .filter(|opening| opening.request.path == request.path)
-        {
+        if let Some(opening) = self.opening.as_mut().filter(|opening| {
+            opening.request.path == request.path && opening.request.region == request.region
+        }) {
             opening.request = request;
             opening.reply = reply;
             return;
@@ -802,12 +824,13 @@ impl Engine {
         let id = self.last_open_id;
         let open = self.open_decoder.clone();
         let path = request.path.clone();
+        let region = request.region;
         let commands = self.commands.clone();
         let spawned = thread::Builder::new()
             .name("playback-open-next".to_string())
             .spawn(move || {
                 // 壊れたファイルでパニックしても、結果（エラー）は必ず届ける
-                let result = catch_panic(|| open(&path));
+                let result = catch_panic(|| open_track(&open, &path, region));
                 // エンジンのスレッドが終わっていれば、届かなくてよい
                 let _ = commands.send(Command::NextOpened { id, result });
             });
@@ -1033,7 +1056,7 @@ impl Engine {
             return None;
         }
         let (current, next) = (self.current.as_ref()?, self.next.as_ref()?);
-        if current.path == next.path {
+        if current.path == next.path && current.region == next.region {
             return None;
         }
         if self.crossfade_skip_album_tracks
@@ -1347,10 +1370,11 @@ impl Engine {
                 let request = PlayRequest {
                     token: front.token,
                     path: front.path.clone(),
+                    region: front.region,
                     replay_gain: front.replay_gain.clone(),
                     album: front.album.clone(),
                 };
-                let decoder = (self.open_decoder)(&front.path)?;
+                let decoder = open_track(&self.open_decoder, &front.path, front.region)?;
                 let gain = self.gain_of(&request.replay_gain);
                 (Deck::new(request, decoder, gain), None)
             }
@@ -1566,6 +1590,7 @@ impl Deck {
         Self {
             token: request.token,
             path: request.path,
+            region: request.region,
             decoder,
             replay_gain: request.replay_gain,
             album: request.album,
@@ -1579,6 +1604,7 @@ impl Deck {
         Segment {
             token: self.token,
             path: self.path.clone(),
+            region: self.region,
             replay_gain: self.replay_gain.clone(),
             album: self.album.clone(),
             start_frame,
@@ -1751,6 +1777,7 @@ mod tests {
         PlayRequest {
             token,
             path: path.to_path_buf(),
+            region: None,
             replay_gain: ReplayGain::default(),
             album: None,
         }
@@ -2024,6 +2051,35 @@ mod tests {
             vec![PlaybackEvent::Ended { token: 1 }]
         );
         assert!(harness.engine.position().is_none());
+    }
+
+    /// CUEシートの曲は、ファイルの範囲だけを鳴らして終わる（ADR-123）
+    #[test]
+    fn test_plays_only_the_region_of_a_cue_track() {
+        let mut harness = Harness::new();
+        let path = harness.track("album.wav", 24_000);
+        // 1秒から2秒まで（8000Hzで、8000〜15999フレーム目）
+        let info = harness
+            .engine
+            .play(PlayRequest {
+                region: Some(TrackRegion {
+                    start: 75,
+                    end: Some(150),
+                }),
+                ..request(1, &path)
+            })
+            .unwrap();
+        harness.engine.tick();
+        assert_eq!(info.duration, Some(1.0));
+
+        let played = harness.render(10_000);
+        assert_eq!(played.len(), 8_000);
+        assert_sample(&played, 1_000, 9_000);
+        assert_sample(&played, 7_999, 15_999);
+        assert_eq!(
+            harness.take_transitions(),
+            vec![PlaybackEvent::Ended { token: 1 }]
+        );
     }
 
     #[test]

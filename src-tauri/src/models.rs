@@ -45,6 +45,23 @@ pub struct Track {
     pub compilation: bool,
     /// 一覧の列・検索に使う、タグとファイルの情報のうち、後から持つようにした項目（ADR-115）
     pub details: TrackDetails,
+    /// CUEシートの曲（アルバム1ファイルの中の1曲）の、元の音声ファイルと範囲（ふつうの曲はnull。ADR-123）
+    ///
+    /// CUEシートの曲の`file_path`は、仮のパス（`アルバム.cue#03`。`cue::virtual_path`）。
+    pub cue: Option<TrackCue>,
+}
+
+/// CUEシートの曲の、元の音声ファイルと範囲（ADR-123）
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackCue {
+    /// 曲の入っている音声ファイル
+    pub source: String,
+    /// 曲の始まりと終わり（1/75秒。終わりがnullなら、ファイルの終わりまで）
+    #[specta(type = specta_typescript::Number)]
+    pub start: i64,
+    #[specta(type = Option<specta_typescript::Number>)]
+    pub end: Option<i64>,
 }
 
 /// 曲の、一覧の列・検索に使う項目のうち、後から持つようにしたもの（作曲者・BPM・ビット深度など。ADR-115）

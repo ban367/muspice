@@ -211,6 +211,12 @@ foundCount: number } |
 	compilation: boolean,
 	/**  一覧の列・検索に使う、タグとファイルの情報のうち、後から持つようにした項目（ADR-115） */
 	details: TrackDetails,
+	/**
+	 *  CUEシートの曲（アルバム1ファイルの中の1曲）の、元の音声ファイルと範囲（ふつうの曲はnull。ADR-123）
+	 * 
+	 *  CUEシートの曲の`file_path`は、仮のパス（`アルバム.cue#03`。`cue::virtual_path`）。
+	 */
+	cue: TrackCue | null,
 } | null>("locate_track_file", { trackId }),
 	/**
 	 *  フォルダを選ぶダイアログで選んだフォルダの中から、見つからない曲のファイルを探して結び付ける（ADR-117）
@@ -763,6 +769,12 @@ includesSettings: boolean } |
 	compilation: boolean,
 	/**  一覧の列・検索に使う、タグとファイルの情報のうち、後から持つようにした項目（ADR-115） */
 	details: TrackDetails,
+	/**
+	 *  CUEシートの曲（アルバム1ファイルの中の1曲）の、元の音声ファイルと範囲（ふつうの曲はnull。ADR-123）
+	 * 
+	 *  CUEシートの曲の`file_path`は、仮のパス（`アルバム.cue#03`。`cue::virtual_path`）。
+	 */
+	cue: TrackCue | null,
 } | null>("pick_ai_shuffle_track", { currentTrackId, excludedTrackIds }),
 	/**
 	 *  トラックのアルバムアートの情報（埋め込みの画像か、フォルダの画像か・種類・大きさ）を取得する
@@ -2670,6 +2682,21 @@ export type Track = {
 	compilation: boolean,
 	/**  一覧の列・検索に使う、タグとファイルの情報のうち、後から持つようにした項目（ADR-115） */
 	details: TrackDetails,
+	/**
+	 *  CUEシートの曲（アルバム1ファイルの中の1曲）の、元の音声ファイルと範囲（ふつうの曲はnull。ADR-123）
+	 * 
+	 *  CUEシートの曲の`file_path`は、仮のパス（`アルバム.cue#03`。`cue::virtual_path`）。
+	 */
+	cue: TrackCue | null,
+};
+
+/**  CUEシートの曲の、元の音声ファイルと範囲（ADR-123） */
+export type TrackCue = {
+	/**  曲の入っている音声ファイル */
+	source: string,
+	/**  曲の始まりと終わり（1/75秒。終わりがnullなら、ファイルの終わりまで） */
+	start: number,
+	end: number | null,
 };
 
 /**

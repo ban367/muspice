@@ -259,6 +259,10 @@ fn run_migrations(conn: &Connection) -> Result<()> {
     // なったトラックはすぐには外さず、「見つからない曲」として残す。移動・改名されたファイルが
     // 見つかれば同じ曲として結び付け、外すのは利用者の操作にする（`track_relink`）
     add_column_if_not_exists(conn, "tracks", "missing_since", "TEXT")?;
+    // CUEシートの曲（アルバム1ファイルの中の1曲）の、元の音声ファイルと範囲（1/75秒。ADR-123）
+    add_column_if_not_exists(conn, "tracks", "cue_source", "TEXT")?;
+    add_column_if_not_exists(conn, "tracks", "cue_start", "INTEGER")?;
+    add_column_if_not_exists(conn, "tracks", "cue_end", "INTEGER")?;
 
     // 再生履歴テーブルの作成
     conn.execute(
