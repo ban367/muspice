@@ -757,7 +757,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     crossfeedEnabled: false,
     crossfeedLevel: 'medium',
     outputDeviceId: null,
-    watchLibraryFolders: false,
+    watchLibraryFolders: true,
     libraryScanIntervalMinutes: 0,
     hiddenSidebarItems: [],
     autoDj: false,
@@ -790,7 +790,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         { id: crypto.randomUUID(), path: 'Music' },
         { id: crypto.randomUUID(), path: 'MusicBee' }
       ],
-      isMusicFolder: false
+      isMusicFolder: false,
+      isNetwork: false
     },
     {
       id: crypto.randomUUID(),
@@ -799,7 +800,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       addedAt: '2026-01-02T00:00:00.000Z',
       lastScannedAt: null,
       exclusions: [],
-      isMusicFolder: false
+      isMusicFolder: false,
+      isNetwork: false
     }
   ];
   // 読み込まないフォルダの追加で、選んだことにするフォルダ（undefinedは、曲のある最初のフォルダ）
@@ -2344,7 +2346,9 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
           path: `${folder.path}/${exclusion.path}`.slice(folderPrefix(path).length)
         }))
       ),
-      isMusicFolder: nested.some((folder) => folder.isMusicFolder)
+      isMusicFolder: nested.some((folder) => folder.isMusicFolder),
+      // モックでは、`/Volumes/NAS`の下をネットワーク上のボリュームとする（Rustは`mount`の出力で調べる）
+      isNetwork: isSameOrWithin(path, '/Volumes/NAS')
     };
     libraryFolders.push(registered);
     return registered;

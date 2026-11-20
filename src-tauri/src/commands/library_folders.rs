@@ -78,12 +78,16 @@ fn list_folders(state: &AppState) -> AppResult<LibraryFolderList> {
     })?;
 
     // フォルダの存在確認はファイルシステムへのアクセスのため、DBロックの外で行う
+    let network_mounts = crate::library_folder::network_mount_points();
     let folders: Vec<LibraryFolder> = records
         .into_iter()
         .zip(counts.iter())
         .zip(exclusions)
         .map(|((record, &track_count), exclusions)| LibraryFolder {
             exists: Path::new(&record.path).is_dir(),
+            is_network: network_mounts
+                .iter()
+                .any(|mount| Path::new(&record.path).starts_with(mount)),
             id: record.id,
             path: record.path,
             track_count,

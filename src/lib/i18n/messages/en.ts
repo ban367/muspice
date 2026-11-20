@@ -1319,6 +1319,8 @@ export const en: Messages = {
     watchFoldersHint:
       'When files are added, deleted or changed in a library folder, the library is updated a few seconds later. Changes on external or network drives may not be notified.',
     scanInterval: 'Rescan periodically',
+    networkFolderHint:
+      'A library folder is on a network volume (such as a NAS). Changes made from other devices are not notified to folder watching, so set a periodic rescan.',
     scanIntervals: {
       0: 'Never',
       15: 'Every 15 minutes',

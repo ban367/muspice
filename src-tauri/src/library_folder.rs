@@ -48,6 +48,61 @@ pub struct LibraryFolder {
     pub exclusions: Vec<FolderExclusion>,
     /// 音楽フォルダ（新しい曲を置く宛先）か
     pub is_music_folder: bool,
+    /// ネットワーク上のボリューム（NASのSMB・AFP・NFSなど）にあるか（macOSだけで調べる。ADR-120）
+    ///
+    /// ほかの機器からの変更が、フォルダの監視に通知されないため、定期の再スキャンを勧めるのに使う。
+    pub is_network: bool,
+}
+
+/// ネットワーク上のファイルシステムの種類（`mount`が出す名前）
+#[cfg(any(target_os = "macos", test))]
+const NETWORK_FILESYSTEMS: [&str; 7] = ["smbfs", "afpfs", "nfs", "nfs4", "webdav", "cifs", "ftp"];
+
+/// `mount`の出力から、ネットワーク上のボリュームのマウント先を取り出す
+///
+/// macOSの形式（`装置 on マウント先 (種類, 設定...)`）と、Linuxの形式
+/// （`装置 on マウント先 type 種類 (設定...)`）を読む。マウント先に空白があっても読める。
+#[cfg(any(target_os = "macos", test))]
+pub fn parse_network_mount_points(mount_output: &str) -> Vec<std::path::PathBuf> {
+    mount_output
+        .lines()
+        .filter_map(|line| {
+            let (_, rest) = line.split_once(" on ")?;
+            let (head, options) = rest.rsplit_once(" (")?;
+            let (mount_point, fs_type) = match head.rsplit_once(" type ") {
+                Some((mount_point, fs_type)) => (mount_point, fs_type),
+                // macOSは、括弧の中の最初が種類
+                None => (head, options.split([',', ')']).next()?),
+            };
+            NETWORK_FILESYSTEMS
+                .contains(&fs_type.trim())
+                .then(|| std::path::PathBuf::from(mount_point))
+        })
+        .collect()
+}
+
+/// 今マウントされている、ネットワーク上のボリュームのマウント先（macOSだけ。ほかでは空）
+pub fn network_mount_points() -> Vec<std::path::PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        match std::process::Command::new("/sbin/mount").output() {
+            Ok(output) if output.status.success() => {
+                parse_network_mount_points(&String::from_utf8_lossy(&output.stdout))
+            }
+            Ok(output) => {
+                log::warn!("mount exited with {}", output.status);
+                Vec::new()
+            }
+            Err(e) => {
+                log::warn!("Failed to run mount: {}", e);
+                Vec::new()
+            }
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Vec::new()
+    }
 }
 
 /// ライブラリフォルダの、読み込まないフォルダ（除外。一覧表示用）
@@ -894,6 +949,31 @@ pub fn outside_file_state(path: &Path) -> OutsideFile {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_parse_network_mount_points() {
+        let macos = "/dev/disk3s1s1 on / (apfs, sealed, local, read-only, journaled)
+//user@nas._smb._tcp.local/Music on /Volumes/Music Share (smbfs, nodev, nosuid, mounted by user)
+afp_abc@nas on /Volumes/Old (afpfs, nodev, nosuid, mounted by user)
+nas:/export on /private/var/automount/nfs (nfs, nodev, nosuid, automounted)
+/dev/disk4s1 on /Volumes/USB (msdos, local, nodev, nosuid, noowners)";
+        assert_eq!(
+            parse_network_mount_points(macos),
+            [
+                std::path::PathBuf::from("/Volumes/Music Share"),
+                std::path::PathBuf::from("/Volumes/Old"),
+                std::path::PathBuf::from("/private/var/automount/nfs"),
+            ]
+        );
+        let linux = "/dev/sda1 on / type ext4 (rw,relatime)
+//nas/music on /mnt/music type cifs (rw,relatime)";
+        assert_eq!(
+            parse_network_mount_points(linux),
+            [std::path::PathBuf::from("/mnt/music")]
+        );
+        assert!(parse_network_mount_points("").is_empty());
+    }
+
     use crate::device_manifest::test_support::TempDir;
 
     fn setup_test_db() -> Connection {
