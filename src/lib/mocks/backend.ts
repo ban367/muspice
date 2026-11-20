@@ -3020,7 +3020,10 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       while (remaining > 0) {
         index += step;
         if (index < 0 || index >= sequence.length) return false;
-        if (tracks.some((track) => track.id === sequence[index])) remaining--;
+        // ライブラリから外された曲と、CUEシートの曲（編集できない）は飛ばす
+        if (tracks.some((track) => track.id === sequence[index] && track.cue === null)) {
+          remaining--;
+        }
       }
       saveEditorTracks([sequence[index]], sequence);
       pendingArt = null;
@@ -3596,6 +3599,12 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       const track = tracks.find((t) => t.id === trackId);
       if (!track) fail('NOT_FOUND', '指定されたトラックが見つかりません');
       if (!track.isMissing) fail('VALIDATION', 'この曲のファイルは見つかっています');
+      if (track.cue !== null) {
+        fail(
+          'VALIDATION',
+          'CUEシートの曲は、ファイルの場所を指定できません。「フォルダから探す」か、CUEシートのあるフォルダの再スキャンで結び付け直してください'
+        );
+      }
       if (folderResult === null) return null;
       const filePath = `${normalizeFolderPath(folderResult)}/${track.fileName}`;
       if (tracks.some((t) => t.id !== trackId && t.filePath === filePath)) {

@@ -381,10 +381,11 @@ export interface Playlist {
   - 置き換えるのは、`FILE`の曲が2曲以上で、すべての曲に`INDEX 01`がある場合だけ。音声ファイルは、`FILE`の名前で探し、なければ同じフォルダの同じ名前（拡張子だけ違う。大文字と小文字は区別しない）のファイルが1つだけの時に使う。1つの音声ファイルを指すCUEシートが複数ある時は、名前の順で最初のもの
   - CUEシートは1MBまで。UTF-8でなければShift_JISとして読む（`m3u::decode`）。読めない行は飛ばす（曲番号の読めない`TRACK`の中の行も飛ばす）
 - 曲の内容（`cue::build_track`）: タイトル・アーティスト・作曲者はCUEシートの曲の`TITLE`・`PERFORMER`・`SONGWRITER`（アーティストがなければシートの`PERFORMER`）。アルバム・アルバムアーティスト・ジャンル・年・ディスク番号は、シートの`TITLE`・`PERFORMER`・`REM GENRE`・`REM DATE`・`REM DISCNUMBER`で、ないものは音声ファイルのタグから補う。トラック番号はCUEシートの番号、長さは区切りから求める（最後の曲は、ファイルの長さまで）。大きさは音声ファイル全体の大きさ、形式・ビットレートなどは音声ファイルのもの
-- 変更の判定（再スキャン・どのライブラリフォルダにも属さない曲の確認）: 大きさは音声ファイルの大きさ、更新日時は、CUEシートと音声ファイルの新しい方（`cue::file_state`）。どちらかがなければ、見つからない曲にする。フォルダの監視は、`.cue`の変更でも再スキャンする
+- 変更の判定（再スキャン・どのライブラリフォルダにも属さない曲の確認）: 大きさは音声ファイルの大きさ、更新日時は、CUEシートと音声ファイルの新しい方（`cue::file_state`）。どちらかがなければ、見つからない曲にする（取り込み・再スキャンで記録する更新日時も同じ。`library::get_file_modified_at`）。フォルダの監視は、`.cue`の変更でも再スキャンする
+- 移動・改名の対応付け（再スキャン・取り込み・「フォルダから探す」。`track_relink`）: 同じCUEシートの曲は、どれも大きさと更新日時が同じため、更新日時で比べる時は、ファイル名（`Album.cue#03`。曲番号を含む）も同じものに限る（タグと長さが同じなら、ファイル名によらず対応付ける）。対応付けた時は、新しい音声ファイルと区切り（`cue_source`・`cue_start`・`cue_end`）も記録する（`repository::relink_track`）。ライブラリフォルダの場所の付け替えでは、`cue_source`も同じ接頭辞で付け替える。「ファイルの場所を指定」（`locate_track_file`）は、1つのファイルに結び付けられないため`VALIDATION`（右クリックの項目も無効）
 - ファイルのコピー（音楽フォルダへのコピー）はしない（ライブラリフォルダの中の曲と同じく参照する）
 - 再生: `playback_play`・`playback_set_next`は、`cue.source`を開いて`cue.start`〜`cue.end`だけを再生する（`TrackRegion`。下の「再生エンジン」）。Now Playingのアートワークも音声ファイルから読む
-- ファイルを書き換える操作は、CUEシートの曲を含むと`VALIDATION`（`commands::reject_cue_tracks`・`repository::ensure_no_cue_tracks`）: `update_track_metadata`・`update_multiple_tracks_metadata`・`apply_metadata_changes`・`open_track_editor`・`set_album_art`・`remove_album_art`・`plan_conversion`・`convert_tracks`・`start_loudness_scan`・`plan_file_organize`・`organize_files`。フロントの右クリックのメニュー（曲の情報の編集・タグの一括ツール・ファイルの整理・形式の変換・音量の解析）と、右サイドバーの編集も無効にする
+- ファイルを書き換える操作は、CUEシートの曲を含むと`VALIDATION`（`commands::reject_cue_tracks`・`repository::ensure_no_cue_tracks`）: `update_track_metadata`・`update_multiple_tracks_metadata`・`apply_metadata_changes`・`open_track_editor`・`set_album_art`・`remove_album_art`・`plan_conversion`・`convert_tracks`・`start_loudness_scan`・`plan_file_organize`・`organize_files`。フロントの右クリックのメニュー（曲の情報の編集・タグの一括ツール・ファイルの整理・形式の変換・音量の解析。アルバムのメニューの曲の情報の編集も）と、右サイドバーの編集も無効にする。曲の情報の編集画面で前後の曲へ移る時（`move_track_editor`）は、CUEシートの曲を飛ばす
 - 評価（`set_rating`）は、DBだけに記録する（タグには書かない。再スキャンで読み直しても変えない）
 - 対象から外すもの: デバイスへの転送・曲の解析（テンポ・キー）・音量の解析のまだの曲の数・タグの値の候補（`get_track_tag_values`）・歌詞（`get_track_lyrics`は`null`）
 - アルバムアート（`get_album_art`）は、音声ファイルから読む。「Finderで表示」（`show_in_folder`）は、CUEシートを選ぶ

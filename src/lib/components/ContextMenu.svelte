@@ -366,7 +366,11 @@
   </MenuItem>
 
   <!-- 見つからない曲は、ファイルの場所を開く代わりに、場所を指定する（ADR-117） -->
-  <MenuItem onSelect={track.isMissing ? handleLocateFile : handleShowInFolder}>
+  <!-- 見つからないCUEシートの曲は、1つのファイルに結び付けられない（フォルダから探す。ADR-123） -->
+  <MenuItem
+    onSelect={track.isMissing ? handleLocateFile : handleShowInFolder}
+    disabled={track.isMissing && track.cue !== null}
+  >
     {#snippet icon()}
       <svg
         xmlns="http://www.w3.org/2000/svg"

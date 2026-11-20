@@ -394,7 +394,15 @@ pub fn get_file_size(file_path: &Path) -> AppResult<i64> {
 /// ファイルの更新日時（UNIX時間の秒）を取得する。取得できない場合はNone
 ///
 /// 再スキャンでファイルの変更を検出するために記録する。
+///
+/// CUEシートの曲（仮のパス）は、CUEシートと音声ファイルの新しい方（`cue::file_state`。ADR-123）。
 pub fn get_file_modified_at(file_path: &Path) -> Option<i64> {
+    if let Some(path) = file_path
+        .to_str()
+        .filter(|path| crate::cue::is_virtual(path))
+    {
+        return crate::cue::file_state(path).and_then(|(_, modified_at)| modified_at);
+    }
     modified_at_of(&fs::metadata(file_path).ok()?)
 }
 

@@ -12,6 +12,9 @@
 //!   （コピーし直した場合など、更新日時が変わっても対応付けられる）
 //!
 //! 候補が1つに決まらない場合（同じ内容のファイルが複数あるなど）は対応付けず、新しい曲として登録する。
+//!
+//! CUEシートの曲（ADR-123）は、同じCUEシートの曲がすべて同じ大きさ・更新日時になるため、更新日時で
+//! 比べる時は、曲番号を含むファイル名（`Album.cue#03`）も同じものに限る。
 
 use crate::models::Track;
 use std::collections::HashMap;
@@ -90,8 +93,12 @@ impl MissingTrackIndex {
 
 /// サイズが同じ候補とファイルが、同じ曲のファイルか
 fn is_same_file(candidate: &MissingTrack, file: &Track, modified_at: Option<i64>) -> bool {
-    let same_modified_at =
-        candidate.file_modified_at.is_some() && candidate.file_modified_at == modified_at;
+    // CUEシートの曲は、同じシートの別の曲・音声ファイルそのものと、大きさと更新日時が同じになる
+    let is_cue =
+        crate::cue::is_virtual(&candidate.file_name) || crate::cue::is_virtual(&file.file_name);
+    let same_modified_at = candidate.file_modified_at.is_some()
+        && candidate.file_modified_at == modified_at
+        && (!is_cue || candidate.file_name == file.file_name);
     // タイトルのタグがない曲のタイトルはファイル名から付けるため、改名すると一致しなくなる
     // （長さで大きさが決まる形式では、タグのない別の曲と区別できないため、それでよい）
     let same_tags = candidate.duration == file.duration
@@ -234,6 +241,33 @@ mod tests {
         assert_eq!(
             duplicates().take_match(&file("renamed.mp3", 1000), Some(50)),
             None
+        );
+    }
+
+    #[test]
+    fn test_cue_tracks_match_by_modified_at_only_with_the_same_track_number() {
+        let other_tags = |file_name: &str| {
+            let mut found = file(file_name, 100);
+            found.title = Some("別の曲".to_string());
+            found
+        };
+        let mut index = MissingTrackIndex::new(vec![missing("two", "Album.cue#02", 100, Some(5))]);
+        // 同じCUEシートの別の曲・音声ファイルそのものは、大きさと更新日時が同じでも結び付けない
+        assert!(
+            index
+                .take_match(&other_tags("Album.cue#01"), Some(5))
+                .is_none()
+        );
+        assert!(
+            index
+                .take_match(&other_tags("Album.wav"), Some(5))
+                .is_none()
+        );
+        assert_eq!(
+            index
+                .take_match(&other_tags("Album.cue#02"), Some(5))
+                .map(|track| track.id),
+            Some("two".to_string())
         );
     }
 }

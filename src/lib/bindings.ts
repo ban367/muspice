@@ -846,7 +846,7 @@ includesSettings: boolean } |
 	 *  編集する曲を、開いた一覧の並びの前（`offset`が負）・後ろの曲へ移す（ADR-119）
 	 * 
 	 *  移ったらtrue（編集画面は、`get_track_editor_tracks`で曲を取り直す）。並びの端ではfalse。ライブラリから
-	 *  外された曲は飛ばす。前の曲で選んで使わなかった画像は捨てる。
+	 *  外された曲と、CUEシートの曲（編集できない。ADR-123）は飛ばす。前の曲で選んで使わなかった画像は捨てる。
 	 */
 	moveTrackEditor: (offset: number) => __TAURI_INVOKE<boolean>("move_track_editor", { offset }),
 	/**  プレイリストを作成 */

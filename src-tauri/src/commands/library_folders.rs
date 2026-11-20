@@ -957,6 +957,7 @@ fn read_and_write_tracks(
                         &track.file_path,
                         &track.file_name,
                         *modified_at,
+                        track.cue.as_ref(),
                     ),
                 };
                 match (written, action) {

@@ -722,7 +722,14 @@ mod tests {
         library
             .state
             .with_db(|db| {
-                crate::repository::relink_track(db, &id, moved.to_str().unwrap(), "moved.wav", None)
+                crate::repository::relink_track(
+                    db,
+                    &id,
+                    moved.to_str().unwrap(),
+                    "moved.wav",
+                    None,
+                    None,
+                )
             })
             .unwrap();
 

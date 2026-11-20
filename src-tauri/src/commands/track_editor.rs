@@ -128,7 +128,7 @@ impl TrackEditorState {
                 return false;
             };
             index = next;
-            // ライブラリから外された曲は、数えずに飛ばす
+            // ライブラリから外された曲（と、編集できない曲）は、数えずに飛ばす
             if exists(next_id) {
                 remaining -= 1;
                 if remaining == 0 {
@@ -258,7 +258,7 @@ pub async fn get_track_editor_position(
 /// 編集する曲を、開いた一覧の並びの前（`offset`が負）・後ろの曲へ移す（ADR-119）
 ///
 /// 移ったらtrue（編集画面は、`get_track_editor_tracks`で曲を取り直す）。並びの端ではfalse。ライブラリから
-/// 外された曲は飛ばす。前の曲で選んで使わなかった画像は捨てる。
+/// 外された曲と、CUEシートの曲（編集できない。ADR-123）は飛ばす。前の曲で選んで使わなかった画像は捨てる。
 #[tauri::command]
 #[specta::specta]
 pub async fn move_track_editor(
@@ -270,7 +270,7 @@ pub async fn move_track_editor(
     let moved = editor.step(offset, |track_id| {
         state
             .with_db(|db| crate::repository::find_track_by_id(db, track_id))
-            .is_ok()
+            .is_ok_and(|track| track.cue.is_none())
     });
     if moved {
         pending_art.clear();

@@ -932,6 +932,7 @@ fn copy_and_register<'a>(
                         &track.file_path,
                         &track.file_name,
                         *modified_at,
+                        track.cue.as_ref(),
                     ),
                     _ => crate::repository::insert_track(&tx, track, *modified_at),
                 })
@@ -1165,6 +1166,7 @@ fn import_audio_files(
                         &track.file_path,
                         &track.file_name,
                         *modified_at,
+                        track.cue.as_ref(),
                     ),
                 };
 
@@ -1376,6 +1378,54 @@ mod tests {
         let unchanged = plan(&state);
         assert!(unchanged.to_add.is_empty() && unchanged.to_update.is_empty());
         assert!(unchanged.to_mark_missing.is_empty());
+        // 取り込みで、CUEシートの更新日時を記録している
+        assert!(unchanged.to_record_modified_at.is_empty());
+
+        // フォルダを移した後に取り込むと、見つからない曲を移動の先に結び付け、音声ファイルの場所も変える
+        let moved = dir.path().join("Moved");
+        fs::rename(&album, &moved).unwrap();
+        let moved_cue = moved.join("Album.cue");
+        state
+            .with_db(|db| {
+                for track in [&one, &two] {
+                    crate::repository::mark_track_missing(db, &track.id, "2026-01-02T00:00:00Z")?;
+                }
+                Ok(())
+            })
+            .unwrap();
+        let moved_files = [
+            PathBuf::from(crate::cue::virtual_path(&moved_cue, 1)),
+            PathBuf::from(crate::cue::virtual_path(&moved_cue, 2)),
+        ];
+        let relinked =
+            import_audio_files(&moved_files, DuplicateAction::Skip, &state, &|_| {}).unwrap();
+        assert_eq!(relinked.relinked_count, 2);
+        let two_after = state
+            .with_db(|db| crate::repository::find_track_by_id(db, &two.id))
+            .unwrap();
+        assert!(!two_after.is_missing);
+        assert_eq!(two_after.file_path, crate::cue::virtual_path(&moved_cue, 2));
+        assert_eq!(
+            cue_of(&two_after).source,
+            moved.join("Album.wav").to_string_lossy()
+        );
+        assert_eq!(cue_of(&two_after).start, 75);
+        fs::rename(&moved, &album).unwrap();
+        state
+            .with_db(|db| {
+                for (track, file_path) in [(&one, &one.file_path), (&two, &two.file_path)] {
+                    crate::repository::relink_track(
+                        db,
+                        &track.id,
+                        file_path,
+                        &track.file_name,
+                        None,
+                        track.cue.as_ref(),
+                    )?;
+                }
+                Ok(())
+            })
+            .unwrap();
 
         // CUEシートを消すと、どちらの曲も見つからない曲になる
         fs::remove_file(&cue).unwrap();

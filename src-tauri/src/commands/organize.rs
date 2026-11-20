@@ -610,6 +610,8 @@ fn record_moves(state: &AppState, moved: &[&PlannedMove]) -> AppResult<Vec<AppRe
                     path,
                     name,
                     get_file_modified_at(&planned.to),
+                    // CUEシートの曲は整理しない（`reject_cue_tracks`）
+                    None,
                 )
             })
             .collect();

@@ -9,13 +9,14 @@
 //! 受け取らず、Rust側のダイアログで選ぶ（ADR-065）。
 
 use super::import::create_track_from_file;
-use super::library_folders::notify_library_changed;
+use super::library_folders::{disk_file_of, notify_library_changed};
 use super::{file_dialog, pick_folder, run_blocking};
 use crate::error::{AppError, AppResult};
 use crate::library::{
-    ScanExclusions, get_file_modified_at, is_supported_audio_file, modified_at_of, scan_directory,
+    ScanExclusions, get_file_modified_at, is_supported_audio_file, scan_directory,
     supported_extensions,
 };
+use crate::library_folder::DiskFile;
 use crate::models::Track;
 use crate::settings::Language;
 use crate::state::AppState;
@@ -23,7 +24,6 @@ use crate::track_relink::MissingTrackIndex;
 use crate::validation::validate_track_id;
 use serde::Serialize;
 use specta::Type;
-use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
@@ -75,6 +75,12 @@ pub async fn locate_track_file(track_id: String, app: AppHandle) -> AppResult<Op
         if !track.is_missing {
             return Err(AppError::Validation(
                 "この曲のファイルは見つかっています".to_string(),
+            ));
+        }
+        // CUEシートの曲は、1つのファイルに結び付けられない（ADR-123）
+        if track.cue.is_some() {
+            return Err(AppError::Validation(
+                "CUEシートの曲は、ファイルの場所を指定できません。「フォルダから探す」か、CUEシートのあるフォルダの再スキャンで結び付け直してください".to_string(),
             ));
         }
 
@@ -207,10 +213,15 @@ fn search_folder(state: &AppState, folder: &Path) -> AppResult<MissingTrackSearc
         if present.contains(path_text) {
             continue;
         }
-        let Ok(metadata) = fs::metadata(path) else {
+        // CUEシートの曲（仮想のパス）は、音声ファイルの大きさとCUEシートの更新日時で比べる
+        let Some(DiskFile {
+            size: Some(size),
+            modified_at,
+            ..
+        }) = disk_file_of(path)
+        else {
             continue;
         };
-        let size = i64::try_from(metadata.len()).unwrap_or(i64::MAX);
         if !index.has_size(size) {
             continue;
         }
@@ -218,7 +229,6 @@ fn search_folder(state: &AppState, folder: &Path) -> AppResult<MissingTrackSearc
         let Ok(file) = create_track_from_file(path) else {
             continue;
         };
-        let modified_at = modified_at_of(&metadata);
         if let Some(track) = index.take_match(&file, modified_at) {
             found.push((track.id, file, modified_at));
         }
@@ -243,6 +253,7 @@ fn search_folder(state: &AppState, folder: &Path) -> AppResult<MissingTrackSearc
                 &file.file_path,
                 &file.file_name,
                 *modified_at,
+                file.cue.as_ref(),
             )?;
             relinked += 1;
         }
@@ -261,6 +272,7 @@ mod tests {
     use super::*;
 
     use crate::device_manifest::test_support::TempDir;
+    use std::fs;
 
     /// テスト用の音楽ファイル（タグのない無音のWAV。大きさは`samples`で決まる）を作る
     fn write_wav(path: &Path, samples: u32) {
@@ -395,5 +407,34 @@ mod tests {
         // 見つからない曲がなければ、フォルダを読まない
         let again = search_folder(&state, Path::new("/nonexistent")).unwrap();
         assert_eq!(again.relinked_count, 0);
+    }
+
+    /// CUEシートの曲は、移した先のCUEシートの曲に結び付け、音声ファイルの場所も変える
+    #[test]
+    fn test_search_folder_relinks_moved_cue_tracks() {
+        let dir = TempDir::new();
+        let old = dir.path().join("old");
+        fs::create_dir_all(&old).unwrap();
+        write_wav(&old.join("Album.wav"), 8000);
+        let cue_text = "FILE \"Album.wav\" WAVE\n  TRACK 01 AUDIO\n    TITLE \"One\"\n    INDEX 01 00:00:00\n  TRACK 02 AUDIO\n    TITLE \"Two\"\n    INDEX 01 00:00:30\n";
+        fs::write(old.join("Album.cue"), cue_text).unwrap();
+        let virtual_path = crate::cue::virtual_path(&old.join("Album.cue"), 2);
+        let (state, track_id) = state_with_missing_track(Path::new(&virtual_path));
+        let moved = dir.path().join("new");
+        fs::rename(&old, &moved).unwrap();
+
+        let result = search_folder(&state, &moved).unwrap();
+        assert_eq!(result.relinked_count, 1);
+        let track = state
+            .with_db(|db| crate::repository::find_track_by_id(db, &track_id))
+            .unwrap();
+        assert_eq!(
+            track.file_path,
+            crate::cue::virtual_path(&moved.join("Album.cue"), 2)
+        );
+        assert_eq!(
+            track.cue.unwrap().source,
+            moved.join("Album.wav").to_str().unwrap()
+        );
     }
 }
