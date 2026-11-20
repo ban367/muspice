@@ -1294,9 +1294,19 @@ export const en: Messages = {
     globalShortcutActions: {
       toggle: 'Play/Pause',
       next: 'Next track',
-      previous: 'Previous track'
+      previous: 'Previous track',
+      volumeUp: 'Volume up',
+      volumeDown: 'Volume down',
+      toggleMute: 'Mute'
     },
     globalShortcutUnavailable: 'Could not be registered because another app is using it',
+    globalShortcutChange: 'Change',
+    globalShortcutClear: 'Clear',
+    globalShortcutUnassigned: 'Not assigned',
+    globalShortcutRecording: 'Press the keys to assign (Esc to cancel)',
+    globalShortcutNeedsModifier: 'Press it together with Control, Option or Command',
+    globalShortcutUnsupported: 'This key cannot be assigned',
+    globalShortcutInUse: (action) => `Already assigned to "${action}"`,
     soundPanelNote:
       'ReplayGain, gapless playback, crossfade, the equalizer and crossfeed are in the Sound panel of the right sidebar.',
     outputDevice: 'Output device',

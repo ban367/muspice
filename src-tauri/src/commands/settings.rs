@@ -74,8 +74,14 @@ pub async fn save_settings(
     {
         crate::tray::apply(&app, settings.stay_in_menu_bar, settings.language);
     }
-    if settings.global_shortcuts != previous.global_shortcuts {
-        crate::global_shortcuts::apply(&app, settings.global_shortcuts);
+    if settings.global_shortcuts != previous.global_shortcuts
+        || settings.global_shortcut_keys != previous.global_shortcut_keys
+    {
+        crate::global_shortcuts::apply(
+            &app,
+            settings.global_shortcuts,
+            &settings.global_shortcut_keys,
+        );
     }
     // 再生エンジンが使う設定（出力デバイス・音量の正規化・クロスフェード）を伝える
     // （出力デバイスが変わっていれば、再生中の曲を同じ位置から続ける）
