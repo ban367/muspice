@@ -13,7 +13,8 @@ import type {
   KeepOrganizedResult,
   OrganizeDestination,
   OrganizePlan,
-  TrackMetadataChange
+  TrackMetadataChange,
+  LibraryExportFormat
 } from '#lib/types/models.js';
 import { handleError, showSuccess, showWarning } from '#lib/stores/error.svelte.js';
 import { queryKeys } from './keys.js';
@@ -618,6 +619,18 @@ export function useImportLibraryXmlMutation() {
     onSuccess: (result) => {
       if (result) invalidateAllTrackQueries(queryClient);
     }
+  }));
+}
+
+/**
+ * ライブラリを、iTunes形式のXMLかCSVで書き出すミューテーション（保存のダイアログはRust側が開く。ADR-121）
+ *
+ * 書き出した結果を返す（保存先を選ばなかった場合はnull）。
+ */
+export function useExportLibraryMutation() {
+  return createMutation(() => ({
+    mutationFn: (format: LibraryExportFormat) =>
+      withErrorToast(m.operations.exportLibrary, () => commands.exportLibrary(format))
   }));
 }
 

@@ -26,6 +26,7 @@
   import MusicFolderTemplateSetting from '#lib/components/MusicFolderTemplateSetting.svelte';
   import MetadataExportSettings from '#lib/components/MetadataExportSettings.svelte';
   import LibraryXmlImportSettings from '#lib/components/LibraryXmlImportSettings.svelte';
+  import LibraryExportSettings from '#lib/components/LibraryExportSettings.svelte';
   import LoudnessScanSettings from '#lib/components/LoudnessScanSettings.svelte';
   import LibraryBackupSettings from '#lib/components/LibraryBackupSettings.svelte';
   import MusicAnalysisSettings from '#lib/components/MusicAnalysisSettings.svelte';
@@ -389,6 +390,7 @@
           {/if}
         </LibraryFolderSettings>
         <LibraryXmlImportSettings />
+        <LibraryExportSettings />
         <LoudnessScanSettings />
         <MetadataExportSettings />
         <LibraryBackupSettings>

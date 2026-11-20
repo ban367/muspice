@@ -882,6 +882,19 @@ iTunes形式のライブラリXML（MusicBee・iTunes / ミュージックが書
 - プロパティリストとして読めないファイル・曲が1つもないファイルは`VALIDATION`
 - 曲の値とプレイリストは、1つのトランザクションで書く。途中で失敗した場合は何も変えない（取り込み直しても、途中まで作ったプレイリストの複製ができない）。突き合わせた後にライブラリから外された曲は、値もプレイリストも飛ばす
 
+### ライブラリの書き出し（ADR-121）
+
+| コマンド         | 引数                     | 戻り値                        |
+| ---------------- | ------------------------ | ----------------------------- |
+| `export_library` | `format: 'xml' \| 'csv'` | `LibraryExportResult \| null` |
+
+ライブラリ（DBの記録。ファイルのタグは読まない）を、Rust側の保存のダイアログで選んだファイルへ書き出す（`library_export.rs`）。設定の「ライブラリ」から使う。
+
+- 保存先を選ばなかった場合は`null`。拡張子のない名前は、拡張子を足す（足した名前のファイルがある場合は`VALIDATION`）。同じフォルダの一時ファイル（`.muspice-export-<UUID>.tmp`。利用者のファイルと重ならない名前）に書いてから置き換える
+- `LibraryExportResult`: `{ path, trackCount, playlistCount }`（CSVの`playlistCount`は0）
+- XML: iTunes形式のプロパティリスト。`Tracks`（キーは曲の番号）の値は`Track ID`・`Persistent ID`（曲のIDの先頭16桁の16進数）・`Name`・`Artist`・`Album Artist`・`Composer`・`Album`・`Grouping`・`Genre`・`Kind`・`Size`・`Total Time`（ミリ秒）・`Disc Number`・`Track Number`・`Year`・`BPM`・`Date Modified`・`Date Added`・`Bit Rate`・`Sample Rate`・`Comments`・`Play Count`・`Play Date UTC`・`Skip Count`・`Rating`（0〜100。半分の星の単位を10倍）・`Loved`・`Compilation`・`Sort Name`などの読み・`Location`（`file://localhost`で始め、英数字と`-._~/`のほかは`%XX`にしたURL）。値のない項目は書かない。`Playlists`は、ライブラリ全体（`Master`）・プレイリストのフォルダ（`Folder`）・プレイリスト（サイドバーの手動の並び順。フォルダの中のものは`Parent Persistent ID`）の順。自動プレイリストは、書き出す時点で条件に合う曲の、通常のプレイリストとして書く。音楽フォルダを設定していれば`Music Folder`も書く。このアプリの取り込み（`import_library_xml`）で読み戻せる
+- CSV: 曲の一覧（UTF-8のBOM付き・CRLF）。列は、タイトル・アーティスト・アルバムアーティスト・アルバム・作曲者・グループ・ジャンル・年・トラック番号・ディスク番号・時間（`m:ss`）・評価（星の数。半分の星は`.5`）・お気に入り（`1`）・再生回数・スキップ回数・最終再生日・追加日（DBの値）・形式・ビットレート・サンプルレート・サイズ・場所。見出しはアプリの言語。`,`・`"`・改行を含む値は`"`で囲む。`=`・`+`・`-`・`@`・タブ・CRで始まる値は、表計算ソフトが式として実行しないよう、頭に`'`を付ける
+
 ### 再生・統計・システム
 
 | コマンド                 | 引数                                                     | 戻り値                  |
