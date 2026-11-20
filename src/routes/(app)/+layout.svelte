@@ -1,6 +1,6 @@
 <script lang="ts">
   import { stopListening } from '#lib/utils/listen.js';
-  import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
+  import { QueryClientProvider } from '@tanstack/svelte-query';
   import { events } from '#lib/bindings.js';
   import { onMount } from 'svelte';
   import { afterNavigate } from '$app/navigation';
@@ -14,7 +14,6 @@
   import ImportDialog from '#lib/components/ImportDialog.svelte';
   import FileDropZone from '#lib/components/FileDropZone.svelte';
   import AboutDialog from '#lib/components/AboutDialog.svelte';
-  import AlbumArtDialog from '#lib/components/AlbumArtDialog.svelte';
   import TagToolsDialog from '#lib/components/TagToolsDialog.svelte';
   import FileOrganizeDialog from '#lib/components/FileOrganizeDialog.svelte';
   import LoudnessScanDialog from '#lib/components/LoudnessScanDialog.svelte';
@@ -27,17 +26,19 @@
   import SettingsSync from '#lib/components/SettingsSync.svelte';
   import { ui, saveLastPage } from '#lib/stores/ui.svelte.js';
   import { importer } from '#lib/stores/importer.svelte.js';
+  import { clearQueue } from '#lib/stores/player.svelte.js';
   import { watchOpenedFiles } from '#lib/stores/openedFiles.js';
+  import { watchMenuCommands } from '#lib/stores/menuCommands.js';
   import { showStartupNotices } from '#lib/stores/startupNotices.js';
   import { handleError } from '#lib/stores/error.svelte.js';
-  import { albumArtDialog } from '#lib/stores/albumArt.svelte.js';
   import { tagToolsDialog } from '#lib/stores/tagTools.svelte.js';
   import { fileOrganizeDialog } from '#lib/stores/fileOrganize.svelte.js';
   import { loudnessScan, loudnessScanDialog } from '#lib/stores/loudnessScan.svelte.js';
   import { conversion } from '#lib/stores/convert.svelte.js';
   import { smartPlaylistDialog } from '#lib/stores/smartPlaylist.svelte.js';
   import { invalidateLibraryQueries } from '#lib/queries/tracks.js';
-  import { LOCAL_NETWORK_MODE } from '#lib/queries/shared.js';
+  import { applyTracksEdited } from '#lib/queries/trackEditor.js';
+  import { createMainQueryClient } from '#lib/queries/shared.js';
   import { restoreTheme } from '#lib/utils/theme.js';
   import { restoreLanguage } from '#lib/i18n/i18n.svelte.js';
   import '../../app.css';
@@ -82,6 +83,9 @@
     // 「このアプリで開く」・Dockのアイコンへのドロップで開かれた曲を、再生する
     const stopWatchingOpenedFiles = watchOpenedFiles();
 
+    // メニューバーの、メインウィンドウで行う操作（新規プレイリスト・検索・「曲」メニュー。ADR-109）
+    const stopWatchingMenuCommands = watchMenuCommands();
+
     // サイドバー切替イベント
     const unlistenSidebar = events.toggleSidebar.listen(() => {
       ui.isSidebarOpen = !ui.isSidebarOpen;
@@ -107,6 +111,17 @@
     const unlistenLibrary = events.libraryChanged.listen(() =>
       invalidateLibraryQueries(queryClient)
     );
+    // 曲の情報の編集画面（別のウィンドウ）で、タグ・アルバムアートを保存した
+    const unlistenEdited = events.tracksEdited.listen(({ payload }) =>
+      applyTracksEdited(queryClient, payload)
+    );
+    // 曲の情報の編集画面を開いた・閉じた（開いている間は、覆いを重ねて操作させない）
+    const unlistenEditor = events.trackEditorChanged.listen(({ payload }) => {
+      ui.isTrackEditorOpen = payload.open;
+    });
+    // 設定ウィンドウで音楽フォルダを変え、ライブラリを置き換えた（前のライブラリの曲をキューに残さない。
+    // 再生中の曲も止める）
+    const unlistenClearQueue = events.clearPlayQueue.listen(() => clearQueue());
 
     return () => {
       stopListening(
@@ -115,32 +130,20 @@
         unlistenSidebar,
         unlistenAbout,
         unlistenMiniPlayer,
-        unlistenLibrary
+        unlistenLibrary,
+        unlistenEdited,
+        unlistenEditor,
+        unlistenClearQueue
       );
       stopWatchingOpenedFiles();
+      stopWatchingMenuCommands();
       stopWatchingLoudnessScan();
       stopWatchingConversion();
     };
   });
 
-  // パフォーマンス最適化されたQueryClient設定
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: {
-        staleTime: 10 * 60 * 1000, // 10分間キャッシュを新鮮とみなす
-        gcTime: 30 * 60 * 1000, // 30分間メモリに保持
-        retry: 1, // 失敗時に1回だけリトライ
-        refetchOnWindowFocus: false, // ウィンドウフォーカス時の自動再取得を無効化
-        refetchOnMount: false, // マウント時の自動再取得を無効化（キャッシュがあれば使用）
-        refetchOnReconnect: false, // ネットワークの再接続では再取得しない（外部と通信しないため）
-        ...LOCAL_NETWORK_MODE
-      },
-      mutations: {
-        retry: 0, // ミューテーションは失敗時にリトライしない
-        ...LOCAL_NETWORK_MODE
-      }
-    }
-  });
+  // 表示した時は、無効化されたキャッシュだけを取り直す（`createMainQueryClient`）
+  const queryClient = createMainQueryClient();
 
   let { children } = $props();
 
@@ -162,7 +165,7 @@
 <QueryClientProvider client={queryClient}>
   <Toast />
   <SettingsSync />
-  <div class="app-container">
+  <div class="app-container" inert={ui.isTrackEditorOpen}>
     <!-- モバイル用オーバーレイ -->
     {#if ui.isSidebarOpen}
       <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -232,13 +235,6 @@
   <!-- Aboutダイアログ -->
   <AboutDialog />
 
-  <!-- アルバムアートの画面（メニューなどから開く。開くたびに作り直す） -->
-  {#if albumArtDialog.tracks}
-    {#key albumArtDialog.tracks}
-      <AlbumArtDialog tracks={albumArtDialog.tracks} onClose={() => albumArtDialog.close()} />
-    {/key}
-  {/if}
-
   <!-- タグの一括ツール（曲のメニューから開く。開くたびに作り直す） -->
   {#if tagToolsDialog.tracks}
     {#key tagToolsDialog.tracks}
@@ -284,6 +280,11 @@
 
   <!-- テキスト入力ダイアログ（promptText()で表示） -->
   <TextPromptDialog />
+
+  <!-- 曲の情報の編集画面（別のウィンドウ）を開いている間は、覆いを重ねて操作させない（ADR-094） -->
+  {#if ui.isTrackEditorOpen}
+    <div class="editor-open-overlay" aria-hidden="true"></div>
+  {/if}
 </QueryClientProvider>
 
 <style>
@@ -291,6 +292,12 @@
 
   .app-container {
     @apply flex h-screen overflow-hidden relative;
+  }
+
+  /* ダイアログ・メニューより手前に重ね、押しても何も起きないようにする */
+  .editor-open-overlay {
+    @apply fixed inset-0 bg-black/40;
+    z-index: 10000;
   }
 
   .sidebar-overlay {

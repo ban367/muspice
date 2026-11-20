@@ -1,7 +1,7 @@
 <!--
   @component EqualizerSection
   サウンドのパネル（`SoundPanel`）のイコライザのまとまり。見出しの右端でオン・オフを切り替え、
-  プリセットの選択・保存・削除・リセットと、10バンドのゲインのスライダーを出す。
+  プリセットの選択・保存・削除・リセットと、10バンドのゲインのスライダー、プリアンプ（全体の音量）を出す。
   どのプリセットを選んでいても、並びと高さは変えない（保存はテキスト入力のダイアログで名前を聞き、
   削除のボタンは、保存したプリセットを選んでいる時だけ使える）。
 -->
@@ -12,12 +12,16 @@
     EQ_FREQUENCY_LABELS,
     MIN_GAIN,
     MAX_GAIN,
+    MIN_PREAMP,
+    MAX_PREAMP,
     isBuiltinPreset,
     type BuiltinPresetName,
     type EQFrequency
   } from '#lib/stores/equalizer.svelte.js';
   import { confirmDestructive, promptText } from '#lib/utils/dialog.svelte.js';
   import SidePanelSection from './SidePanelSection.svelte';
+  import SidePanelToggle from './SidePanelToggle.svelte';
+  import SidePanelSlider from './SidePanelSlider.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   // ビルトインプリセットの選択肢（名前は、表示の言語に合わせてテンプレートで`m`から読む）
@@ -103,20 +107,14 @@
   );
 </script>
 
-<SidePanelSection title={m.equalizer.title}>
+<SidePanelSection title={m.equalizer.title} variant="group">
   {#snippet actions()}
-    <button
-      type="button"
-      class="eq-toggle"
-      class:active={equalizer.enabled}
-      onclick={() => equalizer.toggle()}
+    <SidePanelToggle
+      checked={equalizer.enabled}
+      label={m.equalizer.title}
       title={equalizer.enabled ? m.equalizer.turnOff : m.equalizer.turnOn}
-      aria-label={equalizer.enabled ? m.equalizer.turnOff : m.equalizer.turnOn}
-    >
-      <span class="toggle-track">
-        <span class="toggle-thumb"></span>
-      </span>
-    </button>
+      onchange={() => equalizer.toggle()}
+    />
   {/snippet}
 
   <div class="equalizer">
@@ -274,6 +272,18 @@
         </div>
       {/each}
     </div>
+
+    <div class="preamp">
+      <SidePanelSlider
+        label={m.equalizer.preamp}
+        value={equalizer.preamp}
+        min={MIN_PREAMP}
+        max={MAX_PREAMP}
+        disabled={!equalizer.enabled}
+        format={(db) => `${formatGain(db)} dB`}
+        onchange={(preamp) => equalizer.setPreamp(preamp)}
+      />
+    </div>
   </div>
 </SidePanelSection>
 
@@ -282,29 +292,6 @@
 
   .equalizer {
     @apply flex flex-col gap-2;
-  }
-
-  /* トグルスイッチ */
-  .eq-toggle {
-    @apply p-0 bg-transparent border-none cursor-pointer;
-  }
-
-  /* オフの間は、テーマの文字の色のつまみを、少し濃い面に置く（白のつまみは、ライトテーマで見えない） */
-  .toggle-track {
-    @apply relative block w-10 h-5 rounded-full bg-surface-strong transition-colors duration-200;
-  }
-
-  .eq-toggle.active .toggle-track {
-    @apply bg-secondary;
-  }
-
-  .toggle-thumb {
-    @apply absolute left-0.5 top-0.5 w-4 h-4 rounded-full bg-text-primary transition-transform duration-200;
-  }
-
-  /* オンの間は、色の付いた面の上の白（どちらのテーマでも同じ） */
-  .eq-toggle.active .toggle-thumb {
-    @apply translate-x-5 bg-white;
   }
 
   /* コントロールエリア */
@@ -408,6 +395,10 @@
 
   .native-slider:disabled {
     @apply cursor-not-allowed;
+  }
+
+  .preamp {
+    @apply mt-1;
   }
 
   /* 周波数ラベル行 */

@@ -31,9 +31,10 @@ mod wavpack;
 // ラウドネスの解析（`loudness`）が、再生と同じデコードとステレオへのまとめ方を使う
 pub(crate) use convert::{OUTPUT_CHANNELS, append_stereo};
 pub(crate) use decoder::TrackDecoder;
+pub use decoder::TrackRegion;
 #[cfg(test)]
 pub(crate) use decoder::tests as test_audio;
 pub use effects::EQ_BANDS;
-pub use engine::{PlayRequest, PlaybackEngine, PlaybackOptions, PlaybackTrackInfo};
+pub use engine::{AlbumPosition, PlayRequest, PlaybackEngine, PlaybackOptions, PlaybackTrackInfo};
 pub use output::{OutputDevice, list_output_devices};
 pub use stretch::{MAX_SPEED, MIN_SPEED};

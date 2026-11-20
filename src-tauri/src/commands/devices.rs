@@ -6,18 +6,25 @@
 
 use super::{file_dialog, pick_folder, run_blocking};
 use crate::device::{
-    DeviceRecord, DeviceSyncPlan, DeviceSyncResult, DeviceSyncState, SyncDevice, SyncDeviceConfig,
-    suggest_device_name, validate_device_name,
+    DeviceRecord, DeviceSyncPlan, DeviceSyncResult, DeviceSyncState, DeviceTranscode,
+    PLAN_ITEMS_LIMIT, SyncDevice, SyncDeviceConfig, SyncRename, SyncSelectionSummary,
+    TranscodeMode, suggest_device_name, validate_device_name,
 };
 use crate::device_manifest::{
     Manifest, read_device_id, read_manifest, to_device_path, write_manifest,
 };
-use crate::device_sync::{SourceFile, SourcePlaylist, SourceTrack, SyncPlan, plan_sync};
+use crate::device_sync::{
+    ExtraKind, SourceExtra, SourceFile, SourcePlaylist, SourceTrack, SyncPlan, Transcode,
+    plan_sync, track_relative_path,
+};
 use crate::device_transfer::{TransferProgress, execute_plan};
 use crate::error::{AppError, AppResult};
 use crate::events::DeviceSyncProgress;
+use crate::file_organize::{DirCache, Template};
 use crate::library::{modified_at_of, to_count};
 use crate::library_folder::{find_all_folders, folders_overlap, normalize_folder_path};
+use crate::metadata::MAX_ALBUM_ART_BYTES;
+use crate::repository::TransferTrack;
 use crate::settings::Language;
 use crate::state::AppState;
 use crate::validation::{validate_playlist_id, validate_track_id};
@@ -76,6 +83,10 @@ fn to_sync_device(record: DeviceRecord) -> SyncDevice {
         (None, None)
     };
 
+    // 取り出せるのは、macOSで、`/Volumes`の下のドライブにあり、接続されているデバイス
+    let ejectable =
+        cfg!(target_os = "macos") && connected && crate::device::volume_mount_point(root).is_some();
+
     SyncDevice {
         id: record.id,
         name: record.name,
@@ -83,6 +94,10 @@ fn to_sync_device(record: DeviceRecord) -> SyncDevice {
         sync_all: record.sync_all,
         playlist_ids: record.playlist_ids,
         remove_unselected: record.remove_unselected,
+        path_template: record.path_template,
+        copy_extras: record.copy_extras,
+        transcode: record.transcode,
+        ejectable,
         connected,
         free_bytes,
         total_bytes,
@@ -210,8 +225,13 @@ pub async fn update_sync_device(
     for playlist_id in &config.playlist_ids {
         validate_playlist_id(playlist_id)?;
     }
+    // 配置の書式は、読めることを確かめてから保存する（前後の空白は除く）
+    let path_template = config.path_template.trim().to_string();
+    Template::parse(&path_template)?;
+    crate::device::validate_transcode(&config.transcode)?;
     let config = SyncDeviceConfig {
         name: validate_device_name(&config.name)?,
+        path_template,
         ..config
     };
 
@@ -334,6 +354,19 @@ fn prepare_sync(state: &AppState, device_id: &str) -> AppResult<PreparedSync> {
             .flat_map(|playlist| playlist.track_ids.iter().map(String::as_str))
             .collect()
     });
+    // デバイス上の配置の書式（保存する時に確かめているため、読めないのは記録が壊れた場合だけ）
+    let template = Template::parse(&device.path_template).map_err(|_| {
+        AppError::Validation(
+            "デバイスの配置の書式を読めません。デバイスのページで、書式を直してください"
+                .to_string(),
+        )
+    })?;
+    let mut dir_cache = DirCache::default();
+    // 変換できない環境（macOSでない・`afconvert`がない）では、設定によらず変換しない
+    let transcode_setting = device.transcode;
+    if transcode_setting.mode != TranscodeMode::Off && !crate::transcode::is_available() {
+        log::warn!("Transcoding is not available; copying the original files");
+    }
     let tracks: Vec<SourceTrack> = all_tracks
         .into_iter()
         .filter(|track| {
@@ -349,7 +382,24 @@ fn prepare_sync(state: &AppState, device_id: &str) -> AppResult<PreparedSync> {
                     size: to_bytes(metadata.len()),
                     modified_at: modified_at_of(&metadata),
                 });
-            SourceTrack { track, file }
+            let transcode = file
+                .is_some()
+                .then(|| transcode_for(&transcode_setting, &track))
+                .flatten();
+            let path = track_relative_path(&track, &template, transcode);
+            // 歌詞ファイル・フォルダの画像（元のファイルがある曲だけ。フォルダは1回だけ読む）
+            let extras = if device.copy_extras && file.is_some() {
+                source_extras(&mut dir_cache, Path::new(&track.file_path))
+            } else {
+                Vec::new()
+            };
+            SourceTrack {
+                track,
+                file,
+                transcode,
+                path,
+                extras,
+            }
         })
         .collect();
 
@@ -377,25 +427,209 @@ fn prepare_sync(state: &AppState, device_id: &str) -> AppResult<PreparedSync> {
     })
 }
 
+/// 曲を、転送する時にAACに変換するか（変換するなら、変換の設定。ADR-118）
+///
+/// 可逆の形式かは、拡張子（`.m4a`・`.ogg`は中のコーデック）で決める。ビットレートの条件では、
+/// 可逆の形式の曲と、ライブラリに記録したビットレートが変換先より高い曲を変換する。変換できない
+/// 環境では、変換しない。
+fn transcode_for(setting: &DeviceTranscode, track: &TransferTrack) -> Option<Transcode> {
+    if setting.mode == TranscodeMode::Off || !crate::transcode::is_available() {
+        return None;
+    }
+    let is_lossless =
+        || crate::transcode::is_lossless_source(Path::new(&track.file_path)) == Some(true);
+    let converts = match setting.mode {
+        TranscodeMode::Off => false,
+        TranscodeMode::Lossless => is_lossless(),
+        TranscodeMode::AboveBitrate => {
+            track
+                .bitrate
+                .is_some_and(|bitrate| i64::from(bitrate) > i64::from(setting.bitrate_kbps))
+                || is_lossless()
+        }
+    };
+    converts.then_some(Transcode {
+        bitrate_kbps: setting.bitrate_kbps,
+    })
+}
+
+/// 曲に添えてコピーするファイル（同じ名前の歌詞ファイルと、フォルダの画像。ADR-112）
+///
+/// フォルダの画像は、アルバムアートの表示と同じ名前の優先順で、いちばん先の1つ（大きすぎる画像は使わない）。
+fn source_extras(dir_cache: &mut DirCache, track_path: &Path) -> Vec<SourceExtra> {
+    let lyrics = dir_cache
+        .lyrics_file(track_path)
+        .map(|path| (ExtraKind::Lyrics, path));
+    let image = track_path
+        .parent()
+        .and_then(|dir| dir_cache.folder_image(dir))
+        .map(|path| (ExtraKind::FolderImage, path));
+    lyrics
+        .into_iter()
+        .chain(image)
+        .filter_map(|(kind, path)| {
+            let metadata = fs::metadata(&path).ok().filter(|m| m.is_file())?;
+            if kind == ExtraKind::FolderImage && metadata.len() > MAX_ALBUM_ART_BYTES {
+                return None;
+            }
+            Some(SourceExtra {
+                kind,
+                source: path.to_str()?.to_string(),
+                file: SourceFile {
+                    size: to_bytes(metadata.len()),
+                    modified_at: modified_at_of(&metadata),
+                },
+            })
+        })
+        .collect()
+}
+
 /// 差分から、件数と必要な容量をまとめる
 fn summarize_plan(plan: &SyncPlan, free_bytes: i64) -> AppResult<DeviceSyncPlan> {
     let copy_bytes = plan.copy_bytes();
+    let extra_copy_bytes = plan.extra_copy_bytes();
     // 削除を先に行うため、削除で空く容量を差し引く
-    let required_bytes = (copy_bytes - plan.delete_bytes).max(0);
+    let required_bytes =
+        (copy_bytes + extra_copy_bytes - plan.delete_bytes - plan.extra_delete_bytes).max(0);
     Ok(DeviceSyncPlan {
         copy_count: to_count(plan.to_copy.len())?,
         copy_bytes,
-        delete_count: to_count(plan.to_delete.len())?,
+        delete_count: to_count(plan.deleted_files().count())?,
         delete_bytes: plan.delete_bytes,
         rename_count: to_count(plan.to_rename.len())?,
         unchanged_count: to_count(plan.kept.len())?,
         playlist_count: to_count(plan.playlists.len())?,
+        transcode_count: to_count(plan.transcode_count())?,
         missing_source_count: plan.missing_source_count,
+        extra_copy_count: to_count(plan.extras_to_copy.len())?,
+        extra_copy_bytes,
+        extra_delete_count: to_count(plan.extras_to_delete.len())?,
         free_bytes,
         required_bytes,
         has_enough_space: required_bytes == 0
             || required_bytes.saturating_add(SPACE_MARGIN_BYTES) <= free_bytes,
+        copy_paths: plan
+            .to_copy
+            .iter()
+            .take(PLAN_ITEMS_LIMIT)
+            .map(|op| op.dest.clone())
+            .collect(),
+        delete_paths: plan
+            .deleted_files()
+            .take(PLAN_ITEMS_LIMIT)
+            .map(|entry| entry.path.clone())
+            .collect(),
+        renames: plan
+            .to_rename
+            .iter()
+            .take(PLAN_ITEMS_LIMIT)
+            .map(|op| SyncRename {
+                from: op.entry.path.clone(),
+                to: op.to.clone(),
+            })
+            .collect(),
     })
+}
+
+/// 同期する内容の曲数と、ライブラリでのサイズの合計（デバイスには触れない。ADR-113）
+fn selection_summary(state: &AppState, device_id: &str) -> AppResult<SyncSelectionSummary> {
+    let context = state.smart_playlist_context();
+    state.with_db(|db| {
+        let device = crate::device::find_device(db, device_id)?;
+        let tracks = crate::repository::find_transfer_tracks(db)?;
+        let selected: Option<HashSet<String>> = if device.sync_all {
+            None
+        } else {
+            let mut ids = HashSet::new();
+            for playlist in crate::playlist::get_all_playlists(db)?
+                .into_iter()
+                .filter(|playlist| device.playlist_ids.contains(&playlist.id))
+            {
+                ids.extend(crate::playlist::playlist_track_ids(db, &playlist, context)?);
+            }
+            Some(ids)
+        };
+        let (count, bytes) = tracks
+            .iter()
+            .filter(|track| selected.as_ref().is_none_or(|ids| ids.contains(&track.id)))
+            .fold((0usize, 0i64), |(count, bytes), track| {
+                (count + 1, bytes.saturating_add(track.file_size))
+            });
+        Ok(SyncSelectionSummary {
+            track_count: to_count(count)?,
+            total_bytes: bytes,
+        })
+    })
+}
+
+/// 同期する内容の曲数と、ライブラリでのサイズの合計を返す（デバイスのページの見通し。ADR-113）
+///
+/// デバイスに触れず、ライブラリの記録から求める（接続されていなくても求められる）。
+#[tauri::command]
+#[specta::specta]
+pub async fn get_sync_selection_summary(
+    device_id: String,
+    app_handle: AppHandle,
+) -> AppResult<SyncSelectionSummary> {
+    validate_device_id(&device_id)?;
+    run_blocking(move || selection_summary(app_handle.state::<AppState>().inner(), &device_id))
+        .await
+}
+
+/// デバイスのドライブを取り出す（macOS。同期の後に使う。ADR-113）
+///
+/// 転送先のフォルダが`/Volumes`の下のドライブにある時だけ使える（ほかは`VALIDATION`）。同期の
+/// 実行中は`LOCK`。ほかのアプリがファイルを開いているなどで取り出せない時は`IO`。
+#[tauri::command]
+#[specta::specta]
+pub async fn eject_sync_device(device_id: String, app_handle: AppHandle) -> AppResult<()> {
+    validate_device_id(&device_id)?;
+    run_blocking(move || {
+        if app_handle.state::<DeviceSyncState>().is_running() {
+            return Err(AppError::Lock(
+                "同期の実行中は、デバイスを取り出せません".to_string(),
+            ));
+        }
+        let device = app_handle
+            .state::<AppState>()
+            .with_db(|db| crate::device::find_device(db, &device_id))?;
+        let mount_point = crate::device::volume_mount_point(Path::new(&device.path))
+            .filter(|_| cfg!(target_os = "macos"))
+            .ok_or_else(|| {
+                AppError::Validation("このデバイスは、取り出せる場所にありません".to_string())
+            })?;
+        eject_volume(&mount_point)
+    })
+    .await
+}
+
+/// ドライブを取り出す（`diskutil eject`。macOSに付いているコマンド）
+fn eject_volume(mount_point: &Path) -> AppResult<()> {
+    if !mount_point.is_dir() {
+        return Err(AppError::NotFound(
+            "デバイスが見つかりません（すでに取り出されている可能性があります）".to_string(),
+        ));
+    }
+    let output = std::process::Command::new("/usr/sbin/diskutil")
+        .arg("eject")
+        .arg(mount_point)
+        .output()
+        .map_err(|e| AppError::Io(format!("デバイスを取り出せませんでした: {}", e)))?;
+    if output.status.success() {
+        log::info!("Ejected the device volume: {}", mount_point.display());
+        Ok(())
+    } else {
+        let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        log::warn!(
+            "Failed to eject the device volume {}: {}",
+            mount_point.display(),
+            detail
+        );
+        Err(AppError::Io(
+            "デバイスを取り出せませんでした（ほかのアプリがデバイスのファイルを開いている可能性があります）"
+                .to_string(),
+        ))
+    }
 }
 
 /// デバイスの空き容量（バイト）
@@ -456,6 +690,7 @@ pub async fn run_device_sync(
                     bytes_done: progress.bytes_done,
                     bytes_total: progress.bytes_total,
                     current_file: progress.current_file,
+                    converting: progress.converting,
                 };
                 if let Err(e) = event.emit(&app_handle) {
                     log::warn!("Failed to emit sync progress event: {}", e);
@@ -498,11 +733,13 @@ fn sync_device(
         state.with_db(|db| crate::device::mark_synced(db, device_id))?;
     }
     log::info!(
-        "Synced to device: {} copied={}, deleted={}, renamed={}, playlists={}, errors={}, cancelled={}",
+        "Synced to device: {} copied={}, deleted={}, renamed={}, extras copied={}, extras deleted={}, playlists={}, errors={}, cancelled={}",
         prepared.device.path,
         outcome.copied_count,
         outcome.deleted_count,
         outcome.renamed_count,
+        outcome.extra_copied_count,
+        outcome.extra_deleted_count,
         outcome.playlist_count,
         outcome.errors.len(),
         outcome.cancelled
@@ -512,6 +749,8 @@ fn sync_device(
         copied_count: outcome.copied_count,
         deleted_count: outcome.deleted_count,
         renamed_count: outcome.renamed_count,
+        extra_copied_count: outcome.extra_copied_count,
+        extra_deleted_count: outcome.extra_deleted_count,
         playlist_count: outcome.playlist_count,
         error_count: to_count(outcome.errors.len())?,
         errors: outcome.errors,
@@ -531,6 +770,65 @@ pub async fn cancel_device_sync(sync_state: State<'_, DeviceSyncState>) -> AppRe
 mod tests {
     use super::*;
     use crate::device::{find_device, update_device_config};
+
+    #[test]
+    fn test_transcode_for_follows_the_setting() {
+        let mut track = TransferTrack {
+            id: "t1".to_string(),
+            file_path: "/music/a.flac".to_string(),
+            title: None,
+            artist: None,
+            album: None,
+            album_artist: None,
+            compilation: false,
+            genre: None,
+            year: None,
+            track_number: None,
+            disc_number: None,
+            duration: Some(200),
+            file_size: 1,
+            bitrate: Some(900),
+        };
+        let setting = |mode| DeviceTranscode {
+            mode,
+            bitrate_kbps: 256,
+        };
+        let aac = Some(Transcode { bitrate_kbps: 256 });
+        assert_eq!(transcode_for(&setting(TranscodeMode::Off), &track), None);
+        // 変換できない環境では、設定によらず変換しない
+        if !crate::transcode::is_available() {
+            assert_eq!(
+                transcode_for(&setting(TranscodeMode::Lossless), &track),
+                None
+            );
+            return;
+        }
+        assert_eq!(
+            transcode_for(&setting(TranscodeMode::Lossless), &track),
+            aac
+        );
+        assert_eq!(
+            transcode_for(&setting(TranscodeMode::AboveBitrate), &track),
+            aac
+        );
+
+        // ビットレートの高い非可逆の曲は、ビットレートの条件の時だけ変換する
+        track.file_path = "/music/a.mp3".to_string();
+        track.bitrate = Some(320);
+        assert_eq!(
+            transcode_for(&setting(TranscodeMode::Lossless), &track),
+            None
+        );
+        assert_eq!(
+            transcode_for(&setting(TranscodeMode::AboveBitrate), &track),
+            aac
+        );
+        track.bitrate = Some(256);
+        assert_eq!(
+            transcode_for(&setting(TranscodeMode::AboveBitrate), &track),
+            None
+        );
+    }
     use crate::device_manifest::test_support::TempDir;
     use crate::models::{ReplayGain, Track};
 
@@ -572,6 +870,7 @@ mod tests {
             let path = self.library.join(&file_name);
             fs::write(&path, format!("audio data of {}", title)).unwrap();
             let track = Track {
+                cue: None,
                 id: id.to_string(),
                 file_path: path.to_str().unwrap().to_string(),
                 file_name,
@@ -580,6 +879,7 @@ mod tests {
                 album: Some(album.to_string()),
                 album_artist: None,
                 is_missing: false,
+                compilation: false,
                 genre: None,
                 year: None,
                 track_number: Some(number),
@@ -598,6 +898,7 @@ mod tests {
                 updated_at: "2026-01-01T00:00:00Z".to_string(),
                 replay_gain: ReplayGain::default(),
                 sort_tags: Default::default(),
+                details: Default::default(),
             };
             self.state
                 .with_db(|db| crate::repository::insert_track(db, &track, None))
@@ -636,6 +937,9 @@ mod tests {
                 sync_all,
                 playlist_ids: playlist_ids.iter().map(|id| id.to_string()).collect(),
                 remove_unselected,
+                path_template: crate::device::DEFAULT_DEVICE_TEMPLATE.to_string(),
+                copy_extras: true,
+                transcode: DeviceTranscode::default(),
             };
             self.state
                 .with_db(|db| update_device_config(db, device_id, &config))
@@ -704,6 +1008,103 @@ mod tests {
             (0, 0, 2)
         );
         assert_eq!(fixture.sync(&device_id).copied_count, 0);
+    }
+
+    #[test]
+    fn test_plan_lists_paths_and_selection_summary_uses_the_library() {
+        let fixture = Fixture::new();
+        let one = fixture.add_track(
+            "00000000-0000-0000-0000-000000000001",
+            "Artist",
+            "Album",
+            1,
+            "One",
+        );
+        fixture.add_track(
+            "00000000-0000-0000-0000-000000000002",
+            "Artist",
+            "Album",
+            2,
+            "Two",
+        );
+        fixture
+            .state
+            .with_db(|db| {
+                db.execute("UPDATE tracks SET file_size = 300", [])
+                    .map_err(|e| AppError::Database(e.to_string()))
+            })
+            .unwrap();
+        let playlist = fixture.add_playlist("Car", &[&one]);
+        let device_id = fixture.register(false, &[&playlist]);
+
+        // 確認の画面の一覧は、コピーする曲のデバイス上の場所
+        let plan = fixture.plan(&device_id);
+        assert_eq!(plan.copy_paths, ["Artist/Album/01 One.mp3"]);
+        assert!(plan.delete_paths.is_empty() && plan.renames.is_empty());
+
+        // 同期する内容の見通しは、ライブラリの記録のサイズ（デバイスに触れない）
+        let summary = selection_summary(&fixture.state, &device_id).unwrap();
+        assert_eq!((summary.track_count, summary.total_bytes), (1, 300));
+        fixture.configure(&device_id, true, &[], true);
+        let summary = selection_summary(&fixture.state, &device_id).unwrap();
+        assert_eq!((summary.track_count, summary.total_bytes), (2, 600));
+    }
+
+    #[test]
+    fn test_sync_copies_lyrics_and_folder_image_and_removes_them_when_turned_off() {
+        let fixture = Fixture::new();
+        let id = fixture.add_track(
+            "00000000-0000-0000-0000-000000000001",
+            "Artist",
+            "Album",
+            1,
+            "One",
+        );
+        fs::write(fixture.library.join(format!("{}.LRC", id)), "[00:01.00]la").unwrap();
+        // フォルダの画像は、中身がJPEGかPNGのものだけを使う（表示と同じ。先頭がJPEGの印）
+        fs::write(fixture.library.join("cover.jpg"), b"\xFF\xD8\xFFjpeg").unwrap();
+        let device_id = fixture.register(true, &[]);
+
+        let plan = fixture.plan(&device_id);
+        assert_eq!((plan.copy_count, plan.extra_copy_count), (1, 2));
+        assert_eq!(plan.extra_copy_bytes, 12 + 7);
+        let result = fixture.sync(&device_id);
+        assert_eq!((result.extra_copied_count, result.error_count), (2, 0));
+        assert_eq!(
+            fixture.on_device("Artist/Album/01 One.lrc").as_deref(),
+            Some("[00:01.00]la")
+        );
+        assert_eq!(
+            fs::read(to_device_path(
+                &fixture.device_root,
+                "Artist/Album/cover.jpg"
+            ))
+            .unwrap(),
+            b"\xFF\xD8\xFFjpeg"
+        );
+        // もう一度同期しても、コピーし直さない
+        assert_eq!(fixture.plan(&device_id).extra_copy_count, 0);
+
+        // コピーしない設定にすると、コピーした歌詞ファイル・画像を消す（曲は残す）
+        let config = SyncDeviceConfig {
+            name: "SD".to_string(),
+            sync_all: true,
+            playlist_ids: Vec::new(),
+            remove_unselected: true,
+            path_template: crate::device::DEFAULT_DEVICE_TEMPLATE.to_string(),
+            copy_extras: false,
+            transcode: DeviceTranscode::default(),
+        };
+        fixture
+            .state
+            .with_db(|db| update_device_config(db, &device_id, &config))
+            .unwrap();
+        let plan = fixture.plan(&device_id);
+        assert_eq!((plan.extra_delete_count, plan.unchanged_count), (2, 1));
+        assert_eq!(fixture.sync(&device_id).extra_deleted_count, 2);
+        assert_eq!(fixture.on_device("Artist/Album/01 One.lrc"), None);
+        assert_eq!(fixture.on_device("Artist/Album/cover.jpg"), None);
+        assert!(fixture.on_device("Artist/Album/01 One.mp3").is_some());
     }
 
     #[test]

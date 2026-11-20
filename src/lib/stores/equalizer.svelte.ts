@@ -1,7 +1,7 @@
 /**
  * イコライザの設定
  *
- * 10バンドのグラフィックイコライザの設定（有効/無効・バンドのゲイン・プリセット）を持ち、
+ * 10バンドのグラフィックイコライザの設定（有効/無効・バンドのゲイン・プリアンプ・プリセット）を持ち、
  * localStorageに保存する。音にかける処理は再生エンジン（`src-tauri/src/playback/effects.rs`）が行い、
  * 設定は再生コントローラー（`./playback.svelte.ts`）がここから読んでエンジンへ送る。
  */
@@ -27,6 +27,10 @@ export const EQ_FREQUENCY_LABELS: Record<EQFrequency, string> = {
 // ゲインの範囲（dB）
 export const MIN_GAIN = -12;
 export const MAX_GAIN = 12;
+
+/** プリアンプ（全体の音量）の範囲（dB。再生エンジンの`EQ_MAX_GAIN_DB`と同じ） */
+export const MIN_PREAMP = -12;
+export const MAX_PREAMP = 12;
 
 // イコライザのバンド設定
 export type EQBands = Record<EQFrequency, number>;
@@ -151,6 +155,8 @@ export interface CustomPreset {
 interface EqualizerSettings {
   enabled: boolean;
   bands: EQBands;
+  /** プリアンプ（全体の音量。dB）。プリセットとは別に持つ */
+  preamp: number;
   currentPreset: PresetName | null;
   customPresets: CustomPreset[];
 }
@@ -162,6 +168,7 @@ const STORAGE_KEY = 'muspice:equalizer';
 const DEFAULT_SETTINGS: EqualizerSettings = {
   enabled: false,
   bands: { ...DEFAULT_BANDS },
+  preamp: 0,
   currentPreset: 'flat',
   customPresets: []
 };
@@ -181,6 +188,13 @@ function readBands(value: unknown): EQBands {
       ];
     })
   ) as EQBands;
+}
+
+/** 保存してあったプリアンプ（数でない値は0、範囲の外の値は範囲の端にする） */
+function readPreamp(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.max(MIN_PREAMP, Math.min(MAX_PREAMP, value))
+    : DEFAULT_SETTINGS.preamp;
 }
 
 /** 保存してあったカスタムプリセット（名前のないものは除く。ゲインは`readBands`で補う） */
@@ -221,6 +235,7 @@ function loadSettings(): EqualizerSettings {
         enabled:
           typeof settings.enabled === 'boolean' ? settings.enabled : DEFAULT_SETTINGS.enabled,
         bands: 'bands' in settings ? readBands(settings.bands) : { ...DEFAULT_BANDS },
+        preamp: readPreamp(settings.preamp),
         currentPreset:
           preset === undefined ? DEFAULT_SETTINGS.currentPreset : isKnownPreset ? preset : null,
         customPresets
@@ -267,6 +282,11 @@ class Equalizer {
     return this.#settings.bands;
   }
 
+  /** プリアンプ（全体の音量。dB） */
+  get preamp(): number {
+    return this.#settings.preamp;
+  }
+
   /** 選択中のプリセット（スライダーを動かした後はnull = カスタム） */
   get currentPreset(): PresetName | null {
     return this.#settings.currentPreset;
@@ -292,6 +312,11 @@ class Equalizer {
     // ゲインを範囲内に制限
     const clampedGain = Math.max(MIN_GAIN, Math.min(MAX_GAIN, gain));
     this.#update({ bands: { ...this.bands, [frequency]: clampedGain }, currentPreset: null });
+  }
+
+  /** プリアンプを設定する（範囲内に制限する。プリセットの選択は変えない） */
+  setPreamp(preamp: number): void {
+    this.#update({ preamp: Math.max(MIN_PREAMP, Math.min(MAX_PREAMP, preamp)) });
   }
 
   // プリセットを適用（ビルトインまたはカスタム）
@@ -325,9 +350,9 @@ class Equalizer {
     });
   }
 
-  // リセット（フラットに戻す）
+  // リセット（フラット・プリアンプ0dBに戻す）
   reset(): void {
-    this.#update({ bands: { ...DEFAULT_BANDS }, currentPreset: 'flat' });
+    this.#update({ bands: { ...DEFAULT_BANDS }, preamp: 0, currentPreset: 'flat' });
   }
 
   #update(changes: Partial<EqualizerSettings>): void {

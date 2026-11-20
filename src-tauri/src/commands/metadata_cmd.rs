@@ -99,6 +99,10 @@ pub async fn get_track_lyrics(
 
     let file_path =
         state.with_db(|db| crate::repository::find_file_path_by_track_id(db, &track_id))?;
+    // CUEシートの曲には、歌詞を読まない（曲ごとの歌詞のファイル・タグがない。ADR-123）
+    if crate::cue::is_virtual(&file_path) {
+        return Ok(None);
+    }
 
     run_blocking(move || crate::lyrics::read_track_lyrics(Path::new(&file_path))).await
 }
@@ -129,6 +133,7 @@ pub async fn update_track_metadata(
 ) -> AppResult<Option<KeepOrganizedResult>> {
     validate_track_id(&track_id)?;
     validate_metadata_input(&metadata)?;
+    super::reject_cue_tracks(&app, std::slice::from_ref(&track_id))?;
     let metadata = normalize_multi_values(metadata);
 
     // ファイルへの書き込み（ファイルI/OのためDBロック外・ブロッキング処理用スレッドで実行）と、
@@ -165,9 +170,24 @@ pub async fn update_track_metadata(
         })
     })
     .await?;
+    notify_tracks_edited(&app, std::slice::from_ref(&track_id));
 
     // ファイルの移動はブロッキング処理用スレッドで行う
     run_blocking(move || Ok(keep_music_folder_organized(&app, &[track_id]))).await
+}
+
+/// タグを書き換えた曲を、ほかのウィンドウ（メインウィンドウの一覧）に知らせる（ADR-094）
+fn notify_tracks_edited(app: &AppHandle, track_ids: &[String]) {
+    if track_ids.is_empty() {
+        return;
+    }
+    let event = crate::events::TracksEdited {
+        track_ids: track_ids.to_vec(),
+        album_art: false,
+    };
+    if let Err(e) = event.emit(app) {
+        log::warn!("Failed to emit the tag edit event: {}", e);
+    }
 }
 
 /// 一括編集の結果
@@ -211,6 +231,7 @@ pub async fn update_multiple_tracks_metadata(
     }
 
     validate_metadata_input(&metadata)?;
+    super::reject_cue_tracks(&app, &track_ids)?;
     let metadata = normalize_multi_values(metadata);
 
     // ファイルの書き込みとバッチ書き込みはブロッキング処理用スレッドで行う
@@ -218,6 +239,7 @@ pub async fn update_multiple_tracks_metadata(
         let updates: Vec<(&String, &Metadata)> =
             track_ids.iter().map(|id| (id, &metadata)).collect();
         let mut result = update_each_blocking(app.state::<AppState>().inner(), &updates)?;
+        notify_tracks_edited(&app, &result.updated_track_ids);
         result.organized = keep_music_folder_organized(&app, &result.updated_track_ids);
         Ok(result)
     })
@@ -255,6 +277,11 @@ pub async fn apply_metadata_changes(
         validate_track_id(&change.track_id)?;
         validate_metadata_input(&change.metadata)?;
     }
+    let changed_ids: Vec<String> = changes
+        .iter()
+        .map(|change| change.track_id.clone())
+        .collect();
+    super::reject_cue_tracks(&app, &changed_ids)?;
 
     let changes: Vec<TrackMetadataChange> = changes
         .into_iter()
@@ -663,6 +690,7 @@ mod tests {
             sample_rate: None,
             replay_gain: ReplayGain::default(),
             rating,
+            details: Default::default(),
         }
     }
 

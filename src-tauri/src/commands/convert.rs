@@ -173,6 +173,7 @@ pub async fn plan_conversion(
     app: AppHandle,
 ) -> AppResult<ConvertPlan> {
     let template = validate_input(&track_ids, &options)?;
+    super::reject_cue_tracks(&app, &track_ids)?;
 
     run_blocking(move || {
         let state = app.state::<AppState>();
@@ -198,6 +199,7 @@ pub async fn convert_tracks(
     app: AppHandle,
 ) -> AppResult<Option<ConvertResult>> {
     let template = validate_input(&track_ids, &options)?;
+    super::reject_cue_tracks(&app, &track_ids)?;
     if !transcode::is_available() {
         return Err(AppError::Validation(
             "この環境では、形式を変換できません".to_string(),
@@ -609,6 +611,7 @@ mod tests {
                 let samples: Vec<i16> = (0..16_000).map(|i| (i % 200 * 100) as i16).collect();
                 write_wav_samples(&path, 8_000, 2, &samples);
                 let track = Track {
+                    cue: None,
                     id: uuid::Uuid::new_v4().to_string(),
                     file_path: path.to_str().unwrap().to_string(),
                     file_name: path.file_name().unwrap().to_str().unwrap().to_string(),
@@ -635,6 +638,8 @@ mod tests {
                     replay_gain: ReplayGain::default(),
                     sort_tags: Default::default(),
                     is_missing: false,
+                    compilation: false,
+                    details: Default::default(),
                 };
                 self.state
                     .with_db(|db| crate::repository::insert_track(db, &track, Some(1)))

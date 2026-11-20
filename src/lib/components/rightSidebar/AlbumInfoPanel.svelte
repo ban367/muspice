@@ -12,8 +12,9 @@
   import { untrack } from 'svelte';
   import type { Track } from '#lib/types/models.js';
   import { useAlbumTracksQuery, useSetRatingMutation } from '#lib/queries/tracks.js';
-  import { player, playNow, playShuffled } from '#lib/stores/player.svelte.js';
+  import { player, playNow } from '#lib/stores/player.svelte.js';
   import { groupArtist } from '#lib/utils/albumKey.js';
+  import { artistsOf, goToAlbum, goToArtist } from '#lib/utils/libraryReveal.js';
   import { groupByDisc } from '#lib/utils/albumDiscs.js';
   import { formatDuration, formatTotalDuration } from '#lib/utils/format.js';
   import { TrackSelection, handleTrackListKeydown } from '#lib/utils/trackSelection.svelte.js';
@@ -25,6 +26,7 @@
   import SidePanelMessage from './SidePanelMessage.svelte';
   import SidePanelSection from './SidePanelSection.svelte';
   import SidePanelTrack from './SidePanelTrack.svelte';
+  import SidePanelTrackDetails from './SidePanelTrackDetails.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   const current = $derived(player.currentTrack);
@@ -34,6 +36,8 @@
   // 再生中の曲のアルバム（アルバムが変わった時だけ曲を取り直す。同じアルバムの次の曲へ進んでも取り直さない）
   const albumName = $derived(current?.album ?? null);
   const albumArtist = $derived(current ? groupArtist(current) : null);
+  // アルバムアーティストの名前を押した時に移るアーティスト（複数のアーティストの曲は、最初のアーティスト）
+  const linkedArtist = $derived(current ? (artistsOf(current)[0] ?? null) : null);
   const albumTracksQuery = $derived(
     albumName === null ? null : useAlbumTracksQuery(albumName, albumArtist)
   );
@@ -77,6 +81,24 @@
 
   // トラックの選択（クリック・キーボード）
   const selection = new TrackSelection(() => tracks);
+
+  /**
+   * 曲の情報に出す曲（パネルの中で選んだ曲があれば最後に選んだ曲、なければ再生中の曲）
+   *
+   * 再生中の曲は、キューに入れた時点の内容のため、取得したアルバムの曲があればそちらを使う（再生回数など）。
+   */
+  const detailsTrack = $derived.by(() => {
+    const picked = selection.lastSelected;
+    if (picked) return picked;
+    if (!current) return null;
+    const id = current.id;
+    return tracks.find((track) => track.id === id) ?? current;
+  });
+
+  /** 曲の情報の見出しに添える文（再生中の曲か、パネルの中で選んだ別の曲か） */
+  const detailsNote = $derived(
+    detailsTrack && detailsTrack.id !== current?.id ? m.albumInfo.selected : m.albumInfo.playing
+  );
 
   /** スクロールする領域（アルバムが替わった時に先頭へ戻す） */
   let body = $state<HTMLElement>();
@@ -138,23 +160,20 @@
   function handlePlayAll() {
     playNow(tracks);
   }
-
-  // アルバムをシャッフル再生
-  function handleShufflePlay() {
-    playShuffled(tracks);
-  }
 </script>
 
 <SidePanel title={m.rightSidebar.albumInfoTitle} bind:body>
   {#snippet top()}
-    <!-- 再生中の曲（スクロールせず、常に見えるようにする）。ジャケット画像からは、アルバムの曲の画像を見られる
-         （アルバムの曲を取得するまでと、アルバムのない曲は、再生中の曲だけ） -->
+    <!-- 再生中の曲（スクロールせず、常に見えるようにする） -->
     <SidePanelTrack
       label={m.rightSidebar.nowPlaying}
       track={current}
       emptyText={m.rightSidebar.nothingPlaying}
-      artTracks={tracks}
     />
+    <!-- 曲の情報（再生中の曲、またはパネルの中で選んだ曲） -->
+    {#if detailsTrack}
+      <SidePanelTrackDetails track={detailsTrack} note={detailsNote} />
+    {/if}
   {/snippet}
 
   {#if !current}
@@ -168,45 +187,41 @@
     <SidePanelSection title={m.albumInfo.album} flush>
       <div class="album-heading">
         <div class="album-heading-text">
-          <p class="album-name" title={albumName}>{albumName}</p>
-          <p class="album-artist">{albumArtist || m.common.unknownArtist}</p>
+          <!-- 名前を押すと、アルバム・アーティストの画面へ移る（ADR-110） -->
+          <button
+            type="button"
+            class="album-name text-link"
+            title={m.contextMenu.goToAlbum}
+            onclick={() => current && goToAlbum(current)}
+          >
+            {albumName}
+          </button>
+          {#if linkedArtist !== null}
+            <button
+              type="button"
+              class="album-artist text-link"
+              title={m.contextMenu.goToArtist}
+              onclick={() => goToArtist(linkedArtist)}
+            >
+              {albumArtist || m.common.unknownArtist}
+            </button>
+          {:else}
+            <p class="album-artist">{albumArtist || m.common.unknownArtist}</p>
+          {/if}
           <!-- 曲を取得するまでは、曲数がわからない（高さは変えずに空ける） -->
           <p class="album-stats">{albumStats || ' '}</p>
         </div>
-        <div class="album-actions">
-          <button
-            class="album-action primary"
-            onclick={handlePlayAll}
-            disabled={tracks.length === 0}
-            title={m.common.playAll}
-            aria-label={m.common.playAll}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M8 5v14l11-7z" />
-            </svg>
-          </button>
-          <button
-            class="album-action"
-            onclick={handleShufflePlay}
-            disabled={tracks.length === 0}
-            title={m.common.shuffle}
-            aria-label={m.common.shuffle}
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-            >
-              <polyline points="16 3 21 3 21 8" />
-              <line x1="4" y1="20" x2="21" y2="3" />
-              <polyline points="21 16 21 21 16 21" />
-              <line x1="15" y1="15" x2="21" y2="21" />
-              <line x1="4" y1="4" x2="9" y2="9" />
-            </svg>
-          </button>
-        </div>
+        <button
+          class="album-play"
+          onclick={handlePlayAll}
+          disabled={tracks.length === 0}
+          title={m.common.playAll}
+          aria-label={m.common.playAll}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M8 5v14l11-7z" />
+          </svg>
+        </button>
       </div>
 
       <!-- 曲の一覧 -->
@@ -300,32 +315,26 @@
     @apply m-0 h-4 leading-4 text-xs text-text-dimmed truncate;
   }
 
-  .album-actions {
-    @apply flex items-center gap-1.5 shrink-0;
+  /* 名前のボタンは、名前の長さだけの幅にする（余白を押しても移らない） */
+  .album-name.text-link,
+  .album-artist.text-link {
+    @apply w-fit;
   }
 
-  .album-action {
-    @apply w-8 h-8 flex items-center justify-center border-none rounded-full cursor-pointer transition-all duration-150;
-    @apply bg-surface-active text-text-primary;
-  }
-
-  .album-action:hover:not(:disabled) {
-    @apply bg-surface-strong;
-  }
-
-  .album-action.primary {
+  .album-play {
+    @apply w-8 h-8 flex items-center justify-center shrink-0 border-none rounded-full cursor-pointer transition-all duration-150;
     @apply bg-secondary text-black;
   }
 
-  .album-action.primary:hover:not(:disabled) {
+  .album-play:hover:not(:disabled) {
     @apply bg-secondary-focus;
   }
 
-  .album-action:disabled {
+  .album-play:disabled {
     @apply opacity-50 cursor-not-allowed;
   }
 
-  .album-action svg {
+  .album-play svg {
     @apply w-4 h-4;
   }
 

@@ -118,15 +118,17 @@ fn add_column_if_not_exists(
 /// - 2: 検索の対象にアルバムアーティストを加えた
 /// - 3: 途中の一致を探せるよう、トークナイザーをtrigramにした。検索用に正規化した文字列
 ///   （`search_text`）を1つの列に入れ、表が内容を持つようにした（external contentをやめた）
+/// - 4: 検索の対象に作曲者を加えた（ADR-115）
 ///
 /// 表の列・トークナイザーを変える時は値を上げる（古い版の表は、起動時に作り直す）。
-const FTS_SCHEMA_VERSION: i32 = 3;
+const FTS_SCHEMA_VERSION: i32 = 4;
 
-/// 全文検索の表に入れる文字列（タイトル・アーティスト・アルバム・ジャンル・アルバムアーティストを
-/// 検索用に正規化してつなぐ）を求めるSQLの式。`prefix`は`new.`など
+/// 全文検索の表に入れる文字列（タイトル・アーティスト・アルバム・ジャンル・アルバムアーティスト・
+/// 作曲者を検索用に正規化してつなぐ）を求めるSQLの式。`prefix`は`new.`など
 fn fts_text_expr(prefix: &str) -> String {
     format!(
-        "{}({prefix}title, {prefix}artist, {prefix}album, {prefix}genre, {prefix}album_artist)",
+        "{}({prefix}title, {prefix}artist, {prefix}album, {prefix}genre, {prefix}album_artist, \
+         {prefix}composer)",
         crate::search_text::SQL_FUNCTION
     )
 }
@@ -231,10 +233,36 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         "INTEGER NOT NULL DEFAULT 0",
     )?;
 
+    // コンピレーション（複数のアーティストの曲を集めたアルバム）の印（ファイルのタグから読む）。
+    // アルバムアーティストのないコンピレーションの曲は、「Various Artists」のアルバムにまとめる（ADR-093）
+    add_column_if_not_exists(conn, "tracks", "compilation", "INTEGER NOT NULL DEFAULT 0")?;
+    // コンピレーションの印をファイルから読んだか。列を追加する前に登録したトラックは0で、
+    // 起動時にバックグラウンドで読み込む（`tag_backfill`）
+    add_column_if_not_exists(
+        conn,
+        "tracks",
+        "compilation_read",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    // 作曲者・グループ・コメント・BPM・ビット深度・チャンネル数（一覧の列・検索に使う。ADR-115）。
+    // `details_read`は、それらをファイルから読んだか（列を足す前に登録したトラックは0で、起動後に
+    // `tag_backfill`が読む）
+    for column in ["composer", "grouping", "comment"] {
+        add_column_if_not_exists(conn, "tracks", column, "TEXT")?;
+    }
+    for column in ["bpm", "bit_depth", "channels"] {
+        add_column_if_not_exists(conn, "tracks", column, "INTEGER")?;
+    }
+    add_column_if_not_exists(conn, "tracks", "details_read", "INTEGER NOT NULL DEFAULT 0")?;
+
     // ファイルが見つからなくなった日時（見つかる間はNULL）。再スキャンでファイルが見つからなく
     // なったトラックはすぐには外さず、「見つからない曲」として残す。移動・改名されたファイルが
     // 見つかれば同じ曲として結び付け、外すのは利用者の操作にする（`track_relink`）
     add_column_if_not_exists(conn, "tracks", "missing_since", "TEXT")?;
+    // CUEシートの曲（アルバム1ファイルの中の1曲）の、元の音声ファイルと範囲（1/75秒。ADR-123）
+    add_column_if_not_exists(conn, "tracks", "cue_source", "TEXT")?;
+    add_column_if_not_exists(conn, "tracks", "cue_start", "INTEGER")?;
+    add_column_if_not_exists(conn, "tracks", "cue_end", "INTEGER")?;
 
     // 再生履歴テーブルの作成
     conn.execute(
@@ -355,6 +383,40 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         [],
     )?;
 
+    // デバイス上の配置の書式（列を足す前に登録したデバイスは、以前の配置の書式。ADR-111）
+    add_column_if_not_exists(
+        conn,
+        "sync_devices",
+        "path_template",
+        &format!(
+            "TEXT NOT NULL DEFAULT '{}'",
+            crate::device::LEGACY_DEVICE_TEMPLATE
+        ),
+    )?;
+    // 歌詞ファイル・フォルダの画像もコピーするか（既定はコピーする。ADR-112）
+    add_column_if_not_exists(
+        conn,
+        "sync_devices",
+        "copy_extras",
+        "INTEGER NOT NULL DEFAULT 1",
+    )?;
+    // 転送する時の変換（既定は変換しない。ADR-118）
+    add_column_if_not_exists(
+        conn,
+        "sync_devices",
+        "transcode_mode",
+        "TEXT NOT NULL DEFAULT 'off'",
+    )?;
+    add_column_if_not_exists(
+        conn,
+        "sync_devices",
+        "transcode_bitrate",
+        &format!(
+            "INTEGER NOT NULL DEFAULT {}",
+            crate::transcode::DEFAULT_AAC_BITRATE_KBPS
+        ),
+    )?;
+
     // デバイスに同期するプレイリスト
     conn.execute(
         "CREATE TABLE IF NOT EXISTS sync_device_playlists (
@@ -363,6 +425,24 @@ fn run_migrations(conn: &Connection) -> Result<()> {
             PRIMARY KEY (device_id, playlist_id),
             FOREIGN KEY (device_id) REFERENCES sync_devices(id) ON DELETE CASCADE,
             FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
+
+    // 曲の解析（テンポ・キー・ペース）の結果（`music_analysis`。ADR-104）。解析した時の曲の長さを持ち、
+    // 長さが変わった曲（ファイルを差し替えた）は解析し直す。解析できなかった曲は`failed`を1にする
+    // （値のない行。解析し直さない）。キーは、主音のピッチクラス（0〜11）と長調（0）・短調（1）
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS track_analysis (
+            track_id TEXT PRIMARY KEY,
+            duration INTEGER,
+            bpm REAL,
+            key_pitch_class INTEGER,
+            key_mode INTEGER,
+            pace REAL,
+            failed INTEGER NOT NULL DEFAULT 0,
+            analyzed_at TEXT NOT NULL,
+            FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE
         )",
         [],
     )?;
@@ -395,12 +475,15 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         [],
     )?;
 
-    // アーティストの詳細（アルバムアーティストでの絞り込み）用。式は`repository::ALBUM_ARTIST`と同じにする
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_tracks_album_artist
-         ON tracks(COALESCE(album_artist, artist))",
-        [],
-    )?;
+    // アルバムの曲・アルバムアーティストのアルバムの取得（まとめるアーティストでの絞り込み）用。
+    // 式は`repository::ALBUM_ARTIST`と同じにする（違うと使われない）。コンピレーションの印をまとめ方に
+    // 加える前（ADR-093）の式のインデックス（`idx_tracks_album_artist`）は、使われないため消す
+    conn.execute_batch(&format!(
+        "DROP INDEX IF EXISTS idx_tracks_album_artist;
+         CREATE INDEX IF NOT EXISTS idx_tracks_group_artist
+         ON tracks({});",
+        crate::repository::ALBUM_ARTIST
+    ))?;
 
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_playlist_tracks_playlist_id ON playlist_tracks(playlist_id)",
@@ -465,7 +548,7 @@ fn run_migrations(conn: &Connection) -> Result<()> {
              DELETE FROM tracks_fts WHERE rowid = old.rowid;
          END;
 
-         CREATE TRIGGER tracks_au AFTER UPDATE OF title, artist, album, genre, album_artist
+         CREATE TRIGGER tracks_au AFTER UPDATE OF title, artist, album, genre, album_artist, composer
          ON tracks BEGIN
              UPDATE tracks_fts SET text = {new_text} WHERE rowid = old.rowid;
          END;",
@@ -714,6 +797,35 @@ mod tests {
             plan.contains("idx_playlist_tracks_track_id"),
             "索引を使っていない: {plan}"
         );
+    }
+
+    /// アルバムの曲の取得で、まとめるアーティストの式の索引を使うこと（式が`repository::ALBUM_ARTIST`と同じ）
+    #[test]
+    fn test_tracks_have_an_index_on_the_grouping_artist() {
+        let conn = open_in_memory();
+        let plan: String = conn
+            .query_row(
+                &format!(
+                    "EXPLAIN QUERY PLAN SELECT 1 FROM tracks WHERE {} IS 'Various Artists'",
+                    crate::repository::ALBUM_ARTIST
+                ),
+                [],
+                |row| row.get(3),
+            )
+            .unwrap();
+        assert!(
+            plan.contains("idx_tracks_group_artist"),
+            "索引を使っていない: {plan}"
+        );
+        // 前の式の索引は残さない
+        let old: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE name = 'idx_tracks_album_artist'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(old, 0);
     }
 
     /// FTS5インデックスがトラックのINSERT/UPDATE/DELETEに追随することを検証

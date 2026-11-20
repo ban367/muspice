@@ -22,6 +22,7 @@
 | ライブラリのXML        | plist                                                                           | 1.10                                               | iTunes形式のライブラリXML（プロパティリスト）の読み込み。Tauriが使っているものと同じ                                                                                                                                         |
 | 再生エンジン           | symphonia / cpal / rubato / rtrb                                                | 0.6 / 0.18 / 5 / 0.4                               | デコード / 出力 / サンプルレートの変換 / リングバッファ。Opusは`symphonia-adapter-libopus` 0.3（libopusを同梱。ビルドにCコンパイラとcmakeが要る）。WavPackは`wavicle` 0.1、APEは`ape-decoder` 0.3（どちらも純Rust。ADR-047） |
 | メディアキー           | objc2-media-player（objc2）                                                     | 0.3（objc2 0.6）                                   | macOSのNow Playing・リモートコマンド（MediaPlayerフレームワーク）。macOSだけの依存で、Tauriが使っているobjc2系のクレートとそろえる                                                                                           |
+| 曲の解析               | MusicUnderstanding（Swift。`swift/music_analysis.swift`）                       | macOS 27のSDK（Xcode 27）                          | 曲のテンポ・キー・ペースの解析（AIシャッフルの「似た曲」。ADR-104）。`build.rs`が`swiftc`で静的ライブラリにビルドしてリンクする。SDKにない時は組み込まず、解析を使えないものとして動く                                       |
 
 ## ディレクトリ構成
 
@@ -55,6 +56,9 @@ src/
     ├── types/
     └── utils/
 
+src-tauri/swift/
+└── music_analysis.swift   # 曲の解析（MusicUnderstanding）をC言語の関数として公開する（build.rsがビルドする。ADR-104）
+
 src-tauri/src/
 ├── commands/
 │   ├── mod.rs             # コマンドの公開（re-export）と、共通の処理（ダイアログ・`run_blocking`）
@@ -79,6 +83,7 @@ src-tauri/src/
 │   └── tracks.rs
 ├── main.rs
 ├── lib.rs
+├── ai_shuffle.rs          # AIシャッフルの選曲（選び方・近さ・候補・乱数。ADR-104）
 ├── album_art.rs           # アルバムアートの配信（albumartプロトコル）・フォルダの画像の検索・キャッシュ
 ├── atomic_file.rs         # 小さなファイル（設定・再生状態・デバイスの管理ファイル）を、ディスクへ書き出してから置き換える
 ├── ape_tag.rs             # APEv2タグ（WavPack・APE）の読み書き（BPM・評価・画像と、アプリが扱わない項目の保持。ADR-047）
@@ -103,11 +108,12 @@ src-tauri/src/
 ├── lyrics.rs              # 表示する歌詞の読み込み（曲と同じ名前の.lrcファイルを優先し、なければ埋め込みの歌詞。ADR-045）
 ├── library_xml.rs         # iTunes形式のライブラリXMLの読み込み（ほかのプレーヤーの再生回数・追加日・プレイリスト。ADR-033）
 ├── m3u.rs                 # プレイリストのM3Uの読み込み（文字コードの判定・曲の対応付け）と書き出し（ADR-032）
+├── cue.rs                 # CUEシートの読み込み・仮想のパス・走査での音声ファイルの置き換え・曲の内容の組み立て（ADR-123）
 ├── media_controls/        # OSのメディアキー・Now Playing（ADR-029）
 │   ├── mod.rs             # OSへ渡す内容の組み立て（曲の情報・アルバムアート）
 │   └── macos.rs           # macOSのMediaPlayerフレームワークの呼び出し（macOSだけでコンパイルする）
 ├── global_shortcuts.rs    # グローバルホットキーの登録と、押された時の操作の送信（ADR-046）
-├── menu.rs                # メニューバー（「再生」メニューを含む）と設定ウィンドウのタイトル（言語に合わせる）
+├── menu.rs                # メニューバー（「再生」・「曲」メニューを含む。ADR-109）と設定ウィンドウのタイトル（言語に合わせる）
 ├── playback/              # 再生エンジン（ADR-025・ADR-026）
 │   ├── mod.rs             # エンジンの公開（コマンド・通知の型と、エンジンを動かすスレッド）
 │   ├── engine.rs          # エンジン本体（コマンドの処理・曲の切り替え・再生位置の通知）
@@ -131,6 +137,7 @@ src-tauri/src/
 ├── mini_player.rs         # ミニプレーヤー（メインウィンドウの大きさの切り替えと、元の大きさの記録。ADR-046）
 ├── models.rs
 ├── multi_value.rs         # 複数の値を持つ項目（アーティスト・ジャンル）を値に分ける・比べる（SQLの関数を含む。ADR-051）
+├── music_analysis.rs      # 曲の解析（Swiftの呼び出し・`track_analysis`のSQL・バックグラウンドでの実行と再開。ADR-104）
 ├── music_folder_copy.rs   # 取り込む曲の、音楽フォルダへのコピー（コピー先の計画・上書きしないコピー・歌詞ファイルとフォルダの画像。ADR-069）
 ├── ogg_flac.rs            # Oggの中のFLACの読み書き（loftyが対応していない。ヘッダーのページの作り直し。ADR-058）
 ├── own_writes.rs          # アプリ自身が曲のファイルへ書いた変更の記録（ライブラリフォルダの監視が、その通知で再スキャンしない）
@@ -139,7 +146,7 @@ src-tauri/src/
 ├── startup.rs             # 起動時のDBの開き方（壊れたDBを残して空で起動・起動を続けられない時の知らせ）と、起動時の知らせ（ADR-088）
 ├── tag_backfill.rs        # 既存のトラックの、後から追加した項目（アルバムアーティスト・ソート用のタグ・複数の値・半分の星の評価）の読み込み（起動時）
 ├── track_notification.rs  # 曲が変わった時の通知（ADR-046）
-├── track_relink.rs        # 移動・改名されたファイルと、見つからない曲の対応付け
+├── track_relink.rs        # 移動・改名されたファイルと、見つからない曲の対応付け（再スキャンと「フォルダから探す」で使う）
 ├── transcode.rs           # 形式の変換（デコードした音声の一時ファイル・afconvertでのエンコード・出力先の計画。ADR-054）
 ├── trash.rs               # ファイルをOSのゴミ箱へ移す（形式の変換の置き換えと、曲のファイルごとの削除で使う。macOS）
 ├── tray.rs                # メニューバー（トレイ）への常駐（アイコン・メニュー・再生中の曲の表示。ADR-046）
@@ -167,7 +174,7 @@ src-tauri/src/
 ### 共有する状態（Runesのモジュール）
 
 - コンポーネントをまたいで共有する状態は`src/lib/stores/*.svelte.ts`に、`$state`のフィールドを持つクラスのインスタンスとして置く（例: `ui.svelte.ts`の`ui`、`error.svelte.ts`の`notifications`、`equalizer.svelte.ts`の`equalizer`、`player.svelte.ts`の`player`）。ユーティリティに付随する状態は、そのユーティリティの`*.svelte.ts`に置く（例: `#lib/utils/dialog.svelte.ts`のテキスト入力の要求`textPrompt`）。`svelte/store`（`writable`など）は使わない（ESLintの`no-restricted-imports`で禁止）
-- 再生コントローラー（`playback.svelte.ts`）の補助で、状態を持たない関数のモジュール（`nowPlaying.ts`・`playTracker.ts`・`openedFiles.ts`）も`stores/`に置く（再生の状態・コマンドと一緒に読むため）。拡張子は`.ts`（`$state`を使わない）
+- 再生コントローラー（`playback.svelte.ts`）の補助で、状態を持たない関数のモジュール（`nowPlaying.ts`・`playTracker.ts`・`openedFiles.ts`）と、メニューバーの操作を受け取る`menuCommands.ts`も`stores/`に置く（状態・コマンドと一緒に読むため）。拡張子は`.ts`（`$state`を使わない）
 - コンポーネント（`.svelte`）の中では`Map`・`Set`を作らない（`$derived`の中で作り直す集まりは、`#lib/utils/collections`の`setOf`・`idSetOf`・`mapById`・`indexById`で作る。書き換える集まりは`svelte/reactivity`の`SvelteSet`・`SvelteMap`）
 - イベントの購読（`events.xxx.listen()`・`onFocusChanged()`）は、`#lib/utils/listen`の`stopListening`で解除する（購読に失敗していた場合に、未処理の拒否にしない）
 - 読み書きはプロパティを直接使う（例: `ui.isSidebarOpen = false`）。`$`接頭辞や`get()`は不要で、コンポーネント外の`.ts`からも同じように読める
@@ -191,12 +198,15 @@ src-tauri/src/
   - キャッシュに影響しない操作（例: ファイルの場所を開く）も、失敗を通知するためミューテーションとして定義する
   - 画面内にエラーを表示する場合は`String(error)`ではなく`toErrorMessage(error)`を使う（`AppError`はオブジェクトのため"[object Object]"になる）
   - 再生制御（再生エンジンのコマンド・`setCurrentTrack`）はクエリではなく`#lib/stores/playback.svelte`の再生コントローラーが呼ぶ
-  - `QueryClient`（メインウィンドウと設定ウィンドウの2つ）は、クエリ・ミューテーションの既定値に`#lib/queries/shared`の`LOCAL_NETWORK_MODE`（`networkMode: 'always'`）を入れる。呼ぶのはローカルのコマンドだけのため、ネットワークの状態によらず実行する（既定の`online`では、Wi-Fiが切れた時に取得も保存も止まったままになる）
+  - `QueryClient`（メインウィンドウ・設定ウィンドウ・曲の情報の編集画面のウィンドウの3つ）は、クエリ・ミューテーションの既定値に`#lib/queries/shared`の`LOCAL_NETWORK_MODE`（`networkMode: 'always'`）を入れる。呼ぶのはローカルのコマンドだけのため、ネットワークの状態によらず実行する（既定の`online`では、Wi-Fiが切れた時に取得も保存も止まったままになる）
+  - メインウィンドウの`QueryClient`は`#lib/queries/shared`の`createMainQueryClient`で作る。表示した時に取り直すのは、無効化されたクエリだけ（`refetchOnMount: refetchInvalidatedOnMount`）。`invalidateQueries`がすぐに取り直すのは表示しているクエリだけのため、表示していない画面の一覧は、次に開いた時に取り直す。無効化していないキャッシュは、`staleTime`を過ぎても取り直さない（ADR-092）。クエリごとに`refetchOnMount`を指定しない
   - 複数のクエリの状態（読み込み中・エラー）を合わせる時は、`#lib/queries/shared`の`combineQueryStates`を使う。TanStack Queryは、読んだことのあるプロパティが変わった時だけ通知するため、`a.isLoading || b.isLoading`のような短絡評価では、読まなかった側が先に終わった時の通知を取りこぼす（読み込み中の表示のまま止まる）
 - アルバムアートは`#lib/utils/albumArt`の`albumArtUrl(trackId)`をそのまま`<img>`（`AlbumArt`コンポーネント）に渡す。画像データをフロントエンドで取得・保持しない。アートがない場合は読み込みエラーになり、`AlbumArt`がプレースホルダーを表示する
   - `albumArtUrl`は、アプリで画像を書き換えた曲の版（`#lib/stores/albumArt.svelte`）を読んでURLに付ける。版の変更に追随させるため、テンプレートか`$derived`の中で呼ぶ（値を変数に取っておくと、書き換えた後も古い画像のままになる）
-  - アルバムアートの画面は、`albumArtDialog.open(tracks)`で開く（`(app)/+layout.svelte`が1つだけ表示する。開く側にダイアログを置かない）
-- メタデータの編集画面（`MetadataEditor`）は、入力欄の値と`Metadata`の変換・検証を`#lib/utils/metadataForm`に分けている（1曲の編集はすべての項目を渡し、一括編集は入力した項目だけを渡す）。1曲の編集は、開いた時に`useTrackTagsQuery`でファイルのタグを読み、読めるまで・読めない場合は保存できない（ADR-034）
+- 曲の情報の編集画面（`MetadataEditor`。別のウィンドウ`/track-editor`の中身。ADR-094）は、`#lib/queries/trackEditor`の`useOpenTrackEditorMutation`で開く（曲のIDを渡す。開く側に画面を置かない）。編集画面のウィンドウは`useTrackEditorTracksQuery`で曲を受け取る。入力欄の値と`Metadata`の変換・検証は`#lib/utils/metadataForm`に分けている（1曲の編集はすべての項目を渡し、一括編集は入力した項目だけを渡す）。1曲の編集は、開いた時に`useTrackTagsQuery`でファイルのタグを読み、読めるまで・読めない場合は保存できない（ADR-034）
+  - アルバムアートの変更は、編集画面の「アルバムアート」のタブ（`AlbumArtEditor`）で選び、「保存」でタグの後に書き込む。選んだ画像は`usePickAlbumArtMutation`でRust側に預け、保存で`useSetAlbumArtMutation`に印（`token`）を渡す
+  - 保存した内容は、Rustが送る`TracksEdited`をメインウィンドウ（`(app)/+layout.svelte`）が受け取り、`applyTracksEdited`で一覧・タグ・アルバムアートに反映する。編集画面を開いている間は、`TrackEditorChanged`で`ui.isTrackEditorOpen`を立て、メインウィンドウに覆いを重ねる
+  - モック（`dev:mock`）の`openTrackEditor`は、曲を`sessionStorage`に置き、別のウィンドウ（ブラウザのポップアップ）で`/track-editor`を開く。開いたページのモックは別のメモリのため、そこで保存した内容は元のページに届かない。閉じたことが分からないため、`trackEditorChanged`は送らない（覆いは`__MUSPICE_MOCK__.emit`で確かめる）
 - 左サイドバー（`Sidebar`）は、上から「ブラウズ・ライブラリ・プレイリスト・デバイス」の順に並べる。プレイリストの一覧が残りの高さを使い、デバイスは一覧のスクロールの外に置いて、いつも下の端に出す。高さが足りない時は、プレイリストの一覧を最小の高さで止めて、デバイスより上の全体をスクロールする。項目の見た目は`app.css`の`nav-item-base`・`nav-icon`・`nav-section-header`・`nav-message`でそろえる（1行の高さは28px）
 - サイドバーのプレイリストの一覧は`SidebarPlaylists`が表示する（ADR-043）。フォルダ分けと並び順は`#lib/utils/playlistTree`の純粋な関数（`buildPlaylistTree`・`sortPlaylistItems`・`placeRelative`）で求め、並び順（名前・作成日・手動）と閉じているフォルダは`#lib/stores/playlistSidebar.svelte`がlocalStorageに保存する。プレイリスト・フォルダのドラッグは、専用の種類のデータ（`application/x-muspice-playlist-id`など）で運び、曲のドラッグ（`#lib/utils/trackDrag`）と見分ける。プレイリストの名前と説明は`PlaylistInfoDialog`（`playlistInfoDialog.open(id)`）で編集する
 - 自動プレイリスト（ADR-042）の編集画面（`SmartPlaylistDialog`。`smartPlaylistDialog.openNew()`・`openEdit(playlist)`で開く）は、入力（文字列のままの値。`RuleDraft`）と保存する条件（`SmartRules`）の変換・検証・説明文を`#lib/utils/smartPlaylist`の純粋な関数に分けている。条件に合う曲は、フロントエンドでは求めない（バックエンドの`get_playlist_tracks`・`count_smart_playlist_tracks`を使う。`#lib/mocks/smartPlaylist`は、モックのバックエンドが同じ規則で求めるためのもの）。自動プレイリストの曲のクエリは、開くたびに取り直す（`usePlaylistTracksQuery(id, true)`）
@@ -206,6 +216,7 @@ src-tauri/src/
 - 形式の変換（`ConvertDialog`。曲の右クリックのメニューから`convertDialog.open(tracks)`で開く）は、変換先にできる形式（`useConvertFormatsQuery`）が空でない環境でだけ、メニューに項目を出す（`ConvertDialogHost`が、形式を取得してから画面を出す）。出力先を決めるのはRust側で、画面は`plan_conversion`の結果を`#lib/utils/convert`の`summarizeConvertPlan`で集計して出す（変換する曲・変換しない曲・音質が戻らない変換の数）。実行の状態は`conversion`（`#lib/stores/convert.svelte`）が持ち、画面を閉じても変換は続く。前回の指定は覚えるが、出力先はいつも「書き出す」から始める（置き換えは、毎回選ばせる）
 - 音量の解析の画面の状態は、`loudnessScan`（`#lib/stores/loudnessScan.svelte`）が持つ。`watch()`で進捗・完了のイベントを受け取り（メインウィンドウは`(app)/+layout.svelte`、設定ウィンドウは`LoudnessScanSettings`が呼ぶ）、どちらのウィンドウで始めた解析でも進み具合を出す。結果の通知（トースト）は、`start()`を呼んだウィンドウだけが出す。選んだ曲の解析は、曲のメニューから`loudnessScanDialog.open(tracks)`で開く（`LoudnessScanDialog`。実行中に閉じても、解析は続く）
 - ファイルの整理（`FileOrganizeDialog`。曲の右クリックのメニューから`fileOrganizeDialog.open(tracks)`で開く）は、整理後の場所をRust側（`file_organize.rs`）だけが決める。画面は、書式を変えるたびに`plan_file_organize`を呼び（入力が止まってから300ms。後から始めた取得の結果だけを使う）、返った計画を`#lib/utils/fileOrganize`の`summarizeOrganizePlan`で、動かす曲・動かさない曲・そのままの曲に分けて出す。書式の候補（`FILE_ORGANIZE_PRESETS`）と、前回の書式の記憶（localStorage）も同じモジュールにある。モックは、`src/lib/mocks/fileOrganize.ts`が同じ規則で場所を決める（書式を変えたら、両方を直す）
+- 見つからない曲の画面（`/library/missing`）は、全曲の一覧から`isMissing`の曲を選んで`TrackList`に渡す（`viewId="missing"`。既定の列に場所（`filePath`）を出す）。サイドバーの項目は、`LibraryFolderList.missingTrackCount`が1以上の時（か、その画面を開いている時）だけ出し、設定の「サイドバーに表示する項目」には入れない（ADR-117）。曲の右クリックのメニューは、見つからない曲では「ファイルの場所を開く」の代わりに「ファイルの場所を指定...」を出す
 - 重複した曲の画面（`/library/duplicates`）は、`#lib/utils/duplicates`の`findDuplicateGroups`で全曲の一覧からまとまりを作り、`TrackList`にまとまりの順で渡す（`defaultSort={null}`）。`TrackList`の`groupOf`に、曲からまとまりのキーを返す関数を渡すと、渡した順で並べている間、まとまりの間に線を引く。場所の列（`filePath`）は、どの一覧でも選べる
 - アーティスト・ジャンルを値ごとに扱う時（一覧の集計・絞り込み）は、`#lib/utils/multiValue`の`splitValues`・`hasValue`・`listedArtists`で値に分ける（`track.artist === ...`で比べない。`A; B`のように複数の値を持つ曲があるため。ADR-051）
 - 曲が音楽フォルダの外にあるかは、`#lib/utils/musicFolder`の`isOutsideMusicFolder`で曲の場所から求める（DBに持たない。ADR-084）。印は`OutsideMusicFolderMark`（曲の一覧のタイトルの前・カードの画像の隅）
@@ -235,7 +246,7 @@ src-tauri/src/
 - 再生キュー（右サイドバー、`QueuePanel`）は、キューの全体（`player.playQueue`）を曲のリストとして再生する順に並べる（再生し終えた曲も残す。ADR-081）。再生中の曲の行は、番号の代わりに再生中の印を出して強調し、パネルを開いた時と再生中の曲が変わった時に、見える位置へ出す（並べ替え・削除で位置だけが変わった時はスクロールしない）。`player.upcomingEntries`（再生中の曲より後ろ）は、Now Playingの画面の「次に再生」に使う
 - 曲のリストは、行のドラッグで並べ替えられる（`moveQueueEntry(entryId, targetEntryId)`。ドラッグを始めた時の要素のIDで指すため、ドラッグしている間に曲が進んでも、ドラッグした曲を動かす。再生中の曲・再生し終えた曲も動かせ、再生中の曲は変えずに、再生位置を動かした後の位置に合わせる。シャッフルする前の順は変えない）。キューの全体は、`create_playlist_with_tracks`でプレイリストとして保存できる（同じ曲は、最初の1回だけが入る）
 - 再生キューへの入れ方は、`#lib/stores/player.svelte`の4つの操作で行う（ADR-080）。曲・アルバムなど・プレイリストの右クリックのメニューは、共通の項目（`#lib/components/ui`の`QueueMenuItems`）でこの4つを出す
-  - `playNow(tracks)`（次のキューに追加して再生）: 再生中の曲の次に入れて、最初の曲を再生する（何も再生していなければキューの先頭）。一覧の曲・アルバム・アーティスト・ジャンルのダブルクリックとEnter、「再生」「すべて再生」のボタン、「このアプリで開く」で開いた曲は、これで再生する（一覧の曲は、その1曲だけを入れる）。シャッフル中は、最初の曲から再生し、残りをランダムな順に入れる。シャッフル再生（`playShuffled`）は、すべてをランダムな順に入れる（シャッフルモードは変えない）
+  - `playNow(tracks)`（次のキューに追加して再生）: 再生中の曲の次に入れて、最初の曲を再生する（何も再生していなければキューの先頭）。一覧の曲・アルバム・アーティスト・ジャンルのダブルクリックとEnter、「再生」「すべて再生」のボタン、「このアプリで開く」で開いた曲は、これで再生する（一覧の曲は、その1曲だけを入れる）。シャッフル中は、最初の曲から再生し、残りをランダムな順に入れる
   - `addNextInQueue(tracks)`（次のキューに追加）・`addToQueue(tracks)`（キューの末尾に追加）: 再生は変えない
   - `replaceQueueAndPlay(tracks, index)`（キューを置き換えて再生）: それまでのキューを外す。メニューから選んだ時だけ使う
   - キューから曲が外れるのは、削除（`removeFromQueue`）・クリア（`clearQueue`）・置き換え（`replaceQueueAndPlay`）だけ。キューの最後の曲が終わった時（「この曲が終わったら停止」で止めた時も）は、再生を止め、キューと最後の曲を残す（再生ボタンで、その曲を頭から再生する。一覧から再生した曲は、その次に入る）
@@ -255,17 +266,18 @@ src-tauri/src/
 - 再生の補助（ADR-044）は、状態を`#lib/stores/playbackAids.svelte`（`stopAfterCurrent`・`sleepTimer`・`isFadingOut`。保存しない）に持ち、再生コントローラーが読んで再生を止める。画面は`PlaybackAidsMenu`（プレーヤーのボタンから開く）
   - 「この曲が終わったら停止」が有効な間は、`syncNext`が次の曲をエンジンへ伝えない（先読みを取り消す）。曲の終わり（`ended`）で、`engineTrackId`を次の曲にしてからキューを進め（再生は始まらない）、指示を解除する。次の曲がなければ、通常の終わり方と同じ
   - スリープタイマーは、時間が来たかを、1秒ごとのタイマーと再生位置の通知（`position`）の両方で確かめる（ウィンドウが隠れている間は、タイマーが間引かれるため）。時間が来たら、`playbackSetVolume`で音量を少しずつ下げ（`SLEEP_FADE_SECONDS`）、一時停止してから、エンジンの音量を設定の値（`player.volume`）に戻す。`player.volume`は変えない。「曲の終わりまで再生する」場合は、時間が来た時点で「この曲が終わったら停止」にする
-  - Auto DJは`#lib/stores/autoDj.svelte`の`watchAutoDj`が行う（`Player`が、再生コントローラーと一緒に始める）。キューの最後の曲を再生している間に、`#lib/utils/autoDj`の`pickAutoDjTracks`で選んだ曲を`addToQueue`で足す（先読みの対象になる）。リピート中・「この曲が終わったら停止」の間は足さない。Auto DJの設定（`autoDj`・`autoDjPlaylistId`）は、プレーヤーのメニューから`save_settings`で保存する（設定ウィンドウは、開いている間に変えられた値を編集中の設定へ取り込む）
+  - AIシャッフルは`#lib/stores/aiShuffle.svelte`の`watchAiShuffle`が行う（`Player`が始める）。再生中の曲が変わるたびに、`pickAiShuffleTrack`で選んだ曲を`queueAiShuffleTrack`で再生中の曲の次に足す（足した要素は`autoAddedAfter`を持つ）。有効・無効とシャッフルとの関係は`setAiShuffleEnabled`（ADR-104）
+  - Auto DJは`#lib/stores/autoDj.svelte`の`watchAutoDj`が行う（`Player`が、再生コントローラーと一緒に始める）。キューの最後の曲を再生している間に、`#lib/utils/autoDj`の`pickAutoDjTracks`で選んだ曲を`addToQueue`で足す（先読みの対象になる）。リピート中・「この曲が終わったら停止」の間は足さない。Auto DJの設定（`autoDj`・`autoDjPlaylistId`）は、プレーヤーのメニューから`useUpdateSettings`で保存する（設定ウィンドウは、開いている間に変えられた値を編集中の設定へ取り込む）
 - ギャップレス再生・クロスフェードでは、キューの次の曲（`#lib/stores/player.svelte`の`peekNextTrack()`。`playNextTrack`の進む先を、状態を変えずに返す）を、先にエンジンへ伝える（`playbackSetNext`）。キュー・リピート・シャッフル・設定が変わると`$effect`で伝え直す
   - エンジンは、再生中の曲の終わりから切れ目なく（クロスフェードでは、終わりと重ねて）次の曲を続け、鳴っている曲が切り替わった時点で`advanced`を送る。コントローラーは、再生し直さずに`playNextTrack()`でキューを進める
   - 伝えてあった曲が、もうキューの次の曲でない場合（伝えた後でキューを変えた場合）は、キューの次の曲を再生し直す
   - 次の曲を伝えていない場合（ギャップレス再生もクロスフェードも無効）・次の曲の準備に失敗した場合は、曲の終わりの`ended`でキューを進め、次の曲を`playbackPlay`で再生する
   - 同じ曲を繰り返す切り替え（1曲リピート）では、再生中の曲の通知（`setCurrentTrack`）はしない（再生回数は、聴いた時間を数え直して、届けばもう1回数える）
   - 重ねる処理・重ねる長さ（設定の秒数を上限に、どちらの曲も長さの半分まで）・手動の操作や1曲リピートではクロスフェードしないことは、エンジンが決める（ADR-026）
-- 音量の正規化とクロスフェードの設定は、`save_settings`がエンジンへ伝える（フロントからは送らない）。イコライザの設定は`equalizer.svelte`から読み、起動時と変更のたびに`playbackSetEqualizer`で送る
+- 音量の正規化とクロスフェードの設定は、`save_settings`がエンジンへ伝える（フロントからは送らない）。イコライザの設定（バンドのゲイン・プリアンプ）は`equalizer.svelte`から読み、起動時と変更のたびに`playbackSetEqualizer`で送る。シャッフルモードも、同じく`playbackSetShuffle`で送る（音量の正規化の自動で使う）。サウンドのパネルの「再生中の曲」の補正は、`#lib/utils/replayGain`がエンジン（`normalization.rs`）と同じ計算で求める（どちらかを変えたら、もう一方も合わせる）
 - シークバーのドラッグ中は、シークを間隔（80ms）を空けて送る（そのたびにシークすると、音が細切れになる）
 - コントローラーは設定を直接読まず、`options`の関数（`gapless`・`crossfadeSeconds`）で受け取る（テストで差し替えるため）
-- アルバム・プレイリストなどの「シャッフル再生」は`playShuffled(tracks)`を使う（配列を`sort(() => Math.random() - 0.5)`などで独自に並べ替えない）。シャッフルモードを有効にし、元の順序を保持するため、解除すると元の順序に戻る
+- ランダムな順での再生は、シャッフルモード（`toggleShuffle`）だけで扱う。アルバム・プレイリストなどを1回だけランダムな順で入れる「シャッフル再生」は持たない（ADR-098）。キューの並べ替えは`player.svelte.ts`の`shuffleArray`（Fisher-Yates）で行い、配列を`sort(() => Math.random() - 0.5)`などで独自に並べ替えない
 
 ### 多言語化（i18n）
 
@@ -283,27 +295,37 @@ src-tauri/src/
 
 - 一覧では、矢印キーを押しても一覧をスクロールさせず、選択している項目から隣の項目へ選択を移す（移動先が画面の外なら、見える位置までスクロールする）。移動先の計算は`#lib/utils/listNavigation`の`navigationTarget`（リストは↑↓、グリッドは上下左右、Home・End）で行う
 - 曲の一覧（`TrackList`）のリスト表示の列は、`#lib/utils/trackColumns`の定義（`TRACK_COLUMN_IDS`・`TRACK_COLUMNS`）から描画する（ADR-038）
+  - 一覧の下の合計（曲数・時間・サイズ。2曲以上を選んでいる時は、その合計も）は、`TrackList`が`#lib/utils/trackTotals`で求めて出す（`showSummary`で隠せる。ADR-114）。既定の列は、タイトル・アーティスト・アルバム・お気に入り・評価・時間（`DEFAULT_TRACK_COLUMNS`）で、既定のウィンドウ（1280×800）で横にはみ出さない幅にしてある
+  - 作曲者・グループ・コメント・BPM・ビット深度・チャンネル数と、曲の解析のテンポ・キーは、`Track.details`（`TrackDetails`）にある（ADR-115）。キーの表記は`#lib/utils/musicKey`の`formatMusicKey`
   - 列を足す時は、`TRACK_COLUMN_IDS`・`TRACK_COLUMNS`（幅・そろえ方）・`trackCellText`（セルの文字列）・`trackSort`の`sortKey`（並べ替えの値）と、見出しの表示名（`m.fields`。列のIDと同じキーで、`trackColumnLabel`が読む）を足す。どの列も並べ替えられる
   - 表示する列・列の順番・並び順は、画面ごとに`#lib/stores/trackListView.svelte`の`trackListView(viewId, defaults)`が覚える（localStorageの`muspice:trackListView:<viewId>`）。一覧を置く画面は、`TrackList`に`viewId`と、その画面の既定（`defaultColumns`・`defaultSort`）を渡す。列の幅は、どの画面でも共通で`ui.columnWidths`に持つ
   - プレイリストの画面も`TrackList`で表示する（ADR-039）。`onReorder`を渡すと、渡した順のまま並べている間（並び順がnullの間）だけ、行のドラッグで並べ替えられる（並べ替えの計算は`#lib/utils/reorder`の`moveItems`）。`onRemove`を渡すと、右クリックのメニューとDeleteキーで、選択した曲を一覧から外せる。列はどのプレイリストでも共通（`viewId="playlist"`）、並び順はプレイリストごと（`sortViewId`に`playlistSortViewId(id)`）に覚える
   - 再生中の曲へのジャンプは、`ui.revealTrackId`に曲のIDを入れる。その曲を含む`TrackList`が、行までスクロールして選び、nullに戻す。開いている画面の一覧にない場合は、プレーヤーが全曲の一覧（`isRevealFallback`を付けた`TrackList`）へ移動する
+  - 曲からアルバム・アーティストの画面への移動（ADR-110）は、`#lib/utils/libraryReveal`の`goToAlbum`・`goToArtist`で行う。検索を外し、Now Playingの画面を閉じ、`ui.revealGroup`に移る先（アルバムは名前とまとめたアーティスト、アーティストは名前）を置いてから、画面を開く。グリッド表示は`LibraryGrid`がカードを選んで（中身の領域を開いて）見える位置へ出し、リスト表示は`LibraryBrowsePage`が左の一覧の項目を選び（`revealKind`・`revealListKey`）、右のペインへ移る先を渡す（アルバムの画面では、`ArtistAlbumsView`がそのアルバムの見出しまでスクロールする）。受け取った方がnullに戻す
+  - 移る先のアーティストは、アーティストの画面のまとめ方と同じ（`artistsOf`。アルバムアーティスト、なければコンピレーションは`Various Artists`、ほかは曲のアーティストのそれぞれの値）。右クリックのメニューでは、複数ある曲はサブメニューで選び、名前のクリック・「曲」メニューでは最初のアーティストへ移る
+  - 名前を押して移るボタンは、`app.css`の`text-link`（文字のまま見せ、ポインタを置くと下線）で作る
 - 曲の一覧（`TrackList`（プレイリストの画面を含む）、アーティスト・アルバムアーティストの詳細（`ArtistAlbumsView`）、再生履歴（`PlayHistoryList`）、右サイドバーのアルバム情報パネル）は、一覧ごとに`#lib/utils/trackSelection.svelte`の`TrackSelection`を作り、行のクリックを`click()`へ、一覧の`onkeydown`を`handleTrackListKeydown`へ渡す
   - 矢印キーで選択を移し、Shift+矢印で範囲選択、Cmd/Ctrl+Aですべて選択、Enterで再生する
   - Shift+クリックの範囲は、Shift+矢印と同じ起点（最後に修飾キーなし・Cmd/Ctrlでクリックした行、または矢印で移した行）から選ぶ（`computeClickSelection`に`TrackSelection`の起点を渡す）
   - 一覧の要素を`role="listbox"`・`tabindex="0"`にしてフォーカスを受け、行は`role="option"`・`data-track-id`を付けてフォーカスを受けない（行をクリックすると一覧の要素にフォーカスが移り、行が消えてもキー操作を続けられる）
   - 表示する一覧が別のものに変わった時（別のアルバムを選んだ等）は`reset()`で選択を消す
   - 仮想スクロールの一覧では、移動先の行の要素がないことがあるため、`handleTrackListKeydown`の`scrollTo`に`VirtualList`の`scrollToIndex`を渡す（渡さない場合は、`data-track-id`の付いた行の要素を探してスクロールする）
+  - 見た目の並びが表示順と違う一覧（2列に分けた`ArtistAlbumsView`）は、`handleTrackListKeydown`の`sideTarget`で←→の移動先のトラックIDを返し、`TrackSelection.moveTo`で移す（移動先の位置は`#lib/utils/listNavigation`の`twoColumnSideTarget`。nullを返すと、←→は`columns`に従う）
 - 1つだけ選択する一覧（2ペイン表示の左の`ArtistList`。アーティストとアルバムアーティスト）は、`listSelectionTarget`で移動先を求めて選択し、その項目へフォーカスも移す（Tabでは選択中の項目だけに止まる）
 - グリッド表示（`LibraryGrid`: アルバム・アーティスト・ジャンル）は、現在位置の項目を枠で示し、Enterで`onOpen`を行う（ジャンルはクリックと同じく画面を開き、アルバム・アーティストはダブルクリックと同じく再生する。カードのクリックは選ぶだけ。ADR-078）
+- `LibraryGrid`に`detail`（項目と、閉じる関数を受け取るSnippet）を渡すと、グリッド表示の現在位置の項目の中身を、グリッドの下に出す（`GridDetailSplit`。現在位置がない時は出さない。閉じると現在位置を外す。開いた時は、2フレーム待ってから、選んだ項目を`scrollToIndex`で見える位置へ出す）。項目は、検索で絞り込む前の一覧から引く。最近追加した曲の画面は、同じ部品をアルバムの項目だけに使う。領域の高さは`ui.gridDetailHeight`（localStorageの`muspice:gridDetailHeight`。最小`MIN_GRID_DETAIL_HEIGHT`）で、`GridDetailSplit`が、グリッドに120pxを残して収める（ADR-097）
+  - 中身の`ArtistAlbumsView`（`compact`）は、領域（`artist-albums`のコンテナ）の幅が48rem以上の時、ディスクごとの入れ物（`.disc-tracks`）をCSS Gridにして、曲を2列に分ける（`grid-auto-flow: column`。段の数は`--track-rows`に曲数の半分の切り上げを渡す）。お気に入りと評価を、ポインタを置いた時だけ出すかは、行（`track-row`のコンテナ）の幅が38rem以下かで決める。2列の時は、←→で隣の列の同じ段の曲へ移る（`sideTarget`。2列かどうかは、現在位置の曲の`.disc-tracks`の`display`で見分ける。ADR-105）
+  - `AlbumDetail`は`ArtistAlbumsView`に`singleAlbum`を渡す。アルバムごとの見出し（`.album-header`）を出さず、一覧の見出しの名前の横に、アーティスト・ジャンルと年・曲数と時間（`.header-meta`。幅が足りない時は省略）を出し、見出しの「その他」と右クリックでアルバムのメニュー（`GroupContextMenu`の`album`）を開く（ADR-107）
   - キーの扱い（移動・Enter・修飾キーやカードの中のボタンでは何もしない）は`#lib/utils/listNavigation`の`openableListAction`にまとめる。`LibraryGrid`を使わないグリッド（最近追加した曲。アルバムと曲のカードが混ざり、メニューもカードの種類で変わる）も、これと同じ形（一覧を`role="listbox"`、カードを包む項目を`role="option"`の`grid-item`）にする。最近追加した曲のカードは、アルバムと曲（アルバムのない曲）のどちらも、Enterでダブルクリックと同じく再生する
-- アルバム情報パネル（`AlbumInfoPanel`）は、再生中の曲のアルバムを、アルバム名とまとめるアーティスト（`#lib/utils/albumKey`の`groupArtist`）が変わった時だけ`useAlbumTracksQuery`で取得する（同じアルバムの次の曲へ進んでも取り直さない）。アルバムが替わった時は選択を消して先頭へ戻し、再生中の曲が変わった時は、曲を取得した後にその行を見える位置へ出す。上部の曲のカード（`SidePanelTrack`）は、曲の情報をキューの曲（キューに入れた時点の内容）から出し、評価とお気に入りは、Now Playingの画面と同じく全曲の一覧・お気に入りの一覧から調べる（再生キュー・曲情報パネルのカードも同じ。ADR-078・ADR-079）
-- 曲情報パネル（`TrackInfoPanel`）は、`ui.selectedTrack`（最後に選んだ曲と、選んでいる曲の数）を出す（ADR-078）。曲を選べる一覧（`TrackList`・`ArtistAlbumsView`・`PlayHistoryList`）は、初期化で`followSelectedTrack`に、`TrackSelection.lastSelected`の曲と選んでいる曲の数を返す関数を渡す（右サイドバーのアルバム情報パネルの一覧は渡さない。同じサイドバーで切り替えるため、曲情報パネルを開くとなくなる）
+- アルバム情報パネル（`AlbumInfoPanel`）は、再生中の曲のアルバムを、アルバム名とまとめるアーティスト（`#lib/utils/albumKey`の`groupArtist`）が変わった時だけ`useAlbumTracksQuery`で取得する（同じアルバムの次の曲へ進んでも取り直さない）。アルバムが替わった時は選択を消して先頭へ戻し、再生中の曲が変わった時は、曲を取得した後にその行を見える位置へ出す。上部の曲の情報（`SidePanelTrackDetails`）は、パネルの中で最後に選んだ曲（`TrackSelection.lastSelected`）、なければ再生中の曲（取得したアルバムの曲の内容）を出す（ADR-096）。上部の曲のカード（`SidePanelTrack`）は、曲の情報をキューの曲（キューに入れた時点の内容）から出し、評価とお気に入りは、Now Playingの画面と同じく全曲の一覧・お気に入りの一覧から調べる（再生キュー・曲情報パネルのカードも同じ。ADR-078・ADR-079）
+- 選択中の曲のパネル（`TrackInfoPanel`）は、`ui.selectedTrack`（最後に選んだ曲と、選んでいる曲の数。選択を外した・一覧がなくなった後は数が0で、カードの見出しを「最後に選んだ曲」にする）を出す。曲の内容は`useTracksQuery`の全曲の一覧から最新のものを引き、見つからない曲（ライブラリから消えた）は出さない。見出しのスイッチ（`SidePanelSwitch`）は`ui.autoShowSelectedTrack`（localStorageの`muspice:autoShowSelectedTrack`。既定はオフ）を切り替え、オンの間は、`followSelectedTrack`が選択の変化を見た時に、右サイドバーを開いていればこのパネルに切り替える（閉じていれば開かない。ADR-078・ADR-096）。曲を選べる一覧（`TrackList`・`ArtistAlbumsView`・`PlayHistoryList`）は、初期化で`followSelectedTrack`に、`TrackSelection.lastSelected`の曲と選んでいる曲の数を返す関数を渡す（右サイドバーのアルバム情報パネルの一覧は渡さない。同じサイドバーで切り替えるため、曲情報パネルを開くとなくなる）
   - 最後に選択を変えた一覧が出す。その一覧の選択が空になった時と、一覧がなくなった時（画面を移った時）は空にする。出している一覧の曲を取り直した時は新しい内容に入れ替え、ほかの一覧は、曲を取り直しただけ（曲と数が同じ）では上書きしない
   - 曲を選べる一覧を足す時は、`followSelectedTrack`も呼ぶ
 - 木の一覧（フォルダ別・年代別の画面の左の`TreeBrowser`）は、`role="tree"`の一覧で、Tabでは選んでいる項目（選んでいなければ先頭の項目）だけに止まる。↑↓・Home・Endで選ぶ項目を移し、→で開く（開いていれば最初の子へ）、←で閉じる（閉じていれば親へ）。キーの扱いは`#lib/utils/listNavigation`の`treeKeyAction`にまとめる。開閉の三角はポインタだけで押し、フォーカスを受けない
 - 右サイドバーの再生キューの曲のリストは、一覧（`role="listbox"`）がフォーカスを受け、↑↓・Home・Endで現在位置を移し、Enterで再生し、Delete / Backspaceでキューから削除する（`openableListAction`）。行の中の削除のボタンは、ポインタを置いた行・現在位置の行・フォーカスした時に出す
 - 操作の結果の通知（`Toast`）は、エラーを`role="alert"`、ほかを`role="status"`の領域に出す。スクリーンリーダーは、すでにある読み上げの領域に足した内容だけを読むため、領域は通知がない間も置いておく
 - 修飾キーなしの矢印キーは一覧が使う。プレーヤーのショートカット（`Player.svelte`）はCmd/Ctrl+矢印（前へ・次へ・音量）・Cmd/Ctrl+L（再生中の曲を表示）と、Space（再生・一時停止）・S（シャッフル）・R（リピート）・M（ミュート）
+  - ⌘N・⌘F・⌘Iなど、メニューの項目にしたキーは、メニューバー（`menu.rs`）が受け取る（ウィンドウの中では扱わない。ADR-109）。画面に出すキーの表記は、macOSの記号（⌘・⌥・⇧・⌃）で書く
   - プレーヤーはウィンドウでキーを受け取るため、フォーカスのある要素がキーを使う場合はショートカットを行わない。条件は`#lib/utils/globalShortcuts`の`isGlobalShortcutBlocked`にまとめる
   - ほかの処理が処理したキー（`defaultPrevented`）と、入力の部品（input・textarea・select）・編集できる要素の中、モーダル（`<dialog open>`）が開いている間は、どのショートカットも行わない（モーダルの間は背面の画面と同じく操作できなくする。Cmd/Ctrl+Lで背面の画面を移動しないように）
   - Cmd/Ctrlなしのキー（Space・S・R・M）は、ボタン（Spaceで押す）と、メニュー（`role="menu"`。頭文字で項目を選ぶ）・ボタンから開くパネル（`role="dialog"`）の中では行わない。一覧（`role="listbox"`の要素と、ボタンで作った`role="option"`の項目）では、Spaceで再生・一時停止する
@@ -348,9 +370,9 @@ src-tauri/src/
 - 右サイドバーのパネルの幅は、`app.css`の`--spacing-side-panel`。パネルを切り替えても幅が変わらないよう、再生キュー・サウンド・アルバム情報・曲情報のパネルのどれも同じ幅にする（ADR-077）。パネルを本文の横に並べる間（`ui.isRightSidebarDocked`: 固定した時）は、レイアウトが本文をその幅だけ寄せる（`.main-container`の`margin-right`）。幅を変える時は変数だけを変える
 - 右サイドバーのパネル（`src/lib/components/rightSidebar/`）は、`SidePanel`の枠に中身を渡して作る（見出しの文字・高さ（48px）・余白・スクロールを、パネルごとに書かない。ADR-079）
   - 見出しのボタンは`actions`のスニペットに`SidePanelButton`（アイコンのボタン。説明は、ツールチップと読み上げに使う）を並べる。常に見せる領域（曲のカード`SidePanelTrack`）は`top`のスニペット、残りは本文に置く
-  - 本文は`SidePanelSection`（小さな見出しと、見出しの右端の操作。イコライザのオン・オフなど）で区切る。中身がない時は`SidePanelMessage`を出す。仮想スクロールの一覧は、`SidePanel`の`scroll={false}`と`SidePanelSection`の`fill`で残りの高さに広げ、`flush`で左右の余白を行に任せる
+  - 本文は`SidePanelSection`（小さな見出しと、見出しの右端の操作。イコライザのオン・オフなど）で区切る。設定を並べるパネル（サウンド）は`variant="group"`にし、見出しを大きくして、まとまりの間に区切りの線を引く（ADR-108）。見出しの文字のクラスは、`app.css`の`section-title`（左のサイドバーの見出し）と名前を重ねない。中身がない時は`SidePanelMessage`を出す。仮想スクロールの一覧は、`SidePanel`の`scroll={false}`と`SidePanelSection`の`fill`で残りの高さに広げ、`flush`で左右の余白を行に任せる
   - 中身によって並びが動かないよう、見出し・曲のカード・まとまりの見出しは高さを固定し、文字は1行に収めて省略する（値のない行も高さを空ける）。ボタンは、使えない間も消さずに`disabled`にする
-  - サウンドのパネル（`SoundPanel`）は、音の加工の設定を、まとまりのコンポーネント（`EqualizerSection`）で並べる。同じ種類の設定（再生速度・音量の正規化など）をパネルに足す時は、まとまりのコンポーネントを作って並べる
+  - サウンドのパネル（`SoundPanel`）は、音の設定を、まとまりのコンポーネント（`ReplayGainSection`・`CrossfadeSection`・`EqualizerSection`・`CrossfeedSection`）で、音を処理する順に並べる。設定を足す時は、まとまりのコンポーネントを作って並べる。まとまりの中の操作は、見出しのオン・オフのスイッチ（`SidePanelToggle`）・選択肢のボタンの並び（`SidePanelOptions`）・名前と値の付いたスライダー（`SidePanelSlider`。離した時に`onchange`）を使う（ADR-099）。オン・オフはどのまとまりも見出しのスイッチで行い（ボタンの並びの「オフ」にしない）、説明の文は出さない（ADR-108）
   - 本文が狭くなるため、ライブラリの見出し（`LibraryHeader`）は、見出しの文字・ボタンの文字を折り返さず、検索欄を縮め、それでも入らなければ項目を次の行へ送る
 - 再生バー（`Player`）は、画面の下の端に幅いっぱいで重ね、高さを`--spacing-player-height`に固定する（曲がある時・ない時で変えない）。下の端まである部品（左右のサイドバー・ページの領域・Now Playingの画面・モーダル）は、この変数の分だけ下を空ける（`pb-player-height`または`padding-bottom: var(--spacing-player-height)`）。再生バーの中身の高さを変えたら、変数の値も合わせる
 
@@ -456,7 +478,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 - 行の高さはすべて同じとして扱う。高さは決め打ちにせず、描画した行を実測する（`estimatedRowHeight`は最初の描画だけに使う）。`minColumnWidth`を渡すとグリッドになり、幅に入るだけ列を並べる
   - 高さがそろわない項目（名前の長さで高さが変わるジャンルのカード）は位置を正しく求められないため、すべて描画する（`LibraryGrid`の`virtualized={false}`）
 - `row`は、項目ごとに要素を1つだけ描画する（描画した行の数を、要素の数から数えるため）
-- ジャケット画像のカード（アルバム・アーティスト・最近追加した曲・曲のグリッド表示）は、幅を`ui.gridCardWidth`（スライダーの値`ui.gridCardSize`に、枠の内側の余白を足した幅）に決めて、列の中央に置く（`justify-items-center`。`LibraryGrid`では`centerCards`）。幅を決めないと、長い名前の幅までカードが広がり、隣の列に重なる。ジャケット画像はカードの幅いっぱいに出す。間隔は`GRID_CARD_GAP`、見た目は`app.css`の`grid-card`・`grid-card-art`・`grid-card-title`・`grid-card-subtitle`でそろえる
+- ジャケット画像のカード（アルバム・アーティスト・最近追加した曲・曲のグリッド表示）は、幅を`ui.gridCardWidth`（スライダーの値`ui.gridCardSize`に、枠の内側の余白を足した幅）に決めて、列の中央に置く（`justify-items-center`。`LibraryGrid`では`centerCards`）。幅を決めないと、長い名前の幅までカードが広がり、隣の列に重なる。ジャケット画像はカードの幅いっぱいに出す。間隔は`GRID_CARD_GAP`、見た目は`app.css`の`grid-card`・`grid-card-art`・`grid-card-title`・`grid-card-subtitle`でそろえる。ポインタを置くと出る再生ボタン（`play-overlay`・`play-button-circle`）は、覆いをコンテナにして、画像の40%（20〜48px。`cqmin`）にする（ADR-097）
 - 表示範囲・列数・スクロール先の計算は`#lib/utils/virtualList`の純粋関数（`computeVirtualRange`など）で行う
 - 描画されていない行があるため、行の要素を探す処理（`querySelector`・`scrollIntoView`）には頼らない。位置は一覧の中の順番（index）で扱い、スクロールは`scrollToIndex`、グリッドの列数は`getColumns`を使う。`scrollToIndex`は、表示した直後（見える高さ・行の高さを測る前）に呼ばれた場合、測った後でスクロールする（見積もりの高さでは、違う位置へ出すため）
 - 一覧の全件を対象にする処理（並び替え・選択・行ごとの判定）は、数万件でも重くならないようにする
@@ -505,10 +527,11 @@ Tauriのウィンドウ（macOSではWKWebView）はブラウザ自動化ツー�
 
 1. Frontend Check（type-check, lint, format:check, markdownlint, test）
 2. Backend Check（ubuntu。fmt --check, clippy, test, `bindings.ts`が最新か）
-3. Backend Check (macOS)（macOS。clippy, test, `bindings.ts`が最新か）: macOSだけのコード（`cfg(target_os = "macos")`。メディアキー・ゴミ箱・ドロップしたファイル・形式の変換・グローバルホットキーなど）とobjc2系の依存を確かめる。fmtはOSによらずすべてのファイルを見るため、Backend Checkだけで行う。バンドルは作らない
-4. Build Test（PR時のみ、ubuntuでTauri build）
+3. Backend Check (macOS)（macOS。clippy, test, `bindings.ts`が最新か）: macOSだけのコード（`cfg(target_os = "macos")`。メディアキー・ゴミ箱・ドロップしたファイル・形式の変換・グローバルホットキーなど）とobjc2系の依存を確かめる。fmtはOSによらずすべてのファイルを見るため、Backend Checkだけで行う。バンドルは作らない。ランナーのXcode（26）にはMusicUnderstandingがないため、曲の解析のSwiftのコードは組み込まない（`music_understanding`の印のない側を確かめる。組み込まない側は、手元でも`MUSPICE_SKIP_MUSIC_ANALYSIS=1`を付けたclippy・testで確かめられる。ADR-104）
+4. Backend Check (macOS, Xcode 27)（`xcode-27`のイメージ。macOS 27・Xcode 27のプレビュー。clippy, test, Swiftのコードが組み込まれたか, 曲の解析のテスト, `bindings.ts`が最新か）: 曲の解析のSwiftのコード（`swift/music_analysis.swift`）と、それを呼ぶRustのコード（`music_understanding`の印のある側）を確かめる。Xcodeは手元と同じ27.2を`DEVELOPER_DIR`で選ぶ（イメージの既定は27.1で、macOSのSDKは27.0）。build.rsは組み込めない時も警告だけを出してビルドを続けるため、テストの実行ファイルにSwiftの関数（`_muspice_music_analysis_analyze`など）があることを`nm`で確かめる（ないと失敗にする）。ランナーのmacOSは27のため、普段は動かさない実際の解析のテスト（`cargo test music_analysis -- --ignored`）も流す。イメージがプレビューのため、必須のチェックにはしない（ADR-106）。27.2がイメージから外れたら、`DEVELOPER_DIR`を直す
+5. Build Test（PR時のみ、ubuntuでTauri build）
 
-ジョブ名（`name:`）は、mainのルールセット「Main Branch Protection」の必須チェックに登録する（`Frontend Check`・`Backend Check`・`Backend Check (macOS)`・`Build Test (ubuntu-latest)`）。名前を変える時は、ルールセットも合わせて直す（直さないと、すべてのPRがマージできなくなる）。
+ジョブ名（`name:`）は、mainのルールセット「Main Branch Protection」の必須チェックに登録する（`Frontend Check`・`Backend Check`・`Backend Check (macOS)`・`Build Test (ubuntu-latest)`。`Backend Check (macOS, Xcode 27)`は登録しない）。名前を変える時は、ルールセットも合わせて直す（直さないと、すべてのPRがマージできなくなる）。
 
 対応するOSはmacOSだけ（ADR-090）で、配布の対象（`tauri.conf.json`の`bundle.targets`）は`app`・`dmg`。CIのビルドテストはLinuxで行うため、`tauri.linux.conf.json`で、Linuxの配布物を`.deb`だけにしている（ビルドが通ることの確認。macOSの配布物のビルドは、リリース用のワークフロー（#303）で行う）。
 

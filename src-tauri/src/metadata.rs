@@ -1,6 +1,6 @@
 use crate::ape_tag;
 use crate::error::{AppError, AppResult};
-use crate::models::{Metadata, ReplayGain, SortTags};
+use crate::models::{Metadata, ReplayGain, SortTags, TrackDetails};
 use crate::multi_value;
 use crate::ogg_flac;
 use crate::rating_tag;
@@ -284,18 +284,25 @@ pub struct BackfillTags {
     pub genre: Option<String>,
     /// 評価（半分の星の単位。0は評価なし）
     pub rating: i32,
+    /// コンピレーションの印
+    pub compilation: bool,
+    /// 作曲者・グループ・コメント・BPM・ビット深度・チャンネル数（ADR-115）
+    pub details: TrackDetails,
 }
 
-/// 音楽ファイルのタグから、アルバムアーティスト・ソート用のタグ・アーティスト・ジャンル・評価だけを読む
+/// 音楽ファイルのタグから、アルバムアーティスト・ソート用のタグ・アーティスト・ジャンル・評価・コンピレーションの印だけを読む
 ///
 /// それらの列を追加する前に登録したトラックの読み込み（`tag_backfill`）に使う。
 /// 長さ・ビットレートなどは読まない（全ファイルを読むため、1ファイルあたりの時間を抑える）。
 pub fn read_backfill_tags(file_path: &Path) -> AppResult<BackfillTags> {
-    let tagged_file = read_tagged_file(file_path, ParseOptions::new().read_properties(false))?;
-
-    Ok(tagged_file
+    // ビット深度・チャンネル数（ADR-115）のため、オーディオの情報も読む
+    let tagged_file = read_tagged_file(file_path, ParseOptions::new())?;
+    let tag = tagged_file
         .primary_tag()
-        .or_else(|| tagged_file.first_tag())
+        .or_else(|| tagged_file.first_tag());
+    let details = track_details(tag, Some(tagged_file.properties()));
+
+    Ok(tag
         .map(|tag| {
             let metadata = library_metadata(tag);
             BackfillTags {
@@ -304,9 +311,18 @@ pub fn read_backfill_tags(file_path: &Path) -> AppResult<BackfillTags> {
                 artist: metadata.artist,
                 genre: metadata.genre,
                 rating: rating_tag::read_rating(tag),
+                compilation: metadata.compilation == Some(true),
+                details: TrackDetails::default(),
             }
         })
-        .unwrap_or_default())
+        .map(|tags| BackfillTags {
+            details: details.clone(),
+            ..tags
+        })
+        .unwrap_or(BackfillTags {
+            details,
+            ..Default::default()
+        }))
 }
 
 /// ゲインとして受け付ける範囲（dB）。範囲外の値は壊れたタグとして無視する
@@ -424,8 +440,19 @@ fn library_metadata(tag: &Tag) -> Metadata {
         artist_sort: extract_sort_text(tag, ItemKey::TrackArtistSortOrder),
         album_sort: extract_sort_text(tag, ItemKey::AlbumTitleSortOrder),
         album_artist_sort: extract_sort_text(tag, ItemKey::AlbumArtistSortOrder),
+        // アルバムアーティストのないコンピレーションを、1つのアルバムにまとめるために使う（ADR-093）
+        compilation: extract_compilation(tag),
         ..Default::default()
     }
+}
+
+/// タグからコンピレーションの印を取得する（印がある時だけ`Some(true)`。ない・外してある時はNone）
+///
+/// ID3v2は`TCMP`、MP4は`cpil`、Vorbisコメント・APEv2タグは`COMPILATION`。
+fn extract_compilation(tag: &Tag) -> Option<bool> {
+    tag.get_string(ItemKey::FlagCompilation)
+        .map(|value| matches!(value.trim(), "1" | "true" | "TRUE" | "True"))
+        .filter(|&compilation| compilation)
 }
 
 /// タグから、編集画面で扱うすべての項目を取り出す
@@ -438,17 +465,11 @@ fn editor_metadata(tag: &Tag) -> Metadata {
         .and_then(|value| value.trim().parse::<f64>().ok())
         .map(|bpm| bpm.round() as i32)
         .filter(|bpm| BPM_RANGE.contains(bpm));
-    let compilation = tag
-        .get_string(ItemKey::FlagCompilation)
-        .map(|value| matches!(value.trim(), "1" | "true" | "TRUE" | "True"))
-        .filter(|&compilation| compilation);
-
     Metadata {
         track_total: tag.track_total().map(|t| t as i32),
         disc_total: tag.disk_total().map(|t| t as i32),
         grouping: extract_text(tag, ItemKey::ContentGroup),
         bpm,
-        compilation,
         comment: tag
             .comment()
             .map(|s| s.to_string())
@@ -519,6 +540,33 @@ pub struct FileInfo {
     pub replay_gain: ReplayGain,
     /// 評価（半分の星の単位。0は評価なし、7は星3.5）
     pub rating: i32,
+    /// 作曲者・グループ・コメント・BPM・ビット深度・チャンネル数（解析の項目は含まない。ADR-115）
+    pub details: TrackDetails,
+}
+
+/// タグとオーディオの情報から、一覧に使う後から足した項目（作曲者など。ADR-115）を取り出す
+///
+/// 解析の項目（`analyzed_bpm`・`analyzed_key`）は、ファイルには持たないため、空のまま返す。
+fn track_details(
+    tag: Option<&Tag>,
+    properties: Option<&lofty::properties::FileProperties>,
+) -> TrackDetails {
+    let editor = tag.map(editor_metadata).unwrap_or_default();
+    TrackDetails {
+        composer: editor.composer,
+        grouping: editor.grouping,
+        comment: editor.comment,
+        bpm: editor.bpm,
+        bit_depth: properties
+            .and_then(|p| p.bit_depth())
+            .map(i32::from)
+            .filter(|bits| *bits > 0),
+        channels: properties
+            .and_then(|p| p.channels())
+            .map(i32::from)
+            .filter(|channels| *channels > 0),
+        ..Default::default()
+    }
 }
 
 /// 音楽ファイルから全情報（タグ・長さ・ビットレート・サンプルレート・ReplayGain・評価）を
@@ -541,6 +589,7 @@ pub fn extract_all_file_info(file_path: &Path) -> AppResult<FileInfo> {
     let duration = Some(properties.duration().as_secs() as i32);
     let bitrate = properties.audio_bitrate().map(|b| b as i32);
     let sample_rate = properties.sample_rate().map(|s| s as i32);
+    let details = track_details(tag, Some(properties));
 
     Ok(FileInfo {
         metadata,
@@ -549,6 +598,7 @@ pub fn extract_all_file_info(file_path: &Path) -> AppResult<FileInfo> {
         sample_rate,
         replay_gain,
         rating,
+        details,
     })
 }
 
@@ -1464,9 +1514,21 @@ mod tests {
                 "{name}"
             );
             assert_eq!(library.sort_tags(), metadata.sort_tags(), "{name}");
+            // コンピレーションの印も、取り込みで読む（アルバムのまとめ方に使う。ADR-093）
+            assert_eq!(library.compilation, Some(true), "{name}");
             // 列を追加する前に登録したトラックの読み込みでも、同じ値を読む
+            let backfill = read_backfill_tags(&file).unwrap();
+            // 作曲者なども読む（ADR-115。ここでは、取り込みで読む値と同じかだけを確かめる）
             assert_eq!(
-                read_backfill_tags(&file).unwrap(),
+                backfill.details,
+                extract_all_file_info(&file).unwrap().details,
+                "{name}"
+            );
+            assert_eq!(
+                BackfillTags {
+                    details: TrackDetails::default(),
+                    ..backfill
+                },
                 BackfillTags {
                     album_artist: Some("アルバムアーティスト".to_string()),
                     sort_tags: SortTags {
@@ -1478,6 +1540,8 @@ mod tests {
                     artist: Some("アーティスト".to_string()),
                     genre: Some("Jazz".to_string()),
                     rating: 0,
+                    compilation: true,
+                    details: TrackDetails::default(),
                 },
                 "{name}"
             );
@@ -2311,7 +2375,19 @@ mod tests {
 
         let info = extract_all_file_info(&file).unwrap();
         assert_eq!(info.sample_rate, Some(8000));
-        assert_eq!(read_backfill_tags(&file).unwrap(), BackfillTags::default());
+        // タグはないが、オーディオの情報（ビット深度・チャンネル数）は中身から読む
+        let backfill = read_backfill_tags(&file).unwrap();
+        assert_eq!(
+            (backfill.details.bit_depth, backfill.details.channels),
+            (Some(16), Some(1))
+        );
+        assert_eq!(
+            BackfillTags {
+                details: TrackDetails::default(),
+                ..backfill
+            },
+            BackfillTags::default()
+        );
 
         update_file_rating(&file, 5).unwrap();
         assert_eq!(extract_all_file_info(&file).unwrap().rating, 5);

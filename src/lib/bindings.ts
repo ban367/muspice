@@ -164,6 +164,72 @@ foundCount: number } |
 	 */
 	removeMissingTracks: () => __TAURI_INVOKE<number>("remove_missing_tracks"),
 	/**
+	 *  見つからない曲のファイルの場所を、ファイルを選ぶダイアログで指定する（ADR-117）
+	 * 
+	 *  ダイアログは、曲の元の場所に近い、今あるフォルダから開く。結び付けた曲を返す（選ばずに閉じた
+	 *  場合はNone）。見つかっている曲・選んだファイルがほかの曲として登録済みの場合は`VALIDATION`。
+	 */
+	locateTrackFile: (trackId: string) => __TAURI_INVOKE<{
+	id: string,
+	filePath: string,
+	fileName: string,
+	title: string | null,
+	artist: string | null,
+	album: string | null,
+	/**  アルバムアーティスト（タグにない曲は値なし。一覧では、ない場合に`artist`でまとめる） */
+	albumArtist: string | null,
+	genre: string | null,
+	year: number | null,
+	trackNumber: number | null,
+	discNumber: number | null,
+	duration: number | null,
+	fileSize: number,
+	format: string,
+	bitrate: number | null,
+	sampleRate: number | null,
+	isFavorite: boolean,
+	/**  評価（半分の星の単位。0は評価なし、7は星3.5、10は星5つ。ADR-082） */
+	rating: number,
+	/**  再生回数（曲の半分か4分を聴いた回数） */
+	playCount: number,
+	/**  スキップ回数（再生回数に数える前に、別の曲へ移った回数） */
+	skipCount: number,
+	/**  最後に再生回数に数えた日時 */
+	lastPlayedAt: string | null,
+	createdAt: string,
+	updatedAt: string,
+	/**  音量の正規化に使うゲイン（タグにない項目は値なし） */
+	replayGain: ReplayGain,
+	/**  並び順に使う値（読みなど。タグにない項目は値なし） */
+	sortTags: SortTags,
+	/**  ファイルが見つからない（再スキャンで見つからなくなった曲。利用者が外すまで残す） */
+	isMissing: boolean,
+	/**
+	 *  コンピレーション（複数のアーティストの曲を集めたアルバム）の印。アルバムアーティストがない曲は、
+	 *  「Various Artists」のアルバムにまとめる（`group_artist`。ADR-093）
+	 */
+	compilation: boolean,
+	/**  一覧の列・検索に使う、タグとファイルの情報のうち、後から持つようにした項目（ADR-115） */
+	details: TrackDetails,
+	/**
+	 *  CUEシートの曲（アルバム1ファイルの中の1曲）の、元の音声ファイルと範囲（ふつうの曲はnull。ADR-123）
+	 * 
+	 *  CUEシートの曲の`file_path`は、仮のパス（`アルバム.cue#03`。`cue::virtual_path`）。
+	 */
+	cue: TrackCue | null,
+} | null>("locate_track_file", { trackId }),
+	/**
+	 *  フォルダを選ぶダイアログで選んだフォルダの中から、見つからない曲のファイルを探して結び付ける（ADR-117）
+	 * 
+	 *  フォルダを選ばずに閉じた場合はNone。
+	 */
+	findMissingTracksInFolder: () => __TAURI_INVOKE<{
+	/**  結び付けた曲の数 */
+	relinkedCount: number,
+	/**  まだ見つからない曲の数 */
+	remainingCount: number,
+} | null>("find_missing_tracks_in_folder"),
+	/**
 	 *  読み込まないフォルダを選ぶダイアログを開き、ライブラリフォルダの除外の一覧へ足す
 	 * 
 	 *  ダイアログはRust側で、ライブラリフォルダを開いた状態で出す（WebViewからパスを受け取らない）。
@@ -259,8 +325,14 @@ playlistCount: number } | null>("set_music_folder", { source }),
 	confirmMusicFolderChange: (backup: boolean) => __TAURI_INVOKE<MusicFolderChange>("confirm_music_folder_change", { backup }),
 	/**  預かっている音楽フォルダを手放す（置き換えをやめた） */
 	cancelMusicFolderChange: () => __TAURI_INVOKE<null>("cancel_music_folder_change"),
-	/**  音楽フォルダの設定を外す（ライブラリフォルダの記録・ファイルは、そのまま） */
-	clearMusicFolder: () => __TAURI_INVOKE<null>("clear_music_folder"),
+	/**
+	 *  音楽フォルダにするフォルダを、ダイアログで選んで預かる（設定ウィンドウの「フォルダを変更...」。#408）
+	 * 
+	 *  まだ音楽フォルダにはしない（設定の「適用」で`set_music_folder(Picked)`を呼ぶ）。選び直すと置き換える。
+	 * 
+	 *  @returns 選んだフォルダ（画面に出す。ダイアログで選ばずに閉じた場合はnull）
+	 */
+	pickMusicFolder: () => __TAURI_INVOKE<string | null>("pick_music_folder"),
 	/**
 	 *  音楽フォルダの書式の例（最近追加したアルバムの最初の曲を、書式に当てはめた、音楽フォルダからの場所）
 	 * 
@@ -295,6 +367,14 @@ playlistCount: number } | null>("set_music_folder", { source }),
 	playlistIds: string[],
 	/**  同期の対象から外れた曲を、デバイスから削除するか */
 	removeUnselected: boolean,
+	/**  デバイス上の配置の書式（ファイルの整理と同じ書き方。ADR-111） */
+	pathTemplate: string,
+	/**  曲に添えて、歌詞ファイル・フォルダの画像もコピーするか（ADR-112） */
+	copyExtras: boolean,
+	/**  転送する時の変換（ADR-118） */
+	transcode: DeviceTranscode,
+	/**  取り出せるか（macOSで、転送先のフォルダが`/Volumes`の下のドライブにあり、接続されている。ADR-113） */
+	ejectable: boolean,
 	/**  接続されているか（転送先のフォルダに、このデバイスの管理ファイルがあるか） */
 	connected: boolean,
 	/**  空き容量・全体の容量（バイト）。接続されていない場合は値なし */
@@ -326,6 +406,14 @@ playlistCount: number } | null>("set_music_folder", { source }),
 	playlistIds: string[],
 	/**  同期の対象から外れた曲を、デバイスから削除するか */
 	removeUnselected: boolean,
+	/**  デバイス上の配置の書式（ファイルの整理と同じ書き方。ADR-111） */
+	pathTemplate: string,
+	/**  曲に添えて、歌詞ファイル・フォルダの画像もコピーするか（ADR-112） */
+	copyExtras: boolean,
+	/**  転送する時の変換（ADR-118） */
+	transcode: DeviceTranscode,
+	/**  取り出せるか（macOSで、転送先のフォルダが`/Volumes`の下のドライブにあり、接続されている。ADR-113） */
+	ejectable: boolean,
 	/**  接続されているか（転送先のフォルダに、このデバイスの管理ファイルがあるか） */
 	connected: boolean,
 	/**  空き容量・全体の容量（バイト）。接続されていない場合は値なし */
@@ -357,6 +445,19 @@ playlistCount: number } | null>("set_music_folder", { source }),
 	runDeviceSync: (deviceId: string) => __TAURI_INVOKE<DeviceSyncResult>("run_device_sync", { deviceId }),
 	/**  実行中の同期を中止する（コピー中のファイルの途中でも止める。実行中でなければ何もしない） */
 	cancelDeviceSync: () => __TAURI_INVOKE<null>("cancel_device_sync"),
+	/**
+	 *  同期する内容の曲数と、ライブラリでのサイズの合計を返す（デバイスのページの見通し。ADR-113）
+	 * 
+	 *  デバイスに触れず、ライブラリの記録から求める（接続されていなくても求められる）。
+	 */
+	getSyncSelectionSummary: (deviceId: string) => __TAURI_INVOKE<SyncSelectionSummary>("get_sync_selection_summary", { deviceId }),
+	/**
+	 *  デバイスのドライブを取り出す（macOS。同期の後に使う。ADR-113）
+	 * 
+	 *  転送先のフォルダが`/Volumes`の下のドライブにある時だけ使える（ほかは`VALIDATION`）。同期の
+	 *  実行中は`LOCK`。ほかのアプリがファイルを開いているなどで取り出せない時は`IO`。
+	 */
+	ejectSyncDevice: (deviceId: string) => __TAURI_INVOKE<null>("eject_sync_device", { deviceId }),
 	/**  現在の設定を取得 */
 	getSettings: () => __TAURI_INVOKE<Settings>("get_settings"),
 	/**
@@ -607,6 +708,74 @@ includesSettings: boolean } |
 	 *  解析の途中のアルバムには何も書かずに終わる。次に解析すると、残りの曲から続く。
 	 */
 	cancelLoudnessScan: () => __TAURI_INVOKE<null>("cancel_loudness_scan"),
+	/**  曲の解析の状態を取得する（このMacで使えるか・実行中か・解析した曲の数） */
+	getMusicAnalysisStatus: () => __TAURI_INVOKE<MusicAnalysisStatus>("get_music_analysis_status"),
+	/**
+	 *  曲の解析を、バックグラウンドで始める（解析していない曲を1曲ずつ。実行中なら何もしない）
+	 * 
+	 *  すぐに返る。進み具合と終わりは`MusicAnalysisProgress`で知らせる。止めるまでに終わらなければ、
+	 *  次の起動で続きから再開する。このMacで使えない時（macOS 27より古い）は`VALIDATION`。
+	 */
+	startMusicAnalysis: () => __TAURI_INVOKE<null>("start_music_analysis"),
+	/**  実行中の曲の解析を止める（解析中の曲が終わってから止まる）。次の起動でも再開しない */
+	stopMusicAnalysis: () => __TAURI_INVOKE<null>("stop_music_analysis"),
+	/**  曲の解析の結果をすべて消す（実行中は`LOCK`） */
+	deleteMusicAnalysis: () => __TAURI_INVOKE<MusicAnalysisStatus>("delete_music_analysis"),
+	/**
+	 *  AIシャッフルで、今の曲の次に足す曲を選ぶ（選び方は設定の`aiShuffleMode`）
+	 * 
+	 *  `excluded_track_ids`の曲（キューの今の位置の前後の曲）は選ばない。ほかに選べる曲がなければ、
+	 *  今の曲だけを避けて選ぶ。選べる曲がない（ライブラリに今の曲しかない）時はnull。
+	 */
+	pickAiShuffleTrack: (currentTrackId: string, excludedTrackIds: string[]) => __TAURI_INVOKE<{
+	id: string,
+	filePath: string,
+	fileName: string,
+	title: string | null,
+	artist: string | null,
+	album: string | null,
+	/**  アルバムアーティスト（タグにない曲は値なし。一覧では、ない場合に`artist`でまとめる） */
+	albumArtist: string | null,
+	genre: string | null,
+	year: number | null,
+	trackNumber: number | null,
+	discNumber: number | null,
+	duration: number | null,
+	fileSize: number,
+	format: string,
+	bitrate: number | null,
+	sampleRate: number | null,
+	isFavorite: boolean,
+	/**  評価（半分の星の単位。0は評価なし、7は星3.5、10は星5つ。ADR-082） */
+	rating: number,
+	/**  再生回数（曲の半分か4分を聴いた回数） */
+	playCount: number,
+	/**  スキップ回数（再生回数に数える前に、別の曲へ移った回数） */
+	skipCount: number,
+	/**  最後に再生回数に数えた日時 */
+	lastPlayedAt: string | null,
+	createdAt: string,
+	updatedAt: string,
+	/**  音量の正規化に使うゲイン（タグにない項目は値なし） */
+	replayGain: ReplayGain,
+	/**  並び順に使う値（読みなど。タグにない項目は値なし） */
+	sortTags: SortTags,
+	/**  ファイルが見つからない（再スキャンで見つからなくなった曲。利用者が外すまで残す） */
+	isMissing: boolean,
+	/**
+	 *  コンピレーション（複数のアーティストの曲を集めたアルバム）の印。アルバムアーティストがない曲は、
+	 *  「Various Artists」のアルバムにまとめる（`group_artist`。ADR-093）
+	 */
+	compilation: boolean,
+	/**  一覧の列・検索に使う、タグとファイルの情報のうち、後から持つようにした項目（ADR-115） */
+	details: TrackDetails,
+	/**
+	 *  CUEシートの曲（アルバム1ファイルの中の1曲）の、元の音声ファイルと範囲（ふつうの曲はnull。ADR-123）
+	 * 
+	 *  CUEシートの曲の`file_path`は、仮のパス（`アルバム.cue#03`。`cue::virtual_path`）。
+	 */
+	cue: TrackCue | null,
+} | null>("pick_ai_shuffle_track", { currentTrackId, excludedTrackIds }),
 	/**
 	 *  トラックのアルバムアートの情報（埋め込みの画像か、フォルダの画像か・種類・大きさ）を取得する
 	 * 
@@ -625,28 +794,61 @@ includesSettings: boolean } |
 	height: number | null,
 } | null>("get_album_art_info", { trackId }),
 	/**
-	 *  画像ファイルを選び、トラックのファイルにアルバムアートとして埋め込む
+	 *  アルバムアートにする画像ファイルを選び、書き込まずに預かる（編集画面の「画像を選ぶ」）
 	 * 
-	 *  画像（JPEG・PNG）は縮小せず、そのまま埋め込む。表示している画像（フロントカバー）を
-	 *  置き換える。書き込めなかったトラックは、結果の`errors`へ理由を入れて残りを続ける。
+	 *  画像（JPEG・PNG、10MBまで）を確かめて預かり、見本の画像と印を返す。選び直すと、前の画像は捨てる。
 	 *  画像を選ばなかった場合はNoneを返す。
 	 */
-	setAlbumArt: (trackIds: string[]) => __TAURI_INVOKE<{
-	/**  ファイルとデータベースを更新できたトラック数 */
-	updatedCount: number,
-	/**  更新できなかったトラック数（ファイルが見つからない・書き込めないなど） */
-	failedCount: number,
-	/**  更新できなかったトラックの理由（ファイルごと） */
-	errors: string[],
-	/**  音楽フォルダの曲を、書式どおりの場所へ移し直した結果（移し直さない場合はnull。ADR-071） */
-	organized: KeepOrganizedResult | null,
-} | null>("set_album_art", { trackIds }),
+	pickAlbumArt: () => __TAURI_INVOKE<{
+	/**  預かった画像を指す印（保存する時に`set_album_art`へ渡す） */
+	token: string,
+	/**  見本に出す画像（`data:`のURL） */
+	dataUrl: string,
+	mimeType: string,
+	/**  大きさ（バイト） */
+	size: number,
+	width: number | null,
+	height: number | null,
+} | null>("pick_album_art"),
+	/**
+	 *  預かった画像（`pick_album_art`の印）を、トラックのファイルにアルバムアートとして埋め込む
+	 * 
+	 *  画像は縮小せず、そのまま埋め込む。表示している画像（フロントカバー）を置き換える。
+	 *  書き込めなかったトラックは、結果の`errors`へ理由を入れて残りを続ける。預かっていない印は`VALIDATION`。
+	 */
+	setAlbumArt: (trackIds: string[], token: string) => __TAURI_INVOKE<BulkUpdateResult>("set_album_art", { trackIds, token }),
 	/**
 	 *  トラックのファイルから、埋め込みの画像をすべて取り除く
 	 * 
 	 *  埋め込みの画像がないトラックは書き換えず、結果の件数にも数えない。
 	 */
 	removeAlbumArt: (trackIds: string[]) => __TAURI_INVOKE<BulkUpdateResult>("remove_album_art", { trackIds }),
+	/**
+	 *  曲の情報の編集画面を、別のウィンドウで開く
+	 * 
+	 *  開いている間は、メインウィンドウを操作できないようにする（`TrackEditorChanged`）。すでに開いている
+	 *  場合は、編集中の内容を失わないよう、曲を入れ替えずに前面へ出す。
+	 * 
+	 *  `sequence`は、開いた一覧の曲の並び（1曲の編集で、編集画面から前後の曲へ移るのに使う。ADR-119）。
+	 *  一括編集・並びのない所から開く時は、空にする。
+	 */
+	openTrackEditor: (trackIds: string[], sequence: string[]) => __TAURI_INVOKE<null>("open_track_editor", { trackIds, sequence }),
+	/**  編集画面で扱う曲を、開いた時の順に返す（ライブラリから外された曲は除く） */
+	getTrackEditorTracks: () => __TAURI_INVOKE<Track[]>("get_track_editor_tracks"),
+	/**  編集している曲の、開いた一覧の並びでの位置（並びのない編集ではnull。ADR-119） */
+	getTrackEditorPosition: () => __TAURI_INVOKE<{
+	/**  0から数えた位置 */
+	index: number,
+	/**  一覧の曲数 */
+	count: number,
+} | null>("get_track_editor_position"),
+	/**
+	 *  編集する曲を、開いた一覧の並びの前（`offset`が負）・後ろの曲へ移す（ADR-119）
+	 * 
+	 *  移ったらtrue（編集画面は、`get_track_editor_tracks`で曲を取り直す）。並びの端ではfalse。ライブラリから
+	 *  外された曲と、CUEシートの曲（編集できない。ADR-123）は飛ばす。前の曲で選んで使わなかった画像は捨てる。
+	 */
+	moveTrackEditor: (offset: number) => __TAURI_INVOKE<boolean>("move_track_editor", { offset }),
 	/**  プレイリストを作成 */
 	createPlaylist: (name: string) => __TAURI_INVOKE<Playlist>("create_playlist", { name }),
 	/**  自動プレイリスト（条件で曲を集めるプレイリスト）を作成 */
@@ -775,6 +977,20 @@ includesSettings: boolean } |
 	skippedPlaylistCount: number,
 } | null>("import_library_xml", { includePlaylists }),
 	/**
+	 *  ライブラリを、保存のダイアログで選んだファイルへ書き出す（選ばなかった場合はnull。ADR-121）
+	 * 
+	 *  XMLは、曲とプレイリスト（自動プレイリストは、書き出す時点で条件に合う曲。プレイリストのフォルダも）。
+	 *  CSVは、曲の一覧（見出しはアプリの言語）。同じ名前のファイルを選んだ場合は置き換える（一時ファイルに
+	 *  書いてから置き換える）。
+	 */
+	exportLibrary: (format: LibraryExportFormat) => __TAURI_INVOKE<{
+	/**  書き出したファイル */
+	path: string,
+	trackCount: number,
+	/**  書き出したプレイリスト数（CSVは0） */
+	playlistCount: number,
+} | null>("export_library", { format }),
+	/**
 	 *  再生状態（音量・シャッフル・リピート・再生キュー・再生していた曲）を保存する
 	 * 
 	 *  `queue`は、キューが変わった時だけ渡す（nullなら、保存してあるキューから変えない）。
@@ -824,9 +1040,16 @@ includesSettings: boolean } |
 	 *  イコライザの設定を変える（再生中の音にすぐに効く）
 	 * 
 	 *  `gains`は、バンドごとのゲイン（dB。31Hz〜16kHzの10個。範囲外の値は-12〜12に収める）。
+	 *  `preamp`は、全体の音量（dB。範囲外の値は-12〜12に収める）。
 	 *  設定はフロントエンドが保存しており（`equalizer.svelte.ts`）、起動時と変更のたびに送る。
 	 */
-	playbackSetEqualizer: (enabled: boolean, gains: (number | null)[]) => __TAURI_INVOKE<null>("playback_set_equalizer", { enabled, gains }),
+	playbackSetEqualizer: (enabled: boolean, gains: (number | null)[], preamp: number | null) => __TAURI_INVOKE<null>("playback_set_equalizer", { enabled, gains, preamp }),
+	/**
+	 *  シャッフルモードかを伝える（音量の正規化が自動の時に、トラック単位とアルバム単位を選ぶのに使う）
+	 * 
+	 *  シャッフルモードはフロントエンドが持っており、起動時と切り替えのたびに送る。
+	 */
+	playbackSetShuffle: (shuffle: boolean) => __TAURI_INVOKE<null>("playback_set_shuffle", { shuffle }),
 	/**  再生を止める（再生中の曲・続けて再生する曲を手放す） */
 	playbackStop: () => __TAURI_INVOKE<null>("playback_stop"),
 	/**  出力デバイスの一覧を取得する */
@@ -926,6 +1149,7 @@ includesSettings: boolean } |
 
 /** Events */
 export const events = {
+	clearPlayQueue: makeEvent<ClearPlayQueue>("clear-play-queue"),
 	convertProgress: makeEvent<ConvertProgress>("convert-progress"),
 	deviceSyncProgress: makeEvent<DeviceSyncProgress>("device-sync-progress"),
 	importFilesRequested: makeEvent<ImportFilesRequested>("import-files-requested"),
@@ -934,6 +1158,8 @@ export const events = {
 	libraryScanProgress: makeEvent<LibraryScanProgress>("library-scan-progress"),
 	loudnessScanFinished: makeEvent<LoudnessScanFinished>("loudness-scan-finished"),
 	loudnessScanProgress: makeEvent<LoudnessScanProgress>("loudness-scan-progress"),
+	menuCommand: makeEvent<MenuCommand>("menu-command"),
+	musicAnalysisProgress: makeEvent<MusicAnalysisProgress>("music-analysis-progress"),
 	openImportDialog: makeEvent<OpenImportDialog>("open-import-dialog"),
 	organizeProgress: makeEvent<OrganizeProgress>("organize-progress"),
 	playbackControl: makeEvent<PlaybackControl>("playback-control"),
@@ -942,17 +1168,25 @@ export const events = {
 	showAboutDialog: makeEvent<ShowAboutDialog>("show-about-dialog"),
 	toggleMiniPlayer: makeEvent<ToggleMiniPlayer>("toggle-mini-player"),
 	toggleSidebar: makeEvent<ToggleSidebar>("toggle-sidebar"),
+	trackEditorChanged: makeEvent<TrackEditorChanged>("track-editor-changed"),
+	tracksEdited: makeEvent<TracksEdited>("tracks-edited"),
 	tracksOpened: makeEvent<TracksOpened>("tracks-opened"),
 };
 
 /* Constants */
 export const AAC_BITRATES_KBPS = [128,192,256,320] as const;
 
+export const AI_SHUFFLE_EXCLUSION_WINDOW = 100 as const;
+
 export const AUTO_BACKUP_KEEP = 7 as const;
 
 export const DEFAULT_AAC_BITRATE_KBPS = 256 as const;
 
 export const DEFAULT_ACCENT_COLOR = "#3b82f6" as const;
+
+export const DEFAULT_CROSSFADE_SECONDS = 5 as const;
+
+export const DEFAULT_DEVICE_TEMPLATE = "%albumartist%/%album%/[%disc%-]%track% %title%" as const;
 
 export const DEFAULT_MUSIC_FOLDER_TEMPLATE = "%albumartist%/%album%/[%disc%-]%track% %title%" as const;
 
@@ -962,7 +1196,18 @@ export const MAX_CROSSFADE_SECONDS = 12 as const;
 
 export const MAX_NORMALIZATION_PREAMP_DB = 12 as const;
 
+export const MIN_CROSSFADE_SECONDS = 1 as const;
+
 /* Types */
+/**  AIシャッフルの選び方 */
+export type AiShuffleMode = 
+/**  今の曲に、テンポ・キー（曲の解析）とジャンル・アーティスト・年が近い曲 */
+"similar" | 
+/**  再生回数が多い曲 */
+"frequentlyPlayed" | 
+/**  再生回数が少なく、しばらく再生していない曲 */
+"rarelyPlayed";
+
 /**  トラックのアルバムアートの情報（アルバムアートの画面に出す） */
 export type AlbumArtInfo = {
 	source: AlbumArtSource,
@@ -1076,6 +1321,13 @@ export type BulkUpdateResult = {
 	organized: KeepOrganizedResult | null,
 };
 
+/**
+ *  ライブラリを置き換えた（音楽フォルダの変更。ADR-086）: メインウィンドウの再生キューをクリアさせる
+ * 
+ *  前のライブラリの曲がキューに残らないよう、再生中の曲も止める（キューの「クリア」と同じ。#412）。
+ */
+export type ClearPlayQueue = null;
+
 /**  1曲の計画（一覧に表示する） */
 export type ConvertEntry = {
 	trackId: string,
@@ -1154,6 +1406,9 @@ export type ConvertStatus =
 /**  選んだ曲の中に、同じ出力先になる曲がある */
 "sameTarget";
 
+/**  クロスフィードの強さ（左右の音を混ぜる量。強いほど多く混ぜる） */
+export type CrossfeedLevel = "weak" | "medium" | "strong";
+
 /**  日付の項目 */
 export type DateField = 
 /**  追加した日時 */
@@ -1204,13 +1459,26 @@ export type DeviceSyncPlan = {
 	unchangedCount: number,
 	/**  書き出すプレイリスト数 */
 	playlistCount: number,
+	/**  コピーする曲のうち、AACに変換する曲数（変換する曲のサイズは、ビットレートと長さからの見積もり。ADR-118） */
+	transcodeCount: number,
 	/**  元のファイルが見つからない曲数（コピーできない。コピー済みならデバイスに残す） */
 	missingSourceCount: number,
-	/**  デバイスの空き容量と、同期で増える容量（バイト） */
+	/**  コピー・削除する、曲に添えるファイル（歌詞ファイル・フォルダの画像）の数と、コピーするサイズ（ADR-112） */
+	extraCopyCount: number,
+	extraCopyBytes: number,
+	extraDeleteCount: number,
+	/**  デバイスの空き容量と、同期で増える容量（バイト。曲に添えるファイルを含む） */
 	freeBytes: number,
 	requiredBytes: number,
 	/**  空き容量が足りるか */
 	hasEnoughSpace: boolean,
+	/**
+	 *  コピー・削除・名前を変える曲のデバイス上の場所（確認の画面で見せる。それぞれ先頭の
+	 *  `PLAN_ITEMS_LIMIT`件まで。件数は`copyCount`などを使う。ADR-113）
+	 */
+	copyPaths: string[],
+	deletePaths: string[],
+	renames: SyncRename[],
 };
 
 /**  デバイスへの同期の進捗（コピー中のファイル） */
@@ -1226,6 +1494,8 @@ export type DeviceSyncProgress = {
 	bytesTotal: number,
 	/**  コピー中のファイル名 */
 	currentFile: string,
+	/**  コピー中のファイルを変換しているか（ADR-118） */
+	converting: boolean,
 };
 
 /**  同期の結果 */
@@ -1233,12 +1503,22 @@ export type DeviceSyncResult = {
 	copiedCount: number,
 	deletedCount: number,
 	renamedCount: number,
+	/**  コピー・削除した、曲に添えるファイルの数 */
+	extraCopiedCount: number,
+	extraDeletedCount: number,
 	/**  書き出したプレイリスト数 */
 	playlistCount: number,
 	errorCount: number,
 	errors: string[],
 	/**  途中で中止された */
 	cancelled: boolean,
+};
+
+/**  デバイスへ転送する時の変換の設定（ADR-118） */
+export type DeviceTranscode = {
+	mode: TranscodeMode,
+	/**  変換先のAACのビットレート（kbps。`transcode::AAC_BITRATES_KBPS`のどれか） */
+	bitrateKbps: number,
 };
 
 /**  重複ファイルの処理方法 */
@@ -1298,15 +1578,31 @@ export type GlobalShortcutAction =
 /**  次の曲へ進む */
 "next" | 
 /**  前の曲へ戻る */
-"previous";
+"previous" | 
+/**  音量を1段階上げる・下げる */
+"volumeUp" | "volumeDown" | 
+/**  ミュートを切り替える */
+"toggleMute";
 
 /**  グローバルホットキーの割り当てと、登録の状態（設定画面に出す） */
 export type GlobalShortcutInfo = {
 	action: GlobalShortcutAction,
-	/**  キーの名前（押す順。例: `["Control", "Option", "P"]`） */
+	/**  キーの名前（押す順。例: `["Control", "Option", "P"]`。割り当てがなければ空） */
 	keys: string[],
-	/**  OSに登録できているか（設定がオフの間は、どれも`false`） */
+	/**  割り当て（`control+alt+KeyP`の形。割り当てがなければnull） */
+	shortcut: string | null,
+	/**  OSに登録できているか（設定がオフの間・割り当てがない操作は`false`） */
 	registered: boolean,
+};
+
+/**  グローバルホットキーの1つの割り当て */
+export type GlobalShortcutKey = {
+	action: GlobalShortcutAction,
+	/**
+	 *  組み合わせ（`control+alt+KeyP`の形。修飾キーは`control`・`alt`・`shift`・`super`、キーは
+	 *  `KeyboardEvent.code`と同じ名前）
+	 */
+	shortcut: string,
 };
 
 /**  メニュー「ファイルをインポート...」: インポートダイアログを開き、ファイルを選ぶダイアログを出す */
@@ -1368,6 +1664,13 @@ export type KeepOrganizedResult = {
 	errors: string[],
 };
 
+/**  キー（曲の解析の結果）の比べ方 */
+export type KeyOp = "is" | 
+/**  そのキーではない（解析していない曲を含む） */
+"isNot" | 
+/**  キーがない（解析していない・解析できなかった・キーを決められなかった曲） */
+"isEmpty" | "isNotEmpty";
+
 /**  表示の言語 */
 export type Language = 
 /**  日本語 */
@@ -1381,6 +1684,22 @@ export type Language =
  *  設定ウィンドウでの操作を、メインウィンドウの一覧（Queryのキャッシュ）に反映する。
  */
 export type LibraryChanged = null;
+
+/**  書き出す形式 */
+export type LibraryExportFormat = 
+/**  iTunes形式のライブラリXML（曲・評価・再生回数・プレイリスト） */
+"xml" | 
+/**  曲の一覧のCSV */
+"csv";
+
+/**  書き出した結果 */
+export type LibraryExportResult = {
+	/**  書き出したファイル */
+	path: string,
+	trackCount: number,
+	/**  書き出したプレイリスト数（CSVは0） */
+	playlistCount: number,
+};
 
 /**  ライブラリフォルダ（一覧表示用） */
 export type LibraryFolder = {
@@ -1396,6 +1715,12 @@ export type LibraryFolder = {
 	exclusions: FolderExclusion[],
 	/**  音楽フォルダ（新しい曲を置く宛先）か */
 	isMusicFolder: boolean,
+	/**
+	 *  ネットワーク上のボリューム（NASのSMB・AFP・NFSなど）にあるか（macOSだけで調べる。ADR-120）
+	 * 
+	 *  ほかの機器からの変更が、フォルダの監視に通知されないため、定期の再スキャンを勧めるのに使う。
+	 */
+	isNetwork: boolean,
 };
 
 /**  ライブラリフォルダの一覧 */
@@ -1532,6 +1857,30 @@ export type MatchMode =
 "any";
 
 /**
+ *  メニューバーの、メインウィンドウで行う操作（ADR-109）
+ * 
+ *  操作はフロントエンド（`stores/menuCommands.ts`）が行う。ダイアログを開いている間は何もしない。
+ */
+export type MenuCommand = 
+/**  「新規プレイリスト...」: プレイリストの名前の入力を開く */
+{ type: "newPlaylist" } | 
+/**  「新規自動プレイリスト...」: 自動プレイリストの編集画面を開く */
+{ type: "newSmartPlaylist" } | 
+/**  「検索」: 表示中の画面の検索欄へ移る（検索欄のない画面では、曲の画面を開いてから） */
+{ type: "find" } | 
+/**  「曲の情報を編集...」: 一覧で選んでいる曲の、曲の情報の編集画面を開く */
+{ type: "editTrackInfo" } | 
+/**  「ファイルの場所を開く」: 一覧で最後に選んだ曲のファイルを、Finderで表示する */
+{ type: "showInFinder" } | 
+/**  「アルバムへ移動」: 一覧で最後に選んだ曲の、アルバムの画面を開く（ADR-110） */
+{ type: "goToAlbum" } | 
+/**
+ *  「アーティストへ移動」: 一覧で最後に選んだ曲の、アーティストの画面を開く（複数のアーティストの曲は、
+ *  最初のアーティスト）
+ */
+{ type: "goToArtist" };
+
+/**
  *  曲のタグ（編集画面で扱う項目）
  * 
  *  読み出し（`get_track_tags`）では、ファイルのタグの内容を表す（タグにない項目は値なし）。
@@ -1569,6 +1918,31 @@ export type Metadata = {
 	artistSort?: string | null,
 	albumSort?: string | null,
 	albumArtistSort?: string | null,
+};
+
+/**  フォルダから見つからない曲を探した結果 */
+export type MissingTrackSearchResult = {
+	/**  結び付けた曲の数 */
+	relinkedCount: number,
+	/**  まだ見つからない曲の数 */
+	remainingCount: number,
+};
+
+/**  曲の解析（テンポ・キー）の状態が変わった（始めた・1曲を解析した・終わった・止めた） */
+export type MusicAnalysisProgress = MusicAnalysisStatus;
+
+/**  解析の状態（画面に出す） */
+export type MusicAnalysisStatus = {
+	/**  このMacで解析を使えるか（macOS 27以降） */
+	available: boolean,
+	/**  解析を実行中か */
+	running: boolean,
+	/**  曲の数（見つからない曲を除く） */
+	total: number,
+	/**  解析した曲の数 */
+	analyzed: number,
+	/**  解析できなかった曲の数 */
+	failed: number,
 };
 
 /**  音楽フォルダ（印を付けたライブラリフォルダ） */
@@ -1615,8 +1989,10 @@ export type MusicFolderInfo = {
 export type MusicFolderSource = 
 /**  既定の音楽フォルダ（`~/Music/Muspice`。なければ作る。パスはRust側で求める） */
 "default" | 
-/**  ダイアログで選ぶ */
-"pick";
+/**  ダイアログで選ぶ（ライブラリが空の画面。選んだらすぐに変える） */
+"pick" | 
+/**  `pick_music_folder`で選んで預かったフォルダ（設定ウィンドウの「適用」） */
+"picked";
 
 /**  コピーしなかった曲（インポートの結果に出す。曲は取り込んでいない） */
 export type NotCopied = {
@@ -1657,7 +2033,15 @@ export type NumberField =
 /**  長さ（秒） */
 "duration" | "trackNumber" | "discNumber" | 
 /**  ビットレート（kbps） */
-"bitrate";
+"bitrate" | 
+/**  タグのBPM */
+"bpm" | 
+/**  曲の解析で求めたテンポ（四捨五入した整数で比べる。ADR-104） */
+"analyzedBpm" | 
+/**  サンプルレート（Hz） */
+"sampleRate" | 
+/**  ビット深度（bit） */
+"bitDepth" | "channels";
 
 /**  数値の比べ方 */
 export type NumberOp = "is" | "isNot" | "atLeast" | "atMost" | 
@@ -1777,6 +2161,19 @@ export type PendingFolderImport = {
 	freeBytes: number | null,
 };
 
+/**  編集画面で選んだ画像（まだ書き込んでいない） */
+export type PickedAlbumArt = {
+	/**  預かった画像を指す印（保存する時に`set_album_art`へ渡す） */
+	token: string,
+	/**  見本に出す画像（`data:`のURL） */
+	dataUrl: string,
+	mimeType: string,
+	/**  大きさ（バイト） */
+	size: number,
+	width: number | null,
+	height: number | null,
+};
+
 /**
  *  再生回数に数えた結果（新しい再生回数と、記録した最後に再生した日時）
  * 
@@ -1836,6 +2233,8 @@ export type PlaybackCursor = {
 	volume: number | null,
 	/**  シャッフルが有効か */
 	shuffle: boolean,
+	/**  AIシャッフル（曲が始まるたびに、選び方に合う曲を次に足す）が有効か */
+	aiShuffle: boolean,
 	repeat: RepeatMode,
 	/**  キューの中の、再生していた曲の位置（何も再生していなければnull） */
 	currentIndex: number | null,
@@ -1900,6 +2299,13 @@ export type PlaylistFolder = {
 	position: number,
 	createdAt: string,
 };
+
+/**  プレイリストに入っているかの比べ方 */
+export type PlaylistOp = 
+/**  入っている */
+"is" | 
+/**  入っていない */
+"isNot";
 
 /**  プレイリスト内のトラック情報 */
 export type PlaylistTrack = {
@@ -1995,6 +2401,7 @@ includesSettings: boolean } |
 export type RestoredPlaybackState = {
 	volume: number | null,
 	shuffle: boolean,
+	aiShuffle: boolean,
 	repeat: RepeatMode,
 	/**  再生キュー（再生する順。ライブラリからなくなった曲・ファイルが見つからない曲は除く） */
 	queue: Track[],
@@ -2017,14 +2424,28 @@ export type Settings = {
 	theme: Theme,
 	/**  アクセントカラー（`#rrggbb`） */
 	accentColor: string,
-	/**  音量の正規化 */
+	/**  音量の正規化（ReplayGain）をする */
+	volumeNormalizationEnabled: boolean,
+	/**  音量の正規化で補正に使うゲインの単位（オフの間も覚えておく） */
 	volumeNormalization: VolumeNormalization,
 	/**  音量の正規化のプリアンプ（dB。正規化で補正する曲の音量を、まとめて上げ下げする） */
 	normalizationPreampDb: number,
+	/**  音量の正規化で、ゲインのない曲（ReplayGainのタグがない曲）にかける音量の変化（dB） */
+	normalizationUntaggedPreampDb: number,
+	/**  音量の正規化で、ピークがフルスケールを超えない倍率に抑える（クリップ防止） */
+	normalizationPreventClipping: boolean,
 	/**  ギャップレス再生（次の曲を先読みし、曲間に無音を入れずに続ける） */
 	gaplessPlayback: boolean,
-	/**  クロスフェードの秒数（0でクロスフェードしない） */
+	/**  クロスフェードする（曲の終わりと次の曲の頭を重ねる） */
+	crossfadeEnabled: boolean,
+	/**  クロスフェードの秒数（1〜12。オフの間も覚えておく） */
 	crossfadeSeconds: number,
+	/**  同じアルバムの続きの曲（曲順が続く曲）では、クロスフェードせずに切れ目なく続ける */
+	crossfadeSkipAlbumTracks: boolean,
+	/**  クロスフィード（ヘッドホン向けに、左右の音を少し混ぜる） */
+	crossfeedEnabled: boolean,
+	/**  クロスフィードの強さ（オフの間も覚えておく） */
+	crossfeedLevel: CrossfeedLevel,
 	/**  出力デバイスのID（nullはOSの既定のデバイス） */
 	outputDeviceId: string | null,
 	/**  ライブラリフォルダを監視し、ファイルの変更を自動で反映する */
@@ -2037,10 +2458,14 @@ export type Settings = {
 	autoDj: boolean,
 	/**  Auto DJが曲を選ぶプレイリスト（nullはライブラリ全体） */
 	autoDjPlaylistId: string | null,
+	/**  AIシャッフル（曲が始まるたびに、選び方に合う曲を次に足す）の選び方 */
+	aiShuffleMode: AiShuffleMode,
 	/**  メニューバー（トレイ）に常駐する（アイコンを出し、ウィンドウを閉じても再生を続ける） */
 	stayInMenuBar: boolean,
 	/**  グローバルホットキー（ほかのアプリを使っている間も効くショートカット）を使う */
 	globalShortcuts: boolean,
+	/**  グローバルホットキーの割り当て（操作ごとに1つまで。割り当てのない操作は含めない。ADR-122） */
+	globalShortcutKeys: GlobalShortcutKey[],
 	/**  曲が変わった時に、OSの通知で知らせる（ウィンドウが前面にない時だけ） */
 	notifyTrackChange: boolean,
 	/**
@@ -2099,7 +2524,16 @@ export type SmartRule =
 /**  お気に入りかどうか */
 { kind: "favorite"; value: boolean } | 
 /**  音楽フォルダの中にあるか（音楽フォルダが未設定なら、どの曲も中にない。ADR-084） */
-{ kind: "inMusicFolder"; value: boolean };
+{ kind: "inMusicFolder"; value: boolean } | 
+/**
+ *  曲の解析で求めたキー（`value`は、主音の音名 + 12 × 調（0は長調・1は短調）。0はハ長調、
+ *  21はイ短調。`IsEmpty`・`IsNotEmpty`では使わない）
+ */
+{ kind: "key"; op: KeyOp; value: number } | 
+/**  ほかのプレイリストに入っているか（自動プレイリストは、その条件に合う曲。ADR-116） */
+{ kind: "playlist"; op: PlaylistOp; playlistId: string } | 
+/**  ファイルが見つからない曲か（ADR-023） */
+{ kind: "missing"; value: boolean };
 
 /**  自動プレイリストの条件 */
 export type SmartRules = {
@@ -2158,6 +2592,14 @@ export type SyncDevice = {
 	playlistIds: string[],
 	/**  同期の対象から外れた曲を、デバイスから削除するか */
 	removeUnselected: boolean,
+	/**  デバイス上の配置の書式（ファイルの整理と同じ書き方。ADR-111） */
+	pathTemplate: string,
+	/**  曲に添えて、歌詞ファイル・フォルダの画像もコピーするか（ADR-112） */
+	copyExtras: boolean,
+	/**  転送する時の変換（ADR-118） */
+	transcode: DeviceTranscode,
+	/**  取り出せるか（macOSで、転送先のフォルダが`/Volumes`の下のドライブにあり、接続されている。ADR-113） */
+	ejectable: boolean,
 	/**  接続されているか（転送先のフォルダに、このデバイスの管理ファイルがあるか） */
 	connected: boolean,
 	/**  空き容量・全体の容量（バイト）。接続されていない場合は値なし */
@@ -2167,16 +2609,35 @@ export type SyncDevice = {
 	lastSyncedAt: string | null,
 };
 
-/**  デバイスの設定（名前と同期する対象） */
+/**  デバイスの設定（名前と同期する対象と、デバイス上の配置の書式） */
 export type SyncDeviceConfig = {
 	name: string,
 	syncAll: boolean,
 	playlistIds: string[],
 	removeUnselected: boolean,
+	pathTemplate: string,
+	copyExtras: boolean,
+	transcode: DeviceTranscode,
+};
+
+/**  デバイス上で名前を変える曲（変更前と変更後の場所） */
+export type SyncRename = {
+	from: string,
+	to: string,
+};
+
+/**
+ *  同期する内容の曲数と、ライブラリでのサイズの合計（デバイスのページで見せる見通し。ADR-113）
+ * 
+ *  デバイスに触れずに、ライブラリの記録から求める（コピー済みかどうか・曲に添えるファイルは含めない）。
+ */
+export type SyncSelectionSummary = {
+	trackCount: number,
+	totalBytes: number,
 };
 
 /**  文字列の項目 */
-export type TextField = "title" | "artist" | "albumArtist" | "album" | "genre" | 
+export type TextField = "title" | "artist" | "albumArtist" | "album" | "genre" | "composer" | "grouping" | "comment" | 
 /**  ファイルの種類（mp3・flacなど） */
 "format" | 
 /**  ファイルの場所（フォルダ名での絞り込みに使う） */
@@ -2238,6 +2699,67 @@ export type Track = {
 	sortTags: SortTags,
 	/**  ファイルが見つからない（再スキャンで見つからなくなった曲。利用者が外すまで残す） */
 	isMissing: boolean,
+	/**
+	 *  コンピレーション（複数のアーティストの曲を集めたアルバム）の印。アルバムアーティストがない曲は、
+	 *  「Various Artists」のアルバムにまとめる（`group_artist`。ADR-093）
+	 */
+	compilation: boolean,
+	/**  一覧の列・検索に使う、タグとファイルの情報のうち、後から持つようにした項目（ADR-115） */
+	details: TrackDetails,
+	/**
+	 *  CUEシートの曲（アルバム1ファイルの中の1曲）の、元の音声ファイルと範囲（ふつうの曲はnull。ADR-123）
+	 * 
+	 *  CUEシートの曲の`file_path`は、仮のパス（`アルバム.cue#03`。`cue::virtual_path`）。
+	 */
+	cue: TrackCue | null,
+};
+
+/**  CUEシートの曲の、元の音声ファイルと範囲（ADR-123） */
+export type TrackCue = {
+	/**  曲の入っている音声ファイル */
+	source: string,
+	/**  曲の始まりと終わり（1/75秒。終わりがnullなら、ファイルの終わりまで） */
+	start: number,
+	end: number | null,
+};
+
+/**
+ *  曲の、一覧の列・検索に使う項目のうち、後から持つようにしたもの（作曲者・BPM・ビット深度など。ADR-115）
+ * 
+ *  タグ・ファイルの項目は、取り込み・再スキャン・編集の保存で記録する（登録済みの曲は、起動後に
+ *  `tag_backfill`が読む）。解析の項目は、曲の解析の結果（`track_analysis`。ADR-104）から読む。
+ */
+export type TrackDetails = {
+	composer: string | null,
+	grouping: string | null,
+	comment: string | null,
+	/**  BPM（タグの値。整数） */
+	bpm: number | null,
+	/**  ビット深度（PCMの形式など、ファイルが持つ場合だけ） */
+	bitDepth: number | null,
+	/**  チャンネル数 */
+	channels: number | null,
+	/**  曲の解析で求めたテンポ（BPM。解析していない・できなかった曲と、解析の後に長さが変わった曲はなし） */
+	analyzedBpm: number | null,
+	/**  曲の解析で求めたキー（主音の0〜11。短調は12を足す。なしの扱いは`analyzed_bpm`と同じ） */
+	analyzedKey: number | null,
+};
+
+/**
+ *  曲の情報の編集画面（別のウィンドウ）を開いた・閉じた（ADR-094）
+ * 
+ *  開いている間、メインウィンドウは画面に覆いを重ねて、操作を受け付けない。
+ */
+export type TrackEditorChanged = {
+	open: boolean,
+};
+
+/**  編集している曲の、一覧の並びでの位置（前後の曲へ移るボタンに使う。ADR-119） */
+export type TrackEditorPosition = {
+	/**  0から数えた位置 */
+	index: number,
+	/**  一覧の曲数 */
+	count: number,
 };
 
 /**  曲の歌詞 */
@@ -2255,20 +2777,42 @@ export type TrackMetadataChange = {
 };
 
 /**
+ *  曲のタグ・アルバムアートを書き換えた（編集画面のウィンドウでの保存。ADR-094）
+ * 
+ *  編集画面は別のウィンドウのため、メインウィンドウの一覧（Queryのキャッシュ）と、表示中の
+ *  アルバムアートに反映させる。曲の場所が変わった場合（音楽フォルダの整理）は、`LibraryChanged`も送る。
+ */
+export type TracksEdited = {
+	/**  書き換えた曲 */
+	trackIds: string[],
+	/**  アルバムアートを書き換えたか（表示中の画像を読み直させる） */
+	albumArt: boolean,
+};
+
+/**
  *  「このアプリで開く」などで開かれたファイルのインポートが済んだ
  * 
  *  フロントエンドは、`take_opened_files`で曲を受け取って再生する（`opened_files`）。
  */
 export type TracksOpened = null;
 
-/**  音量の正規化（ReplayGain） */
-export type VolumeNormalization = 
-/**  補正しない */
+/**  デバイスへ転送する時に、曲をAACに変換する条件（ADR-118） */
+export type TranscodeMode = 
+/**  変換しない（元のファイルをコピーする） */
 "off" | 
+/**  可逆の形式（FLAC・ALAC・WAV・AIFF・WavPack・APE）の曲を変換する */
+"lossless" | 
+/**  可逆の形式の曲と、ビットレートが変換先より高い曲を変換する */
+"aboveBitrate";
+
+/**  音量の正規化（ReplayGain）で補正に使うゲインの単位（オン・オフは`Settings::volume_normalization_enabled`） */
+export type VolumeNormalization = 
 /**  トラック単位のゲインで補正する（ない場合はアルバム単位） */
 "track" | 
 /**  アルバム単位のゲインで補正する（ない場合はトラック単位） */
-"album";
+"album" | 
+/**  シャッフルモードの間はトラック単位、それ以外はアルバム単位で補正する */
+"auto";
 
 /**  アプリ内の値をファイルへ書き出した結果 */
 export type WriteMetadataResult = {

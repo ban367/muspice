@@ -2,8 +2,8 @@
   @component ContextMenu
   トラック用コンテキストメニュー。
   再生キューへの追加（次のキューに追加して再生・次のキューに追加・キューの末尾に追加・キューを置き換えて
-  再生）、プレイリスト追加、お気に入りの切り替え、メタデータ編集、タグの一括ツール、
-  ファイルの整理、形式の変換、音量の解析、アルバムアートの変更、削除などのアクションを提供する。
+  再生）、プレイリスト追加、お気に入りの切り替え、曲の情報の編集（別のウィンドウ。アルバムアートの変更も
+  そこで行う）、タグの一括ツール、ファイルの整理、形式の変換、音量の解析、削除などのアクションを提供する。
 -->
 <script lang="ts">
   import { EMPTY_ID_SET } from '#lib/utils/collections.js';
@@ -13,11 +13,14 @@
     MenuHeading,
     MenuItem,
     MenuSeparator,
+    MenuSub,
     PlaylistSubmenu,
     QueueMenuItems
   } from '#lib/components/ui/index.js';
+  import { albumOf, artistsOf, goToAlbum, goToArtist } from '#lib/utils/libraryReveal.js';
   import { useSetFavoriteMutation, useShowInFolderMutation } from '#lib/queries/tracks.js';
-  import { albumArtDialog } from '#lib/stores/albumArt.svelte.js';
+  import { useLocateTrackFileMutation } from '#lib/queries/libraryFolders.js';
+  import { useOpenTrackEditorMutation } from '#lib/queries/trackEditor.js';
   import { tagToolsDialog } from '#lib/stores/tagTools.svelte.js';
   import { fileOrganizeDialog } from '#lib/stores/fileOrganize.svelte.js';
   import { loudnessScanDialog } from '#lib/stores/loudnessScan.svelte.js';
@@ -33,7 +36,6 @@
     tracks?: Track[];
     selectedTrackIds?: ReadonlySet<string>;
     onClose: () => void;
-    onEditMetadata?: () => void;
     onDelete?: () => void;
     /** 選択した曲を、この一覧（プレイリスト）から外す操作（指定した一覧だけに項目を出す） */
     onRemoveFromList?: () => void;
@@ -48,17 +50,18 @@
     tracks = [],
     selectedTrackIds = EMPTY_ID_SET,
     onClose,
-    onEditMetadata,
     onDelete,
     onRemoveFromList,
     removeFromListLabel
   }: Props = $props();
 
   const showInFolderMutation = useShowInFolderMutation();
+  const locateTrackFileMutation = useLocateTrackFileMutation();
   // 形式の変換は、変換できる環境（macOS）でだけ項目を出す
   const convertFormatsQuery = useConvertFormatsQuery();
   const canConvert = $derived((convertFormatsQuery.data?.length ?? 0) > 0);
   const setFavoriteMutation = useSetFavoriteMutation();
+  const openTrackEditorMutation = useOpenTrackEditorMutation();
 
   // 選択されたトラックの数
   const selectedCount = $derived(selectedTrackIds.size > 0 ? selectedTrackIds.size : 1);
@@ -70,6 +73,9 @@
     }
     return [track];
   });
+
+  // CUEシートの曲（アルバム1ファイルの中の曲）を含む時は、ファイルを書き換える操作を出さない（ADR-123）
+  const hasCueTrack = $derived(selectedTracks.some((selected) => selected.cue !== null));
 
   // 選択した曲がすべてお気に入りなら「外す」、そうでなければ「追加」（まだの曲をまとめて追加する）
   const allFavorite = $derived(selectedTracks.every((selected) => selected.isFavorite));
@@ -86,12 +92,14 @@
   }
 
   /**
-   * メタデータを編集
+   * 選択した曲（一覧の順）の、曲の情報の編集画面を開く（別のウィンドウ。失敗はトースト通知する）
    */
   function handleEditMetadata() {
-    if (onEditMetadata) {
-      onEditMetadata();
-    }
+    // 1曲の編集では、一覧の並びも渡す（編集画面から前後の曲へ移れる。ADR-119）
+    openTrackEditorMutation.mutate({
+      trackIds: selectedTracks.map((selected) => selected.id),
+      sequence: tracks.map((listed) => listed.id)
+    });
     onClose();
   }
 
@@ -127,11 +135,19 @@
     onClose();
   }
 
-  /**
-   * 選択した曲のアルバムアートの画面を開く
-   */
-  function handleAlbumArt() {
-    albumArtDialog.open(selectedTracks);
+  // 右クリックした曲のアルバムと、アーティストの画面でまとめるアーティスト（ADR-110）
+  const hasAlbum = $derived(albumOf(track) !== null);
+  const artists = $derived(artistsOf(track));
+
+  /** 右クリックした曲の、アルバムの画面を開く */
+  function handleGoToAlbum() {
+    void goToAlbum(track);
+    onClose();
+  }
+
+  /** そのアーティストの、アーティストの画面を開く */
+  function handleGoToArtist(artist: string) {
+    void goToArtist(artist);
     onClose();
   }
 
@@ -140,6 +156,14 @@
    */
   function handleShowInFolder() {
     showInFolderMutation.mutate(track.id);
+    onClose();
+  }
+
+  /**
+   * 見つからない曲のファイルの場所を、ファイルを選ぶダイアログで指定する（ADR-117。失敗はトースト通知する）
+   */
+  function handleLocateFile() {
+    locateTrackFileMutation.mutate(track.id);
     onClose();
   }
 
@@ -153,6 +177,21 @@
     onClose();
   }
 </script>
+
+<!-- 「アーティストへ移動」のアイコン（項目とサブメニューで使う） -->
+{#snippet artistIcon()}
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    class="menu-icon"
+    fill="none"
+    viewBox="0 0 24 24"
+    stroke="currentColor"
+    stroke-width="2"
+  >
+    <path stroke-linecap="round" stroke-linejoin="round" d="M20 21a8 8 0 0 0-16 0" />
+    <circle cx="12" cy="8" r="4" />
+  </svg>
+{/snippet}
 
 <BaseContextMenu {x} {y} {onClose}>
   {#if selectedCount > 1}
@@ -186,10 +225,12 @@
     {allFavorite ? m.common.removeFromFavorites : m.common.addToFavorites}
   </MenuItem>
 
-  <MenuSeparator />
+  {#if hasAlbum || artists.length > 0}
+    <MenuSeparator />
+  {/if}
 
-  {#if onEditMetadata}
-    <MenuItem onSelect={handleEditMetadata}>
+  {#if hasAlbum}
+    <MenuItem onSelect={handleGoToAlbum}>
       {#snippet icon()}
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -197,20 +238,52 @@
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
+          stroke-width="2"
         >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-          />
+          <circle cx="12" cy="12" r="9" />
+          <circle cx="12" cy="12" r="2.5" />
         </svg>
       {/snippet}
-      {m.contextMenu.editMetadata}
+      {m.contextMenu.goToAlbum}
     </MenuItem>
   {/if}
 
-  <MenuItem onSelect={handleTagTools}>
+  <!-- アーティストが複数ある曲（「A; B」）は、サブメニューで選ぶ -->
+  {#if artists.length === 1}
+    <MenuItem onSelect={() => handleGoToArtist(artists[0])} icon={artistIcon}>
+      {m.contextMenu.goToArtist}
+    </MenuItem>
+  {:else if artists.length > 1}
+    <MenuSub label={m.contextMenu.goToArtist} icon={artistIcon}>
+      {#each artists as artist (artist)}
+        <MenuItem onSelect={() => handleGoToArtist(artist)}>{artist}</MenuItem>
+      {/each}
+    </MenuSub>
+  {/if}
+
+  <MenuSeparator />
+
+  <MenuItem onSelect={handleEditMetadata} disabled={hasCueTrack}>
+    {#snippet icon()}
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="menu-icon"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+        />
+      </svg>
+    {/snippet}
+    {m.contextMenu.editMetadata}
+  </MenuItem>
+
+  <MenuItem onSelect={handleTagTools} disabled={hasCueTrack}>
     {#snippet icon()}
       <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -230,7 +303,7 @@
     {m.contextMenu.tagTools}
   </MenuItem>
 
-  <MenuItem onSelect={handleFileOrganize}>
+  <MenuItem onSelect={handleFileOrganize} disabled={hasCueTrack}>
     {#snippet icon()}
       <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -251,7 +324,7 @@
   </MenuItem>
 
   {#if canConvert}
-    <MenuItem onSelect={handleConvert}>
+    <MenuItem onSelect={handleConvert} disabled={hasCueTrack}>
       {#snippet icon()}
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -272,7 +345,7 @@
     </MenuItem>
   {/if}
 
-  <MenuItem onSelect={handleLoudnessScan}>
+  <MenuItem onSelect={handleLoudnessScan} disabled={hasCueTrack}>
     {#snippet icon()}
       <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -292,27 +365,12 @@
     {m.contextMenu.loudnessScan}
   </MenuItem>
 
-  <MenuItem onSelect={handleAlbumArt}>
-    {#snippet icon()}
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        class="menu-icon"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-      >
-        <path
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="2"
-          d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-        />
-      </svg>
-    {/snippet}
-    {m.contextMenu.albumArt}
-  </MenuItem>
-
-  <MenuItem onSelect={handleShowInFolder}>
+  <!-- 見つからない曲は、ファイルの場所を開く代わりに、場所を指定する（ADR-117） -->
+  <!-- 見つからないCUEシートの曲は、1つのファイルに結び付けられない（フォルダから探す。ADR-123） -->
+  <MenuItem
+    onSelect={track.isMissing ? handleLocateFile : handleShowInFolder}
+    disabled={track.isMissing && track.cue !== null}
+  >
     {#snippet icon()}
       <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -329,7 +387,7 @@
         />
       </svg>
     {/snippet}
-    {m.contextMenu.showInFolder}
+    {track.isMissing ? m.contextMenu.locateFile : m.contextMenu.showInFolder}
   </MenuItem>
 
   {#if onRemoveFromList || onDelete}

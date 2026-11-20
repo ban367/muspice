@@ -27,7 +27,7 @@
  *
  * 音量の正規化とクロスフェードは、エンジンが設定を読んでかける（どの曲を重ねるか・重ねる長さも
  * エンジンが決める）。イコライザの設定はフロントエンドが保存しているため（`./equalizer.svelte.ts`）、
- * ここからエンジンへ送る。
+ * ここからエンジンへ送る。シャッフルモード（音量の正規化の自動で使う）も、ここから送る。
  *
  * 再生の補助（`./playbackAids.svelte.ts`）もここで扱う。
  * - 「この曲が終わったら停止」が有効な間は、次の曲をエンジンへ伝えない。曲の終わり（`ended`）で、
@@ -578,6 +578,13 @@ export function createPlaybackController(
       send(() => commands.playbackSetSpeed(speed), 'set playback speed');
     });
 
+    // シャッフルモード（AIシャッフルを含む）: 音量の正規化が自動の時に、エンジンがトラック単位と
+    // アルバム単位を選ぶのに使う
+    $effect(() => {
+      const shuffle = player.isShuffling;
+      send(() => commands.playbackSetShuffle(shuffle), 'set shuffle');
+    });
+
     // スリープタイマー: 設定している間、時間が来たかを定期的に確かめる
     $effect(() => {
       if (playbackAids.sleepTimer === null) return;
@@ -594,8 +601,9 @@ export function createPlaybackController(
     $effect(() => {
       const enabled = equalizer.enabled;
       const bands = equalizer.bands;
+      const preamp = equalizer.preamp;
       const gains = EQ_FREQUENCIES.map((frequency) => bands[frequency]);
-      send(() => commands.playbackSetEqualizer(enabled, gains), 'set equalizer');
+      send(() => commands.playbackSetEqualizer(enabled, gains, preamp), 'set equalizer');
     });
 
     // OSのNow Playing: プレーヤーバーと同じ内容を伝える（伝え直すかどうかは`nowPlaying`が決める）。

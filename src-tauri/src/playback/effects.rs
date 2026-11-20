@@ -1,17 +1,21 @@
-//! 出力の直前にかける音の加工: イコライザとリミッター
+//! 出力の直前にかける音の加工: イコライザ・クロスフィード・リミッター
 //!
-//! どちらも出力のコールバック（`render`）の中で動く。リングバッファより後ろにあるため、
+//! どれも出力のコールバック（`render`）の中で動く。リングバッファより後ろにあるため、
 //! イコライザのスライダーを動かした結果が、たまっている音声（約0.5秒）を待たずに聞こえる。
 //! 設定は`EffectParams`（アトミックな値）でエンジンのスレッドから渡し、ロックを取らない。
 //!
-//! - イコライザ: 10バンドのピーキングフィルター。周波数・Q・係数の式は、Web Audioの
+//! - イコライザ: 10バンドのピーキングフィルターと、全体の音量（プリアンプ）。周波数・Q・係数の式は、Web Audioの
 //!   `BiquadFilterNode`（`peaking`）と同じにしてある（以前のaudio要素での再生と、同じ設定で同じ特性になる）
+//! - クロスフィード: ヘッドホン向けに、左右の音を少し混ぜる。bs2b（Bauer stereophonic-to-binaural）の方式で、
+//!   反対側のチャンネルの低い音を少し遅らせて足し、同じ側の高い音をその分だけ持ち上げる（1次のフィルター）。
+//!   左右に同じ音（モノラル）の低い音は、音量が変わらない
 //! - リミッター: 出力が最大（0dBFS）を超えそうな時だけ、一時的に音量を下げる。イコライザでの
 //!   持ち上げのほか、音量の正規化・クロスフェードの重なり・非可逆の形式のデコード結果・
 //!   サンプルレートの変換で最大を超える場合にも効く。超えない音には何もしない
 
 use super::convert::OUTPUT_CHANNELS;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use crate::settings::CrossfeedLevel;
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering};
 
 /// イコライザのバンドの周波数（Hz。フロントエンドの`EQ_FREQUENCIES`と同じ）
 pub const EQ_FREQUENCIES: [f64; EQ_BANDS] = [
@@ -42,12 +46,19 @@ const LIMITER_RELEASE_SECONDS: f64 = 0.2;
 /// リミッターの音量がここまで戻ったら、戻りきったものとして1にする（差は0.001dB未満）
 const LIMITER_RESTORED_GAIN: f64 = 0.9999;
 
+/// クロスフィードのオン・オフを切り替える時に、元の音と混ぜた音を入れ替える時間（秒）
+const CROSSFEED_FADE_SECONDS: f32 = 0.02;
+
 /// エンジンのスレッドから出力のコールバックへ渡す、加工の設定
 #[derive(Debug)]
 pub struct EffectParams {
     equalizer_enabled: AtomicBool,
     /// バンドごとのゲイン（dBのf32のビット列）
     equalizer_gains: [AtomicU32; EQ_BANDS],
+    /// プリアンプ（全体の音量。dBのf32のビット列）
+    equalizer_preamp: AtomicU32,
+    /// クロスフィードの強さ（0はオフ。`crossfeed_code`）
+    crossfeed: AtomicU8,
     /// 設定を変えるたびに増やす番号（コールバックは、番号が変わった時だけ設定を読み直す）
     version: AtomicU64,
 }
@@ -57,6 +68,8 @@ impl Default for EffectParams {
         Self {
             equalizer_enabled: AtomicBool::new(false),
             equalizer_gains: std::array::from_fn(|_| AtomicU32::new(0.0f32.to_bits())),
+            equalizer_preamp: AtomicU32::new(0.0f32.to_bits()),
+            crossfeed: AtomicU8::new(0),
             version: AtomicU64::new(0),
         }
     }
@@ -75,6 +88,49 @@ impl EffectParams {
             slot.store(gain.to_bits(), Ordering::Relaxed);
         }
         self.version.fetch_add(1, Ordering::Release);
+    }
+
+    /// イコライザのプリアンプ（全体の音量。dB）を変える（範囲に収める）
+    pub fn set_equalizer_preamp(&self, preamp_db: f32) {
+        let preamp = if preamp_db.is_finite() {
+            preamp_db.clamp(-EQ_MAX_GAIN_DB, EQ_MAX_GAIN_DB)
+        } else {
+            0.0
+        };
+        self.equalizer_preamp
+            .store(preamp.to_bits(), Ordering::Relaxed);
+        self.version.fetch_add(1, Ordering::Release);
+    }
+
+    /// イコライザが実際にかけるプリアンプ（無効の間は0dB）
+    fn equalizer_preamp_target(&self) -> f32 {
+        if !self.equalizer_enabled.load(Ordering::Relaxed) {
+            return 0.0;
+        }
+        f32::from_bits(self.equalizer_preamp.load(Ordering::Relaxed))
+    }
+
+    /// クロスフィードの強さを変える（Noneは、クロスフィードしない）
+    pub fn set_crossfeed(&self, level: Option<CrossfeedLevel>) {
+        let code = match level {
+            None => 0,
+            Some(CrossfeedLevel::Weak) => 1,
+            Some(CrossfeedLevel::Medium) => 2,
+            Some(CrossfeedLevel::Strong) => 3,
+        };
+        if self.crossfeed.swap(code, Ordering::Relaxed) != code {
+            self.version.fetch_add(1, Ordering::Release);
+        }
+    }
+
+    /// クロスフィードの強さ（オフの間はNone）
+    fn crossfeed_level(&self) -> Option<CrossfeedLevel> {
+        match self.crossfeed.load(Ordering::Relaxed) {
+            1 => Some(CrossfeedLevel::Weak),
+            2 => Some(CrossfeedLevel::Medium),
+            3 => Some(CrossfeedLevel::Strong),
+            _ => None,
+        }
     }
 
     /// イコライザが実際にかけるゲイン（無効の間は、すべて0dB）
@@ -129,7 +185,7 @@ impl Biquad {
     }
 }
 
-/// 10バンドのイコライザ
+/// 10バンドのイコライザ（プリアンプを含む）
 pub struct Equalizer {
     sample_rate: f64,
     /// 読み込んだ設定の番号
@@ -137,6 +193,9 @@ pub struct Equalizer {
     /// 目標のゲイン（dB）と、今かけているゲイン（目標へ少しずつ近づける）
     targets: [f32; EQ_BANDS],
     gains: [f32; EQ_BANDS],
+    /// プリアンプ（dB）の目標と、今かけている値（バンドと同じ速さで近づける）
+    preamp_target: f32,
+    preamp: f32,
     filters: [Biquad; EQ_BANDS],
     /// フィルターの内部状態（バンド × チャンネル × 2）
     state: [[[f64; 2]; OUTPUT_CHANNELS]; EQ_BANDS],
@@ -150,6 +209,8 @@ impl Equalizer {
             version: u64::MAX,
             targets: [0.0; EQ_BANDS],
             gains: [0.0; EQ_BANDS],
+            preamp_target: 0.0,
+            preamp: 0.0,
             filters: [Biquad::IDENTITY; EQ_BANDS],
             state: [[[0.0; 2]; OUTPUT_CHANNELS]; EQ_BANDS],
         }
@@ -166,8 +227,14 @@ impl Equalizer {
         if version != self.version {
             self.version = version;
             self.targets = params.equalizer_targets();
+            self.preamp_target = params.equalizer_preamp_target();
         }
-        self.approach_targets(samples.len() / OUTPUT_CHANNELS);
+        let frames = samples.len() / OUTPUT_CHANNELS;
+        self.approach_targets(frames);
+        let (preamp_start, preamp_end) = (self.preamp, self.approach_preamp(frames));
+        if preamp_start != 0.0 || preamp_end != 0.0 {
+            self.apply_preamp(samples, preamp_start, preamp_end);
+        }
 
         // すべて0dBなら、音声に触れない（イコライザが無効の間は、元の音声のまま出す）
         if self.gains.iter().all(|&gain| gain == 0.0) {
@@ -186,6 +253,34 @@ impl Equalizer {
                     state[1] = filter.b2 * input - filter.a2 * output;
                     *sample = output as f32;
                 }
+            }
+        }
+    }
+
+    /// 今かけているプリアンプを、`frames`フレーム分の時間だけ目標へ近づける（近づけた後の値を返す）
+    fn approach_preamp(&mut self, frames: usize) -> f32 {
+        let step = EQ_SLEW_DB_PER_SECOND * frames as f32 / self.sample_rate as f32;
+        let (preamp, target) = (self.preamp, self.preamp_target);
+        self.preamp = if (target - preamp).abs() <= step {
+            target
+        } else {
+            preamp + step.copysign(target - preamp)
+        };
+        self.preamp
+    }
+
+    /// プリアンプをかける（ブロックの中で、`start_db`から`end_db`の倍率へ1フレームずつ滑らかに変える）
+    ///
+    /// フィルターより前にかける（下げる時は、フィルターで持ち上げる前に下げておく）。
+    fn apply_preamp(&self, samples: &mut [f32], start_db: f32, end_db: f32) {
+        let frames = samples.as_chunks_mut::<OUTPUT_CHANNELS>().0;
+        let start = 10f32.powf(start_db / 20.0);
+        let end = 10f32.powf(end_db / 20.0);
+        let step = (end - start) / frames.len().max(1) as f32;
+        for (index, frame) in frames.iter_mut().enumerate() {
+            let factor = start + step * (index + 1) as f32;
+            for sample in frame.iter_mut() {
+                *sample *= factor;
             }
         }
     }
@@ -210,6 +305,200 @@ impl Equalizer {
                 self.state[band] = [[0.0; 2]; OUTPUT_CHANNELS];
             }
         }
+    }
+}
+
+/// クロスフィードのフィルターの係数（bs2bの方式）
+#[derive(Debug, Clone, Copy)]
+struct CrossfeedCoefficients {
+    /// 反対側へ足す、低い音のフィルター（1次のローパス）
+    a0_lo: f64,
+    b1_lo: f64,
+    /// 同じ側の、高い音を持ち上げるフィルター（1次のハイシェルフ）
+    a0_hi: f64,
+    a1_hi: f64,
+    b1_hi: f64,
+    /// 全体の音量（低い音のモノラルの音量を変えない）
+    gain: f64,
+}
+
+impl CrossfeedCoefficients {
+    /// 強さごとのカットオフ周波数（Hz）と、反対側へ足す量（dB。小さいほど多く混ぜる）
+    ///
+    /// bs2bでよく使われる組（弱: Jan Meier、中: Chu Moy、強: bs2bの既定）。
+    fn parameters(level: CrossfeedLevel) -> (f64, f64) {
+        match level {
+            CrossfeedLevel::Weak => (650.0, 9.5),
+            CrossfeedLevel::Medium => (700.0, 6.0),
+            CrossfeedLevel::Strong => (700.0, 4.5),
+        }
+    }
+
+    fn new(level: CrossfeedLevel, sample_rate: f64) -> Self {
+        let (cutoff, feed_db) = Self::parameters(level);
+        let low_gain_db = -feed_db * 5.0 / 6.0 - 3.0;
+        let high_gain_db = feed_db / 6.0 - 3.0;
+        let low_gain = 10f64.powf(low_gain_db / 20.0);
+        let high_gain = 1.0 - 10f64.powf(high_gain_db / 20.0);
+        let high_cutoff = cutoff * 2f64.powf((low_gain_db - 20.0 * high_gain.log10()) / 12.0);
+
+        let x_lo = (-2.0 * std::f64::consts::PI * cutoff / sample_rate).exp();
+        let x_hi = (-2.0 * std::f64::consts::PI * high_cutoff / sample_rate).exp();
+        Self {
+            a0_lo: low_gain * (1.0 - x_lo),
+            b1_lo: x_lo,
+            a0_hi: 1.0 - high_gain * (1.0 - x_hi),
+            a1_hi: -x_hi,
+            b1_hi: x_hi,
+            gain: 1.0 / (1.0 - high_gain + low_gain),
+        }
+    }
+}
+
+/// クロスフィード
+///
+/// オン・オフと強さを切り替える時は、元の音と混ぜた音を短い時間（`CROSSFEED_FADE_SECONDS`）で入れ替える
+/// （急に切り替えると、音が跳ねる）。強さを変える時は、いったん元の音へ戻してから、新しい強さの係数で
+/// 混ぜ直す（混ぜている途中で係数を差し替えると、フィルターの状態と合わずに音が跳ねる）。
+/// オフの間は、音声に触れない。
+pub struct Crossfeed {
+    sample_rate: f64,
+    /// 読み込んだ設定の番号
+    version: u64,
+    /// 今の係数と、その強さ
+    coefficients: Option<CrossfeedCoefficients>,
+    level: Option<CrossfeedLevel>,
+    /// 元の音へ戻しきったら切り替える強さ（混ぜている間に強さが変わった時）
+    pending: Option<CrossfeedLevel>,
+    /// 混ぜた音の割合（0で元の音、1で混ぜた音）と、その目標
+    mix: f32,
+    target_mix: f32,
+    mix_step: f32,
+    /// フィルターの内部状態（チャンネルごと）: ローパスの出力・ハイシェルフの出力・前の入力
+    low: [f64; OUTPUT_CHANNELS],
+    high: [f64; OUTPUT_CHANNELS],
+    previous: [f64; OUTPUT_CHANNELS],
+}
+
+impl Crossfeed {
+    pub fn new(sample_rate: u32) -> Self {
+        Self {
+            sample_rate: f64::from(sample_rate),
+            // 最初のコールバックで、必ず設定を読む
+            version: u64::MAX,
+            coefficients: None,
+            level: None,
+            pending: None,
+            mix: 0.0,
+            target_mix: 0.0,
+            mix_step: 1.0 / (CROSSFEED_FADE_SECONDS * sample_rate as f32),
+            low: [0.0; OUTPUT_CHANNELS],
+            high: [0.0; OUTPUT_CHANNELS],
+            previous: [0.0; OUTPUT_CHANNELS],
+        }
+    }
+
+    /// フィルターの内部状態を消す（続きではない音声へ切り替わる時）
+    pub fn reset(&mut self) {
+        self.clear_state();
+        self.mix = self.target_mix;
+    }
+
+    /// サンプル（ステレオのインターリーブ）にクロスフィードをかける
+    pub fn process(&mut self, samples: &mut [f32], params: &EffectParams) {
+        let version = params.version.load(Ordering::Acquire);
+        if version != self.version {
+            self.version = version;
+            self.follow_level(params.crossfeed_level());
+        }
+        if self.mix == 0.0
+            && let Some(level) = self.pending.take()
+        {
+            self.switch_to(level);
+        }
+        if self.mix == 0.0 && self.target_mix == 0.0 {
+            return;
+        }
+        let Some(mut c) = self.coefficients else {
+            return;
+        };
+
+        for frame in samples.as_chunks_mut::<OUTPUT_CHANNELS>().0 {
+            let input = [f64::from(frame[0]), f64::from(frame[1])];
+            let channels = self
+                .low
+                .iter_mut()
+                .zip(&mut self.high)
+                .zip(&self.previous)
+                .zip(input);
+            for (((low, high), previous), input) in channels {
+                *low = c.a0_lo * input + c.b1_lo * *low;
+                *high = c.a0_hi * input + c.a1_hi * previous + c.b1_hi * *high;
+            }
+            self.previous = input;
+            let mixed = [
+                ((self.high[0] + self.low[1]) * c.gain) as f32,
+                ((self.high[1] + self.low[0]) * c.gain) as f32,
+            ];
+
+            self.mix = if self.mix < self.target_mix {
+                (self.mix + self.mix_step).min(self.target_mix)
+            } else {
+                (self.mix - self.mix_step).max(self.target_mix)
+            };
+            for (sample, wet) in frame.iter_mut().zip(mixed) {
+                *sample += (wet - *sample) * self.mix;
+            }
+            // 元の音へ戻しきった: 待っていた強さの係数で、混ぜ直す
+            if self.mix == 0.0
+                && let Some(level) = self.pending.take()
+            {
+                c = self.switch_to(level);
+            }
+        }
+        if self.mix == 0.0 && self.target_mix == 0.0 {
+            // 元の音へ戻しきった: 次にオンにする時のために、状態を消す
+            self.clear_state();
+        }
+    }
+
+    /// 設定の強さ（Noneはオフ）に合わせて、混ぜる割合の目標と、切り替える強さを決める
+    fn follow_level(&mut self, wanted: Option<CrossfeedLevel>) {
+        match wanted {
+            // 係数は、元の音へ戻しきるまで使う
+            None => {
+                self.pending = None;
+                self.target_mix = 0.0;
+            }
+            Some(level) if self.level == Some(level) => {
+                self.pending = None;
+                self.target_mix = 1.0;
+            }
+            Some(level) if self.mix == 0.0 => {
+                self.switch_to(level);
+            }
+            // 混ぜている間に強さが変わった: いったん元の音へ戻してから切り替える
+            Some(level) => {
+                self.pending = Some(level);
+                self.target_mix = 0.0;
+            }
+        }
+    }
+
+    /// 強さの係数に切り替えて、混ぜ始める（元の音を出している間だけ呼ぶ。フィルターの状態は消す）
+    fn switch_to(&mut self, level: CrossfeedLevel) -> CrossfeedCoefficients {
+        let coefficients = CrossfeedCoefficients::new(level, self.sample_rate);
+        self.coefficients = Some(coefficients);
+        self.level = Some(level);
+        self.clear_state();
+        self.target_mix = 1.0;
+        coefficients
+    }
+
+    fn clear_state(&mut self) {
+        self.low = [0.0; OUTPUT_CHANNELS];
+        self.high = [0.0; OUTPUT_CHANNELS];
+        self.previous = [0.0; OUTPUT_CHANNELS];
     }
 }
 
@@ -323,6 +612,136 @@ mod tests {
     use super::*;
 
     const RATE: u32 = 48_000;
+
+    /// 左右で別の音（左右の振幅を指定した正弦波）
+    fn panned_sine(frequency: f64, left: f32, right: f32, frames: usize) -> Vec<f32> {
+        (0..frames)
+            .flat_map(|i| {
+                let value = (2.0 * std::f64::consts::PI * frequency * i as f64 / f64::from(RATE))
+                    .sin() as f32;
+                [value * left, value * right]
+            })
+            .collect()
+    }
+
+    /// 後ろ半分（フィルター・切り替えが落ち着いた後）の、チャンネルごとの最大の振幅
+    fn settled_peaks(samples: &[f32]) -> [f32; 2] {
+        let half = &samples[samples.len() / 2..];
+        let mut peaks = [0.0f32; 2];
+        for frame in half.as_chunks::<OUTPUT_CHANNELS>().0 {
+            for (peak, sample) in peaks.iter_mut().zip(frame) {
+                *peak = peak.max(sample.abs());
+            }
+        }
+        peaks
+    }
+
+    fn make_crossfeed(level: Option<CrossfeedLevel>) -> (Crossfeed, EffectParams) {
+        let params = EffectParams::default();
+        params.set_crossfeed(level);
+        (Crossfeed::new(RATE), params)
+    }
+
+    #[test]
+    fn test_crossfeed_off_leaves_the_audio_untouched() {
+        let (mut crossfeed, params) = make_crossfeed(None);
+        let original = panned_sine(200.0, 0.5, 0.0, 4_800);
+        let mut samples = original.clone();
+        crossfeed.process(&mut samples, &params);
+        assert_eq!(samples, original);
+    }
+
+    #[test]
+    fn test_crossfeed_feeds_low_sounds_to_the_other_side() {
+        let (mut crossfeed, params) = make_crossfeed(Some(CrossfeedLevel::Medium));
+        // 左だけの低い音: 右にも出る（反対側へ足す量は、左の音より小さい）
+        let mut samples = panned_sine(100.0, 0.5, 0.0, 48_000);
+        crossfeed.process(&mut samples, &params);
+        let [left, right] = settled_peaks(&samples);
+        assert!(right > 0.05 && right < left, "{left} {right}");
+
+        // 強いほど、多く混ぜる
+        let ratio = |level| {
+            let (mut crossfeed, params) = make_crossfeed(Some(level));
+            let mut samples = panned_sine(100.0, 0.5, 0.0, 48_000);
+            crossfeed.process(&mut samples, &params);
+            let [left, right] = settled_peaks(&samples);
+            right / left
+        };
+        assert!(ratio(CrossfeedLevel::Weak) < ratio(CrossfeedLevel::Medium));
+        assert!(ratio(CrossfeedLevel::Medium) < ratio(CrossfeedLevel::Strong));
+    }
+
+    #[test]
+    fn test_crossfeed_keeps_the_volume_of_low_mono_sounds() {
+        let (mut crossfeed, params) = make_crossfeed(Some(CrossfeedLevel::Strong));
+        let mut samples = panned_sine(50.0, 0.5, 0.5, 48_000);
+        crossfeed.process(&mut samples, &params);
+        let [left, right] = settled_peaks(&samples);
+        assert!(
+            (left - 0.5).abs() < 0.02 && (right - 0.5).abs() < 0.02,
+            "{left} {right}"
+        );
+    }
+
+    #[test]
+    fn test_crossfeed_strength_change_goes_through_the_dry_sound() {
+        let (mut crossfeed, params) = make_crossfeed(Some(CrossfeedLevel::Medium));
+        // 100Hzの1秒分は、ちょうど100周期（続けて流しても、音が途切れない）
+        let mut samples = panned_sine(100.0, 0.5, 0.0, 48_000);
+        crossfeed.process(&mut samples, &params);
+        let mut rights: Vec<f32> = samples.iter().skip(1).step_by(2).copied().collect();
+
+        // 同じ強さのままの設定の変更（イコライザの変更など）では、混ぜた音のまま
+        params.set_equalizer(false, &[0.0; EQ_BANDS]);
+        let mut block = panned_sine(100.0, 0.5, 0.0, 480);
+        crossfeed.process(&mut block, &params);
+        assert_eq!(crossfeed.mix, 1.0);
+        rights.extend(block.iter().skip(1).step_by(2));
+
+        // 強さを変えると、いったん元の音へ戻してから、新しい強さで混ぜ直す
+        params.set_crossfeed(Some(CrossfeedLevel::Strong));
+        let mut dipped = false;
+        for _ in 0..10 {
+            let mut block = panned_sine(100.0, 0.5, 0.0, 480);
+            crossfeed.process(&mut block, &params);
+            dipped |= crossfeed.mix < 0.5;
+            rights.extend(block.iter().skip(1).step_by(2));
+        }
+        assert!(dipped);
+        assert_eq!(crossfeed.level, Some(CrossfeedLevel::Strong));
+        assert_eq!(crossfeed.mix, 1.0);
+        // 右（混ぜた音）は、切り替えの間も跳ねない
+        let jump = rights
+            .windows(2)
+            .fold(0.0f32, |max, pair| max.max((pair[1] - pair[0]).abs()));
+        assert!(jump < 0.01, "{jump}");
+    }
+
+    #[test]
+    fn test_crossfeed_switches_smoothly_and_stops_touching_the_audio() {
+        let (mut crossfeed, params) = make_crossfeed(Some(CrossfeedLevel::Strong));
+        let mut samples = panned_sine(100.0, 0.5, 0.0, 9_600);
+        crossfeed.process(&mut samples, &params);
+        // オンにした直後は、元の音から少しずつ混ぜた音へ変わる（右は0から始まる）
+        assert_eq!(samples[1], 0.0);
+        assert!(
+            samples
+                .as_chunks::<OUTPUT_CHANNELS>()
+                .0
+                .windows(2)
+                .all(|pair| (pair[1][1] - pair[0][1]).abs() < 0.02)
+        );
+
+        // オフにすると元の音へ戻し、戻しきった後は音声に触れない
+        params.set_crossfeed(None);
+        let mut fading = panned_sine(100.0, 0.5, 0.0, 9_600);
+        crossfeed.process(&mut fading, &params);
+        let original = panned_sine(100.0, 0.5, 0.0, 4_800);
+        let mut after = original.clone();
+        crossfeed.process(&mut after, &params);
+        assert_eq!(after, original);
+    }
 
     /// 指定した周波数・振幅の正弦波（ステレオ。左右は同じ）
     fn sine(frequency: f64, amplitude: f32, frames: usize) -> Vec<f32> {
@@ -454,12 +873,52 @@ mod tests {
     }
 
     #[test]
+    fn test_equalizer_preamp_changes_the_whole_volume_while_enabled() {
+        let params = EffectParams::default();
+        params.set_equalizer(true, &gains(&[]));
+        params.set_equalizer_preamp(-6.0);
+        // どの周波数も、同じだけ下がる
+        assert!((equalized_gain_db(&params, 100.0) + 6.0).abs() < 0.05);
+        assert!((equalized_gain_db(&params, 4000.0) + 6.0).abs() < 0.05);
+        // バンドのゲインと足し合わさる（1kHzを+6dB、プリアンプ-6dB）
+        params.set_equalizer(true, &gains(&[(5, 6.0)]));
+        assert!(equalized_gain_db(&params, 1000.0).abs() < 0.05);
+
+        // 無効の間は、プリアンプもかけない
+        params.set_equalizer(false, &gains(&[(5, 6.0)]));
+        let original = sine(1000.0, 0.5, 4_800);
+        let mut samples = original.clone();
+        Equalizer::new(RATE).process(&mut samples, &params);
+        assert_eq!(samples, original);
+    }
+
+    #[test]
+    fn test_equalizer_preamp_changes_gradually() {
+        let params = EffectParams::default();
+        let mut equalizer = Equalizer::new(RATE);
+        params.set_equalizer(true, &gains(&[]));
+        params.set_equalizer_preamp(-12.0);
+
+        // 10ms（480フレーム）では、1.2dBまでしか変わらず、ブロックの中でも1フレームずつ変わる
+        let mut block = vec![0.5f32; 960];
+        equalizer.process(&mut block, &params);
+        assert!((equalizer.preamp + 1.2).abs() < 1e-3);
+        assert!(block.windows(2).all(|pair| pair[1] <= pair[0]));
+        assert!((block[959] - 0.5 * 10f32.powf(-1.2 / 20.0)).abs() < 1e-4);
+    }
+
+    #[test]
     fn test_equalizer_params_are_clamped() {
         let params = EffectParams::default();
         params.set_equalizer(true, &gains(&[(0, 40.0), (1, -40.0), (2, f32::NAN)]));
 
         let targets = params.equalizer_targets();
         assert_eq!(&targets[..3], &[12.0, -12.0, 0.0]);
+
+        params.set_equalizer_preamp(-40.0);
+        assert_eq!(params.equalizer_preamp_target(), -12.0);
+        params.set_equalizer_preamp(f32::NAN);
+        assert_eq!(params.equalizer_preamp_target(), 0.0);
     }
 
     #[test]

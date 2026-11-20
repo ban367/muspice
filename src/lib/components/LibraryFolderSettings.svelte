@@ -4,7 +4,8 @@
   （ライブラリフォルダ）の一覧・再スキャン・削除・場所の変更（`LibraryFolderRelocationDialog`）・読み込まない
   フォルダ（`LibraryFolderExclusionsDialog`）と、見つからない曲（ファイルが見つからなくなったトラック）の削除。
   `children`は、音楽フォルダの下に出す（設定の「適用」で保存する、音楽フォルダの書式）。
-  操作はすぐに反映する（設定の「適用」は不要）。ライブラリが変わると、Rustが送る
+  音楽フォルダの変更は、設定の「適用」で反映する（`musicFolder`。#408）。ライブラリフォルダの再スキャン・削除・
+  場所の変更などの操作は、すぐに反映する（設定の値ではなく、その場で行う操作。確認が要るものは確認を出す）。ライブラリが変わると、Rustが送る
   `LibraryChanged`イベントでメインウィンドウの一覧が更新される。自動の再スキャン
   （起動時・定期・フォルダの監視）でライブラリが変わった場合も、同じイベントで曲数などを読み直す。
 -->
@@ -32,17 +33,20 @@
   import LibraryFolderExclusionsDialog from './LibraryFolderExclusionsDialog.svelte';
   import LibraryFolderRelocationDialog from './LibraryFolderRelocationDialog.svelte';
   import MusicFolderSettings from './MusicFolderSettings.svelte';
+  import type { MusicFolderDraft } from '#lib/stores/musicFolderDraft.svelte.js';
   import { formatDateTime } from '#lib/utils/format.js';
   import { describeRescan, sumRescanResults } from '#lib/utils/rescan.js';
   import { describeRelocationBlocker, type ReadyRelocation } from '#lib/utils/relocation.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   interface Props {
+    /** 選んで、設定の「適用」を待っている音楽フォルダ（設定のページが持つ） */
+    musicFolder: MusicFolderDraft;
     /** 音楽フォルダの下に出す内容 */
     children?: Snippet;
   }
 
-  let { children }: Props = $props();
+  let { musicFolder, children }: Props = $props();
 
   const foldersQuery = useLibraryFoldersQuery();
   const rescanMutation = useRescanLibraryFolderMutation();
@@ -268,9 +272,9 @@
 </script>
 
 <section class="settings-section">
-  <h3 class="section-title">{m.libraryFolders.title}</h3>
+  <h3 class="settings-title">{m.libraryFolders.title}</h3>
 
-  <MusicFolderSettings disabled={isScanning} />
+  <MusicFolderSettings draft={musicFolder} disabled={isScanning} />
   {@render children?.()}
 
   <div class="folders-header">
@@ -520,7 +524,8 @@
     @apply flex items-start justify-between gap-4 mt-3;
   }
 
-  .section-title {
+  /* 設定画面の区分の見出し（共通クラスの`section-title`とは別の名前にする） */
+  .settings-title {
     @apply text-xl font-semibold mb-6 m-0;
   }
 

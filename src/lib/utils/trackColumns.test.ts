@@ -39,7 +39,19 @@ const track: Track = {
   updatedAt: '2026-03-05T10:00:00.000Z',
   replayGain: { trackGain: null, trackPeak: null, albumGain: null, albumPeak: null },
   sortTags: { title: null, artist: null, album: null, albumArtist: null },
-  isMissing: false
+  details: {
+    composer: null,
+    grouping: null,
+    comment: null,
+    bpm: null,
+    bitDepth: null,
+    channels: null,
+    analyzedBpm: null,
+    analyzedKey: null
+  },
+  isMissing: false,
+  cue: null,
+  compilation: false
 };
 
 describe('列の定義', () => {

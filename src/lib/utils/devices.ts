@@ -26,9 +26,18 @@ export function syncProgressPercent(
 
 /** 同期しても、デバイス上の曲が変わらないか（コピー・削除・名前の変更がない） */
 export function isDeviceUpToDate(
-  plan: Pick<DeviceSyncPlan, 'copyCount' | 'deleteCount' | 'renameCount'>
+  plan: Pick<
+    DeviceSyncPlan,
+    'copyCount' | 'deleteCount' | 'renameCount' | 'extraCopyCount' | 'extraDeleteCount'
+  >
 ): boolean {
-  return plan.copyCount === 0 && plan.deleteCount === 0 && plan.renameCount === 0;
+  return (
+    plan.copyCount === 0 &&
+    plan.deleteCount === 0 &&
+    plan.renameCount === 0 &&
+    plan.extraCopyCount === 0 &&
+    plan.extraDeleteCount === 0
+  );
 }
 
 /** 空き容量が足りない場合に、あと必要な容量（バイト）。足りていれば0 */

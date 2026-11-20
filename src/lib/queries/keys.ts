@@ -69,6 +69,11 @@ export const queryKeys = {
     track: (trackId: string) => ['trackLyrics', trackId] as const
   },
 
+  /** 曲の情報の編集画面で扱う曲（編集画面のウィンドウで、開いた時に受け取る） */
+  trackEditorTracks: ['trackEditorTracks'] as const,
+  /** 編集している曲の、開いた一覧の並びでの位置（前後の曲へ移るボタン。ADR-119） */
+  trackEditorPosition: ['trackEditorPosition'] as const,
+
   /** 曲のアルバムアートの情報（どこの画像か・種類・大きさ。ファイルから読む） */
   albumArtInfo: {
     all: ['albumArtInfo'] as const,
@@ -102,5 +107,9 @@ export const queryKeys = {
   musicFolder: ['musicFolder'] as const,
 
   /** 転送先デバイス（SDカードなどのフォルダ） */
-  syncDevices: ['syncDevices'] as const
+  syncDevices: ['syncDevices'] as const,
+  /** 全デバイスの同期する内容の見通し（ライブラリ・プレイリストが変わったら、まとめて無効化する） */
+  syncSelectionSummaries: ['syncSelectionSummary'] as const,
+  /** 同期する内容の見通し（デバイスごと。設定を変えたら取り直す） */
+  syncSelectionSummary: (deviceId: string) => ['syncSelectionSummary', deviceId] as const
 } as const;

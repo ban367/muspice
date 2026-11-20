@@ -1,7 +1,7 @@
 /**
  * 再生状態の保存と復元
  *
- * 音量・シャッフル・リピート・再生キュー・再生していた曲を、Rust側のファイル
+ * 音量・シャッフル・AIシャッフル・リピート・再生キュー・再生していた曲を、Rust側のファイル
  * （アプリデータの`playback-state.json`）に保存し、次の起動で復元する。再生位置は保存しない。
  *
  * - 復元（`restorePlaybackState`）: 起動時に1回呼ぶ。キューと再生していた曲を戻すが、再生は始めない
@@ -33,7 +33,7 @@ export interface RestorePlaybackStateOptions {
 /**
  * 保存してある再生状態を、再生状態（`player`）へ復元する
  *
- * 音量・シャッフル・リピートは常に戻す。キューと再生していた曲は、復元を待つ間に再生を
+ * 音量・シャッフル・AIシャッフル・リピートは常に戻す。キューと再生していた曲は、復元を待つ間に再生を
  * 始めていなければ戻す（再生は始めない。再生ボタンで、その曲を頭から再生する）。
  */
 export async function restorePlaybackState(options: RestorePlaybackStateOptions): Promise<void> {
@@ -42,6 +42,8 @@ export async function restorePlaybackState(options: RestorePlaybackStateOptions)
 
   player.volume = state.volume ?? 1;
   player.isShuffleEnabled = state.shuffle;
+  // シャッフルとは同時に有効にしない（両方が保存してあれば、シャッフルを残す）
+  player.isAiShuffleEnabled = state.aiShuffle && !state.shuffle;
   player.repeatMode = state.repeat;
 
   // 復元を待つ間に、曲を再生した・キューへ入れた場合は、キューを戻さない
@@ -101,6 +103,7 @@ export function watchPlaybackState(): () => void {
         {
           volume: player.volume,
           shuffle: player.isShuffleEnabled,
+          aiShuffle: player.isAiShuffleEnabled,
           repeat: player.repeatMode,
           currentIndex: player.currentTrackIndex >= 0 ? player.currentTrackIndex : null
         },
@@ -137,6 +140,7 @@ export function watchPlaybackState(): () => void {
       void player.currentTrackIndex;
       void player.volume;
       void player.isShuffleEnabled;
+      void player.isAiShuffleEnabled;
       void player.repeatMode;
       untrack(() => {
         if (watchingCursor) schedule();

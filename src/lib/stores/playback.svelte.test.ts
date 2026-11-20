@@ -33,11 +33,13 @@ vi.mock('#lib/bindings.js', () => ({
     playbackSetVolume: vi.fn(async () => null),
     playbackSetSpeed: vi.fn(async () => null),
     playbackSetEqualizer: vi.fn(async () => null),
+    playbackSetShuffle: vi.fn(async () => null),
     playbackStop: vi.fn(async () => null),
     setNowPlaying: vi.fn(async () => null),
     getPlaybackState: vi.fn(async () => ({
       volume: 1,
       shuffle: false,
+      aiShuffle: false,
       repeat: 'off',
       queue: [],
       originalTrackIds: null,
@@ -98,6 +100,7 @@ function savedState(overrides: Partial<RestoredPlaybackState> = {}): RestoredPla
   return {
     volume: 1,
     shuffle: false,
+    aiShuffle: false,
     repeat: 'off',
     queue: [],
     originalTrackIds: null,
@@ -302,6 +305,14 @@ describe('トラックの再生', () => {
     playbackAids.setSpeed(1.5);
     flushSync();
     expect(commands.playbackSetSpeed).toHaveBeenCalledTimes(calls);
+  });
+
+  it('シャッフルモードをエンジンに伝える（音量の正規化の自動で使う）', () => {
+    expect(commands.playbackSetShuffle).toHaveBeenLastCalledWith(false);
+
+    player.isShuffleEnabled = true;
+    flushSync();
+    expect(commands.playbackSetShuffle).toHaveBeenLastCalledWith(true);
   });
 });
 
@@ -977,7 +988,8 @@ describe('イコライザ', () => {
     // 作成した時点で送る（無効・すべて0dB）
     expect(commands.playbackSetEqualizer).toHaveBeenLastCalledWith(
       false,
-      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      0
     );
 
     equalizer.setEnabled(true);
@@ -985,7 +997,8 @@ describe('イコライザ', () => {
     flushSync();
     expect(commands.playbackSetEqualizer).toHaveBeenLastCalledWith(
       true,
-      [0, 0, 0, 0, 0, 6, 0, 0, 0, 0]
+      [0, 0, 0, 0, 0, 6, 0, 0, 0, 0],
+      0
     );
 
     // プリセットは、31Hzから16kHzの順に送る
@@ -993,7 +1006,17 @@ describe('イコライザ', () => {
     flushSync();
     expect(commands.playbackSetEqualizer).toHaveBeenLastCalledWith(
       true,
-      [8, 6, 4, 2, 0, 0, 0, 0, 0, 0]
+      [8, 6, 4, 2, 0, 0, 0, 0, 0, 0],
+      0
+    );
+
+    // プリアンプも送る
+    equalizer.setPreamp(-4);
+    flushSync();
+    expect(commands.playbackSetEqualizer).toHaveBeenLastCalledWith(
+      true,
+      [8, 6, 4, 2, 0, 0, 0, 0, 0, 0],
+      -4
     );
   });
 
@@ -1379,7 +1402,7 @@ describe('再生状態の保存', () => {
 
     expect(saves()).toEqual([
       [
-        { volume: 1, shuffle: false, repeat: 'off', currentIndex: 1 },
+        { volume: 1, shuffle: false, aiShuffle: false, repeat: 'off', currentIndex: 1 },
         { trackIds: ['t1', 't2', 't3'], originalTrackIds: null }
       ]
     ]);
@@ -1401,7 +1424,7 @@ describe('再生状態の保存', () => {
     vi.advanceTimersByTime(300);
 
     expect(saves()).toEqual([
-      [{ volume: 0.3, shuffle: false, repeat: 'all', currentIndex: 1 }, null]
+      [{ volume: 0.3, shuffle: false, aiShuffle: false, repeat: 'all', currentIndex: 1 }, null]
     ]);
   });
 
@@ -1419,7 +1442,7 @@ describe('再生状態の保存', () => {
     vi.advanceTimersByTime(300);
     expect(saves()).toEqual([
       [
-        { volume: 1, shuffle: false, repeat: 'off', currentIndex: 1 },
+        { volume: 1, shuffle: false, aiShuffle: false, repeat: 'off', currentIndex: 1 },
         { trackIds: ['t1', 't2', 't3'], originalTrackIds: null }
       ]
     ]);
@@ -1430,7 +1453,7 @@ describe('再生状態の保存', () => {
     flushSync();
     vi.advanceTimersByTime(300);
     expect(saves()[1]).toEqual([
-      { volume: 1, shuffle: false, repeat: 'off', currentIndex: 2 },
+      { volume: 1, shuffle: false, aiShuffle: false, repeat: 'off', currentIndex: 2 },
       null
     ]);
   });

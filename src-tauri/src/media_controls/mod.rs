@@ -154,7 +154,15 @@ impl MediaControls {
             .inspect_err(|_| self.clear())?;
 
         self.publish(&update, &track, || {
-            crate::album_art::picture_for_track(state, &track.id, &track.file_path)
+            crate::album_art::picture_for_track(
+                state,
+                &track.id,
+                // CUEシートの曲は、元の音声ファイルの画像（ADR-123）
+                track
+                    .cue
+                    .as_ref()
+                    .map_or(&track.file_path, |cue| &cue.source),
+            )
         });
         Ok(())
     }

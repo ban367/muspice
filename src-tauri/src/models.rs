@@ -40,6 +40,68 @@ pub struct Track {
     pub sort_tags: SortTags,
     /// ファイルが見つからない（再スキャンで見つからなくなった曲。利用者が外すまで残す）
     pub is_missing: bool,
+    /// コンピレーション（複数のアーティストの曲を集めたアルバム）の印。アルバムアーティストがない曲は、
+    /// 「Various Artists」のアルバムにまとめる（`group_artist`。ADR-093）
+    pub compilation: bool,
+    /// 一覧の列・検索に使う、タグとファイルの情報のうち、後から持つようにした項目（ADR-115）
+    pub details: TrackDetails,
+    /// CUEシートの曲（アルバム1ファイルの中の1曲）の、元の音声ファイルと範囲（ふつうの曲はnull。ADR-123）
+    ///
+    /// CUEシートの曲の`file_path`は、仮のパス（`アルバム.cue#03`。`cue::virtual_path`）。
+    pub cue: Option<TrackCue>,
+}
+
+/// CUEシートの曲の、元の音声ファイルと範囲（ADR-123）
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackCue {
+    /// 曲の入っている音声ファイル
+    pub source: String,
+    /// 曲の始まりと終わり（1/75秒。終わりがnullなら、ファイルの終わりまで）
+    #[specta(type = specta_typescript::Number)]
+    pub start: i64,
+    #[specta(type = Option<specta_typescript::Number>)]
+    pub end: Option<i64>,
+}
+
+/// 曲の、一覧の列・検索に使う項目のうち、後から持つようにしたもの（作曲者・BPM・ビット深度など。ADR-115）
+///
+/// タグ・ファイルの項目は、取り込み・再スキャン・編集の保存で記録する（登録済みの曲は、起動後に
+/// `tag_backfill`が読む）。解析の項目は、曲の解析の結果（`track_analysis`。ADR-104）から読む。
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackDetails {
+    pub composer: Option<String>,
+    pub grouping: Option<String>,
+    pub comment: Option<String>,
+    /// BPM（タグの値。整数）
+    pub bpm: Option<i32>,
+    /// ビット深度（PCMの形式など、ファイルが持つ場合だけ）
+    pub bit_depth: Option<i32>,
+    /// チャンネル数
+    pub channels: Option<i32>,
+    /// 曲の解析で求めたテンポ（BPM。解析していない・できなかった曲と、解析の後に長さが変わった曲はなし）
+    pub analyzed_bpm: Option<f64>,
+    /// 曲の解析で求めたキー（主音の0〜11。短調は12を足す。なしの扱いは`analyzed_bpm`と同じ）
+    pub analyzed_key: Option<i32>,
+}
+
+/// コンピレーションの印があり、アルバムアーティストのない曲をまとめるアルバムアーティスト
+///
+/// アルバムの識別（`get_album_tracks`に渡す値）に使うため、表示の言語によらず固定にする。
+pub const VARIOUS_ARTISTS: &str = "Various Artists";
+
+impl Track {
+    /// アルバム・アーティストの一覧で、この曲をまとめるアーティスト（ADR-022・ADR-093）
+    ///
+    /// アルバムアーティスト。なければ、コンピレーションの曲は`VARIOUS_ARTISTS`、ほかの曲は曲のアーティスト。
+    /// `repository::ALBUM_ARTIST`（SQLの式）と同じ規則にする。
+    pub fn group_artist(&self) -> Option<&str> {
+        self.album_artist
+            .as_deref()
+            .or_else(|| self.compilation.then_some(VARIOUS_ARTISTS))
+            .or(self.artist.as_deref())
+    }
 }
 
 /// 再生回数・スキップ回数の上限（`Track`の`play_count`・`skip_count`が`i32`のため）

@@ -46,6 +46,8 @@ pub struct PlaybackCursor {
     pub volume: f32,
     /// シャッフルが有効か
     pub shuffle: bool,
+    /// AIシャッフル（曲が始まるたびに、選び方に合う曲を次に足す）が有効か
+    pub ai_shuffle: bool,
     pub repeat: RepeatMode,
     /// キューの中の、再生していた曲の位置（何も再生していなければnull）
     pub current_index: Option<u32>,
@@ -56,6 +58,7 @@ impl Default for PlaybackCursor {
         Self {
             volume: 1.0,
             shuffle: false,
+            ai_shuffle: false,
             repeat: RepeatMode::Off,
             current_index: None,
         }
@@ -78,6 +81,7 @@ pub struct PlaybackQueue {
 pub struct RestoredPlaybackState {
     pub volume: f32,
     pub shuffle: bool,
+    pub ai_shuffle: bool,
     pub repeat: RepeatMode,
     /// 再生キュー（再生する順。ライブラリからなくなった曲・ファイルが見つからない曲は除く）
     pub queue: Vec<Track>,
@@ -96,6 +100,7 @@ pub struct RestoredPlaybackState {
 struct StoredState {
     volume: f32,
     shuffle: bool,
+    ai_shuffle: bool,
     repeat: RepeatMode,
     current_index: Option<u32>,
     track_ids: Vec<String>,
@@ -113,6 +118,7 @@ impl StoredState {
         Self {
             volume: cursor.volume,
             shuffle: cursor.shuffle,
+            ai_shuffle: cursor.ai_shuffle,
             repeat: cursor.repeat,
             current_index: cursor.current_index,
             track_ids: queue.track_ids,
@@ -179,6 +185,29 @@ impl PlaybackStateStore {
         Ok(())
     }
 
+    /// 保存してある再生キューと再生していた曲を空にする（音量・シャッフル・リピートは残す）
+    ///
+    /// ライブラリを置き換えた時（音楽フォルダの変更・バックアップからの復元）に、前のライブラリの曲を
+    /// キューに残さないために使う（#412）。
+    pub fn clear_queue(&self) -> AppResult<()> {
+        let mut current = self
+            .current
+            .lock()
+            .map_err(|e| AppError::Lock(format!("再生状態の保存に失敗しました: {}", e)))?;
+        let next = StoredState {
+            current_index: None,
+            track_ids: Vec::new(),
+            original_track_ids: None,
+            ..current.clone()
+        };
+        if *current == next {
+            return Ok(());
+        }
+        write_state(&self.path, &next)?;
+        *current = next;
+        Ok(())
+    }
+
     /// 保存してある再生状態を、今のライブラリに合わせて返す
     pub fn restore(&self, conn: &Connection) -> AppResult<RestoredPlaybackState> {
         let stored = self
@@ -222,6 +251,7 @@ impl PlaybackStateStore {
         Ok(RestoredPlaybackState {
             volume: stored.volume,
             shuffle: stored.shuffle,
+            ai_shuffle: stored.ai_shuffle,
             repeat: stored.repeat,
             queue,
             original_track_ids,
@@ -326,6 +356,7 @@ mod tests {
         PlaybackCursor {
             volume: 0.4,
             shuffle: false,
+            ai_shuffle: false,
             repeat: RepeatMode::All,
             current_index,
         }
@@ -387,6 +418,37 @@ mod tests {
         assert_eq!(state.original_track_ids, Some(vec![id(1), id(2), id(3)]));
         assert_eq!(state.current_index, Some(1));
         assert!(!path.with_extension("json.tmp").exists());
+    }
+
+    #[test]
+    fn test_clear_queue_keeps_the_other_settings() {
+        let conn = setup_db();
+        (1..=3).for_each(|n| insert_track(&conn, n));
+        let path = temp_state_path("clear-queue");
+        let store = PlaybackStateStore::load(path.clone());
+        store
+            .save(
+                PlaybackCursor {
+                    shuffle: true,
+                    ..cursor(Some(1))
+                },
+                Some(PlaybackQueue {
+                    track_ids: vec![id(1), id(2), id(3)],
+                    original_track_ids: Some(vec![id(3), id(2), id(1)]),
+                }),
+            )
+            .unwrap();
+
+        store.clear_queue().unwrap();
+
+        // 読み込み直しても、キューは空で、音量・シャッフル・リピートは残る
+        let state = PlaybackStateStore::load(path).restore(&conn).unwrap();
+        assert!(state.queue.is_empty());
+        assert_eq!(state.current_index, None);
+        assert_eq!(state.original_track_ids, None);
+        assert_eq!(state.volume, 0.4);
+        assert!(state.shuffle);
+        assert_eq!(state.repeat, RepeatMode::All);
     }
 
     #[test]
@@ -567,6 +629,27 @@ mod tests {
 
         assert_eq!(state.volume, 0.25);
         assert_eq!(state.repeat, RepeatMode::Off);
+        assert!(!state.ai_shuffle);
         assert!(state.queue.is_empty());
+    }
+
+    #[test]
+    fn test_ai_shuffle_is_restored() {
+        let conn = setup_db();
+        let path = temp_state_path("ai-shuffle");
+        let store = PlaybackStateStore::load(path.clone());
+        store
+            .save(
+                PlaybackCursor {
+                    ai_shuffle: true,
+                    ..cursor(None)
+                },
+                None,
+            )
+            .unwrap();
+
+        let state = PlaybackStateStore::load(path).restore(&conn).unwrap();
+        assert!(state.ai_shuffle);
+        assert!(!state.shuffle);
     }
 }

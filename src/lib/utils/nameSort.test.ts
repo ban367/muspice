@@ -32,6 +32,18 @@ function track(id: string, overrides: Partial<Track> = {}): Track {
     replayGain: { trackGain: null, trackPeak: null, albumGain: null, albumPeak: null },
     sortTags: noSortTags,
     isMissing: false,
+    cue: null,
+    compilation: false,
+    details: {
+      composer: null,
+      grouping: null,
+      comment: null,
+      bpm: null,
+      bitDepth: null,
+      channels: null,
+      analyzedBpm: null,
+      analyzedKey: null
+    },
     ...overrides
   };
 }
@@ -135,6 +147,21 @@ describe('sortTracksByArtistAndAlbum', () => {
     ];
 
     expect(ids(sortTracksByArtistAndAlbum(tracks))).toEqual(['a1', 'k1', 'k2', 'z1']);
+  });
+
+  it('アルバムアーティストのないコンピレーションは、曲のアーティストの読みを使わない', () => {
+    const tracks = [
+      track('c1', {
+        artist: 'わ',
+        album: 'Compilation',
+        compilation: true,
+        sortTags: { ...noSortTags, artist: 'あ' }
+      }),
+      track('k1', { artist: 'Kenji', album: 'Solo' })
+    ];
+
+    // 「Various Artists」の名前で並べる（読みの「あ」を使うと先頭に来る）
+    expect(ids(sortTracksByArtistAndAlbum(tracks))).toEqual(['k1', 'c1']);
   });
 
   it('アルバムアーティストでまとめる曲は、アルバムアーティストの読みで並べる', () => {

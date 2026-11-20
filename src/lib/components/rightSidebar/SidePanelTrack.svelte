@@ -1,7 +1,8 @@
 <!--
   @component SidePanelTrack
   右サイドバーのパネルの上部に出す、曲のカード（再生キュー・アルバム情報の再生中の曲、曲情報の選んでいる曲）。
-  ジャケット画像（押すとアルバムアートの画面）・見出し・曲名・アーティスト・アルバム・お気に入りと評価を出す。
+  ジャケット画像・見出し・曲名・アーティスト・アルバム・お気に入りと評価を出す（ジャケット画像の変更は、
+  曲の情報の編集画面で行う。ADR-094）。
   どのパネルでも同じ形・同じ高さにする。曲名などの長さ・アルバムの有無・曲がない時でも高さを変えない
   （どの行も1行に収めて省略し、値のない行も高さを空ける）。
   評価とお気に入りは、ライブラリの曲の一覧（変更のたびに書き換わる）とお気に入りの一覧から調べる
@@ -14,8 +15,8 @@
     useSetRatingMutation,
     useTracksQuery
   } from '#lib/queries/tracks.js';
-  import { albumArtDialog } from '#lib/stores/albumArt.svelte.js';
   import { albumArtUrl } from '#lib/utils/albumArt.js';
+  import { albumOf, artistsOf, goToAlbum, goToArtist } from '#lib/utils/libraryReveal.js';
   import AlbumArt from '../AlbumArt.svelte';
   import RatingStars from '../library/RatingStars.svelte';
   import FavoriteButton from '../library/FavoriteButton.svelte';
@@ -30,11 +31,12 @@
     track: Track | null;
     /** 曲がない時に、曲名の位置に出す文 */
     emptyText: string;
-    /** ジャケット画像を押した時に、アルバムアートの画面で見せる曲（省略時は、この曲だけ） */
-    artTracks?: Track[];
   }
 
-  let { label, note, track, emptyText, artTracks }: Props = $props();
+  let { label, note, track, emptyText }: Props = $props();
+
+  // アーティストの画面でまとめるアーティスト（名前を押した時に移る先）
+  const artists = $derived(track ? artistsOf(track) : []);
 
   const tracksQuery = useTracksQuery();
   const favoritesQuery = useFavoriteTracksQuery();
@@ -50,33 +52,21 @@
         : track.isFavorite
       : false
   );
-
-  function openAlbumArt(current: Track) {
-    albumArtDialog.open(artTracks && artTracks.length > 0 ? artTracks : [current]);
-  }
 </script>
 
 <section class="track-card" aria-label={label}>
-  {#if track}
-    <button
-      type="button"
-      class="card-art"
-      title={m.albumArtDialog.open}
-      aria-label={m.albumArtDialog.open}
-      onclick={() => openAlbumArt(track)}
-    >
+  <div class="card-art">
+    {#if track}
       <AlbumArt
         src={albumArtUrl(track.id)}
         alt={m.common.albumArt}
         rounded="md"
         placeholderType="music"
       />
-    </button>
-  {:else}
-    <div class="card-art">
+    {:else}
       <AlbumArt src={null} alt="" rounded="md" placeholderType="music" />
-    </div>
-  {/if}
+    {/if}
+  </div>
 
   <div class="card-text">
     <p class="card-label">
@@ -86,10 +76,32 @@
       <p class="card-title" title={track.title || track.fileName}>
         {track.title || track.fileName}
       </p>
-      <p class="card-artist" title={track.artist ?? undefined}>
-        {track.artist || m.common.unknownArtist}
-      </p>
-      <p class="card-album" title={track.album ?? undefined}>{track.album ?? ''}</p>
+      <!-- 名前を押すと、アーティスト・アルバムの画面へ移る（複数のアーティストの曲は、最初のアーティスト。
+           ADR-110） -->
+      {#if artists.length > 0}
+        <button
+          type="button"
+          class="card-artist text-link"
+          title={m.contextMenu.goToArtist}
+          onclick={() => goToArtist(artists[0])}
+        >
+          {track.artist || m.common.unknownArtist}
+        </button>
+      {:else}
+        <p class="card-artist">{m.common.unknownArtist}</p>
+      {/if}
+      {#if albumOf(track)}
+        <button
+          type="button"
+          class="card-album text-link"
+          title={m.contextMenu.goToAlbum}
+          onclick={() => goToAlbum(track)}
+        >
+          {track.album}
+        </button>
+      {:else}
+        <p class="card-album"></p>
+      {/if}
       <div class="card-actions">
         <FavoriteButton trackId={track.id} {isFavorite} size="medium" />
         <RatingStars
@@ -122,14 +134,6 @@
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   }
 
-  button.card-art {
-    @apply cursor-pointer transition-opacity;
-  }
-
-  button.card-art:hover {
-    @apply opacity-85;
-  }
-
   /* 各行の高さを決めておき、値のない行（アルバムのない曲）も同じ高さを空ける */
   .card-text {
     @apply flex flex-col flex-1 min-w-0;
@@ -157,6 +161,12 @@
 
   .card-album {
     @apply m-0 h-4 leading-4 text-xs text-text-muted truncate;
+  }
+
+  /* 名前のボタンは、名前の長さだけの幅にする（余白を押しても移らない） */
+  .card-artist.text-link,
+  .card-album.text-link {
+    @apply w-fit;
   }
 
   .card-actions {

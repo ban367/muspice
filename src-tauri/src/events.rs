@@ -75,6 +75,10 @@ pub struct LoudnessScanProgress {
 #[derive(Debug, Clone, Serialize, Type, Event)]
 pub struct LoudnessScanFinished(pub crate::loudness_scan::LoudnessScanResult);
 
+/// 曲の解析（テンポ・キー）の状態が変わった（始めた・1曲を解析した・終わった・止めた）
+#[derive(Debug, Clone, Serialize, Type, Event)]
+pub struct MusicAnalysisProgress(pub crate::music_analysis::MusicAnalysisStatus);
+
 /// ライブラリフォルダの再スキャンの進捗
 #[derive(Debug, Clone, Serialize, Type, Event)]
 #[serde(rename_all = "camelCase")]
@@ -104,6 +108,8 @@ pub struct DeviceSyncProgress {
     pub bytes_total: i64,
     /// コピー中のファイル名
     pub current_file: String,
+    /// コピー中のファイルを変換しているか（ADR-118）
+    pub converting: bool,
 }
 
 /// 再スキャン・ライブラリフォルダの削除で、ライブラリのトラックが変わった
@@ -111,6 +117,33 @@ pub struct DeviceSyncProgress {
 /// 設定ウィンドウでの操作を、メインウィンドウの一覧（Queryのキャッシュ）に反映する。
 #[derive(Debug, Clone, Serialize, Type, Event)]
 pub struct LibraryChanged;
+
+/// ライブラリを置き換えた（音楽フォルダの変更。ADR-086）: メインウィンドウの再生キューをクリアさせる
+///
+/// 前のライブラリの曲がキューに残らないよう、再生中の曲も止める（キューの「クリア」と同じ。#412）。
+#[derive(Debug, Clone, Serialize, Type, Event)]
+pub struct ClearPlayQueue;
+
+/// 曲のタグ・アルバムアートを書き換えた（編集画面のウィンドウでの保存。ADR-094）
+///
+/// 編集画面は別のウィンドウのため、メインウィンドウの一覧（Queryのキャッシュ）と、表示中の
+/// アルバムアートに反映させる。曲の場所が変わった場合（音楽フォルダの整理）は、`LibraryChanged`も送る。
+#[derive(Debug, Clone, Serialize, Type, Event)]
+#[serde(rename_all = "camelCase")]
+pub struct TracksEdited {
+    /// 書き換えた曲
+    pub track_ids: Vec<String>,
+    /// アルバムアートを書き換えたか（表示中の画像を読み直させる）
+    pub album_art: bool,
+}
+
+/// 曲の情報の編集画面（別のウィンドウ）を開いた・閉じた（ADR-094）
+///
+/// 開いている間、メインウィンドウは画面に覆いを重ねて、操作を受け付けない。
+#[derive(Debug, Clone, Serialize, Type, Event)]
+pub struct TrackEditorChanged {
+    pub open: bool,
+}
 
 /// メニュー「Muspice について」: Aboutダイアログを表示する
 #[derive(Debug, Clone, Serialize, Type, Event)]
@@ -137,6 +170,29 @@ pub struct ToggleSidebar;
 /// メニュー「ミニプレーヤー」: ミニプレーヤー（小さな表示）と通常の表示を切り替える
 #[derive(Debug, Clone, Serialize, Type, Event)]
 pub struct ToggleMiniPlayer;
+
+/// メニューバーの、メインウィンドウで行う操作（ADR-109）
+///
+/// 操作はフロントエンド（`stores/menuCommands.ts`）が行う。ダイアログを開いている間は何もしない。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type, Event)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum MenuCommand {
+    /// 「新規プレイリスト...」: プレイリストの名前の入力を開く
+    NewPlaylist,
+    /// 「新規自動プレイリスト...」: 自動プレイリストの編集画面を開く
+    NewSmartPlaylist,
+    /// 「検索」: 表示中の画面の検索欄へ移る（検索欄のない画面では、曲の画面を開いてから）
+    Find,
+    /// 「曲の情報を編集...」: 一覧で選んでいる曲の、曲の情報の編集画面を開く
+    EditTrackInfo,
+    /// 「ファイルの場所を開く」: 一覧で最後に選んだ曲のファイルを、Finderで表示する
+    ShowInFinder,
+    /// 「アルバムへ移動」: 一覧で最後に選んだ曲の、アルバムの画面を開く（ADR-110）
+    GoToAlbum,
+    /// 「アーティストへ移動」: 一覧で最後に選んだ曲の、アーティストの画面を開く（複数のアーティストの曲は、
+    /// 最初のアーティスト）
+    GoToArtist,
+}
 
 /// 設定が保存された（設定ウィンドウでの変更をメインウィンドウに反映する）
 #[derive(Debug, Clone, Serialize, Type, Event)]

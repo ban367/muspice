@@ -78,12 +78,16 @@ fn list_folders(state: &AppState) -> AppResult<LibraryFolderList> {
     })?;
 
     // フォルダの存在確認はファイルシステムへのアクセスのため、DBロックの外で行う
+    let network_mounts = crate::library_folder::network_mount_points();
     let folders: Vec<LibraryFolder> = records
         .into_iter()
         .zip(counts.iter())
         .zip(exclusions)
         .map(|((record, &track_count), exclusions)| LibraryFolder {
             exists: Path::new(&record.path).is_dir(),
+            is_network: network_mounts
+                .iter()
+                .any(|mount| Path::new(&record.path).starts_with(mount)),
             id: record.id,
             path: record.path,
             track_count,
@@ -705,6 +709,27 @@ pub(crate) fn rescan_outside(state: &AppState, app_handle: &AppHandle) -> AppRes
 ///
 /// 他のインポート・再スキャンが終わるまで待ってから始める。
 /// `report_progress`がtrueなら`LibraryScanProgress`を送る（設定ウィンドウの手動の再スキャン用）。
+/// 走査で見つけたファイルの、大きさと更新日時（取得できなければNone）
+///
+/// CUEシートの曲（仮のパス）は、CUEシートと音声ファイルの状態（`cue::file_state`。ADR-123）。
+pub(crate) fn disk_file_of(path: &Path) -> Option<DiskFile> {
+    let path_str = path.to_str()?.to_string();
+    if crate::cue::is_virtual(&path_str) {
+        let state = crate::cue::file_state(&path_str);
+        return Some(DiskFile {
+            size: state.map(|(size, _)| size),
+            modified_at: state.and_then(|(_, modified_at)| modified_at),
+            path: path_str,
+        });
+    }
+    let metadata = fs::metadata(path).ok();
+    Some(DiskFile {
+        size: metadata.as_ref().map(|m| m.len() as i64),
+        modified_at: metadata.as_ref().and_then(modified_at_of),
+        path: path_str,
+    })
+}
+
 pub(crate) fn rescan_folder(
     folder_id: &str,
     state: &AppState,
@@ -727,15 +752,7 @@ pub(crate) fn rescan_folder(
     let disk_files = scanned
         .audio_files
         .iter()
-        .filter_map(|path| {
-            let path_str = path.to_str()?.to_string();
-            let metadata = fs::metadata(path).ok();
-            Some(DiskFile {
-                size: metadata.as_ref().map(|m| m.len() as i64),
-                modified_at: metadata.as_ref().and_then(modified_at_of),
-                path: path_str,
-            })
-        })
+        .filter_map(|path| disk_file_of(path))
         .collect();
     // 読めなかったフォルダ（権限がないなど）の中のトラックは、比べる対象から外す
     // （ファイルがあるかを確かめられないため、見つからない曲にしない）。読み飛ばす場所
@@ -944,6 +961,7 @@ fn read_and_write_tracks(
                         &track.file_path,
                         &track.file_name,
                         *modified_at,
+                        track.cue.as_ref(),
                     ),
                 };
                 match (written, action) {

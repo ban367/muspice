@@ -370,6 +370,7 @@ mod tests {
 
     fn track(path: &Path, title: &str, number: i32) -> Track {
         Track {
+            cue: None,
             id: format!("t{}", number),
             file_path: path.to_str().unwrap().to_string(),
             file_name: path.file_name().unwrap().to_str().unwrap().to_string(),
@@ -396,6 +397,8 @@ mod tests {
             replay_gain: ReplayGain::default(),
             sort_tags: Default::default(),
             is_missing: false,
+            compilation: false,
+            details: Default::default(),
         }
     }
 

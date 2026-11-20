@@ -66,6 +66,43 @@ async function importFreshUi() {
   return (await import('./ui.svelte.js')).ui;
 }
 
+describe('選択中の曲のパネルへの切り替えの設定', () => {
+  it('保存がなければオフで、変えると保存する', async () => {
+    let ui = await importFreshUi();
+    expect(ui.autoShowSelectedTrack).toBe(false);
+
+    ui.autoShowSelectedTrack = true;
+    expect(localStorage.getItem('muspice:autoShowSelectedTrack')).toBe('true');
+    ui = await importFreshUi();
+    expect(ui.autoShowSelectedTrack).toBe(true);
+
+    // 壊れた値は、保存がない時と同じ
+    localStorage.setItem('muspice:autoShowSelectedTrack', '{');
+    expect((await importFreshUi()).autoShowSelectedTrack).toBe(false);
+  });
+});
+
+describe('グリッドの下の中身の領域の高さ', () => {
+  it('保存がない・不正な値なら既定値で、変えると最小値より小さくせずに保存する', async () => {
+    let ui = await importFreshUi();
+    expect(ui.gridDetailHeight).toBe(320);
+
+    ui.gridDetailHeight = 250.4;
+    expect(ui.gridDetailHeight).toBe(250);
+    expect(localStorage.getItem('muspice:gridDetailHeight')).toBe('250');
+    ui = await importFreshUi();
+    expect(ui.gridDetailHeight).toBe(250);
+
+    ui.gridDetailHeight = 10;
+    expect(ui.gridDetailHeight).toBe(120);
+
+    localStorage.setItem('muspice:gridDetailHeight', '"tall"');
+    expect((await importFreshUi()).gridDetailHeight).toBe(320);
+    localStorage.setItem('muspice:gridDetailHeight', '50');
+    expect((await importFreshUi()).gridDetailHeight).toBe(320);
+  });
+});
+
 describe('右サイドバーの固定', () => {
   it('保存がなければ固定し、解除を保存した時だけ固定しない', async () => {
     expect((await importFreshUi()).isRightSidebarPinned).toBe(true);
@@ -120,9 +157,9 @@ describe('列幅', () => {
   // 番号の列と、曲の一覧に出せるすべての列の幅を持つ
   const DEFAULT_WIDTHS = {
     number: 48,
-    title: 300,
-    artist: 200,
-    album: 200,
+    title: 250,
+    artist: 165,
+    album: 165,
     albumArtist: 180,
     genre: 110,
     year: 56,
@@ -139,7 +176,15 @@ describe('列幅', () => {
     bitrate: 88,
     sampleRate: 88,
     fileSize: 80,
-    filePath: 360
+    filePath: 360,
+    composer: 160,
+    grouping: 120,
+    bpm: 56,
+    analyzedBpm: 72,
+    analyzedKey: 56,
+    bitDepth: 64,
+    channels: 64,
+    comment: 200
   };
 
   it('保存がなければ既定値を使う（保存はしない）', async () => {

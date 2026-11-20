@@ -36,6 +36,25 @@ pub struct Manifest {
     /// Muspiceが書き出したプレイリストのファイル
     #[serde(default)]
     pub playlists: Vec<ManifestPlaylist>,
+    /// Muspiceが曲に添えてコピーしたファイル（歌詞ファイル・フォルダの画像。ADR-112）
+    ///
+    /// 項目を足す前の版は、この項目を読まずに書き直すため、記録がなくなることがある（その版で
+    /// 同期すると、添えたファイルは記録のないファイルになり、残る）。
+    #[serde(default)]
+    pub extras: Vec<ManifestExtra>,
+}
+
+/// 曲に添えてコピーしたファイル（歌詞ファイル・フォルダの画像）
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManifestExtra {
+    /// デバイスのフォルダからの相対パス（区切りは`/`）
+    pub path: String,
+    /// コピー元のファイルのパス（ライブラリの側）
+    pub source: String,
+    /// コピーした時点の、元のファイルのサイズと更新日時（UNIX時間の秒）
+    pub size: i64,
+    pub modified_at: Option<i64>,
 }
 
 /// デバイスにコピーした曲のファイル
@@ -51,6 +70,22 @@ pub struct ManifestFile {
     /// （FAT系の2秒の精度や、夏時間の切り替えによるずれの影響を受けない）。
     pub size: i64,
     pub modified_at: Option<i64>,
+    /// 変換してコピーした場合の、デバイス上のファイルのサイズ（変換していなければ値なし。`size`と同じ）
+    ///
+    /// 項目を足す前の版は、この項目を読まずに書き直す（その版で同期すると、変換したファイルは
+    /// サイズが合わないため、元のファイルでコピーし直される）。ADR-118。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_size: Option<i64>,
+    /// 変換の設定（`aac-256`など。変換していなければ値なし）。設定を変えたら、コピーし直す
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transcode: Option<String>,
+}
+
+impl ManifestFile {
+    /// デバイス上のファイルのサイズ（変換していなければ、元のファイルのサイズと同じ）
+    pub fn device_size(&self) -> i64 {
+        self.device_size.unwrap_or(self.size)
+    }
 }
 
 /// デバイスに書き出したプレイリストのファイル
@@ -70,6 +105,7 @@ impl Manifest {
             device_id: device_id.to_string(),
             files: Vec::new(),
             playlists: Vec::new(),
+            extras: Vec::new(),
         }
     }
 }
@@ -135,12 +171,14 @@ pub fn read_manifest(root: &Path) -> AppResult<Option<Manifest>> {
         ));
     }
 
-    let file_count = manifest.files.len() + manifest.playlists.len();
+    let file_count = manifest.files.len() + manifest.playlists.len() + manifest.extras.len();
     manifest.files.retain(|f| is_safe_relative_path(&f.path));
     manifest
         .playlists
         .retain(|p| is_safe_relative_path(&p.path));
-    let dropped = file_count - manifest.files.len() - manifest.playlists.len();
+    manifest.extras.retain(|e| is_safe_relative_path(&e.path));
+    let dropped =
+        file_count - manifest.files.len() - manifest.playlists.len() - manifest.extras.len();
     if dropped > 0 {
         log::warn!(
             "Ignored {} invalid path entries in the device manifest: {}",
@@ -298,6 +336,8 @@ mod tests {
             track_id: "t1".to_string(),
             size: 123,
             modified_at: Some(456),
+            device_size: None,
+            transcode: None,
         });
         manifest.playlists.push(ManifestPlaylist {
             path: "通勤.m3u8".to_string(),

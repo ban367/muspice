@@ -7,6 +7,11 @@
 //! 条件からSQLを作るが、項目・演算子は列挙型から決まった式を選び、値はすべてプレースホルダーで
 //! 渡す（入力した文字列をSQLへ埋め込まない）。
 //!
+//! ほかのプレイリストを条件にできる（「プレイリストに入っている / 入っていない」。ADR-116）。
+//! 通常のプレイリストは入れてある曲、自動プレイリストはその条件に合う曲（上限・並び順も含めて
+//! 求めた曲）で比べる。そのプレイリスト自身や、互いを条件にする条件は、保存する時に断る
+//! （`validate_playlist_references`）。消したプレイリストは、曲のないプレイリストとして扱う。
+//!
 //! ランダムな並びは、種（`EvalContext::shuffle_seed`）と曲のIDから決める。種が同じ間は同じ並びに
 //! なるため、曲の評価を変えた・1曲聴き終えたなどで一覧を取り直しても、並びは変わらない
 //! （種は起動のたびに変わり、「選び直す」操作でも変わる。`AppState::reshuffle_smart_playlists`）。
@@ -14,11 +19,13 @@
 use crate::error::{AppError, AppResult};
 use crate::models::Track;
 use crate::multi_value::MatchOp;
-use crate::repository::{TRACK_COLUMNS, query_tracks};
+use crate::playlist::find_rules;
+use crate::repository::{ALBUM_ARTIST, TRACK_COLUMNS, query_tracks};
 use chrono::{DateTime, Duration, Utc};
 use rusqlite::{Connection, ToSql};
 use serde::{Deserialize, Serialize};
 use specta::Type;
+use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 /// 条件の数の上限
@@ -35,6 +42,9 @@ const MAX_DAYS: u32 = 36_500;
 
 /// 曲数の上限として指定できる最大の値
 const MAX_LIMIT: u32 = 100_000;
+
+/// キーの条件の値の上限（主音の音名（0〜11）+ 12 × 調（0は長調・1は短調））
+const MAX_KEY: i32 = 23;
 
 /// 条件の組み合わせ方
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -55,6 +65,9 @@ pub enum TextField {
     AlbumArtist,
     Album,
     Genre,
+    Composer,
+    Grouping,
+    Comment,
     /// ファイルの種類（mp3・flacなど）
     Format,
     /// ファイルの場所（フォルダ名での絞り込みに使う）
@@ -91,6 +104,15 @@ pub enum NumberField {
     DiscNumber,
     /// ビットレート（kbps）
     Bitrate,
+    /// タグのBPM
+    Bpm,
+    /// 曲の解析で求めたテンポ（四捨五入した整数で比べる。ADR-104）
+    AnalyzedBpm,
+    /// サンプルレート（Hz）
+    SampleRate,
+    /// ビット深度（bit）
+    BitDepth,
+    Channels,
 }
 
 /// 数値の比べ方
@@ -128,6 +150,28 @@ pub enum DateOp {
     IsNotEmpty,
 }
 
+/// キー（曲の解析の結果）の比べ方
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum KeyOp {
+    Is,
+    /// そのキーではない（解析していない曲を含む）
+    IsNot,
+    /// キーがない（解析していない・解析できなかった・キーを決められなかった曲）
+    IsEmpty,
+    IsNotEmpty,
+}
+
+/// プレイリストに入っているかの比べ方
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum PlaylistOp {
+    /// 入っている
+    Is,
+    /// 入っていない
+    IsNot,
+}
+
 /// 1つの条件
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -156,6 +200,17 @@ pub enum SmartRule {
     Favorite { value: bool },
     /// 音楽フォルダの中にあるか（音楽フォルダが未設定なら、どの曲も中にない。ADR-084）
     InMusicFolder { value: bool },
+    /// 曲の解析で求めたキー（`value`は、主音の音名 + 12 × 調（0は長調・1は短調）。0はハ長調、
+    /// 21はイ短調。`IsEmpty`・`IsNotEmpty`では使わない）
+    Key { op: KeyOp, value: i32 },
+    /// ほかのプレイリストに入っているか（自動プレイリストは、その条件に合う曲。ADR-116）
+    Playlist {
+        op: PlaylistOp,
+        #[serde(rename = "playlistId")]
+        playlist_id: String,
+    },
+    /// ファイルが見つからない曲か（ADR-023）
+    Missing { value: bool },
 }
 
 /// 並び順に使う項目
@@ -280,10 +335,85 @@ pub fn validate_rules(rules: &SmartRules) -> AppResult<()> {
                     return invalid("日数は1から36500の範囲で指定してください");
                 }
             }
-            SmartRule::Favorite { .. } | SmartRule::InMusicFolder { .. } => {}
+            SmartRule::Key { op, value } => {
+                let needs_value = matches!(op, KeyOp::Is | KeyOp::IsNot);
+                if needs_value && !(0..=MAX_KEY).contains(value) {
+                    return invalid("キーの条件の値が範囲の外です");
+                }
+            }
+            SmartRule::Playlist { playlist_id, .. } => {
+                crate::validation::validate_playlist_id(playlist_id)?;
+            }
+            SmartRule::Favorite { .. }
+            | SmartRule::InMusicFolder { .. }
+            | SmartRule::Missing { .. } => {}
         }
     }
     Ok(())
+}
+
+/// 条件にしたプレイリスト（同じプレイリストを2回条件にした場合は、2回返す）
+fn referenced_playlists(rules: &SmartRules) -> impl Iterator<Item = &str> {
+    rules.rules.iter().filter_map(|rule| match rule {
+        SmartRule::Playlist { playlist_id, .. } => Some(playlist_id.as_str()),
+        _ => None,
+    })
+}
+
+/// 条件にしたプレイリストを検証する（保存する時に呼ぶ。`validate_rules`のあとで呼ぶ）
+///
+/// 条件にしたプレイリストがあることと、`playlist_id`（条件を変える自動プレイリスト。新しく作る
+/// 時はNone）自身を、直接も、ほかの自動プレイリストを通しても条件にしないこと（循環すると、
+/// 曲を決められない）を確かめる。
+pub fn validate_playlist_references(
+    conn: &Connection,
+    playlist_id: Option<&str>,
+    rules: &SmartRules,
+) -> AppResult<()> {
+    let invalid = |message: &str| Err(AppError::Validation(message.to_string()));
+    let mut visited = HashSet::new();
+    for target in referenced_playlists(rules) {
+        if Some(target) == playlist_id {
+            return invalid("自動プレイリストの条件に、そのプレイリスト自身は使えません");
+        }
+        match find_rules(conn, target)? {
+            None => return invalid("条件にしたプレイリストが見つかりません"),
+            Some(Some(target_rules)) => {
+                if let Some(playlist_id) = playlist_id
+                    && refers_to(conn, &target_rules, playlist_id, &mut visited)?
+                {
+                    return invalid(
+                        "条件にしたプレイリストが、このプレイリストを条件にしています（互いを条件にはできません）",
+                    );
+                }
+            }
+            Some(None) => {}
+        }
+    }
+    Ok(())
+}
+
+/// 条件が、（ほかの自動プレイリストを通してでも）プレイリストを条件にしているか
+fn refers_to(
+    conn: &Connection,
+    rules: &SmartRules,
+    playlist_id: &str,
+    visited: &mut HashSet<String>,
+) -> AppResult<bool> {
+    for target in referenced_playlists(rules) {
+        if target == playlist_id {
+            return Ok(true);
+        }
+        if !visited.insert(target.to_string()) {
+            continue;
+        }
+        if let Some(Some(target_rules)) = find_rules(conn, target)?
+            && refers_to(conn, &target_rules, playlist_id, visited)?
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// SQLの条件式と、そのプレースホルダーに渡す値
@@ -316,6 +446,9 @@ fn text_column(field: TextField) -> &'static str {
         TextField::AlbumArtist => "album_artist",
         TextField::Album => "album",
         TextField::Genre => "genre",
+        TextField::Composer => "composer",
+        TextField::Grouping => "grouping",
+        TextField::Comment => "comment",
         TextField::Format => "format",
         TextField::Path => "file_path",
     }
@@ -331,6 +464,11 @@ fn number_column(field: NumberField) -> &'static str {
         NumberField::TrackNumber => "track_number",
         NumberField::DiscNumber => "disc_number",
         NumberField::Bitrate => "bitrate",
+        NumberField::Bpm => "bpm",
+        NumberField::AnalyzedBpm => concat!("ROUND(", crate::repository::analyzed_bpm_sql!(), ")"),
+        NumberField::SampleRate => "sample_rate",
+        NumberField::BitDepth => "bit_depth",
+        NumberField::Channels => "channels",
     }
 }
 
@@ -356,106 +494,256 @@ fn multi_value_op(op: TextOp) -> Option<(MatchOp, bool)> {
     }
 }
 
-/// 1つの条件を、SQLの条件式にする
-fn rule_condition(rule: &SmartRule, now: DateTime<Utc>) -> Condition {
-    match rule {
-        SmartRule::Text { field, op, value } => {
-            let column = text_column(*field);
-            // 検索と同じ正規化（大文字と小文字・全角と半角・ひらがなとカタカナをそろえる）をして比べる
-            let normalized = format!("search_text({column})");
-            let needle = crate::search_text::normalize(value.trim());
-            // アーティスト・ジャンルは複数の値を持てるため、値のどれかが条件に合うかで比べる
-            // （「ジャンルがRock」は、`Rock; Pop`の曲にも合う。`multi_value`）
-            if matches!(field, TextField::Artist | TextField::Genre)
-                && let Some((match_op, negate)) = multi_value_op(*op)
-            {
-                return Condition::new(
-                    format!(
-                        "{}multi_value_match({column}, '{}', ?)",
-                        if negate { "NOT " } else { "" },
-                        match_op.as_sql()
+/// 条件から曲を求める間の状態（ほかのプレイリストを条件にした時に、その曲を求める）
+struct Resolver<'a> {
+    conn: &'a Connection,
+    context: EvalContext,
+    /// 曲を求めている途中の自動プレイリスト（保存してある条件が循環していても、止まるようにする）
+    visiting: Vec<String>,
+    /// 求めた自動プレイリストの曲のID（JSONの配列）。同じプレイリストを何度条件にしても、1回だけ求める
+    members: HashMap<String, String>,
+}
+
+impl<'a> Resolver<'a> {
+    fn new(conn: &'a Connection, context: EvalContext) -> Self {
+        Self {
+            conn,
+            context,
+            visiting: Vec::new(),
+            members: HashMap::new(),
+        }
+    }
+
+    /// 1つの条件を、SQLの条件式にする
+    fn rule_condition(&mut self, rule: &SmartRule) -> AppResult<Condition> {
+        let condition = match rule {
+            SmartRule::Text { field, op, value } => {
+                let column = text_column(*field);
+                // 検索と同じ正規化（大文字と小文字・全角と半角・ひらがなとカタカナをそろえる）をして比べる
+                let normalized = format!("search_text({column})");
+                let needle = crate::search_text::normalize(value.trim());
+                // アーティスト・ジャンルは複数の値を持てるため、値のどれかが条件に合うかで比べる
+                // （「ジャンルがRock」は、`Rock; Pop`の曲にも合う。`multi_value`）。作曲者は、
+                // 1つの文字列として比べる（一覧・検索と同じ。ADR-115）
+                if matches!(field, TextField::Artist | TextField::Genre)
+                    && let Some((match_op, negate)) = multi_value_op(*op)
+                {
+                    return Ok(Condition::new(
+                        format!(
+                            "{}multi_value_match({column}, '{}', ?)",
+                            if negate { "NOT " } else { "" },
+                            match_op.as_sql()
+                        ),
+                        vec![Box::new(needle)],
+                    ));
+                }
+                let like = |pattern: String, negate: bool| {
+                    Condition::new(
+                        format!(
+                            "{normalized} {}LIKE ? ESCAPE '\\'",
+                            if negate { "NOT " } else { "" }
+                        ),
+                        vec![Box::new(pattern)],
+                    )
+                };
+                match op {
+                    TextOp::Contains => like(format!("%{}%", escape_like(&needle)), false),
+                    TextOp::NotContains => like(format!("%{}%", escape_like(&needle)), true),
+                    TextOp::StartsWith => like(format!("{}%", escape_like(&needle)), false),
+                    TextOp::EndsWith => like(format!("%{}", escape_like(&needle)), false),
+                    TextOp::Is => {
+                        Condition::new(format!("{normalized} = ?"), vec![Box::new(needle)])
+                    }
+                    TextOp::IsNot => {
+                        Condition::new(format!("{normalized} != ?"), vec![Box::new(needle)])
+                    }
+                    TextOp::IsEmpty => {
+                        Condition::new(format!("({column} IS NULL OR TRIM({column}) = '')"), vec![])
+                    }
+                    TextOp::IsNotEmpty => Condition::new(
+                        format!("({column} IS NOT NULL AND TRIM({column}) != '')"),
+                        vec![],
                     ),
-                    vec![Box::new(needle)],
-                );
+                }
             }
-            let like = |pattern: String, negate: bool| {
-                Condition::new(
-                    format!(
-                        "{normalized} {}LIKE ? ESCAPE '\\'",
-                        if negate { "NOT " } else { "" }
+            SmartRule::Number {
+                field,
+                op,
+                value,
+                value_to,
+            } => {
+                let column = number_column(*field);
+                match op {
+                    NumberOp::Is => Condition::new(format!("{column} = ?"), vec![Box::new(*value)]),
+                    // 値のない曲（年のない曲など）は、「その値ではない」に含める
+                    NumberOp::IsNot => {
+                        Condition::new(format!("{column} IS NOT ?"), vec![Box::new(*value)])
+                    }
+                    NumberOp::AtLeast => {
+                        Condition::new(format!("{column} >= ?"), vec![Box::new(*value)])
+                    }
+                    NumberOp::AtMost => {
+                        Condition::new(format!("{column} <= ?"), vec![Box::new(*value)])
+                    }
+                    NumberOp::Between => Condition::new(
+                        format!("{column} BETWEEN ? AND ?"),
+                        vec![Box::new(*value), Box::new(value_to.unwrap_or(*value))],
                     ),
-                    vec![Box::new(pattern)],
-                )
+                }
+            }
+            SmartRule::Date { field, op, days } => {
+                let column = date_column(*field);
+                // 日時は、書式（タイムゾーンの表記など）をそろえてから比べる
+                let cutoff = (self.context.now - Duration::days(i64::from(*days))).to_rfc3339();
+                match op {
+                    DateOp::InLast => Condition::new(
+                        format!("datetime({column}) >= datetime(?)"),
+                        vec![Box::new(cutoff)],
+                    ),
+                    DateOp::NotInLast => Condition::new(
+                        format!("({column} IS NULL OR datetime({column}) < datetime(?))"),
+                        vec![Box::new(cutoff)],
+                    ),
+                    DateOp::IsEmpty => Condition::new(format!("{column} IS NULL"), vec![]),
+                    DateOp::IsNotEmpty => Condition::new(format!("{column} IS NOT NULL"), vec![]),
+                }
+            }
+            SmartRule::Favorite { value } => Condition::new(
+                "COALESCE(is_favorite, 0) = ?",
+                vec![Box::new(i32::from(*value))],
+            ),
+            // 曲の場所が、音楽フォルダのパス＋区切り文字で始まるか（印はDBに持たず、場所から求める）
+            SmartRule::InMusicFolder { value } => Condition::new(
+                format!("{IN_MUSIC_FOLDER_SQL} = ?"),
+                vec![Box::new(i32::from(*value))],
+            ),
+            SmartRule::Key { op, value } => {
+                let key = crate::repository::analyzed_key_sql!();
+                match op {
+                    KeyOp::Is => Condition::new(format!("{key} = ?"), vec![Box::new(*value)]),
+                    // 解析していない曲は、「そのキーではない」に含める（数値の条件と同じ）
+                    KeyOp::IsNot => {
+                        Condition::new(format!("{key} IS NOT ?"), vec![Box::new(*value)])
+                    }
+                    KeyOp::IsEmpty => Condition::new(format!("{key} IS NULL"), vec![]),
+                    KeyOp::IsNotEmpty => Condition::new(format!("{key} IS NOT NULL"), vec![]),
+                }
+            }
+            SmartRule::Playlist { op, playlist_id } => {
+                let members = self.playlist_members(playlist_id)?;
+                match op {
+                    PlaylistOp::Is => members,
+                    PlaylistOp::IsNot => {
+                        Condition::new(format!("NOT ({})", members.sql), members.params)
+                    }
+                }
+            }
+            SmartRule::Missing { value } => Condition::new(
+                "(missing_since IS NOT NULL) = ?",
+                vec![Box::new(i32::from(*value))],
+            ),
+        };
+        Ok(condition)
+    }
+
+    /// プレイリストに入っている曲を表すSQLの条件式
+    ///
+    /// 通常のプレイリストは入れてある曲、自動プレイリストはその条件に合う曲（上限があれば、
+    /// 並び順の先頭からその曲数まで）。消したプレイリストは、曲のないプレイリストとして扱う。
+    fn playlist_members(&mut self, playlist_id: &str) -> AppResult<Condition> {
+        let rules = match find_rules(self.conn, playlist_id)? {
+            None => return Ok(Condition::new("0", vec![])),
+            Some(None) => {
+                return Ok(Condition::new(
+                    "EXISTS (SELECT 1 FROM playlist_tracks AS member
+                     WHERE member.playlist_id = ? AND member.track_id = tracks.id)",
+                    vec![Box::new(playlist_id.to_string())],
+                ));
+            }
+            Some(Some(rules)) => rules,
+        };
+
+        let ids = match self.members.get(playlist_id) {
+            Some(ids) => ids.clone(),
+            None => {
+                if self.visiting.iter().any(|id| id == playlist_id) {
+                    log::warn!("Smart playlist rules refer to each other: {playlist_id}");
+                    return Ok(Condition::new("0", vec![]));
+                }
+                self.visiting.push(playlist_id.to_string());
+                let ids = self.matching_ids(&rules);
+                self.visiting.pop();
+                let ids = serde_json::to_string(&ids?).map_err(|e| {
+                    AppError::Database(format!("プレイリストの曲の取得に失敗しました: {}", e))
+                })?;
+                self.members.insert(playlist_id.to_string(), ids.clone());
+                ids
+            }
+        };
+        Ok(Condition::new(
+            "tracks.id IN (SELECT value FROM json_each(?))",
+            vec![Box::new(ids)],
+        ))
+    }
+
+    /// 条件の一覧を、1つのSQLの条件式にまとめる
+    fn where_condition(&mut self, rules: &SmartRules) -> AppResult<Condition> {
+        if rules.rules.is_empty() {
+            // 「すべてを満たす」で条件がなければすべての曲、「いずれかを満たす」で条件がなければ曲なし
+            let sql = match rules.match_mode {
+                MatchMode::All => "1",
+                MatchMode::Any => "0",
             };
-            match op {
-                TextOp::Contains => like(format!("%{}%", escape_like(&needle)), false),
-                TextOp::NotContains => like(format!("%{}%", escape_like(&needle)), true),
-                TextOp::StartsWith => like(format!("{}%", escape_like(&needle)), false),
-                TextOp::EndsWith => like(format!("%{}", escape_like(&needle)), false),
-                TextOp::Is => Condition::new(format!("{normalized} = ?"), vec![Box::new(needle)]),
-                TextOp::IsNot => {
-                    Condition::new(format!("{normalized} != ?"), vec![Box::new(needle)])
-                }
-                TextOp::IsEmpty => {
-                    Condition::new(format!("({column} IS NULL OR TRIM({column}) = '')"), vec![])
-                }
-                TextOp::IsNotEmpty => Condition::new(
-                    format!("({column} IS NOT NULL AND TRIM({column}) != '')"),
-                    vec![],
-                ),
-            }
+            return Ok(Condition::new(sql, vec![]));
         }
-        SmartRule::Number {
-            field,
-            op,
-            value,
-            value_to,
-        } => {
-            let column = number_column(*field);
-            match op {
-                NumberOp::Is => Condition::new(format!("{column} = ?"), vec![Box::new(*value)]),
-                // 値のない曲（年のない曲など）は、「その値ではない」に含める
-                NumberOp::IsNot => {
-                    Condition::new(format!("{column} IS NOT ?"), vec![Box::new(*value)])
-                }
-                NumberOp::AtLeast => {
-                    Condition::new(format!("{column} >= ?"), vec![Box::new(*value)])
-                }
-                NumberOp::AtMost => {
-                    Condition::new(format!("{column} <= ?"), vec![Box::new(*value)])
-                }
-                NumberOp::Between => Condition::new(
-                    format!("{column} BETWEEN ? AND ?"),
-                    vec![Box::new(*value), Box::new(value_to.unwrap_or(*value))],
-                ),
-            }
+
+        let separator = match rules.match_mode {
+            MatchMode::All => " AND ",
+            MatchMode::Any => " OR ",
+        };
+        let mut parts = Vec::with_capacity(rules.rules.len());
+        let mut params = Vec::new();
+        for rule in &rules.rules {
+            let condition = self.rule_condition(rule)?;
+            parts.push(format!("({})", condition.sql));
+            params.extend(condition.params);
         }
-        SmartRule::Date { field, op, days } => {
-            let column = date_column(*field);
-            // 日時は、書式（タイムゾーンの表記など）をそろえてから比べる
-            let cutoff = (now - Duration::days(i64::from(*days))).to_rfc3339();
-            match op {
-                DateOp::InLast => Condition::new(
-                    format!("datetime({column}) >= datetime(?)"),
-                    vec![Box::new(cutoff)],
-                ),
-                DateOp::NotInLast => Condition::new(
-                    format!("({column} IS NULL OR datetime({column}) < datetime(?))"),
-                    vec![Box::new(cutoff)],
-                ),
-                DateOp::IsEmpty => Condition::new(format!("{column} IS NULL"), vec![]),
-                DateOp::IsNotEmpty => Condition::new(format!("{column} IS NOT NULL"), vec![]),
-            }
+        Ok(Condition::new(parts.join(separator), params))
+    }
+
+    /// 条件に合う曲を、並び順のとおりに（上限があれば、その曲数まで）取得するSQL
+    ///
+    /// ランダムな並びでは、上限を付けない（取得したあとで並べて、上限の曲数にする。`limit_randomly`）。
+    fn matching_query(&mut self, rules: &SmartRules, columns: &str) -> AppResult<Condition> {
+        let condition = self.where_condition(rules)?;
+        let mut sql = format!(
+            "SELECT {columns} FROM tracks WHERE {} ORDER BY {}",
+            condition.sql,
+            order_sql(rules.order)
+        );
+        let mut params = condition.params;
+        if let Some(limit) = rules.limit.filter(|_| !is_random(rules)) {
+            sql.push_str(" LIMIT ?");
+            params.push(Box::new(limit));
         }
-        SmartRule::Favorite { value } => Condition::new(
-            "COALESCE(is_favorite, 0) = ?",
-            vec![Box::new(i32::from(*value))],
-        ),
-        // 曲の場所が、音楽フォルダのパス＋区切り文字で始まるか（印はDBに持たず、場所から求める）
-        SmartRule::InMusicFolder { value } => Condition::new(
-            format!("{IN_MUSIC_FOLDER_SQL} = ?"),
-            vec![Box::new(i32::from(*value))],
-        ),
+        Ok(Condition::new(sql, params))
+    }
+
+    /// 条件に合う曲のID（`matching_query`と同じ曲）
+    fn matching_ids(&mut self, rules: &SmartRules) -> AppResult<Vec<String>> {
+        let query = self.matching_query(rules, "id")?;
+        let params: Vec<&dyn ToSql> = query.params.iter().map(|param| param.as_ref()).collect();
+        let database = |e: rusqlite::Error| {
+            AppError::Database(format!("プレイリストの曲の取得に失敗しました: {}", e))
+        };
+        let mut stmt = self.conn.prepare(&query.sql).map_err(database)?;
+        let mut ids = stmt
+            .query_map(params.as_slice(), |row| row.get::<_, String>(0))
+            .map_err(database)?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(database)?;
+        limit_randomly(&mut ids, rules, self.context.shuffle_seed, |id| id);
+        Ok(ids)
     }
 }
 
@@ -463,31 +751,6 @@ fn rule_condition(rule: &SmartRule, now: DateTime<Utc>) -> Condition {
 const IN_MUSIC_FOLDER_SQL: &str = "EXISTS (SELECT 1 FROM library_folders AS music
      WHERE music.is_music_folder = 1
        AND substr(tracks.file_path, 1, length(music.path) + 1) = music.path || '/')";
-
-/// 条件の一覧を、1つのSQLの条件式にまとめる
-fn where_condition(rules: &SmartRules, now: DateTime<Utc>) -> Condition {
-    if rules.rules.is_empty() {
-        // 「すべてを満たす」で条件がなければすべての曲、「いずれかを満たす」で条件がなければ曲なし
-        let sql = match rules.match_mode {
-            MatchMode::All => "1",
-            MatchMode::Any => "0",
-        };
-        return Condition::new(sql, vec![]);
-    }
-
-    let separator = match rules.match_mode {
-        MatchMode::All => " AND ",
-        MatchMode::Any => " OR ",
-    };
-    let mut parts = Vec::with_capacity(rules.rules.len());
-    let mut params = Vec::new();
-    for rule in &rules.rules {
-        let condition = rule_condition(rule, now);
-        parts.push(format!("({})", condition.sql));
-        params.extend(condition.params);
-    }
-    Condition::new(parts.join(separator), params)
-}
 
 /// 並び順のSQL（同じ値の曲は、アーティスト → アルバム → アルバムの中の並びにする）
 fn order_sql(order: SmartOrder) -> String {
@@ -506,7 +769,7 @@ fn order_sql(order: SmartOrder) -> String {
     };
     let direction = if order.descending { "DESC" } else { "ASC" };
     format!(
-        "{expression} {direction}, COALESCE(album_artist, artist), album,
+        "{expression} {direction}, {ALBUM_ARTIST}, album,
          COALESCE(disc_number, 1), track_number, title, id"
     )
 }
@@ -519,40 +782,42 @@ fn shuffle_key(seed: u64, track_id: &str) -> u64 {
     hasher.finish()
 }
 
+fn is_random(rules: &SmartRules) -> bool {
+    rules.order.field == SmartOrderField::Random
+}
+
+/// ランダムな並びの条件なら、取得した曲を種の並びにして、上限の曲数にする
+fn limit_randomly<T>(
+    items: &mut Vec<T>,
+    rules: &SmartRules,
+    seed: u64,
+    id_of: impl Fn(&T) -> &str,
+) {
+    if !is_random(rules) {
+        return;
+    }
+    items.sort_by_cached_key(|item| shuffle_key(seed, id_of(item)));
+    if let Some(limit) = rules.limit {
+        items.truncate(limit as usize);
+    }
+}
+
 /// 条件に合う曲を、並び順のとおりに（上限があれば、その曲数まで）取得する
 pub fn find_tracks(
     conn: &Connection,
     rules: &SmartRules,
     context: EvalContext,
 ) -> AppResult<Vec<Track>> {
-    let condition = where_condition(rules, context.now);
-    let is_random = rules.order.field == SmartOrderField::Random;
-    let mut sql = format!(
-        "SELECT {TRACK_COLUMNS} FROM tracks WHERE {} ORDER BY {}",
-        condition.sql,
-        order_sql(rules.order)
-    );
-    let mut params = condition.params;
-    // ランダムな並びでは、並べてから上限の曲数にする
-    if let Some(limit) = rules.limit.filter(|_| !is_random) {
-        sql.push_str(" LIMIT ?");
-        params.push(Box::new(limit));
-    }
-
-    let params: Vec<&dyn ToSql> = params.iter().map(|param| param.as_ref()).collect();
-    let mut tracks = query_tracks(conn, &sql, &params)?;
-    if is_random {
-        tracks.sort_by_cached_key(|track| shuffle_key(context.shuffle_seed, &track.id));
-        if let Some(limit) = rules.limit {
-            tracks.truncate(limit as usize);
-        }
-    }
+    let query = Resolver::new(conn, context).matching_query(rules, TRACK_COLUMNS)?;
+    let params: Vec<&dyn ToSql> = query.params.iter().map(|param| param.as_ref()).collect();
+    let mut tracks = query_tracks(conn, &query.sql, &params)?;
+    limit_randomly(&mut tracks, rules, context.shuffle_seed, |track| &track.id);
     Ok(tracks)
 }
 
 /// 条件に合う曲数（上限があれば、それを超えない）を数える（条件の編集画面で、入力のたびに出す）
-pub fn count_tracks(conn: &Connection, rules: &SmartRules, now: DateTime<Utc>) -> AppResult<u32> {
-    let condition = where_condition(rules, now);
+pub fn count_tracks(conn: &Connection, rules: &SmartRules, context: EvalContext) -> AppResult<u32> {
+    let condition = Resolver::new(conn, context).where_condition(rules)?;
     let sql = format!("SELECT COUNT(*) FROM tracks WHERE {}", condition.sql);
     let params: Vec<&dyn ToSql> = condition
         .params
@@ -999,16 +1264,16 @@ mod tests {
         let conn = library();
         let mut all = rules(MatchMode::All, vec![]);
 
-        assert_eq!(count_tracks(&conn, &all, now()).unwrap(), 4);
+        assert_eq!(count_tracks(&conn, &all, context(1)).unwrap(), 4);
         all.limit = Some(3);
-        assert_eq!(count_tracks(&conn, &all, now()).unwrap(), 3);
+        assert_eq!(count_tracks(&conn, &all, context(1)).unwrap(), 3);
         all.limit = Some(10);
-        assert_eq!(count_tracks(&conn, &all, now()).unwrap(), 4);
+        assert_eq!(count_tracks(&conn, &all, context(1)).unwrap(), 4);
         let jazz = rules(
             MatchMode::All,
             vec![text(TextField::Genre, TextOp::Is, "jazz")],
         );
-        assert_eq!(count_tracks(&conn, &jazz, now()).unwrap(), 1);
+        assert_eq!(count_tracks(&conn, &jazz, context(1)).unwrap(), 1);
     }
 
     #[test]
@@ -1141,5 +1406,272 @@ mod tests {
         assert!(validate_rules(&rules).is_ok());
         // 知らない項目のある条件は、読めない（保存してある条件なら、曲のない自動プレイリストにする）
         assert!(serde_json::from_str::<SmartRules>(&json.replace("trackNumber", "mood")).is_err());
+    }
+
+    /// 作曲者・グループ・コメントの条件
+    #[test]
+    fn test_composer_grouping_and_comment_rules() {
+        let conn = library();
+        set(&conn, "a", "composer", &"Bach");
+        set(&conn, "b", "composer", &"Bachmann");
+        set(&conn, "c", "grouping", &"Live");
+        set(&conn, "d", "comment", &"Remastered 2020");
+
+        let all = |rule| ids(&conn, &rules(MatchMode::All, vec![rule]));
+        assert_eq!(all(text(TextField::Composer, TextOp::Is, "bach")), ["a"]);
+        assert_eq!(
+            all(text(TextField::Composer, TextOp::Contains, "bach")),
+            ["a", "b"]
+        );
+        assert_eq!(
+            all(text(TextField::Composer, TextOp::IsEmpty, "")),
+            ["c", "d"]
+        );
+        assert_eq!(all(text(TextField::Grouping, TextOp::Is, "live")), ["c"]);
+        assert_eq!(
+            all(text(TextField::Comment, TextOp::Contains, "remaster")),
+            ["d"]
+        );
+    }
+
+    /// BPM・解析したテンポ・サンプルレート・ビット深度・チャンネル数の条件
+    #[test]
+    fn test_bpm_and_audio_property_rules() {
+        let conn = library();
+        set(&conn, "a", "bpm", &128);
+        set(&conn, "a", "sample_rate", &96_000);
+        set(&conn, "a", "bit_depth", &24);
+        set(&conn, "a", "channels", &2);
+        set(&conn, "b", "sample_rate", &44_100);
+        set(&conn, "b", "bit_depth", &16);
+        set(&conn, "b", "channels", &1);
+        for id in ["a", "b", "c", "d"] {
+            set(&conn, id, "duration", &200);
+        }
+        let analyze = |id: &str, bpm: f64, failed: bool, duration: i32| {
+            conn.execute(
+                "INSERT INTO track_analysis (track_id, duration, bpm, failed, analyzed_at)
+                 VALUES (?1, ?2, ?3, ?4, '2026-01-01T00:00:00+00:00')",
+                rusqlite::params![id, duration, bpm, failed],
+            )
+            .unwrap();
+        };
+        analyze("a", 124.5, false, 200);
+        analyze("b", 90.2, false, 200);
+        // 失敗した解析と、長さが変わる前の解析は使わない
+        analyze("c", 125.0, true, 200);
+        analyze("d", 125.0, false, 180);
+
+        let all = |rule| ids(&conn, &rules(MatchMode::All, vec![rule]));
+        assert_eq!(all(number(NumberField::Bpm, NumberOp::AtLeast, 120)), ["a"]);
+        // 解析したテンポは、四捨五入した整数で比べる
+        assert_eq!(
+            all(number(NumberField::AnalyzedBpm, NumberOp::Is, 125)),
+            ["a"]
+        );
+        assert_eq!(
+            all(number(NumberField::AnalyzedBpm, NumberOp::AtMost, 90)),
+            ["b"]
+        );
+        assert_eq!(
+            all(number(NumberField::AnalyzedBpm, NumberOp::IsNot, 125)),
+            ["b", "c", "d"]
+        );
+        assert_eq!(
+            all(number(NumberField::SampleRate, NumberOp::AtLeast, 48_000)),
+            ["a"]
+        );
+        assert_eq!(all(number(NumberField::BitDepth, NumberOp::Is, 16)), ["b"]);
+        assert_eq!(all(number(NumberField::Channels, NumberOp::Is, 1)), ["b"]);
+    }
+
+    /// キー（曲の解析の結果）の条件
+    #[test]
+    fn test_key_rules() {
+        let conn = library();
+        let analyze = |id: &str, pitch_class: Option<i32>, mode: Option<i32>| {
+            conn.execute(
+                "INSERT INTO track_analysis (track_id, duration, key_pitch_class, key_mode,
+                                             analyzed_at)
+                 VALUES (?1, NULL, ?2, ?3, '2026-01-01T00:00:00+00:00')",
+                rusqlite::params![id, pitch_class, mode],
+            )
+            .unwrap();
+        };
+        // イ短調（9 + 12）・ハ長調（0）・キーを決められなかった曲（dは解析していない）
+        analyze("a", Some(9), Some(1));
+        analyze("b", Some(0), Some(0));
+        analyze("c", None, None);
+
+        let key = |op, value| {
+            ids(
+                &conn,
+                &rules(MatchMode::All, vec![SmartRule::Key { op, value }]),
+            )
+        };
+        assert_eq!(key(KeyOp::Is, 21), ["a"]);
+        assert_eq!(key(KeyOp::Is, 0), ["b"]);
+        assert_eq!(key(KeyOp::IsNot, 21), ["b", "c", "d"]);
+        assert_eq!(key(KeyOp::IsEmpty, 0), ["c", "d"]);
+        assert_eq!(key(KeyOp::IsNotEmpty, 0), ["a", "b"]);
+    }
+
+    /// ファイルが見つからない曲の条件
+    #[test]
+    fn test_missing_rule() {
+        let conn = library();
+        set(&conn, "b", "missing_since", &"2026-01-02T00:00:00+00:00");
+
+        let missing = |value| {
+            ids(
+                &conn,
+                &rules(MatchMode::All, vec![SmartRule::Missing { value }]),
+            )
+        };
+        assert_eq!(missing(true), ["b"]);
+        assert_eq!(missing(false), ["a", "c", "d"]);
+    }
+
+    fn in_playlist(op: PlaylistOp, playlist_id: &str) -> SmartRule {
+        SmartRule::Playlist {
+            op,
+            playlist_id: playlist_id.to_string(),
+        }
+    }
+
+    /// ほかのプレイリストを条件にする（通常のプレイリストは入れてある曲、自動プレイリストは条件に合う曲）
+    #[test]
+    fn test_playlist_rules() {
+        let conn = library();
+        let manual = crate::playlist::create_playlist(&conn, "車では聴かない").unwrap();
+        crate::playlist::add_tracks_to_playlist(&conn, &manual.id, &["a".into(), "c".into()])
+            .unwrap();
+        // J-Popをタイトル順に1曲まで（a）
+        let mut jpop = rules(
+            MatchMode::All,
+            vec![text(TextField::Genre, TextOp::Is, "J-Pop")],
+        );
+        jpop.limit = Some(1);
+        let smart = crate::playlist::create_smart_playlist(&conn, "J-Pop", &jpop).unwrap();
+
+        let all = |rules_: Vec<SmartRule>| ids(&conn, &rules(MatchMode::All, rules_));
+        assert_eq!(
+            all(vec![in_playlist(PlaylistOp::Is, &manual.id)]),
+            ["a", "c"]
+        );
+        assert_eq!(
+            all(vec![in_playlist(PlaylistOp::IsNot, &manual.id)]),
+            ["b", "d"]
+        );
+        // 自動プレイリストは、上限まで求めた曲で比べる
+        assert_eq!(all(vec![in_playlist(PlaylistOp::Is, &smart.id)]), ["a"]);
+        assert_eq!(
+            ids(
+                &conn,
+                &rules(
+                    MatchMode::Any,
+                    vec![
+                        in_playlist(PlaylistOp::Is, &manual.id),
+                        in_playlist(PlaylistOp::Is, &smart.id)
+                    ]
+                )
+            ),
+            ["a", "c"]
+        );
+        let count = |rules_: Vec<SmartRule>| {
+            count_tracks(&conn, &rules(MatchMode::All, rules_), context(1)).unwrap()
+        };
+        assert_eq!(count(vec![in_playlist(PlaylistOp::IsNot, &smart.id)]), 3);
+
+        // 消したプレイリストは、曲のないプレイリストとして扱う
+        crate::playlist::delete_playlist(&conn, &manual.id).unwrap();
+        assert!(all(vec![in_playlist(PlaylistOp::Is, &manual.id)]).is_empty());
+        assert_eq!(
+            all(vec![in_playlist(PlaylistOp::IsNot, &manual.id)]),
+            ["a", "b", "c", "d"]
+        );
+    }
+
+    /// 保存してある条件が互いを条件にしていても（ほかの版で保存したなど）、求めるのが止まる
+    #[test]
+    fn test_playlist_rules_stop_at_cycles() {
+        let conn = library();
+        let first =
+            crate::playlist::create_smart_playlist(&conn, "A", &rules(MatchMode::All, vec![]))
+                .unwrap();
+        let second = crate::playlist::create_smart_playlist(
+            &conn,
+            "B",
+            &rules(MatchMode::All, vec![in_playlist(PlaylistOp::Is, &first.id)]),
+        )
+        .unwrap();
+        // 検証を通さずに、AがBを条件にするように書き換える
+        let cyclic = rules(
+            MatchMode::All,
+            vec![in_playlist(PlaylistOp::Is, &second.id)],
+        );
+        conn.execute(
+            "UPDATE playlists SET rules = ?1 WHERE id = ?2",
+            rusqlite::params![serde_json::to_string(&cyclic).unwrap(), first.id],
+        )
+        .unwrap();
+
+        assert!(ids(&conn, &cyclic).is_empty());
+    }
+
+    #[test]
+    fn test_validate_playlist_references() {
+        let conn = library();
+        let manual = crate::playlist::create_playlist(&conn, "通常").unwrap();
+        let first =
+            crate::playlist::create_smart_playlist(&conn, "A", &rules(MatchMode::All, vec![]))
+                .unwrap();
+        let refers = |id: &str| rules(MatchMode::All, vec![in_playlist(PlaylistOp::Is, id)]);
+        let second =
+            crate::playlist::create_smart_playlist(&conn, "B", &refers(&first.id)).unwrap();
+
+        let validate = |playlist_id: Option<&str>, rules_: &SmartRules| {
+            validate_playlist_references(&conn, playlist_id, rules_)
+        };
+        assert!(validate(None, &refers(&manual.id)).is_ok());
+        assert!(validate(Some(&first.id), &refers(&manual.id)).is_ok());
+        // そのプレイリスト自身
+        assert!(matches!(
+            validate(Some(&first.id), &refers(&first.id)),
+            Err(AppError::Validation(_))
+        ));
+        // ないプレイリスト
+        let unknown = uuid::Uuid::new_v4().to_string();
+        assert!(matches!(
+            validate(None, &refers(&unknown)),
+            Err(AppError::Validation(_))
+        ));
+        // BはAを条件にしているため、AはBを条件にできない（保存もしない）
+        assert!(matches!(
+            validate(Some(&first.id), &refers(&second.id)),
+            Err(AppError::Validation(_))
+        ));
+        assert!(matches!(
+            crate::playlist::update_smart_playlist_rules(&conn, &first.id, &refers(&second.id)),
+            Err(AppError::Validation(_))
+        ));
+        // ほかの自動プレイリストを条件にするのはよい
+        let third =
+            crate::playlist::create_smart_playlist(&conn, "C", &refers(&second.id)).unwrap();
+        assert!(validate(Some(&third.id), &refers(&first.id)).is_ok());
+    }
+
+    #[test]
+    fn test_validate_key_and_playlist_rules() {
+        let key = |op, value| rules(MatchMode::All, vec![SmartRule::Key { op, value }]);
+        assert!(validate_rules(&key(KeyOp::Is, 23)).is_ok());
+        assert!(validate_rules(&key(KeyOp::Is, 24)).is_err());
+        assert!(validate_rules(&key(KeyOp::IsNot, -1)).is_err());
+        // 値を使わない比べ方では、値を見ない
+        assert!(validate_rules(&key(KeyOp::IsEmpty, 99)).is_ok());
+
+        let playlist = |id: &str| rules(MatchMode::All, vec![in_playlist(PlaylistOp::Is, id)]);
+        assert!(validate_rules(&playlist(&uuid::Uuid::new_v4().to_string())).is_ok());
+        assert!(validate_rules(&playlist("../other")).is_err());
     }
 }

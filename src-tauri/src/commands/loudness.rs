@@ -70,6 +70,7 @@ pub async fn start_loudness_scan(
             for track_id in &track_ids {
                 validate_track_id(track_id)?;
             }
+            super::reject_cue_tracks(&app, &track_ids)?;
             ScanScope::Tracks(track_ids.into_iter().collect())
         }
     };

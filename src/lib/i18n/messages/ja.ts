@@ -28,8 +28,6 @@ export const ja = {
     more: 'その他',
     play: '再生',
     playAll: 'すべて再生',
-    shuffle: 'シャッフル',
-    shufflePlay: 'シャッフル再生',
     playNow: '次のキューに追加して再生',
     playNext: '次のキューに追加',
     addToQueue: 'キューの末尾に追加',
@@ -76,6 +74,10 @@ export const ja = {
     sampleRate: 'サンプルレート',
     fileSize: 'サイズ',
     filePath: '場所',
+    bitDepth: 'ビット深度',
+    channels: 'チャンネル',
+    analyzedBpm: 'テンポ（解析）',
+    analyzedKey: 'キー（解析）',
     titleSort: 'タイトルの読み',
     artistSort: 'アーティストの読み',
     albumArtistSort: 'アルバムアーティストの読み',
@@ -136,6 +138,7 @@ export const ja = {
     refreshMetadata: 'メタデータの更新',
     writeMetadataToFiles: 'メタデータの書き出し',
     loudnessScan: '音量の解析',
+    musicAnalysis: '曲の解析',
     convert: '形式の変換',
     showInFolder: 'ファイルの場所を開く',
     fetchPlaylists: 'プレイリスト一覧の取得',
@@ -156,6 +159,7 @@ export const ja = {
     deletePlaylist: 'プレイリストの削除',
     importM3u: 'プレイリストの読み込み',
     importLibraryXml: 'ライブラリのXMLの取り込み',
+    exportLibrary: 'ライブラリの書き出し',
     exportM3u: 'プレイリストの書き出し',
     fetchAlbumArtInfo: 'アルバムアートの情報の取得',
     loadSettings: '設定の読み込み',
@@ -173,18 +177,21 @@ export const ja = {
     planLibraryRestore: 'バックアップの確認',
     restoreLibraryBackup: 'バックアップからの復元',
     removeMissingTracks: '見つからない曲の削除',
+    locateTrackFile: 'ファイルの場所の指定',
+    findMissingTracksInFolder: '見つからない曲の検索',
     addLibraryFolderExclusion: '読み込まないフォルダの追加',
     removeLibraryFolderExclusion: '読み込まないフォルダの削除',
     removeExcludedTracks: '読み込まないフォルダの曲の削除',
     fetchMusicFolder: '音楽フォルダの取得',
     setMusicFolder: '音楽フォルダの設定',
-    clearMusicFolder: '音楽フォルダの解除',
+    pickMusicFolder: '音楽フォルダの選択',
     previewMusicFolderTemplate: '書式の例の取得',
     fetchDevices: 'デバイスの取得',
     registerDevice: 'デバイスの追加',
     updateDevice: 'デバイスの設定の変更',
     relinkDevice: '転送先の変更',
     removeDevice: 'デバイスの登録の解除',
+    ejectDevice: 'デバイスの取り出し',
     cancelDeviceSync: '同期の中止'
   },
 
@@ -253,6 +260,11 @@ export const ja = {
     columns: '表示する列',
     resetSort: '並び順を既定に戻す',
     resetColumns: '列と並び順を既定に戻す',
+    /** 一覧の下の合計（ADR-114） */
+    summary: (count: number, duration: string, size: string) =>
+      `${count}曲 · ${duration} · ${size}`,
+    selectionSummary: (count: number, duration: string, size: string) =>
+      `${count}曲を選択中（${duration} · ${size}）`,
     /** 並べ替えている列の見出しの名前（スクリーンリーダー向け） */
     sortedColumn: (column: string, descending: boolean) =>
       `${column}（${descending ? '降順' : '昇順'}で並べ替え中）`
@@ -260,16 +272,18 @@ export const ja = {
 
   player: {
     noTrack: 'トラックを選択して再生',
-    revealCurrentTrack: '再生中の曲を一覧で表示 (Ctrl+L)',
+    revealCurrentTrack: '再生中の曲を一覧で表示 (⌘L)',
     shuffleTitle: 'シャッフル (S)',
     shuffle: 'シャッフル',
-    previousTitle: '前へ (Ctrl+←)',
+    aiShuffleTitle: 'AIシャッフル（曲が始まるたびに、今の曲に合う曲を選んで次に足します）',
+    aiShuffle: 'AIシャッフル',
+    previousTitle: '前へ (⌘←)',
     previous: '前のトラック',
     playTitle: '再生 (Space)',
     pauseTitle: '一時停止 (Space)',
     play: '再生',
     pause: '一時停止',
-    nextTitle: '次へ (Ctrl+→)',
+    nextTitle: '次へ (⌘→)',
     next: '次のトラック',
     repeatTitle: (mode: string) => `リピート (R): ${mode}`,
     repeat: 'リピート',
@@ -295,12 +309,13 @@ export const ja = {
     playHistory: '再生履歴',
     mostPlayed: 'よく再生する曲',
     duplicates: '重複した曲',
+    missing: '見つからない曲',
     recentlyAdded: '最近追加した曲',
     folders: 'フォルダ',
     years: '年代',
     playlists: 'プレイリスト',
-    newPlaylistTitle: '新規プレイリスト (Ctrl+N)',
-    newSmartPlaylistTitle: '新規自動プレイリスト',
+    newPlaylistTitle: '新規プレイリスト (⌘N)',
+    newSmartPlaylistTitle: '新規自動プレイリスト (⌥⌘N)',
     playlistMenu: 'フォルダと並び順',
     newFolder: '新規フォルダ',
     folderName: 'フォルダ名',
@@ -333,13 +348,14 @@ export const ja = {
   rightSidebar: {
     queueTitle: '再生キュー',
     openQueue: '再生キューを開く',
-    /** イコライザなど、音の加工の設定のパネル */
+    /** リプレイゲイン・クロスフェード・イコライザ・クロスフィードなど、音の設定のパネル */
     soundTitle: 'サウンド',
     openSound: 'サウンドの設定を開く',
     albumInfoTitle: 'アルバム情報',
     openAlbumInfo: 'アルバム情報を開く',
-    trackInfoTitle: '曲情報',
-    openTrackInfo: '曲情報を開く',
+    /** 一覧で選んだ曲のパネル */
+    trackInfoTitle: '選択中の曲',
+    openTrackInfo: '選択中の曲を開く',
     pin: 'サイドバーを固定',
     unpin: '固定解除',
     clear: 'クリア',
@@ -348,11 +364,17 @@ export const ja = {
     /** 曲のカードの見出し */
     nowPlaying: '再生中',
     selectedTrack: '選択中の曲',
+    /** 選択を外した後も残している曲 */
+    lastSelectedTrack: '最後に選んだ曲',
     /** 曲のカードに出す曲がない時 */
     nothingPlaying: '再生していません',
     nothingSelected: '曲を選んでいません',
     queueTracks: (count: number) => `曲リスト (${count}曲)`,
     removeFromQueue: 'キューから削除',
+    /** キューの行の、AIシャッフルが足した曲の印 */
+    addedByAiShuffle: 'AIシャッフルで足した曲',
+    /** キューの行の左端の目印（ドラッグで並べ替えられることを示す）のツールチップ */
+    dragToReorder: 'ドラッグで並べ替え',
     saveAsPlaylist: 'プレイリストとして保存',
     saveAsPlaylistTitle: '再生キューをプレイリストとして保存',
     saveAsPlaylistDefaultName: (date: string) => `再生キュー ${date}`,
@@ -364,17 +386,31 @@ export const ja = {
     album: 'アルバム',
     empty: '曲を再生すると、ここに曲のアルバムを表示します',
     noAlbum: 'この曲にはアルバムの情報がありません',
-    notFound: '曲が見つかりません。ライブラリから削除されたか、タグが変わった可能性があります'
+    notFound: '曲が見つかりません。ライブラリから削除されたか、タグが変わった可能性があります',
+    /** ジャケット画像のカードと、アルバムの曲の間に出す、曲の情報 */
+    trackDetails: '曲の情報',
+    /** 曲の情報に出している曲（再生中の曲か、パネルの中で選んだ曲か） */
+    playing: '再生中',
+    selected: '選択中',
+    trackNumber: (number: number) => `トラック ${number}`,
+    playCount: (count: number) => `再生 ${count}回`,
+    lastPlayed: (date: string) => `最終再生 ${date}`
   },
 
-  /** 右サイドバーの曲情報パネル（一覧で選んでいる曲） */
+  /** 右サイドバーの選択中の曲のパネル（一覧で選んだ曲） */
   trackInfo: {
     empty: '曲を選ぶと、ここに曲の情報を表示します',
+    /** メインビューで曲を選んだら、このパネルに切り替えるかのトグル */
+    autoShow: '選択で切り替え',
+    autoShowHint:
+      'メインビューで曲を選んだら、このパネルに切り替えます（右サイドバーを開いている時）',
     /** 複数の曲を選んでいる時（最後に選んだ曲のほかに選んでいる曲の数。曲のカードの「選択中の曲」に添える） */
     othersSelected: (count: number) => `ほか${count}曲`,
     tags: 'タグ',
     file: 'ファイル',
-    history: '再生の記録'
+    history: '再生の記録',
+    /** 曲の情報の編集画面を開くボタン */
+    edit: '曲の情報を編集'
   },
 
   /** ミニプレーヤー（メインウィンドウの小さな表示） */
@@ -445,12 +481,60 @@ export const ja = {
     resetLabel: 'イコライザをリセット',
     presetName: 'プリセット名',
     deletePreset: 'プリセットを削除',
-    confirmDeletePreset: (name: string) => `"${name}" を削除しますか？`
+    confirmDeletePreset: (name: string) => `"${name}" を削除しますか？`,
+    /** 全体の音量 */
+    preamp: 'プリアンプ'
+  },
+
+  /** 右サイドバーのサウンドのパネル（イコライザは`equalizer`） */
+  soundPanel: {
+    replayGain: 'リプレイゲイン',
+    turnOnReplayGain: 'リプレイゲインをオン',
+    turnOffReplayGain: 'リプレイゲインをオフ',
+    /** 補正に使うゲインの単位 */
+    replayGainMode: 'モード',
+    replayGainModes: { track: 'トラック', album: 'アルバム', auto: '自動' },
+    preamp: 'プリアンプ',
+    preampValue: (db: number) => `${db > 0 ? '+' : ''}${db} dB`,
+    untaggedPreamp: 'タグのない曲',
+    preventClipping: 'クリップ防止',
+    /** 再生中の曲にかけている補正 */
+    currentGain: '再生中の曲',
+    gainValue: (db: number) => `${db > 0 ? '+' : ''}${db.toFixed(1)} dB`,
+    /** 補正の量と、使ったゲイン */
+    gainDetail: (value: string, source: string) => `${value}（${source}）`,
+    gainSources: { track: 'トラック', album: 'アルバム', untagged: 'タグなし' },
+    gainLimited: 'クリップ防止で抑えています',
+    gapless: 'ギャップレス再生',
+    turnOnGapless: 'ギャップレス再生をオン',
+    turnOffGapless: 'ギャップレス再生をオフ',
+    crossfade: 'クロスフェード',
+    turnOnCrossfade: 'クロスフェードをオン',
+    turnOffCrossfade: 'クロスフェードをオフ',
+    crossfadeDuration: '時間',
+    crossfadeSeconds: (seconds: number) => `${seconds}秒`,
+    crossfadeSkipAlbumTracks: '同じアルバムの続きの曲では重ねない',
+    crossfeed: 'クロスフィード',
+    turnOnCrossfeed: 'クロスフィードをオン',
+    turnOffCrossfeed: 'クロスフィードをオフ',
+    crossfeedLevel: '強さ',
+    crossfeedLevels: { weak: '弱', medium: '中', strong: '強' }
   },
 
   metadataEditor: {
-    editTitle: 'メタデータを編集',
-    bulkEditTitle: (count: number) => `${count}件のトラックを一括編集`,
+    bulkEditTitle: (count: number) => `${count}曲をまとめて編集`,
+    /** 保存した後に、知らせることがある時（画面を閉じずに出す） */
+    savedWithWarnings: '保存しました。次のことを確かめてください',
+    tagsSavedArtFailed: (reason: string) =>
+      `タグは保存しましたが、アルバムアートを書き込めませんでした: ${reason}`,
+    openFailed: '編集画面を開く',
+    /** 開いた一覧の前後の曲へ移る（ADR-119） */
+    previousTrack: '前の曲（⌘[）',
+    nextTrack: '次の曲（⌘]）',
+    position: (current: number, count: number) => `${current} / ${count}`,
+    moveFailed: '前後の曲への移動',
+    loadingTracks: '曲を読み込み中...',
+    noTracks: '編集する曲が見つかりません。ライブラリから外された可能性があります',
     bulkHint:
       '空欄のフィールドは変更されません。変更したいフィールドのみ入力してください。タイトル（とその読み）・トラック番号・歌詞は、1曲ずつ編集します。',
     bulkPartiallyFailed: (updated: number, failed: number) =>
@@ -466,7 +550,13 @@ export const ja = {
     yearPlaceholder: '例: 2023',
     writesToFile: '変更は音楽ファイルのタグに書き込まれます',
     /** タブ */
-    tabs: { tags: 'タグ', sort: '並び順', lyrics: '歌詞', file: 'ファイル情報' },
+    tabs: {
+      tags: 'タグ',
+      sort: '並び順',
+      lyrics: '歌詞',
+      albumArt: 'アルバムアート',
+      file: 'ファイル情報'
+    },
     /** 並び順に使う値（読み）の説明 */
     sortHint:
       '並び順に使う読み（ひらがな・カタカナなど）を入力します。空の項目は、表示用の名前で並べます。',
@@ -489,6 +579,8 @@ export const ja = {
       format: '形式',
       bitrate: 'ビットレート',
       sampleRate: 'サンプルレート',
+      bitDepth: 'ビット深度',
+      channels: 'チャンネル数',
       duration: '長さ',
       size: 'サイズ',
       addedAt: '追加した日時',
@@ -498,6 +590,7 @@ export const ja = {
       never: '未再生',
       kbps: (value: number) => `${value} kbps`,
       hz: (value: number) => `${value.toLocaleString('ja-JP')} Hz`,
+      bits: (value: number) => `${value} bit`,
       times: (count: number) => `${count}回`,
       missing: 'ファイルが見つかりません'
     }
@@ -568,10 +661,28 @@ export const ja = {
       `形式の変換を中断しました（変換: ${converted}曲、変換しない: ${skipped}曲、失敗: ${failed}曲）`
   },
 
+  /** 曲の解析（テンポ・キー。設定の「AI機能」） */
+  musicAnalysis: {
+    title: '曲の解析（テンポ・キー）',
+    description:
+      'このMacの中で曲のテンポ（BPM）とキーを解析し、AIシャッフルの「似た曲」に使います（ファイルは書き換えず、外部にも送りません）。解析はバックグラウンドで1曲ずつ進み、止めるまでに終わらなければ、次の起動で続きから再開します',
+    unavailable:
+      'このMacでは使えません（macOS 27以降が必要です）。AIシャッフルは、タグと再生回数で曲を選びます',
+    analyzedCount: (analyzed: number, total: number) => `${analyzed} / ${total}曲を解析済み`,
+    failedCount: (count: number) => `解析できなかった曲: ${count}曲`,
+    running: '解析しています。アプリを使いながら待てます',
+    stopping: '解析中の曲が終わったら止めます...',
+    start: '解析を始める',
+    stop: '解析を止める',
+    delete: '解析データを削除',
+    deleteConfirm:
+      '曲の解析のデータを削除しますか？AIシャッフルの「似た曲」は、タグだけで選ぶようになります。'
+  },
+
   loudnessScan: {
     title: '音量の解析',
     description:
-      '音量の情報（ReplayGainのタグ）がない曲の音量を解析して、ファイルのタグへ書き込みます。「再生」の「音量の正規化」で使われます。アルバムの音量は、ライブラリにあるそのアルバムの全曲から求めます。解析はバックグラウンドで進み、中断しても、次は残りの曲から続けられます',
+      '音量の情報（ReplayGainのタグ）がない曲の音量を解析して、ファイルのタグへ書き込みます。右サイドバーのサウンドの「リプレイゲイン」で使われます。アルバムの音量は、ライブラリにあるそのアルバムの全曲から求めます。解析はバックグラウンドで進み、中断しても、次は残りの曲から続けられます',
     pending: (count: number) => `音量の情報がない曲: ${count}曲`,
     noPending: 'すべての曲に、音量の情報があります',
     startMissing: 'タグのない曲を解析',
@@ -708,10 +819,8 @@ export const ja = {
     }
   },
 
-  albumArtDialog: {
-    title: 'アルバムアート',
-    /** アルバムの絵をクリックして開く操作の名前 */
-    open: 'アルバムアートを変更',
+  /** 編集画面の「アルバムアート」のタブ（画像は、保存した時にファイルへ書き込む。ADR-094） */
+  albumArtEditor: {
     target: (count: number) => `${count}曲が対象`,
     /** 複数の曲を選んだ時の、表示している画像の説明 */
     previewOf: (title: string) => `表示しているのは「${title}」の画像です`,
@@ -721,20 +830,33 @@ export const ja = {
     dimensions: (width: number, height: number) => `${width} × ${height}`,
     folderHint:
       'フォルダの画像は、埋め込みの画像がない曲に表示されます。画像を埋め込むと、そちらが優先されます。',
-    choose: '画像を選んで埋め込む...',
+    choose: '画像を選ぶ...',
     remove: '埋め込みの画像を取り除く',
+    undo: '変更を取り消す',
+    /** 選んだ画像（まだ書き込んでいない） */
+    picked: '新しい画像',
+    willEmbed: (count: number) =>
+      `保存すると、この画像を${count}曲のファイルへ埋め込みます（表示している画像を置き換えます）。`,
+    willRemove: (count: number) =>
+      `保存すると、${count}曲のファイルから埋め込みの画像をすべて取り除きます。元に戻せません。`,
     writesToFile: '画像（JPEG・PNG、10MBまで）は、縮小せずにそのまま音楽ファイルへ埋め込まれます。',
-    confirmRemove: (count: number) =>
-      `${count}曲のファイルから、埋め込みの画像をすべて取り除きます。元に戻せません。`,
-    confirmRemoveAction: '取り除く',
-    working: 'ファイルに書き込み中...',
     missingExcluded: (count: number) => `ファイルが見つからない${count}曲は、対象になりません`,
     allMissing: 'ファイルが見つからないため、変更できません',
-    embeddedResult: (count: number) => `${count}曲に画像を埋め込みました`,
-    removedResult: (count: number) => `${count}曲から画像を取り除きました`,
     nothingToRemove: '埋め込みの画像がある曲はありませんでした',
-    partiallyFailed: (failed: number) => `${failed}曲はファイルに書き込めませんでした`,
-    allFailed: (reason: string) => `ファイルに書き込めませんでした: ${reason}`
+    partiallyFailed: (failed: number) =>
+      `アルバムアートは、${failed}曲のファイルに書き込めませんでした`,
+    allFailed: (reason: string) => `アルバムアートを書き込めませんでした: ${reason}`
+  },
+
+  /** ライブラリの書き出し（iTunes形式のXML・CSV。ADR-121） */
+  libraryExport: {
+    title: 'ライブラリの書き出し',
+    description:
+      'iTunes形式のライブラリのXMLは、曲・評価・再生回数・プレイリスト（自動プレイリストは、今の条件に合う曲）を、DJソフト（rekordbox・Serato・Traktorなど）やほかの管理ソフトで読める形で書き出します。CSVは、曲の一覧を表計算ソフトで開ける形で書き出します',
+    xml: 'XMLで書き出す...',
+    csv: 'CSVで書き出す...',
+    exporting: '書き出し中...',
+    exported: (path: string) => `書き出しました: ${path}`
   },
 
   libraryXmlImport: {
@@ -760,13 +882,15 @@ export const ja = {
 
   contextMenu: {
     selectedCount: (count: number) => `${count}曲を選択中`,
-    editMetadata: 'メタデータを編集',
-    albumArt: 'アルバムアート...',
+    editMetadata: '曲の情報を編集...',
     tagTools: 'タグの一括ツール...',
     fileOrganize: 'ファイルを整理...',
     loudnessScan: '音量を解析...',
     convert: '形式を変換...',
     showInFolder: 'ファイルの場所を開く',
+    locateFile: 'ファイルの場所を指定...',
+    goToAlbum: 'アルバムへ移動',
+    goToArtist: 'アーティストへ移動',
     deleteEllipsis: '削除...',
     addToPlaylist: 'プレイリストに追加',
     noPlaylists: 'プレイリストがありません',
@@ -882,6 +1006,9 @@ export const ja = {
   },
 
   library: {
+    /** グリッドの下に出す、選んだ項目の中身の領域（境目の名前と、閉じるボタン） */
+    detailResize: '中身の領域の高さ',
+    closeDetail: '中身の領域を閉じる',
     songs: '曲',
     albums: 'アルバム',
     artists: 'アーティスト',
@@ -961,6 +1088,25 @@ export const ja = {
     noDuplicates: '重複した曲はありません',
     noDuplicatesHint:
       'タイトルとアーティストが同じで、長さがほぼ同じ曲があると、ここに表示されます',
+    /** 見つからない曲の画面（ADR-117） */
+    missing: '見つからない曲',
+    missingDescription:
+      'ファイルが見つからない曲です。右クリックの「ファイルの場所を指定...」か「フォルダから探す...」で、結び付け直せます（お気に入り・再生回数・プレイリストを保ちます）',
+    missingCount: (count: number) => `${count}曲`,
+    noMissing: '見つからない曲はありません',
+    noMissingHint: '再スキャンでファイルが見つからなくなった曲が、ここに表示されます',
+    findInFolder: 'フォルダから探す...',
+    findingInFolder: '探しています...',
+    removeMissing: 'ライブラリから外す...',
+    removeMissingConfirm: (count: number) =>
+      `ファイルが見つからない${count}曲を、ライブラリから外しますか？プレイリストからも消え、お気に入り・再生回数も失われます。`,
+    removeMissingOk: '外す',
+    foundInFolder: (relinked: number, remaining: number) =>
+      remaining > 0
+        ? `${relinked}曲を結び付けました（見つからない曲は、あと${remaining}曲です）`
+        : `${relinked}曲を結び付けました`,
+    notFoundInFolder: 'このフォルダには、見つからない曲のファイルがありませんでした',
+    locatedFile: 'ファイルの場所を変えました',
     favorites: 'お気に入り',
     noFavorites: 'お気に入りの曲がありません',
     noFavoritesHint: '曲のハートを押すと、ここに表示されます',
@@ -1055,6 +1201,12 @@ export const ja = {
     pathField: 'ファイルの場所',
     /** 音楽フォルダの中にあるかの条件（ADR-084） */
     inMusicFolderField: '音楽フォルダ',
+    /** ほかのプレイリストに入っているかの条件（ADR-116） */
+    playlistField: 'プレイリスト',
+    choosePlaylist: 'プレイリストを選ぶ',
+    deletedPlaylist: '（削除したプレイリスト）',
+    /** ファイルが見つからない曲かの条件（ADR-023） */
+    missingField: 'ファイル',
     noRating: '評価なし',
     days: '日',
     minutesUnit: '分',
@@ -1090,6 +1242,20 @@ export const ja = {
       inMusicFolder: {
         is: 'の中にある',
         isNot: 'の外にある'
+      },
+      key: {
+        is: 'である',
+        isNot: 'でない',
+        isEmpty: 'がない（未解析）',
+        isNotEmpty: 'がある'
+      },
+      playlist: {
+        is: 'に入っている',
+        isNot: 'に入っていない'
+      },
+      missing: {
+        is: 'が見つからない',
+        isNot: 'がある'
       }
     },
     /** 条件の説明（プレイリストの画面に出す） */
@@ -1121,6 +1287,15 @@ export const ja = {
       favorite: (value: boolean): string => (value ? 'お気に入り' : 'お気に入りではない'),
       inMusicFolder: (value: boolean): string =>
         value ? '音楽フォルダの中にある' : '音楽フォルダの外にある',
+      key: {
+        is: (key: string) => key,
+        isNot: (key: string) => `${key}以外`,
+        isEmpty: () => 'なし（未解析）',
+        isNotEmpty: () => 'あり'
+      },
+      playlist: (name: string, value: boolean): string =>
+        `「${name}」に${value ? '入っている' : '入っていない'}`,
+      missing: (value: boolean): string => (value ? 'ファイルが見つからない' : 'ファイルがある'),
       order: (field: string, descending: boolean) => `${field}の${descending ? '降順' : '昇順'}`,
       limited: (order: string, limit: number) => `${order}で${limit}曲まで`
     },
@@ -1135,7 +1310,8 @@ export const ja = {
       rangeInvalid: '範囲の条件は、小さい値と大きい値の順に入力してください',
       daysInvalid: '日数は、1から36500で入力してください',
       limitInvalid: '曲数の上限は、1から100000で入力してください',
-      tooManyRules: '条件が多すぎます（50個まで）'
+      tooManyRules: '条件が多すぎます（50個まで）',
+      playlistRequired: '条件のプレイリストを選んでください'
     },
     editRules: '条件を編集',
     editRulesEllipsis: '条件を編集...',
@@ -1152,8 +1328,19 @@ export const ja = {
       general: '一般',
       playback: '再生',
       library: 'ライブラリ',
+      ai: 'AI機能',
       appearance: '外観'
     },
+    /** 設定の「AI機能」 */
+    aiNote: '曲の解析とAIシャッフルは、このMacの中だけで行います',
+    aiShuffleMode: 'AIシャッフルの選び方',
+    aiShuffleModes: {
+      similar: '似た曲',
+      frequentlyPlayed: 'よく再生する曲',
+      rarelyPlayed: 'あまり再生していない曲'
+    },
+    aiShuffleModeHint:
+      'プレーヤーのAIシャッフルのボタンを押すと、曲が始まるたびに、この選び方に合う曲を選んで次に足します。「似た曲」は、テンポ・キー（曲の解析）とジャンル・アーティスト・年が近い曲を選びます',
     loadFailed: '設定を読み込めませんでした',
     language: '言語',
     startupPage: '起動時に開く画面',
@@ -1172,23 +1359,23 @@ export const ja = {
     globalShortcutActions: {
       toggle: '再生 / 一時停止',
       next: '次の曲',
-      previous: '前の曲'
+      previous: '前の曲',
+      volumeUp: '音量を上げる',
+      volumeDown: '音量を下げる',
+      toggleMute: 'ミュート'
     },
     globalShortcutUnavailable: 'ほかのアプリが使っているため、登録できませんでした',
-    volumeNormalization: '音量の正規化',
-    volumeNormalizations: { off: 'オフ', track: 'トラック単位', album: 'アルバム単位' },
-    volumeNormalizationHint:
-      '曲ごとの音量の差を、ファイルのReplayGainのタグを使ってそろえます。アルバム単位では、アルバム内の曲の音量の差はそのまま残します。タグのない曲は補正しません（「ライブラリ」の「音量の解析」で、タグのない曲に音量の情報を書き込めます）',
-    normalizationPreamp: 'プリアンプ',
-    normalizationPreampValue: (db: number) => `${db > 0 ? '+' : ''}${db} dB`,
-    normalizationPreampHint:
-      '音量の正規化で補正する曲の音量を、まとめて上げ下げします。正規化で全体が小さく聞こえる場合に上げます（音割れしない範囲に抑えます）。音量の情報のない曲には、かかりません',
-    gaplessPlayback: 'ギャップレス再生',
-    gaplessPlaybackHint: '次の曲を先に読み込んでおき、曲と曲の間に無音を入れずに続けて再生します',
-    crossfade: 'クロスフェード',
-    crossfadeSeconds: (seconds: number) => `${seconds}秒`,
-    crossfadeHint:
-      '曲の終わりを設定した秒数でフェードアウトしながら、次の曲をフェードインします。短い曲では曲の長さの半分までにします。「次へ」などの操作で曲を変えたときと、1曲リピートではクロスフェードしません',
+    /** ホットキーの割り当ての変更（ADR-122） */
+    globalShortcutChange: '変更',
+    globalShortcutClear: '解除',
+    globalShortcutUnassigned: '割り当てなし',
+    globalShortcutRecording: '割り当てるキーを押してください（Escで取り消し）',
+    globalShortcutNeedsModifier: 'Control・Option・Commandのどれかと一緒に押してください',
+    globalShortcutUnsupported: 'このキーは割り当てられません',
+    globalShortcutInUse: (action: string) => `「${action}」に割り当てています`,
+    /** 再生の設定の見出しの下（音の設定は、右サイドバーのパネルにある） */
+    soundPanelNote:
+      'リプレイゲイン・ギャップレス再生・クロスフェード・イコライザ・クロスフィードは、右サイドバーの「サウンド」で変えます',
     outputDevice: '出力デバイス',
     outputDeviceDefault: 'システムの既定',
     /** 選んであるデバイスが一覧にない（接続されていない）場合の表示 */
@@ -1200,6 +1387,9 @@ export const ja = {
     watchFoldersHint:
       'ライブラリフォルダでファイルが追加・削除・変更されたら、数秒後にライブラリへ反映します。外付けドライブやネットワーク上のフォルダでは、変更が通知されない場合があります',
     scanInterval: '定期的な再スキャン',
+    /** ネットワーク上のライブラリフォルダがあり、定期的な再スキャンをしない時の勧め（ADR-120） */
+    networkFolderHint:
+      'ネットワーク上のライブラリフォルダ（NASなど）があります。ほかの機器からの変更はフォルダの監視に通知されないため、定期的な再スキャンを設定してください',
     scanIntervals: {
       0: 'しない',
       15: '15分ごと',
@@ -1364,13 +1554,17 @@ export const ja = {
     /** 既定の音楽フォルダ（OSの音楽フォルダの中の`Muspice`。なければ作る） */
     useDefault: '既定のフォルダ（Muspice）を使う',
     pick: 'フォルダを選ぶ...',
-    clear: '解除',
+    /** 設定の「ライブラリ」で、音楽フォルダを選び直す（「適用」で変える） */
+    change: 'フォルダを変更...',
+    /** 選んで、「適用」を待っている音楽フォルダ */
+    pendingLabel: '適用すると、このフォルダに変えます',
+    pendingHint:
+      '「適用」を押すと、音楽フォルダを変え、ライブラリをこのフォルダの中身に置き換えます（外す曲がある時は、置き換える前に確かめます）。',
     badge: '音楽フォルダ',
     setting: '音楽フォルダを設定しています...',
     set: (path: string) => `音楽フォルダを「${path}」にしました`,
     setWithTracks: (path: string, count: number) =>
       `音楽フォルダを「${path}」にし、${count}曲を読み込みました`,
-    cleared: '音楽フォルダの設定を解除しました（フォルダは、ライブラリフォルダとして残ります）',
     /** 音楽フォルダを変えて、ライブラリを置き換える（ADR-086） */
     replaceTitle: 'ライブラリの置き換え',
     replaceIntro: (path: string) =>
@@ -1440,11 +1634,27 @@ export const ja = {
     relink: '転送先を変更',
     relinked: '転送先を変更しました',
     remove: '登録を解除',
+    /** ドライブの取り出し（macOS。ADR-113） */
+    eject: '取り出す',
+    ejected: (name: string) => `「${name}」を取り出しました`,
+    /** 登録済みのデバイスがつながった時の知らせ */
+    connectedNotice: (name: string) =>
+      `「${name}」が接続されました。デバイスのページから同期できます`,
+    /** 同期する内容の見通し（曲数とサイズ。デバイスの容量より大きい時の注意） */
+    selectionSummary: (count: number, size: string) => `選んだ内容: ${count}曲（${size}）`,
+    selectionTooLarge: (total: string) =>
+      `デバイスの容量（${total}）より大きいため、すべての曲は入りません`,
     confirmRemove: (name: string) =>
       `デバイス「${name}」の登録を解除しますか？\nデバイス上の曲は削除されません。`,
     removed: 'デバイスの登録を解除しました',
     sourceTitle: '同期する内容',
-    layoutHint: '曲は「アーティスト/アルバム/曲名」のフォルダに分けてコピーします',
+    /** デバイス上の配置の書式（ADR-111） */
+    layoutTitle: '配置',
+    layoutTemplate: 'デバイス上の配置の書式',
+    layoutTemplateHint:
+      'デバイスにコピーする曲の、フォルダとファイルの名前の付け方です（ファイルの整理と同じ書き方）。書式を変えると、次の同期で、コピー済みの曲の名前を変えます（コピーし直しはしません）。',
+    applyLayout: '書式を適用',
+    layoutApplied: '配置の書式を変えました。次の同期で、デバイス上の曲の名前を変えます',
     syncAll: 'ライブラリの全曲',
     playlists: 'プレイリスト',
     playlistsHint:
@@ -1453,7 +1663,20 @@ export const ja = {
     removeUnselected: '同期する内容から外れた曲を、デバイスから削除する',
     removeUnselectedHint:
       '削除するのはMuspiceがコピーした曲だけです。自分でデバイスに置いたファイルは削除しません',
+    copyExtras: '歌詞ファイル（.lrc）とフォルダの画像もコピーする',
+    copyExtrasHint:
+      '曲と同じ名前の歌詞ファイルと、フォルダの画像（cover.jpgなど）を、曲と同じフォルダへコピーします。オフにすると、次の同期で、Muspiceがコピーしたものを削除します',
     noSource: '同期する内容を選択してください',
+    /** 転送する時の変換（ADR-118） */
+    transcode: '転送する時の変換',
+    transcodeModes: {
+      off: '変換しない',
+      lossless: '可逆の形式（FLAC・ALAC・WAVなど）の曲をAACにする',
+      aboveBitrate: 'ビットレートが高い曲をAACにする'
+    },
+    transcodeBitrate: 'AACのビットレート',
+    transcodeHint:
+      '容量の小さい機器に多くの曲を入れられます。変換には時間がかかります（変換した曲は、元の曲か設定が変わるまで変換し直しません）。タグとアルバムアートも写します',
 
     syncDialog: {
       title: (name: string) => `「${name}」へ同期`,
@@ -1462,10 +1685,22 @@ export const ja = {
       copy: 'コピー',
       delete: '削除',
       rename: '名前の変更',
+      /** 曲に添える歌詞ファイル・フォルダの画像（ADR-112） */
+      extras: '歌詞・フォルダの画像',
+      /** 確認の画面の、曲の一覧（開くと出す。多い時は先頭だけ） */
+      moreItems: (count: number) => `ほか${count}曲`,
+      showDetails: '曲の一覧を見る',
+      extraCounts: (copied: number, deleted: number) =>
+        [copied > 0 && `コピー ${copied}件`, deleted > 0 && `削除 ${deleted}件`]
+          .filter(Boolean)
+          .join('・'),
       unchanged: '変更なし',
       playlists: 'プレイリスト',
       /** 曲数とサイズ（例: 12曲（345.6 MB）） */
       countAndSize: (count: number, size: string) => `${count}曲（${size}）`,
+      /** 変換してコピーする曲（ADR-118） */
+      transcodeCount: (count: number) =>
+        `コピーする曲のうち${count}曲をAACに変換します（変換する曲のサイズは見積もりです）`,
       freeSpace: '空き容量',
       upToDate: 'デバイスの曲は最新です',
       missingSources: (count: number) =>
@@ -1474,6 +1709,7 @@ export const ja = {
       start: '同期を開始',
       preparing: '準備しています...',
       copying: (current: number, total: number) => `コピー中... (${current}/${total})`,
+      converting: (current: number, total: number) => `変換してコピー中... (${current}/${total})`,
       finishing: '仕上げています...',
       stop: '中止',
       stopping: '中止しています...',

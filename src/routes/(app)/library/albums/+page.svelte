@@ -12,6 +12,7 @@
   import { ui } from '#lib/stores/ui.svelte.js';
   import { albumSearchFields, groupAlbumsByArtist } from '#lib/utils/albumArtists.js';
   import { matchesSearchTerms, searchTerms } from '#lib/utils/searchText.js';
+  import { revealAlbumArtistKey } from '#lib/utils/libraryReveal.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   // クエリ
@@ -40,6 +41,8 @@
   count={allAlbums.length}
   getItemKey={(albumArtist) => albumArtist.key}
   listPaneWidth="16rem"
+  revealKind="album"
+  revealListKey={(request) => (request.kind === 'album' ? revealAlbumArtistKey(request) : null)}
 >
   {#snippet emptyIcon()}
     <svg
@@ -68,7 +71,7 @@
     />
   {/snippet}
 
-  {#snippet detailView(albumArtist)}
-    <AlbumArtistDetail {albumArtist} />
+  {#snippet detailView(albumArtist, revealed)}
+    <AlbumArtistDetail {albumArtist} reveal={revealed?.kind === 'album' ? revealed : null} />
   {/snippet}
 </LibraryBrowsePage>

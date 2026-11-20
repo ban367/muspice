@@ -3,7 +3,8 @@ import {
   listSelectionTarget,
   navigationTarget,
   openableListAction,
-  treeKeyAction
+  treeKeyAction,
+  twoColumnSideTarget
 } from './listNavigation.js';
 
 describe('navigationTarget（リスト）', () => {
@@ -71,6 +72,48 @@ describe('navigationTarget（グリッド）', () => {
   it('1列のグリッドでも←→で前後へ移る', () => {
     expect(navigationTarget('ArrowRight', 0, 3, 1)).toBe(1);
     expect(navigationTarget('ArrowDown', 0, 3, 1)).toBe(1);
+  });
+});
+
+describe('twoColumnSideTarget', () => {
+  // 7項目（左の列に4つ、右の列に3つ）:
+  //  0 4
+  //  1 5
+  //  2 6
+  //  3
+  it('→で右の列、←で左の列の、同じ段の項目へ移る', () => {
+    expect(twoColumnSideTarget('ArrowRight', 0, 7)).toBe(4);
+    expect(twoColumnSideTarget('ArrowRight', 2, 7)).toBe(6);
+    expect(twoColumnSideTarget('ArrowLeft', 4, 7)).toBe(0);
+    expect(twoColumnSideTarget('ArrowLeft', 6, 7)).toBe(2);
+  });
+
+  it('右の列の同じ段に項目がない時は、右の列の最後の項目へ移る', () => {
+    expect(twoColumnSideTarget('ArrowRight', 3, 7)).toBe(6);
+  });
+
+  it('外側に列がない時は、その場にとどまる', () => {
+    expect(twoColumnSideTarget('ArrowLeft', 1, 7)).toBe(1);
+    expect(twoColumnSideTarget('ArrowRight', 5, 7)).toBe(5);
+  });
+
+  it('項目の数が偶数なら、左右に同じ数ずつ分ける', () => {
+    // 0 2
+    // 1 3
+    expect(twoColumnSideTarget('ArrowRight', 1, 4)).toBe(3);
+    expect(twoColumnSideTarget('ArrowLeft', 2, 4)).toBe(0);
+  });
+
+  it('1項目だけの時は、どちらへも動かない', () => {
+    expect(twoColumnSideTarget('ArrowRight', 0, 1)).toBe(0);
+    expect(twoColumnSideTarget('ArrowLeft', 0, 1)).toBe(0);
+  });
+
+  it('←→以外のキー・現在の位置が範囲外の場合は扱わない', () => {
+    expect(twoColumnSideTarget('ArrowDown', 0, 7)).toBeNull();
+    expect(twoColumnSideTarget('ArrowRight', -1, 7)).toBeNull();
+    expect(twoColumnSideTarget('ArrowRight', 7, 7)).toBeNull();
+    expect(twoColumnSideTarget('ArrowRight', 0, 0)).toBeNull();
   });
 });
 

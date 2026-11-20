@@ -4,6 +4,9 @@
   import { restoreTheme } from '#lib/utils/theme.js';
   import { restoreLanguage } from '#lib/i18n/i18n.svelte.js';
   import { LOCAL_NETWORK_MODE } from '#lib/queries/shared.js';
+  import { receiveSavedSettings } from '#lib/queries/settings.js';
+  import { events } from '#lib/bindings.js';
+  import { stopListening } from '#lib/utils/listen.js';
   import '../../app.css';
 
   // 設定を読み込むまでの間も、前回の言語・テーマで表示する
@@ -18,6 +21,16 @@
       queries: { refetchOnReconnect: false, ...LOCAL_NETWORK_MODE },
       mutations: { ...LOCAL_NETWORK_MODE }
     }
+  });
+
+  // ほかのウィンドウで保存した設定（メインウィンドウのサウンドのパネル・プレーヤーのメニュー）を、
+  // キャッシュへ反映する。設定画面は、そのうちメインウィンドウで変える項目だけを、編集中の設定へ取り込む
+  // （`SETTINGS_EDITED_IN_MAIN_WINDOW`。「適用」で古い値に戻さない）
+  $effect(() => {
+    const listening = events.settingsChanged.listen((event) => {
+      void receiveSavedSettings(queryClient, event.payload);
+    });
+    return () => stopListening(listening);
   });
 </script>
 

@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { queryKeys } from './keys.js';
 import { invalidatePlaylistQueries } from './playlists.js';
 import { invalidateLibraryQueries } from './tracks.js';
+import { applyTracksEdited } from './trackEditor.js';
+import { albumArtVersion } from '#lib/stores/albumArt.svelte.js';
 
 /** キャッシュにデータを入れたクエリクライアント（取り直しは起きない。無効化の印だけを見る） */
 function clientWith(keys: readonly (readonly unknown[])[]): QueryClient {
@@ -35,6 +37,20 @@ describe('invalidatePlaylistQueries', () => {
     expect(isInvalidated(client, queryKeys.tracks.playlist('smart'))).toBe(false);
   });
 
+  it('デバイスの同期する内容の見通しを、全デバイスについて無効化する', () => {
+    const client = clientWith([
+      queryKeys.syncSelectionSummary('d1'),
+      queryKeys.syncSelectionSummary('d2'),
+      queryKeys.syncDevices
+    ]);
+
+    invalidatePlaylistQueries(client, null);
+
+    expect(isInvalidated(client, queryKeys.syncSelectionSummary('d1'))).toBe(true);
+    expect(isInvalidated(client, queryKeys.syncSelectionSummary('d2'))).toBe(true);
+    expect(isInvalidated(client, queryKeys.syncDevices)).toBe(false);
+  });
+
   it('一覧だけを変えた時（移動・削除・名前）は、プレイリストの曲を取り直さない', () => {
     const client = clientWith(keys);
 
@@ -48,7 +64,7 @@ describe('invalidatePlaylistQueries', () => {
 });
 
 describe('invalidateLibraryQueries', () => {
-  it('曲・プレイリストと、ライブラリフォルダ・音楽フォルダを無効化する', () => {
+  it('曲・プレイリストと、ライブラリフォルダ・音楽フォルダ・デバイスの見通しを無効化する', () => {
     const client = clientWith([
       queryKeys.tracks.list,
       queryKeys.tracks.playlist('a'),
@@ -56,6 +72,7 @@ describe('invalidateLibraryQueries', () => {
       queryKeys.playlists,
       queryKeys.libraryFolders,
       queryKeys.musicFolder,
+      queryKeys.syncSelectionSummary('d1'),
       queryKeys.settings
     ]);
 
@@ -67,11 +84,42 @@ describe('invalidateLibraryQueries', () => {
       queryKeys.albums.list,
       queryKeys.playlists,
       queryKeys.libraryFolders,
-      queryKeys.musicFolder
+      queryKeys.musicFolder,
+      queryKeys.syncSelectionSummary('d1')
     ]) {
       expect(isInvalidated(client, key), JSON.stringify(key)).toBe(true);
     }
     // ライブラリと関係のないクエリは、そのまま
     expect(isInvalidated(client, queryKeys.settings)).toBe(false);
+  });
+});
+
+describe('applyTracksEdited', () => {
+  it('曲の一覧とタグを取り直し、アルバムアートを書き換えた曲だけ画像を読み直させる', () => {
+    const client = clientWith([
+      queryKeys.tracks.list,
+      queryKeys.albums.list,
+      queryKeys.trackLyrics.track('a'),
+      queryKeys.albumArtInfo.track('a'),
+      queryKeys.playlists
+    ]);
+    client.setQueryData(queryKeys.trackTags.track('a'), {});
+
+    applyTracksEdited(client, { trackIds: ['edited-tags'], albumArt: false });
+
+    expect(isInvalidated(client, queryKeys.tracks.list)).toBe(true);
+    expect(isInvalidated(client, queryKeys.albums.list)).toBe(true);
+    expect(isInvalidated(client, queryKeys.trackLyrics.track('a'))).toBe(true);
+    // ファイルから読んだタグは捨てる（次に開く時に読み直す）
+    expect(client.getQueryState(queryKeys.trackTags.track('a'))).toBeUndefined();
+    // プレイリスト（入っている曲）は変わらない
+    expect(isInvalidated(client, queryKeys.playlists)).toBe(false);
+    expect(isInvalidated(client, queryKeys.albumArtInfo.track('a'))).toBe(false);
+    expect(albumArtVersion('edited-tags')).toBe(0);
+
+    applyTracksEdited(client, { trackIds: ['edited-art'], albumArt: true });
+
+    expect(isInvalidated(client, queryKeys.albumArtInfo.track('a'))).toBe(true);
+    expect(albumArtVersion('edited-art')).toBe(1);
   });
 });

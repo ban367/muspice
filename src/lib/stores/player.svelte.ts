@@ -1,6 +1,12 @@
 import type { Track } from '#lib/types/models.js';
 import { m } from '#lib/i18n/i18n.svelte.js';
-import { matchQueueEntries, toQueueEntries, type QueueEntry } from '#lib/utils/playQueue.js';
+import { setOf } from '#lib/utils/collections.js';
+import {
+  matchQueueEntries,
+  toAutoAddedEntry,
+  toQueueEntries,
+  type QueueEntry
+} from '#lib/utils/playQueue.js';
 import { showWarning } from './error.svelte.js';
 
 /**
@@ -62,6 +68,19 @@ class Player {
 
   /** シャッフルモード */
   isShuffleEnabled = $state(false);
+
+  /**
+   * AIシャッフル（曲が始まるたびに、設定の選び方に合う曲を選び、再生中の曲の次に足す。
+   * `./aiShuffle.svelte.ts`）。シャッフルとは同時に有効にしない
+   */
+  isAiShuffleEnabled = $state(false);
+
+  /**
+   * キューの曲を、元の並びによらない順で再生しているか（シャッフルかAIシャッフル）
+   *
+   * 音量の正規化が「自動」の時に、トラック単位のゲインを使う。
+   */
+  readonly isShuffling = $derived(this.isShuffleEnabled || this.isAiShuffleEnabled);
 
   /** リピートモード */
   repeatMode = $state<RepeatMode>('off');
@@ -177,7 +196,12 @@ export function toggleShuffle(): void {
   const current: QueueEntry | undefined = queue[currentIndex];
 
   if (!shuffle) {
-    // シャッフルを有効にする
+    // シャッフルを有効にする（AIシャッフルは無効にする。シャッフルで、足した曲が次の位置から外れるため）
+    if (player.isAiShuffleEnabled) {
+      setAiShuffleEnabled(false);
+      toggleShuffle();
+      return;
+    }
     player.originalQueue = [...queue];
 
     if (current) {
@@ -211,6 +235,94 @@ export function toggleShuffle(): void {
   }
 
   player.isShuffleEnabled = !shuffle;
+}
+
+/**
+ * AIシャッフルを有効・無効にする
+ *
+ * 有効にすると、シャッフルを無効にする（キューを元の順に戻す。シャッフルでは、足した曲が次の位置から
+ * 外れ、解除すると、足した曲を元の並びのどこに置くかが決まらないため）。曲は、
+ * `./aiShuffle.svelte.ts`が、曲が始まるたびに足す。無効にすると、足した曲のうち、まだ再生していない
+ * 曲（再生中の曲より後ろ）をキューから外す。
+ */
+export function setAiShuffleEnabled(enabled: boolean): void {
+  if (enabled === player.isAiShuffleEnabled) return;
+  if (enabled) {
+    if (player.isShuffleEnabled) toggleShuffle();
+    player.isAiShuffleEnabled = true;
+  } else {
+    player.isAiShuffleEnabled = false;
+    removeUpcomingAutoAddedEntries();
+  }
+}
+
+/** AIシャッフルを切り替える（プレーヤーのボタン） */
+export function toggleAiShuffle(): void {
+  setAiShuffleEnabled(!player.isAiShuffleEnabled);
+}
+
+/** AIシャッフルが足した要素のうち、まだ再生していない要素（再生中の要素より後ろ）を外す */
+function removeUpcomingAutoAddedEntries(): void {
+  const start = player.currentTrackIndex + 1;
+  const removed = setOf(
+    player.playQueue
+      .slice(start)
+      .filter((entry) => entry.autoAddedAfter !== undefined)
+      .map((entry) => entry.entryId)
+  );
+  if (removed.size === 0) return;
+  player.playQueue = player.playQueue.filter(
+    (entry, index) => index < start || !removed.has(entry.entryId)
+  );
+  player.originalQueue = player.originalQueue.filter((entry) => !removed.has(entry.entryId));
+}
+
+/**
+ * AIシャッフルで、曲を足す必要がある再生中の要素（足す必要がなければnull）
+ *
+ * 足すのは、AIシャッフルが有効で、1曲リピートでなく、再生中の要素のために足した要素が、まだ次に
+ * ない時（前の曲へ戻ってから進んだ時などは、足し直さない）。
+ */
+export function aiShuffleTarget(): QueueEntry | null {
+  if (!player.isAiShuffleEnabled || player.repeatMode === 'one') return null;
+  const current: QueueEntry | undefined = player.playQueue[player.currentTrackIndex];
+  if (!current) return null;
+  const upcoming: QueueEntry | undefined = player.playQueue[player.currentTrackIndex + 1];
+  return upcoming?.autoAddedAfter === current.entryId ? null : current;
+}
+
+/**
+ * AIシャッフルで選ぶ曲から避ける曲（再生中の位置の前後の要素の曲。最近流した曲・これから流す曲を
+ * 繰り返さないため）
+ * @param window - 前後それぞれの要素の数
+ */
+export function aiShuffleExcludedTrackIds(window: number): string[] {
+  const queue = player.playQueue;
+  const index = Math.max(0, player.currentTrackIndex);
+  const nearby = queue.slice(Math.max(0, index - window), index + window + 1);
+  return [...setOf(nearby.map((entry) => entry.track.id))];
+}
+
+/**
+ * AIシャッフルが選んだ曲を、再生中の要素の次に足す
+ *
+ * 選んでいる間に、再生中の要素が変わった・AIシャッフルを無効にした時は、足さない。次の要素が、
+ * 別の要素のために足した要素（一覧から曲を選んで割り込ませた時など）なら、外してから足す。
+ * @param track - 足す曲
+ * @param forEntryId - 選んだ時に再生していた要素のID
+ * @returns 足したか
+ */
+export function queueAiShuffleTrack(track: Track, forEntryId: number): boolean {
+  const current = aiShuffleTarget();
+  if (current === null || current.entryId !== forEntryId || track.isMissing) return false;
+  const upcoming: QueueEntry | undefined = player.playQueue[player.currentTrackIndex + 1];
+  if (upcoming?.autoAddedAfter !== undefined) {
+    const removedId = upcoming.entryId;
+    player.playQueue = player.playQueue.filter((entry) => entry.entryId !== removedId);
+    player.originalQueue = player.originalQueue.filter((entry) => entry.entryId !== removedId);
+  }
+  insertNext([toAutoAddedEntry(track, forEntryId)]);
+  return true;
 }
 
 /**
@@ -305,9 +417,8 @@ function insertNext(
  * 見つからない場合は、再生せずに通知する）。
  * シャッフル中は、最初の曲から再生し、残りをランダムな順に入れる。
  * @param tracks - 入れるトラック（表示順。最初の曲から再生する）
- * @param options.shuffle - すべてをランダムな順に入れる（シャッフル再生。シャッフルモードは変えない）
  */
-export function playNow(tracks: readonly Track[], options: { shuffle?: boolean } = {}): void {
+export function playNow(tracks: readonly Track[]): void {
   const playable = playableTracks(tracks);
   if (playable.length === 0) {
     if (tracks.length > 0) showWarning(m.notices.trackFileMissing);
@@ -315,26 +426,13 @@ export function playNow(tracks: readonly Track[], options: { shuffle?: boolean }
   }
 
   const entries = toQueueEntries(playable);
-  let ordered = entries;
-  if (options.shuffle) {
-    ordered = shuffleArray(entries);
-  } else if (player.isShuffleEnabled) {
-    ordered = [entries[0], ...shuffleArray(entries.slice(1))];
-  }
+  const ordered = player.isShuffleEnabled
+    ? [entries[0], ...shuffleArray(entries.slice(1))]
+    : entries;
   const position = insertNext(entries, ordered);
   player.currentTrackIndex = position;
   player.currentTrack = ordered[0].track;
   player.playRequestCount++;
-}
-
-/**
- * トラック一覧をシャッフル再生
- *
- * ランダムな順で再生中の曲の次に入れ、そのまま再生する（Fisher-Yatesで並べ替えるため、並び全体が
- * 均等にランダムになる）。キューのほかの曲は残し、シャッフルモードも変えない。
- */
-export function playShuffled(tracks: readonly Track[]): void {
-  playNow(tracks, { shuffle: true });
 }
 
 /**

@@ -210,6 +210,18 @@ body {
   @apply opacity-30 cursor-not-allowed;
 }
 
+/* 名前を押すと、その画面へ移るボタン（アーティスト名・アルバム名。文字のまま見せ、ポインタを置くと下線。
+   ADR-110）。省略の表示（`truncate`）は、ボタンそのものに付ける */
+.text-link {
+  @apply block max-w-full p-0 m-0 border-none bg-transparent text-left cursor-pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.text-link:hover {
+  @apply underline;
+}
+
 /* プログレスバー共通 */
 .progress-bar-base {
   @apply h-1 bg-progress-bg rounded-full relative cursor-pointer;
@@ -520,16 +532,22 @@ body {
   color: var(--color-text-dimmed);
 }
 
+/* ジャケット画像に重ねる再生ボタンの覆い。ボタンの大きさを画像の大きさから求めるため、覆いの大きさを基準にする
+   （`cqmin`。覆いは画像と同じ大きさ） */
 .play-overlay {
   @apply absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 transition-opacity duration-200;
+  container-type: size;
 }
 
 .grid-card:hover .play-overlay {
   opacity: 1;
 }
 
+/* 画像の40%（20〜48px）。カードを小さくしても、画像に対して大きくなりすぎないようにする */
 .play-button-circle {
-  @apply w-12 h-12 border-none rounded-full bg-secondary text-black flex items-center justify-center cursor-pointer transition-transform duration-150;
+  @apply border-none rounded-full bg-secondary text-black flex items-center justify-center cursor-pointer transition-transform duration-150;
+  width: clamp(1.25rem, 40cqmin, 3rem);
+  height: clamp(1.25rem, 40cqmin, 3rem);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
@@ -537,8 +555,11 @@ body {
   @apply scale-110;
 }
 
+/* 三角は、ボタンの半分の大きさで、見た目の中心へ少し右に寄せる */
 .play-button-circle svg {
-  @apply w-6 h-6 ml-0.5;
+  width: 50%;
+  height: 50%;
+  margin-left: 6%;
 }
 
 /* 状態表示（ローディング/エラー/空） */
@@ -637,6 +658,11 @@ body {
 
 .message-success {
   @apply p-3 bg-secondary/20 text-secondary rounded-md text-sm;
+}
+
+/* 元に戻せない操作の前の知らせ（保存すると取り除く、など） */
+.message-warning {
+  @apply p-3 bg-warning/20 text-warning rounded-md text-sm;
 }
 
 /* ================================

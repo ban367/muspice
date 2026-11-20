@@ -13,7 +13,8 @@ import type {
   KeepOrganizedResult,
   OrganizeDestination,
   OrganizePlan,
-  TrackMetadataChange
+  TrackMetadataChange,
+  LibraryExportFormat
 } from '#lib/types/models.js';
 import { handleError, showSuccess, showWarning } from '#lib/stores/error.svelte.js';
 import { queryKeys } from './keys.js';
@@ -39,6 +40,8 @@ export function invalidateTrackListQueries(queryClient: QueryClient) {
   queryClient.invalidateQueries({ queryKey: queryKeys.artists.list });
   queryClient.invalidateQueries({ queryKey: queryKeys.genres.list });
   queryClient.invalidateQueries({ queryKey: queryKeys.unique.all });
+  // デバイスの同期する内容の見通し（曲数・サイズ）も変わる（自動プレイリストの曲・ファイルのサイズ）
+  queryClient.invalidateQueries({ queryKey: queryKeys.syncSelectionSummaries });
   // プレイリストは除外（プレイリストに入っている曲のIDは変わらない）
 }
 
@@ -75,13 +78,10 @@ export function invalidateLibraryQueries(queryClient: QueryClient) {
  *
  * 件数の上限はなく、ライブラリの全曲を1回で取得する（一覧は見えている行だけを描画する）。
  * 評価・お気に入りの変更では取り直さず、キャッシュの該当曲を書き換える（`./trackCache.ts`）。
+ * 表示した時に取り直すのは、無効化された時だけ（メインウィンドウの既定。`createMainQueryClient`）。
  */
 export function useTracksQuery() {
-  return createQuery(() => ({
-    ...tracksQueryOptions(),
-    refetchOnWindowFocus: false, // ウィンドウフォーカス時の自動再取得を無効化
-    refetchOnMount: false // マウント時の自動再取得を無効化（キャッシュがあれば使用）
-  }));
+  return createQuery(() => tracksQueryOptions());
 }
 
 /**
@@ -365,6 +365,8 @@ export function useSetFavoriteMutation() {
       patchTracksInCache(queryClient, trackIds, { isFavorite: favorite });
       // お気に入りの一覧は、入っている曲と並びが変わるため取り直す
       queryClient.invalidateQueries({ queryKey: queryKeys.tracks.favorites });
+      // お気に入りを条件にした自動プレイリストを同期するデバイスの見通しも変わる
+      queryClient.invalidateQueries({ queryKey: queryKeys.syncSelectionSummaries });
     }
   }));
 }
@@ -383,6 +385,8 @@ export function useSetRatingMutation() {
     },
     onSuccess: (_result, { trackId, rating }) => {
       patchTrackInCache(queryClient, trackId, { rating });
+      // 評価を条件にした自動プレイリストを同期するデバイスの見通しも変わる
+      queryClient.invalidateQueries({ queryKey: queryKeys.syncSelectionSummaries });
     }
   }));
 }
@@ -424,10 +428,11 @@ export async function recordSkip(trackId: string, queryClient?: QueryClient): Pr
 // ========== メタデータ更新ミューテーション ==========
 
 /**
- * 単一トラックのメタデータを更新するミューテーション
+ * 単一トラックのメタデータを更新するミューテーション（曲の情報の編集画面）
  *
  * 常にファイルのタグへ書き込み、同じ内容をDBに記録する。
- * 失敗は編集画面の中に表示するため、トースト通知はしない。
+ * 失敗と、音楽フォルダの書式どおりの場所へ移せなかったこと（結果）は、編集画面の中に表示するため、
+ * トースト通知はしない。メインウィンドウの一覧は、Rustが送る`TracksEdited`で更新する。
  */
 export function useUpdateTrackMetadataMutation() {
   const queryClient = useQueryClient();
@@ -435,10 +440,9 @@ export function useUpdateTrackMetadataMutation() {
   return createMutation(() => ({
     mutationFn: ({ trackId, metadata }: { trackId: string; metadata: Metadata }) =>
       commands.updateTrackMetadata(trackId, metadata),
-    onSuccess: (organized) => {
+    onSuccess: () => {
       invalidateTrackListQueries(queryClient);
       invalidateTagQueries(queryClient);
-      notifyNotOrganized(organized);
     }
   }));
 }
@@ -456,7 +460,7 @@ function notifyNotOrganized(organized: KeepOrganizedResult | null) {
 /**
  * タグを書き換えた後に、ファイルから読んだタグのキャッシュを捨て、歌詞を読み直す
  */
-function invalidateTagQueries(queryClient: QueryClient) {
+export function invalidateTagQueries(queryClient: QueryClient) {
   queryClient.removeQueries({ queryKey: queryKeys.trackTags.all });
   queryClient.invalidateQueries({ queryKey: queryKeys.trackLyrics.all });
 }
@@ -494,10 +498,10 @@ export function useTrackTagsQuery(trackId: string) {
 }
 
 /**
- * 複数トラックのメタデータを一括更新するミューテーション
+ * 複数トラックのメタデータを一括更新するミューテーション（曲の情報の編集画面）
  *
  * 値がある項目だけを、各トラックのファイルのタグへ書き込む。書き込めなかったトラックは
- * 結果の`failedCount`・`errors`で返る（残りのトラックは更新される）。
+ * 結果の`failedCount`・`errors`で返る（残りのトラックは更新される）。結果は、編集画面の中に表示する。
  */
 export function useUpdateMultipleTracksMutation() {
   const queryClient = useQueryClient();
@@ -505,10 +509,9 @@ export function useUpdateMultipleTracksMutation() {
   return createMutation(() => ({
     mutationFn: ({ trackIds, metadata }: { trackIds: string[]; metadata: Metadata }) =>
       commands.updateMultipleTracksMetadata(trackIds, metadata),
-    onSuccess: (result) => {
+    onSuccess: () => {
       invalidateTrackListQueries(queryClient);
       invalidateTagQueries(queryClient);
-      notifyNotOrganized(result.organized);
     }
   }));
 }
@@ -616,6 +619,18 @@ export function useImportLibraryXmlMutation() {
     onSuccess: (result) => {
       if (result) invalidateAllTrackQueries(queryClient);
     }
+  }));
+}
+
+/**
+ * ライブラリを、iTunes形式のXMLかCSVで書き出すミューテーション（保存のダイアログはRust側が開く。ADR-121）
+ *
+ * 書き出した結果を返す（保存先を選ばなかった場合はnull）。
+ */
+export function useExportLibraryMutation() {
+  return createMutation(() => ({
+    mutationFn: (format: LibraryExportFormat) =>
+      withErrorToast(m.operations.exportLibrary, () => commands.exportLibrary(format))
   }));
 }
 

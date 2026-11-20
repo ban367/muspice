@@ -29,8 +29,6 @@ export const en: Messages = {
     more: 'More',
     play: 'Play',
     playAll: 'Play All',
-    shuffle: 'Shuffle',
-    shufflePlay: 'Shuffle Play',
     playNow: 'Play Now',
     playNext: 'Play Next',
     addToQueue: 'Add to End of Queue',
@@ -74,6 +72,10 @@ export const en: Messages = {
     sampleRate: 'Sample Rate',
     fileSize: 'Size',
     filePath: 'Location',
+    bitDepth: 'Bit Depth',
+    channels: 'Channels',
+    analyzedBpm: 'Tempo (Analyzed)',
+    analyzedKey: 'Key (Analyzed)',
     titleSort: 'Sort Title',
     artistSort: 'Sort Artist',
     albumArtistSort: 'Sort Album Artist',
@@ -125,6 +127,7 @@ export const en: Messages = {
     refreshMetadata: 'Refreshing metadata',
     writeMetadataToFiles: 'Writing metadata to files',
     loudnessScan: 'Analyzing loudness',
+    musicAnalysis: 'Analyzing tracks',
     convert: 'Converting',
     showInFolder: 'Showing the file',
     fetchPlaylists: 'Loading playlists',
@@ -145,6 +148,7 @@ export const en: Messages = {
     deletePlaylist: 'Deleting the playlist',
     importM3u: 'Importing playlists',
     importLibraryXml: 'Importing the library XML',
+    exportLibrary: 'Exporting the library',
     exportM3u: 'Exporting the playlist',
     fetchAlbumArtInfo: 'Loading the album art details',
     loadSettings: 'Loading settings',
@@ -162,18 +166,21 @@ export const en: Messages = {
     planLibraryRestore: 'Checking the backup',
     restoreLibraryBackup: 'Restoring from the backup',
     removeMissingTracks: 'Removing missing tracks',
+    locateTrackFile: 'Locating the file',
+    findMissingTracksInFolder: 'Searching for missing tracks',
     addLibraryFolderExclusion: 'Adding the excluded folder',
     removeLibraryFolderExclusion: 'Removing the excluded folder',
     removeExcludedTracks: 'Removing the tracks in the excluded folder',
     fetchMusicFolder: 'Loading the music folder',
     setMusicFolder: 'Setting the music folder',
-    clearMusicFolder: 'Unsetting the music folder',
+    pickMusicFolder: 'Choosing the music folder',
     previewMusicFolderTemplate: 'Loading the format examples',
     fetchDevices: 'Loading devices',
     registerDevice: 'Adding the device',
     updateDevice: 'Changing the device settings',
     relinkDevice: 'Changing the destination',
     removeDevice: 'Removing the device',
+    ejectDevice: 'Ejecting the device',
     cancelDeviceSync: 'Stopping the sync'
   },
 
@@ -240,22 +247,29 @@ export const en: Messages = {
     columns: 'Columns',
     resetSort: 'Reset Sort Order',
     resetColumns: 'Reset Columns and Sort Order',
+    /** Totals below the list (ADR-114) */
+    summary: (count, duration, size) =>
+      `${plural(count, 'track', 'tracks')} · ${duration} · ${size}`,
+    selectionSummary: (count, duration, size) =>
+      `${plural(count, 'track', 'tracks')} selected (${duration} · ${size})`,
     sortedColumn: (column, descending) =>
       `${column} (sorted ${descending ? 'descending' : 'ascending'})`
   },
 
   player: {
     noTrack: 'Select a track to play',
-    revealCurrentTrack: 'Show the current track in the list (Ctrl+L)',
+    revealCurrentTrack: 'Show the current track in the list (⌘L)',
     shuffleTitle: 'Shuffle (S)',
     shuffle: 'Shuffle',
-    previousTitle: 'Previous (Ctrl+←)',
+    aiShuffleTitle: 'AI Shuffle (adds a track that suits the current one each time a track starts)',
+    aiShuffle: 'AI Shuffle',
+    previousTitle: 'Previous (⌘←)',
     previous: 'Previous track',
     playTitle: 'Play (Space)',
     pauseTitle: 'Pause (Space)',
     play: 'Play',
     pause: 'Pause',
-    nextTitle: 'Next (Ctrl+→)',
+    nextTitle: 'Next (⌘→)',
     next: 'Next track',
     repeatTitle: (mode) => `Repeat (R): ${mode}`,
     repeat: 'Repeat',
@@ -281,12 +295,13 @@ export const en: Messages = {
     playHistory: 'Play History',
     mostPlayed: 'Most Played',
     duplicates: 'Duplicates',
+    missing: 'Missing Songs',
     recentlyAdded: 'Recently Added',
     folders: 'Folders',
     years: 'Years',
     playlists: 'Playlists',
-    newPlaylistTitle: 'New Playlist (Ctrl+N)',
-    newSmartPlaylistTitle: 'New Smart Playlist',
+    newPlaylistTitle: 'New Playlist (⌘N)',
+    newSmartPlaylistTitle: 'New Smart Playlist (⌥⌘N)',
     playlistMenu: 'Folders and Order',
     newFolder: 'New Folder',
     folderName: 'Folder name',
@@ -322,8 +337,8 @@ export const en: Messages = {
     openSound: 'Open sound settings',
     albumInfoTitle: 'Album Info',
     openAlbumInfo: 'Open album info',
-    trackInfoTitle: 'Track Info',
-    openTrackInfo: 'Open track info',
+    trackInfoTitle: 'Selected Track',
+    openTrackInfo: 'Open the selected track',
     pin: 'Pin the sidebar',
     unpin: 'Unpin',
     clear: 'Clear',
@@ -331,10 +346,13 @@ export const en: Messages = {
     clearConfirm: 'Clear the queue? The current track will also stop.',
     nowPlaying: 'Now Playing',
     selectedTrack: 'Selected Track',
+    lastSelectedTrack: 'Last Selected',
     nothingPlaying: 'Nothing playing',
     nothingSelected: 'No track selected',
     queueTracks: (count) => `Track List (${plural(count, 'track', 'tracks')})`,
     removeFromQueue: 'Remove from queue',
+    addedByAiShuffle: 'Added by AI Shuffle',
+    dragToReorder: 'Drag to reorder',
     saveAsPlaylist: 'Save as Playlist',
     saveAsPlaylistTitle: 'Save the Queue as a Playlist',
     saveAsPlaylistDefaultName: (date) => `Queue ${date}`,
@@ -346,15 +364,25 @@ export const en: Messages = {
     empty: 'Play a track to see its album here',
     noAlbum: 'This track has no album information',
     notFound:
-      'No tracks found. They may have been removed from the library, or their tags may have changed'
+      'No tracks found. They may have been removed from the library, or their tags may have changed',
+    trackDetails: 'Track Info',
+    playing: 'Playing',
+    selected: 'Selected',
+    trackNumber: (number: number) => `Track ${number}`,
+    playCount: (count: number) => `Played ${plural(count, 'time', 'times')}`,
+    lastPlayed: (date: string) => `Last played ${date}`
   },
 
   trackInfo: {
     empty: 'Select a track to see its details here',
+    autoShow: 'Show on select',
+    autoShowHint:
+      'Switch to this panel when you select a track in the main view (while the sidebar is open)',
     othersSelected: (count: number) => `${count} more`,
     tags: 'Tags',
     file: 'File',
-    history: 'Play History'
+    history: 'Play History',
+    edit: 'Edit Song Info'
   },
 
   miniPlayer: {
@@ -421,12 +449,53 @@ export const en: Messages = {
     resetLabel: 'Reset the equalizer',
     presetName: 'Preset name',
     deletePreset: 'Delete preset',
-    confirmDeletePreset: (name) => `Delete "${name}"?`
+    confirmDeletePreset: (name) => `Delete "${name}"?`,
+    preamp: 'Preamp'
+  },
+
+  soundPanel: {
+    replayGain: 'ReplayGain',
+    turnOnReplayGain: 'Turn on ReplayGain',
+    turnOffReplayGain: 'Turn off ReplayGain',
+    replayGainMode: 'Mode',
+    replayGainModes: { track: 'Track', album: 'Album', auto: 'Auto' },
+    preamp: 'Preamp',
+    preampValue: (db) => `${db > 0 ? '+' : ''}${db} dB`,
+    untaggedPreamp: 'Tracks without tags',
+    preventClipping: 'Prevent clipping',
+    currentGain: 'Now playing',
+    gainValue: (db) => `${db > 0 ? '+' : ''}${db.toFixed(1)} dB`,
+    gainDetail: (value, source) => `${value} (${source})`,
+    gainSources: { track: 'Track', album: 'Album', untagged: 'No tags' },
+    gainLimited: 'Limited to prevent clipping',
+    gapless: 'Gapless playback',
+    turnOnGapless: 'Turn on gapless playback',
+    turnOffGapless: 'Turn off gapless playback',
+    crossfade: 'Crossfade',
+    turnOnCrossfade: 'Turn on crossfade',
+    turnOffCrossfade: 'Turn off crossfade',
+    crossfadeDuration: 'Duration',
+    crossfadeSeconds: (seconds) => `${seconds} s`,
+    crossfadeSkipAlbumTracks: 'Not between consecutive album tracks',
+    crossfeed: 'Crossfeed',
+    turnOnCrossfeed: 'Turn on crossfeed',
+    turnOffCrossfeed: 'Turn off crossfeed',
+    crossfeedLevel: 'Strength',
+    crossfeedLevels: { weak: 'Weak', medium: 'Medium', strong: 'Strong' }
   },
 
   metadataEditor: {
-    editTitle: 'Edit Metadata',
-    bulkEditTitle: (count) => `Edit ${plural(count, 'track', 'tracks')}`,
+    bulkEditTitle: (count) => `Edit ${plural(count, 'song', 'songs')} together`,
+    savedWithWarnings: 'Saved. Please check the following',
+    tagsSavedArtFailed: (reason) =>
+      `The tags were saved, but the album art could not be written: ${reason}`,
+    openFailed: 'Opening the editor',
+    previousTrack: 'Previous Song (⌘[)',
+    nextTrack: 'Next Song (⌘])',
+    position: (current, count) => `${current} / ${count}`,
+    moveFailed: 'Moving to another song',
+    loadingTracks: 'Loading songs...',
+    noTracks: 'The songs to edit were not found. They may have been removed from the library',
     bulkHint:
       'Empty fields are left unchanged. Fill in only the fields you want to change. The title (and its sort name), track number and lyrics are edited one track at a time.',
     bulkPartiallyFailed: (updated, failed) =>
@@ -441,7 +510,13 @@ export const en: Messages = {
     yearPlaceholder: 'e.g. 2023',
     writesToFile: 'Changes are written to the tags of the music files',
     /** タブ */
-    tabs: { tags: 'Tags', sort: 'Sorting', lyrics: 'Lyrics', file: 'File Info' },
+    tabs: {
+      tags: 'Tags',
+      sort: 'Sorting',
+      lyrics: 'Lyrics',
+      albumArt: 'Album Art',
+      file: 'File Info'
+    },
     sortHint:
       'Enter the names used for ordering (for example, a phonetic reading). Empty fields are ordered by the displayed name.',
     sortHeading: 'Sorting',
@@ -463,6 +538,8 @@ export const en: Messages = {
       format: 'Format',
       bitrate: 'Bit rate',
       sampleRate: 'Sample rate',
+      bitDepth: 'Bit depth',
+      channels: 'Channels',
       duration: 'Length',
       size: 'Size',
       addedAt: 'Date added',
@@ -472,6 +549,7 @@ export const en: Messages = {
       never: 'Never played',
       kbps: (value) => `${value} kbps`,
       hz: (value) => `${value.toLocaleString('en-US')} Hz`,
+      bits: (value) => `${value} bit`,
       times: (count) => `${count}`,
       missing: 'The file is missing'
     }
@@ -541,10 +619,27 @@ export const en: Messages = {
       `Conversion stopped (converted: ${converted}, not converted: ${skipped}, failed: ${failed})`
   },
 
+  musicAnalysis: {
+    title: 'Track Analysis (Tempo and Key)',
+    description:
+      'Analyzes the tempo (BPM) and key of your tracks on this Mac and uses them for "Similar Tracks" in AI Shuffle (files are not changed and nothing is sent anywhere). Analysis runs in the background one track at a time and resumes on the next launch if it has not finished',
+    unavailable:
+      'Not available on this Mac (requires macOS 27 or later). AI Shuffle picks tracks by tags and play counts',
+    analyzedCount: (analyzed, total) => `${analyzed} of ${total} tracks analyzed`,
+    failedCount: (count) => `Could not analyze: ${plural(count, 'track', 'tracks')}`,
+    running: 'Analyzing. You can keep using the app',
+    stopping: 'Stopping after the current track...',
+    start: 'Start Analysis',
+    stop: 'Stop Analysis',
+    delete: 'Delete Analysis Data',
+    deleteConfirm:
+      'Delete the track analysis data? "Similar Tracks" in AI Shuffle will use tags only.'
+  },
+
   loudnessScan: {
     title: 'Loudness analysis',
     description:
-      'Analyzes the loudness of tracks that have no loudness information (ReplayGain tags) and writes it to the tags in the files. It is used by "Volume normalization" under Playback. Album loudness is calculated from all tracks of the album in the library. The analysis runs in the background; if you stop it, the next run continues with the remaining tracks.',
+      'Analyzes the loudness of tracks that have no loudness information (ReplayGain tags) and writes it to the tags in the files. It is used by "ReplayGain" in the Sound panel of the right sidebar. Album loudness is calculated from all tracks of the album in the library. The analysis runs in the background; if you stop it, the next run continues with the remaining tracks.',
     pending: (count) => `Tracks without loudness information: ${count}`,
     noPending: 'All tracks have loudness information',
     startMissing: 'Analyze tracks without tags',
@@ -674,9 +769,7 @@ export const en: Messages = {
     }
   },
 
-  albumArtDialog: {
-    title: 'Album Art',
-    open: 'Change album art',
+  albumArtEditor: {
     target: (count) => `Applies to ${plural(count, 'track', 'tracks')}`,
     previewOf: (title) => `Showing the art of "${title}"`,
     embedded: 'Image embedded in the file',
@@ -685,22 +778,33 @@ export const en: Messages = {
     dimensions: (width, height) => `${width} × ${height}`,
     folderHint:
       'Folder images are shown for tracks without an embedded image. An embedded image takes priority.',
-    choose: 'Choose an Image to Embed...',
+    choose: 'Choose an Image...',
     remove: 'Remove Embedded Images',
+    undo: 'Undo Change',
+    picked: 'New image',
+    willEmbed: (count) =>
+      `When you save, this image is embedded into ${plural(count, 'file', 'files')} (replacing the image shown).`,
+    willRemove: (count) =>
+      `When you save, all embedded images are removed from ${plural(count, 'file', 'files')}. This cannot be undone.`,
     writesToFile:
       'The image (JPEG or PNG, up to 10 MB) is embedded into the music files as is, without resizing.',
-    confirmRemove: (count) =>
-      `All embedded images will be removed from ${plural(count, 'file', 'files')}. This cannot be undone.`,
-    confirmRemoveAction: 'Remove',
-    working: 'Writing to the files...',
     missingExcluded: (count) =>
       `${plural(count, 'track', 'tracks')} with a missing file will be left out`,
     allMissing: 'The file is missing, so the art cannot be changed',
-    embeddedResult: (count) => `Embedded the image into ${plural(count, 'track', 'tracks')}`,
-    removedResult: (count) => `Removed the images from ${plural(count, 'track', 'tracks')}`,
     nothingToRemove: 'None of the tracks had an embedded image',
-    partiallyFailed: (failed) => `${plural(failed, 'file', 'files')} could not be written`,
-    allFailed: (reason) => `Could not write to the files: ${reason}`
+    partiallyFailed: (failed) =>
+      `The album art could not be written to ${plural(failed, 'file', 'files')}`,
+    allFailed: (reason) => `Could not write the album art: ${reason}`
+  },
+
+  libraryExport: {
+    title: 'Export the Library',
+    description:
+      'The iTunes-style library XML contains tracks, ratings, play counts and playlists (smart playlists with the tracks matching their rules now), readable by DJ software (rekordbox, Serato, Traktor, etc.) and other library managers. The CSV contains the track list for spreadsheet apps.',
+    xml: 'Export as XML...',
+    csv: 'Export as CSV...',
+    exporting: 'Exporting...',
+    exported: (path) => `Exported: ${path}`
   },
 
   libraryXmlImport: {
@@ -727,13 +831,15 @@ export const en: Messages = {
 
   contextMenu: {
     selectedCount: (count) => `${plural(count, 'track', 'tracks')} selected`,
-    editMetadata: 'Edit Metadata',
-    albumArt: 'Album Art...',
+    editMetadata: 'Edit Song Info...',
     tagTools: 'Tag Tools...',
     fileOrganize: 'Organize Files...',
     loudnessScan: 'Analyze Loudness...',
     convert: 'Convert Format...',
     showInFolder: 'Show in Folder',
+    locateFile: 'Locate File...',
+    goToAlbum: 'Go to Album',
+    goToArtist: 'Go to Artist',
     deleteEllipsis: 'Delete...',
     addToPlaylist: 'Add to Playlist',
     noPlaylists: 'No playlists',
@@ -844,6 +950,8 @@ export const en: Messages = {
   },
 
   library: {
+    detailResize: 'Height of the details area',
+    closeDetail: 'Close the details area',
     songs: 'Songs',
     albums: 'Albums',
     artists: 'Artists',
@@ -921,6 +1029,24 @@ export const en: Messages = {
     noDuplicates: 'No duplicate songs',
     noDuplicatesHint:
       'Songs with the same title and artist and nearly the same length will appear here',
+    missing: 'Missing Songs',
+    missingDescription:
+      'Songs whose files were not found. Relink them with "Locate File..." in the context menu or "Search in Folder..." (favorites, play counts and playlists are kept)',
+    missingCount: (count: number) => `${count} ${count === 1 ? 'song' : 'songs'}`,
+    noMissing: 'No missing songs',
+    noMissingHint: 'Songs whose files are no longer found by a rescan will appear here',
+    findInFolder: 'Search in Folder...',
+    findingInFolder: 'Searching...',
+    removeMissing: 'Remove from Library...',
+    removeMissingConfirm: (count: number) =>
+      `Remove the ${count === 1 ? 'song' : `${count} songs`} whose files were not found from the library? They are also removed from playlists, and their favorites and play counts are lost.`,
+    removeMissingOk: 'Remove',
+    foundInFolder: (relinked: number, remaining: number) =>
+      remaining > 0
+        ? `Relinked ${relinked} ${relinked === 1 ? 'song' : 'songs'} (${remaining} still missing)`
+        : `Relinked ${relinked} ${relinked === 1 ? 'song' : 'songs'}`,
+    notFoundInFolder: 'No files of the missing songs were found in this folder',
+    locatedFile: 'Changed the file location',
     favorites: 'Favorites',
     noFavorites: 'No favorite songs yet',
     noFavoritesHint: 'Click the heart on a song to add it here',
@@ -1013,6 +1139,10 @@ export const en: Messages = {
     random: 'Random',
     pathField: 'File Location',
     inMusicFolderField: 'Music folder',
+    playlistField: 'Playlist',
+    choosePlaylist: 'Choose a playlist',
+    deletedPlaylist: '(Deleted playlist)',
+    missingField: 'File',
     noRating: 'No rating',
     days: 'days',
     minutesUnit: 'min',
@@ -1048,6 +1178,20 @@ export const en: Messages = {
       inMusicFolder: {
         is: 'contains the track',
         isNot: 'does not contain the track'
+      },
+      key: {
+        is: 'is',
+        isNot: 'is not',
+        isEmpty: 'is empty (not analyzed)',
+        isNotEmpty: 'is not empty'
+      },
+      playlist: {
+        is: 'contains the track',
+        isNot: 'does not contain the track'
+      },
+      missing: {
+        is: 'is missing',
+        isNot: 'is present'
       }
     },
     describe: {
@@ -1078,6 +1222,14 @@ export const en: Messages = {
       favorite: (value: boolean) => (value ? 'Favorite' : 'Not a favorite'),
       inMusicFolder: (value: boolean) =>
         value ? 'In the music folder' : 'Outside the music folder',
+      key: {
+        is: (key: string) => key,
+        isNot: (key: string) => `not ${key}`,
+        isEmpty: () => 'none (not analyzed)',
+        isNotEmpty: () => 'any'
+      },
+      playlist: (name: string, value: boolean) => `${value ? 'In' : 'Not in'} "${name}"`,
+      missing: (value: boolean) => (value ? 'File is missing' : 'File is present'),
       order: (field: string, descending: boolean) =>
         `${field}, ${descending ? 'descending' : 'ascending'}`,
       limited: (order: string, limit: number) =>
@@ -1094,7 +1246,8 @@ export const en: Messages = {
       rangeInvalid: 'Enter the range from the smaller value to the larger value',
       daysInvalid: 'Enter a number of days from 1 to 36500',
       limitInvalid: 'Enter a limit from 1 to 100000',
-      tooManyRules: 'Too many rules (up to 50)'
+      tooManyRules: 'Too many rules (up to 50)',
+      playlistRequired: 'Choose a playlist for the rule'
     },
     editRules: 'Edit Rules',
     editRulesEllipsis: 'Edit Rules...',
@@ -1111,8 +1264,18 @@ export const en: Messages = {
       general: 'General',
       playback: 'Playback',
       library: 'Library',
+      ai: 'AI Features',
       appearance: 'Appearance'
     },
+    aiNote: 'Track analysis and AI Shuffle run only on this Mac',
+    aiShuffleMode: 'AI Shuffle picks',
+    aiShuffleModes: {
+      similar: 'Similar tracks',
+      frequentlyPlayed: 'Frequently played tracks',
+      rarelyPlayed: 'Rarely played tracks'
+    },
+    aiShuffleModeHint:
+      'When AI Shuffle is on in the player, each time a track starts, a track of this kind is picked and added next. "Similar tracks" are close in tempo and key (from track analysis), genre, artist, and year',
     loadFailed: 'Could not load the settings',
     language: 'Language',
     startupPage: 'Open at startup',
@@ -1131,24 +1294,21 @@ export const en: Messages = {
     globalShortcutActions: {
       toggle: 'Play/Pause',
       next: 'Next track',
-      previous: 'Previous track'
+      previous: 'Previous track',
+      volumeUp: 'Volume up',
+      volumeDown: 'Volume down',
+      toggleMute: 'Mute'
     },
     globalShortcutUnavailable: 'Could not be registered because another app is using it',
-    volumeNormalization: 'Volume normalization',
-    volumeNormalizations: { off: 'Off', track: 'Per track', album: 'Per album' },
-    volumeNormalizationHint:
-      'Evens out the loudness of tracks using the ReplayGain tags in the files. Per album keeps the differences between tracks on the same album. Tracks without tags are not adjusted (use "Loudness analysis" under Library to add the information to tracks without tags).',
-    normalizationPreamp: 'Preamp',
-    normalizationPreampValue: (db) => `${db > 0 ? '+' : ''}${db} dB`,
-    normalizationPreampHint:
-      'Raises or lowers the volume of all normalized tracks. Raise it if normalization makes everything too quiet (the level is kept below clipping). It does not apply to tracks without loudness information.',
-    gaplessPlayback: 'Gapless playback',
-    gaplessPlaybackHint:
-      'Loads the next track in advance and plays it without silence between tracks.',
-    crossfade: 'Crossfade',
-    crossfadeSeconds: (seconds) => `${seconds} s`,
-    crossfadeHint:
-      'Fades out the end of a track over the set time while fading in the next one. Short tracks are crossfaded for at most half of their length. Tracks changed with "Next" and the like, and repeat one, are not crossfaded.',
+    globalShortcutChange: 'Change',
+    globalShortcutClear: 'Clear',
+    globalShortcutUnassigned: 'Not assigned',
+    globalShortcutRecording: 'Press the keys to assign (Esc to cancel)',
+    globalShortcutNeedsModifier: 'Press it together with Control, Option or Command',
+    globalShortcutUnsupported: 'This key cannot be assigned',
+    globalShortcutInUse: (action) => `Already assigned to "${action}"`,
+    soundPanelNote:
+      'ReplayGain, gapless playback, crossfade, the equalizer and crossfeed are in the Sound panel of the right sidebar.',
     outputDevice: 'Output device',
     outputDeviceDefault: 'System default',
     outputDeviceDisconnected: 'Disconnected device',
@@ -1159,6 +1319,8 @@ export const en: Messages = {
     watchFoldersHint:
       'When files are added, deleted or changed in a library folder, the library is updated a few seconds later. Changes on external or network drives may not be notified.',
     scanInterval: 'Rescan periodically',
+    networkFolderHint:
+      'A library folder is on a network volume (such as a NAS). Changes made from other devices are not notified to folder watching, so set a periodic rescan.',
     scanIntervals: {
       0: 'Never',
       15: 'Every 15 minutes',
@@ -1319,13 +1481,15 @@ export const en: Messages = {
     missing: 'Folder not found',
     useDefault: 'Use the default folder (Muspice)',
     pick: 'Choose a Folder...',
-    clear: 'Unset',
+    change: 'Change Folder...',
+    pendingLabel: 'Changes to this folder when you apply',
+    pendingHint:
+      'When you click Apply, the music folder changes and the library is replaced with the contents of this folder (you are asked before any tracks are removed).',
     badge: 'Music folder',
     setting: 'Setting the music folder...',
     set: (path) => `Set the music folder to "${path}"`,
     setWithTracks: (path, count) =>
       `Set the music folder to "${path}" and added ${plural(count, 'track', 'tracks')}`,
-    cleared: 'Unset the music folder (the folder stays as a library folder)',
     replaceTitle: 'Replace the Library',
     replaceIntro: (path) =>
       `Changing the music folder to "${path}" replaces the library with the contents of this folder.`,
@@ -1391,11 +1555,26 @@ export const en: Messages = {
     relink: 'Change Destination',
     relinked: 'Changed the destination',
     remove: 'Remove Device',
+    /** Ejecting the drive (macOS, ADR-113) */
+    eject: 'Eject',
+    ejected: (name) => `Ejected "${name}"`,
+    /** When a registered device is connected */
+    connectedNotice: (name) => `"${name}" is connected. You can sync it from its device page`,
+    /** Size of what will be synced */
+    selectionSummary: (count, size) => `Selected: ${plural(count, 'track', 'tracks')} (${size})`,
+    selectionTooLarge: (total) =>
+      `This is larger than the device capacity (${total}), so not all tracks will fit`,
     confirmRemove: (name) =>
       `Remove the device "${name}"?\nThe tracks on the device are not deleted.`,
     removed: 'Removed the device',
     sourceTitle: 'What to sync',
-    layoutHint: 'Tracks are copied into "Artist/Album/Title" folders',
+    /** Folder layout on the device (ADR-111) */
+    layoutTitle: 'Layout',
+    layoutTemplate: 'Folder Layout on the Device',
+    layoutTemplateHint:
+      'How folders and files are named for tracks copied to the device (the same syntax as Organize Files). After you change it, the next sync renames the copied tracks (without copying them again).',
+    applyLayout: 'Apply Layout',
+    layoutApplied: 'Changed the layout. The next sync renames the tracks on the device',
     syncAll: 'All tracks in the library',
     playlists: 'Playlists',
     playlistsHint:
@@ -1404,7 +1583,19 @@ export const en: Messages = {
     removeUnselected: 'Delete tracks that are no longer selected from the device',
     removeUnselectedHint:
       'Only tracks copied by Muspice are deleted. Files you put on the device yourself are not deleted.',
+    copyExtras: 'Also copy lyrics files (.lrc) and folder images',
+    copyExtrasHint:
+      'Copies the lyrics file with the same name as each track and the folder image (cover.jpg, etc.) next to the tracks. When turned off, the next sync deletes the ones Muspice copied.',
     noSource: 'Select what to sync',
+    transcode: 'Convert when transferring',
+    transcodeModes: {
+      off: 'Do not convert',
+      lossless: 'Convert lossless tracks (FLAC, ALAC, WAV, etc.) to AAC',
+      aboveBitrate: 'Convert higher bit rate tracks to AAC'
+    },
+    transcodeBitrate: 'AAC bit rate',
+    transcodeHint:
+      'Fits more tracks on devices with little space. Converting takes time (converted tracks are not converted again until the track or the setting changes). Tags and album art are copied too.',
 
     syncDialog: {
       title: (name) => `Sync to "${name}"`,
@@ -1413,9 +1604,20 @@ export const en: Messages = {
       copy: 'Copy',
       delete: 'Delete',
       rename: 'Rename',
+      /** Lyrics files and folder images copied along with tracks (ADR-112) */
+      extras: 'Lyrics and folder images',
+      /** Lists of tracks in the preview (shown when expanded; only the first ones when there are many) */
+      moreItems: (count) => `and ${plural(count, 'more track', 'more tracks')}`,
+      showDetails: 'Show the tracks',
+      extraCounts: (copied, deleted) =>
+        [copied > 0 && `copy ${copied}`, deleted > 0 && `delete ${deleted}`]
+          .filter(Boolean)
+          .join(', '),
       unchanged: 'Unchanged',
       playlists: 'Playlists',
       countAndSize: (count, size) => `${plural(count, 'track', 'tracks')} (${size})`,
+      transcodeCount: (count) =>
+        `${plural(count, 'track', 'tracks')} will be converted to AAC (their sizes are estimates)`,
       freeSpace: 'Free space',
       upToDate: 'The tracks on the device are up to date',
       missingSources: (count) =>
@@ -1424,6 +1626,7 @@ export const en: Messages = {
       start: 'Start Sync',
       preparing: 'Preparing...',
       copying: (current, total) => `Copying... (${current}/${total})`,
+      converting: (current, total) => `Converting and copying... (${current}/${total})`,
       finishing: 'Finishing...',
       stop: 'Stop',
       stopping: 'Stopping...',

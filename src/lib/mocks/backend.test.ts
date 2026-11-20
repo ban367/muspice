@@ -1,6 +1,6 @@
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { commands, events as bindingEvents } from '#lib/bindings.js';
+import { commands, DEFAULT_DEVICE_TEMPLATE, events as bindingEvents } from '#lib/bindings.js';
 import type { ConvertOptions, SmartRules } from '#lib/types/models.js';
 import {
   createMockBackend,
@@ -312,6 +312,127 @@ describe('音量の解析', () => {
 
     await expect(commands.startLoudnessScan([])).rejects.toMatchObject({ code: 'VALIDATION' });
     await expect(commands.startLoudnessScan(['x'])).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+});
+
+describe('曲の解析とAIシャッフル', () => {
+  /** 解析が終わるのを待つ（バックグラウンドで進むため） */
+  async function waitForAnalysis() {
+    for (let i = 0; i < 100; i++) {
+      if (!(await commands.getMusicAnalysisStatus()).running) return;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    throw new Error('the analysis did not finish');
+  }
+
+  it('解析していない曲を解析し、読めない形式の曲は解析できなかった曲にする', async () => {
+    const tracks = await commands.getAllTracks();
+    const present = tracks.filter((track) => !track.isMissing);
+    const unsupported = present.filter((track) =>
+      ['ogg', 'opus', 'wv', 'ape'].includes(track.format.toLowerCase())
+    );
+    expect(await commands.getMusicAnalysisStatus()).toEqual({
+      available: true,
+      running: false,
+      total: present.length,
+      analyzed: 0,
+      failed: 0
+    });
+
+    await commands.startMusicAnalysis();
+    await waitForAnalysis();
+
+    expect(await commands.getMusicAnalysisStatus()).toMatchObject({
+      running: false,
+      analyzed: present.length - unsupported.length,
+      failed: unsupported.length
+    });
+    expect(events.filter((e) => e.event === 'music-analysis-progress').length).toBeGreaterThan(0);
+
+    // 削除すると、解析していない状態に戻る
+    expect(await commands.deleteMusicAnalysis()).toMatchObject({ analyzed: 0, failed: 0 });
+  });
+
+  it('実行中は削除できず、止めると途中で終わる', async () => {
+    let release!: () => void;
+    backend = createMockBackend({
+      emit: () => {},
+      sleep: () => new Promise((resolve) => (release = () => resolve()))
+    });
+    mockIPC((cmd, payload) => backend.invoke(cmd, payload as Record<string, unknown>));
+
+    await commands.startMusicAnalysis();
+    expect((await commands.getMusicAnalysisStatus()).running).toBe(true);
+    await expect(commands.deleteMusicAnalysis()).rejects.toMatchObject({ code: 'LOCK' });
+
+    await commands.stopMusicAnalysis();
+    release();
+    await waitForAnalysis();
+    const status = await commands.getMusicAnalysisStatus();
+    expect(status.analyzed + status.failed).toBeLessThanOrEqual(1);
+  });
+
+  it('解析の途中に外した曲は飛ばし、読み込んだ曲も続けて解析する', async () => {
+    // 待っている処理（解析とインポートの1歩ずつ）を、テストから進める
+    const waiting: (() => void)[] = [];
+    const releaseAll = () => waiting.splice(0).forEach((resolve) => resolve());
+    backend = createMockBackend({
+      emit: () => {},
+      sleep: () => new Promise((resolve) => waiting.push(resolve))
+    });
+    mockIPC((cmd, payload) => backend.invoke(cmd, payload as Record<string, unknown>));
+    const [removed] = (await commands.getAllTracks()).filter((track) => !track.isMissing);
+
+    await commands.startMusicAnalysis();
+    await commands.deleteTracksCommand([removed.id]);
+    let runningWhenImported: boolean | null = null;
+    const importing = commands.importFiles('Skip').then(async () => {
+      runningWhenImported = (await commands.getMusicAnalysisStatus()).running;
+    });
+    for (
+      let i = 0;
+      i < 1000 &&
+      (runningWhenImported === null || (await commands.getMusicAnalysisStatus()).running);
+      i++
+    ) {
+      releaseAll();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    await importing;
+
+    // 読み込んだのは、解析の途中
+    expect(runningWhenImported).toBe(true);
+    const status = await commands.getMusicAnalysisStatus();
+    expect(status.running).toBe(false);
+    expect(status.analyzed + status.failed).toBe(status.total);
+    expect(status.total).toBe(
+      (await commands.getAllTracks()).filter((track) => !track.isMissing).length
+    );
+  });
+
+  it('AIシャッフルは、今の曲・避ける曲・見つからない曲を選ばない', async () => {
+    const tracks = await commands.getAllTracks();
+    const present = tracks.filter((track) => !track.isMissing);
+    const [current, ...others] = present;
+    const allowed = others[0];
+    const excluded = others.slice(1).map((track) => track.id);
+
+    for (let i = 0; i < 10; i++) {
+      const picked = await commands.pickAiShuffleTrack(current.id, excluded);
+      expect(picked?.id).toBe(allowed.id);
+    }
+    // すべて避けると、今の曲だけを避けて選ぶ
+    const fallback = await commands.pickAiShuffleTrack(
+      current.id,
+      others.map((track) => track.id)
+    );
+    expect(fallback).not.toBeNull();
+    expect(fallback?.id).not.toBe(current.id);
+    expect(fallback?.isMissing).toBe(false);
+
+    await expect(commands.pickAiShuffleTrack('x', [])).rejects.toMatchObject({
+      code: 'VALIDATION'
+    });
   });
 });
 
@@ -997,6 +1118,29 @@ describe('曲のタグ（編集画面）', () => {
     expect((await commands.getTrackTags(ids[1])).compilation).toBeUndefined();
   });
 
+  it('アルバムアーティストのないコンピレーションは「Various Artists」のアルバムにまとめる', async () => {
+    const tracks = await commands.getAllTracks();
+    // 曲のアーティストが違う2曲を、同じアルバムのコンピレーションにする
+    const picked = [
+      tracks.find((t) => t.artist === 'Aoi Sora' && t.albumArtist === null)!,
+      tracks.find((t) => t.artist === 'Kenji Mori' && t.albumArtist === null)!
+    ];
+    const ids = picked.map((t) => t.id);
+    await commands.updateMultipleTracksMetadata(ids, { album: 'Mixed Tape', compilation: true });
+
+    const albums = await commands.getAlbums();
+    const mixed = albums.filter((album) => album.name === 'Mixed Tape');
+    expect(mixed).toMatchObject([{ artist: 'Various Artists', trackCount: 2 }]);
+    expect(
+      (await commands.getAlbumTracks('Mixed Tape', 'Various Artists')).map((t) => t.id)
+    ).toEqual(expect.arrayContaining(ids));
+    expect((await commands.getAllTracks()).find((t) => t.id === ids[0])?.compilation).toBe(true);
+    // 印を外すと、曲のアーティストごとのアルバムに戻る
+    await commands.updateMultipleTracksMetadata(ids, { compilation: false });
+    const split = (await commands.getAlbums()).filter((album) => album.name === 'Mixed Tape');
+    expect(split.map((album) => album.artist).sort()).toEqual(['Aoi Sora', 'Kenji Mori']);
+  });
+
   it('範囲の外の値・長すぎる値はエラーにする（文字数で数える）', async () => {
     await expect(commands.updateTrackMetadata(trackId, { bpm: 1000 })).rejects.toMatchObject({
       code: 'VALIDATION'
@@ -1139,6 +1283,54 @@ describe('プレイリスト', () => {
     });
   });
 
+  it('ほかのプレイリストを条件にでき、自分自身・互いを条件にする条件は断る', async () => {
+    const all = (rules: SmartRules['rules']): SmartRules => ({
+      matchMode: 'all',
+      rules,
+      order: { field: 'title', descending: false },
+      limit: null
+    });
+    const manual = await commands.createPlaylistWithTracks('車では聴かない', [
+      mockTrackId(1),
+      mockTrackId(2)
+    ]);
+    const library = await commands.getAllTracks();
+    const excluded = await commands.createSmartPlaylist(
+      '車用',
+      all([{ kind: 'playlist', op: 'isNot', playlistId: manual.id }])
+    );
+    const tracks = await commands.getPlaylistTracks(excluded.id);
+    expect(tracks).toHaveLength(library.length - 2);
+    expect(tracks.map((track) => track.id)).not.toContain(mockTrackId(1));
+
+    // 自動プレイリストを条件にした自動プレイリスト
+    const nested = await commands.createSmartPlaylist(
+      '車用の中',
+      all([{ kind: 'playlist', op: 'is', playlistId: excluded.id }])
+    );
+    expect(await commands.getPlaylistTracks(nested.id)).toHaveLength(library.length - 2);
+
+    const rejected = { code: 'VALIDATION' };
+    await expect(
+      commands.updateSmartPlaylist(
+        excluded.id,
+        all([{ kind: 'playlist', op: 'is', playlistId: excluded.id }])
+      )
+    ).rejects.toMatchObject(rejected);
+    await expect(
+      commands.updateSmartPlaylist(
+        excluded.id,
+        all([{ kind: 'playlist', op: 'is', playlistId: nested.id }])
+      )
+    ).rejects.toMatchObject(rejected);
+    await expect(
+      commands.createSmartPlaylist(
+        '消したもの',
+        all([{ kind: 'playlist', op: 'is', playlistId: mockPlaylistId(99) }])
+      )
+    ).rejects.toMatchObject(rejected);
+  });
+
   it('引数は複製して受け取る（呼び出し側のオブジェクトを持ち続けない）', async () => {
     // 複製できないオブジェクト（画面の状態のプロキシなど）を渡されても、後で結果として返せる
     const hidden = new Proxy(['years'], {});
@@ -1152,14 +1344,63 @@ describe('プレイリスト', () => {
 
   it('グローバルホットキーは、保存した設定がオンの間だけ登録されている', async () => {
     const off = await commands.getGlobalShortcuts();
-    expect(off.map((shortcut) => shortcut.action)).toEqual(['toggle', 'next', 'previous']);
+    expect(off.map((shortcut) => shortcut.action)).toEqual([
+      'toggle',
+      'next',
+      'previous',
+      'volumeUp',
+      'volumeDown',
+      'toggleMute'
+    ]);
     expect(off.every((shortcut) => !shortcut.registered)).toBe(true);
     expect(off[0].keys.at(-1)).toBe('P');
+    // 音量とミュートは、既定では割り当てない
+    expect(off[3]).toMatchObject({ keys: [], shortcut: null });
 
     await commands.saveSettings({ ...(await commands.getSettings()), globalShortcuts: true });
     const on = await commands.getGlobalShortcuts();
     // 「次の曲」は、ほかのアプリが使っていて登録できなかったことにしている
-    expect(on.map((shortcut) => shortcut.registered)).toEqual([true, false, true]);
+    expect(on.map((shortcut) => shortcut.registered)).toEqual([
+      true,
+      false,
+      true,
+      false,
+      false,
+      false
+    ]);
+  });
+
+  it('グローバルホットキーの割り当てを変えられ、重なる割り当ては断る', async () => {
+    const settings = await commands.getSettings();
+    await commands.saveSettings({
+      ...settings,
+      globalShortcutKeys: [
+        ...settings.globalShortcutKeys,
+        { action: 'volumeUp', shortcut: 'shift+super+ArrowUp' }
+      ]
+    });
+    const list = await commands.getGlobalShortcuts();
+    expect(list[3]).toMatchObject({
+      keys: ['Shift', 'Command', '↑'],
+      shortcut: 'shift+super+ArrowUp'
+    });
+
+    const rejected = { code: 'VALIDATION' };
+    await expect(
+      commands.saveSettings({
+        ...settings,
+        globalShortcutKeys: [
+          { action: 'toggle', shortcut: 'control+alt+KeyP' },
+          { action: 'next', shortcut: 'control+alt+KeyP' }
+        ]
+      })
+    ).rejects.toMatchObject(rejected);
+    await expect(
+      commands.saveSettings({
+        ...settings,
+        globalShortcutKeys: [{ action: 'toggle', shortcut: 'KeyP' }]
+      })
+    ).rejects.toMatchObject(rejected);
   });
 
   it('ミニプレーヤーへの切り替えを受け取る', async () => {
@@ -1490,12 +1731,40 @@ describe('アルバムアート', () => {
     });
   });
 
+  /** 画像を選んで（預けて）、印を返す */
+  async function pickArt(): Promise<string> {
+    const picked = await commands.pickAlbumArt();
+    return picked!.token;
+  }
+
+  it('画像を選んだだけでは書き込まず、保存（印を渡す）で埋め込む', async () => {
+    const [track] = await albumTracks('Midnight Circuit');
+    const urlBefore = backend.albumArtUrl(track.id);
+
+    const picked = await commands.pickAlbumArt();
+
+    expect(picked).toMatchObject({ mimeType: 'image/png', width: 1200, height: 1200 });
+    expect(picked!.dataUrl).toMatch(/^data:image/);
+    expect(backend.albumArtUrl(track.id)).toBe(urlBefore);
+    // 違う印は、書き込まない
+    await expect(commands.setAlbumArt([track.id], 'other-token')).rejects.toMatchObject({
+      code: 'VALIDATION'
+    });
+    // 選び直すと、前の印は使えない
+    const second = await pickArt();
+    await expect(commands.setAlbumArt([track.id], picked!.token)).rejects.toMatchObject({
+      code: 'VALIDATION'
+    });
+    await commands.setAlbumArt([track.id], second);
+    expect(backend.albumArtUrl(track.id)).not.toBe(urlBefore);
+  });
+
   it('画像を埋め込むと、埋め込みの画像が優先され、ファイルのサイズが増える', async () => {
     const tracks = await albumTracks('Midnight Circuit');
     const ids = tracks.map((track) => track.id);
     const urlBefore = backend.albumArtUrl(ids[0]);
 
-    const result = await commands.setAlbumArt(ids);
+    const result = await commands.setAlbumArt(ids, await pickArt());
 
     expect(result).toEqual({
       updatedCount: ids.length,
@@ -1513,7 +1782,7 @@ describe('アルバムアート', () => {
 
     // 選び直すと、別の画像に置き換わる
     const urlFirst = backend.albumArtUrl(ids[0]);
-    await commands.setAlbumArt([ids[0]]);
+    await commands.setAlbumArt([ids[0]], await pickArt());
     expect(backend.albumArtUrl(ids[0])).not.toBe(urlFirst);
     expect(backend.albumArtUrl(ids[1])).toBe(urlFirst);
   });
@@ -1522,7 +1791,7 @@ describe('アルバムアート', () => {
     const [folder] = await albumTracks('Midnight Circuit');
     const [embedded] = await albumTracks('Blue Horizon');
     const folderUrl = backend.albumArtUrl(folder.id);
-    await commands.setAlbumArt([folder.id]);
+    await commands.setAlbumArt([folder.id], await pickArt());
 
     const result = await commands.removeAlbumArt([folder.id, embedded.id]);
 
@@ -1547,10 +1816,10 @@ describe('アルバムアート', () => {
     const missing = tracks.find((track) => track.isMissing)!;
     const [present] = await albumTracks('Blue Horizon');
 
-    const result = await commands.setAlbumArt([missing.id, present.id]);
+    const result = await commands.setAlbumArt([missing.id, present.id], await pickArt());
 
     expect(result).toMatchObject({ updatedCount: 1, failedCount: 1 });
-    expect(result!.errors[0]).toContain(missing.filePath);
+    expect(result.errors[0]).toContain(missing.filePath);
   });
 
   it('選んだことにする画像を切り替えられる', async () => {
@@ -1558,13 +1827,62 @@ describe('アルバムアート', () => {
     const url = backend.albumArtUrl(track.id);
 
     backend.setAlbumArtPickMode('cancel');
-    expect(await commands.setAlbumArt([track.id])).toBeNull();
+    expect(await commands.pickAlbumArt()).toBeNull();
     backend.setAlbumArtPickMode('tooLarge');
-    await expect(commands.setAlbumArt([track.id])).rejects.toMatchObject({ code: 'VALIDATION' });
+    await expect(commands.pickAlbumArt()).rejects.toMatchObject({ code: 'VALIDATION' });
 
     expect(backend.albumArtUrl(track.id)).toBe(url);
-    await expect(commands.setAlbumArt([])).rejects.toMatchObject({ code: 'VALIDATION' });
+    backend.setAlbumArtPickMode('pick');
+    await expect(commands.setAlbumArt([], await pickArt())).rejects.toMatchObject({
+      code: 'VALIDATION'
+    });
     await expect(commands.removeAlbumArt([])).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+});
+
+describe('曲の情報の編集画面', () => {
+  it('開いた曲を、編集画面のウィンドウが開いた順に受け取る', async () => {
+    const tracks = await commands.getAllTracks();
+    const ids = [tracks[2].id, tracks[0].id];
+
+    await commands.openTrackEditor(ids, []);
+
+    expect((await commands.getTrackEditorTracks()).map((track) => track.id)).toEqual(ids);
+    // 一括編集では、前後の曲へ移らない
+    expect(await commands.getTrackEditorPosition()).toBeNull();
+    expect(await commands.moveTrackEditor(1)).toBe(false);
+    await expect(commands.openTrackEditor([], [])).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+
+  it('1曲の編集では、開いた一覧の並びの前後の曲へ移れる', async () => {
+    const tracks = await commands.getAllTracks();
+    const sequence = tracks.slice(0, 3).map((track) => track.id);
+
+    await commands.openTrackEditor([sequence[1]], sequence);
+    expect(await commands.getTrackEditorPosition()).toEqual({ index: 1, count: 3 });
+
+    expect(await commands.moveTrackEditor(1)).toBe(true);
+    expect((await commands.getTrackEditorTracks()).map((track) => track.id)).toEqual([sequence[2]]);
+    // 並びの端では移らない
+    expect(await commands.moveTrackEditor(1)).toBe(false);
+    expect(await commands.moveTrackEditor(-2)).toBe(true);
+    expect(await commands.getTrackEditorPosition()).toEqual({ index: 0, count: 3 });
+  });
+
+  it('タグ・アルバムアートを書き換えると、ほかのウィンドウへ知らせる', async () => {
+    const [first, second] = await commands.getAllTracks();
+    events.length = 0;
+
+    await commands.updateTrackMetadata(first.id, { title: first.title ?? 'x' });
+    await commands.updateMultipleTracksMetadata([first.id, second.id], { genre: 'Jazz' });
+    const picked = await commands.pickAlbumArt();
+    await commands.setAlbumArt([second.id], picked!.token);
+
+    expect(events.filter((e) => e.event === 'tracks-edited').map((e) => e.payload)).toEqual([
+      { trackIds: [first.id], albumArt: false },
+      { trackIds: [first.id, second.id], albumArt: false },
+      { trackIds: [second.id], albumArt: true }
+    ]);
   });
 });
 
@@ -1924,9 +2242,72 @@ describe('見つからない曲', () => {
     expect(await commands.removeMissingTracks()).toBe(0);
     expect(events).toEqual([]);
   });
+
+  it('ファイルの場所を指定して、同じ曲のまま結び付け直す', async () => {
+    const [missing] = (await commands.getAllTracks()).filter((track) => track.isMissing);
+    backend.setFolderResult(null);
+    expect(await commands.locateTrackFile(missing.id)).toBeNull();
+
+    backend.setFolderResult('/Volumes/NAS/Music/');
+    const relinked = await commands.locateTrackFile(missing.id);
+    expect(relinked).toMatchObject({
+      id: missing.id,
+      filePath: `/Volumes/NAS/Music/${missing.fileName}`,
+      isMissing: false
+    });
+    expect(events).toContainEqual({ event: 'library-changed', payload: null });
+    // 見つかっている曲には指定できない
+    await expect(commands.locateTrackFile(missing.id)).rejects.toMatchObject({
+      code: 'VALIDATION'
+    });
+  });
+
+  it('フォルダから探して、見つからない曲をまとめて結び付け直す', async () => {
+    backend.setFolderResult('/Volumes/NAS/Music');
+    expect(await commands.findMissingTracksInFolder()).toEqual({
+      relinkedCount: 1,
+      remainingCount: 0
+    });
+    expect((await commands.getLibraryFolders()).missingTrackCount).toBe(0);
+    expect(await commands.findMissingTracksInFolder()).toEqual({
+      relinkedCount: 0,
+      remainingCount: 0
+    });
+  });
+});
+
+describe('ライブラリの書き出し', () => {
+  it('選んだ場所へ書き出し、曲数とプレイリスト数を返す（選ばなければnull）', async () => {
+    backend.setFolderResult(null);
+    expect(await commands.exportLibrary('xml')).toBeNull();
+
+    backend.setFolderResult('/Users/demo/Desktop');
+    const tracks = await commands.getAllTracks();
+    const xml = await commands.exportLibrary('xml');
+    expect(xml).toMatchObject({
+      path: '/Users/demo/Desktop/Muspice Library.xml',
+      trackCount: tracks.length
+    });
+    expect(xml?.playlistCount).toBeGreaterThan(0);
+    expect(await commands.exportLibrary('csv')).toMatchObject({
+      path: '/Users/demo/Desktop/Muspice Library.csv',
+      playlistCount: 0
+    });
+  });
 });
 
 describe('ライブラリフォルダ', () => {
+  it('ネットワーク上のボリュームのフォルダには印を付ける', async () => {
+    const before = await commands.getLibraryFolders();
+    expect(before.folders.every((folder) => !folder.isNetwork)).toBe(true);
+
+    await importFolder('/Volumes/NAS/Music');
+    const nas = (await commands.getLibraryFolders()).folders.find(
+      (folder) => folder.path === '/Volumes/NAS/Music'
+    );
+    expect(nas?.isNetwork).toBe(true);
+  });
+
   it('インポートしたフォルダを登録し、入れ子のフォルダはまとめる', async () => {
     await importFolder('/Users/demo/Imports/A');
     await importFolder('/Users/demo/Imports/A/Live');
@@ -2283,11 +2664,29 @@ describe('音楽フォルダ', () => {
     expect(events.map((e) => e.event)).toContain('library-changed');
   });
 
+  it('置き換えると、保存してある再生キューを空にし、メインウィンドウにクリアさせる', async () => {
+    const [first, second] = await commands.getAllTracks();
+    await commands.savePlaybackState(
+      { volume: 0.5, shuffle: true, aiShuffle: false, repeat: 'all', currentIndex: 1 },
+      { trackIds: [first.id, second.id], originalTrackIds: [second.id, first.id] }
+    );
+    backend.setMusicFolderFileCount(3);
+    await commands.setMusicFolder('default');
+    events = [];
+
+    await commands.confirmMusicFolderChange(false);
+
+    expect(events.map((e) => e.event)).toContain('clear-play-queue');
+    const state = await commands.getPlaybackState();
+    expect(state).toMatchObject({ queue: [], currentIndex: null, volume: 0.5, shuffle: true });
+  });
+
   it('外す曲がない時は、確かめずに音楽フォルダにし、プレイリストを残す', async () => {
     const playlists = await regularPlaylistNames();
     // すべての曲を含むフォルダ（モックの曲は、どれもルートの下にある）
     backend.setMusicFolderFileCount(0);
     backend.setFolderResult('/');
+    events = [];
 
     await expect(commands.setMusicFolder('pick')).resolves.toMatchObject({
       kind: 'set',
@@ -2296,6 +2695,8 @@ describe('音楽フォルダ', () => {
     });
     expect(await markedPaths()).toEqual(['/']);
     expect(await regularPlaylistNames()).toEqual(playlists);
+    // ライブラリの中身は変わらないため、再生キューは残す
+    expect(events.map((e) => e.event)).not.toContain('clear-play-queue');
   });
 
   it('今の音楽フォルダを選んだ場合は、何もしない', async () => {
@@ -2323,14 +2724,27 @@ describe('音楽フォルダ', () => {
     expect(await markedPaths()).toEqual(['/Users/demo']);
   });
 
-  it('解除・ライブラリフォルダの削除で、未設定に戻る', async () => {
+  it('設定の「フォルダを変更...」は選んで預かるだけで、「適用」（picked）で変える', async () => {
     backend.markMusicFolder('/Users/demo/Music');
-    await commands.clearMusicFolder();
-    expect(await musicFolderPath()).toBeNull();
-    expect((await commands.getLibraryFolders()).folders.map((f) => f.path)).toContain(
-      '/Users/demo/Music'
-    );
+    backend.setFolderResult('/Users/demo/Music/');
 
+    expect(await commands.pickMusicFolder()).toBe('/Users/demo/Music');
+    expect(await musicFolderPath()).toBe('/Users/demo/Music');
+    // ダイアログを閉じた時は、null（前に選んだフォルダのまま）
+    backend.setFolderResult(null);
+    expect(await commands.pickMusicFolder()).toBeNull();
+
+    const outer = '/Users/demo';
+    backend.setFolderResult(outer);
+    await commands.pickMusicFolder();
+    expect(await musicFolderPath()).toBe('/Users/demo/Music');
+    expect(await commands.setMusicFolder('picked')).toMatchObject({ kind: 'set', path: outer });
+    expect(await musicFolderPath()).toBe(outer);
+    // 音楽フォルダにしたら、選んだフォルダは手放す
+    await expect(commands.setMusicFolder('picked')).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+
+  it('ライブラリフォルダの削除で、未設定に戻る', async () => {
     backend.markMusicFolder('/Users/demo/Music');
     const music = (await commands.getMusicFolder()).folder!;
     events = [];
@@ -2423,15 +2837,91 @@ describe('転送先デバイス', () => {
       name: '車',
       syncAll: true,
       playlistIds: [mockPlaylistId(2), mockPlaylistId(99)],
-      removeUnselected: false
+      removeUnselected: false,
+      pathTemplate: ' %artist%/%title% ',
+      copyExtras: false,
+      transcode: { mode: 'lossless', bitrateKbps: 192 }
     });
 
     expect(updated).toMatchObject({
       name: '車',
       syncAll: true,
       playlistIds: [mockPlaylistId(2)],
-      removeUnselected: false
+      removeUnselected: false,
+      pathTemplate: '%artist%/%title%',
+      copyExtras: false,
+      transcode: { mode: 'lossless', bitrateKbps: 192 }
     });
+    // 変換のビットレートは、選べる値だけ
+    await expect(
+      commands.updateSyncDevice(device.id, {
+        ...updated,
+        transcode: { mode: 'lossless', bitrateKbps: 100 }
+      })
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+
+  it('変換する設定では、変換する曲を数え、拡張子を.m4aにする', async () => {
+    const device = await connectedDevice();
+    const updated = await commands.updateSyncDevice(device.id, {
+      ...device,
+      syncAll: true,
+      transcode: { mode: 'aboveBitrate', bitrateKbps: 128 }
+    });
+    expect(updated.transcode).toEqual({ mode: 'aboveBitrate', bitrateKbps: 128 });
+
+    const plan = await commands.planDeviceSync(device.id);
+    expect(plan.transcodeCount).toBeGreaterThan(0);
+    expect(plan.copyPaths.filter((path) => path.endsWith('.m4a')).length).toBeGreaterThanOrEqual(
+      plan.transcodeCount
+    );
+  });
+
+  it('同期する内容の見通しと、確認の画面の一覧を返し、取り出すと接続されていない状態になる', async () => {
+    const device = await connectedDevice();
+    const summary = await commands.getSyncSelectionSummary(device.id);
+    expect(summary.trackCount).toBe(5);
+    expect(summary.totalBytes).toBeGreaterThan(0);
+
+    const plan = await commands.planDeviceSync(device.id);
+    expect(plan.copyPaths).toHaveLength(plan.copyCount);
+    expect(plan.deletePaths).toHaveLength(plan.deleteCount);
+    expect(device.ejectable).toBe(true);
+
+    await commands.ejectSyncDevice(device.id);
+    const [ejected] = (await commands.getSyncDevices()).filter((d) => d.id === device.id);
+    expect(ejected).toMatchObject({ connected: false, ejectable: false });
+    await expect(commands.ejectSyncDevice(device.id)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  it('読めない配置の書式は保存せず、ほかの設定も変えない', async () => {
+    const device = await connectedDevice();
+    await expect(
+      commands.updateSyncDevice(device.id, { ...device, name: '車', pathTemplate: '%unknown%' })
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+    const [stored] = (await commands.getSyncDevices()).filter((d) => d.id === device.id);
+    expect(stored).toMatchObject({ name: device.name, pathTemplate: device.pathTemplate });
+  });
+
+  it('配置の書式を変えると、次の同期で、場所が変わるコピー済みの曲の名前を変える', async () => {
+    const device = await connectedDevice();
+    // アルバムアーティストのない曲は、既定の書式でも曲のアーティストのフォルダのため、名前は変わらない
+    await commands.updateSyncDevice(device.id, {
+      ...device,
+      pathTemplate: DEFAULT_DEVICE_TEMPLATE
+    });
+    expect(await commands.planDeviceSync(device.id)).toMatchObject({
+      renameCount: 0,
+      unchangedCount: 2
+    });
+
+    await commands.updateSyncDevice(device.id, { ...device, pathTemplate: '%album%/%title%' });
+    expect(await commands.planDeviceSync(device.id)).toMatchObject({
+      renameCount: 2,
+      unchangedCount: 0
+    });
+    expect(await commands.runDeviceSync(device.id)).toMatchObject({ renamedCount: 2 });
+    expect(await commands.planDeviceSync(device.id)).toMatchObject({ renameCount: 0 });
   });
 
   it('差分を調べる（コピー済みの曲はコピーせず、対象から外れた曲は削除する）', async () => {
@@ -2588,11 +3078,11 @@ describe('再生エンジン', () => {
     await expect(commands.playbackSetSpeed(1.5)).resolves.toBeNull();
     await expect(commands.playbackSetSpeed(1)).resolves.toBeNull();
     // イコライザのゲインは、バンドの数（10個）で渡す
-    await expect(commands.playbackSetEqualizer(true, [0, 0, 0])).rejects.toMatchObject({
+    await expect(commands.playbackSetEqualizer(true, [0, 0, 0], 0)).rejects.toMatchObject({
       code: 'VALIDATION'
     });
     await expect(
-      commands.playbackSetEqualizer(true, [0, 0, 0, 0, 0, 6, 0, 0, 0, 0])
+      commands.playbackSetEqualizer(true, [0, 0, 0, 0, 0, 6, 0, 0, 0, 0], -3)
     ).resolves.toBeNull();
   });
 
@@ -2652,12 +3142,19 @@ describe('OSのNow Playing', () => {
 });
 
 describe('再生状態の保存と復元', () => {
-  const cursor = { volume: 0.4, shuffle: false, repeat: 'all' as const, currentIndex: 1 };
+  const cursor = {
+    volume: 0.4,
+    shuffle: false,
+    aiShuffle: false,
+    repeat: 'all' as const,
+    currentIndex: 1
+  };
 
   it('保存していなければ、何も再生していない状態を返す', async () => {
     expect(await commands.getPlaybackState()).toEqual({
       volume: 1,
       shuffle: false,
+      aiShuffle: false,
       repeat: 'off',
       queue: [],
       originalTrackIds: null,

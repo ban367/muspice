@@ -759,7 +759,11 @@ fn import_with_copy(
     let (mut referenced, to_copy): (Vec<PathBuf>, Vec<PathBuf>) = unique_sources(files, folders)
         .into_iter()
         .cloned()
-        .partition(|path| is_in_library(path, &known_paths, &library_folders));
+        // CUEシートの曲（仮のパス）は、音楽フォルダへコピーせず、元の場所のまま登録する（ADR-123）
+        .partition(|path| {
+            is_in_library(path, &known_paths, &library_folders)
+                || path.to_str().is_some_and(crate::cue::is_virtual)
+        });
 
     // 1. コピー先を決めるために、曲を読む
     let total = u32::try_from(to_copy.len())
@@ -928,6 +932,7 @@ fn copy_and_register<'a>(
                         &track.file_path,
                         &track.file_name,
                         *modified_at,
+                        track.cue.as_ref(),
                     ),
                     _ => crate::repository::insert_track(&tx, track, *modified_at),
                 })
@@ -1161,6 +1166,7 @@ fn import_audio_files(
                         &track.file_path,
                         &track.file_name,
                         *modified_at,
+                        track.cue.as_ref(),
                     ),
                 };
 
@@ -1216,6 +1222,13 @@ enum ImportAction {
 ///
 /// 評価はファイルのタグから読む。お気に入り・再生回数は初期値（更新時は使われない）。
 pub(super) fn create_track_from_file(file_path: &Path) -> AppResult<Track> {
+    // CUEシートの曲（仮のパス）は、CUEシートと音声ファイルから作る（ADR-123）
+    if let Some(virtual_path) = file_path
+        .to_str()
+        .filter(|path| crate::cue::is_virtual(path))
+    {
+        return crate::cue::build_track(virtual_path);
+    }
     let file_name = file_path
         .file_name()
         .and_then(|s| s.to_str())
@@ -1243,6 +1256,7 @@ pub(super) fn create_track_from_file(file_path: &Path) -> AppResult<Track> {
     let now = Utc::now().to_rfc3339();
 
     Ok(Track {
+        cue: None,
         id: Uuid::new_v4().to_string(),
         file_path: file_path_str,
         file_name,
@@ -1269,6 +1283,8 @@ pub(super) fn create_track_from_file(file_path: &Path) -> AppResult<Track> {
         replay_gain: file_info.replay_gain,
         sort_tags,
         is_missing: false,
+        compilation: file_info.metadata.compilation == Some(true),
+        details: file_info.details,
     })
 }
 
@@ -1277,6 +1293,146 @@ mod tests {
     use super::*;
     use crate::metadata::test_images::write_wav;
     use std::cell::RefCell;
+
+    /// CUEシートの曲を、取り込み・再スキャンで曲ごとに扱う（ADR-123）
+    #[test]
+    fn test_cue_sheet_tracks_are_imported_and_rescanned() {
+        use crate::playback::test_audio::write_wav;
+        use std::fs;
+        let dir = crate::device_manifest::test_support::TempDir::new();
+        let album = dir.path().join("Album");
+        fs::create_dir_all(&album).unwrap();
+        // 7500Hzで4秒（1/75秒が100フレーム）
+        write_wav(&album.join("Album.wav"), 7_500, 1, 30_000);
+        let cue = album.join("Album.cue");
+        fs::write(
+            &cue,
+            "PERFORMER \"Artist\"\nTITLE \"Album\"\nREM DATE 2001\nFILE \"Album.wav\" WAVE\n  TRACK 01 AUDIO\n    TITLE \"One\"\n    INDEX 01 00:00:00\n  TRACK 02 AUDIO\n    TITLE \"Two\"\n    PERFORMER \"Guest\"\n    INDEX 01 00:01:00\n",
+        )
+        .unwrap();
+        let state = test_state();
+
+        let scanned =
+            crate::library::scan_directory(dir.path(), &crate::library::ScanExclusions::default())
+                .unwrap();
+        assert_eq!(
+            scanned.audio_files,
+            [
+                PathBuf::from(crate::cue::virtual_path(&cue, 1)),
+                PathBuf::from(crate::cue::virtual_path(&cue, 2))
+            ]
+        );
+        let result =
+            import_audio_files(&scanned.audio_files, DuplicateAction::Skip, &state, &|_| {})
+                .unwrap();
+        assert_eq!(result.imported_count, 2);
+
+        let tracks = state
+            .with_db(|db| crate::repository::find_all_tracks(db))
+            .unwrap();
+        let by_title = |title: &str| {
+            tracks
+                .iter()
+                .find(|track| track.title.as_deref() == Some(title))
+                .unwrap()
+                .clone()
+        };
+        let (one, two) = (by_title("One"), by_title("Two"));
+        assert_eq!(one.file_path, crate::cue::virtual_path(&cue, 1));
+        assert_eq!(one.artist.as_deref(), Some("Artist"));
+        assert_eq!(two.artist.as_deref(), Some("Guest"));
+        assert_eq!(one.album.as_deref(), Some("Album"));
+        assert_eq!(one.album_artist.as_deref(), Some("Artist"));
+        assert_eq!(one.year, Some(2001));
+        assert_eq!((one.track_number, two.track_number), (Some(1), Some(2)));
+        assert_eq!((one.duration, two.duration), (Some(1), Some(3)));
+        let cue_of = |track: &Track| track.cue.clone().unwrap();
+        assert_eq!(
+            cue_of(&one).source,
+            album.join("Album.wav").to_string_lossy()
+        );
+        assert_eq!((cue_of(&one).start, cue_of(&one).end), (0, Some(75)));
+        assert_eq!((cue_of(&two).start, cue_of(&two).end), (75, None));
+
+        // 変わっていなければ、再スキャンで何もしない
+        let plan = |state: &AppState| {
+            let disk_files = crate::library::scan_directory(
+                dir.path(),
+                &crate::library::ScanExclusions::default(),
+            )
+            .unwrap()
+            .audio_files
+            .iter()
+            .filter_map(|path| super::super::library_folders::disk_file_of(path))
+            .collect();
+            let tracks = state
+                .with_db(|db| {
+                    crate::repository::find_track_file_states_under(
+                        db,
+                        &crate::library_folder::track_path_prefix(&dir.path().to_string_lossy()),
+                    )
+                })
+                .unwrap();
+            crate::library_folder::plan_rescan(disk_files, tracks)
+        };
+        let unchanged = plan(&state);
+        assert!(unchanged.to_add.is_empty() && unchanged.to_update.is_empty());
+        assert!(unchanged.to_mark_missing.is_empty());
+        // 取り込みで、CUEシートの更新日時を記録している
+        assert!(unchanged.to_record_modified_at.is_empty());
+
+        // フォルダを移した後に取り込むと、見つからない曲を移動の先に結び付け、音声ファイルの場所も変える
+        let moved = dir.path().join("Moved");
+        fs::rename(&album, &moved).unwrap();
+        let moved_cue = moved.join("Album.cue");
+        state
+            .with_db(|db| {
+                for track in [&one, &two] {
+                    crate::repository::mark_track_missing(db, &track.id, "2026-01-02T00:00:00Z")?;
+                }
+                Ok(())
+            })
+            .unwrap();
+        let moved_files = [
+            PathBuf::from(crate::cue::virtual_path(&moved_cue, 1)),
+            PathBuf::from(crate::cue::virtual_path(&moved_cue, 2)),
+        ];
+        let relinked =
+            import_audio_files(&moved_files, DuplicateAction::Skip, &state, &|_| {}).unwrap();
+        assert_eq!(relinked.relinked_count, 2);
+        let two_after = state
+            .with_db(|db| crate::repository::find_track_by_id(db, &two.id))
+            .unwrap();
+        assert!(!two_after.is_missing);
+        assert_eq!(two_after.file_path, crate::cue::virtual_path(&moved_cue, 2));
+        assert_eq!(
+            cue_of(&two_after).source,
+            moved.join("Album.wav").to_string_lossy()
+        );
+        assert_eq!(cue_of(&two_after).start, 75);
+        fs::rename(&moved, &album).unwrap();
+        state
+            .with_db(|db| {
+                for (track, file_path) in [(&one, &one.file_path), (&two, &two.file_path)] {
+                    crate::repository::relink_track(
+                        db,
+                        &track.id,
+                        file_path,
+                        &track.file_name,
+                        None,
+                        track.cue.as_ref(),
+                    )?;
+                }
+                Ok(())
+            })
+            .unwrap();
+
+        // CUEシートを消すと、どちらの曲も見つからない曲になる
+        fs::remove_file(&cue).unwrap();
+        let removed = plan(&state);
+        assert_eq!(removed.to_mark_missing.len(), 2);
+        assert_eq!(removed.to_add.len(), 1);
+    }
 
     fn test_state() -> AppState {
         let conn = crate::db::open_in_memory();

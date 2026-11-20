@@ -27,6 +27,8 @@ export function invalidatePlaylistQueries(
   changedPlaylistId: string | null
 ) {
   void queryClient.invalidateQueries({ queryKey: queryKeys.playlists });
+  // デバイスが同期するプレイリスト（曲・削除）が変わると、見通しも変わる
+  void queryClient.invalidateQueries({ queryKey: queryKeys.syncSelectionSummaries });
   if (changedPlaylistId !== null) {
     void queryClient.invalidateQueries({ queryKey: queryKeys.tracks.playlist(changedPlaylistId) });
   }

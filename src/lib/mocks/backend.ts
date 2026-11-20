@@ -11,10 +11,13 @@
  */
 import {
   DEFAULT_ACCENT_COLOR,
+  DEFAULT_DEVICE_TEMPLATE,
   DEFAULT_MUSIC_FOLDER_TEMPLATE,
   AAC_BITRATES_KBPS,
   LIBRARY_SCAN_INTERVALS,
   MAX_CROSSFADE_SECONDS,
+  MIN_CROSSFADE_SECONDS,
+  DEFAULT_CROSSFADE_SECONDS,
   MAX_NORMALIZATION_PREAMP_DB,
   type commands,
   type events
@@ -41,6 +44,7 @@ import type {
   ImportResult,
   LibraryFolder,
   LoudnessScanResult,
+  MusicAnalysisStatus,
   Metadata,
   MusicFolderChange,
   MusicFolderSource,
@@ -73,12 +77,16 @@ import {
   mockTrackId
 } from './fixtures';
 import { matchesSearchTerms, normalizeSearchText, searchTerms } from '#lib/utils/searchText.js';
+import { groupArtist, VARIOUS_ARTISTS } from '#lib/utils/albumKey.js';
+import { groupArtistSortName } from '#lib/utils/nameSort.js';
 import {
   countSmartPlaylistTracks,
   findSmartPlaylistTracks,
   smartRulesError,
   type SmartPlaylistContext
 } from './smartPlaylist.js';
+import { shortcutKeyNames } from '#lib/utils/globalShortcut.js';
+import type { GlobalShortcutAction } from '#lib/types/models.js';
 import { createAlbumArt } from './media';
 import { organizedRelativePath, parseOrganizeTemplate, planOrganize } from './fileOrganize';
 import { createMockPlaybackEngine, MOCK_OUTPUT_DEVICES } from './playbackEngine';
@@ -102,6 +110,7 @@ export type MockEventPayload<K extends MockEventName> = Parameters<
  * `satisfies`で、`events`のすべてのキーがあることを確かめる（名前が合っているかは、テストで確かめる）。
  */
 export const MOCK_EVENT_NAMES = {
+  clearPlayQueue: 'clear-play-queue',
   convertProgress: 'convert-progress',
   deviceSyncProgress: 'device-sync-progress',
   importFilesRequested: 'import-files-requested',
@@ -110,6 +119,8 @@ export const MOCK_EVENT_NAMES = {
   libraryScanProgress: 'library-scan-progress',
   loudnessScanFinished: 'loudness-scan-finished',
   loudnessScanProgress: 'loudness-scan-progress',
+  menuCommand: 'menu-command',
+  musicAnalysisProgress: 'music-analysis-progress',
   openImportDialog: 'open-import-dialog',
   organizeProgress: 'organize-progress',
   playbackControl: 'playback-control',
@@ -118,6 +129,8 @@ export const MOCK_EVENT_NAMES = {
   showAboutDialog: 'show-about-dialog',
   toggleMiniPlayer: 'toggle-mini-player',
   toggleSidebar: 'toggle-sidebar',
+  trackEditorChanged: 'track-editor-changed',
+  tracksEdited: 'tracks-edited',
   tracksOpened: 'tracks-opened'
 } as const satisfies Record<MockEventName, string>;
 type CommandResult<K extends CommandName> = Awaited<ReturnType<Commands[K]>>;
@@ -146,12 +159,17 @@ export interface MockBackendOptions {
    * （ブラウザでは`sessionStorage`を渡す。省略時は、メモリ上にだけ持つ）
    */
   storage?: Pick<Storage, 'getItem' | 'setItem'>;
+  /**
+   * 曲の情報の編集画面のウィンドウを開く（`openTrackEditor`。ブラウザでは、別のウィンドウで
+   * `/track-editor`を開く。編集する曲は`storage`で渡す）
+   */
+  openWindow?: (path: string) => void;
 }
 
 /** M3Uの読み込みで、選んだことにするファイル */
 export type MockM3uImportMode = 'partial' | 'clean' | 'cancel';
 
-/** アルバムアートの埋め込み（`setAlbumArt`）で、選んだことにする画像 */
+/** アルバムアートの画像を選ぶ（`pickAlbumArt`）時に、選んだことにする画像 */
 export type MockAlbumArtPickMode = 'pick' | 'cancel' | 'tooLarge';
 
 export interface MockBackend {
@@ -172,7 +190,7 @@ export interface MockBackend {
    */
   setM3uImportMode(mode: MockM3uImportMode): void;
   /**
-   * アルバムアートの埋め込み（`setAlbumArt`）で、選んだことにする画像を切り替える
+   * アルバムアートの画像を選ぶ（`pickAlbumArt`）時に、選んだことにする画像を切り替える
    *
    * - `pick`（既定）: 埋め込める画像（選ぶたびに、違う色の画像になる）
    * - `cancel`: 画像を選ばなかった
@@ -206,6 +224,11 @@ export interface MockBackend {
    * （整理すると、移動先に同じ名前のファイルがある曲・同じ移動先になる曲が出る）。
    */
   addDuplicateTracks(): void;
+  /**
+   * CUEシートの曲（アルバム1ファイルの中の3曲）を、ライブラリに足す（ADR-123。一覧と、ファイルを
+   * 書き換える操作を断ることの確認用）
+   */
+  addCueAlbum(): void;
   /**
    * 形式の変換で、書き出すフォルダを選ぶダイアログの結果を切り替える（nullは、選ばなかった）
    *
@@ -361,26 +384,60 @@ const LOSSLESS_EXTENSIONS = ['flac', 'wav', 'aiff', 'aif', 'wv', 'ape'];
 
 /** 音量の解析で、1曲を読むのにかかることにする時間（進捗と中断を目視できるようにする） */
 const LOUDNESS_SCAN_STEP_MS = 250;
+/** 曲の解析（テンポ・キー）で、1曲の解析にかける時間（ms） */
+const MUSIC_ANALYSIS_STEP_MS = 400;
+/** 曲の解析で、AVFoundationが読めない（解析できない）ことにする形式（Rustでは、開けずに記録する） */
+const MUSIC_ANALYSIS_UNSUPPORTED_FORMATS = ['ogg', 'opus', 'wv', 'ape'];
+/** AIシャッフルの候補にする、選び方に合う上位の曲の数（Rustの`ai_shuffle::CANDIDATE_LIMIT`） */
+const AI_SHUFFLE_CANDIDATE_LIMIT = 20;
 /** 空き容量の判定で残しておく容量（Rustの`SPACE_MARGIN_BYTES`と同じ） */
 const SYNC_SPACE_MARGIN_BYTES = 1024 * 1024;
 const GIB = 1024 ** 3;
 
 /** 転送先デバイス（一覧表示用の値のうち、容量は状態から計算する） */
-interface MockSyncDevice extends Omit<SyncDevice, 'freeBytes' | 'totalBytes'> {
+interface MockSyncDevice extends Omit<SyncDevice, 'freeBytes' | 'totalBytes' | 'ejectable'> {
   /** デバイスの全体の容量と、Muspiceがコピーした曲以外が使っている容量 */
   totalBytes: number;
   otherUsedBytes: number;
   /** デバイスにコピー済みの曲（トラックID → サイズ） */
   copied: Map<string, number>;
+  /**
+   * コピー済みの曲のデバイス上の場所（トラックID → 場所。実装の管理ファイルの記録）
+   *
+   * 書式から求めた今の場所と違う曲は、次の同期で名前を変える（Rustの`device_sync::plan_sync`）。
+   */
+  copiedPaths: Map<string, string>;
 }
+
+/**
+ * 曲のデバイス上の配置（Rustの`device_sync::track_relative_path`。書式はファイルの整理と同じ書き方で、
+ * 拡張子は小文字にする）
+ */
+function devicePathOf(track: Track, template: string, transcode = false): string {
+  const extension = transcode ? '.m4a' : /\.[A-Za-z0-9]+$/.exec(track.filePath)?.[0].toLowerCase();
+  return organizedRelativePath(parseOrganizeTemplate(template), track, extension);
+}
+
+/** グローバルホットキーの操作（Rustの`GlobalShortcutAction::ALL`と同じ順） */
+const GLOBAL_SHORTCUT_ACTIONS: GlobalShortcutAction[] = [
+  'toggle',
+  'next',
+  'previous',
+  'volumeUp',
+  'volumeDown',
+  'toggleMute'
+];
 
 /** 再生状態を保存するキー（`storage`を渡した場合） */
 const PLAYBACK_STATE_KEY = 'muspice-mock:playback-state';
+/** 編集画面で扱う曲（`openTrackEditor`で預け、`getTrackEditorTracks`で受け取る）の保存先のキー */
+const TRACK_EDITOR_KEY = 'muspice-mock:track-editor';
 
 /** 保存する再生状態（Rustの`playback_state.rs`の`StoredState`と同じ内容） */
 interface StoredPlaybackState {
   volume: number;
   shuffle: boolean;
+  aiShuffle: boolean;
   repeat: 'off' | 'all' | 'one';
   currentIndex: number | null;
   trackIds: string[];
@@ -390,6 +447,7 @@ interface StoredPlaybackState {
 const EMPTY_PLAYBACK_STATE: StoredPlaybackState = {
   volume: 1,
   shuffle: false,
+  aiShuffle: false,
   repeat: 'off',
   currentIndex: null,
   trackIds: [],
@@ -544,15 +602,12 @@ function groupBy<T>(items: T[], key: (item: T) => string): Map<string, T[]> {
 /** アーティストの詳細で、アルバムのない曲をまとめるアルバムの名前（Rustの`UNKNOWN_ALBUM`と同じ） */
 const UNKNOWN_ALBUM = '不明なアルバム';
 
-/** アルバム・アーティストの一覧をまとめるアーティスト（Rustの`ALBUM_ARTIST`と同じ） */
-const groupArtist = (track: Track) => track.albumArtist ?? track.artist;
-
 /** まとめたアーティストの、並び順に使う値（Rustの`ALBUM_ARTIST_SORT`と同じ） */
-const groupArtistSort = (track: Track) =>
-  track.albumArtist === null
-    ? track.sortTags.artist
-    : (track.sortTags.albumArtist ??
-      (track.artist === track.albumArtist ? track.sortTags.artist : null));
+const groupArtistSort = (track: Track) => groupArtistSortName(track);
+
+/** 曲のアーティストより先に使う、まとめるアルバムアーティスト（Rustの`GROUP_ALBUM_ARTIST`と同じ） */
+const groupAlbumArtist = (track: Track) =>
+  track.albumArtist ?? (track.compilation ? VARIOUS_ARTISTS : null);
 
 /**
  * 一覧でまとめるアーティスト（`name`）の、並び順に使う値
@@ -561,7 +616,7 @@ const groupArtistSort = (track: Track) =>
  * （Rustの`find_artist_summaries`と同じ）。
  */
 function listedArtistSort(track: Track, name: string): string | null {
-  if (track.albumArtist !== null) return groupArtistSort(track);
+  if (groupAlbumArtist(track) !== null) return groupArtistSort(track);
   const names = splitValues(track.artist);
   const sortNames = splitValues(track.sortTags.artist);
   return sortNames.length === names.length ? (sortNames[names.indexOf(name)] ?? null) : null;
@@ -649,6 +704,33 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   const embeddedArt = new Map<string, number | null>();
   let albumArtPickMode: MockAlbumArtPickMode = 'pick';
   let pickedArtCount = 0;
+  /** 選んで、まだ書き込んでいない画像（Rustの`PendingAlbumArt`。印と画像の番号） */
+  let pendingArt: { token: string; picture: number } | null = null;
+  /** 編集画面で扱う曲（ブラウザでは`storage`にも置き、別のウィンドウで受け取る） */
+  let editorTrackIds: string[] = [];
+  /** 編集画面の、開いた一覧の曲の並び（1曲の編集で、その曲を含む時だけ。ADR-119） */
+  let editorSequence: string[] = [];
+
+  /** 編集画面で扱う曲と並び（別のウィンドウ（ブラウザでは別のページ）では、保存先から受け取る） */
+  function loadEditorTracks(): { trackIds: string[]; sequence: string[] } {
+    if (editorTrackIds.length > 0) return { trackIds: editorTrackIds, sequence: editorSequence };
+    try {
+      const stored = options.storage?.getItem(TRACK_EDITOR_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored) as { trackIds: string[]; sequence: string[] };
+        return { trackIds: parsed.trackIds, sequence: parsed.sequence ?? [] };
+      }
+    } catch {
+      // 読めなければ、預かっていないものとする
+    }
+    return { trackIds: [], sequence: [] };
+  }
+
+  function saveEditorTracks(trackIds: string[], sequence: string[]): void {
+    editorTrackIds = trackIds;
+    editorSequence = sequence;
+    options.storage?.setItem(TRACK_EDITOR_KEY, JSON.stringify({ trackIds, sequence }));
+  }
   // 前回の再生状態（保存先に壊れた内容があれば使わない）
   let playbackState: StoredPlaybackState = EMPTY_PLAYBACK_STATE;
   try {
@@ -657,23 +739,42 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   } catch {
     playbackState = EMPTY_PLAYBACK_STATE;
   }
+
+  /** 保存してある再生キューを空にする（Rustの`PlaybackStateStore::clear_queue`。音量などは残す） */
+  function clearSavedQueue(): void {
+    playbackState = { ...playbackState, currentIndex: null, trackIds: [], originalTrackIds: null };
+    options.storage?.setItem(PLAYBACK_STATE_KEY, JSON.stringify(playbackState));
+  }
   let settings: Settings = {
     language: 'ja',
     startupPage: 'lastOpened',
     theme: 'dark',
     accentColor: DEFAULT_ACCENT_COLOR,
-    volumeNormalization: 'off',
+    volumeNormalizationEnabled: false,
+    volumeNormalization: 'auto',
     normalizationPreampDb: 0,
+    normalizationUntaggedPreampDb: 0,
+    normalizationPreventClipping: true,
     gaplessPlayback: true,
-    crossfadeSeconds: 0,
+    crossfadeEnabled: false,
+    crossfadeSeconds: DEFAULT_CROSSFADE_SECONDS,
+    crossfadeSkipAlbumTracks: true,
+    crossfeedEnabled: false,
+    crossfeedLevel: 'medium',
     outputDeviceId: null,
-    watchLibraryFolders: false,
+    watchLibraryFolders: true,
     libraryScanIntervalMinutes: 0,
     hiddenSidebarItems: [],
     autoDj: false,
     autoDjPlaylistId: null,
+    aiShuffleMode: 'similar',
     stayInMenuBar: false,
     globalShortcuts: false,
+    globalShortcutKeys: [
+      { action: 'toggle', shortcut: 'control+alt+KeyP' },
+      { action: 'next', shortcut: 'control+alt+Period' },
+      { action: 'previous', shortcut: 'control+alt+Comma' }
+    ],
     notifyTrackChange: false,
     musicFolderTemplate: DEFAULT_MUSIC_FOLDER_TEMPLATE,
     copyToMusicFolder: true,
@@ -694,7 +795,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         { id: crypto.randomUUID(), path: 'Music' },
         { id: crypto.randomUUID(), path: 'MusicBee' }
       ],
-      isMusicFolder: false
+      isMusicFolder: false,
+      isNetwork: false
     },
     {
       id: crypto.randomUUID(),
@@ -703,7 +805,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       addedAt: '2026-01-02T00:00:00.000Z',
       lastScannedAt: null,
       exclusions: [],
-      isMusicFolder: false
+      isMusicFolder: false,
+      isNetwork: false
     }
   ];
   // 読み込まないフォルダの追加で、選んだことにするフォルダ（undefinedは、曲のある最初のフォルダ）
@@ -713,6 +816,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   let pendingRelocation: { folderId: string; path: string } | null = null;
   // ライブラリの置き換えを確かめる間、預かっている音楽フォルダ（ADR-086）
   let pendingMusicFolder: string | null = null;
+  /** 設定の「フォルダを変更...」で選んで、「適用」を待っているフォルダ（Rustの`PickedMusicFolder`） */
+  let pickedMusicFolder: string | null = null;
   // バックアップの保存・復元で選んだことにするファイルと、預かっている復元するファイル
   let backupFile: string | null = DEFAULT_BACKUP_FILE;
   let pendingRestore: string | null = null;
@@ -725,6 +830,14 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         return [mockTrackId(index), track?.fileSize ?? 0] as const;
       })
     );
+  /** コピー済みの曲の、その書式でのデバイス上の場所 */
+  const copiedPathsOf = (indexes: number[], template: string) =>
+    new Map(
+      indexes.flatMap((index) => {
+        const track = tracks.find((t) => t.id === mockTrackId(index));
+        return track ? [[track.id, devicePathOf(track, template)] as const] : [];
+      })
+    );
   let syncDevices: MockSyncDevice[] = [
     {
       id: crypto.randomUUID(),
@@ -733,13 +846,18 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       syncAll: false,
       playlistIds: [mockPlaylistId(1)],
       removeUnselected: true,
+      // 配置の書式を持つ前に登録したデバイス（以前の配置。曲のアーティストで分ける）
+      pathTemplate: '%artist%/%album%/[%disc%-]%track% %title%',
+      copyExtras: true,
+      transcode: { mode: 'off', bitrateKbps: 256 },
       connected: true,
       createdAt: '2026-01-03T00:00:00.000Z',
       lastSyncedAt: '2026-01-04T00:00:00.000Z',
       totalBytes: 32 * GIB,
       otherUsedBytes: 20 * GIB,
       // プレイリストの5曲のうち2曲と、プレイリストから外した1曲がコピー済み
-      copied: copiedTracks([7, 8, 2])
+      copied: copiedTracks([7, 8, 2]),
+      copiedPaths: copiedPathsOf([7, 8, 2], '%artist%/%album%/[%disc%-]%track% %title%')
     },
     {
       id: crypto.randomUUID(),
@@ -748,12 +866,16 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       syncAll: true,
       playlistIds: [],
       removeUnselected: true,
+      pathTemplate: DEFAULT_DEVICE_TEMPLATE,
+      copyExtras: true,
+      transcode: { mode: 'off', bitrateKbps: 256 },
       connected: false,
       createdAt: '2026-01-02T00:00:00.000Z',
       lastSyncedAt: null,
       totalBytes: 16 * GIB,
       otherUsedBytes: 0,
-      copied: new Map()
+      copied: new Map(),
+      copiedPaths: new Map()
     }
   ];
   let isSyncRunning = false;
@@ -777,6 +899,12 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   const exportedPaths = new Set<string>();
   // 音量の解析の実行の状態（同時に実行できる解析は1つ）
   const loudnessScan = { running: false, cancelled: false, current: 0, total: 0 };
+  /**
+   * 曲の解析（テンポ・キー）の実行の状態と結果（Rustの`music_analysis`。曲のID → 結果。
+   * nullは解析できなかった曲）
+   */
+  const musicAnalysis = { running: false, cancelled: false };
+  const musicFeatures = new Map<string, { bpm: number; key: number } | null>();
 
   const now = () => new Date().toISOString();
   const newestFirst = (a: Track, b: Track) => compareAsc(b.createdAt, a.createdAt);
@@ -792,7 +920,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   // 再生エンジン（音は鳴らさず、再生位置と曲の切り替わりを時計に合わせて進める）
   const playbackEngine = createMockPlaybackEngine({
     emit: (event) => options.emit('playbackEvent', event),
-    crossfadeSeconds: () => settings.crossfadeSeconds,
+    crossfadeSeconds: () => (settings.crossfadeEnabled ? settings.crossfadeSeconds : 0),
     durationOf: (trackId) => {
       validateTrackId(trackId);
       const track = findTrack(trackId);
@@ -876,12 +1004,63 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   const smartContext = (): SmartPlaylistContext => ({
     now: Date.now(),
     shuffleSeed,
-    musicFolderPath: musicFolderPath()
+    musicFolderPath: musicFolderPath(),
+    playlistMembers: playlistMembers(new Set())
   });
+
+  /**
+   * プレイリストに入っている曲のID（実装と同じく、自動プレイリストは条件に合う曲、消した
+   * プレイリストは空。`visiting`は求めている途中の自動プレイリストで、循環していれば空で止める）
+   */
+  function playlistMembers(visiting: ReadonlySet<string>) {
+    return (playlistId: string): ReadonlySet<string> => {
+      const playlist = playlists.find((p) => p.id === playlistId);
+      if (!playlist) return new Set();
+      if (playlist.rules === null) return new Set(playlist.tracks.map((entry) => entry.trackId));
+      if (visiting.has(playlistId)) return new Set();
+      const context = {
+        ...smartContext(),
+        playlistMembers: playlistMembers(new Set([...visiting, playlistId]))
+      };
+      return new Set(findSmartPlaylistTracks(tracks, playlist.rules, context).map((t) => t.id));
+    };
+  }
 
   function validateSmartRules(rules: SmartRules): void {
     const error = smartRulesError(rules);
     if (error !== null) fail('VALIDATION', error);
+  }
+
+  /** 条件にしたプレイリストを検証する（Rustの`validate_playlist_references`に対応） */
+  function validatePlaylistReferences(playlistId: string | null, rules: SmartRules): void {
+    const referenced = (rules: SmartRules) =>
+      rules.rules.flatMap((rule) => (rule.kind === 'playlist' ? [rule.playlistId] : []));
+    const refersTo = (rules: SmartRules, target: string, visited: Set<string>): boolean =>
+      referenced(rules).some((id) => {
+        if (id === target) return true;
+        if (visited.has(id)) return false;
+        visited.add(id);
+        const next = playlists.find((p) => p.id === id)?.rules;
+        return next != null && refersTo(next, target, visited);
+      });
+
+    for (const id of referenced(rules)) {
+      if (id === playlistId) {
+        fail('VALIDATION', '自動プレイリストの条件に、そのプレイリスト自身は使えません');
+      }
+      const target = playlists.find((p) => p.id === id);
+      if (!target) fail('VALIDATION', '条件にしたプレイリストが見つかりません');
+      if (
+        playlistId !== null &&
+        target.rules !== null &&
+        refersTo(target.rules, playlistId, new Set())
+      ) {
+        fail(
+          'VALIDATION',
+          '条件にしたプレイリストが、このプレイリストを条件にしています（互いを条件にはできません）'
+        );
+      }
+    }
   }
 
   /** プレイリストの曲（プレイリストの中の並び順。自動プレイリストは、条件に合う曲） */
@@ -960,6 +1139,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     track.albumArtist = metadata.albumArtist ?? null;
     track.trackNumber = metadata.trackNumber ?? null;
     track.discNumber = metadata.discNumber ?? null;
+    track.compilation = metadata.compilation === true;
     track.sortTags = {
       title: metadata.titleSort ?? null,
       artist: metadata.artistSort ?? null,
@@ -967,8 +1147,17 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       albumArtist: metadata.albumArtistSort ?? null
     };
     track.updatedAt = now();
-    // データベースに保存しない項目（作曲者・歌詞など）は、ファイルのタグの代わりに持っておく
+    // データベースに保存しない項目（歌詞・総数など）は、ファイルのタグの代わりに持っておく
     fileOnlyTags.set(trackId, pickFileOnlyTags(metadata));
+    // 作曲者・グループ・コメント・BPMは、一覧の列にも出す（Rustの`update_track_metadata`。ADR-115）
+    track.details = {
+      ...track.details,
+      composer: metadata.composer || null,
+      grouping: metadata.grouping || null,
+      comment: metadata.comment?.trim() ? metadata.comment : null,
+      bpm: metadata.bpm ?? null
+    };
+    options.emit('tracksEdited', { trackIds: [trackId], albumArt: false });
     return keepMusicFolderOrganized([trackId]);
   }
 
@@ -1026,11 +1215,25 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     if (year != null) track.year = year;
     if (trackNumber != null) track.trackNumber = trackNumber;
     if (discNumber != null) track.discNumber = discNumber;
+    if (metadata.compilation != null) track.compilation = metadata.compilation;
     track.sortTags = {
       title: text(metadata.titleSort, track.sortTags.title),
       artist: text(metadata.artistSort, track.sortTags.artist),
       album: text(metadata.albumSort, track.sortTags.album),
       albumArtist: text(metadata.albumArtistSort, track.sortTags.albumArtist)
+    };
+    // 作曲者・グループ・コメント・BPMは、値のある項目だけを変える（空の値は、項目を空にする。ADR-115）
+    track.details = {
+      ...track.details,
+      composer: text(metadata.composer, track.details.composer),
+      grouping: text(metadata.grouping, track.details.grouping),
+      comment:
+        metadata.comment == null
+          ? track.details.comment
+          : metadata.comment.trim()
+            ? metadata.comment
+            : null,
+      bpm: metadata.bpm ?? track.details.bpm
     };
     if (JSON.stringify(track) !== before) track.updatedAt = timestamp;
 
@@ -1038,17 +1241,13 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     const fileOnly = Object.fromEntries(
       Object.entries(pickFileOnlyTags(metadata)).filter(([, value]) => value != null)
     );
-    const merged: Metadata = { ...fileOnlyTags.get(track.id), ...fileOnly };
-    // コンピレーションの印を外す指定は、項目ごと取り除く
-    if (merged.compilation === false) delete merged.compilation;
-    fileOnlyTags.set(track.id, merged);
+    fileOnlyTags.set(track.id, { ...fileOnlyTags.get(track.id), ...fileOnly });
   }
 
   /** ファイルのタグだけにある項目（データベースに保存しない項目）を取り出す */
   function pickFileOnlyTags(metadata: Metadata): Metadata {
-    const { composer, trackTotal, discTotal, grouping, bpm, compilation, comment, lyrics } =
-      metadata;
-    return { composer, trackTotal, discTotal, grouping, bpm, compilation, comment, lyrics };
+    const { composer, trackTotal, discTotal, grouping, bpm, comment, lyrics } = metadata;
+    return { composer, trackTotal, discTotal, grouping, bpm, comment, lyrics };
   }
 
   /** 曲のタグ（編集画面で扱うすべての項目）。モックでは、曲の情報と、編集で入れた値から作る */
@@ -1118,6 +1317,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       errors: [],
       organized: null
     };
+    const updatedIds: string[] = [];
     for (const trackId of trackIds) {
       const track = tracks.find((t) => t.id === trackId);
       if (!track || track.isMissing) {
@@ -1134,6 +1334,11 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       // 画像の分だけ、ファイルのサイズが変わる
       track.fileSize += embeddedArtSize(track) - sizeBefore;
       result.updatedCount++;
+      updatedIds.push(track.id);
+    }
+    // ほかのウィンドウ（メインウィンドウ）に、書き換えた曲の画像を読み直させる
+    if (updatedIds.length > 0) {
+      options.emit('tracksEdited', { trackIds: updatedIds, albumArt: true });
     }
     return result;
   }
@@ -1151,6 +1356,12 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     if (track.year !== null) tags.year = track.year;
     if (track.trackNumber !== null) tags.trackNumber = track.trackNumber;
     if (track.discNumber !== null) tags.discNumber = track.discNumber;
+    if (track.compilation) tags.compilation = true;
+    // 作曲者・グループ・コメント・BPMは、一覧の値と同じ（ADR-115）
+    tags.composer = track.details.composer;
+    tags.grouping = track.details.grouping;
+    tags.comment = track.details.comment;
+    tags.bpm = track.details.bpm;
     tags.titleSort = track.sortTags.title;
     tags.artistSort = track.sortTags.artist;
     tags.albumSort = track.sortTags.album;
@@ -1191,7 +1402,21 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
    */
   async function setMusicFolder(source: MusicFolderSource): Promise<MusicFolderChange | null> {
     pendingMusicFolder = null;
-    const selected = source === 'default' ? DEFAULT_MUSIC_FOLDER : folderResult;
+    let selected: string | null;
+    switch (source) {
+      case 'default':
+        selected = DEFAULT_MUSIC_FOLDER;
+        break;
+      case 'pick':
+        selected = folderResult;
+        break;
+      case 'picked':
+        if (pickedMusicFolder === null) {
+          fail('VALIDATION', '音楽フォルダにするフォルダが選ばれていません');
+        }
+        selected = pickedMusicFolder;
+        break;
+    }
     if (selected === null) return null;
     const path = normalizeFolderPath(selected);
     if (libraryFolders.some((folder) => folder.isMusicFolder && folder.path === path)) {
@@ -1224,6 +1449,11 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     const change = await changeMusicFolder(path, true);
     if (change.kind === 'set' && change.replaced && backup) {
       change.replaced.backupPath = `/Users/demo/Library/Application Support/com.ban367.muspice/backups/before-music-folder-${now().slice(0, 19).replace(/[-:]/g, '').replace('T', '-')}.muspicebackup`;
+    }
+    // 前のライブラリの曲をキューに残さない（保存してあるキューを空にし、メインウィンドウにクリアさせる）
+    if (change.kind === 'set' && change.replaced) {
+      clearSavedQueue();
+      options.emit('clearPlayQueue', null);
     }
     return change;
   }
@@ -1280,7 +1510,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     const order = (track: Track) =>
       [track.discNumber ?? -1, track.trackNumber ?? -1, track.filePath] as const;
     for (const track of tracks.filter((track) => !track.isMissing)) {
-      const key = JSON.stringify([track.album, track.albumArtist ?? track.artist]);
+      const key = JSON.stringify([track.album, groupArtist(track)]);
       const album = albums.get(key);
       if (!album) {
         albums.set(key, { first: track, addedAt: track.createdAt });
@@ -1395,7 +1625,19 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       updatedAt: timestamp,
       replayGain: { trackGain: null, trackPeak: null, albumGain: null, albumPeak: null },
       sortTags: { title: null, artist: null, album: null, albumArtist: null },
-      isMissing: false
+      details: {
+        composer: null,
+        grouping: null,
+        comment: null,
+        bpm: null,
+        bitDepth: null,
+        channels: null,
+        analyzedBpm: null,
+        analyzedKey: null
+      },
+      isMissing: false,
+      cue: null,
+      compilation: false
     };
   }
 
@@ -1859,7 +2101,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
 
   /** 音量の解析で、曲をまとめるアルバムのキー（Rustの`loudness_scan::album_key`。アルバムのない曲はnull） */
   const loudnessAlbumKey = (track: Track) =>
-    track.album ? `${track.album}\n${track.albumArtist ?? track.artist ?? ''}` : null;
+    track.album ? `${track.album}\n${groupArtist(track) ?? ''}` : null;
 
   /**
    * 音量を解析して、ゲインとピークを曲に記録する（Rustの`loudness_scan`の、まとまりごとの解析）
@@ -1945,6 +2187,100 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     return result;
   }
 
+  /** 曲の解析の状態（Rustの`music_analysis::status`） */
+  function musicAnalysisStatus(): MusicAnalysisStatus {
+    const present = tracks.filter((track) => !track.isMissing);
+    const results = present.map((track) => musicFeatures.get(track.id));
+    return {
+      available: true,
+      running: musicAnalysis.running,
+      total: present.length,
+      analyzed: results.filter((result) => result).length,
+      failed: results.filter((result) => result === null).length
+    };
+  }
+
+  /**
+   * 曲の解析を、バックグラウンドで進める（Rustの`music_analysis::analyze_pending`。実ファイルはないため、
+   * テンポとキーは曲の長さから決まる値にする）
+   *
+   * 解析の途中に外した曲は飛ばし、一覧を終えたら、解析の途中に読み込んだ曲を拾い直して続ける。
+   */
+  async function runMusicAnalysis(): Promise<void> {
+    const pendingTracks = () =>
+      tracks
+        .filter((track) => !track.isMissing && !musicFeatures.has(track.id))
+        .sort((a, b) => b.playCount - a.playCount);
+    try {
+      for (let pending = pendingTracks(); pending.length > 0; pending = pendingTracks()) {
+        for (const track of pending) {
+          if (musicAnalysis.cancelled) return;
+          await sleep(MUSIC_ANALYSIS_STEP_MS);
+          if (!tracks.includes(track) || track.isMissing) continue;
+          const duration = track.duration ?? 0;
+          musicFeatures.set(
+            track.id,
+            MUSIC_ANALYSIS_UNSUPPORTED_FORMATS.includes(track.format.toLowerCase())
+              ? null
+              : { bpm: 80 + (duration % 80), key: duration % 24 }
+          );
+          options.emit('musicAnalysisProgress', musicAnalysisStatus());
+        }
+      }
+    } finally {
+      musicAnalysis.running = false;
+      options.emit('musicAnalysisProgress', musicAnalysisStatus());
+    }
+  }
+
+  /**
+   * AIシャッフルで、今の曲の次に足す曲を選ぶ（Rustの`ai_shuffle::pick`を簡単にしたもの。選び方は
+   * 設定の`aiShuffleMode`。テンポとキーは、曲の解析の結果があれば使う）
+   */
+  function pickAiShuffleTrack(currentTrackId: string, excludedTrackIds: string[]): Track | null {
+    validateTrackId(currentTrackId);
+    excludedTrackIds.forEach(validateTrackId);
+    const current = tracks.find((track) => track.id === currentTrackId);
+    const choose = (excluded: Set<string>): Track | null => {
+      const pool = tracks
+        .filter(
+          (track) => !track.isMissing && track.id !== currentTrackId && !excluded.has(track.id)
+        )
+        .sort(() => Math.random() - 0.5);
+      if (pool.length === 0) return null;
+      const scoreOf = (track: Track): number => {
+        switch (settings.aiShuffleMode) {
+          case 'frequentlyPlayed':
+            return track.playCount;
+          case 'rarelyPlayed':
+            return -track.playCount;
+          case 'similar': {
+            if (!current) return 0;
+            const a = musicFeatures.get(current.id);
+            const b = musicFeatures.get(track.id);
+            let score = 0;
+            if (a && b && Math.abs(a.bpm - b.bpm) / a.bpm < 0.1) score += 2;
+            if (a && b && a.key === b.key) score += 1.5;
+            if (current.genre && current.genre === track.genre) score += 1.5;
+            if (current.artist && current.artist === track.artist) score += 1;
+            if (current.year && track.year && Math.abs(current.year - track.year) <= 5)
+              score += 0.5;
+            return score;
+          }
+        }
+      };
+      const ranked = pool
+        .map((track) => ({ track, score: scoreOf(track) }))
+        .filter(({ score }) => settings.aiShuffleMode === 'rarelyPlayed' || score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, AI_SHUFFLE_CANDIDATE_LIMIT)
+        .map(({ track }) => track);
+      const choices = ranked.length > 0 ? ranked : pool;
+      return choices[Math.floor(Math.random() * choices.length)];
+    };
+    return choose(new Set(excludedTrackIds)) ?? choose(new Set());
+  }
+
   /**
    * 選んだ曲（選んだ順）の、ファイルの整理の計画（Rustの`commands/organize.rs`の`build_plan`）
    *
@@ -2016,7 +2352,9 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
           path: `${folder.path}/${exclusion.path}`.slice(folderPrefix(path).length)
         }))
       ),
-      isMusicFolder: nested.some((folder) => folder.isMusicFolder)
+      isMusicFolder: nested.some((folder) => folder.isMusicFolder),
+      // モックでは、`/Volumes/NAS`の下をネットワーク上のボリュームとする（Rustは`mount`の出力で調べる）
+      isNetwork: isSameOrWithin(path, '/Volumes/NAS')
     };
     libraryFolders.push(registered);
     return registered;
@@ -2157,6 +2495,11 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       syncAll: device.syncAll,
       playlistIds: devicePlaylists(device).map((playlist) => playlist.id),
       removeUnselected: device.removeUnselected,
+      pathTemplate: device.pathTemplate,
+      copyExtras: device.copyExtras,
+      transcode: { ...device.transcode },
+      // 取り出せるのは、`/Volumes`の下のドライブにあり、接続されているデバイス（Rustはさらに、macOSだけ）
+      ejectable: device.connected && /^\/Volumes\/[^/]+/.test(device.path),
       connected: device.connected,
       freeBytes: device.connected ? device.totalBytes - usedBytes(device) : null,
       totalBytes: device.connected ? device.totalBytes : null,
@@ -2174,6 +2517,29 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     return tracks.filter((track) => ids.has(track.id));
   }
 
+  /**
+   * 転送する時にAACに変換する曲か（Rustの`transcode_for`。可逆の形式は、モックでは形式の名前で決める。ADR-118）
+   */
+  function transcodes(device: MockSyncDevice, track: Track): boolean {
+    const lossless = ['FLAC', 'WAV', 'AIFF', 'WV', 'WAVPACK', 'APE'].includes(
+      track.format.toUpperCase()
+    );
+    switch (device.transcode.mode) {
+      case 'off':
+        return false;
+      case 'lossless':
+        return lossless;
+      case 'aboveBitrate':
+        return lossless || (track.bitrate ?? 0) > device.transcode.bitrateKbps;
+    }
+  }
+
+  /** デバイス上のサイズ（変換する曲は、ビットレートと長さからの見積もり。Rustの`Transcode::estimated_size`） */
+  function deviceSizeOf(device: MockSyncDevice, track: Track): number {
+    if (!transcodes(device, track) || !track.duration) return track.fileSize;
+    return ((device.transcode.bitrateKbps * 1000) / 8) * track.duration + 256 * 1024;
+  }
+
   /** 同期でコピー・削除する曲を決める */
   function planSync(device: MockSyncDevice) {
     if (!device.connected) {
@@ -2188,31 +2554,62 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     const stale = [...device.copied.keys()].filter((id) => !selectedIds.has(id));
     const toDelete = device.removeUnselected ? stale : [];
 
-    const copyBytes = toCopy.reduce((sum, track) => sum + track.fileSize, 0);
+    const copyBytes = toCopy.reduce((sum, track) => sum + deviceSizeOf(device, track), 0);
     const deleteBytes = toDelete.reduce((sum, id) => sum + (device.copied.get(id) ?? 0), 0);
     const freeBytes = device.totalBytes - usedBytes(device);
     const requiredBytes = Math.max(copyBytes - deleteBytes, 0);
+    // 残すコピー済みの曲のうち、書式から求めた場所が記録と違う曲は、名前を変える
+    // （大文字と小文字だけの違いは同じとみなす。Rustの`is_same_or_numbered`）
+    const keptIds = [...device.copied.keys()].filter((id) => !toDelete.includes(id));
+    const toRename = keptIds.filter((id) => {
+      const track = tracks.find((t) => t.id === id);
+      const recorded = device.copiedPaths.get(id);
+      return (
+        track !== undefined &&
+        recorded !== undefined &&
+        devicePathOf(track, device.pathTemplate).toLowerCase() !== recorded.toLowerCase()
+      );
+    });
+    const keptCount = keptIds.length;
+    const renameCount = toRename.length;
     const summary: DeviceSyncPlan = {
       copyCount: toCopy.length,
       copyBytes,
       deleteCount: toDelete.length,
       deleteBytes,
-      renameCount: 0,
-      unchangedCount: device.copied.size - toDelete.length,
+      renameCount,
+      unchangedCount: keptCount - renameCount,
       playlistCount: devicePlaylists(device).length,
+      transcodeCount: toCopy.filter((track) => transcodes(device, track)).length,
       missingSourceCount: 0,
+      // 歌詞ファイル・フォルダの画像はモックにないため、ない（ADR-112）
+      extraCopyCount: 0,
+      extraCopyBytes: 0,
+      extraDeleteCount: 0,
       freeBytes,
       requiredBytes,
-      hasEnoughSpace: requiredBytes === 0 || requiredBytes + SYNC_SPACE_MARGIN_BYTES <= freeBytes
+      hasEnoughSpace: requiredBytes === 0 || requiredBytes + SYNC_SPACE_MARGIN_BYTES <= freeBytes,
+      // 確認の画面の一覧（デバイス上の場所。Rustは先頭の`PLAN_ITEMS_LIMIT`件まで）
+      copyPaths: toCopy.map((track) =>
+        devicePathOf(track, device.pathTemplate, transcodes(device, track))
+      ),
+      deletePaths: toDelete.map((id) => device.copiedPaths.get(id) ?? id),
+      renames: toRename.map((id) => {
+        const track = tracks.find((t) => t.id === id);
+        return {
+          from: device.copiedPaths.get(id) ?? id,
+          to: track ? devicePathOf(track, device.pathTemplate) : id
+        };
+      })
     };
-    return { toCopy, toDelete, summary };
+    return { toCopy, toDelete, toRename, summary };
   }
 
   /** デバイスへ同期する（1曲ずつ進捗を送り、中止の要求があれば次の曲の前で止める） */
   async function runDeviceSync(deviceId: string): Promise<DeviceSyncResult> {
     const device = findSyncDevice(deviceId);
     if (isSyncRunning) fail('LOCK', '他のデバイスへの同期が実行中です');
-    const { toCopy, toDelete, summary } = planSync(device);
+    const { toCopy, toDelete, toRename, summary } = planSync(device);
     if (!device.syncAll && devicePlaylists(device).length === 0) {
       fail('VALIDATION', '同期する対象（全曲またはプレイリスト）を選択してください');
     }
@@ -2221,37 +2618,51 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     isSyncRunning = true;
     isSyncCancelled = false;
     try {
-      for (const id of toDelete) device.copied.delete(id);
+      for (const id of toDelete) {
+        device.copied.delete(id);
+        device.copiedPaths.delete(id);
+      }
+      // 名前の変更（実装の順は、削除 → 名前の変更 → コピー）
+      for (const id of toRename) {
+        const track = tracks.find((t) => t.id === id);
+        if (track) device.copiedPaths.set(id, devicePathOf(track, device.pathTemplate));
+      }
 
       let copiedCount = 0;
       let bytesDone = 0;
-      const progress = (current: number, currentFile: string) =>
+      const progress = (current: number, currentFile: string, converting: boolean) =>
         options.emit('deviceSyncProgress', {
           deviceId,
           current,
           total: toCopy.length,
           bytesDone,
           bytesTotal: summary.copyBytes,
-          currentFile
+          currentFile,
+          converting
         });
       for (const [index, track] of toCopy.entries()) {
         if (isSyncCancelled) break;
-        progress(index, track.fileName);
+        const converting = transcodes(device, track);
+        progress(index, track.fileName, converting);
         await sleep(SYNC_STEP_MS);
-        device.copied.set(track.id, track.fileSize);
-        bytesDone += track.fileSize;
+        const size = deviceSizeOf(device, track);
+        device.copied.set(track.id, size);
+        device.copiedPaths.set(track.id, devicePathOf(track, device.pathTemplate, converting));
+        bytesDone += size;
         copiedCount++;
       }
 
       const cancelled = isSyncCancelled;
       if (!cancelled) {
-        progress(toCopy.length, '');
+        progress(toCopy.length, '', false);
         device.lastSyncedAt = now();
       }
       return {
         copiedCount,
         deletedCount: toDelete.length,
-        renamedCount: 0,
+        renamedCount: summary.renameCount,
+        extraCopiedCount: 0,
+        extraDeletedCount: 0,
         playlistCount: cancelled ? 0 : summary.playlistCount,
         errorCount: 0,
         errors: [],
@@ -2300,7 +2711,14 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       if (terms.length === 0) return [];
       return tracksWhere((track) =>
         matchesSearchTerms(
-          [track.title, track.artist, track.album, track.genre, track.albumArtist],
+          [
+            track.title,
+            track.artist,
+            track.album,
+            track.genre,
+            track.albumArtist,
+            track.details.composer
+          ],
           terms
         )
       );
@@ -2383,6 +2801,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       });
       const timestamp = now();
       for (const track of targets) applyPartialMetadata(track, metadata, timestamp);
+      options.emit('tracksEdited', { trackIds, albumArt: false });
       // モックではファイルへの書き込みに失敗しない
       return {
         updatedCount: targets.length,
@@ -2451,6 +2870,26 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       if (loudnessScan.running) loudnessScan.cancelled = true;
       return null;
     },
+    getMusicAnalysisStatus: () => musicAnalysisStatus(),
+    startMusicAnalysis: () => {
+      if (musicAnalysis.running) return null;
+      Object.assign(musicAnalysis, { running: true, cancelled: false });
+      options.emit('musicAnalysisProgress', musicAnalysisStatus());
+      void runMusicAnalysis();
+      return null;
+    },
+    stopMusicAnalysis: () => {
+      if (musicAnalysis.running) musicAnalysis.cancelled = true;
+      return null;
+    },
+    deleteMusicAnalysis: () => {
+      if (musicAnalysis.running) {
+        fail('LOCK', '曲の解析を実行中です。止めてから削除してください');
+      }
+      musicFeatures.clear();
+      return musicAnalysisStatus();
+    },
+    pickAiShuffleTrack,
     planFileOrganize: (trackIds, template, organizeDestination) => {
       const plan = organizePlan(trackIds, template, organizeDestination);
       return {
@@ -2522,16 +2961,77 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       if (!track) fail('NOT_FOUND', `トラックが見つかりません: ${trackId}`);
       return albumArtOf(track).info;
     },
-    setAlbumArt: (trackIds) => {
-      // 画像を選ぶダイアログ（Rust側が開く）の代わりに、決まった画像を選んだことにする
-      validateAlbumArtTargets(trackIds);
+    pickAlbumArt: () => {
+      // 画像を選ぶダイアログ（Rust側が開く）の代わりに、決まった画像を選んだことにする（書き込まずに預かる）
       if (albumArtPickMode === 'cancel') return null;
       if (albumArtPickMode === 'tooLarge') fail('VALIDATION', '画像が大きすぎます（10MBまで）');
       const picture = ++pickedArtCount;
+      pendingArt = { token: `mock-album-art-${picture}`, picture };
+      return {
+        token: pendingArt.token,
+        dataUrl: createAlbumArt(`picked-${picture}`),
+        mimeType: 'image/png',
+        size: 512_000 + picture * 1_000,
+        width: 1200,
+        height: 1200
+      };
+    },
+    setAlbumArt: (trackIds, token) => {
+      validateAlbumArtTargets(trackIds);
+      const held = pendingArt;
+      if (!held || held.token !== token) {
+        fail('VALIDATION', '画像が見つかりません。もう一度選んでください');
+      }
       return writeAlbumArt(trackIds, (track) => {
-        embeddedArt.set(track.id, picture);
+        embeddedArt.set(track.id, held.picture);
         return true;
       });
+    },
+    openTrackEditor: (trackIds, sequence) => {
+      if (trackIds.length === 0) fail('VALIDATION', 'トラックIDが指定されていません');
+      trackIds.forEach(validateTrackId);
+      sequence.forEach(validateTrackId);
+      // CUEシートの曲は、編集できない（Rustの`ensure_no_cue_tracks`。ADR-123）
+      if (tracks.some((track) => trackIds.includes(track.id) && track.cue !== null)) {
+        fail(
+          'VALIDATION',
+          'CUEシートの曲は、ファイルを書き換える操作（タグ・アルバムアートの編集、ファイルの整理、形式の変換、音量の解析）に対応していません'
+        );
+      }
+      // 並びは、1曲の編集で、その曲を含む時だけ預かる（Rustの`TrackEditorState::set`）
+      const kept = trackIds.length === 1 && sequence.includes(trackIds[0]) ? sequence : [];
+      saveEditorTracks(trackIds, kept);
+      pendingArt = null;
+      // ブラウザでは、開いたページを閉じたことが分からないため、開いた知らせ（`trackEditorChanged`。
+      // メインウィンドウの覆い）は送らない（覆いは`__MUSPICE_MOCK__.emit`で確かめる）
+      options.openWindow?.('/track-editor');
+      return null;
+    },
+    getTrackEditorTracks: () =>
+      loadEditorTracks().trackIds.flatMap((id) => tracks.filter((track) => track.id === id)),
+    getTrackEditorPosition: () => {
+      const { trackIds, sequence } = loadEditorTracks();
+      const index = trackIds.length === 1 ? sequence.indexOf(trackIds[0]) : -1;
+      return index < 0 ? null : { index, count: sequence.length };
+    },
+    // 並びの前後の曲へ移る（ライブラリから外された曲は飛ばす。Rustの`TrackEditorState::step`）
+    moveTrackEditor: (offset) => {
+      const { trackIds, sequence } = loadEditorTracks();
+      let index = trackIds.length === 1 ? sequence.indexOf(trackIds[0]) : -1;
+      if (index < 0 || offset === 0) return false;
+      const step = offset > 0 ? 1 : -1;
+      let remaining = Math.abs(offset);
+      while (remaining > 0) {
+        index += step;
+        if (index < 0 || index >= sequence.length) return false;
+        // ライブラリから外された曲と、CUEシートの曲（編集できない）は飛ばす
+        if (tracks.some((track) => track.id === sequence[index] && track.cue === null)) {
+          remaining--;
+        }
+      }
+      saveEditorTracks([sequence[index]], sequence);
+      pendingArt = null;
+      return true;
     },
     removeAlbumArt: (trackIds) => {
       validateAlbumArtTargets(trackIds);
@@ -2552,6 +3052,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       const trimmed = name.trim();
       validatePlaylistName(trimmed);
       validateSmartRules(rules);
+      validatePlaylistReferences(null, rules);
       return newPlaylist(trimmed, rules);
     },
     // 実装と同じく、同じ曲は最初の1回だけを入れ、見つからない曲があれば作らない
@@ -2643,13 +3144,14 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       if (playlist.rules === null) {
         fail('VALIDATION', '通常のプレイリストには、条件を設定できません');
       }
+      validatePlaylistReferences(playlistId, rules);
       playlist.rules = rules;
       playlist.updatedAt = now();
       return null;
     },
     countSmartPlaylistTracks: (rules) => {
       validateSmartRules(rules);
-      return countSmartPlaylistTracks(tracks, rules, Date.now(), musicFolderPath());
+      return countSmartPlaylistTracks(tracks, rules, smartContext());
     },
     reshuffleSmartPlaylists: () => {
       shuffleSeed++;
@@ -2795,6 +3297,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       playbackState = {
         volume: volume !== null && Number.isFinite(volume) ? Math.max(0, Math.min(volume, 1)) : 1,
         shuffle: cursor.shuffle,
+        aiShuffle: cursor.aiShuffle,
         repeat: cursor.repeat,
         // キューの外を指す位置は「何も再生していない」にする
         currentIndex:
@@ -2834,6 +3337,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       return {
         volume: playbackState.volume,
         shuffle: playbackState.shuffle,
+        aiShuffle: playbackState.aiShuffle ?? false,
         repeat: playbackState.repeat,
         queue,
         originalTrackIds: playbackState.originalTrackIds?.filter((id) => playable.has(id)) ?? null,
@@ -2881,6 +3385,9 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       playbackEngine.setSpeed(speed);
       return null;
     },
+    // 音量の正規化は鳴らさないため、何もしない
+    playbackSetShuffle: () => null,
+    // ゲインとプリアンプは、範囲の外の値も受け取る（Rust側が範囲に収める）
     playbackSetEqualizer: (_enabled, gains) => {
       if (gains.length !== EQ_BAND_COUNT) {
         fail('VALIDATION', `イコライザのゲインは${EQ_BAND_COUNT}個で指定してください`);
@@ -2910,44 +3417,60 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       return null;
     },
     getSettings: () => settings,
-    // 実装と同じく、保存した設定がオンの間だけ登録されている。モックでは「次の曲」だけ、
-    // ほかのアプリが使っていて登録できなかったことにする（設定画面の表示の確認用）
-    getGlobalShortcuts: () => {
-      const modifiers = ['Control', 'Option'];
-      return (
-        [
-          ['toggle', 'P', true],
-          ['next', '.', false],
-          ['previous', ',', true]
-        ] as const
-      ).map(([action, key, available]) => ({
-        action,
-        keys: [...modifiers, key],
-        registered: settings.globalShortcuts && available
-      }));
-    },
+    // 実装と同じく、保存した設定がオンの間だけ登録されている。モックでは`control+alt+Period`
+    // （既定の「次の曲」）だけ、ほかのアプリが使っていて登録できなかったことにする（設定画面の表示の確認用）
+    getGlobalShortcuts: () =>
+      GLOBAL_SHORTCUT_ACTIONS.map((action) => {
+        const shortcut =
+          settings.globalShortcutKeys.find((key) => key.action === action)?.shortcut ?? null;
+        return {
+          action,
+          keys: shortcut === null ? [] : shortcutKeyNames(shortcut),
+          shortcut,
+          registered:
+            settings.globalShortcuts && shortcut !== null && shortcut !== 'control+alt+Period'
+        };
+      }),
     // ウィンドウの大きさは変えられないため、切り替えたことだけを覚える
     setMiniPlayer: (enabled, alwaysOnTop) => {
       miniPlayerWindow = { enabled, alwaysOnTop: enabled && alwaysOnTop };
       return null;
     },
     saveSettings: (next) => {
+      // ホットキーの割り当て（Rustの`global_shortcuts::validate_keys`）
+      const shortcuts = next.globalShortcutKeys.map((key) => key.shortcut);
+      const actions = next.globalShortcutKeys.map((key) => key.action);
+      if (
+        next.globalShortcutKeys.some(
+          (key) =>
+            shortcutKeyNames(key.shortcut).length === 0 ||
+            !/(control|alt|super)\+/.test(key.shortcut)
+        ) ||
+        new Set(shortcuts).size !== shortcuts.length ||
+        new Set(actions).size !== actions.length
+      ) {
+        fail('VALIDATION', 'ホットキーの割り当てが正しくありません');
+      }
       if (!/^#[0-9a-fA-F]{6}$/.test(next.accentColor)) {
         fail('VALIDATION', 'アクセントカラーは#rrggbb形式で指定してください');
       }
       if (
         !Number.isInteger(next.crossfadeSeconds) ||
-        next.crossfadeSeconds < 0 ||
+        next.crossfadeSeconds < MIN_CROSSFADE_SECONDS ||
         next.crossfadeSeconds > MAX_CROSSFADE_SECONDS
       ) {
-        fail('VALIDATION', `クロスフェードは0〜${MAX_CROSSFADE_SECONDS}秒で指定してください`);
+        fail(
+          'VALIDATION',
+          `クロスフェードは${MIN_CROSSFADE_SECONDS}〜${MAX_CROSSFADE_SECONDS}秒で指定してください`
+        );
       }
       if (next.outputDeviceId !== null && next.outputDeviceId.length === 0) {
         fail('VALIDATION', '出力デバイスの指定が正しくありません');
       }
       if (
-        !Number.isInteger(next.normalizationPreampDb) ||
-        Math.abs(next.normalizationPreampDb) > MAX_NORMALIZATION_PREAMP_DB
+        [next.normalizationPreampDb, next.normalizationUntaggedPreampDb].some(
+          (db) => !Number.isInteger(db) || Math.abs(db) > MAX_NORMALIZATION_PREAMP_DB
+        )
       ) {
         fail(
           'VALIDATION',
@@ -3073,6 +3596,42 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       if (removed > 0) options.emit('libraryChanged', null);
       return removed;
     },
+    // 実装はRust側のダイアログでファイルを選ぶ。モックは`setFolderResult`のフォルダにある、同じ名前の
+    // ファイルを選んだことにする（nullなら選ばずに閉じた）
+    locateTrackFile: (trackId) => {
+      validateTrackId(trackId);
+      const track = tracks.find((t) => t.id === trackId);
+      if (!track) fail('NOT_FOUND', '指定されたトラックが見つかりません');
+      if (!track.isMissing) fail('VALIDATION', 'この曲のファイルは見つかっています');
+      if (track.cue !== null) {
+        fail(
+          'VALIDATION',
+          'CUEシートの曲は、ファイルの場所を指定できません。「フォルダから探す」か、CUEシートのあるフォルダの再スキャンで結び付け直してください'
+        );
+      }
+      if (folderResult === null) return null;
+      const filePath = `${normalizeFolderPath(folderResult)}/${track.fileName}`;
+      if (tracks.some((t) => t.id !== trackId && t.filePath === filePath)) {
+        fail('VALIDATION', '選んだファイルは、ほかの曲としてライブラリにあります');
+      }
+      track.filePath = filePath;
+      track.isMissing = false;
+      options.emit('libraryChanged', null);
+      return track;
+    },
+    // 実装は、選んだフォルダの中から同じ曲のファイルを探す。モックは`setFolderResult`のフォルダに、
+    // 見つからない曲がすべて（同じ名前で）あることにする
+    findMissingTracksInFolder: () => {
+      if (folderResult === null) return null;
+      const folder = normalizeFolderPath(folderResult);
+      const missing = tracks.filter((track) => track.isMissing);
+      for (const track of missing) {
+        track.filePath = `${folder}/${track.fileName}`;
+        track.isMissing = false;
+      }
+      if (missing.length > 0) options.emit('libraryChanged', null);
+      return { relinkedCount: missing.length, remainingCount: 0 };
+    },
     // 音楽フォルダのライブラリフォルダを削除すると、音楽フォルダは未設定に戻る
     removeLibraryFolder: (folderId, removeTracksToo) => {
       const folder = findLibraryFolder(folderId);
@@ -3170,15 +3729,20 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       };
     },
     // 実装はRust側のダイアログで選ぶ。モックは`setFolderResult`のフォルダを選んだことにする
-    setMusicFolder: (source) => setMusicFolder(source),
+    pickMusicFolder: () => {
+      if (folderResult === null) return null;
+      pickedMusicFolder = normalizeFolderPath(folderResult);
+      return pickedMusicFolder;
+    },
+    setMusicFolder: async (source) => {
+      const change = await setMusicFolder(source);
+      // 音楽フォルダにしたら、選んだフォルダを手放す（置き換えの確認では、もう一度「適用」できるよう残す）
+      if (change?.kind === 'set') pickedMusicFolder = null;
+      return change;
+    },
     confirmMusicFolderChange: (backup) => confirmMusicFolderChange(backup),
     cancelMusicFolderChange: () => {
       pendingMusicFolder = null;
-      return null;
-    },
-    clearMusicFolder: () => {
-      for (const folder of libraryFolders) folder.isMusicFolder = false;
-      options.emit('libraryChanged', null);
       return null;
     },
     previewMusicFolderTemplate: (template) => previewMusicFolderTemplate(template),
@@ -3242,6 +3806,16 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       errors: []
     }),
     // モックの値はすべて「ファイルと同じ」として扱う（書き込みは行わない）
+    // 実装はRust側の保存のダイアログで場所を選ぶ。モックは`setFolderResult`のフォルダに書いたことにする
+    // （nullなら選ばずに閉じた）
+    exportLibrary: (format) => {
+      if (folderResult === null) return null;
+      return {
+        path: `${normalizeFolderPath(folderResult)}/Muspice Library.${format}`,
+        trackCount: tracks.length,
+        playlistCount: format === 'xml' ? playlists.length : 0
+      };
+    },
     importLibraryXml: (includePlaylists) => {
       // ファイルを選ぶダイアログ（Rust側が開く）の代わりに、決まった内容のXMLを選んだことにする:
       // 先頭の8曲に、今より多い再生回数・古い追加日が書かれている（2回目からは変わらない）
@@ -3311,12 +3885,16 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         syncAll: false,
         playlistIds: [],
         removeUnselected: true,
+        pathTemplate: DEFAULT_DEVICE_TEMPLATE,
+        copyExtras: true,
+        transcode: { mode: 'off', bitrateKbps: 256 },
         connected: true,
         createdAt: now(),
         lastSyncedAt: null,
         totalBytes: 64 * GIB,
         otherUsedBytes: 0,
-        copied: new Map()
+        copied: new Map(),
+        copiedPaths: new Map()
       };
       syncDevices.push(device);
       return toSyncDevice(device);
@@ -3324,12 +3902,44 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     updateSyncDevice: (deviceId, config) => {
       const device = findSyncDevice(deviceId);
       config.playlistIds.forEach(validatePlaylistId);
-      device.name = validateDeviceName(config.name);
+      // 配置の書式は、読めることを確かめてから保存する（実装と同じく、前後の空白は除く）
+      const pathTemplate = config.pathTemplate.trim();
+      parseOrganizeTemplate(pathTemplate);
+      const name = validateDeviceName(config.name);
+      device.name = name;
+      device.pathTemplate = pathTemplate;
+      device.copyExtras = config.copyExtras;
+      // 変換のビットレートは選べる値のどれか（Rustの`validate_transcode`）
+      if (!AAC_BITRATES_KBPS.some((bitrate) => bitrate === config.transcode.bitrateKbps)) {
+        fail('VALIDATION', '変換のビットレートは、128・192・256・320 kbpsのどれかにしてください');
+      }
+      device.transcode = { ...config.transcode };
       device.syncAll = config.syncAll;
       // 実装と同じく、見つからないプレイリストは無視する
       device.playlistIds = config.playlistIds.filter((id) => playlists.some((p) => p.id === id));
       device.removeUnselected = config.removeUnselected;
       return toSyncDevice(device);
+    },
+    // 同期する内容の曲数と、ライブラリでのサイズ（Rustと同じく、デバイスには触れない）
+    getSyncSelectionSummary: (deviceId) => {
+      const selected = tracksToSync(findSyncDevice(deviceId));
+      return {
+        trackCount: selected.length,
+        totalBytes: selected.reduce((sum, track) => sum + track.fileSize, 0)
+      };
+    },
+    // ドライブを取り出した（接続されていない状態にする）
+    ejectSyncDevice: (deviceId) => {
+      const device = findSyncDevice(deviceId);
+      if (isSyncRunning) fail('LOCK', '同期の実行中は、デバイスを取り出せません');
+      if (!/^\/Volumes\/[^/]+/.test(device.path)) {
+        fail('VALIDATION', 'このデバイスは、取り出せる場所にありません');
+      }
+      if (!device.connected) {
+        fail('NOT_FOUND', 'デバイスが見つかりません（すでに取り出されている可能性があります）');
+      }
+      device.connected = false;
+      return null;
     },
     // 選んだフォルダにデバイスがあることにして、接続された状態にする
     relinkSyncDevice: (deviceId) => {
@@ -3412,6 +4022,39 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         };
         options.emit('tracksOpened', null);
       })();
+    },
+    addCueAlbum: () => {
+      const folder = `${SYSTEM_MUSIC_FOLDER}/Live Archive`;
+      const source = `${folder}/Live at the Hall.flac`;
+      const titles = ['Opening', 'Second Set', 'Encore'];
+      const starts = [0, 75 * 420, 75 * 900];
+      titles.forEach((title, index) => {
+        tracks.push({
+          ...structuredClone(tracks[0]),
+          id: crypto.randomUUID(),
+          filePath: `${folder}/Live at the Hall.cue#${String(index + 1).padStart(2, '0')}`,
+          fileName: `Live at the Hall.cue#${String(index + 1).padStart(2, '0')}`,
+          title,
+          artist: 'The Hall Band',
+          album: 'Live at the Hall',
+          albumArtist: 'The Hall Band',
+          trackNumber: index + 1,
+          discNumber: 1,
+          duration: index < 2 ? (starts[index + 1] - starts[index]) / 75 : 300,
+          fileSize: 180_000_000,
+          format: 'FLAC',
+          isFavorite: false,
+          rating: 0,
+          playCount: 0,
+          skipCount: 0,
+          lastPlayedAt: null,
+          createdAt: now(),
+          updatedAt: now(),
+          isMissing: false,
+          cue: { source, start: starts[index], end: starts[index + 1] ?? null }
+        });
+      });
+      options.emit('libraryChanged', null);
     },
     addDuplicateTracks: () => {
       const find = (title: string) => tracks.find((track) => track.title === title);

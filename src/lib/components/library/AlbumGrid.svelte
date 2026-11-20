@@ -2,6 +2,7 @@
   @component AlbumGrid
   アルバム一覧のグリッド/リスト表示コンポーネント。
   LibraryGridを使用して共通ロジックを委譲し、アルバム固有の表示をSnippetで実装。
+  グリッド表示で選んだアルバムの曲は、グリッドの下の領域に出す（`AlbumDetail`。ADR-097）。
 -->
 <script lang="ts">
   import { useQueryClient } from '@tanstack/svelte-query';
@@ -16,6 +17,7 @@
   import LibraryGrid from './LibraryGrid.svelte';
   import MarqueeText from '../MarqueeText.svelte';
   import AlbumArt from '../AlbumArt.svelte';
+  import AlbumDetail from './AlbumDetail.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   // Props
@@ -70,6 +72,10 @@
   groupType="album"
   onOpen={playAlbum}
 >
+  {#snippet detail(album, close)}
+    <AlbumDetail {album} onClose={close} />
+  {/snippet}
+
   {#snippet emptyIcon()}
     <svg
       xmlns="http://www.w3.org/2000/svg"

@@ -7,15 +7,20 @@
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
   import {
+    useEjectSyncDeviceMutation,
     useRelinkSyncDeviceMutation,
     useRemoveSyncDeviceMutation,
     useSyncDevicesQuery,
+    useSyncSelectionSummaryQuery,
     useUpdateSyncDeviceMutation
   } from '#lib/queries/devices.js';
   import { usePlaylistsQuery } from '#lib/queries/playlists.js';
+  import { useConvertFormatsQuery } from '#lib/queries/convert.js';
   import { showSuccess } from '#lib/stores/error.svelte.js';
-  import type { SyncDevice, SyncDeviceConfig } from '#lib/types/models.js';
+  import type { SyncDevice, SyncDeviceConfig, TranscodeMode } from '#lib/types/models.js';
   import DeviceSyncDialog from '#lib/components/DeviceSyncDialog.svelte';
+  import MusicFolderTemplateSetting from '#lib/components/MusicFolderTemplateSetting.svelte';
+  import { AAC_BITRATES_KBPS, DEFAULT_DEVICE_TEMPLATE } from '#lib/bindings.js';
   import { isDeviceNameTooLong } from '#lib/utils/devices.js';
   import { confirmDestructive, promptText } from '#lib/utils/dialog.svelte.js';
   import { formatDateTime, formatFileSize } from '#lib/utils/format.js';
@@ -30,8 +35,15 @@
   const updateMutation = useUpdateSyncDeviceMutation();
   const relinkMutation = useRelinkSyncDeviceMutation();
   const removeMutation = useRemoveSyncDeviceMutation();
+  const ejectMutation = useEjectSyncDeviceMutation();
+  // 同期する内容の曲数とサイズ（ライブラリの記録から求める見通し。ADR-113）
+  const selectionQuery = useSyncSelectionSummaryQuery(() => deviceId ?? '');
 
   const device = $derived(devicesQuery.data?.find((d: SyncDevice) => d.id === deviceId) ?? null);
+  // 転送する時の変換は、変換できる環境（macOS）でだけ出す（ADR-118）
+  const convertFormatsQuery = useConvertFormatsQuery();
+  const canTranscode = $derived((convertFormatsQuery.data?.length ?? 0) > 0);
+  const transcodeModes: TranscodeMode[] = ['off', 'lossless', 'aboveBitrate'];
   const playlists = $derived(playlistsQuery.data ?? []);
   const hasSource = $derived(device !== null && (device.syncAll || device.playlistIds.length > 0));
 
@@ -46,9 +58,43 @@
         syncAll: current.syncAll,
         playlistIds: current.playlistIds,
         removeUnselected: current.removeUnselected,
+        pathTemplate: current.pathTemplate,
+        copyExtras: current.copyExtras,
+        transcode: current.transcode,
         ...patch
       }
     });
+  }
+
+  // 配置の書式（入力中の値。「書式を適用」で保存する。別のデバイスを開いたら、そのデバイスの書式に戻す）
+  let draftTemplate = $state('');
+  let draftDeviceId: string | null = null;
+  $effect(() => {
+    if (device && device.id !== draftDeviceId) {
+      draftDeviceId = device.id;
+      draftTemplate = device.pathTemplate;
+    }
+  });
+  const isTemplateChanged = $derived(
+    device !== null && draftTemplate.trim() !== device.pathTemplate
+  );
+
+  function applyTemplate(current: SyncDevice) {
+    updateMutation.mutate(
+      {
+        deviceId: current.id,
+        config: {
+          name: current.name,
+          syncAll: current.syncAll,
+          playlistIds: current.playlistIds,
+          removeUnselected: current.removeUnselected,
+          pathTemplate: draftTemplate.trim(),
+          copyExtras: current.copyExtras,
+          transcode: current.transcode
+        }
+      },
+      { onSuccess: () => showSuccess(m.devices.layoutApplied) }
+    );
   }
 
   function togglePlaylist(current: SyncDevice, playlistId: string, selected: boolean) {
@@ -77,6 +123,15 @@
       if (relinked) showSuccess(m.devices.relinked);
     } catch {
       // 失敗はミューテーション内でトースト通知済み
+    }
+  }
+
+  async function handleEject(current: SyncDevice) {
+    try {
+      await ejectMutation.mutateAsync(current.id);
+      showSuccess(m.devices.ejected(current.name));
+    } catch {
+      // トーストで知らせ済み
     }
   }
 
@@ -179,6 +234,16 @@
         >
           {m.devices.relink}
         </button>
+        {#if device.ejectable}
+          <button
+            type="button"
+            class="btn-secondary text-sm"
+            onclick={() => handleEject(device)}
+            disabled={ejectMutation.isPending}
+          >
+            {m.devices.eject}
+          </button>
+        {/if}
         <button
           type="button"
           class="btn-secondary text-sm"
@@ -196,7 +261,22 @@
 
     <section class="source-section">
       <h2 class="source-title">{m.devices.sourceTitle}</h2>
-      <p class="hint source-hint">{m.devices.layoutHint}</p>
+      <!-- 選んだ内容の曲数とサイズ（コピー済みの曲・歌詞と画像を含めない、ライブラリでの合計） -->
+      <p class="hint source-hint">
+        {#if selectionQuery.data && hasSource}
+          {m.devices.selectionSummary(
+            selectionQuery.data.trackCount,
+            formatFileSize(selectionQuery.data.totalBytes)
+          )}
+          {#if device.totalBytes !== null && selectionQuery.data.totalBytes > device.totalBytes}
+            <span class="text-warning">
+              · {m.devices.selectionTooLarge(formatFileSize(device.totalBytes))}
+            </span>
+          {/if}
+        {:else}
+          &nbsp;
+        {/if}
+      </p>
 
       <label class="option">
         <input
@@ -247,6 +327,74 @@
         {m.devices.removeUnselected}
       </label>
       <p class="hint option-hint">{m.devices.removeUnselectedHint}</p>
+
+      <label class="option remove-option">
+        <input
+          type="checkbox"
+          class="option-checkbox"
+          checked={device.copyExtras}
+          onchange={(e) => updateConfig(device, { copyExtras: e.currentTarget.checked })}
+        />
+        {m.devices.copyExtras}
+      </label>
+      <p class="hint option-hint">{m.devices.copyExtrasHint}</p>
+
+      <!-- 転送する時の変換（変換できる環境だけ。ADR-118） -->
+      {#if canTranscode}
+        <div class="option transcode-option">
+          <label for="device-transcode">{m.devices.transcode}</label>
+          <select
+            id="device-transcode"
+            class="form-input transcode-select"
+            value={device.transcode.mode}
+            onchange={(e) =>
+              updateConfig(device, {
+                transcode: {
+                  ...device.transcode,
+                  mode: e.currentTarget.value as TranscodeMode
+                }
+              })}
+          >
+            {#each transcodeModes as mode (mode)}
+              <option value={mode}>{m.devices.transcodeModes[mode]}</option>
+            {/each}
+          </select>
+          {#if device.transcode.mode !== 'off'}
+            <select
+              class="form-input transcode-select"
+              aria-label={m.devices.transcodeBitrate}
+              value={String(device.transcode.bitrateKbps)}
+              onchange={(e) =>
+                updateConfig(device, {
+                  transcode: { ...device.transcode, bitrateKbps: Number(e.currentTarget.value) }
+                })}
+            >
+              {#each AAC_BITRATES_KBPS as bitrate (bitrate)}
+                <option value={String(bitrate)}>{bitrate} kbps</option>
+              {/each}
+            </select>
+          {/if}
+        </div>
+        <p class="hint mt-1">{m.devices.transcodeHint}</p>
+      {/if}
+
+      <!-- デバイス上の配置の書式（例は、最近追加したアルバムの曲を、デバイスのフォルダからの場所で出す。ADR-111） -->
+      <h3 class="group-title layout-title">{m.devices.layoutTitle}</h3>
+      <MusicFolderTemplateSetting
+        bind:template={draftTemplate}
+        id="device-template"
+        label={m.devices.layoutTemplate}
+        hint={m.devices.layoutTemplateHint}
+        defaultTemplate={DEFAULT_DEVICE_TEMPLATE}
+      />
+      <button
+        type="button"
+        class="btn-primary text-sm"
+        onclick={() => applyTemplate(device)}
+        disabled={!isTemplateChanged || updateMutation.isPending}
+      >
+        {m.devices.applyLayout}
+      </button>
     </section>
 
     <DeviceSyncDialog open={isSyncDialogOpen} {device} onClose={() => (isSyncDialogOpen = false)} />
@@ -371,6 +519,10 @@
     @apply mt-6;
   }
 
+  .layout-title {
+    @apply mt-8 mb-3;
+  }
+
   .option {
     @apply flex items-center gap-2 text-sm font-medium text-text-primary cursor-pointer;
   }
@@ -381,6 +533,15 @@
 
   .option-hint {
     @apply mt-1 ml-6;
+  }
+
+  /* 転送する時の変換（項目名と、条件・ビットレートを選ぶ欄を並べる） */
+  .transcode-option {
+    @apply mt-6 flex-wrap cursor-default;
+  }
+
+  .transcode-select {
+    @apply w-auto;
   }
 
   .playlist-list {

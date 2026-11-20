@@ -1,6 +1,7 @@
 <!--
   @component MusicFolderTemplateSetting
   設定の「ライブラリ」の、音楽フォルダの書式（音楽フォルダに曲を置く時の、フォルダとファイルの名前の付け方）。
+  デバイスのページの、デバイス上の配置の書式にも使う（名前・説明・既定の書式を渡す。ADR-111）。
 
   書式は設定（`Settings.musicFolderTemplate`）の1項目で、設定の「適用」で保存する。書式の候補は、
   ファイルの整理の画面と同じ。入力が止まったら、最近追加したアルバムの曲を書式に当てはめた例を、
@@ -18,9 +19,23 @@
   interface Props {
     /** 編集中の書式（適用前） */
     template: string;
+    /** 入力欄のID（同じ画面に2つ置かない限り、省いてよい） */
+    id?: string;
+    /** 項目の名前（省略時は「音楽フォルダの書式」） */
+    label?: string;
+    /** 項目の説明 */
+    hint?: string;
+    /** 「既定に戻す」で入れる書式（省略時は、音楽フォルダの既定の書式） */
+    defaultTemplate?: string;
   }
 
-  let { template = $bindable() }: Props = $props();
+  let {
+    template = $bindable(),
+    id = 'music-folder-template',
+    label = m.musicFolder.template,
+    hint = m.musicFolder.templateHint,
+    defaultTemplate = DEFAULT_MUSIC_FOLDER_TEMPLATE
+  }: Props = $props();
 
   // 書式の例（書式を変えるたびに取り直す。取り直している間は、前の例を出したままにする）
   let examples = $state.raw<string[] | null>(null);
@@ -63,11 +78,11 @@
 </script>
 
 <div class="template-setting">
-  <label class="setting-label" for="music-folder-template">{m.musicFolder.template}</label>
-  <p class="setting-description">{m.musicFolder.templateHint}</p>
+  <label class="setting-label" for={id}>{label}</label>
+  <p class="setting-description">{hint}</p>
 
   <input
-    id="music-folder-template"
+    {id}
     type="text"
     class="form-input font-mono mt-3"
     bind:value={template}
@@ -92,8 +107,8 @@
     <button
       type="button"
       class="setting-reset"
-      onclick={() => (template = DEFAULT_MUSIC_FOLDER_TEMPLATE)}
-      disabled={template === DEFAULT_MUSIC_FOLDER_TEMPLATE}
+      onclick={() => (template = defaultTemplate)}
+      disabled={template === defaultTemplate}
     >
       {m.settings.resetToDefault}
     </button>

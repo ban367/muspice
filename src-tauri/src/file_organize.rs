@@ -26,7 +26,8 @@ use crate::device_sync::{
 };
 use crate::error::{AppError, AppResult};
 use crate::library::is_supported_audio_file;
-use crate::models::Track;
+use crate::models::{Track, VARIOUS_ARTISTS};
+use crate::repository::TransferTrack;
 use serde::Serialize;
 use specta::Type;
 use std::collections::{HashMap, HashSet};
@@ -49,6 +50,57 @@ const TEMP_SUFFIX: &str = ".part";
 
 /// 中身がこれらだけのフォルダは、空とみなして消す（OSが作る、表示用のファイル）
 const JUNK_FILE_NAMES: [&str; 3] = [".DS_Store", "Thumbs.db", "desktop.ini"];
+
+/// 書式に当てはめる、曲の値（ライブラリの曲と、デバイスへの転送の曲。ADR-111）
+pub trait TemplateTrack {
+    fn title(&self) -> &Option<String>;
+    fn artist(&self) -> &Option<String>;
+    fn album(&self) -> &Option<String>;
+    fn album_artist(&self) -> &Option<String>;
+    fn compilation(&self) -> bool;
+    fn genre(&self) -> &Option<String>;
+    fn year(&self) -> Option<i32>;
+    fn track_number(&self) -> Option<i32>;
+    fn disc_number(&self) -> Option<i32>;
+}
+
+/// `TemplateTrack`を、同じ名前のフィールドを持つ型に実装する
+macro_rules! impl_template_track {
+    ($type:ty) => {
+        impl TemplateTrack for $type {
+            fn title(&self) -> &Option<String> {
+                &self.title
+            }
+            fn artist(&self) -> &Option<String> {
+                &self.artist
+            }
+            fn album(&self) -> &Option<String> {
+                &self.album
+            }
+            fn album_artist(&self) -> &Option<String> {
+                &self.album_artist
+            }
+            fn compilation(&self) -> bool {
+                self.compilation
+            }
+            fn genre(&self) -> &Option<String> {
+                &self.genre
+            }
+            fn year(&self) -> Option<i32> {
+                self.year
+            }
+            fn track_number(&self) -> Option<i32> {
+                self.track_number
+            }
+            fn disc_number(&self) -> Option<i32> {
+                self.disc_number
+            }
+        }
+    };
+}
+
+impl_template_track!(Track);
+impl_template_track!(TransferTrack);
 
 /// 書式に書ける項目
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,7 +139,7 @@ impl Field {
     /// - タイトルのタグがない曲は、今のファイル名を使う
     /// - アルバムアーティストのタグがない曲は、アーティストを使う
     /// - トラック番号は2桁にそろえる（`01`）
-    fn value(self, track: &Track, stem: &str) -> Option<String> {
+    fn value(self, track: &impl TemplateTrack, stem: &str) -> Option<String> {
         let text = |value: &Option<String>| {
             value
                 .as_deref()
@@ -98,14 +150,17 @@ impl Field {
         let positive = |value: Option<i32>| value.filter(|n| *n > 0);
         let stem = || Some(stem.trim().to_string()).filter(|s| !s.is_empty());
         match self {
-            Self::Title => text(&track.title).or_else(stem),
-            Self::Artist => text(&track.artist),
-            Self::Album => text(&track.album),
-            Self::AlbumArtist => text(&track.album_artist).or_else(|| text(&track.artist)),
-            Self::Genre => text(&track.genre),
-            Self::Year => positive(track.year).map(|year| year.to_string()),
-            Self::Track => positive(track.track_number).map(|number| format!("{:02}", number)),
-            Self::Disc => positive(track.disc_number).map(|number| number.to_string()),
+            Self::Title => text(track.title()).or_else(stem),
+            Self::Artist => text(track.artist()),
+            Self::Album => text(track.album()),
+            // アルバムアーティストのないコンピレーションは「Various Artists」（一覧のまとめ方と同じ。ADR-093）
+            Self::AlbumArtist => text(track.album_artist())
+                .or_else(|| track.compilation().then(|| VARIOUS_ARTISTS.to_string()))
+                .or_else(|| text(track.artist())),
+            Self::Genre => text(track.genre()),
+            Self::Year => positive(track.year()).map(|year| year.to_string()),
+            Self::Track => positive(track.track_number()).map(|number| format!("{:02}", number)),
+            Self::Disc => positive(track.disc_number()).map(|number| number.to_string()),
             Self::FileName => stem(),
         }
     }
@@ -206,14 +261,14 @@ impl Template {
     ///
     /// フォルダ名・ファイル名は、ファイル名に使える形にする（`sanitize_component`）。値がなくて
     /// 空になった階層は省き、ファイル名が空になった曲は、今のファイル名のままにする。
-    pub fn components(&self, track: &Track, from: &Path) -> Vec<String> {
+    pub fn components(&self, track: &impl TemplateTrack, from: &Path) -> Vec<String> {
         self.components_with_extension(track, from, from.extension().and_then(|e| e.to_str()))
     }
 
     /// 曲の、書式に従った場所（拡張子を、指定したものにする。形式の変換の、書き出す場所に使う）
     pub fn components_with_extension(
         &self,
-        track: &Track,
+        track: &impl TemplateTrack,
         from: &Path,
         extension: Option<&str>,
     ) -> Vec<String> {
@@ -296,7 +351,7 @@ fn parse_segment(segment: &str) -> AppResult<Vec<Part>> {
 }
 
 /// 部品を、曲の値で文字列にする
-fn render(parts: &[Part], track: &Track, stem: &str) -> String {
+fn render(parts: &[Part], track: &impl TemplateTrack, stem: &str) -> String {
     let mut rendered = String::new();
     for part in parts {
         match part {
@@ -400,6 +455,8 @@ pub struct Plan {
 #[derive(Default)]
 pub(crate) struct DirCache {
     entries: HashMap<PathBuf, Vec<PathBuf>>,
+    /// フォルダの画像（フォルダごとに1回だけ選ぶ）
+    images: HashMap<PathBuf, Option<PathBuf>>,
 }
 
 impl DirCache {
@@ -407,6 +464,16 @@ impl DirCache {
         self.entries
             .entry(dir.to_path_buf())
             .or_insert_with(|| list_dir(dir).unwrap_or_default())
+    }
+
+    /// フォルダの画像（アルバムアートの表示と同じ名前の優先順で、いちばん先のもの。デバイスへの転送に使う）
+    pub(crate) fn folder_image(&mut self, dir: &Path) -> Option<PathBuf> {
+        if let Some(image) = self.images.get(dir) {
+            return image.clone();
+        }
+        let image = crate::album_art::preferred_folder_image(self.list(dir));
+        self.images.insert(dir.to_path_buf(), image.clone());
+        image
     }
 
     /// 曲と同じフォルダにある、同じ名前の歌詞ファイル（`lyrics::read_track_lyrics`が読むもの）
@@ -1040,6 +1107,7 @@ mod tests {
 
     fn track(id: &str, path: &Path) -> Track {
         Track {
+            cue: None,
             id: id.to_string(),
             file_path: path.to_str().unwrap().to_string(),
             file_name: path.file_name().unwrap().to_str().unwrap().to_string(),
@@ -1066,6 +1134,8 @@ mod tests {
             replay_gain: ReplayGain::default(),
             sort_tags: Default::default(),
             is_missing: false,
+            compilation: false,
+            details: Default::default(),
         }
     }
 
@@ -1178,6 +1248,16 @@ mod tests {
             rendered("%artist%/%genre%/%title%", &untagged),
             "Unknown Artist/Unknown Genre/original name.flac"
         );
+
+        // アルバムアーティストのないコンピレーションは「Various Artists」（一覧のまとめ方と同じ。ADR-093）
+        let mut compilation = track("t3", Path::new("/music/in/song.mp3"));
+        compilation.compilation = true;
+        assert_eq!(
+            rendered(DEFAULT, &compilation),
+            "Various Artists/Album/01 Song.mp3"
+        );
+        compilation.album_artist = Some("DJ X".to_string());
+        assert_eq!(rendered(DEFAULT, &compilation), "DJ X/Album/01 Song.mp3");
     }
 
     #[test]

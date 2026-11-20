@@ -3,39 +3,42 @@
   import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
   import {
     useGlobalShortcutsQuery,
+    SETTINGS_EDITED_IN_MAIN_WINDOW,
     useOutputDevicesQuery,
     useSaveSettingsMutation,
     useSettingsQuery
   } from '#lib/queries/settings.js';
+  import { useLibraryFoldersQuery } from '#lib/queries/libraryFolders.js';
   import type {
+    AiShuffleMode,
     Language,
     Settings,
     SidebarItem,
     StartupPage,
     Theme,
-    VolumeNormalization
+    GlobalShortcutAction
   } from '#lib/types/models.js';
+  import { recordShortcut, shortcutKeyNames } from '#lib/utils/globalShortcut.js';
   import { applyAccentColor, applyTheme } from '#lib/utils/theme.js';
   import { applyLanguage, m } from '#lib/i18n/i18n.svelte.js';
   // 設定の値の範囲はRust側（settings.rs）の定数をtauri-spectaで共有する
-  import {
-    AUTO_BACKUP_KEEP,
-    DEFAULT_ACCENT_COLOR,
-    LIBRARY_SCAN_INTERVALS,
-    MAX_CROSSFADE_SECONDS,
-    MAX_NORMALIZATION_PREAMP_DB
-  } from '#lib/bindings.js';
+  import { AUTO_BACKUP_KEEP, DEFAULT_ACCENT_COLOR, LIBRARY_SCAN_INTERVALS } from '#lib/bindings.js';
   import LibraryFolderSettings from '#lib/components/LibraryFolderSettings.svelte';
   import MusicFolderTemplateSetting from '#lib/components/MusicFolderTemplateSetting.svelte';
   import MetadataExportSettings from '#lib/components/MetadataExportSettings.svelte';
   import LibraryXmlImportSettings from '#lib/components/LibraryXmlImportSettings.svelte';
+  import LibraryExportSettings from '#lib/components/LibraryExportSettings.svelte';
   import LoudnessScanSettings from '#lib/components/LoudnessScanSettings.svelte';
   import LibraryBackupSettings from '#lib/components/LibraryBackupSettings.svelte';
+  import MusicAnalysisSettings from '#lib/components/MusicAnalysisSettings.svelte';
+  import { MusicFolderDraft } from '#lib/stores/musicFolderDraft.svelte.js';
 
-  type SettingsSection = 'general' | 'playback' | 'library' | 'appearance';
+  type SettingsSection = 'general' | 'playback' | 'library' | 'ai' | 'appearance';
 
   // 選択肢の値（ラベルは表示の言語に合わせてテンプレートで`m`から読む）
-  const sections: SettingsSection[] = ['general', 'playback', 'library', 'appearance'];
+  const sections: SettingsSection[] = ['general', 'playback', 'library', 'ai', 'appearance'];
+  // AIシャッフルの選び方
+  const aiShuffleModes: AiShuffleMode[] = ['similar', 'frequentlyPlayed', 'rarelyPlayed'];
   const startupPages: StartupPage[] = ['lastOpened', 'songs'];
   // サイドバーの項目（サイドバーに並ぶ順）
   const sidebarItems: SidebarItem[] = [
@@ -52,7 +55,6 @@
     'duplicates'
   ];
   const themes: Theme[] = ['dark', 'light', 'system'];
-  const volumeNormalizations: VolumeNormalization[] = ['off', 'track', 'album'];
 
   // 言語の名前は、その言語で表示する（どの言語を表示中でも選べるように）
   const languages: { value: Language; label: string }[] = [
@@ -63,6 +65,11 @@
   let activeSection: SettingsSection = $state('general');
 
   const settingsQuery = useSettingsQuery();
+  // ネットワーク上のライブラリフォルダ（NASなど）がある時は、定期的な再スキャンを勧める（ADR-120）
+  const libraryFoldersQuery = useLibraryFoldersQuery();
+  const hasNetworkFolder = $derived(
+    libraryFoldersQuery.data?.folders.some((folder) => folder.isNetwork) ?? false
+  );
   const saveMutation = useSaveSettingsMutation();
 
   // 編集中の設定（適用前）。保存済みの設定を読み込んだら初期値にする
@@ -73,22 +80,99 @@
     }
   });
 
-  // Auto DJは、メインウィンドウのプレーヤーのメニューで変える（この画面には項目がない）。
-  // この画面を開いている間に変えられた値を、編集中の設定へ取り込む（適用で元に戻さないため）
+  // メインウィンドウで変える設定（この画面には項目がない）は、この画面を開いている間に変えられた値を、
+  // 編集中の設定へ取り込む（適用で元に戻さないため）
   $effect(() => {
     const saved = settingsQuery.data;
     if (!saved) return;
     untrack(() => {
       if (pending === null) return;
-      pending.autoDj = saved.autoDj;
-      pending.autoDjPlaylistId = saved.autoDjPlaylistId;
+      for (const key of SETTINGS_EDITED_IN_MAIN_WINDOW) {
+        copySetting(pending, saved, key);
+      }
     });
   });
+
+  /** 設定の1項目を写す */
+  function copySetting<K extends keyof Settings>(to: Settings, from: Settings, key: K) {
+    to[key] = from[key];
+  }
 
   // グローバルホットキーの割り当てと、登録できているか（保存した設定がオンの間だけ、登録されている）
   const globalShortcutsQuery = useGlobalShortcutsQuery(() => activeSection === 'general');
   const globalShortcuts = $derived(globalShortcutsQuery.data ?? []);
   const isGlobalShortcutsSaved = $derived(settingsQuery.data?.globalShortcuts ?? false);
+
+  // ホットキーの割り当ての記録（「変更」を押してから、次に押した組み合わせを割り当てる。ADR-122）
+  let recordingAction = $state<GlobalShortcutAction | null>(null);
+  let shortcutError = $state<string | null>(null);
+
+  // 一般のセクションを離れたら、記録をやめる（見えない行の割り当てを、押したキーで変えない）
+  $effect(() => {
+    if (activeSection !== 'general') {
+      recordingAction = null;
+      shortcutError = null;
+    }
+  });
+
+  /** 入力中の割り当て（割り当てのない操作はnull） */
+  function pendingShortcut(action: GlobalShortcutAction): string | null {
+    return pending?.globalShortcutKeys.find((key) => key.action === action)?.shortcut ?? null;
+  }
+
+  /** 保存した割り当て（登録できなかった知らせを、保存した割り当てにだけ出す） */
+  function savedShortcut(action: GlobalShortcutAction): string | null {
+    return (
+      settingsQuery.data?.globalShortcutKeys.find((key) => key.action === action)?.shortcut ?? null
+    );
+  }
+
+  function setShortcut(action: GlobalShortcutAction, shortcut: string | null) {
+    if (!pending) return;
+    const others = pending.globalShortcutKeys.filter((key) => key.action !== action);
+    pending.globalShortcutKeys = shortcut === null ? others : [...others, { action, shortcut }];
+  }
+
+  function startRecording(action: GlobalShortcutAction) {
+    recordingAction = action;
+    shortcutError = null;
+  }
+
+  /** 割り当てを記録している間は、押したキーを割り当てにする（Escで取り消す） */
+  function handleShortcutKeydown(event: KeyboardEvent) {
+    const action = recordingAction;
+    if (action === null || activeSection !== 'general') return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.code === 'Escape' && !event.ctrlKey && !event.altKey && !event.metaKey) {
+      recordingAction = null;
+      shortcutError = null;
+      return;
+    }
+    const recorded = recordShortcut(event);
+    switch (recorded.kind) {
+      case 'modifierOnly':
+        return;
+      case 'needsModifier':
+        shortcutError = m.settings.globalShortcutNeedsModifier;
+        return;
+      case 'unsupported':
+        shortcutError = m.settings.globalShortcutUnsupported;
+        return;
+    }
+    const other = pending?.globalShortcutKeys.find(
+      (key) => key.action !== action && key.shortcut === recorded.shortcut
+    );
+    if (other) {
+      shortcutError = m.settings.globalShortcutInUse(
+        m.settings.globalShortcutActions[other.action]
+      );
+      return;
+    }
+    setShortcut(action, recorded.shortcut);
+    recordingAction = null;
+    shortcutError = null;
+  }
 
   // 出力デバイスの一覧（再生の設定を開いている間だけ取得する）
   const outputDevicesQuery = useOutputDevicesQuery(() => activeSection === 'playback');
@@ -100,7 +184,10 @@
       !outputDevicesQuery.data.some((device) => device.id === pending?.outputDeviceId)
   );
 
-  const hasChanges = $derived.by(() => {
+  // 選んで、「適用」を待っている音楽フォルダ（音楽フォルダは`settings.json`ではなく、ライブラリに持つ。#408）
+  const musicFolderDraft = new MusicFolderDraft();
+
+  const hasSettingsChanges = $derived.by(() => {
     const saved = settingsQuery.data;
     if (pending === null || saved === undefined) return false;
     const current = pending;
@@ -109,6 +196,9 @@
       (key) => JSON.stringify(current[key]) !== JSON.stringify(saved[key])
     );
   });
+  const hasChanges = $derived(hasSettingsChanges || musicFolderDraft.choice !== null);
+  // 音楽フォルダを変えている間（置き換えの確認・曲の読み込みを含む）
+  let isApplyingMusicFolder = $state(false);
 
   /** サイドバーの項目の、表示・非表示を切り替える（隠す項目の一覧を、作り直して入れる） */
   function setSidebarItemShown(item: SidebarItem, shown: boolean) {
@@ -136,14 +226,30 @@
     if (theme) return applyTheme(theme);
   });
 
+  /**
+   * 変えた設定を保存し、選んだ音楽フォルダに変える
+   *
+   * 設定の保存に失敗した時は、音楽フォルダも変えない。音楽フォルダの置き換えの確認でやめた時は、
+   * 選んだフォルダのまま残る（保存した設定は、そのまま）。
+   */
   async function applySettings() {
     if (!pending) return;
+    if (hasSettingsChanges) {
+      try {
+        await saveMutation.mutateAsync({ ...pending });
+        // 保存でグローバルホットキーを登録し直すため、登録できたかを読み直す
+        void globalShortcutsQuery.refetch();
+      } catch {
+        // 失敗はミューテーション内でトースト通知済み
+        return;
+      }
+    }
+    if (musicFolderDraft.choice === null) return;
+    isApplyingMusicFolder = true;
     try {
-      await saveMutation.mutateAsync({ ...pending });
-      // 保存でグローバルホットキーを登録し直すため、登録できたかを読み直す
-      void globalShortcutsQuery.refetch();
-    } catch {
-      // 失敗はミューテーション内でトースト通知済み
+      await musicFolderDraft.apply();
+    } finally {
+      isApplyingMusicFolder = false;
     }
   }
 
@@ -152,22 +258,26 @@
   }
 </script>
 
+<!-- ホットキーの割り当てを記録している間だけ、押したキーを受け取る -->
+<svelte:window onkeydowncapture={handleShortcutKeydown} />
+
 <div class="settings-container">
   <!-- サイドバー -->
   <nav class="settings-sidebar">
     <h2 class="settings-header">{m.settings.title}</h2>
+    <!-- 幅・項目の大きさ・文字の大きさは、メインウィンドウの左サイドバーとそろえる（#432） -->
     <ul class="settings-nav">
       {#each sections as section (section)}
         <li>
           <button
-            class="settings-nav-item"
+            class="nav-item-base settings-nav-item"
             class:active={activeSection === section}
             onclick={() => (activeSection = section)}
           >
             {#if section === 'general'}
               <svg
                 xmlns="http://www.w3.org/2000/svg"
-                class="icon"
+                class="nav-icon"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -187,7 +297,7 @@
             {:else if section === 'playback'}
               <svg
                 xmlns="http://www.w3.org/2000/svg"
-                class="icon"
+                class="nav-icon"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -202,7 +312,7 @@
             {:else if section === 'library'}
               <svg
                 xmlns="http://www.w3.org/2000/svg"
-                class="icon"
+                class="nav-icon"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -214,10 +324,22 @@
                   d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"
                 />
               </svg>
+            {:else if section === 'ai'}
+              <!-- AIシャッフルのボタンと同じ、きらめきの形 -->
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="nav-icon"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+              >
+                <path
+                  d="M10 3l1.9 5.1L17 10l-5.1 1.9L10 17l-1.9-5.1L3 10l5.1-1.9L10 3zm8 10l.95 2.05L21 16l-2.05.95L18 19l-.95-2.05L15 16l2.05-.95L18 13zM18 2l.7 1.3L20 4l-1.3.7L18 6l-.7-1.3L16 4l1.3-.7L18 2z"
+                />
+              </svg>
             {:else}
               <svg
                 xmlns="http://www.w3.org/2000/svg"
-                class="icon"
+                class="nav-icon"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -240,10 +362,11 @@
   <!-- メインコンテンツ -->
   <div class="settings-main">
     <div class="settings-content">
-      <!-- ライブラリフォルダの操作はすぐに反映する（下の「適用」の対象外）。
+      <!-- ライブラリフォルダの操作（再スキャン・削除など）はすぐに反映する（下の「適用」の対象外）。
+           音楽フォルダの変更は、選ぶだけで、下の「適用」で反映する（#408）。
            再スキャンの途中で別のセクションへ移っても進捗を保つよう、常に置いて表示だけを切り替える -->
       <div hidden={activeSection !== 'library'}>
-        <LibraryFolderSettings>
+        <LibraryFolderSettings musicFolder={musicFolderDraft}>
           <!-- 音楽フォルダの書式・取り込む曲のコピー・整理された状態に保つは、ほかの設定と同じく
                「適用」で保存する -->
           {#if pending}
@@ -273,6 +396,7 @@
           {/if}
         </LibraryFolderSettings>
         <LibraryXmlImportSettings />
+        <LibraryExportSettings />
         <LoudnessScanSettings />
         <MetadataExportSettings />
         <LibraryBackupSettings>
@@ -322,6 +446,11 @@
               <p class="setting-description">
                 {m.settings.scanIntervalHint}
               </p>
+              {#if hasNetworkFolder && pending.libraryScanIntervalMinutes === 0}
+                <p class="setting-description network-hint" role="note">
+                  {m.settings.networkFolderHint}
+                </p>
+              {/if}
             </div>
           </section>
         {/if}
@@ -331,7 +460,7 @@
         </p>
       {:else if activeSection === 'general'}
         <section class="settings-section">
-          <h3 class="section-title">{m.settings.sections.general}</h3>
+          <h3 class="settings-title">{m.settings.sections.general}</h3>
 
           <div class="setting-item">
             <label class="setting-label" for="language">{m.settings.language}</label>
@@ -404,18 +533,45 @@
             </label>
             <p class="setting-description">{m.settings.globalShortcutsHint}</p>
             <ul class="shortcut-list">
-              {#each globalShortcuts as shortcut (shortcut.action)}
+              {#each globalShortcuts as info (info.action)}
+                {@const shortcut = pendingShortcut(info.action)}
                 <li class="shortcut-item">
                   <span class="shortcut-action">
-                    {m.settings.globalShortcutActions[shortcut.action]}
+                    {m.settings.globalShortcutActions[info.action]}
                   </span>
                   <span class="shortcut-keys">
-                    {#each shortcut.keys as key, index (index)}
-                      {#if index > 0}<span class="shortcut-plus">+</span>{/if}<kbd>{key}</kbd>
-                    {/each}
+                    {#if recordingAction === info.action}
+                      <span class="shortcut-recording" role="status">
+                        {m.settings.globalShortcutRecording}
+                      </span>
+                    {:else if shortcut === null}
+                      <span class="shortcut-none">{m.settings.globalShortcutUnassigned}</span>
+                    {:else}
+                      {#each shortcutKeyNames(shortcut) as key, index (index)}
+                        {#if index > 0}<span class="shortcut-plus">+</span>{/if}<kbd>{key}</kbd>
+                      {/each}
+                    {/if}
                   </span>
+                  <button
+                    type="button"
+                    class="btn-secondary shortcut-button"
+                    onclick={() => startRecording(info.action)}
+                    disabled={recordingAction !== null}
+                  >
+                    {m.settings.globalShortcutChange}
+                  </button>
+                  {#if shortcut !== null}
+                    <button
+                      type="button"
+                      class="btn-secondary shortcut-button"
+                      onclick={() => setShortcut(info.action, null)}
+                      disabled={recordingAction !== null}
+                    >
+                      {m.settings.globalShortcutClear}
+                    </button>
+                  {/if}
                   <!-- 保存した設定がオンなのに登録されていない組み合わせ（ほかのアプリが使っている） -->
-                  {#if isGlobalShortcutsSaved && pending.globalShortcuts && !shortcut.registered}
+                  {#if isGlobalShortcutsSaved && pending.globalShortcuts && shortcut !== null && shortcut === savedShortcut(info.action) && !info.registered}
                     <span class="shortcut-warning" role="status">
                       {m.settings.globalShortcutUnavailable}
                     </span>
@@ -423,87 +579,15 @@
                 </li>
               {/each}
             </ul>
+            {#if shortcutError}
+              <p class="shortcut-warning mt-2" role="alert">{shortcutError}</p>
+            {/if}
           </div>
         </section>
       {:else if activeSection === 'playback'}
         <section class="settings-section">
-          <h3 class="section-title">{m.settings.sections.playback}</h3>
-          <div class="setting-item">
-            <label class="setting-label" for="normalization">{m.settings.volumeNormalization}</label
-            >
-            <select
-              id="normalization"
-              class="setting-select"
-              bind:value={pending.volumeNormalization}
-            >
-              {#each volumeNormalizations as mode (mode)}
-                <option value={mode}>{m.settings.volumeNormalizations[mode]}</option>
-              {/each}
-            </select>
-            <p class="setting-description">
-              {m.settings.volumeNormalizationHint}
-            </p>
-          </div>
-
-          <div class="setting-item">
-            <label class="setting-label" for="preamp">{m.settings.normalizationPreamp}</label>
-            <div class="setting-slider-row">
-              <input
-                type="range"
-                id="preamp"
-                class="setting-slider"
-                min={-MAX_NORMALIZATION_PREAMP_DB}
-                max={MAX_NORMALIZATION_PREAMP_DB}
-                step="1"
-                bind:value={pending.normalizationPreampDb}
-                disabled={pending.volumeNormalization === 'off'}
-              />
-              <span class="setting-slider-value">
-                {m.settings.normalizationPreampValue(pending.normalizationPreampDb)}
-              </span>
-            </div>
-            <p class="setting-description">
-              {m.settings.normalizationPreampHint}
-            </p>
-          </div>
-
-          <div class="setting-item">
-            <label class="setting-checkbox-label">
-              <input
-                type="checkbox"
-                class="setting-checkbox"
-                bind:checked={pending.gaplessPlayback}
-              />
-              {m.settings.gaplessPlayback}
-            </label>
-            <p class="setting-description">
-              {m.settings.gaplessPlaybackHint}
-            </p>
-          </div>
-
-          <div class="setting-item">
-            <label class="setting-label" for="crossfade">{m.settings.crossfade}</label>
-            <div class="setting-slider-row">
-              <input
-                type="range"
-                id="crossfade"
-                class="setting-slider"
-                min="0"
-                max={MAX_CROSSFADE_SECONDS}
-                step="1"
-                bind:value={pending.crossfadeSeconds}
-              />
-              <span class="setting-slider-value">
-                {pending.crossfadeSeconds === 0
-                  ? m.common.off
-                  : m.settings.crossfadeSeconds(pending.crossfadeSeconds)}
-              </span>
-            </div>
-            <p class="setting-description">
-              {m.settings.crossfadeHint}
-            </p>
-          </div>
-
+          <h3 class="settings-title">{m.settings.sections.playback}</h3>
+          <p class="setting-description section-note">{m.settings.soundPanelNote}</p>
           <div class="setting-item">
             <label class="setting-label" for="output-device">{m.settings.outputDevice}</label>
             <select id="output-device" class="setting-select" bind:value={pending.outputDeviceId}>
@@ -522,9 +606,26 @@
             </p>
           </div>
         </section>
+      {:else if activeSection === 'ai'}
+        <section class="settings-section">
+          <h3 class="settings-title">{m.settings.sections.ai}</h3>
+          <p class="setting-description section-note">{m.settings.aiNote}</p>
+          <!-- AIシャッフルの選び方は、ほかの設定と同じく「適用」で保存する -->
+          <div class="setting-item">
+            <label class="setting-label" for="ai-shuffle-mode">{m.settings.aiShuffleMode}</label>
+            <select id="ai-shuffle-mode" class="setting-select" bind:value={pending.aiShuffleMode}>
+              {#each aiShuffleModes as mode (mode)}
+                <option value={mode}>{m.settings.aiShuffleModes[mode]}</option>
+              {/each}
+            </select>
+            <p class="setting-description">{m.settings.aiShuffleModeHint}</p>
+          </div>
+        </section>
+        <!-- 曲の解析の操作は、すぐに反映する（「適用」の対象外） -->
+        <MusicAnalysisSettings />
       {:else}
         <section class="settings-section">
-          <h3 class="section-title">{m.settings.sections.appearance}</h3>
+          <h3 class="settings-title">{m.settings.sections.appearance}</h3>
 
           <div class="setting-item">
             <label class="setting-label" for="theme">{m.settings.theme}</label>
@@ -570,9 +671,9 @@
       <button
         class="btn-primary"
         onclick={applySettings}
-        disabled={!hasChanges || saveMutation.isPending}
+        disabled={!hasChanges || saveMutation.isPending || isApplyingMusicFolder}
       >
-        {saveMutation.isPending ? m.common.saving : m.common.apply}
+        {saveMutation.isPending || isApplyingMusicFolder ? m.common.saving : m.common.apply}
       </button>
     </footer>
   </div>
@@ -581,38 +682,31 @@
 <style>
   @reference "../../app.css";
 
+  /* ネットワーク上のライブラリフォルダがある時の、定期的な再スキャンの勧め */
+  .setting-description.network-hint {
+    @apply text-warning;
+  }
+
   .settings-container {
     @apply flex h-full;
   }
 
+  /* 幅・見出し・項目は、メインウィンドウの左サイドバー（`Sidebar`）と同じ値にする */
   .settings-sidebar {
-    @apply w-48 bg-base-200 border-r border-border flex flex-col;
+    @apply w-64 shrink-0 bg-base-200 border-r border-border flex flex-col text-text-secondary;
   }
 
   .settings-header {
-    @apply text-lg font-semibold p-4 m-0;
+    @apply text-xl font-bold text-text-primary m-0 px-4 pt-3 pb-2;
   }
 
   .settings-nav {
-    @apply list-none m-0 p-0 flex-1;
+    @apply list-none m-0 px-3 py-0 flex-1;
   }
 
+  /* 見た目は共通の`nav-item-base`。ボタンのため、幅いっぱいにして左にそろえる */
   .settings-nav-item {
-    @apply flex items-center gap-3 w-full px-4 py-2.5 text-left text-sm
-           bg-transparent border-none cursor-pointer text-text-secondary
-           transition-colors duration-150;
-  }
-
-  .settings-nav-item:hover {
-    @apply bg-surface-hover text-text-primary;
-  }
-
-  .settings-nav-item.active {
-    @apply bg-primary/20 text-primary;
-  }
-
-  .settings-nav-item .icon {
-    @apply w-5 h-5 shrink-0;
+    @apply w-full text-left cursor-pointer;
   }
 
   /* グローバルホットキーの割り当ての一覧 */
@@ -645,6 +739,19 @@
     @apply text-xs text-warning;
   }
 
+  .shortcut-button {
+    @apply px-2 py-0.5 text-xs;
+  }
+
+  .shortcut-none,
+  .shortcut-recording {
+    @apply text-xs text-text-muted;
+  }
+
+  .shortcut-recording {
+    @apply text-primary;
+  }
+
   .settings-main {
     @apply flex-1 flex flex-col overflow-hidden;
   }
@@ -657,7 +764,8 @@
     @apply max-w-xl;
   }
 
-  .section-title {
+  /* 区分の見出し（「一般」など）。メインウィンドウのサイドバーの見出しの共通クラス（`section-title`）とは別の名前にする */
+  .settings-title {
     @apply text-xl font-semibold mb-6 m-0;
   }
 
@@ -677,6 +785,11 @@
     @apply text-xs text-text-muted mt-1 m-0;
   }
 
+  /* 見出しの下の、まとまり全体についての説明 */
+  .section-note {
+    @apply -mt-4 mb-6;
+  }
+
   .setting-select {
     @apply w-full max-w-xs py-2 px-3 bg-base-400 border border-border rounded-md
            text-sm text-text-primary cursor-pointer;
@@ -692,18 +805,6 @@
 
   .setting-checkbox {
     @apply w-4 h-4 mr-2 accent-primary cursor-pointer;
-  }
-
-  .setting-slider-row {
-    @apply flex items-center gap-4;
-  }
-
-  .setting-slider {
-    @apply flex-1 max-w-xs h-2 accent-primary cursor-pointer;
-  }
-
-  .setting-slider-value {
-    @apply text-sm text-text-secondary w-12;
   }
 
   .setting-color-row {

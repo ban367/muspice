@@ -18,8 +18,14 @@ use std::sync::Mutex;
 /// 既定のアクセントカラー（`app.css`の`--color-primary`と同じ）
 pub const DEFAULT_ACCENT_COLOR: &str = "#3b82f6";
 
+/// クロスフェードの最小の秒数（オフは、秒数ではなく`crossfade_enabled`で表す）
+pub const MIN_CROSSFADE_SECONDS: u8 = 1;
+
 /// クロスフェードの最大の秒数
 pub const MAX_CROSSFADE_SECONDS: u8 = 12;
+
+/// クロスフェードの既定の秒数
+pub const DEFAULT_CROSSFADE_SECONDS: u8 = 5;
 
 /// 音量の正規化のプリアンプの上限（dB。下限は、符号を変えた値）
 pub const MAX_NORMALIZATION_PREAMP_DB: i8 = 12;
@@ -68,17 +74,27 @@ pub enum Theme {
     System,
 }
 
-/// 音量の正規化（ReplayGain）
+/// 音量の正規化（ReplayGain）で補正に使うゲインの単位（オン・オフは`Settings::volume_normalization_enabled`）
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum VolumeNormalization {
-    /// 補正しない
-    #[default]
-    Off,
     /// トラック単位のゲインで補正する（ない場合はアルバム単位）
     Track,
     /// アルバム単位のゲインで補正する（ない場合はトラック単位）
     Album,
+    /// シャッフルモードの間はトラック単位、それ以外はアルバム単位で補正する
+    #[default]
+    Auto,
+}
+
+/// クロスフィードの強さ（左右の音を混ぜる量。強いほど多く混ぜる）
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum CrossfeedLevel {
+    Weak,
+    #[default]
+    Medium,
+    Strong,
 }
 
 /// サイドバーの項目（表示するかどうかを選べるもの）
@@ -111,14 +127,28 @@ pub struct Settings {
     pub theme: Theme,
     /// アクセントカラー（`#rrggbb`）
     pub accent_color: String,
-    /// 音量の正規化
+    /// 音量の正規化（ReplayGain）をする
+    pub volume_normalization_enabled: bool,
+    /// 音量の正規化で補正に使うゲインの単位（オフの間も覚えておく）
     pub volume_normalization: VolumeNormalization,
     /// 音量の正規化のプリアンプ（dB。正規化で補正する曲の音量を、まとめて上げ下げする）
     pub normalization_preamp_db: i8,
+    /// 音量の正規化で、ゲインのない曲（ReplayGainのタグがない曲）にかける音量の変化（dB）
+    pub normalization_untagged_preamp_db: i8,
+    /// 音量の正規化で、ピークがフルスケールを超えない倍率に抑える（クリップ防止）
+    pub normalization_prevent_clipping: bool,
     /// ギャップレス再生（次の曲を先読みし、曲間に無音を入れずに続ける）
     pub gapless_playback: bool,
-    /// クロスフェードの秒数（0でクロスフェードしない）
+    /// クロスフェードする（曲の終わりと次の曲の頭を重ねる）
+    pub crossfade_enabled: bool,
+    /// クロスフェードの秒数（1〜12。オフの間も覚えておく）
     pub crossfade_seconds: u8,
+    /// 同じアルバムの続きの曲（曲順が続く曲）では、クロスフェードせずに切れ目なく続ける
+    pub crossfade_skip_album_tracks: bool,
+    /// クロスフィード（ヘッドホン向けに、左右の音を少し混ぜる）
+    pub crossfeed_enabled: bool,
+    /// クロスフィードの強さ（オフの間も覚えておく）
+    pub crossfeed_level: CrossfeedLevel,
     /// 出力デバイスのID（nullはOSの既定のデバイス）
     pub output_device_id: Option<String>,
     /// ライブラリフォルダを監視し、ファイルの変更を自動で反映する
@@ -131,10 +161,14 @@ pub struct Settings {
     pub auto_dj: bool,
     /// Auto DJが曲を選ぶプレイリスト（nullはライブラリ全体）
     pub auto_dj_playlist_id: Option<String>,
+    /// AIシャッフル（曲が始まるたびに、選び方に合う曲を次に足す）の選び方
+    pub ai_shuffle_mode: crate::ai_shuffle::AiShuffleMode,
     /// メニューバー（トレイ）に常駐する（アイコンを出し、ウィンドウを閉じても再生を続ける）
     pub stay_in_menu_bar: bool,
     /// グローバルホットキー（ほかのアプリを使っている間も効くショートカット）を使う
     pub global_shortcuts: bool,
+    /// グローバルホットキーの割り当て（操作ごとに1つまで。割り当てのない操作は含めない。ADR-122）
+    pub global_shortcut_keys: Vec<GlobalShortcutKey>,
     /// 曲が変わった時に、OSの通知で知らせる（ウィンドウが前面にない時だけ）
     pub notify_track_change: bool,
     /// 音楽フォルダの書式（音楽フォルダへ曲を置く時の、フォルダとファイルの名前の付け方。
@@ -151,6 +185,16 @@ pub struct Settings {
     pub auto_backup: bool,
 }
 
+/// グローバルホットキーの1つの割り当て
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct GlobalShortcutKey {
+    pub action: crate::global_shortcuts::GlobalShortcutAction,
+    /// 組み合わせ（`control+alt+KeyP`の形。修飾キーは`control`・`alt`・`shift`・`super`、キーは
+    /// `KeyboardEvent.code`と同じ名前）
+    pub shortcut: String,
+}
+
 impl Settings {
     /// ライブラリフォルダの変更を自動で反映するか（起動時の再スキャンもこれに従う）
     pub fn auto_sync_enabled(&self) -> bool {
@@ -165,18 +209,29 @@ impl Default for Settings {
             startup_page: StartupPage::default(),
             theme: Theme::default(),
             accent_color: DEFAULT_ACCENT_COLOR.to_string(),
+            volume_normalization_enabled: false,
             volume_normalization: VolumeNormalization::default(),
             normalization_preamp_db: 0,
+            normalization_untagged_preamp_db: 0,
+            normalization_prevent_clipping: true,
             gapless_playback: true,
-            crossfade_seconds: 0,
+            crossfade_enabled: false,
+            crossfade_seconds: DEFAULT_CROSSFADE_SECONDS,
+            crossfade_skip_album_tracks: true,
+            crossfeed_enabled: false,
+            crossfeed_level: CrossfeedLevel::default(),
             output_device_id: None,
-            watch_library_folders: false,
+            // 監視は既定でオン（音楽フォルダにFinderで入れた曲も、ライブラリに出す。起動時の再スキャンも
+            // する。ADR-120）。定期の再スキャンは、ネットワーク上のフォルダで勧める（既定はしない）
+            watch_library_folders: true,
             library_scan_interval_minutes: 0,
             hidden_sidebar_items: Vec::new(),
             auto_dj: false,
             auto_dj_playlist_id: None,
+            ai_shuffle_mode: crate::ai_shuffle::AiShuffleMode::default(),
             stay_in_menu_bar: false,
             global_shortcuts: false,
+            global_shortcut_keys: crate::global_shortcuts::default_keys(),
             notify_track_change: false,
             music_folder_template: DEFAULT_MUSIC_FOLDER_TEMPLATE.to_string(),
             copy_to_music_folder: true,
@@ -197,13 +252,19 @@ pub fn validate_settings(settings: &Settings) -> AppResult<()> {
             "アクセントカラーは#rrggbb形式で指定してください".to_string(),
         ));
     }
-    if settings.crossfade_seconds > MAX_CROSSFADE_SECONDS {
+    if !(MIN_CROSSFADE_SECONDS..=MAX_CROSSFADE_SECONDS).contains(&settings.crossfade_seconds) {
         return Err(AppError::Validation(format!(
-            "クロスフェードは0〜{}秒で指定してください",
-            MAX_CROSSFADE_SECONDS
+            "クロスフェードは{}〜{}秒で指定してください",
+            MIN_CROSSFADE_SECONDS, MAX_CROSSFADE_SECONDS
         )));
     }
-    if settings.normalization_preamp_db.unsigned_abs() > MAX_NORMALIZATION_PREAMP_DB.unsigned_abs()
+    let preamps = [
+        settings.normalization_preamp_db,
+        settings.normalization_untagged_preamp_db,
+    ];
+    if preamps
+        .iter()
+        .any(|db| db.unsigned_abs() > MAX_NORMALIZATION_PREAMP_DB.unsigned_abs())
     {
         return Err(AppError::Validation(format!(
             "プリアンプは-{0}〜{0} dBで指定してください",
@@ -229,6 +290,8 @@ pub fn validate_settings(settings: &Settings) -> AppResult<()> {
         crate::validation::validate_playlist_id(playlist_id)?;
     }
     crate::file_organize::Template::parse(&settings.music_folder_template)?;
+    crate::global_shortcuts::validate_keys(&settings.global_shortcut_keys)
+        .map_err(AppError::Validation)?;
     Ok(())
 }
 
@@ -267,9 +330,11 @@ pub fn load_settings(path: &Path) -> Settings {
 fn parse_with_defaults(json: &str) -> serde_json::Result<Settings> {
     let defaults = serde_json::to_value(Settings::default())?;
     let mut merged = defaults.clone();
-    if let (Value::Object(merged), Value::Object(stored)) =
+    if let (Value::Object(merged), Value::Object(mut stored)) =
         (&mut merged, serde_json::from_str::<Value>(json)?)
     {
+        migrate_volume_normalization(&mut stored);
+        migrate_crossfade(&mut stored);
         for (key, mut value) in stored {
             match key.as_str() {
                 "hiddenSidebarItems" => keep_known_sidebar_items(&mut value),
@@ -287,6 +352,43 @@ fn parse_with_defaults(json: &str) -> serde_json::Result<Settings> {
         }
     }
     serde_json::from_value(merged)
+}
+
+/// 音量の正規化のオン・オフを、単位とは別の項目にする前のファイルを読めるようにする
+///
+/// 以前は単位の`off`がオフだった。オン・オフの項目がなければ、単位が読めればオンにし、
+/// `off`はオフにして単位を既定に戻す（オンにした時に使う単位）。読めない単位（新しい版の選択肢）は、
+/// オン・オフを決めない（どちらも既定値になる）。
+fn migrate_volume_normalization(stored: &mut serde_json::Map<String, Value>) {
+    if stored.contains_key("volumeNormalizationEnabled") {
+        return;
+    }
+    let Some(mode) = stored.get("volumeNormalization") else {
+        return;
+    };
+    if mode.as_str() == Some("off") {
+        stored.remove("volumeNormalization");
+        stored.insert("volumeNormalizationEnabled".to_string(), Value::Bool(false));
+    } else if serde_json::from_value::<VolumeNormalization>(mode.clone()).is_ok() {
+        stored.insert("volumeNormalizationEnabled".to_string(), Value::Bool(true));
+    }
+}
+
+/// クロスフェードのオン・オフを、秒数とは別の項目にする前のファイルを読めるようにする
+///
+/// 以前は秒数の0がオフだった。オン・オフの項目がなければ、秒数が1以上ならオンにし、
+/// 0の秒数は既定の秒数に戻す（オンにした時に使う秒数）。
+fn migrate_crossfade(stored: &mut serde_json::Map<String, Value>) {
+    if stored.contains_key("crossfadeEnabled") {
+        return;
+    }
+    let Some(seconds) = stored.get("crossfadeSeconds").and_then(Value::as_u64) else {
+        return;
+    };
+    stored.insert("crossfadeEnabled".to_string(), Value::Bool(seconds > 0));
+    if seconds == 0 {
+        stored.remove("crossfadeSeconds");
+    }
 }
 
 /// 既定値の設定の1項目だけを`value`にした時に、設定として読めて、正しい値か
@@ -408,18 +510,30 @@ mod tests {
             startup_page: StartupPage::Songs,
             theme: Theme::System,
             accent_color: "#ff8800".to_string(),
+            volume_normalization_enabled: true,
             volume_normalization: VolumeNormalization::Album,
             normalization_preamp_db: -6,
+            normalization_untagged_preamp_db: -4,
+            normalization_prevent_clipping: false,
             gapless_playback: false,
-            crossfade_seconds: 5,
+            crossfade_enabled: true,
+            crossfade_seconds: 7,
+            crossfade_skip_album_tracks: false,
+            crossfeed_enabled: true,
+            crossfeed_level: CrossfeedLevel::Strong,
             output_device_id: Some("coreaudio:BuiltInSpeakerDevice".to_string()),
             watch_library_folders: true,
             library_scan_interval_minutes: 60,
             hidden_sidebar_items: vec![SidebarItem::Years, SidebarItem::PlayHistory],
             auto_dj: true,
             auto_dj_playlist_id: Some("b2000000-0000-4000-8000-000000000001".to_string()),
+            ai_shuffle_mode: crate::ai_shuffle::AiShuffleMode::RarelyPlayed,
             stay_in_menu_bar: true,
             global_shortcuts: true,
+            global_shortcut_keys: vec![GlobalShortcutKey {
+                action: crate::global_shortcuts::GlobalShortcutAction::VolumeUp,
+                shortcut: "super+shift+ArrowUp".to_string(),
+            }],
             notify_track_change: true,
             music_folder_template: "%artist%/%album%/%track% %title%".to_string(),
             copy_to_music_folder: false,
@@ -445,11 +559,22 @@ mod tests {
         // 項目を追加する前に保存したファイルでも、新しい項目は既定値になる
         assert_eq!(settings.theme, Theme::Dark);
         assert_eq!(settings.language, Language::Ja);
-        assert_eq!(settings.volume_normalization, VolumeNormalization::Off);
+        assert!(!settings.volume_normalization_enabled);
+        assert_eq!(settings.volume_normalization, VolumeNormalization::Auto);
+        // ゲインのない曲は補正せず、クリップ防止はオン（項目を足す前と同じ動き）
+        assert_eq!(settings.normalization_untagged_preamp_db, 0);
+        assert!(settings.normalization_prevent_clipping);
         assert!(settings.gapless_playback);
-        assert_eq!(settings.crossfade_seconds, 0);
+        assert!(!settings.crossfade_enabled);
+        assert_eq!(settings.crossfade_seconds, DEFAULT_CROSSFADE_SECONDS);
+        assert!(settings.crossfade_skip_album_tracks);
+        assert!(!settings.crossfeed_enabled);
+        assert_eq!(settings.crossfeed_level, CrossfeedLevel::Medium);
         assert_eq!(settings.output_device_id, None);
-        assert!(!settings.auto_sync_enabled());
+        // フォルダの監視は、既定でオン（起動時の再スキャンもする。ADR-120）
+        assert!(settings.watch_library_folders);
+        assert_eq!(settings.library_scan_interval_minutes, 0);
+        assert!(settings.auto_sync_enabled());
         assert!(settings.hidden_sidebar_items.is_empty());
         // 取り込む曲のコピーは、既定でオン（音楽フォルダを設定した時だけ効く）
         assert!(settings.copy_to_music_folder);
@@ -535,8 +660,82 @@ mod tests {
             crossfade_seconds,
             ..Settings::default()
         };
+        assert!(state.save(settings(MIN_CROSSFADE_SECONDS)).is_ok());
         assert!(state.save(settings(MAX_CROSSFADE_SECONDS)).is_ok());
         assert!(state.save(settings(MAX_CROSSFADE_SECONDS + 1)).is_err());
+        // オフは秒数ではなく`crossfade_enabled`で表す
+        assert!(state.save(settings(0)).is_err());
+    }
+
+    /// 音量の正規化のオン・オフの項目がない（単位の`off`がオフだった）ファイルを読む
+    #[test]
+    fn test_volume_normalization_without_enabled_field_is_migrated() {
+        let path = temp_settings_path("normalization-migration");
+        let load = |json: &str| {
+            fs::write(&path, json).unwrap();
+            let settings = load_settings(&path);
+            (
+                settings.volume_normalization_enabled,
+                settings.volume_normalization,
+            )
+        };
+        assert_eq!(
+            load(r#"{ "volumeNormalization": "track" }"#),
+            (true, VolumeNormalization::Track)
+        );
+        assert_eq!(
+            load(r#"{ "volumeNormalization": "album" }"#),
+            (true, VolumeNormalization::Album)
+        );
+        assert_eq!(
+            load(r#"{ "volumeNormalization": "auto" }"#),
+            (true, VolumeNormalization::Auto)
+        );
+        assert_eq!(
+            load(r#"{ "volumeNormalization": "off" }"#),
+            (false, VolumeNormalization::Auto)
+        );
+        // 読めない単位では、オンにしない
+        assert_eq!(
+            load(r#"{ "volumeNormalization": "smart" }"#),
+            (false, VolumeNormalization::Auto)
+        );
+        // オン・オフの項目があれば、そのまま使う
+        assert_eq!(
+            load(r#"{ "volumeNormalizationEnabled": false, "volumeNormalization": "track" }"#),
+            (false, VolumeNormalization::Track)
+        );
+        assert_eq!(
+            load(r#"{ "volumeNormalizationEnabled": true, "volumeNormalization": "off" }"#),
+            (true, VolumeNormalization::Auto)
+        );
+        fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    /// クロスフェードのオン・オフの項目がない（秒数の0がオフだった）ファイルを読む
+    #[test]
+    fn test_crossfade_without_enabled_field_is_migrated() {
+        let path = temp_settings_path("crossfade-migration");
+        let load = |json: &str| {
+            fs::write(&path, json).unwrap();
+            let settings = load_settings(&path);
+            (settings.crossfade_enabled, settings.crossfade_seconds)
+        };
+        assert_eq!(load(r#"{ "crossfadeSeconds": 3 }"#), (true, 3));
+        assert_eq!(
+            load(r#"{ "crossfadeSeconds": 0 }"#),
+            (false, DEFAULT_CROSSFADE_SECONDS)
+        );
+        // オン・オフの項目があれば、そのまま使う
+        assert_eq!(
+            load(r#"{ "crossfadeEnabled": false, "crossfadeSeconds": 3 }"#),
+            (false, 3)
+        );
+        assert_eq!(
+            load(r#"{ "crossfadeEnabled": true, "crossfadeSeconds": 0 }"#),
+            (true, DEFAULT_CROSSFADE_SECONDS)
+        );
+        fs::remove_dir_all(path.parent().unwrap()).ok();
     }
 
     #[test]
@@ -559,6 +758,18 @@ mod tests {
                 .is_err()
         );
         assert!(state.save(settings(i8::MIN)).is_err());
+
+        // ゲインのない曲のプリアンプも、同じ範囲
+        let untagged = |normalization_untagged_preamp_db| Settings {
+            normalization_untagged_preamp_db,
+            ..Settings::default()
+        };
+        assert!(state.save(untagged(-MAX_NORMALIZATION_PREAMP_DB)).is_ok());
+        assert!(
+            state
+                .save(untagged(MAX_NORMALIZATION_PREAMP_DB + 1))
+                .is_err()
+        );
     }
 
     #[test]
@@ -607,6 +818,40 @@ mod tests {
         let loaded = load_settings(&path);
         assert!(!loaded.gapless_playback);
         assert!(!loaded.auto_dj);
+        fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn test_ai_shuffle_mode_setting() {
+        // 既定は「似た曲」
+        assert_eq!(
+            Settings::default().ai_shuffle_mode,
+            crate::ai_shuffle::AiShuffleMode::Similar
+        );
+
+        let path = temp_settings_path("ai-shuffle");
+        // 項目がない（前のバージョンの）ファイルと、知らない選び方は、既定値で補う（ほかの項目は残す）
+        fs::write(&path, r#"{ "gaplessPlayback": false }"#).unwrap();
+        assert_eq!(
+            load_settings(&path).ai_shuffle_mode,
+            crate::ai_shuffle::AiShuffleMode::Similar
+        );
+        fs::write(
+            &path,
+            r#"{ "gaplessPlayback": false, "aiShuffleMode": "mood" }"#,
+        )
+        .unwrap();
+        let loaded = load_settings(&path);
+        assert!(!loaded.gapless_playback);
+        assert_eq!(
+            loaded.ai_shuffle_mode,
+            crate::ai_shuffle::AiShuffleMode::Similar
+        );
+        fs::write(&path, r#"{ "aiShuffleMode": "rarelyPlayed" }"#).unwrap();
+        assert_eq!(
+            load_settings(&path).ai_shuffle_mode,
+            crate::ai_shuffle::AiShuffleMode::RarelyPlayed
+        );
         fs::remove_dir_all(path.parent().unwrap()).ok();
     }
 
@@ -724,11 +969,16 @@ mod tests {
             ..Settings::default()
         };
         let interval = Settings {
+            watch_library_folders: false,
             library_scan_interval_minutes: 15,
             ..Settings::default()
         };
         assert!(watch.auto_sync_enabled());
         assert!(interval.auto_sync_enabled());
-        assert!(!Settings::default().auto_sync_enabled());
+        let off = Settings {
+            watch_library_folders: false,
+            ..Settings::default()
+        };
+        assert!(!off.auto_sync_enabled());
     }
 }

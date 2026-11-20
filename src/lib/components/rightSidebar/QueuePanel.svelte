@@ -2,7 +2,8 @@
   @component QueuePanel
   右サイドバーの再生キューのパネル。上部に再生中の曲を固定して出し、その下にキューの曲のリストを
   出す（再生し終えた曲も含めて、再生する順に並べ、再生中の曲の行を強調する）。
-  リストの曲は、ダブルクリック・Enterで再生し、ドラッグで並べ替え、Delete / Backspaceでキューから外せる。
+  リストの曲は、ダブルクリック・Enterで再生し、ドラッグで並べ替え（行の左端に、掴めることを示す目印を
+  出す）、Delete / Backspaceでキューから外せる。
   キューの全体は、プレイリストとして保存できる。
 -->
 <script lang="ts">
@@ -253,7 +254,7 @@
         tabindex={0}
         onkeydown={handleQueueKeydown}
       >
-        {#snippet row({ entryId, track }, index)}
+        {#snippet row({ entryId, track, autoAddedAfter }, index)}
           {@const isPlaying = entryId === playingEntryId}
           <!-- 行のドラッグで、キューの中の順を入れ替えられる -->
           <!-- キー操作は一覧（listbox）で受けるため、行はフォーカスを受けない -->
@@ -275,6 +276,17 @@
             aria-selected={activeEntryId === entryId}
             aria-current={isPlaying ? 'true' : undefined}
           >
+            <!-- 掴んで並べ替えられることを示す目印（ドラッグは、行のどこからでもできる） -->
+            <span class="drag-grip" title={m.rightSidebar.dragToReorder} aria-hidden="true">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 16" fill="currentColor">
+                <circle cx="3" cy="3" r="1.4" />
+                <circle cx="7" cy="3" r="1.4" />
+                <circle cx="3" cy="8" r="1.4" />
+                <circle cx="7" cy="8" r="1.4" />
+                <circle cx="3" cy="13" r="1.4" />
+                <circle cx="7" cy="13" r="1.4" />
+              </svg>
+            </span>
             <span class="track-number">
               {#if isPlaying}
                 <PlayingIndicator size="small" />
@@ -294,6 +306,22 @@
               <MarqueeText text={track.title || track.fileName} class="track-title" />
               <MarqueeText text={track.artist || m.common.unknownArtist} class="track-artist" />
             </div>
+            {#if autoAddedAfter !== undefined}
+              <!-- AIシャッフルが足した曲の印 -->
+              <span class="ai-added" title={m.rightSidebar.addedByAiShuffle}>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M10 3l1.9 5.1L17 10l-5.1 1.9L10 17l-1.9-5.1L3 10l5.1-1.9L10 3zm8 10l.95 2.05L21 16l-2.05.95L18 19l-.95-2.05L15 16l2.05-.95L18 13z"
+                  />
+                </svg>
+                <span class="sr-only">{m.rightSidebar.addedByAiShuffle}</span>
+              </span>
+            {/if}
             <button
               class="remove-btn"
               onclick={() => removeFromQueue(entryId)}
@@ -325,12 +353,28 @@
 <style>
   @reference "../../../app.css";
 
+  /* 左端は目印（`drag-grip`）を置くため、余白を詰める */
   .queue-track {
-    @apply flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer select-none transition-colors duration-200;
+    @apply flex items-center gap-2 pl-0.5 pr-2 py-1.5 rounded cursor-pointer select-none transition-colors duration-200;
   }
 
   .queue-track:hover {
     @apply bg-surface;
+  }
+
+  /* 掴んで並べ替えられることを示す目印。普段は薄く出し、ポインタを置いた行・現在位置の行では濃くする */
+  .drag-grip {
+    @apply flex items-center justify-center w-3 h-5 -mr-1 shrink-0 text-text-dimmed opacity-60
+           cursor-grab transition-opacity duration-200;
+  }
+
+  .drag-grip svg {
+    @apply w-2.5 h-4;
+  }
+
+  .queue-track:hover .drag-grip,
+  .queue-track.active .drag-grip {
+    @apply opacity-100 text-text-muted;
   }
 
   /* 現在位置の行（クリック・矢印キーで移す）。一覧にフォーカスがある間は、枠でも示す */
@@ -390,6 +434,15 @@
   .queue-track.playing .track-number,
   .queue-track.playing :global(.track-title) {
     @apply text-secondary;
+  }
+
+  /* AIシャッフルが足した曲の印 */
+  .ai-added {
+    @apply flex items-center shrink-0 text-secondary;
+  }
+
+  .ai-added svg {
+    @apply w-3 h-3;
   }
 
   .remove-btn {

@@ -2,6 +2,7 @@
   @component ArtistGrid
   アーティスト一覧のグリッド/リスト表示コンポーネント。
   LibraryGridを使用して共通ロジックを委譲し、アーティスト固有の表示をSnippetで実装。
+  グリッド表示で選んだアーティストのアルバムと曲は、グリッドの下の領域に出す（`ArtistDetail`。ADR-097）。
 -->
 <script lang="ts">
   import { useQueryClient } from '@tanstack/svelte-query';
@@ -13,6 +14,7 @@
   import LibraryGrid from './LibraryGrid.svelte';
   import MarqueeText from '../MarqueeText.svelte';
   import AlbumArt from '../AlbumArt.svelte';
+  import ArtistDetail from './ArtistDetail.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   // Props
@@ -69,6 +71,10 @@
   groupType="artist"
   onOpen={playArtist}
 >
+  {#snippet detail(artist, close)}
+    <ArtistDetail {artist} onClose={close} />
+  {/snippet}
+
   {#snippet emptyIcon()}
     <svg
       xmlns="http://www.w3.org/2000/svg"

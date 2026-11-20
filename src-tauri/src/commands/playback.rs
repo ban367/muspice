@@ -8,21 +8,45 @@ use super::run_blocking;
 use crate::error::{AppError, AppResult};
 use crate::media_controls::{MediaControls, NowPlayingUpdate};
 use crate::playback::{
-    MAX_SPEED, MIN_SPEED, OutputDevice, PlayRequest, PlaybackEngine, PlaybackTrackInfo,
+    AlbumPosition, MAX_SPEED, MIN_SPEED, OutputDevice, PlayRequest, PlaybackEngine,
+    PlaybackTrackInfo, TrackRegion,
 };
 use crate::state::AppState;
 use crate::validation::validate_track_id;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager, State};
 
-/// トラックIDから、再生するファイルと、音量の正規化に使う値を決める
+/// トラックIDから、再生するファイルと、音量の正規化・クロスフェードの判断に使う値を決める
 fn play_request(state: &AppState, track_id: &str, token: u32) -> AppResult<PlayRequest> {
     validate_track_id(track_id)?;
     let track = state.with_db(|db| crate::repository::find_track_by_id(db, track_id))?;
+    let album = track
+        .album
+        .as_deref()
+        .filter(|name| !name.trim().is_empty())
+        .map(|name| AlbumPosition {
+            artist: track.group_artist().map(str::to_string),
+            name: name.to_string(),
+            disc_number: track.disc_number,
+            track_number: track.track_number,
+        });
+    // CUEシートの曲は、元の音声ファイルの範囲を鳴らす（ADR-123）
+    let (path, region) = match &track.cue {
+        Some(cue) => (
+            PathBuf::from(&cue.source),
+            Some(TrackRegion {
+                start: u64::try_from(cue.start).unwrap_or(0),
+                end: cue.end.and_then(|end| u64::try_from(end).ok()),
+            }),
+        ),
+        None => (PathBuf::from(&track.file_path), None),
+    };
     Ok(PlayRequest {
         token,
-        path: PathBuf::from(track.file_path),
+        path,
+        region,
         replay_gain: track.replay_gain,
+        album,
     })
 }
 
@@ -123,15 +147,29 @@ pub async fn playback_stop(engine: State<'_, PlaybackEngine>) -> AppResult<()> {
     engine.stop()
 }
 
+/// シャッフルモードかを伝える（音量の正規化が自動の時に、トラック単位とアルバム単位を選ぶのに使う）
+///
+/// シャッフルモードはフロントエンドが持っており、起動時と切り替えのたびに送る。
+#[tauri::command]
+#[specta::specta]
+pub async fn playback_set_shuffle(
+    shuffle: bool,
+    engine: State<'_, PlaybackEngine>,
+) -> AppResult<()> {
+    engine.set_shuffle(shuffle)
+}
+
 /// イコライザの設定を変える（再生中の音にすぐに効く）
 ///
 /// `gains`は、バンドごとのゲイン（dB。31Hz〜16kHzの10個。範囲外の値は-12〜12に収める）。
+/// `preamp`は、全体の音量（dB。範囲外の値は-12〜12に収める）。
 /// 設定はフロントエンドが保存しており（`equalizer.svelte.ts`）、起動時と変更のたびに送る。
 #[tauri::command]
 #[specta::specta]
 pub async fn playback_set_equalizer(
     enabled: bool,
     gains: Vec<f32>,
+    preamp: f32,
     engine: State<'_, PlaybackEngine>,
 ) -> AppResult<()> {
     let gains: [f32; crate::playback::EQ_BANDS] = gains.try_into().map_err(|_| {
@@ -140,7 +178,7 @@ pub async fn playback_set_equalizer(
             crate::playback::EQ_BANDS
         ))
     })?;
-    engine.set_equalizer(enabled, &gains);
+    engine.set_equalizer(enabled, &gains, preamp);
     Ok(())
 }
 

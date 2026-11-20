@@ -624,6 +624,7 @@ mod tests {
 
     fn track(file_path: &str, title: Option<&str>, artist: Option<&str>) -> Track {
         Track {
+            cue: None,
             id: "id".to_string(),
             file_path: file_path.to_string(),
             file_name: file_path.rsplit('/').next().unwrap().to_string(),
@@ -650,6 +651,8 @@ mod tests {
             replay_gain: ReplayGain::default(),
             sort_tags: Default::default(),
             is_missing: false,
+            compilation: false,
+            details: Default::default(),
         }
     }
 

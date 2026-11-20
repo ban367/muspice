@@ -1,8 +1,10 @@
+mod ai_shuffle;
 mod album_art;
 mod ape_tag;
 mod atomic_file;
 mod backup;
 mod commands;
+mod cue;
 mod db;
 mod device;
 mod device_manifest;
@@ -15,6 +17,7 @@ mod events;
 mod file_organize;
 mod global_shortcuts;
 mod library;
+mod library_export;
 mod library_folder;
 mod library_sync;
 mod library_xml;
@@ -28,6 +31,7 @@ mod metadata;
 mod mini_player;
 mod models;
 mod multi_value;
+mod music_analysis;
 mod music_folder_copy;
 mod ogg_flac;
 mod opened_files;
@@ -56,34 +60,41 @@ use commands::{
     add_library_folder_exclusion, add_tracks_to_playlist, apply_metadata_changes,
     can_move_to_trash, cancel_conversion, cancel_device_sync, cancel_file_organize,
     cancel_library_folder_relocation, cancel_library_restore, cancel_loudness_scan,
-    cancel_music_folder_change, cancel_pending_import, clear_music_folder,
-    confirm_music_folder_change, convert_tracks, count_smart_playlist_tracks, create_playlist,
-    create_playlist_folder, create_playlist_with_tracks, create_smart_playlist, delete_playlist,
-    delete_playlist_folder, delete_tracks_command, delete_tracks_with_files_command,
-    export_all_playlists_m3u, export_library_backup, export_playlist_m3u, get_album_art_info,
-    get_album_artist_albums, get_album_tracks, get_albums, get_all_tracks, get_artist_albums,
-    get_artists, get_convert_formats, get_favorite_tracks, get_genre_tracks, get_genres,
-    get_global_shortcuts, get_library_folders, get_loudness_scan_status, get_most_played_tracks,
-    get_music_folder, get_output_devices, get_play_history, get_playback_state,
-    get_playlist_folders, get_playlist_tracks, get_playlists, get_settings, get_sync_devices,
-    get_track_lyrics, get_track_tags, get_unique_albums, get_unique_artists, get_unique_genres,
-    import_dropped_files, import_files, import_folder, import_library_xml, import_m3u_playlists,
-    import_pending_folders, increment_play_count, increment_skip_count, log_frontend_message,
-    move_playlist, open_project_page, organize_files, plan_conversion, plan_device_sync,
-    plan_file_organize, plan_library_folder_relocation, plan_library_restore, playback_pause,
-    playback_play, playback_resume, playback_seek, playback_set_equalizer, playback_set_next,
-    playback_set_speed, playback_set_volume, playback_stop, preview_music_folder_template,
-    refresh_library_metadata, register_sync_device, relink_sync_device, relocate_library_folder,
-    remove_album_art, remove_excluded_tracks, remove_library_folder,
-    remove_library_folder_exclusion, remove_missing_tracks, remove_sync_device,
-    remove_tracks_from_playlist, rename_playlist, rename_playlist_folder, reorder_playlist_folders,
-    reorder_playlist_tracks, reorder_playlists, rescan_library_folder, rescan_outside_tracks,
-    reshuffle_smart_playlists, restore_library_backup, run_device_sync, save_playback_state,
-    save_settings, search_tracks, set_album_art, set_favorite, set_mini_player, set_music_folder,
-    set_now_playing, set_playlist_description, set_rating, show_in_folder, start_loudness_scan,
-    take_opened_files, take_startup_notices, update_multiple_tracks_metadata,
-    update_smart_playlist, update_sync_device, update_track_metadata,
-    write_library_metadata_to_files,
+    cancel_music_folder_change, cancel_pending_import, confirm_music_folder_change, convert_tracks,
+    count_smart_playlist_tracks, create_playlist, create_playlist_folder,
+    create_playlist_with_tracks, create_smart_playlist, delete_playlist, delete_playlist_folder,
+    delete_tracks_command, delete_tracks_with_files_command, eject_sync_device,
+    export_all_playlists_m3u, export_library, export_library_backup, export_playlist_m3u,
+    find_missing_tracks_in_folder, get_album_art_info, get_album_artist_albums, get_album_tracks,
+    get_albums, get_all_tracks, get_artist_albums, get_artists, get_convert_formats,
+    get_favorite_tracks, get_genre_tracks, get_genres, get_global_shortcuts, get_library_folders,
+    get_loudness_scan_status, get_most_played_tracks, get_music_folder, get_output_devices,
+    get_play_history, get_playback_state, get_playlist_folders, get_playlist_tracks, get_playlists,
+    get_settings, get_sync_devices, get_sync_selection_summary, get_track_editor_position,
+    get_track_editor_tracks, get_track_lyrics, get_track_tags, get_unique_albums,
+    get_unique_artists, get_unique_genres, import_dropped_files, import_files, import_folder,
+    import_library_xml, import_m3u_playlists, import_pending_folders, increment_play_count,
+    increment_skip_count, locate_track_file, log_frontend_message, move_playlist,
+    move_track_editor, open_project_page, open_track_editor, organize_files, pick_album_art,
+    pick_music_folder, plan_conversion, plan_device_sync, plan_file_organize,
+    plan_library_folder_relocation, plan_library_restore, playback_pause, playback_play,
+    playback_resume, playback_seek, playback_set_equalizer, playback_set_next,
+    playback_set_shuffle, playback_set_speed, playback_set_volume, playback_stop,
+    preview_music_folder_template, refresh_library_metadata, register_sync_device,
+    relink_sync_device, relocate_library_folder, remove_album_art, remove_excluded_tracks,
+    remove_library_folder, remove_library_folder_exclusion, remove_missing_tracks,
+    remove_sync_device, remove_tracks_from_playlist, rename_playlist, rename_playlist_folder,
+    reorder_playlist_folders, reorder_playlist_tracks, reorder_playlists, rescan_library_folder,
+    rescan_outside_tracks, reshuffle_smart_playlists, restore_library_backup, run_device_sync,
+    save_playback_state, save_settings, search_tracks, set_album_art, set_favorite,
+    set_mini_player, set_music_folder, set_now_playing, set_playlist_description, set_rating,
+    show_in_folder, start_loudness_scan, take_opened_files, take_startup_notices,
+    update_multiple_tracks_metadata, update_smart_playlist, update_sync_device,
+    update_track_metadata, write_library_metadata_to_files,
+};
+use commands::{
+    delete_music_analysis, get_music_analysis_status, pick_ai_shuffle_track, start_music_analysis,
+    stop_music_analysis,
 };
 use state::AppState;
 use std::path::PathBuf;
@@ -116,6 +127,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             rescan_library_folder,
             rescan_outside_tracks,
             remove_missing_tracks,
+            locate_track_file,
+            find_missing_tracks_in_folder,
             add_library_folder_exclusion,
             remove_excluded_tracks,
             remove_library_folder_exclusion,
@@ -123,7 +136,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             set_music_folder,
             confirm_music_folder_change,
             cancel_music_folder_change,
-            clear_music_folder,
+            pick_music_folder,
             preview_music_folder_template,
             get_sync_devices,
             register_sync_device,
@@ -133,6 +146,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             plan_device_sync,
             run_device_sync,
             cancel_device_sync,
+            get_sync_selection_summary,
+            eject_sync_device,
             get_settings,
             save_settings,
             get_global_shortcuts,
@@ -169,9 +184,19 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             get_loudness_scan_status,
             start_loudness_scan,
             cancel_loudness_scan,
+            get_music_analysis_status,
+            start_music_analysis,
+            stop_music_analysis,
+            delete_music_analysis,
+            pick_ai_shuffle_track,
             get_album_art_info,
+            pick_album_art,
             set_album_art,
             remove_album_art,
+            open_track_editor,
+            get_track_editor_tracks,
+            get_track_editor_position,
+            move_track_editor,
             create_playlist,
             create_smart_playlist,
             update_smart_playlist,
@@ -197,6 +222,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             export_playlist_m3u,
             export_all_playlists_m3u,
             import_library_xml,
+            export_library,
             save_playback_state,
             get_playback_state,
             playback_play,
@@ -207,6 +233,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             playback_set_volume,
             playback_set_speed,
             playback_set_equalizer,
+            playback_set_shuffle,
             playback_stop,
             get_output_devices,
             set_now_playing,
@@ -231,21 +258,31 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             events::OrganizeProgress,
             events::LoudnessScanProgress,
             events::LoudnessScanFinished,
+            events::MusicAnalysisProgress,
             events::DeviceSyncProgress,
             events::LibraryChanged,
+            events::ClearPlayQueue,
+            events::TracksEdited,
+            events::TrackEditorChanged,
             events::ShowAboutDialog,
             events::OpenImportDialog,
             events::ImportFilesRequested,
             events::TracksOpened,
             events::ToggleSidebar,
             events::ToggleMiniPlayer,
+            events::MenuCommand,
             events::SettingsChanged,
             events::PlaybackEvent,
             events::PlaybackControl
         ])
         // 設定の値の範囲（フロントの設定画面・モックと共有する）
         .constant("DEFAULT_ACCENT_COLOR", settings::DEFAULT_ACCENT_COLOR)
+        .constant("MIN_CROSSFADE_SECONDS", settings::MIN_CROSSFADE_SECONDS)
         .constant("MAX_CROSSFADE_SECONDS", settings::MAX_CROSSFADE_SECONDS)
+        .constant(
+            "DEFAULT_CROSSFADE_SECONDS",
+            settings::DEFAULT_CROSSFADE_SECONDS,
+        )
         .constant("AAC_BITRATES_KBPS", transcode::AAC_BITRATES_KBPS)
         .constant(
             "DEFAULT_AAC_BITRATE_KBPS",
@@ -260,7 +297,10 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             "DEFAULT_MUSIC_FOLDER_TEMPLATE",
             settings::DEFAULT_MUSIC_FOLDER_TEMPLATE,
         )
+        .constant("DEFAULT_DEVICE_TEMPLATE", device::DEFAULT_DEVICE_TEMPLATE)
         .constant("AUTO_BACKUP_KEEP", backup::AUTO_BACKUP_KEEP)
+        // AIシャッフルで避ける曲（キューの今の位置の前後の件数。フロントが渡す）
+        .constant("AI_SHUFFLE_EXCLUSION_WINDOW", ai_shuffle::EXCLUSION_WINDOW)
 }
 
 /// ログファイル1つあたりの上限（超えたら日時付きの名前に変えて新しいファイルに切り替える）
@@ -388,16 +428,20 @@ pub fn run() {
             let mut startup_notices = Vec::new();
 
             // バックアップからの復元を用意してあれば、DBと設定を開く前に置き換える（ADR-073）
-            match backup::apply_staged_restore(&app_data_dir) {
-                Ok(true) => log::info!("Restored library data from backup"),
-                Ok(false) => {}
+            let restored_from_backup = match backup::apply_staged_restore(&app_data_dir) {
+                Ok(true) => {
+                    log::info!("Restored library data from backup");
+                    true
+                }
+                Ok(false) => false,
                 Err(e) => {
                     log::error!("Failed to restore from backup: {}", e);
                     startup_notices.push(startup::StartupNotice::RestoreFailed {
                         detail: e.to_string(),
                     });
+                    false
                 }
-            }
+            };
 
             // データベースを開く。壊れていれば別の名前で残し、空のライブラリで起動して知らせる
             let conn = match startup::open_database(&app_data_dir) {
@@ -443,7 +487,11 @@ pub fn run() {
                 initial_settings.stay_in_menu_bar,
                 initial_settings.language,
             );
-            global_shortcuts::apply(app.handle(), initial_settings.global_shortcuts);
+            global_shortcuts::apply(
+                app.handle(),
+                initial_settings.global_shortcuts,
+                &initial_settings.global_shortcut_keys,
+            );
 
             // ミニプレーヤー: 前回、小さな表示のまま終了していたら、ウィンドウを元の大きさに戻す
             let mini_player =
@@ -454,9 +502,13 @@ pub fn run() {
             app.manage(mini_player);
 
             // 前回の再生状態（音量・再生キューなど）を読み込む（ない・壊れている場合は空）
-            app.manage(playback_state::PlaybackStateStore::load(
-                app_data_dir.join("playback-state.json"),
-            ));
+            let playback_state =
+                playback_state::PlaybackStateStore::load(app_data_dir.join("playback-state.json"));
+            // バックアップから復元した時は、前のライブラリの曲をキューに残さない（#412）
+            if restored_from_backup && let Err(e) = playback_state.clear_queue() {
+                log::warn!("Failed to clear the play queue after restoring: {}", e);
+            }
+            app.manage(playback_state);
 
             // 再生エンジン（スレッドを始めるだけで、出力は最初に再生するときに開く）
             let playback_events = app.handle().clone();
@@ -485,12 +537,20 @@ pub fn run() {
             // デバイスへの同期の実行状態（同時に実行する同期は1つだけ）
             app.manage(device::DeviceSyncState::default());
             app.manage(loudness_scan::LoudnessScanState::default());
+            // 曲の解析（テンポ・キー）の実行状態。前回の起動で途中だったら、続きから再開する
+            app.manage(music_analysis::MusicAnalysisState::default());
+            music_analysis::resume(app.handle());
             app.manage(commands::ConvertState::default());
             app.manage(commands::OrganizeState::default());
             // ライブラリフォルダの付け替え先（選んでから、付け替えるかを決めるまで預かる）
             app.manage(commands::PendingRelocation::default());
+            // 曲の情報の編集画面（別のウィンドウ）で扱う曲と、選んだまだ書き込んでいない画像
+            app.manage(commands::TrackEditorState::default());
+            app.manage(commands::PendingAlbumArt::default());
             // 音楽フォルダの変更先（選んでから、ライブラリを置き換えるかを決めるまで預かる）
             app.manage(commands::PendingMusicFolder::default());
+            // 設定ウィンドウで選んで、「適用」を待っている音楽フォルダ
+            app.manage(commands::PickedMusicFolder::default());
             // 復元するバックアップ（選んでから、復元するかを決めるまで預かる）と、自動のバックアップ
             app.manage(commands::PendingRestore::default());
             backup::start(app.handle());
@@ -576,10 +636,27 @@ pub fn run() {
                     if let Some(control) = menu::playback_control(id) {
                         let _ = control.emit(app);
                     }
+                    // メインウィンドウで行う操作（新規プレイリスト・検索・「曲」メニューなど）
+                    if let Some(command) = menu::menu_command(id) {
+                        menu::send_menu_command(app, command);
+                    }
                 }
             }
         })
         .on_window_event(|window, event| {
+            // 曲の情報の編集画面を閉じたら、メインウィンドウを操作できるように戻す
+            if let tauri::WindowEvent::Destroyed = event
+                && window.label() == commands::TRACK_EDITOR_WINDOW
+            {
+                commands::on_track_editor_closed(window.app_handle());
+            }
+            // 編集画面を開いている間に、メインウィンドウを押した・アプリを前面に出した時は、
+            // 編集画面へ戻す（編集画面を閉じるまで、メインウィンドウを操作させない）
+            if let tauri::WindowEvent::Focused(true) = event
+                && window.label() == tray::MAIN_WINDOW
+            {
+                commands::focus_track_editor(window.app_handle());
+            }
             // メニューバーに常駐している間は、メインウィンドウを閉じても終了せず、隠すだけにする
             // （再生を続ける。アイコンのメニューから、もう一度表示できる）
             if let tauri::WindowEvent::CloseRequested { api, .. } = event

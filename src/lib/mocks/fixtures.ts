@@ -46,8 +46,12 @@ interface TrackSeed {
   album: string | null;
   /** アルバムアーティストのタグ（ない曲は、曲のアーティストでまとめられる） */
   albumArtist?: string;
+  /** コンピレーションの印（アルバムアーティストのない曲は「Various Artists」でまとめられる） */
+  compilation?: boolean;
   /** ファイルが見つからない曲（薄い表示・再生できない曲の確認用） */
   isMissing?: boolean;
+  /** 作曲者（作曲者の列・検索の確認用。ADR-115） */
+  composer?: string;
   /** 並び順に使う値（読み仮名。ソート用のタグ） */
   titleSort?: string;
   artistSort?: string;
@@ -86,7 +90,7 @@ const TRACK_SEEDS: TrackSeed[] = [
   // アルバム未設定（アーティスト表示では「不明なアルバム」に入る）
   { title: 'Untitled Demo', artist: 'The Voltage', album: null, genre: 'Electronic', year: null, trackNumber: null, duration: 95 },
   // アルバムアートなし（プレースホルダ表示の確認用）
-  { title: 'Blue in Green Room', artist: 'Mika Hayashi', album: 'Quiet Rooms', genre: 'Jazz', year: 2018, trackNumber: 1, duration: 368, format: 'flac', rating: 8, playCount: 5 },
+  { title: 'Blue in Green Room', artist: 'Mika Hayashi', album: 'Quiet Rooms', composer: 'Bill Evans', genre: 'Jazz', year: 2018, trackNumber: 1, duration: 368, format: 'flac', rating: 8, playCount: 5 },
   { title: 'Late Night Coffee', artist: 'Mika Hayashi', album: 'Quiet Rooms', genre: 'Jazz', year: 2018, trackNumber: 2, duration: 301, format: 'flac' },
   { title: 'Soft Landing', artist: 'Mika Hayashi', album: 'Quiet Rooms', genre: 'Jazz', year: 2018, trackNumber: 3, duration: 279, format: 'flac', playCount: 1, skipCount: 4 },
   // ジャンル未設定
@@ -147,6 +151,7 @@ function createTrack(seed: TrackSeed, index: number): Track {
     artist: seed.artist,
     album: seed.album,
     albumArtist: seed.albumArtist ?? null,
+    compilation: seed.compilation ?? false,
     genre: seed.genre,
     year: seed.year,
     trackNumber: seed.trackNumber,
@@ -180,7 +185,19 @@ function createTrack(seed: TrackSeed, index: number): Track {
       album: seed.albumSort ?? null,
       albumArtist: null
     },
-    isMissing: seed.isMissing ?? false
+    // 可逆の形式（FLAC）は24bit、ほかは16bit（MP3・AACは、ビット深度を持たない）として、列の確認に使う
+    details: {
+      composer: seed.composer ?? null,
+      grouping: null,
+      comment: null,
+      bpm: index % 4 === 0 ? 90 + index : null,
+      bitDepth: format === 'flac' ? 24 : format === 'mp3' ? null : 16,
+      channels: 2,
+      analyzedBpm: index % 3 === 0 ? 100 + index + 0.5 : null,
+      analyzedKey: index % 3 === 0 ? index % 24 : null
+    },
+    isMissing: seed.isMissing ?? false,
+    cue: null
   };
 }
 
@@ -237,7 +254,19 @@ export function createBulkTracks(count: number): Track[] {
       updatedAt: createdAt,
       replayGain: { trackGain: null, trackPeak: null, albumGain: null, albumPeak: null },
       sortTags: { title: null, artist: null, album: null, albumArtist: null },
-      isMissing: false
+      details: {
+        composer: null,
+        grouping: null,
+        comment: null,
+        bpm: null,
+        bitDepth: null,
+        channels: null,
+        analyzedBpm: null,
+        analyzedKey: null
+      },
+      isMissing: false,
+      cue: null,
+      compilation: false
     };
   });
 }

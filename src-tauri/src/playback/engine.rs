@@ -7,7 +7,7 @@
 //! コマンド → [エンジンのスレッド] デコード → 変換（ステレオ・出力のレート）
 //!                                   → 音量の正規化・クロスフェード → リングバッファ
 //!                                                                     ↓
-//!   [出力のコールバック] 再生速度 → イコライザ → 音量・一時停止 → リミッター → デバイス
+//!   [出力のコールバック] 再生速度 → イコライザ → クロスフィード → 音量・一時停止 → リミッター → デバイス
 //! ```
 //!
 //! 再生キューはフロントエンドが持つ。エンジンが持つのは「再生中の曲」と「続けて再生する曲」
@@ -23,12 +23,12 @@
 //! （`RenderShared::frames_read`）と、曲ごとの書き始めの位置（`Segment`）から求める。
 //!
 //! 音量の正規化（曲ごとの倍率）とクロスフェード（前の曲の終わりと次の曲の頭を重ねる）は、
-//! リングバッファへ書く前にここでかける。イコライザとリミッターは、出力のコールバックでかける
-//! （`effects`）。
+//! リングバッファへ書く前にここでかける。イコライザ・クロスフィード・リミッターは、出力のコールバックで
+//! かける（`effects`）。
 
 use super::block_decoder::catch_panic;
 use super::convert::{Converter, OUTPUT_CHANNELS};
-use super::decoder::TrackDecoder;
+use super::decoder::{TrackDecoder, TrackRegion};
 use super::effects::{EQ_BANDS, EffectParams};
 use super::normalization::{Normalization, normalization_gain};
 use super::output::{CpalBackend, OutputBackend, OutputEvent, OutputHandle};
@@ -37,7 +37,7 @@ use super::stretch::{MAX_SPEED, MIN_SPEED};
 use crate::error::{AppError, AppResult};
 use crate::events::PlaybackEvent;
 use crate::models::ReplayGain;
-use crate::settings::{MAX_CROSSFADE_SECONDS, Settings};
+use crate::settings::{CrossfeedLevel, MAX_CROSSFADE_SECONDS, Settings};
 use serde::Serialize;
 use specta::Type;
 use std::collections::VecDeque;
@@ -77,6 +77,10 @@ pub struct PlaybackOptions {
     pub normalization: Normalization,
     /// クロスフェードの秒数（0でクロスフェードしない）
     pub crossfade_seconds: u8,
+    /// 同じアルバムの続きの曲では、クロスフェードせずに切れ目なく続ける
+    pub crossfade_skip_album_tracks: bool,
+    /// クロスフィードの強さ（Noneは、クロスフィードしない）
+    pub crossfeed: Option<CrossfeedLevel>,
 }
 
 impl From<&Settings> for PlaybackOptions {
@@ -84,7 +88,15 @@ impl From<&Settings> for PlaybackOptions {
         Self {
             output_device_id: settings.output_device_id.clone(),
             normalization: Normalization::from(settings),
-            crossfade_seconds: settings.crossfade_seconds,
+            crossfade_seconds: if settings.crossfade_enabled {
+                settings.crossfade_seconds
+            } else {
+                0
+            },
+            crossfade_skip_album_tracks: settings.crossfade_skip_album_tracks,
+            crossfeed: settings
+                .crossfeed_enabled
+                .then_some(settings.crossfeed_level),
         }
     }
 }
@@ -99,8 +111,39 @@ pub struct PlayRequest {
     pub token: u32,
     /// 音声ファイルのパス
     pub path: PathBuf,
+    /// 曲の範囲（CUEシートの曲。ファイルの一部だけを鳴らす。ふつうの曲はNone。ADR-123）
+    pub region: Option<TrackRegion>,
     /// 音量の正規化に使うゲインとピーク（タグから読んだもの）
     pub replay_gain: ReplayGain,
+    /// アルバムの中の位置（アルバム名のない曲はNone。同じアルバムの続きの曲を見分ける）
+    pub album: Option<AlbumPosition>,
+}
+
+/// アルバムの中の、曲の位置
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AlbumPosition {
+    /// アルバムをまとめるアーティスト（`Track::group_artist`）
+    pub artist: Option<String>,
+    /// アルバム名
+    pub name: String,
+    pub disc_number: Option<i32>,
+    pub track_number: Option<i32>,
+}
+
+impl AlbumPosition {
+    /// `next`が、同じアルバムの曲順の次の曲か（同じディスクの次の番号、または次のディスクの1曲目）
+    ///
+    /// 曲番号のない曲は、続きかどうかが分からないため、続きとしない。ディスク番号のない曲は1枚目とする。
+    pub fn is_followed_by(&self, next: &AlbumPosition) -> bool {
+        if (&self.artist, &self.name) != (&next.artist, &next.name) {
+            return false;
+        }
+        let (Some(track), Some(next_track)) = (self.track_number, next.track_number) else {
+            return false;
+        };
+        let (disc, next_disc) = (self.disc_number.unwrap_or(1), next.disc_number.unwrap_or(1));
+        (next_disc == disc && next_track == track + 1) || (next_disc == disc + 1 && next_track == 1)
+    }
 }
 
 /// 再生を始めた曲の情報
@@ -134,7 +177,11 @@ enum Command {
     Stop,
     SetOutputDevice(Option<String>),
     SetNormalization(Normalization),
+    /// シャッフルモードか（音量の正規化の自動で、トラック単位とアルバム単位を選ぶ）
+    SetShuffle(bool),
     SetCrossfade(u8),
+    /// 同じアルバムの続きの曲では、クロスフェードしない
+    SetCrossfadeSkipAlbumTracks(bool),
     /// 出力からの通知（`generation`は、通知した出力を開いたときの番号）
     Output {
         generation: u64,
@@ -146,7 +193,7 @@ enum Command {
 /// 再生エンジン（エンジンのスレッドへコマンドを送る窓口）
 pub struct PlaybackEngine {
     commands: Sender<Command>,
-    /// イコライザの設定（出力のコールバックが直接読む）
+    /// イコライザ・クロスフィードの設定（出力のコールバックが直接読む）
     effects: Arc<EffectParams>,
 }
 
@@ -166,6 +213,7 @@ impl PlaybackEngine {
     ) -> Self {
         let (commands, receiver) = mpsc::channel();
         let effects = Arc::new(EffectParams::default());
+        effects.set_crossfeed(options.crossfeed);
         let engine_commands = commands.clone();
         let engine_effects = effects.clone();
         let spawned = thread::Builder::new()
@@ -227,18 +275,30 @@ impl PlaybackEngine {
         self.send(Command::SetOutputDevice(device_id))
     }
 
-    /// 設定の変更を反映する（出力デバイス・音量の正規化・クロスフェード）
+    /// 設定の変更を反映する（出力デバイス・音量の正規化・クロスフェード・クロスフィード）
     ///
     /// 出力デバイスが変わっていれば、再生中の曲を同じ位置から続ける。音量の正規化は、
     /// 再生中の曲にもすぐに（バッファにたまっている分の後から）効く。
     pub fn apply_options(&self, options: PlaybackOptions) -> AppResult<()> {
+        // クロスフィードは、出力のコールバックが直接読む（すぐに効く）
+        self.effects.set_crossfeed(options.crossfeed);
         self.send(Command::SetOutputDevice(options.output_device_id))?;
         self.send(Command::SetNormalization(options.normalization))?;
-        self.send(Command::SetCrossfade(options.crossfade_seconds))
+        self.send(Command::SetCrossfade(options.crossfade_seconds))?;
+        self.send(Command::SetCrossfadeSkipAlbumTracks(
+            options.crossfade_skip_album_tracks,
+        ))
     }
 
-    /// イコライザの設定を変える（`gains`は、バンドごとのゲイン（dB）。すぐに効く）
-    pub fn set_equalizer(&self, enabled: bool, gains: &[f32; EQ_BANDS]) {
+    /// シャッフルモードかを伝える（音量の正規化が自動の時に、トラック単位とアルバム単位を選ぶのに使う。
+    /// 再生中の曲にも、すぐに（バッファにたまっている分の後から）効く）
+    pub fn set_shuffle(&self, shuffle: bool) -> AppResult<()> {
+        self.send(Command::SetShuffle(shuffle))
+    }
+
+    /// イコライザの設定を変える（`gains`は、バンドごとのゲイン（dB）、`preamp_db`は全体の音量（dB）。すぐに効く）
+    pub fn set_equalizer(&self, enabled: bool, gains: &[f32; EQ_BANDS], preamp_db: f32) {
+        self.effects.set_equalizer_preamp(preamp_db);
         self.effects.set_equalizer(enabled, gains);
     }
 
@@ -269,6 +329,19 @@ fn engine_stopped() -> AppError {
 
 /// ファイルを開いてデコーダーを作る関数（テストでは、開くのに時間がかかるものに差し替える）
 type OpenDecoder = Arc<dyn Fn(&Path) -> AppResult<TrackDecoder> + Send + Sync>;
+
+/// デコーダーを開き、曲の範囲があれば、その範囲だけを返すようにする
+fn open_track(
+    open: &OpenDecoder,
+    path: &Path,
+    region: Option<TrackRegion>,
+) -> AppResult<TrackDecoder> {
+    let decoder = open(path)?;
+    match region {
+        Some(region) => decoder.with_region(region),
+        None => Ok(decoder),
+    }
+}
 
 /// `set_next`の結果を返す先
 ///
@@ -304,8 +377,10 @@ struct OpeningNext {
 struct Deck {
     token: u32,
     path: PathBuf,
+    region: Option<TrackRegion>,
     decoder: TrackDecoder,
     replay_gain: ReplayGain,
+    album: Option<AlbumPosition>,
     /// 音量の正規化の倍率（設定と`replay_gain`から決まる）
     gain: f32,
     /// 最後に書いた音声にかけた倍率（`gain`が変わった直後は、ここから滑らかに変える）
@@ -348,7 +423,9 @@ fn crossfade_gains(frame: u64, total_frames: u64) -> (f32, f32) {
 struct Segment {
     token: u32,
     path: PathBuf,
+    region: Option<TrackRegion>,
     replay_gain: ReplayGain,
+    album: Option<AlbumPosition>,
     /// この曲の音声を書き始めた位置（リングバッファへ書いたフレーム数の合計）
     start_frame: u64,
     /// 書き始めた位置の、曲の中での位置（秒。シークした場合は0以外）
@@ -439,8 +516,12 @@ struct Engine {
     /// イコライザの設定（開いた出力の`Renderer`へ渡す）
     effects: Arc<EffectParams>,
     normalization: Normalization,
+    /// シャッフルモードか（フロントエンドが伝える。音量の正規化の自動で使う）
+    shuffle: bool,
     /// クロスフェードの秒数（0でクロスフェードしない）
     crossfade_seconds: f64,
+    /// 同じアルバムの続きの曲では、クロスフェードしない
+    crossfade_skip_album_tracks: bool,
 }
 
 impl Engine {
@@ -458,7 +539,9 @@ impl Engine {
             device_id: options.output_device_id,
             effects,
             normalization: options.normalization,
+            shuffle: false,
             crossfade_seconds: f64::from(options.crossfade_seconds.min(MAX_CROSSFADE_SECONDS)),
+            crossfade_skip_album_tracks: options.crossfade_skip_album_tracks,
             fade: None,
             volume: 1.0,
             speed: 1.0,
@@ -594,18 +677,19 @@ impl Engine {
             }
             Command::SetNormalization(normalization) => {
                 self.normalization = normalization;
-                // 開いている曲の倍率を決め直す（次に書く音声から、滑らかに変わる）
-                let decks = [
-                    self.current.as_mut(),
-                    self.next.as_mut(),
-                    self.fade.as_mut().map(|fade| &mut fade.incoming),
-                ];
-                for deck in decks.into_iter().flatten() {
-                    deck.gain = normalization_gain(&deck.replay_gain, normalization);
+                self.update_gains();
+            }
+            Command::SetShuffle(shuffle) => {
+                if shuffle != self.shuffle {
+                    self.shuffle = shuffle;
+                    self.update_gains();
                 }
             }
             Command::SetCrossfade(seconds) => {
                 self.crossfade_seconds = f64::from(seconds.min(MAX_CROSSFADE_SECONDS));
+            }
+            Command::SetCrossfadeSkipAlbumTracks(skip) => {
+                self.crossfade_skip_album_tracks = skip;
             }
             Command::Output { generation, event } => {
                 if generation == self.output_generation {
@@ -653,14 +737,18 @@ impl Engine {
         self.latest_play_token = Some(request.token);
 
         // 続けて再生する曲として用意していた曲なら、開いてあるデコーダーをそのまま使う
-        let prepared = self.next.take().filter(|next| next.path == request.path);
+        let prepared = self
+            .next
+            .take()
+            .filter(|next| next.path == request.path && next.region == request.region);
         self.stop_playback();
 
         let decoder = match prepared {
             Some(deck) => deck.decoder,
-            None => (self.open_decoder)(&request.path)?,
+            None => open_track(&self.open_decoder, &request.path, request.region)?,
         };
-        let deck = Deck::new(request, decoder, self.normalization);
+        let gain = self.gain_of(&request.replay_gain);
+        let deck = Deck::new(request, decoder, gain);
         if self.output.is_none() {
             self.open_output()?;
         }
@@ -706,18 +794,20 @@ impl Engine {
             return;
         }
         // 同じ曲をすでに用意していれば、番号だけを付け替える
-        if let Some(next) = self.next.as_mut().filter(|next| next.path == request.path) {
+        if let Some(next) = self
+            .next
+            .as_mut()
+            .filter(|next| next.path == request.path && next.region == request.region)
+        {
             next.token = request.token;
             reply.send(Ok(()));
             return;
         }
         // 同じ曲を開いている途中なら、開き終えるのを待って、この要求の曲として用意する
         // （前の要求には、成功を返す）
-        if let Some(opening) = self
-            .opening
-            .as_mut()
-            .filter(|opening| opening.request.path == request.path)
-        {
+        if let Some(opening) = self.opening.as_mut().filter(|opening| {
+            opening.request.path == request.path && opening.request.region == request.region
+        }) {
             opening.request = request;
             opening.reply = reply;
             return;
@@ -734,12 +824,13 @@ impl Engine {
         let id = self.last_open_id;
         let open = self.open_decoder.clone();
         let path = request.path.clone();
+        let region = request.region;
         let commands = self.commands.clone();
         let spawned = thread::Builder::new()
             .name("playback-open-next".to_string())
             .spawn(move || {
                 // 壊れたファイルでパニックしても、結果（エラー）は必ず届ける
-                let result = catch_panic(|| open(&path));
+                let result = catch_panic(|| open_track(&open, &path, region));
                 // エンジンのスレッドが終わっていれば、届かなくてよい
                 let _ = commands.send(Command::NextOpened { id, result });
             });
@@ -769,7 +860,8 @@ impl Engine {
                 return;
             }
         };
-        let deck = Deck::new(opening.request, decoder, self.normalization);
+        let gain = self.gain_of(&opening.request.replay_gain);
+        let deck = Deck::new(opening.request, decoder, gain);
         if self.decode_finished && self.deferred_failure.is_none() {
             // 再生中の曲のデコードは終わっている（鳴り終わるのを待っている）ため、すぐに続ける
             self.start_next(deck);
@@ -935,17 +1027,42 @@ impl Engine {
 
     // ---------- クロスフェード ----------
 
+    /// 曲の音量を補正する倍率（設定と、シャッフルモードかから決める）
+    fn gain_of(&self, replay_gain: &ReplayGain) -> f32 {
+        normalization_gain(replay_gain, self.normalization, self.shuffle)
+    }
+
+    /// 開いている曲の倍率を決め直す（次に書く音声から、滑らかに変わる）
+    fn update_gains(&mut self) {
+        let (normalization, shuffle) = (self.normalization, self.shuffle);
+        let decks = [
+            self.current.as_mut(),
+            self.next.as_mut(),
+            self.fade.as_mut().map(|fade| &mut fade.incoming),
+        ];
+        for deck in decks.into_iter().flatten() {
+            deck.gain = normalization_gain(&deck.replay_gain, normalization, shuffle);
+        }
+    }
+
     /// 次の曲へクロスフェードする場合に、重ねる長さ（秒）と、始めるまでに書く前の曲のフレーム数
     /// （前の曲のサンプルレートでの数。0なら、今から始める）を返す
     ///
     /// 重ねる長さは、設定の秒数を上限に、どちらの曲も長さの半分まで、かつ前の曲の残りまで。
     /// 同じ曲の繰り返し（1曲リピート）と、長さの分からない曲は、クロスフェードせずに切れ目なく続ける。
+    /// 設定がオンなら、同じアルバムの続きの曲（`AlbumPosition::is_followed_by`）も、切れ目なく続ける。
     fn crossfade_plan(&self) -> Option<(f64, u64)> {
         if self.crossfade_seconds <= 0.0 {
             return None;
         }
         let (current, next) = (self.current.as_ref()?, self.next.as_ref()?);
-        if current.path == next.path {
+        if current.path == next.path && current.region == next.region {
+            return None;
+        }
+        if self.crossfade_skip_album_tracks
+            && let (Some(album), Some(next_album)) = (&current.album, &next.album)
+            && album.is_followed_by(next_album)
+        {
             return None;
         }
         let duration = current.decoder.duration_seconds()?;
@@ -1253,10 +1370,13 @@ impl Engine {
                 let request = PlayRequest {
                     token: front.token,
                     path: front.path.clone(),
+                    region: front.region,
                     replay_gain: front.replay_gain.clone(),
+                    album: front.album.clone(),
                 };
-                let decoder = (self.open_decoder)(&front.path)?;
-                (Deck::new(request, decoder, self.normalization), None)
+                let decoder = open_track(&self.open_decoder, &front.path, front.region)?;
+                let gain = self.gain_of(&request.replay_gain);
+                (Deck::new(request, decoder, gain), None)
             }
         };
         let position = deck.decoder.seek(seconds)?;
@@ -1465,14 +1585,15 @@ fn superseded() -> AppError {
 }
 
 impl Deck {
-    /// デコーダーを開いた曲から、デッキを作る（`normalization`は、音量の正規化の設定）
-    fn new(request: PlayRequest, decoder: TrackDecoder, normalization: Normalization) -> Self {
-        let gain = normalization_gain(&request.replay_gain, normalization);
+    /// デコーダーを開いた曲から、デッキを作る（`gain`は、音量の正規化の倍率）
+    fn new(request: PlayRequest, decoder: TrackDecoder, gain: f32) -> Self {
         Self {
             token: request.token,
             path: request.path,
+            region: request.region,
             decoder,
             replay_gain: request.replay_gain,
+            album: request.album,
             gain,
             applied_gain: gain,
         }
@@ -1483,7 +1604,9 @@ impl Deck {
         Segment {
             token: self.token,
             path: self.path.clone(),
+            region: self.region,
             replay_gain: self.replay_gain.clone(),
+            album: self.album.clone(),
             start_frame,
             base_seconds,
             duration: self.decoder.duration_seconds(),
@@ -1645,6 +1768,8 @@ mod tests {
             output_device_id: None,
             normalization: Normalization::OFF,
             crossfade_seconds: 0,
+            crossfade_skip_album_tracks: true,
+            crossfeed: None,
         }
     }
 
@@ -1652,7 +1777,9 @@ mod tests {
         PlayRequest {
             token,
             path: path.to_path_buf(),
+            region: None,
             replay_gain: ReplayGain::default(),
+            album: None,
         }
     }
 
@@ -1924,6 +2051,35 @@ mod tests {
             vec![PlaybackEvent::Ended { token: 1 }]
         );
         assert!(harness.engine.position().is_none());
+    }
+
+    /// CUEシートの曲は、ファイルの範囲だけを鳴らして終わる（ADR-123）
+    #[test]
+    fn test_plays_only_the_region_of_a_cue_track() {
+        let mut harness = Harness::new();
+        let path = harness.track("album.wav", 24_000);
+        // 1秒から2秒まで（8000Hzで、8000〜15999フレーム目）
+        let info = harness
+            .engine
+            .play(PlayRequest {
+                region: Some(TrackRegion {
+                    start: 75,
+                    end: Some(150),
+                }),
+                ..request(1, &path)
+            })
+            .unwrap();
+        harness.engine.tick();
+        assert_eq!(info.duration, Some(1.0));
+
+        let played = harness.render(10_000);
+        assert_eq!(played.len(), 8_000);
+        assert_sample(&played, 1_000, 9_000);
+        assert_sample(&played, 7_999, 15_999);
+        assert_eq!(
+            harness.take_transitions(),
+            vec![PlaybackEvent::Ended { token: 1 }]
+        );
     }
 
     #[test]
@@ -2970,6 +3126,36 @@ mod tests {
         assert_sample(&played, 400, 4_400);
     }
 
+    #[test]
+    fn test_auto_normalization_follows_the_shuffle_mode() {
+        let mut harness = Harness::with_options(PlaybackOptions {
+            normalization: VolumeNormalization::Auto.into(),
+            ..options()
+        });
+        let path = harness.track("a.wav", 16_000);
+        harness
+            .engine
+            .play(PlayRequest {
+                replay_gain: ReplayGain {
+                    track_gain: Some(-6.0),
+                    album_gain: Some(-12.0),
+                    ..ReplayGain::default()
+                },
+                ..request(1, &path)
+            })
+            .unwrap();
+        // シャッフルモードでない間は、アルバム単位
+        let played = harness.render(1_000);
+        let scaled = played[999] / expected(999);
+        assert!((scaled - from_db(-12.0)).abs() < 1e-3, "{scaled}");
+
+        // シャッフルモードにすると、バッファにたまっていた分の後から、トラック単位になる
+        harness.send(Command::SetShuffle(true));
+        let played = harness.render(9_000);
+        let scaled = played[8_999] / expected(9_999);
+        assert!((scaled - from_db(-6.0)).abs() < 1e-3, "{scaled}");
+    }
+
     // ---------- クロスフェード ----------
 
     /// クロスフェードの秒数を指定したハーネス
@@ -3027,6 +3213,74 @@ mod tests {
             harness.take_transitions(),
             vec![PlaybackEvent::Ended { token: 2 }]
         );
+    }
+
+    fn album_track(disc_number: Option<i32>, track_number: Option<i32>) -> AlbumPosition {
+        AlbumPosition {
+            artist: Some("Artist".to_string()),
+            name: "Album".to_string(),
+            disc_number,
+            track_number,
+        }
+    }
+
+    #[test]
+    fn test_album_position_is_followed_by_the_next_track_in_order() {
+        let first = album_track(Some(1), Some(3));
+        assert!(first.is_followed_by(&album_track(Some(1), Some(4))));
+        // 次のディスクの1曲目も続き
+        assert!(first.is_followed_by(&album_track(Some(2), Some(1))));
+        // ディスク番号のない曲は1枚目
+        assert!(album_track(None, Some(3)).is_followed_by(&album_track(Some(1), Some(4))));
+        // 番号が飛ぶ・戻る・同じ曲は続きではない
+        assert!(!first.is_followed_by(&album_track(Some(1), Some(5))));
+        assert!(!first.is_followed_by(&album_track(Some(1), Some(2))));
+        assert!(!first.is_followed_by(&album_track(Some(2), Some(2))));
+        // 曲番号のない曲は、分からないため続きとしない
+        assert!(!album_track(Some(1), None).is_followed_by(&album_track(Some(1), None)));
+        // 別のアルバム（名前・アーティストの違い）
+        let other_name = AlbumPosition {
+            name: "Other".to_string(),
+            ..album_track(Some(1), Some(4))
+        };
+        let other_artist = AlbumPosition {
+            artist: None,
+            ..album_track(Some(1), Some(4))
+        };
+        assert!(!first.is_followed_by(&other_name));
+        assert!(!first.is_followed_by(&other_artist));
+    }
+
+    #[test]
+    fn test_crossfade_is_skipped_between_consecutive_album_tracks() {
+        let play_album_tracks = |skip: bool| {
+            let mut harness = Harness::with_options(PlaybackOptions {
+                crossfade_seconds: 1,
+                crossfade_skip_album_tracks: skip,
+                ..options()
+            });
+            let first = harness.track("a.wav", 16_000); // 2秒
+            let second = harness.track("b.wav", 24_000); // 3秒
+            harness
+                .engine
+                .play(PlayRequest {
+                    album: Some(album_track(Some(1), Some(1))),
+                    ..request(1, &first)
+                })
+                .unwrap();
+            harness.engine.tick();
+            harness
+                .set_next_request(Some(PlayRequest {
+                    album: Some(album_track(Some(1), Some(2))),
+                    ..request(2, &second)
+                }))
+                .unwrap();
+            harness.render(60_000).len()
+        };
+        // 続きの曲は重ねず、切れ目なく続ける（全体の長さは2曲の合計）
+        assert_eq!(play_album_tracks(true), 16_000 + 24_000);
+        // 設定がオフなら、ほかの曲と同じく重ねる（重なった1秒だけ短くなる）
+        assert_eq!(play_album_tracks(false), 16_000 + 24_000 - 8_000);
     }
 
     #[test]
@@ -3360,8 +3614,12 @@ mod tests {
     fn test_options_are_taken_from_the_settings() {
         let settings = Settings {
             output_device_id: Some("usb-dac".to_string()),
+            volume_normalization_enabled: true,
             volume_normalization: VolumeNormalization::Album,
             normalization_preamp_db: -3,
+            normalization_untagged_preamp_db: -5,
+            normalization_prevent_clipping: false,
+            crossfade_enabled: true,
             crossfade_seconds: 7,
             ..Settings::default()
         };
@@ -3371,12 +3629,41 @@ mod tests {
             PlaybackOptions {
                 output_device_id: Some("usb-dac".to_string()),
                 normalization: Normalization {
-                    mode: VolumeNormalization::Album,
+                    mode: Some(VolumeNormalization::Album),
                     preamp_db: -3.0,
+                    untagged_preamp_db: -5.0,
+                    prevent_clipping: false,
                 },
                 crossfade_seconds: 7,
+                crossfade_skip_album_tracks: true,
+                crossfeed: None,
             }
         );
+        // クロスフィードは、オンの時だけ強さを渡す
+        let crossfeed = Settings {
+            crossfeed_enabled: true,
+            crossfeed_level: CrossfeedLevel::Strong,
+            ..Settings::default()
+        };
+        assert_eq!(
+            PlaybackOptions::from(&crossfeed).crossfeed,
+            Some(CrossfeedLevel::Strong)
+        );
+        // 正規化がオフの間は、覚えている単位を使わない
+        let normalization_off = Settings {
+            volume_normalization_enabled: false,
+            ..settings.clone()
+        };
+        assert_eq!(
+            PlaybackOptions::from(&normalization_off).normalization.mode,
+            None
+        );
+        // オフの間は、覚えている秒数を使わない
+        let disabled = Settings {
+            crossfade_enabled: false,
+            ..settings
+        };
+        assert_eq!(PlaybackOptions::from(&disabled).crossfade_seconds, 0);
     }
 
     /// 実際の出力デバイスで再生する（手動の確認用。音量を0にするため、音は出ない）

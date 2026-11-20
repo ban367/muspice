@@ -8,16 +8,19 @@ use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::{DialogExt, FileDialogBuilder};
 
+mod ai;
 mod album_art;
 mod backup;
 mod convert;
 mod devices;
 mod import;
+mod library_export;
 mod library_folders;
 mod library_xml;
 mod loudness;
 mod m3u;
 mod metadata_cmd;
+mod missing_tracks;
 mod music_folder;
 mod organize;
 mod playback;
@@ -26,6 +29,7 @@ mod playlist_cmd;
 mod settings;
 mod stats;
 mod system;
+mod track_editor;
 mod tracks;
 
 // インポート関連
@@ -45,19 +49,22 @@ pub use library_folders::{
     remove_excluded_tracks, remove_library_folder, remove_library_folder_exclusion,
     remove_missing_tracks, rescan_library_folder, rescan_outside_tracks,
 };
+// 見つからない曲の場所の指定と、フォルダから探して結び付け直す（ADR-117）
+pub use missing_tracks::{find_missing_tracks_in_folder, locate_track_file};
 // 自動の再スキャン（`library_sync`）が使う
 pub(crate) use library_folders::{rescan_folder, rescan_outside};
 
 // 音楽フォルダ（新しい曲を置く宛先）の設定と、書式の例
 pub use music_folder::{
-    PendingMusicFolder, cancel_music_folder_change, clear_music_folder,
-    confirm_music_folder_change, get_music_folder, preview_music_folder_template, set_music_folder,
+    PendingMusicFolder, PickedMusicFolder, cancel_music_folder_change, confirm_music_folder_change,
+    get_music_folder, pick_music_folder, preview_music_folder_template, set_music_folder,
 };
 
 // 転送先デバイス（SDカードなどのフォルダ）の登録・設定・同期
 pub use devices::{
-    cancel_device_sync, get_sync_devices, plan_device_sync, register_sync_device,
-    relink_sync_device, remove_sync_device, run_device_sync, update_sync_device,
+    cancel_device_sync, eject_sync_device, get_sync_devices, get_sync_selection_summary,
+    plan_device_sync, register_sync_device, relink_sync_device, remove_sync_device,
+    run_device_sync, update_sync_device,
 };
 
 // トラック取得・検索・フィルタリング・一覧（アルバム・アーティスト・ジャンル）・削除
@@ -82,11 +89,25 @@ pub use convert::{
 // 音量（ラウドネス）の解析
 pub use loudness::{cancel_loudness_scan, get_loudness_scan_status, start_loudness_scan};
 
+// 曲の解析（テンポ・キー）と、AIシャッフルの選曲
+pub use ai::{
+    delete_music_analysis, get_music_analysis_status, pick_ai_shuffle_track, start_music_analysis,
+    stop_music_analysis,
+};
+
 // ファイルの整理（タグに基づくリネーム・移動）
 pub use organize::{OrganizeState, cancel_file_organize, organize_files, plan_file_organize};
 
-// アルバムアートの編集（埋め込み・取り除き）と、情報の取得
-pub use album_art::{get_album_art_info, remove_album_art, set_album_art};
+// アルバムアートの編集（画像の選択・埋め込み・取り除き）と、情報の取得
+pub use album_art::{
+    PendingAlbumArt, get_album_art_info, pick_album_art, remove_album_art, set_album_art,
+};
+
+// 曲の情報の編集画面（別のウィンドウ。ADR-094）
+pub use track_editor::{
+    TRACK_EDITOR_WINDOW, TrackEditorState, focus_track_editor, get_track_editor_position,
+    get_track_editor_tracks, move_track_editor, on_track_editor_closed, open_track_editor,
+};
 
 // プレイリスト管理
 pub use playlist_cmd::{
@@ -99,6 +120,7 @@ pub use playlist_cmd::{
 };
 
 // ライブラリのXML（iTunes形式）の取り込み
+pub use library_export::export_library;
 pub use library_xml::import_library_xml;
 
 // プレイリストのM3Uの読み込み・書き出し
@@ -110,8 +132,8 @@ pub use player::{get_playback_state, save_playback_state};
 // 再生エンジンと、OSのNow Playing
 pub use playback::{
     get_output_devices, playback_pause, playback_play, playback_resume, playback_seek,
-    playback_set_equalizer, playback_set_next, playback_set_speed, playback_set_volume,
-    playback_stop, set_now_playing,
+    playback_set_equalizer, playback_set_next, playback_set_shuffle, playback_set_speed,
+    playback_set_volume, playback_stop, set_now_playing,
 };
 
 // 統計（お気に入り・レーティング・再生回数・スキップ回数・再生履歴）
@@ -186,6 +208,12 @@ fn completed_save_path(chosen: &Path, completed: PathBuf) -> AppResult<PathBuf> 
         )));
     }
     Ok(completed)
+}
+
+/// CUEシートの曲を含む操作を断る（ファイルを書き換える操作の前に呼ぶ。ADR-123）
+fn reject_cue_tracks(app: &AppHandle, track_ids: &[String]) -> AppResult<()> {
+    app.state::<crate::state::AppState>()
+        .with_db(|db| crate::repository::ensure_no_cue_tracks(db, track_ids))
 }
 
 /// 重い同期処理をブロッキング処理用のスレッドで実行する

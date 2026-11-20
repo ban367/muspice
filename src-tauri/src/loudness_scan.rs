@@ -151,8 +151,7 @@ pub struct ScanProgress {
 /// 曲の、アルバムのまとまりのキー（アルバムのタグがない曲はNone）
 fn album_key(track: &Track) -> Option<(String, Option<String>)> {
     let album = track.album.as_deref().filter(|album| !album.is_empty())?;
-    let artist = track.album_artist.clone().or_else(|| track.artist.clone());
-    Some((album.to_string(), artist))
+    Some((album.to_string(), track.group_artist().map(str::to_string)))
 }
 
 /// 解析するまとまりを決める
@@ -173,7 +172,11 @@ pub fn plan_units(tracks: &[Track], scope: &ScanScope) -> Vec<ScanUnit> {
 
     let mut units: Vec<ScanUnit> = Vec::new();
     let mut album_units: HashMap<(String, Option<String>), usize> = HashMap::new();
-    for track in tracks.iter().filter(|track| !track.is_missing) {
+    // CUEシートの曲は解析しない（1つのファイルに複数の曲があり、ゲインをタグに書けない。ADR-123）
+    for track in tracks
+        .iter()
+        .filter(|track| !track.is_missing && track.cue.is_none())
+    {
         match album_key(track) {
             Some(key) => {
                 let index = *album_units.entry(key).or_insert_with(|| {
@@ -428,6 +431,7 @@ mod tests {
         album_gain: Option<f64>,
     ) -> Track {
         Track {
+            cue: None,
             id: id.to_string(),
             file_path: format!("/music/{id}.flac"),
             file_name: format!("{id}.flac"),
@@ -459,6 +463,8 @@ mod tests {
             },
             sort_tags: Default::default(),
             is_missing: false,
+            compilation: false,
+            details: Default::default(),
         }
     }
 
@@ -716,7 +722,14 @@ mod tests {
         library
             .state
             .with_db(|db| {
-                crate::repository::relink_track(db, &id, moved.to_str().unwrap(), "moved.wav", None)
+                crate::repository::relink_track(
+                    db,
+                    &id,
+                    moved.to_str().unwrap(),
+                    "moved.wav",
+                    None,
+                    None,
+                )
             })
             .unwrap();
 
