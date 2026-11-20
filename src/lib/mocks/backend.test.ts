@@ -1344,14 +1344,63 @@ describe('プレイリスト', () => {
 
   it('グローバルホットキーは、保存した設定がオンの間だけ登録されている', async () => {
     const off = await commands.getGlobalShortcuts();
-    expect(off.map((shortcut) => shortcut.action)).toEqual(['toggle', 'next', 'previous']);
+    expect(off.map((shortcut) => shortcut.action)).toEqual([
+      'toggle',
+      'next',
+      'previous',
+      'volumeUp',
+      'volumeDown',
+      'toggleMute'
+    ]);
     expect(off.every((shortcut) => !shortcut.registered)).toBe(true);
     expect(off[0].keys.at(-1)).toBe('P');
+    // 音量とミュートは、既定では割り当てない
+    expect(off[3]).toMatchObject({ keys: [], shortcut: null });
 
     await commands.saveSettings({ ...(await commands.getSettings()), globalShortcuts: true });
     const on = await commands.getGlobalShortcuts();
     // 「次の曲」は、ほかのアプリが使っていて登録できなかったことにしている
-    expect(on.map((shortcut) => shortcut.registered)).toEqual([true, false, true]);
+    expect(on.map((shortcut) => shortcut.registered)).toEqual([
+      true,
+      false,
+      true,
+      false,
+      false,
+      false
+    ]);
+  });
+
+  it('グローバルホットキーの割り当てを変えられ、重なる割り当ては断る', async () => {
+    const settings = await commands.getSettings();
+    await commands.saveSettings({
+      ...settings,
+      globalShortcutKeys: [
+        ...settings.globalShortcutKeys,
+        { action: 'volumeUp', shortcut: 'shift+super+ArrowUp' }
+      ]
+    });
+    const list = await commands.getGlobalShortcuts();
+    expect(list[3]).toMatchObject({
+      keys: ['Shift', 'Command', '↑'],
+      shortcut: 'shift+super+ArrowUp'
+    });
+
+    const rejected = { code: 'VALIDATION' };
+    await expect(
+      commands.saveSettings({
+        ...settings,
+        globalShortcutKeys: [
+          { action: 'toggle', shortcut: 'control+alt+KeyP' },
+          { action: 'next', shortcut: 'control+alt+KeyP' }
+        ]
+      })
+    ).rejects.toMatchObject(rejected);
+    await expect(
+      commands.saveSettings({
+        ...settings,
+        globalShortcutKeys: [{ action: 'toggle', shortcut: 'KeyP' }]
+      })
+    ).rejects.toMatchObject(rejected);
   });
 
   it('ミニプレーヤーへの切り替えを受け取る', async () => {

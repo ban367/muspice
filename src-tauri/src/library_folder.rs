@@ -55,12 +55,14 @@ pub struct LibraryFolder {
 }
 
 /// ネットワーク上のファイルシステムの種類（`mount`が出す名前）
+#[cfg(any(target_os = "macos", test))]
 const NETWORK_FILESYSTEMS: [&str; 7] = ["smbfs", "afpfs", "nfs", "nfs4", "webdav", "cifs", "ftp"];
 
 /// `mount`の出力から、ネットワーク上のボリュームのマウント先を取り出す
 ///
 /// macOSの形式（`装置 on マウント先 (種類, 設定...)`）と、Linuxの形式
 /// （`装置 on マウント先 type 種類 (設定...)`）を読む。マウント先に空白があっても読める。
+#[cfg(any(target_os = "macos", test))]
 pub fn parse_network_mount_points(mount_output: &str) -> Vec<std::path::PathBuf> {
     mount_output
         .lines()

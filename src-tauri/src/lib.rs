@@ -486,7 +486,11 @@ pub fn run() {
                 initial_settings.stay_in_menu_bar,
                 initial_settings.language,
             );
-            global_shortcuts::apply(app.handle(), initial_settings.global_shortcuts);
+            global_shortcuts::apply(
+                app.handle(),
+                initial_settings.global_shortcuts,
+                &initial_settings.global_shortcut_keys,
+            );
 
             // ミニプレーヤー: 前回、小さな表示のまま終了していたら、ウィンドウを元の大きさに戻す
             let mini_player =

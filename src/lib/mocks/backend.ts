@@ -85,6 +85,8 @@ import {
   smartRulesError,
   type SmartPlaylistContext
 } from './smartPlaylist.js';
+import { shortcutKeyNames } from '#lib/utils/globalShortcut.js';
+import type { GlobalShortcutAction } from '#lib/types/models.js';
 import { createAlbumArt } from './media';
 import { organizedRelativePath, parseOrganizeTemplate, planOrganize } from './fileOrganize';
 import { createMockPlaybackEngine, MOCK_OUTPUT_DEVICES } from './playbackEngine';
@@ -410,6 +412,16 @@ function devicePathOf(track: Track, template: string, transcode = false): string
   const extension = transcode ? '.m4a' : /\.[A-Za-z0-9]+$/.exec(track.filePath)?.[0].toLowerCase();
   return organizedRelativePath(parseOrganizeTemplate(template), track, extension);
 }
+
+/** グローバルホットキーの操作（Rustの`GlobalShortcutAction::ALL`と同じ順） */
+const GLOBAL_SHORTCUT_ACTIONS: GlobalShortcutAction[] = [
+  'toggle',
+  'next',
+  'previous',
+  'volumeUp',
+  'volumeDown',
+  'toggleMute'
+];
 
 /** 再生状態を保存するキー（`storage`を渡した場合） */
 const PLAYBACK_STATE_KEY = 'muspice-mock:playback-state';
@@ -753,6 +765,11 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     aiShuffleMode: 'similar',
     stayInMenuBar: false,
     globalShortcuts: false,
+    globalShortcutKeys: [
+      { action: 'toggle', shortcut: 'control+alt+KeyP' },
+      { action: 'next', shortcut: 'control+alt+Period' },
+      { action: 'previous', shortcut: 'control+alt+Comma' }
+    ],
     notifyTrackChange: false,
     musicFolderTemplate: DEFAULT_MUSIC_FOLDER_TEMPLATE,
     copyToMusicFolder: true,
@@ -3384,28 +3401,40 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       return null;
     },
     getSettings: () => settings,
-    // 実装と同じく、保存した設定がオンの間だけ登録されている。モックでは「次の曲」だけ、
-    // ほかのアプリが使っていて登録できなかったことにする（設定画面の表示の確認用）
-    getGlobalShortcuts: () => {
-      const modifiers = ['Control', 'Option'];
-      return (
-        [
-          ['toggle', 'P', true],
-          ['next', '.', false],
-          ['previous', ',', true]
-        ] as const
-      ).map(([action, key, available]) => ({
-        action,
-        keys: [...modifiers, key],
-        registered: settings.globalShortcuts && available
-      }));
-    },
+    // 実装と同じく、保存した設定がオンの間だけ登録されている。モックでは`control+alt+Period`
+    // （既定の「次の曲」）だけ、ほかのアプリが使っていて登録できなかったことにする（設定画面の表示の確認用）
+    getGlobalShortcuts: () =>
+      GLOBAL_SHORTCUT_ACTIONS.map((action) => {
+        const shortcut =
+          settings.globalShortcutKeys.find((key) => key.action === action)?.shortcut ?? null;
+        return {
+          action,
+          keys: shortcut === null ? [] : shortcutKeyNames(shortcut),
+          shortcut,
+          registered:
+            settings.globalShortcuts && shortcut !== null && shortcut !== 'control+alt+Period'
+        };
+      }),
     // ウィンドウの大きさは変えられないため、切り替えたことだけを覚える
     setMiniPlayer: (enabled, alwaysOnTop) => {
       miniPlayerWindow = { enabled, alwaysOnTop: enabled && alwaysOnTop };
       return null;
     },
     saveSettings: (next) => {
+      // ホットキーの割り当て（Rustの`global_shortcuts::validate_keys`）
+      const shortcuts = next.globalShortcutKeys.map((key) => key.shortcut);
+      const actions = next.globalShortcutKeys.map((key) => key.action);
+      if (
+        next.globalShortcutKeys.some(
+          (key) =>
+            shortcutKeyNames(key.shortcut).length === 0 ||
+            !/(control|alt|super)\+/.test(key.shortcut)
+        ) ||
+        new Set(shortcuts).size !== shortcuts.length ||
+        new Set(actions).size !== actions.length
+      ) {
+        fail('VALIDATION', 'ホットキーの割り当てが正しくありません');
+      }
       if (!/^#[0-9a-fA-F]{6}$/.test(next.accentColor)) {
         fail('VALIDATION', 'アクセントカラーは#rrggbb形式で指定してください');
       }

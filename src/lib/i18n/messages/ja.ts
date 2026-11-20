@@ -1359,9 +1359,20 @@ export const ja = {
     globalShortcutActions: {
       toggle: '再生 / 一時停止',
       next: '次の曲',
-      previous: '前の曲'
+      previous: '前の曲',
+      volumeUp: '音量を上げる',
+      volumeDown: '音量を下げる',
+      toggleMute: 'ミュート'
     },
     globalShortcutUnavailable: 'ほかのアプリが使っているため、登録できませんでした',
+    /** ホットキーの割り当ての変更（ADR-122） */
+    globalShortcutChange: '変更',
+    globalShortcutClear: '解除',
+    globalShortcutUnassigned: '割り当てなし',
+    globalShortcutRecording: '割り当てるキーを押してください（Escで取り消し）',
+    globalShortcutNeedsModifier: 'Control・Option・Commandのどれかと一緒に押してください',
+    globalShortcutUnsupported: 'このキーは割り当てられません',
+    globalShortcutInUse: (action: string) => `「${action}」に割り当てています`,
     /** 再生の設定の見出しの下（音の設定は、右サイドバーのパネルにある） */
     soundPanelNote:
       'リプレイゲイン・ギャップレス再生・クロスフェード・イコライザ・クロスフィードは、右サイドバーの「サウンド」で変えます',

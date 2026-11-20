@@ -15,8 +15,10 @@
     Settings,
     SidebarItem,
     StartupPage,
-    Theme
+    Theme,
+    GlobalShortcutAction
   } from '#lib/types/models.js';
+  import { recordShortcut, shortcutKeyNames } from '#lib/utils/globalShortcut.js';
   import { applyAccentColor, applyTheme } from '#lib/utils/theme.js';
   import { applyLanguage, m } from '#lib/i18n/i18n.svelte.js';
   // 設定の値の範囲はRust側（settings.rs）の定数をtauri-spectaで共有する
@@ -101,6 +103,77 @@
   const globalShortcuts = $derived(globalShortcutsQuery.data ?? []);
   const isGlobalShortcutsSaved = $derived(settingsQuery.data?.globalShortcuts ?? false);
 
+  // ホットキーの割り当ての記録（「変更」を押してから、次に押した組み合わせを割り当てる。ADR-122）
+  let recordingAction = $state<GlobalShortcutAction | null>(null);
+  let shortcutError = $state<string | null>(null);
+
+  // 一般のセクションを離れたら、記録をやめる（見えない行の割り当てを、押したキーで変えない）
+  $effect(() => {
+    if (activeSection !== 'general') {
+      recordingAction = null;
+      shortcutError = null;
+    }
+  });
+
+  /** 入力中の割り当て（割り当てのない操作はnull） */
+  function pendingShortcut(action: GlobalShortcutAction): string | null {
+    return pending?.globalShortcutKeys.find((key) => key.action === action)?.shortcut ?? null;
+  }
+
+  /** 保存した割り当て（登録できなかった知らせを、保存した割り当てにだけ出す） */
+  function savedShortcut(action: GlobalShortcutAction): string | null {
+    return (
+      settingsQuery.data?.globalShortcutKeys.find((key) => key.action === action)?.shortcut ?? null
+    );
+  }
+
+  function setShortcut(action: GlobalShortcutAction, shortcut: string | null) {
+    if (!pending) return;
+    const others = pending.globalShortcutKeys.filter((key) => key.action !== action);
+    pending.globalShortcutKeys = shortcut === null ? others : [...others, { action, shortcut }];
+  }
+
+  function startRecording(action: GlobalShortcutAction) {
+    recordingAction = action;
+    shortcutError = null;
+  }
+
+  /** 割り当てを記録している間は、押したキーを割り当てにする（Escで取り消す） */
+  function handleShortcutKeydown(event: KeyboardEvent) {
+    const action = recordingAction;
+    if (action === null || activeSection !== 'general') return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.code === 'Escape' && !event.ctrlKey && !event.altKey && !event.metaKey) {
+      recordingAction = null;
+      shortcutError = null;
+      return;
+    }
+    const recorded = recordShortcut(event);
+    switch (recorded.kind) {
+      case 'modifierOnly':
+        return;
+      case 'needsModifier':
+        shortcutError = m.settings.globalShortcutNeedsModifier;
+        return;
+      case 'unsupported':
+        shortcutError = m.settings.globalShortcutUnsupported;
+        return;
+    }
+    const other = pending?.globalShortcutKeys.find(
+      (key) => key.action !== action && key.shortcut === recorded.shortcut
+    );
+    if (other) {
+      shortcutError = m.settings.globalShortcutInUse(
+        m.settings.globalShortcutActions[other.action]
+      );
+      return;
+    }
+    setShortcut(action, recorded.shortcut);
+    recordingAction = null;
+    shortcutError = null;
+  }
+
   // 出力デバイスの一覧（再生の設定を開いている間だけ取得する）
   const outputDevicesQuery = useOutputDevicesQuery(() => activeSection === 'playback');
   // 選んであるデバイスが一覧にない（接続されていない）場合も、選択肢として残す
@@ -184,6 +257,9 @@
     await getCurrentWebviewWindow().close();
   }
 </script>
+
+<!-- ホットキーの割り当てを記録している間だけ、押したキーを受け取る -->
+<svelte:window onkeydowncapture={handleShortcutKeydown} />
 
 <div class="settings-container">
   <!-- サイドバー -->
@@ -457,18 +533,45 @@
             </label>
             <p class="setting-description">{m.settings.globalShortcutsHint}</p>
             <ul class="shortcut-list">
-              {#each globalShortcuts as shortcut (shortcut.action)}
+              {#each globalShortcuts as info (info.action)}
+                {@const shortcut = pendingShortcut(info.action)}
                 <li class="shortcut-item">
                   <span class="shortcut-action">
-                    {m.settings.globalShortcutActions[shortcut.action]}
+                    {m.settings.globalShortcutActions[info.action]}
                   </span>
                   <span class="shortcut-keys">
-                    {#each shortcut.keys as key, index (index)}
-                      {#if index > 0}<span class="shortcut-plus">+</span>{/if}<kbd>{key}</kbd>
-                    {/each}
+                    {#if recordingAction === info.action}
+                      <span class="shortcut-recording" role="status">
+                        {m.settings.globalShortcutRecording}
+                      </span>
+                    {:else if shortcut === null}
+                      <span class="shortcut-none">{m.settings.globalShortcutUnassigned}</span>
+                    {:else}
+                      {#each shortcutKeyNames(shortcut) as key, index (index)}
+                        {#if index > 0}<span class="shortcut-plus">+</span>{/if}<kbd>{key}</kbd>
+                      {/each}
+                    {/if}
                   </span>
+                  <button
+                    type="button"
+                    class="btn-secondary shortcut-button"
+                    onclick={() => startRecording(info.action)}
+                    disabled={recordingAction !== null}
+                  >
+                    {m.settings.globalShortcutChange}
+                  </button>
+                  {#if shortcut !== null}
+                    <button
+                      type="button"
+                      class="btn-secondary shortcut-button"
+                      onclick={() => setShortcut(info.action, null)}
+                      disabled={recordingAction !== null}
+                    >
+                      {m.settings.globalShortcutClear}
+                    </button>
+                  {/if}
                   <!-- 保存した設定がオンなのに登録されていない組み合わせ（ほかのアプリが使っている） -->
-                  {#if isGlobalShortcutsSaved && pending.globalShortcuts && !shortcut.registered}
+                  {#if isGlobalShortcutsSaved && pending.globalShortcuts && shortcut !== null && shortcut === savedShortcut(info.action) && !info.registered}
                     <span class="shortcut-warning" role="status">
                       {m.settings.globalShortcutUnavailable}
                     </span>
@@ -476,6 +579,9 @@
                 </li>
               {/each}
             </ul>
+            {#if shortcutError}
+              <p class="shortcut-warning mt-2" role="alert">{shortcutError}</p>
+            {/if}
           </div>
         </section>
       {:else if activeSection === 'playback'}
@@ -631,6 +737,19 @@
 
   .shortcut-warning {
     @apply text-xs text-warning;
+  }
+
+  .shortcut-button {
+    @apply px-2 py-0.5 text-xs;
+  }
+
+  .shortcut-none,
+  .shortcut-recording {
+    @apply text-xs text-text-muted;
+  }
+
+  .shortcut-recording {
+    @apply text-primary;
   }
 
   .settings-main {
