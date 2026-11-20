@@ -1578,15 +1578,31 @@ export type GlobalShortcutAction =
 /**  次の曲へ進む */
 "next" | 
 /**  前の曲へ戻る */
-"previous";
+"previous" | 
+/**  音量を1段階上げる・下げる */
+"volumeUp" | "volumeDown" | 
+/**  ミュートを切り替える */
+"toggleMute";
 
 /**  グローバルホットキーの割り当てと、登録の状態（設定画面に出す） */
 export type GlobalShortcutInfo = {
 	action: GlobalShortcutAction,
-	/**  キーの名前（押す順。例: `["Control", "Option", "P"]`） */
+	/**  キーの名前（押す順。例: `["Control", "Option", "P"]`。割り当てがなければ空） */
 	keys: string[],
-	/**  OSに登録できているか（設定がオフの間は、どれも`false`） */
+	/**  割り当て（`control+alt+KeyP`の形。割り当てがなければnull） */
+	shortcut: string | null,
+	/**  OSに登録できているか（設定がオフの間・割り当てがない操作は`false`） */
 	registered: boolean,
+};
+
+/**  グローバルホットキーの1つの割り当て */
+export type GlobalShortcutKey = {
+	action: GlobalShortcutAction,
+	/**
+	 *  組み合わせ（`control+alt+KeyP`の形。修飾キーは`control`・`alt`・`shift`・`super`、キーは
+	 *  `KeyboardEvent.code`と同じ名前）
+	 */
+	shortcut: string,
 };
 
 /**  メニュー「ファイルをインポート...」: インポートダイアログを開き、ファイルを選ぶダイアログを出す */
@@ -2442,6 +2458,8 @@ export type Settings = {
 	stayInMenuBar: boolean,
 	/**  グローバルホットキー（ほかのアプリを使っている間も効くショートカット）を使う */
 	globalShortcuts: boolean,
+	/**  グローバルホットキーの割り当て（操作ごとに1つまで。割り当てのない操作は含めない。ADR-122） */
+	globalShortcutKeys: GlobalShortcutKey[],
 	/**  曲が変わった時に、OSの通知で知らせる（ウィンドウが前面にない時だけ） */
 	notifyTrackChange: boolean,
 	/**
