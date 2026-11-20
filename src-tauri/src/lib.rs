@@ -16,6 +16,7 @@ mod events;
 mod file_organize;
 mod global_shortcuts;
 mod library;
+mod library_export;
 mod library_folder;
 mod library_sync;
 mod library_xml;
@@ -62,7 +63,7 @@ use commands::{
     count_smart_playlist_tracks, create_playlist, create_playlist_folder,
     create_playlist_with_tracks, create_smart_playlist, delete_playlist, delete_playlist_folder,
     delete_tracks_command, delete_tracks_with_files_command, eject_sync_device,
-    export_all_playlists_m3u, export_library_backup, export_playlist_m3u,
+    export_all_playlists_m3u, export_library, export_library_backup, export_playlist_m3u,
     find_missing_tracks_in_folder, get_album_art_info, get_album_artist_albums, get_album_tracks,
     get_albums, get_all_tracks, get_artist_albums, get_artists, get_convert_formats,
     get_favorite_tracks, get_genre_tracks, get_genres, get_global_shortcuts, get_library_folders,
@@ -220,6 +221,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             export_playlist_m3u,
             export_all_playlists_m3u,
             import_library_xml,
+            export_library,
             save_playback_state,
             get_playback_state,
             playback_play,

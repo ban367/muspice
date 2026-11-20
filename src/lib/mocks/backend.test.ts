@@ -2227,6 +2227,26 @@ describe('見つからない曲', () => {
   });
 });
 
+describe('ライブラリの書き出し', () => {
+  it('選んだ場所へ書き出し、曲数とプレイリスト数を返す（選ばなければnull）', async () => {
+    backend.setFolderResult(null);
+    expect(await commands.exportLibrary('xml')).toBeNull();
+
+    backend.setFolderResult('/Users/demo/Desktop');
+    const tracks = await commands.getAllTracks();
+    const xml = await commands.exportLibrary('xml');
+    expect(xml).toMatchObject({
+      path: '/Users/demo/Desktop/Muspice Library.xml',
+      trackCount: tracks.length
+    });
+    expect(xml?.playlistCount).toBeGreaterThan(0);
+    expect(await commands.exportLibrary('csv')).toMatchObject({
+      path: '/Users/demo/Desktop/Muspice Library.csv',
+      playlistCount: 0
+    });
+  });
+});
+
 describe('ライブラリフォルダ', () => {
   it('ネットワーク上のボリュームのフォルダには印を付ける', async () => {
     const before = await commands.getLibraryFolders();

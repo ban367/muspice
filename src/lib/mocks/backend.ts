@@ -3755,6 +3755,16 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       errors: []
     }),
     // モックの値はすべて「ファイルと同じ」として扱う（書き込みは行わない）
+    // 実装はRust側の保存のダイアログで場所を選ぶ。モックは`setFolderResult`のフォルダに書いたことにする
+    // （nullなら選ばずに閉じた）
+    exportLibrary: (format) => {
+      if (folderResult === null) return null;
+      return {
+        path: `${normalizeFolderPath(folderResult)}/Muspice Library.${format}`,
+        trackCount: tracks.length,
+        playlistCount: format === 'xml' ? playlists.length : 0
+      };
+    },
     importLibraryXml: (includePlaylists) => {
       // ファイルを選ぶダイアログ（Rust側が開く）の代わりに、決まった内容のXMLを選んだことにする:
       // 先頭の8曲に、今より多い再生回数・古い追加日が書かれている（2回目からは変わらない）
