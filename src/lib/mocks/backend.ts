@@ -3277,7 +3277,11 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       validatePlaylistId(playlistId);
       const playlist = findPlaylist(playlistId);
       // 保存先を選ぶダイアログ（Rust側が開く）の代わりに、プレイリスト名のファイルへ書いたことにする
-      return { fileName: `${playlist.name}.m3u8`, trackCount: playlistTracks(playlist).length };
+      // CUEシートの曲は書かない（ほかのアプリが読めるファイルがない。ADR-123）
+      return {
+        fileName: `${playlist.name}.m3u8`,
+        trackCount: playlistTracks(playlist).filter((track) => track.cue === null).length
+      };
     },
     // フォルダを選ぶダイアログ（Rust側が開く）の代わりに、`setFolderResult`のフォルダへ、通常の
     // プレイリストを書いたことにする（nullなら、選ばずに閉じた）
@@ -3812,7 +3816,9 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       if (folderResult === null) return null;
       return {
         path: `${normalizeFolderPath(folderResult)}/Muspice Library.${format}`,
-        trackCount: tracks.length,
+        // XMLには、CUEシートの曲を書かない（ADR-123。CSVはすべて書く）
+        trackCount:
+          format === 'xml' ? tracks.filter((track) => track.cue === null).length : tracks.length,
         playlistCount: format === 'xml' ? playlists.length : 0
       };
     },

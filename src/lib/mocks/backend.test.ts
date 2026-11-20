@@ -2293,6 +2293,11 @@ describe('ライブラリの書き出し', () => {
       path: '/Users/demo/Desktop/Muspice Library.csv',
       playlistCount: 0
     });
+
+    // CUEシートの曲は、XMLには書かず、CSVには書く
+    backend.addCueAlbum();
+    expect((await commands.exportLibrary('xml'))?.trackCount).toBe(tracks.length);
+    expect((await commands.exportLibrary('csv'))?.trackCount).toBe(tracks.length + 3);
   });
 });
 

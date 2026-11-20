@@ -177,9 +177,14 @@ fn export(
         playlists.len()
     );
 
+    // XMLには、CUEシートの曲を書かない（`build_itunes_xml`。CSVは、ライブラリの一覧としてすべて書く）
+    let track_count = match format {
+        LibraryExportFormat::Xml => tracks.iter().filter(|track| track.cue.is_none()).count(),
+        LibraryExportFormat::Csv => tracks.len(),
+    };
     Ok(LibraryExportResult {
         path: path.to_string_lossy().into_owned(),
-        track_count: to_count(tracks.len())?,
+        track_count: to_count(track_count)?,
         playlist_count: match format {
             LibraryExportFormat::Xml => to_count(playlists.len())?,
             LibraryExportFormat::Csv => 0,

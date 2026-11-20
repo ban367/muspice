@@ -109,8 +109,10 @@ pub async fn get_album_art_info(
 ) -> AppResult<Option<AlbumArtInfo>> {
     validate_track_id(&track_id)?;
 
-    let file_path =
-        state.with_db(|db| crate::repository::find_file_path_by_track_id(db, &track_id))?;
+    // CUEシートの曲は、音声ファイルの画像（ADR-123）
+    let file_path = state
+        .with_db(|db| crate::repository::find_audio_path_by_track_id(db, &track_id))?
+        .ok_or_else(|| AppError::NotFound(format!("トラックが見つかりません: {}", track_id)))?;
 
     run_blocking(move || Ok(crate::album_art::info_for_file(Path::new(&file_path)))).await
 }

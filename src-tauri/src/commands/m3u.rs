@@ -227,7 +227,7 @@ fn export_playlist(
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_default(),
-        track_count: tracks.len() as u32,
+        track_count: m3u::exportable_tracks(&tracks).count() as u32,
     })
 }
 
