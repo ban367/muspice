@@ -88,7 +88,7 @@
     <SidePanelButton
       label={m.trackInfo.edit}
       onclick={() => track && openTrackEditorMutation.mutate({ trackIds: [track.id] })}
-      disabled={!track || openTrackEditorMutation.isPending}
+      disabled={!track || track.cue !== null || openTrackEditorMutation.isPending}
     >
       <svg
         xmlns="http://www.w3.org/2000/svg"

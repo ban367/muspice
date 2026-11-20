@@ -6,11 +6,11 @@
 use crate::error::{AppError, AppResult};
 use std::collections::{HashMap, HashSet};
 
-use rusqlite::{Connection, Row};
+use rusqlite::{Connection, OptionalExtension, Row};
 
 use crate::models::{
     AlbumGroup, AlbumSummary, ArtistSummary, GenreSummary, MAX_PLAY_COUNT, Metadata,
-    PlayHistoryEntry, ReplayGain, SortTags, Track, TrackDetails,
+    PlayHistoryEntry, ReplayGain, SortTags, Track, TrackCue, TrackDetails,
 };
 use crate::track_relink::MissingTrack;
 
@@ -105,7 +105,8 @@ pub const TRACK_COLUMNS: &str = concat!(
     composer, grouping, comment, bpm, bit_depth, channels, ",
     analyzed_bpm_sql!(),
     ", ",
-    analyzed_key_sql!()
+    analyzed_key_sql!(),
+    ", cue_source, cue_start, cue_end"
 );
 
 /// SQLiteの行からTrack構造体にマッピングする
@@ -160,6 +161,16 @@ pub fn map_track_row(row: &Row) -> rusqlite::Result<Track> {
             analyzed_bpm: row.get(39)?,
             analyzed_key: row.get(40)?,
         },
+        cue: row
+            .get::<_, Option<String>>(41)?
+            .map(|source| -> rusqlite::Result<TrackCue> {
+                Ok(TrackCue {
+                    source,
+                    start: row.get::<_, Option<i64>>(42)?.unwrap_or(0),
+                    end: row.get(43)?,
+                })
+            })
+            .transpose()?,
     })
 }
 
@@ -338,6 +349,47 @@ pub fn find_file_path_by_track_id(conn: &Connection, track_id: &str) -> AppResul
 }
 
 /// トラックIDからファイルパスを取得（存在しない場合はNone）
+pub fn find_audio_path_by_track_id(conn: &Connection, track_id: &str) -> AppResult<Option<String>> {
+    conn.query_row(
+        "SELECT COALESCE(cue_source, file_path) FROM tracks WHERE id = ?1",
+        [track_id],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(|e| AppError::Database(format!("トラックの取得に失敗しました: {}", e)))
+}
+
+/// 曲がCUEシートの曲か（見つからない曲はfalse。ADR-123）
+pub fn is_cue_track(conn: &Connection, track_id: &str) -> AppResult<bool> {
+    conn.query_row(
+        "SELECT cue_source IS NOT NULL FROM tracks WHERE id = ?1",
+        [track_id],
+        |row| row.get(0),
+    )
+    .optional()
+    .map(|found| found.unwrap_or(false))
+    .map_err(|e| AppError::Database(format!("トラックの取得に失敗しました: {}", e)))
+}
+
+/// CUEシートの曲を含まないことを確かめる（ファイルを書き換える操作の前に呼ぶ。ADR-123）
+///
+/// 1つのファイルに複数の曲があるため、タグ・アルバムアートの書き込み・ファイルの整理・形式の変換・
+/// 音量の解析には対応しない。
+pub fn ensure_no_cue_tracks(conn: &Connection, track_ids: &[String]) -> AppResult<()> {
+    for track_id in track_ids {
+        if is_cue_track(conn, track_id)? {
+            return Err(AppError::Validation(
+                "CUEシートの曲は、ファイルを書き換える操作（タグ・アルバムアートの編集、ファイルの整理、形式の変換、音量の解析）に対応していません"
+                    .to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// トラックIDから、ファイルのパスを取得（存在しない場合はNone）
+///
+/// CUEシートの曲は、仮のパス（`cue::virtual_path`）を返す。元の音声ファイルは`find_audio_path_by_track_id`。
 pub fn try_find_file_path_by_track_id(
     conn: &Connection,
     track_id: &str,
@@ -1050,7 +1102,7 @@ pub fn find_all_track_tag_values(conn: &Connection) -> AppResult<Vec<TrackTagVal
     let mut stmt = conn
         .prepare(
             "SELECT id, file_path, title, artist, album, genre, year, COALESCE(rating, 0)
-             FROM tracks",
+             FROM tracks WHERE cue_source IS NULL",
         )
         .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
 
@@ -1088,9 +1140,10 @@ pub fn insert_track(
             rating, album_artist, album_artist_read,
             title_sort, artist_sort, album_sort, album_artist_sort, sort_tags_read, multi_values_read,
             rating_read, compilation, compilation_read,
-            composer, grouping, comment, bpm, bit_depth, channels, details_read
+            composer, grouping, comment, bpm, bit_depth, channels, details_read,
+            cue_source, cue_start, cue_end
         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, 1,
-                  ?25, ?26, ?27, ?28, 1, 1, 1, ?29, 1, ?30, ?31, ?32, ?33, ?34, ?35, 1)",
+                  ?25, ?26, ?27, ?28, 1, 1, 1, ?29, 1, ?30, ?31, ?32, ?33, ?34, ?35, 1, ?36, ?37, ?38)",
         rusqlite::params![
             track.id,
             track.file_path,
@@ -1127,6 +1180,9 @@ pub fn insert_track(
             track.details.bpm,
             track.details.bit_depth,
             track.details.channels,
+            track.cue.as_ref().map(|cue| &cue.source),
+            track.cue.as_ref().map(|cue| cue.start),
+            track.cue.as_ref().and_then(|cue| cue.end),
         ],
     )
     .map_err(|e| AppError::Database(format!("トラックの保存に失敗しました: {}", e)))?;
@@ -1151,12 +1207,14 @@ pub fn update_track_by_file_path(
             updated_at = ?15, file_modified_at = ?16,
             replay_gain_track_gain = ?17, replay_gain_track_peak = ?18,
             replay_gain_album_gain = ?19, replay_gain_album_peak = ?20,
-            rating = ?21, album_artist = ?22, album_artist_read = 1,
+            rating = CASE WHEN ?34 IS NULL THEN ?21 ELSE rating END,
+            album_artist = ?22, album_artist_read = 1,
             title_sort = ?23, artist_sort = ?24, album_sort = ?25, album_artist_sort = ?26,
             sort_tags_read = 1, multi_values_read = 1, rating_read = 1,
             compilation = ?27, compilation_read = 1,
             composer = ?28, grouping = ?29, comment = ?30, bpm = ?31, bit_depth = ?32,
             channels = ?33, details_read = 1,
+            cue_source = ?34, cue_start = ?35, cue_end = ?36,
             missing_since = NULL
         WHERE file_path = ?1",
         rusqlite::params![
@@ -1193,6 +1251,9 @@ pub fn update_track_by_file_path(
             track.details.bpm,
             track.details.bit_depth,
             track.details.channels,
+            track.cue.as_ref().map(|cue| &cue.source),
+            track.cue.as_ref().map(|cue| cue.start),
+            track.cue.as_ref().and_then(|cue| cue.end),
         ],
     )
     .map_err(|e| AppError::Database(format!("トラックの更新に失敗しました: {}", e)))?;
@@ -1452,6 +1513,7 @@ pub fn find_transfer_tracks(conn: &Connection) -> AppResult<Vec<TransferTrack>> 
             "SELECT id, file_path, title, artist, album, album_artist, compilation, genre, year,
                     track_number, disc_number, duration, file_size, bitrate
              FROM tracks
+             WHERE cue_source IS NULL
              ORDER BY {}, album, disc_number, track_number, title, id",
             ALBUM_ARTIST
         ))
@@ -1611,22 +1673,32 @@ pub fn find_missing_tracks(conn: &Connection) -> AppResult<Vec<MissingTrack>> {
 /// 曲を、移動・改名された先のファイルに結び付ける
 ///
 /// 再スキャンで見つかった、見つからない曲の移動・改名の先と、ファイルの整理（`file_organize`）で
-/// アプリが移した先に使う。パスとファイルの更新日時だけを変え、見つかる曲に戻す。トラックのID・
-/// お気に入り・再生回数・プレイリストへの登録などは変えない（同じファイルのため、タグの内容も
-/// 読み直さない）。
+/// アプリが移した先に使う。パス・ファイルの更新日時と、CUEシートの曲の音声ファイルと区切り
+/// （`cue`。CUEシートのフォルダを移した時は、音声ファイルの場所も変わる。ADR-123）だけを変え、
+/// 見つかる曲に戻す。トラックのID・お気に入り・再生回数・プレイリストへの登録などは変えない
+/// （同じファイルのため、タグの内容も読み直さない）。
 pub fn relink_track(
     conn: &Connection,
     track_id: &str,
     file_path: &str,
     file_name: &str,
     file_modified_at: Option<i64>,
+    cue: Option<&TrackCue>,
 ) -> AppResult<()> {
     let rows_affected = conn
         .execute(
             "UPDATE tracks SET file_path = ?2, file_name = ?3, file_modified_at = ?4,
-                 missing_since = NULL
+                 cue_source = ?5, cue_start = ?6, cue_end = ?7, missing_since = NULL
              WHERE id = ?1",
-            rusqlite::params![track_id, file_path, file_name, file_modified_at],
+            rusqlite::params![
+                track_id,
+                file_path,
+                file_name,
+                file_modified_at,
+                cue.map(|cue| cue.source.as_str()),
+                cue.map(|cue| cue.start),
+                cue.and_then(|cue| cue.end)
+            ],
         )
         .map_err(|e| AppError::Database(format!("トラックのパスの更新に失敗しました: {}", e)))?;
 
@@ -1655,7 +1727,8 @@ pub fn relink_track_to_file(
         .execute(
             "UPDATE tracks SET file_path = ?2, file_name = ?3, file_modified_at = ?4,
                  file_size = ?5, format = ?6, duration = ?7, bitrate = ?8, sample_rate = ?9,
-                 bit_depth = ?10, channels = ?11, missing_since = NULL
+                 bit_depth = ?10, channels = ?11, cue_source = NULL, cue_start = NULL,
+                 cue_end = NULL, missing_since = NULL
              WHERE id = ?1",
             rusqlite::params![
                 track_id,
@@ -1754,7 +1827,8 @@ pub fn delete_tracks_outside(conn: &Connection, path_prefix: &str) -> AppResult<
 ///
 /// ライブラリフォルダの場所の付け替えに使う。パスだけを変え、トラックのID・お気に入り・再生回数・
 /// プレイリストへの登録などは変えない（ファイル名・ファイルの更新日時も変えない。ファイルは、付け替えた
-/// 後の再スキャンで確かめる）。付け替えた件数を返す。付け替えた先が、ほかのトラックのパスと同じになる
+/// 後の再スキャンで確かめる）。CUEシートの曲の音声ファイルの場所（`cue_source`）も、同じ接頭辞で
+/// 始まれば付け替える（ADR-123）。付け替えた件数を返す。付け替えた先が、ほかのトラックのパスと同じになる
 /// 場合はUNIQUE制約で失敗するため、先に`count_track_path_conflicts`で確かめる（`to_prefix`は、
 /// `from_prefix`と重ならないこと）。
 pub fn replace_track_path_prefix(
@@ -1764,7 +1838,9 @@ pub fn replace_track_path_prefix(
 ) -> AppResult<usize> {
     // length・substrは文字単位で数える（接頭辞の文字数の分を除く）
     conn.execute(
-        "UPDATE tracks SET file_path = ?3 || substr(file_path, length(?1) + 1)
+        "UPDATE tracks SET file_path = ?3 || substr(file_path, length(?1) + 1),
+             cue_source = CASE WHEN cue_source >= ?1 AND cue_source < ?2
+                 THEN ?3 || substr(cue_source, length(?1) + 1) ELSE cue_source END
          WHERE file_path >= ?1 AND file_path < ?2",
         [from_prefix, &prefix_upper_bound(from_prefix), to_prefix],
     )
@@ -1848,7 +1924,7 @@ pub fn replace_track_file(
 pub fn count_tracks_without_replay_gain(conn: &Connection) -> AppResult<u32> {
     conn.query_row(
         "SELECT COUNT(*) FROM tracks
-         WHERE missing_since IS NULL
+         WHERE missing_since IS NULL AND cue_source IS NULL
            AND (replay_gain_track_gain IS NULL
                 OR (album IS NOT NULL AND album != '' AND replay_gain_album_gain IS NULL))",
         [],
@@ -2436,6 +2512,111 @@ mod tests {
         let track = find_track_by_id(&conn, "t1").unwrap();
         assert_eq!(track.id, "t1");
         assert_eq!(track.title, Some("曲A".to_string()));
+    }
+
+    /// CUEシートの曲は、元の音声ファイル・範囲を持ち、ファイルを書き換える操作を断る（ADR-123）
+    #[test]
+    fn test_cue_tracks_keep_their_source_and_reject_file_writes() {
+        let conn = setup_test_db();
+        let create_test_track = |id: &str, path: &str| Track {
+            cue: None,
+            id: id.to_string(),
+            file_path: path.to_string(),
+            file_name: path.rsplit('/').next().unwrap().to_string(),
+            title: Some("曲".to_string()),
+            artist: None,
+            album: None,
+            album_artist: None,
+            genre: None,
+            year: None,
+            track_number: None,
+            disc_number: None,
+            duration: None,
+            file_size: 1,
+            format: "FLAC".to_string(),
+            bitrate: None,
+            sample_rate: None,
+            is_favorite: false,
+            rating: 0,
+            play_count: 0,
+            skip_count: 0,
+            last_played_at: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            updated_at: "2026-01-01T00:00:00Z".to_string(),
+            replay_gain: ReplayGain::default(),
+            sort_tags: Default::default(),
+            is_missing: false,
+            compilation: false,
+            details: Default::default(),
+        };
+        let mut track = create_test_track("cue-1", "/Music/Album.cue#01");
+        track.cue = Some(TrackCue {
+            source: "/Music/Album.flac".to_string(),
+            start: 0,
+            end: Some(75 * 200),
+        });
+        insert_track(&conn, &track, None).unwrap();
+        let normal = create_test_track("normal", "/Music/song.mp3");
+        insert_track(&conn, &normal, None).unwrap();
+
+        let stored = find_track_by_id(&conn, "cue-1").unwrap();
+        assert_eq!(stored.cue, track.cue);
+        assert!(find_track_by_id(&conn, "normal").unwrap().cue.is_none());
+        assert_eq!(
+            find_audio_path_by_track_id(&conn, "cue-1")
+                .unwrap()
+                .as_deref(),
+            Some("/Music/Album.flac")
+        );
+        assert_eq!(
+            find_audio_path_by_track_id(&conn, "normal")
+                .unwrap()
+                .as_deref(),
+            Some("/Music/song.mp3")
+        );
+        assert!(is_cue_track(&conn, "cue-1").unwrap());
+        assert!(!is_cue_track(&conn, "normal").unwrap());
+        assert!(ensure_no_cue_tracks(&conn, &["normal".to_string()]).is_ok());
+        assert!(matches!(
+            ensure_no_cue_tracks(&conn, &["normal".to_string(), "cue-1".to_string()]),
+            Err(AppError::Validation(_))
+        ));
+
+        // 読み直しても、評価（データベースだけに持つ）は変えない
+        set_track_rating(&conn, "cue-1", 8).unwrap();
+        update_track_by_file_path(&conn, &track, None).unwrap();
+        assert_eq!(find_track_by_id(&conn, "cue-1").unwrap().rating, 8);
+
+        // フォルダの付け替えでは、音声ファイルの場所も付け替える
+        replace_track_path_prefix(&conn, "/Music/", "/Moved/").unwrap();
+        let moved = find_track_by_id(&conn, "cue-1").unwrap();
+        assert_eq!(moved.file_path, "/Moved/Album.cue#01");
+        assert_eq!(moved.cue.unwrap().source, "/Moved/Album.flac");
+        assert!(find_track_by_id(&conn, "normal").unwrap().cue.is_none());
+
+        // 移動の先に結び付ける時は、新しい音声ファイルと区切りにする
+        mark_track_missing(&conn, "cue-1", "2026-01-02T00:00:00Z").unwrap();
+        let relinked_cue = TrackCue {
+            source: "/Other/Album.wav".to_string(),
+            start: 75,
+            end: None,
+        };
+        relink_track(
+            &conn,
+            "cue-1",
+            "/Other/Album.cue#01",
+            "Album.cue#01",
+            Some(5),
+            Some(&relinked_cue),
+        )
+        .unwrap();
+        let relinked = find_track_by_id(&conn, "cue-1").unwrap();
+        assert!(!relinked.is_missing);
+        assert_eq!(relinked.cue, Some(relinked_cue));
+        assert_eq!(relinked.rating, 8);
+        // ふつうのファイルに結び付けると、CUEシートの曲ではなくなる
+        relink_track(&conn, "cue-1", "/Other/Album.wav", "Album.wav", None, None).unwrap();
+        assert!(find_track_by_id(&conn, "cue-1").unwrap().cue.is_none());
     }
 
     #[test]
@@ -3760,6 +3941,7 @@ mod tests {
     fn test_insert_and_update_record_album_artist() {
         let conn = setup_test_db();
         let mut track = Track {
+            cue: None,
             id: "t1".to_string(),
             file_path: "/test/t1.mp3".to_string(),
             file_name: "t1.mp3".to_string(),
@@ -3964,6 +4146,7 @@ mod tests {
             "/test/moved/renamed.mp3",
             "renamed.mp3",
             Some(99),
+            None,
         )
         .unwrap();
 
@@ -3989,7 +4172,7 @@ mod tests {
         assert_eq!(states[0].file_modified_at, Some(99));
 
         assert!(matches!(
-            relink_track(&conn, "missing", "/test/x.mp3", "x.mp3", None),
+            relink_track(&conn, "missing", "/test/x.mp3", "x.mp3", None, None),
             Err(AppError::NotFound(_))
         ));
     }

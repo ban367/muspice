@@ -68,6 +68,38 @@ fn codec_registry() -> &'static CodecRegistry {
 /// `SymphoniaDecoder`、WavPack・APEは、ブロック単位のデコーダー（`block_decoder`）を使う。
 pub struct TrackDecoder {
     backend: Backend,
+    /// 曲の範囲（CUEシートの曲。ファイルの一部だけを、1つの曲として返す。ADR-123）
+    region: Option<RegionState>,
+}
+
+/// 曲の範囲（CUEシートの曲。1/75秒の単位。終わりがNoneなら、ファイルの終わりまで）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TrackRegion {
+    pub start: u64,
+    pub end: Option<u64>,
+}
+
+/// 範囲の、フレームでの位置と、返したフレーム数
+#[derive(Debug, Clone, Copy)]
+struct RegionState {
+    start_frame: u64,
+    end_frame: Option<u64>,
+    /// 範囲の始まりから、返したフレーム数
+    returned: u64,
+}
+
+impl RegionState {
+    /// 範囲の長さ（フレーム。終わりがファイルの終わりならNone）
+    fn length(&self) -> Option<u64> {
+        self.end_frame
+            .map(|end| end.saturating_sub(self.start_frame))
+    }
+
+    /// まだ返していないフレーム数（終わりがファイルの終わりならNone）
+    fn remaining(&self) -> Option<u64> {
+        self.length()
+            .map(|length| length.saturating_sub(self.returned))
+    }
 }
 
 enum Backend {
@@ -97,6 +129,7 @@ impl TrackDecoder {
     pub(crate) fn from_block_source(source: Box<dyn BlockSource>) -> AppResult<Self> {
         Ok(Self {
             backend: Backend::Blocks(BlockDecoder::new(source)?),
+            region: None,
         })
     }
 
@@ -107,7 +140,49 @@ impl TrackDecoder {
             Some(source) => Backend::Blocks(BlockDecoder::new(source)?),
             None => Backend::Symphonia(Box::new(SymphoniaDecoder::open(path)?)),
         };
-        Ok(Self { backend })
+        Ok(Self {
+            backend,
+            region: None,
+        })
+    }
+
+    /// ファイルの一部（CUEシートの曲の範囲）だけを返すデコーダーにする（ADR-123）
+    ///
+    /// 範囲の始まりへ移動し、それからは範囲の中の位置で、長さ・残り・シークを扱う。範囲の終わりで、
+    /// 曲の終わり（`next_chunk`がNone）になる。
+    pub fn with_region(mut self, region: TrackRegion) -> AppResult<Self> {
+        const CUE_FRAMES_PER_SECOND: u64 = 75;
+        let rate = u64::from(self.sample_rate());
+        let start_frame = region.start * rate / CUE_FRAMES_PER_SECOND;
+        let end_frame = region.end.map(|end| end * rate / CUE_FRAMES_PER_SECOND);
+        if end_frame.is_some_and(|end| end <= start_frame) {
+            return Err(AppError::Playback("曲の範囲が正しくありません".to_string()));
+        }
+        let mut state = RegionState {
+            start_frame,
+            end_frame,
+            returned: 0,
+        };
+        if start_frame > 0 {
+            let rate = rate as f64;
+            let start_seconds = start_frame as f64 / rate;
+            let reached = self.seek_file(start_seconds)?;
+            // ファイルが範囲の始まりより短い: 曲の終わりにする
+            if reached + 0.5 / rate < start_seconds {
+                state.returned = state.length().unwrap_or(0);
+                state.end_frame = Some(state.end_frame.unwrap_or(start_frame));
+            }
+        }
+        self.region = Some(state);
+        Ok(self)
+    }
+
+    /// ファイルの中の位置（秒）へ移動する（範囲を考えない）
+    fn seek_file(&mut self, seconds: f64) -> AppResult<f64> {
+        match &mut self.backend {
+            Backend::Symphonia(decoder) => decoder.seek(seconds),
+            Backend::Blocks(decoder) => decoder.seek(seconds),
+        }
     }
 
     /// サンプルレート（Hz）
@@ -128,14 +203,25 @@ impl TrackDecoder {
 
     /// 曲の長さ（秒。分からなければNone）
     pub fn duration_seconds(&self) -> Option<f64> {
-        match &self.backend {
+        let file = match &self.backend {
             Backend::Symphonia(decoder) => decoder.duration_seconds(),
             Backend::Blocks(decoder) => decoder.duration_seconds(),
+        };
+        let Some(region) = &self.region else {
+            return file;
+        };
+        let rate = f64::from(self.sample_rate());
+        match region.length() {
+            Some(length) => Some(length as f64 / rate),
+            None => file.map(|seconds| (seconds - region.start_frame as f64 / rate).max(0.0)),
         }
     }
 
     /// まだ返していない音声の長さ（秒。曲の長さが分からなければNone）
     pub fn remaining_seconds(&self) -> Option<f64> {
+        if let Some(remaining) = self.region.as_ref().and_then(RegionState::remaining) {
+            return Some(remaining as f64 / f64::from(self.sample_rate()));
+        }
         match &self.backend {
             Backend::Symphonia(decoder) => decoder.remaining_seconds(),
             Backend::Blocks(decoder) => decoder.remaining_seconds(),
@@ -151,10 +237,23 @@ impl TrackDecoder {
     ///
     /// 曲の中の決まった位置（クロスフェードを始める位置）で、かたまりを区切るために使う。
     pub fn next_chunk_limited(&mut self, limit: Option<u64>) -> AppResult<Option<&[f32]>> {
-        match &mut self.backend {
+        let mut limit = limit;
+        // 範囲の終わりで、曲の終わりにする
+        if let Some(remaining) = self.region.as_ref().and_then(RegionState::remaining) {
+            if remaining == 0 {
+                return Ok(None);
+            }
+            limit = Some(limit.map_or(remaining, |limit| limit.min(remaining)));
+        }
+        let channels = self.channels().max(1);
+        let chunk = match &mut self.backend {
             Backend::Symphonia(decoder) => decoder.next_chunk_limited(limit),
             Backend::Blocks(decoder) => decoder.next_chunk_limited(limit),
+        }?;
+        if let (Some(chunk), Some(region)) = (&chunk, &mut self.region) {
+            region.returned += (chunk.len() / channels) as u64;
         }
+        Ok(chunk)
     }
 
     /// 元の音声のビット数（可逆の形式（FLAC・ALAC・WAV・AIFF・WavPack・APE）だけ。非可逆の形式はNone）
@@ -171,10 +270,26 @@ impl TrackDecoder {
     ///
     /// 曲の長さを超える位置は、曲の終わりになる（次の`next_chunk`がNoneを返す）。
     pub fn seek(&mut self, seconds: f64) -> AppResult<f64> {
-        match &mut self.backend {
-            Backend::Symphonia(decoder) => decoder.seek(seconds),
-            Backend::Blocks(decoder) => decoder.seek(seconds),
+        let Some(region) = self.region else {
+            return self.seek_file(seconds);
+        };
+        let rate = f64::from(self.sample_rate());
+        let target = (seconds.max(0.0) * rate).round() as u64;
+        // 範囲の終わりを超える位置は、曲の終わりにする
+        if let Some(length) = region.length()
+            && target >= length
+        {
+            if let Some(state) = &mut self.region {
+                state.returned = length;
+            }
+            return Ok(length as f64 / rate);
         }
+        let reached = self.seek_file((region.start_frame + target) as f64 / rate)?;
+        let returned = ((reached * rate).round() as u64).saturating_sub(region.start_frame);
+        if let Some(state) = &mut self.region {
+            state.returned = returned;
+        }
+        Ok(returned as f64 / rate)
     }
 }
 
@@ -700,6 +815,47 @@ pub(crate) mod tests {
                 "frame {frame}"
             );
         }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// CUEシートの曲の範囲だけを返す（ADR-123）
+    #[test]
+    fn test_region_returns_only_the_frames_of_the_track() {
+        let dir = temp_dir("region");
+        let path = dir.join("a.wav");
+        // 7500Hzなら、1/75秒がちょうど100フレーム
+        write_wav(&path, 7_500, 1, 1_000);
+        let region = |start, end| {
+            TrackDecoder::open(&path)
+                .unwrap()
+                .with_region(TrackRegion { start, end })
+        };
+
+        let mut decoder = region(2, Some(5)).unwrap();
+        assert!((decoder.duration_seconds().unwrap() - 0.04).abs() < 1e-9);
+        let samples = read_all(&mut decoder);
+        assert_eq!(samples.len(), 300);
+        assert!((samples[0] - expected(200, 0)).abs() < 1e-4);
+        assert!((samples[299] - expected(499, 0)).abs() < 1e-4);
+
+        // シークは、範囲の中の位置
+        let position = decoder.seek(0.02).unwrap();
+        assert!((position - 0.02).abs() < 1e-9);
+        assert!((decoder.remaining_seconds().unwrap() - 0.02).abs() < 1e-9);
+        let rest = read_all(&mut decoder);
+        assert_eq!(rest.len(), 150);
+        assert!((rest[0] - expected(350, 0)).abs() < 1e-4);
+        // 範囲の終わりを超える位置は、曲の終わり
+        assert!((decoder.seek(1.0).unwrap() - 0.04).abs() < 1e-9);
+        assert!(decoder.next_chunk().unwrap().is_none());
+
+        // 最後の曲（終わりがない）は、ファイルの終わりまで
+        let mut last = region(8, None).unwrap();
+        assert!((last.duration_seconds().unwrap() - 200.0 / 7_500.0).abs() < 1e-9);
+        assert_eq!(read_all(&mut last).len(), 200);
+        // 範囲が空・逆
+        assert!(region(5, Some(5)).is_err());
+        assert!(region(5, Some(3)).is_err());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

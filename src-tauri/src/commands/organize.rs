@@ -198,6 +198,7 @@ pub async fn plan_file_organize(
     destination: OrganizeDestination,
     app: AppHandle,
 ) -> AppResult<OrganizePlan> {
+    super::reject_cue_tracks(&app, &track_ids)?;
     run_blocking(move || {
         let destination = resolve_destination(&app, &track_ids, &template, destination)?;
         let plan = build_plan(app.state::<AppState>().inner(), &track_ids, &destination)?;
@@ -230,6 +231,7 @@ pub async fn organize_files(
     destination: OrganizeDestination,
     app: AppHandle,
 ) -> AppResult<OrganizeResult> {
+    super::reject_cue_tracks(&app, &track_ids)?;
     run_blocking(move || {
         let destination = resolve_destination(&app, &track_ids, &template, destination)?;
         let organize = app.state::<OrganizeState>();
@@ -608,6 +610,8 @@ fn record_moves(state: &AppState, moved: &[&PlannedMove]) -> AppResult<Vec<AppRe
                     path,
                     name,
                     get_file_modified_at(&planned.to),
+                    // CUEシートの曲は整理しない（`reject_cue_tracks`）
+                    None,
                 )
             })
             .collect();
@@ -638,6 +642,7 @@ mod tests {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(path, b"data").unwrap();
         let track = Track {
+            cue: None,
             id: uuid::Uuid::new_v4().to_string(),
             file_path: path.to_str().unwrap().to_string(),
             file_name: path.file_name().unwrap().to_str().unwrap().to_string(),

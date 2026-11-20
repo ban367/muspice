@@ -39,6 +39,8 @@
   const tracksQuery = $derived(useGroupTracksQuery(type, groupName, albumArtist));
   const allTracks = $derived(tracksQuery.data ?? []);
   const isEmpty = $derived(allTracks.length === 0);
+  // CUEシートの曲は、曲の情報を編集できない（ADR-123）
+  const hasCueTrack = $derived(allTracks.some((track) => track.cue !== null));
 
   const openTrackEditorMutation = useOpenTrackEditorMutation();
 
@@ -65,7 +67,7 @@
   {#if type === 'album'}
     <MenuSeparator />
 
-    <MenuItem onSelect={handleEditTracks} disabled={isEmpty}>
+    <MenuItem onSelect={handleEditTracks} disabled={isEmpty || hasCueTrack}>
       {#snippet icon()}
         <svg
           xmlns="http://www.w3.org/2000/svg"

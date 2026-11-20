@@ -40,6 +40,7 @@ function track(id: string, discNumber: number | null): Track {
       analyzedKey: null
     },
     isMissing: false,
+    cue: null,
     compilation: false
   };
 }

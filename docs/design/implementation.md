@@ -108,6 +108,7 @@ src-tauri/src/
 ├── lyrics.rs              # 表示する歌詞の読み込み（曲と同じ名前の.lrcファイルを優先し、なければ埋め込みの歌詞。ADR-045）
 ├── library_xml.rs         # iTunes形式のライブラリXMLの読み込み（ほかのプレーヤーの再生回数・追加日・プレイリスト。ADR-033）
 ├── m3u.rs                 # プレイリストのM3Uの読み込み（文字コードの判定・曲の対応付け）と書き出し（ADR-032）
+├── cue.rs                 # CUEシートの読み込み・仮想のパス・走査での音声ファイルの置き換え・曲の内容の組み立て（ADR-123）
 ├── media_controls/        # OSのメディアキー・Now Playing（ADR-029）
 │   ├── mod.rs             # OSへ渡す内容の組み立て（曲の情報・アルバムアート）
 │   └── macos.rs           # macOSのMediaPlayerフレームワークの呼び出し（macOSだけでコンパイルする）

@@ -393,7 +393,8 @@ fn load_picture(app: &AppHandle, track_id: &str, cached: Option<CachedArt>) -> R
     let state = app.state::<AppState>();
 
     let file_path =
-        match state.with_db(|db| crate::repository::try_find_file_path_by_track_id(db, track_id)) {
+        // CUEシートの曲は、元の音声ファイルの画像（ADR-123）
+        match state.with_db(|db| crate::repository::find_audio_path_by_track_id(db, track_id)) {
             Ok(Some(path)) => path,
             Ok(None) => return empty_response(StatusCode::NOT_FOUND),
             Err(e) => {

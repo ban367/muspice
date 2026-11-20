@@ -85,8 +85,10 @@ pub struct DeleteFailure {
 /// フォルダを走査した結果
 #[derive(Debug, Default, PartialEq)]
 pub struct ScannedFolder {
-    /// 見つかった音楽ファイル
+    /// 見つかった音楽ファイル（CUEシートが2曲以上を書いているファイルは、その曲の仮のパス。`cue::expand`）
     pub audio_files: Vec<PathBuf>,
+    /// 見つかったCUEシート（`.cue`）
+    pub cue_files: Vec<PathBuf>,
     /// 読めなかったフォルダ（権限がないなど）。中のファイルは`audio_files`に入っていない
     pub unreadable_dirs: Vec<PathBuf>,
 }
@@ -239,6 +241,9 @@ pub fn scan_directory(dir_path: &Path, exclusions: &ScanExclusions) -> AppResult
         parent: None,
     };
     scan_entries(dir_path, entries, &ancestors, exclusions, &mut scanned);
+    // CUEシートの曲を、曲ごとの仮のパスにする（ADR-123）
+    scanned.audio_files =
+        crate::cue::expand(std::mem::take(&mut scanned.audio_files), &scanned.cue_files);
     Ok(scanned)
 }
 
@@ -348,6 +353,13 @@ fn scan_entries(
             Some(EntryKind::File) if is_supported_audio_file(&path) => {
                 scanned.audio_files.push(path);
             }
+            Some(EntryKind::File)
+                if path
+                    .extension()
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("cue")) =>
+            {
+                scanned.cue_files.push(path);
+            }
             Some(EntryKind::File) | None => {}
         }
     }
@@ -382,7 +394,15 @@ pub fn get_file_size(file_path: &Path) -> AppResult<i64> {
 /// ファイルの更新日時（UNIX時間の秒）を取得する。取得できない場合はNone
 ///
 /// 再スキャンでファイルの変更を検出するために記録する。
+///
+/// CUEシートの曲（仮のパス）は、CUEシートと音声ファイルの新しい方（`cue::file_state`。ADR-123）。
 pub fn get_file_modified_at(file_path: &Path) -> Option<i64> {
+    if let Some(path) = file_path
+        .to_str()
+        .filter(|path| crate::cue::is_virtual(path))
+    {
+        return crate::cue::file_state(path).and_then(|(_, modified_at)| modified_at);
+    }
     modified_at_of(&fs::metadata(file_path).ok()?)
 }
 

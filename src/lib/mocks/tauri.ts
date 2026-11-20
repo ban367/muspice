@@ -71,6 +71,8 @@ interface MuspiceMockHandle {
   openFiles(fileNames: string[]): void;
   /** 重複した曲を、ライブラリに足す（重複した曲の画面と、ファイルの整理の確認用） */
   addDuplicateTracks(): void;
+  /** CUEシートの曲（アルバム1ファイルの中の3曲）を、ライブラリに足す（ADR-123） */
+  addCueAlbum(): void;
   /** 形式の変換で、書き出すフォルダを選ぶダイアログの結果を切り替える（nullは、選ばなかった） */
   setConvertExportFolder(path: string | null): void;
   /**
@@ -217,6 +219,7 @@ export function setupTauriMock(): void {
     setFileImportMode: (mode) => backend.setFileImportMode(mode),
     openFiles: (fileNames) => backend.openFiles(fileNames),
     addDuplicateTracks: () => backend.addDuplicateTracks(),
+    addCueAlbum: () => backend.addCueAlbum(),
     setConvertExportFolder: (path) => backend.setConvertExportFolder(path),
     setExclusionFolder: (path) => backend.setExclusionFolder(path),
     setMusicFolderFileCount: (count) => backend.setMusicFolderFileCount(count),

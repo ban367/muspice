@@ -225,6 +225,11 @@ export interface MockBackend {
    */
   addDuplicateTracks(): void;
   /**
+   * CUEシートの曲（アルバム1ファイルの中の3曲）を、ライブラリに足す（ADR-123。一覧と、ファイルを
+   * 書き換える操作を断ることの確認用）
+   */
+  addCueAlbum(): void;
+  /**
    * 形式の変換で、書き出すフォルダを選ぶダイアログの結果を切り替える（nullは、選ばなかった）
    *
    * 既定は`/Users/mock/Export`。
@@ -1631,6 +1636,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         analyzedKey: null
       },
       isMissing: false,
+      cue: null,
       compilation: false
     };
   }
@@ -2985,6 +2991,13 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       if (trackIds.length === 0) fail('VALIDATION', 'トラックIDが指定されていません');
       trackIds.forEach(validateTrackId);
       sequence.forEach(validateTrackId);
+      // CUEシートの曲は、編集できない（Rustの`ensure_no_cue_tracks`。ADR-123）
+      if (tracks.some((track) => trackIds.includes(track.id) && track.cue !== null)) {
+        fail(
+          'VALIDATION',
+          'CUEシートの曲は、ファイルを書き換える操作（タグ・アルバムアートの編集、ファイルの整理、形式の変換、音量の解析）に対応していません'
+        );
+      }
       // 並びは、1曲の編集で、その曲を含む時だけ預かる（Rustの`TrackEditorState::set`）
       const kept = trackIds.length === 1 && sequence.includes(trackIds[0]) ? sequence : [];
       saveEditorTracks(trackIds, kept);
@@ -3011,7 +3024,10 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       while (remaining > 0) {
         index += step;
         if (index < 0 || index >= sequence.length) return false;
-        if (tracks.some((track) => track.id === sequence[index])) remaining--;
+        // ライブラリから外された曲と、CUEシートの曲（編集できない）は飛ばす
+        if (tracks.some((track) => track.id === sequence[index] && track.cue === null)) {
+          remaining--;
+        }
       }
       saveEditorTracks([sequence[index]], sequence);
       pendingArt = null;
@@ -3587,6 +3603,12 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       const track = tracks.find((t) => t.id === trackId);
       if (!track) fail('NOT_FOUND', '指定されたトラックが見つかりません');
       if (!track.isMissing) fail('VALIDATION', 'この曲のファイルは見つかっています');
+      if (track.cue !== null) {
+        fail(
+          'VALIDATION',
+          'CUEシートの曲は、ファイルの場所を指定できません。「フォルダから探す」か、CUEシートのあるフォルダの再スキャンで結び付け直してください'
+        );
+      }
       if (folderResult === null) return null;
       const filePath = `${normalizeFolderPath(folderResult)}/${track.fileName}`;
       if (tracks.some((t) => t.id !== trackId && t.filePath === filePath)) {
@@ -4000,6 +4022,39 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         };
         options.emit('tracksOpened', null);
       })();
+    },
+    addCueAlbum: () => {
+      const folder = `${SYSTEM_MUSIC_FOLDER}/Live Archive`;
+      const source = `${folder}/Live at the Hall.flac`;
+      const titles = ['Opening', 'Second Set', 'Encore'];
+      const starts = [0, 75 * 420, 75 * 900];
+      titles.forEach((title, index) => {
+        tracks.push({
+          ...structuredClone(tracks[0]),
+          id: crypto.randomUUID(),
+          filePath: `${folder}/Live at the Hall.cue#${String(index + 1).padStart(2, '0')}`,
+          fileName: `Live at the Hall.cue#${String(index + 1).padStart(2, '0')}`,
+          title,
+          artist: 'The Hall Band',
+          album: 'Live at the Hall',
+          albumArtist: 'The Hall Band',
+          trackNumber: index + 1,
+          discNumber: 1,
+          duration: index < 2 ? (starts[index + 1] - starts[index]) / 75 : 300,
+          fileSize: 180_000_000,
+          format: 'FLAC',
+          isFavorite: false,
+          rating: 0,
+          playCount: 0,
+          skipCount: 0,
+          lastPlayedAt: null,
+          createdAt: now(),
+          updatedAt: now(),
+          isMissing: false,
+          cue: { source, start: starts[index], end: starts[index + 1] ?? null }
+        });
+      });
+      options.emit('libraryChanged', null);
     },
     addDuplicateTracks: () => {
       const find = (title: string) => tracks.find((track) => track.title === title);

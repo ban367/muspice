@@ -936,6 +936,17 @@ pub fn plan_outside_rescan(
 
 /// ライブラリフォルダの外の曲の、ファイルの状態を調べる
 pub fn outside_file_state(path: &Path) -> OutsideFile {
+    // CUEシートの曲（仮のパス）は、CUEシートと音声ファイルで確かめる（ADR-123）
+    if let Some(virtual_path) = path.to_str().filter(|path| crate::cue::is_virtual(path)) {
+        return match crate::cue::file_state(virtual_path) {
+            Some((size, modified_at)) => OutsideFile::Present {
+                size: Some(size),
+                modified_at,
+            },
+            None if path.parent().is_some_and(Path::is_dir) => OutsideFile::Missing,
+            None => OutsideFile::Unknown,
+        };
+    }
     match fs::metadata(path) {
         Ok(metadata) => OutsideFile::Present {
             size: Some(metadata.len() as i64),

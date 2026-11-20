@@ -1107,6 +1107,7 @@ mod tests {
 
     fn track(id: &str, path: &Path) -> Track {
         Track {
+            cue: None,
             id: id.to_string(),
             file_path: path.to_str().unwrap().to_string(),
             file_name: path.file_name().unwrap().to_str().unwrap().to_string(),

@@ -196,7 +196,8 @@ function createTrack(seed: TrackSeed, index: number): Track {
       analyzedBpm: index % 3 === 0 ? 100 + index + 0.5 : null,
       analyzedKey: index % 3 === 0 ? index % 24 : null
     },
-    isMissing: seed.isMissing ?? false
+    isMissing: seed.isMissing ?? false,
+    cue: null
   };
 }
 
@@ -264,6 +265,7 @@ export function createBulkTracks(count: number): Track[] {
         analyzedKey: null
       },
       isMissing: false,
+      cue: null,
       compilation: false
     };
   });

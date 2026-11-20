@@ -33,6 +33,7 @@ function track(id: string, filePath: string, overrides: Partial<Track> = {}): Tr
     replayGain: { trackGain: null, trackPeak: null, albumGain: null, albumPeak: null },
     sortTags: { title: null, artist: null, album: null, albumArtist: null },
     isMissing: false,
+    cue: null,
     compilation: false,
     details: {
       composer: null,

@@ -172,6 +172,7 @@ pub async fn set_album_art(
     app: AppHandle,
 ) -> AppResult<BulkUpdateResult> {
     validate_track_ids(&track_ids)?;
+    super::reject_cue_tracks(&app, &track_ids)?;
     let picture = app.state::<PendingAlbumArt>().get(&token).ok_or_else(|| {
         AppError::Validation("画像が見つかりません。もう一度選んでください".to_string())
     })?;
@@ -196,6 +197,7 @@ pub async fn remove_album_art(
     app: AppHandle,
 ) -> AppResult<BulkUpdateResult> {
     validate_track_ids(&track_ids)?;
+    super::reject_cue_tracks(&app, &track_ids)?;
 
     run_blocking(move || {
         let state = app.state::<AppState>();

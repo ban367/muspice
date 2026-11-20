@@ -4,6 +4,7 @@ mod ape_tag;
 mod atomic_file;
 mod backup;
 mod commands;
+mod cue;
 mod db;
 mod device;
 mod device_manifest;

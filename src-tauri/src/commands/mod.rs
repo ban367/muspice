@@ -210,6 +210,12 @@ fn completed_save_path(chosen: &Path, completed: PathBuf) -> AppResult<PathBuf> 
     Ok(completed)
 }
 
+/// CUEシートの曲を含む操作を断る（ファイルを書き換える操作の前に呼ぶ。ADR-123）
+fn reject_cue_tracks(app: &AppHandle, track_ids: &[String]) -> AppResult<()> {
+    app.state::<crate::state::AppState>()
+        .with_db(|db| crate::repository::ensure_no_cue_tracks(db, track_ids))
+}
+
 /// 重い同期処理をブロッキング処理用のスレッドで実行する
 ///
 /// ファイルI/O・タグ解析・大量のDB書き込みをasyncコマンド内で直接行うと、
