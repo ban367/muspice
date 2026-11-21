@@ -1,13 +1,23 @@
 name: CI
 
+# PRとmainへのpushで走らせる（ADR-125）。作業中のブランチへのpushでは走らせない（PRを開くと
+# 同じコミットに対してpushとPRの2回走っていたため）。PRを開く前のブランチは、
+# `gh workflow run ci.yml --ref <ブランチ>`で手動で流せる
 on:
   push:
-    branches: [main, feature/*]
+    branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+# 同じPRに新しいコミットを積んだら、古い実行を取り消す。mainへのpushは、コミットごとに最後まで流す
+# （groupをコミットにするため、取り消し合わない）
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -17,6 +27,7 @@ jobs:
   frontend:
     name: Frontend Check
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -48,6 +59,7 @@ jobs:
   backend:
     name: Backend Check
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -70,6 +82,9 @@ jobs:
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: src-tauri
+          # mainでだけ保存し、PRはmainのキャッシュを使う（PRごとに保存すると、上限の10GBを超えて
+          # mainのキャッシュが押し出されるため。ADR-125）
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Check format
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
@@ -94,6 +109,7 @@ jobs:
   backend-macos:
     name: Backend Check (macOS)
     runs-on: macos-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -105,6 +121,9 @@ jobs:
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: src-tauri
+          # mainでだけ保存し、PRはmainのキャッシュを使う（PRごとに保存すると、上限の10GBを超えて
+          # mainのキャッシュが押し出されるため。ADR-125）
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Clippy
         run: cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
@@ -127,6 +146,7 @@ jobs:
   backend-macos-xcode27:
     name: Backend Check (macOS, Xcode 27)
     runs-on: xcode-27
+    timeout-minutes: 60
     env:
       # 手元と同じXcode 27.2を使う（イメージの既定は27.1で、macOSのSDKは27.0）
       DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
@@ -146,6 +166,9 @@ jobs:
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: src-tauri
+          # mainでだけ保存し、PRはmainのキャッシュを使う（PRごとに保存すると、上限の10GBを超えて
+          # mainのキャッシュが押し出されるため。ADR-125）
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Clippy
         run: cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
@@ -176,11 +199,11 @@ jobs:
             exit 1
           fi
 
-  # ビルドテスト（PRのみ）
+  # ビルドテスト（PRとmainへのpush）
+  # mainでも走らせて、PRが使うビルド用のキャッシュをmainに作る（ADR-125）
   build:
     name: Build Test
     needs: [frontend, backend]
-    if: github.event_name == 'pull_request'
     strategy:
       fail-fast: false
       matrix:
@@ -190,6 +213,7 @@ jobs:
         platform: [ubuntu-latest]
 
     runs-on: ${{ matrix.platform }}
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -219,6 +243,9 @@ jobs:
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: src-tauri
+          # mainでだけ保存し、PRはmainのキャッシュを使う（PRごとに保存すると、上限の10GBを超えて
+          # mainのキャッシュが押し出されるため。ADR-125）
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install frontend dependencies
         run: npm ci
