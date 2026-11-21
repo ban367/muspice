@@ -83,6 +83,7 @@
 | Rust `zvariant`         | RUSTSEC-2026-0370（unmaintained）  | Tauriのnotification・openerプラグイン → zbus 5（Linux）                        | プラグインのzbus 6移行待ち                                                                                      |
 | Rust `zbus_names`       | RUSTSEC-2026-0371（unmaintained）  | 同上                                                                           | 同上                                                                                                            |
 | Rust `zvariant_derive`  | RUSTSEC-2026-0372（unmaintained）  | 同上                                                                           | 同上                                                                                                            |
+| Rust `chrono`           | RUSTSEC-2026-0543（unmaintained）  | 直接の依存（日時の扱い。17ファイル）                                           | 脆弱性ではなく、直した版もない。jiffかtimeへの置き換え（#486）で外す                                            |
 | npm `deepmerge`         | GHSA-gcqx-w48m-w2h4（low）         | @sveltejs/vite-plugin-svelte（開発時だけで、アプリには入らない）               | 直した版がない。lowのため`npm audit`は失敗せず、`--ignore`の対象でもない                                        |
 | npm `picomatch`         | GHSA-fc5q-39xc-vjpf（high。ReDoS） | vite・tinyglobby・fdir（ビルド・開発・lint・テストの道具。アプリには入らない） | 直した版がない（4.0.7以下が対象）。扱う形はこのリポジトリの設定のものだけ。直した版が出たら、上げて一覧から外す |
 

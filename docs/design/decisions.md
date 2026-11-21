@@ -3963,4 +3963,4 @@ ADR-063・ADR-066で、グリッドで選んだ項目と、曲の一覧で選ん
 
 - 利点: Node.jsの新しい版（とセキュリティリリース）は、出てから1週間以内にIssueになる。yanked・unmaintained・unsoundの新しい警告は、週次の実行の失敗（メール）で分かる。間接のクレートも毎週上がり、古い版やyankedの版が残らない
 - 欠点: cargoのグループのPRが大きくなる（初回は約90件）。落ちた時は、原因のクレートを探して、`ignore`か直接の依存の更新で対処する。新しくyankedになったクレートがあると、lockfileを変えるPRの`cargo audit`も落ちる（必須のチェックではないため、マージは止まらない）。Node.jsの確認はnodejs.orgに問い合わせるため、nodejs.orgが落ちていると失敗する
-- 確認: `scripts/check-node-version.mjs`のテスト（版の比べ方・正式でない版を除くこと・Issueの探し方と本文）。手元で`node scripts/check-node-version.mjs`を24.22.2と24.22.3で流し、遅れの知らせと「最新」の表示が出ること。PRのCIで、`cargo audit`（`--deny warnings`）とNode.jsの確認が通ること
+- 確認: `scripts/check-node-version.mjs`のテスト（版の比べ方・正式でない版を除くこと・Issueの探し方と本文）。手元で`node scripts/check-node-version.mjs`を24.22.2と24.22.3で流し、遅れの知らせと「最新」の表示が出ること。PRのCIで、Node.jsの確認が通ること。`cargo audit`（`--deny warnings`）は、最初の実行で`chrono`のunmaintained（RUSTSEC-2026-0543。2026-11-16の週次の実行の後にデータベースへ入り、警告のままなら見落としていた）で落ちた。`chrono`は直接の依存で、置き換え（jiffかtime）は別の作業の大きさのため、受容の一覧に足して`--ignore`で除き、置き換えは#486で行う
