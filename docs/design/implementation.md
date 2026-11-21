@@ -447,7 +447,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 
 ### ツールチェーンの版
 
-- Node.js: `.node-version`（24.22.2）だけに書く。CIの`setup-node`は`node-version-file`で、miseは`mise.toml`の`idiomatic_version_file_enable_tools`で、このファイルを読む。Nodeの版は手で上げる（Dependabotは`.node-version`を上げない）
+- Node.js: `.node-version`（24.22.3）だけに書く。CIの`setup-node`は`node-version-file`で、miseは`mise.toml`の`idiomatic_version_file_enable_tools`で、このファイルを読む。Nodeの版は手で上げる（Dependabotは`.node-version`を上げない）。遅れは、`.github/workflows/node-version.yml`が毎週、同じメジャーの最新の版と比べて、Issueを立てて知らせる（ADR-124）
   - `package.json`の`engines`（Node.js 24.15以上・npm 11以上）を、`.npmrc`の`engine-strict=true`で守らせる。npm 10（Node.js 22）では、依存のpeerの食い違いでlockfileを入れられない。24.15は、依存（markdownlint-cliが使う`ini`）が求める最小の版
 - Rust: `rust-toolchain.toml`だけに書く（ほかの所には版を書かない。Dependabotが上げるたびに食い違うため）。CIは`rustup toolchain install`でこの版とコンポーネントを入れ、miseも同じファイルを読む（miseは`RUSTUP_TOOLCHAIN`を設定するため、`mise.toml`や全体の設定の`rust = "stable"`が使われると、`rust-toolchain.toml`より優先される）
   - 新しい版は、Dependabot（`rust-toolchain`）が毎週PRで上げる。新しい版のclippyのlintで落ちたら、そのPRで直す（stableのままだと、コードを変えていないPRでもCIが急に落ちる。ADR-060）
@@ -538,6 +538,8 @@ Tauriのウィンドウ（macOSではWKWebView）はブラウザ自動化ツー�
 Linuxでは、Tauriの依存に加えて、再生エンジンの出力（`cpal`のALSA）のために`libasound2-dev`を入れる。libopusのビルドにはcmakeが要る（GitHubのランナーには入っている。手元のmacOSでは`brew install cmake`）。
 
 `.github/workflows/audit.yml` で依存関係の脆弱性を検査する（毎週・lockfile変更PR時。詳細は `non-functional.md`）。
+
+`.github/workflows/node-version.yml` で、`.node-version`のNode.jsの版が、同じメジャーの最新の版より遅れていないかを毎週確かめ、遅れていればIssueを立てる（`scripts/check-node-version.mjs`。ADR-124）。
 
 ## 版とリリース
 

@@ -42,7 +42,11 @@ updates:
     labels:
       - 'dependencies'
       - 'rust'
-    # minor/patchは1つのPRにまとめる
+    # 間接の依存（Cargo.lockにだけあるクレート）も上げる。既定は、Cargo.tomlに書いた直接の依存だけで、
+    # yankedになった版や古い版がCargo.lockに残り続けるため（ADR-124）。npmは間接の依存に対応していない
+    allow:
+      - dependency-type: 'all'
+    # minor/patchは1つのPRにまとめる（間接の依存も同じグループに入る）
     # 注意: 0.x系クレートのminor更新（例: lofty 0.24→0.25）は破壊的変更を含みうるが、
     # semver上はminorとして同じグループに入る。CIが落ちた場合はグループから外して個別に対応する
     groups:

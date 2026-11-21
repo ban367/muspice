@@ -51,13 +51,15 @@ jobs:
         with:
           tool: cargo-audit
 
-      # 脆弱性で失敗させる（unmaintained・unsoundは警告として表示のみ）
+      # 脆弱性に加えて、警告（unmaintained・unsound・yanked）でも失敗させる（--deny warnings）。
+      # 警告のままだとジョブが成功し、ログを読まないと気づけないため（ADR-124）
       # rust-toolchain.tomlによるツールチェーン導入を避けるため、cargo経由ではなく直接実行する
       # 受容済みのアドバイザリ（docs/design/non-functional.md の一覧）は --ignore で除く。
-      # 一覧を変えたら、ここも合わせる
+      # 一覧を変えたら、ここも合わせる。yankedの版はIDがなく除けないため、Cargo.lockを上げて直す
       - name: Audit Rust dependencies
         run: >-
           cargo-audit audit --file src-tauri/Cargo.lock
+          --deny warnings
           --ignore RUSTSEC-2024-0429
           --ignore RUSTSEC-2024-0370
           --ignore RUSTSEC-2024-0436
