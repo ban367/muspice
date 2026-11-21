@@ -66,8 +66,10 @@
 
 ### 依存関係の脆弱性監視
 
-- `.github/workflows/audit.yml` が毎週と、lockfile・`audit.yml` を変更するPRで `npm audit`（moderate以上で失敗）と `cargo-audit`（脆弱性で失敗、unmaintained・unsoundは警告）を実行する。下の表の受容済みのアドバイザリは、Rustは`audit.yml` の `--ignore`、npmは`scripts/npm-audit.mjs`の`ACCEPTED_ADVISORIES`に書いて除く（`npm audit`には指定して除く仕組みがないため、`npm audit --json`の結果をスクリプトで判定する。表を変えたら、どちらも合わせる。受容済みでもう出ていないものは、スクリプトが知らせる）
+- `.github/workflows/audit.yml` が毎週と、lockfile・`audit.yml` を変更するPRで `npm audit`（moderate以上で失敗）と `cargo-audit`（脆弱性と、unmaintained・unsound・yankedの警告で失敗。`--deny warnings`。ADR-124）を実行する。下の表の受容済みのアドバイザリは、Rustは`audit.yml` の `--ignore`、npmは`scripts/npm-audit.mjs`の`ACCEPTED_ADVISORIES`に書いて除く（`npm audit`には指定して除く仕組みがないため、`npm audit --json`の結果をスクリプトで判定する。表を変えたら、どちらも合わせる。受容済みでもう出ていないものは、スクリプトが知らせる）
 - Dependabotはminor/patchをエコシステムごとに1つのPRへまとめる（メジャー更新は個別PR）。GitHub Actionsだけは、メジャー更新も含めてすべてを1つのPRへまとめる（`dependabot.yml`の`github-actions`のグループに`update-types`を書かない。Actionsのメジャー更新は、使い方が変わらないことが多いため）。毎週月曜 09:00（Asia/Tokyo）に実行し、PRにはban367をアサインして `dependencies` とエコシステムのラベル（`npm`・`rust`・`ci`）を付ける。Rustのツールチェーン（`rust-toolchain.toml`）も、同じ曜日・時刻に上げる（ラベルは `rust`。ADR-060）
+- cargoは、間接の依存（`Cargo.lock`にだけあるクレート）も上げる（`dependabot.yml`の`allow`に`dependency-type: all`。既定は`Cargo.toml`に書いた直接の依存だけで、yankedの版や古い版が`Cargo.lock`に残り続けた。ADR-124）。yankedの版はアドバイザリのIDがなく`--ignore`で除けないため、`cargo-audit`で落ちたら`Cargo.lock`を上げて直す。npmは、Dependabotが間接の依存に対応していないため、直接の依存だけを上げる（間接の依存の脆弱性は、`npm audit`と`overrides`で扱う）
+- Node.jsの版（`.node-version`）はDependabotの対象外のため、`.github/workflows/node-version.yml`が毎週、同じメジャーの最新の版と比べ、遅れていればIssueを立てる（ban367をアサインし、`dependencies`のラベルを付ける。同じメジャーのIssueが開いていれば、題名と本文を新しい版に書き換える。新しいメジャーのLTSは知らせるだけ。ADR-124）
 - 不具合のある版は、`.github/dependabot.yml` の `ignore` でその版だけを飛ばす（現在は lofty 0.25.5。MP4のタグがちょうど8バイト縮むと書き込みでpanicするため、0.25.4に留める（[lofty-rs#758](https://github.com/Serial-ATA/lofty-rs/issues/758)。修正はマージ済みで未リリース）。次の版が出たら外す）
 - 周辺のツールが対応するまで見送るメジャー更新は、`.github/dependabot.yml` の `ignore` に理由と外す条件を添えて書く（現在は TypeScript 7。svelte-check・typescript-eslint・@sveltejs/kit が対応したら外す）
 - 依存の依存の脆弱性で、直した版があるのに上流が上げていないものは、`package.json` の `overrides` で直した版にする（現在は markdownlint-cli の `katex`・`re2js` と、eslint・typescript-eslint・markdownlint-cli が使う `minimatch`。上流が直した版を使うようになったら外す。ADR-060）。`minimatch` は直した版が11系だけのためメジャーが上がるが、どの利用側も `new Minimatch(...).match()` と `minimatch()` だけを使い、11系で消えたAPIには触れない（eslint・markdownlintの対象ファイルと結果が変わらないことを確かめた）
@@ -81,6 +83,7 @@
 | Rust `zvariant`         | RUSTSEC-2026-0370（unmaintained）  | Tauriのnotification・openerプラグイン → zbus 5（Linux）                        | プラグインのzbus 6移行待ち                                                                                      |
 | Rust `zbus_names`       | RUSTSEC-2026-0371（unmaintained）  | 同上                                                                           | 同上                                                                                                            |
 | Rust `zvariant_derive`  | RUSTSEC-2026-0372（unmaintained）  | 同上                                                                           | 同上                                                                                                            |
+| Rust `chrono`           | RUSTSEC-2026-0543（unmaintained）  | 直接の依存（日時の扱い。17ファイル）                                           | 脆弱性ではなく、直した版もない。jiffかtimeへの置き換え（#486）で外す                                            |
 | npm `deepmerge`         | GHSA-gcqx-w48m-w2h4（low）         | @sveltejs/vite-plugin-svelte（開発時だけで、アプリには入らない）               | 直した版がない。lowのため`npm audit`は失敗せず、`--ignore`の対象でもない                                        |
 | npm `picomatch`         | GHSA-fc5q-39xc-vjpf（high。ReDoS） | vite・tinyglobby・fdir（ビルド・開発・lint・テストの道具。アプリには入らない） | 直した版がない（4.0.7以下が対象）。扱う形はこのリポジトリの設定のものだけ。直した版が出たら、上げて一覧から外す |
 

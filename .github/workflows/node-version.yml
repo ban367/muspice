@@ -1,0 +1,45 @@
+name: Node.js Version Check
+
+# .node-versionのNode.jsの版が、同じメジャーの最新の版より遅れていないかを確かめる
+# Dependabotは.node-versionを上げないため、ここで遅れに気づけるようにする（ADR-124）
+# - 毎週の定期実行で、遅れていればIssueを立てる（同じメジャーのIssueが開いていれば、版を書き換える）
+# - .node-versionやこのファイルを変更するPRでも実行し、確かめた結果を表示する（Issueは立てない）
+# メジャーの更新（新しいLTS）は、知らせる（notice）だけで、Issueは立てない
+
+on:
+  schedule:
+    # 毎週月曜 9:00 JST（DependabotとSecurity Auditと同じ）
+    - cron: '0 0 * * 1'
+  pull_request:
+    paths:
+      - '.node-version'
+      - '.github/workflows/node-version.yml'
+      - 'scripts/check-node-version.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Node.js version
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # Issueを立てる・書き換えるため（PRの実行では使わない）
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: '.node-version'
+
+      - name: Check Node.js version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Issueはリポジトリの持ち主（ban367）にアサインする
+          ISSUE_ASSIGNEE: ${{ github.repository_owner }}
+        run: node scripts/check-node-version.mjs ${{ github.event_name != 'pull_request' && '--issue' || '' }}

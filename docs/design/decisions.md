@@ -3933,3 +3933,34 @@ ADR-063・ADR-066で、グリッドで選んだ項目と、曲の一覧で選ん
 - `src-tauri/src/db.rs` - DBスキーマ/FTS5/マイグレーション
 - `src-tauri/src/commands/*` - コマンドI/Fの実装
 - `src/lib/queries/*.ts` - フロントエンドからの呼び出し仕様
+
+## ADR-124: Dependabotと監査が拾わない更新を、自動で知らせる（間接のクレート・cargo-auditの警告・Node.jsの版）
+
+### 背景
+
+- 2026-11-21の調査で、Dependabotと週次の監査（`audit.yml`）の両方をすり抜けた更新が2件あった（#483）
+  - **Node.jsのセキュリティリリース**: `.node-version`は24.22.2のままで、2026-11-10の24.22.3（セキュリティリリース）を取り込んでいなかった。Dependabotには`.node-version`を扱うエコシステムがなく、手で上げるしかないが、出たことに気づく手段もなかった（ADR-060）
+  - **yankedのクレート**: `Cargo.lock`の`async-executor 1.14.0`はyankedだった。`cargo-audit`はyanked・unmaintained・unsoundを警告（allowed warning）として出すだけで、ジョブは成功のまま。ログを読まないと気づけない
+- Dependabotのcargoは、既定では`Cargo.toml`に書いた直接の依存しか上げない。間接の依存（`Cargo.lock`にだけあるクレート）は、直接の依存の更新に引きずられない限り古いままで、`cargo update --dry-run`で93件が古かった
+
+### 採用
+
+- **Dependabotのcargoに`allow: - dependency-type: 'all'`を足す**。間接のクレートも、毎週のminor/patchのグループのPR（`cargo-minor-patch`）で上げる。飛ばす版（`ignore`のlofty 0.25.5）は、そのまま効く
+- **`cargo-audit`に`--deny warnings`を付ける**。受容済み（`--ignore`）でないunmaintained・unsound・yankedでも、週次の実行とlockfileを変えるPRの実行が失敗する。週次の実行が失敗すると、GitHubがメールで知らせる。yankedの版はIDがなく除けないため、`Cargo.lock`を上げて直す
+- **Node.jsの版を確かめるワークフロー（`node-version.yml`）を足す**。週1回（Dependabotと同じ月曜 9:00 JST）、`.node-version`と、nodejs.orgの版の一覧（`https://nodejs.org/dist/index.json`）の同じメジャーの最新の版を比べ、遅れていればIssueを立てる（同じメジャーのIssueが開いていれば、題名と本文を新しい版に書き換える）。セキュリティリリースを含むかも本文に書く。判定は`scripts/check-node-version.mjs`にまとめ、Vitestで確かめる
+- 今たまっていた2件は、このPRで直す（`.node-version`を24.22.3に。同梱のnpmは24.22.2と同じ11.19.1で、lockfileへの影響はない。`async-executor`を1.14.1に）。残りの間接のクレートは、次の月曜のDependabotのPRで上げる
+
+### 不採用とした代替案
+
+- **Dependabotの代わりにRenovateを使う**: `.node-version`も、lockfileの定期の作り直し（lockFileMaintenance）も扱えるが、GitHub Appを入れて、設定とPRの形（グループ・ラベル・アサイン）を移し替える必要がある。足りないのはNode.jsの版だけで、ワークフロー1本で補える
+- **Node.jsの版を確かめるワークフローで、IssueではなくPRを作る**: 上げる作業まで自動になるが、`GITHUB_TOKEN`で作ったPRではCIが走らない（GitHubの仕様）。CIを走らせるには、個人のトークンかGitHub Appのシークレットが要る。上げる作業は`.node-version`の1行と、ドキュメントの版の記載だけ
+- **`.node-version`を`24`（メジャーだけ）にする**: CIの`setup-node`が常に24系の最新を使い、セキュリティリリースも自動で入るが、CIと手元（mise）の版が食い違い、同じ版で確かめたことにならない。同梱のnpmの版が変わるとlockfileの書き出しが変わることがあり（`implementation.md`の「ツールチェーンの版」）、知らないうちにCIだけが変わるのは避けたい
+- **`cargo update`を定期に流してPRを作るワークフローを足す**: 上と同じく、`GITHUB_TOKEN`のPRではCIが走らない。Dependabotの`allow`で同じことができる
+- **`cargo-audit`の警告は失敗にせず、ジョブのSummaryに書き出す**: PRが落ちないが、週次の実行が成功のままでは、結局だれも読まない
+- **DependabotのPRを自動でマージする**: PRが4〜11日待たされていた（#368は11日）が、必須チェックはstrictでなく、PRの組み合わせはCIを通らない（`dependabot-pr-handling`の手順では、手元で組み合わせを確かめている）。ワークフローの`GITHUB_TOKEN`で自動マージを設定すると、マージ後のmainへのpushでCIが走らず、組み合わせの不具合にも気づけない
+
+### トレードオフ
+
+- 利点: Node.jsの新しい版（とセキュリティリリース）は、出てから1週間以内にIssueになる。yanked・unmaintained・unsoundの新しい警告は、週次の実行の失敗（メール）で分かる。間接のクレートも毎週上がり、古い版やyankedの版が残らない
+- 欠点: cargoのグループのPRが大きくなる（初回は約90件）。落ちた時は、原因のクレートを探して、`ignore`か直接の依存の更新で対処する。新しくyankedになったクレートがあると、lockfileを変えるPRの`cargo audit`も落ちる（必須のチェックではないため、マージは止まらない）。Node.jsの確認はnodejs.orgに問い合わせるため、nodejs.orgが落ちていると失敗する
+- 確認: `scripts/check-node-version.mjs`のテスト（版の比べ方・正式でない版を除くこと・Issueの探し方と本文）。手元で`node scripts/check-node-version.mjs`を24.22.2と24.22.3で流し、遅れの知らせと「最新」の表示が出ること。PRのCIで、Node.jsの確認が通ること。`cargo audit`（`--deny warnings`）は、最初の実行で`chrono`のunmaintained（RUSTSEC-2026-0543。2026-11-16の週次の実行の後にデータベースへ入り、警告のままなら見落としていた）で落ちた。`chrono`は直接の依存で、置き換え（jiffかtime）は別の作業の大きさのため、受容の一覧に足して`--ignore`で除き、置き換えは#486で行う
