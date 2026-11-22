@@ -203,9 +203,9 @@
         class="search-input"
       />
       {#if searchTerm}
-        <button onclick={handleClear} class="search-clear" aria-label={m.library.clearSearch}
-          >✕</button
-        >
+        <button onclick={handleClear} class="search-clear" aria-label={m.library.clearSearch}>
+          ✕
+        </button>
       {/if}
     </div>
   </div>

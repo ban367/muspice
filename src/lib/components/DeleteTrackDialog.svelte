@@ -108,9 +108,9 @@
       {m.deleteDialog.confirm.before}<span class="font-semibold">{trackName}</span>{m.deleteDialog
         .confirm.after}
     {:else}
-      {m.deleteDialog.confirmMany.before}<span class="font-semibold"
-        >{m.common.trackCount(trackCount)}</span
-      >{m.deleteDialog.confirmMany.after}
+      {m.deleteDialog.confirmMany.before}<span class="font-semibold">
+        {m.common.trackCount(trackCount)}
+      </span>{m.deleteDialog.confirmMany.after}
     {/if}
   </p>
 
