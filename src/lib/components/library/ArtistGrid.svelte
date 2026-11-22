@@ -142,9 +142,9 @@
       </div>
       <div class="list-info">
         <MarqueeText text={artist.name} class="list-title" />
-        <span class="list-artist"
-          >{m.library.albumsAndTracks(artist.albumCount, artist.trackCount)}</span
-        >
+        <span class="list-artist">
+          {m.library.albumsAndTracks(artist.albumCount, artist.trackCount)}
+        </span>
       </div>
       <button
         class="list-play-btn"

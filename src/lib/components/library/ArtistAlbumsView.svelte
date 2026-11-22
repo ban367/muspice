@@ -247,16 +247,16 @@
     <div class="header-title">
       <h1 class="artist-name">{title}</h1>
       {#if headerAlbum}
-        <span class="header-meta"
-          >{[
+        <span class="header-meta">
+          {[
             headerAlbum.artist || m.common.unknownArtist,
             genreAndYear(headerAlbum),
             m.common.trackCountAndDuration(
               headerAlbum.trackCount,
               formatTotalDuration(headerAlbum.totalDuration)
             )
-          ].join(' · ')}</span
-        >
+          ].join(' · ')}
+        </span>
       {/if}
     </div>
     <div class="header-actions">
@@ -358,12 +358,12 @@
                   <span class="album-meta">{album.artist || m.common.unknownArtist}</span>
                 {/if}
                 <span class="album-meta">{genreAndYear(album)}</span>
-                <span class="album-stats"
-                  >{m.common.trackCountAndDuration(
+                <span class="album-stats">
+                  {m.common.trackCountAndDuration(
                     album.trackCount,
                     formatTotalDuration(album.totalDuration)
-                  )}</span
-                >
+                  )}
+                </span>
               </div>
             </div>
             <div class="album-actions">

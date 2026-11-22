@@ -248,39 +248,39 @@
       <div class="flex flex-col gap-3 mb-6">
         <div class="result-stat">
           <span class="text-text-secondary">{m.importDialog.imported}</span>
-          <span class="font-semibold text-secondary"
-            >{m.common.itemCount(importResult.importedCount)}</span
-          >
+          <span class="font-semibold text-secondary">
+            {m.common.itemCount(importResult.importedCount)}
+          </span>
         </div>
         <div class="result-stat">
           <span class="text-text-secondary">{m.importDialog.skipped}</span>
-          <span class="font-semibold text-text-primary"
-            >{m.common.itemCount(importResult.skippedCount)}</span
-          >
+          <span class="font-semibold text-text-primary">
+            {m.common.itemCount(importResult.skippedCount)}
+          </span>
         </div>
         {#if importResult.relinkedCount > 0}
           <!-- 見つからない曲を、移動・改名された先のファイルに結び付けた（新しい曲としては登録していない） -->
           <div class="result-stat">
             <span class="text-text-secondary">{m.importDialog.relinked}</span>
-            <span class="font-semibold text-text-primary"
-              >{m.common.itemCount(importResult.relinkedCount)}</span
-            >
+            <span class="font-semibold text-text-primary">
+              {m.common.itemCount(importResult.relinkedCount)}
+            </span>
           </div>
         {/if}
         {#if importResult.copiedCount > 0}
           <!-- 音楽フォルダへコピーして取り込んだ（インポート成功・引き継ぎの内数） -->
           <div class="result-stat">
             <span class="text-text-secondary">{m.importDialog.copied}</span>
-            <span class="font-semibold text-text-primary"
-              >{m.common.itemCount(importResult.copiedCount)}</span
-            >
+            <span class="font-semibold text-text-primary">
+              {m.common.itemCount(importResult.copiedCount)}
+            </span>
           </div>
         {/if}
         <div class="result-stat">
           <span class="text-text-secondary">{m.importDialog.errors}</span>
-          <span class="font-semibold text-error-light"
-            >{m.common.itemCount(importResult.errorCount)}</span
-          >
+          <span class="font-semibold text-error-light">
+            {m.common.itemCount(importResult.errorCount)}
+          </span>
         </div>
       </div>
       {#if importResult.notCopied.length > 0}

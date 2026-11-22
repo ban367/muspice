@@ -489,8 +489,7 @@
             class:active={player.repeatMode !== 'off'}
             onclick={toggleRepeat}
             title={m.player.repeatTitle(m.player.repeatModes[player.repeatMode])}
-            aria-label={m.player.repeat}
-            aria-pressed={player.repeatMode !== 'off'}
+            aria-label={m.player.repeat(m.player.repeatModes[player.repeatMode])}
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -510,9 +509,9 @@
 
       <!-- 進行バー -->
       <div class="flex items-center gap-2 w-full max-w-[600px]">
-        <span class="text-[0.7rem] text-text-secondary min-w-[35px] text-center"
-          >{formatDuration(player.currentTime, '0:00')}</span
-        >
+        <span class="text-[0.7rem] text-text-secondary min-w-[35px] text-center">
+          {formatDuration(player.currentTime, '0:00')}
+        </span>
         <div
           bind:this={progressBar}
           class="progress-bar-base flex-1"
@@ -537,9 +536,9 @@
           <div class="progress-fill-base" style="width: {player.progress}%"></div>
           <div class="progress-handle" style="left: {player.progress}%"></div>
         </div>
-        <span class="text-[0.7rem] text-text-secondary min-w-[35px] text-center"
-          >{formatDuration(player.duration, '0:00')}</span
-        >
+        <span class="text-[0.7rem] text-text-secondary min-w-[35px] text-center">
+          {formatDuration(player.duration, '0:00')}
+        </span>
       </div>
     </div>
 
