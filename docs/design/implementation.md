@@ -323,6 +323,7 @@ src-tauri/src/
   - 曲を選べる一覧を足す時は、`followSelectedTrack`も呼ぶ
 - 木の一覧（フォルダ別・年代別の画面の左の`TreeBrowser`）は、`role="tree"`の一覧で、Tabでは選んでいる項目（選んでいなければ先頭の項目）だけに止まる。↑↓・Home・Endで選ぶ項目を移し、→で開く（開いていれば最初の子へ）、←で閉じる（閉じていれば親へ）。キーの扱いは`#lib/utils/listNavigation`の`treeKeyAction`にまとめる。開閉の三角はポインタだけで押し、フォーカスを受けない
 - 右サイドバーの再生キューの曲のリストは、一覧（`role="listbox"`）がフォーカスを受け、↑↓・Home・Endで現在位置を移し、Enterで再生し、Delete / Backspaceでキューから削除する（`openableListAction`）。行の中の削除のボタンは、ポインタを置いた行・現在位置の行・フォーカスした時に出す
+- オン・オフを切り替えるボタン（シャッフル・お気に入りなど）は、名前を変えず`aria-pressed`で状態を伝える。3つ以上の状態を巡るボタン（リピートのオフ・全曲・1曲）は、`aria-pressed`を付けず、読み上げの名前に今の状態を入れる（「リピート: 全曲」。ADR-126）
 - 操作の結果の通知（`Toast`）は、エラーを`role="alert"`、ほかを`role="status"`の領域に出す。スクリーンリーダーは、すでにある読み上げの領域に足した内容だけを読むため、領域は通知がない間も置いておく
 - 修飾キーなしの矢印キーは一覧が使う。プレーヤーのショートカット（`Player.svelte`）はCmd/Ctrl+矢印（前へ・次へ・音量）・Cmd/Ctrl+L（再生中の曲を表示）と、Space（再生・一時停止）・S（シャッフル）・R（リピート）・M（ミュート）
   - ⌘N・⌘F・⌘Iなど、メニューの項目にしたキーは、メニューバー（`menu.rs`）が受け取る（ウィンドウの中では扱わない。ADR-109）。画面に出すキーの表記は、macOSの記号（⌘・⌥・⇧・⌃）で書く
@@ -529,9 +530,17 @@ Tauriのウィンドウ（macOSではWKWebView）はブラウザ自動化ツー�
 2. Backend Check（ubuntu。fmt --check, clippy, test, `bindings.ts`が最新か）
 3. Backend Check (macOS)（macOS。clippy, test, `bindings.ts`が最新か）: macOSだけのコード（`cfg(target_os = "macos")`。メディアキー・ゴミ箱・ドロップしたファイル・形式の変換・グローバルホットキーなど）とobjc2系の依存を確かめる。fmtはOSによらずすべてのファイルを見るため、Backend Checkだけで行う。バンドルは作らない。ランナーのXcode（26）にはMusicUnderstandingがないため、曲の解析のSwiftのコードは組み込まない（`music_understanding`の印のない側を確かめる。組み込まない側は、手元でも`MUSPICE_SKIP_MUSIC_ANALYSIS=1`を付けたclippy・testで確かめられる。ADR-104）
 4. Backend Check (macOS, Xcode 27)（`xcode-27`のイメージ。macOS 27・Xcode 27のプレビュー。clippy, test, Swiftのコードが組み込まれたか, 曲の解析のテスト, `bindings.ts`が最新か）: 曲の解析のSwiftのコード（`swift/music_analysis.swift`）と、それを呼ぶRustのコード（`music_understanding`の印のある側）を確かめる。Xcodeは手元と同じ27.2を`DEVELOPER_DIR`で選ぶ（イメージの既定は27.1で、macOSのSDKは27.0）。build.rsは組み込めない時も警告だけを出してビルドを続けるため、テストの実行ファイルにSwiftの関数（`_muspice_music_analysis_analyze`など）があることを`nm`で確かめる（ないと失敗にする）。ランナーのmacOSは27のため、普段は動かさない実際の解析のテスト（`cargo test music_analysis -- --ignored`）も流す。イメージがプレビューのため、必須のチェックにはしない（ADR-106）。27.2がイメージから外れたら、`DEVELOPER_DIR`を直す
-5. Build Test（PR時のみ、ubuntuでTauri build）
+5. Build Test（PRとmainへのpush。ubuntuでTauri build）
 
-ジョブ名（`name:`）は、mainのルールセット「Main Branch Protection」の必須チェックに登録する（`Frontend Check`・`Backend Check`・`Backend Check (macOS)`・`Build Test (ubuntu-latest)`。`Backend Check (macOS, Xcode 27)`は登録しない）。名前を変える時は、ルールセットも合わせて直す（直さないと、すべてのPRがマージできなくなる）。
+ジョブ名（`name:`）は、mainのルールセット「Main Branch Protection」の必須チェックに登録する（`Frontend Check`・`Backend Check`・`Backend Check (macOS)`・`Build Test (ubuntu-latest)`。`Backend Check (macOS, Xcode 27)`は登録しない）。名前を変える時は、ルールセットも合わせて直す（直さないと、すべてのPRがマージできなくなる）。ルールセットの規則は、削除・force pushの禁止と必須チェックだけ（Copilot code reviewの規則は、2026-02-28を最後に動いていなかったため、2026-11-21に外した。レビューはCodexが行う）。
+
+走らせる時と、キャッシュ・時間の制限（ADR-125）:
+
+- `ci.yml`は、PRとmainへのpushで走る。作業中のブランチへのpushでは走らない（PRを開くと、同じコミットに対してpushとPRの2回走っていたため）。PRを開く前のブランチ（ローカルで積んで、PRを後で作るものなど）は、`gh workflow run ci.yml --ref <ブランチ>`で手動で流せる（`workflow_dispatch`）
+- 同じPRに新しいコミットを積むと、古い実行は取り消す（`concurrency`）。mainへのpushは、コミットごとに最後まで流す
+- Rustのキャッシュ（`Swatinem/rust-cache`）は、mainでだけ保存する（`save-if`）。PRはmainのキャッシュを使い、保存しない。GitHub Actionsのキャッシュは、リポジトリ全体で10GBまでで、超えると古いものから消える。PRごとに保存していた時は、PR 1件で約4.5GB（Linuxのテスト用2.1GB・macOSが0.6GBずつ・ビルド用0.5GB）増え、mainのキャッシュが押し出されて、キャッシュなしのビルド（Backend Checkで10〜16分）が起きていた
+- Build Testもmainへのpushで走らせ、ビルド用（releaseのプロファイル）のキャッシュをmainに作る（PRでしか走らせなかった時は、mainにキャッシュがなく、新しいPRでは毎回キャッシュなしでビルドしていた）
+- どのジョブにも`timeout-minutes`を付ける（普段の数倍。Frontend Checkは15分、Rustのジョブは45分、Xcode 27のジョブは60分、`audit.yml`は15分、`node-version.yml`は10分）。付けないと、止まったジョブが既定の6時間まで走り続ける
 
 対応するOSはmacOSだけ（ADR-090）で、配布の対象（`tauri.conf.json`の`bundle.targets`）は`app`・`dmg`。CIのビルドテストはLinuxで行うため、`tauri.linux.conf.json`で、Linuxの配布物を`.deb`だけにしている（ビルドが通ることの確認。macOSの配布物のビルドは、リリース用のワークフロー（#303）で行う）。
 

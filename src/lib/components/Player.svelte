@@ -489,8 +489,7 @@
             class:active={player.repeatMode !== 'off'}
             onclick={toggleRepeat}
             title={m.player.repeatTitle(m.player.repeatModes[player.repeatMode])}
-            aria-label={m.player.repeat}
-            aria-pressed={player.repeatMode !== 'off'}
+            aria-label={m.player.repeat(m.player.repeatModes[player.repeatMode])}
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"

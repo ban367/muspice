@@ -272,7 +272,7 @@ export const en: Messages = {
     nextTitle: 'Next (⌘→)',
     next: 'Next track',
     repeatTitle: (mode) => `Repeat (R): ${mode}`,
-    repeat: 'Repeat',
+    repeat: (mode) => `Repeat: ${mode}`,
     repeatModes: { off: 'Off', all: 'All', one: 'One' },
     seek: 'Playback position',
     muteTitle: 'Mute (M)',
