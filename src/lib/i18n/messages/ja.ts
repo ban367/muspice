@@ -286,7 +286,8 @@ export const ja = {
     nextTitle: '次へ (⌘→)',
     next: '次のトラック',
     repeatTitle: (mode: string) => `リピート (R): ${mode}`,
-    repeat: 'リピート',
+    /** 読み上げの名前（3つのモードを巡るため、押下状態でなく名前でモードを伝える。ADR-126） */
+    repeat: (mode: string) => `リピート: ${mode}`,
     repeatModes: { off: 'オフ', all: '全曲', one: '1曲' },
     seek: '再生位置',
     muteTitle: 'ミュート (M)',
