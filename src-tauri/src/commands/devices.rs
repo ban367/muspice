@@ -26,8 +26,10 @@ use crate::library_folder::{find_all_folders, folders_overlap, normalize_folder_
 use crate::metadata::MAX_ALBUM_ART_BYTES;
 use crate::repository::TransferTrack;
 use crate::settings::Language;
+use crate::smart_playlist::EvalContext;
 use crate::state::AppState;
-use crate::validation::{validate_playlist_id, validate_track_id};
+use crate::validation::{validate_playlist_id, validate_smart_playlist_id, validate_track_id};
+use rusqlite::Connection;
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -93,6 +95,7 @@ fn to_sync_device(record: DeviceRecord) -> SyncDevice {
         path: record.path,
         sync_all: record.sync_all,
         playlist_ids: record.playlist_ids,
+        smart_playlist_ids: record.smart_playlist_ids,
         remove_unselected: record.remove_unselected,
         path_template: record.path_template,
         copy_extras: record.copy_extras,
@@ -225,6 +228,9 @@ pub async fn update_sync_device(
     for playlist_id in &config.playlist_ids {
         validate_playlist_id(playlist_id)?;
     }
+    for smart_playlist_id in &config.smart_playlist_ids {
+        validate_smart_playlist_id(smart_playlist_id)?;
+    }
     // 配置の書式は、読めることを確かめてから保存する（前後の空白は除く）
     let path_template = config.path_template.trim().to_string();
     Template::parse(&path_template)?;
@@ -315,24 +321,48 @@ struct PreparedSync {
     plan: SyncPlan,
 }
 
+/// デバイスに同期するプレイリストとオートプレイリスト（どちらも`.m3u8`を書き出す）
+///
+/// オートプレイリストは、今の条件に合う曲を転送する（ランダムな並びは、選び直すまで同じ曲になる）。
+/// プレイリストとオートプレイリストのIDは重ならないため、1つの一覧にして扱う。
+fn source_playlists(
+    db: &Connection,
+    device: &DeviceRecord,
+    context: EvalContext,
+) -> AppResult<Vec<SourcePlaylist>> {
+    let mut playlists: Vec<SourcePlaylist> = crate::playlist::get_all_playlists(db)?
+        .into_iter()
+        .filter(|playlist| device.playlist_ids.contains(&playlist.id))
+        .map(|playlist| SourcePlaylist {
+            track_ids: crate::playlist::playlist_track_ids(&playlist),
+            id: playlist.id,
+            name: playlist.name,
+        })
+        .collect();
+    for smart_playlist in crate::smart_playlist::get_all_smart_playlists(db)?
+        .into_iter()
+        .filter(|playlist| device.smart_playlist_ids.contains(&playlist.id))
+    {
+        playlists.push(SourcePlaylist {
+            track_ids: crate::smart_playlist::smart_playlist_track_ids(
+                db,
+                &smart_playlist,
+                context,
+            )?,
+            id: smart_playlist.id,
+            name: smart_playlist.name,
+        });
+    }
+    Ok(playlists)
+}
+
 /// デバイスの接続を確認し、同期する曲・プレイリストと管理ファイルから差分を計算する
 fn prepare_sync(state: &AppState, device_id: &str) -> AppResult<PreparedSync> {
-    // 自動プレイリストは、今の条件に合う曲を転送する（ランダムな並びは、選び直すまで同じ曲になる）
     let context = state.smart_playlist_context();
     let (device, all_tracks, playlists) = state.with_db(|db| {
         let device = crate::device::find_device(db, device_id)?;
         let tracks = crate::repository::find_transfer_tracks(db)?;
-        let playlists = crate::playlist::get_all_playlists(db)?
-            .into_iter()
-            .filter(|playlist| device.playlist_ids.contains(&playlist.id))
-            .map(|playlist| {
-                Ok(SourcePlaylist {
-                    track_ids: crate::playlist::playlist_track_ids(db, &playlist, context)?,
-                    id: playlist.id,
-                    name: playlist.name,
-                })
-            })
-            .collect::<AppResult<Vec<SourcePlaylist>>>()?;
+        let playlists = source_playlists(db, &device, context)?;
         Ok((device, tracks, playlists))
     })?;
 
@@ -540,14 +570,12 @@ fn selection_summary(state: &AppState, device_id: &str) -> AppResult<SyncSelecti
         let selected: Option<HashSet<String>> = if device.sync_all {
             None
         } else {
-            let mut ids = HashSet::new();
-            for playlist in crate::playlist::get_all_playlists(db)?
-                .into_iter()
-                .filter(|playlist| device.playlist_ids.contains(&playlist.id))
-            {
-                ids.extend(crate::playlist::playlist_track_ids(db, &playlist, context)?);
-            }
-            Some(ids)
+            Some(
+                source_playlists(db, &device, context)?
+                    .into_iter()
+                    .flat_map(|playlist| playlist.track_ids)
+                    .collect(),
+            )
         };
         let (count, bytes) = tracks
             .iter()
@@ -936,6 +964,7 @@ mod tests {
                 name: "SD".to_string(),
                 sync_all,
                 playlist_ids: playlist_ids.iter().map(|id| id.to_string()).collect(),
+                smart_playlist_ids: Vec::new(),
                 remove_unselected,
                 path_template: crate::device::DEFAULT_DEVICE_TEMPLATE.to_string(),
                 copy_extras: true,
@@ -1090,6 +1119,7 @@ mod tests {
             name: "SD".to_string(),
             sync_all: true,
             playlist_ids: Vec::new(),
+            smart_playlist_ids: Vec::new(),
             remove_unselected: true,
             path_template: crate::device::DEFAULT_DEVICE_TEMPLATE.to_string(),
             copy_extras: false,
@@ -1167,7 +1197,7 @@ mod tests {
         assert_eq!(fixture.on_device("my notes.txt").as_deref(), Some("mine"));
     }
 
-    /// 自動プレイリストは、同期する時の条件に合う曲を転送する
+    /// オートプレイリストは、同期する時の条件に合う曲を転送する
     #[test]
     fn test_sync_smart_playlist_copies_the_tracks_matching_the_rules() {
         use crate::smart_playlist::{
@@ -1210,15 +1240,37 @@ mod tests {
             },
             limit: None,
         };
-        let playlist_id = fixture
+        let smart_playlist_id = fixture
             .state
             .with_db(|db| {
-                Ok(crate::playlist::create_smart_playlist(db, "高評価", &rules)
-                    .unwrap()
-                    .id)
+                Ok(
+                    crate::smart_playlist::create_smart_playlist(db, "高評価", &rules)
+                        .unwrap()
+                        .id,
+                )
             })
             .unwrap();
-        let device_id = fixture.register(false, &[&playlist_id]);
+        let device_id = fixture.register(false, &[]);
+        let config = SyncDeviceConfig {
+            name: "SD".to_string(),
+            sync_all: false,
+            playlist_ids: Vec::new(),
+            smart_playlist_ids: vec![smart_playlist_id],
+            remove_unselected: true,
+            path_template: crate::device::DEFAULT_DEVICE_TEMPLATE.to_string(),
+            copy_extras: true,
+            transcode: DeviceTranscode::default(),
+        };
+        fixture
+            .state
+            .with_db(|db| update_device_config(db, &device_id, &config))
+            .unwrap();
+        assert_eq!(
+            selection_summary(&fixture.state, &device_id)
+                .unwrap()
+                .track_count,
+            1
+        );
 
         let result = fixture.sync(&device_id);
         assert_eq!((result.copied_count, result.playlist_count), (1, 1));

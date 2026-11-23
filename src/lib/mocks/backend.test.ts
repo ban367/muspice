@@ -10,7 +10,7 @@ import {
   type MockBackendOptions,
   type MockEventName
 } from './backend';
-import { mockPlaylistId, mockTrackId } from './fixtures';
+import { mockPlaylistId, mockSmartPlaylistId, mockTrackId } from './fixtures';
 
 /** バックエンドから送信されたイベント */
 let events: { event: string; payload: unknown }[];
@@ -1222,13 +1222,15 @@ describe('プレイリスト', () => {
     expect(created.name).toBe('通勤');
   });
 
-  it('自動プレイリストは、条件に合う曲を返し、曲を自分で変える操作を受け付けない', async () => {
-    const smart = (await commands.getPlaylists()).find((p) => p.id === mockPlaylistId(4))!;
-    expect(smart.rules).not.toBeNull();
-    // 一覧には曲を持たせない（開く時に条件から求める）
-    expect(smart.tracks).toEqual([]);
+  it('オートプレイリストは、プレイリストとは別の一覧で、条件に合う曲を返す', async () => {
+    const smart = (await commands.getSmartPlaylists()).find(
+      (p) => p.id === mockSmartPlaylistId(1)
+    )!;
+    expect(smart.rules.rules).toHaveLength(1);
+    // プレイリストの一覧には出ない（別の枠組み。ADR-127）
+    expect((await commands.getPlaylists()).some((p) => p.id === smart.id)).toBe(false);
 
-    const tracks = await commands.getPlaylistTracks(smart.id);
+    const tracks = await commands.getSmartPlaylistTracks(smart.id);
     expect(tracks.length).toBeGreaterThan(0);
     expect(tracks.every((track) => track.rating >= 8)).toBe(true);
     // 評価の高い順
@@ -1238,22 +1240,16 @@ describe('プレイリスト', () => {
 
     // 評価を変えると、次に開いた時の曲が変わる
     await commands.setRating(tracks[0].id, 1);
-    const after = await commands.getPlaylistTracks(smart.id);
+    const after = await commands.getSmartPlaylistTracks(smart.id);
     expect(after.map((track) => track.id)).not.toContain(tracks[0].id);
 
-    const rejected = { code: 'VALIDATION' };
-    await expect(commands.addTracksToPlaylist(smart.id, [mockTrackId(4)])).rejects.toMatchObject(
-      rejected
-    );
-    await expect(commands.removeTracksFromPlaylist(smart.id, [after[0].id])).rejects.toMatchObject(
-      rejected
-    );
-    await expect(commands.reorderPlaylistTracks(smart.id, [after[0].id])).rejects.toMatchObject(
-      rejected
-    );
+    // プレイリストの曲を変えるコマンドには、オートプレイリストを渡せない（見つからない）
+    await expect(commands.addTracksToPlaylist(smart.id, [mockTrackId(4)])).rejects.toMatchObject({
+      code: 'NOT_FOUND'
+    });
   });
 
-  it('自動プレイリストを作り、条件を変えられる', async () => {
+  it('オートプレイリストを作り、名前と条件・説明・並び順を変え、削除できる', async () => {
     const rules: SmartRules = {
       matchMode: 'all',
       rules: [{ kind: 'text', field: 'genre', op: 'is', value: 'jazz' }],
@@ -1263,27 +1259,64 @@ describe('プレイリスト', () => {
     expect(await commands.countSmartPlaylistTracks(rules)).toBe(3);
 
     const created = await commands.createSmartPlaylist(' ジャズ ', rules);
-    expect(created).toMatchObject({ name: 'ジャズ', rules, tracks: [] });
-    const jazz = await commands.getPlaylistTracks(created.id);
+    expect(created).toMatchObject({ name: 'ジャズ', rules, description: null });
+    const jazz = await commands.getSmartPlaylistTracks(created.id);
     expect(jazz.map((track) => track.genre)).toEqual(['Jazz', 'Jazz', 'Jazz']);
 
-    await commands.updateSmartPlaylist(created.id, { ...rules, limit: 2 });
-    expect(await commands.getPlaylistTracks(created.id)).toHaveLength(2);
+    await commands.updateSmartPlaylist(created.id, ' ジャズ2曲 ', { ...rules, limit: 2 });
+    expect(await commands.getSmartPlaylistTracks(created.id)).toHaveLength(2);
     expect(await commands.countSmartPlaylistTracks({ ...rules, limit: 2 })).toBe(2);
+    await commands.updateSmartPlaylistInfo(created.id, 'ジャズ（2曲）', ' メモ ');
+    expect((await commands.getSmartPlaylists()).find((p) => p.id === created.id)).toMatchObject({
+      name: 'ジャズ（2曲）',
+      description: 'メモ',
+      rules: { ...rules, limit: 2 }
+    });
 
-    // 誤りのある条件・通常のプレイリストには設定できない
+    // 手動の並び順（作ったものは、いちばん後ろ）
+    const ids = (await commands.getSmartPlaylists()).map((p) => p.id);
+    expect(ids.at(-1)).toBe(created.id);
+    await commands.reorderSmartPlaylists([...ids].reverse());
+    expect((await commands.getSmartPlaylists()).map((p) => p.id)).toEqual([...ids].reverse());
+
+    // 誤りのある条件・通常のプレイリスト・ないものには設定できない
     await expect(
       commands.createSmartPlaylist('誤り', { ...rules, limit: 0 })
     ).rejects.toMatchObject({ code: 'VALIDATION' });
-    await expect(commands.updateSmartPlaylist(mockPlaylistId(1), rules)).rejects.toMatchObject({
-      code: 'VALIDATION'
-    });
-    await expect(commands.updateSmartPlaylist(mockPlaylistId(99), rules)).rejects.toMatchObject({
+    for (const id of [mockPlaylistId(1), mockSmartPlaylistId(99)]) {
+      await expect(commands.updateSmartPlaylist(id, 'x', rules)).rejects.toMatchObject({
+        code: 'NOT_FOUND'
+      });
+    }
+
+    await commands.deleteSmartPlaylist(created.id);
+    expect((await commands.getSmartPlaylists()).some((p) => p.id === created.id)).toBe(false);
+    await expect(commands.deleteSmartPlaylist(created.id)).rejects.toMatchObject({
       code: 'NOT_FOUND'
     });
   });
 
-  it('ほかのプレイリストを条件にでき、自分自身・互いを条件にする条件は断る', async () => {
+  it('オートプレイリストの今の曲で、通常のプレイリストを作る（その後の変更には追随しない）', async () => {
+    const smartId = mockSmartPlaylistId(1);
+    const tracks = await commands.getSmartPlaylistTracks(smartId);
+
+    const saved = await commands.saveSmartPlaylistAsPlaylist(smartId, ' 高評価（保存） ');
+    expect(saved.name).toBe('高評価（保存）');
+    expect(saved.tracks.map((entry) => entry.trackId)).toEqual(tracks.map((track) => track.id));
+
+    await commands.setRating(tracks[0].id, 1);
+    const stored = (await commands.getPlaylists()).find((p) => p.id === saved.id)!;
+    expect(stored.tracks.map((entry) => entry.trackId)).toContain(tracks[0].id);
+
+    // M3U8へは、今の条件に合う曲を書き出す（CUEシートの曲は書かない）
+    const now = await commands.getSmartPlaylistTracks(smartId);
+    expect(await commands.exportSmartPlaylistM3u(smartId, false)).toEqual({
+      fileName: '高評価の曲.m3u8',
+      trackCount: now.filter((track) => track.cue === null).length
+    });
+  });
+
+  it('プレイリスト・ほかのオートプレイリストを条件にでき、自分自身・互いを条件にする条件は断る', async () => {
     const all = (rules: SmartRules['rules']): SmartRules => ({
       matchMode: 'all',
       rules,
@@ -1299,30 +1332,30 @@ describe('プレイリスト', () => {
       '車用',
       all([{ kind: 'playlist', op: 'isNot', playlistId: manual.id }])
     );
-    const tracks = await commands.getPlaylistTracks(excluded.id);
+    const tracks = await commands.getSmartPlaylistTracks(excluded.id);
     expect(tracks).toHaveLength(library.length - 2);
     expect(tracks.map((track) => track.id)).not.toContain(mockTrackId(1));
 
-    // 自動プレイリストを条件にした自動プレイリスト
+    // オートプレイリストを条件にしたオートプレイリスト
     const nested = await commands.createSmartPlaylist(
       '車用の中',
-      all([{ kind: 'playlist', op: 'is', playlistId: excluded.id }])
+      all([{ kind: 'smartPlaylist', op: 'is', playlistId: excluded.id }])
     );
-    expect(await commands.getPlaylistTracks(nested.id)).toHaveLength(library.length - 2);
+    expect(await commands.getSmartPlaylistTracks(nested.id)).toHaveLength(library.length - 2);
 
     const rejected = { code: 'VALIDATION' };
-    await expect(
-      commands.updateSmartPlaylist(
-        excluded.id,
-        all([{ kind: 'playlist', op: 'is', playlistId: excluded.id }])
-      )
-    ).rejects.toMatchObject(rejected);
-    await expect(
-      commands.updateSmartPlaylist(
-        excluded.id,
-        all([{ kind: 'playlist', op: 'is', playlistId: nested.id }])
-      )
-    ).rejects.toMatchObject(rejected);
+    for (const rules of [
+      // 自分自身・互い
+      all([{ kind: 'smartPlaylist', op: 'is', playlistId: excluded.id }]),
+      all([{ kind: 'smartPlaylist', op: 'is', playlistId: nested.id }]),
+      // 種類を取り違えたID
+      all([{ kind: 'playlist', op: 'is', playlistId: nested.id }]),
+      all([{ kind: 'smartPlaylist', op: 'is', playlistId: manual.id }])
+    ]) {
+      await expect(commands.updateSmartPlaylist(excluded.id, '車用', rules)).rejects.toMatchObject(
+        rejected
+      );
+    }
     await expect(
       commands.createSmartPlaylist(
         '消したもの',
@@ -1528,10 +1561,10 @@ describe('プレイリスト', () => {
   it('プレイリストとフォルダを、手動で並べ替えられる', async () => {
     const byPosition = async () =>
       (await commands.getPlaylists()).sort((a, b) => a.position - b.position).map((p) => p.id);
-    expect(await byPosition()).toEqual([1, 2, 3, 4].map(mockPlaylistId));
+    expect(await byPosition()).toEqual([1, 2, 3].map(mockPlaylistId));
 
-    await commands.reorderPlaylists([3, 1, 4, 2].map(mockPlaylistId));
-    expect(await byPosition()).toEqual([3, 1, 4, 2].map(mockPlaylistId));
+    await commands.reorderPlaylists([3, 1, 2].map(mockPlaylistId));
+    expect(await byPosition()).toEqual([3, 1, 2].map(mockPlaylistId));
 
     // 新しいプレイリストと、フォルダへ移したプレイリストは、いちばん後ろになる
     const created = await commands.createPlaylist('新しい');
@@ -1547,14 +1580,14 @@ describe('プレイリスト', () => {
     ]);
   });
 
-  it('ランダムな並びの自動プレイリストは、選び直すまで同じ並びになる', async () => {
+  it('ランダムな並びのオートプレイリストは、選び直すまで同じ並びになる', async () => {
     const created = await commands.createSmartPlaylist('ランダム', {
       matchMode: 'all',
       rules: [],
       order: { field: 'random', descending: false },
       limit: null
     });
-    const order = async () => (await commands.getPlaylistTracks(created.id)).map((t) => t.id);
+    const order = async () => (await commands.getSmartPlaylistTracks(created.id)).map((t) => t.id);
 
     const first = await order();
     expect(await order()).toEqual(first);
@@ -1928,8 +1961,8 @@ describe('M3Uの読み込み・書き出し', () => {
     });
   });
 
-  it('まとめて書き出すと、選んだフォルダと通常のプレイリストの数を返す', async () => {
-    const regular = (await commands.getPlaylists()).filter((playlist) => playlist.rules === null);
+  it('まとめて書き出すと、選んだフォルダとプレイリストの数を返す（オートプレイリストは書かない）', async () => {
+    const regular = await commands.getPlaylists();
     backend.setFolderResult('/Users/demo/Playlists/');
 
     expect(await commands.exportAllPlaylistsM3u(true)).toEqual({
@@ -2607,9 +2640,7 @@ describe('音楽フォルダ', () => {
 
   const trackCount = async () => (await commands.getAllTracks()).length;
   const regularPlaylistNames = async () =>
-    (await commands.getPlaylists())
-      .filter((playlist) => playlist.rules === null)
-      .map((playlist) => playlist.name);
+    (await commands.getPlaylists()).map((playlist) => playlist.name);
 
   it('はじめは設定しておらず、既定のフォルダを候補に返す', async () => {
     expect(await commands.getMusicFolder()).toEqual({
@@ -2639,8 +2670,8 @@ describe('音楽フォルダ', () => {
     });
   });
 
-  it('置き換えると、外の曲・ほかのライブラリフォルダ・通常のプレイリストを外し、新しいフォルダを読み込む', async () => {
-    const smart = (await commands.getPlaylists()).filter((playlist) => playlist.rules !== null);
+  it('置き換えると、外の曲・ほかのライブラリフォルダ・プレイリストを外し、新しいフォルダを読み込む', async () => {
+    const smart = await commands.getSmartPlaylists();
     backend.setMusicFolderFileCount(3);
     await commands.setMusicFolder('default');
     events = [];
@@ -2662,10 +2693,9 @@ describe('音楽フォルダ', () => {
     ]);
     expect(await markedPaths()).toEqual(['/Users/demo/Music/Muspice']);
     expect(await regularPlaylistNames()).toEqual([]);
-    // 自動プレイリストは残す
-    expect((await commands.getPlaylists()).filter((p) => p.rules !== null)).toHaveLength(
-      smart.length
-    );
+    // プレイリストのフォルダも消え、オートプレイリストは残す
+    expect(await commands.getPlaylistFolders()).toEqual([]);
+    expect(await commands.getSmartPlaylists()).toHaveLength(smart.length);
     expect(events.map((e) => e.event)).toContain('library-changed');
   });
 
@@ -2842,6 +2872,7 @@ describe('転送先デバイス', () => {
       name: '車',
       syncAll: true,
       playlistIds: [mockPlaylistId(2), mockPlaylistId(99)],
+      smartPlaylistIds: [mockSmartPlaylistId(1), mockSmartPlaylistId(99)],
       removeUnselected: false,
       pathTemplate: ' %artist%/%title% ',
       copyExtras: false,
@@ -2852,6 +2883,7 @@ describe('転送先デバイス', () => {
       name: '車',
       syncAll: true,
       playlistIds: [mockPlaylistId(2)],
+      smartPlaylistIds: [mockSmartPlaylistId(1)],
       removeUnselected: false,
       pathTemplate: '%artist%/%title%',
       copyExtras: false,

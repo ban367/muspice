@@ -57,6 +57,7 @@ import type {
   PlaylistFolder,
   RescanResult,
   Settings,
+  SmartPlaylist,
   SmartRules,
   StartupNotice,
   SyncDevice,
@@ -71,6 +72,7 @@ import {
   FIXTURE_LRC_FILES,
   createFixturePlaylistFolders,
   createFixturePlaylists,
+  createFixtureSmartPlaylists,
   createFixtureTracks,
   fileFormatName,
   mockPlaylistId,
@@ -682,6 +684,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     ...createBulkTracks(options.extraTrackCount ?? 0)
   ];
   let playlists: Playlist[] = createFixturePlaylists();
+  // オートプレイリスト（プレイリストとは別の枠組み。ADR-127）
+  let smartPlaylists: SmartPlaylist[] = createFixtureSmartPlaylists();
   let playlistFolders: PlaylistFolder[] = createFixturePlaylistFolders();
   // ミニプレーヤー（メインウィンドウの小さな表示）にしているか・常に手前に表示しているか
   let miniPlayerWindow = { enabled: false, alwaysOnTop: false };
@@ -845,6 +849,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       path: '/Volumes/SDCARD/Music',
       syncAll: false,
       playlistIds: [mockPlaylistId(1)],
+      smartPlaylistIds: [],
       removeUnselected: true,
       // 配置の書式を持つ前に登録したデバイス（以前の配置。曲のアーティストで分ける）
       pathTemplate: '%artist%/%album%/[%disc%-]%track% %title%',
@@ -865,6 +870,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       path: '/Volumes/WALKMAN/MUSIC',
       syncAll: true,
       playlistIds: [],
+      smartPlaylistIds: [],
       removeUnselected: true,
       pathTemplate: DEFAULT_DEVICE_TEMPLATE,
       copyExtras: true,
@@ -979,14 +985,13 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     Math.max(-1, ...items.map((item) => item.position)) + 1;
 
   /** 新しいプレイリスト（フォルダの外。手動の並び順では、いちばん後ろ） */
-  function newPlaylist(name: string, rules: SmartRules | null, trackIds: string[] = []): Playlist {
+  function newPlaylist(name: string, trackIds: string[] = []): Playlist {
     const timestamp = now();
     const playlist: Playlist = {
       id: crypto.randomUUID(),
       name,
       description: null,
       tracks: trackIds.map((trackId, position) => ({ trackId, position, addedAt: timestamp })),
-      rules,
       folderId: null,
       position: nextPosition(playlists),
       createdAt: timestamp,
@@ -996,33 +1001,42 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     return playlist;
   }
 
-  // 自動プレイリストの、ランダムな並びの種（「選び直す」で変える）
+  function findSmartPlaylist(id: string): SmartPlaylist {
+    if (!UUID_PATTERN.test(id)) fail('VALIDATION', '不正なオートプレイリストID形式です');
+    const smartPlaylist = smartPlaylists.find((p) => p.id === id);
+    if (!smartPlaylist) fail('NOT_FOUND', 'オートプレイリストが見つかりません');
+    return smartPlaylist;
+  }
+
+  // オートプレイリストの、ランダムな並びの種（「選び直す」で変える）
   let shuffleSeed = 1;
-  /** 音楽フォルダのパス（未設定ならnull。自動プレイリストの「音楽フォルダの中にある」に使う） */
+  /** 音楽フォルダのパス（未設定ならnull。オートプレイリストの「音楽フォルダの中にある」に使う） */
   const musicFolderPath = (): string | null =>
     libraryFolders.find((folder) => folder.isMusicFolder)?.path ?? null;
-  const smartContext = (): SmartPlaylistContext => ({
+  const smartContext = (visiting: ReadonlySet<string> = new Set()): SmartPlaylistContext => ({
     now: Date.now(),
     shuffleSeed,
     musicFolderPath: musicFolderPath(),
-    playlistMembers: playlistMembers(new Set())
+    // 通常のプレイリストは入れてある曲（消したプレイリストは空）
+    playlistMembers: (playlistId) =>
+      new Set(
+        playlists.find((p) => p.id === playlistId)?.tracks.map((entry) => entry.trackId) ?? []
+      ),
+    smartPlaylistMembers: smartPlaylistMembers(visiting)
   });
 
   /**
-   * プレイリストに入っている曲のID（実装と同じく、自動プレイリストは条件に合う曲、消した
-   * プレイリストは空。`visiting`は求めている途中の自動プレイリストで、循環していれば空で止める）
+   * オートプレイリストの曲のID（実装と同じく、条件に合う曲。消したものは空。`visiting`は求めている
+   * 途中のオートプレイリストで、循環していれば空で止める）
    */
-  function playlistMembers(visiting: ReadonlySet<string>) {
-    return (playlistId: string): ReadonlySet<string> => {
-      const playlist = playlists.find((p) => p.id === playlistId);
-      if (!playlist) return new Set();
-      if (playlist.rules === null) return new Set(playlist.tracks.map((entry) => entry.trackId));
-      if (visiting.has(playlistId)) return new Set();
-      const context = {
-        ...smartContext(),
-        playlistMembers: playlistMembers(new Set([...visiting, playlistId]))
-      };
-      return new Set(findSmartPlaylistTracks(tracks, playlist.rules, context).map((t) => t.id));
+  function smartPlaylistMembers(visiting: ReadonlySet<string>) {
+    return (smartPlaylistId: string): ReadonlySet<string> => {
+      const smartPlaylist = smartPlaylists.find((p) => p.id === smartPlaylistId);
+      if (!smartPlaylist || visiting.has(smartPlaylistId)) return new Set();
+      const context = smartContext(new Set([...visiting, smartPlaylistId]));
+      return new Set(
+        findSmartPlaylistTracks(tracks, smartPlaylist.rules, context).map((t) => t.id)
+      );
     };
   }
 
@@ -1031,43 +1045,41 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     if (error !== null) fail('VALIDATION', error);
   }
 
-  /** 条件にしたプレイリストを検証する（Rustの`validate_playlist_references`に対応） */
-  function validatePlaylistReferences(playlistId: string | null, rules: SmartRules): void {
+  /** 条件にしたプレイリスト・オートプレイリストを検証する（Rustの`validate_playlist_references`に対応） */
+  function validatePlaylistReferences(smartPlaylistId: string | null, rules: SmartRules): void {
+    for (const rule of rules.rules) {
+      if (rule.kind === 'playlist' && !playlists.some((p) => p.id === rule.playlistId)) {
+        fail('VALIDATION', '条件にしたプレイリストが見つかりません');
+      }
+    }
     const referenced = (rules: SmartRules) =>
-      rules.rules.flatMap((rule) => (rule.kind === 'playlist' ? [rule.playlistId] : []));
+      rules.rules.flatMap((rule) => (rule.kind === 'smartPlaylist' ? [rule.playlistId] : []));
     const refersTo = (rules: SmartRules, target: string, visited: Set<string>): boolean =>
       referenced(rules).some((id) => {
         if (id === target) return true;
         if (visited.has(id)) return false;
         visited.add(id);
-        const next = playlists.find((p) => p.id === id)?.rules;
-        return next != null && refersTo(next, target, visited);
+        const next = smartPlaylists.find((p) => p.id === id)?.rules;
+        return next !== undefined && refersTo(next, target, visited);
       });
 
     for (const id of referenced(rules)) {
-      if (id === playlistId) {
-        fail('VALIDATION', '自動プレイリストの条件に、そのプレイリスト自身は使えません');
+      if (id === smartPlaylistId) {
+        fail('VALIDATION', 'オートプレイリストの条件に、そのオートプレイリスト自身は使えません');
       }
-      const target = playlists.find((p) => p.id === id);
-      if (!target) fail('VALIDATION', '条件にしたプレイリストが見つかりません');
-      if (
-        playlistId !== null &&
-        target.rules !== null &&
-        refersTo(target.rules, playlistId, new Set())
-      ) {
+      const target = smartPlaylists.find((p) => p.id === id);
+      if (!target) fail('VALIDATION', '条件にしたオートプレイリストが見つかりません');
+      if (smartPlaylistId !== null && refersTo(target.rules, smartPlaylistId, new Set())) {
         fail(
           'VALIDATION',
-          '条件にしたプレイリストが、このプレイリストを条件にしています（互いを条件にはできません）'
+          '条件にしたオートプレイリストが、このオートプレイリストを条件にしています（互いを条件にはできません）'
         );
       }
     }
   }
 
-  /** プレイリストの曲（プレイリストの中の並び順。自動プレイリストは、条件に合う曲） */
+  /** プレイリストの曲（プレイリストの中の並び順） */
   function playlistTracks(playlist: Playlist): Track[] {
-    if (playlist.rules !== null) {
-      return findSmartPlaylistTracks(tracks, playlist.rules, smartContext());
-    }
     const byId = new Map(tracks.map((track) => [track.id, track]));
     return [...playlist.tracks]
       .sort((a, b) => a.position - b.position)
@@ -1075,12 +1087,9 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       .filter((track): track is Track => track !== undefined);
   }
 
-  /** 自動プレイリストの曲は条件で決まるため、追加・削除・並べ替えはできない */
-  function ensureManualPlaylist(playlistId: string): void {
-    if (playlists.some((p) => p.id === playlistId && p.rules !== null)) {
-      fail('VALIDATION', '自動プレイリストの曲は条件で決まるため、変更できません');
-    }
-  }
+  /** オートプレイリストの曲（条件に合う曲を、条件の並び順で） */
+  const smartPlaylistTracks = (smartPlaylist: SmartPlaylist): Track[] =>
+    findSmartPlaylistTracks(tracks, smartPlaylist.rules, smartContext());
 
   /** 項目の値の一覧（アーティスト・ジャンルは、複数ある曲のそれぞれの値） */
   function uniqueValues(key: 'artist' | 'album' | 'genre'): string[] {
@@ -1431,7 +1440,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         path,
         removedTrackCount: removed,
         keptTrackCount: kept,
-        playlistCount: playlists.filter((playlist) => playlist.rules === null).length
+        playlistCount: playlists.length
       };
     }
     return changeMusicFolder(path, false);
@@ -1461,8 +1470,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   /**
    * ライブラリを`path`の中身にする（Rustの`change_music_folder`の後半）
    *
-   * 新しいフォルダの外の曲と、ほかのライブラリフォルダを外し、`replace`なら通常のプレイリスト（と、
-   * 空になったプレイリストのフォルダ）も消す。登録済みのライブラリフォルダなら印を付けるだけ、
+   * 新しいフォルダの外の曲と、ほかのライブラリフォルダを外し、`replace`ならプレイリストとプレイリストの
+   * フォルダも消す（オートプレイリストは残す）。登録済みのライブラリフォルダなら印を付けるだけ、
    * 新しいフォルダは`setMusicFolderFileCount`の数の曲を読み込んで登録する（0なら空のフォルダ）。
    */
   async function changeMusicFolder(path: string, replace: boolean): Promise<MusicFolderChange> {
@@ -1472,11 +1481,9 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     );
     let removedPlaylistCount = 0;
     if (replace) {
-      removedPlaylistCount = playlists.filter((playlist) => playlist.rules === null).length;
-      playlists = playlists.filter((playlist) => playlist.rules !== null);
-      playlistFolders = playlistFolders.filter((folder) =>
-        playlists.some((playlist) => playlist.folderId === folder.id)
-      );
+      removedPlaylistCount = playlists.length;
+      playlists = [];
+      playlistFolders = [];
     }
     libraryFolders = libraryFolders.filter((folder) => folder.path === path);
     const replaced = replace ? { removedTrackCount, removedPlaylistCount, backupPath: null } : null;
@@ -2483,6 +2490,12 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
   /** デバイスに同期するプレイリスト（削除済みのプレイリストは含めない） */
   const devicePlaylists = (device: MockSyncDevice) =>
     playlists.filter((playlist) => device.playlistIds.includes(playlist.id));
+  /** デバイスに同期するオートプレイリスト（削除済みのものは含めない） */
+  const deviceSmartPlaylists = (device: MockSyncDevice) =>
+    smartPlaylists.filter((playlist) => device.smartPlaylistIds.includes(playlist.id));
+  /** デバイスに同期するプレイリスト・オートプレイリストの数（どちらも`.m3u8`を書き出す） */
+  const devicePlaylistCount = (device: MockSyncDevice) =>
+    devicePlaylists(device).length + deviceSmartPlaylists(device).length;
 
   const usedBytes = (device: MockSyncDevice) =>
     device.otherUsedBytes + [...device.copied.values()].reduce((sum, size) => sum + size, 0);
@@ -2494,6 +2507,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       path: device.path,
       syncAll: device.syncAll,
       playlistIds: devicePlaylists(device).map((playlist) => playlist.id),
+      smartPlaylistIds: deviceSmartPlaylists(device).map((playlist) => playlist.id),
       removeUnselected: device.removeUnselected,
       pathTemplate: device.pathTemplate,
       copyExtras: device.copyExtras,
@@ -2508,11 +2522,14 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     };
   }
 
-  /** デバイスに同期する曲（全曲か、選んだプレイリストの曲） */
+  /** デバイスに同期する曲（全曲か、選んだプレイリスト・オートプレイリストの曲） */
   function tracksToSync(device: MockSyncDevice): Track[] {
     if (device.syncAll) return tracks;
     const ids = new Set(
-      devicePlaylists(device).flatMap((playlist) => playlistTracks(playlist).map((t) => t.id))
+      [
+        ...devicePlaylists(device).flatMap(playlistTracks),
+        ...deviceSmartPlaylists(device).flatMap(smartPlaylistTracks)
+      ].map((track) => track.id)
     );
     return tracks.filter((track) => ids.has(track.id));
   }
@@ -2579,7 +2596,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       deleteBytes,
       renameCount,
       unchangedCount: keptCount - renameCount,
-      playlistCount: devicePlaylists(device).length,
+      playlistCount: devicePlaylistCount(device),
       transcodeCount: toCopy.filter((track) => transcodes(device, track)).length,
       missingSourceCount: 0,
       // 歌詞ファイル・フォルダの画像はモックにないため、ない（ADR-112）
@@ -2610,7 +2627,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     const device = findSyncDevice(deviceId);
     if (isSyncRunning) fail('LOCK', '他のデバイスへの同期が実行中です');
     const { toCopy, toDelete, toRename, summary } = planSync(device);
-    if (!device.syncAll && devicePlaylists(device).length === 0) {
+    if (!device.syncAll && devicePlaylistCount(device) === 0) {
       fail('VALIDATION', '同期する対象（全曲またはプレイリスト）を選択してください');
     }
     if (!summary.hasEnoughSpace) fail('VALIDATION', 'デバイスの空き容量が足りません');
@@ -3046,14 +3063,82 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     createPlaylist: (name) => {
       const trimmed = name.trim();
       validatePlaylistName(trimmed);
-      return newPlaylist(trimmed, null);
+      return newPlaylist(trimmed);
     },
+    // ---- オートプレイリスト（ADR-127） ----
+    getSmartPlaylists: () =>
+      [...smartPlaylists]
+        .sort((a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt))
+        .map((smartPlaylist) => ({ ...smartPlaylist })),
     createSmartPlaylist: (name, rules) => {
       const trimmed = name.trim();
       validatePlaylistName(trimmed);
       validateSmartRules(rules);
       validatePlaylistReferences(null, rules);
-      return newPlaylist(trimmed, rules);
+      const timestamp = now();
+      const smartPlaylist: SmartPlaylist = {
+        id: crypto.randomUUID(),
+        name: trimmed,
+        description: null,
+        rules,
+        position: nextPosition(smartPlaylists),
+        createdAt: timestamp,
+        updatedAt: timestamp
+      };
+      smartPlaylists.push(smartPlaylist);
+      return { ...smartPlaylist };
+    },
+    updateSmartPlaylist: (smartPlaylistId, name, rules) => {
+      const smartPlaylist = findSmartPlaylist(smartPlaylistId);
+      const trimmed = name.trim();
+      validatePlaylistName(trimmed);
+      validateSmartRules(rules);
+      validatePlaylistReferences(smartPlaylistId, rules);
+      smartPlaylist.name = trimmed;
+      smartPlaylist.rules = rules;
+      smartPlaylist.updatedAt = now();
+      return null;
+    },
+    updateSmartPlaylistInfo: (smartPlaylistId, name, description) => {
+      const smartPlaylist = findSmartPlaylist(smartPlaylistId);
+      const trimmed = name.trim();
+      validatePlaylistName(trimmed);
+      if (description !== null && [...description].length > 1000) {
+        fail('VALIDATION', '説明は1000文字以内で入力してください');
+      }
+      smartPlaylist.name = trimmed;
+      smartPlaylist.description = description?.trim() || null;
+      smartPlaylist.updatedAt = now();
+      return null;
+    },
+    reorderSmartPlaylists: (smartPlaylistIds) => {
+      smartPlaylistIds.forEach((id, position) => {
+        if (!UUID_PATTERN.test(id)) fail('VALIDATION', '不正なオートプレイリストID形式です');
+        const smartPlaylist = smartPlaylists.find((p) => p.id === id);
+        if (smartPlaylist) smartPlaylist.position = position;
+      });
+      return null;
+    },
+    deleteSmartPlaylist: (smartPlaylistId) => {
+      findSmartPlaylist(smartPlaylistId);
+      smartPlaylists = smartPlaylists.filter((p) => p.id !== smartPlaylistId);
+      return null;
+    },
+    getSmartPlaylistTracks: (smartPlaylistId) => {
+      if (!UUID_PATTERN.test(smartPlaylistId)) {
+        fail('VALIDATION', '不正なオートプレイリストID形式です');
+      }
+      const smartPlaylist = smartPlaylists.find((p) => p.id === smartPlaylistId);
+      return smartPlaylist ? smartPlaylistTracks(smartPlaylist) : [];
+    },
+    saveSmartPlaylistAsPlaylist: (smartPlaylistId, name) => {
+      const smartPlaylist = findSmartPlaylist(smartPlaylistId);
+      const trimmed = name.trim();
+      validatePlaylistName(trimmed);
+      return newPlaylist(
+        trimmed,
+        smartPlaylistTracks(smartPlaylist).map((track) => track.id)
+      );
     },
     // 実装と同じく、同じ曲は最初の1回だけを入れ、見つからない曲があれば作らない
     createPlaylistWithTracks: (name, trackIds) => {
@@ -3064,7 +3149,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       if (!unique.every((id) => tracks.some((track) => track.id === id))) {
         fail('NOT_FOUND', 'トラックが見つかりません');
       }
-      return newPlaylist(trimmed, null, unique);
+      return newPlaylist(trimmed, unique);
     },
     setPlaylistDescription: (playlistId, description) => {
       validatePlaylistId(playlistId);
@@ -3137,18 +3222,6 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       });
       return null;
     },
-    updateSmartPlaylist: (playlistId, rules) => {
-      validatePlaylistId(playlistId);
-      validateSmartRules(rules);
-      const playlist = findPlaylist(playlistId);
-      if (playlist.rules === null) {
-        fail('VALIDATION', '通常のプレイリストには、条件を設定できません');
-      }
-      validatePlaylistReferences(playlistId, rules);
-      playlist.rules = rules;
-      playlist.updatedAt = now();
-      return null;
-    },
     countSmartPlaylistTracks: (rules) => {
       validateSmartRules(rules);
       return countSmartPlaylistTracks(tracks, rules, smartContext());
@@ -3157,16 +3230,12 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       shuffleSeed++;
       return null;
     },
-    // 実装と同じく、自動プレイリストの曲は持たせない（開く時に条件から求める）
     getPlaylists: () =>
       [...playlists]
         .sort((a, b) => compareAsc(b.createdAt, a.createdAt))
         .map((playlist) => ({
           ...playlist,
-          tracks:
-            playlist.rules === null
-              ? [...playlist.tracks].sort((a, b) => a.position - b.position)
-              : []
+          tracks: [...playlist.tracks].sort((a, b) => a.position - b.position)
         })),
     // 実装と同じく、見つからないプレイリストは空の一覧を返す
     getPlaylistTracks: (playlistId) => {
@@ -3195,7 +3264,6 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         fail('VALIDATION', 'トラックIDが指定されていません');
       }
       trackIds.forEach(validateTrackId);
-      ensureManualPlaylist(playlistId);
       const playlist = playlists.find((p) => p.id === playlistId);
       // 実装と同じく、見つからないトラックがあれば1曲も追加しない
       if (!playlist || !trackIds.every((id) => tracks.some((track) => track.id === id))) {
@@ -3220,7 +3288,6 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         fail('VALIDATION', 'トラックIDが指定されていません');
       }
       trackIds.forEach(validateTrackId);
-      ensureManualPlaylist(playlistId);
       const playlist = findPlaylist(playlistId);
       const before = playlist.tracks.length;
       // 削除後はpositionを連番に振り直す
@@ -3235,7 +3302,6 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     reorderPlaylistTracks: (playlistId, trackIds) => {
       validatePlaylistId(playlistId);
       trackIds.forEach(validateTrackId);
-      ensureManualPlaylist(playlistId);
       const playlist = findPlaylist(playlistId);
       trackIds.forEach((trackId, position) => {
         const entry = playlist.tracks.find((e) => e.trackId === trackId);
@@ -3257,7 +3323,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         .filter((track) => !track.isMissing)
         .slice(0, clean ? 4 : 6)
         .map((track) => track.id);
-      const playlist = newPlaylist(name, null, trackIds);
+      const playlist = newPlaylist(name, trackIds);
       return [
         {
           fileName: `${baseName}.${clean ? 'm3u8' : 'm3u'}`,
@@ -3283,13 +3349,21 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         trackCount: playlistTracks(playlist).filter((track) => track.cue === null).length
       };
     },
-    // フォルダを選ぶダイアログ（Rust側が開く）の代わりに、`setFolderResult`のフォルダへ、通常の
-    // プレイリストを書いたことにする（nullなら、選ばずに閉じた）
+    // オートプレイリストは、今の条件に合う曲を書いたことにする
+    exportSmartPlaylistM3u: (smartPlaylistId) => {
+      const smartPlaylist = findSmartPlaylist(smartPlaylistId);
+      return {
+        fileName: `${smartPlaylist.name}.m3u8`,
+        trackCount: smartPlaylistTracks(smartPlaylist).filter((track) => track.cue === null).length
+      };
+    },
+    // フォルダを選ぶダイアログ（Rust側が開く）の代わりに、`setFolderResult`のフォルダへ、
+    // プレイリストを書いたことにする（nullなら、選ばずに閉じた。オートプレイリストは書かない）
     exportAllPlaylistsM3u: () => {
       if (folderResult === null) return null;
       return {
         folder: normalizeFolderPath(folderResult),
-        playlistCount: playlists.filter((playlist) => playlist.rules === null).length
+        playlistCount: playlists.length
       };
     },
     savePlaybackState: (cursor, queue) => {
@@ -3694,7 +3768,11 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       if (backupFile === null) return null;
       // 拡張子がなければ付ける（Rustの`with_backup_extension`）
       const path = /\.[^/.]+$/.test(backupFile) ? backupFile : `${backupFile}.muspicebackup`;
-      return { path, trackCount: tracks.length, playlistCount: playlists.length };
+      return {
+        path,
+        trackCount: tracks.length,
+        playlistCount: playlists.length + smartPlaylists.length
+      };
     },
     planLibraryRestore: () => {
       pendingRestore = null;
@@ -3709,7 +3787,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         fileName,
         createdAt: '2026-10-20T09:00:00.000Z',
         trackCount: tracks.length,
-        playlistCount: playlists.length,
+        playlistCount: playlists.length + smartPlaylists.length,
         libraryFolderCount: libraryFolders.length,
         // DBのファイルそのものは、設定を含まない
         includesSettings: fileName.endsWith('.muspicebackup')
@@ -3819,7 +3897,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         // XMLには、CUEシートの曲を書かない（ADR-123。CSVはすべて書く）
         trackCount:
           format === 'xml' ? tracks.filter((track) => track.cue === null).length : tracks.length,
-        playlistCount: format === 'xml' ? playlists.length : 0
+        // オートプレイリストも、今の条件に合う曲の一覧として書く（ADR-127）
+        playlistCount: format === 'xml' ? playlists.length + smartPlaylists.length : 0
       };
     },
     importLibraryXml: (includePlaylists) => {
@@ -3844,7 +3923,6 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         }
         newPlaylist(
           name,
-          null,
           targets.slice(0, 5).map((track) => track.id)
         );
         playlistCount = 1;
@@ -3890,6 +3968,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         path,
         syncAll: false,
         playlistIds: [],
+        smartPlaylistIds: [],
         removeUnselected: true,
         pathTemplate: DEFAULT_DEVICE_TEMPLATE,
         copyExtras: true,
@@ -3908,6 +3987,9 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     updateSyncDevice: (deviceId, config) => {
       const device = findSyncDevice(deviceId);
       config.playlistIds.forEach(validatePlaylistId);
+      config.smartPlaylistIds.forEach((id) => {
+        if (!UUID_PATTERN.test(id)) fail('VALIDATION', '不正なオートプレイリストID形式です');
+      });
       // 配置の書式は、読めることを確かめてから保存する（実装と同じく、前後の空白は除く）
       const pathTemplate = config.pathTemplate.trim();
       parseOrganizeTemplate(pathTemplate);
@@ -3923,6 +4005,9 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       device.syncAll = config.syncAll;
       // 実装と同じく、見つからないプレイリストは無視する
       device.playlistIds = config.playlistIds.filter((id) => playlists.some((p) => p.id === id));
+      device.smartPlaylistIds = config.smartPlaylistIds.filter((id) =>
+        smartPlaylists.some((p) => p.id === id)
+      );
       device.removeUnselected = config.removeUnselected;
       return toSyncDevice(device);
     },

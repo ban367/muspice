@@ -13,7 +13,7 @@ use chrono::{DateTime, SubsecRound, Utc};
 use plist::{Dictionary, Value};
 use std::time::SystemTime;
 
-/// 書き出すプレイリスト（自動プレイリストは、書き出す時点で条件に合う曲）
+/// 書き出すプレイリスト（オートプレイリストは、書き出す時点で条件に合う曲）
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExportPlaylist {
     pub id: String,

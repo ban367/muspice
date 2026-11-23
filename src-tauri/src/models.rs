@@ -242,13 +242,29 @@ pub struct Playlist {
     pub id: String,
     pub name: String,
     pub description: Option<String>,
-    /// 入っている曲（自動プレイリストでは、いつも空。曲は開く時に条件から求める）
+    /// 入っている曲（プレイリストの中の並び順）
     pub tracks: Vec<PlaylistTrack>,
-    /// 自動プレイリストの条件（値なしは、曲を自分で選ぶ通常のプレイリスト）
-    pub rules: Option<crate::smart_playlist::SmartRules>,
     /// 入っているフォルダ（値なしは、フォルダの外）
     pub folder_id: Option<String>,
     /// 手動の並び順での位置（同じフォルダの中で、小さい方が先）
+    pub position: i32,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// オートプレイリスト（条件で曲を集めるプレイリスト。ADR-042・ADR-127）
+///
+/// 通常のプレイリスト（`Playlist`）とは別の表に持つ。曲の一覧は持たず、開くたびに条件から求める。
+/// フォルダには入れない。
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SmartPlaylist {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    /// 条件（読めない条件は、どの曲にも合わない条件。`SmartRules::unreadable`）
+    pub rules: crate::smart_playlist::SmartRules,
+    /// 手動の並び順での位置（小さい方が先）
     pub position: i32,
     pub created_at: String,
     pub updated_at: String,

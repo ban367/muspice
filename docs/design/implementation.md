@@ -41,7 +41,8 @@ src/
 │   ├── (app)/
 │   │   ├── devices/       # 転送先デバイスのページ
 │   │   ├── library/
-│   │   └── playlists/
+│   │   ├── playlists/
+│   │   └── smart-playlists/ # オートプレイリストの画面（ADR-127）
 │   └── settings/
 └── lib/
     ├── bindings.ts        # tauri-spectaによる生成物（編集禁止）
@@ -78,6 +79,7 @@ src-tauri/src/
 │   ├── player.rs
 │   ├── playlist_cmd.rs
 │   ├── settings.rs
+│   ├── smart_playlist_cmd.rs # オートプレイリストのコマンド（ADR-127）
 │   ├── stats.rs
 │   ├── system.rs
 │   └── tracks.rs
@@ -132,7 +134,9 @@ src-tauri/src/
 ├── playlist.rs
 ├── playlist_export.rs     # 通常のプレイリストの、選んだフォルダへのM3U8の一括書き出し（フォルダの構成のまま。ADR-087）
 ├── rating_tag.rs          # 評価（半分の星）のタグの読み書き（ID3v2の`POPM`・MP4の`rate`を、loftyが丸める前の値で読み書きする。ADR-082）
-├── smart_playlist.rs      # 自動プレイリストの条件（検証・条件からのSQLの組み立て・ランダムな並び。ADR-042）
+├── smart_playlist/        # オートプレイリスト（プレイリストとは別の枠組み。ADR-127）
+│   ├── mod.rs             # 表（smart_playlists）の読み書き・曲の取得・通常のプレイリストとしての保存
+│   └── rules.rs           # 条件（検証・条件からのSQLの組み立て・ランダムな並び。ADR-042）
 ├── metadata.rs
 ├── mini_player.rs         # ミニプレーヤー（メインウィンドウの大きさの切り替えと、元の大きさの記録。ADR-046）
 ├── models.rs
@@ -207,9 +211,11 @@ src-tauri/src/
   - アルバムアートの変更は、編集画面の「アルバムアート」のタブ（`AlbumArtEditor`）で選び、「保存」でタグの後に書き込む。選んだ画像は`usePickAlbumArtMutation`でRust側に預け、保存で`useSetAlbumArtMutation`に印（`token`）を渡す
   - 保存した内容は、Rustが送る`TracksEdited`をメインウィンドウ（`(app)/+layout.svelte`）が受け取り、`applyTracksEdited`で一覧・タグ・アルバムアートに反映する。編集画面を開いている間は、`TrackEditorChanged`で`ui.isTrackEditorOpen`を立て、メインウィンドウに覆いを重ねる
   - モック（`dev:mock`）の`openTrackEditor`は、曲を`sessionStorage`に置き、別のウィンドウ（ブラウザのポップアップ）で`/track-editor`を開く。開いたページのモックは別のメモリのため、そこで保存した内容は元のページに届かない。閉じたことが分からないため、`trackEditorChanged`は送らない（覆いは`__MUSPICE_MOCK__.emit`で確かめる）
-- 左サイドバー（`Sidebar`）は、上から「ブラウズ・ライブラリ・プレイリスト・デバイス」の順に並べる。プレイリストの一覧が残りの高さを使い、デバイスは一覧のスクロールの外に置いて、いつも下の端に出す。高さが足りない時は、プレイリストの一覧を最小の高さで止めて、デバイスより上の全体をスクロールする。項目の見た目は`app.css`の`nav-item-base`・`nav-icon`・`nav-section-header`・`nav-message`でそろえる（1行の高さは28px）
-- サイドバーのプレイリストの一覧は`SidebarPlaylists`が表示する（ADR-043）。フォルダ分けと並び順は`#lib/utils/playlistTree`の純粋な関数（`buildPlaylistTree`・`sortPlaylistItems`・`placeRelative`）で求め、並び順（名前・作成日・手動）と閉じているフォルダは`#lib/stores/playlistSidebar.svelte`がlocalStorageに保存する。プレイリスト・フォルダのドラッグは、専用の種類のデータ（`application/x-muspice-playlist-id`など）で運び、曲のドラッグ（`#lib/utils/trackDrag`）と見分ける。プレイリストの名前と説明は`PlaylistInfoDialog`（`playlistInfoDialog.open(id)`）で編集する
-- 自動プレイリスト（ADR-042）の編集画面（`SmartPlaylistDialog`。`smartPlaylistDialog.openNew()`・`openEdit(playlist)`で開く）は、入力（文字列のままの値。`RuleDraft`）と保存する条件（`SmartRules`）の変換・検証・説明文を`#lib/utils/smartPlaylist`の純粋な関数に分けている。条件に合う曲は、フロントエンドでは求めない（バックエンドの`get_playlist_tracks`・`count_smart_playlist_tracks`を使う。`#lib/mocks/smartPlaylist`は、モックのバックエンドが同じ規則で求めるためのもの）。自動プレイリストの曲のクエリは、開くたびに取り直す（`usePlaylistTracksQuery(id, true)`）
+- 左サイドバー（`Sidebar`）は、上から「ブラウズ・ライブラリ・オートプレイリスト・プレイリスト・デバイス」の順に並べる。オートプレイリストの一覧は、項目が多い時はサイドバーの4割までにして、その中でスクロールする。プレイリストの一覧が残りの高さを使い、デバイスは一覧のスクロールの外に置いて、いつも下の端に出す。高さが足りない時は、プレイリストの一覧を最小の高さで止めて、デバイスより上の全体をスクロールする。項目の見た目は`app.css`の`nav-item-base`・`nav-icon`・`nav-section-header`・`nav-message`でそろえる（1行の高さは28px）
+- サイドバーのプレイリストの一覧は`SidebarPlaylists`が表示する（ADR-043）。フォルダ分けと並び順は`#lib/utils/playlistTree`の純粋な関数（`buildPlaylistTree`・`sortPlaylistItems`・`placeRelative`）で求め、並び順（名前・作成日・手動）と閉じているフォルダは`#lib/stores/playlistSidebar.svelte`がlocalStorageに保存する。プレイリスト・フォルダのドラッグは、専用の種類のデータ（`application/x-muspice-playlist-id`など）で運び、曲のドラッグ（`#lib/utils/trackDrag`）と見分ける。プレイリストの名前と説明は`PlaylistInfoDialog`（`playlistInfoDialog.open(id)`。オートプレイリストは`openSmartPlaylist(id)`）で編集する
+- サイドバーのオートプレイリストの一覧は`SidebarSmartPlaylists`、右クリックのメニューは`SmartPlaylistContextMenu`が表示する（ADR-127）。フォルダはなく、並び順（`playlistSidebar.smartSort`）はプレイリストとは別に覚える。手動の間のドラッグは、専用の種類のデータ（`application/x-muspice-smart-playlist-id`）で運ぶ。クエリとミューテーションは`#lib/queries/smartPlaylists`（キーは`queryKeys.smartPlaylists`・`queryKeys.tracks.smartPlaylist(id)`）
+- コードの名前は`smart`（`smart_playlist`・`SmartPlaylist`・`SmartRules`・`smartPlaylistDialog`など）、画面の呼び方は「オートプレイリスト」（英語はAuto Playlist）にする（ADR-127）
+- オートプレイリスト（ADR-042）の編集画面（`SmartPlaylistDialog`。`smartPlaylistDialog.openNew()`・`openEdit(smartPlaylist)`で開く）は、入力（文字列のままの値。`RuleDraft`）と保存する条件（`SmartRules`）の変換・検証・説明文を`#lib/utils/smartPlaylist`の純粋な関数に分けている。条件に合う曲は、フロントエンドでは求めない（バックエンドの`get_smart_playlist_tracks`・`count_smart_playlist_tracks`を使う。`#lib/mocks/smartPlaylist`は、モックのバックエンドが同じ規則で求めるためのもの）。オートプレイリストの曲のクエリは、開くたびに取り直す（`useSmartPlaylistTracksQuery(id)`）
 - ライブラリのビュー（最近追加した曲・フォルダ別・年代別）の集計は、`#lib/utils/libraryViews`の純粋な関数で行う（ADR-041）。フォルダ別・年代別は、左に木の形の一覧（`TreeBrowser`）、右に曲の一覧を出す`TreeBrowsePage`を使う（木の項目は`TreeNode`。画面は、全曲の一覧から木と、選んだ項目の曲を計算して渡す）。サイドバーに項目を足す時は、Rustの`SidebarItem`・設定画面の`sidebarItems`・`m.sidebar`にも足す（設定で隠せるようにするため）
 - 曲の画面の絞り込みは、`#lib/utils/trackFilter`の純粋な関数（`applyTrackFilters`・`browseTracks`）で行う（ADR-040）。順番は、検索 → フィルタ → カラムブラウザ（ジャンル → アーティスト → アルバム）で、カラムブラウザの各列には、その列より前の絞り込みに合う曲の値だけを出す。状態（カラムブラウザを出すか・選択・フィルタ）は`#lib/stores/libraryBrowser.svelte`に持つ（出すかどうかだけをlocalStorageに保存する）
 - タグの一括ツール（`TagToolsDialog`。曲の右クリックのメニューから`tagToolsDialog.open(tracks)`で開く）は、変更の計算を`#lib/utils/tagTools`の純粋な関数（`guessFromFileName`・`renumberTracks`・`searchAndReplace`）に分けている。どれも曲ごとの変更（前 → 後）を返すだけで、画面はそれを一覧に出し、「適用」で`toMetadataChanges`の結果を`useApplyMetadataChangesMutation`へ渡す（ADR-037）
@@ -226,7 +232,7 @@ src-tauri/src/
   - 再生キューの曲（`player.currentTrack`）は、キューに入れた時点の内容のまま。プレーヤーのハートは、お気に入りの一覧（`useFavoriteTracksQuery`）から状態を調べる
 - クエリキーは`src/lib/queries/keys.ts`の`queryKeys`に集約する。クエリ定義・無効化のどちらもここを参照し、`['tracks']`のようなマジック配列を直接書かない
 - 無効化はプレフィックス一致で波及するため、キーの階層がそのまま無効化の粒度になる（例: `queryKeys.tracks.all`の無効化は検索・お気に入り・プレイリストの曲にも及ぶ）
-  - プレイリストの操作は、一覧を無効化し、曲を変えた（追加・削除・並べ替え・条件の変更）プレイリストの曲だけを無効化する（`invalidatePlaylistQueries`。移動・削除・名前の変更では、曲を取り直さない）。開いている自動プレイリストを、無関係な操作で取り直さないため（ADR-042）
+  - プレイリストの操作は、一覧を無効化し、曲を変えた（追加・削除・並べ替え）プレイリストの曲だけを無効化する（`invalidatePlaylistQueries`。移動・削除・名前の変更では、曲を取り直さない）。オートプレイリストは、条件を変えたものの曲だけを取り直す（開いているオートプレイリストを、無関係な操作で取り直さないため。ADR-042）
   - ライブラリが変わった通知（`LibraryChanged`）では、曲・プレイリスト・ライブラリフォルダ・音楽フォルダを無効化する（`invalidateLibraryQueries`）
 
 ### 再生制御
@@ -394,8 +400,8 @@ src-tauri/src/
 - ファイルI/O・タグ解析・大量のDB書き込みなど重い同期処理は `commands::run_blocking` で実行する（asyncコマンド内で直接行うと非同期ランタイムのワーカーを占有する）。状態が必要な場合は `AppHandle` を受け取り、クロージャ内で `app.state::<AppState>()` から取得する
   - 軽いDB操作（1回の問い合わせで終わるもの。全曲の取得でも5万曲で約0.13秒）は、asyncの本体で`with_db`を呼んでよい（`run_blocking`へ移すスレッドの切り替えを省く）。DBのロックを長く持つ処理（バックアップの`VACUUM INTO`・インポートのまとめた書き込み）の間は、`with_db`を呼んだコマンドがロックを待ち、その間ワーカー（CPUのコア数）を1つ塞ぐ。待つ間に画面が取得を続けて呼ぶと、ほかのasyncのコマンドも遅れる。ロックを長く持つ処理を足す時は、画面がその間に取得を繰り返さないか（進捗のイベントのたびに取り直さないか）を確かめる
   - DBを使わない短い処理（`cancel_*`など、預かったものを手放すだけ）は、asyncにしない同期のコマンドにする（メインスレッドで動くため、ワーカーが塞がっていても待たない）。同期のコマンドも、ほかと同じく`AppResult<T>`を返す（バインディングの形をそろえる）
-- トラック関連のSQLは `repository.rs`、プレイリスト関連のSQLは `playlist.rs`（自動プレイリストの条件から作るSQLは `smart_playlist.rs`）、ライブラリフォルダの記録のSQLは `library_folder.rs`、転送先デバイスの記録のSQLは `device.rs` に集約する（コマンド層に生SQLを書かない）
-- 自動プレイリストの条件からSQLを作る時は、項目・比べ方を列挙型から決まった式へ対応させ、値はすべてプレースホルダーで渡す（入力した文字列をSQLへ埋め込まない）。項目を足す時は、Rustの列挙型（`TextField`など）と、フロントの`#lib/utils/smartPlaylist`の`RULE_FIELDS`、モックの`#lib/mocks/smartPlaylist`に足す
+- トラック関連のSQLは `repository.rs`、プレイリスト関連のSQLは `playlist.rs`、オートプレイリストのSQLは `smart_playlist/`（表の読み書きは`mod.rs`、条件から作るSQLは`rules.rs`）、ライブラリフォルダの記録のSQLは `library_folder.rs`、転送先デバイスの記録のSQLは `device.rs` に集約する（コマンド層に生SQLを書かない）
+- オートプレイリストの条件からSQLを作る時は、項目・比べ方を列挙型から決まった式へ対応させ、値はすべてプレースホルダーで渡す（入力した文字列をSQLへ埋め込まない）。項目を足す時は、Rustの列挙型（`TextField`など）と、フロントの`#lib/utils/smartPlaylist`の`RULE_FIELDS`、モックの`#lib/mocks/smartPlaylist`に足す
 - ログは `log` クレートのマクロ（`log::info!` / `log::warn!` / `log::error!`）で出力する。`lib.rs` の `log_plugin()` が `tauri-plugin-log` を `log` のロガーとして登録しており、Tauriや依存クレートのログも同じ出力先に記録される
   - プラグインのJS API（`log:default` 等）はcapabilityに追加しない。WebViewからログを書き込ませない（ADR-005）
   - ログの文言は英語で書く（フロントの`console.*`、panicのメッセージ（`expect`など）も同じ）。ログにだけ渡す引数（再スキャンの理由など）も英語にする。`AppError`のメッセージ（利用者に表示する）は日本語のため、ログに埋め込んだエラーの部分は日本語になる
@@ -498,7 +504,7 @@ Tauriのウィンドウ（macOSではWKWebView）はブラウザ自動化ツー�
   - `backend.ts`: `commands`の全コマンドをメモリ上で再現するバックエンド。ハンドラ表の型を`bindings.ts`から導出しているため、Rust側でコマンドを追加・変更したら型エラーに従ってここも更新する。送るイベントも、名前（`events`のキー。`importProgress`など）と内容の型を`bindings.ts`の`events`から導出しているため、Rust側でイベントの名前・項目を変えると型エラーになる（IPCで送る名前は`MOCK_EVENT_NAMES`。`bindings.ts`と同じかはテストで確かめる）。進み具合のイベント（インポート・再スキャン・場所の付け替え・変換・音量の解析・ファイルの整理・デバイスの同期）は、待ち時間を挟んで送るため、進捗の表示を確かめられる
   - `fixtures.ts`: 初期データ。状態はメモリ上のみで、リロードすると初期状態に戻る
   - `media.ts`: アルバムアート（SVGのdata URL）の生成。`albumart`プロトコルの代わりに`convertFileSrc(id, 'albumart')`がdata URLを返す
-  - `smartPlaylist.ts`: 自動プレイリストの条件に合う曲を、Rust側と同じ規則で求める
+  - `smartPlaylist.ts`: オートプレイリストの条件に合う曲を、Rust側と同じ規則で求める
   - `fileOrganize.ts`: ファイルの整理の書式の解釈と、整理後の場所の計画（Rust側の`file_organize.rs`と同じ規則）
   - `playbackEngine.ts`: 再生エンジンのコマンドと通知の再現。音は鳴らさず、時計に合わせて再生位置・曲の切り替わり（ギャップレス再生・クロスフェード）・曲の終わりを進める
   - `tauri.ts`: event・dialog（確認のダイアログ）・window・app（アプリの版。`tauri.conf.json`の`version`を返す）プラグインと`convertFileSrc`の差し替え

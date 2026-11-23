@@ -283,11 +283,18 @@ pub fn inspect_backup(path: &Path) -> Result<BackupInfo, BackupProblem> {
         })
         .map_err(problem)
     };
+    // オートプレイリストも、プレイリストの数に含める（プレイリストの表に一緒に持っていた版の
+    // バックアップと、同じ数え方にする。ADR-127）
+    let smart_playlist_count = if has_table("smart_playlists")? {
+        count("smart_playlists")?
+    } else {
+        0
+    };
     Ok(BackupInfo {
         created_at,
         app_version,
         track_count: count("tracks")?,
-        playlist_count: count("playlists")?,
+        playlist_count: count("playlists")? + smart_playlist_count,
         library_folder_count: count("library_folders")?,
         includes_settings: settings.is_some(),
     })
@@ -509,10 +516,11 @@ fn run_auto_backup(app: &AppHandle) -> AppResult<()> {
     Ok(())
 }
 
-/// 曲もプレイリストもないか（自動のバックアップを作らない）
+/// 曲もプレイリスト・オートプレイリストもないか（自動のバックアップを作らない）
 fn is_empty_library(conn: &Connection) -> AppResult<bool> {
     conn.query_row(
-        "SELECT NOT EXISTS (SELECT 1 FROM tracks) AND NOT EXISTS (SELECT 1 FROM playlists)",
+        "SELECT NOT EXISTS (SELECT 1 FROM tracks) AND NOT EXISTS (SELECT 1 FROM playlists)
+                AND NOT EXISTS (SELECT 1 FROM smart_playlists)",
         [],
         |row| row.get(0),
     )
@@ -548,6 +556,7 @@ mod tests {
                     ('t2', '/old/music/b.mp3', 'b.mp3', 'mp3', 5, 0, 0);
              INSERT INTO playlists (id, name) VALUES ('p1', '通勤');
              INSERT INTO playlist_tracks (playlist_id, track_id, position) VALUES ('p1', 't1', 0);
+             INSERT INTO smart_playlists (id, name, rules) VALUES ('s1', '全曲', '{}');
              INSERT INTO play_history (track_id) VALUES ('t1');
              INSERT INTO library_folders (id, path) VALUES ('f1', '/old/music');",
         )
@@ -569,7 +578,8 @@ mod tests {
                 info.playlist_count,
                 info.library_folder_count
             ),
-            (2, 1, 1)
+            // プレイリストの数は、オートプレイリストを含める
+            (2, 2, 1)
         );
         assert!(info.includes_settings);
         assert_eq!(info.app_version.as_deref(), Some("0.1.0"));

@@ -131,8 +131,11 @@ export const en: Messages = {
     convert: 'Converting',
     showInFolder: 'Showing the file',
     fetchPlaylists: 'Loading playlists',
-    createSmartPlaylist: 'Creating smart playlist',
-    updateSmartPlaylist: 'Updating smart playlist',
+    fetchSmartPlaylists: 'Loading auto playlists',
+    createSmartPlaylist: 'Creating auto playlist',
+    updateSmartPlaylist: 'Updating auto playlist',
+    deleteSmartPlaylist: 'Deleting auto playlist',
+    saveSmartPlaylistAsPlaylist: 'Saving as a playlist',
     countSmartPlaylistTracks: 'Counting matching tracks',
     reshuffleSmartPlaylists: 'Reshuffling tracks',
     createPlaylist: 'Creating the playlist',
@@ -187,8 +190,9 @@ export const en: Messages = {
   notices: {
     trackFileMissing: 'This track cannot be played because its file was not found',
     playlistCreated: 'Playlist created',
-    smartPlaylistCreated: 'Smart playlist created',
-    smartPlaylistUpdated: 'Smart playlist updated',
+    smartPlaylistCreated: 'Auto playlist created',
+    smartPlaylistUpdated: 'Auto playlist updated',
+    smartPlaylistDeleted: 'Auto playlist deleted',
     tracksAddedToPlaylist: (count) => `Added ${plural(count, 'track', 'tracks')} to the playlist`,
     tracksAlreadyInPlaylist: 'Already in the playlist',
     tracksRemovedFromPlaylist: (count) =>
@@ -205,8 +209,7 @@ export const en: Messages = {
       `Exported to "${fileName}" (${plural(count, 'track', 'tracks')})`,
     playlistsExported: (folder, count) =>
       `Exported ${plural(count, 'playlist', 'playlists')} to "${folder}"`,
-    noPlaylistsToExport:
-      'There are no regular playlists to export (smart playlists are not exported)',
+    noPlaylistsToExport: 'There are no playlists to export (auto playlists are not exported)',
     tracksRemovedFromLibrary: (count) =>
       count === 1
         ? 'Removed the track from the library'
@@ -301,7 +304,10 @@ export const en: Messages = {
     years: 'Years',
     playlists: 'Playlists',
     newPlaylistTitle: 'New Playlist (⌘N)',
-    newSmartPlaylistTitle: 'New Smart Playlist (⌥⌘N)',
+    smartPlaylists: 'Auto Playlists',
+    newSmartPlaylistTitle: 'New Auto Playlist (⌥⌘N)',
+    smartPlaylistMenu: 'Order',
+    noSmartPlaylists: 'No auto playlists',
     playlistMenu: 'Folders and Order',
     newFolder: 'New Folder',
     folderName: 'Folder name',
@@ -800,7 +806,7 @@ export const en: Messages = {
   libraryExport: {
     title: 'Export the Library',
     description:
-      'The iTunes-style library XML contains tracks, ratings, play counts and playlists (smart playlists with the tracks matching their rules now), readable by DJ software (rekordbox, Serato, Traktor, etc.) and other library managers. The CSV contains the track list for spreadsheet apps.',
+      'The iTunes-style library XML contains tracks, ratings, play counts and playlists (auto playlists with the tracks matching their rules now), readable by DJ software (rekordbox, Serato, Traktor, etc.) and other library managers. The CSV contains the track list for spreadsheet apps.',
     xml: 'Export as XML...',
     csv: 'Export as CSV...',
     exporting: 'Exporting...',
@@ -1107,15 +1113,16 @@ export const en: Messages = {
     exportAll: 'Export All Playlists...',
     exportAllTitle: 'Export All Playlists',
     exportAllDescription:
-      'Exports the regular playlists to M3U8 (UTF-8) files in the folder you choose. Playlist folders become folders inside it. Files with the same names are replaced (smart playlists are not exported). You can bring the files back with "Import M3U".',
+      'Exports the regular playlists to M3U8 (UTF-8) files in the folder you choose. Playlist folders become folders inside it. Files with the same names are replaced (auto playlists are not exported). You can bring the files back with "Import M3U".',
     exportAllConfirm: 'Choose Folder...'
   },
 
   smartPlaylist: {
-    newTitle: 'New Smart Playlist',
-    editTitle: 'Edit Smart Playlist',
+    title: 'Auto Playlists',
+    newTitle: 'New Auto Playlist',
+    editTitle: 'Edit Auto Playlist',
     name: 'Name',
-    badge: 'Smart',
+    badge: 'Auto',
     match: 'Match',
     matchModes: {
       all: 'Tracks matching all of the rules',
@@ -1142,6 +1149,9 @@ export const en: Messages = {
     playlistField: 'Playlist',
     choosePlaylist: 'Choose a playlist',
     deletedPlaylist: '(Deleted playlist)',
+    smartPlaylistField: 'Auto playlist',
+    chooseSmartPlaylist: 'Choose an auto playlist',
+    deletedSmartPlaylist: '(Deleted auto playlist)',
     missingField: 'File',
     noRating: 'No rating',
     days: 'days',
@@ -1189,6 +1199,10 @@ export const en: Messages = {
         is: 'contains the track',
         isNot: 'does not contain the track'
       },
+      smartPlaylist: {
+        is: 'contains the track',
+        isNot: 'does not contain the track'
+      },
       missing: {
         is: 'is missing',
         isNot: 'is present'
@@ -1229,6 +1243,8 @@ export const en: Messages = {
         isNotEmpty: () => 'any'
       },
       playlist: (name: string, value: boolean) => `${value ? 'In' : 'Not in'} "${name}"`,
+      smartPlaylist: (name: string, value: boolean) =>
+        `${value ? 'In' : 'Not in'} auto playlist "${name}"`,
       missing: (value: boolean) => (value ? 'File is missing' : 'File is present'),
       order: (field: string, descending: boolean) =>
         `${field}, ${descending ? 'descending' : 'ascending'}`,
@@ -1247,15 +1263,26 @@ export const en: Messages = {
       daysInvalid: 'Enter a number of days from 1 to 36500',
       limitInvalid: 'Enter a limit from 1 to 100000',
       tooManyRules: 'Too many rules (up to 50)',
-      playlistRequired: 'Choose a playlist for the rule'
+      playlistRequired: 'Choose a playlist for the rule',
+      smartPlaylistRequired: 'Choose an auto playlist for the rule'
     },
     editRules: 'Edit Rules',
     editRulesEllipsis: 'Edit Rules...',
     reshuffle: 'Reshuffle',
-    reshuffleTitle: 'Pick a new random order (also reshuffles other smart playlists)',
+    reshuffleTitle: 'Pick a new random order (also reshuffles other auto playlists)',
     noMatches: 'No tracks match the rules',
     noMatchesHint: 'Change the rules with "Edit Rules"',
-    unreadable: 'The rules could not be read. Set them again with "Edit Rules".'
+    unreadable: 'The rules could not be read. Set them again with "Edit Rules".',
+    saveAsPlaylist: 'Save as Playlist...',
+    saveAsPlaylistTitle: 'Save as Playlist',
+    saveAsPlaylistLabel: 'Name of the new playlist',
+    saveAsPlaylistHint:
+      'Creates a playlist with the tracks matching the rules now, in the current order. The playlist does not follow later changes to the rules.',
+    saveAsPlaylistConfirm: 'Save',
+    notFound: 'Auto playlist not found',
+    notFoundHint: 'The auto playlist was deleted or does not exist',
+    confirmDelete: (name: string) => `Delete the auto playlist "${name}"?`,
+    deleteTitle: 'Delete Auto Playlist'
   },
 
   settings: {
@@ -1498,7 +1525,7 @@ export const en: Messages = {
     replaceKeptTracks: (count) =>
       `${plural(count, 'track', 'tracks')} in this folder will keep their play counts and other history`,
     replacePlaylists: (count) =>
-      `${plural(count, 'playlist', 'playlists')} and the playlist folders will be deleted (smart playlists are kept)`,
+      `${plural(count, 'playlist', 'playlists')} and the playlist folders will be deleted (auto playlists are kept)`,
     replaceLostInfo:
       'Play counts, play history, favorites and other information of the removed tracks are lost (ratings are read again if they are in the tags). To keep playlists, export them first and bring them back with "Import M3U" after replacing.',
     replaceBackup: 'Back up before replacing',

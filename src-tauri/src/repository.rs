@@ -64,7 +64,7 @@ fn stored_comment(value: &Option<String>) -> Option<&str> {
     value.as_deref().filter(|value| !value.trim().is_empty())
 }
 
-/// 曲の解析で求めたテンポ（BPM。REAL）を返すSQLの式（`TRACK_COLUMNS`と自動プレイリストの条件で使う）
+/// 曲の解析で求めたテンポ（BPM。REAL）を返すSQLの式（`TRACK_COLUMNS`とオートプレイリストの条件で使う）
 ///
 /// 失敗した解析と、解析したあとで長さが変わった（ファイルを置き換えた）曲の古い解析は使わない。
 /// `id`は、曲（`tracks`の行）のID。

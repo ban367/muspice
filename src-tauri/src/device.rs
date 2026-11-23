@@ -1,7 +1,7 @@
 //! 転送先デバイス（SDカード・USBメモリなどのフォルダ）の記録
 //!
 //! デバイスごとに、転送先のフォルダと同期する対象（全曲か、選んだプレイリスト）を
-//! `sync_devices`・`sync_device_playlists`に記録する。
+//! `sync_devices`・`sync_device_playlists`・`sync_device_smart_playlists`に記録する。
 //!
 //! - デバイス上にコピーしたファイルの一覧は、DBではなくデバイス側の管理ファイルに記録する
 //!   （`device_manifest`）。DBを作り直した場合や、別のPCから同期する場合も引き継げる
@@ -106,6 +106,8 @@ pub struct SyncDevice {
     pub sync_all: bool,
     /// 同期するプレイリスト（`.m3u8`も書き出す。全曲を同期しない場合は、曲もここから決まる）
     pub playlist_ids: Vec<String>,
+    /// 同期するオートプレイリスト（プレイリストと同じく扱う。曲は、同期する時の条件に合う曲。ADR-127）
+    pub smart_playlist_ids: Vec<String>,
     /// 同期の対象から外れた曲を、デバイスから削除するか
     pub remove_unselected: bool,
     /// デバイス上の配置の書式（ファイルの整理と同じ書き方。ADR-111）
@@ -134,6 +136,7 @@ pub struct SyncDeviceConfig {
     pub name: String,
     pub sync_all: bool,
     pub playlist_ids: Vec<String>,
+    pub smart_playlist_ids: Vec<String>,
     pub remove_unselected: bool,
     pub path_template: String,
     pub copy_extras: bool,
@@ -237,14 +240,16 @@ pub struct DeviceRecord {
     pub transcode: DeviceTranscode,
     /// 同期するプレイリスト（削除済みのプレイリストは含まない）
     pub playlist_ids: Vec<String>,
+    /// 同期するオートプレイリスト（削除済みのものは含まない）
+    pub smart_playlist_ids: Vec<String>,
     pub created_at: String,
     pub last_synced_at: Option<String>,
 }
 
 impl DeviceRecord {
-    /// 同期する対象が1つもないか（全曲でもなく、プレイリストも選んでいない）
+    /// 同期する対象が1つもないか（全曲でもなく、プレイリスト・オートプレイリストも選んでいない）
     pub fn has_no_source(&self) -> bool {
-        !self.sync_all && self.playlist_ids.is_empty()
+        !self.sync_all && self.playlist_ids.is_empty() && self.smart_playlist_ids.is_empty()
     }
 }
 
@@ -377,22 +382,38 @@ fn map_device_row(row: &rusqlite::Row) -> rusqlite::Result<DeviceRecord> {
             bitrate_kbps: row.get(10)?,
         },
         playlist_ids: Vec::new(),
+        smart_playlist_ids: Vec::new(),
         created_at: row.get(5)?,
         last_synced_at: row.get(6)?,
     })
 }
 
-/// デバイスに同期するプレイリストのIDを取得する（プレイリストの作成日時の新しい順）
+/// デバイスに同期するプレイリスト・オートプレイリストのIDを、デバイスに入れる
 ///
-/// プレイリストと結合し、削除済みのプレイリストを含めない。
-fn find_device_playlist_ids(conn: &Connection, device_id: &str) -> AppResult<Vec<String>> {
+/// どちらも作成日時の新しい順。プレイリストと結合し、削除済みのプレイリストを含めない。
+fn load_device_playlists(conn: &Connection, device: &mut DeviceRecord) -> AppResult<()> {
+    device.playlist_ids = query_ids(
+        conn,
+        "SELECT p.id FROM sync_device_playlists sp
+         JOIN playlists p ON p.id = sp.playlist_id
+         WHERE sp.device_id = ?1
+         ORDER BY p.created_at DESC, p.id",
+        &device.id,
+    )?;
+    device.smart_playlist_ids = query_ids(
+        conn,
+        "SELECT p.id FROM sync_device_smart_playlists sp
+         JOIN smart_playlists p ON p.id = sp.smart_playlist_id
+         WHERE sp.device_id = ?1
+         ORDER BY p.created_at DESC, p.id",
+        &device.id,
+    )?;
+    Ok(())
+}
+
+fn query_ids(conn: &Connection, sql: &str, device_id: &str) -> AppResult<Vec<String>> {
     let mut stmt = conn
-        .prepare(
-            "SELECT p.id FROM sync_device_playlists sp
-             JOIN playlists p ON p.id = sp.playlist_id
-             WHERE sp.device_id = ?1
-             ORDER BY p.created_at DESC, p.id",
-        )
+        .prepare(sql)
         .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
 
     stmt.query_map([device_id], |row| row.get(0))
@@ -417,7 +438,7 @@ pub fn find_all_devices(conn: &Connection) -> AppResult<Vec<DeviceRecord>> {
         .map_err(|e| AppError::Database(format!("結果の取得に失敗しました: {}", e)))?;
 
     for device in &mut devices {
-        device.playlist_ids = find_device_playlist_ids(conn, &device.id)?;
+        load_device_playlists(conn, device)?;
     }
     Ok(devices)
 }
@@ -435,7 +456,7 @@ pub fn try_find_device(conn: &Connection, device_id: &str) -> AppResult<Option<D
 
     match device {
         Some(mut device) => {
-            device.playlist_ids = find_device_playlist_ids(conn, &device.id)?;
+            load_device_playlists(conn, &mut device)?;
             Ok(Some(device))
         }
         None => Ok(None),
@@ -467,7 +488,7 @@ pub fn insert_device(conn: &Connection, device_id: &str, name: &str, path: &str)
 
 /// デバイスの設定（名前と同期する対象）を更新する
 ///
-/// 見つからないプレイリスト（選んだ後に削除された場合など）は無視する。
+/// 見つからないプレイリスト・オートプレイリスト（選んだ後に削除された場合など）は無視する。
 pub fn update_device_config(
     conn: &mut Connection,
     device_id: &str,
@@ -512,6 +533,19 @@ pub fn update_device_config(
         )
         .map_err(|e| AppError::Database(format!("デバイスの更新に失敗しました: {}", e)))?;
     }
+    tx.execute(
+        "DELETE FROM sync_device_smart_playlists WHERE device_id = ?1",
+        [device_id],
+    )
+    .map_err(|e| AppError::Database(format!("デバイスの更新に失敗しました: {}", e)))?;
+    for smart_playlist_id in &config.smart_playlist_ids {
+        tx.execute(
+            "INSERT OR IGNORE INTO sync_device_smart_playlists (device_id, smart_playlist_id)
+             SELECT ?1, id FROM smart_playlists WHERE id = ?2",
+            [device_id, smart_playlist_id.as_str()],
+        )
+        .map_err(|e| AppError::Database(format!("デバイスの更新に失敗しました: {}", e)))?;
+    }
 
     tx.commit()
         .map_err(|e| AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e)))
@@ -532,11 +566,13 @@ pub fn delete_device(conn: &mut Connection, device_id: &str) -> AppResult<()> {
     let tx = conn
         .transaction()
         .map_err(|e| AppError::Database(format!("トランザクションの開始に失敗しました: {}", e)))?;
-    tx.execute(
-        "DELETE FROM sync_device_playlists WHERE device_id = ?1",
-        [device_id],
-    )
-    .map_err(|e| AppError::Database(format!("デバイスの削除に失敗しました: {}", e)))?;
+    for table in ["sync_device_playlists", "sync_device_smart_playlists"] {
+        tx.execute(
+            &format!("DELETE FROM {table} WHERE device_id = ?1"),
+            [device_id],
+        )
+        .map_err(|e| AppError::Database(format!("デバイスの削除に失敗しました: {}", e)))?;
+    }
     tx.execute("DELETE FROM sync_devices WHERE id = ?1", [device_id])
         .map_err(|e| AppError::Database(format!("デバイスの削除に失敗しました: {}", e)))?;
     tx.commit()
@@ -602,6 +638,7 @@ mod tests {
             name: name.to_string(),
             sync_all,
             playlist_ids: playlist_ids.iter().map(|id| id.to_string()).collect(),
+            smart_playlist_ids: Vec::new(),
             remove_unselected: true,
             path_template: DEFAULT_DEVICE_TEMPLATE.to_string(),
             copy_extras: true,
@@ -698,6 +735,28 @@ mod tests {
         assert_eq!(device.name, "車");
         assert!(device.sync_all);
         assert_eq!(device.playlist_ids, [p2.id]);
+    }
+
+    /// オートプレイリストは、プレイリストとは別に選ぶ（消したものは選んでいないことにする）
+    #[test]
+    fn test_update_device_config_replaces_smart_playlists() {
+        let mut conn = setup_test_db();
+        insert_device(&conn, "d1", "SD", "/Volumes/SD").unwrap();
+        let rules = crate::smart_playlist::SmartRules::unreadable();
+        let smart = crate::smart_playlist::create_smart_playlist(&conn, "高評価", &rules).unwrap();
+        let manual = crate::playlist::create_playlist(&conn, "通勤").unwrap();
+
+        let mut selected = config("SD", false, &[]);
+        // 種類を取り違えたIDは、選ばない
+        selected.smart_playlist_ids = vec![smart.id.clone(), manual.id.clone()];
+        update_device_config(&mut conn, "d1", &selected).unwrap();
+        let device = find_device(&conn, "d1").unwrap();
+        assert_eq!(device.smart_playlist_ids, [smart.id.clone()]);
+        assert!(device.playlist_ids.is_empty());
+        assert!(!device.has_no_source());
+
+        crate::smart_playlist::delete_smart_playlist(&conn, &smart.id).unwrap();
+        assert!(find_device(&conn, "d1").unwrap().has_no_source());
     }
 
     #[test]

@@ -27,6 +27,7 @@ mod playback;
 mod player;
 mod playlist_cmd;
 mod settings;
+mod smart_playlist_cmd;
 mod stats;
 mod system;
 mod track_editor;
@@ -111,12 +112,19 @@ pub use track_editor::{
 
 // プレイリスト管理
 pub use playlist_cmd::{
-    add_tracks_to_playlist, count_smart_playlist_tracks, create_playlist, create_playlist_folder,
-    create_playlist_with_tracks, create_smart_playlist, delete_playlist, delete_playlist_folder,
-    get_playlist_folders, get_playlist_tracks, get_playlists, move_playlist,
-    remove_tracks_from_playlist, rename_playlist, rename_playlist_folder, reorder_playlist_folders,
-    reorder_playlist_tracks, reorder_playlists, reshuffle_smart_playlists,
-    set_playlist_description, update_smart_playlist,
+    add_tracks_to_playlist, create_playlist, create_playlist_folder, create_playlist_with_tracks,
+    delete_playlist, delete_playlist_folder, get_playlist_folders, get_playlist_tracks,
+    get_playlists, move_playlist, remove_tracks_from_playlist, rename_playlist,
+    rename_playlist_folder, reorder_playlist_folders, reorder_playlist_tracks, reorder_playlists,
+    set_playlist_description,
+};
+
+// オートプレイリスト（条件で曲を集めるプレイリスト。ADR-127）
+pub use smart_playlist_cmd::{
+    count_smart_playlist_tracks, create_smart_playlist, delete_smart_playlist,
+    get_smart_playlist_tracks, get_smart_playlists, reorder_smart_playlists,
+    reshuffle_smart_playlists, save_smart_playlist_as_playlist, update_smart_playlist,
+    update_smart_playlist_info,
 };
 
 // ライブラリのXML（iTunes形式）の取り込み
@@ -124,7 +132,9 @@ pub use library_export::export_library;
 pub use library_xml::import_library_xml;
 
 // プレイリストのM3Uの読み込み・書き出し
-pub use m3u::{export_all_playlists_m3u, export_playlist_m3u, import_m3u_playlists};
+pub use m3u::{
+    export_all_playlists_m3u, export_playlist_m3u, export_smart_playlist_m3u, import_m3u_playlists,
+};
 
 // 再生状態の保存・復元
 pub use player::{get_playback_state, save_playback_state};

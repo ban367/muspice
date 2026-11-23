@@ -6,9 +6,10 @@
   - 並び順は、名前・作成日・手動から選ぶ（見出しのメニュー）。手動の間は、プレイリストと
     フォルダをドラッグで並べ替えられる
   - プレイリストは、どの並び順でも、ドラッグでフォルダへ出し入れできる（右クリックのメニューからも移せる）
-  - 曲の一覧からドラッグした曲は、プレイリストへ追加する（自動プレイリストには追加できない）
+  - 曲の一覧からドラッグした曲は、プレイリストへ追加する
 
   並び順と、閉じているフォルダは`#lib/stores/playlistSidebar.svelte`が覚える（ADR-043）。
+  オートプレイリストは、この上の別の領域（`SidebarSmartPlaylists`）に出す（ADR-127）。
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
@@ -42,9 +43,9 @@
     sortPlaylistItems
   } from '#lib/utils/playlistTree.js';
   import { playlistSidebar } from '#lib/stores/playlistSidebar.svelte.js';
-  import { smartPlaylistDialog } from '#lib/stores/smartPlaylist.svelte.js';
   import { provideMenuCommand } from '#lib/stores/menuCommands.js';
   import type { Playlist, PlaylistFolder } from '#lib/types/models.js';
+  import type { PlaylistExportTarget } from '#lib/queries/playlists.js';
   import {
     BaseContextMenu,
     MenuHeading,
@@ -87,7 +88,7 @@
   let folderMenu = $state<{ x: number; y: number; folder: PlaylistFolder } | null>(null);
   let sectionMenu = $state<{ x: number; y: number } | null>(null);
   // M3U8へ書き出すプレイリスト（書き方を選ぶダイアログを表示する）
-  let exportingPlaylist = $state.raw<Playlist | 'all' | null>(null);
+  let exportingPlaylist = $state.raw<PlaylistExportTarget | 'all' | null>(null);
 
   function openPlaylistMenu(event: MouseEvent, playlist: Playlist) {
     event.preventDefault();
@@ -199,8 +200,6 @@
   function handlePlaylistDragOver(event: DragEvent, playlist: Playlist) {
     const kind = dragKind(event);
     if (kind === 'track') {
-      // 自動プレイリストの曲は条件で決まるため、曲のドロップは受け付けない
-      if (playlist.rules !== null) return;
       accept(event, 'copy', { id: playlist.id, where: 'into' });
     } else if (kind === 'playlist') {
       const where = isManual ? (isLowerHalf(event) ? 'after' : 'before') : 'into';
@@ -217,7 +216,6 @@
     clearDrop();
 
     if (kind === 'track') {
-      if (target.rules !== null) return;
       // ドラッグした曲（選択していた曲すべて）を、一覧の並び順のまま1回で追加する
       const trackIds = readDraggedTrackIds(event);
       if (trackIds.length > 0) addTracksMutation.mutate({ playlistId: target.id, trackIds });
@@ -317,7 +315,6 @@
 </script>
 
 {#snippet playlistItem(playlist: Playlist)}
-  {@const isSmart = playlist.rules !== null}
   <li>
     <a
       href={resolve(`playlists/${playlist.id}`)}
@@ -332,12 +329,9 @@
       ondrop={(e) => handlePlaylistDrop(e, playlist)}
       oncontextmenu={(e) => openPlaylistMenu(e, playlist)}
     >
-      <PlaylistIcon smart={isSmart} class="nav-icon" />
+      <PlaylistIcon class="nav-icon" />
       <MarqueeText text={playlist.name} class="flex-1" />
-      <!-- 自動プレイリストの曲数は、開くまで分からないため出さない -->
-      {#if !isSmart}
-        <span class="text-xs text-text-dimmed shrink-0 ml-2">{playlist.tracks.length}</span>
-      {/if}
+      <span class="text-xs text-text-dimmed shrink-0 ml-2">{playlist.tracks.length}</span>
     </a>
   </li>
 {/snippet}
@@ -369,14 +363,6 @@
             d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
           />
         </svg>
-      </button>
-      <button
-        class="btn-icon w-6 h-6 p-0"
-        title={m.sidebar.newSmartPlaylistTitle}
-        aria-label={m.sidebar.newSmartPlaylistTitle}
-        onclick={() => smartPlaylistDialog.openNew()}
-      >
-        <PlaylistIcon smart class="w-4 h-4" />
       </button>
       <button
         class="btn-icon w-6 h-6 p-0"

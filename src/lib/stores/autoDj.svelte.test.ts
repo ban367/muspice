@@ -5,7 +5,7 @@ import type { Track } from '#lib/types/models.js';
 import { commands } from '#lib/bindings.js';
 import { AUTO_DJ_BATCH_SIZE } from '#lib/utils/autoDj.js';
 import type { QueueEntry } from '#lib/utils/playQueue.js';
-import { watchAutoDj } from './autoDj.svelte.js';
+import { resolveAutoDjSource, watchAutoDj, type AutoDjSource } from './autoDj.svelte.js';
 import { playbackAids } from './playbackAids.svelte.js';
 import {
   player,
@@ -18,7 +18,8 @@ import {
 vi.mock('#lib/bindings.js', () => ({
   commands: {
     getAllTracks: vi.fn(),
-    getPlaylistTracks: vi.fn()
+    getPlaylistTracks: vi.fn(),
+    getSmartPlaylistTracks: vi.fn()
   }
 }));
 
@@ -43,7 +44,7 @@ const queryClient = {
 } as unknown as QueryClient;
 
 let enabled = $state(true);
-let playlistId = $state<string | null>(null);
+let source = $state<AutoDjSource | null>(null);
 let stop: () => void;
 
 beforeEach(() => {
@@ -52,12 +53,13 @@ beforeEach(() => {
   player.repeatMode = 'off';
   player.isShuffleEnabled = false;
   enabled = true;
-  playlistId = null;
+  source = null;
   vi.clearAllMocks();
   vi.mocked(commands.getAllTracks).mockResolvedValue(library);
   vi.mocked(commands.getPlaylistTracks).mockResolvedValue(playlist);
+  vi.mocked(commands.getSmartPlaylistTracks).mockResolvedValue(['s1', 's2'].map(makeTrack));
   vi.spyOn(console, 'error').mockImplementation(() => {});
-  stop = watchAutoDj({ enabled: () => enabled, playlistId: () => playlistId, queryClient });
+  stop = watchAutoDj({ enabled: () => enabled, source: () => source, queryClient });
 });
 
 afterEach(() => {
@@ -105,13 +107,23 @@ describe('watchAutoDj', () => {
   });
 
   it('プレイリストを元にした場合は、プレイリストの曲から足す', async () => {
-    playlistId = 'playlist-1';
+    source = { kind: 'playlist', id: 'playlist-1' };
     replaceQueueAndPlay([makeTrack('a')], 0);
     await flush();
 
     expect(commands.getPlaylistTracks).toHaveBeenCalledWith('playlist-1');
     expect(commands.getAllTracks).not.toHaveBeenCalled();
     expect(ids(player.playQueue).slice(1).sort()).toEqual(['p1', 'p2']);
+  });
+
+  it('オートプレイリストを元にした場合は、足す時点で条件に合う曲から足す', async () => {
+    source = { kind: 'smartPlaylist', id: 'smart-1' };
+    replaceQueueAndPlay([makeTrack('a')], 0);
+    await flush();
+
+    expect(commands.getSmartPlaylistTracks).toHaveBeenCalledWith('smart-1');
+    expect(commands.getPlaylistTracks).not.toHaveBeenCalled();
+    expect(ids(player.playQueue).slice(1).sort()).toEqual(['s1', 's2']);
   });
 
   it('無効・リピート中・「この曲が終わったら停止」の間・再生する曲がない間は、足さない', async () => {
@@ -186,5 +198,13 @@ describe('watchAutoDj', () => {
     await flush();
 
     expect(player.playQueue).toHaveLength(1);
+  });
+});
+
+describe('resolveAutoDjSource', () => {
+  it('保存してあるIDを、オートプレイリストの一覧にあるかで見分ける', () => {
+    expect(resolveAutoDjSource(null, ['s1'])).toBeNull();
+    expect(resolveAutoDjSource('s1', ['s1'])).toEqual({ kind: 'smartPlaylist', id: 's1' });
+    expect(resolveAutoDjSource('p1', ['s1'])).toEqual({ kind: 'playlist', id: 'p1' });
   });
 });

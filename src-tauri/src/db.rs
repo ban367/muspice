@@ -1,4 +1,5 @@
 use rusqlite::{Connection, OptionalExtension, Result};
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 /// DBの表の作りの版（`app_meta`の`schema_version`に記録する。ADR-088）
@@ -6,7 +7,9 @@ use std::path::PathBuf;
 /// 前の版のアプリが、このDBを正しく扱えなくなる変更をした時に上げる（列・表を足すだけで、前の版が
 /// そのまま読み書きできる変更では上げない）。記録が新しい版のDBは開かない（`DbOpenError::NewerSchema`）。
 /// 全文検索の表の版（`FTS_SCHEMA_VERSION`。`PRAGMA user_version`）とは別に持つ。
-pub const DB_SCHEMA_VERSION: i64 = 1;
+///
+/// - 2: 自動プレイリストを、プレイリストの表から、オートプレイリストの表へ移した（ADR-127）
+pub const DB_SCHEMA_VERSION: i64 = 2;
 
 /// DBの情報を持つ表（キーと値）
 const APP_META_TABLE: &str = "app_meta";
@@ -296,8 +299,6 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         )",
         [],
     )?;
-    // 自動プレイリストの条件（JSON。NULLは、曲を自分で選ぶ通常のプレイリスト）
-    add_column_if_not_exists(conn, "playlists", "rules", "TEXT")?;
 
     // プレイリストのフォルダ（1階層。フォルダの中にフォルダは作らない）
     conn.execute(
@@ -326,6 +327,21 @@ fn run_migrations(conn: &Connection) -> Result<()> {
             PRIMARY KEY (playlist_id, track_id),
             FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE,
             FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
+
+    // オートプレイリスト（条件で曲を集めるプレイリスト。ADR-042・ADR-127）。曲の一覧は持たず、
+    // 開くたびに条件（`rules`。JSON）から求める。フォルダには入れない
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS smart_playlists (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT,
+            rules TEXT NOT NULL,
+            position INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
         )",
         [],
     )?;
@@ -425,6 +441,18 @@ fn run_migrations(conn: &Connection) -> Result<()> {
             PRIMARY KEY (device_id, playlist_id),
             FOREIGN KEY (device_id) REFERENCES sync_devices(id) ON DELETE CASCADE,
             FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
+
+    // デバイスに同期するオートプレイリスト（ADR-127）
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS sync_device_smart_playlists (
+            device_id TEXT NOT NULL,
+            smart_playlist_id TEXT NOT NULL,
+            PRIMARY KEY (device_id, smart_playlist_id),
+            FOREIGN KEY (device_id) REFERENCES sync_devices(id) ON DELETE CASCADE,
+            FOREIGN KEY (smart_playlist_id) REFERENCES smart_playlists(id) ON DELETE CASCADE
         )",
         [],
     )?;
@@ -559,6 +587,8 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         conn.execute_batch(&format!("PRAGMA user_version = {FTS_SCHEMA_VERSION}"))?;
     }
 
+    // オートプレイリストの条件を直す移行（形式の名前・半分の星）より先に、表を移す
+    move_smart_playlists_to_own_table(conn)?;
     rename_formats(conn)?;
     migrate_to_half_star_ratings(conn)?;
     record_schema_version(conn)?;
@@ -575,10 +605,112 @@ fn has_column(conn: &Connection, table: &str, column: &str) -> Result<bool> {
     Ok(found)
 }
 
+/// 自動プレイリスト（`playlists.rules`のある行）を、オートプレイリストの表へ移す（ADR-127）
+///
+/// 以前の版は、自動プレイリストを通常のプレイリストと同じ表に、条件の列（`rules`）を付けて持っていた。
+/// `playlists.rules`があるDB（以前の版のDB・以前の版のバックアップから復元したDB）だけ、1回だけ行う。
+///
+/// - 条件のある行を、ID・名前・説明・条件・作成日・更新日を保って`smart_playlists`へ移す。フォルダには
+///   入れない（並びは、フォルダの外のものを先に、今の手動の並び順のまま。フォルダは残す）
+/// - 転送先デバイスの選択（`sync_device_playlists`）も移す
+/// - 条件の「プレイリストに入っている」のうち、移したプレイリストを指すものを、オートプレイリストの
+///   条件（`smartPlaylist`）にする
+/// - `playlists`から条件のある行を消し、`rules`の列を消す
+fn move_smart_playlists_to_own_table(conn: &Connection) -> Result<()> {
+    if !has_column(conn, "playlists", "rules")? {
+        return Ok(());
+    }
+    let tx = conn.unchecked_transaction()?;
+    let moved: HashSet<String> = tx
+        .prepare("SELECT id FROM playlists WHERE rules IS NOT NULL")?
+        .query_map([], |row| row.get(0))?
+        .collect::<Result<_>>()?;
+
+    tx.execute(
+        "INSERT INTO smart_playlists
+            (id, name, description, rules, position, created_at, updated_at)
+         SELECT id, name, description, rules,
+                ROW_NUMBER() OVER (ORDER BY folder_id IS NOT NULL, position, created_at, id) - 1,
+                COALESCE(created_at, datetime('now')), COALESCE(updated_at, datetime('now'))
+         FROM playlists WHERE rules IS NOT NULL",
+        [],
+    )?;
+    tx.execute(
+        "INSERT INTO sync_device_smart_playlists (device_id, smart_playlist_id)
+         SELECT device_id, playlist_id FROM sync_device_playlists
+         WHERE playlist_id IN (SELECT id FROM playlists WHERE rules IS NOT NULL)",
+        [],
+    )?;
+
+    let stored: Vec<(String, String)> = tx
+        .prepare("SELECT id, rules FROM smart_playlists WHERE rules LIKE '%\"playlist\"%'")?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<Result<_>>()?;
+    for (id, rules) in stored {
+        let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&rules) else {
+            continue;
+        };
+        if mark_smart_playlist_rules(&mut value, &moved) {
+            tx.execute(
+                "UPDATE smart_playlists SET rules = ?1 WHERE id = ?2",
+                [value.to_string(), id],
+            )?;
+        }
+    }
+
+    // 曲の行（自動プレイリストにはない）・転送先デバイスの選択は、外部キーのCASCADEで消える
+    tx.execute("DELETE FROM playlists WHERE rules IS NOT NULL", [])?;
+    tx.execute("ALTER TABLE playlists DROP COLUMN rules", [])?;
+    tx.commit()?;
+    if !moved.is_empty() {
+        log::info!(
+            "Moved {} smart playlists out of the playlists table",
+            moved.len()
+        );
+    }
+    Ok(())
+}
+
+/// 条件のうち、`smart_playlist_ids`のプレイリストを指す「プレイリストに入っている」の条件を、
+/// オートプレイリストの条件（`kind`を`smartPlaylist`）にする
+/// @returns 直したか
+fn mark_smart_playlist_rules(
+    value: &mut serde_json::Value,
+    smart_playlist_ids: &HashSet<String>,
+) -> bool {
+    match value {
+        serde_json::Value::Array(items) => {
+            let mut changed = false;
+            for item in items {
+                changed |= mark_smart_playlist_rules(item, smart_playlist_ids);
+            }
+            changed
+        }
+        serde_json::Value::Object(fields) => {
+            let refers_to_smart = fields.get("kind").and_then(|kind| kind.as_str())
+                == Some("playlist")
+                && fields
+                    .get("playlistId")
+                    .and_then(|id| id.as_str())
+                    .is_some_and(|id| smart_playlist_ids.contains(id));
+            if refers_to_smart {
+                fields.insert("kind".to_string(), "smartPlaylist".into());
+                return true;
+            }
+            let mut changed = false;
+            for item in fields.values_mut() {
+                changed |= mark_smart_playlist_rules(item, smart_playlist_ids);
+            }
+            changed
+        }
+        _ => false,
+    }
+}
+
 /// 評価を、半分の星の単位（0〜10）にする（ADR-082）
 ///
 /// 以前の版は評価を星の数（0〜5）で持っていた。`tracks.rating_read`がないDB（以前の版のDB・
-/// 以前の版のバックアップから復元したDB）だけ、曲の評価と、自動プレイリストの評価の条件の値を
+/// 以前の版のバックアップから復元したDB）だけ、曲の評価と、オートプレイリストの評価の条件の値を
 /// 2倍にし、`rating_read`を足す（1回だけ行う）。足した時の`rating_read`は0で、起動時に
 /// バックグラウンドでファイルの評価を読み直し、半分の星を読む（`tag_backfill`）。
 fn migrate_to_half_star_ratings(conn: &Connection) -> Result<()> {
@@ -592,7 +724,7 @@ fn migrate_to_half_star_ratings(conn: &Connection) -> Result<()> {
     )?;
 
     let playlists: Vec<(String, String)> = tx
-        .prepare("SELECT id, rules FROM playlists WHERE rules LIKE '%\"rating\"%'")?
+        .prepare("SELECT id, rules FROM smart_playlists WHERE rules LIKE '%\"rating\"%'")?
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
         .collect::<Result<_>>()?;
     for (id, rules) in playlists {
@@ -601,7 +733,7 @@ fn migrate_to_half_star_ratings(conn: &Connection) -> Result<()> {
         };
         if double_rating_rules(&mut value) {
             tx.execute(
-                "UPDATE playlists SET rules = ?1 WHERE id = ?2",
+                "UPDATE smart_playlists SET rules = ?1 WHERE id = ?2",
                 [value.to_string(), id],
             )?;
         }
@@ -615,7 +747,7 @@ fn migrate_to_half_star_ratings(conn: &Connection) -> Result<()> {
     tx.commit()
 }
 
-/// 自動プレイリストの条件のうち、評価の数値の条件の値（`value`・`valueTo`）を2倍にする
+/// オートプレイリストの条件のうち、評価の数値の条件の値（`value`・`valueTo`）を2倍にする
 /// @returns 直したか
 fn double_rating_rules(value: &mut serde_json::Value) -> bool {
     match value {
@@ -650,7 +782,7 @@ fn double_rating_rules(value: &mut serde_json::Value) -> bool {
 
 /// 以前の版が記録した形式の名前（`AIF`・`WV`）を、今の名前（`library::FORMAT_RENAMES`）に直す
 ///
-/// 曲の形式と、自動プレイリストの「形式」の条件の値を直す（「形式がWV」の条件が、`WavPack`の曲に
+/// 曲の形式と、オートプレイリストの「形式」の条件の値を直す（「形式がWV」の条件が、`WavPack`の曲に
 /// 合うように）。直すものがなければ、何も書かない。
 fn rename_formats(conn: &Connection) -> Result<()> {
     for (from, to) in crate::library::FORMAT_RENAMES {
@@ -661,7 +793,7 @@ fn rename_formats(conn: &Connection) -> Result<()> {
     }
 
     let playlists: Vec<(String, String)> = conn
-        .prepare("SELECT id, rules FROM playlists WHERE rules LIKE '%\"format\"%'")?
+        .prepare("SELECT id, rules FROM smart_playlists WHERE rules LIKE '%\"format\"%'")?
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
         .collect::<Result<_>>()?;
     for (id, rules) in playlists {
@@ -670,7 +802,7 @@ fn rename_formats(conn: &Connection) -> Result<()> {
         };
         if rename_format_rules(&mut value) {
             conn.execute(
-                "UPDATE playlists SET rules = ?1 WHERE id = ?2",
+                "UPDATE smart_playlists SET rules = ?1 WHERE id = ?2",
                 [value.to_string(), id],
             )?;
         }
@@ -678,7 +810,7 @@ fn rename_formats(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-/// 自動プレイリストの条件のうち、「形式」の文字列の条件の値を、今の名前にする
+/// オートプレイリストの条件のうち、「形式」の文字列の条件の値を、今の名前にする
 /// @returns 直したか
 fn rename_format_rules(value: &mut serde_json::Value) -> bool {
     match value {
@@ -990,8 +1122,7 @@ mod tests {
         let playlists = crate::playlist::get_all_playlists(&conn).unwrap();
         assert_eq!(playlists.len(), 1);
         assert_eq!(playlists[0].name, "通勤");
-        assert!(playlists[0].rules.is_none());
-        assert!(crate::playlist::ensure_manual_playlist(&conn, "p1").is_ok());
+        assert!(!has_column(&conn, "playlists", "rules").unwrap());
         assert_eq!(
             (playlists[0].folder_id.as_deref(), playlists[0].position),
             (None, 0)
@@ -1084,7 +1215,7 @@ mod tests {
         );
     }
 
-    /// 以前の版が記録した形式の名前（`AIF`・`WV`）と、自動プレイリストの形式の条件を、起動時に直す
+    /// 以前の版が記録した形式の名前（`AIF`・`WV`）と、オートプレイリストの形式の条件を、起動時に直す
     #[test]
     fn test_migration_renames_formats_and_format_rules() {
         let conn = open_in_memory();
@@ -1101,7 +1232,7 @@ mod tests {
             {"kind":"text","field":"format","op":"is","value":"FLAC"}
         ],"order":null,"limit":null}"#;
         conn.execute(
-            "INSERT INTO playlists (id, name, rules) VALUES ('p1', '可逆', ?1)",
+            "INSERT INTO smart_playlists (id, name, rules) VALUES ('p1', '可逆', ?1)",
             [rules],
         )
         .unwrap();
@@ -1118,9 +1249,11 @@ mod tests {
             .unwrap();
         assert_eq!(formats, ["AIFF", "WavPack", "MP3"]);
         let stored: String = conn
-            .query_row("SELECT rules FROM playlists WHERE id = 'p1'", [], |row| {
-                row.get(0)
-            })
+            .query_row(
+                "SELECT rules FROM smart_playlists WHERE id = 'p1'",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
         let stored: serde_json::Value = serde_json::from_str(&stored).unwrap();
         let values: Vec<&str> = stored["rules"]
@@ -1131,6 +1264,109 @@ mod tests {
             .collect();
         // 形式の条件だけを直す（タイトルの「WV」は、そのまま）
         assert_eq!(values, ["WavPack", "WV", "FLAC"]);
+    }
+
+    /// 以前の版のDBの自動プレイリスト（`playlists.rules`のある行）は、オートプレイリストの表へ移す。
+    /// 転送先デバイスの選択と、条件の中のプレイリストの参照も、移した先に合わせる（ADR-127）
+    #[test]
+    fn test_migration_moves_smart_playlists_to_own_table() {
+        let conn = open_in_memory();
+        let refers = r#"{"matchMode":"any","rules":[
+            {"kind":"playlist","op":"is","playlistId":"manual"},
+            {"kind":"playlist","op":"isNot","playlistId":"smart-in-folder"}
+        ],"order":{"field":"title","descending":false},"limit":null}"#;
+        let empty = r#"{"matchMode":"all","rules":[],"order":{"field":"title","descending":false},"limit":10}"#;
+        // 以前の版のDB: プレイリストの表に条件の列があり、自動プレイリストもフォルダに入れられた
+        conn.execute_batch(
+            "ALTER TABLE playlists ADD COLUMN rules TEXT;
+             INSERT INTO tracks (id, file_path, file_name, format, file_size)
+                VALUES ('t1', '/m/a.mp3', 'a.mp3', 'MP3', 1);
+             INSERT INTO playlist_folders (id, name, position) VALUES ('folder', '車', 0);
+             INSERT INTO sync_devices (id, name, path) VALUES ('device', 'SD', '/Volumes/SD');",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO playlists (id, name, description, rules, folder_id, position, created_at)
+             VALUES ('manual', '通勤', NULL, NULL, 'folder', 0, '2026-01-01T00:00:00+00:00'),
+                    ('smart-in-folder', 'ジャズ', 'メモ', ?2, 'folder', 1,
+                     '2026-01-02T00:00:00+00:00'),
+                    ('smart', '高評価', NULL, ?1, NULL, 5, '2026-01-03T00:00:00+00:00')",
+            [refers, empty],
+        )
+        .unwrap();
+        conn.execute_batch(
+            "INSERT INTO playlist_tracks (playlist_id, track_id, position) VALUES ('manual', 't1', 0);
+             INSERT INTO sync_device_playlists (device_id, playlist_id)
+                VALUES ('device', 'manual'), ('device', 'smart');",
+        )
+        .unwrap();
+
+        setup_connection(&conn).unwrap();
+        // 次の起動では、何もしない
+        setup_connection(&conn).unwrap();
+
+        assert!(!has_column(&conn, "playlists", "rules").unwrap());
+        let playlists = crate::playlist::get_all_playlists(&conn).unwrap();
+        assert_eq!(playlists.len(), 1);
+        assert_eq!(
+            (playlists[0].id.as_str(), playlists[0].folder_id.as_deref()),
+            ("manual", Some("folder"))
+        );
+        assert_eq!(crate::playlist::playlist_track_ids(&playlists[0]), ["t1"]);
+        // フォルダは、自動プレイリストを出しても残す
+        assert_eq!(
+            crate::playlist::get_playlist_folders(&conn).unwrap().len(),
+            1
+        );
+
+        // フォルダの外のものを先に、今の手動の並び順のまま
+        let smart = crate::smart_playlist::get_all_smart_playlists(&conn).unwrap();
+        let summary: Vec<(&str, &str, Option<&str>, i32, &str)> = smart
+            .iter()
+            .map(|playlist| {
+                (
+                    playlist.id.as_str(),
+                    playlist.name.as_str(),
+                    playlist.description.as_deref(),
+                    playlist.position,
+                    playlist.created_at.as_str(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            summary,
+            [
+                ("smart", "高評価", None, 0, "2026-01-03T00:00:00+00:00"),
+                (
+                    "smart-in-folder",
+                    "ジャズ",
+                    Some("メモ"),
+                    1,
+                    "2026-01-02T00:00:00+00:00"
+                ),
+            ]
+        );
+        assert_eq!(smart[1].rules.limit, Some(10));
+        // 移したプレイリストを指す条件だけを、オートプレイリストの条件にする
+        use crate::smart_playlist::{PlaylistOp, SmartRule};
+        assert_eq!(
+            smart[0].rules.rules,
+            [
+                SmartRule::Playlist {
+                    op: PlaylistOp::Is,
+                    playlist_id: "manual".to_string()
+                },
+                SmartRule::SmartPlaylist {
+                    op: PlaylistOp::IsNot,
+                    playlist_id: "smart-in-folder".to_string()
+                },
+            ]
+        );
+
+        // 転送先デバイスの選択も移す
+        let device = crate::device::find_device(&conn, "device").unwrap();
+        assert_eq!(device.playlist_ids, ["manual"]);
+        assert_eq!(device.smart_playlist_ids, ["smart"]);
     }
 
     /// 表の作りの版を記録し、新しい版のアプリが作ったDBは、何も書き換えずに断る
@@ -1186,7 +1422,7 @@ mod tests {
         );
     }
 
-    /// 評価を星の数（0〜5）で持っていたDBは、評価と自動プレイリストの評価の条件を、1回だけ2倍にする
+    /// 評価を星の数（0〜5）で持っていたDBは、評価とオートプレイリストの評価の条件を、1回だけ2倍にする
     #[test]
     fn test_migration_doubles_ratings_once() {
         let conn = open_in_memory();
@@ -1205,7 +1441,7 @@ mod tests {
             {"kind":"number","field":"year","op":"atLeast","value":4,"valueTo":null}
         ],"order":{"field":"rating","descending":true},"limit":null}"#;
         conn.execute(
-            "INSERT INTO playlists (id, name, rules) VALUES ('p1', '星4以上', ?1)",
+            "INSERT INTO smart_playlists (id, name, rules) VALUES ('p1', '星4以上', ?1)",
             [rules],
         )
         .unwrap();
@@ -1225,9 +1461,11 @@ mod tests {
         assert_eq!(ratings, [(10, 0), (8, 0), (0, 0)]);
 
         let stored: String = conn
-            .query_row("SELECT rules FROM playlists WHERE id = 'p1'", [], |row| {
-                row.get(0)
-            })
+            .query_row(
+                "SELECT rules FROM smart_playlists WHERE id = 'p1'",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
         let stored: crate::smart_playlist::SmartRules = serde_json::from_str(&stored).unwrap();
         let values: Vec<(i32, Option<i32>)> = stored
@@ -1308,6 +1546,8 @@ mod tests {
             "library_folder_exclusions",
             "sync_devices",
             "sync_device_playlists",
+            "smart_playlists",
+            "sync_device_smart_playlists",
             "tracks_fts",
         ] {
             assert!(

@@ -1,7 +1,7 @@
 /**
- * 自動プレイリストの条件から曲を求める（モックのバックエンド用）
+ * オートプレイリストの条件から曲を求める（モックのバックエンド用）
  *
- * 実装（Rustの`smart_playlist.rs`）はSQLで求める。ここでは同じ規則を、モックが持つ曲の一覧に
+ * 実装（Rustの`smart_playlist/rules.rs`）はSQLで求める。ここでは同じ規則を、モックが持つ曲の一覧に
  * 対して行う。アプリの本体からは使わない。
  */
 import type { SmartOrder, SmartRule, SmartRules, Track } from '#lib/types/models.js';
@@ -22,10 +22,15 @@ export interface SmartPlaylistContext {
   /** 音楽フォルダ（「音楽フォルダの中にある」の条件に使う。未設定ならnull。ADR-084） */
   musicFolderPath?: string | null;
   /**
-   * プレイリストに入っている曲のID（「プレイリストに入っている」の条件に使う。自動プレイリストは
-   * 条件に合う曲。消したプレイリストは空。ADR-116）
+   * プレイリストに入っている曲のID（「プレイリストに入っている」の条件に使う。消したプレイリストは空。
+   * ADR-116）
    */
   playlistMembers?: (playlistId: string) => ReadonlySet<string>;
+  /**
+   * オートプレイリストの曲のID（「オートプレイリストの曲」の条件に使う。条件に合う曲。消したものは
+   * 空。ADR-127）
+   */
+  smartPlaylistMembers?: (smartPlaylistId: string) => ReadonlySet<string>;
 }
 
 /** 条件の誤りを説明する文（誤りがなければnull。Rustの`validate_rules`に対応） */
@@ -71,6 +76,9 @@ export function smartRulesError(rules: SmartRules): string | null {
       }
       case 'playlist':
         if (!UUID_PATTERN.test(rule.playlistId)) return '不正なプレイリストID形式です';
+        break;
+      case 'smartPlaylist':
+        if (!UUID_PATTERN.test(rule.playlistId)) return '不正なオートプレイリストID形式です';
         break;
       case 'favorite':
       case 'inMusicFolder':
@@ -218,6 +226,10 @@ function matchesSmartRule(track: Track, rule: SmartRule, context: SmartPlaylistC
       return track.isMissing === rule.value;
     case 'playlist': {
       const members = context.playlistMembers?.(rule.playlistId) ?? new Set<string>();
+      return members.has(track.id) === (rule.op === 'is');
+    }
+    case 'smartPlaylist': {
+      const members = context.smartPlaylistMembers?.(rule.playlistId) ?? new Set<string>();
       return members.has(track.id) === (rule.op === 'is');
     }
   }

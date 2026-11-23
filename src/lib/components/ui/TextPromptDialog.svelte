@@ -41,6 +41,9 @@
 
 <Modal open={request !== null} onClose={cancel} title={request?.title} class="max-w-md">
   <form id="{id}-form" onsubmit={submit} novalidate>
+    {#if request?.description}
+      <p id="{id}-description" class="mt-0 mb-4 text-text-secondary">{request.description}</p>
+    {/if}
     <label for="{id}-input" class="form-label">{request?.label}</label>
     <input
       id="{id}-input"
@@ -49,7 +52,11 @@
       bind:value
       oninput={() => (error = null)}
       aria-invalid={error !== null}
-      aria-describedby={error ? `${id}-error` : undefined}
+      aria-describedby={error
+        ? `${id}-error`
+        : request?.description
+          ? `${id}-description`
+          : undefined}
       data-autofocus
     />
     {#if error}

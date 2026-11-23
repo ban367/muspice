@@ -159,7 +159,8 @@ pub struct Settings {
     pub hidden_sidebar_items: Vec<SidebarItem>,
     /// Auto DJ（再生キューの最後の曲になったら、曲を足して再生を続ける）
     pub auto_dj: bool,
-    /// Auto DJが曲を選ぶプレイリスト（nullはライブラリ全体）
+    /// Auto DJが曲を選ぶプレイリスト・オートプレイリスト（nullはライブラリ全体。IDは重ならないため、
+    /// どちらかは画面がIDから見分ける。ADR-127）
     pub auto_dj_playlist_id: Option<String>,
     /// AIシャッフル（曲が始まるたびに、選び方に合う曲を次に足す）の選び方
     pub ai_shuffle_mode: crate::ai_shuffle::AiShuffleMode,

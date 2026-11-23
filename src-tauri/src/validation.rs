@@ -118,6 +118,12 @@ pub fn validate_playlist_id(id: &str) -> AppResult<()> {
         .map_err(|_| AppError::Validation("不正なプレイリストID形式です".to_string()))
 }
 
+/// オートプレイリストのIDをバリデーション（UUID形式）
+pub fn validate_smart_playlist_id(id: &str) -> AppResult<()> {
+    validate_track_id(id)
+        .map_err(|_| AppError::Validation("不正なオートプレイリストID形式です".to_string()))
+}
+
 /// プレイリストのフォルダのIDをバリデーション（UUID形式）
 pub fn validate_playlist_folder_id(id: &str) -> AppResult<()> {
     validate_track_id(id).map_err(|_| AppError::Validation("不正なフォルダID形式です".to_string()))

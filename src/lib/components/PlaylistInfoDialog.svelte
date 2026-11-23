@@ -1,11 +1,13 @@
 <!--
   @component PlaylistInfoDialog
-  プレイリストの情報（名前と説明）の編集画面。
-  プレイリストの右クリックのメニューと、プレイリストの画面から開く（`playlistInfoDialog.open(id)`）。
+  プレイリスト・オートプレイリストの情報（名前と説明）の編集画面。
+  右クリックのメニューと、プレイリスト・オートプレイリストの画面から開く
+  （`playlistInfoDialog.open(id)`・`openSmartPlaylist(id)`）。
 -->
 <script lang="ts">
-  import type { Playlist } from '#lib/types/models.js';
+  import type { Playlist, SmartPlaylist } from '#lib/types/models.js';
   import { useUpdatePlaylistInfoMutation } from '#lib/queries/playlists.js';
+  import { useUpdateSmartPlaylistInfoMutation } from '#lib/queries/smartPlaylists.js';
   import {
     MAX_PLAYLIST_DESCRIPTION_LENGTH,
     validatePlaylistName,
@@ -15,11 +17,13 @@
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   interface Props {
-    playlist: Playlist;
+    /** 編集するものの種類（`playlist`はプレイリスト、`smartPlaylist`はオートプレイリスト） */
+    kind: 'playlist' | 'smartPlaylist';
+    playlist: Playlist | SmartPlaylist;
     onClose: () => void;
   }
 
-  let { playlist, onClose }: Props = $props();
+  let { kind, playlist, onClose }: Props = $props();
 
   // 入力は、開いた時点の内容から始める（開いている間に一覧が更新されても変えない）
   // svelte-ignore state_referenced_locally
@@ -35,18 +39,23 @@
   );
 
   const updateMutation = useUpdatePlaylistInfoMutation();
-  const isSaving = $derived(updateMutation.isPending);
+  const updateSmartMutation = useUpdateSmartPlaylistInfoMutation();
+  const isSaving = $derived(updateMutation.isPending || updateSmartMutation.isPending);
 
   async function handleSave() {
     hasTriedSaving = true;
     if (nameError !== null || descriptionError !== null) return;
 
+    const values = { name: toSafeString(name.trim(), 100), description: description.trim() };
     try {
-      await updateMutation.mutateAsync({
-        playlist: target,
-        name: toSafeString(name.trim(), 100),
-        description: description.trim()
-      });
+      if (kind === 'playlist') {
+        await updateMutation.mutateAsync({ playlist: target as Playlist, ...values });
+      } else {
+        await updateSmartMutation.mutateAsync({
+          smartPlaylist: target as SmartPlaylist,
+          ...values
+        });
+      }
       onClose();
     } catch (error) {
       // 失敗はトーストで通知される。画面は閉じずに、入力を残す

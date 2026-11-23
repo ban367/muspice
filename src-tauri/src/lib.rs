@@ -96,6 +96,11 @@ use commands::{
     delete_music_analysis, get_music_analysis_status, pick_ai_shuffle_track, start_music_analysis,
     stop_music_analysis,
 };
+use commands::{
+    delete_smart_playlist, export_smart_playlist_m3u, get_smart_playlist_tracks,
+    get_smart_playlists, reorder_smart_playlists, save_smart_playlist_as_playlist,
+    update_smart_playlist_info,
+};
 use state::AppState;
 use std::path::PathBuf;
 use tauri::Manager;
@@ -198,10 +203,17 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             get_track_editor_position,
             move_track_editor,
             create_playlist,
+            get_smart_playlists,
             create_smart_playlist,
             update_smart_playlist,
+            update_smart_playlist_info,
+            reorder_smart_playlists,
+            delete_smart_playlist,
+            get_smart_playlist_tracks,
             count_smart_playlist_tracks,
             reshuffle_smart_playlists,
+            save_smart_playlist_as_playlist,
+            export_smart_playlist_m3u,
             get_playlists,
             get_playlist_tracks,
             delete_playlist,

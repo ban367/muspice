@@ -15,6 +15,7 @@
   import { useLibraryFoldersQuery } from '#lib/queries/libraryFolders.js';
   import type { SidebarItem } from '#lib/types/models.js';
   import SidebarPlaylists from './SidebarPlaylists.svelte';
+  import SidebarSmartPlaylists from './SidebarSmartPlaylists.svelte';
   import MarqueeText from './MarqueeText.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
@@ -480,6 +481,9 @@
         {/if}
       </ul>
     </div>
+
+    <!-- オートプレイリスト（プレイリストとは別の枠組み。ADR-127） -->
+    <SidebarSmartPlaylists />
 
     <!-- プレイリストセクション -->
     <SidebarPlaylists />

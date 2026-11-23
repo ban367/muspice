@@ -1,25 +1,26 @@
 <!--
   @component SmartPlaylistDialog
-  自動プレイリスト（条件で曲を集めるプレイリスト）の編集画面。新しく作る時と、条件を変える時に使う。
+  オートプレイリスト（条件で曲を集めるプレイリスト）の編集画面。新しく作る時と、条件を変える時に使う。
 
   - 条件は、項目・比べ方・値の組の一覧。「すべての条件に合う曲」か「いずれかの条件に合う曲」を選ぶ
   - 曲数の上限と並び順を付けられる（上限は、並び順の先頭から選ぶ）
   - 入力を変えるたびに、条件に合う曲数を出す（数えるのはバックエンド）
-  - ほかのプレイリストを条件にできる（このプレイリスト自身は選べない。互いを条件にする条件は、
-    保存する時にバックエンドが断る。ADR-116）
+  - 通常のプレイリスト・ほかのオートプレイリストを条件にできる（このオートプレイリスト自身は選べない。
+    互いを条件にする条件は、保存する時にバックエンドが断る。ADR-116・ADR-127）
 
   入力と条件（`SmartRules`）の変換・検証は`#lib/utils/smartPlaylist`が行う。
 -->
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
-  import type { MatchMode, NumberField, Playlist, SmartRules } from '#lib/types/models.js';
+  import type { MatchMode, NumberField, SmartPlaylist, SmartRules } from '#lib/types/models.js';
+  import { usePlaylistsQuery } from '#lib/queries/playlists.js';
   import {
     useCreateSmartPlaylistMutation,
-    usePlaylistsQuery,
     useSmartPlaylistCountQuery,
+    useSmartPlaylistsQuery,
     useUpdateSmartPlaylistMutation
-  } from '#lib/queries/playlists.js';
+  } from '#lib/queries/smartPlaylists.js';
   import {
     KEY_VALUES,
     MAX_RULES,
@@ -50,12 +51,12 @@
   import { sortByName } from '#lib/utils/nameSort.js';
 
   interface Props {
-    /** 条件を変えるプレイリスト（nullなら、新しく作る） */
-    playlist: Playlist | null;
+    /** 条件を変えるオートプレイリスト（nullなら、新しく作る） */
+    smartPlaylist: SmartPlaylist | null;
     onClose: () => void;
   }
 
-  let { playlist, onClose }: Props = $props();
+  let { smartPlaylist, onClose }: Props = $props();
 
   /** 条件に合う曲数を数え直すまでの、入力の待ち時間（ミリ秒） */
   const COUNT_DEBOUNCE_MS = 300;
@@ -65,8 +66,8 @@
 
   // 入力は、開いた時点の内容から始める（開いている間に一覧が更新されても変えない）
   // svelte-ignore state_referenced_locally
-  const target = playlist;
-  const initial = target?.rules ? toSmartRulesForm(target.rules) : newSmartRulesForm();
+  const target = smartPlaylist;
+  const initial = target ? toSmartRulesForm(target.rules) : newSmartRulesForm();
 
   let name = $state(target?.name ?? '');
   let matchMode = $state(initial.matchMode);
@@ -79,20 +80,25 @@
   /** 保存しようとしたか（値を入れていない条件の指摘は、保存しようとしてから出す） */
   let hasTriedSaving = $state(false);
 
-  // 条件にできるプレイリスト（このプレイリスト自身は除き、名前の順）
+  // 条件にできるプレイリストと、ほかのオートプレイリスト（このオートプレイリスト自身は除く）。名前の順
   const playlistsQuery = usePlaylistsQuery();
-  const playlistChoices = $derived(
-    sortByName((playlistsQuery.data ?? []).filter((p) => p.id !== target?.id))
-  );
-  /** 選べるプレイリストにない（消した）プレイリストか */
-  const isUnknownPlaylist = (playlistId: string) =>
-    playlistId !== '' && !playlistChoices.some((p) => p.id === playlistId);
+  const smartPlaylistsQuery = useSmartPlaylistsQuery();
+  const choicesByKind = $derived({
+    playlist: sortByName(playlistsQuery.data ?? []),
+    smartPlaylist: sortByName((smartPlaylistsQuery.data ?? []).filter((p) => p.id !== target?.id))
+  });
+  /** 選べるものにない（消した）プレイリスト・オートプレイリストか */
+  const isUnknownChoice = (kind: 'playlist' | 'smartPlaylist', id: string) =>
+    id !== '' && !choicesByKind[kind].some((choice) => choice.id === id);
 
   const result = $derived(toSmartRules({ matchMode, drafts, isLimited, limit, order }));
   const nameError = $derived(validatePlaylistName(name.trim()).error ?? null);
   const inputError = $derived.by(() => {
     if (result.error === null) return null;
-    const isMissingValue = result.error === 'valueRequired' || result.error === 'playlistRequired';
+    const isMissingValue =
+      result.error === 'valueRequired' ||
+      result.error === 'playlistRequired' ||
+      result.error === 'smartPlaylistRequired';
     if (isMissingValue && !hasTriedSaving) return null;
     return m.smartPlaylist.errors[result.error];
   });
@@ -137,10 +143,14 @@
 
     try {
       if (target) {
-        await updateMutation.mutateAsync({ playlist: target, name: newName, rules: result.rules });
+        await updateMutation.mutateAsync({
+          smartPlaylist: target,
+          name: newName,
+          rules: result.rules
+        });
       } else {
         const created = await createMutation.mutateAsync({ name: newName, rules: result.rules });
-        goto(resolve(`playlists/${created.id}`));
+        goto(resolve(`smart-playlists/${created.id}`));
       }
       onClose();
     } catch (error) {
@@ -221,18 +231,27 @@
           <div class="rule-value">
             {#if !needsValue(draft)}
               <!-- 値のいらない比べ方（空かどうか・お気に入りかどうか） -->
-            {:else if definition.kind === 'playlist'}
+            {:else if definition.kind === 'playlist' || definition.kind === 'smartPlaylist'}
+              {@const isPlaylist = definition.kind === 'playlist'}
               <select
                 class="form-input"
                 bind:value={draft.value}
                 aria-label={m.smartPlaylist.ruleValue}
                 disabled={isSaving}
               >
-                <option value="" disabled>{m.smartPlaylist.choosePlaylist}</option>
-                {#if isUnknownPlaylist(draft.value)}
-                  <option value={draft.value}>{m.smartPlaylist.deletedPlaylist}</option>
+                <option value="" disabled>
+                  {isPlaylist
+                    ? m.smartPlaylist.choosePlaylist
+                    : m.smartPlaylist.chooseSmartPlaylist}
+                </option>
+                {#if isUnknownChoice(definition.kind, draft.value)}
+                  <option value={draft.value}>
+                    {isPlaylist
+                      ? m.smartPlaylist.deletedPlaylist
+                      : m.smartPlaylist.deletedSmartPlaylist}
+                  </option>
                 {/if}
-                {#each playlistChoices as choice (choice.id)}
+                {#each choicesByKind[definition.kind] as choice (choice.id)}
                   <option value={choice.id}>{choice.name}</option>
                 {/each}
               </select>

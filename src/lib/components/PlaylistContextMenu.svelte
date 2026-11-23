@@ -3,10 +3,11 @@
   プレイリスト用コンテキストメニュー。
   再生キューへの追加（次のキューに追加して再生・次のキューに追加・キューの末尾に追加・キューを置き換えて
   再生）、名前と説明の編集、フォルダへの移動、M3U8への書き出し、
-  削除のアクションを提供する。自動プレイリストでは、条件の編集も選べる。
+  削除のアクションを提供する（オートプレイリストのメニューは`SmartPlaylistContextMenu`）。
 -->
 <script lang="ts">
   import type { Playlist, PlaylistFolder } from '#lib/types/models.js';
+  import type { PlaylistExportTarget } from '#lib/queries/playlists.js';
   import {
     BaseContextMenu,
     MenuHeading,
@@ -22,7 +23,6 @@
     usePlaylistTracksQuery
   } from '#lib/queries/playlists.js';
   import { confirmDestructive } from '#lib/utils/dialog.svelte.js';
-  import { smartPlaylistDialog } from '#lib/stores/smartPlaylist.svelte.js';
   import { playlistInfoDialog } from '#lib/stores/playlistSidebar.svelte.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
@@ -35,7 +35,7 @@
     folders?: readonly PlaylistFolder[];
     onClose: () => void;
     /** 「M3U8で書き出す」を選んだ時に呼ぶ（省略すると、項目を出さない） */
-    onExport?: (playlist: Playlist) => void;
+    onExport?: (target: PlaylistExportTarget) => void;
   }
 
   let { x, y, playlist, folders = [], onClose, onExport }: Props = $props();
@@ -47,8 +47,7 @@
   // プレイリスト内のトラック（プレイリストの中の並び順。メニューを開いた時に取得する。
   // 取得するまでは空で、その間、再生・キューの操作は選べない）
   const playlistId = $derived(playlist.id);
-  const isSmart = $derived(playlist.rules !== null);
-  const tracksQuery = $derived(usePlaylistTracksQuery(playlistId, isSmart));
+  const tracksQuery = $derived(usePlaylistTracksQuery(playlistId));
   const playlistTracks = $derived(tracksQuery.data ?? []);
 
   /**
@@ -74,18 +73,10 @@
   }
 
   /**
-   * 自動プレイリストの条件を編集する
-   */
-  function handleEditRules() {
-    smartPlaylistDialog.openEdit(playlist);
-    onClose();
-  }
-
-  /**
    * プレイリストをM3U8へ書き出す（書き方を選ぶダイアログは、呼び出し側が表示する）
    */
   function handleExport() {
-    onExport?.(playlist);
+    onExport?.({ kind: 'playlist', id: playlist.id, name: playlist.name });
     onClose();
   }
 
@@ -106,35 +97,13 @@
 <BaseContextMenu {x} {y} {onClose}>
   <div class="menu-title">{playlist.name}</div>
   <div class="menu-subtitle">
-    {isSmart ? m.smartPlaylist.badge : m.common.trackCount(playlist.tracks.length)}
+    {m.common.trackCount(playlist.tracks.length)}
   </div>
   <MenuSeparator />
 
   <QueueMenuItems tracks={playlistTracks} disabled={playlistTracks.length === 0} {onClose} />
 
   <MenuSeparator />
-
-  {#if isSmart}
-    <MenuItem onSelect={handleEditRules}>
-      {#snippet icon()}
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          class="menu-icon"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"
-          />
-        </svg>
-      {/snippet}
-      {m.smartPlaylist.editRulesEllipsis}
-    </MenuItem>
-  {/if}
 
   <MenuItem onSelect={handleEditInfo}>
     {#snippet icon()}

@@ -320,9 +320,14 @@ function showSelectedTrackPanel(): void {
 
 const LAST_PAGE_KEY = 'muspice:lastPage';
 
-/** 起動時に復元してよい画面（メインウィンドウのライブラリ・プレイリスト） */
+/** 起動時に復元してよい画面（メインウィンドウのライブラリ・プレイリスト・オートプレイリスト） */
 function isRestorablePage(path: string): boolean {
-  return path.startsWith('/library/') || path === '/playlists' || path.startsWith('/playlists/');
+  return (
+    path.startsWith('/library/') ||
+    path === '/playlists' ||
+    path.startsWith('/playlists/') ||
+    path.startsWith('/smart-playlists/')
+  );
 }
 
 /**
