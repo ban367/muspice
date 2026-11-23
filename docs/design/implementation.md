@@ -480,6 +480,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
   - 高さがそろわない項目（名前の長さで高さが変わるジャンルのカード）は位置を正しく求められないため、すべて描画する（`LibraryGrid`の`virtualized={false}`）
 - `row`は、項目ごとに要素を1つだけ描画する（描画した行の数を、要素の数から数えるため）
 - ジャケット画像のカード（アルバム・アーティスト・最近追加した曲・曲のグリッド表示）は、幅を`ui.gridCardWidth`（スライダーの値`ui.gridCardSize`に、枠の内側の余白を足した幅）に決めて、列の中央に置く（`justify-items-center`。`LibraryGrid`では`centerCards`）。幅を決めないと、長い名前の幅までカードが広がり、隣の列に重なる。ジャケット画像はカードの幅いっぱいに出す。間隔は`GRID_CARD_GAP`、見た目は`app.css`の`grid-card`・`grid-card-art`・`grid-card-title`・`grid-card-subtitle`でそろえる。ポインタを置くと出る再生ボタン（`play-overlay`・`play-button-circle`）は、覆いをコンテナにして、画像の40%（20〜48px。`cqmin`）にする（ADR-097）
+  - スライダーの値（ジャケット画像の1辺）は50〜150px、既定値は100px（`MIN_CARD_SIZE`・`MAX_CARD_SIZE`・`DEFAULT_CARD_SIZE`。保存しない）。既定のウィンドウ（幅1280px。左のサイドバーを開き、右のパネルを閉じた時）では、アルバムのグリッドが既定値で7列、最大で5列になる。最大を200pxにしていた時は、大きい方が使われず、既定値（120px）でも列が少なかったため、既定値と最大を下げた
 - 表示範囲・列数・スクロール先の計算は`#lib/utils/virtualList`の純粋関数（`computeVirtualRange`など）で行う
 - 描画されていない行があるため、行の要素を探す処理（`querySelector`・`scrollIntoView`）には頼らない。位置は一覧の中の順番（index）で扱い、スクロールは`scrollToIndex`、グリッドの列数は`getColumns`を使う。`scrollToIndex`は、表示した直後（見える高さ・行の高さを測る前）に呼ばれた場合、測った後でスクロールする（見積もりの高さでは、違う位置へ出すため）
 - 一覧の全件を対象にする処理（並び替え・選択・行ごとの判定）は、数万件でも重くならないようにする
