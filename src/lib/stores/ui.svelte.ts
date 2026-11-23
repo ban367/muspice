@@ -35,9 +35,10 @@ export interface SelectedTrack {
   listTracks?: readonly Track[];
 }
 
-// グリッドカードサイズの範囲（px）
+// グリッドカードサイズの範囲と既定値（px。既定値はスライダーの中央にする）
 export const MIN_CARD_SIZE = 50;
-export const MAX_CARD_SIZE = 200;
+export const MAX_CARD_SIZE = 150;
+const DEFAULT_CARD_SIZE = 100;
 
 /** グリッドカードの枠の内側の余白（px。`app.css`の`.grid-card`の余白と合わせる） */
 const GRID_CARD_PADDING = 6;
@@ -137,7 +138,7 @@ class UiState {
   }
 
   /** グリッドカードのサイズ（ジャケット画像の1辺。MIN_CARD_SIZE〜MAX_CARD_SIZE） */
-  gridCardSize = $state(120);
+  gridCardSize = $state(DEFAULT_CARD_SIZE);
 
   /** グリッドカードの幅（px。ジャケット画像に、枠の内側の余白を足した幅） */
   get gridCardWidth(): number {
