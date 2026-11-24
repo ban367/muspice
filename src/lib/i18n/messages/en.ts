@@ -124,7 +124,7 @@ export const en: Messages = {
     setRating: 'Setting rating',
     deleteTracks: 'Deleting tracks',
     deleteTracksAndFiles: 'Deleting tracks and files',
-    refreshMetadata: 'Refreshing metadata',
+    reloadLibrary: 'Reloading the library',
     writeMetadataToFiles: 'Writing metadata to files',
     loudnessScan: 'Analyzing loudness',
     musicAnalysis: 'Analyzing tracks',
@@ -222,9 +222,7 @@ export const en: Messages = {
         : `Deleted ${count} tracks and moved their files to the Trash`,
     tracksPartiallyDeleted: (deleted, failed) =>
       `Deleted ${plural(deleted, 'track', 'tracks')} (${failed} could not be deleted)`,
-    allTracksDeleteFailed: 'Failed to delete all of the tracks',
-    metadataRefreshed: (updated, skipped, errors) =>
-      `Metadata refresh finished (updated: ${updated}, missing files: ${skipped}, errors: ${errors})`
+    allTracksDeleteFailed: 'Failed to delete all of the tracks'
   },
 
   validation: {
@@ -803,6 +801,21 @@ export const en: Messages = {
     allFailed: (reason) => `Could not write the album art: ${reason}`
   },
 
+  libraryReload: {
+    confirm: 'Reload the library?\nThe info of every song is read again from its file.',
+    run: 'Reload',
+    running: 'Reloading the library...',
+    done: (missing, failed) => {
+      const details = [
+        missing > 0 ? `missing: ${plural(missing, 'song', 'songs')}` : null,
+        failed > 0 ? `could not be read: ${plural(failed, 'song', 'songs')}` : null
+      ].filter((detail) => detail !== null);
+      return details.length === 0
+        ? 'Reloaded the library'
+        : `Reloaded the library (${details.join(', ')})`;
+    }
+  },
+
   libraryExport: {
     title: 'Export the Library',
     description:
@@ -1002,9 +1015,6 @@ export const en: Messages = {
     selectArtist: 'Select an artist',
     listView: 'List view',
     gridView: 'Grid view',
-    refreshMetadata: 'Refresh metadata',
-    confirmRefreshMetadata:
-      'This rereads every file and updates the library with its tags (title, rating and so on). Edits and ratings that were saved only in the app and not written to the files are replaced by the contents of the files. Continue?',
     loadingItems: (item) => `Loading ${item.toLowerCase()}...`,
     loadItemsFailed: (item) => `Failed to load ${item.toLowerCase()}`,
     noMatch: (query, item) => `No ${item.toLowerCase()} match "${query}"`,

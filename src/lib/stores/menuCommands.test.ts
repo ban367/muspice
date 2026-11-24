@@ -108,6 +108,19 @@ describe('runMenuCommand', () => {
     releaseSecond();
   });
 
+  it('ライブラリの再読み込みは、登録した部品（メインウィンドウのレイアウト）が受け持つ', async () => {
+    const reload = vi.fn();
+    const release = provideMenuCommand('reloadLibrary', reload);
+    await runMenuCommand({ type: 'reloadLibrary' });
+    expect(reload).toHaveBeenCalledTimes(1);
+
+    // ダイアログを開いている間は、何もしない
+    openDialog = {};
+    await runMenuCommand({ type: 'reloadLibrary' });
+    expect(reload).toHaveBeenCalledTimes(1);
+    release();
+  });
+
   it('新規オートプレイリストは、オートプレイリストの編集画面を新しく開く', async () => {
     await runMenuCommand({ type: 'newSmartPlaylist' });
     expect(smartPlaylistDialog.target).toEqual({ smartPlaylist: null });

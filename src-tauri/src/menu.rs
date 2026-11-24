@@ -45,7 +45,7 @@ const PLAYBACK_GROUP_STARTS: [&str; 2] = ["playback_volume_up", "playback_toggle
 /// キーは、どれも⌘（macOS以外ではCtrl）付きにする。入力欄で使うキー（⌘A・⌘C・⌘Zなど）と重ならず、
 /// 入力中にメニューが受け取っても困らない（ダイアログを開いている間は、フロントエンドが何もしない）。
 /// キーが空の項目には、キーを割り当てない。
-const MENU_COMMAND_ITEMS: [(&str, &str, MenuCommand); 7] = [
+const MENU_COMMAND_ITEMS: [(&str, &str, MenuCommand); 8] = [
     ("new_playlist", "CmdOrCtrl+N", MenuCommand::NewPlaylist),
     (
         "new_smart_playlist",
@@ -61,6 +61,7 @@ const MENU_COMMAND_ITEMS: [(&str, &str, MenuCommand); 7] = [
     ),
     ("go_to_album", "", MenuCommand::GoToAlbum),
     ("go_to_artist", "", MenuCommand::GoToArtist),
+    ("reload_library", "", MenuCommand::ReloadLibrary),
 ];
 
 /// 「再生」メニューの項目のIDから、フロントエンドへ送る操作を決める（ほかの項目は`None`）
@@ -112,6 +113,7 @@ struct MenuLabels {
     new_smart_playlist: &'static str,
     import_folder: &'static str,
     import_files: &'static str,
+    reload_library: &'static str,
     close_window: &'static str,
     edit: &'static str,
     undo: &'static str,
@@ -158,6 +160,7 @@ impl MenuLabels {
                 new_smart_playlist: "新規オートプレイリスト...",
                 import_folder: "フォルダをインポート...",
                 import_files: "ファイルをインポート...",
+                reload_library: "ライブラリの再読み込み...",
                 close_window: "ウインドウを閉じる",
                 edit: "編集",
                 undo: "取り消す",
@@ -208,6 +211,7 @@ impl MenuLabels {
                 new_smart_playlist: "New Auto Playlist...",
                 import_folder: "Import Folder...",
                 import_files: "Import Files...",
+                reload_library: "Reload Library...",
                 close_window: "Close Window",
                 edit: "Edit",
                 undo: "Undo",
@@ -323,6 +327,7 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>, language: Language) -> tauri::
                 .accelerator("Shift+CmdOrCtrl+O")
                 .build(app)?,
         )
+        .item(&command_item(app, "reload_library", labels.reload_library)?)
         .separator()
         .close_window_with_text(labels.close_window)
         .build()?;
@@ -480,6 +485,10 @@ mod tests {
         );
         assert_eq!(menu_command("go_to_album"), Some(MenuCommand::GoToAlbum));
         assert_eq!(menu_command("go_to_artist"), Some(MenuCommand::GoToArtist));
+        assert_eq!(
+            menu_command("reload_library"),
+            Some(MenuCommand::ReloadLibrary)
+        );
         // ほかのメニューの項目・「再生」メニューの項目は、メインウィンドウの操作ではない
         assert_eq!(menu_command("import_folder"), None);
         assert_eq!(menu_command("playback_toggle"), None);

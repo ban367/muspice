@@ -135,7 +135,7 @@ export const ja = {
     setRating: 'レーティングの設定',
     deleteTracks: 'トラックの削除',
     deleteTracksAndFiles: 'トラックとファイルの削除',
-    refreshMetadata: 'メタデータの更新',
+    reloadLibrary: 'ライブラリの再読み込み',
     writeMetadataToFiles: 'メタデータの書き出し',
     loudnessScan: '音量の解析',
     musicAnalysis: '曲の解析',
@@ -233,9 +233,7 @@ export const ja = {
         : `${count}曲を削除し、ファイルをゴミ箱へ移しました`,
     tracksPartiallyDeleted: (deleted: number, failed: number) =>
       `${deleted}曲を削除しました（${failed}曲は削除に失敗）`,
-    allTracksDeleteFailed: 'すべてのトラックの削除に失敗しました',
-    metadataRefreshed: (updated: number, skipped: number, errors: number) =>
-      `メタデータの更新が終わりました（更新: ${updated}曲、ファイルなし: ${skipped}曲、エラー: ${errors}曲）`
+    allTracksDeleteFailed: 'すべてのトラックの削除に失敗しました'
   },
 
   validation: {
@@ -855,6 +853,23 @@ export const ja = {
     allFailed: (reason: string) => `アルバムアートを書き込めませんでした: ${reason}`
   },
 
+  /** ライブラリの再読み込み（メニューバーの「ライブラリの再読み込み...」。ADR-128） */
+  libraryReload: {
+    confirm: 'ライブラリを再読み込みしますか？\nすべての曲の情報を、ファイルから読み込み直します。',
+    run: '再読み込み',
+    running: 'ライブラリを再読み込みしています...',
+    /** 終わった時の通知（見つからない曲・読み込めなかった曲がある時だけ、その数を添える） */
+    done: (missing: number, failed: number) => {
+      const details = [
+        missing > 0 ? `見つからない曲: ${missing}曲` : null,
+        failed > 0 ? `読み込めなかった曲: ${failed}曲` : null
+      ].filter((detail) => detail !== null);
+      return details.length === 0
+        ? 'ライブラリを再読み込みしました'
+        : `ライブラリを再読み込みしました（${details.join('、')}）`;
+    }
+  },
+
   /** ライブラリの書き出し（iTunes形式のXML・CSV。ADR-121） */
   libraryExport: {
     title: 'ライブラリの書き出し',
@@ -1064,9 +1079,6 @@ export const ja = {
     selectArtist: 'アーティストを選択してください',
     listView: 'リスト表示',
     gridView: 'グリッド表示',
-    refreshMetadata: 'メタデータを更新',
-    confirmRefreshMetadata:
-      'すべての曲のファイルを読み直し、タグの内容（タイトル・評価など）をライブラリに反映します。ファイルへ書き出していないアプリ内の編集内容・評価は、ファイルの内容で置き換わります。続けますか？',
     loadingItems: (item: string) => `${item}を読み込み中...`,
     loadItemsFailed: (item: string) => `${item}の読み込みに失敗しました`,
     noMatch: (query: string, item: string) => `「${query}」に一致する${item}が見つかりません`,

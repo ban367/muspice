@@ -28,7 +28,8 @@
   import { importer } from '#lib/stores/importer.svelte.js';
   import { clearQueue } from '#lib/stores/player.svelte.js';
   import { watchOpenedFiles } from '#lib/stores/openedFiles.js';
-  import { watchMenuCommands } from '#lib/stores/menuCommands.js';
+  import { provideMenuCommand, watchMenuCommands } from '#lib/stores/menuCommands.js';
+  import { reloadLibrary } from '#lib/stores/libraryReload.js';
   import { showStartupNotices } from '#lib/stores/startupNotices.js';
   import { handleError } from '#lib/stores/error.svelte.js';
   import { tagToolsDialog } from '#lib/stores/tagTools.svelte.js';
@@ -85,6 +86,10 @@
 
     // メニューバーの、メインウィンドウで行う操作（新規プレイリスト・検索・「曲」メニュー。ADR-109）
     const stopWatchingMenuCommands = watchMenuCommands();
+    // メニュー「ライブラリの再読み込み...」（読み込んだら、曲のキャッシュを取り直させる。ADR-128）
+    const stopProvidingReload = provideMenuCommand('reloadLibrary', () =>
+      reloadLibrary(queryClient)
+    );
 
     // サイドバー切替イベント
     const unlistenSidebar = events.toggleSidebar.listen(() => {
@@ -137,6 +142,7 @@
       );
       stopWatchingOpenedFiles();
       stopWatchingMenuCommands();
+      stopProvidingReload();
       stopWatchingLoudnessScan();
       stopWatchingConversion();
     };
