@@ -11,7 +11,8 @@
   - アルバムの見出しをダブルクリックすると、アルバムを再生する。右クリックでアルバムのメニューを開く
   - 1枚のアルバムだけを出す時（`singleAlbum`。アルバムの画面のグリッドの下の領域）は、見出しの名前がアルバム名
     のため、アルバムの見出し（ジャケット画像・名前）を出さず、アーティスト・ジャンルと年・曲数と時間を名前の横に
-    出す。アルバムのメニューは、見出しの「その他」と右クリックで開く（ADR-107）
+    出す。アルバムのメニューは、見出しの「その他」と右クリックで開く（ADR-107）。ジャケット画像は、曲の一覧の
+    背景の右下に、中央へ薄れるように淡く出す（スクロールしても動かない。ADR-130）
   - 曲の選択はアルバムをまたいで行える。最後に選んだ曲を、右サイドバーの曲情報パネルに出す
 -->
 <script lang="ts">
@@ -100,6 +101,11 @@
 
   // 見出しに情報を出すアルバム（1枚のアルバムだけを出す時。曲を取得するまではない）
   const headerAlbum = $derived(singleAlbum ? (albums[0] ?? null) : null);
+
+  // 曲の一覧の背景に淡く出すジャケット画像（1枚のアルバムだけを出す時。ADR-130）
+  const backdropSrc = $derived(headerAlbum ? albumArtUrl(headerAlbum.representativeTrackId) : null);
+  // 読み込みに失敗した画像のURL（アートのない曲は、albumartプロトコルが404を返す）
+  let failedBackdropSrc = $state<string | null>(null);
 
   /** アルバムのジャンルと年（最初の曲のもの。「ジャンル · 年」） */
   function genreAndYear(album: AlbumGroup): string {
@@ -321,151 +327,167 @@
     </div>
   </div>
 
-  <!-- アルバム一覧 -->
-  <div
-    bind:this={listElement}
-    class="albums-container"
-    role="listbox"
-    aria-multiselectable="true"
-    aria-label={title}
-    tabindex="0"
-    onkeydown={handleListKeydown}
-  >
-    <!-- 同じ名前のアルバムが複数あることがある（ほかのアーティストとの曲のアルバムなど）ため、代表の曲で見分ける -->
-    {#each sections as { album, discs, hasMultipleDiscs } (album.representativeTrackId)}
-      <div class="album-section">
-        <!-- アルバムヘッダー（1枚のアルバムだけを出す時は、一覧の見出しに出すため省く） -->
-        {#if !singleAlbum}
-          <div class="album-header">
-            <!-- 再生とメニューは、横のボタンからも使える -->
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <div
-              class="album-summary"
-              ondblclick={() => handleAlbumPlay(album)}
-              oncontextmenu={(e) => openAlbumMenu(e, album)}
-            >
-              <div class="album-art">
-                <AlbumArt
-                  src={albumArtUrl(album.representativeTrackId)}
-                  alt={album.name}
-                  rounded="sm"
-                />
-              </div>
-              <div class="album-info">
-                <MarqueeText text={album.name} class="album-title" />
-                {#if album.artist !== artist}
-                  <!-- ほかのアーティストとの曲のアルバム: アルバムをまとめるアーティストを出す -->
-                  <span class="album-meta">{album.artist || m.common.unknownArtist}</span>
-                {/if}
-                <span class="album-meta">{genreAndYear(album)}</span>
-                <span class="album-stats">
-                  {m.common.trackCountAndDuration(
-                    album.trackCount,
-                    formatTotalDuration(album.totalDuration)
-                  )}
-                </span>
-              </div>
-            </div>
-            <div class="album-actions">
-              <button
-                class="album-action-btn"
-                onclick={() => handleAlbumPlay(album)}
-                title={m.common.play}
+  <!-- アルバム一覧（1枚のアルバムだけの時は、右下から中央へ薄れていくジャケット画像を背景に置く。スクロールしても動かない） -->
+  <div class="albums-body">
+    {#if backdropSrc !== null && backdropSrc !== failedBackdropSrc}
+      <img
+        class="album-backdrop"
+        src={backdropSrc}
+        alt=""
+        aria-hidden="true"
+        decoding="async"
+        onerror={() => (failedBackdropSrc = backdropSrc)}
+      />
+    {/if}
+    <div
+      bind:this={listElement}
+      class="albums-container"
+      role="listbox"
+      aria-multiselectable="true"
+      aria-label={title}
+      tabindex="0"
+      onkeydown={handleListKeydown}
+    >
+      <!-- 同じ名前のアルバムが複数あることがある（ほかのアーティストとの曲のアルバムなど）ため、代表の曲で見分ける -->
+      {#each sections as { album, discs, hasMultipleDiscs } (album.representativeTrackId)}
+        <div class="album-section">
+          <!-- アルバムヘッダー（1枚のアルバムだけを出す時は、一覧の見出しに出すため省く） -->
+          {#if !singleAlbum}
+            <div class="album-header">
+              <!-- 再生とメニューは、横のボタンからも使える -->
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <div
+                class="album-summary"
+                ondblclick={() => handleAlbumPlay(album)}
+                oncontextmenu={(e) => openAlbumMenu(e, album)}
               >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M8 5v14l11-7z" />
-                </svg>
-              </button>
-              <button
-                class="album-action-btn"
-                title={m.common.more}
-                aria-label={m.common.more}
-                aria-haspopup="menu"
-                onclick={(event) => openAlbumMenu(event, album)}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-                  <circle cx="12" cy="5" r="2" />
-                  <circle cx="12" cy="12" r="2" />
-                  <circle cx="12" cy="19" r="2" />
-                </svg>
-              </button>
-            </div>
-          </div>
-        {/if}
-
-        <!-- トラックリスト -->
-        <div class="track-list">
-          {#each discs as disc (disc.discNumber)}
-            {#if hasMultipleDiscs}
-              <div class="disc-header">{m.common.disc(disc.discNumber)}</div>
-            {/if}
-            <!-- 2列に分ける時の、左の列の曲数（多い方を左に。下の`@container artist-albums`） -->
-            <div class="disc-tracks" style:--track-rows={Math.ceil(disc.tracks.length / 2)}>
-              {#each disc.tracks as track (track.id)}
-                <!-- キー操作は一覧（listbox）で受けるため、行はフォーカスを受けない -->
-                <!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
-                <div
-                  class="track-row"
-                  class:selected={selection.has(track.id)}
-                  class:missing={track.isMissing}
-                  title={track.isMissing ? m.common.fileMissing : undefined}
-                  class:playing={player.currentTrack?.id === track.id}
-                  draggable="true"
-                  ondragstart={(e) => handleDragStart(e, track.id)}
-                  onclick={(e) => handleTrackClick(track.id, e)}
-                  oncontextmenu={(e) => openTrackMenu(e, track)}
-                  ondblclick={() => playTrack(track)}
-                  role="option"
-                  aria-selected={selection.has(track.id)}
-                  data-track-id={track.id}
-                >
-                  <span class="track-number" class:playing={player.currentTrack?.id === track.id}>
-                    {#if player.currentTrack?.id === track.id}
-                      <PlayingIndicator size="small" />
-                    {:else}
-                      {track.trackNumber ?? ''}
-                    {/if}
-                  </span>
-                  <div class="track-info">
-                    <MarqueeText text={track.title || track.fileName} class="track-title" />
-                    <!-- 曲のアーティストは、一覧のアーティストと違う場合だけ表示する（フィーチャリング・コンピレーションなど） -->
-                    {#if track.artist && track.artist !== artist}
-                      <span class="track-artist">{track.artist}</span>
-                    {/if}
-                  </div>
-                  <div class="row-end">
-                    <!-- 幅が狭い時は、ポインタを置いた時・中のボタンにフォーカスがある時だけ、時間の代わりに出す -->
-                    <div class="row-actions">
-                      <FavoriteButton trackId={track.id} isFavorite={track.isFavorite} />
-                      <RatingStars
-                        rating={track.rating}
-                        onChange={(rating) =>
-                          setRatingMutation.mutateAsync({ trackId: track.id, rating })}
-                      />
-                    </div>
-                    <span class="track-duration">{formatDuration(track.duration)}</span>
-                  </div>
-                  <button
-                    class="track-action-btn"
-                    title={m.common.more}
-                    aria-label={m.common.more}
-                    aria-haspopup="menu"
-                    onclick={(e) => openTrackMenu(e, track)}
-                    ondblclick={(e) => e.stopPropagation()}
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-                      <circle cx="12" cy="5" r="2" />
-                      <circle cx="12" cy="12" r="2" />
-                      <circle cx="12" cy="19" r="2" />
-                    </svg>
-                  </button>
+                <div class="album-art">
+                  <AlbumArt
+                    src={albumArtUrl(album.representativeTrackId)}
+                    alt={album.name}
+                    rounded="sm"
+                  />
                 </div>
-              {/each}
+                <div class="album-info">
+                  <MarqueeText text={album.name} class="album-title" />
+                  {#if album.artist !== artist}
+                    <!-- ほかのアーティストとの曲のアルバム: アルバムをまとめるアーティストを出す -->
+                    <span class="album-meta">{album.artist || m.common.unknownArtist}</span>
+                  {/if}
+                  <span class="album-meta">{genreAndYear(album)}</span>
+                  <span class="album-stats">
+                    {m.common.trackCountAndDuration(
+                      album.trackCount,
+                      formatTotalDuration(album.totalDuration)
+                    )}
+                  </span>
+                </div>
+              </div>
+              <div class="album-actions">
+                <button
+                  class="album-action-btn"
+                  onclick={() => handleAlbumPlay(album)}
+                  title={m.common.play}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
+                </button>
+                <button
+                  class="album-action-btn"
+                  title={m.common.more}
+                  aria-label={m.common.more}
+                  aria-haspopup="menu"
+                  onclick={(event) => openAlbumMenu(event, album)}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                    <circle cx="12" cy="5" r="2" />
+                    <circle cx="12" cy="12" r="2" />
+                    <circle cx="12" cy="19" r="2" />
+                  </svg>
+                </button>
+              </div>
             </div>
-          {/each}
+          {/if}
+
+          <!-- トラックリスト -->
+          <div class="track-list">
+            {#each discs as disc (disc.discNumber)}
+              {#if hasMultipleDiscs}
+                <div class="disc-header">{m.common.disc(disc.discNumber)}</div>
+              {/if}
+              <!-- 2列に分ける時の、左の列の曲数（多い方を左に。下の`@container artist-albums`） -->
+              <div class="disc-tracks" style:--track-rows={Math.ceil(disc.tracks.length / 2)}>
+                {#each disc.tracks as track (track.id)}
+                  <!-- キー操作は一覧（listbox）で受けるため、行はフォーカスを受けない -->
+                  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
+                  <div
+                    class="track-row"
+                    class:selected={selection.has(track.id)}
+                    class:missing={track.isMissing}
+                    title={track.isMissing ? m.common.fileMissing : undefined}
+                    class:playing={player.currentTrack?.id === track.id}
+                    draggable="true"
+                    ondragstart={(e) => handleDragStart(e, track.id)}
+                    onclick={(e) => handleTrackClick(track.id, e)}
+                    oncontextmenu={(e) => openTrackMenu(e, track)}
+                    ondblclick={() => playTrack(track)}
+                    role="option"
+                    aria-selected={selection.has(track.id)}
+                    data-track-id={track.id}
+                  >
+                    <span class="track-number" class:playing={player.currentTrack?.id === track.id}>
+                      {#if player.currentTrack?.id === track.id}
+                        <PlayingIndicator size="small" />
+                      {:else}
+                        {track.trackNumber ?? ''}
+                      {/if}
+                    </span>
+                    <div class="track-info">
+                      <MarqueeText text={track.title || track.fileName} class="track-title" />
+                      <!-- 曲のアーティストは、一覧のアーティストと違う場合だけ表示する（フィーチャリング・コンピレーションなど） -->
+                      {#if track.artist && track.artist !== artist}
+                        <span class="track-artist">{track.artist}</span>
+                      {/if}
+                    </div>
+                    <div class="row-end">
+                      <!-- 幅が狭い時は、ポインタを置いた時・中のボタンにフォーカスがある時だけ、時間の代わりに出す -->
+                      <div class="row-actions">
+                        <FavoriteButton trackId={track.id} isFavorite={track.isFavorite} />
+                        <RatingStars
+                          rating={track.rating}
+                          onChange={(rating) =>
+                            setRatingMutation.mutateAsync({ trackId: track.id, rating })}
+                        />
+                      </div>
+                      <span class="track-duration">{formatDuration(track.duration)}</span>
+                    </div>
+                    <button
+                      class="track-action-btn"
+                      title={m.common.more}
+                      aria-label={m.common.more}
+                      aria-haspopup="menu"
+                      onclick={(e) => openTrackMenu(e, track)}
+                      ondblclick={(e) => e.stopPropagation()}
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 24 24"
+                        fill="currentColor"
+                      >
+                        <circle cx="12" cy="5" r="2" />
+                        <circle cx="12" cy="12" r="2" />
+                        <circle cx="12" cy="19" r="2" />
+                      </svg>
+                    </button>
+                  </div>
+                {/each}
+              </div>
+            {/each}
+          </div>
         </div>
-      </div>
-    {/each}
+      {/each}
+    </div>
   </div>
 </div>
 
@@ -583,9 +605,28 @@
     @apply py-2;
   }
 
+  /* 背景の画像を、一覧の後ろに重ねる（一覧の中身より下に描く） */
+  .albums-body {
+    @apply relative flex-1 min-h-0 overflow-hidden;
+    isolation: isolate;
+  }
+
+  /* 1枚のアルバムの時の背景のジャケット画像。領域の右下に置き、右下から中央へ向けて消えていくよう、
+     右下を中心にした楕円のマスクで薄める（上と左の端では見えなくなり、画像の縁が出ない）。
+     高さは領域いっぱいの正方形で、横長の領域では中央まで届くよう幅を半分まで広げる（はみ出す上下は切る）。
+     曲の文字を読めるよう、全体も淡くする */
+  .album-backdrop {
+    @apply absolute right-0 bottom-0 h-full max-w-full object-cover pointer-events-none select-none;
+    z-index: -1;
+    aspect-ratio: 1 / 1;
+    min-width: 50%;
+    opacity: 0.3;
+    mask-image: radial-gradient(ellipse at 100% 100%, #000 25%, transparent 70%);
+  }
+
   /* 一覧はフォーカスを受けてキー操作を扱う（枠は出さず、選択中の行の色で示す） */
   .albums-container {
-    @apply flex-1 overflow-y-auto outline-none;
+    @apply h-full overflow-y-auto outline-none;
   }
 
   .album-section {
