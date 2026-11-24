@@ -82,7 +82,7 @@ impl AppState {
     /// オートプレイリストの条件から曲を求める時の状況（現在の日時と、ランダムな並びの種）
     pub fn smart_playlist_context(&self) -> EvalContext {
         EvalContext {
-            now: chrono::Utc::now(),
+            now: jiff::Timestamp::now(),
             shuffle_seed: self.shuffle_seed.load(Ordering::Relaxed),
         }
     }

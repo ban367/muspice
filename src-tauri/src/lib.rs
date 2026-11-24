@@ -5,6 +5,7 @@ mod atomic_file;
 mod backup;
 mod commands;
 mod cue;
+mod datetime;
 mod db;
 mod device;
 mod device_manifest;

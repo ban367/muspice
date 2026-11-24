@@ -22,7 +22,7 @@ use crate::error::{AppError, AppResult};
 use crate::models::Track;
 use crate::multi_value::MatchOp;
 use crate::repository::{ALBUM_ARTIST, TRACK_COLUMNS, query_tracks};
-use chrono::{DateTime, Duration, Utc};
+use jiff::{SignedDuration, Timestamp};
 use rusqlite::{Connection, ToSql};
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -279,7 +279,7 @@ impl SmartRules {
 #[derive(Debug, Clone, Copy)]
 pub struct EvalContext {
     /// 現在の日時（日付の条件「過去N日以内」の基準）
-    pub now: DateTime<Utc>,
+    pub now: Timestamp,
     /// ランダムな並びの種（同じ種なら、同じ並びになる）
     pub shuffle_seed: u64,
 }
@@ -608,7 +608,14 @@ impl<'a> Resolver<'a> {
             SmartRule::Date { field, op, days } => {
                 let column = date_column(*field);
                 // 日時は、書式（タイムゾーンの表記など）をそろえてから比べる
-                let cutoff = (self.context.now - Duration::days(i64::from(*days))).to_rfc3339();
+                // `days`は`IsEmpty`・`IsNotEmpty`では検証しない（使わない）ため、桁があふれても止めずに端の日時にする
+                let since = SignedDuration::from_hours(i64::from(*days) * 24);
+                let cutoff = crate::datetime::to_rfc3339(
+                    self.context
+                        .now
+                        .saturating_sub(since)
+                        .unwrap_or(Timestamp::MIN),
+                );
                 match op {
                     DateOp::InLast => Condition::new(
                         format!("datetime({column}) >= datetime(?)"),
@@ -895,10 +902,8 @@ mod tests {
         }
     }
 
-    fn now() -> DateTime<Utc> {
-        DateTime::parse_from_rfc3339("2026-10-10T00:00:00+00:00")
-            .unwrap()
-            .with_timezone(&Utc)
+    fn now() -> Timestamp {
+        "2026-10-10T00:00:00+00:00".parse().unwrap()
     }
 
     fn context(shuffle_seed: u64) -> EvalContext {
@@ -1138,6 +1143,11 @@ mod tests {
         assert_eq!(
             find(DateField::LastPlayedAt, DateOp::IsNotEmpty, 0),
             ["a", "c"]
+        );
+        // 日数を使わない比べ方では日数を検証しないため、どんな値でも止まらない
+        assert_eq!(
+            find(DateField::LastPlayedAt, DateOp::IsEmpty, u32::MAX),
+            ["b", "d"]
         );
     }
 

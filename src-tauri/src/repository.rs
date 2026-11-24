@@ -535,7 +535,7 @@ pub fn update_track_stats(
     track_id: &str,
     stats: &crate::library_xml::TrackStats,
 ) -> AppResult<()> {
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = crate::datetime::now_rfc3339();
     conn.execute(
         "UPDATE tracks SET
             play_count = ?2,
@@ -920,7 +920,7 @@ pub fn update_track_metadata(
     track_id: &str,
     metadata: &Metadata,
 ) -> AppResult<()> {
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = crate::datetime::now_rfc3339();
 
     let rows_affected = conn
         .execute(
@@ -1771,7 +1771,7 @@ pub fn set_tracks_favorite(
     unique_ids.sort_unstable();
     unique_ids.dedup();
 
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = crate::datetime::now_rfc3339();
     let favorite_value = i32::from(favorite);
 
     let tx = conn
@@ -1812,7 +1812,7 @@ pub fn set_tracks_favorite(
 ///
 /// 対象トラックが存在しない場合はエラーを返す。
 pub fn set_track_rating(conn: &Connection, track_id: &str, rating: i32) -> AppResult<()> {
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = crate::datetime::now_rfc3339();
 
     let rows_affected = conn
         .execute(
@@ -1839,7 +1839,7 @@ pub fn increment_track_play_count(
     conn: &mut Connection,
     track_id: &str,
 ) -> AppResult<crate::models::PlayCountUpdate> {
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = crate::datetime::now_rfc3339();
 
     let tx = conn
         .transaction()

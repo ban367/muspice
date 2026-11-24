@@ -17,7 +17,6 @@ pub use rules::*;
 
 use crate::error::{AppError, AppResult};
 use crate::models::{Playlist, SmartPlaylist, Track};
-use chrono::Utc;
 use rusqlite::{Connection, OptionalExtension};
 use uuid::Uuid;
 
@@ -108,7 +107,7 @@ pub fn create_smart_playlist(
 
     let database = database("オートプレイリストの作成");
     let id = Uuid::new_v4().to_string();
-    let now = Utc::now().to_rfc3339();
+    let now = crate::datetime::now_rfc3339();
     let position = crate::playlist::next_position(conn, "smart_playlists").map_err(database)?;
     conn.execute(
         "INSERT INTO smart_playlists (id, name, rules, position, created_at, updated_at)
@@ -155,7 +154,7 @@ pub fn update_smart_playlist(
         rusqlite::params![
             name,
             rules_to_json(rules).map_err(database)?,
-            Utc::now().to_rfc3339(),
+            crate::datetime::now_rfc3339(),
             smart_playlist_id
         ],
     )
@@ -177,7 +176,7 @@ pub fn update_smart_playlist_info(
             rusqlite::params![
                 name,
                 description,
-                Utc::now().to_rfc3339(),
+                crate::datetime::now_rfc3339(),
                 smart_playlist_id
             ],
         )
@@ -260,7 +259,7 @@ mod tests {
 
     fn context() -> EvalContext {
         EvalContext {
-            now: Utc::now(),
+            now: jiff::Timestamp::now(),
             shuffle_seed: 1,
         }
     }

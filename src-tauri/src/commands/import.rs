@@ -31,7 +31,6 @@ use crate::music_folder_copy::{
 use crate::settings::{Language, SettingsState};
 use crate::state::AppState;
 use crate::track_relink::MissingTrackIndex;
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::collections::{HashMap, HashSet};
@@ -1253,7 +1252,7 @@ pub(super) fn create_track_from_file(file_path: &Path) -> AppResult<Track> {
     let file_size = get_file_size(file_path)?;
     let format = get_file_format(file_path);
 
-    let now = Utc::now().to_rfc3339();
+    let now = crate::datetime::now_rfc3339();
 
     Ok(Track {
         cue: None,

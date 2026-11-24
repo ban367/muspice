@@ -11,7 +11,7 @@
 use crate::error::{AppError, AppResult};
 use crate::m3u::TrackMatcher;
 use crate::models::MAX_PLAY_COUNT;
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -34,8 +34,8 @@ pub struct XmlTrack {
 pub struct ImportedStats {
     pub play_count: i64,
     pub skip_count: i64,
-    pub last_played: Option<DateTime<Utc>>,
-    pub date_added: Option<DateTime<Utc>>,
+    pub last_played: Option<Timestamp>,
+    pub date_added: Option<Timestamp>,
     pub loved: bool,
 }
 
@@ -130,9 +130,9 @@ fn count(value: &Option<plist::Value>) -> i64 {
         .clamp(0, MAX_PLAY_COUNT)
 }
 
-fn date(value: &Option<plist::Value>) -> Option<DateTime<Utc>> {
+fn date(value: &Option<plist::Value>) -> Option<Timestamp> {
     let date = value.as_ref()?.as_date()?;
-    Some(DateTime::<Utc>::from(std::time::SystemTime::from(date)))
+    Timestamp::try_from(std::time::SystemTime::from(date)).ok()
 }
 
 fn is_true(value: &Option<plist::Value>) -> bool {
@@ -253,14 +253,14 @@ impl ImportedStats {
     }
 }
 
-fn newer(a: Option<DateTime<Utc>>, b: Option<DateTime<Utc>>) -> Option<DateTime<Utc>> {
+fn newer(a: Option<Timestamp>, b: Option<Timestamp>) -> Option<Timestamp> {
     match (a, b) {
         (Some(a), Some(b)) => Some(a.max(b)),
         (a, b) => a.or(b),
     }
 }
 
-fn older(a: Option<DateTime<Utc>>, b: Option<DateTime<Utc>>) -> Option<DateTime<Utc>> {
+fn older(a: Option<Timestamp>, b: Option<Timestamp>) -> Option<Timestamp> {
     match (a, b) {
         (Some(a), Some(b)) => Some(a.min(b)),
         (a, b) => a.or(b),
@@ -275,17 +275,6 @@ pub struct TrackStats {
     pub last_played_at: Option<String>,
     pub created_at: String,
     pub is_favorite: bool,
-}
-
-/// DBに保存してある日時を読む（RFC 3339。古い行は`YYYY-MM-DD HH:MM:SS`（UTC）のことがある）
-fn parse_stored_date(value: &str) -> Option<DateTime<Utc>> {
-    DateTime::parse_from_rfc3339(value)
-        .map(|date| date.with_timezone(&Utc))
-        .or_else(|_| {
-            chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S")
-                .map(|date| date.and_utc())
-        })
-        .ok()
 }
 
 /// 今の値に、取り込む値を反映した値を返す（変わらなければ`None`）
@@ -305,16 +294,16 @@ pub fn merge_stats(current: &TrackStats, imported: &ImportedStats) -> Option<Tra
         let current_date = current
             .last_played_at
             .as_deref()
-            .and_then(parse_stored_date);
+            .and_then(crate::datetime::parse_stored);
         if current_date.is_none_or(|current| last_played > current) {
-            merged.last_played_at = Some(last_played.to_rfc3339());
+            merged.last_played_at = Some(crate::datetime::to_rfc3339(last_played));
         }
     }
     if let Some(date_added) = imported.date_added
         // 今の値を読めない場合は、変えない
-        && parse_stored_date(&current.created_at).is_some_and(|current| date_added < current)
+        && crate::datetime::parse_stored(&current.created_at).is_some_and(|current| date_added < current)
     {
-        merged.created_at = date_added.to_rfc3339();
+        merged.created_at = crate::datetime::to_rfc3339(date_added);
     }
     merged.is_favorite = current.is_favorite || imported.loved;
 
@@ -338,7 +327,6 @@ pub fn playlist_track_ids(playlist: &XmlPlaylist, track_ids: &HashMap<i64, Strin
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use chrono::TimeZone;
 
     /// MusicBeeが書き出す形のXML（項目の並び・値の書き方は、実際の書き出しに合わせている）
     pub(crate) const SAMPLE_XML: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -437,9 +425,12 @@ pub(crate) mod tests {
         path
     }
 
-    fn utc(year: i32, month: u32, day: u32, hour: u32, minute: u32, second: u32) -> DateTime<Utc> {
-        Utc.with_ymd_and_hms(year, month, day, hour, minute, second)
+    fn utc(year: i16, month: i8, day: i8, hour: i8, minute: i8, second: i8) -> Timestamp {
+        jiff::civil::date(year, month, day)
+            .at(hour, minute, second, 0)
+            .to_zoned(jiff::tz::TimeZone::UTC)
             .unwrap()
+            .timestamp()
     }
 
     fn matcher() -> TrackMatcher {

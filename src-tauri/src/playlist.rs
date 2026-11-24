@@ -6,7 +6,6 @@
 use crate::error::{AppError, AppResult};
 use crate::models::{Playlist, PlaylistFolder, PlaylistTrack, Track};
 use crate::repository::{TRACK_COLUMNS, query_tracks};
-use chrono::Utc;
 use rusqlite::{Connection, OptionalExtension};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
@@ -30,7 +29,7 @@ pub fn create_playlist(conn: &Connection, name: &str) -> AppResult<Playlist> {
 
 fn insert_playlist(conn: &Connection, name: &str) -> rusqlite::Result<Playlist> {
     let id = Uuid::new_v4().to_string();
-    let now = Utc::now().to_rfc3339();
+    let now = crate::datetime::now_rfc3339();
     // 手動の並び順では、いちばん後ろに置く
     let position = next_position(conn, "playlists")?;
 
@@ -306,7 +305,7 @@ pub fn add_tracks_to_playlist(
             |row| row.get(0),
         )
         .map_err(database)?;
-    let now = Utc::now().to_rfc3339();
+    let now = crate::datetime::now_rfc3339();
 
     let mut added = 0;
     {
@@ -370,7 +369,7 @@ pub fn remove_tracks_from_playlist(
         renumber_positions(&tx, playlist_id).map_err(database)?;
         tx.execute(
             "UPDATE playlists SET updated_at = ?1 WHERE id = ?2",
-            rusqlite::params![Utc::now().to_rfc3339(), playlist_id],
+            rusqlite::params![crate::datetime::now_rfc3339(), playlist_id],
         )
         .map_err(database)?;
     }
@@ -398,7 +397,7 @@ pub fn rename_playlist(conn: &Connection, playlist_id: &str, name: &str) -> AppR
     ensure_exists(conn, "playlists", playlist_id, PLAYLIST_NOT_FOUND)?;
     conn.execute(
         "UPDATE playlists SET name = ?1, updated_at = ?2 WHERE id = ?3",
-        rusqlite::params![name, Utc::now().to_rfc3339(), playlist_id],
+        rusqlite::params![name, crate::datetime::now_rfc3339(), playlist_id],
     )
     .map_err(database("プレイリスト名の変更"))?;
     Ok(())
@@ -415,7 +414,7 @@ pub fn set_playlist_description(
     let description = description.map(str::trim).filter(|text| !text.is_empty());
     conn.execute(
         "UPDATE playlists SET description = ?1, updated_at = ?2 WHERE id = ?3",
-        rusqlite::params![description, Utc::now().to_rfc3339(), playlist_id],
+        rusqlite::params![description, crate::datetime::now_rfc3339(), playlist_id],
     )
     .map_err(database("説明の変更"))?;
     Ok(())
@@ -448,7 +447,7 @@ pub fn create_playlist_folder(conn: &Connection, name: &str) -> AppResult<Playli
         id: Uuid::new_v4().to_string(),
         name: name.to_string(),
         position: next_position(conn, "playlist_folders").map_err(database)?,
-        created_at: Utc::now().to_rfc3339(),
+        created_at: crate::datetime::now_rfc3339(),
     };
     conn.execute(
         "INSERT INTO playlist_folders (id, name, position, created_at) VALUES (?1, ?2, ?3, ?4)",
@@ -606,7 +605,7 @@ pub fn reorder_playlist_tracks(
 
     tx.execute(
         "UPDATE playlists SET updated_at = ?1 WHERE id = ?2",
-        rusqlite::params![Utc::now().to_rfc3339(), playlist_id],
+        rusqlite::params![crate::datetime::now_rfc3339(), playlist_id],
     )
     .map_err(database)?;
 
@@ -623,7 +622,7 @@ mod tests {
     }
 
     fn insert_test_track(conn: &Connection, id: &str) {
-        let now = Utc::now().to_rfc3339();
+        let now = crate::datetime::now_rfc3339();
         conn.execute(
             "INSERT INTO tracks (id, file_path, file_name, title, created_at, updated_at, file_size, format)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, 'mp3')",

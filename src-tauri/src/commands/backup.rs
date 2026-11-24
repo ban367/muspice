@@ -139,7 +139,7 @@ pub async fn export_library_backup(
         let file_name = format!(
             "{} {}.{BACKUP_EXTENSION}",
             labels.file_name,
-            chrono::Local::now().format("%Y-%m-%d")
+            jiff::Zoned::now().strftime("%Y-%m-%d")
         );
         let Some(file) = app_handle
             .dialog()

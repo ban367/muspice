@@ -14,7 +14,6 @@ use crate::models::{Metadata, Track};
 use crate::multi_value;
 use crate::state::AppState;
 use crate::validation::{validate_string_length, validate_track_id};
-use chrono::Utc;
 use std::path::Path;
 use tauri::{AppHandle, Manager, State};
 use tauri_specta::Event;
@@ -338,7 +337,7 @@ fn update_each_blocking(
 
         // 2. ロック内: バッチをまとめて書き込む
         state.with_db(|db| {
-            let now = Utc::now().to_rfc3339();
+            let now = crate::datetime::now_rfc3339();
             let tx = db.transaction().map_err(|e| {
                 AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
             })?;

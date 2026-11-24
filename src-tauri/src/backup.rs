@@ -13,7 +13,7 @@ use crate::error::{AppError, AppResult};
 use crate::settings::SettingsState;
 use crate::startup::DB_FILE_NAME;
 use crate::state::AppState;
-use chrono::{Local, Utc};
+use jiff::{Zoned, civil};
 use rusqlite::{Connection, ErrorCode, OpenFlags, OptionalExtension};
 use std::fs;
 use std::io::ErrorKind;
@@ -91,11 +91,11 @@ impl BackupKind {
     }
 
     /// ファイル名（`auto-20261021-093000.muspicebackup`。日時はローカル時刻）
-    fn file_name(self, now: chrono::DateTime<Local>) -> String {
+    fn file_name(self, now: civil::DateTime) -> String {
         format!(
             "{}-{}.{BACKUP_EXTENSION}",
             self.prefix(),
-            now.format("%Y%m%d-%H%M%S")
+            now.strftime("%Y%m%d-%H%M%S")
         )
     }
 
@@ -168,7 +168,7 @@ fn write_meta(path: &Path, meta: &BackupMeta) -> AppResult<()> {
         .map_err(|e| AppError::Database(format!("バックアップを開けません: {}", e)))?;
     let rows: [(&str, Option<String>); 4] = [
         ("format_version", Some(FORMAT_VERSION.to_string())),
-        ("created_at", Some(Utc::now().to_rfc3339())),
+        ("created_at", Some(crate::datetime::now_rfc3339())),
         ("app_version", Some(meta.app_version.to_string())),
         ("settings", meta.settings_json.map(str::to_string)),
     ];
@@ -423,7 +423,7 @@ pub fn create_backup_in(
 ) -> AppResult<PathBuf> {
     fs::create_dir_all(dir)
         .map_err(|e| AppError::Io(format!("バックアップのフォルダを作れません: {}", e)))?;
-    let path = dir.join(kind.file_name(Local::now()));
+    let path = dir.join(kind.file_name(Zoned::now().datetime()));
     write_backup(conn, &path, meta)?;
     prune_backups(dir, kind)?;
     Ok(path)
@@ -453,8 +453,8 @@ fn prune_backups(dir: &Path, kind: BackupKind) -> AppResult<()> {
 }
 
 /// 今日の自動のバックアップが、まだないか（今日はローカル時刻の日付）
-pub fn needs_auto_backup(dir: &Path, today: chrono::NaiveDate) -> bool {
-    let today = today.format("%Y%m%d").to_string();
+pub fn needs_auto_backup(dir: &Path, today: civil::Date) -> bool {
+    let today = today.strftime("%Y%m%d").to_string();
     backup_names(dir, BackupKind::Auto)
         .first()
         .and_then(|name| BackupKind::Auto.timestamp_of(name))
@@ -491,7 +491,7 @@ fn run_auto_backup(app: &AppHandle) -> AppResult<()> {
         .app_data_dir()
         .map_err(|e| AppError::Io(format!("アプリのデータのフォルダを取得できません: {}", e)))?;
     let dir = backups_dir(&app_data_dir);
-    if !needs_auto_backup(&dir, Local::now().date_naive()) {
+    if !needs_auto_backup(&dir, Zoned::now().date()) {
         return Ok(());
     }
 
@@ -858,7 +858,7 @@ mod tests {
     #[test]
     fn test_needs_auto_backup_once_a_day() {
         let dir = TempDir::new();
-        let day = |d: u32| chrono::NaiveDate::from_ymd_opt(2026, 10, d).unwrap();
+        let day = |d: i8| civil::date(2026, 10, d);
         assert!(needs_auto_backup(dir.path(), day(21)));
 
         let path = create_backup_in(
@@ -868,9 +868,9 @@ mod tests {
             &meta(Some(SETTINGS)),
         )
         .unwrap();
-        let today = Local::now().date_naive();
+        let today = Zoned::now().date();
         assert!(!needs_auto_backup(dir.path(), today));
-        assert!(needs_auto_backup(dir.path(), today.succ_opt().unwrap()));
+        assert!(needs_auto_backup(dir.path(), today.tomorrow().unwrap()));
         // 復元の前に退避したものは、自動のバックアップに数えない
         fs::remove_file(path).unwrap();
         create_backup_in(
