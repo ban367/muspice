@@ -4,8 +4,7 @@
   - 並び順の既定は、プレイリストの順（手動の並び）。その間だけ、行のドラッグで並べ替えられる
   - 表示する列は、どのプレイリストでも共通。並び順は、プレイリストごとに覚える（ADR-039）
   - 選択した曲は、右クリックのメニュー・Deleteキーでプレイリストから外せる
-  - 自動プレイリスト（条件で曲を集めるプレイリスト）は、条件に合う曲を条件の並び順で出す。
-    曲の並べ替え・削除はできず、条件を編集する（ADR-042）
+  - オートプレイリスト（条件で曲を集めるプレイリスト）は、別の画面（`smart-playlists/[id]`。ADR-127）
 -->
 <script lang="ts">
   import { mapById, setOf } from '#lib/utils/collections.js';
@@ -17,14 +16,12 @@
     usePlaylistTracksQuery,
     useDeletePlaylistMutation,
     useRemoveTracksFromPlaylistMutation,
-    useReorderPlaylistTracksMutation,
-    useReshuffleSmartPlaylistsMutation
+    useReorderPlaylistTracksMutation
   } from '#lib/queries/playlists.js';
+  import { useSmartPlaylistsQuery } from '#lib/queries/smartPlaylists.js';
   import TrackList from '#lib/components/library/TrackList.svelte';
   import PlaylistIcon from '#lib/components/PlaylistIcon.svelte';
-  import { smartPlaylistDialog } from '#lib/stores/smartPlaylist.svelte.js';
   import { playlistInfoDialog } from '#lib/stores/playlistSidebar.svelte.js';
-  import { describeOrder, describeRule } from '#lib/utils/smartPlaylist.js';
   import type { Playlist, Track } from '#lib/types/models.js';
   import { playNow } from '#lib/stores/player.svelte.js';
   import { formatTotalDuration } from '#lib/utils/format.js';
@@ -40,7 +37,6 @@
   const deletePlaylistMutation = useDeletePlaylistMutation();
   const removeTracksMutation = useRemoveTracksFromPlaylistMutation();
   const reorderTracksMutation = useReorderPlaylistTracksMutation();
-  const reshuffleMutation = useReshuffleSmartPlaylistsMutation();
 
   // 選択されたプレイリスト
   const selectedPlaylist = $derived.by(() => {
@@ -48,40 +44,33 @@
     return playlistsQuery.data.find((p: Playlist) => p.id === playlistId) || null;
   });
 
-  // 自動プレイリストの条件（通常のプレイリストではnull）
-  const smartRules = $derived(selectedPlaylist?.rules ?? null);
-  const isSmart = $derived(smartRules !== null);
-  // 条件を読めなかった場合、バックエンドは「いずれかの条件に合う曲」で条件のないものを返す
-  const isUnreadable = $derived(
-    smartRules !== null && smartRules.matchMode === 'any' && smartRules.rules.length === 0
-  );
+  // プレイリストから分ける前のオートプレイリストを指す場所（前回開いていた画面の復元など）は、
+  // オートプレイリストの画面へ移す（IDは同じ。ADR-127）
+  const smartPlaylistsQuery = useSmartPlaylistsQuery();
+  $effect(() => {
+    if (!playlistId || !playlistsQuery.data || selectedPlaylist) return;
+    if (smartPlaylistsQuery.data?.some((smart) => smart.id === playlistId)) {
+      void goto(resolve(`smart-playlists/${playlistId}`), { replaceState: true });
+    }
+  });
 
   // プレイリストの曲の情報（見つかったプレイリストの分だけを取得する）
   const selectedPlaylistId = $derived(selectedPlaylist?.id ?? null);
-  /** 条件にしたプレイリストの名前（条件の説明に出す。消したプレイリストはnull） */
-  const playlistById = $derived(mapById<Playlist>(playlistsQuery.data ?? []));
-  const playlistName = (id: string) => playlistById.get(id)?.name ?? null;
   const tracksQuery = $derived(
-    selectedPlaylistId === null ? null : usePlaylistTracksQuery(selectedPlaylistId, isSmart)
+    selectedPlaylistId === null ? null : usePlaylistTracksQuery(selectedPlaylistId)
   );
   const trackById = $derived(mapById<Track>(tracksQuery?.data ?? []));
 
   // プレイリストのトラック（プレイリストの順）
   // 並びはプレイリストの一覧から取る（曲の削除を、曲の情報の取り直しを待たずに反映する）。
   // 情報をまだ取得していないトラック・ライブラリにないトラックは除く。
-  // 自動プレイリストは、条件から求めた曲と並びをそのまま使う
   const playlistTracks = $derived.by(() => {
     if (!selectedPlaylist) return [];
-    if (isSmart) return tracksQuery?.data ?? [];
     return selectedPlaylist.tracks
       .map((pt) => trackById.get(pt.trackId))
       .filter((t): t is Track => t !== undefined);
   });
-  const trackCount = $derived(
-    isSmart ? playlistTracks.length : (selectedPlaylist?.tracks.length ?? 0)
-  );
-  // 条件に合う曲がない（取得が済んでいる場合だけ）
-  const hasNoMatches = $derived(isSmart && tracksQuery?.data?.length === 0);
+  const trackCount = $derived(selectedPlaylist?.tracks.length ?? 0);
 
   /**
    * プレイリストを削除
@@ -158,8 +147,8 @@
     <!-- プレイリスト詳細 -->
     <div class="playlist-header">
       <div class="playlist-info">
-        <div class="playlist-icon" class:smart={isSmart}>
-          <PlaylistIcon smart={isSmart} class="w-10 h-10 text-white" />
+        <div class="playlist-icon">
+          <PlaylistIcon class="w-10 h-10 text-white" />
         </div>
         <div class="playlist-details">
           <h1 class="playlist-title">{selectedPlaylist.name}</h1>
@@ -168,22 +157,6 @@
           </p>
           {#if selectedPlaylist.description}
             <p class="playlist-description">{selectedPlaylist.description}</p>
-          {/if}
-          {#if smartRules}
-            <!-- 自動プレイリストの条件の説明 -->
-            <ul class="rule-summary" aria-label={m.smartPlaylist.rules}>
-              {#if isUnreadable}
-                <li class="rule-chip warning">{m.smartPlaylist.unreadable}</li>
-              {:else}
-                {#if smartRules.rules.length > 1}
-                  <li class="rule-chip mode">{m.smartPlaylist.matchModes[smartRules.matchMode]}</li>
-                {/if}
-                {#each smartRules.rules as rule, index (index)}
-                  <li class="rule-chip">{describeRule(rule, playlistName)}</li>
-                {/each}
-                <li class="rule-chip order">{describeOrder(smartRules)}</li>
-              {/if}
-            </ul>
           {/if}
         </div>
       </div>
@@ -203,21 +176,6 @@
           </svg>
           {m.common.playAll}
         </button>
-        {#if smartRules}
-          {#if smartRules.order.field === 'random' && !isUnreadable}
-            <button
-              class="btn-action"
-              onclick={() => reshuffleMutation.mutate()}
-              disabled={reshuffleMutation.isPending}
-              title={m.smartPlaylist.reshuffleTitle}
-            >
-              {m.smartPlaylist.reshuffle}
-            </button>
-          {/if}
-          <button class="btn-action" onclick={() => smartPlaylistDialog.openEdit(selectedPlaylist)}>
-            {m.smartPlaylist.editRules}
-          </button>
-        {/if}
         <button
           class="btn-round"
           onclick={() => playlistInfoDialog.open(selectedPlaylist.id)}
@@ -264,13 +222,7 @@
     </div>
 
     <div class="track-list">
-      {#if hasNoMatches}
-        <div class="empty-playlist">
-          <PlaylistIcon smart class="w-16 h-16 mb-4 opacity-50" />
-          <p>{m.smartPlaylist.noMatches}</p>
-          <p class="hint">{m.smartPlaylist.noMatchesHint}</p>
-        </div>
-      {:else if !isSmart && selectedPlaylist.tracks.length === 0}
+      {#if selectedPlaylist.tracks.length === 0}
         <div class="empty-playlist">
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -302,8 +254,8 @@
             sortViewId={playlistSortViewId(selectedPlaylist.id)}
             defaultColumns={['title', 'artist', 'album', 'duration']}
             defaultSort={null}
-            onReorder={isSmart ? undefined : handleReorder}
-            onRemove={isSmart ? undefined : handleRemoveTracks}
+            onReorder={handleReorder}
+            onRemove={handleRemoveTracks}
             removeLabel={m.playlists.removeFromPlaylist}
           />
         {/key}
@@ -350,31 +302,8 @@
     background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-accent-focus) 100%);
   }
 
-  /* 自動プレイリストは、色を変えて見分ける */
-  .playlist-icon.smart {
-    background: linear-gradient(135deg, #f6a13c 0%, #e0567a 100%);
-  }
-
   .playlist-details {
     @apply flex flex-col gap-1 min-w-0;
-  }
-
-  /* 自動プレイリストの条件の説明 */
-  .rule-summary {
-    @apply flex flex-wrap gap-1.5 list-none m-0 mt-1 p-0;
-  }
-
-  .rule-chip {
-    @apply px-2 py-0.5 rounded-full border border-border bg-base-400 text-xs text-text-secondary;
-  }
-
-  .rule-chip.mode,
-  .rule-chip.order {
-    @apply border-transparent bg-transparent text-text-muted px-0;
-  }
-
-  .rule-chip.warning {
-    @apply border-warning text-warning;
   }
 
   .playlist-title {
@@ -397,18 +326,6 @@
 
   .playlist-actions {
     @apply flex items-center gap-2 shrink-0;
-  }
-
-  .btn-action {
-    @apply h-10 px-4 bg-transparent border border-border rounded-full text-sm text-text-secondary cursor-pointer transition-colors whitespace-nowrap;
-  }
-
-  .btn-action:hover:not(:disabled) {
-    @apply bg-surface-hover text-text-primary;
-  }
-
-  .btn-action:disabled {
-    @apply opacity-50 cursor-not-allowed;
   }
 
   .btn-play-all {

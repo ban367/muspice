@@ -511,7 +511,7 @@ fn plan_replacement(conn: &Connection, path: &str) -> AppResult<ReplacementPlan>
         is_current,
         removed_track_count: total.saturating_sub(kept),
         kept_track_count: kept,
-        playlist_count: crate::playlist::count_regular_playlists(conn)?,
+        playlist_count: crate::playlist::count_playlists(conn)?,
     })
 }
 
@@ -628,7 +628,7 @@ fn apply_change(
         let removed_tracks =
             crate::repository::delete_tracks_outside(&tx, &track_path_prefix(path))?;
         let removed_playlists = if delete_playlists {
-            crate::playlist::delete_regular_playlists(&tx)?
+            crate::playlist::delete_all_playlists(&tx)?
         } else {
             0
         };
@@ -816,7 +816,7 @@ mod tests {
     }
 
     /// 置き換えると、新しいフォルダの外の曲・ほかのライブラリフォルダ・通常のプレイリストを外し、
-    /// 新しいフォルダの曲を読み込む（自動プレイリストは残し、ファイルは消さない）
+    /// 新しいフォルダの曲を読み込む（オートプレイリストは残し、ファイルは消さない）
     #[test]
     fn test_replace_removes_tracks_folders_and_regular_playlists() {
         let dir = TempDir::new();
@@ -836,13 +836,13 @@ mod tests {
         create_playlist_with_all_tracks(&state, "Drive");
         state
             .with_db(|db| {
-                let folder = crate::playlist::create_playlist_folder(db, "Car")?;
-                let smart = crate::playlist::create_smart_playlist(
+                crate::playlist::create_playlist_folder(db, "Car")?;
+                crate::smart_playlist::create_smart_playlist(
                     db,
                     "自動",
                     &crate::smart_playlist::SmartRules::unreadable(),
-                )?;
-                crate::playlist::move_playlist(db, &smart.id, Some(&folder.id))
+                )
+                .map(|_| ())
             })
             .unwrap();
         let backups = dir.path().join("backups");
@@ -881,12 +881,16 @@ mod tests {
         assert_eq!(tracks(&state), [("b.wav".to_string(), 0)]);
         assert_eq!(folder_paths(&state), [path_str(&new)]);
         assert_eq!(music_folder_path(&state), Some(path_str(&new)));
-        // 自動プレイリストと、それが入っているフォルダは残る
-        assert_eq!(playlist_names(&state), ["自動"]);
+        // プレイリストとフォルダはすべて消え、オートプレイリストは残る
+        assert!(playlist_names(&state).is_empty());
         let folders = state
             .with_db(|db| crate::playlist::get_playlist_folders(db))
             .unwrap();
-        assert_eq!(folders.len(), 1);
+        assert!(folders.is_empty());
+        let smart = state
+            .with_db(|db| crate::smart_playlist::get_all_smart_playlists(db))
+            .unwrap();
+        assert_eq!(smart[0].name, "自動");
         assert!(old.join("a.wav").exists());
     }
 

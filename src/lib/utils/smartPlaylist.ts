@@ -1,7 +1,7 @@
 /**
- * 自動プレイリストの条件（編集画面で使う定義と変換）
+ * オートプレイリストの条件（編集画面で使う定義と変換）
  *
- * 条件に合う曲はバックエンド（Rustの`smart_playlist.rs`）が求める。ここでは、編集画面の入力
+ * 条件に合う曲はバックエンド（Rustの`smart_playlist/rules.rs`）が求める。ここでは、編集画面の入力
  * （文字列のままの値）と、保存する条件（`SmartRules`）との変換・検証と、条件の説明文を扱う。
  */
 import type {
@@ -31,14 +31,15 @@ export type RuleField =
   | 'inMusicFolder'
   | 'analyzedKey'
   | 'playlist'
+  | 'smartPlaylist'
   | 'missing';
 
 /** 項目の種類（比べ方・値の入力の形が決まる） */
 export type RuleKind = SmartRule['kind'];
 
 /**
- * お気に入り・音楽フォルダの中にあるか・見つからないか・プレイリストに入っているかの比べ方
- * （保存する条件では、プレイリスト以外は`value`の真偽にする）
+ * お気に入り・音楽フォルダの中にあるか・見つからないか・プレイリスト（オートプレイリスト）に
+ * 入っているかの比べ方（保存する条件では、プレイリスト以外は`value`の真偽にする）
  */
 export type FavoriteOp = 'is' | 'isNot';
 
@@ -74,6 +75,7 @@ export const RULE_FIELDS: Record<RuleField, RuleFieldDefinition> = {
   lastPlayedAt: { kind: 'date' },
   createdAt: { kind: 'date' },
   playlist: { kind: 'playlist' },
+  smartPlaylist: { kind: 'smartPlaylist' },
   duration: { kind: 'number', input: 'minutes' },
   trackNumber: { kind: 'number', input: 'integer' },
   discNumber: { kind: 'number', input: 'integer' },
@@ -153,6 +155,7 @@ export function opsFor(field: RuleField): readonly RuleOp[] {
     case 'inMusicFolder':
     case 'missing':
     case 'playlist':
+    case 'smartPlaylist':
       return FAVORITE_OPS;
     case 'key':
       return KEY_OPS;
@@ -165,7 +168,7 @@ export interface RuleDraft {
   key: number;
   field: RuleField;
   op: RuleOp;
-  /** 値（文字列・数値・日数。キーは`KEY_VALUES`の値、プレイリストはID） */
+  /** 値（文字列・数値・日数。キーは`KEY_VALUES`の値、プレイリスト・オートプレイリストはID） */
   value: string;
   /** 範囲の条件の、大きい方の値 */
   valueTo: string;
@@ -283,7 +286,8 @@ export function toRuleDrafts(rules: readonly SmartRule[]): RuleDraft[] {
         };
       }
       case 'playlist':
-        return { key, field: 'playlist', op: rule.op, value: rule.playlistId, valueTo: '' };
+      case 'smartPlaylist':
+        return { key, field: rule.kind, op: rule.op, value: rule.playlistId, valueTo: '' };
     }
   });
 }
@@ -298,7 +302,8 @@ export type SmartRuleError =
   | 'daysInvalid'
   | 'limitInvalid'
   | 'tooManyRules'
-  | 'playlistRequired';
+  | 'playlistRequired'
+  | 'smartPlaylistRequired';
 
 export type SmartRulesResult =
   | { rules: SmartRules; error: null }
@@ -371,6 +376,9 @@ function toRule(draft: RuleDraft): SmartRule | SmartRuleError {
     case 'playlist':
       if (draft.value === '') return 'playlistRequired';
       return { kind: 'playlist', op: draft.op as FavoriteOp, playlistId: draft.value };
+    case 'smartPlaylist':
+      if (draft.value === '') return 'smartPlaylistRequired';
+      return { kind: 'smartPlaylist', op: draft.op as FavoriteOp, playlistId: draft.value };
   }
 }
 
@@ -436,7 +444,7 @@ export function initialOrder(field: SmartOrderField): SmartOrder {
   return { field, descending: isDirected(field) && !isName };
 }
 
-/** 新しい自動プレイリストの、最初の入力 */
+/** 新しいオートプレイリストの、最初の入力 */
 export function newSmartRulesForm(): SmartRulesForm {
   return {
     matchMode: 'all',
@@ -467,6 +475,8 @@ export function ruleFieldLabel(field: RuleField): string {
       return m.smartPlaylist.inMusicFolderField;
     case 'playlist':
       return m.smartPlaylist.playlistField;
+    case 'smartPlaylist':
+      return m.smartPlaylist.smartPlaylistField;
     case 'missing':
       return m.smartPlaylist.missingField;
     default:
@@ -515,15 +525,21 @@ function describeNumber(field: NumberField, value: number): string {
 }
 
 /**
- * 条件の説明（プレイリストの画面に出す。例: 「ジャンル: 「Jazz」を含む」）
- *
- * @param playlistName プレイリストのIDから名前を求める（プレイリストの条件に使う。消した
- *   プレイリストはnull）
+ * 条件にしたプレイリスト・オートプレイリストの名前を、IDから求める（消したものはnull）
  */
-export function describeRule(
-  rule: SmartRule,
-  playlistName: (playlistId: string) => string | null = () => null
-): string {
+export interface RulePlaylistNames {
+  playlist: (playlistId: string) => string | null;
+  smartPlaylist: (smartPlaylistId: string) => string | null;
+}
+
+const NO_NAMES: RulePlaylistNames = { playlist: () => null, smartPlaylist: () => null };
+
+/**
+ * 条件の説明（オートプレイリストの画面に出す。例: 「ジャンル: 「Jazz」を含む」）
+ *
+ * @param names 条件にしたプレイリスト・オートプレイリストの名前を求める
+ */
+export function describeRule(rule: SmartRule, names: RulePlaylistNames = NO_NAMES): string {
   const describe = m.smartPlaylist.describe;
   switch (rule.kind) {
     case 'text':
@@ -548,7 +564,12 @@ export function describeRule(
       );
     case 'playlist':
       return describe.playlist(
-        playlistName(rule.playlistId) ?? m.smartPlaylist.deletedPlaylist,
+        names.playlist(rule.playlistId) ?? m.smartPlaylist.deletedPlaylist,
+        rule.op === 'is'
+      );
+    case 'smartPlaylist':
+      return describe.smartPlaylist(
+        names.smartPlaylist(rule.playlistId) ?? m.smartPlaylist.deletedSmartPlaylist,
         rule.op === 'is'
       );
   }

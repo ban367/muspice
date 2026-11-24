@@ -10,6 +10,7 @@ import type {
   PlayHistoryEntry,
   Playlist,
   PlaylistFolder,
+  SmartPlaylist,
   SmartRules,
   Track
 } from '#lib/types/models.js';
@@ -34,6 +35,10 @@ export function mockTrackId(index: number): string {
 
 export function mockPlaylistId(index: number): string {
   return `b2000000-0000-4000-8000-${index.toString(16).padStart(12, '0')}`;
+}
+
+export function mockSmartPlaylistId(index: number): string {
+  return `b4000000-0000-4000-8000-${index.toString(16).padStart(12, '0')}`;
 }
 
 export function mockPlaylistFolderId(index: number): string {
@@ -355,12 +360,7 @@ export function createFixturePlaylistFolders(): PlaylistFolder[] {
 }
 
 export function createFixturePlaylists(): Playlist[] {
-  const playlist = (
-    index: number,
-    name: string,
-    trackIndexes: number[],
-    rules: SmartRules | null = null
-  ): Playlist => {
+  const playlist = (index: number, name: string, trackIndexes: number[]): Playlist => {
     const createdAt = toIso(BASE_TIME + (48 + index) * HOUR_MS);
     return {
       id: mockPlaylistId(index),
@@ -371,7 +371,6 @@ export function createFixturePlaylists(): Playlist[] {
         position,
         addedAt: createdAt
       })),
-      rules,
       folderId: null,
       position: index - 1,
       createdAt,
@@ -382,9 +381,27 @@ export function createFixturePlaylists(): Playlist[] {
   return [
     playlist(1, 'ドライブ用', [7, 8, 1, 10, 12]),
     playlist(2, '作業用BGM', [14, 15, 16, 17]),
-    playlist(3, '空のプレイリスト', []),
-    // 自動プレイリスト（条件で曲を集める。曲は持たない）
-    playlist(4, '高評価の曲', [], {
+    playlist(3, '空のプレイリスト', [])
+  ];
+}
+
+/** オートプレイリスト（条件で曲を集める。曲は持たない。ADR-127） */
+export function createFixtureSmartPlaylists(): SmartPlaylist[] {
+  const smartPlaylist = (index: number, name: string, rules: SmartRules): SmartPlaylist => {
+    const createdAt = toIso(BASE_TIME + (52 + index) * HOUR_MS);
+    return {
+      id: mockSmartPlaylistId(index),
+      name,
+      description: null,
+      rules,
+      position: index - 1,
+      createdAt,
+      updatedAt: createdAt
+    };
+  };
+
+  return [
+    smartPlaylist(1, '高評価の曲', {
       matchMode: 'all',
       rules: [{ kind: 'number', field: 'rating', op: 'atLeast', value: 8, valueTo: null }],
       order: { field: 'rating', descending: true },

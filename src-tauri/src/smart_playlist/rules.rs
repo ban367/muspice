@@ -1,25 +1,26 @@
-//! 自動プレイリスト（条件で曲を集めるプレイリスト）
+//! オートプレイリストの条件（ADR-042）
 //!
 //! 条件（`SmartRules`）は、項目・演算子・値の組の一覧と、その組み合わせ方（すべて / いずれか）、
-//! 並び順、曲数の上限からなる。条件は`playlists.rules`にJSONで保存し、曲の一覧は開くたびに
+//! 並び順、曲数の上限からなる。条件は`smart_playlists.rules`にJSONで保存し、曲の一覧は開くたびに
 //! 条件から求め直す（曲の評価・再生回数などの変更に追随する）。
 //!
 //! 条件からSQLを作るが、項目・演算子は列挙型から決まった式を選び、値はすべてプレースホルダーで
 //! 渡す（入力した文字列をSQLへ埋め込まない）。
 //!
-//! ほかのプレイリストを条件にできる（「プレイリストに入っている / 入っていない」。ADR-116）。
-//! 通常のプレイリストは入れてある曲、自動プレイリストはその条件に合う曲（上限・並び順も含めて
-//! 求めた曲）で比べる。そのプレイリスト自身や、互いを条件にする条件は、保存する時に断る
-//! （`validate_playlist_references`）。消したプレイリストは、曲のないプレイリストとして扱う。
+//! 通常のプレイリスト・ほかのオートプレイリストを条件にできる（「入っている / 入っていない」。
+//! ADR-116・ADR-127）。通常のプレイリストは入れてある曲、オートプレイリストはその条件に合う曲
+//! （上限・並び順も含めて求めた曲）で比べる。そのオートプレイリスト自身や、互いを条件にする条件は、
+//! 保存する時に断る（`validate_playlist_references`）。消したプレイリストは、曲のないプレイリストとして
+//! 扱う。
 //!
 //! ランダムな並びは、種（`EvalContext::shuffle_seed`）と曲のIDから決める。種が同じ間は同じ並びに
 //! なるため、曲の評価を変えた・1曲聴き終えたなどで一覧を取り直しても、並びは変わらない
 //! （種は起動のたびに変わり、「選び直す」操作でも変わる。`AppState::reshuffle_smart_playlists`）。
 
+use super::find_rules;
 use crate::error::{AppError, AppResult};
 use crate::models::Track;
 use crate::multi_value::MatchOp;
-use crate::playlist::find_rules;
 use crate::repository::{ALBUM_ARTIST, TRACK_COLUMNS, query_tracks};
 use chrono::{DateTime, Duration, Utc};
 use rusqlite::{Connection, ToSql};
@@ -203,8 +204,14 @@ pub enum SmartRule {
     /// 曲の解析で求めたキー（`value`は、主音の音名 + 12 × 調（0は長調・1は短調）。0はハ長調、
     /// 21はイ短調。`IsEmpty`・`IsNotEmpty`では使わない）
     Key { op: KeyOp, value: i32 },
-    /// ほかのプレイリストに入っているか（自動プレイリストは、その条件に合う曲。ADR-116）
+    /// 通常のプレイリストに入っているか（入れてある曲。ADR-116）
     Playlist {
+        op: PlaylistOp,
+        #[serde(rename = "playlistId")]
+        playlist_id: String,
+    },
+    /// ほかのオートプレイリストの曲か（その条件に合う曲。ADR-116・ADR-127）
+    SmartPlaylist {
         op: PlaylistOp,
         #[serde(rename = "playlistId")]
         playlist_id: String,
@@ -239,7 +246,7 @@ pub struct SmartOrder {
     pub descending: bool,
 }
 
-/// 自動プレイリストの条件
+/// オートプレイリストの条件
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SmartRules {
@@ -254,7 +261,6 @@ impl SmartRules {
     /// 保存してある条件を読めなかった場合の条件（どの曲にも合わない）
     ///
     /// 新しいバージョンで足した項目を含む条件を、前のバージョンで開いた場合など。
-    /// 通常のプレイリストとして扱うと曲を追加できてしまうため、自動プレイリストのまま、
     /// 曲のない一覧にする（条件を編集し直せる）。
     pub fn unreadable() -> Self {
         Self {
@@ -344,6 +350,9 @@ pub fn validate_rules(rules: &SmartRules) -> AppResult<()> {
             SmartRule::Playlist { playlist_id, .. } => {
                 crate::validation::validate_playlist_id(playlist_id)?;
             }
+            SmartRule::SmartPlaylist { playlist_id, .. } => {
+                crate::validation::validate_smart_playlist_id(playlist_id)?;
+            }
             SmartRule::Favorite { .. }
             | SmartRule::InMusicFolder { .. }
             | SmartRule::Missing { .. } => {}
@@ -352,63 +361,68 @@ pub fn validate_rules(rules: &SmartRules) -> AppResult<()> {
     Ok(())
 }
 
-/// 条件にしたプレイリスト（同じプレイリストを2回条件にした場合は、2回返す）
-fn referenced_playlists(rules: &SmartRules) -> impl Iterator<Item = &str> {
+/// 条件にしたオートプレイリスト（同じものを2回条件にした場合は、2回返す）
+fn referenced_smart_playlists(rules: &SmartRules) -> impl Iterator<Item = &str> {
     rules.rules.iter().filter_map(|rule| match rule {
-        SmartRule::Playlist { playlist_id, .. } => Some(playlist_id.as_str()),
+        SmartRule::SmartPlaylist { playlist_id, .. } => Some(playlist_id.as_str()),
         _ => None,
     })
 }
 
-/// 条件にしたプレイリストを検証する（保存する時に呼ぶ。`validate_rules`のあとで呼ぶ）
+/// 条件にしたプレイリスト・オートプレイリストを検証する（保存する時に呼ぶ。`validate_rules`のあとで呼ぶ）
 ///
-/// 条件にしたプレイリストがあることと、`playlist_id`（条件を変える自動プレイリスト。新しく作る
-/// 時はNone）自身を、直接も、ほかの自動プレイリストを通しても条件にしないこと（循環すると、
-/// 曲を決められない）を確かめる。
+/// 条件にしたプレイリスト・オートプレイリストがあることと、`smart_playlist_id`（条件を変える
+/// オートプレイリスト。新しく作る時はNone）自身を、直接も、ほかのオートプレイリストを通しても条件に
+/// しないこと（循環すると、曲を決められない）を確かめる。
 pub fn validate_playlist_references(
     conn: &Connection,
-    playlist_id: Option<&str>,
+    smart_playlist_id: Option<&str>,
     rules: &SmartRules,
 ) -> AppResult<()> {
     let invalid = |message: &str| Err(AppError::Validation(message.to_string()));
-    let mut visited = HashSet::new();
-    for target in referenced_playlists(rules) {
-        if Some(target) == playlist_id {
-            return invalid("自動プレイリストの条件に、そのプレイリスト自身は使えません");
+    for rule in &rules.rules {
+        if let SmartRule::Playlist { playlist_id, .. } = rule
+            && !crate::playlist::playlist_exists(conn, playlist_id)?
+        {
+            return invalid("条件にしたプレイリストが見つかりません");
         }
-        match find_rules(conn, target)? {
-            None => return invalid("条件にしたプレイリストが見つかりません"),
-            Some(Some(target_rules)) => {
-                if let Some(playlist_id) = playlist_id
-                    && refers_to(conn, &target_rules, playlist_id, &mut visited)?
-                {
-                    return invalid(
-                        "条件にしたプレイリストが、このプレイリストを条件にしています（互いを条件にはできません）",
-                    );
-                }
-            }
-            Some(None) => {}
+    }
+
+    let mut visited = HashSet::new();
+    for target in referenced_smart_playlists(rules) {
+        if Some(target) == smart_playlist_id {
+            return invalid("オートプレイリストの条件に、そのオートプレイリスト自身は使えません");
+        }
+        let Some(target_rules) = find_rules(conn, target)? else {
+            return invalid("条件にしたオートプレイリストが見つかりません");
+        };
+        if let Some(smart_playlist_id) = smart_playlist_id
+            && refers_to(conn, &target_rules, smart_playlist_id, &mut visited)?
+        {
+            return invalid(
+                "条件にしたオートプレイリストが、このオートプレイリストを条件にしています（互いを条件にはできません）",
+            );
         }
     }
     Ok(())
 }
 
-/// 条件が、（ほかの自動プレイリストを通してでも）プレイリストを条件にしているか
+/// 条件が、（ほかのオートプレイリストを通してでも）オートプレイリストを条件にしているか
 fn refers_to(
     conn: &Connection,
     rules: &SmartRules,
-    playlist_id: &str,
+    smart_playlist_id: &str,
     visited: &mut HashSet<String>,
 ) -> AppResult<bool> {
-    for target in referenced_playlists(rules) {
-        if target == playlist_id {
+    for target in referenced_smart_playlists(rules) {
+        if target == smart_playlist_id {
             return Ok(true);
         }
         if !visited.insert(target.to_string()) {
             continue;
         }
-        if let Some(Some(target_rules)) = find_rules(conn, target)?
-            && refers_to(conn, &target_rules, playlist_id, visited)?
+        if let Some(target_rules) = find_rules(conn, target)?
+            && refers_to(conn, &target_rules, smart_playlist_id, visited)?
         {
             return Ok(true);
         }
@@ -498,9 +512,9 @@ fn multi_value_op(op: TextOp) -> Option<(MatchOp, bool)> {
 struct Resolver<'a> {
     conn: &'a Connection,
     context: EvalContext,
-    /// 曲を求めている途中の自動プレイリスト（保存してある条件が循環していても、止まるようにする）
+    /// 曲を求めている途中のオートプレイリスト（保存してある条件が循環していても、止まるようにする）
     visiting: Vec<String>,
-    /// 求めた自動プレイリストの曲のID（JSONの配列）。同じプレイリストを何度条件にしても、1回だけ求める
+    /// 求めたオートプレイリストの曲のID（JSONの配列）。同じものを何度条件にしても、1回だけ求める
     members: HashMap<String, String>,
 }
 
@@ -629,14 +643,17 @@ impl<'a> Resolver<'a> {
                     KeyOp::IsNotEmpty => Condition::new(format!("{key} IS NOT NULL"), vec![]),
                 }
             }
-            SmartRule::Playlist { op, playlist_id } => {
-                let members = self.playlist_members(playlist_id)?;
-                match op {
-                    PlaylistOp::Is => members,
-                    PlaylistOp::IsNot => {
-                        Condition::new(format!("NOT ({})", members.sql), members.params)
-                    }
-                }
+            // 通常のプレイリストは、入れてある曲（消したプレイリストは、曲がない）
+            SmartRule::Playlist { op, playlist_id } => with_playlist_op(
+                *op,
+                Condition::new(
+                    "EXISTS (SELECT 1 FROM playlist_tracks AS member
+                     WHERE member.playlist_id = ? AND member.track_id = tracks.id)",
+                    vec![Box::new(playlist_id.clone())],
+                ),
+            ),
+            SmartRule::SmartPlaylist { op, playlist_id } => {
+                with_playlist_op(*op, self.smart_playlist_members(playlist_id)?)
             }
             SmartRule::Missing { value } => Condition::new(
                 "(missing_since IS NOT NULL) = ?",
@@ -646,37 +663,30 @@ impl<'a> Resolver<'a> {
         Ok(condition)
     }
 
-    /// プレイリストに入っている曲を表すSQLの条件式
+    /// オートプレイリストの曲を表すSQLの条件式
     ///
-    /// 通常のプレイリストは入れてある曲、自動プレイリストはその条件に合う曲（上限があれば、
-    /// 並び順の先頭からその曲数まで）。消したプレイリストは、曲のないプレイリストとして扱う。
-    fn playlist_members(&mut self, playlist_id: &str) -> AppResult<Condition> {
-        let rules = match find_rules(self.conn, playlist_id)? {
-            None => return Ok(Condition::new("0", vec![])),
-            Some(None) => {
-                return Ok(Condition::new(
-                    "EXISTS (SELECT 1 FROM playlist_tracks AS member
-                     WHERE member.playlist_id = ? AND member.track_id = tracks.id)",
-                    vec![Box::new(playlist_id.to_string())],
-                ));
-            }
-            Some(Some(rules)) => rules,
+    /// その条件に合う曲（上限があれば、並び順の先頭からその曲数まで）。消したオートプレイリストは、
+    /// 曲のないオートプレイリストとして扱う。
+    fn smart_playlist_members(&mut self, smart_playlist_id: &str) -> AppResult<Condition> {
+        let Some(rules) = find_rules(self.conn, smart_playlist_id)? else {
+            return Ok(Condition::new("0", vec![]));
         };
 
-        let ids = match self.members.get(playlist_id) {
+        let ids = match self.members.get(smart_playlist_id) {
             Some(ids) => ids.clone(),
             None => {
-                if self.visiting.iter().any(|id| id == playlist_id) {
-                    log::warn!("Smart playlist rules refer to each other: {playlist_id}");
+                if self.visiting.iter().any(|id| id == smart_playlist_id) {
+                    log::warn!("Smart playlist rules refer to each other: {smart_playlist_id}");
                     return Ok(Condition::new("0", vec![]));
                 }
-                self.visiting.push(playlist_id.to_string());
+                self.visiting.push(smart_playlist_id.to_string());
                 let ids = self.matching_ids(&rules);
                 self.visiting.pop();
                 let ids = serde_json::to_string(&ids?).map_err(|e| {
                     AppError::Database(format!("プレイリストの曲の取得に失敗しました: {}", e))
                 })?;
-                self.members.insert(playlist_id.to_string(), ids.clone());
+                self.members
+                    .insert(smart_playlist_id.to_string(), ids.clone());
                 ids
             }
         };
@@ -744,6 +754,14 @@ impl<'a> Resolver<'a> {
             .map_err(database)?;
         limit_randomly(&mut ids, rules, self.context.shuffle_seed, |id| id);
         Ok(ids)
+    }
+}
+
+/// 「入っている」はそのまま、「入っていない」は否定した条件式にする
+fn with_playlist_op(op: PlaylistOp, members: Condition) -> Condition {
+    match op {
+        PlaylistOp::Is => members,
+        PlaylistOp::IsNot => Condition::new(format!("NOT ({})", members.sql), members.params),
     }
 }
 
@@ -1343,6 +1361,10 @@ mod tests {
                     days: 90,
                 },
                 SmartRule::Favorite { value: true },
+                SmartRule::SmartPlaylist {
+                    op: PlaylistOp::IsNot,
+                    playlist_id: "p1".to_string(),
+                },
             ],
             order: SmartOrder {
                 field: SmartOrderField::LastPlayedAt,
@@ -1359,6 +1381,9 @@ mod tests {
         assert_eq!(json["rules"][1]["valueTo"], 5);
         assert_eq!(json["rules"][2]["field"], "lastPlayedAt");
         assert_eq!(json["rules"][3]["kind"], "favorite");
+        assert_eq!(json["rules"][4]["kind"], "smartPlaylist");
+        assert_eq!(json["rules"][4]["op"], "isNot");
+        assert_eq!(json["rules"][4]["playlistId"], "p1");
         assert_eq!(json["order"]["field"], "lastPlayedAt");
         assert_eq!(serde_json::from_value::<SmartRules>(json).unwrap(), rules);
     }
@@ -1404,7 +1429,7 @@ mod tests {
         assert_eq!(rules.order.field, SmartOrderField::Random);
         assert_eq!(rules.limit, None);
         assert!(validate_rules(&rules).is_ok());
-        // 知らない項目のある条件は、読めない（保存してある条件なら、曲のない自動プレイリストにする）
+        // 知らない項目のある条件は、読めない（保存してある条件なら、曲のないオートプレイリストにする）
         assert!(serde_json::from_str::<SmartRules>(&json.replace("trackNumber", "mood")).is_err());
     }
 
@@ -1539,7 +1564,14 @@ mod tests {
         }
     }
 
-    /// ほかのプレイリストを条件にする（通常のプレイリストは入れてある曲、自動プレイリストは条件に合う曲）
+    fn in_smart_playlist(op: PlaylistOp, smart_playlist_id: &str) -> SmartRule {
+        SmartRule::SmartPlaylist {
+            op,
+            playlist_id: smart_playlist_id.to_string(),
+        }
+    }
+
+    /// ほかのプレイリストを条件にする（通常のプレイリストは入れてある曲、オートプレイリストは条件に合う曲）
     #[test]
     fn test_playlist_rules() {
         let conn = library();
@@ -1552,7 +1584,7 @@ mod tests {
             vec![text(TextField::Genre, TextOp::Is, "J-Pop")],
         );
         jpop.limit = Some(1);
-        let smart = crate::playlist::create_smart_playlist(&conn, "J-Pop", &jpop).unwrap();
+        let smart = super::super::create_smart_playlist(&conn, "J-Pop", &jpop).unwrap();
 
         let all = |rules_: Vec<SmartRule>| ids(&conn, &rules(MatchMode::All, rules_));
         assert_eq!(
@@ -1563,8 +1595,11 @@ mod tests {
             all(vec![in_playlist(PlaylistOp::IsNot, &manual.id)]),
             ["b", "d"]
         );
-        // 自動プレイリストは、上限まで求めた曲で比べる
-        assert_eq!(all(vec![in_playlist(PlaylistOp::Is, &smart.id)]), ["a"]);
+        // オートプレイリストは、上限まで求めた曲で比べる
+        assert_eq!(
+            all(vec![in_smart_playlist(PlaylistOp::Is, &smart.id)]),
+            ["a"]
+        );
         assert_eq!(
             ids(
                 &conn,
@@ -1572,7 +1607,7 @@ mod tests {
                     MatchMode::Any,
                     vec![
                         in_playlist(PlaylistOp::Is, &manual.id),
-                        in_playlist(PlaylistOp::Is, &smart.id)
+                        in_smart_playlist(PlaylistOp::Is, &smart.id)
                     ]
                 )
             ),
@@ -1581,7 +1616,14 @@ mod tests {
         let count = |rules_: Vec<SmartRule>| {
             count_tracks(&conn, &rules(MatchMode::All, rules_), context(1)).unwrap()
         };
-        assert_eq!(count(vec![in_playlist(PlaylistOp::IsNot, &smart.id)]), 3);
+        assert_eq!(
+            count(vec![in_smart_playlist(PlaylistOp::IsNot, &smart.id)]),
+            3
+        );
+        // 種類を取り違えたIDは、曲のないプレイリストとして扱う（通常のプレイリストとオートプレイリストは
+        // 別の表）
+        assert!(all(vec![in_playlist(PlaylistOp::Is, &smart.id)]).is_empty());
+        assert!(all(vec![in_smart_playlist(PlaylistOp::Is, &manual.id)]).is_empty());
 
         // 消したプレイリストは、曲のないプレイリストとして扱う
         crate::playlist::delete_playlist(&conn, &manual.id).unwrap();
@@ -1590,28 +1632,32 @@ mod tests {
             all(vec![in_playlist(PlaylistOp::IsNot, &manual.id)]),
             ["a", "b", "c", "d"]
         );
+        super::super::delete_smart_playlist(&conn, &smart.id).unwrap();
+        assert!(all(vec![in_smart_playlist(PlaylistOp::Is, &smart.id)]).is_empty());
     }
 
     /// 保存してある条件が互いを条件にしていても（ほかの版で保存したなど）、求めるのが止まる
     #[test]
     fn test_playlist_rules_stop_at_cycles() {
         let conn = library();
-        let first =
-            crate::playlist::create_smart_playlist(&conn, "A", &rules(MatchMode::All, vec![]))
-                .unwrap();
-        let second = crate::playlist::create_smart_playlist(
+        let first = super::super::create_smart_playlist(&conn, "A", &rules(MatchMode::All, vec![]))
+            .unwrap();
+        let second = super::super::create_smart_playlist(
             &conn,
             "B",
-            &rules(MatchMode::All, vec![in_playlist(PlaylistOp::Is, &first.id)]),
+            &rules(
+                MatchMode::All,
+                vec![in_smart_playlist(PlaylistOp::Is, &first.id)],
+            ),
         )
         .unwrap();
         // 検証を通さずに、AがBを条件にするように書き換える
         let cyclic = rules(
             MatchMode::All,
-            vec![in_playlist(PlaylistOp::Is, &second.id)],
+            vec![in_smart_playlist(PlaylistOp::Is, &second.id)],
         );
         conn.execute(
-            "UPDATE playlists SET rules = ?1 WHERE id = ?2",
+            "UPDATE smart_playlists SET rules = ?1 WHERE id = ?2",
             rusqlite::params![serde_json::to_string(&cyclic).unwrap(), first.id],
         )
         .unwrap();
@@ -1623,41 +1669,46 @@ mod tests {
     fn test_validate_playlist_references() {
         let conn = library();
         let manual = crate::playlist::create_playlist(&conn, "通常").unwrap();
-        let first =
-            crate::playlist::create_smart_playlist(&conn, "A", &rules(MatchMode::All, vec![]))
-                .unwrap();
-        let refers = |id: &str| rules(MatchMode::All, vec![in_playlist(PlaylistOp::Is, id)]);
-        let second =
-            crate::playlist::create_smart_playlist(&conn, "B", &refers(&first.id)).unwrap();
+        let first = super::super::create_smart_playlist(&conn, "A", &rules(MatchMode::All, vec![]))
+            .unwrap();
+        let refers = |id: &str| rules(MatchMode::All, vec![in_smart_playlist(PlaylistOp::Is, id)]);
+        let refers_manual = |id: &str| rules(MatchMode::All, vec![in_playlist(PlaylistOp::Is, id)]);
+        let second = super::super::create_smart_playlist(&conn, "B", &refers(&first.id)).unwrap();
 
-        let validate = |playlist_id: Option<&str>, rules_: &SmartRules| {
-            validate_playlist_references(&conn, playlist_id, rules_)
+        let validate = |smart_playlist_id: Option<&str>, rules_: &SmartRules| {
+            validate_playlist_references(&conn, smart_playlist_id, rules_)
         };
-        assert!(validate(None, &refers(&manual.id)).is_ok());
-        assert!(validate(Some(&first.id), &refers(&manual.id)).is_ok());
-        // そのプレイリスト自身
+        assert!(validate(None, &refers_manual(&manual.id)).is_ok());
+        assert!(validate(Some(&first.id), &refers_manual(&manual.id)).is_ok());
+        // そのオートプレイリスト自身
         assert!(matches!(
             validate(Some(&first.id), &refers(&first.id)),
             Err(AppError::Validation(_))
         ));
-        // ないプレイリスト
+        // ないプレイリスト・オートプレイリスト（種類を取り違えたIDを含む）
         let unknown = uuid::Uuid::new_v4().to_string();
-        assert!(matches!(
-            validate(None, &refers(&unknown)),
-            Err(AppError::Validation(_))
-        ));
+        for rules_ in [
+            refers(&unknown),
+            refers_manual(&unknown),
+            refers(&manual.id),
+            refers_manual(&first.id),
+        ] {
+            assert!(matches!(
+                validate(None, &rules_),
+                Err(AppError::Validation(_))
+            ));
+        }
         // BはAを条件にしているため、AはBを条件にできない（保存もしない）
         assert!(matches!(
             validate(Some(&first.id), &refers(&second.id)),
             Err(AppError::Validation(_))
         ));
         assert!(matches!(
-            crate::playlist::update_smart_playlist_rules(&conn, &first.id, &refers(&second.id)),
+            super::super::update_smart_playlist(&conn, &first.id, "A", &refers(&second.id)),
             Err(AppError::Validation(_))
         ));
-        // ほかの自動プレイリストを条件にするのはよい
-        let third =
-            crate::playlist::create_smart_playlist(&conn, "C", &refers(&second.id)).unwrap();
+        // ほかのオートプレイリストを条件にするのはよい
+        let third = super::super::create_smart_playlist(&conn, "C", &refers(&second.id)).unwrap();
         assert!(validate(Some(&third.id), &refers(&first.id)).is_ok());
     }
 
@@ -1670,8 +1721,10 @@ mod tests {
         // 値を使わない比べ方では、値を見ない
         assert!(validate_rules(&key(KeyOp::IsEmpty, 99)).is_ok());
 
-        let playlist = |id: &str| rules(MatchMode::All, vec![in_playlist(PlaylistOp::Is, id)]);
-        assert!(validate_rules(&playlist(&uuid::Uuid::new_v4().to_string())).is_ok());
-        assert!(validate_rules(&playlist("../other")).is_err());
+        for rule in [in_playlist, in_smart_playlist] {
+            let playlist = |id: &str| rules(MatchMode::All, vec![rule(PlaylistOp::Is, id)]);
+            assert!(validate_rules(&playlist(&uuid::Uuid::new_v4().to_string())).is_ok());
+            assert!(validate_rules(&playlist("../other")).is_err());
+        }
     }
 }

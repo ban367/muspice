@@ -59,7 +59,7 @@ fn labels(language: Language, format: LibraryExportFormat) -> (&'static str, &'s
 
 /// ライブラリを、保存のダイアログで選んだファイルへ書き出す（選ばなかった場合はnull。ADR-121）
 ///
-/// XMLは、曲とプレイリスト（自動プレイリストは、書き出す時点で条件に合う曲。プレイリストのフォルダも）。
+/// XMLは、曲とプレイリスト（オートプレイリストは、書き出す時点で条件に合う曲。プレイリストのフォルダも）。
 /// CSVは、曲の一覧（見出しはアプリの言語）。同じ名前のファイルを選んだ場合は置き換える（一時ファイルに
 /// 書いてから置き換える）。
 #[tauri::command]
@@ -127,34 +127,61 @@ fn export(
     path: &Path,
 ) -> AppResult<LibraryExportResult> {
     let context = state.smart_playlist_context();
-    let (tracks, mut playlists, mut folders, music_folder) = state.with_db(|db| {
-        let tracks = crate::repository::find_all_tracks(db)?;
-        let playlists = crate::playlist::get_all_playlists(db)?
-            .into_iter()
-            .map(|playlist| {
-                Ok((
-                    playlist.position,
-                    ExportPlaylist {
-                        track_ids: crate::playlist::playlist_track_ids(db, &playlist, context)?,
-                        id: playlist.id,
-                        name: playlist.name,
-                        folder_id: playlist.folder_id,
-                    },
-                ))
-            })
-            .collect::<AppResult<Vec<_>>>()?;
-        let folders = crate::playlist::get_playlist_folders(db)?;
-        let music_folder = crate::library_folder::find_music_folder(db)?.map(|folder| folder.path);
-        Ok((tracks, playlists, folders, music_folder))
-    })?;
-    // プレイリストとフォルダは、サイドバーの手動の並び順にする
-    playlists.sort_by(|(a, x), (b, y)| a.cmp(b).then_with(|| x.name.cmp(&y.name)));
+    let (tracks, mut playlists, mut smart_playlists, mut folders, music_folder) =
+        state.with_db(|db| {
+            let tracks = crate::repository::find_all_tracks(db)?;
+            let playlists: Vec<(i32, ExportPlaylist)> = crate::playlist::get_all_playlists(db)?
+                .into_iter()
+                .map(|playlist| {
+                    (
+                        playlist.position,
+                        ExportPlaylist {
+                            track_ids: crate::playlist::playlist_track_ids(&playlist),
+                            id: playlist.id,
+                            name: playlist.name,
+                            folder_id: playlist.folder_id,
+                        },
+                    )
+                })
+                .collect();
+            // オートプレイリストは、今の条件に合う曲の一覧として書き出す（条件は書き出さない。ADR-127）
+            let smart_playlists = crate::smart_playlist::get_all_smart_playlists(db)?
+                .into_iter()
+                .map(|playlist| {
+                    Ok((
+                        playlist.position,
+                        ExportPlaylist {
+                            track_ids: crate::smart_playlist::smart_playlist_track_ids(
+                                db, &playlist, context,
+                            )?,
+                            id: playlist.id,
+                            name: playlist.name,
+                            folder_id: None,
+                        },
+                    ))
+                })
+                .collect::<AppResult<Vec<_>>>()?;
+            let folders = crate::playlist::get_playlist_folders(db)?;
+            let music_folder =
+                crate::library_folder::find_music_folder(db)?.map(|folder| folder.path);
+            Ok((tracks, playlists, smart_playlists, folders, music_folder))
+        })?;
+    // プレイリストとフォルダは、サイドバーの手動の並び順にする（オートプレイリストは、その後ろ）
+    let by_position = |(a, x): &(i32, ExportPlaylist), (b, y): &(i32, ExportPlaylist)| {
+        a.cmp(b).then_with(|| x.name.cmp(&y.name))
+    };
+    playlists.sort_by(by_position);
+    smart_playlists.sort_by(by_position);
     folders.sort_by(|a, b| {
         a.position
             .cmp(&b.position)
             .then_with(|| a.name.cmp(&b.name))
     });
-    let playlists: Vec<ExportPlaylist> = playlists.into_iter().map(|(_, p)| p).collect();
+    let playlists: Vec<ExportPlaylist> = playlists
+        .into_iter()
+        .chain(smart_playlists)
+        .map(|(_, p)| p)
+        .collect();
 
     let bytes = match format {
         LibraryExportFormat::Xml => to_xml_bytes(&build_itunes_xml(

@@ -186,6 +186,7 @@ describe('新しい項目（キー・プレイリスト・見つからない曲�
   it('比べ方と、最初の値', () => {
     expect(opsFor('analyzedKey')).toEqual(['is', 'isNot', 'isEmpty', 'isNotEmpty']);
     expect(opsFor('playlist')).toEqual(['is', 'isNot']);
+    expect(opsFor('smartPlaylist')).toEqual(['is', 'isNot']);
     expect(opsFor('missing')).toEqual(['is', 'isNot']);
     expect(newRuleDraft(0, 'analyzedKey')).toMatchObject({ op: 'is', value: '0' });
     expect(newRuleDraft(0, 'playlist')).toMatchObject({ op: 'is', value: '' });
@@ -208,7 +209,8 @@ describe('新しい項目（キー・プレイリスト・見つからない曲�
           draft({ key: 1, field: 'analyzedKey', op: 'isEmpty', value: '21' }),
           draft({ key: 2, field: 'playlist', op: 'isNot', value: 'p1' }),
           draft({ key: 3, field: 'missing', op: 'is' }),
-          draft({ key: 4, field: 'sampleRate', op: 'atLeast', value: '44.1' })
+          draft({ key: 4, field: 'sampleRate', op: 'atLeast', value: '44.1' }),
+          draft({ key: 5, field: 'smartPlaylist', op: 'is', value: 's1' })
         ]
       })
     );
@@ -217,7 +219,8 @@ describe('新しい項目（キー・プレイリスト・見つからない曲�
       { kind: 'key', op: 'isEmpty', value: 0 },
       { kind: 'playlist', op: 'isNot', playlistId: 'p1' },
       { kind: 'missing', value: true },
-      { kind: 'number', field: 'sampleRate', op: 'atLeast', value: 44_100, valueTo: null }
+      { kind: 'number', field: 'sampleRate', op: 'atLeast', value: 44_100, valueTo: null },
+      { kind: 'smartPlaylist', op: 'is', playlistId: 's1' }
     ]);
   });
 
@@ -226,6 +229,11 @@ describe('新しい項目（キー・プレイリスト・見つからない曲�
       form({ drafts: [draft({ key: 7, field: 'playlist', op: 'is', value: '' })] })
     );
     expect(result).toMatchObject({ error: 'playlistRequired', ruleKey: 7 });
+    expect(
+      toSmartRules(
+        form({ drafts: [draft({ key: 8, field: 'smartPlaylist', op: 'isNot', value: '' })] })
+      )
+    ).toMatchObject({ error: 'smartPlaylistRequired', ruleKey: 8 });
   });
 
   it('保存してある条件を入力にし、同じ条件に戻せる', () => {
@@ -233,13 +241,14 @@ describe('新しい項目（キー・プレイリスト・見つからない曲�
       { kind: 'key', op: 'isNot', value: 9 },
       { kind: 'key', op: 'isNotEmpty', value: 0 },
       { kind: 'playlist', op: 'is', playlistId: 'p2' },
+      { kind: 'smartPlaylist', op: 'isNot', playlistId: 's2' },
       { kind: 'missing', value: false },
       { kind: 'number', field: 'sampleRate', op: 'between', value: 44_100, valueTo: 48_000 },
       { kind: 'number', field: 'analyzedBpm', op: 'atLeast', value: 120, valueTo: null },
       { kind: 'text', field: 'grouping', op: 'contains', value: 'Live' }
     ];
     const drafts = toRuleDrafts(rules);
-    expect(drafts[4]).toMatchObject({ value: '44.1', valueTo: '48' });
+    expect(drafts[5]).toMatchObject({ value: '44.1', valueTo: '48' });
     expect(toSmartRules(form({ drafts })).rules?.rules).toEqual(rules);
   });
 });
@@ -345,12 +354,22 @@ describe('describeRule・describeOrder', () => {
   });
 
   it('プレイリストの条件は、プレイリストの名前で説明する（消したプレイリストは、その旨）', () => {
-    const names = (id: string) => (id === 'p1' ? '車では聴かない' : null);
+    const names = {
+      playlist: (id: string) => (id === 'p1' ? '車では聴かない' : null),
+      smartPlaylist: (id: string) => (id === 's1' ? 'J-Pop' : null)
+    };
     expect(describeRule({ kind: 'playlist', op: 'isNot', playlistId: 'p1' }, names)).toBe(
       '「車では聴かない」に入っていない'
     );
     expect(describeRule({ kind: 'playlist', op: 'is', playlistId: 'gone' }, names)).toBe(
       '「（削除したプレイリスト）」に入っている'
+    );
+    // オートプレイリストは、オートプレイリストの名前で引く（同じIDのプレイリストとは別）
+    expect(describeRule({ kind: 'smartPlaylist', op: 'is', playlistId: 's1' }, names)).toBe(
+      'オートプレイリスト「J-Pop」の曲である'
+    );
+    expect(describeRule({ kind: 'smartPlaylist', op: 'isNot', playlistId: 'p1' }, names)).toBe(
+      'オートプレイリスト「（削除したオートプレイリスト）」の曲でない'
     );
   });
 

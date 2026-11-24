@@ -265,11 +265,11 @@
   <!-- 形式の変換（曲のメニューから開く） -->
   <ConvertDialogHost />
 
-  <!-- 自動プレイリストの編集画面（サイドバー・プレイリストの画面から開く。開くたびに作り直す） -->
+  <!-- オートプレイリストの編集画面（サイドバー・オートプレイリストの画面から開く。開くたびに作り直す） -->
   {#if smartPlaylistDialog.target}
     {#key smartPlaylistDialog.target}
       <SmartPlaylistDialog
-        playlist={smartPlaylistDialog.target.playlist}
+        smartPlaylist={smartPlaylistDialog.target.smartPlaylist}
         onClose={() => smartPlaylistDialog.close()}
       />
     {/key}

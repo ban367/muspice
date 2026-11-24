@@ -25,7 +25,7 @@ describe('invalidatePlaylistQueries', () => {
     queryKeys.tracks.playlist('smart')
   ];
 
-  it('曲を変えたプレイリストの曲だけを取り直す（開いている自動プレイリストは取り直さない）', () => {
+  it('曲を変えたプレイリストの曲だけを取り直す', () => {
     const client = clientWith(keys);
 
     invalidatePlaylistQueries(client, 'a');

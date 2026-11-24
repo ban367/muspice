@@ -6,11 +6,12 @@
 use super::{completed_save_path, file_dialog, pick_folder, run_blocking};
 use crate::error::{AppError, AppResult};
 use crate::m3u;
+use crate::models::Track;
 use crate::models::{M3uExportResult, M3uImportResult};
 use crate::playlist_export::PlaylistsExportResult;
 use crate::settings::Language;
 use crate::state::AppState;
-use crate::validation::validate_playlist_id;
+use crate::validation::{validate_playlist_id, validate_smart_playlist_id};
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
@@ -139,10 +140,61 @@ pub async fn export_playlist_m3u(
     app: AppHandle,
 ) -> AppResult<Option<M3uExportResult>> {
     validate_playlist_id(&playlist_id)?;
+    export_with_dialog(app, ExportSource::Playlist(playlist_id), relative_paths).await
+}
 
+/// オートプレイリストの今の曲を、保存先を選んでM3U8へ書き出す（`export_playlist_m3u`と同じ書き方）
+#[tauri::command]
+#[specta::specta]
+pub async fn export_smart_playlist_m3u(
+    smart_playlist_id: String,
+    relative_paths: bool,
+    app: AppHandle,
+) -> AppResult<Option<M3uExportResult>> {
+    validate_smart_playlist_id(&smart_playlist_id)?;
+    export_with_dialog(
+        app,
+        ExportSource::SmartPlaylist(smart_playlist_id),
+        relative_paths,
+    )
+    .await
+}
+
+/// 1つずつ書き出すプレイリスト
+enum ExportSource {
+    Playlist(String),
+    /// オートプレイリスト（今の条件に合う曲を書き出す）
+    SmartPlaylist(String),
+}
+
+impl ExportSource {
+    fn name(&self, state: &AppState) -> AppResult<String> {
+        state.with_db(|db| match self {
+            Self::Playlist(id) => crate::playlist::get_playlist_name(db, id),
+            Self::SmartPlaylist(id) => crate::smart_playlist::get_smart_playlist_name(db, id),
+        })
+    }
+
+    fn tracks(&self, state: &AppState) -> AppResult<Vec<Track>> {
+        let context = state.smart_playlist_context();
+        state.with_db(|db| match self {
+            Self::Playlist(id) => crate::playlist::get_playlist_tracks(db, id),
+            Self::SmartPlaylist(id) => {
+                crate::smart_playlist::get_smart_playlist_tracks(db, id, context)
+            }
+        })
+    }
+}
+
+/// 保存先を選ぶダイアログを開き、選んだファイルへ書き出す（選ばなかった場合はNone）
+async fn export_with_dialog(
+    app: AppHandle,
+    source: ExportSource,
+    relative_paths: bool,
+) -> AppResult<Option<M3uExportResult>> {
     run_blocking(move || {
         let state = app.state::<AppState>();
-        let name = state.with_db(|db| crate::playlist::get_playlist_name(db, &playlist_id))?;
+        let name = source.name(&state)?;
 
         let labels = Labels::for_language(crate::menu::current_language(&app));
         let Some(file) = file_dialog(&app)
@@ -158,7 +210,7 @@ pub async fn export_playlist_m3u(
             .map_err(|e| AppError::Io(format!("保存先を扱えません: {}", e)))?;
 
         let path = completed_save_path(&path, with_m3u_extension(path.clone()))?;
-        export_playlist(&state, &playlist_id, &path, relative_paths).map(Some)
+        export_playlist(&state, &source, &path, relative_paths).map(Some)
     })
     .await
 }
@@ -210,13 +262,11 @@ fn with_m3u_extension(path: PathBuf) -> PathBuf {
 /// プレイリストの曲を、M3U8のファイルへ書き出す
 fn export_playlist(
     state: &AppState,
-    playlist_id: &str,
+    source: &ExportSource,
     path: &Path,
     relative_paths: bool,
 ) -> AppResult<M3uExportResult> {
-    let context = state.smart_playlist_context();
-    let tracks =
-        state.with_db(|db| crate::playlist::get_playlist_tracks(db, playlist_id, context))?;
+    let tracks = source.tracks(state)?;
     let base = if relative_paths { path.parent() } else { None };
 
     std::fs::write(path, m3u::build_m3u8(&tracks, base))
@@ -303,13 +353,11 @@ mod tests {
                     Ok(playlists
                         .into_iter()
                         .map(|playlist| {
-                            let context = self.state.smart_playlist_context();
-                            let tracks =
-                                crate::playlist::get_playlist_tracks(db, &playlist.id, context)
-                                    .unwrap()
-                                    .into_iter()
-                                    .map(|track| track.id)
-                                    .collect();
+                            let tracks = crate::playlist::get_playlist_tracks(db, &playlist.id)
+                                .unwrap()
+                                .into_iter()
+                                .map(|track| track.id)
+                                .collect();
                             (playlist.name, tracks)
                         })
                         .collect())
@@ -437,7 +485,13 @@ mod tests {
         let playlist_id = imported[0].playlist_id.clone().unwrap();
 
         let absolute = fixture.dir.join("絶対.m3u8");
-        let result = export_playlist(&fixture.state, &playlist_id, &absolute, false).unwrap();
+        let result = export_playlist(
+            &fixture.state,
+            &ExportSource::Playlist(playlist_id.clone()),
+            &absolute,
+            false,
+        )
+        .unwrap();
         assert_eq!(result.file_name, "絶対.m3u8");
         assert_eq!(result.track_count, 2);
         assert_eq!(
@@ -452,7 +506,13 @@ mod tests {
 
         // 相対パス: 書き出し先のフォルダからのパスで書く
         let relative = fixture.dir.join("相対.m3u8");
-        export_playlist(&fixture.state, &playlist_id, &relative, true).unwrap();
+        export_playlist(
+            &fixture.state,
+            &ExportSource::Playlist(playlist_id.clone()),
+            &relative,
+            true,
+        )
+        .unwrap();
         let content = std::fs::read_to_string(&relative).unwrap();
         assert!(content.contains("\r\nMusic/04 Local.mp3\r\n"), "{content}");
 
@@ -464,6 +524,44 @@ mod tests {
             fixture.playlists().last().unwrap(),
             &("相対".to_string(), vec!["t3".to_string(), "t4".to_string()])
         );
+    }
+
+    /// オートプレイリストは、今の条件に合う曲を書き出す
+    #[test]
+    fn test_export_smart_playlist_writes_the_matching_tracks() {
+        use crate::smart_playlist::{
+            MatchMode, SmartOrder, SmartOrderField, SmartRule, SmartRules, TextField, TextOp,
+        };
+        let fixture = Fixture::new();
+        let rules = SmartRules {
+            match_mode: MatchMode::All,
+            rules: vec![SmartRule::Text {
+                field: TextField::Path,
+                op: TextOp::Contains,
+                value: "Blue Horizon".to_string(),
+            }],
+            order: SmartOrder {
+                field: SmartOrderField::Title,
+                descending: false,
+            },
+            limit: None,
+        };
+        let smart_playlist_id = fixture
+            .state
+            .with_db(|db| crate::smart_playlist::create_smart_playlist(db, "空", &rules))
+            .unwrap()
+            .id;
+
+        let path = fixture.dir.join("空.m3u8");
+        let source = ExportSource::SmartPlaylist(smart_playlist_id);
+        assert_eq!(source.name(&fixture.state).unwrap(), "空");
+        let result = export_playlist(&fixture.state, &source, &path, false).unwrap();
+        assert_eq!(result.track_count, 2);
+        let content = std::fs::read_to_string(&path).unwrap();
+        // タイトルの順（Paper Planes → 青い地平線）
+        let paper = content.find("02 Paper Planes.mp3").unwrap();
+        let blue = content.find("01 青い地平線.mp3").unwrap();
+        assert!(paper < blue, "{content}");
     }
 
     #[test]

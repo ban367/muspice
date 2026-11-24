@@ -108,9 +108,9 @@ describe('runMenuCommand', () => {
     releaseSecond();
   });
 
-  it('新規自動プレイリストは、自動プレイリストの編集画面を新しく開く', async () => {
+  it('新規オートプレイリストは、オートプレイリストの編集画面を新しく開く', async () => {
     await runMenuCommand({ type: 'newSmartPlaylist' });
-    expect(smartPlaylistDialog.target).toEqual({ playlist: null });
+    expect(smartPlaylistDialog.target).toEqual({ smartPlaylist: null });
   });
 
   it('ダイアログ・曲の情報の編集画面を開いている間は、何もしない', async () => {

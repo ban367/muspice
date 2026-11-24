@@ -365,6 +365,8 @@ playlistCount: number } | null>("set_music_folder", { source }),
 	syncAll: boolean,
 	/**  同期するプレイリスト（`.m3u8`も書き出す。全曲を同期しない場合は、曲もここから決まる） */
 	playlistIds: string[],
+	/**  同期するオートプレイリスト（プレイリストと同じく扱う。曲は、同期する時の条件に合う曲。ADR-127） */
+	smartPlaylistIds: string[],
 	/**  同期の対象から外れた曲を、デバイスから削除するか */
 	removeUnselected: boolean,
 	/**  デバイス上の配置の書式（ファイルの整理と同じ書き方。ADR-111） */
@@ -404,6 +406,8 @@ playlistCount: number } | null>("set_music_folder", { source }),
 	syncAll: boolean,
 	/**  同期するプレイリスト（`.m3u8`も書き出す。全曲を同期しない場合は、曲もここから決まる） */
 	playlistIds: string[],
+	/**  同期するオートプレイリスト（プレイリストと同じく扱う。曲は、同期する時の条件に合う曲。ADR-127） */
+	smartPlaylistIds: string[],
 	/**  同期の対象から外れた曲を、デバイスから削除するか */
 	removeUnselected: boolean,
 	/**  デバイス上の配置の書式（ファイルの整理と同じ書き方。ADR-111） */
@@ -851,22 +855,45 @@ includesSettings: boolean } |
 	moveTrackEditor: (offset: number) => __TAURI_INVOKE<boolean>("move_track_editor", { offset }),
 	/**  プレイリストを作成 */
 	createPlaylist: (name: string) => __TAURI_INVOKE<Playlist>("create_playlist", { name }),
-	/**  自動プレイリスト（条件で曲を集めるプレイリスト）を作成 */
-	createSmartPlaylist: (name: string, rules: SmartRules) => __TAURI_INVOKE<Playlist>("create_smart_playlist", { name, rules }),
-	/**  自動プレイリストの条件を変更（名前は`rename_playlist`で変える） */
-	updateSmartPlaylist: (playlistId: string, rules: SmartRules) => __TAURI_INVOKE<null>("update_smart_playlist", { playlistId, rules }),
+	/**  すべてのオートプレイリストを取得（手動の並び順） */
+	getSmartPlaylists: () => __TAURI_INVOKE<SmartPlaylist[]>("get_smart_playlists"),
+	/**  オートプレイリストを作成 */
+	createSmartPlaylist: (name: string, rules: SmartRules) => __TAURI_INVOKE<SmartPlaylist>("create_smart_playlist", { name, rules }),
+	/**  オートプレイリストの名前と条件を変更（条件の編集画面の保存） */
+	updateSmartPlaylist: (smartPlaylistId: string, name: string, rules: SmartRules) => __TAURI_INVOKE<null>("update_smart_playlist", { smartPlaylistId, name, rules }),
+	/**  オートプレイリストの名前と説明を変更（`description`がnull・空なら、説明を消す） */
+	updateSmartPlaylistInfo: (smartPlaylistId: string, name: string, description: string | null) => __TAURI_INVOKE<null>("update_smart_playlist_info", { smartPlaylistId, name, description }),
+	/**  オートプレイリストを、渡した順に並べる（サイドバーの手動の並び順） */
+	reorderSmartPlaylists: (smartPlaylistIds: string[]) => __TAURI_INVOKE<null>("reorder_smart_playlists", { smartPlaylistIds }),
+	/**  オートプレイリストを削除 */
+	deleteSmartPlaylist: (smartPlaylistId: string) => __TAURI_INVOKE<null>("delete_smart_playlist", { smartPlaylistId }),
+	/**  オートプレイリストの曲を取得（条件に合う曲を、条件の並び順で） */
+	getSmartPlaylistTracks: (smartPlaylistId: string) => __TAURI_INVOKE<Track[]>("get_smart_playlist_tracks", { smartPlaylistId }),
 	/**  条件に合う曲数を数える（条件の編集画面で、保存する前に出す。上限があれば、それを超えない） */
 	countSmartPlaylistTracks: (rules: SmartRules) => __TAURI_INVOKE<number>("count_smart_playlist_tracks", { rules }),
 	/**
-	 *  ランダムな並びの自動プレイリストを、選び直す
+	 *  ランダムな並びのオートプレイリストを、選び直す
 	 * 
 	 *  ランダムな並びは、一覧を取り直しても変わらない（聴いている途中で並びが変わらないようにするため）。
-	 *  別の曲・別の順にしたい時に呼ぶ（すべての自動プレイリストの並びが変わる）。
+	 *  別の曲・別の順にしたい時に呼ぶ（すべてのオートプレイリストの並びが変わる）。
 	 */
 	reshuffleSmartPlaylists: () => __TAURI_INVOKE<null>("reshuffle_smart_playlists"),
+	/**
+	 *  オートプレイリストの今の曲（並び順のまま）を入れた、通常のプレイリストを作る
+	 * 
+	 *  作ったプレイリストは、その後の条件・曲の変更に追随しない。
+	 */
+	saveSmartPlaylistAsPlaylist: (smartPlaylistId: string, name: string) => __TAURI_INVOKE<Playlist>("save_smart_playlist_as_playlist", { smartPlaylistId, name }),
+	/**  オートプレイリストの今の曲を、保存先を選んでM3U8へ書き出す（`export_playlist_m3u`と同じ書き方） */
+	exportSmartPlaylistM3u: (smartPlaylistId: string, relativePaths: boolean) => __TAURI_INVOKE<{
+	/**  書き出したファイルの名前 */
+	fileName: string,
+	/**  書き出した曲数 */
+	trackCount: number,
+} | null>("export_smart_playlist_m3u", { smartPlaylistId, relativePaths }),
 	/**  すべてのプレイリストを取得 */
 	getPlaylists: () => __TAURI_INVOKE<Playlist[]>("get_playlists"),
-	/**  プレイリストの曲を取得（プレイリストの中の並び順。自動プレイリストは、条件に合う曲） */
+	/**  プレイリストの曲を取得（プレイリストの中の並び順） */
 	getPlaylistTracks: (playlistId: string) => __TAURI_INVOKE<Track[]>("get_playlist_tracks", { playlistId }),
 	/**  プレイリストを削除 */
 	deletePlaylist: (playlistId: string) => __TAURI_INVOKE<null>("delete_playlist", { playlistId }),
@@ -979,7 +1006,7 @@ includesSettings: boolean } |
 	/**
 	 *  ライブラリを、保存のダイアログで選んだファイルへ書き出す（選ばなかった場合はnull。ADR-121）
 	 * 
-	 *  XMLは、曲とプレイリスト（自動プレイリストは、書き出す時点で条件に合う曲。プレイリストのフォルダも）。
+	 *  XMLは、曲とプレイリスト（オートプレイリストは、書き出す時点で条件に合う曲。プレイリストのフォルダも）。
 	 *  CSVは、曲の一覧（見出しはアプリの言語）。同じ名前のファイルを選んだ場合は置き換える（一時ファイルに
 	 *  書いてから置き換える）。
 	 */
@@ -1864,7 +1891,7 @@ export type MatchMode =
 export type MenuCommand = 
 /**  「新規プレイリスト...」: プレイリストの名前の入力を開く */
 { type: "newPlaylist" } | 
-/**  「新規自動プレイリスト...」: 自動プレイリストの編集画面を開く */
+/**  「新規オートプレイリスト...」: オートプレイリストの編集画面を開く */
 { type: "newSmartPlaylist" } | 
 /**  「検索」: 表示中の画面の検索欄へ移る（検索欄のない画面では、曲の画面を開いてから） */
 { type: "find" } | 
@@ -2279,10 +2306,8 @@ export type Playlist = {
 	id: string,
 	name: string,
 	description: string | null,
-	/**  入っている曲（自動プレイリストでは、いつも空。曲は開く時に条件から求める） */
+	/**  入っている曲（プレイリストの中の並び順） */
 	tracks: PlaylistTrack[],
-	/**  自動プレイリストの条件（値なしは、曲を自分で選ぶ通常のプレイリスト） */
-	rules: SmartRules | null,
 	/**  入っているフォルダ（値なしは、フォルダの外） */
 	folderId: string | null,
 	/**  手動の並び順での位置（同じフォルダの中で、小さい方が先） */
@@ -2456,7 +2481,10 @@ export type Settings = {
 	hiddenSidebarItems: SidebarItem[],
 	/**  Auto DJ（再生キューの最後の曲になったら、曲を足して再生を続ける） */
 	autoDj: boolean,
-	/**  Auto DJが曲を選ぶプレイリスト（nullはライブラリ全体） */
+	/**
+	 *  Auto DJが曲を選ぶプレイリスト・オートプレイリスト（nullはライブラリ全体。IDは重ならないため、
+	 *  どちらかは画面がIDから見分ける。ADR-127）
+	 */
 	autoDjPlaylistId: string | null,
 	/**  AIシャッフル（曲が始まるたびに、選び方に合う曲を次に足す）の選び方 */
 	aiShuffleMode: AiShuffleMode,
@@ -2513,6 +2541,24 @@ export type SmartOrderField =
 /**  ランダム（選び直すまで、同じ並びになる） */
 "random" | "title" | "artist" | "album" | "createdAt" | "lastPlayedAt" | "playCount" | "rating" | "year" | "duration";
 
+/**
+ *  オートプレイリスト（条件で曲を集めるプレイリスト。ADR-042・ADR-127）
+ * 
+ *  通常のプレイリスト（`Playlist`）とは別の表に持つ。曲の一覧は持たず、開くたびに条件から求める。
+ *  フォルダには入れない。
+ */
+export type SmartPlaylist = {
+	id: string,
+	name: string,
+	description: string | null,
+	/**  条件（読めない条件は、どの曲にも合わない条件。`SmartRules::unreadable`） */
+	rules: SmartRules,
+	/**  手動の並び順での位置（小さい方が先） */
+	position: number,
+	createdAt: string,
+	updatedAt: string,
+};
+
 /**  1つの条件 */
 export type SmartRule = 
 /**  文字列の項目の条件（`IsEmpty`・`IsNotEmpty`では、`value`を使わない） */
@@ -2530,12 +2576,14 @@ export type SmartRule =
  *  21はイ短調。`IsEmpty`・`IsNotEmpty`では使わない）
  */
 { kind: "key"; op: KeyOp; value: number } | 
-/**  ほかのプレイリストに入っているか（自動プレイリストは、その条件に合う曲。ADR-116） */
+/**  通常のプレイリストに入っているか（入れてある曲。ADR-116） */
 { kind: "playlist"; op: PlaylistOp; playlistId: string } | 
+/**  ほかのオートプレイリストの曲か（その条件に合う曲。ADR-116・ADR-127） */
+{ kind: "smartPlaylist"; op: PlaylistOp; playlistId: string } | 
 /**  ファイルが見つからない曲か（ADR-023） */
 { kind: "missing"; value: boolean };
 
-/**  自動プレイリストの条件 */
+/**  オートプレイリストの条件 */
 export type SmartRules = {
 	matchMode: MatchMode,
 	rules: SmartRule[],
@@ -2590,6 +2638,8 @@ export type SyncDevice = {
 	syncAll: boolean,
 	/**  同期するプレイリスト（`.m3u8`も書き出す。全曲を同期しない場合は、曲もここから決まる） */
 	playlistIds: string[],
+	/**  同期するオートプレイリスト（プレイリストと同じく扱う。曲は、同期する時の条件に合う曲。ADR-127） */
+	smartPlaylistIds: string[],
 	/**  同期の対象から外れた曲を、デバイスから削除するか */
 	removeUnselected: boolean,
 	/**  デバイス上の配置の書式（ファイルの整理と同じ書き方。ADR-111） */
@@ -2614,6 +2664,7 @@ export type SyncDeviceConfig = {
 	name: string,
 	syncAll: boolean,
 	playlistIds: string[],
+	smartPlaylistIds: string[],
 	removeUnselected: boolean,
 	pathTemplate: string,
 	copyExtras: boolean,

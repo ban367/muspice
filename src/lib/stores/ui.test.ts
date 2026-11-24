@@ -39,6 +39,9 @@ describe('前回開いていた画面', () => {
 
     saveLastPage('/playlists/abc');
     expect(getLastPage()).toBe('/playlists/abc');
+
+    saveLastPage('/smart-playlists/def');
+    expect(getLastPage()).toBe('/smart-playlists/def');
   });
 
   it('復元できない画面（ルート・設定画面）は記録しない', () => {

@@ -149,6 +149,16 @@ export function playlistSortViewId(playlistId: string): string {
 }
 
 /**
+ * オートプレイリストの画面の、並び順を覚える単位の名前（列はプレイリストの画面と共通）
+ *
+ * プレイリストと同じ形の名前にする（IDは重ならない。プレイリストから分ける前に覚えた並び順を、
+ * そのまま使う。ADR-127）。
+ */
+export function smartPlaylistSortViewId(smartPlaylistId: string): string {
+  return playlistSortViewId(smartPlaylistId);
+}
+
+/**
  * 画面の設定を忘れる（保存していた内容も消す。プレイリストを削除した時など）
  */
 export function forgetTrackListView(id: string): void {

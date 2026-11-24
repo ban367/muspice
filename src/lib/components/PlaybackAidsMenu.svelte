@@ -5,16 +5,19 @@
   - 再生速度（0.5〜2倍。音程は変えない）
   - この曲が終わったら停止
   - スリープタイマー（時間を選ぶ。時間が来たら音量を下げて止めるか、曲の終わりまで再生してから止める）
-  - Auto DJ（再生キューの最後の曲になったら、ライブラリかプレイリストから曲を足す）
+  - Auto DJ（再生キューの最後の曲になったら、ライブラリかプレイリスト・オートプレイリストから曲を足す）
 
   再生速度・「この曲が終わったら停止」・スリープタイマーは、その場かぎりの指示（`playbackAids`。
   保存しない）。Auto DJは設定（`settings.json`）に保存する。
 -->
 <script lang="ts">
   import { usePlaylistsQuery } from '#lib/queries/playlists.js';
+  import { useSmartPlaylistsQuery } from '#lib/queries/smartPlaylists.js';
   import { useUpdateSettings } from '#lib/queries/settings.js';
   import { player } from '#lib/stores/player.svelte.js';
   import { formatDuration } from '#lib/utils/format.js';
+  import { sortPlaylistItems } from '#lib/utils/playlistTree.js';
+  import { playlistSidebar } from '#lib/stores/playlistSidebar.svelte.js';
   import {
     MAX_PLAYBACK_SPEED,
     MIN_PLAYBACK_SPEED,
@@ -32,11 +35,17 @@
 
   const settingsUpdater = useUpdateSettings();
   const playlistsQuery = usePlaylistsQuery();
+  const smartPlaylistsQuery = useSmartPlaylistsQuery();
   const settings = $derived(settingsUpdater.current);
   const playlists = $derived(playlistsQuery.data ?? []);
-  // 曲を選ぶプレイリストが削除されている場合は、ライブラリ全体として表示する
+  // オートプレイリストは、サイドバーと同じ並び順で、プレイリストの前に出す
+  const smartPlaylists = $derived(
+    sortPlaylistItems(smartPlaylistsQuery.data ?? [], playlistSidebar.smartSort)
+  );
+  // 曲を選ぶプレイリスト・オートプレイリストが削除されている場合は、ライブラリ全体として表示する
+  // （設定はIDだけを持つ。IDは重ならない。ADR-127）
   const autoDjSource = $derived(
-    playlists.some((playlist) => playlist.id === settings?.autoDjPlaylistId)
+    [...smartPlaylists, ...playlists].some((item) => item.id === settings?.autoDjPlaylistId)
       ? (settings?.autoDjPlaylistId ?? LIBRARY_SOURCE)
       : LIBRARY_SOURCE
   );
@@ -219,9 +228,20 @@
           disabled={settings === null}
         >
           <option value={LIBRARY_SOURCE}>{m.playbackAids.autoDjLibrary}</option>
-          {#each playlists as playlist (playlist.id)}
-            <option value={playlist.id}>{playlist.name}</option>
-          {/each}
+          {#if smartPlaylists.length > 0}
+            <optgroup label={m.sidebar.smartPlaylists}>
+              {#each smartPlaylists as smartPlaylist (smartPlaylist.id)}
+                <option value={smartPlaylist.id}>{smartPlaylist.name}</option>
+              {/each}
+            </optgroup>
+          {/if}
+          {#if playlists.length > 0}
+            <optgroup label={m.sidebar.playlists}>
+              {#each playlists as playlist (playlist.id)}
+                <option value={playlist.id}>{playlist.name}</option>
+              {/each}
+            </optgroup>
+          {/if}
         </select>
       </label>
     </section>

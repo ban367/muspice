@@ -2,7 +2,6 @@
 
 use crate::error::{AppError, AppResult};
 use crate::models::PlaylistFolder;
-use crate::smart_playlist::{SmartRules, validate_rules};
 use crate::state::AppState;
 use crate::validation::{
     validate_playlist_description, validate_playlist_folder_id, validate_playlist_folder_name,
@@ -24,48 +23,6 @@ pub async fn create_playlist(
     state.with_db(|db| crate::playlist::create_playlist(db, &name))
 }
 
-/// 自動プレイリスト（条件で曲を集めるプレイリスト）を作成
-#[tauri::command]
-#[specta::specta]
-pub async fn create_smart_playlist(
-    name: String,
-    rules: SmartRules,
-    state: State<'_, AppState>,
-) -> AppResult<crate::models::Playlist> {
-    let name = name.trim().to_string();
-    validate_playlist_name(&name)?;
-    validate_rules(&rules)?;
-
-    state.with_db(|db| crate::playlist::create_smart_playlist(db, &name, &rules))
-}
-
-/// 自動プレイリストの条件を変更（名前は`rename_playlist`で変える）
-#[tauri::command]
-#[specta::specta]
-pub async fn update_smart_playlist(
-    playlist_id: String,
-    rules: SmartRules,
-    state: State<'_, AppState>,
-) -> AppResult<()> {
-    validate_playlist_id(&playlist_id)?;
-    validate_rules(&rules)?;
-
-    state.with_db(|db| crate::playlist::update_smart_playlist_rules(db, &playlist_id, &rules))
-}
-
-/// 条件に合う曲数を数える（条件の編集画面で、保存する前に出す。上限があれば、それを超えない）
-#[tauri::command]
-#[specta::specta]
-pub async fn count_smart_playlist_tracks(
-    rules: SmartRules,
-    state: State<'_, AppState>,
-) -> AppResult<u32> {
-    validate_rules(&rules)?;
-
-    let context = state.smart_playlist_context();
-    state.with_db(|db| crate::smart_playlist::count_tracks(db, &rules, context))
-}
-
 /// すべてのプレイリストを取得
 #[tauri::command]
 #[specta::specta]
@@ -73,7 +30,7 @@ pub async fn get_playlists(state: State<'_, AppState>) -> AppResult<Vec<crate::m
     state.with_db(|db| crate::playlist::get_all_playlists(db))
 }
 
-/// プレイリストの曲を取得（プレイリストの中の並び順。自動プレイリストは、条件に合う曲）
+/// プレイリストの曲を取得（プレイリストの中の並び順）
 #[tauri::command]
 #[specta::specta]
 pub async fn get_playlist_tracks(
@@ -82,19 +39,7 @@ pub async fn get_playlist_tracks(
 ) -> AppResult<Vec<crate::models::Track>> {
     validate_playlist_id(&playlist_id)?;
 
-    let context = state.smart_playlist_context();
-    state.with_db(|db| crate::playlist::get_playlist_tracks(db, &playlist_id, context))
-}
-
-/// ランダムな並びの自動プレイリストを、選び直す
-///
-/// ランダムな並びは、一覧を取り直しても変わらない（聴いている途中で並びが変わらないようにするため）。
-/// 別の曲・別の順にしたい時に呼ぶ（すべての自動プレイリストの並びが変わる）。
-#[tauri::command]
-#[specta::specta]
-pub async fn reshuffle_smart_playlists(state: State<'_, AppState>) -> AppResult<()> {
-    state.reshuffle_smart_playlists();
-    Ok(())
+    state.with_db(|db| crate::playlist::get_playlist_tracks(db, &playlist_id))
 }
 
 /// プレイリストにトラックを追加（複数のトラックを、渡した順に追加する）
@@ -119,10 +64,8 @@ pub async fn add_tracks_to_playlist(
         validate_track_id(track_id)?;
     }
 
-    let added = state.with_db(|db| {
-        crate::playlist::ensure_manual_playlist(db, &playlist_id)?;
-        crate::playlist::add_tracks_to_playlist(db, &playlist_id, &track_ids)
-    })?;
+    let added = state
+        .with_db(|db| crate::playlist::add_tracks_to_playlist(db, &playlist_id, &track_ids))?;
     crate::library::to_count(added)
 }
 
@@ -147,10 +90,8 @@ pub async fn remove_tracks_from_playlist(
         validate_track_id(track_id)?;
     }
 
-    let removed = state.with_db(|db| {
-        crate::playlist::ensure_manual_playlist(db, &playlist_id)?;
-        crate::playlist::remove_tracks_from_playlist(db, &playlist_id, &track_ids)
-    })?;
+    let removed = state
+        .with_db(|db| crate::playlist::remove_tracks_from_playlist(db, &playlist_id, &track_ids))?;
     crate::library::to_count(removed)
 }
 
@@ -330,8 +271,5 @@ pub async fn reorder_playlist_tracks(
         validate_track_id(track_id)?;
     }
 
-    state.with_db(|db| {
-        crate::playlist::ensure_manual_playlist(db, &playlist_id)?;
-        crate::playlist::reorder_playlist_tracks(db, &playlist_id, &track_ids)
-    })
+    state.with_db(|db| crate::playlist::reorder_playlist_tracks(db, &playlist_id, &track_ids))
 }

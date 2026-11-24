@@ -22,10 +22,8 @@
   const playlistsQuery = usePlaylistsQuery();
   const addTracksMutation = useAddTracksToPlaylistMutation();
 
-  // 曲を追加できるプレイリスト（自動プレイリストの曲は条件で決まるため、含めない）
-  const playlists = $derived(
-    (playlistsQuery.data ?? []).filter((playlist: Playlist) => playlist.rules === null)
-  );
+  // 曲を追加できるプレイリスト（オートプレイリストは別の枠組みのため、ここには出ない）
+  const playlists = $derived(playlistsQuery.data ?? []);
 
   /**
    * プレイリストに追加

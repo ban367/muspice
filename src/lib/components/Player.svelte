@@ -15,7 +15,8 @@
   } from '#lib/stores/playback.svelte.js';
   import { useQueryClient } from '@tanstack/svelte-query';
   import { useSettingsQuery } from '#lib/queries/settings.js';
-  import { watchAutoDj } from '#lib/stores/autoDj.svelte.js';
+  import { useSmartPlaylistsQuery } from '#lib/queries/smartPlaylists.js';
+  import { resolveAutoDjSource, watchAutoDj } from '#lib/stores/autoDj.svelte.js';
   import { watchAiShuffle } from '#lib/stores/aiShuffle.svelte.js';
   import PlaybackAidsMenu from './PlaybackAidsMenu.svelte';
   import { miniPlayer } from '#lib/stores/miniPlayer.svelte.js';
@@ -45,6 +46,8 @@
   // 再生の設定（サウンドのパネル・設定ウィンドウで変えると更新される。音量の正規化・クロスフェード・
   // 出力デバイスは、保存した時点でRust側が再生エンジンへ伝える）
   const settingsQuery = useSettingsQuery();
+  // Auto DJの曲の元がオートプレイリストかを見分ける（設定はIDだけを持つ）
+  const smartPlaylistsQuery = useSmartPlaylistsQuery();
   // 再生回数・スキップ回数を記録した時に、曲の一覧・再生履歴のキャッシュへ反映する
   const queryClient = useQueryClient();
 
@@ -59,7 +62,11 @@
     // Auto DJ（再生キューの最後の曲になったら、曲を足す）
     const stopAutoDj = watchAutoDj({
       enabled: () => settingsQuery.data?.autoDj ?? false,
-      playlistId: () => settingsQuery.data?.autoDjPlaylistId ?? null,
+      source: () =>
+        resolveAutoDjSource(
+          settingsQuery.data?.autoDjPlaylistId ?? null,
+          smartPlaylistsQuery.data?.map((smartPlaylist) => smartPlaylist.id)
+        ),
       queryClient
     });
     // AIシャッフル（曲が始まるたびに、選び方に合う曲を次に足す）

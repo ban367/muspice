@@ -102,10 +102,20 @@ export interface Playlist {
   id: string;
   name: string;
   description: string | null;
-  tracks: PlaylistTrack[]; // 自動プレイリストでは、いつも空（曲は開く時に条件から求める）
-  rules: SmartRules | null; // 自動プレイリストの条件（nullは、曲を自分で選ぶ通常のプレイリスト）
+  tracks: PlaylistTrack[]; // 入っている曲（プレイリストの中の並び順）
   folderId: string | null; // 入っているフォルダ（nullは、フォルダの外）
   position: number; // 手動の並び順での位置（同じフォルダの中で、小さい方が先）
+  createdAt: string;
+  updatedAt: string;
+}
+
+// オートプレイリスト（条件で曲を集めるプレイリスト。プレイリストとは別の枠組み。ADR-127）
+export interface SmartPlaylist {
+  id: string;
+  name: string;
+  description: string | null;
+  rules: SmartRules; // 条件（読めない条件は、どの曲にも合わない条件）
+  position: number; // 手動の並び順での位置（小さい方が先。フォルダはない）
   createdAt: string;
   updatedAt: string;
 }
@@ -136,8 +146,8 @@ export interface Playlist {
 
 ### 転送先デバイス型
 
-- `SyncDevice`: `id`, `name`, `path`（転送先のフォルダ）, `syncAll`（全曲を同期するか）, `playlistIds`（同期するプレイリスト）, `removeUnselected`（対象から外れた曲をデバイスから削除するか）, `pathTemplate`（デバイス上の配置の書式。下の「デバイス上の配置」）, `copyExtras`（歌詞ファイル・フォルダの画像もコピーするか。下の「曲に添えるファイル」）, `transcode`（転送する時の変換。`{ mode: 'off' | 'lossless' | 'aboveBitrate', bitrateKbps }`。下の「転送する時の変換」）, `ejectable`（取り出せるか。macOSで、転送先のフォルダが`/Volumes`の下のドライブにあり、接続されている）, `connected`（転送先のフォルダに、このデバイスの管理ファイルがあるか）, `freeBytes` / `totalBytes`（接続されていなければnull）, `createdAt`, `lastSyncedAt`
-- `SyncDeviceConfig`: `name`, `syncAll`, `playlistIds`, `removeUnselected`, `pathTemplate`, `copyExtras`, `transcode`
+- `SyncDevice`: `id`, `name`, `path`（転送先のフォルダ）, `syncAll`（全曲を同期するか）, `playlistIds`（同期するプレイリスト）, `smartPlaylistIds`（同期するオートプレイリスト。ADR-127）, `removeUnselected`（対象から外れた曲をデバイスから削除するか）, `pathTemplate`（デバイス上の配置の書式。下の「デバイス上の配置」）, `copyExtras`（歌詞ファイル・フォルダの画像もコピーするか。下の「曲に添えるファイル」）, `transcode`（転送する時の変換。`{ mode: 'off' | 'lossless' | 'aboveBitrate', bitrateKbps }`。下の「転送する時の変換」）, `ejectable`（取り出せるか。macOSで、転送先のフォルダが`/Volumes`の下のドライブにあり、接続されている）, `connected`（転送先のフォルダに、このデバイスの管理ファイルがあるか）, `freeBytes` / `totalBytes`（接続されていなければnull）, `createdAt`, `lastSyncedAt`
+- `SyncDeviceConfig`: `name`, `syncAll`, `playlistIds`, `smartPlaylistIds`, `removeUnselected`, `pathTemplate`, `copyExtras`, `transcode`
 - `DeviceSyncPlan`: `copyCount` / `copyBytes`, `deleteCount` / `deleteBytes`, `renameCount`, `unchangedCount`, `playlistCount`, `transcodeCount`（コピーする曲のうち、AACに変換する曲数。変換する曲の`copyBytes`は見積もり）, `missingSourceCount`（元のファイルが見つからない曲数）, `extraCopyCount` / `extraCopyBytes` / `extraDeleteCount`（曲に添えるファイルのコピー・削除）, `freeBytes`, `requiredBytes`（コピーする容量（曲に添えるファイルを含む）から、削除で空く容量を引いたもの）, `hasEnoughSpace`, `copyPaths` / `deletePaths` / `renames`（`{ from, to }`）（コピー・削除・名前を変える曲のデバイス上の場所。確認の画面の「曲の一覧を見る」で出す。それぞれ先頭の1000件（`PLAN_ITEMS_LIMIT`）まで）
 - `DeviceSyncResult`: `copiedCount`, `deletedCount`, `renamedCount`, `extraCopiedCount` / `extraDeletedCount`（曲に添えるファイル）, `playlistCount`, `errorCount`, `errors[]`, `cancelled`
 
@@ -145,20 +155,22 @@ export interface Playlist {
 
 ### テーブル
 
-| テーブル                    | 用途                            | 主なカラム                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| --------------------------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tracks`                    | トラック本体                    | `id`, `file_path`, `file_name`, `title`, `artist`, `album`, `album_artist`, `album_artist_read`, `title_sort`, `artist_sort`, `album_sort`, `album_artist_sort`, `sort_tags_read`, `compilation`, `compilation_read`, `genre`, `multi_values_read`, `composer`, `grouping`, `comment`, `bpm`, `bit_depth`, `channels`, `details_read`, `year`, `track_number`, `disc_number`, `duration`, `file_size`, `format`, `bitrate`, `sample_rate`, `file_modified_at`, `missing_since`, `is_favorite`, `favorited_at`, `rating`, `rating_read`, `play_count`, `skip_count`, `last_played_at`, `replay_gain_*`, `cue_source`, `cue_start`, `cue_end`, `created_at`, `updated_at` |
-| `library_folders`           | ライブラリフォルダ              | `id`, `path`（UNIQUE）, `added_at`, `last_scanned_at`, `is_music_folder`（音楽フォルダの印。1のフォルダは多くても1つ）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `library_folder_exclusions` | 読み込まないフォルダ            | `id`, `folder_id`（`library_folders`の`id`）, `path`（ライブラリフォルダからの相対パス。`(folder_id, path)`はUNIQUE）, `added_at`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `playlists`                 | プレイリスト本体                | `id`, `name`, `description`, `rules`（自動プレイリストの条件のJSON。通常のプレイリストはNULL）, `folder_id`（入っているフォルダ。フォルダの外はNULL）, `position`（手動の並び順での位置）, `created_at`, `updated_at`                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `playlist_folders`          | プレイリストのフォルダ（1階層） | `id`, `name`, `position`（手動の並び順での位置）, `created_at`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `playlist_tracks`           | プレイリスト内順序              | `playlist_id`, `track_id`, `position`, `added_at`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `play_history`              | 再生履歴                        | `id`, `track_id`, `played_at`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `tracks_fts`                | 全文検索（FTS5・trigram）       | `text`（タイトル・アーティスト・アルバム・ジャンル・アルバムアーティスト・作曲者を、検索用に正規化してつないだ文字列）。`rowid`は`tracks`と同じ                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `sync_devices`              | 転送先デバイス                  | `id`, `name`, `path`, `sync_all`, `remove_unselected`, `path_template`（デバイス上の配置の書式。列を足す前に登録したデバイスは、以前の配置の書式。ADR-111）, `copy_extras`（歌詞ファイル・フォルダの画像もコピーするか。既定は1。ADR-112）, `transcode_mode`（`off`・`lossless`・`aboveBitrate`。既定は`off`。ADR-118）, `transcode_bitrate`（AACのkbps。既定は256）, `created_at`, `last_synced_at`                                                                                                                                                                                                                                                                    |
-| `sync_device_playlists`     | デバイスに同期するプレイリスト  | `device_id`, `playlist_id`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `app_meta`                  | DBの情報（キーと値）            | `key`（PRIMARY KEY）, `value`。`schema_version`に、表の作りの版（`db::DB_SCHEMA_VERSION`）を記録する。曲の解析が途中の間は`music_analysis_requested`を`1`にする（次の起動で再開する）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `track_analysis`            | 曲の解析（テンポ・キー）の結果  | `track_id`（PRIMARY KEY。`tracks`の削除で消える）, `duration`（解析した時の曲の長さ。今の長さと違えば、解析していないものとして扱う）, `bpm`, `key_pitch_class`（主音の0〜11）, `key_mode`（長調0・短調1）, `pace`, `failed`（解析できなかった曲は1で、値はNULL）, `analyzed_at`。ADR-104                                                                                                                                                                                                                                                                                                                                                                               |
+| テーブル                      | 用途                                 | 主なカラム                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ----------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tracks`                      | トラック本体                         | `id`, `file_path`, `file_name`, `title`, `artist`, `album`, `album_artist`, `album_artist_read`, `title_sort`, `artist_sort`, `album_sort`, `album_artist_sort`, `sort_tags_read`, `compilation`, `compilation_read`, `genre`, `multi_values_read`, `composer`, `grouping`, `comment`, `bpm`, `bit_depth`, `channels`, `details_read`, `year`, `track_number`, `disc_number`, `duration`, `file_size`, `format`, `bitrate`, `sample_rate`, `file_modified_at`, `missing_since`, `is_favorite`, `favorited_at`, `rating`, `rating_read`, `play_count`, `skip_count`, `last_played_at`, `replay_gain_*`, `cue_source`, `cue_start`, `cue_end`, `created_at`, `updated_at` |
+| `library_folders`             | ライブラリフォルダ                   | `id`, `path`（UNIQUE）, `added_at`, `last_scanned_at`, `is_music_folder`（音楽フォルダの印。1のフォルダは多くても1つ）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `library_folder_exclusions`   | 読み込まないフォルダ                 | `id`, `folder_id`（`library_folders`の`id`）, `path`（ライブラリフォルダからの相対パス。`(folder_id, path)`はUNIQUE）, `added_at`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `playlists`                   | プレイリスト本体                     | `id`, `name`, `description`, `folder_id`（入っているフォルダ。フォルダの外はNULL）, `position`（手動の並び順での位置）, `created_at`, `updated_at`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `playlist_folders`            | プレイリストのフォルダ（1階層）      | `id`, `name`, `position`（手動の並び順での位置）, `created_at`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `playlist_tracks`             | プレイリスト内順序                   | `playlist_id`, `track_id`, `position`, `added_at`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `play_history`                | 再生履歴                             | `id`, `track_id`, `played_at`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `tracks_fts`                  | 全文検索（FTS5・trigram）            | `text`（タイトル・アーティスト・アルバム・ジャンル・アルバムアーティスト・作曲者を、検索用に正規化してつないだ文字列）。`rowid`は`tracks`と同じ                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `sync_devices`                | 転送先デバイス                       | `id`, `name`, `path`, `sync_all`, `remove_unselected`, `path_template`（デバイス上の配置の書式。列を足す前に登録したデバイスは、以前の配置の書式。ADR-111）, `copy_extras`（歌詞ファイル・フォルダの画像もコピーするか。既定は1。ADR-112）, `transcode_mode`（`off`・`lossless`・`aboveBitrate`。既定は`off`。ADR-118）, `transcode_bitrate`（AACのkbps。既定は256）, `created_at`, `last_synced_at`                                                                                                                                                                                                                                                                    |
+| `sync_device_playlists`       | デバイスに同期するプレイリスト       | `device_id`, `playlist_id`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `smart_playlists`             | オートプレイリスト（ADR-127）        | `id`, `name`, `description`, `rules`（条件のJSON。NOT NULL）, `position`（手動の並び順での位置）, `created_at`, `updated_at`。曲の一覧は持たない                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `sync_device_smart_playlists` | デバイスに同期するオートプレイリスト | `device_id`, `smart_playlist_id`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `app_meta`                    | DBの情報（キーと値）                 | `key`（PRIMARY KEY）, `value`。`schema_version`に、表の作りの版（`db::DB_SCHEMA_VERSION`）を記録する。曲の解析が途中の間は`music_analysis_requested`を`1`にする（次の起動で再開する）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `track_analysis`              | 曲の解析（テンポ・キー）の結果       | `track_id`（PRIMARY KEY。`tracks`の削除で消える）, `duration`（解析した時の曲の長さ。今の長さと違えば、解析していないものとして扱う）, `bpm`, `key_pitch_class`（主音の0〜11）, `key_mode`（長調0・短調1）, `pace`, `failed`（解析できなかった曲は1で、値はNULL）, `analyzed_at`。ADR-104                                                                                                                                                                                                                                                                                                                                                                               |
 
 ### インデックス/制約
 
@@ -166,7 +178,7 @@ export interface Playlist {
 - `playlist_tracks(playlist_id)`・`playlist_tracks(track_id)` にインデックス（`track_id`は、曲を削除する時に外部キーがその曲の行を探すため。主キーの`(playlist_id, track_id)`は使えない）
 - `play_history(track_id)`・`play_history(played_at)` にインデックス
 - `playlist_tracks`, `play_history` は `tracks` / `playlists` への外部キー（`ON DELETE CASCADE`）
-- `tracks.format`は、拡張子の大文字（`MP3`・`FLAC`・`M4A`など）。同じ形式の別の拡張子と略称は、一般的なプレーヤーの表記にそろえる（`.aif`・`.aiff`は`AIFF`、`.wv`は`WavPack`。`library::FORMAT_RENAMES`）。以前の版が記録した`AIF`・`WV`と、自動プレイリストの「形式」の条件の値は、起動時に直す
+- `tracks.format`は、拡張子の大文字（`MP3`・`FLAC`・`M4A`など）。同じ形式の別の拡張子と略称は、一般的なプレーヤーの表記にそろえる（`.aif`・`.aiff`は`AIFF`、`.wv`は`WavPack`。`library::FORMAT_RENAMES`）。以前の版が記録した`AIF`・`WV`と、オートプレイリストの「形式」の条件の値は、起動時に直す
 - 外部キーは、DBを開く時（`db::setup_connection`）に`PRAGMA foreign_keys = ON`で有効にする。SQLiteの既定は無効で、接続ごとの設定のため、同梱のSQLiteのビルドの既定値に頼らない。テストの接続も同じ関数を通す（`db::open_in_memory`）
 - `playlists.folder_id` は `playlist_folders` を指すが、外部キーにはしない。フォルダを削除する時に、中のプレイリストの `folder_id` をNULLにする（プレイリストは消さない）
 - `tracks.file_modified_at` はファイルの更新日時（UNIX時間の秒）。再スキャンで、サイズとあわせて変更の検出に使う。列を追加する前に登録したトラックはNULLで、再スキャンで（ファイルを読み直さずに）記録する。サイズが同じで更新日時がちょうど1時間（±2秒）ずれた場合は、夏時間の切り替えによるずれ（更新日時をローカル時刻で記録するFAT32など）とみなし、読み直さずに日時だけ記録する
@@ -398,7 +410,7 @@ export interface Playlist {
 | ---------------------------- | -------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `get_sync_devices`           | なし                 | `SyncDevice[]`         | 名前順。接続の確認と容量の取得のため、ファイルシステムにアクセスする                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `register_sync_device`       | なし                 | `SyncDevice \| null`   | Rust側でフォルダを選ぶダイアログを開き、選んだフォルダを登録する（選ばなかった場合は`null`）。名前はドライブの名前（`/Volumes/<名前>`・`/media/<ユーザー>/<名前>`・`/run/media/<ユーザー>/<名前>`の中の場合）かフォルダの名前で、決められなければ「デバイス」（英語の表示では「Device」）。フォルダに管理ファイルがなければ新しく作る。あれば、そのデバイスとして扱う（登録済みなら転送先を更新、未登録なら管理ファイルを引き継いで登録）。ライブラリフォルダと重なるフォルダは`VALIDATION`、フォルダがなければ`NOT_FOUND` |
-| `update_sync_device`         | `deviceId`, `config` | `SyncDevice`           | 名前と同期する対象と、配置の書式を更新する。見つからないプレイリストは無視する。書式は前後の空白を除いて保存し、解釈できない書式は`VALIDATION`（何も変えない）                                                                                                                                                                                                                                                                                                                                                             |
+| `update_sync_device`         | `deviceId`, `config` | `SyncDevice`           | 名前と同期する対象と、配置の書式を更新する。見つからないプレイリスト・オートプレイリストは無視する。書式は前後の空白を除いて保存し、解釈できない書式は`VALIDATION`（何も変えない）                                                                                                                                                                                                                                                                                                                                         |
 | `relink_sync_device`         | `deviceId`           | `SyncDevice \| null`   | Rust側でフォルダを選ぶダイアログを開き、転送先をそのフォルダに変える（選ばなかった場合は`null`。デバイスが見つからなければ、ダイアログを開かずに`NOT_FOUND`）。別のデバイスの管理ファイルがあるフォルダは`VALIDATION`。管理ファイルがなければ、このデバイスの管理ファイルを作る                                                                                                                                                                                                                                            |
 | `remove_sync_device`         | `deviceId`           | `void`                 | 登録を解除する。デバイス上の曲と管理ファイルは消さない                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `plan_device_sync`           | `deviceId`           | `DeviceSyncPlan`       | 差分を調べる（デバイスには書き込まない）。接続されていなければ`NOT_FOUND`                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
@@ -411,8 +423,8 @@ export interface Playlist {
 
 #### 同期する曲とプレイリスト
 
-- 曲: `syncAll`ならライブラリの全曲（件数の上限なし。`repository::find_transfer_tracks`）、そうでなければ選んだプレイリストの曲（複数のプレイリストにある曲は1回だけコピーする）。自動プレイリストは、同期する時に条件に合う曲（ADR-042）。CUEシートの曲は転送しない（曲の範囲を切り出す仕組みがない。ADR-123）
-- プレイリスト: 選んだプレイリストを、デバイスのフォルダの直下に`プレイリスト名.m3u8`（拡張M3U・UTF-8・改行はCRLF）で書き出す。曲のパスはデバイスのフォルダからの相対パス（区切りは`/`。直下に置くため`..`を含まない）で、デバイスにある曲だけを曲順どおりに書く
+- 曲: `syncAll`ならライブラリの全曲（件数の上限なし。`repository::find_transfer_tracks`）、そうでなければ選んだプレイリスト・オートプレイリストの曲（複数のプレイリストにある曲は1回だけコピーする）。オートプレイリストは、同期する時に条件に合う曲（ADR-042）。CUEシートの曲は転送しない（曲の範囲を切り出す仕組みがない。ADR-123）
+- プレイリスト: 選んだプレイリスト・オートプレイリストを、デバイスのフォルダの直下に`プレイリスト名.m3u8`（拡張M3U・UTF-8・改行はCRLF）で書き出す。曲のパスはデバイスのフォルダからの相対パス（区切りは`/`。直下に置くため`..`を含まない）で、デバイスにある曲だけを曲順どおりに書く
 
 #### デバイス上の配置（`device_sync.rs`）
 
@@ -528,7 +540,7 @@ export interface Playlist {
 
 `StartupNotice`: `{ kind: 'databaseQuarantined', quarantinedPath, hasBackups }`（DBを開けなかったため、別の名前で残して、空のライブラリで起動した。`hasBackups`は、アプリの`backups/`にバックアップがあるか） | `{ kind: 'restoreFailed', detail }`（用意してあった復元を当てられなかった。ライブラリは復元の前のまま）。
 
-- **表の作りの版**: 移行の最後に、`app_meta`の`schema_version`へ`db::DB_SCHEMA_VERSION`（現在は1）を記録する。前の版のアプリが、そのDBを正しく扱えなくなる変更をした時に上げる（列・表を足すだけの変更では上げない）。記録が今の版より新しいDBは、移行を始める前に断る（`DbOpenError::NewerSchema`。何も書き換えない）。記録のないDB（記録する前の版が作ったもの）は、そのまま開いて記録する。全文検索の表の版（`PRAGMA user_version`）とは別に持つ
+- **表の作りの版**: 移行の最後に、`app_meta`の`schema_version`へ`db::DB_SCHEMA_VERSION`（現在は2。2は、自動プレイリストをオートプレイリストの表へ移した版。ADR-127）を記録する。前の版のアプリが、そのDBを正しく扱えなくなる変更をした時に上げる（列・表を足すだけの変更では上げない）。記録が今の版より新しいDBは、移行を始める前に断る（`DbOpenError::NewerSchema`。何も書き換えない）。記録のないDB（記録する前の版が作ったもの）は、そのまま開いて記録する。全文検索の表の版（`PRAGMA user_version`）とは別に持つ
 - **壊れている・移行に失敗したDB**: 同じフォルダの`muspice-unreadable-<日時>.db`に名前を変えて残し（SQLiteの一時ファイル`-journal`・`-wal`・`-shm`も一緒に動かす。動かせなければ消す）、新しいDBを作って起動する。`StartupNotice`の`databaseQuarantined`を預かり、フロント（`startupNotices.ts`）が、起動した時にOSのダイアログで知らせる（残した場所と、設定の「バックアップ」からの復元の案内。黙って復元はしない）。空のライブラリは、自動のバックアップを作らない（古い世代を押し出さない）
 - **起動を続けられない場合**: 新しい版のアプリが作ったDBと、環境の問題（SQLiteの`BUSY`・`LOCKED`・`CANTOPEN`・`PERM`・`READONLY`・`FULL`・`IOERR`・`NOMEM`など。DBを残しても直らない）で開けないDB、アプリのデータのフォルダを用意できない場合は、DBに触らない。`setup`を途中でやめ（この後の管理状態を置かないため、画面のコマンドは動かない）、メインウィンドウには何も読み込ませずに（`about:blank`）、理由とデータ・ログの場所を書いたダイアログ（Rust側。メインウィンドウに付くシート。言語は`settings.json`から読む）を出し、閉じたら終了する（終了コード1）
 - **用意してあった復元の失敗**: `backup::apply_staged_restore`が失敗したら、`restoreFailed`を預かって、起動を続ける（ライブラリは復元の前のまま。用意は残り、次の起動でもう一度試す）。用意のフォルダを消せなかっただけの場合は、復元できているため、失敗にしない
@@ -592,19 +604,19 @@ export interface Playlist {
 
 項目とキーは、macOSのアプリの慣習（ミュージックなど）にそろえる。文言は設定の言語に合わせ、OSが用意する項目（コピー・隠す・しまうなど）にも、アプリの文言を付ける。
 
-| メニュー   | 項目（キー）                                                                                                                                       |
-| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Muspice    | Muspice について・設定...（⌘,）・サービス・Muspice を隠す（⌘H）・ほかを隠す（⌥⌘H）・すべてを表示・Muspice を終了（⌘Q）                             |
-| ファイル   | 新規プレイリスト...（⌘N）・新規自動プレイリスト...（⌥⌘N）・フォルダをインポート...（⌘O）・ファイルをインポート...（⇧⌘O）・ウインドウを閉じる（⌘W） |
-| 編集       | 取り消す・やり直す・カット・コピー・ペースト・すべてを選択・検索（⌘F）                                                                             |
-| 曲         | 曲の情報を編集...（⌘I）・ファイルの場所を開く（⇧⌘R）・アルバムへ移動・アーティストへ移動（ADR-110）                                                |
-| 表示       | フルスクリーン切替（⌃⌘F）・サイドバーを表示/隠す（⌘\）・ミニプレーヤー（⇧⌘M）                                                                      |
-| 再生       | 再生 / 一時停止・次の曲・前の曲・音量・ミュート・シャッフル・リピート（キーなし。`PlaybackControl`）                                               |
-| ウインドウ | しまう（⌘M）・拡大/縮小・すべてを手前に移動（OSがウインドウの一覧を足す。`WINDOW_SUBMENU_ID`）                                                     |
-| ヘルプ     | Muspice について・GitHub を開く・ログのフォルダを開く（OSが項目の検索の欄を足す。`HELP_SUBMENU_ID`）                                               |
+| メニュー   | 項目（キー）                                                                                                                                         |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Muspice    | Muspice について・設定...（⌘,）・サービス・Muspice を隠す（⌘H）・ほかを隠す（⌥⌘H）・すべてを表示・Muspice を終了（⌘Q）                               |
+| ファイル   | 新規プレイリスト...（⌘N）・新規オートプレイリスト...（⌥⌘N）・フォルダをインポート...（⌘O）・ファイルをインポート...（⇧⌘O）・ウインドウを閉じる（⌘W） |
+| 編集       | 取り消す・やり直す・カット・コピー・ペースト・すべてを選択・検索（⌘F）                                                                               |
+| 曲         | 曲の情報を編集...（⌘I）・ファイルの場所を開く（⇧⌘R）・アルバムへ移動・アーティストへ移動（ADR-110）                                                  |
+| 表示       | フルスクリーン切替（⌃⌘F）・サイドバーを表示/隠す（⌘\）・ミニプレーヤー（⇧⌘M）                                                                        |
+| 再生       | 再生 / 一時停止・次の曲・前の曲・音量・ミュート・シャッフル・リピート（キーなし。`PlaybackControl`）                                                 |
+| ウインドウ | しまう（⌘M）・拡大/縮小・すべてを手前に移動（OSがウインドウの一覧を足す。`WINDOW_SUBMENU_ID`）                                                       |
+| ヘルプ     | Muspice について・GitHub を開く・ログのフォルダを開く（OSが項目の検索の欄を足す。`HELP_SUBMENU_ID`）                                                 |
 
 - `MenuCommand`（`{ type: 'newPlaylist' | 'newSmartPlaylist' | 'find' | 'editTrackInfo' | 'showInFinder' | 'goToAlbum' | 'goToArtist' }`）は、メインウィンドウで行う操作。Rust側は、曲の情報の編集画面を開いている間は送らずに編集画面を前面に出し（ADR-094）、ほかの時はメインウィンドウを前面に出してから送る（隠している・最小化している・設定のウィンドウが前面にある時も）
-- フロントエンド（`stores/menuCommands.ts`）は、ダイアログ（`<dialog open>`）を開いている間は何もしない（メニューのキーは、入力欄にフォーカスがあってもメニューが受け取るため）。新規プレイリスト・新規自動プレイリスト・検索は、ミニプレーヤーの間は通常の表示に戻してから行う
+- フロントエンド（`stores/menuCommands.ts`）は、ダイアログ（`<dialog open>`）を開いている間は何もしない（メニューのキーは、入力欄にフォーカスがあってもメニューが受け取るため）。新規プレイリスト・新規オートプレイリスト・検索は、ミニプレーヤーの間は通常の表示に戻してから行う
   - 新規プレイリスト: サイドバーの「+」と同じく、名前の入力を開く（サイドバーのプレイリストの一覧が受け持つ）
   - 検索: 表示中の画面の一覧の検索欄（`LibraryHeader`の入力欄）へ移り、文字を選ぶ。検索欄のない画面では、曲の画面を開いてから移る。Now Playingの画面は閉じる
   - 曲の情報を編集・ファイルの場所を開く・アルバムへ移動・アーティストへ移動: 一覧で選んでいる曲（`followSelectedTrack`で一覧が出している曲。`ui.selectedTrack`の`tracks`）が対象で、右クリックのメニューと同じ動き（編集画面は選んでいる曲を一覧の順で、ほかは最後に選んだ曲。複数のアーティストの曲は、最初のアーティストへ移る）。選んでいない・ミニプレーヤーの間は何もしない
@@ -796,10 +808,6 @@ macOS 27のMusicUnderstandingで曲のテンポ・キー・ペースを求め、
 | ----------------------------- | ----------------------------- | ------------------------------- |
 | `create_playlist`             | `name`                        | `Playlist`                      |
 | `create_playlist_with_tracks` | `name`, `trackIds`            | `Playlist`                      |
-| `create_smart_playlist`       | `name`, `rules`               | `Playlist`                      |
-| `update_smart_playlist`       | `playlistId`, `rules`         | `void`                          |
-| `count_smart_playlist_tracks` | `rules`                       | `number`                        |
-| `reshuffle_smart_playlists`   | なし                          | `void`                          |
 | `get_playlists`               | なし                          | `Playlist[]`                    |
 | `get_playlist_tracks`         | `playlistId`                  | `Track[]`                       |
 | `rename_playlist`             | `playlistId`, `name`          | `void`                          |
@@ -835,31 +843,6 @@ macOS 27のMusicUnderstandingで曲のテンポ・キー・ペースを求め、
 - 新しいプレイリスト・フォルダの`position`は、いちばん後ろ（今の最大値の次）にする
 - 並び順（名前・作成日の新しい順・手動）の選択と、閉じているフォルダは、フロントエンドがlocalStorageに保存する（`get_playlists`・`get_playlist_folders`は、並び順に関わらず同じ内容を返す）
 
-自動プレイリスト（条件で曲を集めるプレイリスト。ADR-042）:
-
-- 条件は`SmartRules`: `{ matchMode: 'all' | 'any', rules: SmartRule[], order: { field, descending }, limit: number | null }`。`playlists.rules`にJSONで保存する
-  - `SmartRule`は、`kind`で種類を分ける
-    - `{ kind: 'text', field, op, value }`: `field`は`title`・`artist`・`albumArtist`・`album`・`genre`・`composer`・`grouping`・`comment`・`format`・`path`（ファイルの場所）。`op`は`contains`・`notContains`・`is`・`isNot`・`startsWith`・`endsWith`・`isEmpty`・`isNotEmpty`。検索と同じ正規化（大文字と小文字・全角と半角・ひらがなとカタカナをそろえる）をして比べる。値のない項目は、空の文字列として比べる（「〜ではない」「〜を含まない」に合う）
-    - `artist`・`genre`は複数の値を持てるため、値のどれかが条件に合うかで比べる（「ジャンルがRock」は、`Rock; Pop`の曲にも合う。分ける前の文字列そのものが合う場合も、合うとみなす。`notContains`・`isNot`は、どの値も合わない曲）
-    - `{ kind: 'number', field, op, value, valueTo }`: `field`は`rating`・`year`・`playCount`・`skipCount`・`duration`（秒）・`trackNumber`・`discNumber`・`bitrate`（kbps）・`bpm`（タグのBPM）・`analyzedBpm`（曲の解析のテンポ。四捨五入した整数で比べる）・`sampleRate`（Hz。画面はkHzで入力する）・`bitDepth`・`channels`。`op`は`is`・`isNot`・`atLeast`・`atMost`・`between`（`value`以上・`valueTo`以下）。評価・再生回数・スキップ回数は、値がなければ0として比べる。ほかの項目の値のない曲は、`isNot`にだけ合う
-    - `{ kind: 'date', field, op, days }`: `field`は`createdAt`（追加日）・`lastPlayedAt`（最終再生日）。`op`は`inLast`（過去`days`日以内）・`notInLast`（過去`days`日より前。日付のない曲＝未再生の曲を含む）・`isEmpty`・`isNotEmpty`
-    - `{ kind: 'favorite', value }`: お気に入りかどうか
-    - `{ kind: 'inMusicFolder', value }`: 音楽フォルダの中にあるか（曲の場所が、音楽フォルダのパス＋区切り文字で始まるか。音楽フォルダが未設定なら、どの曲も中にない。ADR-084）
-    - `{ kind: 'key', op, value }`: 曲の解析のキー（`value`は、主音の0〜11。短調は12を足す。ADR-115）。`op`は`is`・`isNot`（解析していない曲を含む）・`isEmpty`（解析していない・キーを決められなかった曲）・`isNotEmpty`
-    - `{ kind: 'missing', value }`: ファイルが見つからない曲か（`tracks.missing_since`。ADR-023）
-    - `{ kind: 'playlist', op, playlistId }`: ほかのプレイリストに入っているか（`op`は`is`・`isNot`。ADR-116）。通常のプレイリストは入れてある曲、自動プレイリストはその条件に合う曲（上限・並び順を含めて求めた曲）で比べる。消したプレイリストは、曲のないプレイリストとして扱う（`is`は曲なし、`isNot`はすべての曲）
-  - `matchMode`が`all`ならすべての条件に合う曲（条件がなければ、すべての曲）、`any`ならいずれかの条件に合う曲（条件がなければ、曲なし）
-  - `order.field`は`random`・`title`・`artist`・`album`・`createdAt`・`lastPlayedAt`・`playCount`・`rating`・`year`・`duration`。同じ値の曲は、アーティスト → アルバム → アルバムの中の順に並べる。`limit`があれば、この並びの先頭からその曲数までにする
-  - 検証: 条件は50個まで、文字列は255文字まで、数値は0〜1000000（評価は半分の星の単位で0〜10）、日数は1〜36500、キーは0〜23、プレイリストのIDはUUID、`limit`は1〜100000。違反は`VALIDATION`
-  - `create_smart_playlist`・`update_smart_playlist`は、条件にしたプレイリストがない場合・そのプレイリスト自身を条件にする場合・条件にした自動プレイリストが（ほかの自動プレイリストを通してでも）このプレイリストを条件にしている場合も`VALIDATION`（`smart_playlist::validate_playlist_references`）。保存してある条件が循環していても（ほかの版で保存したなど）、曲を求めるのは止まる（循環した所は、曲のないプレイリストとして扱う）
-- `get_playlists`は、自動プレイリストの`tracks`を空で返す。曲は`get_playlist_tracks`が、呼ぶたびに条件から求める（評価・再生回数・タグの変更に追随する）
-- ランダムな並び（`order.field`が`random`）は、種と曲のIDから決める。種は起動のたびに変わり、`reshuffle_smart_playlists`でも変わる（すべての自動プレイリストの並びが変わる）。種が同じ間は、何度取得しても同じ並びになる
-- `update_smart_playlist`は条件だけを変える（名前は`rename_playlist`）。通常のプレイリストに対しては`VALIDATION`（入れてある曲が見えなくなるため、自動プレイリストには変えない）
-- `add_tracks_to_playlist`・`remove_tracks_from_playlist`・`reorder_playlist_tracks`は、自動プレイリストに対しては`VALIDATION`
-- `count_smart_playlist_tracks`は、保存する前の条件に合う曲数を返す（`limit`があれば、それを超えない）
-- 保存してある条件を読めない場合（新しいバージョンで足した項目を含む条件を、前のバージョンで開いた場合など）は、`matchMode: 'any'`で条件のない自動プレイリスト（曲なし）として返す。通常のプレイリストとしては扱わない（曲を追加できてしまうため）
-- デバイスへの転送・M3Uの書き出しでは、その時点で条件に合う曲を、条件の並び順で使う
-
 M3Uの読み込み・書き出し（ADR-032）:
 
 - `import_m3u_playlists`は、Rust側でファイルを選ぶダイアログ（`.m3u`・`.m3u8`。複数選べる）を開き、選んだファイルごとにプレイリストを作る。選ばなかった場合は空の配列を返す
@@ -869,8 +852,57 @@ M3Uの読み込み・書き出し（ADR-032）:
   - プレイリストの名前は、ファイル名（拡張子を除く。使えない文字は`_`）。同じ名前があれば`名前 (2)`のように番号を付ける。名前は、番号を付けた後も100文字（`playlist_name`の上限。バイト数ではなく文字数）に収まるよう、長い名前の後ろを切る
   - 対応する曲が1つもない場合・ファイルを読めない場合（`error`）は、プレイリストを作らない（`playlistId`は`null`）。同じ曲の2回目以降は入れず、`duplicateCount`に数える。`unmatched`は、対応が付かなかった行の先頭200件
 - `export_playlist_m3u`は、Rust側で保存先を選ぶダイアログを開き、プレイリストをUTF-8の拡張M3U（`#EXTINF`付き・改行はCRLF）で書き出す。`relativePaths`が`true`なら、曲の場所を書き出し先のフォルダからの相対パスで書く（共通するフォルダがない曲は絶対パス）。拡張子がM3Uでなければ`.m3u8`を付ける（付けた名前のファイルがあれば、ダイアログで上書きを確かめていないため`VALIDATION`）。保存先を選ばなかった場合は`null`を返す。CUEシートの曲は書かない（ほかのアプリが読めるファイルがない。`trackCount`にも数えない。ADR-123）
-- `export_all_playlists_m3u`は、Rust側で書き出すフォルダを選ぶダイアログを開き、通常のプレイリストをまとめて、`export_playlist_m3u`と同じ形のM3U8で書き出す（`playlist_export.rs`。ADR-087。自動プレイリストは書き出さない）。プレイリストのフォルダは、選んだフォルダの中のフォルダにし、名前はファイル名に使える形にする（デバイスへの転送と同じ`sanitize_component`）。同じ場所になるプレイリストは、番号を付けた名前にする（大文字と小文字は区別しない）。同じ名前のファイルは置き換え（一時ファイルに書いてから置き換える）、ほかのファイルは消さない。`relativePaths`が`true`なら、曲の場所を書き出したファイルのフォルダからの相対パスで書く。結果は`{ folder, playlistCount }`（`playlistCount`が0なら、何も書いていない）。フォルダを選ばなかった場合は`null`
+- `export_all_playlists_m3u`は、Rust側で書き出すフォルダを選ぶダイアログを開き、通常のプレイリストをまとめて、`export_playlist_m3u`と同じ形のM3U8で書き出す（`playlist_export.rs`。ADR-087。オートプレイリストは書き出さない）。プレイリストのフォルダは、選んだフォルダの中のフォルダにし、名前はファイル名に使える形にする（デバイスへの転送と同じ`sanitize_component`）。同じ場所になるプレイリストは、番号を付けた名前にする（大文字と小文字は区別しない）。同じ名前のファイルは置き換え（一時ファイルに書いてから置き換える）、ほかのファイルは消さない。`relativePaths`が`true`なら、曲の場所を書き出したファイルのフォルダからの相対パスで書く。結果は`{ folder, playlistCount }`（`playlistCount`が0なら、何も書いていない）。フォルダを選ばなかった場合は`null`
   - `M3uExportResult`: `{ fileName, trackCount }`
+
+### オートプレイリスト
+
+条件で曲を集めるプレイリスト（ADR-042）。通常のプレイリストとは別の表（`smart_playlists`）・別のコマンドで扱う（ADR-127）。曲の一覧は持たず、曲の追加・削除・並べ替え・フォルダはない。
+
+| コマンド                          | 引数                                     | 戻り値                    |
+| --------------------------------- | ---------------------------------------- | ------------------------- |
+| `get_smart_playlists`             | なし                                     | `SmartPlaylist[]`         |
+| `create_smart_playlist`           | `name`, `rules`                          | `SmartPlaylist`           |
+| `update_smart_playlist`           | `smartPlaylistId`, `name`, `rules`       | `void`                    |
+| `update_smart_playlist_info`      | `smartPlaylistId`, `name`, `description` | `void`                    |
+| `reorder_smart_playlists`         | `smartPlaylistIds`                       | `void`                    |
+| `delete_smart_playlist`           | `smartPlaylistId`                        | `void`                    |
+| `get_smart_playlist_tracks`       | `smartPlaylistId`                        | `Track[]`                 |
+| `count_smart_playlist_tracks`     | `rules`                                  | `number`                  |
+| `reshuffle_smart_playlists`       | なし                                     | `void`                    |
+| `save_smart_playlist_as_playlist` | `smartPlaylistId`, `name`                | `Playlist`                |
+| `export_smart_playlist_m3u`       | `smartPlaylistId`, `relativePaths`       | `M3uExportResult \| null` |
+
+- `get_smart_playlists`は、手動の並び順（`position`）で返す。表示の並び順（名前・作成日・手動）は、フロントエンドが選び、localStorageに保存する（プレイリストとは別。`playlistSidebar.smartSort`）
+- `create_smart_playlist`は、手動の並び順のいちばん後ろに置く。`update_smart_playlist`は名前と条件、`update_smart_playlist_info`は名前と説明を変える（説明は前後の空白を除き、空・`null`は説明なし。1000文字まで）。見つからなければ`NOT_FOUND`（通常のプレイリストのIDも`NOT_FOUND`）
+- `reorder_smart_playlists`は、渡した順に`position`を0から振り直す。見つからないIDは無視する
+- `delete_smart_playlist`は、デバイスの選択も消す（外部キーのCASCADE）。ほかのオートプレイリストの条件にしていても、条件は残す（曲のないオートプレイリストとして扱う）
+- `get_smart_playlist_tracks`は、呼ぶたびに条件から求める（評価・再生回数・タグの変更に追随する）。見つからなければ空の配列
+- `save_smart_playlist_as_playlist`は、今の条件に合う曲を、今の並び順のまま入れた通常のプレイリストを作る（名前は前後の空白を除き、そのまま使う）。作ったプレイリストは、その後の変更に追随しない
+- `export_smart_playlist_m3u`は、`export_playlist_m3u`と同じ形で、今の条件に合う曲を書き出す
+
+条件（ADR-042）:
+
+- 条件は`SmartRules`: `{ matchMode: 'all' | 'any', rules: SmartRule[], order: { field, descending }, limit: number | null }`。`smart_playlists.rules`にJSONで保存する
+  - `SmartRule`は、`kind`で種類を分ける
+    - `{ kind: 'text', field, op, value }`: `field`は`title`・`artist`・`albumArtist`・`album`・`genre`・`composer`・`grouping`・`comment`・`format`・`path`（ファイルの場所）。`op`は`contains`・`notContains`・`is`・`isNot`・`startsWith`・`endsWith`・`isEmpty`・`isNotEmpty`。検索と同じ正規化（大文字と小文字・全角と半角・ひらがなとカタカナをそろえる）をして比べる。値のない項目は、空の文字列として比べる（「〜ではない」「〜を含まない」に合う）
+    - `artist`・`genre`は複数の値を持てるため、値のどれかが条件に合うかで比べる（「ジャンルがRock」は、`Rock; Pop`の曲にも合う。分ける前の文字列そのものが合う場合も、合うとみなす。`notContains`・`isNot`は、どの値も合わない曲）
+    - `{ kind: 'number', field, op, value, valueTo }`: `field`は`rating`・`year`・`playCount`・`skipCount`・`duration`（秒）・`trackNumber`・`discNumber`・`bitrate`（kbps）・`bpm`（タグのBPM）・`analyzedBpm`（曲の解析のテンポ。四捨五入した整数で比べる）・`sampleRate`（Hz。画面はkHzで入力する）・`bitDepth`・`channels`。`op`は`is`・`isNot`・`atLeast`・`atMost`・`between`（`value`以上・`valueTo`以下）。評価・再生回数・スキップ回数は、値がなければ0として比べる。ほかの項目の値のない曲は、`isNot`にだけ合う
+    - `{ kind: 'date', field, op, days }`: `field`は`createdAt`（追加日）・`lastPlayedAt`（最終再生日）。`op`は`inLast`（過去`days`日以内）・`notInLast`（過去`days`日より前。日付のない曲＝未再生の曲を含む）・`isEmpty`・`isNotEmpty`
+    - `{ kind: 'favorite', value }`: お気に入りかどうか
+    - `{ kind: 'inMusicFolder', value }`: 音楽フォルダの中にあるか（曲の場所が、音楽フォルダのパス＋区切り文字で始まるか。音楽フォルダが未設定なら、どの曲も中にない。ADR-084）
+    - `{ kind: 'key', op, value }`: 曲の解析のキー（`value`は、主音の0〜11。短調は12を足す。ADR-115）。`op`は`is`・`isNot`（解析していない曲を含む）・`isEmpty`（解析していない・キーを決められなかった曲）・`isNotEmpty`
+    - `{ kind: 'missing', value }`: ファイルが見つからない曲か（`tracks.missing_since`。ADR-023）
+    - `{ kind: 'playlist', op, playlistId }`: 通常のプレイリストに入っているか（`op`は`is`・`isNot`。ADR-116）。入れてある曲で比べる。消したプレイリストは、曲のないプレイリストとして扱う（`is`は曲なし、`isNot`はすべての曲）
+    - `{ kind: 'smartPlaylist', op, playlistId }`: ほかのオートプレイリストの曲か（ADR-127）。その条件に合う曲（上限・並び順を含めて求めた曲）で比べる。消したオートプレイリストは、曲のないものとして扱う。`playlistId`に、種類の違うもの（`playlist`にオートプレイリスト、`smartPlaylist`に通常のプレイリスト）のIDを入れた条件は、曲なしとして扱う
+  - `matchMode`が`all`ならすべての条件に合う曲（条件がなければ、すべての曲）、`any`ならいずれかの条件に合う曲（条件がなければ、曲なし）
+  - `order.field`は`random`・`title`・`artist`・`album`・`createdAt`・`lastPlayedAt`・`playCount`・`rating`・`year`・`duration`。同じ値の曲は、アーティスト → アルバム → アルバムの中の順に並べる。`limit`があれば、この並びの先頭からその曲数までにする
+  - 検証: 条件は50個まで、文字列は255文字まで、数値は0〜1000000（評価は半分の星の単位で0〜10）、日数は1〜36500、キーは0〜23、プレイリスト・オートプレイリストのIDはUUID、`limit`は1〜100000。違反は`VALIDATION`
+  - `create_smart_playlist`・`update_smart_playlist`は、条件にしたプレイリスト・オートプレイリストがない場合・そのオートプレイリスト自身を条件にする場合・条件にしたオートプレイリストが（ほかのオートプレイリストを通してでも）このオートプレイリストを条件にしている場合も`VALIDATION`（`smart_playlist::validate_playlist_references`）。保存してある条件が循環していても（ほかの版で保存したなど）、曲を求めるのは止まる（循環した所は、曲のないオートプレイリストとして扱う）
+- ランダムな並び（`order.field`が`random`）は、種と曲のIDから決める。種は起動のたびに変わり、`reshuffle_smart_playlists`でも変わる（すべてのオートプレイリストの並びが変わる）。種が同じ間は、何度取得しても同じ並びになる
+- `count_smart_playlist_tracks`は、保存する前の条件に合う曲数を返す（`limit`があれば、それを超えない）
+- 保存してある条件を読めない場合（新しいバージョンで足した項目を含む条件を、前のバージョンで開いた場合など）は、`matchMode: 'any'`で条件のないオートプレイリスト（曲なし）として返す（条件を編集し直せる）
+- デバイスへの転送・M3U8の書き出し・ライブラリのXMLの書き出しでは、その時点で条件に合う曲を、条件の並び順で使う（M3U8の一括書き出しには含めない）
 
 ### アルバムアート
 
@@ -919,7 +951,7 @@ iTunes形式のライブラリXML（MusicBee・iTunes / ミュージックが書
 
 - 保存先を選ばなかった場合は`null`。拡張子のない名前は、拡張子を足す（足した名前のファイルがある場合は`VALIDATION`）。同じフォルダの一時ファイル（`.muspice-export-<UUID>.tmp`。利用者のファイルと重ならない名前）に書いてから置き換える
 - `LibraryExportResult`: `{ path, trackCount, playlistCount }`（CSVの`playlistCount`は0）
-- XML: iTunes形式のプロパティリスト。`Tracks`（キーは曲の番号）の値は`Track ID`・`Persistent ID`（曲のIDの先頭16桁の16進数）・`Name`・`Artist`・`Album Artist`・`Composer`・`Album`・`Grouping`・`Genre`・`Kind`・`Size`・`Total Time`（ミリ秒）・`Disc Number`・`Track Number`・`Year`・`BPM`・`Date Modified`・`Date Added`・`Bit Rate`・`Sample Rate`・`Comments`・`Play Count`・`Play Date UTC`・`Skip Count`・`Rating`（0〜100。半分の星の単位を10倍）・`Loved`・`Compilation`・`Sort Name`などの読み・`Location`（`file://localhost`で始め、英数字と`-._~/`のほかは`%XX`にしたURL）。値のない項目は書かない。`Playlists`は、ライブラリ全体（`Master`）・プレイリストのフォルダ（`Folder`）・プレイリスト（サイドバーの手動の並び順。フォルダの中のものは`Parent Persistent ID`）の順。自動プレイリストは、書き出す時点で条件に合う曲の、通常のプレイリストとして書く。音楽フォルダを設定していれば`Music Folder`も書く。日時（`<date>`）は秒まで（`2026-01-02T03:04:05Z`。秒の小数を書くと、Appleの`plutil`・Pythonの`plistlib`などが読めない）。CUEシートの曲は書かない（`Location`に書けるファイルがない。プレイリストからも除き、`trackCount`にも数えない。ADR-123）。このアプリの取り込み（`import_library_xml`）で読み戻せる
+- XML: iTunes形式のプロパティリスト。`Tracks`（キーは曲の番号）の値は`Track ID`・`Persistent ID`（曲のIDの先頭16桁の16進数）・`Name`・`Artist`・`Album Artist`・`Composer`・`Album`・`Grouping`・`Genre`・`Kind`・`Size`・`Total Time`（ミリ秒）・`Disc Number`・`Track Number`・`Year`・`BPM`・`Date Modified`・`Date Added`・`Bit Rate`・`Sample Rate`・`Comments`・`Play Count`・`Play Date UTC`・`Skip Count`・`Rating`（0〜100。半分の星の単位を10倍）・`Loved`・`Compilation`・`Sort Name`などの読み・`Location`（`file://localhost`で始め、英数字と`-._~/`のほかは`%XX`にしたURL）。値のない項目は書かない。`Playlists`は、ライブラリ全体（`Master`）・プレイリストのフォルダ（`Folder`）・プレイリスト（サイドバーの手動の並び順。フォルダの中のものは`Parent Persistent ID`）・オートプレイリスト（手動の並び順）の順。オートプレイリストは、書き出す時点で条件に合う曲の、通常のプレイリストとして書く（ADR-127）。音楽フォルダを設定していれば`Music Folder`も書く。日時（`<date>`）は秒まで（`2026-01-02T03:04:05Z`。秒の小数を書くと、Appleの`plutil`・Pythonの`plistlib`などが読めない）。CUEシートの曲は書かない（`Location`に書けるファイルがない。プレイリストからも除き、`trackCount`にも数えない。ADR-123）。このアプリの取り込み（`import_library_xml`）で読み戻せる
 - CSV: 曲の一覧（UTF-8のBOM付き・CRLF）。列は、タイトル・アーティスト・アルバムアーティスト・アルバム・作曲者・グループ・ジャンル・年・トラック番号・ディスク番号・時間（`m:ss`）・評価（星の数。半分の星は`.5`）・お気に入り（`1`）・再生回数・スキップ回数・最終再生日・追加日（DBの値）・形式・ビットレート・サンプルレート・サイズ・場所。見出しはアプリの言語。`,`・`"`・改行を含む値は`"`で囲む。`=`・`+`・`-`・`@`・タブ・CRで始まる値は、表計算ソフトが式として実行しないよう、頭に`'`を付ける
 
 ### 再生・統計・システム
@@ -949,7 +981,8 @@ iTunes形式のライブラリXML（MusicBee・iTunes / ミュージックが書
 - Vorbisコメント（FLAC）とAPEv2タグ（WavPack・APE）は、書き手を付けない`RATING`に数値だけを書く（`RATING=70`）。すでに星の数の1〜5で書かれていれば、整数の星はその付け方を保ち、半分の星は0〜100で書く
 - loftyは評価を整数の星にしてから扱うため、ID3v2の`POPM`とMP4の`rate`は、形式ごとのタグから元の値で読み、半分の星がある時は形式ごとのタグ（`Id3v2Tag`・`Ilst`）を組み立てて書く。評価以外の項目だけを保存しても、半分の星は変わらない。RIFF INFOの`IRTD`（WAVのID3v2に写すタグ）は、半分の星を切り上げた整数の星で書く
 - loftyの汎用タグは、Vorbisコメントの数値だけの`RATING`を評価として読まず、書き出す時も変換しないため、`rating_tag.rs`で読み書きする（APEv2タグの`RATING`は、loftyに対応する項目がないため、`ape_tag.rs`が読み書きする）
-- 評価を星の数（0〜5）で持っていた版のDBは、起動時に評価と自動プレイリストの評価の条件を2倍にし、`tracks.rating_read`を足す（`db::migrate_to_half_star_ratings`。1回だけ）。足した時に登録済みの曲（`rating_read = 0`）は、起動時にバックグラウンドでファイルの評価を読み直し、ファイルが半分の星で、DBの評価がそれを切り上げた値のままなら、半分の星にする（`tag_backfill`）
+- 自動プレイリストを`playlists`の`rules`列に持っていた版のDBは、起動時に、条件のある行を`smart_playlists`へ移す（ID・名前・説明・条件・作成日・更新日を保つ。フォルダからは出し、並びはフォルダの外のものを先に、今の手動の並び順のまま）。転送先デバイスの選択（`sync_device_playlists`）は`sync_device_smart_playlists`へ移し、条件の`{ kind: 'playlist' }`のうち移したものを指す条件は`{ kind: 'smartPlaylist' }`にする。最後に`playlists`の`rules`列を消す（`db::move_smart_playlists_to_own_table`。`rules`列があるDBだけ、1回だけ。形式の名前・半分の星の移行より先に行う。ADR-127）
+- 評価を星の数（0〜5）で持っていた版のDBは、起動時に評価とオートプレイリストの評価の条件を2倍にし、`tracks.rating_read`を足す（`db::migrate_to_half_star_ratings`。1回だけ）。足した時に登録済みの曲（`rating_read = 0`）は、起動時にバックグラウンドでファイルの評価を読み直し、ファイルが半分の星で、DBの評価がそれを切り上げた値のままなら、半分の星にする（`tag_backfill`）
 
 `set_favorite`・`increment_play_count`（お気に入り・再生回数・再生履歴）とプレイリストは、タグでは持てないためDBだけに保存する。
 
@@ -961,7 +994,7 @@ iTunes形式のライブラリXML（MusicBee・iTunes / ミュージックが書
 再生回数・スキップ回数・再生履歴（ADR-030）:
 
 - `increment_play_count`は、再生回数を1増やし、最後に再生した日時を更新して、再生履歴（`play_history`）に1件加える（新しい再生回数と、記録した最後に再生した日時（`{ playCount, lastPlayedAt }`）を返す。フロントは、キャッシュにあるその曲をこの値で書き換える。2つの書き込みは1つのトランザクションで行い、片方だけを記録しない）。`increment_skip_count`は、スキップ回数を1増やす（新しいスキップ回数を返す。更新日時・再生履歴は変えない）
-- 再生回数・スキップ回数の上限は2147483647（`Track`の`play_count`・`skip_count`はi32。`models::MAX_PLAY_COUNT`）。DBに上限を超える値が1曲でもあると、その曲を含む一覧を読めなくなるため、書く値は上限に収める（加算は上限で止め、再生履歴には加える。ライブラリのXMLの取り込みは上限に収める）。上限に収める前の版が書いた値は、起動時（`db::run_migrations`）に上限へ直す（読むたびに収めるのではなく、DBの値を直す。一覧・自動プレイリストの条件・XMLの取り込みでの比べ方など、回数を読む所すべてで同じ値になる）
+- 再生回数・スキップ回数の上限は2147483647（`Track`の`play_count`・`skip_count`はi32。`models::MAX_PLAY_COUNT`）。DBに上限を超える値が1曲でもあると、その曲を含む一覧を読めなくなるため、書く値は上限に収める（加算は上限で止め、再生履歴には加える。ライブラリのXMLの取り込みは上限に収める）。上限に収める前の版が書いた値は、起動時（`db::run_migrations`）に上限へ直す（読むたびに収めるのではなく、DBの値を直す。一覧・オートプレイリストの条件・XMLの取り込みでの比べ方など、回数を読む所すべてで同じ値になる）
 - どちらも、いつ呼ぶかはフロントの再生コントローラーが決める（`playTracker.ts`）
   - 再生回数: 実際に鳴らした時間の合計が、曲の長さの半分か4分（短いほう）に届いた時。シークで飛ばした分は含めない。曲の長さが分からなければ、4分か曲の終わり。同じ曲を頭から再生し直した場合（1曲リピートの繰り返し・「前へ」での頭出し）は、聴いた時間を数え直す
   - スキップ回数: 再生回数に数える前に、別の曲を再生し始めた時。鳴らした時間が2秒に満たない曲・最後まで再生された曲・停止・再生の失敗では数えない

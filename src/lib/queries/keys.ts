@@ -30,7 +30,11 @@ export const queryKeys = {
     albumArtistAlbums: (artist: string | null) => ['tracks', 'albumArtistAlbums', artist] as const,
     genre: (genre: string) => ['tracks', 'genre', genre] as const,
     playlists: ['tracks', 'playlist'] as const,
-    playlist: (playlistId: string) => ['tracks', 'playlist', playlistId] as const
+    playlist: (playlistId: string) => ['tracks', 'playlist', playlistId] as const,
+    /** オートプレイリストの曲（条件に合う曲。ADR-127） */
+    smartPlaylists: ['tracks', 'smartPlaylist'] as const,
+    smartPlaylist: (smartPlaylistId: string) =>
+      ['tracks', 'smartPlaylist', smartPlaylistId] as const
   },
 
   /** アルバム・アーティスト・ジャンルの一覧（名前・曲数・代表の曲。曲は含まない） */
@@ -92,7 +96,10 @@ export const queryKeys = {
   /** プレイリストのフォルダ */
   playlistFolders: ['playlistFolders'] as const,
 
-  /** 自動プレイリストの条件に合う曲数（条件の編集画面に出す） */
+  /** オートプレイリスト一覧（プレイリストとは別の枠組み。ADR-127） */
+  smartPlaylists: ['smartPlaylists'] as const,
+
+  /** オートプレイリストの条件に合う曲数（条件の編集画面に出す） */
   smartPlaylistCount: (rules: SmartRules) => ['smartPlaylistCount', rules] as const,
 
   /** アプリケーション設定 */

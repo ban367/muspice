@@ -143,8 +143,11 @@ export const ja = {
     showInFolder: 'ファイルの場所を開く',
     fetchPlaylists: 'プレイリスト一覧の取得',
     createPlaylist: 'プレイリストの作成',
-    createSmartPlaylist: '自動プレイリストの作成',
-    updateSmartPlaylist: '自動プレイリストの変更',
+    fetchSmartPlaylists: 'オートプレイリスト一覧の取得',
+    createSmartPlaylist: 'オートプレイリストの作成',
+    updateSmartPlaylist: 'オートプレイリストの変更',
+    deleteSmartPlaylist: 'オートプレイリストの削除',
+    saveSmartPlaylistAsPlaylist: 'プレイリストとしての保存',
     countSmartPlaylistTracks: '条件に合う曲数の取得',
     reshuffleSmartPlaylists: '曲の選び直し',
     addTrackToPlaylist: 'トラックの追加',
@@ -199,8 +202,9 @@ export const ja = {
   notices: {
     trackFileMissing: 'ファイルが見つからないため、再生できません',
     playlistCreated: 'プレイリストを作成しました',
-    smartPlaylistCreated: '自動プレイリストを作成しました',
-    smartPlaylistUpdated: '自動プレイリストを変更しました',
+    smartPlaylistCreated: 'オートプレイリストを作成しました',
+    smartPlaylistUpdated: 'オートプレイリストを変更しました',
+    smartPlaylistDeleted: 'オートプレイリストを削除しました',
     tracksAddedToPlaylist: (count: number) => `${count}曲をプレイリストに追加しました`,
     tracksAlreadyInPlaylist: 'すでにプレイリストに入っています',
     tracksRemovedFromPlaylist: (count: number) => `${count}曲をプレイリストから削除しました`,
@@ -216,8 +220,7 @@ export const ja = {
       `「${fileName}」に書き出しました（${count}曲）`,
     playlistsExported: (folder: string, count: number) =>
       `${count}件のプレイリストを「${folder}」に書き出しました`,
-    noPlaylistsToExport:
-      '書き出す通常のプレイリストがありません（自動プレイリストは書き出しません）',
+    noPlaylistsToExport: '書き出すプレイリストがありません（オートプレイリストは書き出しません）',
     tracksRemovedFromLibrary: (count: number) =>
       count === 1
         ? 'トラックをライブラリから削除しました'
@@ -316,7 +319,10 @@ export const ja = {
     years: '年代',
     playlists: 'プレイリスト',
     newPlaylistTitle: '新規プレイリスト (⌘N)',
-    newSmartPlaylistTitle: '新規自動プレイリスト (⌥⌘N)',
+    smartPlaylists: 'オートプレイリスト',
+    newSmartPlaylistTitle: '新規オートプレイリスト (⌥⌘N)',
+    smartPlaylistMenu: '並び順',
+    noSmartPlaylists: 'オートプレイリストがありません',
     playlistMenu: 'フォルダと並び順',
     newFolder: '新規フォルダ',
     folderName: 'フォルダ名',
@@ -853,7 +859,7 @@ export const ja = {
   libraryExport: {
     title: 'ライブラリの書き出し',
     description:
-      'iTunes形式のライブラリのXMLは、曲・評価・再生回数・プレイリスト（自動プレイリストは、今の条件に合う曲）を、DJソフト（rekordbox・Serato・Traktorなど）やほかの管理ソフトで読める形で書き出します。CSVは、曲の一覧を表計算ソフトで開ける形で書き出します',
+      'iTunes形式のライブラリのXMLは、曲・評価・再生回数・プレイリスト（オートプレイリストは、今の条件に合う曲）を、DJソフト（rekordbox・Serato・Traktorなど）やほかの管理ソフトで読める形で書き出します。CSVは、曲の一覧を表計算ソフトで開ける形で書き出します',
     xml: 'XMLで書き出す...',
     csv: 'CSVで書き出す...',
     exporting: '書き出し中...',
@@ -1168,16 +1174,17 @@ export const ja = {
     exportAll: 'すべてのプレイリストを書き出す...',
     exportAllTitle: 'すべてのプレイリストを書き出す',
     exportAllDescription:
-      '通常のプレイリストを、選んだフォルダへM3U8（UTF-8）でまとめて書き出します。プレイリストのフォルダは、中のフォルダになります。同じ名前のファイルは置き換えます（自動プレイリストは書き出しません）。書き出したファイルは、「M3Uを読み込む」で取り込めます。',
+      '通常のプレイリストを、選んだフォルダへM3U8（UTF-8）でまとめて書き出します。プレイリストのフォルダは、中のフォルダになります。同じ名前のファイルは置き換えます（オートプレイリストは書き出しません）。書き出したファイルは、「M3Uを読み込む」で取り込めます。',
     exportAllConfirm: '書き出すフォルダを選ぶ...'
   },
 
-  /** 自動プレイリスト（条件で曲を集めるプレイリスト） */
+  /** オートプレイリスト（条件で曲を集めるプレイリスト。プレイリストとは別の枠組み。ADR-127） */
   smartPlaylist: {
-    newTitle: '新規自動プレイリスト',
-    editTitle: '自動プレイリストを編集',
+    title: 'オートプレイリスト',
+    newTitle: '新規オートプレイリスト',
+    editTitle: 'オートプレイリストを編集',
     name: '名前',
-    badge: '自動',
+    badge: 'オート',
     match: '集める曲',
     matchModes: {
       all: 'すべての条件に合う曲',
@@ -1202,10 +1209,14 @@ export const ja = {
     pathField: 'ファイルの場所',
     /** 音楽フォルダの中にあるかの条件（ADR-084） */
     inMusicFolderField: '音楽フォルダ',
-    /** ほかのプレイリストに入っているかの条件（ADR-116） */
+    /** 通常のプレイリストに入っているかの条件（ADR-116） */
     playlistField: 'プレイリスト',
     choosePlaylist: 'プレイリストを選ぶ',
     deletedPlaylist: '（削除したプレイリスト）',
+    /** ほかのオートプレイリストの曲かの条件（ADR-116・ADR-127） */
+    smartPlaylistField: 'オートプレイリスト',
+    chooseSmartPlaylist: 'オートプレイリストを選ぶ',
+    deletedSmartPlaylist: '（削除したオートプレイリスト）',
     /** ファイルが見つからない曲かの条件（ADR-023） */
     missingField: 'ファイル',
     noRating: '評価なし',
@@ -1254,6 +1265,10 @@ export const ja = {
         is: 'に入っている',
         isNot: 'に入っていない'
       },
+      smartPlaylist: {
+        is: 'の曲である',
+        isNot: 'の曲でない'
+      },
       missing: {
         is: 'が見つからない',
         isNot: 'がある'
@@ -1296,6 +1311,8 @@ export const ja = {
       },
       playlist: (name: string, value: boolean): string =>
         `「${name}」に${value ? '入っている' : '入っていない'}`,
+      smartPlaylist: (name: string, value: boolean): string =>
+        `オートプレイリスト「${name}」の曲${value ? 'である' : 'でない'}`,
       missing: (value: boolean): string => (value ? 'ファイルが見つからない' : 'ファイルがある'),
       order: (field: string, descending: boolean) => `${field}の${descending ? '降順' : '昇順'}`,
       limited: (order: string, limit: number) => `${order}で${limit}曲まで`
@@ -1312,15 +1329,27 @@ export const ja = {
       daysInvalid: '日数は、1から36500で入力してください',
       limitInvalid: '曲数の上限は、1から100000で入力してください',
       tooManyRules: '条件が多すぎます（50個まで）',
-      playlistRequired: '条件のプレイリストを選んでください'
+      playlistRequired: '条件のプレイリストを選んでください',
+      smartPlaylistRequired: '条件のオートプレイリストを選んでください'
     },
     editRules: '条件を編集',
     editRulesEllipsis: '条件を編集...',
     reshuffle: '選び直す',
-    reshuffleTitle: 'ランダムな並びを選び直す（ほかの自動プレイリストも選び直します）',
+    reshuffleTitle: 'ランダムな並びを選び直す（ほかのオートプレイリストも選び直します）',
     noMatches: '条件に合う曲がありません',
     noMatchesHint: '「条件を編集」から、条件を変えられます',
-    unreadable: '条件を読めませんでした。「条件を編集」から、設定し直してください。'
+    unreadable: '条件を読めませんでした。「条件を編集」から、設定し直してください。',
+    /** 今の曲で、通常のプレイリストを作る（ADR-127） */
+    saveAsPlaylist: 'プレイリストとして保存...',
+    saveAsPlaylistTitle: 'プレイリストとして保存',
+    saveAsPlaylistLabel: '新しいプレイリストの名前',
+    saveAsPlaylistHint:
+      '今の条件に合う曲を、今の並び順で入れたプレイリストを作ります。作ったプレイリストは、条件の変更に追随しません。',
+    saveAsPlaylistConfirm: '保存',
+    notFound: 'オートプレイリストが見つかりません',
+    notFoundHint: '削除されたか、存在しないオートプレイリストです',
+    confirmDelete: (name: string) => `オートプレイリスト「${name}」を削除しますか？`,
+    deleteTitle: 'オートプレイリストを削除'
   },
 
   settings: {
@@ -1575,7 +1604,7 @@ export const ja = {
     replaceKeptTracks: (count: number) =>
       `このフォルダの中にある${count}曲は、再生回数などの記録を残します`,
     replacePlaylists: (count: number) =>
-      `通常のプレイリスト${count}件と、プレイリストのフォルダを消します（自動プレイリストは残します）`,
+      `プレイリスト${count}件と、プレイリストのフォルダを消します（オートプレイリストは残します）`,
     replaceLostInfo:
       '外した曲の再生回数・再生履歴・お気に入りなどは消えます（評価は、タグに書いてあれば読み直します）。残したいプレイリストは、先に書き出しておくと、置き換えた後に「M3Uの読み込み」で取り込めます。',
     replaceBackup: '置き換える前にバックアップする',

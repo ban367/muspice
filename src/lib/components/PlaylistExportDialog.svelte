@@ -1,23 +1,24 @@
 <!--
   @component PlaylistExportDialog
   プレイリストをM3U8へ書き出す前に、曲の場所の書き方（絶対パス・相対パス）を選ぶダイアログ。
-  1つのプレイリストでは、「保存先を選ぶ」を押すと、Rust側が保存先のダイアログを開いて書き出す。
+  1つのプレイリスト・オートプレイリスト（今の条件に合う曲）では、「保存先を選ぶ」を押すと、Rust側が
+  保存先のダイアログを開いて書き出す。
   すべてのプレイリスト（`'all'`。ADR-087）では、「書き出すフォルダを選ぶ」を押すと、Rust側がフォルダを
   選ぶダイアログを開き、通常のプレイリストをまとめて書き出す。
 -->
 <script lang="ts">
-  import type { Playlist } from '#lib/types/models.js';
   import { Modal } from '#lib/components/ui/index.js';
   import {
     useExportAllPlaylistsMutation,
-    useExportPlaylistM3uMutation
+    useExportPlaylistM3uMutation,
+    type PlaylistExportTarget
   } from '#lib/queries/playlists.js';
   import { ui } from '#lib/stores/ui.svelte.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   interface Props {
     /** 書き出すプレイリスト（`'all'`は、通常のプレイリストすべて。nullなら表示しない） */
-    playlist: Playlist | 'all' | null;
+    playlist: PlaylistExportTarget | 'all' | null;
     onClose: () => void;
   }
 
@@ -37,7 +38,7 @@
     ui.playlistExportRelative = relativePaths;
     // 保存先のダイアログは、このダイアログを閉じてから開く（結果は通知で知らせる）
     if (playlist === 'all') exportAllMutation.mutate(relativePaths);
-    else exportMutation.mutate({ playlistId: playlist.id, relativePaths });
+    else exportMutation.mutate({ target: playlist, relativePaths });
     onClose();
   }
 </script>

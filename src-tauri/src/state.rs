@@ -28,7 +28,7 @@ pub struct AppState {
     library_scan_lock: Mutex<()>,
     /// 曲のファイルを書き換える処理を、曲ごとに1つずつ行うためのロック（`lock_track_file`）
     track_file_locks: TrackFileLocks,
-    /// 自動プレイリストの、ランダムな並びの種（起動のたびに変わる。「選び直す」でも変える）
+    /// オートプレイリストの、ランダムな並びの種（起動のたびに変わる。「選び直す」でも変える）
     shuffle_seed: AtomicU64,
 }
 
@@ -79,7 +79,7 @@ impl AppState {
         }
     }
 
-    /// 自動プレイリストの条件から曲を求める時の状況（現在の日時と、ランダムな並びの種）
+    /// オートプレイリストの条件から曲を求める時の状況（現在の日時と、ランダムな並びの種）
     pub fn smart_playlist_context(&self) -> EvalContext {
         EvalContext {
             now: chrono::Utc::now(),
@@ -87,7 +87,7 @@ impl AppState {
         }
     }
 
-    /// ランダムな並びの自動プレイリストを、選び直す（種を変える）
+    /// ランダムな並びのオートプレイリストを、選び直す（種を変える）
     pub fn reshuffle_smart_playlists(&self) {
         self.shuffle_seed
             .store(new_shuffle_seed(), Ordering::Relaxed);

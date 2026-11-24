@@ -1,7 +1,7 @@
 //! プレイリストの一括書き出し（ADR-087）
 //!
-//! 通常のプレイリストを、利用者が選んだフォルダへ、まとめてM3U8で書き出す（手動。自動プレイリストは、
-//! 条件で曲が変わるため書き出さない）。プレイリストのフォルダは、選んだフォルダの中のフォルダにする。
+//! 通常のプレイリストを、利用者が選んだフォルダへ、まとめてM3U8で書き出す（手動。オートプレイリストは、
+//! 条件で曲が変わり、プレイリストの枠組みの外にあるため書き出さない。1つずつは書き出せる。ADR-127）。プレイリストのフォルダは、選んだフォルダの中のフォルダにする。
 //! 書き出したファイルは、ほかのアプリ・機器で使うほか、音楽フォルダを変えた（ライブラリを置き換えた。
 //! ADR-086）後に、M3Uの読み込み（ADR-032）で取り込み直せる。
 //!
@@ -47,16 +47,12 @@ struct PlannedFile {
 /// `relative_paths`がtrueなら、曲の場所を書き出したファイルのフォルダからの相対パスで書く（falseは
 /// 絶対パス）。書き出したプレイリストの数を返す（通常のプレイリストがなければ、何も書かずに0）。
 pub fn export_all_playlists(state: &AppState, dir: &Path, relative_paths: bool) -> AppResult<u32> {
-    let context = state.smart_playlist_context();
     let (playlists, folders, tracks) = state.with_db(|db| {
-        let playlists: Vec<Playlist> = crate::playlist::get_all_playlists(db)?
-            .into_iter()
-            .filter(|playlist| playlist.rules.is_none())
-            .collect();
+        let playlists: Vec<Playlist> = crate::playlist::get_all_playlists(db)?;
         let folders = crate::playlist::get_playlist_folders(db)?;
         let tracks = playlists
             .iter()
-            .map(|playlist| crate::playlist::get_playlist_tracks(db, &playlist.id, context))
+            .map(|playlist| crate::playlist::get_playlist_tracks(db, &playlist.id))
             .collect::<AppResult<Vec<_>>>()?;
         Ok((playlists, folders, tracks))
     })?;
@@ -166,7 +162,7 @@ mod tests {
         fs::read_to_string(path).unwrap()
     }
 
-    /// 通常のプレイリストを、フォルダの構成のまま書き、自動プレイリストは書かない
+    /// 通常のプレイリストを、フォルダの構成のまま書き、オートプレイリストは書かない
     #[test]
     fn test_exports_regular_playlists_with_folders() {
         let dir = TempDir::new();
@@ -178,7 +174,7 @@ mod tests {
             .with_db(|db| {
                 let folder = crate::playlist::create_playlist_folder(db, "Car")?;
                 crate::playlist::move_playlist(db, &id, Some(&folder.id))?;
-                crate::playlist::create_smart_playlist(
+                crate::smart_playlist::create_smart_playlist(
                     db,
                     "自動",
                     &crate::smart_playlist::SmartRules::unreadable(),
@@ -250,7 +246,6 @@ mod tests {
             name: name.to_string(),
             description: None,
             tracks: Vec::new(),
-            rules: None,
             folder_id: None,
             position: 0,
             created_at: String::new(),

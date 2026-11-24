@@ -95,6 +95,7 @@ export type {
   SidebarItem,
   SmartOrder,
   SmartOrderField,
+  SmartPlaylist,
   SmartRule,
   SmartRules,
   SortTags,

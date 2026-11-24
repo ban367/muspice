@@ -179,7 +179,7 @@ pub struct ToggleMiniPlayer;
 pub enum MenuCommand {
     /// 「新規プレイリスト...」: プレイリストの名前の入力を開く
     NewPlaylist,
-    /// 「新規自動プレイリスト...」: 自動プレイリストの編集画面を開く
+    /// 「新規オートプレイリスト...」: オートプレイリストの編集画面を開く
     NewSmartPlaylist,
     /// 「検索」: 表示中の画面の検索欄へ移る（検索欄のない画面では、曲の画面を開いてから）
     Find,

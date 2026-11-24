@@ -57,6 +57,17 @@ describe('playlistSidebar', () => {
     expect((await importFresh()).playlistSidebar.isCollapsed('f1')).toBe(false);
   });
 
+  it('オートプレイリストの並び順は、別に保存する（最初は、プレイリストの並び順）', async () => {
+    localStorage.setItem('muspice:playlistSort', '"manual"');
+    const first = (await importFresh()).playlistSidebar;
+    expect(first.smartSort).toBe('manual');
+
+    first.smartSort = 'name';
+    const second = (await importFresh()).playlistSidebar;
+    expect(second.smartSort).toBe('name');
+    expect(second.sort).toBe('manual');
+  });
+
   it('保存してある値が読めない場合は、既定に戻す', async () => {
     localStorage.setItem('muspice:playlistSort', '"rating"');
     localStorage.setItem('muspice:collapsedPlaylistFolders', '{broken');
@@ -88,10 +99,12 @@ describe('playlistInfoDialog', () => {
   it('開く・閉じる', async () => {
     const { playlistInfoDialog } = await importFresh();
 
-    expect(playlistInfoDialog.playlistId).toBeNull();
+    expect(playlistInfoDialog.target).toBeNull();
     playlistInfoDialog.open('p1');
-    expect(playlistInfoDialog.playlistId).toBe('p1');
+    expect(playlistInfoDialog.target).toEqual({ kind: 'playlist', id: 'p1' });
+    playlistInfoDialog.openSmartPlaylist('s1');
+    expect(playlistInfoDialog.target).toEqual({ kind: 'smartPlaylist', id: 's1' });
     playlistInfoDialog.close();
-    expect(playlistInfoDialog.playlistId).toBeNull();
+    expect(playlistInfoDialog.target).toBeNull();
   });
 });

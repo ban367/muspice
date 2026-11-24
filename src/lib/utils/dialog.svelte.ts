@@ -43,6 +43,8 @@ export interface TextPromptOptions {
   title: string;
   /** 入力欄のラベル */
   label: string;
+  /** 入力欄の上に出す説明（省略すると出さない） */
+  description?: string;
   /** 入力欄の初期値 */
   defaultValue?: string;
   /** 確定ボタンのラベル */

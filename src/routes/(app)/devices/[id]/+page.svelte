@@ -15,6 +15,9 @@
     useUpdateSyncDeviceMutation
   } from '#lib/queries/devices.js';
   import { usePlaylistsQuery } from '#lib/queries/playlists.js';
+  import { useSmartPlaylistsQuery } from '#lib/queries/smartPlaylists.js';
+  import { playlistSidebar } from '#lib/stores/playlistSidebar.svelte.js';
+  import { sortPlaylistItems } from '#lib/utils/playlistTree.js';
   import { useConvertFormatsQuery } from '#lib/queries/convert.js';
   import { showSuccess } from '#lib/stores/error.svelte.js';
   import type { SyncDevice, SyncDeviceConfig, TranscodeMode } from '#lib/types/models.js';
@@ -32,6 +35,7 @@
   // デバイスの抜き差しを反映するため、開いている間は一定の間隔で読み直す
   const devicesQuery = useSyncDevicesQuery({ poll: true });
   const playlistsQuery = usePlaylistsQuery();
+  const smartPlaylistsQuery = useSmartPlaylistsQuery();
   const updateMutation = useUpdateSyncDeviceMutation();
   const relinkMutation = useRelinkSyncDeviceMutation();
   const removeMutation = useRemoveSyncDeviceMutation();
@@ -45,7 +49,14 @@
   const canTranscode = $derived((convertFormatsQuery.data?.length ?? 0) > 0);
   const transcodeModes: TranscodeMode[] = ['off', 'lossless', 'aboveBitrate'];
   const playlists = $derived(playlistsQuery.data ?? []);
-  const hasSource = $derived(device !== null && (device.syncAll || device.playlistIds.length > 0));
+  // オートプレイリストは、サイドバーと同じ並び順で、プレイリストの前に出す（ADR-127）
+  const smartPlaylists = $derived(
+    sortPlaylistItems(smartPlaylistsQuery.data ?? [], playlistSidebar.smartSort)
+  );
+  const hasSource = $derived(
+    device !== null &&
+      (device.syncAll || device.playlistIds.length > 0 || device.smartPlaylistIds.length > 0)
+  );
 
   let isSyncDialogOpen = $state(false);
 
@@ -57,6 +68,7 @@
         name: current.name,
         syncAll: current.syncAll,
         playlistIds: current.playlistIds,
+        smartPlaylistIds: current.smartPlaylistIds,
         removeUnselected: current.removeUnselected,
         pathTemplate: current.pathTemplate,
         copyExtras: current.copyExtras,
@@ -87,6 +99,7 @@
           name: current.name,
           syncAll: current.syncAll,
           playlistIds: current.playlistIds,
+          smartPlaylistIds: current.smartPlaylistIds,
           removeUnselected: current.removeUnselected,
           pathTemplate: draftTemplate.trim(),
           copyExtras: current.copyExtras,
@@ -100,6 +113,11 @@
   function togglePlaylist(current: SyncDevice, playlistId: string, selected: boolean) {
     const others = current.playlistIds.filter((id) => id !== playlistId);
     updateConfig(current, { playlistIds: selected ? [...others, playlistId] : others });
+  }
+
+  function toggleSmartPlaylist(current: SyncDevice, smartPlaylistId: string, selected: boolean) {
+    const others = current.smartPlaylistIds.filter((id) => id !== smartPlaylistId);
+    updateConfig(current, { smartPlaylistIds: selected ? [...others, smartPlaylistId] : others });
   }
 
   async function handleRename(current: SyncDevice) {
@@ -290,12 +308,27 @@
 
       <h3 class="group-title">{m.devices.playlists}</h3>
       <p class="hint group-hint">{m.devices.playlistsHint}</p>
-      {#if playlistsQuery.isPending}
+      {#if playlistsQuery.isPending || smartPlaylistsQuery.isPending}
         <p class="hint">{m.common.loading}</p>
-      {:else if playlists.length === 0}
+      {:else if playlists.length === 0 && smartPlaylists.length === 0}
         <p class="hint">{m.devices.noPlaylists}</p>
       {:else}
         <ul class="playlist-list">
+          {#each smartPlaylists as smartPlaylist (smartPlaylist.id)}
+            <li>
+              <label class="option playlist-option">
+                <input
+                  type="checkbox"
+                  class="option-checkbox"
+                  checked={device.smartPlaylistIds.includes(smartPlaylist.id)}
+                  onchange={(e) =>
+                    toggleSmartPlaylist(device, smartPlaylist.id, e.currentTarget.checked)}
+                />
+                <span class="flex-1 truncate">{smartPlaylist.name}</span>
+                <span class="hint shrink-0">{m.smartPlaylist.badge}</span>
+              </label>
+            </li>
+          {/each}
           {#each playlists as playlist (playlist.id)}
             <li>
               <label class="option playlist-option">
@@ -306,11 +339,7 @@
                   onchange={(e) => togglePlaylist(device, playlist.id, e.currentTarget.checked)}
                 />
                 <span class="flex-1 truncate">{playlist.name}</span>
-                <span class="hint shrink-0">
-                  {playlist.rules === null
-                    ? m.common.trackCount(playlist.tracks.length)
-                    : m.smartPlaylist.badge}
-                </span>
+                <span class="hint shrink-0">{m.common.trackCount(playlist.tracks.length)}</span>
               </label>
             </li>
           {/each}
