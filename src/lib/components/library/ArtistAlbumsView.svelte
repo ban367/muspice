@@ -605,23 +605,24 @@
     @apply py-2;
   }
 
-  /* 背景の画像を、一覧の後ろに重ねる（一覧の中身より下に描く） */
+  /* 背景の画像を、一覧の後ろに重ねる（一覧の中身より下に描く）。画像の大きさを領域の幅と高さで
+     決めるため、大きさのコンテナにする（名前を付けないため、`@container artist-albums`には当たらない） */
   .albums-body {
     @apply relative flex-1 min-h-0 overflow-hidden;
     isolation: isolate;
+    container-type: size;
   }
 
   /* 1枚のアルバムの時の背景のジャケット画像。領域の右下に置き、右下から中央へ向けて消えていくよう、
-     右下を中心にした楕円のマスクで薄める（上と左の端では見えなくなり、画像の縁が出ない）。
-     高さは領域いっぱいの正方形で、横長の領域では中央まで届くよう幅を半分まで広げる（はみ出す上下は切る）。
-     曲の文字を読めるよう、全体も淡くする */
+     右下を中心にした円のマスクで薄める（上と左の端では見えなくなり、画像の縁が出ない）。
+     大きさは、領域に全体が入る正方形（領域の幅と高さの短い方）。曲の文字を読めるよう、全体も淡くする */
   .album-backdrop {
-    @apply absolute right-0 bottom-0 h-full max-w-full object-cover pointer-events-none select-none;
+    @apply absolute right-0 bottom-0 object-cover pointer-events-none select-none;
     z-index: -1;
-    aspect-ratio: 1 / 1;
-    min-width: 50%;
-    opacity: 0.3;
-    mask-image: radial-gradient(ellipse at 100% 100%, #000 25%, transparent 70%);
+    width: min(100cqw, 100cqh);
+    height: min(100cqw, 100cqh);
+    opacity: 0.36;
+    mask-image: radial-gradient(circle at 100% 100%, #000 25%, transparent 70%);
   }
 
   /* 一覧はフォーカスを受けてキー操作を扱う（枠は出さず、選択中の行の色で示す） */
