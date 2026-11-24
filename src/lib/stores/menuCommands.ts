@@ -21,7 +21,7 @@ import { stopListening } from '#lib/utils/listen.js';
 import { m } from '#lib/i18n/i18n.svelte.js';
 
 /** 画面の部品が受け持つ操作（部品を表示している間だけ、`provideMenuCommand`で登録する） */
-type ProvidedCommand = Extract<MenuCommand['type'], 'newPlaylist'>;
+type ProvidedCommand = Extract<MenuCommand['type'], 'newPlaylist' | 'reloadLibrary'>;
 
 const providers = new Map<ProvidedCommand, () => unknown>();
 
@@ -29,7 +29,8 @@ const providers = new Map<ProvidedCommand, () => unknown>();
 export const LIBRARY_SEARCH_ATTRIBUTE = 'data-library-search';
 
 /**
- * 操作を受け持つ部品を登録する（新規プレイリストはサイドバーのプレイリストの一覧）
+ * 操作を受け持つ部品を登録する（新規プレイリストはサイドバーのプレイリストの一覧、ライブラリの再読み込みは
+ * メインウィンドウのレイアウト（曲のキャッシュを持つ））
  *
  * @returns 登録を外す関数（部品を閉じる時に呼ぶ）
  */
@@ -78,6 +79,9 @@ export async function runMenuCommand(command: MenuCommand): Promise<void> {
     case 'goToAlbum':
     case 'goToArtist':
       await goToSelectedTrackGroup(command.type);
+      break;
+    case 'reloadLibrary':
+      await providers.get('reloadLibrary')?.();
       break;
   }
 }

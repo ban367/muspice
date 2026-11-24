@@ -178,7 +178,7 @@ src-tauri/src/
 ### 共有する状態（Runesのモジュール）
 
 - コンポーネントをまたいで共有する状態は`src/lib/stores/*.svelte.ts`に、`$state`のフィールドを持つクラスのインスタンスとして置く（例: `ui.svelte.ts`の`ui`、`error.svelte.ts`の`notifications`、`equalizer.svelte.ts`の`equalizer`、`player.svelte.ts`の`player`）。ユーティリティに付随する状態は、そのユーティリティの`*.svelte.ts`に置く（例: `#lib/utils/dialog.svelte.ts`のテキスト入力の要求`textPrompt`）。`svelte/store`（`writable`など）は使わない（ESLintの`no-restricted-imports`で禁止）
-- 再生コントローラー（`playback.svelte.ts`）の補助で、状態を持たない関数のモジュール（`nowPlaying.ts`・`playTracker.ts`・`openedFiles.ts`）と、メニューバーの操作を受け取る`menuCommands.ts`も`stores/`に置く（状態・コマンドと一緒に読むため）。拡張子は`.ts`（`$state`を使わない）
+- 再生コントローラー（`playback.svelte.ts`）の補助で、状態を持たない関数のモジュール（`nowPlaying.ts`・`playTracker.ts`・`openedFiles.ts`）と、メニューバーの操作を受け取る`menuCommands.ts`・ライブラリの再読み込みの`libraryReload.ts`も`stores/`に置く（状態・コマンドと一緒に読むため）。拡張子は`.ts`（`$state`を使わない）
 - コンポーネント（`.svelte`）の中では`Map`・`Set`を作らない（`$derived`の中で作り直す集まりは、`#lib/utils/collections`の`setOf`・`idSetOf`・`mapById`・`indexById`で作る。書き換える集まりは`svelte/reactivity`の`SvelteSet`・`SvelteMap`）
 - イベントの購読（`events.xxx.listen()`・`onFocusChanged()`）は、`#lib/utils/listen`の`stopListening`で解除する（購読に失敗していた場合に、未処理の拒否にしない）
 - 読み書きはプロパティを直接使う（例: `ui.isSidebarOpen = false`）。`$`接頭辞や`get()`は不要で、コンポーネント外の`.ts`からも同じように読める

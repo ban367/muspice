@@ -704,21 +704,6 @@ export function useDeleteTracksWithFilesMutation() {
 // ========== ライブラリ管理ミューテーション ==========
 
 /**
- * ライブラリ全体のメタデータ（タグの内容・評価）をファイルから読み直すミューテーション
- */
-export function useRefreshLibraryMetadataMutation() {
-  const queryClient = useQueryClient();
-
-  return createMutation(() => ({
-    mutationFn: () =>
-      withErrorToast(m.operations.refreshMetadata, () => commands.refreshLibraryMetadata()),
-    onSuccess: () => {
-      invalidateTrackListQueries(queryClient);
-    }
-  }));
-}
-
-/**
  * トラックのファイルをファイルマネージャーで表示するミューテーション
  *
  * キャッシュには影響しないが、失敗をトーストで通知するためミューテーションとして扱う。

@@ -1,9 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import CardSizeSlider from './CardSizeSlider.svelte';
-  import { useRefreshLibraryMetadataMutation } from '#lib/queries/tracks.js';
-  import { showSuccess, showWarning } from '#lib/stores/error.svelte.js';
-  import { confirmDestructive } from '#lib/utils/dialog.svelte.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   // Props
@@ -22,7 +19,6 @@
     showGridMode?: boolean;
     showListMode?: boolean;
     showCardSizeSlider?: boolean;
-    showRefreshButton?: boolean;
     /** 検索欄の左に出す、画面ごとのボタン（絞り込みなど） */
     actions?: Snippet;
   }
@@ -40,12 +36,8 @@
     showGridMode = true,
     showListMode = true,
     showCardSizeSlider = true,
-    showRefreshButton = true,
     actions
   }: Props = $props();
-
-  // メタデータ再読み込み（成功時にキャッシュを無効化し、失敗はトーストで通知する）
-  const refreshMutation = useRefreshLibraryMetadataMutation();
 
   // 検索語は、呼び出し側が持つ（入力のたびに`onSearchInput`で更新し、`searchTerm`で返してもらう）
   function handleInput(event: Event) {
@@ -58,28 +50,6 @@
 
   function setDisplayMode(mode: 'grid' | 'list') {
     onDisplayModeChange?.(mode);
-  }
-
-  async function handleRefreshMetadata() {
-    if (refreshMutation.isPending) return;
-    // ファイルの内容でライブラリを置き換えるため、実行の前に確認する
-    if (!(await confirmDestructive(m.library.confirmRefreshMetadata))) return;
-
-    try {
-      const result = await refreshMutation.mutateAsync();
-      const summary = m.notices.metadataRefreshed(
-        result.updatedCount,
-        result.skippedCount,
-        result.errorCount
-      );
-      if (result.errorCount > 0) {
-        showWarning(summary);
-      } else {
-        showSuccess(summary);
-      }
-    } catch {
-      // 失敗はミューテーション内でトースト通知済み
-    }
   }
 </script>
 
@@ -149,34 +119,9 @@
     {/if}
   </div>
 
-  <!-- 右側: 更新ボタン、検索バー -->
+  <!-- 右側: 画面ごとのボタン、検索バー（ライブラリの再読み込みは、メニューバーの「ファイル」。ADR-128） -->
   <div class="header-right">
     {@render actions?.()}
-    {#if showRefreshButton}
-      <button
-        class="refresh-btn"
-        class:refreshing={refreshMutation.isPending}
-        onclick={handleRefreshMetadata}
-        disabled={refreshMutation.isPending}
-        title={m.library.refreshMetadata}
-        aria-label={m.library.refreshMetadata}
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          class="w-4 h-4"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-          />
-        </svg>
-      </button>
-    {/if}
     <div class="search-box">
       <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -279,30 +224,5 @@
 
   .view-btn:disabled {
     @apply opacity-40 cursor-not-allowed;
-  }
-
-  .refresh-btn {
-    @apply flex items-center justify-center w-8 h-8 bg-base-400 border-none rounded text-text-muted cursor-pointer transition-all duration-150;
-  }
-
-  .refresh-btn:hover:not(:disabled) {
-    @apply text-text-primary bg-surface-hover;
-  }
-
-  .refresh-btn:disabled {
-    @apply opacity-40 cursor-not-allowed;
-  }
-
-  .refresh-btn.refreshing svg {
-    animation: spin 1s linear infinite;
-  }
-
-  @keyframes spin {
-    from {
-      transform: rotate(0deg);
-    }
-    to {
-      transform: rotate(360deg);
-    }
   }
 </style>
