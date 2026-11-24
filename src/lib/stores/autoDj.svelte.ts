@@ -25,23 +25,30 @@ export interface AutoDjSource {
  *
  * 設定はIDだけを持つ（IDは重ならない。プレイリストから分ける前に選んだオートプレイリストも、
  * そのまま使える。ADR-127）。オートプレイリストの一覧にあればオートプレイリスト、なければプレイリスト。
+ * オートプレイリストの一覧をまだ読み込んでいない間は、どちらか決められないためundefinedを返す
+ * （その間は曲を足さない。プレイリストとして取り違えて取得しない）。
+ * @param smartPlaylistIds オートプレイリストのID（読み込む前はundefined）
  */
 export function resolveAutoDjSource(
   id: string | null,
-  smartPlaylistIds: readonly string[]
-): AutoDjSource | null {
+  smartPlaylistIds: readonly string[] | undefined
+): AutoDjSource | null | undefined {
   if (id === null) return null;
+  if (smartPlaylistIds === undefined) return undefined;
   return { kind: smartPlaylistIds.includes(id) ? 'smartPlaylist' : 'playlist', id };
 }
 
-const sameSource = (a: AutoDjSource | null, b: AutoDjSource | null) =>
-  a?.kind === b?.kind && a?.id === b?.id;
+const sameSource = (a: AutoDjSource | null | undefined, b: AutoDjSource | null | undefined) =>
+  a === b || (a != null && b != null && a.kind === b.kind && a.id === b.id);
 
 export interface AutoDjOptions {
   /** Auto DJが有効かを返す（リアクティブな値を読む） */
   enabled: () => boolean;
-  /** 曲を選ぶプレイリスト・オートプレイリストを返す（nullはライブラリ全体。リアクティブな値を読む） */
-  source: () => AutoDjSource | null;
+  /**
+   * 曲を選ぶプレイリスト・オートプレイリストを返す（nullはライブラリ全体、undefinedはまだ決められない。
+   * 決まるまでは曲を足さない。リアクティブな値を読む）
+   */
+  source: () => AutoDjSource | null | undefined;
   /** ライブラリの全曲の一覧のキャッシュ（曲の画面と共有する） */
   queryClient: QueryClient;
 }
@@ -58,6 +65,7 @@ export function watchAutoDj(options: AutoDjOptions): () => void {
 
   const needsTracks = () =>
     options.enabled() &&
+    options.source() !== undefined &&
     player.currentTrack !== null &&
     player.repeatMode === 'off' &&
     !playbackAids.stopAfterCurrent &&
@@ -76,13 +84,16 @@ export function watchAutoDj(options: AutoDjOptions): () => void {
   }
 
   async function fill(): Promise<void> {
-    if (isFilling) return;
+    const source = options.source();
+    if (isFilling || source === undefined) return;
     isFilling = true;
+    // 取得を待つ間に曲の元が変わったか（変わった時の呼び出しは、取得中のため無視している）
+    let isSourceChanged = false;
     try {
-      const source = options.source();
       const candidates = await fetchCandidates(source);
+      isSourceChanged = !sameSource(options.source(), source);
       // 取得を待つ間に状況が変わっていたら、足さない（必要なら、次の変更でもう一度呼ばれる）
-      if (!needsTracks() || !sameSource(options.source(), source)) return;
+      if (isSourceChanged || !needsTracks()) return;
 
       const queue = player.playQueue.map((entry) => entry.track);
       const picked = pickAutoDjTracks(candidates, queue, AUTO_DJ_BATCH_SIZE);
@@ -92,6 +103,8 @@ export function watchAutoDj(options: AutoDjOptions): () => void {
       console.error('Failed to fetch Auto DJ tracks:', error);
     } finally {
       isFilling = false;
+      // 曲の元が変わっていたら、新しい元で足し直す
+      if (isSourceChanged && needsTracks()) void fill();
     }
   }
 

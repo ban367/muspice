@@ -44,7 +44,7 @@ const queryClient = {
 } as unknown as QueryClient;
 
 let enabled = $state(true);
-let source = $state<AutoDjSource | null>(null);
+let source = $state<AutoDjSource | null | undefined>(null);
 let stop: () => void;
 
 beforeEach(() => {
@@ -114,6 +114,45 @@ describe('watchAutoDj', () => {
     expect(commands.getPlaylistTracks).toHaveBeenCalledWith('playlist-1');
     expect(commands.getAllTracks).not.toHaveBeenCalled();
     expect(ids(player.playQueue).slice(1).sort()).toEqual(['p1', 'p2']);
+  });
+
+  it('曲の元が決まるまで（オートプレイリストの一覧を読み込むまで）は、足さない', async () => {
+    source = undefined;
+    replaceQueueAndPlay([makeTrack('a')], 0);
+    await flush();
+
+    expect(player.playQueue).toHaveLength(1);
+    expect(commands.getPlaylistTracks).not.toHaveBeenCalled();
+    expect(commands.getAllTracks).not.toHaveBeenCalled();
+
+    // 決まったら、その元から足す
+    source = { kind: 'smartPlaylist', id: 'smart-1' };
+    await flush();
+    expect(commands.getSmartPlaylistTracks).toHaveBeenCalledWith('smart-1');
+    expect(ids(player.playQueue).slice(1).sort()).toEqual(['s1', 's2']);
+  });
+
+  it('取得の途中で曲の元が変わったら、終わった後に新しい元から足し直す', async () => {
+    let finishPlaylist: (tracks: Track[]) => void = () => {};
+    vi.mocked(commands.getPlaylistTracks).mockReturnValue(
+      new Promise((resolve) => (finishPlaylist = resolve))
+    );
+    source = { kind: 'playlist', id: 'playlist-1' };
+    replaceQueueAndPlay([makeTrack('a')], 0);
+    await flush();
+    expect(commands.getPlaylistTracks).toHaveBeenCalledWith('playlist-1');
+
+    source = { kind: 'smartPlaylist', id: 'smart-1' };
+    await flush();
+    // 取得の途中は、新しい元を取得しない
+    expect(commands.getSmartPlaylistTracks).not.toHaveBeenCalled();
+
+    finishPlaylist(playlist);
+    await flush();
+    await flush();
+    expect(commands.getSmartPlaylistTracks).toHaveBeenCalledWith('smart-1');
+    // 古い元の曲は足さない
+    expect(ids(player.playQueue).slice(1).sort()).toEqual(['s1', 's2']);
   });
 
   it('オートプレイリストを元にした場合は、足す時点で条件に合う曲から足す', async () => {
@@ -206,5 +245,8 @@ describe('resolveAutoDjSource', () => {
     expect(resolveAutoDjSource(null, ['s1'])).toBeNull();
     expect(resolveAutoDjSource('s1', ['s1'])).toEqual({ kind: 'smartPlaylist', id: 's1' });
     expect(resolveAutoDjSource('p1', ['s1'])).toEqual({ kind: 'playlist', id: 'p1' });
+    // オートプレイリストの一覧を読み込む前は、決められない（ライブラリ全体は、一覧を待たない）
+    expect(resolveAutoDjSource('p1', undefined)).toBeUndefined();
+    expect(resolveAutoDjSource(null, undefined)).toBeNull();
   });
 });

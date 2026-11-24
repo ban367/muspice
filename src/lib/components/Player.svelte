@@ -65,7 +65,7 @@
       source: () =>
         resolveAutoDjSource(
           settingsQuery.data?.autoDjPlaylistId ?? null,
-          (smartPlaylistsQuery.data ?? []).map((smartPlaylist) => smartPlaylist.id)
+          smartPlaylistsQuery.data?.map((smartPlaylist) => smartPlaylist.id)
         ),
       queryClient
     });
