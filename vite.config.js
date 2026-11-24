@@ -94,7 +94,10 @@ export default defineConfig(async () => ({
   // （Runesの$effectを動かすため、Svelteはクライアント向けにコンパイルする。vitest.environment.ts参照）
   test: {
     include: ['src/**/*.test.ts', 'scripts/**/*.test.mjs'],
-    environment: './vitest.environment.ts'
+    environment: './vitest.environment.ts',
+    // Node.js 25以降は`localStorage`がグローバルにあり、`--localstorage-file`がないと`undefined`を返して
+    // 警告を出す。テストはlocalStorageがない環境を前提にする（必要なテストはメモリ上の実装に差し替える）ため、無効にする
+    execArgv: ['--no-experimental-webstorage']
   },
   // テスト時はsvelte本体もクライアント用（browser条件）を読み込む（サーバー用では$effectが動かない）
   resolve: isVitest ? { conditions: ['browser'] } : undefined,
