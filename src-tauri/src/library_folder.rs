@@ -23,7 +23,6 @@
 use crate::error::{AppError, AppResult};
 use crate::library::ScanExclusions;
 use crate::repository::TrackFileState;
-use chrono::Utc;
 use rusqlite::{Connection, OptionalExtension};
 use serde::Serialize;
 use specta::Type;
@@ -302,7 +301,7 @@ fn insert_folder(
     exclusions: &[String],
 ) -> AppResult<String> {
     let folder_id = Uuid::new_v4().to_string();
-    let now = Utc::now().to_rfc3339();
+    let now = crate::datetime::now_rfc3339();
     conn.execute(
         "INSERT INTO library_folders (id, path, added_at, last_scanned_at, is_music_folder)
          VALUES (?1, ?2, ?3, ?3, ?4)",
@@ -452,7 +451,7 @@ pub fn relocate_folder(conn: &Connection, folder_id: &str, new_path: &str) -> Ap
 pub fn mark_scanned(conn: &Connection, folder_id: &str) -> AppResult<()> {
     conn.execute(
         "UPDATE library_folders SET last_scanned_at = ?2 WHERE id = ?1",
-        rusqlite::params![folder_id, Utc::now().to_rfc3339()],
+        rusqlite::params![folder_id, crate::datetime::now_rfc3339()],
     )
     .map_err(|e| AppError::Database(format!("スキャン日時の記録に失敗しました: {}", e)))?;
     Ok(())
@@ -1072,7 +1071,7 @@ nas:/export on /private/var/automount/nfs (nfs, nodev, nosuid, automounted)
         let scanned_at = find_folder(&conn, &folder_id).unwrap().last_scanned_at;
         let scanned_at = scanned_at.expect("スキャンした日時を記録する");
         assert!(
-            chrono::DateTime::parse_from_rfc3339(&scanned_at).is_ok(),
+            crate::datetime::parse_rfc3339(&scanned_at).is_some(),
             "{scanned_at}"
         );
     }

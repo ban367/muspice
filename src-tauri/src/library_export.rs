@@ -9,7 +9,7 @@
 
 use crate::models::{PlaylistFolder, Track};
 use crate::settings::Language;
-use chrono::{DateTime, SubsecRound, Utc};
+use jiff::{RoundMode, Timestamp, TimestampRound, Unit};
 use plist::{Dictionary, Value};
 use std::time::SystemTime;
 
@@ -52,16 +52,22 @@ pub fn file_url(path: &str) -> String {
 
 /// DBに保存した日時（RFC 3339）を、プロパティリストの日時にする（読めなければNone）
 fn plist_date(value: &str) -> Option<Value> {
-    let parsed = DateTime::parse_from_rfc3339(value).ok()?;
-    Some(whole_second_date(parsed.with_timezone(&Utc)))
+    crate::datetime::parse_rfc3339(value).map(whole_second_date)
 }
 
 /// プロパティリストの日時（秒まで）
 ///
 /// プロパティリストの`<date>`は`2026-01-02T03:04:05Z`の形で、秒の小数を書くと、Appleの`plutil`・
 /// Pythonの`plistlib`などが読めない（DJソフトなど、読む側の多くも同じ）。秒の小数は切り捨てる。
-fn whole_second_date(date: DateTime<Utc>) -> Value {
-    Value::Date(SystemTime::from(date.trunc_subsecs(0)).into())
+fn whole_second_date(date: Timestamp) -> Value {
+    let whole_second = date
+        .round(
+            TimestampRound::new()
+                .smallest(Unit::Second)
+                .mode(RoundMode::Floor),
+        )
+        .unwrap_or(date);
+    Value::Date(SystemTime::from(whole_second).into())
 }
 
 fn integer(value: impl Into<i64>) -> Value {
@@ -196,7 +202,7 @@ pub fn build_itunes_xml(
     folders: &[PlaylistFolder],
     music_folder: Option<&str>,
     app_version: &str,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> Value {
     let tracks: Vec<&Track> = tracks.iter().filter(|track| track.cue.is_none()).collect();
     let xml_ids: std::collections::HashMap<&str, i64> = tracks
@@ -522,7 +528,7 @@ mod tests {
             std::slice::from_ref(&folder),
             Some("/Music"),
             "1.0.0",
-            Utc::now(),
+            Timestamp::now(),
         );
 
         let dir = TempDir::new();
@@ -540,11 +546,11 @@ mod tests {
         assert_eq!(first.stats.skip_count, 3);
         assert!(first.stats.loved);
         assert_eq!(
-            first.stats.last_played.map(|date| date.to_rfc3339()),
+            first.stats.last_played.map(crate::datetime::to_rfc3339),
             Some("2026-02-03T04:05:06+00:00".to_string())
         );
         assert_eq!(
-            first.stats.date_added.map(|date| date.to_rfc3339()),
+            first.stats.date_added.map(crate::datetime::to_rfc3339),
             Some("2026-01-02T03:04:05+00:00".to_string())
         );
         // ライブラリ全体（Master）とフォルダは、プレイリストとして読まない
@@ -595,9 +601,7 @@ mod tests {
             folder_id: None,
             track_ids: vec![cue.id.clone(), regular.id.clone()],
         }];
-        let now = DateTime::parse_from_rfc3339("2026-11-20T13:37:29.825692Z")
-            .unwrap()
-            .with_timezone(&Utc);
+        let now: Timestamp = "2026-11-20T13:37:29.825692Z".parse().unwrap();
         let xml = String::from_utf8(
             to_xml_bytes(&build_itunes_xml(
                 &[cue, regular.clone()],

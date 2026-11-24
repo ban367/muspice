@@ -8,7 +8,6 @@ use crate::library::to_count;
 use crate::library_export::{ExportPlaylist, build_csv, build_itunes_xml, to_xml_bytes};
 use crate::settings::Language;
 use crate::state::AppState;
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::path::{Path, PathBuf};
@@ -190,7 +189,7 @@ fn export(
             &folders,
             music_folder.as_deref(),
             env!("CARGO_PKG_VERSION"),
-            Utc::now(),
+            jiff::Timestamp::now(),
         ))
         .map_err(|e| AppError::Io(format!("XMLを作れませんでした: {}", e)))?,
         LibraryExportFormat::Csv => build_csv(&tracks, language).into_bytes(),

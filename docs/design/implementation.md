@@ -90,6 +90,7 @@ src-tauri/src/
 ├── atomic_file.rs         # 小さなファイル（設定・再生状態・デバイスの管理ファイル）を、ディスクへ書き出してから置き換える
 ├── ape_tag.rs             # APEv2タグ（WavPack・APE）の読み書き（BPM・評価・画像と、アプリが扱わない項目の保持。ADR-047）
 ├── backup.rs              # ライブラリのデータ（DB・設定）のバックアップの作成・確認、復元の用意と起動時の置き換え、自動のバックアップ（ADR-073）
+├── datetime.rs            # 日時（jiff）。DBに書くRFC 3339の文字列の形と、DBの日時の読み方（ADR-131）
 ├── db.rs
 ├── device.rs              # 転送先デバイスの記録（SQL）と同期の実行状態
 ├── device_manifest.rs     # デバイス側の管理ファイル（.muspice/manifest.json）

@@ -18,7 +18,6 @@ use crate::settings::Language;
 use crate::state::AppState;
 use crate::track_relink::MissingTrackIndex;
 use crate::validation::validate_track_id;
-use chrono::Utc;
 use rusqlite::Connection;
 use serde::Serialize;
 use specta::Type;
@@ -835,7 +834,7 @@ fn record_file_states(
         for (track_id, modified_at) in &plan.to_record_modified_at {
             crate::repository::set_track_file_modified_at(&tx, track_id, *modified_at)?;
         }
-        let now = Utc::now().to_rfc3339();
+        let now = crate::datetime::now_rfc3339();
         let mut newly_missing = HashSet::new();
         for track_id in &plan.to_mark_missing {
             if crate::repository::mark_track_missing(&tx, track_id, &now)? > 0 {

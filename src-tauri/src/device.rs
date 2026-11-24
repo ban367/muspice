@@ -10,7 +10,6 @@
 
 use crate::error::{AppError, AppResult};
 use crate::settings::DEFAULT_MUSIC_FOLDER_TEMPLATE;
-use chrono::Utc;
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -472,7 +471,7 @@ pub fn insert_device(conn: &Connection, device_id: &str, name: &str, path: &str)
             device_id,
             name,
             path,
-            Utc::now().to_rfc3339(),
+            crate::datetime::now_rfc3339(),
             DEFAULT_DEVICE_TEMPLATE
         ],
     )
@@ -577,7 +576,7 @@ pub fn delete_device(conn: &mut Connection, device_id: &str) -> AppResult<()> {
 pub fn mark_synced(conn: &Connection, device_id: &str) -> AppResult<()> {
     conn.execute(
         "UPDATE sync_devices SET last_synced_at = ?2 WHERE id = ?1",
-        rusqlite::params![device_id, Utc::now().to_rfc3339()],
+        rusqlite::params![device_id, crate::datetime::now_rfc3339()],
     )
     .map_err(|e| AppError::Database(format!("同期日時の記録に失敗しました: {}", e)))?;
     Ok(())

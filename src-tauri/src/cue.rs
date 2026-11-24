@@ -388,7 +388,7 @@ pub fn build_track(virtual_path: &str) -> AppResult<crate::models::Track> {
         .and_then(|date| date.get(..4))
         .and_then(|year| year.parse().ok())
         .or(info.metadata.year);
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = crate::datetime::now_rfc3339();
     let file_name = Path::new(virtual_path)
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())

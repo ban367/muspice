@@ -13,7 +13,8 @@
 
 use crate::db::{self, DbOpenError};
 use crate::settings::Language;
-use chrono::{DateTime, Local};
+use jiff::Zoned;
+use jiff::civil::DateTime;
 use rusqlite::{Connection, ErrorCode};
 use serde::Serialize;
 use specta::Type;
@@ -115,7 +116,7 @@ pub fn open_database(app_data_dir: &Path) -> Result<OpenedDatabase, StartupFailu
         "The database is damaged or cannot be used by this version; moving it aside: {}",
         error
     );
-    let quarantined = quarantine_database(&db_path, Local::now()).map_err(|e| {
+    let quarantined = quarantine_database(&db_path, Zoned::now().datetime()).map_err(|e| {
         log::error!("Cannot move the damaged database aside: {}", e);
         StartupFailure::Database(format!("{} ({})", error, e))
     })?;
@@ -155,12 +156,12 @@ fn is_environment_error(error: &rusqlite::Error) -> bool {
 /// 開けなかったDBを、同じフォルダの別の名前に変えて残す（SQLiteの一時ファイルも一緒に動かす）
 ///
 /// 一時ファイル（ジャーナルなど）を元の名前のまま残すと、新しく作るDBに当てられてしまうため、
-/// 動かせなければ消し、消せなければエラーにする。
+/// 動かせなければ消し、消せなければエラーにする。名前には`now`（今の日時。ローカル時刻）を付ける。
 /// @returns 残したDBの場所
-fn quarantine_database(db_path: &Path, now: DateTime<Local>) -> std::io::Result<PathBuf> {
+fn quarantine_database(db_path: &Path, now: DateTime) -> std::io::Result<PathBuf> {
     let quarantined = db_path.with_file_name(format!(
         "muspice-unreadable-{}.db",
-        now.format("%Y%m%d-%H%M%S")
+        now.strftime("%Y%m%d-%H%M%S")
     ));
     fs::rename(db_path, &quarantined)?;
     for suffix in DB_SIDECAR_SUFFIXES {
@@ -359,7 +360,7 @@ mod tests {
         fs::write(&db_path, b"db").unwrap();
         fs::write(with_suffix(&db_path, "-journal"), b"journal").unwrap();
         fs::write(with_suffix(&db_path, "-wal"), b"wal").unwrap();
-        let now = chrono::TimeZone::with_ymd_and_hms(&Local, 2026, 11, 13, 9, 30, 0).unwrap();
+        let now = jiff::civil::date(2026, 11, 13).at(9, 30, 0, 0);
 
         let quarantined = quarantine_database(&db_path, now).unwrap();
 
