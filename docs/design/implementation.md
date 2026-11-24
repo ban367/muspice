@@ -7,6 +7,7 @@
 | フロントエンド         | SvelteKit + Svelte + TypeScript                                                 | `@sveltejs/kit` 3.1.x / `svelte` 5.57.x / TS 6.0.x | SPA構成（adapter-static）。TS 7は、svelte-check・typescript-eslint・SvelteKitが対応するまで見送る（どれもpeerが`typescript` 6まで）                                                                                          |
 | ビルド                 | Vite                                                                            | 8.3.x                                              | Tailwindは`@tailwindcss/vite`経由（PostCSS設定なし）                                                                                                                                                                         |
 | テスト                 | Vitest                                                                          | 5.0.x                                              | ストア・ユーティリティの単体テスト                                                                                                                                                                                           |
+| 開発・ビルドの実行環境 | Node.js                                                                         | `.node-version`の版（26系のLTS）                   | ビルド・テスト・開発サーバーを動かす。版は`.node-version`で固定する（「ツールチェーンの版」）                                                                                                                                |
 | UIスタイル             | TailwindCSS                                                                     | 4.3.x                                              | 部品のクラス集（DaisyUIなど）は使わない（ADR-055）。`@apply`運用に制限あり                                                                                                                                                   |
 | UI部品（動作）         | Bits UI                                                                         | 2.19.x                                             | ヘッドレス（スタイルなし）。メニュー・パネル・タブで使う（ADR-056）                                                                                                                                                          |
 | データ取得             | TanStack Query（Svelte）                                                        | 6.3.x                                              | Queryキャッシュ/再取得制御                                                                                                                                                                                                   |
@@ -454,7 +455,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 
 ### ツールチェーンの版
 
-- Node.js: `.node-version`（24.22.3）だけに書く。CIの`setup-node`は`node-version-file`で、miseは`mise.toml`の`idiomatic_version_file_enable_tools`で、このファイルを読む。Nodeの版は手で上げる（Dependabotは`.node-version`を上げない）。遅れは、`.github/workflows/node-version.yml`が毎週、同じメジャーの最新の版と比べて、Issueを立てて知らせる（ADR-124）
+- Node.js: `.node-version`（26.13.1。LTSの版）だけに書く。CIの`setup-node`は`node-version-file`で、miseは`mise.toml`の`idiomatic_version_file_enable_tools`で、このファイルを読む。Nodeの版は手で上げる（Dependabotは`.node-version`を上げない）。遅れは、`.github/workflows/node-version.yml`が毎週、同じメジャーの最新の版と比べて、Issueを立てて知らせる（ADR-124）
   - `package.json`の`engines`（Node.js 24.15以上・npm 11以上）を、`.npmrc`の`engine-strict=true`で守らせる。npm 10（Node.js 22）では、依存のpeerの食い違いでlockfileを入れられない。24.15は、依存（markdownlint-cliが使う`ini`）が求める最小の版
 - Rust: `rust-toolchain.toml`だけに書く（ほかの所には版を書かない。Dependabotが上げるたびに食い違うため）。CIは`rustup toolchain install`でこの版とコンポーネントを入れ、miseも同じファイルを読む（miseは`RUSTUP_TOOLCHAIN`を設定するため、`mise.toml`や全体の設定の`rust = "stable"`が使われると、`rust-toolchain.toml`より優先される）
   - 新しい版は、Dependabot（`rust-toolchain`）が毎週PRで上げる。新しい版のclippyのlintで落ちたら、そのPRで直す（stableのままだと、コードを変えていないPRでもCIが急に落ちる。ADR-060）
@@ -468,6 +469,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
   - 実際の出力デバイスでの再生は、手動のテストで確かめる（音量を0にするため音は出ない）: `PLAYBACK_TEST_FILES=a.flac:b.mp3 cargo test real_output -- --ignored --nocapture`。再生位置・曲の切り替わりの通知と、かかった時間（実時間で再生されたか）、音切れのログを表示する（`PLAYBACK_TEST_CROSSFADE=2`でクロスフェードの秒数、`PLAYBACK_TEST_PLAIN=1`で途中の操作なしを指定できる）
 - フロントエンドのロジック（ストア・ユーティリティ）は Vitest で単体テストする（`npm test`）
   - テストは対象と同じディレクトリに `*.test.ts` として置き、Node環境で実行する。テスト内で`$state`・`$effect`などのRunesを使う場合は `*.svelte.test.ts` にする
+  - テストの環境には`localStorage`がない（Node.js 25以降のグローバルの`localStorage`は、`vite.config.js`の`test.execArgv`の`--no-experimental-webstorage`で無効にする。有効のままだと`undefined`を返して警告を出す）。保存を確かめるテストは、メモリ上の実装に差し替える
   - Svelteはアプリと同じクライアント向けにコンパイルする（`vitest.environment.ts`の環境と、Vitest実行時の`resolve.conditions: ['browser']`）。組み込みの`node`環境ではサーバー向けになり、`$effect`が実行されない
   - コンポーネント内の判定ロジックはテストしやすいよう `#lib/utils` の純粋関数へ切り出す（例: `selection.ts`、`listNavigation.ts`）
 - 変更前後で最低限以下を確認する
