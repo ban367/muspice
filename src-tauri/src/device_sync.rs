@@ -903,16 +903,16 @@ mod tests {
         }
     }
 
-    /// 以前の配置の書式（曲のアーティスト/アルバム/曲名）
-    fn legacy() -> Template {
-        Template::parse(crate::device::LEGACY_DEVICE_TEMPLATE).unwrap()
+    /// 曲のアーティストで分ける配置の書式（曲のアーティスト/アルバム/曲名）
+    fn by_artist() -> Template {
+        Template::parse("%artist%/%album%/[%disc%-]%track% %title%").unwrap()
     }
 
-    /// 元のファイルが見つかるトラック（サイズ100・更新日時10。配置は以前の配置の書式）
+    /// 元のファイルが見つかるトラック（サイズ100・更新日時10。配置は曲のアーティストで分ける書式）
     fn source(id: &str, artist: &str, album: &str, number: i32, title: &str) -> SourceTrack {
         let track = transfer_track(id, artist, album, number, title);
         SourceTrack {
-            path: track_relative_path(&track, &legacy(), None),
+            path: track_relative_path(&track, &by_artist(), None),
             track,
             file: Some(SourceFile {
                 size: 100,
@@ -1003,16 +1003,16 @@ mod tests {
 
     #[test]
     fn test_track_relative_path() {
-        let legacy = legacy();
+        let by_artist = by_artist();
         let mut track = transfer_track("t1", "Artist", "Album", 3, "Title");
         assert_eq!(
-            track_relative_path(&track, &legacy, None),
+            track_relative_path(&track, &by_artist, None),
             "Artist/Album/03 Title.mp3"
         );
 
         track.disc_number = Some(2);
         assert_eq!(
-            track_relative_path(&track, &legacy, None),
+            track_relative_path(&track, &by_artist, None),
             "Artist/Album/2-03 Title.mp3"
         );
 
@@ -1021,7 +1021,7 @@ mod tests {
         track.disc_number = None;
         track.track_number = None;
         assert_eq!(
-            track_relative_path(&track, &legacy, None),
+            track_relative_path(&track, &by_artist, None),
             "Artist/Album/Title.flac"
         );
     }
@@ -1044,9 +1044,9 @@ mod tests {
             track_relative_path(&track, &template, None),
             "Various Artists/Hits/01 Song.mp3"
         );
-        // 以前の配置の書式では、曲のアーティストのフォルダ
+        // 曲のアーティストで分ける書式では、曲のアーティストのフォルダ
         assert_eq!(
-            track_relative_path(&track, &legacy(), None),
+            track_relative_path(&track, &by_artist(), None),
             "Someone/Hits/01 Song.mp3"
         );
 
@@ -1271,7 +1271,7 @@ mod tests {
 
     #[test]
     fn test_plan_renames_tracks_when_the_template_changes() {
-        // 以前の配置でコピー済みの曲（元のファイルは変わっていない）
+        // 曲のアーティストで分ける書式でコピー済みの曲（元のファイルは変わっていない）
         let mut track = transfer_track("t1", "Someone", "Hits", 1, "Song");
         track.compilation = true;
         let files = vec![entry("Someone/Hits/01 Song.mp3", "t1")];
@@ -1313,7 +1313,7 @@ mod tests {
             bitrate: None,
         };
         assert_eq!(
-            track_relative_path(&track, &legacy(), None),
+            track_relative_path(&track, &by_artist(), None),
             "Unknown Artist/Unknown Album/untagged song.m4a"
         );
     }
@@ -1457,11 +1457,11 @@ mod tests {
         );
     }
 
-    /// AACに変換してコピーする曲（配置は以前の配置の書式。拡張子は`.m4a`）
+    /// AACに変換してコピーする曲（配置は曲のアーティストで分ける書式。拡張子は`.m4a`）
     fn transcoded(id: &str, title: &str, bitrate_kbps: u32) -> SourceTrack {
         let mut track = source(id, "Artist", "Album", 1, title);
         track.transcode = Some(Transcode { bitrate_kbps });
-        track.path = track_relative_path(&track.track, &legacy(), track.transcode);
+        track.path = track_relative_path(&track.track, &by_artist(), track.transcode);
         track
     }
 

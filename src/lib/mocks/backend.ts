@@ -851,7 +851,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       playlistIds: [mockPlaylistId(1)],
       smartPlaylistIds: [],
       removeUnselected: true,
-      // 配置の書式を持つ前に登録したデバイス（以前の配置。曲のアーティストで分ける）
+      // 配置の書式を、曲のアーティストで分ける書式に変えたデバイス
       pathTemplate: '%artist%/%album%/[%disc%-]%track% %title%',
       copyExtras: true,
       transcode: { mode: 'off', bitrateKbps: 256 },
@@ -3937,16 +3937,6 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         unmatched: ['D:/Music/Unknown Artist/99 Missing.mp3', 'D:/Music/Old/Deleted Song.flac'],
         playlistCount,
         skippedPlaylistCount: includePlaylists ? 1 : 0
-      };
-    },
-    writeLibraryMetadataToFiles: () => {
-      options.emit('libraryChanged', null);
-      return {
-        writtenCount: 0,
-        unchangedCount: tracks.length,
-        skippedCount: 0,
-        errorCount: 0,
-        errors: []
       };
     },
     getSyncDevices: () =>

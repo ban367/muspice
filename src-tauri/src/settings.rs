@@ -331,11 +331,9 @@ pub fn load_settings(path: &Path) -> Settings {
 fn parse_with_defaults(json: &str) -> serde_json::Result<Settings> {
     let defaults = serde_json::to_value(Settings::default())?;
     let mut merged = defaults.clone();
-    if let (Value::Object(merged), Value::Object(mut stored)) =
+    if let (Value::Object(merged), Value::Object(stored)) =
         (&mut merged, serde_json::from_str::<Value>(json)?)
     {
-        migrate_volume_normalization(&mut stored);
-        migrate_crossfade(&mut stored);
         for (key, mut value) in stored {
             match key.as_str() {
                 "hiddenSidebarItems" => keep_known_sidebar_items(&mut value),
@@ -353,43 +351,6 @@ fn parse_with_defaults(json: &str) -> serde_json::Result<Settings> {
         }
     }
     serde_json::from_value(merged)
-}
-
-/// 音量の正規化のオン・オフを、単位とは別の項目にする前のファイルを読めるようにする
-///
-/// 以前は単位の`off`がオフだった。オン・オフの項目がなければ、単位が読めればオンにし、
-/// `off`はオフにして単位を既定に戻す（オンにした時に使う単位）。読めない単位（新しい版の選択肢）は、
-/// オン・オフを決めない（どちらも既定値になる）。
-fn migrate_volume_normalization(stored: &mut serde_json::Map<String, Value>) {
-    if stored.contains_key("volumeNormalizationEnabled") {
-        return;
-    }
-    let Some(mode) = stored.get("volumeNormalization") else {
-        return;
-    };
-    if mode.as_str() == Some("off") {
-        stored.remove("volumeNormalization");
-        stored.insert("volumeNormalizationEnabled".to_string(), Value::Bool(false));
-    } else if serde_json::from_value::<VolumeNormalization>(mode.clone()).is_ok() {
-        stored.insert("volumeNormalizationEnabled".to_string(), Value::Bool(true));
-    }
-}
-
-/// クロスフェードのオン・オフを、秒数とは別の項目にする前のファイルを読めるようにする
-///
-/// 以前は秒数の0がオフだった。オン・オフの項目がなければ、秒数が1以上ならオンにし、
-/// 0の秒数は既定の秒数に戻す（オンにした時に使う秒数）。
-fn migrate_crossfade(stored: &mut serde_json::Map<String, Value>) {
-    if stored.contains_key("crossfadeEnabled") {
-        return;
-    }
-    let Some(seconds) = stored.get("crossfadeSeconds").and_then(Value::as_u64) else {
-        return;
-    };
-    stored.insert("crossfadeEnabled".to_string(), Value::Bool(seconds > 0));
-    if seconds == 0 {
-        stored.remove("crossfadeSeconds");
-    }
 }
 
 /// 既定値の設定の1項目だけを`value`にした時に、設定として読めて、正しい値か
@@ -606,13 +567,12 @@ mod tests {
     }
 
     #[test]
-    fn test_removed_fields_in_the_file_are_ignored() {
-        // 以前のバージョンが保存した、今はない項目（再生エンジンの切り替え・音楽フォルダへの
-        // プレイリストの書き出し（ADR-087））があっても読める
-        let path = temp_settings_path("removed-field");
+    fn test_unknown_fields_in_the_file_are_ignored() {
+        // 知らない項目（新しい版が足した項目など）があっても読める
+        let path = temp_settings_path("unknown-field");
         fs::write(
             &path,
-            r#"{ "playbackEngine": "webView", "exportPlaylistsToMusicFolder": true, "crossfadeSeconds": 3 }"#,
+            r#"{ "futureOption": "on", "anotherOption": true, "crossfadeSeconds": 3 }"#,
         )
         .unwrap();
 
@@ -666,77 +626,6 @@ mod tests {
         assert!(state.save(settings(MAX_CROSSFADE_SECONDS + 1)).is_err());
         // オフは秒数ではなく`crossfade_enabled`で表す
         assert!(state.save(settings(0)).is_err());
-    }
-
-    /// 音量の正規化のオン・オフの項目がない（単位の`off`がオフだった）ファイルを読む
-    #[test]
-    fn test_volume_normalization_without_enabled_field_is_migrated() {
-        let path = temp_settings_path("normalization-migration");
-        let load = |json: &str| {
-            fs::write(&path, json).unwrap();
-            let settings = load_settings(&path);
-            (
-                settings.volume_normalization_enabled,
-                settings.volume_normalization,
-            )
-        };
-        assert_eq!(
-            load(r#"{ "volumeNormalization": "track" }"#),
-            (true, VolumeNormalization::Track)
-        );
-        assert_eq!(
-            load(r#"{ "volumeNormalization": "album" }"#),
-            (true, VolumeNormalization::Album)
-        );
-        assert_eq!(
-            load(r#"{ "volumeNormalization": "auto" }"#),
-            (true, VolumeNormalization::Auto)
-        );
-        assert_eq!(
-            load(r#"{ "volumeNormalization": "off" }"#),
-            (false, VolumeNormalization::Auto)
-        );
-        // 読めない単位では、オンにしない
-        assert_eq!(
-            load(r#"{ "volumeNormalization": "smart" }"#),
-            (false, VolumeNormalization::Auto)
-        );
-        // オン・オフの項目があれば、そのまま使う
-        assert_eq!(
-            load(r#"{ "volumeNormalizationEnabled": false, "volumeNormalization": "track" }"#),
-            (false, VolumeNormalization::Track)
-        );
-        assert_eq!(
-            load(r#"{ "volumeNormalizationEnabled": true, "volumeNormalization": "off" }"#),
-            (true, VolumeNormalization::Auto)
-        );
-        fs::remove_dir_all(path.parent().unwrap()).ok();
-    }
-
-    /// クロスフェードのオン・オフの項目がない（秒数の0がオフだった）ファイルを読む
-    #[test]
-    fn test_crossfade_without_enabled_field_is_migrated() {
-        let path = temp_settings_path("crossfade-migration");
-        let load = |json: &str| {
-            fs::write(&path, json).unwrap();
-            let settings = load_settings(&path);
-            (settings.crossfade_enabled, settings.crossfade_seconds)
-        };
-        assert_eq!(load(r#"{ "crossfadeSeconds": 3 }"#), (true, 3));
-        assert_eq!(
-            load(r#"{ "crossfadeSeconds": 0 }"#),
-            (false, DEFAULT_CROSSFADE_SECONDS)
-        );
-        // オン・オフの項目があれば、そのまま使う
-        assert_eq!(
-            load(r#"{ "crossfadeEnabled": false, "crossfadeSeconds": 3 }"#),
-            (false, 3)
-        );
-        assert_eq!(
-            load(r#"{ "crossfadeEnabled": true, "crossfadeSeconds": 0 }"#),
-            (true, DEFAULT_CROSSFADE_SECONDS)
-        );
-        fs::remove_dir_all(path.parent().unwrap()).ok();
     }
 
     #[test]

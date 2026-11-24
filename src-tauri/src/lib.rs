@@ -47,7 +47,6 @@ mod settings;
 mod smart_playlist;
 mod startup;
 mod state;
-mod tag_backfill;
 mod track_notification;
 mod track_relink;
 mod transcode;
@@ -90,7 +89,7 @@ use commands::{
     set_mini_player, set_music_folder, set_now_playing, set_playlist_description, set_rating,
     show_in_folder, start_loudness_scan, take_opened_files, take_startup_notices,
     update_multiple_tracks_metadata, update_smart_playlist, update_sync_device,
-    update_track_metadata, write_library_metadata_to_files,
+    update_track_metadata,
 };
 use commands::{
     delete_music_analysis, get_music_analysis_status, pick_ai_shuffle_track, start_music_analysis,
@@ -178,7 +177,6 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             update_track_metadata,
             update_multiple_tracks_metadata,
             apply_metadata_changes,
-            write_library_metadata_to_files,
             plan_file_organize,
             organize_files,
             cancel_file_organize,
@@ -541,10 +539,6 @@ pub fn run() {
             // 再スキャン・フォルダの監視を別スレッドで始める）
             app.manage(library_sync::LibrarySync::default());
             library_sync::start(app.handle());
-
-            // アルバムアーティストの列を追加する前に登録したトラックがあれば、別スレッドで
-            // ファイルのタグから読み込む（対象がなければ何もしない）
-            tag_backfill::start(app.handle());
 
             // デバイスへの同期の実行状態（同時に実行する同期は1つだけ）
             app.manage(device::DeviceSyncState::default());

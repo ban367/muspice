@@ -136,7 +136,6 @@ export const ja = {
     deleteTracks: 'トラックの削除',
     deleteTracksAndFiles: 'トラックとファイルの削除',
     reloadLibrary: 'ライブラリの再読み込み',
-    writeMetadataToFiles: 'メタデータの書き出し',
     loudnessScan: '音量の解析',
     musicAnalysis: '曲の解析',
     convert: '形式の変換',
@@ -599,18 +598,6 @@ export const ja = {
       times: (count: number) => `${count}回`,
       missing: 'ファイルが見つかりません'
     }
-  },
-
-  metadataExport: {
-    title: 'アプリ内の編集内容・評価の書き出し',
-    description:
-      '以前のバージョンでアプリ内だけに保存した編集内容（タイトルなど）と評価を、音楽ファイルのタグへ書き込みます。ファイルと違う値がある曲だけを書き換え、その後ファイルを読み直します。現在は、編集と評価は常にファイルへ書き込まれるため、この操作は一度だけ行えば十分です',
-    write: 'ファイルへ書き出す',
-    writing: '書き出し中...',
-    confirm:
-      'アプリ内の編集内容・評価を、音楽ファイルのタグへ書き込みます。ファイルが書き換わります。続けますか？',
-    result: (written: number, unchanged: number, skipped: number, errors: number) =>
-      `書き出し完了（書き込み: ${written}曲、変更なし: ${unchanged}曲、ファイルなし: ${skipped}曲、エラー: ${errors}曲）`
   },
 
   convert: {

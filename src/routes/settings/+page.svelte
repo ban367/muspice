@@ -25,7 +25,6 @@
   import { AUTO_BACKUP_KEEP, DEFAULT_ACCENT_COLOR, LIBRARY_SCAN_INTERVALS } from '#lib/bindings.js';
   import LibraryFolderSettings from '#lib/components/LibraryFolderSettings.svelte';
   import MusicFolderTemplateSetting from '#lib/components/MusicFolderTemplateSetting.svelte';
-  import MetadataExportSettings from '#lib/components/MetadataExportSettings.svelte';
   import LibraryXmlImportSettings from '#lib/components/LibraryXmlImportSettings.svelte';
   import LibraryExportSettings from '#lib/components/LibraryExportSettings.svelte';
   import LoudnessScanSettings from '#lib/components/LoudnessScanSettings.svelte';
@@ -398,7 +397,6 @@
         <LibraryXmlImportSettings />
         <LibraryExportSettings />
         <LoudnessScanSettings />
-        <MetadataExportSettings />
         <LibraryBackupSettings>
           <!-- 自動のバックアップは、ほかの設定と同じく「適用」で保存する -->
           {#if pending}

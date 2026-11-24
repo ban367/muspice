@@ -26,7 +26,7 @@ export async function reloadLibrary(queryClient: QueryClient): Promise<void> {
 
   state = 'confirming';
   try {
-    // アプリ内だけにある内容（以前の版で保存した編集など）は、ファイルの内容に置き換わるため、確かめる
+    // すべての曲の情報がファイルの内容に置き換わり、曲が多いと時間もかかるため、確かめる
     if (!(await confirmDestructive(m.libraryReload.confirm, m.libraryReload.run))) return;
 
     state = 'running';

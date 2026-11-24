@@ -23,12 +23,6 @@ const MAX_DEVICE_NAME_LENGTH: usize = 100;
 /// 新しく登録するデバイスの配置の書式（音楽フォルダの既定の書式と同じ。アルバムアーティストで分ける。ADR-111）
 pub const DEFAULT_DEVICE_TEMPLATE: &str = DEFAULT_MUSIC_FOLDER_TEMPLATE;
 
-/// 配置の書式を持つ前に登録したデバイスの書式（曲のアーティストで分ける、以前の配置。ADR-111）
-///
-/// 書式を足した時に登録済みのデバイスは、この書式で続ける（デバイス上の曲の名前を、利用者が書式を
-/// 変えるまで変えない）。`db.rs`の列の既定値にも使う。
-pub const LEGACY_DEVICE_TEMPLATE: &str = "%artist%/%album%/[%disc%-]%track% %title%";
-
 /// デバイスへ転送する時に、曲をAACに変換する条件（ADR-118）
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -654,17 +648,6 @@ mod tests {
         assert_eq!(
             find_device(&conn, "d1").unwrap().path_template,
             DEFAULT_DEVICE_TEMPLATE
-        );
-
-        // 書式の列を足す前に登録したデバイス（列を指定せずに作った行）は、以前の配置の書式
-        conn.execute(
-            "INSERT INTO sync_devices (id, name, path) VALUES ('d2', 'Old', '/Volumes/Old')",
-            [],
-        )
-        .unwrap();
-        assert_eq!(
-            find_device(&conn, "d2").unwrap().path_template,
-            LEGACY_DEVICE_TEMPLATE
         );
 
         // 設定の更新で、書式も変わる

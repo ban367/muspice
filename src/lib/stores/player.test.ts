@@ -774,7 +774,7 @@ describe('シャッフル中のキューへの追加', () => {
 describe('シャッフルの解除で、シャッフルする前の順に再生中の曲がない場合', () => {
   it('再生中の位置へ入れ、「次へ」はその後ろの曲へ進む', () => {
     player.isShuffleEnabled = true;
-    // 古い版で保存したキュー: シャッフル中に追加した曲（x）が、シャッフルする前の順にない
+    // 食い違った保存: シャッフル中に追加した曲（x）が、シャッフルする前の順にない
     restoreQueue(
       [tracks[2], makeTrack('x'), tracks[0], tracks[1]],
       [tracks[0], tracks[1], tracks[2]],

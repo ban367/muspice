@@ -419,7 +419,6 @@ pub fn modified_at_of(metadata: &fs::Metadata) -> Option<i64> {
 /// 拡張子の大文字のままでは、一般的なプレーヤーと表記が違う形式（変える前の名前, 一覧に出す名前）
 ///
 /// 同じ形式の別の拡張子（`.aif`・`.aiff`）を1つの名前にそろえ、略称（`.wv`）を形式の名前にする。
-/// 以前の版が記録した値は、起動時に直す（`db::setup_connection`）。
 pub const FORMAT_RENAMES: &[(&str, &str)] = &[("AIF", "AIFF"), ("WV", "WavPack")];
 
 /// ファイル形式を取得（拡張子の大文字。`FORMAT_RENAMES`の形式は、その名前）

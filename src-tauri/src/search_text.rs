@@ -65,7 +65,7 @@ fn join_fields<'a>(fields: impl Iterator<Item = Option<&'a str>>) -> String {
 /// SQLの関数`search_text(項目, ...)`を接続に登録する
 ///
 /// 引数の文字列（NULLは除く）を正規化してつないだ文字列を返す。`tracks_fts`を同期する
-/// トリガーが使うため、`tracks`に書き込む接続には必ず登録する（`db::run_migrations`が呼ぶ）。
+/// トリガーが使うため、`tracks`に書き込む接続には必ず登録する（`db::setup_connection`が呼ぶ）。
 pub fn register(conn: &Connection) -> rusqlite::Result<()> {
     conn.create_scalar_function(
         SQL_FUNCTION,

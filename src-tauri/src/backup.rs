@@ -269,12 +269,15 @@ pub fn inspect_backup(path: &Path) -> Result<BackupInfo, BackupProblem> {
     {
         return Err(BackupProblem::NewerFormat);
     }
-    // 新しい版のアプリのDB（表の作りの版が新しい）は、復元しても起動時に開けない（ADR-088）
-    if crate::db::stored_schema_version(&conn)
-        .map_err(problem)?
-        .is_some_and(|version| version > crate::db::DB_SCHEMA_VERSION)
-    {
-        return Err(BackupProblem::NewerFormat);
+    // 表の作りの版が今の版と違うDBは、復元しても起動時に開けない。新しい版のアプリのDBは、更新を
+    // 勧める（ADR-088）。リリースの前の版のDBは、移行しないため、Muspiceのバックアップとして扱わない
+    // （ADR-129）
+    match crate::db::stored_schema_version(&conn).map_err(problem)? {
+        Some(crate::db::DB_SCHEMA_VERSION) => {}
+        Some(version) if version > crate::db::DB_SCHEMA_VERSION => {
+            return Err(BackupProblem::NewerFormat);
+        }
+        _ => return Err(BackupProblem::NotBackup),
     }
 
     let count = |table: &str| -> Result<u32, BackupProblem> {
@@ -283,18 +286,12 @@ pub fn inspect_backup(path: &Path) -> Result<BackupInfo, BackupProblem> {
         })
         .map_err(problem)
     };
-    // オートプレイリストも、プレイリストの数に含める（プレイリストの表に一緒に持っていた版の
-    // バックアップと、同じ数え方にする。ADR-127）
-    let smart_playlist_count = if has_table("smart_playlists")? {
-        count("smart_playlists")?
-    } else {
-        0
-    };
     Ok(BackupInfo {
         created_at,
         app_version,
         track_count: count("tracks")?,
-        playlist_count: count("playlists")? + smart_playlist_count,
+        // オートプレイリストも、プレイリストの数に含める
+        playlist_count: count("playlists")? + count("smart_playlists")?,
         library_folder_count: count("library_folders")?,
         includes_settings: settings.is_some(),
     })
@@ -643,21 +640,27 @@ mod tests {
         assert_eq!(inspect_backup(&path), Err(BackupProblem::NewerFormat));
     }
 
-    /// 新しい版のアプリのDB（表の作りの版が新しい）も、復元しない
+    /// 表の作りの版が今の版と違うDB（新しい版のアプリ・リリースの前の版のアプリのDB）は、復元しない
     #[test]
-    fn test_inspect_backup_rejects_newer_schema() {
+    fn test_inspect_backup_rejects_other_schema_versions() {
         let dir = TempDir::new();
-        let path = dir.path().join("new.muspicebackup");
+        let path = dir.path().join("other.muspicebackup");
         write_backup(&library_db(), &path, &meta(None)).unwrap();
         assert!(inspect_backup(&path).is_ok());
-        Connection::open(&path)
-            .unwrap()
-            .execute(
-                "UPDATE app_meta SET value = ?1 WHERE key = 'schema_version'",
-                [(crate::db::DB_SCHEMA_VERSION + 1).to_string()],
-            )
-            .unwrap();
+        let set_version = |version: i64| {
+            Connection::open(&path)
+                .unwrap()
+                .execute(
+                    "UPDATE app_meta SET value = ?1 WHERE key = 'schema_version'",
+                    [version.to_string()],
+                )
+                .unwrap();
+        };
+
+        set_version(crate::db::DB_SCHEMA_VERSION + 1);
         assert_eq!(inspect_backup(&path), Err(BackupProblem::NewerFormat));
+        set_version(crate::db::DB_SCHEMA_VERSION - 1);
+        assert_eq!(inspect_backup(&path), Err(BackupProblem::NotBackup));
     }
 
     /// バックアップのフォルダに、バックアップのファイルがあるかを調べる

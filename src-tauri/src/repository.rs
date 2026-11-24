@@ -90,18 +90,16 @@ pub(crate) use analyzed_key_sql;
 
 /// SELECTで使用するトラックカラム列挙
 ///
-/// NULLを許す列のうち、`Track`で値なしにできない項目（大きさ・形式・日時・お気に入り・評価・
-/// 再生回数など）は、COALESCEでNULL安全にしている。アプリは必ず値を入れるが、ほかのツール・古い版が
-/// NULLの行を1件入れただけで、その行を含む一覧全体を読めなくなるため（既存の表に`NOT NULL`は
-/// 後から付けられない）。
+/// `Track`で値なしにできない項目（大きさ・形式・日時・お気に入り・評価・再生回数など）の列は、
+/// 表で`NOT NULL`にしてある（`db::schema_sql`）。
 pub const TRACK_COLUMNS: &str = concat!(
     "id, file_path, file_name, title, artist, album, genre, year,
-    track_number, disc_number, duration, COALESCE(file_size, 0), COALESCE(format, ''), bitrate,
-    sample_rate, COALESCE(is_favorite, 0), COALESCE(rating, 0), COALESCE(play_count, 0),
-    last_played_at, COALESCE(created_at, ''), COALESCE(updated_at, ''),
+    track_number, disc_number, duration, file_size, format, bitrate,
+    sample_rate, is_favorite, rating, play_count,
+    last_played_at, created_at, updated_at,
     replay_gain_track_gain, replay_gain_track_peak, replay_gain_album_gain, replay_gain_album_peak,
-    album_artist, missing_since IS NOT NULL, COALESCE(skip_count, 0),
-    title_sort, artist_sort, album_sort, album_artist_sort, COALESCE(compilation, 0),
+    album_artist, missing_since IS NOT NULL, skip_count,
+    title_sort, artist_sort, album_sort, album_artist_sort, compilation,
     composer, grouping, comment, bpm, bit_depth, channels, ",
     analyzed_bpm_sql!(),
     ", ",
@@ -411,7 +409,7 @@ pub fn try_find_file_path_by_track_id(
 /// お気に入りトラックを取得
 pub fn find_favorite_tracks(conn: &Connection) -> AppResult<Vec<Track>> {
     let sql = format!(
-        "SELECT {} FROM tracks WHERE COALESCE(is_favorite, 0) != 0
+        "SELECT {} FROM tracks WHERE is_favorite != 0
          ORDER BY favorited_at DESC, album, {ALBUM_TRACK_ORDER}",
         TRACK_COLUMNS
     );
@@ -482,7 +480,7 @@ pub struct SelectionFields {
 pub fn find_selection_fields(conn: &Connection) -> AppResult<Vec<SelectionFields>> {
     let mut stmt = conn
         .prepare(
-            "SELECT id, artist, genre, year, COALESCE(play_count, 0), last_played_at FROM tracks
+            "SELECT id, artist, genre, year, play_count, last_played_at FROM tracks
              WHERE missing_since IS NULL",
         )
         .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
@@ -507,8 +505,7 @@ pub fn find_track_stats(
 ) -> AppResult<HashMap<String, crate::library_xml::TrackStats>> {
     let mut stmt = conn
         .prepare(
-            "SELECT id, COALESCE(play_count, 0), COALESCE(skip_count, 0), last_played_at,
-                    COALESCE(created_at, ''), COALESCE(is_favorite, 0)
+            "SELECT id, play_count, skip_count, last_played_at, created_at, is_favorite
              FROM tracks",
         )
         .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
@@ -547,7 +544,7 @@ pub fn update_track_stats(
             created_at = ?5,
             favorited_at = CASE
                 WHEN ?6 = 0 THEN favorited_at
-                WHEN COALESCE(is_favorite, 0) != 0 AND favorited_at IS NOT NULL THEN favorited_at
+                WHEN is_favorite != 0 AND favorited_at IS NOT NULL THEN favorited_at
                 ELSE ?7
             END,
             is_favorite = CASE WHEN ?6 = 0 THEN is_favorite ELSE 1 END
@@ -1084,45 +1081,6 @@ pub fn update_track_metadata_partial(
     Ok(())
 }
 
-/// ファイルのタグと比べるための、トラックのDB上の値（編集画面の項目と評価）
-#[derive(Debug, Clone, PartialEq)]
-pub struct TrackTagValues {
-    pub id: String,
-    pub file_path: String,
-    pub title: Option<String>,
-    pub artist: Option<String>,
-    pub album: Option<String>,
-    pub genre: Option<String>,
-    pub year: Option<i32>,
-    pub rating: i32,
-}
-
-/// 全トラックの、ファイルのタグと比べる値を取得する（件数の上限なし）
-pub fn find_all_track_tag_values(conn: &Connection) -> AppResult<Vec<TrackTagValues>> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT id, file_path, title, artist, album, genre, year, COALESCE(rating, 0)
-             FROM tracks WHERE cue_source IS NULL",
-        )
-        .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
-
-    stmt.query_map([], |row| {
-        Ok(TrackTagValues {
-            id: row.get(0)?,
-            file_path: row.get(1)?,
-            title: row.get(2)?,
-            artist: row.get(3)?,
-            album: row.get(4)?,
-            genre: row.get(5)?,
-            year: row.get(6)?,
-            rating: row.get(7)?,
-        })
-    })
-    .map_err(|e| AppError::Database(format!("クエリの実行に失敗しました: {}", e)))?
-    .collect::<Result<Vec<_>, _>>()
-    .map_err(|e| AppError::Database(format!("結果の取得に失敗しました: {}", e)))
-}
-
 /// トラックを新規挿入
 ///
 /// `file_modified_at`はファイルの更新日時（UNIX時間の秒）。再スキャンで変更の検出に使う。
@@ -1137,13 +1095,12 @@ pub fn insert_track(
             track_number, disc_number, duration, file_size, format, bitrate, sample_rate, created_at, updated_at,
             file_modified_at,
             replay_gain_track_gain, replay_gain_track_peak, replay_gain_album_gain, replay_gain_album_peak,
-            rating, album_artist, album_artist_read,
-            title_sort, artist_sort, album_sort, album_artist_sort, sort_tags_read, multi_values_read,
-            rating_read, compilation, compilation_read,
-            composer, grouping, comment, bpm, bit_depth, channels, details_read,
+            rating, album_artist,
+            title_sort, artist_sort, album_sort, album_artist_sort, compilation,
+            composer, grouping, comment, bpm, bit_depth, channels,
             cue_source, cue_start, cue_end
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, 1,
-                  ?25, ?26, ?27, ?28, 1, 1, 1, ?29, 1, ?30, ?31, ?32, ?33, ?34, ?35, 1, ?36, ?37, ?38)",
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20,
+                  ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38)",
         rusqlite::params![
             track.id,
             track.file_path,
@@ -1208,12 +1165,11 @@ pub fn update_track_by_file_path(
             replay_gain_track_gain = ?17, replay_gain_track_peak = ?18,
             replay_gain_album_gain = ?19, replay_gain_album_peak = ?20,
             rating = CASE WHEN ?34 IS NULL THEN ?21 ELSE rating END,
-            album_artist = ?22, album_artist_read = 1,
+            album_artist = ?22,
             title_sort = ?23, artist_sort = ?24, album_sort = ?25, album_artist_sort = ?26,
-            sort_tags_read = 1, multi_values_read = 1, rating_read = 1,
-            compilation = ?27, compilation_read = 1,
+            compilation = ?27,
             composer = ?28, grouping = ?29, comment = ?30, bpm = ?31, bit_depth = ?32,
-            channels = ?33, details_read = 1,
+            channels = ?33,
             cue_source = ?34, cue_start = ?35, cue_end = ?36,
             missing_since = NULL
         WHERE file_path = ?1",
@@ -1265,201 +1221,6 @@ pub fn update_track_by_file_path(
         )));
     }
 
-    Ok(())
-}
-
-/// 後から追加した項目（アルバムアーティスト・ソート用のタグ・複数の値）を、まだファイルから読んでいないトラック
-#[derive(Debug, PartialEq)]
-pub struct UnreadTagsTrack {
-    /// `tracks`のrowid（続きから取得するために使う）
-    pub rowid: i64,
-    pub id: String,
-    pub file_path: String,
-    /// アルバムアーティストを読んでいない
-    pub needs_album_artist: bool,
-    /// ソート用のタグを読んでいない
-    pub needs_sort_tags: bool,
-    /// アーティスト・ジャンルを、複数の値として読んでいない
-    pub needs_multi_values: bool,
-    /// 今のアーティスト・ジャンル（複数の値として読み直す時に、最初の値だけを読んだものかを確かめる）
-    pub artist: Option<String>,
-    pub genre: Option<String>,
-    /// 評価を、半分の星として読んでいない（評価を星の数で持っていた版で登録した。ADR-082）
-    pub needs_rating: bool,
-    /// 今の評価（半分の星の単位。星の数で読んだ値を2倍にしたもの）
-    pub rating: i32,
-    /// コンピレーションの印を読んでいない（印をDBに持つ前の版で登録した。ADR-093）
-    pub needs_compilation: bool,
-    /// 作曲者・BPM・ビット深度などを読んでいない（それらをDBに持つ前の版で登録した。ADR-115）
-    pub needs_details: bool,
-    /// 取得した時の更新日時（ファイルを読んでいる間に曲を編集した時は、作曲者などを記録しない。
-    /// `set_track_details`）
-    pub updated_at: Option<String>,
-}
-
-/// 後から追加した項目をまだファイルから読んでいないトラックを、rowidの順に取得する
-///
-/// `after_rowid`より後のトラックを、`limit`件まで返す（読めなかったトラックは未読のまま残るため、
-/// 件数ではなくrowidで続きを指定する）。見つからない曲（外れた外付けドライブの曲など）は除く
-/// （読めないファイルを、起動のたびに読みに行かない。見つかった後の起動で読む）。
-pub fn find_tracks_with_unread_tags(
-    conn: &Connection,
-    after_rowid: i64,
-    limit: u32,
-) -> AppResult<Vec<UnreadTagsTrack>> {
-    query_rows(
-        conn,
-        "SELECT rowid, id, file_path, album_artist_read = 0, sort_tags_read = 0,
-                multi_values_read = 0, artist, genre, rating_read = 0, COALESCE(rating, 0),
-                compilation_read = 0, details_read = 0, updated_at
-         FROM tracks
-         WHERE (album_artist_read = 0 OR sort_tags_read = 0 OR multi_values_read = 0
-                OR rating_read = 0 OR compilation_read = 0 OR details_read = 0)
-               AND missing_since IS NULL AND rowid > ?1
-         ORDER BY rowid LIMIT ?2",
-        &[&after_rowid, &limit],
-        |row| {
-            Ok(UnreadTagsTrack {
-                rowid: row.get(0)?,
-                id: row.get(1)?,
-                file_path: row.get(2)?,
-                needs_album_artist: row.get(3)?,
-                needs_sort_tags: row.get(4)?,
-                needs_multi_values: row.get(5)?,
-                artist: row.get(6)?,
-                genre: row.get(7)?,
-                needs_rating: row.get(8)?,
-                rating: row.get(9)?,
-                needs_compilation: row.get(10)?,
-                needs_details: row.get(11)?,
-                updated_at: row.get(12)?,
-            })
-        },
-    )
-}
-
-/// 評価を半分の星として読み込み済みにする（`rating`が`Some`なら、その評価にする）
-///
-/// ほかの項目（更新日時を含む）は変えない。
-pub fn set_track_rating_read(
-    conn: &Connection,
-    track_id: &str,
-    rating: Option<i32>,
-) -> AppResult<()> {
-    conn.execute(
-        "UPDATE tracks SET rating = COALESCE(?2, rating), rating_read = 1 WHERE id = ?1",
-        rusqlite::params![track_id, rating],
-    )
-    .map_err(|e| AppError::Database(format!("評価の記録に失敗しました: {}", e)))?;
-    Ok(())
-}
-
-/// ファイルから読んだコンピレーションの印を記録し、読み込み済みにする
-///
-/// ほかの項目（更新日時を含む）は変えない。
-pub fn set_track_compilation(
-    conn: &Connection,
-    track_id: &str,
-    compilation: bool,
-) -> AppResult<()> {
-    conn.execute(
-        "UPDATE tracks SET compilation = ?2, compilation_read = 1 WHERE id = ?1",
-        rusqlite::params![track_id, compilation],
-    )
-    .map_err(|e| AppError::Database(format!("コンピレーションの印の記録に失敗しました: {}", e)))?;
-    Ok(())
-}
-
-/// ファイルから読んだ作曲者・グループ・コメント・BPM・ビット深度・チャンネル数を記録し、読み込み済みにする
-///
-/// 曲の更新日時が`read_updated_at`（ファイルを読む前に取得した値）のままの場合だけ記録し、記録したかを
-/// 返す。ファイルを読んでいる間に曲を編集した（タグを書き換えた・再スキャンした）場合は、読んだ値が
-/// 古いため記録せず、未読のまま残す（次の読み込みで読み直す）。ほかの項目（更新日時を含む）は変えない
-/// （ADR-115）。
-pub fn set_track_details(
-    conn: &Connection,
-    track_id: &str,
-    details: &TrackDetails,
-    read_updated_at: Option<&str>,
-) -> AppResult<bool> {
-    let changed = conn
-        .execute(
-            "UPDATE tracks SET composer = ?2, grouping = ?3, comment = ?4, bpm = ?5,
-                               bit_depth = ?6, channels = ?7, details_read = 1
-             WHERE id = ?1 AND updated_at IS ?8",
-            rusqlite::params![
-                track_id,
-                details.composer,
-                details.grouping,
-                details.comment,
-                details.bpm,
-                details.bit_depth,
-                details.channels,
-                read_updated_at
-            ],
-        )
-        .map_err(|e| AppError::Database(format!("作曲者などの記録に失敗しました: {}", e)))?;
-    Ok(changed > 0)
-}
-
-/// ファイルから読んだアルバムアーティストを記録し、読み込み済みにする
-///
-/// ほかの項目（更新日時を含む）は変えない。
-pub fn set_track_album_artist(
-    conn: &Connection,
-    track_id: &str,
-    album_artist: Option<&str>,
-) -> AppResult<()> {
-    conn.execute(
-        "UPDATE tracks SET album_artist = ?2, album_artist_read = 1 WHERE id = ?1",
-        rusqlite::params![track_id, album_artist],
-    )
-    .map_err(|e| AppError::Database(format!("アルバムアーティストの記録に失敗しました: {}", e)))?;
-    Ok(())
-}
-
-/// ファイルから読んだソート用のタグを記録し、読み込み済みにする
-///
-/// ほかの項目（更新日時を含む）は変えない。
-pub fn set_track_sort_tags(
-    conn: &Connection,
-    track_id: &str,
-    sort_tags: &SortTags,
-) -> AppResult<()> {
-    conn.execute(
-        "UPDATE tracks SET title_sort = ?2, artist_sort = ?3, album_sort = ?4,
-                           album_artist_sort = ?5, sort_tags_read = 1
-         WHERE id = ?1",
-        rusqlite::params![
-            track_id,
-            sort_tags.title,
-            sort_tags.artist,
-            sort_tags.album,
-            sort_tags.album_artist
-        ],
-    )
-    .map_err(|e| AppError::Database(format!("ソート用のタグの記録に失敗しました: {}", e)))?;
-    Ok(())
-}
-
-/// ファイルから複数の値として読み直したアーティスト・ジャンルを記録し、読み込み済みにする
-///
-/// `artist`・`genre`がNoneの項目は変えない。ほかの項目（更新日時を含む）は変えない。
-pub fn set_track_multi_values(
-    conn: &Connection,
-    track_id: &str,
-    artist: Option<&str>,
-    genre: Option<&str>,
-) -> AppResult<()> {
-    conn.execute(
-        "UPDATE tracks SET artist = COALESCE(?2, artist), genre = COALESCE(?3, genre),
-                           multi_values_read = 1
-         WHERE id = ?1",
-        rusqlite::params![track_id, artist, genre],
-    )
-    .map_err(|e| {
-        AppError::Database(format!("アーティスト・ジャンルの記録に失敗しました: {}", e))
-    })?;
     Ok(())
 }
 
@@ -2025,7 +1786,7 @@ pub fn set_tracks_favorite(
             "UPDATE tracks SET
                 favorited_at = CASE
                     WHEN ?1 = 0 THEN NULL
-                    WHEN COALESCE(is_favorite, 0) != 0 AND favorited_at IS NOT NULL THEN favorited_at
+                    WHEN is_favorite != 0 AND favorited_at IS NOT NULL THEN favorited_at
                     ELSE ?2
                 END,
                 is_favorite = ?1
@@ -2088,7 +1849,7 @@ pub fn increment_track_play_count(
     let new_count: i32 = tx
         .query_row(
             "UPDATE tracks SET
-                play_count = MIN(COALESCE(play_count, 0) + 1, ?3),
+                play_count = MIN(play_count + 1, ?3),
                 last_played_at = ?1
              WHERE id = ?2
              RETURNING play_count",
@@ -2124,7 +1885,7 @@ pub fn increment_track_play_count(
 /// スキップ回数は上限（`MAX_PLAY_COUNT`）で止める。再生統計だけの変更のため、`updated_at`は変えない。
 pub fn increment_track_skip_count(conn: &Connection, track_id: &str) -> AppResult<i32> {
     conn.query_row(
-        "UPDATE tracks SET skip_count = MIN(COALESCE(skip_count, 0) + 1, ?2)
+        "UPDATE tracks SET skip_count = MIN(skip_count + 1, ?2)
          WHERE id = ?1
          RETURNING skip_count",
         rusqlite::params![track_id, MAX_PLAY_COUNT],
@@ -2359,26 +2120,6 @@ mod tests {
             .map(|t| t.id)
             .collect();
         assert_eq!(ids, ["disc1"]);
-    }
-
-    /// ほかのツールが大きさ・形式・日時をNULLにした行があっても、一覧全体を読める
-    #[test]
-    fn test_tracks_with_null_columns_can_be_read() {
-        let conn = setup_test_db();
-        insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
-        insert_test_track(&conn, "t2", "曲B", "アーティストY", "アルバム2", "ポップ");
-        conn.execute(
-            "UPDATE tracks SET file_size = NULL, format = NULL, created_at = NULL, updated_at = NULL
-             WHERE id = 't1'",
-            [],
-        )
-        .unwrap();
-
-        let tracks = find_all_tracks(&conn).unwrap();
-        assert_eq!(tracks.len(), 2);
-        let t1 = tracks.iter().find(|t| t.id == "t1").unwrap();
-        assert_eq!((t1.file_size, t1.format.as_str()), (0, ""));
-        assert!(find_track_stats(&conn).unwrap().contains_key("t1"));
     }
 
     /// ライブラリのXMLから取り込む項目の読み書き（お気に入りにした日時は、初めてお気に入りにした時だけ）
@@ -3982,12 +3723,6 @@ mod tests {
         let saved = find_track_by_id(&conn, "t1").unwrap();
         assert_eq!(saved.album_artist.as_deref(), Some("Various Artists"));
         assert_eq!(saved.sort_tags, track.sort_tags);
-        // ファイルから読んで登録したトラックは、読み込み済みにする
-        assert!(
-            find_tracks_with_unread_tags(&conn, 0, 10)
-                .unwrap()
-                .is_empty()
-        );
 
         // ファイルを読み直した時は、タグの内容にする（タグがなくなった場合は消す）
         track.album_artist = None;
@@ -4206,101 +3941,6 @@ mod tests {
         let updated = find_track_by_id(&conn, "t1").unwrap();
         assert!(!updated.is_missing);
         assert_eq!(updated.title.as_deref(), Some("読み直したタイトル"));
-    }
-
-    #[test]
-    fn test_find_tracks_with_unread_tags_pages_by_rowid() {
-        let conn = setup_test_db();
-        // 列を追加する前に登録したトラック（`insert_test_track`は読み込み済みにしない）
-        for id in ["t1", "t2", "t3"] {
-            insert_test_track(&conn, id, "曲", "アーティスト", "アルバム", "ロック");
-        }
-
-        let first = find_tracks_with_unread_tags(&conn, 0, 2).unwrap();
-        assert_eq!(
-            first.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(),
-            ["t1", "t2"]
-        );
-        assert_eq!(first[0].file_path, "/test/t1.mp3");
-        assert!(first[0].needs_album_artist && first[0].needs_sort_tags);
-        assert!(first[0].needs_multi_values && first[0].needs_rating);
-        assert!(first[0].needs_compilation);
-        assert_eq!(first[0].rating, 0);
-        assert_eq!(first[0].artist.as_deref(), Some("アーティスト"));
-        assert_eq!(first[0].genre.as_deref(), Some("ロック"));
-
-        // 一部だけを読んだトラックは、残りが未読のまま含まれる
-        set_track_album_artist(&conn, "t1", Some("Various Artists")).unwrap();
-        set_track_multi_values(&conn, "t1", Some("アーティスト; ゲスト"), None).unwrap();
-        let partly = find_tracks_with_unread_tags(&conn, 0, 1).unwrap();
-        assert_eq!(partly[0].id, "t1");
-        assert!(!partly[0].needs_album_artist && partly[0].needs_sort_tags);
-        assert!(!partly[0].needs_multi_values);
-        // 値を渡した項目だけが変わる
-        assert_eq!(partly[0].artist.as_deref(), Some("アーティスト; ゲスト"));
-        assert_eq!(partly[0].genre.as_deref(), Some("ロック"));
-
-        let sort_tags = SortTags {
-            artist: Some("よみ".to_string()),
-            ..Default::default()
-        };
-        set_track_sort_tags(&conn, "t1", &sort_tags).unwrap();
-        assert_eq!(find_track_by_id(&conn, "t1").unwrap().sort_tags, sort_tags);
-        // 評価だけが未読のまま残る（読み直した評価を渡すと、その評価になる）
-        assert!(find_tracks_with_unread_tags(&conn, 0, 1).unwrap()[0].needs_rating);
-        set_track_rating_read(&conn, "t1", Some(7)).unwrap();
-        assert_eq!(find_track_by_id(&conn, "t1").unwrap().rating, 7);
-        // コンピレーションの印だけが未読のまま残る
-        assert!(find_tracks_with_unread_tags(&conn, 0, 1).unwrap()[0].needs_compilation);
-        set_track_compilation(&conn, "t1", true).unwrap();
-        assert!(find_track_by_id(&conn, "t1").unwrap().compilation);
-        // 作曲者などだけが未読のまま残る（ADR-115）
-        assert!(find_tracks_with_unread_tags(&conn, 0, 1).unwrap()[0].needs_details);
-        let details = TrackDetails {
-            composer: Some("作曲者".to_string()),
-            bpm: Some(120),
-            bit_depth: Some(24),
-            channels: Some(2),
-            ..Default::default()
-        };
-        let read = find_tracks_with_unread_tags(&conn, 0, 1).unwrap().remove(0);
-        // 読んだ後に曲を編集した（更新日時が変わった）場合は、記録せずに未読のまま残す
-        assert!(!set_track_details(&conn, "t1", &details, Some("2000-01-01T00:00:00Z")).unwrap());
-        assert!(find_tracks_with_unread_tags(&conn, 0, 1).unwrap()[0].needs_details);
-        assert!(set_track_details(&conn, "t1", &details, read.updated_at.as_deref()).unwrap());
-        assert_eq!(find_track_by_id(&conn, "t1").unwrap().details, details);
-        let rest = find_tracks_with_unread_tags(&conn, first[1].rowid, 2).unwrap();
-        assert_eq!(
-            rest.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(),
-            ["t3"]
-        );
-        // 読み込み済みのトラックは、最初から取得し直しても含まれない
-        let again = find_tracks_with_unread_tags(&conn, 0, 10).unwrap();
-        assert_eq!(
-            again.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(),
-            ["t2", "t3"]
-        );
-        // 見つからない曲は、見つかるまで含めない
-        conn.execute(
-            "UPDATE tracks SET missing_since = '2026-10-01T00:00:00+00:00' WHERE id = 't2'",
-            [],
-        )
-        .unwrap();
-        let without_missing = find_tracks_with_unread_tags(&conn, 0, 10).unwrap();
-        assert_eq!(
-            without_missing
-                .iter()
-                .map(|t| t.id.as_str())
-                .collect::<Vec<_>>(),
-            ["t3"]
-        );
-        assert_eq!(
-            find_track_by_id(&conn, "t1")
-                .unwrap()
-                .album_artist
-                .as_deref(),
-            Some("Various Artists")
-        );
     }
 
     #[test]
@@ -4898,20 +4538,6 @@ mod tests {
             set_track_rating(&conn, "nonexistent", 3),
             Err(AppError::NotFound(_))
         ));
-    }
-
-    #[test]
-    fn test_find_all_track_tag_values() {
-        let conn = setup_test_db();
-        insert_test_track(&conn, "t1", "曲A", "アーティストX", "アルバム1", "ロック");
-        set_track_rating(&conn, "t1", 3).unwrap();
-
-        let values = find_all_track_tag_values(&conn).unwrap();
-        assert_eq!(values.len(), 1);
-        assert_eq!(values[0].id, "t1");
-        assert_eq!(values[0].title.as_deref(), Some("曲A"));
-        assert_eq!(values[0].artist.as_deref(), Some("アーティストX"));
-        assert_eq!(values[0].rating, 3);
     }
 
     /// 任意のパスでトラックを挿入する（フォルダ単位の操作のテスト用）
