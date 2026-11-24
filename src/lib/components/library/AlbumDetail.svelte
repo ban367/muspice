@@ -4,6 +4,7 @@
   曲は、アルバム名とまとめたアーティストで取得し（`useAlbumTracksQuery`）、アーティストの画面と同じ形
   （`ArtistAlbumsView`。ディスクごとの区切り・選択・再生・ドラッグ・メニュー）で出す。見出しの名前がアルバム名の
   ため、アルバムの見出し（ジャケット画像・名前）は出さず、アルバムの情報とメニューを見出しに出す（`singleAlbum`。ADR-107）。
+  ジャケット画像は、曲の一覧の背景の右下に淡く出す（ADR-130）。
 -->
 <script lang="ts">
   import type { AlbumGroup, AlbumSummary } from '#lib/types/models.js';
