@@ -39,13 +39,8 @@ pub struct NowPlayingUpdate {
     pub position: f64,
     /// 曲の長さ（秒。再生エンジンがファイルから読んだ値。分からなければnullで、ライブラリの値を使う）
     pub duration: Option<f64>,
-    /// 再生速度（倍。OSが、渡した位置から今の位置を計算するのに使う。省略すると1倍）
-    #[serde(default = "normal_speed")]
+    /// 再生速度（倍。OSが、渡した位置から今の位置を計算するのに使う）
     pub speed: f64,
-}
-
-fn normal_speed() -> f64 {
-    1.0
 }
 
 /// OSへ渡す、再生中の曲
@@ -438,13 +433,6 @@ mod tests {
         assert_eq!(recorder.last().unwrap().speed, 1.0);
         controls.publish(&with_speed(0.0), &track, || None);
         assert_eq!(recorder.last().unwrap().speed, 1.0);
-
-        // フロントエンドが速度を付けない場合（以前の形）は、1倍
-        let update: NowPlayingUpdate = serde_json::from_str(
-            r#"{"trackId":"t","playing":true,"position":1.0,"duration":null}"#,
-        )
-        .unwrap();
-        assert_eq!(update.speed, 1.0);
     }
 
     #[test]

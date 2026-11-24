@@ -43,7 +43,7 @@ pub struct Track {
     /// コンピレーション（複数のアーティストの曲を集めたアルバム）の印。アルバムアーティストがない曲は、
     /// 「Various Artists」のアルバムにまとめる（`group_artist`。ADR-093）
     pub compilation: bool,
-    /// 一覧の列・検索に使う、タグとファイルの情報のうち、後から持つようにした項目（ADR-115）
+    /// 一覧の列・検索に使う、タグとファイルの情報のうち、詳しい項目（ADR-115）
     pub details: TrackDetails,
     /// CUEシートの曲（アルバム1ファイルの中の1曲）の、元の音声ファイルと範囲（ふつうの曲はnull。ADR-123）
     ///
@@ -64,10 +64,10 @@ pub struct TrackCue {
     pub end: Option<i64>,
 }
 
-/// 曲の、一覧の列・検索に使う項目のうち、後から持つようにしたもの（作曲者・BPM・ビット深度など。ADR-115）
+/// 曲の、一覧の列・検索に使う項目のうち、詳しい項目（作曲者・BPM・ビット深度など。ADR-115）
 ///
-/// タグ・ファイルの項目は、取り込み・再スキャン・編集の保存で記録する（登録済みの曲は、起動後に
-/// `tag_backfill`が読む）。解析の項目は、曲の解析の結果（`track_analysis`。ADR-104）から読む。
+/// タグ・ファイルの項目は、取り込み・再スキャン・編集の保存で記録する。解析の項目は、曲の解析の結果
+/// （`track_analysis`。ADR-104）から読む。
 #[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct TrackDetails {
@@ -107,7 +107,7 @@ impl Track {
 /// 再生回数・スキップ回数の上限（`Track`の`play_count`・`skip_count`が`i32`のため）
 ///
 /// これを超える値がDBに1曲でも入ると、その曲を含む一覧を読めなくなる。DBへ書く値はこの値までに
-/// 収める（ライブラリのXMLの取り込み・回数の加算）。収める前の版が入れた値は、起動時に直す（`db`）。
+/// 収める（ライブラリのXMLの取り込み・回数の加算）。
 pub const MAX_PLAY_COUNT: i64 = i32::MAX as i64;
 
 /// 並び順に使う値（ソート用のタグ。`TITLESORT`・`ARTISTSORT`・`ALBUMSORT`・`ALBUMARTISTSORT`）
@@ -121,13 +121,6 @@ pub struct SortTags {
     pub artist: Option<String>,
     pub album: Option<String>,
     pub album_artist: Option<String>,
-}
-
-impl SortTags {
-    /// どの項目にも値がないか
-    pub fn is_empty(&self) -> bool {
-        *self == Self::default()
-    }
 }
 
 /// M3Uのファイル1つを読み込んだ結果

@@ -470,10 +470,10 @@ fn text_column(field: TextField) -> &'static str {
 
 fn number_column(field: NumberField) -> &'static str {
     match field {
-        NumberField::Rating => "COALESCE(rating, 0)",
+        NumberField::Rating => "rating",
         NumberField::Year => "year",
-        NumberField::PlayCount => "COALESCE(play_count, 0)",
-        NumberField::SkipCount => "COALESCE(skip_count, 0)",
+        NumberField::PlayCount => "play_count",
+        NumberField::SkipCount => "skip_count",
         NumberField::Duration => "duration",
         NumberField::TrackNumber => "track_number",
         NumberField::DiscNumber => "disc_number",
@@ -622,10 +622,9 @@ impl<'a> Resolver<'a> {
                     DateOp::IsNotEmpty => Condition::new(format!("{column} IS NOT NULL"), vec![]),
                 }
             }
-            SmartRule::Favorite { value } => Condition::new(
-                "COALESCE(is_favorite, 0) = ?",
-                vec![Box::new(i32::from(*value))],
-            ),
+            SmartRule::Favorite { value } => {
+                Condition::new("is_favorite = ?", vec![Box::new(i32::from(*value))])
+            }
             // 曲の場所が、音楽フォルダのパス＋区切り文字で始まるか（印はDBに持たず、場所から求める）
             SmartRule::InMusicFolder { value } => Condition::new(
                 format!("{IN_MUSIC_FOLDER_SQL} = ?"),
@@ -780,8 +779,8 @@ fn order_sql(order: SmartOrder) -> String {
         SmartOrderField::Album => "search_text(COALESCE(album_sort, album))",
         SmartOrderField::CreatedAt => "datetime(created_at)",
         SmartOrderField::LastPlayedAt => "datetime(last_played_at)",
-        SmartOrderField::PlayCount => "COALESCE(play_count, 0)",
-        SmartOrderField::Rating => "COALESCE(rating, 0)",
+        SmartOrderField::PlayCount => "play_count",
+        SmartOrderField::Rating => "rating",
         SmartOrderField::Year => "year",
         SmartOrderField::Duration => "duration",
     };

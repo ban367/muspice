@@ -224,7 +224,7 @@ export function toggleShuffle(): void {
         player.playQueue = original;
         player.currentTrackIndex = originalIndex;
       } else {
-        // 元の順に再生中の要素がない（古い版で保存したキューなど）: 再生中の位置へ入れ、
+        // 元の順に再生中の要素がない（保存してあったキューの食い違い）: 再生中の位置へ入れ、
         // 「次へ」でその後ろから続ける
         const position = Math.min(currentIndex, original.length);
         player.playQueue = insertEntries(original, position, [current]);

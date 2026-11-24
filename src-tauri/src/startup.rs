@@ -2,9 +2,9 @@
 //!
 //! ライブラリのDBを開けない時に、アプリを落とさない。
 //!
-//! - **DBが壊れている・移行に失敗した**: DBを別の名前で残し（`muspice-unreadable-<日時>.db`）、空の
-//!   ライブラリで起動する。画面で知らせ（`StartupNotice`）、利用者は、設定の「バックアップ」から、
-//!   戻す世代を選んで復元する（黙ってデータを巻き戻さない）
+//! - **DBが壊れている・リリースの前の版のDB（ADR-129）**: DBを別の名前で残し
+//!   （`muspice-unreadable-<日時>.db`）、空のライブラリで起動する。画面で知らせ（`StartupNotice`）、
+//!   利用者は、設定の「バックアップ」から、戻す世代を選んで復元する（黙ってデータを巻き戻さない）
 //! - **新しい版のアプリが作ったDB**・**環境の問題（書き込めない・空き容量がない・ほかで使用中）**:
 //!   DBには触らず、理由を書いたダイアログを出して終了する（`StartupFailure`）。空のライブラリで
 //!   起動すると、利用者が気付かずに使い始め、後で元のDBと食い違うため
@@ -89,8 +89,8 @@ pub struct OpenedDatabase {
 
 /// アプリデータのフォルダのDBを開く（なければ作る）
 ///
-/// 壊れている・移行に失敗したDBは、別の名前で残して、新しいDBを作る。新しい版のDBと、環境の問題で
-/// 開けないDBは、触らずに`StartupFailure`を返す。
+/// 壊れているDB・リリースの前の版のDB（移行しない。ADR-129）は、別の名前で残して、新しいDBを作る。
+/// 新しい版のDBと、環境の問題で開けないDBは、触らずに`StartupFailure`を返す。
 pub fn open_database(app_data_dir: &Path) -> Result<OpenedDatabase, StartupFailure> {
     let db_path = app_data_dir.join(DB_FILE_NAME);
     let error = match db::init_db(db_path.clone()) {
@@ -100,23 +100,19 @@ pub fn open_database(app_data_dir: &Path) -> Result<OpenedDatabase, StartupFailu
                 quarantined: None,
             });
         }
-        Err(DbOpenError::NewerSchema { found, supported }) => {
-            log::error!(
-                "The database was written by a newer version of the app (schema version {}, supported up to {})",
-                found,
-                supported
-            );
+        Err(error @ DbOpenError::NewerSchema { .. }) => {
+            log::error!("{}", error);
             return Err(StartupFailure::NewerDatabase);
         }
-        Err(DbOpenError::Sqlite(e)) => e,
+        Err(DbOpenError::Sqlite(e)) if is_environment_error(&e) => {
+            log::error!("Cannot open the database: {}", e);
+            return Err(StartupFailure::Database(e.to_string()));
+        }
+        Err(error) => error,
     };
-    if is_environment_error(&error) {
-        log::error!("Cannot open the database: {}", error);
-        return Err(StartupFailure::Database(error.to_string()));
-    }
 
     log::error!(
-        "The database is damaged or could not be migrated; moving it aside: {}",
+        "The database is damaged or cannot be used by this version; moving it aside: {}",
         error
     );
     let quarantined = quarantine_database(&db_path, Local::now()).map_err(|e| {
@@ -382,21 +378,25 @@ mod tests {
         }
     }
 
-    /// 移行に失敗するDB（表の形が想定と違う）も、別の名前で残す
+    /// リリースの前の版のアプリが作ったDB（版の記録がない）も、移行せずに別の名前で残す（ADR-129）
     #[test]
-    fn test_database_that_cannot_be_migrated_is_moved_aside() {
+    fn test_pre_release_database_is_moved_aside() {
         let dir = TempDir::new();
         let db_path = dir.path().join(DB_FILE_NAME);
         let conn = Connection::open(&db_path).unwrap();
-        // `tracks`が、表ではなくビューになっている（列を足す移行が失敗する）
-        conn.execute_batch("CREATE VIEW tracks AS SELECT 1 AS id")
-            .unwrap();
+        conn.execute_batch(
+            "CREATE TABLE tracks (id TEXT PRIMARY KEY, file_path TEXT UNIQUE NOT NULL, file_name TEXT NOT NULL);
+             INSERT INTO tracks VALUES ('t1', '/m/t1.mp3', 't1.mp3');",
+        )
+        .unwrap();
         drop(conn);
 
         let opened = open_database(dir.path()).unwrap();
 
-        assert!(opened.quarantined.is_some_and(|path| path.is_file()));
+        let quarantined = opened.quarantined.expect("別の名前で残すこと");
         assert_eq!(track_count(&opened.conn), 0);
+        // 残したDBは、そのまま（曲も残る）
+        assert_eq!(track_count(&Connection::open(quarantined).unwrap()), 1);
     }
 
     /// 新しい版のアプリが作ったDBは、触らずに、起動を続けられない理由として返す

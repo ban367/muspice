@@ -125,7 +125,6 @@ export const en: Messages = {
     deleteTracks: 'Deleting tracks',
     deleteTracksAndFiles: 'Deleting tracks and files',
     reloadLibrary: 'Reloading the library',
-    writeMetadataToFiles: 'Writing metadata to files',
     loudnessScan: 'Analyzing loudness',
     musicAnalysis: 'Analyzing tracks',
     convert: 'Converting',
@@ -557,18 +556,6 @@ export const en: Messages = {
       times: (count) => `${count}`,
       missing: 'The file is missing'
     }
-  },
-
-  metadataExport: {
-    title: 'Write app-only edits and ratings to files',
-    description:
-      'Writes the edits (title and so on) and ratings that earlier versions saved only in the app to the tags of the music files. Only tracks whose values differ from the file are rewritten, and the files are reread afterwards. Edits and ratings are now always written to the files, so this only needs to be done once',
-    write: 'Write to files',
-    writing: 'Writing...',
-    confirm:
-      'This writes the edits and ratings saved in the app to the tags of the music files. The files will be modified. Continue?',
-    result: (written, unchanged, skipped, errors) =>
-      `Finished writing (written: ${written}, unchanged: ${unchanged}, missing files: ${skipped}, errors: ${errors})`
   },
 
   convert: {

@@ -79,7 +79,7 @@ pub use tracks::{
 // メタデータ編集
 pub use metadata_cmd::{
     apply_metadata_changes, get_track_lyrics, get_track_tags, refresh_library_metadata,
-    update_multiple_tracks_metadata, update_track_metadata, write_library_metadata_to_files,
+    update_multiple_tracks_metadata, update_track_metadata,
 };
 
 // 形式の変換

@@ -1,6 +1,6 @@
 use crate::ape_tag;
 use crate::error::{AppError, AppResult};
-use crate::models::{Metadata, ReplayGain, SortTags, TrackDetails};
+use crate::models::{Metadata, ReplayGain, TrackDetails};
 use crate::multi_value;
 use crate::ogg_flac;
 use crate::rating_tag;
@@ -270,59 +270,6 @@ fn temp_path_for(path: &Path) -> PathBuf {
         name.push(extension);
     }
     path.with_file_name(name)
-}
-
-/// 列を追加する前に登録したトラックについて、後からファイルのタグを読む項目
-#[derive(Debug, Default, Clone, PartialEq)]
-pub struct BackfillTags {
-    /// アルバムアーティスト（タグにない場合はNone）
-    pub album_artist: Option<String>,
-    /// 並び順に使う値（ソート用のタグ）
-    pub sort_tags: SortTags,
-    /// アーティスト・ジャンル（複数ある場合は、`; `でつないだ文字列）
-    pub artist: Option<String>,
-    pub genre: Option<String>,
-    /// 評価（半分の星の単位。0は評価なし）
-    pub rating: i32,
-    /// コンピレーションの印
-    pub compilation: bool,
-    /// 作曲者・グループ・コメント・BPM・ビット深度・チャンネル数（ADR-115）
-    pub details: TrackDetails,
-}
-
-/// 音楽ファイルのタグから、アルバムアーティスト・ソート用のタグ・アーティスト・ジャンル・評価・コンピレーションの印だけを読む
-///
-/// それらの列を追加する前に登録したトラックの読み込み（`tag_backfill`）に使う。
-/// 長さ・ビットレートなどは読まない（全ファイルを読むため、1ファイルあたりの時間を抑える）。
-pub fn read_backfill_tags(file_path: &Path) -> AppResult<BackfillTags> {
-    // ビット深度・チャンネル数（ADR-115）のため、オーディオの情報も読む
-    let tagged_file = read_tagged_file(file_path, ParseOptions::new())?;
-    let tag = tagged_file
-        .primary_tag()
-        .or_else(|| tagged_file.first_tag());
-    let details = track_details(tag, Some(tagged_file.properties()));
-
-    Ok(tag
-        .map(|tag| {
-            let metadata = library_metadata(tag);
-            BackfillTags {
-                sort_tags: metadata.sort_tags(),
-                album_artist: metadata.album_artist,
-                artist: metadata.artist,
-                genre: metadata.genre,
-                rating: rating_tag::read_rating(tag),
-                compilation: metadata.compilation == Some(true),
-                details: TrackDetails::default(),
-            }
-        })
-        .map(|tags| BackfillTags {
-            details: details.clone(),
-            ..tags
-        })
-        .unwrap_or(BackfillTags {
-            details,
-            ..Default::default()
-        }))
 }
 
 /// ゲインとして受け付ける範囲（dB）。範囲外の値は壊れたタグとして無視する
@@ -1255,27 +1202,6 @@ pub fn update_file_rating(file_path: &Path, rating: i32) -> AppResult<()> {
     modify_file_tag(file_path, |tag| rating_tag::set_rating(tag, rating))
 }
 
-/// 音楽ファイルのメタデータと評価を、1回の保存でまとめて更新する
-///
-/// メタデータは値がある項目だけを変える。評価は`Some`の場合だけ変える。
-pub fn update_file_metadata_and_rating(
-    file_path: &Path,
-    metadata: &Metadata,
-    rating: Option<i32>,
-) -> AppResult<()> {
-    validate_metadata(metadata)?;
-    if let Some(rating) = rating {
-        validate_rating(rating)?;
-    }
-
-    modify_file_tag(file_path, |tag| {
-        apply_metadata(tag, metadata, false);
-        if let Some(rating) = rating {
-            rating_tag::set_rating(tag, rating);
-        }
-    })
-}
-
 /// 評価をバリデーション
 pub fn validate_rating(rating: i32) -> AppResult<()> {
     if !rating_tag::RATING_RANGE.contains(&rating) {
@@ -1516,36 +1442,6 @@ mod tests {
             assert_eq!(library.sort_tags(), metadata.sort_tags(), "{name}");
             // コンピレーションの印も、取り込みで読む（アルバムのまとめ方に使う。ADR-093）
             assert_eq!(library.compilation, Some(true), "{name}");
-            // 列を追加する前に登録したトラックの読み込みでも、同じ値を読む
-            let backfill = read_backfill_tags(&file).unwrap();
-            // 作曲者なども読む（ADR-115。ここでは、取り込みで読む値と同じかだけを確かめる）
-            assert_eq!(
-                backfill.details,
-                extract_all_file_info(&file).unwrap().details,
-                "{name}"
-            );
-            assert_eq!(
-                BackfillTags {
-                    details: TrackDetails::default(),
-                    ..backfill
-                },
-                BackfillTags {
-                    album_artist: Some("アルバムアーティスト".to_string()),
-                    sort_tags: SortTags {
-                        title: Some("たいとる".to_string()),
-                        artist: Some("あーてぃすと".to_string()),
-                        album: Some("あるばむ".to_string()),
-                        album_artist: Some("あるばむあーてぃすと".to_string()),
-                    },
-                    artist: Some("アーティスト".to_string()),
-                    genre: Some("Jazz".to_string()),
-                    rating: 0,
-                    compilation: true,
-                    details: TrackDetails::default(),
-                },
-                "{name}"
-            );
-
             // 一括編集: 値のある項目だけを変える
             let partial = Metadata {
                 composer: Some("別の作曲者".to_string()),
@@ -1761,16 +1657,6 @@ mod tests {
             update_file_metadata(&file, &title_only, false).unwrap();
             assert_eq!(extract_all_file_info(&file).unwrap().rating, 7, "{name}");
             update_file_metadata(&file, &metadata, true).unwrap();
-
-            // ほかの項目と一緒に書いても、同じ値を読む
-            let partial = Metadata {
-                genre: Some("Rock".to_string()),
-                ..Default::default()
-            };
-            update_file_metadata_and_rating(&file, &partial, Some(5)).unwrap();
-            let info = extract_all_file_info(&file).unwrap();
-            assert_eq!(info.rating, 5, "{name}");
-            assert_eq!(info.metadata.genre.as_deref(), Some("Rock"), "{name}");
         }
 
         std::fs::remove_dir_all(&dir).unwrap();
@@ -2376,17 +2262,9 @@ mod tests {
         let info = extract_all_file_info(&file).unwrap();
         assert_eq!(info.sample_rate, Some(8000));
         // タグはないが、オーディオの情報（ビット深度・チャンネル数）は中身から読む
-        let backfill = read_backfill_tags(&file).unwrap();
         assert_eq!(
-            (backfill.details.bit_depth, backfill.details.channels),
+            (info.details.bit_depth, info.details.channels),
             (Some(16), Some(1))
-        );
-        assert_eq!(
-            BackfillTags {
-                details: TrackDetails::default(),
-                ..backfill
-            },
-            BackfillTags::default()
         );
 
         update_file_rating(&file, 5).unwrap();
@@ -2435,17 +2313,16 @@ mod tests {
         assert_eq!(info.rating, 0);
         assert_eq!(info.metadata.title.as_deref(), Some("Title"));
 
-        // まとめて書き込む（値がある項目だけ）
+        // 値がある項目だけを書き込む
         let partial = Metadata {
             title: None,
             artist: Some("Other".to_string()),
             ..metadata.clone()
         };
-        update_file_metadata_and_rating(&file, &partial, Some(2)).unwrap();
+        update_file_metadata(&file, &partial, false).unwrap();
         let info = extract_all_file_info(&file).unwrap();
         assert_eq!(info.metadata.title.as_deref(), Some("Title"));
         assert_eq!(info.metadata.artist.as_deref(), Some("Other"));
-        assert_eq!(info.rating, 2);
 
         std::fs::remove_dir_all(&dir).unwrap();
     }

@@ -1,5 +1,4 @@
 use rusqlite::{Connection, OptionalExtension, Result};
-use std::collections::HashSet;
 use std::path::PathBuf;
 
 /// DBの表の作りの版（`app_meta`の`schema_version`に記録する。ADR-088）
@@ -8,8 +7,11 @@ use std::path::PathBuf;
 /// そのまま読み書きできる変更では上げない）。記録が新しい版のDBは開かない（`DbOpenError::NewerSchema`）。
 /// 全文検索の表の版（`FTS_SCHEMA_VERSION`。`PRAGMA user_version`）とは別に持つ。
 ///
-/// - 2: 自動プレイリストを、プレイリストの表から、オートプレイリストの表へ移した（ADR-127）
-pub const DB_SCHEMA_VERSION: i64 = 2;
+/// リリースの前は移行を持たず、表の作りを変えたら、表を最終の形のまま書き直して版を上げる（ADR-129）。
+/// 記録が古い版のDB（リリースの前の版のアプリが作ったDB）も開かない（`DbOpenError::OlderSchema`）。
+///
+/// - 3: リリースの前の移行をやめ、表を最終の形で作り直した（ADR-129）
+pub const DB_SCHEMA_VERSION: i64 = 3;
 
 /// DBの情報を持つ表（キーと値）
 const APP_META_TABLE: &str = "app_meta";
@@ -22,37 +24,50 @@ pub enum DbOpenError {
         "the database was written by a newer version of the app (schema version {found}, supported up to {supported})"
     )]
     NewerSchema { found: i64, supported: i64 },
+    /// リリースの前の版のアプリが作ったDB（移行はしない。起動時は別の名前で残す）
+    #[error(
+        "the database was written by a pre-release version of the app (schema version {found:?})"
+    )]
+    OlderSchema { found: Option<i64> },
     #[error(transparent)]
     Sqlite(#[from] rusqlite::Error),
 }
 
 /// データベース接続を初期化
 ///
-/// 新しい版のアプリが作ったDBは、移行を始める前に断る（何も書き換えない）。
+/// 表の作りの版が今の版と違うDBは、表を作る前に断る（何も書き換えない）。表のないDB（新しく作った
+/// ファイル）には、表を作る。
 pub fn init_db(db_path: PathBuf) -> std::result::Result<Connection, DbOpenError> {
     let conn = Connection::open(db_path)?;
-    if let Some(found) = stored_schema_version(&conn)?
-        && found > DB_SCHEMA_VERSION
-    {
-        return Err(DbOpenError::NewerSchema {
-            found,
-            supported: DB_SCHEMA_VERSION,
-        });
+    match stored_schema_version(&conn)? {
+        Some(DB_SCHEMA_VERSION) => {}
+        Some(found) if found > DB_SCHEMA_VERSION => {
+            return Err(DbOpenError::NewerSchema {
+                found,
+                supported: DB_SCHEMA_VERSION,
+            });
+        }
+        found if has_table(&conn, "tracks")? => return Err(DbOpenError::OlderSchema { found }),
+        _ => {}
     }
     setup_connection(&conn)?;
     Ok(conn)
 }
 
-/// DBに記録してある表の作りの版（記録する前の版のアプリが作ったDB・ほかのDBはNone）
-///
-/// バックアップのファイルを調べる時にも使う（新しい版のDBは復元しない）。
-pub fn stored_schema_version(conn: &Connection) -> Result<Option<i64>> {
-    let has_table: bool = conn.query_row(
+/// 表（全文検索の仮想表を含む）があるか
+fn has_table(conn: &Connection, name: &str) -> Result<bool> {
+    conn.query_row(
         "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1)",
-        [APP_META_TABLE],
+        [name],
         |row| row.get(0),
-    )?;
-    if !has_table {
+    )
+}
+
+/// DBに記録してある表の作りの版（記録のないDBはNone）
+///
+/// バックアップのファイルを調べる時にも使う（版が今の版と違うDBは復元しない）。
+pub fn stored_schema_version(conn: &Connection) -> Result<Option<i64>> {
+    if !has_table(conn, APP_META_TABLE)? {
         return Ok(None);
     }
     let value: Option<String> = conn
@@ -65,66 +80,256 @@ pub fn stored_schema_version(conn: &Connection) -> Result<Option<i64>> {
     Ok(value.and_then(|value| value.parse().ok()))
 }
 
-/// 表の作りの版を記録する（移行の最後に呼ぶ）
-fn record_schema_version(conn: &Connection) -> Result<()> {
-    conn.execute_batch(&format!(
-        "CREATE TABLE IF NOT EXISTS {APP_META_TABLE} (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-         INSERT INTO {APP_META_TABLE} (key, value) VALUES ('schema_version', '{DB_SCHEMA_VERSION}')
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value;"
-    ))
-}
-
-/// 開いた接続を使える状態にする（接続ごとの設定と、スキーマの作成・移行）
+/// 開いた接続を使える状態にする（接続ごとの設定と、表の作成）
 ///
 /// アプリの接続も、テストの接続（`open_in_memory`）も、これを通す。
 pub fn setup_connection(conn: &Connection) -> Result<()> {
     // 外部キー（`ON DELETE CASCADE`）を有効にする。SQLiteの既定は無効で、接続ごとに設定する
     // （同梱のSQLiteのビルドの既定値に頼らない）。トランザクションの中では変えられないため、最初に行う
     conn.pragma_update(None, "foreign_keys", true)?;
-    run_migrations(conn)
+    // 全文検索の表を同期するトリガーが使う関数（`tracks`に書き込む前に必要）と、複数の値を持つ項目
+    // （アーティスト・ジャンル）を値ごとに比べる関数（一覧の絞り込みで使う）を登録する
+    crate::search_text::register(conn)?;
+    crate::multi_value::register(conn)?;
+
+    conn.execute_batch(&schema_sql())?;
+    setup_full_text_search(conn)?;
+    conn.execute(
+        &format!(
+            "INSERT INTO {APP_META_TABLE} (key, value) VALUES ('schema_version', ?1)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        ),
+        [DB_SCHEMA_VERSION.to_string()],
+    )?;
+    Ok(())
 }
 
 /// テスト用の、メモリ上のDBを開く（アプリと同じ設定・スキーマにする）
 #[cfg(test)]
 pub fn open_in_memory() -> Connection {
     let conn = Connection::open_in_memory().expect("インメモリDB作成に失敗");
-    setup_connection(&conn).expect("マイグレーション実行に失敗");
+    setup_connection(&conn).expect("スキーマの作成に失敗");
     conn
 }
 
-/// カラムが存在しない場合のみ追加するヘルパー関数
-fn add_column_if_not_exists(
-    conn: &Connection,
-    table: &str,
-    column: &str,
-    column_def: &str,
-) -> Result<()> {
-    // PRAGMA table_infoでカラムの存在をチェック
-    let mut stmt = conn.prepare(&format!("PRAGMA table_info({})", table))?;
-    let column_exists = stmt
-        .query_map([], |row| row.get::<_, String>(1))?
-        .any(|name| name.map(|n| n == column).unwrap_or(false));
+/// 表と索引を作るSQL（すでにあれば何もしない）
+///
+/// アプリが必ず値を入れる列には`NOT NULL`を付ける（読む側でNULLを補わない）。
+fn schema_sql() -> String {
+    format!(
+        "CREATE TABLE IF NOT EXISTS {APP_META_TABLE} (
+            key TEXT PRIMARY KEY NOT NULL,
+            value TEXT NOT NULL
+        );
 
-    if !column_exists {
-        conn.execute(
-            &format!("ALTER TABLE {} ADD COLUMN {} {}", table, column, column_def),
-            [],
-        )?;
-    }
+        -- 曲。タグにある項目と、ファイルの情報と、アプリだけが持つ項目（お気に入り・再生回数など）
+        CREATE TABLE IF NOT EXISTS tracks (
+            id TEXT PRIMARY KEY NOT NULL,
+            file_path TEXT UNIQUE NOT NULL,
+            file_name TEXT NOT NULL,
+            title TEXT,
+            artist TEXT,
+            album TEXT,
+            -- アルバム・アーティストの一覧は「アルバムアーティスト（なければアーティスト）」でまとめる
+            album_artist TEXT,
+            genre TEXT,
+            year INTEGER,
+            track_number INTEGER,
+            disc_number INTEGER,
+            -- コンピレーションの印。アルバムアーティストのないコンピレーションの曲は、
+            -- 「Various Artists」のアルバムにまとめる（ADR-093）
+            compilation INTEGER NOT NULL DEFAULT 0,
+            -- 作曲者・グループ・コメント・BPM（一覧の列・検索に使う。ADR-115）
+            composer TEXT,
+            grouping TEXT,
+            comment TEXT,
+            bpm INTEGER,
+            -- 並び順に使う値（ソート用のタグ。読み仮名など）。値のない項目は、表示用の値で並べる
+            title_sort TEXT,
+            artist_sort TEXT,
+            album_sort TEXT,
+            album_artist_sort TEXT,
+            -- 評価（半分の星の単位。0〜10。ADR-082）
+            rating INTEGER NOT NULL DEFAULT 0,
+            -- 音量の正規化に使うゲイン（dB）とピーク（ReplayGain / EBU R128のタグから読む）
+            replay_gain_track_gain REAL,
+            replay_gain_track_peak REAL,
+            replay_gain_album_gain REAL,
+            replay_gain_album_peak REAL,
+            duration INTEGER,
+            file_size INTEGER NOT NULL DEFAULT 0,
+            format TEXT NOT NULL DEFAULT '',
+            bitrate INTEGER,
+            sample_rate INTEGER,
+            bit_depth INTEGER,
+            channels INTEGER,
+            -- ファイルの更新日時（UNIX時間の秒）。ライブラリフォルダの再スキャンで変更を検出する
+            file_modified_at INTEGER,
+            -- ファイルが見つからなくなった日時（見つかる間はNULL。`track_relink`）
+            missing_since TEXT,
+            -- CUEシートの曲（アルバム1ファイルの中の1曲）の、元の音声ファイルと範囲（1/75秒。ADR-123）
+            cue_source TEXT,
+            cue_start INTEGER,
+            cue_end INTEGER,
+            is_favorite INTEGER NOT NULL DEFAULT 0,
+            -- お気に入りにした日時（お気に入りの一覧を、最近お気に入りにした順に並べる）
+            favorited_at TEXT,
+            play_count INTEGER NOT NULL DEFAULT 0,
+            -- スキップ回数（再生回数に数える前に、別の曲へ移った回数）
+            skip_count INTEGER NOT NULL DEFAULT 0,
+            last_played_at TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
 
-    Ok(())
+        CREATE TABLE IF NOT EXISTS play_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            track_id TEXT NOT NULL,
+            played_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE
+        );
+
+        -- プレイリストのフォルダ（1階層。フォルダの中にフォルダは作らない）
+        CREATE TABLE IF NOT EXISTS playlist_folders (
+            id TEXT PRIMARY KEY NOT NULL,
+            name TEXT NOT NULL,
+            position INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        -- `folder_id`は、入っているフォルダ（NULLは、フォルダの外）。`position`は手動の並び順での位置。
+        -- 外部キーは使わず、フォルダを削除する時に`playlist::delete_playlist_folder`が外へ出す
+        CREATE TABLE IF NOT EXISTS playlists (
+            id TEXT PRIMARY KEY NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT,
+            folder_id TEXT,
+            position INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS playlist_tracks (
+            playlist_id TEXT NOT NULL,
+            track_id TEXT NOT NULL,
+            position INTEGER NOT NULL,
+            added_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (playlist_id, track_id),
+            FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE,
+            FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE
+        );
+
+        -- オートプレイリスト（条件で曲を集めるプレイリスト。ADR-042・ADR-127）。曲の一覧は持たず、
+        -- 開くたびに条件（`rules`。JSON）から求める。フォルダには入れない
+        CREATE TABLE IF NOT EXISTS smart_playlists (
+            id TEXT PRIMARY KEY NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT,
+            rules TEXT NOT NULL,
+            position INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        -- ライブラリフォルダ（インポートしたフォルダ。再スキャンの対象）。トラックとの対応は
+        -- file_pathの前方一致で判定する（フォルダ同士は入れ子にしない）。`is_music_folder`は、
+        -- 音楽フォルダ（新しい曲を置く宛先）の印で、付けるフォルダは多くても1つ（ADR-068）
+        CREATE TABLE IF NOT EXISTS library_folders (
+            id TEXT PRIMARY KEY NOT NULL,
+            path TEXT UNIQUE NOT NULL,
+            is_music_folder INTEGER NOT NULL DEFAULT 0,
+            added_at TEXT NOT NULL DEFAULT (datetime('now')),
+            last_scanned_at TEXT
+        );
+
+        -- ライブラリフォルダの、読み込まないフォルダ（除外。pathはライブラリフォルダからの相対パス）。
+        -- 隠しフォルダ・ゴミ箱・パッケージは、ここに入れなくても読み飛ばす（`library::is_always_skipped`）
+        CREATE TABLE IF NOT EXISTS library_folder_exclusions (
+            id TEXT PRIMARY KEY NOT NULL,
+            folder_id TEXT NOT NULL,
+            path TEXT NOT NULL,
+            added_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE (folder_id, path),
+            FOREIGN KEY (folder_id) REFERENCES library_folders(id) ON DELETE CASCADE
+        );
+
+        -- 転送先デバイス（SDカードなどのフォルダ。同期する対象をデバイスごとに記録する）。
+        -- デバイス上のファイルの一覧は、デバイス側の管理ファイルに記録する（`device_manifest`）。
+        -- 列の既定値は、新しく登録するデバイスの設定（配置の書式はADR-111、歌詞ファイル・フォルダの
+        -- 画像のコピーはADR-112、転送する時の変換はADR-118）
+        CREATE TABLE IF NOT EXISTS sync_devices (
+            id TEXT PRIMARY KEY NOT NULL,
+            name TEXT NOT NULL,
+            path TEXT NOT NULL,
+            sync_all INTEGER NOT NULL DEFAULT 0,
+            remove_unselected INTEGER NOT NULL DEFAULT 1,
+            path_template TEXT NOT NULL DEFAULT '{device_template}',
+            copy_extras INTEGER NOT NULL DEFAULT 1,
+            transcode_mode TEXT NOT NULL DEFAULT 'off',
+            transcode_bitrate INTEGER NOT NULL DEFAULT {transcode_bitrate},
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            last_synced_at TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS sync_device_playlists (
+            device_id TEXT NOT NULL,
+            playlist_id TEXT NOT NULL,
+            PRIMARY KEY (device_id, playlist_id),
+            FOREIGN KEY (device_id) REFERENCES sync_devices(id) ON DELETE CASCADE,
+            FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS sync_device_smart_playlists (
+            device_id TEXT NOT NULL,
+            smart_playlist_id TEXT NOT NULL,
+            PRIMARY KEY (device_id, smart_playlist_id),
+            FOREIGN KEY (device_id) REFERENCES sync_devices(id) ON DELETE CASCADE,
+            FOREIGN KEY (smart_playlist_id) REFERENCES smart_playlists(id) ON DELETE CASCADE
+        );
+
+        -- 曲の解析（テンポ・キー・ペース）の結果（`music_analysis`。ADR-104）。解析した時の曲の長さを持ち、
+        -- 長さが変わった曲（ファイルを差し替えた）は解析し直す。解析できなかった曲は`failed`を1にする
+        -- （値のない行。解析し直さない）。キーは、主音のピッチクラス（0〜11）と長調（0）・短調（1）
+        CREATE TABLE IF NOT EXISTS track_analysis (
+            track_id TEXT PRIMARY KEY NOT NULL,
+            duration INTEGER,
+            bpm REAL,
+            key_pitch_class INTEGER,
+            key_mode INTEGER,
+            pace REAL,
+            failed INTEGER NOT NULL DEFAULT 0,
+            analyzed_at TEXT NOT NULL,
+            FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_tracks_artist ON tracks(artist);
+        CREATE INDEX IF NOT EXISTS idx_tracks_album ON tracks(album);
+        CREATE INDEX IF NOT EXISTS idx_tracks_genre ON tracks(genre);
+        CREATE INDEX IF NOT EXISTS idx_tracks_title ON tracks(title);
+        -- 見つからない曲（移動・改名されたファイルの対応付けの候補）の取得用
+        CREATE INDEX IF NOT EXISTS idx_tracks_missing ON tracks(missing_since)
+            WHERE missing_since IS NOT NULL;
+        -- アルバムの曲・アルバムアーティストのアルバムの取得（まとめるアーティストでの絞り込み）用。
+        -- 式は`repository::ALBUM_ARTIST`と同じにする（違うと使われない）
+        CREATE INDEX IF NOT EXISTS idx_tracks_group_artist ON tracks({album_artist});
+        CREATE INDEX IF NOT EXISTS idx_play_history_track_id ON play_history(track_id);
+        CREATE INDEX IF NOT EXISTS idx_play_history_played_at ON play_history(played_at);
+        CREATE INDEX IF NOT EXISTS idx_playlist_tracks_playlist_id ON playlist_tracks(playlist_id);
+        -- 曲を削除する時に、外部キー（`ON DELETE CASCADE`）がその曲の行を探す
+        -- （主キーの`(playlist_id, track_id)`は、`track_id`だけの検索に使えない）
+        CREATE INDEX IF NOT EXISTS idx_playlist_tracks_track_id ON playlist_tracks(track_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_library_folders_music_folder
+            ON library_folders(is_music_folder) WHERE is_music_folder = 1;",
+        device_template = crate::device::DEFAULT_DEVICE_TEMPLATE,
+        transcode_bitrate = crate::transcode::DEFAULT_AAC_BITRATE_KBPS,
+        album_artist = crate::repository::ALBUM_ARTIST,
+    )
 }
 
 /// 全文検索の表（`tracks_fts`）の定義の版（`PRAGMA user_version`に記録する）
 ///
-/// - 1: 旧トリガー（直接DELETE/UPDATE方式）で壊れた可能性のあるインデックスを作り直した
-/// - 2: 検索の対象にアルバムアーティストを加えた
-/// - 3: 途中の一致を探せるよう、トークナイザーをtrigramにした。検索用に正規化した文字列
-///   （`search_text`）を1つの列に入れ、表が内容を持つようにした（external contentをやめた）
-/// - 4: 検索の対象に作曲者を加えた（ADR-115）
-///
-/// 表の列・トークナイザーを変える時は値を上げる（古い版の表は、起動時に作り直す）。
-const FTS_SCHEMA_VERSION: i32 = 4;
+/// 表の列・トークナイザーを変える時は値を上げる（古い版の表は、起動時に`tracks`から作り直す）。
+const FTS_SCHEMA_VERSION: i32 = 1;
 
 /// 全文検索の表に入れる文字列（タイトル・アーティスト・アルバム・ジャンル・アルバムアーティスト・
 /// 作曲者を検索用に正規化してつなぐ）を求めるSQLの式。`prefix`は`new.`など
@@ -136,433 +341,26 @@ fn fts_text_expr(prefix: &str) -> String {
     )
 }
 
-/// データベースマイグレーションを実行（`setup_connection`から呼ぶ）
-fn run_migrations(conn: &Connection) -> Result<()> {
-    // 全文検索の表を同期するトリガーが使う関数を登録する（`tracks`に書き込む前に必要）
-    crate::search_text::register(conn)?;
-    // 複数の値を持つ項目（アーティスト・ジャンル）を、値ごとに比べる関数（一覧の絞り込みで使う）
-    crate::multi_value::register(conn)?;
-
-    // tracksテーブルの作成
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS tracks (
-            id TEXT PRIMARY KEY,
-            file_path TEXT UNIQUE NOT NULL,
-            file_name TEXT NOT NULL,
-            title TEXT,
-            artist TEXT,
-            album TEXT,
-            genre TEXT,
-            year INTEGER,
-            duration INTEGER,
-            file_size INTEGER,
-            format TEXT,
-            bitrate INTEGER,
-            sample_rate INTEGER,
-            created_at TEXT DEFAULT (datetime('now')),
-            updated_at TEXT DEFAULT (datetime('now'))
-        )",
-        [],
-    )?;
-
-    // お気に入り/レーティング/再生統計のカラムを追加（既存テーブルへのマイグレーション）
-    // カラムが存在しない場合のみ追加
-    add_column_if_not_exists(conn, "tracks", "is_favorite", "INTEGER DEFAULT 0")?;
-    add_column_if_not_exists(conn, "tracks", "rating", "INTEGER DEFAULT 0")?;
-    add_column_if_not_exists(conn, "tracks", "play_count", "INTEGER DEFAULT 0")?;
-    add_column_if_not_exists(conn, "tracks", "last_played_at", "TEXT")?;
-    // お気に入りにした日時（お気に入りの一覧を、最近お気に入りにした順に並べる）
-    add_column_if_not_exists(conn, "tracks", "favorited_at", "TEXT")?;
-    // スキップ回数（再生回数に数える前に、別の曲へ移った回数）
-    add_column_if_not_exists(conn, "tracks", "skip_count", "INTEGER DEFAULT 0")?;
-    // 再生回数・スキップ回数を、読める範囲（`MAX_PLAY_COUNT`まで）に収める。上限を確かめずに
-    // 書いていた版（ライブラリのXMLの取り込み）が入れた値があると、その曲を含む一覧を読めない
-    conn.execute(
-        "UPDATE tracks SET
-            play_count = MIN(play_count, ?1),
-            skip_count = MIN(skip_count, ?1)
-         WHERE play_count > ?1 OR skip_count > ?1",
-        [crate::models::MAX_PLAY_COUNT],
-    )?;
-
-    // トラック番号/ディスク番号のカラムを追加
-    add_column_if_not_exists(conn, "tracks", "track_number", "INTEGER")?;
-    add_column_if_not_exists(conn, "tracks", "disc_number", "INTEGER")?;
-
-    // ファイルの更新日時（UNIX時間の秒）。ライブラリフォルダの再スキャンで変更を検出する
-    // 追加前に登録したトラックはNULL（再スキャンで記録する）
-    add_column_if_not_exists(conn, "tracks", "file_modified_at", "INTEGER")?;
-
-    // 音量の正規化に使うゲイン（dB）とピーク（ReplayGain / EBU R128のタグから読み取る）
-    // 追加前に登録したトラックは「メタデータを更新」か再スキャンで読み取る
-    add_column_if_not_exists(conn, "tracks", "replay_gain_track_gain", "REAL")?;
-    add_column_if_not_exists(conn, "tracks", "replay_gain_track_peak", "REAL")?;
-    add_column_if_not_exists(conn, "tracks", "replay_gain_album_gain", "REAL")?;
-    add_column_if_not_exists(conn, "tracks", "replay_gain_album_peak", "REAL")?;
-
-    // アルバムアーティスト（ファイルのタグから読む）。アルバム・アーティストの一覧は
-    // 「アルバムアーティスト（なければアーティスト）」でまとめる
-    add_column_if_not_exists(conn, "tracks", "album_artist", "TEXT")?;
-    // アルバムアーティストをファイルから読んだか。列を追加する前に登録したトラックは0で、
-    // 起動時にバックグラウンドで読み込む（`tag_backfill`）
-    add_column_if_not_exists(
-        conn,
-        "tracks",
-        "album_artist_read",
-        "INTEGER NOT NULL DEFAULT 0",
-    )?;
-
-    // 並び順に使う値（ソート用のタグ。読み仮名など）。値のない項目は、表示用の値で並べる
-    add_column_if_not_exists(conn, "tracks", "title_sort", "TEXT")?;
-    add_column_if_not_exists(conn, "tracks", "artist_sort", "TEXT")?;
-    add_column_if_not_exists(conn, "tracks", "album_sort", "TEXT")?;
-    add_column_if_not_exists(conn, "tracks", "album_artist_sort", "TEXT")?;
-    // ソート用のタグをファイルから読んだか。列を追加する前に登録したトラックは0で、
-    // 起動時にバックグラウンドで読み込む（`tag_backfill`）
-    add_column_if_not_exists(
-        conn,
-        "tracks",
-        "sort_tags_read",
-        "INTEGER NOT NULL DEFAULT 0",
-    )?;
-
-    // アーティスト・ジャンルを、複数の値として読んだか。複数の値に対応する前に登録したトラックは0で
-    // （同じ項目が複数あるタグの、最初の値だけを読んでいる）、起動時にバックグラウンドで読み直す
-    // （`tag_backfill`）
-    add_column_if_not_exists(
-        conn,
-        "tracks",
-        "multi_values_read",
-        "INTEGER NOT NULL DEFAULT 0",
-    )?;
-
-    // コンピレーション（複数のアーティストの曲を集めたアルバム）の印（ファイルのタグから読む）。
-    // アルバムアーティストのないコンピレーションの曲は、「Various Artists」のアルバムにまとめる（ADR-093）
-    add_column_if_not_exists(conn, "tracks", "compilation", "INTEGER NOT NULL DEFAULT 0")?;
-    // コンピレーションの印をファイルから読んだか。列を追加する前に登録したトラックは0で、
-    // 起動時にバックグラウンドで読み込む（`tag_backfill`）
-    add_column_if_not_exists(
-        conn,
-        "tracks",
-        "compilation_read",
-        "INTEGER NOT NULL DEFAULT 0",
-    )?;
-    // 作曲者・グループ・コメント・BPM・ビット深度・チャンネル数（一覧の列・検索に使う。ADR-115）。
-    // `details_read`は、それらをファイルから読んだか（列を足す前に登録したトラックは0で、起動後に
-    // `tag_backfill`が読む）
-    for column in ["composer", "grouping", "comment"] {
-        add_column_if_not_exists(conn, "tracks", column, "TEXT")?;
-    }
-    for column in ["bpm", "bit_depth", "channels"] {
-        add_column_if_not_exists(conn, "tracks", column, "INTEGER")?;
-    }
-    add_column_if_not_exists(conn, "tracks", "details_read", "INTEGER NOT NULL DEFAULT 0")?;
-
-    // ファイルが見つからなくなった日時（見つかる間はNULL）。再スキャンでファイルが見つからなく
-    // なったトラックはすぐには外さず、「見つからない曲」として残す。移動・改名されたファイルが
-    // 見つかれば同じ曲として結び付け、外すのは利用者の操作にする（`track_relink`）
-    add_column_if_not_exists(conn, "tracks", "missing_since", "TEXT")?;
-    // CUEシートの曲（アルバム1ファイルの中の1曲）の、元の音声ファイルと範囲（1/75秒。ADR-123）
-    add_column_if_not_exists(conn, "tracks", "cue_source", "TEXT")?;
-    add_column_if_not_exists(conn, "tracks", "cue_start", "INTEGER")?;
-    add_column_if_not_exists(conn, "tracks", "cue_end", "INTEGER")?;
-
-    // 再生履歴テーブルの作成
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS play_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            track_id TEXT NOT NULL,
-            played_at TEXT DEFAULT (datetime('now')),
-            FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE
-        )",
-        [],
-    )?;
-
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_play_history_track_id ON play_history(track_id)",
-        [],
-    )?;
-
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_play_history_played_at ON play_history(played_at)",
-        [],
-    )?;
-
-    // playlistsテーブルの作成
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS playlists (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            description TEXT,
-            created_at TEXT DEFAULT (datetime('now')),
-            updated_at TEXT DEFAULT (datetime('now'))
-        )",
-        [],
-    )?;
-
-    // プレイリストのフォルダ（1階層。フォルダの中にフォルダは作らない）
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS playlist_folders (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            position INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT DEFAULT (datetime('now'))
-        )",
-        [],
-    )?;
-    // プレイリストが入っているフォルダ（NULLは、フォルダの外）と、手動の並び順での位置
-    // 外部キーは使わず、フォルダを削除する時に`playlist::delete_playlist_folder`が外へ出す
-    add_column_if_not_exists(conn, "playlists", "folder_id", "TEXT")?;
-    add_column_if_not_exists(conn, "playlists", "position", "INTEGER NOT NULL DEFAULT 0")?;
-
-    // playlist_tracksテーブルの作成
-    // 主キーの列に`NOT NULL`がない（SQLiteのrowidの表は、主キーにNULLを許す）。アプリはNULLを
-    // 入れないため今は付けない。表を作り直す時に付ける
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS playlist_tracks (
-            playlist_id TEXT,
-            track_id TEXT,
-            position INTEGER,
-            added_at TEXT DEFAULT (datetime('now')),
-            PRIMARY KEY (playlist_id, track_id),
-            FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE,
-            FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE
-        )",
-        [],
-    )?;
-
-    // オートプレイリスト（条件で曲を集めるプレイリスト。ADR-042・ADR-127）。曲の一覧は持たず、
-    // 開くたびに条件（`rules`。JSON）から求める。フォルダには入れない
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS smart_playlists (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            description TEXT,
-            rules TEXT NOT NULL,
-            position INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-        )",
-        [],
-    )?;
-
-    // ライブラリフォルダ（インポートしたフォルダ。再スキャンの対象）
-    // トラックとの対応はfile_pathの前方一致で判定する（フォルダ同士は入れ子にしない）
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS library_folders (
-            id TEXT PRIMARY KEY,
-            path TEXT UNIQUE NOT NULL,
-            added_at TEXT DEFAULT (datetime('now')),
-            last_scanned_at TEXT
-        )",
-        [],
-    )?;
-    // 音楽フォルダ（新しい曲を置く宛先）の印。印を付けるフォルダは、多くても1つ（ADR-068）
-    add_column_if_not_exists(
-        conn,
-        "library_folders",
-        "is_music_folder",
-        "INTEGER NOT NULL DEFAULT 0",
-    )?;
-    conn.execute(
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_library_folders_music_folder
-         ON library_folders(is_music_folder) WHERE is_music_folder = 1",
-        [],
-    )?;
-
-    // ライブラリフォルダの、読み込まないフォルダ（除外。pathはライブラリフォルダからの相対パス）
-    // 隠しフォルダ・ゴミ箱・パッケージは、ここに入れなくても読み飛ばす（`library::is_always_skipped`）
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS library_folder_exclusions (
-            id TEXT PRIMARY KEY,
-            folder_id TEXT NOT NULL,
-            path TEXT NOT NULL,
-            added_at TEXT DEFAULT (datetime('now')),
-            UNIQUE (folder_id, path),
-            FOREIGN KEY (folder_id) REFERENCES library_folders(id) ON DELETE CASCADE
-        )",
-        [],
-    )?;
-
-    // 転送先デバイス（SDカードなどのフォルダ。同期する対象をデバイスごとに記録する）
-    // デバイス上のファイルの一覧は、デバイス側の管理ファイルに記録する（`device_manifest`）
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS sync_devices (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            path TEXT NOT NULL,
-            sync_all INTEGER NOT NULL DEFAULT 0,
-            remove_unselected INTEGER NOT NULL DEFAULT 1,
-            created_at TEXT DEFAULT (datetime('now')),
-            last_synced_at TEXT
-        )",
-        [],
-    )?;
-
-    // デバイス上の配置の書式（列を足す前に登録したデバイスは、以前の配置の書式。ADR-111）
-    add_column_if_not_exists(
-        conn,
-        "sync_devices",
-        "path_template",
-        &format!(
-            "TEXT NOT NULL DEFAULT '{}'",
-            crate::device::LEGACY_DEVICE_TEMPLATE
-        ),
-    )?;
-    // 歌詞ファイル・フォルダの画像もコピーするか（既定はコピーする。ADR-112）
-    add_column_if_not_exists(
-        conn,
-        "sync_devices",
-        "copy_extras",
-        "INTEGER NOT NULL DEFAULT 1",
-    )?;
-    // 転送する時の変換（既定は変換しない。ADR-118）
-    add_column_if_not_exists(
-        conn,
-        "sync_devices",
-        "transcode_mode",
-        "TEXT NOT NULL DEFAULT 'off'",
-    )?;
-    add_column_if_not_exists(
-        conn,
-        "sync_devices",
-        "transcode_bitrate",
-        &format!(
-            "INTEGER NOT NULL DEFAULT {}",
-            crate::transcode::DEFAULT_AAC_BITRATE_KBPS
-        ),
-    )?;
-
-    // デバイスに同期するプレイリスト
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS sync_device_playlists (
-            device_id TEXT NOT NULL,
-            playlist_id TEXT NOT NULL,
-            PRIMARY KEY (device_id, playlist_id),
-            FOREIGN KEY (device_id) REFERENCES sync_devices(id) ON DELETE CASCADE,
-            FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE
-        )",
-        [],
-    )?;
-
-    // デバイスに同期するオートプレイリスト（ADR-127）
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS sync_device_smart_playlists (
-            device_id TEXT NOT NULL,
-            smart_playlist_id TEXT NOT NULL,
-            PRIMARY KEY (device_id, smart_playlist_id),
-            FOREIGN KEY (device_id) REFERENCES sync_devices(id) ON DELETE CASCADE,
-            FOREIGN KEY (smart_playlist_id) REFERENCES smart_playlists(id) ON DELETE CASCADE
-        )",
-        [],
-    )?;
-
-    // 曲の解析（テンポ・キー・ペース）の結果（`music_analysis`。ADR-104）。解析した時の曲の長さを持ち、
-    // 長さが変わった曲（ファイルを差し替えた）は解析し直す。解析できなかった曲は`failed`を1にする
-    // （値のない行。解析し直さない）。キーは、主音のピッチクラス（0〜11）と長調（0）・短調（1）
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS track_analysis (
-            track_id TEXT PRIMARY KEY,
-            duration INTEGER,
-            bpm REAL,
-            key_pitch_class INTEGER,
-            key_mode INTEGER,
-            pace REAL,
-            failed INTEGER NOT NULL DEFAULT 0,
-            analyzed_at TEXT NOT NULL,
-            FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE
-        )",
-        [],
-    )?;
-
-    // パフォーマンス向上のためのインデックス作成
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_tracks_artist ON tracks(artist)",
-        [],
-    )?;
-
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_tracks_album ON tracks(album)",
-        [],
-    )?;
-
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_tracks_genre ON tracks(genre)",
-        [],
-    )?;
-
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_tracks_title ON tracks(title)",
-        [],
-    )?;
-
-    // 見つからない曲（移動・改名されたファイルの対応付けの候補）の取得用
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_tracks_missing ON tracks(missing_since)
-         WHERE missing_since IS NOT NULL",
-        [],
-    )?;
-
-    // アルバムの曲・アルバムアーティストのアルバムの取得（まとめるアーティストでの絞り込み）用。
-    // 式は`repository::ALBUM_ARTIST`と同じにする（違うと使われない）。コンピレーションの印をまとめ方に
-    // 加える前（ADR-093）の式のインデックス（`idx_tracks_album_artist`）は、使われないため消す
-    conn.execute_batch(&format!(
-        "DROP INDEX IF EXISTS idx_tracks_album_artist;
-         CREATE INDEX IF NOT EXISTS idx_tracks_group_artist
-         ON tracks({});",
-        crate::repository::ALBUM_ARTIST
-    ))?;
-
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_playlist_tracks_playlist_id ON playlist_tracks(playlist_id)",
-        [],
-    )?;
-
-    // 曲を削除する時に、外部キー（`ON DELETE CASCADE`）がその曲の行を探す
-    // （主キーの`(playlist_id, track_id)`は、`track_id`だけの検索に使えない）
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_playlist_tracks_track_id ON playlist_tracks(track_id)",
-        [],
-    )?;
-
-    // 全文検索の表の定義を変えた場合は、表を作り直す（user_versionで実行済みを管理）
-    // 表の内容は、下の「既存データを同期」で`tracks`から作り直せる
+/// 全文検索の表と、`tracks`に合わせて表を更新するトリガーを用意する
+///
+/// trigram（3文字の並びを索引にする）で、語の途中の一致（区切りのない日本語を含む）を探せる。
+/// 検索用に正規化した文字列（`search_text`）を1つの列に入れ、rowidは`tracks`のrowidと同じにする。
+/// 表の定義の版が古い表と、作り直している途中で終了した表は、`tracks`から作り直す。
+fn setup_full_text_search(conn: &Connection) -> Result<()> {
     let user_version: i32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
     if user_version < FTS_SCHEMA_VERSION {
         conn.execute_batch("DROP TABLE IF EXISTS tracks_fts")?;
     }
-
-    // 全文検索用の仮想テーブルを作成（FTS5）
-    // 既存のテーブルがある場合はスキップ
-    let fts_exists: bool = conn
-        .query_row(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='tracks_fts'",
-            [],
-            |row| row.get::<_, i64>(0).map(|count| count > 0),
-        )
-        .unwrap_or(false);
-
-    if !fts_exists {
-        // trigram: 3文字の並びを索引にし、語の途中の一致（区切りのない日本語を含む）を探せる。
-        // rowidは`tracks`のrowidと同じにする
-        conn.execute(
-            "CREATE VIRTUAL TABLE tracks_fts USING fts5(text, tokenize = 'trigram')",
-            [],
-        )?;
-
-        // 既存データをFTSテーブルに同期
-        conn.execute(
-            &format!(
-                "INSERT INTO tracks_fts(rowid, text) SELECT rowid, {} FROM tracks",
-                fts_text_expr("")
-            ),
-            [],
-        )?;
+    if !has_table(conn, "tracks_fts")? {
+        conn.execute_batch(&format!(
+            "CREATE VIRTUAL TABLE tracks_fts USING fts5(text, tokenize = 'trigram');
+             INSERT INTO tracks_fts(rowid, text) SELECT rowid, {} FROM tracks;",
+            fts_text_expr("")
+        ))?;
     }
 
-    // 同期トリガーを作成（定義変更を反映できるよう毎回作り直す・冪等）
-    //
-    // 検索の対象の列を変えた時だけ索引を更新する（再生回数・評価などの更新では更新しない）。
+    // 定義を変えても反映されるよう、毎回作り直す。検索の対象の列を変えた時だけ索引を更新する
+    // （再生回数・評価などの更新では更新しない）
     conn.execute_batch(&format!(
         "DROP TRIGGER IF EXISTS tracks_ai;
          DROP TRIGGER IF EXISTS tracks_ad;
@@ -586,262 +384,7 @@ fn run_migrations(conn: &Connection) -> Result<()> {
     if user_version < FTS_SCHEMA_VERSION {
         conn.execute_batch(&format!("PRAGMA user_version = {FTS_SCHEMA_VERSION}"))?;
     }
-
-    // オートプレイリストの条件を直す移行（形式の名前・半分の星）より先に、表を移す
-    move_smart_playlists_to_own_table(conn)?;
-    rename_formats(conn)?;
-    migrate_to_half_star_ratings(conn)?;
-    record_schema_version(conn)?;
-
     Ok(())
-}
-
-/// カラムがあるか
-fn has_column(conn: &Connection, table: &str, column: &str) -> Result<bool> {
-    let mut stmt = conn.prepare(&format!("PRAGMA table_info({})", table))?;
-    let found = stmt
-        .query_map([], |row| row.get::<_, String>(1))?
-        .any(|name| name.map(|n| n == column).unwrap_or(false));
-    Ok(found)
-}
-
-/// 自動プレイリスト（`playlists.rules`のある行）を、オートプレイリストの表へ移す（ADR-127）
-///
-/// 以前の版は、自動プレイリストを通常のプレイリストと同じ表に、条件の列（`rules`）を付けて持っていた。
-/// `playlists.rules`があるDB（以前の版のDB・以前の版のバックアップから復元したDB）だけ、1回だけ行う。
-///
-/// - 条件のある行を、ID・名前・説明・条件・作成日・更新日を保って`smart_playlists`へ移す。フォルダには
-///   入れない（並びは、フォルダの外のものを先に、今の手動の並び順のまま。フォルダは残す）
-/// - 転送先デバイスの選択（`sync_device_playlists`）も移す
-/// - 条件の「プレイリストに入っている」のうち、移したプレイリストを指すものを、オートプレイリストの
-///   条件（`smartPlaylist`）にする
-/// - `playlists`から条件のある行を消し、`rules`の列を消す
-fn move_smart_playlists_to_own_table(conn: &Connection) -> Result<()> {
-    if !has_column(conn, "playlists", "rules")? {
-        return Ok(());
-    }
-    let tx = conn.unchecked_transaction()?;
-    let moved: HashSet<String> = tx
-        .prepare("SELECT id FROM playlists WHERE rules IS NOT NULL")?
-        .query_map([], |row| row.get(0))?
-        .collect::<Result<_>>()?;
-
-    tx.execute(
-        "INSERT INTO smart_playlists
-            (id, name, description, rules, position, created_at, updated_at)
-         SELECT id, name, description, rules,
-                ROW_NUMBER() OVER (ORDER BY folder_id IS NOT NULL, position, created_at, id) - 1,
-                COALESCE(created_at, datetime('now')), COALESCE(updated_at, datetime('now'))
-         FROM playlists WHERE rules IS NOT NULL",
-        [],
-    )?;
-    tx.execute(
-        "INSERT INTO sync_device_smart_playlists (device_id, smart_playlist_id)
-         SELECT device_id, playlist_id FROM sync_device_playlists
-         WHERE playlist_id IN (SELECT id FROM playlists WHERE rules IS NOT NULL)",
-        [],
-    )?;
-
-    let stored: Vec<(String, String)> = tx
-        .prepare("SELECT id, rules FROM smart_playlists WHERE rules LIKE '%\"playlist\"%'")?
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
-        .collect::<Result<_>>()?;
-    for (id, rules) in stored {
-        let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&rules) else {
-            continue;
-        };
-        if mark_smart_playlist_rules(&mut value, &moved) {
-            tx.execute(
-                "UPDATE smart_playlists SET rules = ?1 WHERE id = ?2",
-                [value.to_string(), id],
-            )?;
-        }
-    }
-
-    // 曲の行（自動プレイリストにはない）・転送先デバイスの選択は、外部キーのCASCADEで消える
-    tx.execute("DELETE FROM playlists WHERE rules IS NOT NULL", [])?;
-    tx.execute("ALTER TABLE playlists DROP COLUMN rules", [])?;
-    tx.commit()?;
-    if !moved.is_empty() {
-        log::info!(
-            "Moved {} smart playlists out of the playlists table",
-            moved.len()
-        );
-    }
-    Ok(())
-}
-
-/// 条件のうち、`smart_playlist_ids`のプレイリストを指す「プレイリストに入っている」の条件を、
-/// オートプレイリストの条件（`kind`を`smartPlaylist`）にする
-/// @returns 直したか
-fn mark_smart_playlist_rules(
-    value: &mut serde_json::Value,
-    smart_playlist_ids: &HashSet<String>,
-) -> bool {
-    match value {
-        serde_json::Value::Array(items) => {
-            let mut changed = false;
-            for item in items {
-                changed |= mark_smart_playlist_rules(item, smart_playlist_ids);
-            }
-            changed
-        }
-        serde_json::Value::Object(fields) => {
-            let refers_to_smart = fields.get("kind").and_then(|kind| kind.as_str())
-                == Some("playlist")
-                && fields
-                    .get("playlistId")
-                    .and_then(|id| id.as_str())
-                    .is_some_and(|id| smart_playlist_ids.contains(id));
-            if refers_to_smart {
-                fields.insert("kind".to_string(), "smartPlaylist".into());
-                return true;
-            }
-            let mut changed = false;
-            for item in fields.values_mut() {
-                changed |= mark_smart_playlist_rules(item, smart_playlist_ids);
-            }
-            changed
-        }
-        _ => false,
-    }
-}
-
-/// 評価を、半分の星の単位（0〜10）にする（ADR-082）
-///
-/// 以前の版は評価を星の数（0〜5）で持っていた。`tracks.rating_read`がないDB（以前の版のDB・
-/// 以前の版のバックアップから復元したDB）だけ、曲の評価と、オートプレイリストの評価の条件の値を
-/// 2倍にし、`rating_read`を足す（1回だけ行う）。足した時の`rating_read`は0で、起動時に
-/// バックグラウンドでファイルの評価を読み直し、半分の星を読む（`tag_backfill`）。
-fn migrate_to_half_star_ratings(conn: &Connection) -> Result<()> {
-    if has_column(conn, "tracks", "rating_read")? {
-        return Ok(());
-    }
-    let tx = conn.unchecked_transaction()?;
-    tx.execute(
-        "UPDATE tracks SET rating = MIN(rating, 5) * 2 WHERE rating > 0",
-        [],
-    )?;
-
-    let playlists: Vec<(String, String)> = tx
-        .prepare("SELECT id, rules FROM smart_playlists WHERE rules LIKE '%\"rating\"%'")?
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
-        .collect::<Result<_>>()?;
-    for (id, rules) in playlists {
-        let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&rules) else {
-            continue;
-        };
-        if double_rating_rules(&mut value) {
-            tx.execute(
-                "UPDATE smart_playlists SET rules = ?1 WHERE id = ?2",
-                [value.to_string(), id],
-            )?;
-        }
-    }
-
-    // 評価を半分の星として読んだか。足す前に登録した曲は0（`tag_backfill`が読み直す）
-    tx.execute(
-        "ALTER TABLE tracks ADD COLUMN rating_read INTEGER NOT NULL DEFAULT 0",
-        [],
-    )?;
-    tx.commit()
-}
-
-/// オートプレイリストの条件のうち、評価の数値の条件の値（`value`・`valueTo`）を2倍にする
-/// @returns 直したか
-fn double_rating_rules(value: &mut serde_json::Value) -> bool {
-    match value {
-        serde_json::Value::Array(items) => {
-            let mut changed = false;
-            for item in items {
-                changed |= double_rating_rules(item);
-            }
-            changed
-        }
-        serde_json::Value::Object(fields) => {
-            let is_rating_rule = fields.get("kind").and_then(|kind| kind.as_str())
-                == Some("number")
-                && fields.get("field").and_then(|field| field.as_str()) == Some("rating");
-            if is_rating_rule {
-                for key in ["value", "valueTo"] {
-                    if let Some(number) = fields.get(key).and_then(serde_json::Value::as_i64) {
-                        fields.insert(key.to_string(), (number.clamp(0, 5) * 2).into());
-                    }
-                }
-                return true;
-            }
-            let mut changed = false;
-            for item in fields.values_mut() {
-                changed |= double_rating_rules(item);
-            }
-            changed
-        }
-        _ => false,
-    }
-}
-
-/// 以前の版が記録した形式の名前（`AIF`・`WV`）を、今の名前（`library::FORMAT_RENAMES`）に直す
-///
-/// 曲の形式と、オートプレイリストの「形式」の条件の値を直す（「形式がWV」の条件が、`WavPack`の曲に
-/// 合うように）。直すものがなければ、何も書かない。
-fn rename_formats(conn: &Connection) -> Result<()> {
-    for (from, to) in crate::library::FORMAT_RENAMES {
-        conn.execute(
-            "UPDATE tracks SET format = ?2 WHERE format = ?1",
-            [from, to],
-        )?;
-    }
-
-    let playlists: Vec<(String, String)> = conn
-        .prepare("SELECT id, rules FROM smart_playlists WHERE rules LIKE '%\"format\"%'")?
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
-        .collect::<Result<_>>()?;
-    for (id, rules) in playlists {
-        let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&rules) else {
-            continue;
-        };
-        if rename_format_rules(&mut value) {
-            conn.execute(
-                "UPDATE smart_playlists SET rules = ?1 WHERE id = ?2",
-                [value.to_string(), id],
-            )?;
-        }
-    }
-    Ok(())
-}
-
-/// オートプレイリストの条件のうち、「形式」の文字列の条件の値を、今の名前にする
-/// @returns 直したか
-fn rename_format_rules(value: &mut serde_json::Value) -> bool {
-    match value {
-        // 途中で止めずに、すべての条件を直す（`any`は、最初に直した所で止まる）
-        serde_json::Value::Array(items) => {
-            let mut changed = false;
-            for item in items {
-                changed |= rename_format_rules(item);
-            }
-            changed
-        }
-        serde_json::Value::Object(fields) => {
-            let is_format_rule = fields.get("kind").and_then(|kind| kind.as_str()) == Some("text")
-                && fields.get("field").and_then(|field| field.as_str()) == Some("format");
-            if is_format_rule
-                && let Some(serde_json::Value::String(text)) = fields.get_mut("value")
-                && let Some((_, to)) = crate::library::FORMAT_RENAMES
-                    .iter()
-                    .find(|(from, _)| from.eq_ignore_ascii_case(text.trim()))
-            {
-                *text = (*to).to_string();
-                return true;
-            }
-            let mut changed = false;
-            for item in fields.values_mut() {
-                changed |= rename_format_rules(item);
-            }
-            changed
-        }
-        _ => false,
-    }
 }
 
 #[cfg(test)]
@@ -949,15 +492,6 @@ mod tests {
             plan.contains("idx_tracks_group_artist"),
             "索引を使っていない: {plan}"
         );
-        // 前の式の索引は残さない
-        let old: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM sqlite_master WHERE name = 'idx_tracks_album_artist'",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert_eq!(old, 0);
     }
 
     /// FTS5インデックスがトラックのINSERT/UPDATE/DELETEに追随することを検証
@@ -1004,138 +538,6 @@ mod tests {
             [],
         )
         .expect("FTS5インデックスが破損しています");
-    }
-
-    /// アルバムアーティストの列を追加する前のDB（全文検索の表が旧定義）を、起動時に移行できること
-    #[test]
-    fn test_migrates_database_without_album_artist() {
-        let conn = Connection::open_in_memory().expect("インメモリDB作成に失敗");
-        // 旧バージョンが作ったDB: album_artistの列がなく、全文検索の表は4列、user_versionは1
-        conn.execute_batch(
-            "CREATE TABLE tracks (
-                id TEXT PRIMARY KEY,
-                file_path TEXT UNIQUE NOT NULL,
-                file_name TEXT NOT NULL,
-                title TEXT,
-                artist TEXT,
-                album TEXT,
-                genre TEXT,
-                year INTEGER,
-                duration INTEGER,
-                file_size INTEGER,
-                format TEXT,
-                bitrate INTEGER,
-                sample_rate INTEGER,
-                created_at TEXT DEFAULT (datetime('now')),
-                updated_at TEXT DEFAULT (datetime('now'))
-            );
-            CREATE VIRTUAL TABLE tracks_fts USING fts5(
-                id UNINDEXED, title, artist, album, genre,
-                content=tracks, content_rowid=rowid
-            );
-            CREATE TRIGGER tracks_ai AFTER INSERT ON tracks BEGIN
-                INSERT INTO tracks_fts(rowid, id, title, artist, album, genre)
-                VALUES (new.rowid, new.id, new.title, new.artist, new.album, new.genre);
-            END;
-            INSERT INTO tracks (id, file_path, file_name, title, artist, album, format, file_size)
-            VALUES ('t1', '/test/t1.mp3', 't1.mp3', '曲', 'ArtistA', 'Compilation', 'mp3', 1);
-            PRAGMA user_version = 1;",
-        )
-        .expect("旧スキーマの作成に失敗");
-
-        setup_connection(&conn).expect("マイグレーション実行に失敗");
-
-        let count_match = |query: &str| -> i64 {
-            conn.query_row(
-                "SELECT COUNT(*) FROM tracks_fts WHERE tracks_fts MATCH ?1",
-                [query],
-                |row| row.get(0),
-            )
-            .expect("FTS検索に失敗")
-        };
-
-        // 既存のトラックは、ソート用のタグも未読の状態になる
-        let (artist_sort, sort_tags_read): (Option<String>, bool) = conn
-            .query_row(
-                "SELECT artist_sort, sort_tags_read FROM tracks WHERE id = 't1'",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .expect("ソート用のタグの列の取得に失敗");
-        assert_eq!((artist_sort, sort_tags_read), (None, false));
-
-        // 既存のトラックは、アルバムアーティストが未読の状態になる。これまでの項目は検索できる
-        let (album_artist, read): (Option<String>, bool) = conn
-            .query_row(
-                "SELECT album_artist, album_artist_read FROM tracks WHERE id = 't1'",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .unwrap();
-        assert_eq!(album_artist, None);
-        assert!(!read);
-        assert_eq!(count_match("\"ArtistA\""), 1);
-
-        // アルバムアーティストを記録すると、検索できる
-        conn.execute(
-            "UPDATE tracks SET album_artist = 'VariousArtists' WHERE id = 't1'",
-            [],
-        )
-        .unwrap();
-        assert_eq!(count_match("\"VariousArtists\""), 1);
-        conn.execute(
-            "INSERT INTO tracks_fts(tracks_fts) VALUES('integrity-check')",
-            [],
-        )
-        .expect("FTS5インデックスが破損しています");
-
-        // 2回目の起動では作り直さない（user_versionに記録している）
-        let version: i32 = conn
-            .query_row("PRAGMA user_version", [], |row| row.get(0))
-            .unwrap();
-        assert_eq!(version, FTS_SCHEMA_VERSION);
-        setup_connection(&conn).expect("2回目のマイグレーション実行に失敗");
-        assert_eq!(count_match("\"VariousArtists\""), 1);
-    }
-
-    /// 条件・フォルダ・位置の列を追加する前のDBのプレイリストは、移行したあとも
-    /// フォルダの外にある通常のプレイリストのままになること
-    #[test]
-    fn test_migrates_playlists_without_rules_and_folders() {
-        let conn = Connection::open_in_memory().expect("インメモリDB作成に失敗");
-        // 旧バージョンが作ったDB: playlistsにrules・folder_id・positionの列がない
-        conn.execute_batch(
-            "CREATE TABLE playlists (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                description TEXT,
-                created_at TEXT DEFAULT (datetime('now')),
-                updated_at TEXT DEFAULT (datetime('now'))
-            );
-            INSERT INTO playlists (id, name) VALUES ('p1', '通勤');",
-        )
-        .expect("旧スキーマの作成に失敗");
-
-        setup_connection(&conn).expect("マイグレーション実行に失敗");
-        setup_connection(&conn).expect("2回目のマイグレーション実行に失敗");
-
-        let playlists = crate::playlist::get_all_playlists(&conn).unwrap();
-        assert_eq!(playlists.len(), 1);
-        assert_eq!(playlists[0].name, "通勤");
-        assert!(!has_column(&conn, "playlists", "rules").unwrap());
-        assert_eq!(
-            (playlists[0].folder_id.as_deref(), playlists[0].position),
-            (None, 0)
-        );
-        assert!(
-            crate::playlist::get_playlist_folders(&conn)
-                .unwrap()
-                .is_empty()
-        );
-
-        // 移行したあとに作ったプレイリストは、手動の並び順でいちばん後ろになる
-        let created = crate::playlist::create_playlist(&conn, "ドライブ").unwrap();
-        assert_eq!(created.position, 1);
     }
 
     /// 全文検索の表を作り直している途中で落ちたDB（表を消した後・作った直後）も、次の起動で作り直す
@@ -1185,190 +587,6 @@ mod tests {
         }
     }
 
-    /// 音楽フォルダの印の列がない（追加する前の版の）DBも、移行して読めるようにすること
-    #[test]
-    fn test_migrates_library_folders_without_music_folder_flag() {
-        let conn = Connection::open_in_memory().expect("インメモリDB作成に失敗");
-        conn.execute_batch(
-            "CREATE TABLE library_folders (
-                id TEXT PRIMARY KEY,
-                path TEXT UNIQUE NOT NULL,
-                added_at TEXT DEFAULT (datetime('now')),
-                last_scanned_at TEXT
-            );
-            INSERT INTO library_folders (id, path) VALUES ('f1', '/music');",
-        )
-        .expect("旧スキーマの作成に失敗");
-
-        setup_connection(&conn).expect("マイグレーション実行に失敗");
-        setup_connection(&conn).expect("2回目のマイグレーション実行に失敗");
-
-        let folders = crate::library_folder::find_all_folders(&conn).unwrap();
-        assert_eq!(folders.len(), 1);
-        assert!(!folders[0].is_music_folder);
-        crate::library_folder::set_music_folder(&conn, "f1").unwrap();
-        assert_eq!(
-            crate::library_folder::find_music_folder(&conn)
-                .unwrap()
-                .map(|folder| folder.id),
-            Some("f1".to_string())
-        );
-    }
-
-    /// 以前の版が記録した形式の名前（`AIF`・`WV`）と、オートプレイリストの形式の条件を、起動時に直す
-    #[test]
-    fn test_migration_renames_formats_and_format_rules() {
-        let conn = open_in_memory();
-        conn.execute_batch(
-            "INSERT INTO tracks (id, file_path, file_name, format, file_size) VALUES
-                ('t1', '/m/a.aif', 'a.aif', 'AIF', 1),
-                ('t2', '/m/b.wv', 'b.wv', 'WV', 1),
-                ('t3', '/m/c.mp3', 'c.mp3', 'MP3', 1);",
-        )
-        .unwrap();
-        let rules = r#"{"match":"all","rules":[
-            {"kind":"text","field":"format","op":"is","value":"wv"},
-            {"kind":"text","field":"title","op":"is","value":"WV"},
-            {"kind":"text","field":"format","op":"is","value":"FLAC"}
-        ],"order":null,"limit":null}"#;
-        conn.execute(
-            "INSERT INTO smart_playlists (id, name, rules) VALUES ('p1', '可逆', ?1)",
-            [rules],
-        )
-        .unwrap();
-
-        setup_connection(&conn).unwrap();
-        setup_connection(&conn).unwrap();
-
-        let formats: Vec<String> = conn
-            .prepare("SELECT format FROM tracks ORDER BY id")
-            .unwrap()
-            .query_map([], |row| row.get(0))
-            .unwrap()
-            .collect::<Result<_>>()
-            .unwrap();
-        assert_eq!(formats, ["AIFF", "WavPack", "MP3"]);
-        let stored: String = conn
-            .query_row(
-                "SELECT rules FROM smart_playlists WHERE id = 'p1'",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-        let stored: serde_json::Value = serde_json::from_str(&stored).unwrap();
-        let values: Vec<&str> = stored["rules"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|rule| rule["value"].as_str().unwrap())
-            .collect();
-        // 形式の条件だけを直す（タイトルの「WV」は、そのまま）
-        assert_eq!(values, ["WavPack", "WV", "FLAC"]);
-    }
-
-    /// 以前の版のDBの自動プレイリスト（`playlists.rules`のある行）は、オートプレイリストの表へ移す。
-    /// 転送先デバイスの選択と、条件の中のプレイリストの参照も、移した先に合わせる（ADR-127）
-    #[test]
-    fn test_migration_moves_smart_playlists_to_own_table() {
-        let conn = open_in_memory();
-        let refers = r#"{"matchMode":"any","rules":[
-            {"kind":"playlist","op":"is","playlistId":"manual"},
-            {"kind":"playlist","op":"isNot","playlistId":"smart-in-folder"}
-        ],"order":{"field":"title","descending":false},"limit":null}"#;
-        let empty = r#"{"matchMode":"all","rules":[],"order":{"field":"title","descending":false},"limit":10}"#;
-        // 以前の版のDB: プレイリストの表に条件の列があり、自動プレイリストもフォルダに入れられた
-        conn.execute_batch(
-            "ALTER TABLE playlists ADD COLUMN rules TEXT;
-             INSERT INTO tracks (id, file_path, file_name, format, file_size)
-                VALUES ('t1', '/m/a.mp3', 'a.mp3', 'MP3', 1);
-             INSERT INTO playlist_folders (id, name, position) VALUES ('folder', '車', 0);
-             INSERT INTO sync_devices (id, name, path) VALUES ('device', 'SD', '/Volumes/SD');",
-        )
-        .unwrap();
-        conn.execute(
-            "INSERT INTO playlists (id, name, description, rules, folder_id, position, created_at)
-             VALUES ('manual', '通勤', NULL, NULL, 'folder', 0, '2026-01-01T00:00:00+00:00'),
-                    ('smart-in-folder', 'ジャズ', 'メモ', ?2, 'folder', 1,
-                     '2026-01-02T00:00:00+00:00'),
-                    ('smart', '高評価', NULL, ?1, NULL, 5, '2026-01-03T00:00:00+00:00')",
-            [refers, empty],
-        )
-        .unwrap();
-        conn.execute_batch(
-            "INSERT INTO playlist_tracks (playlist_id, track_id, position) VALUES ('manual', 't1', 0);
-             INSERT INTO sync_device_playlists (device_id, playlist_id)
-                VALUES ('device', 'manual'), ('device', 'smart');",
-        )
-        .unwrap();
-
-        setup_connection(&conn).unwrap();
-        // 次の起動では、何もしない
-        setup_connection(&conn).unwrap();
-
-        assert!(!has_column(&conn, "playlists", "rules").unwrap());
-        let playlists = crate::playlist::get_all_playlists(&conn).unwrap();
-        assert_eq!(playlists.len(), 1);
-        assert_eq!(
-            (playlists[0].id.as_str(), playlists[0].folder_id.as_deref()),
-            ("manual", Some("folder"))
-        );
-        assert_eq!(crate::playlist::playlist_track_ids(&playlists[0]), ["t1"]);
-        // フォルダは、自動プレイリストを出しても残す
-        assert_eq!(
-            crate::playlist::get_playlist_folders(&conn).unwrap().len(),
-            1
-        );
-
-        // フォルダの外のものを先に、今の手動の並び順のまま
-        let smart = crate::smart_playlist::get_all_smart_playlists(&conn).unwrap();
-        let summary: Vec<(&str, &str, Option<&str>, i32, &str)> = smart
-            .iter()
-            .map(|playlist| {
-                (
-                    playlist.id.as_str(),
-                    playlist.name.as_str(),
-                    playlist.description.as_deref(),
-                    playlist.position,
-                    playlist.created_at.as_str(),
-                )
-            })
-            .collect();
-        assert_eq!(
-            summary,
-            [
-                ("smart", "高評価", None, 0, "2026-01-03T00:00:00+00:00"),
-                (
-                    "smart-in-folder",
-                    "ジャズ",
-                    Some("メモ"),
-                    1,
-                    "2026-01-02T00:00:00+00:00"
-                ),
-            ]
-        );
-        assert_eq!(smart[1].rules.limit, Some(10));
-        // 移したプレイリストを指す条件だけを、オートプレイリストの条件にする
-        use crate::smart_playlist::{PlaylistOp, SmartRule};
-        assert_eq!(
-            smart[0].rules.rules,
-            [
-                SmartRule::Playlist {
-                    op: PlaylistOp::Is,
-                    playlist_id: "manual".to_string()
-                },
-                SmartRule::SmartPlaylist {
-                    op: PlaylistOp::IsNot,
-                    playlist_id: "smart-in-folder".to_string()
-                },
-            ]
-        );
-
-        // 転送先デバイスの選択も移す
-        let device = crate::device::find_device(&conn, "device").unwrap();
-        assert_eq!(device.playlist_ids, ["manual"]);
-        assert_eq!(device.smart_playlist_ids, ["smart"]);
-    }
-
     /// 表の作りの版を記録し、新しい版のアプリが作ったDBは、何も書き換えずに断る
     #[test]
     fn test_newer_schema_is_refused_without_changes() {
@@ -1396,7 +614,7 @@ mod tests {
                 if found == DB_SCHEMA_VERSION + 1 && supported == DB_SCHEMA_VERSION),
             "{error:?}"
         );
-        // 移行を始めていない（消した表を作り直していない）
+        // 表を作り直していない
         let conn = Connection::open(&path).unwrap();
         let has_history: bool = conn
             .query_row(
@@ -1408,119 +626,76 @@ mod tests {
         assert!(!has_history);
     }
 
-    /// 版を記録する前の版のアプリが作ったDBは、そのまま開いて、今の版を記録する
+    /// リリースの前の版のアプリが作ったDB（版の記録がない・古い版）は、何も書き換えずに断る
     #[test]
-    fn test_database_without_schema_version_is_opened() {
-        let conn = open_in_memory();
-        conn.execute_batch("DROP TABLE app_meta").unwrap();
-        assert_eq!(stored_schema_version(&conn).unwrap(), None);
+    fn test_older_schema_is_refused_without_changes() {
+        let dir = crate::device_manifest::test_support::TempDir::new();
+        let path = dir.path().join("muspice.db");
+        let conn = init_db(path.clone()).unwrap();
+        conn.execute_batch(
+            "UPDATE app_meta SET value = '2' WHERE key = 'schema_version';
+             DROP TABLE play_history;",
+        )
+        .unwrap();
+        drop(conn);
 
-        setup_connection(&conn).unwrap();
-        assert_eq!(
-            stored_schema_version(&conn).unwrap(),
-            Some(DB_SCHEMA_VERSION)
+        let error = init_db(path.clone()).unwrap_err();
+        assert!(
+            matches!(error, DbOpenError::OlderSchema { found: Some(2) }),
+            "{error:?}"
+        );
+        let conn = Connection::open(&path).unwrap();
+        assert!(!has_table(&conn, "play_history").unwrap());
+
+        // 版を記録する前の版のアプリが作ったDB（版の表がない）
+        conn.execute_batch("DROP TABLE app_meta").unwrap();
+        drop(conn);
+        let error = init_db(path).unwrap_err();
+        assert!(
+            matches!(error, DbOpenError::OlderSchema { found: None }),
+            "{error:?}"
         );
     }
 
-    /// 評価を星の数（0〜5）で持っていたDBは、評価とオートプレイリストの評価の条件を、1回だけ2倍にする
+    /// アプリが必ず値を入れる列には、NULLを入れられない（読む側でNULLを補わない）
     #[test]
-    fn test_migration_doubles_ratings_once() {
+    fn test_required_columns_reject_null() {
         let conn = open_in_memory();
-        // 評価を半分の星で持つ前の版のDB（`rating_read`がない）
-        conn.execute_batch(
-            "ALTER TABLE tracks DROP COLUMN rating_read;
-             INSERT INTO tracks (id, file_path, file_name, format, file_size, rating) VALUES
-                ('none', '/m/a.mp3', 'a.mp3', 'MP3', 1, 0),
-                ('four', '/m/b.mp3', 'b.mp3', 'MP3', 1, 4),
-                ('five', '/m/c.mp3', 'c.mp3', 'MP3', 1, 5);",
-        )
-        .unwrap();
-        let rules = r#"{"matchMode":"all","rules":[
-            {"kind":"number","field":"rating","op":"atLeast","value":4,"valueTo":null},
-            {"kind":"number","field":"rating","op":"between","value":2,"valueTo":3},
-            {"kind":"number","field":"year","op":"atLeast","value":4,"valueTo":null}
-        ],"order":{"field":"rating","descending":true},"limit":null}"#;
         conn.execute(
-            "INSERT INTO smart_playlists (id, name, rules) VALUES ('p1', '星4以上', ?1)",
-            [rules],
+            "INSERT INTO tracks (id, file_path, file_name) VALUES ('t1', '/m/t1.mp3', 't1.mp3')",
+            [],
         )
         .unwrap();
-
-        setup_connection(&conn).unwrap();
-        // 次の起動では、もう2倍にしない
-        setup_connection(&conn).unwrap();
-
-        let ratings: Vec<(i32, i32)> = conn
-            .prepare("SELECT rating, rating_read FROM tracks ORDER BY id")
-            .unwrap()
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
-            .unwrap()
-            .collect::<Result<_>>()
+        for column in [
+            "file_size",
+            "format",
+            "is_favorite",
+            "rating",
+            "play_count",
+            "skip_count",
+            "compilation",
+            "created_at",
+            "updated_at",
+        ] {
+            assert!(
+                conn.execute(&format!("UPDATE tracks SET {column} = NULL"), [])
+                    .is_err(),
+                "{column}"
+            );
+        }
+        conn.execute("INSERT INTO playlists (id, name) VALUES ('p1', 'p')", [])
             .unwrap();
-        // 並びはid順（five・four・none）。足す前に登録した曲は、ファイルから読み直す（0）
-        assert_eq!(ratings, [(10, 0), (8, 0), (0, 0)]);
-
-        let stored: String = conn
-            .query_row(
-                "SELECT rules FROM smart_playlists WHERE id = 'p1'",
+        assert!(
+            conn.execute(
+                "INSERT INTO playlist_tracks (playlist_id, track_id, position) VALUES ('p1', NULL, 0)",
                 [],
-                |row| row.get(0),
             )
-            .unwrap();
-        let stored: crate::smart_playlist::SmartRules = serde_json::from_str(&stored).unwrap();
-        let values: Vec<(i32, Option<i32>)> = stored
-            .rules
-            .iter()
-            .map(|rule| match rule {
-                crate::smart_playlist::SmartRule::Number {
-                    value, value_to, ..
-                } => (*value, *value_to),
-                _ => unreachable!(),
-            })
-            .collect();
-        // 評価の条件だけを2倍にする（年の条件は、そのまま）
-        assert_eq!(values, [(8, None), (4, Some(6)), (4, None)]);
+            .is_err()
+        );
     }
 
-    /// 上限を超える再生回数・スキップ回数が入ったDBも、起動時に直して読めるようにすること
-    #[test]
-    fn test_migration_limits_counts_that_cannot_be_read() {
-        let conn = open_in_memory();
-        // 上限を確かめずにライブラリのXMLを取り込んでいた版が書いた値
-        conn.execute_batch(
-            "INSERT INTO tracks (id, file_path, file_name, format, file_size, play_count, skip_count)
-             VALUES ('big', '/m/big.mp3', 'big.mp3', 'mp3', 1, 3000000000, NULL),
-                    ('both', '/m/both.mp3', 'both.mp3', 'mp3', 1, 2147483648, 9000000000),
-                    ('small', '/m/small.mp3', 'small.mp3', 'mp3', 1, 7, 2);",
-        )
-        .expect("トラックの挿入に失敗");
-        assert!(crate::repository::find_all_tracks(&conn).is_err());
-
-        // 次の起動
-        setup_connection(&conn).expect("2回目のマイグレーション実行に失敗");
-
-        let counts: Vec<(String, i32, i32)> = crate::repository::find_all_tracks(&conn)
-            .expect("一覧を読めること")
-            .into_iter()
-            .map(|track| (track.id, track.play_count, track.skip_count))
-            .collect();
-        let max = i32::MAX;
-        assert_eq!(counts.len(), 3);
-        assert!(counts.contains(&("big".to_string(), max, 0)));
-        assert!(counts.contains(&("both".to_string(), max, max)));
-        assert!(counts.contains(&("small".to_string(), 7, 2)));
-        // 値のなかったスキップ回数は、値のないまま
-        let skip_count: Option<i64> = conn
-            .query_row(
-                "SELECT skip_count FROM tracks WHERE id = 'big'",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert_eq!(skip_count, None);
-    }
-
-    /// ファイルのDBを作ると、すべての表ができる（一時フォルダに作る。作業フォルダにファイルを残さない）
+    /// ファイルのDBを作ると、すべての表ができる（一時フォルダに作る。作業フォルダにファイルを残さない）。
+    /// 作ったDBは、次の起動でもそのまま開ける
     #[test]
     fn test_init_db() {
         let dir = crate::device_manifest::test_support::TempDir::new();
@@ -1548,6 +723,8 @@ mod tests {
             "sync_device_playlists",
             "smart_playlists",
             "sync_device_smart_playlists",
+            "track_analysis",
+            "app_meta",
             "tracks_fts",
         ] {
             assert!(
@@ -1555,5 +732,21 @@ mod tests {
                 "{table}: {tables:?}"
             );
         }
+
+        conn.execute(
+            "INSERT INTO tracks (id, file_path, file_name, title) VALUES ('t1', '/m/t1.mp3', 't1.mp3', '朝の歌')",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+        let conn = init_db(test_db_path).expect("作ったDBを開き直せること");
+        let found: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM tracks_fts WHERE tracks_fts MATCH '\"朝の歌\"'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(found, 1);
     }
 }

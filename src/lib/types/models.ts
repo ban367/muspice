@@ -111,6 +111,5 @@ export type {
   TrackMetadataChange,
   TranscodeMode,
   TracksEdited,
-  VolumeNormalization,
-  WriteMetadataResult
+  VolumeNormalization
 } from '#lib/bindings.js';

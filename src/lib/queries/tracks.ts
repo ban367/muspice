@@ -583,25 +583,6 @@ export function useOrganizeFilesMutation() {
 }
 
 /**
- * アプリ内（DB）だけにある編集内容・評価を、ファイルのタグへ書き出すミューテーション
- *
- * 書き出した後、ファイルを読み直してDBに反映する（終わるとDBはファイルの内容と一致する）。
- */
-export function useWriteLibraryMetadataToFilesMutation() {
-  const queryClient = useQueryClient();
-
-  return createMutation(() => ({
-    mutationFn: () =>
-      withErrorToast(m.operations.writeMetadataToFiles, () =>
-        commands.writeLibraryMetadataToFiles()
-      ),
-    onSuccess: () => {
-      invalidateTrackListQueries(queryClient);
-    }
-  }));
-}
-
-/**
  * ライブラリのXML（iTunes形式）を選んで取り込むミューテーション
  *
  * ほかのプレーヤーの再生回数・最終再生日・追加日・お気に入りと、プレイリストを取り込む。

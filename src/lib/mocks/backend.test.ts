@@ -3146,7 +3146,13 @@ describe('再生エンジン', () => {
 
 describe('OSのNow Playing', () => {
   it('伝えた内容を保持し、nullで消す', async () => {
-    const update = { trackId: mockTrackId(1), playing: true, position: 12, duration: 200 };
+    const update = {
+      trackId: mockTrackId(1),
+      playing: true,
+      position: 12,
+      duration: 200,
+      speed: 1
+    };
     await commands.setNowPlaying(update);
     expect(backend.nowPlaying()).toEqual(update);
 
@@ -3159,7 +3165,8 @@ describe('OSのNow Playing', () => {
       trackId: mockTrackId(1),
       playing: true,
       position: 0,
-      duration: null
+      duration: null,
+      speed: 1
     });
 
     await expect(
@@ -3167,13 +3174,14 @@ describe('OSのNow Playing', () => {
         trackId: '00000000-0000-4000-8000-00000000ffff',
         playing: true,
         position: 0,
-        duration: null
+        duration: null,
+        speed: 1
       })
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
     expect(backend.nowPlaying()).toBeNull();
 
     await expect(
-      commands.setNowPlaying({ trackId: 'x', playing: true, position: 0, duration: null })
+      commands.setNowPlaying({ trackId: 'x', playing: true, position: 0, duration: null, speed: 1 })
     ).rejects.toMatchObject({ code: 'VALIDATION' });
   });
 });

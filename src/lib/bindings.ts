@@ -209,7 +209,7 @@ foundCount: number } |
 	 *  「Various Artists」のアルバムにまとめる（`group_artist`。ADR-093）
 	 */
 	compilation: boolean,
-	/**  一覧の列・検索に使う、タグとファイルの情報のうち、後から持つようにした項目（ADR-115） */
+	/**  一覧の列・検索に使う、タグとファイルの情報のうち、詳しい項目（ADR-115） */
 	details: TrackDetails,
 	/**
 	 *  CUEシートの曲（アルバム1ファイルの中の1曲）の、元の音声ファイルと範囲（ふつうの曲はnull。ADR-123）
@@ -621,14 +621,6 @@ includesSettings: boolean } |
 	 */
 	applyMetadataChanges: (changes: TrackMetadataChange[]) => __TAURI_INVOKE<BulkUpdateResult>("apply_metadata_changes", { changes }),
 	/**
-	 *  アプリ内（データベース）だけにある編集内容・評価を、ファイルのタグへ書き出す
-	 * 
-	 *  ファイルと違う値だけを書き込み、その後ファイルを読み直してデータベースに反映する
-	 *  （終わると、データベースはファイルの内容と一致する）。メタデータの編集がファイルへ
-	 *  書き込まれなかった頃の内容を、ファイルへ移すために使う。
-	 */
-	writeLibraryMetadataToFiles: () => __TAURI_INVOKE<WriteMetadataResult>("write_library_metadata_to_files"),
-	/**
 	 *  選んだ曲のファイルを、書式に従って整理する計画（今の場所 → 整理後の場所）を取得する
 	 * 
 	 *  ファイルは動かさない。画面は、この一覧を見せてから`organize_files`を呼ぶ。
@@ -771,7 +763,7 @@ includesSettings: boolean } |
 	 *  「Various Artists」のアルバムにまとめる（`group_artist`。ADR-093）
 	 */
 	compilation: boolean,
-	/**  一覧の列・検索に使う、タグとファイルの情報のうち、後から持つようにした項目（ADR-115） */
+	/**  一覧の列・検索に使う、タグとファイルの情報のうち、詳しい項目（ADR-115） */
 	details: TrackDetails,
 	/**
 	 *  CUEシートの曲（アルバム1ファイルの中の1曲）の、元の音声ファイルと範囲（ふつうの曲はnull。ADR-123）
@@ -1097,8 +1089,8 @@ includesSettings: boolean } |
 	position: number | null,
 	/**  曲の長さ（秒。再生エンジンがファイルから読んだ値。分からなければnullで、ライブラリの値を使う） */
 	duration: number | null,
-	/**  再生速度（倍。OSが、渡した位置から今の位置を計算するのに使う。省略すると1倍） */
-	speed?: number | null,
+	/**  再生速度（倍。OSが、渡した位置から今の位置を計算するのに使う） */
+	speed: number | null,
 } | null) => __TAURI_INVOKE<null>("set_now_playing", { update }),
 	/**
 	 *  トラックのファイルをシステムのファイルマネージャーで表示
@@ -2051,8 +2043,8 @@ export type NowPlayingUpdate = {
 	position: number | null,
 	/**  曲の長さ（秒。再生エンジンがファイルから読んだ値。分からなければnullで、ライブラリの値を使う） */
 	duration: number | null,
-	/**  再生速度（倍。OSが、渡した位置から今の位置を計算するのに使う。省略すると1倍） */
-	speed?: number | null,
+	/**  再生速度（倍。OSが、渡した位置から今の位置を計算するのに使う） */
+	speed: number | null,
 };
 
 /**  数値の項目 */
@@ -2757,7 +2749,7 @@ export type Track = {
 	 *  「Various Artists」のアルバムにまとめる（`group_artist`。ADR-093）
 	 */
 	compilation: boolean,
-	/**  一覧の列・検索に使う、タグとファイルの情報のうち、後から持つようにした項目（ADR-115） */
+	/**  一覧の列・検索に使う、タグとファイルの情報のうち、詳しい項目（ADR-115） */
 	details: TrackDetails,
 	/**
 	 *  CUEシートの曲（アルバム1ファイルの中の1曲）の、元の音声ファイルと範囲（ふつうの曲はnull。ADR-123）
@@ -2777,10 +2769,10 @@ export type TrackCue = {
 };
 
 /**
- *  曲の、一覧の列・検索に使う項目のうち、後から持つようにしたもの（作曲者・BPM・ビット深度など。ADR-115）
+ *  曲の、一覧の列・検索に使う項目のうち、詳しい項目（作曲者・BPM・ビット深度など。ADR-115）
  * 
- *  タグ・ファイルの項目は、取り込み・再スキャン・編集の保存で記録する（登録済みの曲は、起動後に
- *  `tag_backfill`が読む）。解析の項目は、曲の解析の結果（`track_analysis`。ADR-104）から読む。
+ *  タグ・ファイルの項目は、取り込み・再スキャン・編集の保存で記録する。解析の項目は、曲の解析の結果
+ *  （`track_analysis`。ADR-104）から読む。
  */
 export type TrackDetails = {
 	composer: string | null,
@@ -2866,20 +2858,6 @@ export type VolumeNormalization =
 "album" | 
 /**  シャッフルモードの間はトラック単位、それ以外はアルバム単位で補正する */
 "auto";
-
-/**  アプリ内の値をファイルへ書き出した結果 */
-export type WriteMetadataResult = {
-	/**  ファイルへ書き込んだトラック数 */
-	writtenCount: number,
-	/**  ファイルと同じ内容で、書き込まなかったトラック数 */
-	unchangedCount: number,
-	/**  ファイルが見つからず、飛ばしたトラック数 */
-	skippedCount: number,
-	/**  書き込めなかったトラック数 */
-	errorCount: number,
-	/**  書き込めなかったトラックの理由（ファイルごと） */
-	errors: string[],
-};
 
 /* Tauri Specta runtime */
 type EventEmit<T> = [T] extends [null] ? () => Promise<void> : (payload: T) => Promise<void>;
