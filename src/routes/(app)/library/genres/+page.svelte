@@ -14,7 +14,7 @@
   formatCount={m.library.genreCount}
   formatCountSummary={m.library.genreSummary}
   searchPlaceholder={m.library.searchGenres}
-  initialDisplayMode="grid"
+  displayModePage="genres"
   count={genreCount}
   enableCardSizeSlider={false}
 >

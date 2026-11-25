@@ -106,6 +106,28 @@ describe('グリッドの下の中身の領域の高さ', () => {
   });
 });
 
+describe('画面ごとの表示モード', () => {
+  const DEFAULT_MODES = { songs: 'list', albums: 'list', artists: 'list', genres: 'grid' };
+
+  it('保存がなければ画面ごとの既定値で、変えると保存して次の起動でも使う', async () => {
+    let ui = await importFreshUi();
+    expect(ui.displayModes).toEqual(DEFAULT_MODES);
+    expect(localStorage.getItem('muspice:displayModes')).toBeNull();
+
+    ui.displayModes = { ...ui.displayModes, albums: 'grid', genres: 'list' };
+    ui = await importFreshUi();
+    expect(ui.displayModes).toEqual({ ...DEFAULT_MODES, albums: 'grid', genres: 'list' });
+  });
+
+  it('ない画面・不正な値は既定値で補い、壊れた値は保存がない時と同じ', async () => {
+    localStorage.setItem('muspice:displayModes', JSON.stringify({ songs: 'grid', artists: 1 }));
+    expect((await importFreshUi()).displayModes).toEqual({ ...DEFAULT_MODES, songs: 'grid' });
+
+    localStorage.setItem('muspice:displayModes', '{');
+    expect((await importFreshUi()).displayModes).toEqual(DEFAULT_MODES);
+  });
+});
+
 describe('右サイドバーの固定', () => {
   it('保存がなければ固定し、解除を保存した時だけ固定しない', async () => {
     expect((await importFreshUi()).isRightSidebarPinned).toBe(true);
