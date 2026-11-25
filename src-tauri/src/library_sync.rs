@@ -335,17 +335,21 @@ fn is_relevant_change(
     if ignored.iter().any(|dir| path.starts_with(dir)) {
         return false;
     }
-    // CUEシート（曲の区切り）の変更も、そのフォルダの曲を変える（ADR-123）
-    let is_cue_sheet = path
-        .extension()
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("cue"));
-    if is_supported_audio_file(path) || is_cue_sheet {
+    if is_track_file(path) {
         return true;
     }
     if path.exists() {
         return path.is_dir();
     }
     has_tracks_under(path)
+}
+
+/// 曲を作るファイルか（音楽ファイル。CUEシート（曲の区切り）の変更も、そのフォルダの曲を変える。ADR-123）
+fn is_track_file(path: &Path) -> bool {
+    is_supported_audio_file(path)
+        || path
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("cue"))
 }
 
 /// パスの下にライブラリの曲があるか（なくなったフォルダの判定に使う。調べられない場合はtrue）
@@ -368,22 +372,57 @@ fn is_change_in(folder: &FolderRecord, exclusions: &ScanExclusions, path: &Path)
     path.starts_with(root) && !exclusions.skips(root, path)
 }
 
-/// 通知を受けたパスから、アプリ自身が書いた変更（`own_writes`）を除く
+/// 通知を受けたパスから、アプリ自身が書いた変更（`own_writes`）と、アプリが作ったフォルダを除く
 ///
 /// アプリが書いた変更は、DBにも記録してあり、再スキャンしても変わらない（ラウドネスの解析・タグの
 /// 一括ツールのように続けて書く間、フォルダ全体の走査を繰り返さない）。
 fn external_changes(paths: &[PathBuf]) -> Vec<&PathBuf> {
     let external: Vec<&PathBuf> = paths
         .iter()
-        .filter(|path| !crate::own_writes::is_own_change(path))
+        .filter(|path| !crate::own_writes::is_own_change(path) && !is_own_folder(path))
         .collect();
     if external.len() < paths.len() {
         log::debug!(
-            "Ignored {} change notifications for files written by the app",
+            "Ignored {} change notifications for files and folders written by the app",
             paths.len() - external.len()
         );
     }
     external
+}
+
+/// アプリが作ったフォルダの通知か（下にある曲のファイルが、どれもアプリの書いた変更のまま）
+///
+/// ファイルの整理・音楽フォルダへのコピーは、移す先・コピー先のフォルダを作る。今あるフォルダの通知は、
+/// 中の曲を1つずつ通知しないこと（ほかのアプリがフォルダごと移した時など）があるため再スキャンの対象に
+/// する（`is_relevant_change`）が、下の曲がすべてアプリの書いたものなら、再スキャンしても変わらない。
+/// 曲ではないファイル（画像・歌詞など）は見ない。読めない所・シンボリックリンクがあれば、アプリが
+/// 作ったフォルダとはみなさない（これまでどおり再スキャンする）。
+fn is_own_folder(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_dir())
+        && has_only_own_tracks(path)
+}
+
+/// フォルダの下（中のフォルダを含む）の曲のファイルが、どれもアプリの書いた変更のままか
+fn has_only_own_tracks(dir: &Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    entries.into_iter().all(|entry| {
+        let Ok(entry) = entry else {
+            return false;
+        };
+        let Ok(file_type) = entry.file_type() else {
+            return false;
+        };
+        let path = entry.path();
+        if file_type.is_dir() {
+            has_only_own_tracks(&path)
+        } else if file_type.is_symlink() {
+            false
+        } else {
+            !is_track_file(&path) || crate::own_writes::is_own_change(&path)
+        }
+    })
 }
 
 /// 変更の通知を受けたパスのうち、ライブラリに影響しうるものがあるフォルダを再スキャンする
@@ -570,6 +609,57 @@ mod tests {
         // アプリが書いた後に、ほかのアプリが書き換えた場合は、再スキャンする
         std::fs::write(&tagged, "edited again by another app").unwrap();
         assert_eq!(external_changes(&paths), vec![&tagged, &external]);
+    }
+
+    /// アプリが作ったフォルダ（下の曲がすべてアプリの書いたもの）の通知は除き、ほかの曲があれば残す
+    #[test]
+    fn test_own_created_folders_are_not_rescanned() {
+        let dir = crate::device_manifest::test_support::TempDir::new();
+        let organized = dir.path().join("Organized");
+        let album = organized.join("Artist").join("Album");
+        std::fs::create_dir_all(&album).unwrap();
+        let moved = [album.join("01 A.mp3"), album.join("02 B.flac")];
+        for path in &moved {
+            std::fs::write(path, "moved by the app").unwrap();
+            crate::own_writes::record(path);
+        }
+        // 曲ではないファイル（一緒に移した画像・歌詞）は見ない。空のフォルダも、曲がないため除く
+        std::fs::write(album.join("cover.jpg"), "image").unwrap();
+        std::fs::write(album.join("01 A.lrc"), "lyrics").unwrap();
+        std::fs::create_dir(organized.join("Empty")).unwrap();
+
+        let folders = vec![organized.clone(), album.clone(), organized.join("Empty")];
+        assert!(external_changes(&folders).is_empty());
+
+        // アプリが書いていない曲（CUEシートを含む）が1つでもあれば、そのフォルダと上のフォルダは残す
+        let cue = album.join("Live.cue");
+        std::fs::write(&cue, "FILE \"Live.flac\" WAVE").unwrap();
+        assert_eq!(external_changes(&folders), vec![&organized, &album]);
+        std::fs::remove_file(&cue).unwrap();
+        std::fs::write(album.join("03 C.mp3"), "added by another app").unwrap();
+        assert_eq!(external_changes(&folders), vec![&organized, &album]);
+    }
+
+    /// シンボリックリンク・ファイルの通知は、フォルダとして扱わない
+    #[cfg(unix)]
+    #[test]
+    fn test_own_folder_check_does_not_follow_links() {
+        let dir = crate::device_manifest::test_support::TempDir::new();
+        let target = dir.path().join("target");
+        std::fs::create_dir(&target).unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let inner = dir.path().join("inner");
+        std::fs::create_dir(&inner).unwrap();
+        std::os::unix::fs::symlink(&target, inner.join("linked")).unwrap();
+        let file = dir.path().join("note.txt");
+        std::fs::write(&file, "text").unwrap();
+
+        assert!(!is_own_folder(&link));
+        assert!(!is_own_folder(&inner));
+        assert!(!is_own_folder(&file));
+        assert!(!is_own_folder(&dir.path().join("missing")));
+        assert!(is_own_folder(&target));
     }
 
     #[test]
