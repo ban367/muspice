@@ -18,7 +18,7 @@
 //! （種は起動のたびに変わり、「選び直す」操作でも変わる。`AppState::reshuffle_smart_playlists`）。
 
 use super::find_rules;
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppResult, db_error};
 use crate::models::Track;
 use crate::multi_value::MatchOp;
 use crate::repository::{ALBUM_ARTIST, TRACK_COLUMNS, query_tracks};
@@ -749,9 +749,7 @@ impl<'a> Resolver<'a> {
     fn matching_ids(&mut self, rules: &SmartRules) -> AppResult<Vec<String>> {
         let query = self.matching_query(rules, "id")?;
         let params: Vec<&dyn ToSql> = query.params.iter().map(|param| param.as_ref()).collect();
-        let database = |e: rusqlite::Error| {
-            AppError::Database(format!("プレイリストの曲の取得に失敗しました: {}", e))
-        };
+        let database = db_error("プレイリストの曲の取得");
         let mut stmt = self.conn.prepare(&query.sql).map_err(database)?;
         let mut ids = stmt
             .query_map(params.as_slice(), |row| row.get::<_, String>(0))
@@ -850,7 +848,7 @@ pub fn count_tracks(conn: &Connection, rules: &SmartRules, context: EvalContext)
         .collect();
     let count: u32 = conn
         .query_row(&sql, params.as_slice(), |row| row.get(0))
-        .map_err(|e| AppError::Database(format!("曲数の取得に失敗しました: {}", e)))?;
+        .map_err(db_error("曲数の取得"))?;
     Ok(rules.limit.map_or(count, |limit| count.min(limit)))
 }
 

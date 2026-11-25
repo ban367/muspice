@@ -918,27 +918,21 @@ fn copy_and_register<'a>(
         }
 
         // 2. ロック内: バッチをまとめて登録する
-        let written = state.with_db(|db| {
-            let tx = db.transaction().map_err(|e| {
-                AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
-            })?;
+        let written = state.with_transaction(|tx| {
             let outcomes: Vec<AppResult<()>> = pending
                 .iter()
                 .map(|(_, _, track, action, modified_at)| match action {
                     ImportAction::Relink(track_id) => crate::repository::relink_track(
-                        &tx,
+                        tx,
                         track_id,
                         &track.file_path,
                         &track.file_name,
                         *modified_at,
                         track.cue.as_ref(),
                     ),
-                    _ => crate::repository::insert_track(&tx, track, *modified_at),
+                    _ => crate::repository::insert_track(tx, track, *modified_at),
                 })
                 .collect();
-            tx.commit().map_err(|e| {
-                AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
-            })?;
             Ok(outcomes)
         });
         let outcomes = match written {
@@ -1139,28 +1133,24 @@ fn import_audio_files(
         }
 
         // 2. ロック内: バッチをまとめて書き込む
-        state.with_db(|db| {
-            let tx = db.transaction().map_err(|e| {
-                AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
-            })?;
-
+        state.with_transaction(|tx| {
             for path in &found_paths {
-                crate::repository::restore_missing_track_by_file_path(&tx, path)?;
+                crate::repository::restore_missing_track_by_file_path(tx, path)?;
             }
 
             for (track, action, modified_at) in &pending {
                 let result = match action {
                     // 既存のトラックを更新
                     ImportAction::Replace => {
-                        crate::repository::update_track_by_file_path(&tx, track, *modified_at)
+                        crate::repository::update_track_by_file_path(tx, track, *modified_at)
                     }
                     // 新しいトラックを追加
                     ImportAction::Insert => {
-                        crate::repository::insert_track(&tx, track, *modified_at)
+                        crate::repository::insert_track(tx, track, *modified_at)
                     }
                     // 見つからない曲を、このファイルに結び付ける
                     ImportAction::Relink(track_id) => crate::repository::relink_track(
-                        &tx,
+                        tx,
                         track_id,
                         &track.file_path,
                         &track.file_name,
@@ -1179,9 +1169,7 @@ fn import_audio_files(
                 }
             }
 
-            tx.commit().map_err(|e| {
-                AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
-            })
+            Ok(())
         })?;
 
         // 進行状況をログ出力

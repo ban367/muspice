@@ -112,12 +112,12 @@ pub fn open_database(app_data_dir: &Path) -> Result<OpenedDatabase, StartupFailu
         Err(error) => error,
     };
 
-    log::error!(
-        "The database is damaged or cannot be used by this version; moving it aside: {}",
-        error
-    );
+    match &error {
+        DbOpenError::OlderSchema { .. } => log::warn!("{}; moving it aside", error),
+        _ => log::error!("The database is damaged; moving it aside: {}", error),
+    }
     let quarantined = quarantine_database(&db_path, Zoned::now().datetime()).map_err(|e| {
-        log::error!("Cannot move the damaged database aside: {}", e);
+        log::error!("Cannot move the database aside: {}", e);
         StartupFailure::Database(format!("{} ({})", error, e))
     })?;
     let conn = db::init_db(db_path).map_err(|e| {

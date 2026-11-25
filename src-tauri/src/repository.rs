@@ -3,7 +3,7 @@
 //! commands.rsで重複していたTrackマッピングコードとSQLクエリを集約する。
 //! 全てのデータベース読み取り操作はこのモジュールを経由する。
 
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppResult, db_error};
 use std::collections::{HashMap, HashSet};
 
 use rusqlite::{Connection, OptionalExtension, Row};
@@ -210,17 +210,12 @@ pub fn find_all_tracks(conn: &Connection) -> AppResult<Vec<Track>> {
 /// IDでトラックを1件取得
 pub fn find_track_by_id(conn: &Connection, track_id: &str) -> AppResult<Track> {
     let sql = format!("SELECT {} FROM tracks WHERE id = ?1", TRACK_COLUMNS);
-    let mut stmt = conn
-        .prepare(&sql)
-        .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
+    let mut stmt = conn.prepare(&sql).map_err(db_error("クエリの準備"))?;
 
     stmt.query_row([track_id], map_track_row)
-        .map_err(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => {
-                AppError::NotFound("指定されたトラックが見つかりません".to_string())
-            }
-            _ => AppError::Database(format!("トラックの取得に失敗しました: {}", e)),
-        })
+        .optional()
+        .map_err(db_error("トラックの取得"))?
+        .ok_or_else(|| AppError::NotFound("指定されたトラックが見つかりません".to_string()))
 }
 
 /// trigramの索引で探せる語の、最小の文字数
@@ -320,21 +315,16 @@ pub fn find_tracks_by_file_paths(
     file_paths: &[String],
 ) -> AppResult<Vec<Track>> {
     let sql = format!("SELECT {} FROM tracks WHERE file_path = ?1", TRACK_COLUMNS);
-    let mut stmt = conn
-        .prepare(&sql)
-        .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
+    let mut stmt = conn.prepare(&sql).map_err(db_error("クエリの準備"))?;
 
     let mut tracks = Vec::with_capacity(file_paths.len());
     for file_path in file_paths {
-        match stmt.query_row([file_path], map_track_row) {
-            Ok(track) => tracks.push(track),
-            Err(rusqlite::Error::QueryReturnedNoRows) => {}
-            Err(e) => {
-                return Err(AppError::Database(format!(
-                    "トラックの取得に失敗しました: {}",
-                    e
-                )));
-            }
+        if let Some(track) = stmt
+            .query_row([file_path], map_track_row)
+            .optional()
+            .map_err(db_error("トラックの取得"))?
+        {
+            tracks.push(track);
         }
     }
     Ok(tracks)
@@ -354,7 +344,7 @@ pub fn find_audio_path_by_track_id(conn: &Connection, track_id: &str) -> AppResu
         |row| row.get(0),
     )
     .optional()
-    .map_err(|e| AppError::Database(format!("トラックの取得に失敗しました: {}", e)))
+    .map_err(db_error("トラックの取得"))
 }
 
 /// 曲がCUEシートの曲か（見つからない曲はfalse。ADR-123）
@@ -366,7 +356,7 @@ pub fn is_cue_track(conn: &Connection, track_id: &str) -> AppResult<bool> {
     )
     .optional()
     .map(|found| found.unwrap_or(false))
-    .map_err(|e| AppError::Database(format!("トラックの取得に失敗しました: {}", e)))
+    .map_err(db_error("トラックの取得"))
 }
 
 /// CUEシートの曲を含まないことを確かめる（ファイルを書き換える操作の前に呼ぶ。ADR-123）
@@ -394,16 +384,11 @@ pub fn try_find_file_path_by_track_id(
 ) -> AppResult<Option<String>> {
     let mut stmt = conn
         .prepare("SELECT file_path FROM tracks WHERE id = ?1")
-        .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
+        .map_err(db_error("クエリの準備"))?;
 
-    match stmt.query_row([track_id], |row| row.get(0)) {
-        Ok(path) => Ok(Some(path)),
-        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-        Err(e) => Err(AppError::Database(format!(
-            "トラックの取得に失敗しました: {}",
-            e
-        ))),
-    }
+    stmt.query_row([track_id], |row| row.get(0))
+        .optional()
+        .map_err(db_error("トラックの取得"))
 }
 
 /// お気に入りトラックを取得
@@ -436,7 +421,7 @@ pub fn find_play_history(conn: &Connection) -> AppResult<Vec<PlayHistoryEntry>> 
             "SELECT id, track_id, played_at FROM play_history
              ORDER BY played_at DESC, id DESC",
         )
-        .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
+        .map_err(db_error("クエリの準備"))?;
 
     let entries = stmt
         .query_map([], |row| {
@@ -446,9 +431,9 @@ pub fn find_play_history(conn: &Connection) -> AppResult<Vec<PlayHistoryEntry>> 
                 played_at: row.get(2)?,
             })
         })
-        .map_err(|e| AppError::Database(format!("再生履歴の取得に失敗しました: {}", e)))?
+        .map_err(db_error("再生履歴の取得"))?
         .collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(|e| AppError::Database(format!("再生履歴の読み取りに失敗しました: {}", e)))?;
+        .map_err(db_error("再生履歴の読み取り"))?;
 
     Ok(entries)
 }
@@ -458,11 +443,11 @@ pub fn find_play_history(conn: &Connection) -> AppResult<Vec<PlayHistoryEntry>> 
 pub fn find_track_paths(conn: &Connection) -> AppResult<Vec<(String, String)>> {
     let mut stmt = conn
         .prepare("SELECT id, file_path FROM tracks")
-        .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
+        .map_err(db_error("クエリの準備"))?;
     stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
-        .map_err(|e| AppError::Database(format!("トラックの取得に失敗しました: {}", e)))?
+        .map_err(db_error("トラックの取得"))?
         .collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(|e| AppError::Database(format!("トラックの読み取りに失敗しました: {}", e)))
+        .map_err(db_error("トラックの読み取り"))
 }
 
 /// AIシャッフルの選曲に使う、トラックの項目（`ai_shuffle::load_candidates`）
@@ -483,7 +468,7 @@ pub fn find_selection_fields(conn: &Connection) -> AppResult<Vec<SelectionFields
             "SELECT id, artist, genre, year, play_count, last_played_at FROM tracks
              WHERE missing_since IS NULL",
         )
-        .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
+        .map_err(db_error("クエリの準備"))?;
     stmt.query_map([], |row| {
         Ok(SelectionFields {
             id: row.get(0)?,
@@ -494,9 +479,9 @@ pub fn find_selection_fields(conn: &Connection) -> AppResult<Vec<SelectionFields
             last_played_at: row.get(5)?,
         })
     })
-    .map_err(|e| AppError::Database(format!("トラックの取得に失敗しました: {}", e)))?
+    .map_err(db_error("トラックの取得"))?
     .collect::<rusqlite::Result<Vec<_>>>()
-    .map_err(|e| AppError::Database(format!("トラックの読み取りに失敗しました: {}", e)))
+    .map_err(db_error("トラックの読み取り"))
 }
 
 /// すべてのトラックの、ライブラリのXMLから取り込む項目（再生回数・日時など）の今の値を取得する
@@ -508,7 +493,7 @@ pub fn find_track_stats(
             "SELECT id, play_count, skip_count, last_played_at, created_at, is_favorite
              FROM tracks",
         )
-        .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
+        .map_err(db_error("クエリの準備"))?;
     stmt.query_map([], |row| {
         Ok((
             row.get::<_, String>(0)?,
@@ -521,9 +506,9 @@ pub fn find_track_stats(
             },
         ))
     })
-    .map_err(|e| AppError::Database(format!("トラックの取得に失敗しました: {}", e)))?
+    .map_err(db_error("トラックの取得"))?
     .collect::<rusqlite::Result<HashMap<_, _>>>()
-    .map_err(|e| AppError::Database(format!("トラックの読み取りに失敗しました: {}", e)))
+    .map_err(db_error("トラックの読み取り"))
 }
 
 /// トラックの、ライブラリのXMLから取り込む項目を書き換える
@@ -559,7 +544,7 @@ pub fn update_track_stats(
             now
         ],
     )
-    .map_err(|e| AppError::Database(format!("再生統計の更新に失敗しました: {}", e)))?;
+    .map_err(db_error("再生統計の更新"))?;
     Ok(())
 }
 
@@ -579,15 +564,13 @@ fn query_rows<T>(
     params: &[&dyn rusqlite::ToSql],
     map_row: impl FnMut(&Row) -> rusqlite::Result<T>,
 ) -> AppResult<Vec<T>> {
-    let mut stmt = conn
-        .prepare(sql)
-        .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
+    let mut stmt = conn.prepare(sql).map_err(db_error("クエリの準備"))?;
 
     let rows = stmt
         .query_map(params, map_row)
-        .map_err(|e| AppError::Database(format!("クエリの実行に失敗しました: {}", e)))?
+        .map_err(db_error("クエリの実行"))?
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| AppError::Database(format!("結果の取得に失敗しました: {}", e)))?;
+        .map_err(db_error("結果の取得"))?;
 
     Ok(rows)
 }
@@ -967,7 +950,7 @@ pub fn update_track_metadata(
                 track_id,
             ],
         )
-        .map_err(|e| AppError::Database(format!("メタデータの更新に失敗しました: {}", e)))?;
+        .map_err(db_error("メタデータの更新"))?;
 
     if rows_affected == 0 {
         return Err(AppError::NotFound(
@@ -982,10 +965,9 @@ pub fn update_track_metadata(
 pub fn track_exists(conn: &Connection, track_id: &str) -> AppResult<bool> {
     let mut stmt = conn
         .prepare("SELECT 1 FROM tracks WHERE id = ?1")
-        .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
+        .map_err(db_error("クエリの準備"))?;
 
-    stmt.exists([track_id])
-        .map_err(|e| AppError::Database(format!("トラックの確認に失敗しました: {}", e)))
+    stmt.exists([track_id]).map_err(db_error("トラックの確認"))
 }
 
 /// トラックのメタデータを部分更新（Someのフィールドのみ・一括編集用）
@@ -1069,7 +1051,7 @@ pub fn update_track_metadata_partial(
     // 更新行数で存在判定する（事前チェックだと確認後の削除との競合を検出できない）
     let rows_affected = conn
         .execute(&sql, params_refs.as_slice())
-        .map_err(|e| AppError::Database(format!("メタデータの更新に失敗しました: {}", e)))?;
+        .map_err(db_error("メタデータの更新"))?;
 
     if rows_affected == 0 {
         return Err(AppError::NotFound(format!(
@@ -1142,7 +1124,7 @@ pub fn insert_track(
             track.cue.as_ref().and_then(|cue| cue.end),
         ],
     )
-    .map_err(|e| AppError::Database(format!("トラックの保存に失敗しました: {}", e)))?;
+    .map_err(db_error("トラックの保存"))?;
     Ok(())
 }
 
@@ -1212,7 +1194,7 @@ pub fn update_track_by_file_path(
             track.cue.as_ref().and_then(|cue| cue.end),
         ],
     )
-    .map_err(|e| AppError::Database(format!("トラックの更新に失敗しました: {}", e)))?;
+    .map_err(db_error("トラックの更新"))?;
 
     if rows_affected == 0 {
         return Err(AppError::NotFound(format!(
@@ -1231,13 +1213,13 @@ pub fn update_track_by_file_path(
 pub fn find_all_file_paths(conn: &Connection) -> AppResult<HashSet<String>> {
     let mut stmt = conn
         .prepare("SELECT file_path FROM tracks")
-        .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
+        .map_err(db_error("クエリの準備"))?;
 
     let paths = stmt
         .query_map([], |row| row.get::<_, String>(0))
-        .map_err(|e| AppError::Database(format!("クエリの実行に失敗しました: {}", e)))?
+        .map_err(db_error("クエリの実行"))?
         .collect::<Result<HashSet<_>, _>>()
-        .map_err(|e| AppError::Database(format!("結果の取得に失敗しました: {}", e)))?;
+        .map_err(db_error("結果の取得"))?;
 
     Ok(paths)
 }
@@ -1278,7 +1260,7 @@ pub fn find_transfer_tracks(conn: &Connection) -> AppResult<Vec<TransferTrack>> 
              ORDER BY {}, album, disc_number, track_number, title, id",
             ALBUM_ARTIST
         ))
-        .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
+        .map_err(db_error("クエリの準備"))?;
 
     stmt.query_map([], |row| {
         Ok(TransferTrack {
@@ -1298,9 +1280,9 @@ pub fn find_transfer_tracks(conn: &Connection) -> AppResult<Vec<TransferTrack>> 
             bitrate: row.get(13)?,
         })
     })
-    .map_err(|e| AppError::Database(format!("クエリの実行に失敗しました: {}", e)))?
+    .map_err(db_error("クエリの実行"))?
     .collect::<Result<Vec<_>, _>>()
-    .map_err(|e| AppError::Database(format!("結果の取得に失敗しました: {}", e)))
+    .map_err(db_error("結果の取得"))
 }
 
 /// 再スキャンで変更を検出するための、トラックのファイルの状態
@@ -1360,7 +1342,7 @@ pub fn find_track_file_states_under(
              FROM tracks
              WHERE file_path >= ?1 AND file_path < ?2",
         )
-        .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
+        .map_err(db_error("クエリの準備"))?;
 
     stmt.query_map([path_prefix, &prefix_upper_bound(path_prefix)], |row| {
         Ok(TrackFileState {
@@ -1371,9 +1353,9 @@ pub fn find_track_file_states_under(
             is_missing: row.get(4)?,
         })
     })
-    .map_err(|e| AppError::Database(format!("クエリの実行に失敗しました: {}", e)))?
+    .map_err(db_error("クエリの実行"))?
     .collect::<Result<Vec<_>, _>>()
-    .map_err(|e| AppError::Database(format!("結果の取得に失敗しました: {}", e)))
+    .map_err(db_error("結果の取得"))
 }
 
 /// ファイルが見つからなくなったトラックを、見つからない曲にする（すでに見つからない曲なら何もしない）
@@ -1384,7 +1366,7 @@ pub fn mark_track_missing(conn: &Connection, track_id: &str, now: &str) -> AppRe
         "UPDATE tracks SET missing_since = ?2 WHERE id = ?1 AND missing_since IS NULL",
         rusqlite::params![track_id, now],
     )
-    .map_err(|e| AppError::Database(format!("トラックの状態の記録に失敗しました: {}", e)))
+    .map_err(db_error("トラックの状態の記録"))
 }
 
 /// ファイルが同じ場所に戻ったトラックを、見つかる曲に戻す
@@ -1393,7 +1375,7 @@ pub fn restore_missing_track(conn: &Connection, track_id: &str) -> AppResult<usi
         "UPDATE tracks SET missing_since = NULL WHERE id = ?1 AND missing_since IS NOT NULL",
         [track_id],
     )
-    .map_err(|e| AppError::Database(format!("トラックの状態の記録に失敗しました: {}", e)))
+    .map_err(db_error("トラックの状態の記録"))
 }
 
 /// ファイルが見つかったパスのトラックを、見つかる曲に戻す（インポートで登録済みのファイルを見つけた時）
@@ -1403,7 +1385,7 @@ pub fn restore_missing_track_by_file_path(conn: &Connection, file_path: &str) ->
          WHERE file_path = ?1 AND missing_since IS NOT NULL",
         [file_path],
     )
-    .map_err(|e| AppError::Database(format!("トラックの状態の記録に失敗しました: {}", e)))
+    .map_err(db_error("トラックの状態の記録"))
 }
 
 /// 見つからない曲をすべて取得する（移動・改名されたファイルの対応付けの候補）
@@ -1461,7 +1443,7 @@ pub fn relink_track(
                 cue.and_then(|cue| cue.end)
             ],
         )
-        .map_err(|e| AppError::Database(format!("トラックのパスの更新に失敗しました: {}", e)))?;
+        .map_err(db_error("トラックのパスの更新"))?;
 
     if rows_affected == 0 {
         return Err(AppError::NotFound(format!(
@@ -1505,7 +1487,7 @@ pub fn relink_track_to_file(
                 file.details.channels
             ],
         )
-        .map_err(|e| AppError::Database(format!("トラックのパスの更新に失敗しました: {}", e)))?;
+        .map_err(db_error("トラックのパスの更新"))?;
     if rows_affected == 0 {
         return Err(AppError::NotFound(format!(
             "結び付けるトラックが見つかりません: {}",
@@ -1521,10 +1503,10 @@ pub fn relink_track_to_file(
 pub fn find_present_file_paths(conn: &Connection) -> AppResult<HashSet<String>> {
     let mut stmt = conn
         .prepare("SELECT file_path FROM tracks WHERE missing_since IS NULL")
-        .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
+        .map_err(db_error("クエリの準備"))?;
     stmt.query_map([], |row| row.get::<_, String>(0))
         .and_then(|rows| rows.collect())
-        .map_err(|e| AppError::Database(format!("ファイルの場所の取得に失敗しました: {}", e)))
+        .map_err(db_error("ファイルの場所の取得"))
 }
 
 /// 見つからない曲の数
@@ -1534,7 +1516,7 @@ pub fn count_missing_tracks(conn: &Connection) -> AppResult<u32> {
         [],
         |row| row.get(0),
     )
-    .map_err(|e| AppError::Database(format!("トラック数の取得に失敗しました: {}", e)))
+    .map_err(db_error("トラック数の取得"))
 }
 
 /// 見つからない曲をすべてライブラリから外す（外した件数を返す）
@@ -1542,7 +1524,7 @@ pub fn count_missing_tracks(conn: &Connection) -> AppResult<u32> {
 /// プレイリスト・再生履歴の関連レコードは外部キーのCASCADEで消える。
 pub fn delete_missing_tracks(conn: &Connection) -> AppResult<usize> {
     conn.execute("DELETE FROM tracks WHERE missing_since IS NOT NULL", [])
-        .map_err(|e| AppError::Database(format!("トラックの削除に失敗しました: {}", e)))
+        .map_err(db_error("トラックの削除"))
 }
 
 /// 指定した接頭辞（フォルダのパス＋区切り文字）で始まるパスのトラック数
@@ -1552,13 +1534,13 @@ pub fn count_tracks_under(conn: &Connection, path_prefix: &str) -> AppResult<u32
         [path_prefix, &prefix_upper_bound(path_prefix)],
         |row| row.get(0),
     )
-    .map_err(|e| AppError::Database(format!("トラック数の取得に失敗しました: {}", e)))
+    .map_err(db_error("トラック数の取得"))
 }
 
 /// 全トラック数
 pub fn count_all_tracks(conn: &Connection) -> AppResult<u32> {
     conn.query_row("SELECT COUNT(*) FROM tracks", [], |row| row.get(0))
-        .map_err(|e| AppError::Database(format!("トラック数の取得に失敗しました: {}", e)))
+        .map_err(db_error("トラック数の取得"))
 }
 
 /// 指定した接頭辞（フォルダのパス＋区切り文字）で始まるパスのトラックを削除する
@@ -1569,7 +1551,7 @@ pub fn delete_tracks_under(conn: &Connection, path_prefix: &str) -> AppResult<us
         "DELETE FROM tracks WHERE file_path >= ?1 AND file_path < ?2",
         [path_prefix, &prefix_upper_bound(path_prefix)],
     )
-    .map_err(|e| AppError::Database(format!("トラックの削除に失敗しました: {}", e)))
+    .map_err(db_error("トラックの削除"))
 }
 
 /// 指定した接頭辞（フォルダのパス＋区切り文字）で始まらないパスのトラックを削除する
@@ -1581,7 +1563,7 @@ pub fn delete_tracks_outside(conn: &Connection, path_prefix: &str) -> AppResult<
         "DELETE FROM tracks WHERE NOT (file_path >= ?1 AND file_path < ?2)",
         [path_prefix, &prefix_upper_bound(path_prefix)],
     )
-    .map_err(|e| AppError::Database(format!("トラックの削除に失敗しました: {}", e)))
+    .map_err(db_error("トラックの削除"))
 }
 
 /// 接頭辞（フォルダのパス＋区切り文字）で始まるパスのトラックの、パスの先頭を`to_prefix`に付け替える
@@ -1605,7 +1587,7 @@ pub fn replace_track_path_prefix(
          WHERE file_path >= ?1 AND file_path < ?2",
         [from_prefix, &prefix_upper_bound(from_prefix), to_prefix],
     )
-    .map_err(|e| AppError::Database(format!("トラックのパスの更新に失敗しました: {}", e)))
+    .map_err(db_error("トラックのパスの更新"))
 }
 
 /// パスの先頭を付け替えると、ほかのトラック（付け替えないトラック）と同じパスになるトラックの数
@@ -1625,7 +1607,7 @@ pub fn count_track_path_conflicts(
         [from_prefix, &prefix_upper_bound(from_prefix), to_prefix],
         |row| row.get(0),
     )
-    .map_err(|e| AppError::Database(format!("トラックのパスの確認に失敗しました: {}", e)))
+    .map_err(db_error("トラックのパスの確認"))
 }
 
 /// 曲のファイルを、形式を変換したファイルに入れ替える（曲のIDは変えない）
@@ -1665,9 +1647,7 @@ pub fn replace_track_file(
                 file.updated_at,
             ],
         )
-        .map_err(|e| {
-            AppError::Database(format!("トラックのファイルの更新に失敗しました: {}", e))
-        })?;
+        .map_err(db_error("トラックのファイルの更新"))?;
 
     if rows_affected == 0 {
         return Err(AppError::NotFound(format!(
@@ -1691,7 +1671,7 @@ pub fn count_tracks_without_replay_gain(conn: &Connection) -> AppResult<u32> {
         [],
         |row| row.get(0),
     )
-    .map_err(|e| AppError::Database(format!("曲数の取得に失敗しました: {}", e)))
+    .map_err(db_error("曲数の取得"))
 }
 
 /// 音量の正規化に使うゲインとピークを記録する（ラウドネスを解析して、ファイルのタグへ書き込んだ後）
@@ -1715,7 +1695,7 @@ pub fn set_track_replay_gain(
             replay_gain.album_peak
         ],
     )
-    .map_err(|e| AppError::Database(format!("音量の情報の記録に失敗しました: {}", e)))?;
+    .map_err(db_error("音量の情報の記録"))?;
     Ok(())
 }
 
@@ -1730,7 +1710,7 @@ pub fn set_track_file_state(
         "UPDATE tracks SET file_size = ?2, file_modified_at = ?3 WHERE id = ?1",
         rusqlite::params![track_id, file_size, file_modified_at],
     )
-    .map_err(|e| AppError::Database(format!("ファイルの状態の記録に失敗しました: {}", e)))?;
+    .map_err(db_error("ファイルの状態の記録"))?;
     Ok(())
 }
 
@@ -1744,7 +1724,7 @@ pub fn set_track_file_modified_at(
         "UPDATE tracks SET file_modified_at = ?2 WHERE id = ?1",
         rusqlite::params![track_id, file_modified_at],
     )
-    .map_err(|e| AppError::Database(format!("ファイルの更新日時の記録に失敗しました: {}", e)))?;
+    .map_err(db_error("ファイルの更新日時の記録"))?;
     Ok(())
 }
 
@@ -1753,7 +1733,7 @@ pub fn set_track_file_modified_at(
 /// ON DELETE CASCADEにより、playlist_tracksとplay_historyの関連レコードも自動削除される。
 pub fn delete_track(conn: &Connection, track_id: &str) -> AppResult<usize> {
     conn.execute("DELETE FROM tracks WHERE id = ?1", [track_id])
-        .map_err(|e| AppError::Database(format!("トラックの削除に失敗しました: {}", e)))
+        .map_err(db_error("トラックの削除"))
 }
 
 /// トラックをお気に入りにする・お気に入りから外す（複数のトラックをまとめて）
@@ -1776,7 +1756,7 @@ pub fn set_tracks_favorite(
 
     let tx = conn
         .transaction()
-        .map_err(|e| AppError::Database(format!("トランザクションの開始に失敗しました: {}", e)))?;
+        .map_err(db_error("トランザクションの開始"))?;
 
     let mut updated = 0;
     for chunk in unique_ids.chunks(TRACKS_BY_ID_CHUNK) {
@@ -1796,7 +1776,7 @@ pub fn set_tracks_favorite(
         params.extend(chunk.iter().map(|id| id as &dyn rusqlite::ToSql));
         updated += tx
             .execute(&sql, params.as_slice())
-            .map_err(|e| AppError::Database(format!("お気に入りの更新に失敗しました: {}", e)))?;
+            .map_err(db_error("お気に入りの更新"))?;
     }
 
     if updated != unique_ids.len() {
@@ -1804,8 +1784,7 @@ pub fn set_tracks_favorite(
         return Err(AppError::NotFound("トラックが見つかりません".to_string()));
     }
 
-    tx.commit()
-        .map_err(|e| AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e)))
+    tx.commit().map_err(db_error("トランザクションのコミット"))
 }
 
 /// レーティングを設定（ファイルのタグへ書き込んだ後に、同じ値を記録する）
@@ -1819,7 +1798,7 @@ pub fn set_track_rating(conn: &Connection, track_id: &str, rating: i32) -> AppRe
             "UPDATE tracks SET rating = ?1, updated_at = ?2 WHERE id = ?3",
             rusqlite::params![rating, now, track_id],
         )
-        .map_err(|e| AppError::Database(format!("レーティングの更新に失敗しました: {}", e)))?;
+        .map_err(db_error("レーティングの更新"))?;
 
     if rows_affected == 0 {
         return Err(AppError::NotFound(
@@ -1843,7 +1822,7 @@ pub fn increment_track_play_count(
 
     let tx = conn
         .transaction()
-        .map_err(|e| AppError::Database(format!("トランザクションの開始に失敗しました: {}", e)))?;
+        .map_err(db_error("トランザクションの開始"))?;
 
     // 再生回数をインクリメントし、更新後の値をそのまま受け取る
     let new_count: i32 = tx
@@ -1856,23 +1835,19 @@ pub fn increment_track_play_count(
             rusqlite::params![now, track_id, MAX_PLAY_COUNT],
             |row| row.get(0),
         )
-        .map_err(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => {
-                AppError::NotFound("トラックが見つかりません".to_string())
-            }
-            _ => AppError::Database(format!("再生回数の更新に失敗しました: {}", e)),
-        })?;
+        .optional()
+        .map_err(db_error("再生回数の更新"))?
+        .ok_or_else(|| AppError::NotFound("トラックが見つかりません".to_string()))?;
 
     // 再生履歴に追加
     tx.execute(
         "INSERT INTO play_history (track_id, played_at) VALUES (?1, ?2)",
         rusqlite::params![track_id, now],
     )
-    .map_err(|e| AppError::Database(format!("再生履歴の追加に失敗しました: {}", e)))?;
+    .map_err(db_error("再生履歴の追加"))?;
 
-    tx.commit().map_err(|e| {
-        AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
-    })?;
+    tx.commit()
+        .map_err(db_error("トランザクションのコミット"))?;
 
     Ok(crate::models::PlayCountUpdate {
         play_count: new_count,
@@ -1891,12 +1866,9 @@ pub fn increment_track_skip_count(conn: &Connection, track_id: &str) -> AppResul
         rusqlite::params![track_id, MAX_PLAY_COUNT],
         |row| row.get(0),
     )
-    .map_err(|e| match e {
-        rusqlite::Error::QueryReturnedNoRows => {
-            AppError::NotFound("トラックが見つかりません".to_string())
-        }
-        _ => AppError::Database(format!("スキップ回数の更新に失敗しました: {}", e)),
-    })
+    .optional()
+    .map_err(db_error("スキップ回数の更新"))?
+    .ok_or_else(|| AppError::NotFound("トラックが見つかりません".to_string()))
 }
 
 /// ユニークなアーティスト一覧を取得（複数ある曲は、それぞれの値）
@@ -1932,15 +1904,13 @@ fn find_unique_values(conn: &Connection, column: &str) -> AppResult<Vec<String>>
         column, column, column
     );
 
-    let mut stmt = conn
-        .prepare(&sql)
-        .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
+    let mut stmt = conn.prepare(&sql).map_err(db_error("クエリの準備"))?;
 
     let values = stmt
         .query_map([], |row| row.get(0))
-        .map_err(|e| AppError::Database(format!("クエリの実行に失敗しました: {}", e)))?
+        .map_err(db_error("クエリの実行"))?
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| AppError::Database(format!("結果の取得に失敗しました: {}", e)))?;
+        .map_err(db_error("結果の取得"))?;
 
     Ok(values)
 }

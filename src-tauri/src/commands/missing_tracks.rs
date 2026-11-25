@@ -234,21 +234,18 @@ fn search_folder(state: &AppState, folder: &Path) -> AppResult<MissingTrackSearc
         }
     }
 
-    state.with_db(|db| {
-        let tx = db.transaction().map_err(|e| {
-            AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
-        })?;
+    state.with_transaction(|tx| {
         // フォルダを読んでいる間に、取り込みなどで見つかる曲に戻った曲・ほかの曲として登録された
         // ファイルは、結び付けない
         let mut relinked = 0;
         for (track_id, file, modified_at) in &found {
-            if !crate::repository::find_track_by_id(&tx, track_id)?.is_missing
-                || is_registered_to_other(&tx, &file.file_path, track_id)?
+            if !crate::repository::find_track_by_id(tx, track_id)?.is_missing
+                || is_registered_to_other(tx, &file.file_path, track_id)?
             {
                 continue;
             }
             crate::repository::relink_track(
-                &tx,
+                tx,
                 track_id,
                 &file.file_path,
                 &file.file_name,
@@ -257,12 +254,9 @@ fn search_folder(state: &AppState, folder: &Path) -> AppResult<MissingTrackSearc
             )?;
             relinked += 1;
         }
-        tx.commit().map_err(|e| {
-            AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
-        })?;
         Ok(MissingTrackSearchResult {
             relinked_count: relinked,
-            remaining_count: crate::repository::count_missing_tracks(db)?,
+            remaining_count: crate::repository::count_missing_tracks(tx)?,
         })
     })
 }

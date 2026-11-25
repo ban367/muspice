@@ -79,11 +79,8 @@ fn import_file(
     let matcher = TrackMatcher::new(state.with_db(|db| crate::repository::find_track_paths(db))?);
     let matched = library_xml::match_tracks(&library, &matcher);
 
-    let (updated_count, playlist_count, skipped_playlist_count) = state.with_db(|db| {
-        let current = crate::repository::find_track_stats(db)?;
-        let tx = db.transaction().map_err(|e| {
-            AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
-        })?;
+    let (updated_count, playlist_count, skipped_playlist_count) = state.with_transaction(|tx| {
+        let current = crate::repository::find_track_stats(tx)?;
         let mut updated = 0;
         for (track_id, imported) in &matched.stats {
             // 突き合わせた後に外された曲は飛ばす
@@ -91,7 +88,7 @@ fn import_file(
                 continue;
             };
             if let Some(merged) = library_xml::merge_stats(stats, imported) {
-                crate::repository::update_track_stats(&tx, track_id, &merged)?;
+                crate::repository::update_track_stats(tx, track_id, &merged)?;
                 updated += 1;
             }
         }
@@ -111,14 +108,11 @@ fn import_file(
                     continue;
                 }
                 let name = m3u::sanitize_playlist_name(&playlist.name);
-                crate::playlist::insert_playlist_with_tracks(&tx, &name, &track_ids)?;
+                crate::playlist::insert_playlist_with_tracks(tx, &name, &track_ids)?;
                 created += 1;
             }
         }
 
-        tx.commit().map_err(|e| {
-            AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
-        })?;
         Ok((updated, created, skipped))
     })?;
 

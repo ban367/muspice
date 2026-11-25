@@ -9,7 +9,7 @@
 //! - 自動のバックアップは、`backups/`へ1日に1回（起動の後と、起動している間の1時間ごとに確かめる）作り、
 //!   新しい世代だけを残す（`start`）
 
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppResult, db_error};
 use crate::settings::SettingsState;
 use crate::startup::DB_FILE_NAME;
 use crate::state::AppState;
@@ -131,7 +131,7 @@ pub fn write_backup(conn: &Connection, path: &Path, meta: &BackupMeta) -> AppRes
 
     let written = conn
         .execute("VACUUM INTO ?1", [partial_str])
-        .map_err(|e| AppError::Database(format!("バックアップの作成に失敗しました: {}", e)))
+        .map_err(db_error("バックアップの作成"))
         .and_then(|_| write_meta(&partial, meta))
         .and_then(|()| {
             fs::rename(&partial, path)
@@ -186,7 +186,7 @@ fn write_meta(path: &Path, meta: &BackupMeta) -> AppResult<()> {
                 .map(|_| ())
             })
     })
-    .map_err(|e| AppError::Database(format!("バックアップの情報の書き込みに失敗しました: {}", e)))
+    .map_err(db_error("バックアップの情報の書き込み"))
 }
 
 /// バックアップのファイル（またはMuspiceのDB）の中身
@@ -326,8 +326,7 @@ pub fn stage_restore(source: &Path, app_data_dir: &Path) -> AppResult<()> {
         .and_then(|conn| conn.execute("VACUUM INTO ?1", [partial_str]))
         .map_err(|e| AppError::Database(format!("バックアップを写せません: {}", e)))?;
 
-    let staged = Connection::open(&partial)
-        .map_err(|e| AppError::Database(format!("復元の用意に失敗しました: {}", e)))?;
+    let staged = Connection::open(&partial).map_err(db_error("復元の用意"))?;
     let settings: Option<String> = staged
         .query_row(
             "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
@@ -350,7 +349,7 @@ pub fn stage_restore(source: &Path, app_data_dir: &Path) -> AppResult<()> {
             staged.execute_batch(&format!("DROP TABLE IF EXISTS {META_TABLE}"))?;
             Ok(settings)
         })
-        .map_err(|e| AppError::Database(format!("復元の用意に失敗しました: {}", e)))?;
+        .map_err(db_error("復元の用意"))?;
     drop(staged);
 
     if let Some(json) = settings {
@@ -521,7 +520,7 @@ fn is_empty_library(conn: &Connection) -> AppResult<bool> {
         [],
         |row| row.get(0),
     )
-    .map_err(|e| AppError::Database(format!("ライブラリの確認に失敗しました: {}", e)))
+    .map_err(db_error("ライブラリの確認"))
 }
 
 /// バックアップに書く設定（`settings.json`と同じ形）

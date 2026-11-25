@@ -591,10 +591,7 @@ fn fail(result: &mut OrganizeResult, planned: &PlannedMove, error: &AppError) {
 ///
 /// @returns 曲ごとの結果（渡した順）。トランザクションごと失敗した場合は、エラー
 fn record_moves(state: &AppState, moved: &[&PlannedMove]) -> AppResult<Vec<AppResult<()>>> {
-    state.with_db(|db| {
-        let tx = db.transaction().map_err(|e| {
-            AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
-        })?;
+    state.with_transaction(|tx| {
         let outcomes = moved
             .iter()
             .map(|planned| {
@@ -605,7 +602,7 @@ fn record_moves(state: &AppState, moved: &[&PlannedMove]) -> AppResult<Vec<AppRe
                     return Err(AppError::Io("移動先のパスを扱えません".to_string()));
                 };
                 crate::repository::relink_track(
-                    &tx,
+                    tx,
                     &planned.track_id,
                     path,
                     name,
@@ -615,9 +612,6 @@ fn record_moves(state: &AppState, moved: &[&PlannedMove]) -> AppResult<Vec<AppRe
                 )
             })
             .collect();
-        tx.commit().map_err(|e| {
-            AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
-        })?;
         Ok(outcomes)
     })
 }

@@ -139,22 +139,15 @@ fn remove_folder_blocking(
     let (removed, was_music_folder) = {
         // 同じフォルダの再スキャンの途中で消すと、再スキャンが曲を書き戻してしまうため、終わるまで待つ
         let _scan = state.lock_library_scan();
-        state.with_db(|db| {
-            let folder = find_folder(db, folder_id)?;
-            let tx = db.transaction().map_err(|e| {
-                AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
-            })?;
-
+        state.with_transaction(|tx| {
+            let folder = find_folder(tx, folder_id)?;
             let removed = if remove_tracks {
-                crate::repository::delete_tracks_under(&tx, &track_path_prefix(&folder.path))?
+                crate::repository::delete_tracks_under(tx, &track_path_prefix(&folder.path))?
             } else {
                 0
             };
-            crate::library_folder::delete_folder(&tx, &folder.id)?;
+            crate::library_folder::delete_folder(tx, &folder.id)?;
 
-            tx.commit().map_err(|e| {
-                AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
-            })?;
             Ok((to_count(removed)?, folder.is_music_folder))
         })?
     };
@@ -827,27 +820,21 @@ fn record_file_states(
     plan: &RescanPlan,
     result: &mut RescanResult,
 ) -> AppResult<HashSet<String>> {
-    let (newly_missing, restored) = state.with_db(|db| {
-        let tx = db.transaction().map_err(|e| {
-            AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
-        })?;
+    let (newly_missing, restored) = state.with_transaction(|tx| {
         for (track_id, modified_at) in &plan.to_record_modified_at {
-            crate::repository::set_track_file_modified_at(&tx, track_id, *modified_at)?;
+            crate::repository::set_track_file_modified_at(tx, track_id, *modified_at)?;
         }
         let now = crate::datetime::now_rfc3339();
         let mut newly_missing = HashSet::new();
         for track_id in &plan.to_mark_missing {
-            if crate::repository::mark_track_missing(&tx, track_id, &now)? > 0 {
+            if crate::repository::mark_track_missing(tx, track_id, &now)? > 0 {
                 newly_missing.insert(track_id.clone());
             }
         }
         let mut restored = 0;
         for track_id in &plan.to_restore {
-            restored += crate::repository::restore_missing_track(&tx, track_id)?;
+            restored += crate::repository::restore_missing_track(tx, track_id)?;
         }
-        tx.commit().map_err(|e| {
-            AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
-        })?;
         Ok((newly_missing, restored))
     })?;
     result.missing_count = to_count(newly_missing.len())?;
@@ -942,20 +929,15 @@ fn read_and_write_tracks(
             continue;
         }
 
-        state.with_db(|db| {
-            let tx = db.transaction().map_err(|e| {
-                AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
-            })?;
+        state.with_transaction(|tx| {
             for (track, action, modified_at) in &pending {
                 let written = match action {
-                    WriteAction::Insert => {
-                        crate::repository::insert_track(&tx, track, *modified_at)
-                    }
+                    WriteAction::Insert => crate::repository::insert_track(tx, track, *modified_at),
                     WriteAction::Update => {
-                        crate::repository::update_track_by_file_path(&tx, track, *modified_at)
+                        crate::repository::update_track_by_file_path(tx, track, *modified_at)
                     }
                     WriteAction::Relink(track_id) => crate::repository::relink_track(
-                        &tx,
+                        tx,
                         track_id,
                         &track.file_path,
                         &track.file_name,
@@ -979,9 +961,7 @@ fn read_and_write_tracks(
                     }
                 }
             }
-            tx.commit().map_err(|e| {
-                AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
-            })
+            Ok(())
         })?;
     }
 

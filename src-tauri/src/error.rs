@@ -41,6 +41,13 @@ pub enum AppError {
 /// アプリケーション共通のResult型
 pub type AppResult<T> = Result<T, AppError>;
 
+/// SQLの失敗を、操作の名前を付けた`Database`のエラーにする関数を返す（`.map_err(db_error("曲の取得"))`）
+///
+/// メッセージは「{操作}に失敗しました: {SQLiteのエラー}」。
+pub fn db_error(operation: &'static str) -> impl Fn(rusqlite::Error) -> AppError + Copy {
+    move |e| AppError::Database(format!("{operation}に失敗しました: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -58,6 +65,19 @@ mod tests {
         let error = AppError::Lock("データベースロックの取得に失敗しました".to_string());
         let json = serde_json::to_value(&error).unwrap();
         assert_eq!(json["code"], "LOCK");
+    }
+
+    /// 操作の名前とSQLiteのエラーを、1つのメッセージにする
+    #[test]
+    fn test_db_error_names_the_operation() {
+        let error = db_error("曲の取得")(rusqlite::Error::QueryReturnedNoRows);
+        assert_eq!(
+            error,
+            AppError::Database(format!(
+                "曲の取得に失敗しました: {}",
+                rusqlite::Error::QueryReturnedNoRows
+            ))
+        );
     }
 
     #[test]

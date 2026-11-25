@@ -15,18 +15,13 @@ mod rules;
 
 pub use rules::*;
 
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppResult, db_error};
 use crate::models::{Playlist, SmartPlaylist, Track};
 use rusqlite::{Connection, OptionalExtension};
 use uuid::Uuid;
 
 /// オートプレイリストが見つからない時のメッセージ
 const NOT_FOUND: &str = "オートプレイリストが見つかりません";
-
-/// SQLの失敗を、操作の名前を付けた`Database`にする
-fn database(operation: &'static str) -> impl Fn(rusqlite::Error) -> AppError + Copy {
-    move |e| AppError::Database(format!("{operation}に失敗しました: {e}"))
-}
 
 fn not_found() -> AppError {
     AppError::NotFound(NOT_FOUND.to_string())
@@ -46,7 +41,7 @@ fn parse_rules(json: &str) -> SmartRules {
 
 /// すべてのオートプレイリストを取得（手動の並び順。表示の並び順は画面が選ぶ）
 pub fn get_all_smart_playlists(conn: &Connection) -> AppResult<Vec<SmartPlaylist>> {
-    let database = database("オートプレイリストの取得");
+    let database = db_error("オートプレイリストの取得");
     let mut stmt = conn
         .prepare(
             "SELECT id, name, description, rules, position, created_at, updated_at
@@ -80,7 +75,7 @@ pub(crate) fn find_rules(
     )
     .optional()
     .map(|found| found.as_deref().map(parse_rules))
-    .map_err(database("オートプレイリストの取得"))
+    .map_err(db_error("オートプレイリストの取得"))
 }
 
 /// オートプレイリストの名前を取得する（M3U8の書き出しの、ファイル名の既定）
@@ -91,7 +86,7 @@ pub fn get_smart_playlist_name(conn: &Connection, smart_playlist_id: &str) -> Ap
         |row| row.get(0),
     )
     .optional()
-    .map_err(database("オートプレイリストの取得"))?
+    .map_err(db_error("オートプレイリストの取得"))?
     .ok_or_else(not_found)
 }
 
@@ -105,7 +100,7 @@ pub fn create_smart_playlist(
 ) -> AppResult<SmartPlaylist> {
     validate_playlist_references(conn, None, rules)?;
 
-    let database = database("オートプレイリストの作成");
+    let database = db_error("オートプレイリストの作成");
     let id = Uuid::new_v4().to_string();
     let now = crate::datetime::now_rfc3339();
     let position = crate::playlist::next_position(conn, "smart_playlists").map_err(database)?;
@@ -148,7 +143,7 @@ pub fn update_smart_playlist(
     }
     validate_playlist_references(conn, Some(smart_playlist_id), rules)?;
 
-    let database = database("オートプレイリストの変更");
+    let database = db_error("オートプレイリストの変更");
     conn.execute(
         "UPDATE smart_playlists SET name = ?1, rules = ?2, updated_at = ?3 WHERE id = ?4",
         rusqlite::params![
@@ -180,7 +175,7 @@ pub fn update_smart_playlist_info(
                 smart_playlist_id
             ],
         )
-        .map_err(database("オートプレイリストの変更"))?;
+        .map_err(db_error("オートプレイリストの変更"))?;
     if changed == 0 {
         return Err(not_found());
     }
@@ -190,7 +185,7 @@ pub fn update_smart_playlist_info(
 /// オートプレイリストを、渡した順に並べる（手動の並び順。渡さなかったものの位置は変えない）
 pub fn reorder_smart_playlists(conn: &Connection, smart_playlist_ids: &[String]) -> AppResult<()> {
     crate::playlist::set_positions(conn, "smart_playlists", smart_playlist_ids)
-        .map_err(database("オートプレイリストの並び替え"))
+        .map_err(db_error("オートプレイリストの並び替え"))
 }
 
 /// オートプレイリストを削除（転送先デバイスの選択は、外部キーのCASCADEで消える）
@@ -202,7 +197,7 @@ pub fn delete_smart_playlist(conn: &Connection, smart_playlist_id: &str) -> AppR
             "DELETE FROM smart_playlists WHERE id = ?1",
             [smart_playlist_id],
         )
-        .map_err(database("オートプレイリストの削除"))?;
+        .map_err(db_error("オートプレイリストの削除"))?;
     if removed == 0 {
         return Err(not_found());
     }

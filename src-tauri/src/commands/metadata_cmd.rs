@@ -145,22 +145,17 @@ pub async fn update_track_metadata(
 
         // データベースのメタデータと、ファイルのサイズ・更新日時を1つのトランザクションで更新する
         // （片方だけ反映されると、次の再スキャンで自分の書き込みを外部の変更として読み直すため）
-        state.with_db(|db| {
-            let tx = db.transaction().map_err(|e| {
-                AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
-            })?;
-            crate::repository::update_track_metadata(&tx, &written_id, &metadata)?;
+        state.with_transaction(|tx| {
+            crate::repository::update_track_metadata(tx, &written_id, &metadata)?;
             if let Some(file_size) = file_size {
                 crate::repository::set_track_file_state(
-                    &tx,
+                    tx,
                     &written_id,
                     file_size,
                     file_modified_at,
                 )?;
             }
-            tx.commit().map_err(|e| {
-                AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
-            })
+            Ok(())
         })
     })
     .await?;
@@ -336,17 +331,13 @@ fn update_each_blocking(
         }
 
         // 2. ロック内: バッチをまとめて書き込む
-        state.with_db(|db| {
+        state.with_transaction(|tx| {
             let now = crate::datetime::now_rfc3339();
-            let tx = db.transaction().map_err(|e| {
-                AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
-            })?;
-
             for (track_id, metadata, file_size, file_modified_at) in &written {
-                crate::repository::update_track_metadata_partial(&tx, track_id, metadata, &now)?;
+                crate::repository::update_track_metadata_partial(tx, track_id, metadata, &now)?;
                 if let Some(file_size) = file_size {
                     crate::repository::set_track_file_state(
-                        &tx,
+                        tx,
                         track_id,
                         *file_size,
                         *file_modified_at,
@@ -354,9 +345,7 @@ fn update_each_blocking(
                 }
             }
 
-            tx.commit().map_err(|e| {
-                AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
-            })
+            Ok(())
         })?;
         result.updated_count += to_count(written.len())?;
         result
@@ -433,13 +422,9 @@ fn refresh_library_metadata_blocking(state: &AppState) -> AppResult<RefreshMetad
 
         // 2. ロック内: バッチをまとめて書き込む
         if !pending.is_empty() {
-            state.with_db(|db| {
-                let tx = db.transaction().map_err(|e| {
-                    AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
-                })?;
-
+            state.with_transaction(|tx| {
                 for (track, modified_at) in &pending {
-                    match crate::repository::update_track_by_file_path(&tx, track, *modified_at) {
+                    match crate::repository::update_track_by_file_path(tx, track, *modified_at) {
                         Ok(()) => updated_count += 1,
                         Err(e) => {
                             errors.push(format!("{}: DB更新失敗 - {}", track.file_path, e));
@@ -448,9 +433,7 @@ fn refresh_library_metadata_blocking(state: &AppState) -> AppResult<RefreshMetad
                     }
                 }
 
-                tx.commit().map_err(|e| {
-                    AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
-                })
+                Ok(())
             })?;
         }
 

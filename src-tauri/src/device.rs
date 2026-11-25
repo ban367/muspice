@@ -8,7 +8,7 @@
 //! - 同期は一方向（ライブラリ → デバイス）。差分の計算は`device_sync`、コピーの実行は
 //!   `device_transfer`が行う
 
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppResult, db_error};
 use crate::settings::DEFAULT_MUSIC_FOLDER_TEMPLATE;
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -405,14 +405,12 @@ fn load_device_playlists(conn: &Connection, device: &mut DeviceRecord) -> AppRes
 }
 
 fn query_ids(conn: &Connection, sql: &str, device_id: &str) -> AppResult<Vec<String>> {
-    let mut stmt = conn
-        .prepare(sql)
-        .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
+    let mut stmt = conn.prepare(sql).map_err(db_error("クエリの準備"))?;
 
     stmt.query_map([device_id], |row| row.get(0))
-        .map_err(|e| AppError::Database(format!("クエリの実行に失敗しました: {}", e)))?
+        .map_err(db_error("クエリの実行"))?
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| AppError::Database(format!("結果の取得に失敗しました: {}", e)))
+        .map_err(db_error("結果の取得"))
 }
 
 /// 記録しているデバイスを名前順に取得する
@@ -422,13 +420,13 @@ pub fn find_all_devices(conn: &Connection) -> AppResult<Vec<DeviceRecord>> {
             "SELECT {} FROM sync_devices ORDER BY name, created_at, id",
             DEVICE_COLUMNS
         ))
-        .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
+        .map_err(db_error("クエリの準備"))?;
 
     let mut devices = stmt
         .query_map([], map_device_row)
-        .map_err(|e| AppError::Database(format!("クエリの実行に失敗しました: {}", e)))?
+        .map_err(db_error("クエリの実行"))?
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| AppError::Database(format!("結果の取得に失敗しました: {}", e)))?;
+        .map_err(db_error("結果の取得"))?;
 
     for device in &mut devices {
         load_device_playlists(conn, device)?;
@@ -445,7 +443,7 @@ pub fn try_find_device(conn: &Connection, device_id: &str) -> AppResult<Option<D
             map_device_row,
         )
         .optional()
-        .map_err(|e| AppError::Database(format!("デバイスの取得に失敗しました: {}", e)))?;
+        .map_err(db_error("デバイスの取得"))?;
 
     match device {
         Some(mut device) => {
@@ -475,7 +473,7 @@ pub fn insert_device(conn: &Connection, device_id: &str, name: &str, path: &str)
             DEFAULT_DEVICE_TEMPLATE
         ],
     )
-    .map_err(|e| AppError::Database(format!("デバイスの登録に失敗しました: {}", e)))?;
+    .map_err(db_error("デバイスの登録"))?;
     Ok(())
 }
 
@@ -489,7 +487,7 @@ pub fn update_device_config(
 ) -> AppResult<()> {
     let tx = conn
         .transaction()
-        .map_err(|e| AppError::Database(format!("トランザクションの開始に失敗しました: {}", e)))?;
+        .map_err(db_error("トランザクションの開始"))?;
 
     let updated = tx
         .execute(
@@ -508,7 +506,7 @@ pub fn update_device_config(
                 config.transcode.bitrate_kbps
             ],
         )
-        .map_err(|e| AppError::Database(format!("デバイスの更新に失敗しました: {}", e)))?;
+        .map_err(db_error("デバイスの更新"))?;
     if updated == 0 {
         return Err(AppError::NotFound("デバイスが見つかりません".to_string()));
     }
@@ -517,31 +515,30 @@ pub fn update_device_config(
         "DELETE FROM sync_device_playlists WHERE device_id = ?1",
         [device_id],
     )
-    .map_err(|e| AppError::Database(format!("デバイスの更新に失敗しました: {}", e)))?;
+    .map_err(db_error("デバイスの更新"))?;
     for playlist_id in &config.playlist_ids {
         tx.execute(
             "INSERT OR IGNORE INTO sync_device_playlists (device_id, playlist_id)
              SELECT ?1, id FROM playlists WHERE id = ?2",
             [device_id, playlist_id.as_str()],
         )
-        .map_err(|e| AppError::Database(format!("デバイスの更新に失敗しました: {}", e)))?;
+        .map_err(db_error("デバイスの更新"))?;
     }
     tx.execute(
         "DELETE FROM sync_device_smart_playlists WHERE device_id = ?1",
         [device_id],
     )
-    .map_err(|e| AppError::Database(format!("デバイスの更新に失敗しました: {}", e)))?;
+    .map_err(db_error("デバイスの更新"))?;
     for smart_playlist_id in &config.smart_playlist_ids {
         tx.execute(
             "INSERT OR IGNORE INTO sync_device_smart_playlists (device_id, smart_playlist_id)
              SELECT ?1, id FROM smart_playlists WHERE id = ?2",
             [device_id, smart_playlist_id.as_str()],
         )
-        .map_err(|e| AppError::Database(format!("デバイスの更新に失敗しました: {}", e)))?;
+        .map_err(db_error("デバイスの更新"))?;
     }
 
-    tx.commit()
-        .map_err(|e| AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e)))
+    tx.commit().map_err(db_error("トランザクションのコミット"))
 }
 
 /// 転送先のフォルダを記録する（マウント先が変わった場合など）
@@ -550,7 +547,7 @@ pub fn set_device_path(conn: &Connection, device_id: &str, path: &str) -> AppRes
         "UPDATE sync_devices SET path = ?2 WHERE id = ?1",
         [device_id, path],
     )
-    .map_err(|e| AppError::Database(format!("転送先の記録に失敗しました: {}", e)))?;
+    .map_err(db_error("転送先の記録"))?;
     Ok(())
 }
 
@@ -558,18 +555,17 @@ pub fn set_device_path(conn: &Connection, device_id: &str, path: &str) -> AppRes
 pub fn delete_device(conn: &mut Connection, device_id: &str) -> AppResult<()> {
     let tx = conn
         .transaction()
-        .map_err(|e| AppError::Database(format!("トランザクションの開始に失敗しました: {}", e)))?;
+        .map_err(db_error("トランザクションの開始"))?;
     for table in ["sync_device_playlists", "sync_device_smart_playlists"] {
         tx.execute(
             &format!("DELETE FROM {table} WHERE device_id = ?1"),
             [device_id],
         )
-        .map_err(|e| AppError::Database(format!("デバイスの削除に失敗しました: {}", e)))?;
+        .map_err(db_error("デバイスの削除"))?;
     }
     tx.execute("DELETE FROM sync_devices WHERE id = ?1", [device_id])
-        .map_err(|e| AppError::Database(format!("デバイスの削除に失敗しました: {}", e)))?;
-    tx.commit()
-        .map_err(|e| AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e)))
+        .map_err(db_error("デバイスの削除"))?;
+    tx.commit().map_err(db_error("トランザクションのコミット"))
 }
 
 /// 同期した日時を記録する
@@ -578,7 +574,7 @@ pub fn mark_synced(conn: &Connection, device_id: &str) -> AppResult<()> {
         "UPDATE sync_devices SET last_synced_at = ?2 WHERE id = ?1",
         rusqlite::params![device_id, crate::datetime::now_rfc3339()],
     )
-    .map_err(|e| AppError::Database(format!("同期日時の記録に失敗しました: {}", e)))?;
+    .map_err(db_error("同期日時の記録"))?;
     Ok(())
 }
 
