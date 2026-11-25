@@ -17,12 +17,12 @@
   import TrackFilterMenu from '#lib/components/library/TrackFilterMenu.svelte';
   import MusicFolderSetup from '#lib/components/library/MusicFolderSetup.svelte';
   import { libraryBrowser } from '#lib/stores/libraryBrowser.svelte.js';
-  import { ui } from '#lib/stores/ui.svelte.js';
+  import { ui, type DisplayMode } from '#lib/stores/ui.svelte.js';
   import { applyTrackFilters, browseTracks, type BrowserColumn } from '#lib/utils/trackFilter.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
-  // 表示モード
-  let displayMode = $state<'grid' | 'list'>('list');
+  // 表示モード（最後に表示したモードを覚える）
+  const displayMode = $derived(ui.displayModes.songs);
 
   // 検索状態
   let searchTerm = $state('');
@@ -93,8 +93,8 @@
     libraryBrowser.clear();
   }
 
-  function handleDisplayModeChange(mode: 'grid' | 'list') {
-    displayMode = mode;
+  function handleDisplayModeChange(mode: DisplayMode) {
+    ui.displayModes = { ...ui.displayModes, songs: mode };
   }
 
   /** カラムブラウザの選択を変える（上の列を変えたら、下の列の選択は解除する） */

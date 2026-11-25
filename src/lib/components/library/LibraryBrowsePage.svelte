@@ -12,7 +12,7 @@
   import { onDestroy, untrack } from 'svelte';
   import type { RevealGroup } from '#lib/utils/libraryReveal.js';
   import LibraryHeader from './LibraryHeader.svelte';
-  import { ui } from '#lib/stores/ui.svelte.js';
+  import { ui, type DisplayMode, type DisplayModePage } from '#lib/stores/ui.svelte.js';
   import { createSearchDebounce } from '#lib/utils/debounce.js';
   import { resolveSelectedItem } from '#lib/utils/selection.js';
   import { matchesSearchTerms, searchTerms } from '#lib/utils/searchText.js';
@@ -27,8 +27,8 @@
     formatCountSummary: (count: number) => string;
     /** 検索ボックスのプレースホルダー */
     searchPlaceholder: string;
-    /** 初期表示モード */
-    initialDisplayMode?: 'grid' | 'list';
+    /** 表示モードを覚える画面（最後に表示したモードで開く。`ui.displayModes`） */
+    displayModePage: DisplayModePage;
     /** ブラウズ対象のアイテム一覧（2ペイン表示に使用） */
     items?: T[];
     /** 絞り込みの対象にする項目（検索語を、このどれかに含むアイテムだけを表示する） */
@@ -51,7 +51,7 @@
     /** 詳細未選択時に表示するアイコン */
     emptyIcon?: Snippet;
     /** グリッド表示（現在の表示モードを受け取る） */
-    gridView: Snippet<['grid' | 'list']>;
+    gridView: Snippet<[DisplayMode]>;
     /** リストモードの左ペイン（フィルタ済みアイテム・選択中・選択ハンドラを受け取る） */
     listView?: Snippet<[T[], T | null, (item: T) => void]>;
     /**
@@ -71,7 +71,7 @@
     formatCount,
     formatCountSummary,
     searchPlaceholder,
-    initialDisplayMode = 'list',
+    displayModePage,
     items = [],
     searchFields,
     getItemKey,
@@ -87,9 +87,8 @@
     revealListKey
   }: Props = $props();
 
-  // 表示モード（初期値のみpropsから取得する意図的な設計）
-  // svelte-ignore state_referenced_locally
-  let displayMode = $state<'grid' | 'list'>(initialDisplayMode);
+  // 表示モード（画面ごとに、最後に表示したモードを覚える）
+  const displayMode = $derived(ui.displayModes[displayModePage]);
 
   // 2ペイン表示を持つページかどうか
   const hasTwoPaneList = $derived(listView != null && detailView != null);
@@ -145,8 +144,8 @@
    */
   let revealed = $state.raw<RevealGroup | null>(null);
 
-  function handleDisplayModeChange(mode: 'grid' | 'list') {
-    displayMode = mode;
+  function handleDisplayModeChange(mode: DisplayMode) {
+    ui.displayModes = { ...ui.displayModes, [displayModePage]: mode };
     // モード切り替え時に選択をリセット
     selectedKey = null;
     revealed = null;

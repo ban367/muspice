@@ -33,6 +33,7 @@
 
 <LibraryBrowsePage
   title={m.library.albums}
+  displayModePage="albums"
   formatCount={m.library.albumCount}
   formatCountSummary={m.library.albumSummary}
   searchPlaceholder={m.library.searchAlbums}

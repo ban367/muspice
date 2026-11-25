@@ -17,6 +17,7 @@
 
 <LibraryBrowsePage
   title={m.library.artists}
+  displayModePage="artists"
   formatCount={m.library.artistCount}
   formatCountSummary={m.library.artistSummary}
   searchPlaceholder={m.library.searchArtists}

@@ -319,6 +319,7 @@ src-tauri/src/
   - 仮想スクロールの一覧では、移動先の行の要素がないことがあるため、`handleTrackListKeydown`の`scrollTo`に`VirtualList`の`scrollToIndex`を渡す（渡さない場合は、`data-track-id`の付いた行の要素を探してスクロールする）
   - 見た目の並びが表示順と違う一覧（2列に分けた`ArtistAlbumsView`）は、`handleTrackListKeydown`の`sideTarget`で←→の移動先のトラックIDを返し、`TrackSelection.moveTo`で移す（移動先の位置は`#lib/utils/listNavigation`の`twoColumnSideTarget`。nullを返すと、←→は`columns`に従う）
 - 1つだけ選択する一覧（2ペイン表示の左の`ArtistList`。アーティストとアルバムアーティスト）は、`listSelectionTarget`で移動先を求めて選択し、その項目へフォーカスも移す（Tabでは選択中の項目だけに止まる）
+- グリッド表示とリスト表示の切り替え（曲・アルバム・アーティスト・ジャンルの画面）は、画面ごとに`ui.displayModes`（localStorageの`muspice:displayModes`。画面は`DisplayModePage`）に覚え、最後に表示した方で開く。まだ切り替えていない画面は既定（ジャンルはグリッド表示、ほかはリスト表示）。`LibraryBrowsePage`には`displayModePage`で画面を渡す（ADR-133）
 - グリッド表示（`LibraryGrid`: アルバム・アーティスト・ジャンル）は、現在位置の項目を枠で示し、Enterで`onOpen`を行う（ジャンルはクリックと同じく画面を開き、アルバム・アーティストはダブルクリックと同じく再生する。カードのクリックは選ぶだけ。ADR-078）
 - `LibraryGrid`に`detail`（項目と、閉じる関数を受け取るSnippet）を渡すと、グリッド表示の現在位置の項目の中身を、グリッドの下に出す（`GridDetailSplit`。現在位置がない時は出さない。閉じると現在位置を外す。開いた時は、2フレーム待ってから、選んだ項目を`scrollToIndex`で見える位置へ出す）。項目は、検索で絞り込む前の一覧から引く。最近追加した曲の画面は、同じ部品をアルバムの項目だけに使う。領域の高さは`ui.gridDetailHeight`（localStorageの`muspice:gridDetailHeight`。最小`MIN_GRID_DETAIL_HEIGHT`）で、`GridDetailSplit`が、グリッドに120pxを残して収める（ADR-097）
   - 中身の`ArtistAlbumsView`（`compact`）は、領域（`artist-albums`のコンテナ）の幅が48rem以上の時、ディスクごとの入れ物（`.disc-tracks`）をCSS Gridにして、曲を2列に分ける（`grid-auto-flow: column`。段の数は`--track-rows`に曲数の半分の切り上げを渡す）。お気に入りと評価を、ポインタを置いた時だけ出すかは、行（`track-row`のコンテナ）の幅が38rem以下かで決める。2列の時は、←→で隣の列の同じ段の曲へ移る（`sideTarget`。2列かどうかは、現在位置の曲の`.disc-tracks`の`display`で見分ける。ADR-105）

@@ -66,11 +66,29 @@ function defaultColumnWidth(column: WidthColumn): number {
   return column === 'number' ? NUMBER_COLUMN_WIDTH : TRACK_COLUMNS[column].width;
 }
 
+/** 一覧の表示モード（グリッド表示・リスト表示） */
+export type DisplayMode = 'grid' | 'list';
+
+/** グリッド表示とリスト表示を切り替えられる画面 */
+export type DisplayModePage = 'songs' | 'albums' | 'artists' | 'genres';
+
+/** 画面ごとの表示モード */
+export type DisplayModes = Record<DisplayModePage, DisplayMode>;
+
+/** 表示モードの既定（まだ切り替えていない画面で使う） */
+const DEFAULT_DISPLAY_MODES: DisplayModes = {
+  songs: 'list',
+  albums: 'list',
+  artists: 'list',
+  genres: 'grid'
+};
+
 const RIGHT_SIDEBAR_PINNED_KEY = 'muspice:rightSidebarPinned';
 const AUTO_SHOW_SELECTED_TRACK_KEY = 'muspice:autoShowSelectedTrack';
 const GRID_DETAIL_HEIGHT_KEY = 'muspice:gridDetailHeight';
 const COLUMN_WIDTHS_KEY = 'muspice:columnWidths';
 const PLAYLIST_EXPORT_RELATIVE_KEY = 'muspice:playlistExportRelative';
+const DISPLAY_MODES_KEY = 'muspice:displayModes';
 
 /** localStorageのJSONを読む（ない・読めない・壊れている場合はnull） */
 function loadJson(key: string): unknown {
@@ -120,6 +138,20 @@ function loadColumnWidths(): ColumnWidths {
   // 古い不要なキー（checkbox・status）を除いた形で保存し直す
   if (parsed !== null) saveJson(COLUMN_WIDTHS_KEY, widths);
   return widths;
+}
+
+/** 保存済みの、画面ごとの表示モード（ない画面・不正な値は既定値で補う） */
+function loadDisplayModes(): DisplayModes {
+  const stored = loadJson(DISPLAY_MODES_KEY);
+  const parsed =
+    typeof stored === 'object' && stored !== null ? (stored as Record<string, unknown>) : {};
+  const pages = Object.keys(DEFAULT_DISPLAY_MODES) as DisplayModePage[];
+  return Object.fromEntries(
+    pages.map((page) => {
+      const value = parsed[page];
+      return [page, value === 'grid' || value === 'list' ? value : DEFAULT_DISPLAY_MODES[page]];
+    })
+  ) as DisplayModes;
 }
 
 class UiState {
@@ -190,6 +222,20 @@ class UiState {
   #gridDetailHeight = $state(loadGridDetailHeight());
   #columnWidths = $state.raw<ColumnWidths>(loadColumnWidths());
   #playlistExportRelative = $state(loadJson(PLAYLIST_EXPORT_RELATIVE_KEY) === true);
+  #displayModes = $state.raw<DisplayModes>(loadDisplayModes());
+
+  /**
+   * 画面ごとの、最後に表示した表示モード（グリッド表示・リスト表示。localStorageに保存。
+   * 変更は中身を書き換えず、オブジェクトごと代入する）
+   */
+  get displayModes(): DisplayModes {
+    return this.#displayModes;
+  }
+
+  set displayModes(value: DisplayModes) {
+    this.#displayModes = value;
+    saveJson(DISPLAY_MODES_KEY, value);
+  }
 
   /** プレイリストの書き出しで、曲の場所を相対パスで書くか（前回の選択。localStorageに保存） */
   get playlistExportRelative(): boolean {
