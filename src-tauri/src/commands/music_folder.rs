@@ -614,28 +614,22 @@ fn apply_change(
         .map(ScannedImportFolder::exclusions_to_register)
         .unwrap_or_default();
 
-    let (removed_tracks, removed_playlists) = state.with_db(|db| {
-        let tx = db.transaction().map_err(|e| {
-            AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
-        })?;
+    let (removed_tracks, removed_playlists) = state.with_transaction(|tx| {
         // 走査していないのに、登録が外れていた（確かめた後に、ほかの操作で記録が消えた）場合は、
         // 中の曲を読み込めないため、何も変えずにやめる（トランザクションは取り消される）
-        if scanned.is_none() && find_folder_by_path(&tx, path)?.is_none() {
+        if scanned.is_none() && find_folder_by_path(tx, path)?.is_none() {
             return Err(AppError::NotFound(
                 "ライブラリフォルダが見つかりません。もう一度選び直してください".to_string(),
             ));
         }
         let removed_tracks =
-            crate::repository::delete_tracks_outside(&tx, &track_path_prefix(path))?;
+            crate::repository::delete_tracks_outside(tx, &track_path_prefix(path))?;
         let removed_playlists = if delete_playlists {
-            crate::playlist::delete_all_playlists(&tx)?
+            crate::playlist::delete_all_playlists(tx)?
         } else {
             0
         };
-        crate::library_folder::replace_folders_with_music_folder(&tx, path, exclusions)?;
-        tx.commit().map_err(|e| {
-            AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
-        })?;
+        crate::library_folder::replace_folders_with_music_folder(tx, path, exclusions)?;
         let removed_tracks = u32::try_from(removed_tracks)
             .map_err(|_| AppError::Database("曲の数が多すぎます".to_string()))?;
         Ok((removed_tracks, removed_playlists))

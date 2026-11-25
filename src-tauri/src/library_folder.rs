@@ -20,7 +20,7 @@
 //! - フォルダの場所は、別のパスへ付け替えられる（中の曲のパスの先頭を書き換え、曲のID・読み込まない
 //!   フォルダ・音楽フォルダの印を保つ。ADR-072）
 
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppResult, db_error};
 use crate::library::ScanExclusions;
 use crate::repository::TrackFileState;
 use rusqlite::{Connection, OptionalExtension};
@@ -222,12 +222,12 @@ pub fn find_all_folders(conn: &Connection) -> AppResult<Vec<FolderRecord>> {
         .prepare(&format!(
             "SELECT {FOLDER_COLUMNS} FROM library_folders ORDER BY path"
         ))
-        .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
+        .map_err(db_error("クエリの準備"))?;
 
     stmt.query_map([], folder_from_row)
-        .map_err(|e| AppError::Database(format!("クエリの実行に失敗しました: {}", e)))?
+        .map_err(db_error("クエリの実行"))?
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| AppError::Database(format!("結果の取得に失敗しました: {}", e)))
+        .map_err(db_error("結果の取得"))
 }
 
 /// IDでライブラリフォルダを取得する
@@ -238,7 +238,7 @@ pub fn find_folder(conn: &Connection, folder_id: &str) -> AppResult<FolderRecord
         folder_from_row,
     )
     .optional()
-    .map_err(|e| AppError::Database(format!("ライブラリフォルダの取得に失敗しました: {}", e)))?
+    .map_err(db_error("ライブラリフォルダの取得"))?
     .ok_or_else(|| AppError::NotFound("ライブラリフォルダが見つかりません".to_string()))
 }
 
@@ -271,7 +271,7 @@ pub fn register_folder(
 
     let tx = conn
         .unchecked_transaction()
-        .map_err(|e| AppError::Database(format!("トランザクションの開始に失敗しました: {}", e)))?;
+        .map_err(db_error("トランザクションの開始"))?;
     // 中のフォルダの除外は、外のフォルダの除外として`exclusions`に入っている（記録は外部キーで消える）
     let mut is_music_folder = false;
     for nested in existing
@@ -284,9 +284,8 @@ pub fn register_folder(
 
     let folder_id = insert_folder(&tx, &path, is_music_folder, exclusions)?;
 
-    tx.commit().map_err(|e| {
-        AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
-    })?;
+    tx.commit()
+        .map_err(db_error("トランザクションのコミット"))?;
     Ok(Some(folder_id))
 }
 
@@ -307,7 +306,7 @@ fn insert_folder(
          VALUES (?1, ?2, ?3, ?3, ?4)",
         rusqlite::params![folder_id, path, now, is_music_folder],
     )
-    .map_err(|e| AppError::Database(format!("ライブラリフォルダの登録に失敗しました: {}", e)))?;
+    .map_err(db_error("ライブラリフォルダの登録"))?;
     for exclusion in exclusions {
         insert_exclusion(conn, &folder_id, exclusion)?;
     }
@@ -343,7 +342,7 @@ pub fn replace_folders_with_music_folder(
                 "UPDATE library_folders SET is_music_folder = 1 WHERE id = ?1",
                 [&folder_id],
             )
-            .map_err(|e| AppError::Database(format!("音楽フォルダの設定に失敗しました: {}", e)))?;
+            .map_err(db_error("音楽フォルダの設定"))?;
             Ok(folder_id)
         }
         None => insert_folder(conn, &path, true, exclusions),
@@ -367,7 +366,7 @@ pub fn find_music_folder(conn: &Connection) -> AppResult<Option<FolderRecord>> {
         folder_from_row,
     )
     .optional()
-    .map_err(|e| AppError::Database(format!("音楽フォルダの取得に失敗しました: {}", e)))
+    .map_err(db_error("音楽フォルダの取得"))
 }
 
 /// ライブラリフォルダを音楽フォルダにする（ほかのフォルダの印は外す。ファイルは動かさない）
@@ -378,21 +377,20 @@ pub fn find_music_folder(conn: &Connection) -> AppResult<Option<FolderRecord>> {
 pub fn set_music_folder(conn: &Connection, folder_id: &str) -> AppResult<()> {
     let tx = conn
         .unchecked_transaction()
-        .map_err(|e| AppError::Database(format!("トランザクションの開始に失敗しました: {}", e)))?;
+        .map_err(db_error("トランザクションの開始"))?;
     clear_music_folder(&tx)?;
     let updated = tx
         .execute(
             "UPDATE library_folders SET is_music_folder = 1 WHERE id = ?1",
             [folder_id],
         )
-        .map_err(|e| AppError::Database(format!("音楽フォルダの設定に失敗しました: {}", e)))?;
+        .map_err(db_error("音楽フォルダの設定"))?;
     if updated == 0 {
         return Err(AppError::NotFound(
             "ライブラリフォルダが見つかりません".to_string(),
         ));
     }
-    tx.commit()
-        .map_err(|e| AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e)))
+    tx.commit().map_err(db_error("トランザクションのコミット"))
 }
 
 /// 音楽フォルダの設定を外す（ライブラリフォルダの記録は残す。テストで、印を付け替えるのに使う）
@@ -404,16 +402,14 @@ pub fn clear_music_folder(conn: &Connection) -> AppResult<()> {
         "UPDATE library_folders SET is_music_folder = 0 WHERE is_music_folder = 1",
         [],
     )
-    .map_err(|e| AppError::Database(format!("音楽フォルダの解除に失敗しました: {}", e)))?;
+    .map_err(db_error("音楽フォルダの解除"))?;
     Ok(())
 }
 
 /// ライブラリフォルダの記録を削除する（トラックは消さない）
 pub fn delete_folder(conn: &Connection, folder_id: &str) -> AppResult<()> {
     conn.execute("DELETE FROM library_folders WHERE id = ?1", [folder_id])
-        .map_err(|e| {
-            AppError::Database(format!("ライブラリフォルダの削除に失敗しました: {}", e))
-        })?;
+        .map_err(db_error("ライブラリフォルダの削除"))?;
     Ok(())
 }
 
@@ -430,7 +426,7 @@ pub fn relocate_folder(conn: &Connection, folder_id: &str, new_path: &str) -> Ap
 
     let tx = conn
         .unchecked_transaction()
-        .map_err(|e| AppError::Database(format!("トランザクションの開始に失敗しました: {}", e)))?;
+        .map_err(db_error("トランザクションの開始"))?;
     let relocated = crate::repository::replace_track_path_prefix(
         &tx,
         &track_path_prefix(&folder.path),
@@ -440,10 +436,9 @@ pub fn relocate_folder(conn: &Connection, folder_id: &str, new_path: &str) -> Ap
         "UPDATE library_folders SET path = ?2 WHERE id = ?1",
         rusqlite::params![folder.id, path],
     )
-    .map_err(|e| AppError::Database(format!("ライブラリフォルダの更新に失敗しました: {}", e)))?;
-    tx.commit().map_err(|e| {
-        AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
-    })?;
+    .map_err(db_error("ライブラリフォルダの更新"))?;
+    tx.commit()
+        .map_err(db_error("トランザクションのコミット"))?;
     Ok(relocated)
 }
 
@@ -453,7 +448,7 @@ pub fn mark_scanned(conn: &Connection, folder_id: &str) -> AppResult<()> {
         "UPDATE library_folders SET last_scanned_at = ?2 WHERE id = ?1",
         rusqlite::params![folder_id, crate::datetime::now_rfc3339()],
     )
-    .map_err(|e| AppError::Database(format!("スキャン日時の記録に失敗しました: {}", e)))?;
+    .map_err(db_error("スキャン日時の記録"))?;
     Ok(())
 }
 
@@ -478,7 +473,7 @@ pub fn find_exclusions(conn: &Connection, folder_id: &str) -> AppResult<Vec<Excl
             "SELECT id, folder_id, path FROM library_folder_exclusions
              WHERE folder_id = ?1 ORDER BY path",
         )
-        .map_err(|e| AppError::Database(format!("クエリの準備に失敗しました: {}", e)))?;
+        .map_err(db_error("クエリの準備"))?;
 
     stmt.query_map([folder_id], |row| {
         Ok(ExclusionRecord {
@@ -487,9 +482,9 @@ pub fn find_exclusions(conn: &Connection, folder_id: &str) -> AppResult<Vec<Excl
             path: row.get(2)?,
         })
     })
-    .map_err(|e| AppError::Database(format!("クエリの実行に失敗しました: {}", e)))?
+    .map_err(db_error("クエリの実行"))?
     .collect::<Result<Vec<_>, _>>()
-    .map_err(|e| AppError::Database(format!("結果の取得に失敗しました: {}", e)))
+    .map_err(db_error("結果の取得"))
 }
 
 /// IDで、読み込まないフォルダを取得する
@@ -506,7 +501,7 @@ pub fn find_exclusion(conn: &Connection, exclusion_id: &str) -> AppResult<Exclus
         },
     )
     .optional()
-    .map_err(|e| AppError::Database(format!("読み込まないフォルダの取得に失敗しました: {}", e)))?
+    .map_err(db_error("読み込まないフォルダの取得"))?
     .ok_or_else(|| AppError::NotFound("読み込まないフォルダが見つかりません".to_string()))
 }
 
@@ -534,7 +529,7 @@ fn insert_exclusion(
         "INSERT INTO library_folder_exclusions (id, folder_id, path) VALUES (?1, ?2, ?3)",
         rusqlite::params![record.id, record.folder_id, record.path],
     )
-    .map_err(|e| AppError::Database(format!("読み込まないフォルダの記録に失敗しました: {}", e)))?;
+    .map_err(db_error("読み込まないフォルダの記録"))?;
     Ok(record)
 }
 
@@ -561,7 +556,7 @@ pub fn add_exclusion(
 
     let tx = conn
         .unchecked_transaction()
-        .map_err(|e| AppError::Database(format!("トランザクションの開始に失敗しました: {}", e)))?;
+        .map_err(db_error("トランザクションの開始"))?;
     for nested in existing
         .iter()
         .filter(|exclusion| is_same_or_within(&exclusion.path, relative))
@@ -569,9 +564,8 @@ pub fn add_exclusion(
         delete_exclusion(&tx, &nested.id)?;
     }
     let added = insert_exclusion(&tx, folder_id, relative)?;
-    tx.commit().map_err(|e| {
-        AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
-    })?;
+    tx.commit()
+        .map_err(db_error("トランザクションのコミット"))?;
     Ok(added)
 }
 
@@ -581,7 +575,7 @@ pub fn delete_exclusion(conn: &Connection, exclusion_id: &str) -> AppResult<()> 
         "DELETE FROM library_folder_exclusions WHERE id = ?1",
         [exclusion_id],
     )
-    .map_err(|e| AppError::Database(format!("読み込まないフォルダの削除に失敗しました: {}", e)))?;
+    .map_err(db_error("読み込まないフォルダの削除"))?;
     Ok(())
 }
 

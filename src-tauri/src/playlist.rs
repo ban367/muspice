@@ -3,7 +3,7 @@
 //! どの関数も`AppResult`を返す。プレイリスト・曲・フォルダが見つからない場合は`NotFound`、
 //! SQLの失敗は`Database`（操作の名前を付けたメッセージ）。コマンド層は、そのまま返す。
 
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppResult, db_error};
 use crate::models::{Playlist, PlaylistFolder, PlaylistTrack, Track};
 use crate::repository::{TRACK_COLUMNS, query_tracks};
 use rusqlite::{Connection, OptionalExtension};
@@ -17,14 +17,9 @@ const TRACK_NOT_FOUND: &str = "トラックが見つかりません";
 /// プレイリストのフォルダが見つからない時のメッセージ
 const FOLDER_NOT_FOUND: &str = "フォルダが見つかりません";
 
-/// SQLの失敗を、操作の名前を付けた`Database`にする（`.map_err(database("プレイリストの作成"))`）
-fn database(operation: &'static str) -> impl Fn(rusqlite::Error) -> AppError + Copy {
-    move |e| AppError::Database(format!("{operation}に失敗しました: {e}"))
-}
-
 /// プレイリストを作成
 pub fn create_playlist(conn: &Connection, name: &str) -> AppResult<Playlist> {
-    insert_playlist(conn, name).map_err(database("プレイリストの作成"))
+    insert_playlist(conn, name).map_err(db_error("プレイリストの作成"))
 }
 
 fn insert_playlist(conn: &Connection, name: &str) -> rusqlite::Result<Playlist> {
@@ -66,7 +61,7 @@ fn ensure_exists(conn: &Connection, table: &str, id: &str, not_found: &str) -> A
     let exists = conn
         .prepare_cached(&format!("SELECT 1 FROM {table} WHERE id = ?1"))
         .and_then(|mut stmt| stmt.exists([id]))
-        .map_err(database("存在の確認"))?;
+        .map_err(db_error("存在の確認"))?;
     if exists {
         Ok(())
     } else {
@@ -78,7 +73,7 @@ fn ensure_exists(conn: &Connection, table: &str, id: &str, not_found: &str) -> A
 pub fn playlist_exists(conn: &Connection, playlist_id: &str) -> AppResult<bool> {
     conn.prepare_cached("SELECT 1 FROM playlists WHERE id = ?1")
         .and_then(|mut stmt| stmt.exists([playlist_id]))
-        .map_err(database("プレイリストの取得"))
+        .map_err(db_error("プレイリストの取得"))
 }
 
 /// 曲がすべてあることを確かめる（1曲でもなければ`NotFound`）
@@ -96,7 +91,7 @@ pub fn get_playlist_name(conn: &Connection, playlist_id: &str) -> AppResult<Stri
         |row| row.get(0),
     )
     .optional()
-    .map_err(database("プレイリストの取得"))?
+    .map_err(db_error("プレイリストの取得"))?
     .ok_or_else(|| AppError::NotFound(PLAYLIST_NOT_FOUND.to_string()))
 }
 
@@ -110,7 +105,7 @@ pub fn create_playlist_with_tracks(
     name: &str,
     track_ids: &[String],
 ) -> AppResult<Playlist> {
-    let database = database("プレイリストの作成");
+    let database = db_error("プレイリストの作成");
     let tx = conn.transaction().map_err(database)?;
     let playlist = insert_playlist_with_tracks(&tx, name, track_ids)?;
     tx.commit().map_err(database)?;
@@ -126,7 +121,7 @@ pub fn insert_playlist_with_tracks(
     name: &str,
     track_ids: &[String],
 ) -> AppResult<Playlist> {
-    let database = database("プレイリストの作成");
+    let database = db_error("プレイリストの作成");
     ensure_tracks_exist(conn, track_ids)?;
 
     let existing: Vec<String> = conn
@@ -156,7 +151,7 @@ pub fn create_playlist_from_tracks(
         .cloned()
         .collect();
 
-    let database = database("プレイリストの作成");
+    let database = db_error("プレイリストの作成");
     ensure_tracks_exist(conn, &unique)?;
     let tx = conn.transaction().map_err(database)?;
     let mut playlist = create_playlist(&tx, name)?;
@@ -197,7 +192,7 @@ fn insert_playlist_tracks(
 /// プレイリストごとにトラックを問い合わせるとN+1クエリになるため、
 /// 全プレイリストのトラックを1クエリで取得してから割り当てる。
 pub fn get_all_playlists(conn: &Connection) -> AppResult<Vec<Playlist>> {
-    query_all_playlists(conn).map_err(database("プレイリストの取得"))
+    query_all_playlists(conn).map_err(db_error("プレイリストの取得"))
 }
 
 fn query_all_playlists(conn: &Connection) -> rusqlite::Result<Vec<Playlist>> {
@@ -294,7 +289,7 @@ pub fn add_tracks_to_playlist(
     playlist_id: &str,
     track_ids: &[String],
 ) -> AppResult<usize> {
-    let database = database("トラックの追加");
+    let database = db_error("トラックの追加");
     let tx = conn.unchecked_transaction().map_err(database)?;
     ensure_exists(&tx, "playlists", playlist_id, PLAYLIST_NOT_FOUND)?;
 
@@ -348,7 +343,7 @@ pub fn remove_tracks_from_playlist(
     playlist_id: &str,
     track_ids: &[String],
 ) -> AppResult<usize> {
-    let database = database("トラックの削除");
+    let database = db_error("トラックの削除");
     let tx = conn.unchecked_transaction().map_err(database)?;
     ensure_exists(&tx, "playlists", playlist_id, PLAYLIST_NOT_FOUND)?;
 
@@ -399,7 +394,7 @@ pub fn rename_playlist(conn: &Connection, playlist_id: &str, name: &str) -> AppR
         "UPDATE playlists SET name = ?1, updated_at = ?2 WHERE id = ?3",
         rusqlite::params![name, crate::datetime::now_rfc3339(), playlist_id],
     )
-    .map_err(database("プレイリスト名の変更"))?;
+    .map_err(db_error("プレイリスト名の変更"))?;
     Ok(())
 }
 
@@ -416,7 +411,7 @@ pub fn set_playlist_description(
         "UPDATE playlists SET description = ?1, updated_at = ?2 WHERE id = ?3",
         rusqlite::params![description, crate::datetime::now_rfc3339(), playlist_id],
     )
-    .map_err(database("説明の変更"))?;
+    .map_err(db_error("説明の変更"))?;
     Ok(())
 }
 
@@ -437,12 +432,12 @@ pub fn get_playlist_folders(conn: &Connection) -> AppResult<Vec<PlaylistFolder>>
         })?
         .collect()
     })
-    .map_err(database("フォルダの取得"))
+    .map_err(db_error("フォルダの取得"))
 }
 
 /// プレイリストのフォルダを作成（手動の並び順では、いちばん後ろに置く）
 pub fn create_playlist_folder(conn: &Connection, name: &str) -> AppResult<PlaylistFolder> {
-    let database = database("フォルダの作成");
+    let database = db_error("フォルダの作成");
     let folder = PlaylistFolder {
         id: Uuid::new_v4().to_string(),
         name: name.to_string(),
@@ -464,13 +459,13 @@ pub fn rename_playlist_folder(conn: &Connection, folder_id: &str, name: &str) ->
         "UPDATE playlist_folders SET name = ?1 WHERE id = ?2",
         [name, folder_id],
     )
-    .map_err(database("フォルダ名の変更"))?;
+    .map_err(db_error("フォルダ名の変更"))?;
     Ok(())
 }
 
 /// プレイリストのフォルダを削除（中のプレイリストは消さず、フォルダの外へ出す）
 pub fn delete_playlist_folder(conn: &Connection, folder_id: &str) -> AppResult<()> {
-    let database = database("フォルダの削除");
+    let database = db_error("フォルダの削除");
     let tx = conn.unchecked_transaction().map_err(database)?;
     ensure_exists(&tx, "playlist_folders", folder_id, FOLDER_NOT_FOUND)?;
 
@@ -493,7 +488,7 @@ pub fn move_playlist(
     playlist_id: &str,
     folder_id: Option<&str>,
 ) -> AppResult<()> {
-    let database = database("プレイリストの移動");
+    let database = db_error("プレイリストの移動");
     let tx = conn.unchecked_transaction().map_err(database)?;
     ensure_exists(&tx, "playlists", playlist_id, PLAYLIST_NOT_FOUND)?;
     if let Some(folder_id) = folder_id {
@@ -515,12 +510,12 @@ pub fn move_playlist(
 /// 並び順は同じフォルダの中で比べるため、1つのフォルダ（またはフォルダの外）のプレイリストを渡す。
 /// 見つからないプレイリストは無視する。
 pub fn reorder_playlists(conn: &Connection, playlist_ids: &[String]) -> AppResult<()> {
-    set_positions(conn, "playlists", playlist_ids).map_err(database("プレイリストの並び替え"))
+    set_positions(conn, "playlists", playlist_ids).map_err(db_error("プレイリストの並び替え"))
 }
 
 /// プレイリストのフォルダの手動の並び順を変更（渡した順に、位置を振り直す）
 pub fn reorder_playlist_folders(conn: &Connection, folder_ids: &[String]) -> AppResult<()> {
-    set_positions(conn, "playlist_folders", folder_ids).map_err(database("フォルダの並び替え"))
+    set_positions(conn, "playlist_folders", folder_ids).map_err(db_error("フォルダの並び替え"))
 }
 
 /// 渡した順に、位置を振り直す（表の名前は、固定の文字列だけを渡す。オートプレイリストの表でも使う）
@@ -541,7 +536,7 @@ pub(crate) fn set_positions(
 
 /// プレイリストを削除
 pub fn delete_playlist(conn: &Connection, playlist_id: &str) -> AppResult<()> {
-    let database = database("プレイリストの削除");
+    let database = db_error("プレイリストの削除");
     let tx = conn.unchecked_transaction().map_err(database)?;
     ensure_exists(&tx, "playlists", playlist_id, PLAYLIST_NOT_FOUND)?;
 
@@ -560,7 +555,7 @@ pub fn delete_playlist(conn: &Connection, playlist_id: &str) -> AppResult<()> {
 /// プレイリストの数
 pub fn count_playlists(conn: &Connection) -> AppResult<u32> {
     conn.query_row("SELECT COUNT(*) FROM playlists", [], |row| row.get(0))
-        .map_err(database("プレイリストの数の取得"))
+        .map_err(db_error("プレイリストの数の取得"))
 }
 
 /// プレイリストとプレイリストのフォルダを、すべて削除する
@@ -569,7 +564,7 @@ pub fn count_playlists(conn: &Connection) -> AppResult<u32> {
 /// （ADR-086）。オートプレイリスト（`smart_playlist`）は、条件で曲が決まり、曲に結び付かないため
 /// 残す（別の表のため、ここでは触らない）。削除したプレイリストの数を返す。
 pub fn delete_all_playlists(conn: &Connection) -> AppResult<u32> {
-    let database = database("プレイリストの削除");
+    let database = db_error("プレイリストの削除");
     // 曲の行・転送先デバイスの選択は、外部キーのCASCADEで消える
     let removed = conn
         .execute("DELETE FROM playlists", [])
@@ -585,7 +580,7 @@ pub fn reorder_playlist_tracks(
     playlist_id: &str,
     track_ids: &[String],
 ) -> AppResult<()> {
-    let database = database("トラックの並び替え");
+    let database = db_error("トラックの並び替え");
     let tx = conn.unchecked_transaction().map_err(database)?;
     ensure_exists(&tx, "playlists", playlist_id, PLAYLIST_NOT_FOUND)?;
 

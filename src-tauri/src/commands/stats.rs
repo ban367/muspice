@@ -1,7 +1,7 @@
 //! お気に入り・レーティング・再生統計コマンド
 
 use super::run_blocking;
-use crate::error::{AppError, AppResult};
+use crate::error::AppResult;
 use crate::metadata::{update_file_rating, validate_rating};
 use crate::models::{PlayCountUpdate, PlayHistoryEntry, Track};
 use crate::state::AppState;
@@ -54,22 +54,17 @@ pub async fn set_rating(track_id: String, rating: i32, app: AppHandle) -> AppRes
         let file_size = crate::library::get_file_size(path).ok();
         let file_modified_at = crate::library::get_file_modified_at(path);
 
-        state.with_db(|db| {
-            let tx = db.transaction().map_err(|e| {
-                AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
-            })?;
-            crate::repository::set_track_rating(&tx, &track_id, rating)?;
+        state.with_transaction(|tx| {
+            crate::repository::set_track_rating(tx, &track_id, rating)?;
             if let Some(file_size) = file_size {
                 crate::repository::set_track_file_state(
-                    &tx,
+                    tx,
                     &track_id,
                     file_size,
                     file_modified_at,
                 )?;
             }
-            tx.commit().map_err(|e| {
-                AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
-            })
+            Ok(())
         })
     })
     .await

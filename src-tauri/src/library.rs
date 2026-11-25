@@ -1,4 +1,4 @@
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppResult, db_error};
 use crate::state::AppState;
 use rusqlite::Connection;
 use std::ffi::OsStr;
@@ -455,7 +455,7 @@ pub fn delete_tracks(conn: &Connection, track_ids: &[String]) -> AppResult<u32> 
     // トランザクションを使用して一括削除
     let tx = conn
         .unchecked_transaction()
-        .map_err(|e| AppError::Database(format!("トランザクションの開始に失敗しました: {}", e)))?;
+        .map_err(db_error("トランザクションの開始"))?;
 
     let mut deleted_count: usize = 0;
 
@@ -463,9 +463,8 @@ pub fn delete_tracks(conn: &Connection, track_ids: &[String]) -> AppResult<u32> 
         deleted_count += crate::repository::delete_track(&tx, track_id)?;
     }
 
-    tx.commit().map_err(|e| {
-        AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
-    })?;
+    tx.commit()
+        .map_err(db_error("トランザクションのコミット"))?;
 
     to_count(deleted_count)
 }

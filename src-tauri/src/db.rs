@@ -24,13 +24,23 @@ pub enum DbOpenError {
         "the database was written by a newer version of the app (schema version {found}, supported up to {supported})"
     )]
     NewerSchema { found: i64, supported: i64 },
-    /// リリースの前の版のアプリが作ったDB（移行はしない。起動時は別の名前で残す）
+    /// リリースの前の版のアプリが作ったDB（移行はしない。起動時は別の名前で残す）。版の記録が
+    /// ないDBは`found`がNone
     #[error(
-        "the database was written by a pre-release version of the app (schema version {found:?})"
+        "the database was written by a pre-release version of the app ({})",
+        schema_version_label(*.found)
     )]
     OlderSchema { found: Option<i64> },
     #[error(transparent)]
     Sqlite(#[from] rusqlite::Error),
+}
+
+/// ログに書く、DBの表の作りの版（記録がなければ、そう書く）
+fn schema_version_label(found: Option<i64>) -> String {
+    match found {
+        Some(version) => format!("schema version {version}"),
+        None => "no schema version".to_string(),
+    }
 }
 
 /// データベース接続を初期化
@@ -644,6 +654,10 @@ mod tests {
             matches!(error, DbOpenError::OlderSchema { found: Some(2) }),
             "{error:?}"
         );
+        assert_eq!(
+            error.to_string(),
+            "the database was written by a pre-release version of the app (schema version 2)"
+        );
         let conn = Connection::open(&path).unwrap();
         assert!(!has_table(&conn, "play_history").unwrap());
 
@@ -654,6 +668,10 @@ mod tests {
         assert!(
             matches!(error, DbOpenError::OlderSchema { found: None }),
             "{error:?}"
+        );
+        assert_eq!(
+            error.to_string(),
+            "the database was written by a pre-release version of the app (no schema version)"
         );
     }
 

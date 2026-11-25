@@ -1,7 +1,7 @@
 use crate::album_art::AlbumArtCache;
-use crate::error::AppResult;
+use crate::error::{AppResult, db_error};
 use crate::smart_playlist::EvalContext;
-use rusqlite::Connection;
+use rusqlite::{Connection, Transaction};
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Condvar, Mutex, MutexGuard};
@@ -153,11 +153,30 @@ impl AppState {
         });
         f(&mut db)
     }
+
+    /// DBロックを取得し、トランザクションの中でクロージャを実行する
+    ///
+    /// クロージャが成功したらコミットし、失敗したら何も書き換えない（`Transaction`を捨てて取り消す）。
+    pub fn with_transaction<T>(
+        &self,
+        f: impl FnOnce(&Transaction) -> AppResult<T>,
+    ) -> AppResult<T> {
+        self.with_db(|db| {
+            let tx = db
+                .transaction()
+                .map_err(db_error("トランザクションの開始"))?;
+            let value = f(&tx)?;
+            tx.commit()
+                .map_err(db_error("トランザクションのコミット"))?;
+            Ok(value)
+        })
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::AppError;
     use std::sync::Arc;
     use std::sync::mpsc;
     use std::thread;
@@ -201,6 +220,41 @@ mod tests {
             .expect("パニックの後もDBを使える");
         assert_eq!((count, autocommit), (0, true));
         assert!(!state.db.is_poisoned());
+    }
+
+    /// トランザクションは、クロージャが成功した時だけコミットする
+    #[test]
+    fn test_with_transaction_commits_only_on_success() {
+        let state = state();
+        let count = |state: &AppState| {
+            state
+                .with_db(|db| {
+                    Ok(db
+                        .query_row("SELECT COUNT(*) FROM items", [], |row| row.get::<_, i64>(0))
+                        .unwrap())
+                })
+                .unwrap()
+        };
+        state
+            .with_db(|db| {
+                db.execute_batch("CREATE TABLE items (id INTEGER)").unwrap();
+                Ok(())
+            })
+            .unwrap();
+
+        let failed: AppResult<()> = state.with_transaction(|tx| {
+            tx.execute("INSERT INTO items VALUES (1)", []).unwrap();
+            Err(AppError::NotFound("やめる".to_string()))
+        });
+        assert!(failed.is_err());
+        assert_eq!(count(&state), 0);
+
+        let value = state.with_transaction(|tx| {
+            tx.execute("INSERT INTO items VALUES (2)", []).unwrap();
+            Ok("書いた")
+        });
+        assert_eq!(value, Ok("書いた"));
+        assert_eq!(count(&state), 1);
     }
 
     #[test]

@@ -15,7 +15,7 @@
 //! - 解析できなかった曲（AVFoundationが読めない形式など）も、解析し直さないよう記録する。
 //!   見つからない・読めないファイル（NASの切断など）は記録せず、次の解析で読み直す
 
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppResult, db_error};
 use crate::events::MusicAnalysisProgress;
 use crate::state::AppState;
 use rusqlite::{Connection, OptionalExtension, params};
@@ -30,9 +30,8 @@ use tauri_specta::Event;
 /// 解析を続けていたか（`app_meta`のキー。値が`1`の間、次の起動で再開する）
 const REQUESTED_META_KEY: &str = "music_analysis_requested";
 
-fn db_error(e: rusqlite::Error) -> AppError {
-    AppError::Database(format!("曲の解析のデータの読み書きに失敗しました: {}", e))
-}
+/// 解析の結果の読み書きに失敗した時のエラーの、操作の名前（`db_error`）
+const ANALYSIS_DATA: &str = "曲の解析のデータの読み書き";
 
 /// 曲のキー（主音と長調・短調）
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -193,7 +192,7 @@ pub fn pending_tracks(conn: &Connection) -> AppResult<Vec<PendingTrack>> {
          WHERE t.missing_since IS NULL AND t.cue_source IS NULL AND a.track_id IS NULL
          ORDER BY t.play_count DESC, t.rowid"
     );
-    let mut stmt = conn.prepare(&sql).map_err(db_error)?;
+    let mut stmt = conn.prepare(&sql).map_err(db_error(ANALYSIS_DATA))?;
     let rows = stmt
         .query_map([], |row| {
             Ok(PendingTrack {
@@ -202,8 +201,9 @@ pub fn pending_tracks(conn: &Connection) -> AppResult<Vec<PendingTrack>> {
                 duration: row.get(2)?,
             })
         })
-        .map_err(db_error)?;
-    rows.collect::<rusqlite::Result<_>>().map_err(db_error)
+        .map_err(db_error(ANALYSIS_DATA))?;
+    rows.collect::<rusqlite::Result<_>>()
+        .map_err(db_error(ANALYSIS_DATA))
 }
 
 /// 曲が、`pending_tracks`で読んだ時のまま、解析していない曲か
@@ -224,7 +224,7 @@ fn is_still_pending(conn: &Connection, track: &PendingTrack) -> AppResult<bool> 
         params![track.id, track.file_path, track.duration],
         |row| row.get(0),
     )
-    .map_err(db_error)
+    .map_err(db_error(ANALYSIS_DATA))
 }
 
 /// 1曲の解析の結果を保存する（曲がライブラリからなくなっていれば、何もしない）
@@ -261,7 +261,7 @@ pub fn save_outcome(
             failed,
         ],
     )
-    .map_err(db_error)?;
+    .map_err(db_error(ANALYSIS_DATA))?;
     Ok(())
 }
 
@@ -286,7 +286,7 @@ pub fn count_analysis(conn: &Connection) -> AppResult<AnalysisCounts> {
     );
     let (total, analyzed, failed): (i64, i64, i64) = conn
         .query_row(&sql, [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
-        .map_err(db_error)?;
+        .map_err(db_error(ANALYSIS_DATA))?;
     let count = |value: i64| u32::try_from(value).unwrap_or(u32::MAX);
     Ok(AnalysisCounts {
         total: count(total),
@@ -298,7 +298,7 @@ pub fn count_analysis(conn: &Connection) -> AppResult<AnalysisCounts> {
 /// 解析の結果をすべて消す
 pub fn delete_all(conn: &Connection) -> AppResult<()> {
     conn.execute("DELETE FROM track_analysis", [])
-        .map_err(db_error)?;
+        .map_err(db_error(ANALYSIS_DATA))?;
     Ok(())
 }
 
@@ -310,7 +310,7 @@ pub fn load_features(
         "SELECT t.id, a.bpm, a.key_pitch_class, a.key_mode, a.pace FROM tracks t {VALID_ANALYSIS_JOIN}
          WHERE a.track_id IS NOT NULL AND a.failed = 0"
     );
-    let mut stmt = conn.prepare(&sql).map_err(db_error)?;
+    let mut stmt = conn.prepare(&sql).map_err(db_error(ANALYSIS_DATA))?;
     let rows = stmt
         .query_map([], |row| {
             let features = MusicFeatures {
@@ -324,8 +324,9 @@ pub fn load_features(
             };
             Ok((row.get::<_, String>(0)?, features))
         })
-        .map_err(db_error)?;
-    rows.collect::<rusqlite::Result<_>>().map_err(db_error)
+        .map_err(db_error(ANALYSIS_DATA))?;
+    rows.collect::<rusqlite::Result<_>>()
+        .map_err(db_error(ANALYSIS_DATA))
 }
 
 /// 解析を続けていたか（次の起動で再開するか）
@@ -337,7 +338,7 @@ fn is_requested(conn: &Connection) -> AppResult<bool> {
             |row| row.get(0),
         )
         .optional()
-        .map_err(db_error)?;
+        .map_err(db_error(ANALYSIS_DATA))?;
     Ok(value.as_deref() == Some("1"))
 }
 
@@ -348,10 +349,10 @@ fn set_requested(conn: &Connection, requested: bool) -> AppResult<()> {
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             [REQUESTED_META_KEY],
         )
-        .map_err(db_error)?;
+        .map_err(db_error(ANALYSIS_DATA))?;
     } else {
         conn.execute("DELETE FROM app_meta WHERE key = ?1", [REQUESTED_META_KEY])
-            .map_err(db_error)?;
+            .map_err(db_error(ANALYSIS_DATA))?;
     }
     Ok(())
 }
@@ -766,7 +767,7 @@ mod tests {
                      VALUES (?1, ?2, ?3, 200, ?4)",
                     params![id, path, format!("{id}.flac"), play_count],
                 )
-                .map_err(db_error)
+                .map_err(db_error(ANALYSIS_DATA))
             })
             .unwrap();
         path
@@ -778,9 +779,12 @@ mod tests {
             .with_db(|db| {
                 let mut stmt = db
                     .prepare("SELECT track_id FROM track_analysis ORDER BY track_id")
-                    .map_err(db_error)?;
-                let ids = stmt.query_map([], |row| row.get(0)).map_err(db_error)?;
-                ids.collect::<rusqlite::Result<_>>().map_err(db_error)
+                    .map_err(db_error(ANALYSIS_DATA))?;
+                let ids = stmt
+                    .query_map([], |row| row.get(0))
+                    .map_err(db_error(ANALYSIS_DATA))?;
+                ids.collect::<rusqlite::Result<_>>()
+                    .map_err(db_error(ANALYSIS_DATA))
             })
             .unwrap()
     }
@@ -813,12 +817,12 @@ mod tests {
                     state
                         .with_db(|db| {
                             db.execute("DELETE FROM tracks WHERE id = 'removed'", [])
-                                .map_err(db_error)?;
+                                .map_err(db_error(ANALYSIS_DATA))?;
                             db.execute(
                                 "UPDATE tracks SET file_path = ?1 WHERE id = 'moved'",
                                 [&moved_path],
                             )
-                            .map_err(db_error)
+                            .map_err(db_error(ANALYSIS_DATA))
                         })
                         .unwrap();
                     insert_file_track(&state, dir.path(), "imported", 0);
@@ -859,7 +863,7 @@ mod tests {
                                 "UPDATE tracks SET file_path = ?1 WHERE id = 'track'",
                                 [&new_path],
                             )
-                            .map_err(db_error)
+                            .map_err(db_error(ANALYSIS_DATA))
                         })
                         .unwrap();
                 }

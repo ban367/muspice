@@ -349,23 +349,18 @@ fn write_album_art(
         }
 
         // 3. ロック内: ファイルのサイズ・更新日時をまとめて記録する
-        state.with_db(|db| {
-            let tx = db.transaction().map_err(|e| {
-                AppError::Database(format!("トランザクションの開始に失敗しました: {}", e))
-            })?;
+        state.with_transaction(|tx| {
             for (track_id, file_size, file_modified_at) in &written {
                 if let Some(file_size) = file_size {
                     crate::repository::set_track_file_state(
-                        &tx,
+                        tx,
                         track_id,
                         *file_size,
                         *file_modified_at,
                     )?;
                 }
             }
-            tx.commit().map_err(|e| {
-                AppError::Database(format!("トランザクションのコミットに失敗しました: {}", e))
-            })
+            Ok(())
         })?;
         result.updated_count += to_count(written.len())?;
         result.updated_track_ids.extend(written_ids);
