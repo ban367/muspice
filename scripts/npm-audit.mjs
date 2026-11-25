@@ -12,13 +12,13 @@ import { pathToFileURL } from 'node:url';
 /** 失敗にする重さ（`npm audit --audit-level=moderate`と同じ） */
 const FAILING_SEVERITIES = ['moderate', 'high', 'critical'];
 
-/** 受容済みのアドバイザリ（GHSAのID → 理由。docs/design/non-functional.md の表と同じ） */
-export const ACCEPTED_ADVISORIES = new Map([
-  [
-    'GHSA-fc5q-39xc-vjpf',
-    'picomatch: 直した版がない。vite・tinyglobbyなどのビルドの道具が使い、アプリには入らない'
-  ]
-]);
+/**
+ * 受容済みのアドバイザリ（GHSAのID → 理由。docs/design/non-functional.md の表と同じ）
+ *
+ * 今はない（picomatchのGHSA-fc5q-39xc-vjpfは、2026-11-18に取り下げられた）。足す時は`['GHSA-…', '理由']`の形で書く。
+ * @type {Map<string, string>}
+ */
+export const ACCEPTED_ADVISORIES = new Map();
 
 /**
  * `npm audit --json`の結果から、アドバイザリを取り出す（同じアドバイザリは1つにまとめる）
