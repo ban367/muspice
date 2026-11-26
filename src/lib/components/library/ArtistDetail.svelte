@@ -29,7 +29,6 @@
     title={artist.name}
     {albums}
     artist={artist.name}
-    menuArtist={artist}
     compact={onClose !== undefined}
     {onClose}
   />
