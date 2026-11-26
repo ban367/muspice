@@ -1,10 +1,36 @@
 /**
  * 転送先デバイスの表示用のユーティリティ
  */
-import type { DeviceSyncPlan, DeviceSyncProgress } from '#lib/types/models.js';
+import type {
+  DeviceSyncPlan,
+  DeviceSyncProgress,
+  SyncDevice,
+  SyncDeviceConfig
+} from '#lib/types/models.js';
 
 /** デバイス名の長さの上限（Rust側と同じく、文字数で数える） */
 const MAX_DEVICE_NAME_LENGTH = 100;
+
+/**
+ * デバイスの今の設定（`update_sync_device`に渡す形）。一部を変える時は、これに変える項目を重ねる
+ * （コマンドは設定の全体を受け取るため）
+ */
+export function deviceConfigOf(
+  device: SyncDevice,
+  patch: Partial<SyncDeviceConfig> = {}
+): SyncDeviceConfig {
+  return {
+    name: device.name,
+    syncAll: device.syncAll,
+    playlistIds: device.playlistIds,
+    smartPlaylistIds: device.smartPlaylistIds,
+    removeUnselected: device.removeUnselected,
+    pathTemplate: device.pathTemplate,
+    copyExtras: device.copyExtras,
+    transcode: device.transcode,
+    ...patch
+  };
+}
 
 /** デバイス名が長さの上限を超えているか */
 export function isDeviceNameTooLong(name: string): boolean {
