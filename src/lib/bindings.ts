@@ -1209,6 +1209,10 @@ export const DEFAULT_DEVICE_TEMPLATE = "%albumartist%/%album%/[%disc%-]%track% %
 
 export const DEFAULT_MUSIC_FOLDER_TEMPLATE = "%albumartist%/%album%/[%disc%-]%track% %title%" as const;
 
+export const DEVICE_MUSIC_DIR = "Music" as const;
+
+export const DEVICE_PLAYLISTS_DIR = "Playlists" as const;
+
 export const LIBRARY_SCAN_INTERVALS = [0,15,30,60,360] as const;
 
 export const MAX_CROSSFADE_SECONDS = 12 as const;

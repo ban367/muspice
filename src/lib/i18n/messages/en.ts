@@ -1596,13 +1596,16 @@ export const en: Messages = {
     layoutTitle: 'Layout',
     layoutTemplate: 'Folder Layout on the Device',
     layoutTemplateHint:
-      'How folders and files are named for tracks copied to the device (the same syntax as Organize Files). After you change it, the next sync renames the copied tracks (without copying them again).',
+      'Tracks go into the "Music" folder and playlists into the "Playlists" folder in the destination folder. This sets how folders and files are named inside the Music folder (the same syntax as Organize Files). After you change it, the next sync renames the copied tracks (without copying them again).',
     applyLayout: 'Apply Layout',
     layoutApplied: 'Changed the layout. The next sync renames the tracks on the device',
+    /** What to sync (one or the other. ADR-135) */
     syncAll: 'All tracks in the library',
-    playlists: 'Playlists',
-    playlistsHint:
-      'The selected playlists are also written as .m3u8 files that the device can open. Unless "All tracks in the library" is selected, only the tracks in the selected playlists are copied.',
+    syncAllHint:
+      'Copies all tracks and writes all playlists and auto playlists as .m3u8 files that the device can open.',
+    syncPlaylists: 'Selected playlists',
+    syncPlaylistsHint:
+      'Copies only the tracks in the selected playlists and auto playlists, and writes them as .m3u8 files.',
     noPlaylists: 'No playlists',
     removeUnselected: 'Delete tracks that are no longer selected from the device',
     removeUnselectedHint:

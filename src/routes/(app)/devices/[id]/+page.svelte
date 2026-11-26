@@ -23,7 +23,7 @@
   import type { SyncDevice, SyncDeviceConfig, TranscodeMode } from '#lib/types/models.js';
   import DeviceSyncDialog from '#lib/components/DeviceSyncDialog.svelte';
   import MusicFolderTemplateSetting from '#lib/components/MusicFolderTemplateSetting.svelte';
-  import { AAC_BITRATES_KBPS, DEFAULT_DEVICE_TEMPLATE } from '#lib/bindings.js';
+  import { AAC_BITRATES_KBPS, DEFAULT_DEVICE_TEMPLATE, DEVICE_MUSIC_DIR } from '#lib/bindings.js';
   import { isDeviceNameTooLong } from '#lib/utils/devices.js';
   import { confirmDestructive, promptText } from '#lib/utils/dialog.svelte.js';
   import { formatDateTime, formatFileSize } from '#lib/utils/format.js';
@@ -278,7 +278,7 @@
     {/if}
 
     <section class="source-section">
-      <h2 class="source-title">{m.devices.sourceTitle}</h2>
+      <h2 id="device-source-title" class="source-title">{m.devices.sourceTitle}</h2>
       <!-- 選んだ内容の曲数とサイズ（コピー済みの曲・歌詞と画像を含めない、ライブラリでの合計） -->
       <p class="hint source-hint">
         {#if selectionQuery.data && hasSource}
@@ -296,24 +296,45 @@
         {/if}
       </p>
 
-      <label class="option">
-        <input
-          type="checkbox"
-          class="option-checkbox"
-          checked={device.syncAll}
-          onchange={(e) => updateConfig(device, { syncAll: e.currentTarget.checked })}
-        />
-        {m.devices.syncAll}
-      </label>
+      <!-- 全曲か、選んだプレイリストかのどちらか一方で同期する（ADR-135） -->
+      <div class="source-choice" role="radiogroup" aria-labelledby="device-source-title">
+        <label class="option source-option">
+          <input
+            type="radio"
+            name="device-source"
+            class="option-checkbox mt-0.5"
+            checked={device.syncAll}
+            onchange={() => updateConfig(device, { syncAll: true })}
+          />
+          <span>
+            <span class="block">{m.devices.syncAll}</span>
+            <span class="hint block font-normal">{m.devices.syncAllHint}</span>
+          </span>
+        </label>
+        <label class="option source-option">
+          <input
+            type="radio"
+            name="device-source"
+            class="option-checkbox mt-0.5"
+            checked={!device.syncAll}
+            onchange={() => updateConfig(device, { syncAll: false })}
+          />
+          <span>
+            <span class="block">{m.devices.syncPlaylists}</span>
+            <span class="hint block font-normal">{m.devices.syncPlaylistsHint}</span>
+          </span>
+        </label>
+      </div>
 
-      <h3 class="group-title">{m.devices.playlists}</h3>
-      <p class="hint group-hint">{m.devices.playlistsHint}</p>
-      {#if playlistsQuery.isPending || smartPlaylistsQuery.isPending}
-        <p class="hint">{m.common.loading}</p>
+      <!-- 選ぶプレイリストは、「選んだプレイリスト」の時だけ出す -->
+      {#if device.syncAll}
+        <!-- 全曲の時は、すべてのプレイリストを書き出すため、選ぶものはない -->
+      {:else if playlistsQuery.isPending || smartPlaylistsQuery.isPending}
+        <p class="hint playlist-choice">{m.common.loading}</p>
       {:else if playlists.length === 0 && smartPlaylists.length === 0}
-        <p class="hint">{m.devices.noPlaylists}</p>
+        <p class="hint playlist-choice">{m.devices.noPlaylists}</p>
       {:else}
-        <ul class="playlist-list">
+        <ul class="playlist-list playlist-choice" aria-label={m.devices.syncPlaylists}>
           {#each smartPlaylists as smartPlaylist (smartPlaylist.id)}
             <li>
               <label class="option playlist-option">
@@ -407,7 +428,8 @@
         <p class="hint mt-1">{m.devices.transcodeHint}</p>
       {/if}
 
-      <!-- デバイス上の配置の書式（例は、最近追加したアルバムの曲を、デバイスのフォルダからの場所で出す。ADR-111） -->
+      <!-- デバイス上の配置の書式（例は、最近追加したアルバムの曲を、デバイスのフォルダからの場所で出す。
+           曲は必ずMusicフォルダの中に置く。ADR-111・ADR-135） -->
       <h3 class="group-title layout-title">{m.devices.layoutTitle}</h3>
       <MusicFolderTemplateSetting
         bind:template={draftTemplate}
@@ -415,6 +437,7 @@
         label={m.devices.layoutTemplate}
         hint={m.devices.layoutTemplateHint}
         defaultTemplate={DEFAULT_DEVICE_TEMPLATE}
+        examplePrefix={`${DEVICE_MUSIC_DIR}/`}
       />
       <button
         type="button"
@@ -540,8 +563,13 @@
     @apply mb-4;
   }
 
-  .group-hint {
-    @apply mb-2;
+  /* 同期する内容（全曲か、選んだプレイリスト）の選択肢 */
+  .source-choice {
+    @apply flex flex-col gap-3;
+  }
+
+  .source-option {
+    @apply items-start;
   }
 
   .remove-option {
@@ -583,5 +611,10 @@
 
   .playlist-option:hover {
     @apply bg-surface-hover;
+  }
+
+  /* 選ぶプレイリストは、「選んだプレイリスト」の選択肢の下に字下げして出す（`.playlist-list`の余白より後に置く） */
+  .playlist-choice {
+    @apply mt-2 ml-6;
   }
 </style>

@@ -309,6 +309,9 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             settings::DEFAULT_MUSIC_FOLDER_TEMPLATE,
         )
         .constant("DEFAULT_DEVICE_TEMPLATE", device::DEFAULT_DEVICE_TEMPLATE)
+        // デバイス上の、曲とプレイリストを置くフォルダ（ADR-135）
+        .constant("DEVICE_MUSIC_DIR", device_sync::MUSIC_DIR)
+        .constant("DEVICE_PLAYLISTS_DIR", device_sync::PLAYLISTS_DIR)
         .constant("AUTO_BACKUP_KEEP", backup::AUTO_BACKUP_KEEP)
         // AIシャッフルで避ける曲（キューの今の位置の前後の件数。フロントが渡す）
         .constant("AI_SHUFFLE_EXCLUSION_WINDOW", ai_shuffle::EXCLUSION_WINDOW)

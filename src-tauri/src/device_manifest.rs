@@ -92,7 +92,7 @@ impl ManifestFile {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ManifestPlaylist {
-    /// デバイスのフォルダからの相対パス（フォルダの直下に置くため、ファイル名のみ）
+    /// デバイスのフォルダからの相対パス（区切りは`/`。`Playlists/プレイリスト名.m3u8`。ADR-135）
     pub path: String,
     pub playlist_id: String,
 }

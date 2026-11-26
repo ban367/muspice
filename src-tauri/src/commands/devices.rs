@@ -323,6 +323,8 @@ struct PreparedSync {
 
 /// デバイスに同期するプレイリストとオートプレイリスト（どちらも`.m3u8`を書き出す）
 ///
+/// 全曲を同期するデバイスでは、すべてのプレイリスト・オートプレイリストを書き出す（選んだプレイリストの
+/// 記録は、選んだプレイリストで同期する設定に戻した時のために残してあるが、使わない。ADR-135）。
 /// オートプレイリストは、今の条件に合う曲を転送する（ランダムな並びは、選び直すまで同じ曲になる）。
 /// プレイリストとオートプレイリストのIDは重ならないため、1つの一覧にして扱う。
 fn source_playlists(
@@ -332,7 +334,7 @@ fn source_playlists(
 ) -> AppResult<Vec<SourcePlaylist>> {
     let mut playlists: Vec<SourcePlaylist> = crate::playlist::get_all_playlists(db)?
         .into_iter()
-        .filter(|playlist| device.playlist_ids.contains(&playlist.id))
+        .filter(|playlist| device.sync_all || device.playlist_ids.contains(&playlist.id))
         .map(|playlist| SourcePlaylist {
             track_ids: crate::playlist::playlist_track_ids(&playlist),
             id: playlist.id,
@@ -341,7 +343,7 @@ fn source_playlists(
         .collect();
     for smart_playlist in crate::smart_playlist::get_all_smart_playlists(db)?
         .into_iter()
-        .filter(|playlist| device.smart_playlist_ids.contains(&playlist.id))
+        .filter(|playlist| device.sync_all || device.smart_playlist_ids.contains(&playlist.id))
     {
         playlists.push(SourcePlaylist {
             track_ids: crate::smart_playlist::smart_playlist_track_ids(
@@ -1016,12 +1018,16 @@ mod tests {
         assert_eq!((result.copied_count, result.error_count), (2, 0));
         assert!(!result.cancelled);
         assert_eq!(
-            fixture.on_device("Artist/Album/01 One.mp3").as_deref(),
+            fixture
+                .on_device("Music/Artist/Album/01 One.mp3")
+                .as_deref(),
             Some("audio data of One")
         );
         // ファイル名に使えない文字は置き換える
         assert_eq!(
-            fixture.on_device("AC_DC/Live_ 1992/02 Two_.mp3").as_deref(),
+            fixture
+                .on_device("Music/AC_DC/Live_ 1992/02 Two_.mp3")
+                .as_deref(),
             Some("audio data of Two?")
         );
         let device = fixture
@@ -1068,7 +1074,7 @@ mod tests {
 
         // 確認の画面の一覧は、コピーする曲のデバイス上の場所
         let plan = fixture.plan(&device_id);
-        assert_eq!(plan.copy_paths, ["Artist/Album/01 One.mp3"]);
+        assert_eq!(plan.copy_paths, ["Music/Artist/Album/01 One.mp3"]);
         assert!(plan.delete_paths.is_empty() && plan.renames.is_empty());
 
         // 同期する内容の見通しは、ライブラリの記録のサイズ（デバイスに触れない）
@@ -1100,13 +1106,15 @@ mod tests {
         let result = fixture.sync(&device_id);
         assert_eq!((result.extra_copied_count, result.error_count), (2, 0));
         assert_eq!(
-            fixture.on_device("Artist/Album/01 One.lrc").as_deref(),
+            fixture
+                .on_device("Music/Artist/Album/01 One.lrc")
+                .as_deref(),
             Some("[00:01.00]la")
         );
         assert_eq!(
             fs::read(to_device_path(
                 &fixture.device_root,
-                "Artist/Album/cover.jpg"
+                "Music/Artist/Album/cover.jpg"
             ))
             .unwrap(),
             b"\xFF\xD8\xFFjpeg"
@@ -1132,9 +1140,9 @@ mod tests {
         let plan = fixture.plan(&device_id);
         assert_eq!((plan.extra_delete_count, plan.unchanged_count), (2, 1));
         assert_eq!(fixture.sync(&device_id).extra_deleted_count, 2);
-        assert_eq!(fixture.on_device("Artist/Album/01 One.lrc"), None);
-        assert_eq!(fixture.on_device("Artist/Album/cover.jpg"), None);
-        assert!(fixture.on_device("Artist/Album/01 One.mp3").is_some());
+        assert_eq!(fixture.on_device("Music/Artist/Album/01 One.lrc"), None);
+        assert_eq!(fixture.on_device("Music/Artist/Album/cover.jpg"), None);
+        assert!(fixture.on_device("Music/Artist/Album/01 One.mp3").is_some());
     }
 
     #[test]
@@ -1169,14 +1177,17 @@ mod tests {
 
         let result = fixture.sync(&device_id);
         assert_eq!((result.copied_count, result.playlist_count), (2, 2));
-        assert_eq!(fixture.on_device("Artist/Album/03 Not Selected.mp3"), None);
-        // プレイリストは曲順どおりに、デバイスのフォルダからの相対パスで書く
         assert_eq!(
-            fixture.on_device("通勤.m3u8").as_deref(),
+            fixture.on_device("Music/Artist/Album/03 Not Selected.mp3"),
+            None
+        );
+        // プレイリストは`Playlists`フォルダに、曲順どおりに、そのフォルダからの相対パスで書く
+        assert_eq!(
+            fixture.on_device("Playlists/通勤.m3u8").as_deref(),
             Some(
                 "#EXTM3U\r\n\
-                 #EXTINF:200,Artist - Two\r\nArtist/Album/02 Two.mp3\r\n\
-                 #EXTINF:200,Artist - One\r\nArtist/Album/01 One.mp3\r\n"
+                 #EXTINF:200,Artist - Two\r\n../Music/Artist/Album/02 Two.mp3\r\n\
+                 #EXTINF:200,Artist - One\r\n../Music/Artist/Album/01 One.mp3\r\n"
             )
         );
 
@@ -1189,12 +1200,38 @@ mod tests {
         );
         let result = fixture.sync(&device_id);
         assert_eq!(result.deleted_count, 1);
-        assert_eq!(fixture.on_device("Artist/Album/02 Two.mp3"), None);
-        assert!(fixture.on_device("Artist/Album/01 One.mp3").is_some());
-        assert_eq!(fixture.on_device("通勤.m3u8"), None);
-        assert!(fixture.on_device("ドライブ.m3u8").is_some());
+        assert_eq!(fixture.on_device("Music/Artist/Album/02 Two.mp3"), None);
+        assert!(fixture.on_device("Music/Artist/Album/01 One.mp3").is_some());
+        assert_eq!(fixture.on_device("Playlists/通勤.m3u8"), None);
+        assert!(fixture.on_device("Playlists/ドライブ.m3u8").is_some());
         // 管理外のファイルには触れない
         assert_eq!(fixture.on_device("my notes.txt").as_deref(), Some("mine"));
+    }
+
+    #[test]
+    fn test_sync_all_writes_every_playlist() {
+        let fixture = Fixture::new();
+        let one = fixture.add_track(
+            "00000000-0000-0000-0000-000000000001",
+            "Artist",
+            "Album",
+            1,
+            "One",
+        );
+        let commute = fixture.add_playlist("通勤", &[&one]);
+        fixture.add_playlist("ドライブ", &[&one]);
+        // 全曲を同期する時は、選んだプレイリストの記録によらず、すべてのプレイリストを書き出す
+        let device_id = fixture.register(true, &[&commute]);
+
+        assert_eq!(fixture.plan(&device_id).playlist_count, 2);
+        let result = fixture.sync(&device_id);
+        assert_eq!((result.copied_count, result.playlist_count), (1, 2));
+        for name in ["Playlists/通勤.m3u8", "Playlists/ドライブ.m3u8"] {
+            assert_eq!(
+                fixture.on_device(name).as_deref(),
+                Some("#EXTM3U\r\n#EXTINF:200,Artist - One\r\n../Music/Artist/Album/01 One.mp3\r\n")
+            );
+        }
     }
 
     /// オートプレイリストは、同期する時の条件に合う曲を転送する
@@ -1275,8 +1312,8 @@ mod tests {
         let result = fixture.sync(&device_id);
         assert_eq!((result.copied_count, result.playlist_count), (1, 1));
         assert_eq!(
-            fixture.on_device("高評価.m3u8").as_deref(),
-            Some("#EXTM3U\r\n#EXTINF:200,Artist - One\r\nArtist/Album/01 One.mp3\r\n")
+            fixture.on_device("Playlists/高評価.m3u8").as_deref(),
+            Some("#EXTM3U\r\n#EXTINF:200,Artist - One\r\n../Music/Artist/Album/01 One.mp3\r\n")
         );
 
         // 評価を変えると、次の同期で曲が入れ替わる
@@ -1284,10 +1321,10 @@ mod tests {
         set_rating(&two, 4);
         let result = fixture.sync(&device_id);
         assert_eq!((result.copied_count, result.deleted_count), (1, 1));
-        assert_eq!(fixture.on_device("Artist/Album/01 One.mp3"), None);
+        assert_eq!(fixture.on_device("Music/Artist/Album/01 One.mp3"), None);
         assert_eq!(
-            fixture.on_device("高評価.m3u8").as_deref(),
-            Some("#EXTM3U\r\n#EXTINF:200,Artist - Two\r\nArtist/Album/02 Two.mp3\r\n")
+            fixture.on_device("Playlists/高評価.m3u8").as_deref(),
+            Some("#EXTM3U\r\n#EXTINF:200,Artist - Two\r\n../Music/Artist/Album/02 Two.mp3\r\n")
         );
     }
 
@@ -1314,7 +1351,9 @@ mod tests {
         assert_eq!(fixture.plan(&device_id).copy_count, 1);
         fixture.sync(&device_id);
         assert_eq!(
-            fixture.on_device("Artist/Album/01 One.mp3").as_deref(),
+            fixture
+                .on_device("Music/Artist/Album/01 One.mp3")
+                .as_deref(),
             Some("edited audio data (longer than before)")
         );
     }
