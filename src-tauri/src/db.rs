@@ -11,7 +11,8 @@ use std::path::PathBuf;
 /// 記録が古い版のDB（リリースの前の版のアプリが作ったDB）も開かない（`DbOpenError::OlderSchema`）。
 ///
 /// - 3: リリースの前の移行をやめ、表を最終の形で作り直した（ADR-129）
-pub const DB_SCHEMA_VERSION: i64 = 3;
+/// - 4: 転送先デバイスに、プレイリストの形式（`sync_devices.playlist_format`）を足した（ADR-138）
+pub const DB_SCHEMA_VERSION: i64 = 4;
 
 /// DBの情報を持つ表（キーと値）
 const APP_META_TABLE: &str = "app_meta";
@@ -266,7 +267,7 @@ fn schema_sql() -> String {
         -- 転送先デバイス（SDカードなどのフォルダ。同期する対象をデバイスごとに記録する）。
         -- デバイス上のファイルの一覧は、デバイス側の管理ファイルに記録する（`device_manifest`）。
         -- 列の既定値は、新しく登録するデバイスの設定（配置の書式はADR-111、歌詞ファイル・フォルダの
-        -- 画像のコピーはADR-112、転送する時の変換はADR-118）
+        -- 画像のコピーはADR-112、転送する時の変換はADR-118、プレイリストの形式はADR-138）
         CREATE TABLE IF NOT EXISTS sync_devices (
             id TEXT PRIMARY KEY NOT NULL,
             name TEXT NOT NULL,
@@ -277,6 +278,7 @@ fn schema_sql() -> String {
             copy_extras INTEGER NOT NULL DEFAULT 1,
             transcode_mode TEXT NOT NULL DEFAULT 'off',
             transcode_bitrate INTEGER NOT NULL DEFAULT {transcode_bitrate},
+            playlist_format TEXT NOT NULL DEFAULT 'm3u8',
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             last_synced_at TEXT
         );

@@ -375,6 +375,8 @@ playlistCount: number } | null>("set_music_folder", { source }),
 	copyExtras: boolean,
 	/**  転送する時の変換（ADR-118） */
 	transcode: DeviceTranscode,
+	/**  書き出すプレイリストの形式（ADR-138） */
+	playlistFormat: PlaylistFormat,
 	/**  取り出せるか（macOSで、転送先のフォルダが`/Volumes`の下のドライブにあり、接続されている。ADR-113） */
 	ejectable: boolean,
 	/**  接続されているか（転送先のフォルダに、このデバイスの管理ファイルがあるか） */
@@ -416,6 +418,8 @@ playlistCount: number } | null>("set_music_folder", { source }),
 	copyExtras: boolean,
 	/**  転送する時の変換（ADR-118） */
 	transcode: DeviceTranscode,
+	/**  書き出すプレイリストの形式（ADR-138） */
+	playlistFormat: PlaylistFormat,
 	/**  取り出せるか（macOSで、転送先のフォルダが`/Volumes`の下のドライブにあり、接続されている。ADR-113） */
 	ejectable: boolean,
 	/**  接続されているか（転送先のフォルダに、このデバイスの管理ファイルがあるか） */
@@ -2323,6 +2327,18 @@ export type PlaylistFolder = {
 	createdAt: string,
 };
 
+/**
+ *  デバイスに書き出すプレイリストの形式（ADR-138）
+ * 
+ *  どちらも中身は同じ拡張M3U（UTF-8・改行はCRLF）で、拡張子だけが違う。`.m3u8`を読まず、`.m3u`だけを
+ *  プレイリストとして扱う機器（古いカーオーディオなど）のために、`.m3u`も選べる。
+ */
+export type PlaylistFormat = 
+/**  `.m3u8`（既定） */
+"m3u8" | 
+/**  `.m3u` */
+"m3u";
+
 /**  プレイリストに入っているかの比べ方 */
 export type PlaylistOp = 
 /**  入っている */
@@ -2646,6 +2662,8 @@ export type SyncDevice = {
 	copyExtras: boolean,
 	/**  転送する時の変換（ADR-118） */
 	transcode: DeviceTranscode,
+	/**  書き出すプレイリストの形式（ADR-138） */
+	playlistFormat: PlaylistFormat,
 	/**  取り出せるか（macOSで、転送先のフォルダが`/Volumes`の下のドライブにあり、接続されている。ADR-113） */
 	ejectable: boolean,
 	/**  接続されているか（転送先のフォルダに、このデバイスの管理ファイルがあるか） */
@@ -2667,6 +2685,7 @@ export type SyncDeviceConfig = {
 	pathTemplate: string,
 	copyExtras: boolean,
 	transcode: DeviceTranscode,
+	playlistFormat: PlaylistFormat,
 };
 
 /**  デバイス上で名前を変える曲（変更前と変更後の場所） */

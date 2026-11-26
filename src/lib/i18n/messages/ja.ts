@@ -1666,8 +1666,8 @@ export const ja = {
     /** 配置の「転送先のフォルダ」（ADR-137） */
     destination: '転送先のフォルダ',
     destinationHint:
-      '曲はこのフォルダの中の「Music」フォルダへ、プレイリストは「Playlists」フォルダへ入れます。マウント先が変わった時・カードを初期化した時は、選び直してください',
-    relinkEllipsis: '変更...',
+      '曲はこのフォルダの中の「Music」フォルダへ、プレイリストは「Playlists」フォルダへ入れます',
+    relink: '変更',
     relinked: '転送先を変更しました',
     /** ドライブの取り出し（macOS。ADR-113） */
     eject: '取り出す',
@@ -1687,23 +1687,23 @@ export const ja = {
     layoutTitle: '配置',
     layoutTemplate: 'デバイス上の配置の書式',
     layoutTemplateHint:
-      'Musicフォルダの中の、フォルダとファイルの名前の付け方です（ファイルの整理と同じ書き方）。書式を変えると、次の同期で、コピー済みの曲の名前を変えます（コピーし直しはしません）。',
+      '書式を変えると、次の同期で、コピー済みの曲の名前を変えます（コピーし直しはしません）',
     applyLayout: '書式を適用',
     layoutApplied: '配置の書式を変えました。次の同期で、デバイス上の曲の名前を変えます',
     /** 同期する内容の選択肢（どちらか一方。ADR-135） */
     syncAll: 'ライブラリの全曲',
-    syncAllHint:
-      'すべての曲をコピーし、すべてのプレイリストとオートプレイリストを、デバイスで開ける.m3u8ファイルとして書き出します',
+    syncAllHint: 'すべてのプレイリスト・オートプレイリストも書き出します',
     syncPlaylists: '選んだプレイリスト',
-    syncPlaylistsHint:
-      '選んだプレイリスト・オートプレイリストの曲だけをコピーし、それらを.m3u8ファイルとして書き出します',
     noPlaylists: 'プレイリストがありません',
     removeUnselected: '同期する内容から外れた曲を、デバイスから削除する',
-    removeUnselectedHint:
-      '削除するのはMuspiceがコピーした曲だけです。自分でデバイスに置いたファイルは削除しません',
+    removeUnselectedHint: 'Muspiceがコピーした曲だけを削除します',
     copyExtras: '歌詞ファイル（.lrc）とフォルダの画像もコピーする',
-    copyExtrasHint:
-      '曲と同じ名前の歌詞ファイルと、フォルダの画像（cover.jpgなど）を、曲と同じフォルダへコピーします。オフにすると、次の同期で、Muspiceがコピーしたものを削除します',
+    /** 書き出すプレイリストの形式（中身は同じで、拡張子だけが違う。ADR-138） */
+    playlistFormat: 'プレイリストの形式',
+    playlistFormats: {
+      m3u8: 'M3U8',
+      m3u: 'M3U'
+    },
     noSource: '同期する内容を選択してください',
     /** 転送する時の変換（ADR-118） */
     transcode: '転送する時の変換',
@@ -1713,8 +1713,6 @@ export const ja = {
       aboveBitrate: 'ビットレートが高い曲をAACにする'
     },
     transcodeBitrate: 'AACのビットレート',
-    transcodeHint:
-      '容量の小さい機器に多くの曲を入れられます。変換には時間がかかります（変換した曲は、元の曲か設定が変わるまで変換し直しません）。タグとアルバムアートも写します',
 
     syncDialog: {
       title: (name: string) => `「${name}」へ同期`,

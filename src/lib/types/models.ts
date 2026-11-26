@@ -86,6 +86,7 @@ export type {
   PlaylistFolder,
   PlaylistOp,
   PlaylistTrack,
+  PlaylistFormat,
   RefreshMetadataResult,
   RelocationResult,
   ReplayGain,

@@ -54,6 +54,43 @@ impl TranscodeMode {
     }
 }
 
+/// デバイスに書き出すプレイリストの形式（ADR-138）
+///
+/// どちらも中身は同じ拡張M3U（UTF-8・改行はCRLF）で、拡張子だけが違う。`.m3u8`を読まず、`.m3u`だけを
+/// プレイリストとして扱う機器（古いカーオーディオなど）のために、`.m3u`も選べる。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum PlaylistFormat {
+    /// `.m3u8`（既定）
+    #[default]
+    M3u8,
+    /// `.m3u`
+    M3u,
+}
+
+impl PlaylistFormat {
+    /// ファイルの拡張子（ドットを含まない）
+    pub fn extension(self) -> &'static str {
+        match self {
+            Self::M3u8 => "m3u8",
+            Self::M3u => "m3u",
+        }
+    }
+
+    /// DBに保存する値（拡張子と同じ）
+    fn as_db(self) -> &'static str {
+        self.extension()
+    }
+
+    /// DBの値から読む（知らない値は、既定の`.m3u8`）
+    fn from_db(value: &str) -> Self {
+        match value {
+            "m3u" => Self::M3u,
+            _ => Self::M3u8,
+        }
+    }
+}
+
 /// デバイスへ転送する時の変換の設定（ADR-118）
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -109,6 +146,8 @@ pub struct SyncDevice {
     pub copy_extras: bool,
     /// 転送する時の変換（ADR-118）
     pub transcode: DeviceTranscode,
+    /// 書き出すプレイリストの形式（ADR-138）
+    pub playlist_format: PlaylistFormat,
     /// 取り出せるか（macOSで、転送先のフォルダが`/Volumes`の下のドライブにあり、接続されている。ADR-113）
     pub ejectable: bool,
     /// 接続されているか（転送先のフォルダに、このデバイスの管理ファイルがあるか）
@@ -134,6 +173,7 @@ pub struct SyncDeviceConfig {
     pub path_template: String,
     pub copy_extras: bool,
     pub transcode: DeviceTranscode,
+    pub playlist_format: PlaylistFormat,
 }
 
 /// 同期で行う処理の件数と、必要な容量（同期の前の確認用）
@@ -231,6 +271,8 @@ pub struct DeviceRecord {
     pub copy_extras: bool,
     /// 転送する時の変換
     pub transcode: DeviceTranscode,
+    /// 書き出すプレイリストの形式
+    pub playlist_format: PlaylistFormat,
     /// 同期するプレイリスト（削除済みのプレイリストは含まない）
     pub playlist_ids: Vec<String>,
     /// 同期するオートプレイリスト（削除済みのものは含まない）
@@ -359,7 +401,7 @@ pub fn suggest_device_name(folder: &Path) -> Option<String> {
     (!name.is_empty()).then(|| name.to_string())
 }
 
-const DEVICE_COLUMNS: &str = "id, name, path, sync_all, remove_unselected, created_at, last_synced_at, path_template, copy_extras, transcode_mode, transcode_bitrate";
+const DEVICE_COLUMNS: &str = "id, name, path, sync_all, remove_unselected, created_at, last_synced_at, path_template, copy_extras, transcode_mode, transcode_bitrate, playlist_format";
 
 fn map_device_row(row: &rusqlite::Row) -> rusqlite::Result<DeviceRecord> {
     Ok(DeviceRecord {
@@ -374,6 +416,7 @@ fn map_device_row(row: &rusqlite::Row) -> rusqlite::Result<DeviceRecord> {
             mode: TranscodeMode::from_db(&row.get::<_, String>(9)?),
             bitrate_kbps: row.get(10)?,
         },
+        playlist_format: PlaylistFormat::from_db(&row.get::<_, String>(11)?),
         playlist_ids: Vec::new(),
         smart_playlist_ids: Vec::new(),
         created_at: row.get(5)?,
@@ -493,7 +536,8 @@ pub fn update_device_config(
         .execute(
             "UPDATE sync_devices
              SET name = ?2, sync_all = ?3, remove_unselected = ?4, path_template = ?5,
-                 copy_extras = ?6, transcode_mode = ?7, transcode_bitrate = ?8
+                 copy_extras = ?6, transcode_mode = ?7, transcode_bitrate = ?8,
+                 playlist_format = ?9
              WHERE id = ?1",
             rusqlite::params![
                 device_id,
@@ -503,7 +547,8 @@ pub fn update_device_config(
                 config.path_template,
                 config.copy_extras,
                 config.transcode.mode.as_db(),
-                config.transcode.bitrate_kbps
+                config.transcode.bitrate_kbps,
+                config.playlist_format.as_db()
             ],
         )
         .map_err(db_error("デバイスの更新"))?;
@@ -618,6 +663,32 @@ mod tests {
         assert_eq!(find_device(&conn, "d1").unwrap().transcode, transcode);
     }
 
+    #[test]
+    fn test_playlist_format_defaults_to_m3u8_and_updates() {
+        let mut conn = setup_test_db();
+        insert_device(&conn, "d1", "SD", "/Volumes/SD").unwrap();
+        assert_eq!(
+            find_device(&conn, "d1").unwrap().playlist_format,
+            PlaylistFormat::M3u8
+        );
+
+        update_device_config(
+            &mut conn,
+            "d1",
+            &SyncDeviceConfig {
+                playlist_format: PlaylistFormat::M3u,
+                ..config("SD", true, &[])
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            find_device(&conn, "d1").unwrap().playlist_format,
+            PlaylistFormat::M3u
+        );
+        // 知らない値は、既定の`.m3u8`として読む
+        assert_eq!(PlaylistFormat::from_db("pls"), PlaylistFormat::M3u8);
+    }
+
     fn setup_test_db() -> Connection {
         crate::db::open_in_memory()
     }
@@ -632,6 +703,7 @@ mod tests {
             path_template: DEFAULT_DEVICE_TEMPLATE.to_string(),
             copy_extras: true,
             transcode: DeviceTranscode::default(),
+            playlist_format: PlaylistFormat::default(),
         }
     }
 

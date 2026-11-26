@@ -28,6 +28,7 @@ export function deviceConfigOf(
     pathTemplate: device.pathTemplate,
     copyExtras: device.copyExtras,
     transcode: device.transcode,
+    playlistFormat: device.playlistFormat,
     ...patch
   };
 }

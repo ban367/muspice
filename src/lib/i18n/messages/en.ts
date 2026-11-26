@@ -1582,8 +1582,8 @@ export const en: Messages = {
     /** Destination folder in the Layout section (ADR-137) */
     destination: 'Destination Folder',
     destinationHint:
-      'Tracks go into the "Music" folder and playlists into the "Playlists" folder in this folder. Choose it again when the mount point changes or after formatting the card.',
-    relinkEllipsis: 'Change...',
+      'Tracks go into the "Music" folder and playlists into the "Playlists" folder in this folder.',
+    relink: 'Change',
     relinked: 'Changed the destination',
     /** Ejecting the drive (macOS, ADR-113) */
     eject: 'Eject',
@@ -1602,23 +1602,23 @@ export const en: Messages = {
     layoutTitle: 'Layout',
     layoutTemplate: 'Folder Layout on the Device',
     layoutTemplateHint:
-      'How folders and files are named inside the Music folder (the same syntax as Organize Files). After you change it, the next sync renames the copied tracks (without copying them again).',
+      'After you change it, the next sync renames the copied tracks (without copying them again).',
     applyLayout: 'Apply Layout',
     layoutApplied: 'Changed the layout. The next sync renames the tracks on the device',
     /** What to sync (one or the other. ADR-135) */
     syncAll: 'All tracks in the library',
-    syncAllHint:
-      'Copies all tracks and writes all playlists and auto playlists as .m3u8 files that the device can open.',
+    syncAllHint: 'All playlists and auto playlists are written too.',
     syncPlaylists: 'Selected playlists',
-    syncPlaylistsHint:
-      'Copies only the tracks in the selected playlists and auto playlists, and writes them as .m3u8 files.',
     noPlaylists: 'No playlists',
     removeUnselected: 'Delete tracks that are no longer selected from the device',
-    removeUnselectedHint:
-      'Only tracks copied by Muspice are deleted. Files you put on the device yourself are not deleted.',
+    removeUnselectedHint: 'Only tracks copied by Muspice are deleted.',
     copyExtras: 'Also copy lyrics files (.lrc) and folder images',
-    copyExtrasHint:
-      'Copies the lyrics file with the same name as each track and the folder image (cover.jpg, etc.) next to the tracks. When turned off, the next sync deletes the ones Muspice copied.',
+    /** Playlist format (same content, only the extension differs. ADR-138) */
+    playlistFormat: 'Playlist format',
+    playlistFormats: {
+      m3u8: 'M3U8',
+      m3u: 'M3U'
+    },
     noSource: 'Select what to sync',
     transcode: 'Convert when transferring',
     transcodeModes: {
@@ -1627,8 +1627,6 @@ export const en: Messages = {
       aboveBitrate: 'Convert higher bit rate tracks to AAC'
     },
     transcodeBitrate: 'AAC bit rate',
-    transcodeHint:
-      'Fits more tracks on devices with little space. Converting takes time (converted tracks are not converted again until the track or the setting changes). Tags and album art are copied too.',
 
     syncDialog: {
       title: (name) => `Sync to "${name}"`,
