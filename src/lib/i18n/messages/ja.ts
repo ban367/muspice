@@ -1652,17 +1652,23 @@ export const ja = {
     connected: '接続中',
     disconnected: '未接続',
     disconnectedHint:
-      '転送先のフォルダが見つかりません。デバイスを接続してください。フォルダの場所が変わった場合は「転送先を変更」で選び直せます',
+      '転送先のフォルダが見つかりません。デバイスを接続してください。フォルダの場所が変わった場合は、下の「配置」の「転送先のフォルダ」で選び直せます',
     freeSpace: (free: string, total: string) => `空き ${free} / ${total}`,
     lastSynced: (at: string) => `最終同期: ${at}`,
     neverSynced: 'まだ同期していません',
     sync: '同期',
-    rename: '名前を変更',
+    /** サイドバーの右クリックのメニュー（ADR-136） */
+    renameEllipsis: '名前を変更...',
     renameTitle: 'デバイス名を変更',
     renameConfirm: '変更',
-    relink: '転送先を変更',
+    removeEllipsis: '登録を解除...',
+    removeConfirm: '登録を解除',
+    /** 配置の「転送先のフォルダ」（ADR-136） */
+    destination: '転送先のフォルダ',
+    destinationHint:
+      '曲はこのフォルダの中の「Music」フォルダへ、プレイリストは「Playlists」フォルダへ入れます。マウント先が変わった時・カードを初期化した時は、選び直してください',
+    relinkEllipsis: '変更...',
     relinked: '転送先を変更しました',
-    remove: '登録を解除',
     /** ドライブの取り出し（macOS。ADR-113） */
     eject: '取り出す',
     ejected: (name: string) => `「${name}」を取り出しました`,
@@ -1681,7 +1687,7 @@ export const ja = {
     layoutTitle: '配置',
     layoutTemplate: 'デバイス上の配置の書式',
     layoutTemplateHint:
-      '曲は転送先のフォルダの中の「Music」フォルダへ、プレイリストは「Playlists」フォルダへ入れます。ここでは、Musicフォルダの中の、フォルダとファイルの名前の付け方を決めます（ファイルの整理と同じ書き方）。書式を変えると、次の同期で、コピー済みの曲の名前を変えます（コピーし直しはしません）。',
+      'Musicフォルダの中の、フォルダとファイルの名前の付け方です（ファイルの整理と同じ書き方）。書式を変えると、次の同期で、コピー済みの曲の名前を変えます（コピーし直しはしません）。',
     applyLayout: '書式を適用',
     layoutApplied: '配置の書式を変えました。次の同期で、デバイス上の曲の名前を変えます',
     /** 同期する内容の選択肢（どちらか一方。ADR-135） */

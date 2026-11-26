@@ -1,15 +1,12 @@
 <!--
-  転送先デバイスのページ: 接続の状態・同期する内容の選択・同期の実行。
-  同期する内容の変更はすぐに保存する。
+  転送先デバイスのページ: 接続の状態・同期する内容の選択・同期の実行・配置（転送先のフォルダと書式）。
+  同期する内容の変更はすぐに保存する。名前の変更・取り出し・登録の解除は、サイドバーの右クリックの
+  メニュー（`DeviceContextMenu`）に置き、見出しには同期のボタンだけを置く（ADR-136）。
 -->
 <script lang="ts">
   import { page } from '$app/state';
-  import { goto } from '$app/navigation';
-  import { resolve } from '$app/paths';
   import {
-    useEjectSyncDeviceMutation,
     useRelinkSyncDeviceMutation,
-    useRemoveSyncDeviceMutation,
     useSyncDevicesQuery,
     useSyncSelectionSummaryQuery,
     useUpdateSyncDeviceMutation
@@ -24,8 +21,7 @@
   import DeviceSyncDialog from '#lib/components/DeviceSyncDialog.svelte';
   import MusicFolderTemplateSetting from '#lib/components/MusicFolderTemplateSetting.svelte';
   import { AAC_BITRATES_KBPS, DEFAULT_DEVICE_TEMPLATE, DEVICE_MUSIC_DIR } from '#lib/bindings.js';
-  import { isDeviceNameTooLong } from '#lib/utils/devices.js';
-  import { confirmDestructive, promptText } from '#lib/utils/dialog.svelte.js';
+  import { deviceConfigOf } from '#lib/utils/devices.js';
   import { formatDateTime, formatFileSize } from '#lib/utils/format.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
@@ -38,8 +34,6 @@
   const smartPlaylistsQuery = useSmartPlaylistsQuery();
   const updateMutation = useUpdateSyncDeviceMutation();
   const relinkMutation = useRelinkSyncDeviceMutation();
-  const removeMutation = useRemoveSyncDeviceMutation();
-  const ejectMutation = useEjectSyncDeviceMutation();
   // 同期する内容の曲数とサイズ（ライブラリの記録から求める見通し。ADR-113）
   const selectionQuery = useSyncSelectionSummaryQuery(() => deviceId ?? '');
 
@@ -62,20 +56,7 @@
 
   /** 設定の一部を変えて保存する */
   function updateConfig(current: SyncDevice, patch: Partial<SyncDeviceConfig>) {
-    updateMutation.mutate({
-      deviceId: current.id,
-      config: {
-        name: current.name,
-        syncAll: current.syncAll,
-        playlistIds: current.playlistIds,
-        smartPlaylistIds: current.smartPlaylistIds,
-        removeUnselected: current.removeUnselected,
-        pathTemplate: current.pathTemplate,
-        copyExtras: current.copyExtras,
-        transcode: current.transcode,
-        ...patch
-      }
-    });
+    updateMutation.mutate({ deviceId: current.id, config: deviceConfigOf(current, patch) });
   }
 
   // 配置の書式（入力中の値。「書式を適用」で保存する。別のデバイスを開いたら、そのデバイスの書式に戻す）
@@ -95,16 +76,7 @@
     updateMutation.mutate(
       {
         deviceId: current.id,
-        config: {
-          name: current.name,
-          syncAll: current.syncAll,
-          playlistIds: current.playlistIds,
-          smartPlaylistIds: current.smartPlaylistIds,
-          removeUnselected: current.removeUnselected,
-          pathTemplate: draftTemplate.trim(),
-          copyExtras: current.copyExtras,
-          transcode: current.transcode
-        }
+        config: deviceConfigOf(current, { pathTemplate: draftTemplate.trim() })
       },
       { onSuccess: () => showSuccess(m.devices.layoutApplied) }
     );
@@ -120,46 +92,12 @@
     updateConfig(current, { smartPlaylistIds: selected ? [...others, smartPlaylistId] : others });
   }
 
-  async function handleRename(current: SyncDevice) {
-    const name = await promptText({
-      title: m.devices.renameTitle,
-      label: m.devices.nameLabel,
-      defaultValue: current.name,
-      confirmLabel: m.devices.renameConfirm,
-      validate: (value) => (isDeviceNameTooLong(value) ? m.devices.nameTooLong : null)
-    });
-    if (name === null || name === current.name) return;
-
-    updateConfig(current, { name });
-  }
-
   /** 転送先のフォルダを選び直す（マウント先が変わった場合など。ダイアログはRust側が開く） */
   async function handleRelink(current: SyncDevice) {
     try {
       const relinked = await relinkMutation.mutateAsync(current.id);
       // 選ばずに閉じた場合は、何もしない
       if (relinked) showSuccess(m.devices.relinked);
-    } catch {
-      // 失敗はミューテーション内でトースト通知済み
-    }
-  }
-
-  async function handleEject(current: SyncDevice) {
-    try {
-      await ejectMutation.mutateAsync(current.id);
-      showSuccess(m.devices.ejected(current.name));
-    } catch {
-      // トーストで知らせ済み
-    }
-  }
-
-  async function handleRemove(current: SyncDevice) {
-    if (!(await confirmDestructive(m.devices.confirmRemove(current.name)))) return;
-
-    try {
-      await removeMutation.mutateAsync(current.id);
-      showSuccess(m.devices.removed);
-      goto(resolve('library/songs'));
     } catch {
       // 失敗はミューテーション内でトースト通知済み
     }
@@ -196,7 +134,6 @@
         </div>
         <div class="device-details">
           <h1 class="device-name">{device.name}</h1>
-          <p class="device-path" title={device.path}>{device.path}</p>
           <p class="device-meta">
             <span class="connection" class:connected={device.connected}>
               {device.connected ? m.devices.connected : m.devices.disconnected}
@@ -240,35 +177,6 @@
             />
           </svg>
           {m.devices.sync}
-        </button>
-        <button type="button" class="btn-secondary text-sm" onclick={() => handleRename(device)}>
-          {m.devices.rename}
-        </button>
-        <button
-          type="button"
-          class="btn-secondary text-sm"
-          onclick={() => handleRelink(device)}
-          disabled={relinkMutation.isPending}
-        >
-          {m.devices.relink}
-        </button>
-        {#if device.ejectable}
-          <button
-            type="button"
-            class="btn-secondary text-sm"
-            onclick={() => handleEject(device)}
-            disabled={ejectMutation.isPending}
-          >
-            {m.devices.eject}
-          </button>
-        {/if}
-        <button
-          type="button"
-          class="btn-secondary text-sm"
-          onclick={() => handleRemove(device)}
-          disabled={removeMutation.isPending}
-        >
-          {m.devices.remove}
         </button>
       </div>
     </div>
@@ -431,6 +339,22 @@
       <!-- デバイス上の配置の書式（例は、最近追加したアルバムの曲を、デバイスのフォルダからの場所で出す。
            曲は必ずMusicフォルダの中に置く。ADR-111・ADR-135） -->
       <h3 class="group-title layout-title">{m.devices.layoutTitle}</h3>
+      <!-- 転送先のフォルダ（マウント先が変わった時・カードを初期化した時に選び直す。ダイアログはRust側が開く） -->
+      <div class="destination">
+        <span class="destination-label">{m.devices.destination}</span>
+        <p class="destination-hint">{m.devices.destinationHint}</p>
+        <div class="destination-row">
+          <span class="destination-path" title={device.path}>{device.path}</span>
+          <button
+            type="button"
+            class="btn-secondary text-sm shrink-0"
+            onclick={() => handleRelink(device)}
+            disabled={relinkMutation.isPending}
+          >
+            {m.devices.relinkEllipsis}
+          </button>
+        </div>
+      </div>
       <MusicFolderTemplateSetting
         bind:template={draftTemplate}
         id="device-template"
@@ -497,10 +421,6 @@
     @apply m-0 text-2xl font-bold text-text-primary truncate;
   }
 
-  .device-path {
-    @apply m-0 text-xs text-text-muted font-mono truncate;
-  }
-
   .device-meta {
     @apply m-0 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-text-muted;
   }
@@ -539,8 +459,9 @@
     @apply opacity-50 cursor-not-allowed;
   }
 
+  /* 見出しと同じく、ページの幅いっぱいに使う（ほかのメインウィンドウの画面と同じ。ADR-136） */
   .source-section {
-    @apply flex-1 overflow-y-auto px-2 pb-4 max-w-2xl;
+    @apply flex-1 overflow-y-auto px-2 pb-4;
   }
 
   .source-title {
@@ -574,6 +495,27 @@
 
   .remove-option {
     @apply mt-6;
+  }
+
+  /* 転送先のフォルダ（配置の書式の上。書式の項目と同じ見た目の名前と説明） */
+  .destination {
+    @apply mb-6;
+  }
+
+  .destination-label {
+    @apply block text-sm font-medium text-text-primary mb-1;
+  }
+
+  .destination-hint {
+    @apply text-xs text-text-muted m-0;
+  }
+
+  .destination-row {
+    @apply flex items-center gap-3 mt-3;
+  }
+
+  .destination-path {
+    @apply flex-1 min-w-0 truncate text-sm font-mono text-text-secondary;
   }
 
   .layout-title {

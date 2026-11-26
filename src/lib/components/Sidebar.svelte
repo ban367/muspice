@@ -13,7 +13,8 @@
   import { useGenresQuery } from '#lib/queries/tracks.js';
   import { useSettingsQuery } from '#lib/queries/settings.js';
   import { useLibraryFoldersQuery } from '#lib/queries/libraryFolders.js';
-  import type { SidebarItem } from '#lib/types/models.js';
+  import type { SidebarItem, SyncDevice } from '#lib/types/models.js';
+  import DeviceContextMenu from './DeviceContextMenu.svelte';
   import SidebarPlaylists from './SidebarPlaylists.svelte';
   import SidebarSmartPlaylists from './SidebarSmartPlaylists.svelte';
   import MarqueeText from './MarqueeText.svelte';
@@ -77,6 +78,14 @@
   const registerDeviceMutation = useRegisterSyncDeviceMutation();
   const queryClient = useQueryClient();
 
+  // デバイスの右クリックのメニュー（名前の変更・取り出し・登録の解除。ADR-136）
+  let deviceMenu = $state<{ x: number; y: number; device: SyncDevice } | null>(null);
+
+  function openDeviceMenu(event: MouseEvent, device: SyncDevice) {
+    event.preventDefault();
+    deviceMenu = { x: event.clientX, y: event.clientY, device };
+  }
+
   // ウィンドウに戻ったら、デバイスの接続の状態を読み直す（デバイスの抜き差しを反映する。
   // TanStack Queryの再取得はページの表示状態だけを見ており、ウィンドウを切り替えても動かないため）
   $effect(() => {
@@ -90,7 +99,7 @@
 
   /**
    * 転送先デバイスを追加する（フォルダを選ぶダイアログはRust側が開き、ドライブ・フォルダの
-   * 名前で登録する。名前はデバイスのページで変えられる）
+   * 名前で登録する。名前はサイドバーの右クリックのメニューで変えられる）
    */
   async function handleAddDevice() {
     try {
@@ -525,6 +534,7 @@
               href={resolve(`devices/${device.id}`)}
               class="nav-item-base"
               class:active={currentPath === `/devices/${device.id}`}
+              oncontextmenu={(e) => openDeviceMenu(e, device)}
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -559,6 +569,15 @@
     </ul>
   </div>
 </aside>
+
+{#if deviceMenu}
+  <DeviceContextMenu
+    x={deviceMenu.x}
+    y={deviceMenu.y}
+    device={deviceMenu.device}
+    onClose={() => (deviceMenu = null)}
+  />
+{/if}
 
 <style>
   @reference "../../app.css";

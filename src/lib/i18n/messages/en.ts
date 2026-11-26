@@ -1568,17 +1568,23 @@ export const en: Messages = {
     connected: 'Connected',
     disconnected: 'Not connected',
     disconnectedHint:
-      'The destination folder was not found. Connect the device. If the folder has moved, choose it again with "Change Destination".',
+      'The destination folder was not found. Connect the device. If the folder has moved, choose it again under "Destination Folder" in the Layout section below.',
     freeSpace: (free, total) => `${free} free of ${total}`,
     lastSynced: (at) => `Last sync: ${at}`,
     neverSynced: 'Not synced yet',
     sync: 'Sync',
-    rename: 'Rename',
+    /** Context menu in the sidebar (ADR-136) */
+    renameEllipsis: 'Rename...',
     renameTitle: 'Rename Device',
     renameConfirm: 'Rename',
-    relink: 'Change Destination',
+    removeEllipsis: 'Remove Device...',
+    removeConfirm: 'Remove',
+    /** Destination folder in the Layout section (ADR-136) */
+    destination: 'Destination Folder',
+    destinationHint:
+      'Tracks go into the "Music" folder and playlists into the "Playlists" folder in this folder. Choose it again when the mount point changes or after formatting the card.',
+    relinkEllipsis: 'Change...',
     relinked: 'Changed the destination',
-    remove: 'Remove Device',
     /** Ejecting the drive (macOS, ADR-113) */
     eject: 'Eject',
     ejected: (name) => `Ejected "${name}"`,
@@ -1596,7 +1602,7 @@ export const en: Messages = {
     layoutTitle: 'Layout',
     layoutTemplate: 'Folder Layout on the Device',
     layoutTemplateHint:
-      'Tracks go into the "Music" folder and playlists into the "Playlists" folder in the destination folder. This sets how folders and files are named inside the Music folder (the same syntax as Organize Files). After you change it, the next sync renames the copied tracks (without copying them again).',
+      'How folders and files are named inside the Music folder (the same syntax as Organize Files). After you change it, the next sync renames the copied tracks (without copying them again).',
     applyLayout: 'Apply Layout',
     layoutApplied: 'Changed the layout. The next sync renames the tracks on the device',
     /** What to sync (one or the other. ADR-135) */
