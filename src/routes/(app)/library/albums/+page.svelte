@@ -2,6 +2,7 @@
   アルバムの画面。グリッド表示はアルバムのカード、リスト表示はアルバムアーティストごとのアルバムと曲
   （左にアルバムアーティスト、右にそのアルバムアーティストのアルバムと曲。アーティストの画面と同じ形）。
   どのアルバムも、まとめたアーティスト（アルバムアーティスト。なければ曲のアーティスト）の下に1回だけ出る。
+  左の一覧の行は、サイドバーのプレイリストへドラッグすると、そのアルバムアーティストのアルバムの曲すべてを追加する。
 -->
 <script lang="ts">
   import AlbumGrid from '#lib/components/library/AlbumGrid.svelte';
@@ -10,9 +11,14 @@
   import LibraryBrowsePage from '#lib/components/library/LibraryBrowsePage.svelte';
   import { useAlbumsQuery } from '#lib/queries/tracks.js';
   import { ui } from '#lib/stores/ui.svelte.js';
-  import { albumSearchFields, groupAlbumsByArtist } from '#lib/utils/albumArtists.js';
+  import {
+    albumSearchFields,
+    groupAlbumsByArtist,
+    type AlbumArtistEntry
+  } from '#lib/utils/albumArtists.js';
   import { matchesSearchTerms, searchTerms } from '#lib/utils/searchText.js';
   import { revealAlbumArtistKey } from '#lib/utils/libraryReveal.js';
+  import { startTrackGroupDrag } from '#lib/utils/trackDrag.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   // クエリ
@@ -29,6 +35,21 @@
         : allAlbums.filter((album) => matchesSearchTerms(albumSearchFields(album), terms));
     return groupAlbumsByArtist(albums);
   });
+
+  // 左の一覧の行のドラッグ（検索で絞り込んでいても、アルバムアーティストのアルバムすべてを運ぶ）
+  function handleAlbumArtistDragStart(event: DragEvent, albumArtist: AlbumArtistEntry) {
+    const trackCount = allAlbums
+      .filter((album) => album.artist === albumArtist.name)
+      .reduce((sum, album) => sum + album.trackCount, 0);
+    startTrackGroupDrag(
+      event,
+      { type: 'albumArtist', name: albumArtist.name },
+      {
+        label: albumArtist.name ?? m.common.unknownArtist,
+        detail: m.common.trackCount(trackCount)
+      }
+    );
+  }
 </script>
 
 <LibraryBrowsePage
@@ -69,6 +90,7 @@
       {onSelect}
       getKey={(albumArtist) => albumArtist.key}
       label={m.fields.albumArtist}
+      onDragStart={handleAlbumArtistDragStart}
     />
   {/snippet}
 

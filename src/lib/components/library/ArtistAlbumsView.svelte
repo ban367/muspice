@@ -14,6 +14,8 @@
     出す。アルバムのメニューは、見出しの「その他」と右クリックで開く（ADR-107）。ジャケット画像は、曲の一覧の
     背景の右下に、中央へ薄れるように淡く出す（スクロールしても動かない。ADR-130）
   - 曲の選択はアルバムをまたいで行える。最後に選んだ曲を、右サイドバーの曲情報パネルに出す
+  - アルバムの見出しと、一覧の見出しの名前は、サイドバーのプレイリストへドラッグできる（そのアルバムの曲・
+    表示している曲すべてを追加する）
 -->
 <script lang="ts">
   import { tick, untrack } from 'svelte';
@@ -138,6 +140,15 @@
     startTrackDrag(event, trackIds, m.common.trackCount(trackIds.length));
   }
 
+  /** 曲のまとまり（アルバム・表示している曲すべて）のドラッグを始める（選択は変えない） */
+  function handleGroupDragStart(event: DragEvent, name: string, tracks: readonly Track[]) {
+    startTrackDrag(
+      event,
+      tracks.map((track) => track.id),
+      { label: name, detail: m.common.trackCount(tracks.length) }
+    );
+  }
+
   /** 一覧の要素（キー操作で、移動先の行を探す） */
   let listElement: HTMLElement | undefined;
 
@@ -250,7 +261,13 @@
   <!-- ヘッダー（1枚のアルバムだけを出す時は、アルバムの見出しを兼ねる。メニューは「その他」のボタンからも使える） -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="detail-header" oncontextmenu={handleHeaderContextMenu}>
-    <div class="header-title">
+    <!-- 名前のドラッグで、表示している曲すべて（アーティスト・アルバムの曲）を運ぶ -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="header-title"
+      draggable={displayTracks.length > 0}
+      ondragstart={(event) => handleGroupDragStart(event, title, displayTracks)}
+    >
       <h1 class="artist-name">{title}</h1>
       {#if headerAlbum}
         <span class="header-meta">
@@ -358,8 +375,10 @@
               <!-- svelte-ignore a11y_no_static_element_interactions -->
               <div
                 class="album-summary"
+                draggable="true"
                 ondblclick={() => handleAlbumPlay(album)}
                 oncontextmenu={(e) => openAlbumMenu(e, album)}
+                ondragstart={(event) => handleGroupDragStart(event, album.name, album.tracks)}
               >
                 <div class="album-art">
                   <AlbumArt

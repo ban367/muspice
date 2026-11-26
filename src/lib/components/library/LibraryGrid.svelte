@@ -7,6 +7,7 @@
   一覧は、見えている項目だけを描画する（VirtualList）。
   `detail`を渡すと、グリッド表示で選んだ項目（現在位置の項目）の中身を、グリッドの下の領域に出す
   （`GridDetailSplit`。閉じると現在位置を外す。ADR-097）。
+  項目は、サイドバーのプレイリストへドラッグすると、その曲すべてを追加できる（落とした時に曲を取得する）。
 
   カードの見た目はSnippetでカスタマイズ可能。
 -->
@@ -18,6 +19,7 @@
   import { openableListAction } from '#lib/utils/listNavigation.js';
   import { matchesSearchTerms, searchTerms } from '#lib/utils/searchText.js';
   import { matchesReveal } from '#lib/utils/libraryReveal.js';
+  import { startTrackGroupDrag, type TrackDragGroup } from '#lib/utils/trackDrag.js';
   import GroupContextMenu from '../GroupContextMenu.svelte';
   import GridDetailSplit from './GridDetailSplit.svelte';
   import { m } from '#lib/i18n/i18n.svelte.js';
@@ -196,6 +198,22 @@
     });
   });
 
+  /** 項目を、ドラッグで運ぶまとまりにする（アルバムは、まとめたアーティストでも見分ける） */
+  function dragGroup(item: T): TrackDragGroup {
+    if (groupType === 'album') {
+      return { type: 'album', name: item.name, albumArtist: 'artist' in item ? item.artist : null };
+    }
+    return { type: groupType, name: item.name };
+  }
+
+  /** 項目のドラッグを始める（サイドバーのプレイリストへ落とすと、その曲すべてを追加する） */
+  function handleDragStart(event: DragEvent, item: T) {
+    startTrackGroupDrag(event, dragGroup(item), {
+      label: item.name,
+      detail: m.common.trackCount(item.trackCount)
+    });
+  }
+
   // コンテキストメニュー
   let contextMenu = $state<{ x: number; y: number; item: T } | null>(null);
 
@@ -270,7 +288,9 @@
                 class:active={getKey(item) === activeKey}
                 role="option"
                 aria-selected={getKey(item) === activeKey}
+                draggable="true"
                 onpointerdown={() => (activeKey = getKey(item))}
+                ondragstart={(event) => handleDragStart(event, item)}
               >
                 {@render gridCard(item)}
               </div>
@@ -299,7 +319,9 @@
             class:active={getKey(item) === activeKey}
             role="option"
             aria-selected={getKey(item) === activeKey}
+            draggable="true"
             onpointerdown={() => (activeKey = getKey(item))}
+            ondragstart={(event) => handleDragStart(event, item)}
           >
             {@render listRow(item)}
           </div>

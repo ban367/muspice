@@ -343,8 +343,10 @@ src-tauri/src/
 
 ### ドラッグ&ドロップ
 
-- 曲の一覧からサイドバーのプレイリストへの追加は、HTML5のドラッグ&ドロップで行う。`#lib/utils/trackDrag`の`startTrackDrag`（`dragstart`）でトラックIDを専用の種類（`TRACK_DRAG_TYPE`）のデータとして運び、`isTrackDrag`（`dragover`）・`readDraggedTrackIds`（`drop`）で受け取る
+- 曲の一覧からサイドバーのプレイリストへの追加は、HTML5のドラッグ&ドロップで行う。`#lib/utils/trackDrag`の`startTrackDrag`（`dragstart`）でトラックIDを専用の種類（`TRACK_DRAG_TYPE`）のデータとして運び、`isTrackDrag`（`dragover`）・`readDraggedTracks`（`drop`）で受け取る
 - 運ぶ曲は`TrackSelection.beginDrag(trackId)`で決める。選択中の曲の上で始めた場合は選択中の曲すべて（一覧の並び順）、そうでなければその曲だけ
+- アルバム・アーティスト・ジャンルのまとまりもドラッグできる（ADR-134）。曲を持たない一覧（`LibraryGrid`のカードと行・リスト表示の左の`ArtistList`・最近追加した曲のアルバムのカード）は、`startTrackGroupDrag`でまとまり（`TrackDragGroup`。種類と名前、アルバムはまとめたアーティストも）を別の種類（`TRACK_GROUP_DRAG_TYPE`）のデータとして運び、落とした時に`resolveDraggedTrackIds`が曲を表示順で取得する（`fetchGroupTracks`・`fetchAlbumArtistTracks`。キャッシュがあれば使う）。曲を取得済みのまとまり（`ArtistAlbumsView`のアルバムの見出しと一覧の見出しの名前・右サイドバーのアルバム情報パネルの見出し）は、その曲のIDを`startTrackDrag`で運ぶ
+- ドラッグ中の画像は、曲数（曲）か、名前と曲数（まとまり）を出す。カード・行の中のアルバムアート（`AlbumArt`の`img`）は`draggable="false"`にし、画像そのもののドラッグにしない
 - Tauriのファイルドロップ（`tauri.conf.json`の`dragDropEnabled`）は無効にする。有効だとWebViewに`dragover`・`drop`が届かない（ADR-018）
 
 ### ダイアログ

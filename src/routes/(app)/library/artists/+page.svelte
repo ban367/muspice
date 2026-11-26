@@ -5,6 +5,7 @@
   import ArtistDetail from '#lib/components/library/ArtistDetail.svelte';
   import LibraryBrowsePage from '#lib/components/library/LibraryBrowsePage.svelte';
   import { useArtistsQuery } from '#lib/queries/tracks.js';
+  import { startTrackGroupDrag } from '#lib/utils/trackDrag.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   // クエリ
@@ -13,6 +14,15 @@
 
   // 絞り込みの対象（アーティスト名）
   const artistSearchFields = (artist: ArtistSummary) => [artist.name];
+
+  // リスト表示の左の一覧の行は、サイドバーのプレイリストへドラッグすると、そのアーティストの曲すべてを追加する
+  function handleArtistDragStart(event: DragEvent, artist: ArtistSummary) {
+    startTrackGroupDrag(
+      event,
+      { type: 'artist', name: artist.name },
+      { label: artist.name, detail: m.common.trackCount(artist.trackCount) }
+    );
+  }
 </script>
 
 <LibraryBrowsePage
@@ -49,7 +59,7 @@
   {/snippet}
 
   {#snippet listView(artists, selectedArtist, onSelect)}
-    <ArtistList {artists} {selectedArtist} {onSelect} />
+    <ArtistList {artists} {selectedArtist} {onSelect} onDragStart={handleArtistDragStart} />
   {/snippet}
 
   {#snippet detailView(artist)}
