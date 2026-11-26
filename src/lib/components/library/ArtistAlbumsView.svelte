@@ -3,7 +3,8 @@
   アーティスト（アルバムアーティスト）のアルバムごとの曲。アーティストとアルバムアーティストの画面の
   リスト表示の右のペインと、グリッド表示の下の中身の領域（`compact`。閉じるボタンを出す。ADR-097）で使う。
 
-  - 見出しにアーティストの名前と、すべて再生のボタンを出す
+  - 見出しにアーティストの名前と、すべて再生・「その他」のボタンを出す。「その他」は、表示している曲すべて
+    （すべて再生と同じ曲）をキュー・プレイリストへ入れるメニューを開く（ADR-136）
   - アルバムごとに見出し（ジャケット画像・名前・ジャンルと年・曲数と時間）を出し、その下に曲を並べる
     （ディスクが複数あるアルバムは、ディスクで区切る）
   - グリッド表示の下の領域（`compact`）で幅が広い時は、曲をディスクごとに2列に分けて並べる
@@ -19,7 +20,7 @@
 -->
 <script lang="ts">
   import { tick, untrack } from 'svelte';
-  import type { AlbumGroup, ArtistSummary, Track } from '#lib/types/models.js';
+  import type { AlbumGroup, Track } from '#lib/types/models.js';
   import type { RevealGroup } from '#lib/utils/libraryReveal.js';
   import { flattenAlbumTracks, useSetRatingMutation } from '#lib/queries/tracks.js';
   import { player, playNow } from '#lib/stores/player.svelte.js';
@@ -38,6 +39,12 @@
   import AlbumArt from '../AlbumArt.svelte';
   import ContextMenu from '../ContextMenu.svelte';
   import GroupContextMenu from '../GroupContextMenu.svelte';
+  import {
+    BaseContextMenu,
+    MenuSeparator,
+    PlaylistSubmenu,
+    QueueMenuItems
+  } from '#lib/components/ui/index.js';
   import { m } from '#lib/i18n/i18n.svelte.js';
 
   // Props
@@ -53,8 +60,6 @@
      * 曲のアルバム・コンピレーション・フィーチャリングなど）。
      */
     artist: string | null;
-    /** 見出しの「その他」のメニューで扱うアーティスト（なければ、ボタンを出さない） */
-    menuArtist?: ArtistSummary;
     /**
      * グリッドの下の、高さの限られた領域に出すか
      *
@@ -81,7 +86,6 @@
     title,
     albums,
     artist,
-    menuArtist,
     compact = false,
     singleAlbum = false,
     onClose,
@@ -226,7 +230,10 @@
 
   /** 開いている曲のメニュー */
   let trackMenu = $state<{ x: number; y: number; track: Track } | null>(null);
-  /** 開いているアーティスト・アルバムのメニュー（`album`がnullなら、アーティスト） */
+  /**
+   * 開いているアルバム・一覧のメニュー（`album`がnullなら、一覧。表示している曲すべて（アーティスト・
+   * アルバムアーティストの曲）が対象）
+   */
   let groupMenu = $state<{ x: number; y: number; album: AlbumGroup | null } | null>(null);
 
   /** メニューを開く位置（右クリックはその位置、ボタンはボタンの下） */
@@ -292,27 +299,17 @@
           <path d="M8 5v14l11-7z" />
         </svg>
       </button>
-      {#if menuArtist}
+      <!-- 1枚のアルバムだけを出す時はアルバムのメニュー（曲を取得するまでは出さない）、ほかは一覧のメニュー -->
+      {#if !singleAlbum || headerAlbum}
         <button
           class="action-btn"
           title={m.common.more}
           aria-label={m.common.more}
           aria-haspopup="menu"
-          onclick={(event) => (groupMenu = { ...menuPosition(event), album: null })}
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-            <circle cx="12" cy="5" r="2" />
-            <circle cx="12" cy="12" r="2" />
-            <circle cx="12" cy="19" r="2" />
-          </svg>
-        </button>
-      {:else if headerAlbum}
-        <button
-          class="action-btn"
-          title={m.common.more}
-          aria-label={m.common.more}
-          aria-haspopup="menu"
-          onclick={(event) => openAlbumMenu(event, headerAlbum)}
+          onclick={(event) =>
+            headerAlbum
+              ? openAlbumMenu(event, headerAlbum)
+              : (groupMenu = { ...menuPosition(event), album: null })}
         >
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
             <circle cx="12" cy="5" r="2" />
@@ -530,14 +527,23 @@
       type="album"
       onClose={() => (groupMenu = null)}
     />
-  {:else if menuArtist}
-    <GroupContextMenu
-      x={groupMenu.x}
-      y={groupMenu.y}
-      group={menuArtist}
-      type="artist"
-      onClose={() => (groupMenu = null)}
-    />
+  {:else}
+    <!-- 一覧のメニュー（曲は取得済みのため、GroupContextMenuのように取り直さない。すべて再生と同じ曲） -->
+    <BaseContextMenu x={groupMenu.x} y={groupMenu.y} onClose={() => (groupMenu = null)}>
+      <div class="menu-title">{title}</div>
+      <div class="menu-subtitle">{m.common.trackCount(displayTracks.length)}</div>
+      <MenuSeparator />
+
+      <QueueMenuItems
+        tracks={displayTracks}
+        disabled={displayTracks.length === 0}
+        onClose={() => (groupMenu = null)}
+      />
+
+      <MenuSeparator />
+
+      <PlaylistSubmenu tracks={displayTracks} onClose={() => (groupMenu = null)} />
+    </BaseContextMenu>
   {/if}
 {/if}
 
