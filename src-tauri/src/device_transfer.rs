@@ -660,9 +660,15 @@ fn write_playlists(
     for entry in &plan.playlists_to_delete {
         let removed = device
             .resolve(&entry.path, false)
-            .and_then(|path| remove_file_if_exists(&path));
+            .and_then(|path| remove_file_if_exists(&path).map(|()| path));
         match removed {
-            Ok(()) => {
+            Ok(path) => {
+                // `Playlists`フォルダが空になったら消す
+                device.remove_empty_parents(&path);
+                device.playlists.remove(&path_key(&entry.path));
+            }
+            // 親フォルダごとなくなっている場合も、削除済みとして扱う
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
                 device.playlists.remove(&path_key(&entry.path));
             }
             Err(e) => {
@@ -682,8 +688,9 @@ fn write_playlists(
         .collect();
     let mut written: Vec<ManifestPlaylist> = Vec::new();
     for op in &plan.playlists {
-        let content = build_m3u8(&op.entries, &track_paths);
-        let result = device.resolve(&op.path, false).and_then(|path| {
+        let content = build_m3u8(&op.path, &op.entries, &track_paths);
+        // `Playlists`フォルダがなければ作る（ADR-135）
+        let result = device.resolve(&op.path, true).and_then(|path| {
             write_atomically(&path, |file| {
                 file.write_all(content.as_bytes()).map(|()| true)
             })
@@ -1120,7 +1127,8 @@ mod tests {
     #[test]
     fn test_writes_and_deletes_playlists() {
         let fixture = Fixture::new();
-        let on_device = fixture.device_file("t1", "Artist/Album/01 One.mp3", "one");
+        let on_device = fixture.device_file("t1", "Music/Artist/Album/01 One.mp3", "one");
+        // `Playlists`フォルダを使う前の配置（デバイスのフォルダの直下）のプレイリスト
         fs::write(fixture.root.join("古い名前.m3u8"), "old").unwrap();
         let mut recorded = fixture.manifest(vec![on_device.clone()]);
         recorded.playlists.push(ManifestPlaylist {
@@ -1133,11 +1141,11 @@ mod tests {
             label: label.to_string(),
         };
         let plan = SyncPlan {
-            to_copy: vec![fixture.copy_op("t2", "Artist/Album/02 Two.mp3", "two")],
+            to_copy: vec![fixture.copy_op("t2", "Music/Artist/Album/02 Two.mp3", "two")],
             kept: vec![on_device],
             playlists: vec![PlaylistOp {
                 playlist_id: "p1".to_string(),
-                path: "新しい名前.m3u8".to_string(),
+                path: "Playlists/新しい名前.m3u8".to_string(),
                 // t3はデバイスにないため、書き出さない
                 entries: vec![
                     entry("t2", "Artist - Two"),
@@ -1153,21 +1161,39 @@ mod tests {
 
         assert_eq!(outcome.playlist_count, 1);
         assert_eq!(fixture.read("古い名前.m3u8"), None);
+        // `Playlists`フォルダを作り、曲は`Playlists`フォルダからの相対パスで書く
         assert_eq!(
-            fixture.read("新しい名前.m3u8").as_deref(),
+            fixture.read("Playlists/新しい名前.m3u8").as_deref(),
             Some(
                 "#EXTM3U\r\n\
-                 #EXTINF:60,Artist - Two\r\nArtist/Album/02 Two.mp3\r\n\
-                 #EXTINF:60,Artist - One\r\nArtist/Album/01 One.mp3\r\n"
+                 #EXTINF:60,Artist - Two\r\n../Music/Artist/Album/02 Two.mp3\r\n\
+                 #EXTINF:60,Artist - One\r\n../Music/Artist/Album/01 One.mp3\r\n"
             )
         );
         let saved = read_manifest(&fixture.root).unwrap().unwrap();
         assert_eq!(
             saved.playlists,
             [ManifestPlaylist {
-                path: "新しい名前.m3u8".to_string(),
+                path: "Playlists/新しい名前.m3u8".to_string(),
                 playlist_id: "p1".to_string()
             }]
+        );
+
+        // 最後のプレイリストを消すと、空になった`Playlists`フォルダも消す
+        let plan = SyncPlan {
+            kept: saved.files.clone(),
+            playlists_to_delete: saved.playlists.clone(),
+            ..SyncPlan::default()
+        };
+        let outcome = fixture.execute(saved, &plan);
+        assert!(outcome.errors.is_empty());
+        assert!(!fixture.root.join("Playlists").exists());
+        assert!(
+            read_manifest(&fixture.root)
+                .unwrap()
+                .unwrap()
+                .playlists
+                .is_empty()
         );
     }
 

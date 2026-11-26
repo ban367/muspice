@@ -3008,16 +3008,20 @@ describe('転送先デバイス', () => {
     expect(synced.freeBytes).toBeLessThan(device.freeBytes!);
   });
 
-  it('全曲を同期する', async () => {
+  it('全曲を同期する（すべてのプレイリスト・オートプレイリストを書き出し、曲はMusicフォルダに置く）', async () => {
     const device = await connectedDevice();
-    await commands.updateSyncDevice(device.id, { ...device, syncAll: true });
+    const updated = await commands.updateSyncDevice(device.id, { ...device, syncAll: true });
+    // 選んだプレイリストの記録は、選んだプレイリストで同期する設定に戻した時のために残す
+    expect(updated.playlistIds).toEqual(device.playlistIds);
 
     const total = (await commands.getAllTracks()).length;
+    const playlistCount =
+      (await commands.getPlaylists()).length + (await commands.getSmartPlaylists()).length;
     // コピー済みの3曲はすべて対象に含まれる
-    expect(await commands.planDeviceSync(device.id)).toMatchObject({
-      copyCount: total - 3,
-      deleteCount: 0
-    });
+    const plan = await commands.planDeviceSync(device.id);
+    expect(plan).toMatchObject({ copyCount: total - 3, deleteCount: 0, playlistCount });
+    expect(playlistCount).toBeGreaterThan(1);
+    expect(plan.copyPaths.every((path) => path.startsWith('Music/'))).toBe(true);
   });
 
   it('同期を中止すると、次の曲の前で止まる', async () => {

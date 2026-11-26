@@ -12,6 +12,7 @@
 import {
   DEFAULT_ACCENT_COLOR,
   DEFAULT_DEVICE_TEMPLATE,
+  DEVICE_MUSIC_DIR,
   DEFAULT_MUSIC_FOLDER_TEMPLATE,
   AAC_BITRATES_KBPS,
   LIBRARY_SCAN_INTERVALS,
@@ -412,12 +413,12 @@ interface MockSyncDevice extends Omit<SyncDevice, 'freeBytes' | 'totalBytes' | '
 }
 
 /**
- * 曲のデバイス上の配置（Rustの`device_sync::track_relative_path`。書式はファイルの整理と同じ書き方で、
- * 拡張子は小文字にする）
+ * 曲のデバイス上の配置（Rustの`device_sync::track_relative_path`。必ず`Music`フォルダの中に置き、
+ * その中を書式で決める。書式はファイルの整理と同じ書き方で、拡張子は小文字にする。ADR-135）
  */
 function devicePathOf(track: Track, template: string, transcode = false): string {
   const extension = transcode ? '.m4a' : /\.[A-Za-z0-9]+$/.exec(track.filePath)?.[0].toLowerCase();
-  return organizedRelativePath(parseOrganizeTemplate(template), track, extension);
+  return `${DEVICE_MUSIC_DIR}/${organizedRelativePath(parseOrganizeTemplate(template), track, extension)}`;
 }
 
 /** グローバルホットキーの操作（Rustの`GlobalShortcutAction::ALL`と同じ順） */
@@ -846,7 +847,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     {
       id: crypto.randomUUID(),
       name: 'SDカード',
-      path: '/Volumes/SDCARD/Music',
+      path: '/Volumes/SDCARD',
       syncAll: false,
       playlistIds: [mockPlaylistId(1)],
       smartPlaylistIds: [],
@@ -867,7 +868,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     {
       id: crypto.randomUUID(),
       name: 'Walkman',
-      path: '/Volumes/WALKMAN/MUSIC',
+      path: '/Volumes/WALKMAN',
       syncAll: true,
       playlistIds: [],
       smartPlaylistIds: [],
@@ -2487,13 +2488,21 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
     return path;
   }
 
-  /** デバイスに同期するプレイリスト（削除済みのプレイリストは含めない） */
-  const devicePlaylists = (device: MockSyncDevice) =>
+  /** デバイスで選んだプレイリスト（削除済みのプレイリストは含めない） */
+  const selectedPlaylists = (device: MockSyncDevice) =>
     playlists.filter((playlist) => device.playlistIds.includes(playlist.id));
-  /** デバイスに同期するオートプレイリスト（削除済みのものは含めない） */
-  const deviceSmartPlaylists = (device: MockSyncDevice) =>
+  /** デバイスで選んだオートプレイリスト（削除済みのものは含めない） */
+  const selectedSmartPlaylists = (device: MockSyncDevice) =>
     smartPlaylists.filter((playlist) => device.smartPlaylistIds.includes(playlist.id));
-  /** デバイスに同期するプレイリスト・オートプレイリストの数（どちらも`.m3u8`を書き出す） */
+  /**
+   * デバイスに同期するプレイリスト・オートプレイリスト（どちらも`.m3u8`を書き出す）。全曲を同期する
+   * デバイスでは、選んだものによらず、すべて（Rustの`source_playlists`。ADR-135）
+   */
+  const devicePlaylists = (device: MockSyncDevice) =>
+    device.syncAll ? playlists : selectedPlaylists(device);
+  const deviceSmartPlaylists = (device: MockSyncDevice) =>
+    device.syncAll ? smartPlaylists : selectedSmartPlaylists(device);
+  /** デバイスに同期するプレイリスト・オートプレイリストの数 */
   const devicePlaylistCount = (device: MockSyncDevice) =>
     devicePlaylists(device).length + deviceSmartPlaylists(device).length;
 
@@ -2506,8 +2515,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       name: device.name,
       path: device.path,
       syncAll: device.syncAll,
-      playlistIds: devicePlaylists(device).map((playlist) => playlist.id),
-      smartPlaylistIds: deviceSmartPlaylists(device).map((playlist) => playlist.id),
+      playlistIds: selectedPlaylists(device).map((playlist) => playlist.id),
+      smartPlaylistIds: selectedSmartPlaylists(device).map((playlist) => playlist.id),
       removeUnselected: device.removeUnselected,
       pathTemplate: device.pathTemplate,
       copyExtras: device.copyExtras,

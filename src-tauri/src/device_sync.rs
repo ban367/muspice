@@ -4,9 +4,10 @@
 //! 同期で行う処理（`SyncPlan`）を決める。ファイルシステムには触れない（デバイス上の
 //! ファイルのサイズは、呼び出し側が渡す関数で調べる）。実行は`device_transfer`が行う。
 //!
-//! - 曲は、デバイスごとの配置の書式（ファイルの整理と同じ書き方。既定は
-//!   `アルバムアーティスト/アルバム/01 タイトル.拡張子`。ADR-111）でタグから配置する。一度決めたパスは
-//!   管理ファイルに記録し、タグ・書式が変わらない限り変えない
+//! - 曲は、デバイスのフォルダの中の`Music`フォルダへ、デバイスごとの配置の書式（ファイルの整理と同じ
+//!   書き方。既定は`アルバムアーティスト/アルバム/01 タイトル.拡張子`。ADR-111）でタグから配置する。
+//!   一度決めたパスは管理ファイルに記録し、タグ・書式が変わらない限り変えない。プレイリストは
+//!   `Playlists`フォルダへ書き出す（ADR-135）
 //! - 削除・上書きするのは、管理ファイルに記録のあるファイルだけ。記録のないファイルが
 //!   同じ場所にある場合は、別の名前（` (2)`を付ける）にする。ただし同じ場所に同じサイズの
 //!   ファイルがある場合は、コピー済みとして扱う（管理ファイルをなくした場合や、ライブラリ内で
@@ -34,6 +35,14 @@ pub(crate) const UNKNOWN_TITLE: &str = "Unknown Title";
 
 /// プレイリストのファイルの拡張子（UTF-8のM3U）
 const PLAYLIST_EXTENSION: &str = "m3u8";
+
+/// 曲を置くフォルダ（デバイスのフォルダの直下。ADR-135）
+///
+/// 多くの機器（Android・カーオーディオ・DAPなど）が曲を探すフォルダの名前。表示の言語によらず固定にする。
+pub const MUSIC_DIR: &str = "Music";
+
+/// プレイリストのファイルを置くフォルダ（デバイスのフォルダの直下。`MUSIC_DIR`と並べる。ADR-135）
+pub const PLAYLISTS_DIR: &str = "Playlists";
 
 /// フォルダ名・ファイル名（拡張子を除く）の長さの上限
 ///
@@ -173,7 +182,7 @@ pub struct RenameOp {
 #[derive(Debug, Clone, PartialEq)]
 pub struct PlaylistOp {
     pub playlist_id: String,
-    /// 書き出し先（デバイスのフォルダの直下のファイル名）
+    /// 書き出し先（デバイスのフォルダからの相対パス。`Playlists/プレイリスト名.m3u8`）
     pub path: String,
     /// 曲順どおりの曲
     pub entries: Vec<PlaylistEntry>,
@@ -302,11 +311,12 @@ fn source_extension(file_path: &str) -> Option<String> {
         .then(|| extension.to_ascii_lowercase())
 }
 
-/// 曲のデバイス上の配置（デバイスのフォルダからの場所。区切りは`/`。ADR-111）
+/// 曲のデバイス上の配置（デバイスのフォルダからの場所。区切りは`/`。ADR-111・ADR-135）
 ///
-/// 書式は、ファイルの整理と同じ書き方（値のない項目・ファイル名に使える形の決まりも同じ。
-/// `file_organize::Template`）。`/`のない書式は、デバイスのフォルダの直下に置く。拡張子は、元の
-/// ファイルの拡張子を小文字にしたもの（変換してコピーする曲は`m4a`。ADR-118）。
+/// 曲は必ず`Music`フォルダの中に置き、その中の配置を書式で決める。書式は、ファイルの整理と同じ
+/// 書き方（値のない項目・ファイル名に使える形の決まりも同じ。`file_organize::Template`）。`/`のない
+/// 書式は、`Music`フォルダの直下に置く。拡張子は、元のファイルの拡張子を小文字にしたもの（変換して
+/// コピーする曲は`m4a`。ADR-118）。
 pub fn track_relative_path(
     track: &TransferTrack,
     template: &Template,
@@ -316,14 +326,22 @@ pub fn track_relative_path(
         Some(_) => Some(Transcode::EXTENSION.to_string()),
         None => source_extension(&track.file_path),
     };
-    template
-        .components_with_extension(track, Path::new(&track.file_path), extension.as_deref())
-        .join("/")
+    let components = template.components_with_extension(
+        track,
+        Path::new(&track.file_path),
+        extension.as_deref(),
+    );
+    format!("{}/{}", MUSIC_DIR, components.join("/"))
 }
 
-/// プレイリストのファイル名（`プレイリスト名.m3u8`）
-pub fn playlist_file_name(name: &str) -> String {
-    format!("{}.{}", sanitize_component(name), PLAYLIST_EXTENSION)
+/// プレイリストのデバイス上の場所（`Playlists/プレイリスト名.m3u8`。ADR-135）
+pub fn playlist_relative_path(name: &str) -> String {
+    format!(
+        "{}/{}.{}",
+        PLAYLISTS_DIR,
+        sanitize_component(name),
+        PLAYLIST_EXTENSION
+    )
 }
 
 /// パスを、拡張子の前と拡張子（ドットを含む）に分ける
@@ -605,8 +623,8 @@ pub fn plan_sync(
 /// 曲に添えるファイルの、デバイス上の場所（曲のデバイス上の場所から決める。置けない場合はNone）
 ///
 /// 歌詞ファイルは、曲と同じ名前（拡張子だけを`.lrc`にする。連番の付いた曲は、連番も同じ）。
-/// フォルダの画像は、曲のフォルダに元のファイルと同じ名前で置く（デバイスのフォルダの直下の曲には
-/// 置かない。直下の画像は、どのアルバムの画像か分からないため）。
+/// フォルダの画像は、曲のフォルダに元のファイルと同じ名前で置く（`Music`フォルダ・デバイスのフォルダの
+/// 直下の曲には置かない。直下の画像は、どのアルバムの画像か分からないため）。
 fn extra_dest(track_path: &str, extra: &SourceExtra) -> Option<String> {
     match extra.kind {
         ExtraKind::Lyrics => {
@@ -619,6 +637,9 @@ fn extra_dest(track_path: &str, extra: &SourceExtra) -> Option<String> {
         }
         ExtraKind::FolderImage => {
             let (folder, _) = track_path.rsplit_once('/')?;
+            if folder.eq_ignore_ascii_case(MUSIC_DIR) {
+                return None;
+            }
             let name = Path::new(&extra.source).file_name()?.to_str()?;
             Some(format!("{}/{}", folder, sanitize_component(name)))
         }
@@ -804,7 +825,10 @@ fn plan_playlists(
         match selected.get(entry.playlist_id.as_str()) {
             Some(playlist)
                 if !assigned.contains_key(playlist.id.as_str())
-                    && is_same_or_numbered(&entry.path, &playlist_file_name(&playlist.name)) =>
+                    && is_same_or_numbered(
+                        &entry.path,
+                        &playlist_relative_path(&playlist.name),
+                    ) =>
             {
                 claimed.insert(key);
                 assigned.insert(playlist.id.as_str(), entry.path.clone());
@@ -823,7 +847,7 @@ fn plan_playlists(
 
     for playlist in playlists {
         let path = assigned.remove(playlist.id.as_str()).unwrap_or_else(|| {
-            unique_path(&playlist_file_name(&playlist.name), |candidate| {
+            unique_path(&playlist_relative_path(&playlist.name), |candidate| {
                 let key = path_key(candidate);
                 !claimed.contains(&key)
                     && (device_file_size(candidate).is_none() || freed.contains(&key))
@@ -854,20 +878,28 @@ fn plan_playlists(
 
 /// プレイリストのファイル（拡張M3U、UTF-8）の内容を作る
 ///
-/// デバイスにある曲だけを、デバイスのフォルダからの相対パスで書く。プレイリストのファイルは
-/// デバイスのフォルダの直下に置くため、パスに`..`を含まない（`..`を解釈できない機器がある）。
+/// デバイスにある曲だけを、プレイリストのファイルからの相対パスで書く。プレイリストのファイルは
+/// `Playlists`フォルダに置くため、曲のパスは`../Music/アーティスト/...`になる（ADR-135）。
 ///
-/// - `track_paths`: デバイスにある曲の相対パス（トラックID → パス）
-pub fn build_m3u8(entries: &[PlaylistEntry], track_paths: &HashMap<&str, &str>) -> String {
+/// - `playlist_path`: プレイリストのファイルの、デバイスのフォルダからの相対パス
+/// - `track_paths`: デバイスにある曲の、デバイスのフォルダからの相対パス（トラックID → パス）
+pub fn build_m3u8(
+    playlist_path: &str,
+    entries: &[PlaylistEntry],
+    track_paths: &HashMap<&str, &str>,
+) -> String {
+    // プレイリストのファイルのフォルダから、デバイスのフォルダへ戻る分
+    let to_root = "../".repeat(playlist_path.matches('/').count());
     let mut content = String::from("#EXTM3U\r\n");
     for entry in entries {
         let Some(path) = track_paths.get(entry.track_id.as_str()) else {
             continue;
         };
         content.push_str(&format!(
-            "#EXTINF:{},{}\r\n{}\r\n",
+            "#EXTINF:{},{}\r\n{}{}\r\n",
             entry.duration.unwrap_or(-1),
             entry.label,
+            to_root,
             path
         ));
     }
@@ -1007,13 +1039,13 @@ mod tests {
         let mut track = transfer_track("t1", "Artist", "Album", 3, "Title");
         assert_eq!(
             track_relative_path(&track, &by_artist, None),
-            "Artist/Album/03 Title.mp3"
+            "Music/Artist/Album/03 Title.mp3"
         );
 
         track.disc_number = Some(2);
         assert_eq!(
             track_relative_path(&track, &by_artist, None),
-            "Artist/Album/2-03 Title.mp3"
+            "Music/Artist/Album/2-03 Title.mp3"
         );
 
         // 拡張子は小文字にする
@@ -1022,7 +1054,7 @@ mod tests {
         track.track_number = None;
         assert_eq!(
             track_relative_path(&track, &by_artist, None),
-            "Artist/Album/Title.flac"
+            "Music/Artist/Album/Title.flac"
         );
     }
 
@@ -1034,7 +1066,7 @@ mod tests {
         track.album_artist = Some("Band".to_string());
         assert_eq!(
             track_relative_path(&track, &template, None),
-            "Band/Album/03 Title.mp3"
+            "Music/Band/Album/03 Title.mp3"
         );
 
         // アルバムアーティストのないコンピレーションは、Various Artists（一覧のまとめ方と同じ）
@@ -1042,19 +1074,28 @@ mod tests {
         track.compilation = true;
         assert_eq!(
             track_relative_path(&track, &template, None),
-            "Various Artists/Hits/01 Song.mp3"
+            "Music/Various Artists/Hits/01 Song.mp3"
         );
         // 曲のアーティストで分ける書式では、曲のアーティストのフォルダ
         assert_eq!(
             track_relative_path(&track, &by_artist(), None),
-            "Someone/Hits/01 Song.mp3"
+            "Music/Someone/Hits/01 Song.mp3"
         );
 
-        // `/`のない書式は、デバイスのフォルダの直下
+        // `/`のない書式は、`Music`フォルダの直下
         let flat = Template::parse("%artist% - %title%").unwrap();
         assert_eq!(
             track_relative_path(&track, &flat, None),
-            "Someone - Song.mp3"
+            "Music/Someone - Song.mp3"
+        );
+    }
+
+    #[test]
+    fn test_playlist_relative_path() {
+        assert_eq!(playlist_relative_path("通勤"), "Playlists/通勤.m3u8");
+        assert_eq!(
+            playlist_relative_path("Road/Trip"),
+            "Playlists/Road_Trip.m3u8"
         );
     }
 
@@ -1122,12 +1163,36 @@ mod tests {
         assert_eq!(
             dests,
             [
-                "Artist/Album/01 t1.lrc",
-                "Artist/Album/Cover.JPG",
-                "Artist/Album/folder.jpg"
+                "Music/Artist/Album/01 t1.lrc",
+                "Music/Artist/Album/Cover.JPG",
+                "Music/Artist/Album/folder.jpg"
             ]
         );
         assert_eq!(plan.extra_copy_bytes(), 5 + 50 + 60);
+    }
+
+    #[test]
+    fn test_plan_does_not_place_folder_images_directly_in_music_folder() {
+        // `/`のない書式の曲（`Music`フォルダの直下）には、フォルダの画像を置かない（歌詞は置く）
+        let template = Template::parse("%artist% - %title%").unwrap();
+        let mut track = source_with_extras(
+            "t1",
+            "Album",
+            1,
+            vec![
+                extra(ExtraKind::Lyrics, "/music/t1.lrc", 5),
+                extra(ExtraKind::FolderImage, "/music/cover.jpg", 50),
+            ],
+        );
+        track.path = track_relative_path(&track.track, &template, None);
+        let plan = plan_sync(&[track], &[], &manifest(vec![]), true, device(&[]));
+
+        let dests: Vec<&str> = plan
+            .extras_to_copy
+            .iter()
+            .map(|op| op.dest.as_str())
+            .collect();
+        assert_eq!(dests, ["Music/Artist - t1.lrc"]);
     }
 
     #[test]
@@ -1141,17 +1206,17 @@ mod tests {
                 extra(ExtraKind::FolderImage, "/music/cover.jpg", 70),
             ],
         )];
-        let files = vec![entry("Artist/Album/01 t1.mp3", "t1")];
+        let files = vec![entry("Music/Artist/Album/01 t1.mp3", "t1")];
         let on_device = [
-            ("Artist/Album/01 t1.mp3", 100),
-            ("Artist/Album/01 t1.lrc", 5),
-            ("Artist/Album/cover.jpg", 50),
+            ("Music/Artist/Album/01 t1.mp3", 100),
+            ("Music/Artist/Album/01 t1.lrc", 5),
+            ("Music/Artist/Album/cover.jpg", 50),
         ];
         let manifest = Manifest {
             extras: vec![
-                extra_entry("Artist/Album/01 t1.lrc", "/music/t1.lrc", 5),
+                extra_entry("Music/Artist/Album/01 t1.lrc", "/music/t1.lrc", 5),
                 // 元の画像が差し替えられた（サイズが変わった）
-                extra_entry("Artist/Album/cover.jpg", "/music/cover.jpg", 50),
+                extra_entry("Music/Artist/Album/cover.jpg", "/music/cover.jpg", 50),
             ],
             ..manifest(files)
         };
@@ -1163,14 +1228,14 @@ mod tests {
                 .iter()
                 .map(|e| e.path.as_str())
                 .collect::<Vec<_>>(),
-            ["Artist/Album/01 t1.lrc"]
+            ["Music/Artist/Album/01 t1.lrc"]
         );
         assert_eq!(
             plan.extras_to_copy
                 .iter()
                 .map(|op| op.dest.as_str())
                 .collect::<Vec<_>>(),
-            ["Artist/Album/cover.jpg"]
+            ["Music/Artist/Album/cover.jpg"]
         );
         assert!(plan.extras_to_delete.is_empty());
     }
@@ -1188,8 +1253,8 @@ mod tests {
         )];
         // 記録のないファイル: 同じサイズの歌詞はコピー済みとして記録し、違う画像は上書きしない
         let on_device = [
-            ("Artist/Album/01 t1.lrc", 5),
-            ("Artist/Album/cover.jpg", 999),
+            ("Music/Artist/Album/01 t1.lrc", 5),
+            ("Music/Artist/Album/cover.jpg", 999),
         ];
         let plan = plan_sync(&tracks, &[], &manifest(vec![]), true, device(&on_device));
 
@@ -1198,7 +1263,7 @@ mod tests {
                 .iter()
                 .map(|e| e.path.as_str())
                 .collect::<Vec<_>>(),
-            ["Artist/Album/01 t1.lrc"]
+            ["Music/Artist/Album/01 t1.lrc"]
         );
         assert!(plan.extras_to_copy.is_empty());
     }
@@ -1208,21 +1273,21 @@ mod tests {
         // t1は同期する曲で、歌詞ファイルがなくなった。t2は対象から外れた（残す設定）
         let tracks = vec![source("t1", "Artist", "Album", 1, "t1")];
         let files = vec![
-            entry("Artist/Album/01 t1.mp3", "t1"),
-            entry("Artist/Other/01 t2.mp3", "t2"),
+            entry("Music/Artist/Album/01 t1.mp3", "t1"),
+            entry("Music/Artist/Other/01 t2.mp3", "t2"),
         ];
         let on_device = [
-            ("Artist/Album/01 t1.mp3", 100),
-            ("Artist/Album/01 t1.lrc", 5),
-            ("Artist/Other/01 t2.mp3", 100),
-            ("Artist/Other/01 t2.lrc", 5),
-            ("Artist/Other/cover.jpg", 50),
+            ("Music/Artist/Album/01 t1.mp3", 100),
+            ("Music/Artist/Album/01 t1.lrc", 5),
+            ("Music/Artist/Other/01 t2.mp3", 100),
+            ("Music/Artist/Other/01 t2.lrc", 5),
+            ("Music/Artist/Other/cover.jpg", 50),
         ];
         let manifest = Manifest {
             extras: vec![
-                extra_entry("Artist/Album/01 t1.lrc", "/music/t1.lrc", 5),
-                extra_entry("Artist/Other/01 t2.lrc", "/music/t2.lrc", 5),
-                extra_entry("Artist/Other/cover.jpg", "/music/cover.jpg", 50),
+                extra_entry("Music/Artist/Album/01 t1.lrc", "/music/t1.lrc", 5),
+                extra_entry("Music/Artist/Other/01 t2.lrc", "/music/t2.lrc", 5),
+                extra_entry("Music/Artist/Other/cover.jpg", "/music/cover.jpg", 50),
             ],
             ..manifest(files)
         };
@@ -1234,11 +1299,17 @@ mod tests {
                 .iter()
                 .map(|e| e.path.as_str())
                 .collect::<Vec<_>>(),
-            ["Artist/Album/01 t1.lrc"]
+            ["Music/Artist/Album/01 t1.lrc"]
         );
         let mut kept: Vec<&str> = plan.kept_extras.iter().map(|e| e.path.as_str()).collect();
         kept.sort_unstable();
-        assert_eq!(kept, ["Artist/Other/01 t2.lrc", "Artist/Other/cover.jpg"]);
+        assert_eq!(
+            kept,
+            [
+                "Music/Artist/Other/01 t2.lrc",
+                "Music/Artist/Other/cover.jpg"
+            ]
+        );
         assert_eq!(plan.extra_delete_bytes, 5);
     }
 
@@ -1252,21 +1323,31 @@ mod tests {
             vec![extra(ExtraKind::Lyrics, "/music/t1.lrc", 5)],
         )];
         tracks[0].track.album = Some("New Album".to_string());
-        let files = vec![entry("Artist/Album/01 t1.mp3", "t1")];
+        let files = vec![entry("Music/Artist/Album/01 t1.mp3", "t1")];
         let on_device = [
-            ("Artist/Album/01 t1.mp3", 100),
-            ("Artist/Album/01 t1.lrc", 5),
+            ("Music/Artist/Album/01 t1.mp3", 100),
+            ("Music/Artist/Album/01 t1.lrc", 5),
         ];
         let manifest = Manifest {
-            extras: vec![extra_entry("Artist/Album/01 t1.lrc", "/music/t1.lrc", 5)],
+            extras: vec![extra_entry(
+                "Music/Artist/Album/01 t1.lrc",
+                "/music/t1.lrc",
+                5,
+            )],
             ..manifest(files)
         };
 
         let plan = plan_sync(&tracks, &[], &manifest, true, device(&on_device));
 
-        assert_eq!(plan.to_rename[0].to, "Artist/New Album/01 t1.mp3");
-        assert_eq!(plan.extras_to_copy[0].dest, "Artist/New Album/01 t1.lrc");
-        assert_eq!(plan.extras_to_delete[0].path, "Artist/Album/01 t1.lrc");
+        assert_eq!(plan.to_rename[0].to, "Music/Artist/New Album/01 t1.mp3");
+        assert_eq!(
+            plan.extras_to_copy[0].dest,
+            "Music/Artist/New Album/01 t1.lrc"
+        );
+        assert_eq!(
+            plan.extras_to_delete[0].path,
+            "Music/Artist/Album/01 t1.lrc"
+        );
     }
 
     #[test]
@@ -1274,8 +1355,8 @@ mod tests {
         // 曲のアーティストで分ける書式でコピー済みの曲（元のファイルは変わっていない）
         let mut track = transfer_track("t1", "Someone", "Hits", 1, "Song");
         track.compilation = true;
-        let files = vec![entry("Someone/Hits/01 Song.mp3", "t1")];
-        let on_device = [("Someone/Hits/01 Song.mp3", 100)];
+        let files = vec![entry("Music/Someone/Hits/01 Song.mp3", "t1")];
+        let on_device = [("Music/Someone/Hits/01 Song.mp3", 100)];
         let template = Template::parse(crate::device::DEFAULT_DEVICE_TEMPLATE).unwrap();
         let tracks = vec![SourceTrack {
             path: track_relative_path(&track, &template, None),
@@ -1291,7 +1372,10 @@ mod tests {
         let plan = plan_sync(&tracks, &[], &manifest(files), true, device(&on_device));
         assert!(plan.to_copy.is_empty());
         assert_eq!(plan.to_rename.len(), 1);
-        assert_eq!(plan.to_rename[0].to, "Various Artists/Hits/01 Song.mp3");
+        assert_eq!(
+            plan.to_rename[0].to,
+            "Music/Various Artists/Hits/01 Song.mp3"
+        );
     }
 
     #[test]
@@ -1314,7 +1398,7 @@ mod tests {
         };
         assert_eq!(
             track_relative_path(&track, &by_artist(), None),
-            "Unknown Artist/Unknown Album/untagged song.m4a"
+            "Music/Unknown Artist/Unknown Album/untagged song.m4a"
         );
     }
 
@@ -1342,7 +1426,10 @@ mod tests {
 
         assert_eq!(
             copy_dests(&plan),
-            ["Artist/Album/01 One.mp3", "Artist/Album/02 Two.mp3"]
+            [
+                "Music/Artist/Album/01 One.mp3",
+                "Music/Artist/Album/02 Two.mp3"
+            ]
         );
         assert_eq!(plan.to_copy[0].source, "/music/t1.mp3");
         assert_eq!(plan.copy_bytes(), 200);
@@ -1352,7 +1439,7 @@ mod tests {
     #[test]
     fn test_plan_keeps_unchanged_tracks() {
         let tracks = vec![source("t1", "Artist", "Album", 1, "One")];
-        let path = "Artist/Album/01 One.mp3";
+        let path = "Music/Artist/Album/01 One.mp3";
         let plan = plan_sync(
             &tracks,
             &[],
@@ -1381,15 +1468,15 @@ mod tests {
             &tracks,
             &[],
             &manifest(vec![
-                entry("Artist/Album/01 One.mp3", "t1"),
-                entry("Artist/Album/02 Two.mp3", "t2"),
-                entry("Artist/Album/03 Three.mp3", "t3"),
+                entry("Music/Artist/Album/01 One.mp3", "t1"),
+                entry("Music/Artist/Album/02 Two.mp3", "t2"),
+                entry("Music/Artist/Album/03 Three.mp3", "t3"),
             ]),
             true,
             // t2はデバイスから消えていて、t3は途中までしか書かれていない
             device(&[
-                ("Artist/Album/01 One.mp3", 100),
-                ("Artist/Album/03 Three.mp3", 40),
+                ("Music/Artist/Album/01 One.mp3", 100),
+                ("Music/Artist/Album/03 Three.mp3", 40),
             ]),
         );
 
@@ -1397,9 +1484,9 @@ mod tests {
         assert_eq!(
             copy_dests(&plan),
             [
-                "Artist/Album/01 One.mp3",
-                "Artist/Album/02 Two.mp3",
-                "Artist/Album/03 Three.mp3"
+                "Music/Artist/Album/01 One.mp3",
+                "Music/Artist/Album/02 Two.mp3",
+                "Music/Artist/Album/03 Three.mp3"
             ]
         );
         assert_eq!(plan.to_copy[0].size, 120);
@@ -1413,7 +1500,7 @@ mod tests {
             size: 100,
             modified_at: Some(10 + 3600),
         });
-        let path = "Artist/Album/01 One.mp3";
+        let path = "Music/Artist/Album/01 One.mp3";
         let plan = plan_sync(
             &[shifted],
             &[],
@@ -1429,12 +1516,12 @@ mod tests {
     fn test_plan_removes_unselected_tracks_only_when_enabled() {
         let tracks = vec![source("t1", "Artist", "Album", 1, "One")];
         let files = vec![
-            entry("Artist/Album/01 One.mp3", "t1"),
-            entry("Artist/Album/02 Two.mp3", "t2"),
+            entry("Music/Artist/Album/01 One.mp3", "t1"),
+            entry("Music/Artist/Album/02 Two.mp3", "t2"),
         ];
         let on_device = [
-            ("Artist/Album/01 One.mp3", 100),
-            ("Artist/Album/02 Two.mp3", 100),
+            ("Music/Artist/Album/01 One.mp3", 100),
+            ("Music/Artist/Album/02 Two.mp3", 100),
         ];
 
         let plan = plan_sync(
@@ -1444,16 +1531,19 @@ mod tests {
             true,
             device(&on_device),
         );
-        assert_eq!(paths(&plan.to_delete), ["Artist/Album/02 Two.mp3"]);
+        assert_eq!(paths(&plan.to_delete), ["Music/Artist/Album/02 Two.mp3"]);
         assert_eq!(plan.delete_bytes, 100);
-        assert_eq!(paths(&plan.kept), ["Artist/Album/01 One.mp3"]);
+        assert_eq!(paths(&plan.kept), ["Music/Artist/Album/01 One.mp3"]);
 
         // 削除しない設定では、記録を残す
         let plan = plan_sync(&tracks, &[], &manifest(files), false, device(&on_device));
         assert!(plan.to_delete.is_empty());
         assert_eq!(
             paths(&plan.kept),
-            ["Artist/Album/01 One.mp3", "Artist/Album/02 Two.mp3"]
+            [
+                "Music/Artist/Album/01 One.mp3",
+                "Music/Artist/Album/02 Two.mp3"
+            ]
         );
     }
 
@@ -1484,7 +1574,7 @@ mod tests {
         let tracks = vec![transcoded("t1", "One", 256)];
         let plan = plan_sync(&tracks, &[], &manifest(vec![]), true, device(&[]));
 
-        assert_eq!(copy_dests(&plan), ["Artist/Album/01 One.m4a"]);
+        assert_eq!(copy_dests(&plan), ["Music/Artist/Album/01 One.m4a"]);
         let op = &plan.to_copy[0];
         assert_eq!(op.transcode, Some(Transcode { bitrate_kbps: 256 }));
         // 元のファイルのサイズと、ビットレート×長さ（180秒）からの見積もり
@@ -1496,7 +1586,7 @@ mod tests {
 
     #[test]
     fn test_plan_keeps_transcoded_copies_until_the_setting_changes() {
-        let path = "Artist/Album/01 One.m4a";
+        let path = "Music/Artist/Album/01 One.m4a";
         let recorded = manifest(vec![transcoded_entry(path, "t1", 256, 5000)]);
         let on_device = [(path, 5000)];
 
@@ -1531,7 +1621,7 @@ mod tests {
             device(&on_device),
         );
         assert!(plan.to_rename.is_empty() && plan.to_delete.is_empty());
-        assert_eq!(copy_dests(&plan), ["Artist/Album/01 One.mp3"]);
+        assert_eq!(copy_dests(&plan), ["Music/Artist/Album/01 One.mp3"]);
         assert_eq!(
             plan.to_copy[0].replaces.as_ref().map(|e| e.path.as_str()),
             Some(path)
@@ -1545,7 +1635,7 @@ mod tests {
     #[test]
     fn test_plan_does_not_rename_original_copies_into_transcoded_ones() {
         // 変換しないでコピーした曲を、変換する設定にした
-        let old = "Artist/Album/01 One.mp3";
+        let old = "Music/Artist/Album/01 One.mp3";
         let plan = plan_sync(
             &[transcoded("t1", "One", 256)],
             &[],
@@ -1554,7 +1644,7 @@ mod tests {
             device(&[(old, 100)]),
         );
         assert!(plan.to_rename.is_empty() && plan.to_delete.is_empty());
-        assert_eq!(copy_dests(&plan), ["Artist/Album/01 One.m4a"]);
+        assert_eq!(copy_dests(&plan), ["Music/Artist/Album/01 One.m4a"]);
         assert_eq!(
             plan.to_copy[0].replaces.as_ref().map(|e| e.path.as_str()),
             Some(old)
@@ -1562,7 +1652,7 @@ mod tests {
         assert_eq!(plan.delete_bytes, 100);
 
         // タグだけが変わった変換済みの曲は、名前を変える
-        let recorded = "Artist/Album/01 Old.m4a";
+        let recorded = "Music/Artist/Album/01 Old.m4a";
         let plan = plan_sync(
             &[transcoded("t1", "New", 256)],
             &[],
@@ -1571,13 +1661,13 @@ mod tests {
             device(&[(recorded, 5000)]),
         );
         assert_eq!(plan.to_rename.len(), 1);
-        assert_eq!(plan.to_rename[0].to, "Artist/Album/01 New.m4a");
+        assert_eq!(plan.to_rename[0].to, "Music/Artist/Album/01 New.m4a");
     }
 
     #[test]
     fn test_plan_does_not_adopt_unmanaged_files_for_transcoded_tracks() {
         // 記録のない同じ名前・元と同じサイズのファイルは、変換したものか分からないため、使わない
-        let desired = "Artist/Album/01 One.m4a";
+        let desired = "Music/Artist/Album/01 One.m4a";
         let plan = plan_sync(
             &[transcoded("t1", "One", 256)],
             &[],
@@ -1586,14 +1676,14 @@ mod tests {
             device(&[(desired, 100)]),
         );
         assert!(plan.kept.is_empty());
-        assert_eq!(copy_dests(&plan), ["Artist/Album/01 One (2).m4a"]);
+        assert_eq!(copy_dests(&plan), ["Music/Artist/Album/01 One (2).m4a"]);
     }
 
     #[test]
     fn test_plan_renames_when_tags_change() {
         // タイトルを変えた（元のファイルは変わっていない）
         let tracks = vec![source("t1", "Artist", "Album", 1, "New Title")];
-        let old = "Artist/Album/01 Old Title.mp3";
+        let old = "Music/Artist/Album/01 Old Title.mp3";
         let plan = plan_sync(
             &tracks,
             &[],
@@ -1604,7 +1694,7 @@ mod tests {
 
         assert_eq!(plan.to_rename.len(), 1);
         assert_eq!(plan.to_rename[0].entry.path, old);
-        assert_eq!(plan.to_rename[0].to, "Artist/Album/01 New Title.mp3");
+        assert_eq!(plan.to_rename[0].to, "Music/Artist/Album/01 New Title.mp3");
         assert!(plan.to_copy.is_empty() && plan.to_delete.is_empty());
     }
 
@@ -1616,7 +1706,7 @@ mod tests {
             size: 130,
             modified_at: Some(50),
         });
-        let old = "Artist/Album/01 Old Title.mp3";
+        let old = "Music/Artist/Album/01 Old Title.mp3";
         let plan = plan_sync(
             &[edited],
             &[],
@@ -1626,14 +1716,14 @@ mod tests {
         );
 
         assert_eq!(paths(&plan.to_delete), [old]);
-        assert_eq!(copy_dests(&plan), ["Artist/Album/01 New Title.mp3"]);
+        assert_eq!(copy_dests(&plan), ["Music/Artist/Album/01 New Title.mp3"]);
         assert!(plan.to_rename.is_empty());
     }
 
     #[test]
     fn test_plan_ignores_case_only_tag_change() {
         let tracks = vec![source("t1", "The Artist", "Album", 1, "One")];
-        let old = "the artist/Album/01 One.mp3";
+        let old = "Music/the artist/Album/01 One.mp3";
         let plan = plan_sync(
             &tracks,
             &[],
@@ -1657,20 +1747,20 @@ mod tests {
         assert_eq!(
             copy_dests(&plan),
             [
-                "Artist/Album/01 Same.mp3",
-                "Artist/Album/01 Same (2).mp3",
-                "ARTIST/Album/01 same (3).mp3"
+                "Music/Artist/Album/01 Same.mp3",
+                "Music/Artist/Album/01 Same (2).mp3",
+                "Music/ARTIST/Album/01 same (3).mp3"
             ]
         );
 
         // 次の同期では、連番の付いたパスをそのまま使う（t1が対象から外れても詰めない）
         let files = vec![
-            entry("Artist/Album/01 Same.mp3", "t1"),
-            entry("Artist/Album/01 Same (2).mp3", "t2"),
+            entry("Music/Artist/Album/01 Same.mp3", "t1"),
+            entry("Music/Artist/Album/01 Same (2).mp3", "t2"),
         ];
         let on_device = [
-            ("Artist/Album/01 Same.mp3", 100),
-            ("Artist/Album/01 Same (2).mp3", 100),
+            ("Music/Artist/Album/01 Same.mp3", 100),
+            ("Music/Artist/Album/01 Same (2).mp3", 100),
         ];
         let plan = plan_sync(
             &tracks[1..2],
@@ -1679,8 +1769,8 @@ mod tests {
             true,
             device(&on_device),
         );
-        assert_eq!(paths(&plan.kept), ["Artist/Album/01 Same (2).mp3"]);
-        assert_eq!(paths(&plan.to_delete), ["Artist/Album/01 Same.mp3"]);
+        assert_eq!(paths(&plan.kept), ["Music/Artist/Album/01 Same (2).mp3"]);
+        assert_eq!(paths(&plan.to_delete), ["Music/Artist/Album/01 Same.mp3"]);
         assert!(plan.to_copy.is_empty() && plan.to_rename.is_empty());
     }
 
@@ -1693,9 +1783,9 @@ mod tests {
             &[],
             &manifest(vec![]),
             true,
-            device(&[("Artist/Album/01 One.mp3", 999)]),
+            device(&[("Music/Artist/Album/01 One.mp3", 999)]),
         );
-        assert_eq!(copy_dests(&plan), ["Artist/Album/01 One (2).mp3"]);
+        assert_eq!(copy_dests(&plan), ["Music/Artist/Album/01 One (2).mp3"]);
         assert!(plan.to_delete.is_empty());
     }
 
@@ -1709,11 +1799,11 @@ mod tests {
             &tracks,
             &[],
             // t1は記録がなく（管理ファイルをなくした）、2曲目はトラックが登録し直された
-            &manifest(vec![entry("Artist/Album/02 Two.mp3", "old-id")]),
+            &manifest(vec![entry("Music/Artist/Album/02 Two.mp3", "old-id")]),
             true,
             device(&[
-                ("Artist/Album/01 One.mp3", 100),
-                ("Artist/Album/02 Two.mp3", 100),
+                ("Music/Artist/Album/01 One.mp3", 100),
+                ("Music/Artist/Album/02 Two.mp3", 100),
             ]),
         );
 
@@ -1727,8 +1817,8 @@ mod tests {
         assert_eq!(
             kept,
             [
-                ("Artist/Album/01 One.mp3", "t1"),
-                ("Artist/Album/02 Two.mp3", "new-id")
+                ("Music/Artist/Album/01 One.mp3", "t1"),
+                ("Music/Artist/Album/02 Two.mp3", "new-id")
             ]
         );
     }
@@ -1741,7 +1831,7 @@ mod tests {
             size: 150,
             modified_at: Some(20),
         });
-        let path = "Artist/Album/01 One.mp3";
+        let path = "Music/Artist/Album/01 One.mp3";
         let files = vec![entry(path, "t1")];
 
         let plan = plan_sync(
@@ -1762,7 +1852,7 @@ mod tests {
             false,
             device(&[(path, 100)]),
         );
-        assert_eq!(copy_dests(&plan), ["Artist/Album/01 One (2).mp3"]);
+        assert_eq!(copy_dests(&plan), ["Music/Artist/Album/01 One (2).mp3"]);
         assert_eq!(paths(&plan.kept), [path]);
     }
 
@@ -1772,7 +1862,7 @@ mod tests {
         unplugged.file = None;
         let mut never_copied = source("t2", "Artist", "Album", 2, "Two");
         never_copied.file = None;
-        let path = "Artist/Album/01 One.mp3";
+        let path = "Music/Artist/Album/01 One.mp3";
 
         let plan = plan_sync(
             &[unplugged, never_copied],
@@ -1790,7 +1880,7 @@ mod tests {
     #[test]
     fn test_plan_ignores_duplicate_manifest_entries() {
         let tracks = vec![source("t1", "Artist", "Album", 1, "One")];
-        let path = "Artist/Album/01 One.mp3";
+        let path = "Music/Artist/Album/01 One.mp3";
         let plan = plan_sync(
             &tracks,
             &[],
@@ -1798,14 +1888,17 @@ mod tests {
                 entry(path, "t1"),
                 // 同じパスの記録と、同じトラックの別のパスの記録
                 entry(path, "t9"),
-                entry("Artist/Album/01 One (2).mp3", "t1"),
+                entry("Music/Artist/Album/01 One (2).mp3", "t1"),
             ]),
             true,
-            device(&[(path, 100), ("Artist/Album/01 One (2).mp3", 100)]),
+            device(&[(path, 100), ("Music/Artist/Album/01 One (2).mp3", 100)]),
         );
 
         assert_eq!(paths(&plan.kept), [path]);
-        assert_eq!(paths(&plan.to_delete), ["Artist/Album/01 One (2).mp3"]);
+        assert_eq!(
+            paths(&plan.to_delete),
+            ["Music/Artist/Album/01 One (2).mp3"]
+        );
     }
 
     fn playlist(id: &str, name: &str, track_ids: &[&str]) -> SourcePlaylist {
@@ -1837,7 +1930,14 @@ mod tests {
         let plan = plan_sync(&tracks, &playlists, &manifest(vec![]), true, device(&[]));
 
         let files: Vec<&str> = plan.playlists.iter().map(|p| p.path.as_str()).collect();
-        assert_eq!(files, ["通勤.m3u8", "通勤 (2).m3u8", "Road_Trip.m3u8"]);
+        assert_eq!(
+            files,
+            [
+                "Playlists/通勤.m3u8",
+                "Playlists/通勤 (2).m3u8",
+                "Playlists/Road_Trip.m3u8"
+            ]
+        );
         // 曲順どおりで、同期する曲にないトラックは含めない
         let ids: Vec<&str> = plan.playlists[0]
             .entries
@@ -1856,25 +1956,28 @@ mod tests {
         ];
         let mut recorded = manifest(vec![]);
         recorded.playlists = vec![
-            playlist_entry("通勤.m3u8", "p1"),
-            playlist_entry("古い名前.m3u8", "p2"),
-            playlist_entry("外した.m3u8", "p3"),
+            playlist_entry("Playlists/通勤.m3u8", "p1"),
+            playlist_entry("Playlists/古い名前.m3u8", "p2"),
+            playlist_entry("Playlists/外した.m3u8", "p3"),
         ];
         let on_device = [
-            ("通勤.m3u8", 10),
-            ("古い名前.m3u8", 10),
-            ("外した.m3u8", 10),
+            ("Playlists/通勤.m3u8", 10),
+            ("Playlists/古い名前.m3u8", 10),
+            ("Playlists/外した.m3u8", 10),
         ];
 
         let plan = plan_sync(&[], &playlists, &recorded, true, device(&on_device));
         let files: Vec<&str> = plan.playlists.iter().map(|p| p.path.as_str()).collect();
-        assert_eq!(files, ["通勤.m3u8", "新しい名前.m3u8"]);
+        assert_eq!(files, ["Playlists/通勤.m3u8", "Playlists/新しい名前.m3u8"]);
         let deleted: Vec<&str> = plan
             .playlists_to_delete
             .iter()
             .map(|p| p.path.as_str())
             .collect();
-        assert_eq!(deleted, ["古い名前.m3u8", "外した.m3u8"]);
+        assert_eq!(
+            deleted,
+            ["Playlists/古い名前.m3u8", "Playlists/外した.m3u8"]
+        );
 
         // 削除しない設定では、対象から外れたプレイリストは残す（名前を変えたものは消す）
         let plan = plan_sync(&[], &playlists, &recorded, false, device(&on_device));
@@ -1883,8 +1986,39 @@ mod tests {
             .iter()
             .map(|p| p.path.as_str())
             .collect();
-        assert_eq!(deleted, ["古い名前.m3u8"]);
-        assert_eq!(plan.kept_playlists, [playlist_entry("外した.m3u8", "p3")]);
+        assert_eq!(deleted, ["Playlists/古い名前.m3u8"]);
+        assert_eq!(
+            plan.kept_playlists,
+            [playlist_entry("Playlists/外した.m3u8", "p3")]
+        );
+    }
+
+    #[test]
+    fn test_plan_moves_files_of_the_layout_without_music_folder() {
+        // `Music`・`Playlists`フォルダを使う前の配置（デバイスのフォルダの直下）でコピーした曲は、
+        // コピーし直さずに`Music`フォルダへ移し、プレイリストは`Playlists`フォルダに書き直す
+        let tracks = vec![source("t1", "Artist", "Album", 1, "One")];
+        let old = "Artist/Album/01 One.mp3";
+        let mut recorded = manifest(vec![entry(old, "t1")]);
+        recorded.playlists = vec![playlist_entry("通勤.m3u8", "p1")];
+        let playlists = vec![playlist("p1", "通勤", &["t1"])];
+
+        let plan = plan_sync(
+            &tracks,
+            &playlists,
+            &recorded,
+            true,
+            device(&[(old, 100), ("通勤.m3u8", 10)]),
+        );
+
+        assert!(plan.to_copy.is_empty() && plan.to_delete.is_empty());
+        assert_eq!(plan.to_rename.len(), 1);
+        assert_eq!(plan.to_rename[0].to, "Music/Artist/Album/01 One.mp3");
+        assert_eq!(
+            plan.playlists_to_delete,
+            [playlist_entry("通勤.m3u8", "p1")]
+        );
+        assert_eq!(plan.playlists[0].path, "Playlists/通勤.m3u8");
     }
 
     #[test]
@@ -1895,9 +2029,9 @@ mod tests {
             &playlists,
             &manifest(vec![]),
             true,
-            device(&[("通勤.m3u8", 10)]),
+            device(&[("Playlists/通勤.m3u8", 10)]),
         );
-        assert_eq!(plan.playlists[0].path, "通勤 (2).m3u8");
+        assert_eq!(plan.playlists[0].path, "Playlists/通勤 (2).m3u8");
     }
 
     #[test]
@@ -1920,15 +2054,21 @@ mod tests {
             },
         ];
         let track_paths = HashMap::from([
-            ("t1", "Artist/Album/01 One.mp3"),
-            ("t2", "Unknown Artist/Unknown Album/Two.flac"),
+            ("t1", "Music/Artist/Album/01 One.mp3"),
+            ("t2", "Music/Unknown Artist/Unknown Album/Two.flac"),
         ]);
 
+        // `Playlists`フォルダのプレイリストからは、デバイスのフォルダへ戻ってから`Music`フォルダを指す
         assert_eq!(
-            build_m3u8(&entries, &track_paths),
+            build_m3u8("Playlists/通勤.m3u8", &entries, &track_paths),
             "#EXTM3U\r\n\
-             #EXTINF:215,Artist - One\r\nArtist/Album/01 One.mp3\r\n\
-             #EXTINF:-1,Two\r\nUnknown Artist/Unknown Album/Two.flac\r\n"
+             #EXTINF:215,Artist - One\r\n../Music/Artist/Album/01 One.mp3\r\n\
+             #EXTINF:-1,Two\r\n../Music/Unknown Artist/Unknown Album/Two.flac\r\n"
+        );
+        // デバイスのフォルダの直下のプレイリストなら、`..`を付けない
+        assert_eq!(
+            build_m3u8("通勤.m3u8", &entries[..1], &track_paths),
+            "#EXTM3U\r\n#EXTINF:215,Artist - One\r\nMusic/Artist/Album/01 One.mp3\r\n"
         );
     }
 

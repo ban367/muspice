@@ -146,7 +146,7 @@ export interface SmartPlaylist {
 
 ### 転送先デバイス型
 
-- `SyncDevice`: `id`, `name`, `path`（転送先のフォルダ）, `syncAll`（全曲を同期するか）, `playlistIds`（同期するプレイリスト）, `smartPlaylistIds`（同期するオートプレイリスト。ADR-127）, `removeUnselected`（対象から外れた曲をデバイスから削除するか）, `pathTemplate`（デバイス上の配置の書式。下の「デバイス上の配置」）, `copyExtras`（歌詞ファイル・フォルダの画像もコピーするか。下の「曲に添えるファイル」）, `transcode`（転送する時の変換。`{ mode: 'off' | 'lossless' | 'aboveBitrate', bitrateKbps }`。下の「転送する時の変換」）, `ejectable`（取り出せるか。macOSで、転送先のフォルダが`/Volumes`の下のドライブにあり、接続されている）, `connected`（転送先のフォルダに、このデバイスの管理ファイルがあるか）, `freeBytes` / `totalBytes`（接続されていなければnull）, `createdAt`, `lastSyncedAt`
+- `SyncDevice`: `id`, `name`, `path`（転送先のフォルダ）, `syncAll`（全曲を同期するか。全曲か、選んだプレイリストかのどちらか一方。ADR-135）, `playlistIds`（同期するプレイリスト。`syncAll`の間は使わないが、選んだプレイリストで同期する設定に戻した時のために残す）, `smartPlaylistIds`（同期するオートプレイリスト。ADR-127）, `removeUnselected`（対象から外れた曲をデバイスから削除するか）, `pathTemplate`（デバイス上の配置の書式。下の「デバイス上の配置」）, `copyExtras`（歌詞ファイル・フォルダの画像もコピーするか。下の「曲に添えるファイル」）, `transcode`（転送する時の変換。`{ mode: 'off' | 'lossless' | 'aboveBitrate', bitrateKbps }`。下の「転送する時の変換」）, `ejectable`（取り出せるか。macOSで、転送先のフォルダが`/Volumes`の下のドライブにあり、接続されている）, `connected`（転送先のフォルダに、このデバイスの管理ファイルがあるか）, `freeBytes` / `totalBytes`（接続されていなければnull）, `createdAt`, `lastSyncedAt`
 - `SyncDeviceConfig`: `name`, `syncAll`, `playlistIds`, `smartPlaylistIds`, `removeUnselected`, `pathTemplate`, `copyExtras`, `transcode`
 - `DeviceSyncPlan`: `copyCount` / `copyBytes`, `deleteCount` / `deleteBytes`, `renameCount`, `unchangedCount`, `playlistCount`, `transcodeCount`（コピーする曲のうち、AACに変換する曲数。変換する曲の`copyBytes`は見積もり）, `missingSourceCount`（元のファイルが見つからない曲数）, `extraCopyCount` / `extraCopyBytes` / `extraDeleteCount`（曲に添えるファイルのコピー・削除）, `freeBytes`, `requiredBytes`（コピーする容量（曲に添えるファイルを含む）から、削除で空く容量を引いたもの）, `hasEnoughSpace`, `copyPaths` / `deletePaths` / `renames`（`{ from, to }`）（コピー・削除・名前を変える曲のデバイス上の場所。確認の画面の「曲の一覧を見る」で出す。それぞれ先頭の1000件（`PLAN_ITEMS_LIMIT`）まで）
 - `DeviceSyncResult`: `copiedCount`, `deletedCount`, `renamedCount`, `extraCopiedCount` / `extraDeletedCount`（曲に添えるファイル）, `playlistCount`, `errorCount`, `errors[]`, `cancelled`
@@ -410,12 +410,15 @@ export interface SmartPlaylist {
 
 #### 同期する曲とプレイリスト
 
+同期する内容は、「ライブラリの全曲」（`syncAll`）か「選んだプレイリスト」のどちらか一方（デバイスのページのラジオボタン。ADR-135）。
+
 - 曲: `syncAll`ならライブラリの全曲（件数の上限なし。`repository::find_transfer_tracks`）、そうでなければ選んだプレイリスト・オートプレイリストの曲（複数のプレイリストにある曲は1回だけコピーする）。オートプレイリストは、同期する時に条件に合う曲（ADR-042）。CUEシートの曲は転送しない（曲の範囲を切り出す仕組みがない。ADR-123）
-- プレイリスト: 選んだプレイリスト・オートプレイリストを、デバイスのフォルダの直下に`プレイリスト名.m3u8`（拡張M3U・UTF-8・改行はCRLF）で書き出す。曲のパスはデバイスのフォルダからの相対パス（区切りは`/`。直下に置くため`..`を含まない）で、デバイスにある曲だけを曲順どおりに書く
+- プレイリスト: `syncAll`ならすべてのプレイリスト・オートプレイリスト、そうでなければ選んだプレイリスト・オートプレイリストを、デバイスのフォルダの直下の`Playlists`フォルダに`プレイリスト名.m3u8`（拡張M3U・UTF-8・改行はCRLF）で書き出す（`device_sync::PLAYLISTS_DIR`。ADR-135）。曲のパスはプレイリストのファイルからの相対パス（区切りは`/`。`../Music/アーティスト/...`）で、デバイスにある曲だけを曲順どおりに書く
 
 #### デバイス上の配置（`device_sync.rs`）
 
-- デバイスごとの配置の書式（`pathTemplate`）で、タグから決める（ADR-111）。書き方・値のない項目（`Unknown Artist` / `Unknown Album`など、表示の言語によらず固定。タイトルは元のファイル名）は、ファイルの整理と同じ（`file_organize::Template`）。書式の基準はデバイスのフォルダで、`/`のない書式はデバイスのフォルダの直下に置く。拡張子は、元のファイルの拡張子を小文字にしたもの
+- 曲は必ず、デバイスのフォルダの直下の`Music`フォルダの中に置く（`device_sync::MUSIC_DIR`。ADR-135）。`Music`フォルダの中の配置は、デバイスごとの配置の書式（`pathTemplate`）で、タグから決める（ADR-111）。書き方・値のない項目（`Unknown Artist` / `Unknown Album`など、表示の言語によらず固定。タイトルは元のファイル名）は、ファイルの整理と同じ（`file_organize::Template`）。書式の基準は`Music`フォルダで、`/`のない書式は`Music`フォルダの直下に置く。拡張子は、元のファイルの拡張子を小文字にしたもの
+  - `Music`フォルダを使う前の版でデバイスのフォルダの直下にコピーした曲は、次の同期で`Music`フォルダの中へ名前を変えて移す（下の「配置が変わった」に当たる。コピーし直さない）。直下に書き出したプレイリストは削除し、`Playlists`フォルダに書き直す
   - 新しく登録するデバイスの既定は`%albumartist%/%album%/[%disc%-]%track% %title%`（`device::DEFAULT_DEVICE_TEMPLATE`。音楽フォルダの既定の書式と同じ。アルバムアーティストで分け、アルバムアーティストのないコンピレーションは`Various Artists`）
   - デバイスのページで書式を変えて「書式を適用」で保存すると、次の同期で、コピー済みの曲の名前を変える（元のファイルは変わらないため、下の「配置が変わった」に当たる。コピーし直さない）
   - 曲は、アルバムをまとめたアーティスト（`repository::ALBUM_ARTIST`）→ アルバム → アルバムの中の順にコピーする（コンピレーションの曲も、アルバムの曲順に続けて書き込む）
@@ -446,7 +449,7 @@ export interface SmartPlaylist {
 デバイスの設定`copyExtras`（既定はオン）がオンの時は、同期する曲に添えて、歌詞ファイルとフォルダの画像もコピーする。
 
 - 対象: 曲と同じフォルダにある、同じ名前の歌詞ファイル（`.lrc`。拡張子の大文字と小文字は区別しない。`get_track_lyrics`が読むもの）と、フォルダの画像（アルバムアートの表示と同じものを選ぶ。名前の優先順に試し、10MB以下で中身がJPEGかPNGのもののうち最初の1つ）。元のファイルが見つからない曲には添えない
-- 置く場所: 歌詞ファイルは、デバイス上の曲と同じ名前（拡張子は`.lrc`。連番の付いた曲は連番も同じ）。フォルダの画像は、デバイス上の曲のフォルダに、元と同じ名前で置く（デバイスのフォルダの直下の曲には置かない）。同じ場所になる画像（同じフォルダの曲）は、曲順で最初の曲のものを使う
+- 置く場所: 歌詞ファイルは、デバイス上の曲と同じ名前（拡張子は`.lrc`。連番の付いた曲は連番も同じ）。フォルダの画像は、デバイス上の曲のフォルダに、元と同じ名前で置く（`Music`フォルダ・デバイスのフォルダの直下の曲には置かない）。同じ場所になる画像（同じフォルダの曲）は、曲順で最初の曲のものを使う
 - 記録があり、元のファイルが同じで変わっておらず（サイズ・更新日時。曲と同じく夏時間のずれを許す）、デバイス上にもある: そのまま残す。変わった・ない: 同じ場所にコピーし直す
 - 記録がない: デバイス上になければコピーする。同じサイズのファイルがあれば、コピー済みとして記録する。違うファイルがあれば、置かない（上書きしない。連番も付けない）
 - 記録があるが、置く場所でなくなった（曲の場所が変わった・元のファイルがなくなった・オフにした）: 削除する。ただし、元のファイルが見つからない曲・対象から外れて残す曲の、歌詞ファイル（名前が同じ）と画像（同じフォルダ）は残す
@@ -465,7 +468,7 @@ export interface SmartPlaylist {
 
 #### 同期の実行（`device_transfer::execute_plan`）
 
-- 順序は「削除（曲・曲に添えるファイル） → リネーム → コピー（曲 → 曲に添えるファイル） → プレイリスト」。空になったフォルダは削除する。中止された場合と、デバイスの容量が足りなくなった場合は、曲に添えるファイルをコピーしない
+- 順序は「削除（曲・曲に添えるファイル） → リネーム → コピー（曲 → 曲に添えるファイル） → プレイリスト」。空になったフォルダ（`Music`・`Playlists`フォルダを含む）は削除する。`Playlists`フォルダは、書き出す時になければ作る。中止された場合と、デバイスの容量が足りなくなった場合は、曲に添えるファイルをコピーしない
 - コピーは別名（`.part`）に書いてから置き換える。一時ファイルの名前にあるものは消してから新しく作る（シンボリックリンクをたどらない。`device_manifest::create_temp_file`）。アルバムの曲順にコピーする
 - 管理ファイルは、削除・リネームの後、50曲コピーするごと、最後に保存する（別名で書いてから置き換える）
 - 中止された場合と、デバイスの容量が足りなくなった場合は、プレイリストを書き出さずに終わる（コピー済みの曲は記録する）。最終同期の日時は、中止されなかった場合だけ記録する
@@ -481,16 +484,16 @@ export interface SmartPlaylist {
   "deviceId": "（UUID）",
   "files": [
     {
-      "path": "Artist/Album/01 Title.flac",
+      "path": "Music/Artist/Album/01 Title.flac",
       "trackId": "（UUID）",
       "size": 12345678,
       "modifiedAt": 1700000000
     }
   ],
-  "playlists": [{ "path": "通勤.m3u8", "playlistId": "（UUID）" }],
+  "playlists": [{ "path": "Playlists/通勤.m3u8", "playlistId": "（UUID）" }],
   "extras": [
     {
-      "path": "Artist/Album/01 Title.lrc",
+      "path": "Music/Artist/Album/01 Title.lrc",
       "source": "/Users/me/Music/Album/01 Title.lrc",
       "size": 1234,
       "modifiedAt": 1700000000

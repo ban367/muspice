@@ -27,6 +27,8 @@
     hint?: string;
     /** 「既定に戻す」で入れる書式（省略時は、音楽フォルダの既定の書式） */
     defaultTemplate?: string;
+    /** 例の前に付ける場所（デバイスの`Music/`など。書式で決まる場所が、そのフォルダの中にある時） */
+    examplePrefix?: string;
   }
 
   let {
@@ -34,7 +36,8 @@
     id = 'music-folder-template',
     label = m.musicFolder.template,
     hint = m.musicFolder.templateHint,
-    defaultTemplate = DEFAULT_MUSIC_FOLDER_TEMPLATE
+    defaultTemplate = DEFAULT_MUSIC_FOLDER_TEMPLATE,
+    examplePrefix = ''
   }: Props = $props();
 
   // 書式の例（書式を変えるたびに取り直す。取り直している間は、前の例を出したままにする）
@@ -125,7 +128,7 @@
       {:else}
         <ul class="example-list">
           {#each examples as example, index (index)}
-            <li class="example">{example}</li>
+            <li class="example">{examplePrefix}{example}</li>
           {/each}
         </ul>
       {/if}
