@@ -26,11 +26,13 @@
 
 <div class="album-art-container {roundedClass}">
   {#if showImage}
+    <!-- 画像そのものはドラッグさせない（カード・行のドラッグ（アルバムなどをプレイリストへ）にする） -->
     <img
       {src}
       {alt}
       class="album-art-image {roundedClass}"
       loading="lazy"
+      draggable="false"
       onerror={() => (failedSrc = src)}
     />
   {:else}

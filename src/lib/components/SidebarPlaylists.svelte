@@ -6,13 +6,15 @@
   - 並び順は、名前・作成日・手動から選ぶ（見出しのメニュー）。手動の間は、プレイリストと
     フォルダをドラッグで並べ替えられる
   - プレイリストは、どの並び順でも、ドラッグでフォルダへ出し入れできる（右クリックのメニューからも移せる）
-  - 曲の一覧からドラッグした曲は、プレイリストへ追加する
+  - 曲の一覧からドラッグした曲と、アルバム・アーティスト・ジャンルのカード・行（まとまり）は、
+    プレイリストへ追加する（まとまりは、落とした時にその曲を取得する）
 
   並び順と、閉じているフォルダは`#lib/stores/playlistSidebar.svelte`が覚える（ADR-043）。
   オートプレイリストは、この上の別の領域（`SidebarSmartPlaylists`）に出す（ADR-127）。
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { useQueryClient } from '@tanstack/svelte-query';
   import { resolve } from '$app/paths';
   import { page } from '$app/state';
   import {
@@ -33,7 +35,12 @@
     toSafeString
   } from '#lib/utils/validation.js';
   import { confirmDestructive, promptText } from '#lib/utils/dialog.svelte.js';
-  import { isTrackDrag, readDraggedTrackIds } from '#lib/utils/trackDrag.js';
+  import {
+    isTrackDrag,
+    readDraggedTracks,
+    resolveDraggedTrackIds,
+    type DraggedTracks
+  } from '#lib/utils/trackDrag.js';
   import {
     PLAYLIST_SORTS,
     buildPlaylistTree,
@@ -66,6 +73,8 @@
   const FOLDER_DRAG_TYPE = 'application/x-muspice-playlist-folder-id';
 
   const currentPath = $derived(page.url.pathname);
+
+  const queryClient = useQueryClient();
 
   const playlistsQuery = usePlaylistsQuery();
   const foldersQuery = usePlaylistFoldersQuery();
@@ -207,6 +216,20 @@
     }
   }
 
+  /**
+   * ドラッグした曲（選択していた曲すべて・まとまりの全曲）を、一覧の並び順のまま1回で追加する
+   *
+   * まとまりの曲の取得に失敗した場合は追加しない（失敗はクエリ側がトーストで通知する）。
+   */
+  async function addDraggedTracks(playlistId: string, dragged: DraggedTracks) {
+    try {
+      const trackIds = await resolveDraggedTrackIds(queryClient, dragged);
+      if (trackIds.length > 0) addTracksMutation.mutate({ playlistId, trackIds });
+    } catch (error) {
+      console.error('Failed to fetch dragged tracks:', error);
+    }
+  }
+
   function handlePlaylistDrop(event: DragEvent, target: Playlist) {
     const kind = dragKind(event);
     if (kind === null || kind === 'folder') return;
@@ -216,9 +239,9 @@
     clearDrop();
 
     if (kind === 'track') {
-      // ドラッグした曲（選択していた曲すべて）を、一覧の並び順のまま1回で追加する
-      const trackIds = readDraggedTrackIds(event);
-      if (trackIds.length > 0) addTracksMutation.mutate({ playlistId: target.id, trackIds });
+      // データは`drop`の間しか読めないため、先に読んでおく
+      const dragged = readDraggedTracks(event);
+      if (dragged !== null) void addDraggedTracks(target.id, dragged);
       return;
     }
 

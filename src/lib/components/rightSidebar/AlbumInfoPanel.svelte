@@ -6,6 +6,7 @@
   アルバムは、アルバムの画面と同じく「アルバムアーティスト（なければ曲のアーティスト）＋アルバム名」でまとめ、
   ディスクごとに曲を区切る。アルバムのない曲は、そのことを示す。
   アルバムの曲の選択・キー操作・ダブルクリックでの再生・ドラッグ（プレイリストへの追加）は、ほかの曲の一覧と同じ。
+  アルバムの見出しのドラッグでは、アルバムの曲すべてを運ぶ。
   パネルの幅が狭いため、行には番号・曲名・時間だけを出し、お気に入りと評価は行にポインタを置いた時に出す。
 -->
 <script lang="ts">
@@ -144,6 +145,15 @@
     startTrackDrag(event, trackIds, m.common.trackCount(trackIds.length));
   }
 
+  // アルバムの見出しのドラッグでは、アルバムの曲すべてを運ぶ（選択は変えない）
+  function handleAlbumDragStart(event: DragEvent) {
+    startTrackDrag(
+      event,
+      tracks.map((track) => track.id),
+      { label: albumName ?? '', detail: m.common.trackCount(tracks.length) }
+    );
+  }
+
   /**
    * 一覧のキーボード操作（矢印キーで選択を移す・Enterで再生する）
    */
@@ -185,7 +195,8 @@
   {:else}
     <!-- 再生中の曲のアルバム（スクロールする） -->
     <SidePanelSection title={m.albumInfo.album} flush>
-      <div class="album-heading">
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="album-heading" draggable={tracks.length > 0} ondragstart={handleAlbumDragStart}>
         <div class="album-heading-text">
           <!-- 名前を押すと、アルバム・アーティストの画面へ移る（ADR-110） -->
           <button

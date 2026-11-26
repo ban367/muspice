@@ -2,6 +2,7 @@
   @component ArtistList
   アーティストの一覧（2ペイン表示の左のペイン）。アーティストの画面のアーティストと、アルバムの画面の
   アルバムアーティストで使う。1つだけ選び、↑↓・Home・Endで選択を移す。
+  `onDragStart`を渡すと、行をドラッグできる（サイドバーのプレイリストへ、そのアーティストの曲を追加する）。
 -->
 <script lang="ts" generics="T extends { name: string | null; representativeTrackId: string }">
   import { tick, untrack } from 'svelte';
@@ -21,6 +22,8 @@
     getKey?: (artist: T) => string;
     /** 一覧の名前（スクリーンリーダー向け。省略時は「アーティスト」） */
     label?: string;
+    /** 行のドラッグを始めた時に呼ぶ（渡さなければ、行はドラッグできない） */
+    onDragStart?: (event: DragEvent, artist: T) => void;
   }
 
   let {
@@ -28,7 +31,8 @@
     selectedArtist,
     onSelect,
     getKey = (artist) => artist.name ?? '',
-    label = m.library.artists
+    label = m.library.artists,
+    onDragStart
   }: Props = $props();
 
   // 行の高さの見積もり（描画した後は、VirtualListが実測した高さを使う）
@@ -88,6 +92,8 @@
       role="option"
       aria-selected={getKey(artist) === selectedKey}
       tabindex={getKey(artist) === selectedKey ? 0 : -1}
+      draggable={onDragStart !== undefined}
+      ondragstart={(event) => onDragStart?.(event, artist)}
     >
       <div class="artist-avatar">
         <AlbumArt

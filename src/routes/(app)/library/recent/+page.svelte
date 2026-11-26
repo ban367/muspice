@@ -7,6 +7,7 @@
   - キーボード: ほかのグリッド（`LibraryGrid`）と同じく、矢印キー・Home・Endで現在位置を移す
   - 選んだアルバムの曲は、グリッドの下の領域に出す（`AlbumDetail`。ほかのグリッドと同じ。ADR-097）。
     曲のカード（アルバムのない曲）は、中身がないため出さない
+  - カードは、サイドバーのプレイリストへドラッグできる（アルバムはその曲すべて、曲のカードはその曲を追加する）
 -->
 <script lang="ts">
   import { tick } from 'svelte';
@@ -20,6 +21,7 @@
   import { playGroup } from '#lib/utils/groupPlayback.js';
   import { recentlyAdded, type RecentItem } from '#lib/utils/libraryViews.js';
   import { openableListAction } from '#lib/utils/listNavigation.js';
+  import { startTrackDrag, startTrackGroupDrag } from '#lib/utils/trackDrag.js';
   import { VirtualList } from '#lib/components/ui/index.js';
   import AlbumArt from '#lib/components/AlbumArt.svelte';
   import ContextMenu from '#lib/components/ContextMenu.svelte';
@@ -53,6 +55,18 @@
   function play(item: RecentItem) {
     if (item.track) playNow([item.track]);
     else void playGroup(queryClient, 'album', item.name, item.artist);
+  }
+
+  /** カードのドラッグを始める（アルバムは、落とした時にアルバムの曲すべてを取得する） */
+  function handleDragStart(event: DragEvent, item: RecentItem) {
+    const label = { label: item.name, detail: m.common.trackCount(item.trackCount) };
+    if (item.track) startTrackDrag(event, [item.track.id], label);
+    else
+      startTrackGroupDrag(
+        event,
+        { type: 'album', name: item.name, albumArtist: item.artist },
+        label
+      );
   }
 
   // 見えている項目だけを描画する一覧
@@ -179,7 +193,9 @@
                 class:active={item.key === activeKey}
                 role="option"
                 aria-selected={item.key === activeKey}
+                draggable="true"
                 onpointerdown={() => (activeKey = item.key)}
+                ondragstart={(event) => handleDragStart(event, item)}
               >
                 <!-- キー操作は一覧（listbox）で受けるため、カードはフォーカスを受けない -->
                 <!-- svelte-ignore a11y_no_static_element_interactions -->

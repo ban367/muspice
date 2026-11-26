@@ -218,6 +218,17 @@ function artistAlbumsOptions(artist: string) {
   };
 }
 
+function albumArtistAlbumsOptions(artist: string | null) {
+  return {
+    queryKey: queryKeys.tracks.albumArtistAlbums(artist),
+    queryFn: () =>
+      withErrorToast(m.operations.fetchAlbums, async () =>
+        sortByName(await commands.getAlbumArtistAlbums(artist))
+      ),
+    ...CACHE_POLICY.detail
+  };
+}
+
 function genreTracksOptions(genre: string) {
   return {
     queryKey: queryKeys.tracks.genre(genre),
@@ -281,14 +292,7 @@ export function useArtistAlbumsQuery(artist: string) {
  * @param artist - アルバムをまとめたアーティスト（`AlbumSummary`の`artist`）
  */
 export function useAlbumArtistAlbumsQuery(artist: string | null) {
-  return createQuery(() => ({
-    queryKey: queryKeys.tracks.albumArtistAlbums(artist),
-    queryFn: () =>
-      withErrorToast(m.operations.fetchAlbums, async () =>
-        sortByName(await commands.getAlbumArtistAlbums(artist))
-      ),
-    ...CACHE_POLICY.detail
-  }));
+  return createQuery(() => albumArtistAlbumsOptions(artist));
 }
 
 /**
@@ -343,6 +347,18 @@ export async function fetchGroupTracks(
     case 'genre':
       return queryClient.fetchQuery(genreTracksOptions(name));
   }
+}
+
+/**
+ * アルバムアーティストのすべてのアルバムの曲を、表示順の1つの一覧で取得する
+ * （`useAlbumArtistAlbumsQuery`と同じキャッシュ。あれば使う）
+ * @param artist - アルバムをまとめたアーティスト（`AlbumSummary`の`artist`）
+ */
+export async function fetchAlbumArtistTracks(
+  queryClient: QueryClient,
+  artist: string | null
+): Promise<Track[]> {
+  return flattenAlbumTracks(await queryClient.fetchQuery(albumArtistAlbumsOptions(artist)));
 }
 
 // ========== 再生統計ミューテーション ==========
