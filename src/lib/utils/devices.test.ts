@@ -1,10 +1,50 @@
 import { describe, expect, it } from 'vitest';
+import type { SyncDevice } from '#lib/types/models.js';
 import {
+  deviceConfigOf,
   isDeviceNameTooLong,
   isDeviceUpToDate,
   missingSpaceBytes,
   syncProgressPercent
 } from './devices';
+
+describe('deviceConfigOf', () => {
+  const device: SyncDevice = {
+    id: 'd1',
+    name: 'SD',
+    path: '/Volumes/SD',
+    syncAll: false,
+    playlistIds: ['p1'],
+    smartPlaylistIds: ['s1'],
+    removeUnselected: true,
+    pathTemplate: '%artist%/%title%',
+    copyExtras: false,
+    transcode: { mode: 'lossless', bitrateKbps: 256 },
+    ejectable: true,
+    connected: true,
+    freeBytes: 1,
+    totalBytes: 2,
+    createdAt: '2026-01-01T00:00:00Z',
+    lastSyncedAt: null
+  };
+
+  it('設定の項目だけを取り出し、変える項目を重ねる', () => {
+    expect(deviceConfigOf(device)).toEqual({
+      name: 'SD',
+      syncAll: false,
+      playlistIds: ['p1'],
+      smartPlaylistIds: ['s1'],
+      removeUnselected: true,
+      pathTemplate: '%artist%/%title%',
+      copyExtras: false,
+      transcode: { mode: 'lossless', bitrateKbps: 256 }
+    });
+    expect(deviceConfigOf(device, { name: 'Walkman' })).toMatchObject({
+      name: 'Walkman',
+      playlistIds: ['p1']
+    });
+  });
+});
 
 describe('isDeviceNameTooLong', () => {
   it('文字数で数える（バイト数・UTF-16の長さではない）', () => {
