@@ -856,6 +856,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       pathTemplate: '%artist%/%album%/[%disc%-]%track% %title%',
       copyExtras: true,
       transcode: { mode: 'off', bitrateKbps: 256 },
+      playlistFormat: 'm3u8',
       connected: true,
       createdAt: '2026-01-03T00:00:00.000Z',
       lastSyncedAt: '2026-01-04T00:00:00.000Z',
@@ -876,6 +877,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       pathTemplate: DEFAULT_DEVICE_TEMPLATE,
       copyExtras: true,
       transcode: { mode: 'off', bitrateKbps: 256 },
+      playlistFormat: 'm3u8',
       connected: false,
       createdAt: '2026-01-02T00:00:00.000Z',
       lastSyncedAt: null,
@@ -2521,6 +2523,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
       pathTemplate: device.pathTemplate,
       copyExtras: device.copyExtras,
       transcode: { ...device.transcode },
+      playlistFormat: device.playlistFormat,
       // 取り出せるのは、`/Volumes`の下のドライブにあり、接続されているデバイス（Rustはさらに、macOSだけ）
       ejectable: device.connected && /^\/Volumes\/[^/]+/.test(device.path),
       connected: device.connected,
@@ -3972,6 +3975,7 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         pathTemplate: DEFAULT_DEVICE_TEMPLATE,
         copyExtras: true,
         transcode: { mode: 'off', bitrateKbps: 256 },
+        playlistFormat: 'm3u8',
         connected: true,
         createdAt: now(),
         lastSyncedAt: null,
@@ -4001,6 +4005,8 @@ export function createMockBackend(options: MockBackendOptions): MockBackend {
         fail('VALIDATION', '変換のビットレートは、128・192・256・320 kbpsのどれかにしてください');
       }
       device.transcode = { ...config.transcode };
+      // 知らない形式は、既定の`.m3u8`として扱う（Rustの`PlaylistFormat::from_db`と同じ。型の外の値は送られない）
+      device.playlistFormat = config.playlistFormat === 'm3u' ? 'm3u' : 'm3u8';
       device.syncAll = config.syncAll;
       // 実装と同じく、見つからないプレイリストは無視する
       device.playlistIds = config.playlistIds.filter((id) => playlists.some((p) => p.id === id));

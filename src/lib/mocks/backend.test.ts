@@ -2876,7 +2876,8 @@ describe('転送先デバイス', () => {
       removeUnselected: false,
       pathTemplate: ' %artist%/%title% ',
       copyExtras: false,
-      transcode: { mode: 'lossless', bitrateKbps: 192 }
+      transcode: { mode: 'lossless', bitrateKbps: 192 },
+      playlistFormat: 'm3u'
     });
 
     expect(updated).toMatchObject({
@@ -2887,7 +2888,8 @@ describe('転送先デバイス', () => {
       removeUnselected: false,
       pathTemplate: '%artist%/%title%',
       copyExtras: false,
-      transcode: { mode: 'lossless', bitrateKbps: 192 }
+      transcode: { mode: 'lossless', bitrateKbps: 192 },
+      playlistFormat: 'm3u'
     });
     // 変換のビットレートは、選べる値だけ
     await expect(
@@ -2896,6 +2898,18 @@ describe('転送先デバイス', () => {
         transcode: { mode: 'lossless', bitrateKbps: 100 }
       })
     ).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+
+  it('プレイリストの形式を保存する（既定は.m3u8）', async () => {
+    const device = await connectedDevice();
+    expect(device.playlistFormat).toBe('m3u8');
+
+    const updated = await commands.updateSyncDevice(device.id, {
+      ...device,
+      playlistFormat: 'm3u'
+    });
+    expect(updated.playlistFormat).toBe('m3u');
+    expect((await connectedDevice()).playlistFormat).toBe('m3u');
   });
 
   it('変換する設定では、変換する曲を数え、拡張子を.m4aにする', async () => {

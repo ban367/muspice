@@ -100,6 +100,7 @@ fn to_sync_device(record: DeviceRecord) -> SyncDevice {
         path_template: record.path_template,
         copy_extras: record.copy_extras,
         transcode: record.transcode,
+        playlist_format: record.playlist_format,
         ejectable,
         connected,
         free_bytes,
@@ -339,6 +340,7 @@ fn source_playlists(
             track_ids: crate::playlist::playlist_track_ids(&playlist),
             id: playlist.id,
             name: playlist.name,
+            format: device.playlist_format,
         })
         .collect();
     for smart_playlist in crate::smart_playlist::get_all_smart_playlists(db)?
@@ -353,6 +355,7 @@ fn source_playlists(
             )?,
             id: smart_playlist.id,
             name: smart_playlist.name,
+            format: device.playlist_format,
         });
     }
     Ok(playlists)
@@ -799,6 +802,7 @@ pub async fn cancel_device_sync(sync_state: State<'_, DeviceSyncState>) -> AppRe
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::device::PlaylistFormat;
     use crate::device::{find_device, update_device_config};
 
     #[test]
@@ -971,6 +975,7 @@ mod tests {
                 path_template: crate::device::DEFAULT_DEVICE_TEMPLATE.to_string(),
                 copy_extras: true,
                 transcode: DeviceTranscode::default(),
+                playlist_format: PlaylistFormat::default(),
             };
             self.state
                 .with_db(|db| update_device_config(db, device_id, &config))
@@ -1132,6 +1137,7 @@ mod tests {
             path_template: crate::device::DEFAULT_DEVICE_TEMPLATE.to_string(),
             copy_extras: false,
             transcode: DeviceTranscode::default(),
+            playlist_format: PlaylistFormat::default(),
         };
         fixture
             .state
@@ -1297,6 +1303,7 @@ mod tests {
             path_template: crate::device::DEFAULT_DEVICE_TEMPLATE.to_string(),
             copy_extras: true,
             transcode: DeviceTranscode::default(),
+            playlist_format: PlaylistFormat::default(),
         };
         fixture
             .state

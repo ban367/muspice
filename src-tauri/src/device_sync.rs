@@ -17,6 +17,7 @@
 //! - 変換してコピーする曲（ADR-118）は、拡張子を`.m4a`にし、変換の設定（管理ファイルの`transcode`）も
 //!   比べる。設定が変わった曲は、コピーし直す。コピーする容量は、ビットレートと長さから見積もる
 
+use crate::device::PlaylistFormat;
 use crate::device_manifest::{Manifest, ManifestExtra, ManifestFile, ManifestPlaylist};
 use crate::file_organize::Template;
 use crate::library_folder::is_dst_shift;
@@ -32,9 +33,6 @@ use unicode_normalization::UnicodeNormalization;
 pub(crate) const UNKNOWN_ARTIST: &str = "Unknown Artist";
 pub(crate) const UNKNOWN_ALBUM: &str = "Unknown Album";
 pub(crate) const UNKNOWN_TITLE: &str = "Unknown Title";
-
-/// プレイリストのファイルの拡張子（UTF-8のM3U）
-const PLAYLIST_EXTENSION: &str = "m3u8";
 
 /// 曲を置くフォルダ（デバイスのフォルダの直下。ADR-135）
 ///
@@ -147,6 +145,8 @@ pub struct SourcePlaylist {
     pub id: String,
     pub name: String,
     pub track_ids: Vec<String>,
+    /// 書き出す形式（デバイスの設定。拡張子だけが違う。ADR-138）
+    pub format: PlaylistFormat,
 }
 
 /// デバイスへコピーするファイル
@@ -334,13 +334,13 @@ pub fn track_relative_path(
     format!("{}/{}", MUSIC_DIR, components.join("/"))
 }
 
-/// プレイリストのデバイス上の場所（`Playlists/プレイリスト名.m3u8`。ADR-135）
-pub fn playlist_relative_path(name: &str) -> String {
+/// プレイリストのデバイス上の場所（`Playlists/プレイリスト名.m3u8`。拡張子は形式による。ADR-135・ADR-138）
+pub fn playlist_relative_path(name: &str, format: PlaylistFormat) -> String {
     format!(
         "{}/{}.{}",
         PLAYLISTS_DIR,
         sanitize_component(name),
-        PLAYLIST_EXTENSION
+        format.extension()
     )
 }
 
@@ -827,7 +827,7 @@ fn plan_playlists(
                 if !assigned.contains_key(playlist.id.as_str())
                     && is_same_or_numbered(
                         &entry.path,
-                        &playlist_relative_path(&playlist.name),
+                        &playlist_relative_path(&playlist.name, playlist.format),
                     ) =>
             {
                 claimed.insert(key);
@@ -847,11 +847,14 @@ fn plan_playlists(
 
     for playlist in playlists {
         let path = assigned.remove(playlist.id.as_str()).unwrap_or_else(|| {
-            unique_path(&playlist_relative_path(&playlist.name), |candidate| {
-                let key = path_key(candidate);
-                !claimed.contains(&key)
-                    && (device_file_size(candidate).is_none() || freed.contains(&key))
-            })
+            unique_path(
+                &playlist_relative_path(&playlist.name, playlist.format),
+                |candidate| {
+                    let key = path_key(candidate);
+                    !claimed.contains(&key)
+                        && (device_file_size(candidate).is_none() || freed.contains(&key))
+                },
+            )
         });
         claimed.insert(path_key(&path));
 
@@ -1092,10 +1095,18 @@ mod tests {
 
     #[test]
     fn test_playlist_relative_path() {
-        assert_eq!(playlist_relative_path("通勤"), "Playlists/通勤.m3u8");
         assert_eq!(
-            playlist_relative_path("Road/Trip"),
+            playlist_relative_path("通勤", PlaylistFormat::M3u8),
+            "Playlists/通勤.m3u8"
+        );
+        assert_eq!(
+            playlist_relative_path("Road/Trip", PlaylistFormat::M3u8),
             "Playlists/Road_Trip.m3u8"
+        );
+        // `.m3u`の形式は、拡張子だけが違う（ADR-138）
+        assert_eq!(
+            playlist_relative_path("通勤", PlaylistFormat::M3u),
+            "Playlists/通勤.m3u"
         );
     }
 
@@ -1906,6 +1917,7 @@ mod tests {
             id: id.to_string(),
             name: name.to_string(),
             track_ids: track_ids.iter().map(|id| id.to_string()).collect(),
+            format: PlaylistFormat::M3u8,
         }
     }
 
@@ -2019,6 +2031,31 @@ mod tests {
             [playlist_entry("通勤.m3u8", "p1")]
         );
         assert_eq!(plan.playlists[0].path, "Playlists/通勤.m3u8");
+    }
+
+    #[test]
+    fn test_plan_playlists_rewrites_files_when_the_format_changes() {
+        // `.m3u8`で書き出したプレイリストを`.m3u`にした: 古いファイルを消し、`.m3u`で書き出す
+        let mut recorded = manifest(vec![]);
+        recorded.playlists = vec![playlist_entry("Playlists/通勤.m3u8", "p1")];
+        let playlists = vec![SourcePlaylist {
+            format: PlaylistFormat::M3u,
+            ..playlist("p1", "通勤", &[])
+        }];
+
+        let plan = plan_sync(
+            &[],
+            &playlists,
+            &recorded,
+            true,
+            device(&[("Playlists/通勤.m3u8", 10)]),
+        );
+
+        assert_eq!(plan.playlists[0].path, "Playlists/通勤.m3u");
+        assert_eq!(
+            plan.playlists_to_delete,
+            [playlist_entry("Playlists/通勤.m3u8", "p1")]
+        );
     }
 
     #[test]

@@ -20,6 +20,7 @@ describe('deviceConfigOf', () => {
     pathTemplate: '%artist%/%title%',
     copyExtras: false,
     transcode: { mode: 'lossless', bitrateKbps: 256 },
+    playlistFormat: 'm3u',
     ejectable: true,
     connected: true,
     freeBytes: 1,
@@ -37,7 +38,8 @@ describe('deviceConfigOf', () => {
       removeUnselected: true,
       pathTemplate: '%artist%/%title%',
       copyExtras: false,
-      transcode: { mode: 'lossless', bitrateKbps: 256 }
+      transcode: { mode: 'lossless', bitrateKbps: 256 },
+      playlistFormat: 'm3u'
     });
     expect(deviceConfigOf(device, { name: 'Walkman' })).toMatchObject({
       name: 'Walkman',

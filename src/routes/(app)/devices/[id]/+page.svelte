@@ -17,7 +17,12 @@
   import { sortPlaylistItems } from '#lib/utils/playlistTree.js';
   import { useConvertFormatsQuery } from '#lib/queries/convert.js';
   import { showSuccess } from '#lib/stores/error.svelte.js';
-  import type { SyncDevice, SyncDeviceConfig, TranscodeMode } from '#lib/types/models.js';
+  import type {
+    PlaylistFormat,
+    SyncDevice,
+    SyncDeviceConfig,
+    TranscodeMode
+  } from '#lib/types/models.js';
   import DeviceSyncDialog from '#lib/components/DeviceSyncDialog.svelte';
   import MusicFolderTemplateSetting from '#lib/components/MusicFolderTemplateSetting.svelte';
   import { AAC_BITRATES_KBPS, DEFAULT_DEVICE_TEMPLATE, DEVICE_MUSIC_DIR } from '#lib/bindings.js';
@@ -42,6 +47,7 @@
   const convertFormatsQuery = useConvertFormatsQuery();
   const canTranscode = $derived((convertFormatsQuery.data?.length ?? 0) > 0);
   const transcodeModes: TranscodeMode[] = ['off', 'lossless', 'aboveBitrate'];
+  const playlistFormats: PlaylistFormat[] = ['m3u8', 'm3u'];
   const playlists = $derived(playlistsQuery.data ?? []);
   // オートプレイリストは、サイドバーと同じ並び順で、プレイリストの前に出す（ADR-127）
   const smartPlaylists = $derived(
@@ -227,10 +233,7 @@
             checked={!device.syncAll}
             onchange={() => updateConfig(device, { syncAll: false })}
           />
-          <span>
-            <span class="block">{m.devices.syncPlaylists}</span>
-            <span class="hint block font-normal">{m.devices.syncPlaylistsHint}</span>
-          </span>
+          {m.devices.syncPlaylists}
         </label>
       </div>
 
@@ -284,6 +287,7 @@
         />
         {m.devices.removeUnselected}
       </label>
+      <!-- 利用者が置いたファイルを消さないことは、項目名から分からないため添える -->
       <p class="hint option-hint">{m.devices.removeUnselectedHint}</p>
 
       <label class="option remove-option">
@@ -295,15 +299,32 @@
         />
         {m.devices.copyExtras}
       </label>
-      <p class="hint option-hint">{m.devices.copyExtrasHint}</p>
+
+      <!-- 書き出すプレイリストの形式（中身は同じで、拡張子だけが違う。ADR-138） -->
+      <div class="option select-option">
+        <label for="device-playlist-format">{m.devices.playlistFormat}</label>
+        <select
+          id="device-playlist-format"
+          class="form-input option-select"
+          value={device.playlistFormat}
+          onchange={(e) =>
+            updateConfig(device, {
+              playlistFormat: e.currentTarget.value as PlaylistFormat
+            })}
+        >
+          {#each playlistFormats as format (format)}
+            <option value={format}>{m.devices.playlistFormats[format]}</option>
+          {/each}
+        </select>
+      </div>
 
       <!-- 転送する時の変換（変換できる環境だけ。ADR-118） -->
       {#if canTranscode}
-        <div class="option transcode-option">
+        <div class="option select-option">
           <label for="device-transcode">{m.devices.transcode}</label>
           <select
             id="device-transcode"
-            class="form-input transcode-select"
+            class="form-input option-select"
             value={device.transcode.mode}
             onchange={(e) =>
               updateConfig(device, {
@@ -319,7 +340,7 @@
           </select>
           {#if device.transcode.mode !== 'off'}
             <select
-              class="form-input transcode-select"
+              class="form-input option-select"
               aria-label={m.devices.transcodeBitrate}
               value={String(device.transcode.bitrateKbps)}
               onchange={(e) =>
@@ -333,7 +354,6 @@
             </select>
           {/if}
         </div>
-        <p class="hint mt-1">{m.devices.transcodeHint}</p>
       {/if}
 
       <!-- デバイス上の配置の書式（例は、最近追加したアルバムの曲を、デバイスのフォルダからの場所で出す。
@@ -351,7 +371,7 @@
             onclick={() => handleRelink(device)}
             disabled={relinkMutation.isPending}
           >
-            {m.devices.relinkEllipsis}
+            {m.devices.relink}
           </button>
         </div>
       </div>
@@ -459,9 +479,11 @@
     @apply opacity-50 cursor-not-allowed;
   }
 
-  /* 見出しと同じく、ページの幅いっぱいに使う（ほかのメインウィンドウの画面と同じ。ADR-137） */
+  /* 見出しと同じく、ページの幅いっぱいに使う（ほかのメインウィンドウの画面と同じ。ADR-137）。
+     右は、重ねて出るスクロールバーが中身（一覧の枠・ボタン）にかからないよう、その幅の分も空ける（ADR-138） */
   .source-section {
-    @apply flex-1 overflow-y-auto px-2 pb-4;
+    @apply flex-1 overflow-y-auto pl-2 pr-5 pb-4;
+    scrollbar-gutter: stable;
   }
 
   .source-title {
@@ -534,12 +556,12 @@
     @apply mt-1 ml-6;
   }
 
-  /* 転送する時の変換（項目名と、条件・ビットレートを選ぶ欄を並べる） */
-  .transcode-option {
+  /* 選ぶ項目（プレイリストの形式・転送する時の変換。項目名と、選ぶ欄を並べる） */
+  .select-option {
     @apply mt-6 flex-wrap cursor-default;
   }
 
-  .transcode-select {
+  .option-select {
     @apply w-auto;
   }
 
